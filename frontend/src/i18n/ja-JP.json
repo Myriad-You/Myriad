@@ -842,7 +842,7 @@
       "memoryContent": "内容",
       "confirmRemoveMemory": "この記憶を削除しますか？削除すると、次からこの内容では動きません",
       "memoryScopes": {"her": "彼女自身の", "person": "ほかの人についての", "group": "グループの"},
-      "memoryCategories": {"experience": "彼女の経験", "view": "彼女の考え", "day": "彼女の一日", "chat": "会話で覚えたこと", "event": "起きたこと", "lookup": "調べたこと", "import": "インポート", "playing": "遊んでいるもの", "game": "一緒に遊んだ", "bit": "ふたりのネタ", "work": "仕事の教訓", "stranger": "外の人のメモ", "learned": "グループで聞いたこと", "other": "その他"},
+      "memoryCategories": {"experience": "彼女の経験", "view": "彼女の考え", "day": "彼女の一日", "chat": "会話で覚えたこと", "event": "起きたこと", "lookup": "調べたこと", "import": "インポート", "playing": "遊んでいるもの", "game": "一緒に遊んだ", "bit": "ふたりのネタ", "thread": "気にかけていること", "work": "仕事の教訓", "stranger": "外の人のメモ", "learned": "グループで聞いたこと", "other": "その他"},
       "memoryOwnerHer": "彼女自身",
       "memoryOwnerUser": "ユーザー {id}",
       "memoryOwnerGroup": "{platform} グループ {id}",

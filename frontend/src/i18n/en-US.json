@@ -842,7 +842,7 @@
       "memoryContent": "Content",
       "confirmRemoveMemory": "Delete this memory? It will stop using this the next time it acts.",
       "memoryScopes": {"her": "Her own", "person": "About people", "group": "In groups"},
-      "memoryCategories": {"experience": "Her experience", "view": "Her view", "day": "Her day", "chat": "From chat", "event": "Something that happened", "lookup": "Looked up", "import": "Imported", "playing": "What they play", "game": "Played together", "bit": "Inside joke", "work": "Work lesson", "stranger": "Note on an outsider", "learned": "Heard in the group", "other": "Other"},
+      "memoryCategories": {"experience": "Her experience", "view": "Her view", "day": "Her day", "chat": "From chat", "event": "Something that happened", "lookup": "Looked up", "import": "Imported", "playing": "What they play", "game": "Played together", "bit": "Inside joke", "thread": "On her mind", "work": "Work lesson", "stranger": "Note on an outsider", "learned": "Heard in the group", "other": "Other"},
       "memoryOwnerHer": "Herself",
       "memoryOwnerUser": "User {id}",
       "memoryOwnerGroup": "{platform} group {id}",

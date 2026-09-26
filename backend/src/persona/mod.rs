@@ -112,6 +112,13 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
         Duration::from_secs(60),
         move || agent::merope::playing::tick(playing_db.clone()),
     );
+    let reach_db = db.clone();
+    drivers.periodic(
+        "writing first",
+        Duration::from_secs(10 * 60),
+        Duration::from_secs(5 * 60),
+        move || agent::merope::reach::tick(reach_db.clone()),
+    );
     let life_db = db.clone();
     drivers.periodic(
         "persona nights",

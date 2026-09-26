@@ -56,6 +56,7 @@ pub fn category(row: &agent_memories::Model) -> &'static str {
             "presence" => "playing",
             "game" => "game",
             "bit" => "bit",
+            "thread" => "thread",
             "work" => "work",
             _ => "other",
         },

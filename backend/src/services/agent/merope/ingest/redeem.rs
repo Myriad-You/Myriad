@@ -108,9 +108,18 @@ async fn redeem_speak_intent(
     } else if shown {
         // Background composition does not own the foreground activity. A late
         // completion must not reset a newer Chat/Work task to idle.
-        compose_line(db, intent.user_id, &intent.gist).await
+        // Nothing composed, nothing said: she never speaks a stock line.
+        match compose_line(db, intent.user_id, &intent.gist).await {
+            Some(line) => line,
+            None => {
+                log_skip(intent.user_id, &intent.topic, "not_composed");
+                return Ok(());
+            }
+        }
     } else {
-        fallback_line(&intent.gist)
+        // Seen by no one: nothing to say, and nothing to pretend was said.
+        log_skip(intent.user_id, &intent.topic, "not_shown");
+        return Ok(());
     };
 
     if is_trivial_line(&spoken) {
@@ -303,23 +312,13 @@ fn speech_is_shown(event_key: &str, notify: bool) -> bool {
     notify && merope_owns_notify(event_key)
 }
 
-pub fn fallback_line(summary: &str) -> String {
-    match compact_summary(summary).as_str() {
-        "这个人今天第一次来了" => "There you are.".to_string(),
-        "这个人隔了很久又来了" => "It's been a while.".to_string(),
-        "跟这个人的心情掉到了极低" => "I'm here.".to_string(),
-        _ => "Something came up. I wanted to tell you.".to_string(),
-    }
-}
-
-async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> String {
-    let fallback = fallback_line(summary);
+async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> Option<String> {
     let Some(analyzer) =
         create_strict_lite_ai_analyzer_with_timeout(Some(std::time::Duration::from_secs(30)))
             .await
             .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
     else {
-        return fallback;
+        return None;
     };
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -361,15 +360,11 @@ async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> S
     {
         Ok(raw) => {
             let spoken = sanitize_speech(&raw);
-            if is_trivial_line(&spoken) {
-                fallback
-            } else {
-                spoken
-            }
+            (!is_trivial_line(&spoken)).then_some(spoken)
         }
         Err(error) => {
-            tracing::debug!(%error, "[Merope] Lite speech failed, using fallback");
-            fallback
+            tracing::debug!(%error, "[Merope] Lite speech failed; saying nothing");
+            None
         }
     }
 }
@@ -707,14 +702,18 @@ mod tests {
     }
     use super::*;
 
+    /// She never speaks a stock line: a line nobody will see, or one that
+    /// could not be composed, is not said at all.
     #[test]
-    fn fallback_keeps_human_summary() {
-        assert_eq!(
-            fallback_line("  Steam  解锁了成就  "),
-            "Something came up. I wanted to tell you."
-        );
-        assert_eq!(fallback_line("这个人今天第一次来了"), "There you are.");
-        assert_eq!(fallback_line("这个人隔了很久又来了"), "It's been a while.");
+    fn nothing_composed_is_nothing_said() {
+        let src = include_str!("redeem.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(!src.contains("There you are."));
+        assert!(!src.contains("Something came up"));
+        assert!(src.contains("\"not_composed\""));
+        assert!(src.contains("\"not_shown\""));
     }
 
     #[test]

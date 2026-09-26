@@ -363,9 +363,10 @@ async fn rows_for<C: ConnectionTrait>(
 }
 
 /// Sources of rows recalled on their own, not with ordinary memories: bits
-/// (see `merope::bits`) and notes on people outside the community (see
-/// `merope::strangers`).
-const KEPT_APART: [&str; 2] = ["bit", "stranger"];
+/// (see `merope::bits`), notes on people outside the community (see
+/// `merope::strangers`), and what she meant to come back to with someone
+/// (see `merope::threads`).
+const KEPT_APART: [&str; 3] = ["bit", "stranger", "thread"];
 
 async fn active_rows<C: ConnectionTrait>(
     db: &C,

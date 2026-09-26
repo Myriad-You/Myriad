@@ -144,7 +144,7 @@ fn work_input(instruction: &str, their_words: &str) -> String {
 }
 
 /// Her chat session with them in this conversation, made on first use.
-async fn chat_session(
+pub(super) async fn chat_session(
     db: &DatabaseConnection,
     platform: crate::services::channel_platform::ChannelPlatform,
     user_id: i32,

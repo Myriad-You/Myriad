@@ -17,6 +17,7 @@ pub mod onboarding_prompts;
 pub mod outfit_overlay;
 pub mod playing;
 mod priming;
+pub mod reach;
 pub mod report_dna;
 pub mod self_state;
 pub mod soup;
@@ -24,6 +25,7 @@ pub mod speaking_prompts;
 pub mod state;
 pub mod store;
 pub mod strangers;
+pub mod threads;
 pub mod views;
 pub mod wander;
 
@@ -418,6 +420,20 @@ pub async fn speaking_prompt_for_event(
     speaking_prompt_from_db(db, user_id, Turn::Event(summary), &present).await
 }
 
+/// Sections for writing to them first while they are away (see `reach`):
+/// the same mind as speaking up, without needing them on the site.
+pub async fn speaking_prompt_to_reach(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    about: &str,
+) -> Vec<String> {
+    if user_id <= 0 || !is_enabled().await {
+        return Vec::new();
+    }
+    let present = crate::services::agent::memory::unified::Audience::private(user_id);
+    speaking_prompt_from_db(db, user_id, Turn::Event(about), &present).await
+}
+
 /// Why she is about to speak.
 #[derive(Clone, Copy)]
 enum Turn<'a> {
@@ -672,6 +688,14 @@ async fn speaking_prompt_from_db(
         };
         if let Some(block) = format_bits_section(&shared, group) {
             sections.push(block);
+        }
+        // What she meant to come back to with them: private, never in a group.
+        if !group {
+            if let Some(block) =
+                threads::section(&threads::open(db, user_id).await, chrono::Utc::now())
+            {
+                sections.push(block);
+            }
         }
         // What she thinks of what their words touch: hers, the same whoever asks.
         if let Some(words) = words {

@@ -16,6 +16,11 @@
 //! is written after, and a state lasts a while. The first words after a quiet
 //! spell have none; she answers from the facts of her day.
 //! It lives in process memory only: attention, not memory.
+//!
+//! In private the same reflection notes what she would want to come back to
+//! with them later, and which earlier ones her reply took up (see
+//! `threads`): what is on her mind about a person is part of how an
+//! exchange left her. A group's reflection keeps none.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -58,6 +63,60 @@ static AFTER: LazyLock<Mutex<HashMap<Key, (String, Instant)>>> =
 #[serde(deny_unknown_fields)]
 struct Inner {
     inner: String,
+    /// In private: what to come back to with them later.
+    #[serde(default)]
+    keep: Vec<super::threads::Kept>,
+    /// In private: which open threads her reply took up or that no longer
+    /// matter (indexes into openThreads).
+    #[serde(default)]
+    done: Vec<usize>,
+}
+
+/// Threads kept from one exchange, at most.
+const MAX_KEPT: usize = 3;
+
+/// What she would come back to with them, asked only in private.
+const THREADS: &str = "\n\n\
+openThreads are things you already meant to come back to with them. \
+keep: from this exchange, anything you would want to come back to with them later, in your own words (then: what you would ask or say): something they are about to do or face (dueInHours: hours from now until it would be natural to ask, for example the evening after an exam; null for whenever), or something left unfinished between you. Only what they said or what happened here, never a guess; most exchanges keep nothing. \
+done: the i of each open thread your reply already took up, or that no longer matters.";
+
+fn system_for(soul: &str, private: bool) -> String {
+    let base = system(soul);
+    if private {
+        format!("{base}{THREADS}")
+    } else {
+        base
+    }
+}
+
+fn schema_for(private: bool) -> Value {
+    if !private {
+        return schema();
+    }
+    json!({
+        "type": "object",
+        "properties": {
+            "inner": { "type": "string", "maxLength": MAX_INNER_CHARS },
+            "keep": {
+                "type": "array",
+                "maxItems": MAX_KEPT,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "about": { "type": "string", "maxLength": 40 },
+                        "then": { "type": "string", "maxLength": 120 },
+                        "dueInHours": { "type": ["integer", "null"], "minimum": 0, "maximum": 1440 }
+                    },
+                    "required": ["about", "then", "dueInHours"],
+                    "additionalProperties": false
+                }
+            },
+            "done": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+        },
+        "required": ["inner", "keep", "done"],
+        "additionalProperties": false
+    })
 }
 
 fn system(soul: &str) -> String {
@@ -188,6 +247,15 @@ async fn compile(
     if turn.in_game {
         input["playingTurtleSoup"] = json!(true);
     }
+    let private = !present.is_group();
+    let threads = if private {
+        super::threads::open(db, user_id).await
+    } else {
+        Vec::new()
+    };
+    if private {
+        input["openThreads"] = json!(super::threads::as_input(&threads));
+    }
     let input = input.to_string();
     // Her own voice, thinking little.
     let analyzer =
@@ -198,17 +266,43 @@ async fn compile(
         user_id,
         "merope",
         "inner",
-        analyzer.analyze_json(&system(&soul), &input, SCHEMA_NAME, Some(&schema())),
+        analyzer.analyze_json(
+            &system_for(&soul, private),
+            &input,
+            SCHEMA_NAME,
+            Some(&schema_for(private)),
+        ),
     )
     .await
     .ok()?;
-    parse(&raw)
+    let reflected = parse_reflection(&raw)?;
+    if private {
+        let now = chrono::Utc::now();
+        for kept in reflected.keep.iter().take(MAX_KEPT) {
+            super::threads::keep(db, user_id, kept, now).await;
+        }
+        let done: Vec<String> = reflected
+            .done
+            .iter()
+            .filter_map(|index| threads.get(*index).map(|thread| thread.id.clone()))
+            .collect();
+        super::threads::close(db, user_id, &done, "taken_up").await;
+    }
+    Some(reflected.inner)
 }
 
-fn parse(raw: &str) -> Option<String> {
+/// Her reflection: how she is now, and in private the threads it keeps and
+/// lets go.
+struct Reflection {
+    inner: String,
+    keep: Vec<super::threads::Kept>,
+    done: Vec<usize>,
+}
+
+fn parse_reflection(raw: &str) -> Option<Reflection> {
     let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-    let inner: Inner = serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()?;
-    let inner: String = inner
+    let parsed: Inner = serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()?;
+    let inner: String = parsed
         .inner
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -216,13 +310,45 @@ fn parse(raw: &str) -> Option<String> {
         .chars()
         .take(MAX_INNER_CHARS)
         .collect();
-    (!inner.is_empty()).then_some(inner)
+    (!inner.is_empty()).then(|| Reflection {
+        inner,
+        keep: parsed.keep,
+        done: parsed.done,
+    })
+}
+
+#[cfg(test)]
+fn parse(raw: &str) -> Option<String> {
+    parse_reflection(raw).map(|reflected| reflected.inner)
 }
 
 /// The inner-state call as production sends it, for the semantic suite.
 #[cfg(test)]
 pub(crate) fn probe_contract(soul: &str) -> (String, Value) {
     (system(soul), schema())
+}
+
+/// The private reflection, with threads, for the semantic suite.
+#[cfg(test)]
+pub(crate) fn threads_probe_contract(soul: &str) -> (String, Value) {
+    (system_for(soul, true), schema_for(true))
+}
+
+/// (inner, kept threads as (about, dueInHours), done indexes), if the
+/// reflection honors the contract.
+#[cfg(test)]
+pub(crate) fn parse_threads(raw: &str) -> Option<(String, Vec<(String, Option<i64>)>, Vec<usize>)> {
+    parse_reflection(raw).map(|reflected| {
+        (
+            reflected.inner,
+            reflected
+                .keep
+                .into_iter()
+                .map(|kept| (kept.about, kept.due_in_hours))
+                .collect(),
+            reflected.done,
+        )
+    })
 }
 
 #[cfg(test)]
@@ -254,6 +380,34 @@ mod tests {
         for order in ["be brief", "shorter", "you are tired"] {
             assert!(!prompt.contains(order), "{order}");
         }
+    }
+
+    /// In private her reflection also keeps what to come back to, and lets
+    /// go of what her reply took up; a group's keeps nothing.
+    #[test]
+    fn in_private_she_keeps_what_to_come_back_to() {
+        let (system, schema) = threads_probe_contract("你是小灯。");
+        assert!(system.contains("most exchanges keep nothing"));
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("keep"))
+        );
+        assert!(!system_for("你是小灯。", false).contains("openThreads"));
+        assert_eq!(schema_for(false), super::schema());
+        let (inner, kept, done) = parse_threads(
+            r#"{"inner":"有点替他紧张。","keep":[{"about":"考试","then":"问他考得怎么样","dueInHours":30}],"done":[0]}"#,
+        )
+        .unwrap();
+        assert_eq!(inner, "有点替他紧张。");
+        assert_eq!(kept, vec![("考试".to_string(), Some(30))]);
+        assert_eq!(done, vec![0]);
+        // A group's reflection is just how she is.
+        assert_eq!(
+            parse(r#"{"inner":"群里好吵。"}"#).as_deref(),
+            Some("群里好吵。")
+        );
     }
 
     #[test]
