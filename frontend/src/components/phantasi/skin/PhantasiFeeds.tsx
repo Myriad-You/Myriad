@@ -66,7 +66,6 @@ interface PhantasiFeedsProps {
   isEditMode?: boolean
   selectedIds?: Set<number>
   onToggleSelect?: (id: number) => void
-  onSourceClick: (source: PhantasiSource) => void
   onOpenItem?: (item: PhantasiItemPreview, source: PhantasiSource) => void
   onPeekItem?: (item: PeekStoryPreview) => void
   onPeekEnd?: () => void
@@ -91,7 +90,6 @@ function PhantasiFeeds({
   isEditMode = false,
   selectedIds,
   onToggleSelect,
-  onSourceClick: _onSourceClick,
   onOpenItem,
   onPeekItem,
   onPeekEnd,

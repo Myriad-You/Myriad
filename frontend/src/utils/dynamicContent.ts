@@ -34,8 +34,8 @@ export function getGreeting(
     minute: '2-digit',
   })
 
-  let text = ''
-  let icon: GreetingIconName = 'sun'
+  let text: string
+  let icon: GreetingIconName
 
   const g = currentCopy().greeting
   const t = translations ?? {

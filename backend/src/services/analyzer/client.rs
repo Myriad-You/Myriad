@@ -379,7 +379,7 @@ impl AiAnalyzer {
                     .await
             }
         };
-        self.note_ledger(input_chars, &result, "analyze").await;
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -389,9 +389,7 @@ impl AiAnalyzer {
         &self,
         input_chars: usize,
         result: &Result<String, anyhow::Error>,
-        operation: &str,
     ) {
-        let _ = operation;
         match result {
             Ok(text) => {
                 crate::services::ai_cost_ledger::record_ai_call_from_attribution(
@@ -681,14 +679,14 @@ impl AiAnalyzer {
                     }
                     Err(e) => Err(e),
                 };
-                self.note_ledger(input_chars, &result, "chat").await;
+                self.note_ledger(input_chars, &result).await;
                 result
             }
             AiProvider::OpenAIResponses | AiProvider::Anthropic => {
                 let input_chars =
                     system.len() + messages.iter().map(|m| m.content.len()).sum::<usize>();
                 let result = self.analyze_with_text_protocol(system, &messages).await;
-                self.note_ledger(input_chars, &result, "chat").await;
+                self.note_ledger(input_chars, &result).await;
                 result
             }
         }
@@ -770,7 +768,7 @@ impl AiAnalyzer {
         }
 
         let result = result.map_err(|failure| failure.error);
-        self.note_ledger(input_chars, &result, "structured").await;
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -845,8 +843,7 @@ impl AiAnalyzer {
         }
 
         let result = result.map_err(|failure| failure.error);
-        self.note_ledger(input_chars, &result, "structured-short")
-            .await;
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -881,8 +878,7 @@ impl AiAnalyzer {
         match streamed {
             Ok(text) => {
                 let result = Ok(text);
-                self.note_ledger(input_chars, &result, "structured-stream")
-                    .await;
+                self.note_ledger(input_chars, &result).await;
                 result
             }
             Err(failure) if failure.rejected_request() => {
@@ -1228,7 +1224,7 @@ impl AiAnalyzer {
     {
         let input_chars = prompt.len();
         let result = self.analyze_stream_inner(prompt, on_delta).await;
-        self.note_ledger(input_chars, &result, "stream").await;
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -1260,7 +1256,7 @@ impl AiAnalyzer {
         const IMAGE_INPUT_CHARS: usize = 4_000;
         let input_chars = prompt.len() + images.len() * IMAGE_INPUT_CHARS;
         let result = self.analyze_stream_images(prompt, images, on_delta).await;
-        self.note_ledger(input_chars, &result, "stream").await;
+        self.note_ledger(input_chars, &result).await;
         result
     }
 

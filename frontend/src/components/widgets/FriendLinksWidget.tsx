@@ -371,7 +371,7 @@ export const FriendLinksWidget = memo(
         if (isEditMode || isPreview || !entry.url) return
         void import('../../utils/analyticsEvents').then(
           ({ trackProductEvent, AnalyticsEvents }) => {
-            let host = ''
+            let host: string
             try {
               host = new URL(entry.url).hostname
             } catch {

@@ -323,7 +323,7 @@ export function deriveReadableColor(
   const step = 0.02
   const limit = 0.94
 
-  let candidate = hslToRgb({ h: hsl.h, s, l })
+  let candidate: RgbColor
   let guard = 0
 
   do {

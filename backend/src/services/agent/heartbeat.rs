@@ -775,14 +775,13 @@ fn is_valid_cron_expr(expr: &str) -> bool {
             if item.is_empty() {
                 return false;
             }
-            let (base, step) = match item.split_once('/') {
+            let base = match item.split_once('/') {
                 Some((b, s)) => match s.parse::<u32>() {
-                    Ok(n) if n > 0 => (b, Some(n)),
+                    Ok(n) if n > 0 => b,
                     _ => return false,
                 },
-                None => (item, None),
+                None => item,
             };
-            let _ = step;
             if base == "*" {
                 return true;
             }

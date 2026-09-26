@@ -261,7 +261,6 @@ interface StageModeProps {
     card_visuals?: any
     type?: 'platform'
   } | null
-  onRefresh?: () => void
   playAllMode?: boolean
 }
 
@@ -336,18 +335,15 @@ function SubtitleDisplay({
   const [visibleLines, setVisibleLines] = useState<
     { id: number; text: string }[]
   >([])
-  const [_currentIndex, setCurrentIndex] = useState(0)
 
   useEffect(() => {
     if (!isActive || lines.length === 0 || isPaused) {
       if (isPaused) return
       setVisibleLines([])
-      setCurrentIndex(0)
       return
     }
 
     setVisibleLines([])
-    setCurrentIndex(0)
 
     let mounted = true
     let timer: NodeJS.Timeout
@@ -365,7 +361,6 @@ function SubtitleDisplay({
           const next = [...prev, { id: index, text: line.text }]
           return next.slice(-5)
         })
-        setCurrentIndex(index + 1)
         showNextLine(index + 1)
       }, delay)
     }
@@ -466,7 +461,6 @@ export default function StageMode({
   isOpen,
   onClose,
   reportData,
-  onRefresh: _onRefresh,
   playAllMode = false,
 }: StageModeProps) {
   const { t } = useI18n()

@@ -103,7 +103,7 @@ export function computeGuidePosition(
   const needH = panelH + gap
   const needW = panelW + gap
 
-  let placement: GuidePlacement = 'top'
+  let placement: GuidePlacement
   if (needH <= spaceAbove) {
     placement = 'top'
   } else if (needW <= spaceLeft) {

@@ -182,7 +182,7 @@ export function computeLibraryListLayout(
   getGridSize: (item: LibraryItem) => { w: number; h: number },
 ): Map<string, LibraryCanvasLayout> {
   const gap = 16
-  let columns = 5
+  let columns: number
 
   if (containerWidth < 640) columns = 2
   else if (containerWidth < 768) columns = 3

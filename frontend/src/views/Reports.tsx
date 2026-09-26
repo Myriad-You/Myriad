@@ -328,7 +328,6 @@ export default function Reports() {
   const [stagePaused, setStagePaused] = useState(false)
   const [refreshingStage, setRefreshingStage] = useState(false)
   const [playAllMode, setPlayAllMode] = useState(false)
-  const [_playAllQueue, setPlayAllQueue] = useState<string[]>([])
   // Ref so play-all queue is not stale in closures.
   const playAllQueueRef = useRef<string[]>([])
   const [stageReportData, setStageReportData] = useState<{
@@ -460,7 +459,6 @@ export default function Reports() {
   const closeStageMode = useCallback(() => {
     setIsStageMode(false)
     setPlayAllMode(false)
-    setPlayAllQueue([])
     playAllQueueRef.current = []
     // Keep data through the exit animation.
   }, [])
@@ -518,7 +516,6 @@ export default function Reports() {
     const remainingPlatforms = platformsWithReports.slice(1)
 
     playAllQueueRef.current = remainingPlatforms
-    setPlayAllQueue(remainingPlatforms)
     setPlayAllMode(true)
     setIsStageMode(true)
     void import('../utils/analyticsEvents').then(
@@ -553,7 +550,6 @@ export default function Reports() {
     const remainingQueue = playAllQueueRef.current.slice(1)
 
     playAllQueueRef.current = remainingQueue
-    setPlayAllQueue(remainingQueue)
 
     // Keep stage open; StageMode resets chapters from reportData.
     const platformReport = platformReportsMap.get(nextPlatformId)
@@ -868,7 +864,6 @@ export default function Reports() {
         isOpen={isStageMode}
         onClose={handleUserCloseStage}
         reportData={stageReportData}
-        onRefresh={refreshStageReport}
         playAllMode={playAllMode}
       />
       <div className="flex flex-col pt-20 pb-24 md:pb-6 px-3 xs:px-4 sm:px-6 min-h-dvh md:h-dvh">

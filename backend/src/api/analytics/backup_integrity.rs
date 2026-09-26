@@ -9,9 +9,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::intake_helpers::{
-    ANALYTICS_BACKUP_FORMAT, DAILY_RETENTION_DAYS, ENGAGE_MARKER, SITE_PATH, analytics_today,
-    i64_nonneg, normalize_country_code, normalize_event_name, normalize_path,
-    normalize_referrer_host, parse_day_str, valid_visitor_hash,
+    DAILY_RETENTION_DAYS, ENGAGE_MARKER, SITE_PATH, analytics_today, i64_nonneg,
+    normalize_country_code, normalize_event_name, normalize_path, normalize_referrer_host,
+    parse_day_str, valid_visitor_hash,
 };
 
 /// Algorithm id written into export `integrity.alg`.
@@ -495,8 +495,6 @@ pub(crate) fn prevalidate_rows(
         }
     }
 
-    let _ = ANALYTICS_BACKUP_FORMAT;
-
     Ok(skipped)
 }
 
@@ -511,6 +509,7 @@ pub(crate) fn day_ok_for_import(day: NaiveDate) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::intake_helpers::ANALYTICS_BACKUP_FORMAT;
     use super::*;
     use serde_json::json;
 

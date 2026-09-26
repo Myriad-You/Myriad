@@ -118,7 +118,7 @@ export function collectAppLanguageTags(app: UnifiedAppItem): string[] {
 
 export function formatAppLanguages(tags: string[], uiLocale: string): string {
   if (tags.length === 0) return '—'
-  let displayNames: Intl.DisplayNames | null = null
+  let displayNames: Intl.DisplayNames | null
   try {
     displayNames = new Intl.DisplayNames([uiLocale], { type: 'language' })
   } catch {

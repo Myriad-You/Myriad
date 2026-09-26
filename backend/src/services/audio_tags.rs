@@ -269,17 +269,6 @@ fn parse_flac(bytes: &[u8]) -> AudioTags {
             0 => {
                 // STREAMINFO: sample rate (20 bits) + total samples (36 bits)
                 if len >= 18 {
-                    let b = &body[10..18];
-                    let packed = u64::from_be_bytes([
-                        0,
-                        0,
-                        0,
-                        0,
-                        b[0],
-                        b[1],
-                        b[2],
-                        b[3],
-                    ]);
                     // bytes 10-12: sample rate high 20 bits of 64-bit window starting at 10
                     let sample_rate = (((body[10] as u32) << 12)
                         | ((body[11] as u32) << 4)
@@ -294,7 +283,6 @@ fn parse_flac(bytes: &[u8]) -> AudioTags {
                         tags.duration_ms =
                             Some((total_samples * 1000 / sample_rate) as i64);
                     }
-                    let _ = packed;
                 }
             }
             4 => {

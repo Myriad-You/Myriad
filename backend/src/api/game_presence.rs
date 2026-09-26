@@ -770,13 +770,6 @@ async fn parse_enka_zzz(uid: &str, lang: &str, body: &Value) -> Result<GamePrese
             });
         }
     }
-    if let Some(title) = profile
-        .and_then(|p| p.pointer("/Title/Title"))
-        .and_then(|v| v.as_i64())
-    {
-        // 有称号 id 但没有本地化表，先不展示具体称号文本
-        let _ = title;
-    }
 
     Ok(GamePresenceData {
         platform: "hoyolab".to_string(),

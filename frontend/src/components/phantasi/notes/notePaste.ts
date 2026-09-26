@@ -472,12 +472,11 @@ function serializeList(el: Element, tag: 'ul' | 'ol'): string {
       const nested = [...li.children].filter(
         (child) => child.tagName === 'UL' || child.tagName === 'OL',
       )
-      let own = ''
       const clone = li.cloneNode(true) as Element
       for (const child of [...clone.children]) {
         if (child.tagName === 'UL' || child.tagName === 'OL') child.remove()
       }
-      own = serializeInline(clone)
+      const own = serializeInline(clone)
       const kids = nested
         .map((child) => serializeList(child, child.tagName === 'OL' ? 'ol' : 'ul'))
         .join('')

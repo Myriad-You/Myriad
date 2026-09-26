@@ -305,7 +305,7 @@ async function flushQueue() {
   const url = collectUrl()
 
   // Prefer fetch; sendBeacon ignores 503.
-  let ok = false
+  let ok: boolean
   try {
     const res = await fetch(url, {
       method: 'POST',

@@ -412,7 +412,7 @@ pub async fn like_object(
     .map_err(db_err)?;
     txn.commit().await.map_err(db_err)?;
     // Like 只投原作者，不进粉丝的首页。
-    deliver_to_object_author(db, act_db_id, &like_json, &object_id).await;
+    deliver_to_object_author(db, act_db_id, &object_id).await;
 
     let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
@@ -484,18 +484,18 @@ pub async fn unlike_object(
             &undo_id,
             "Undo",
             None,
-            undo_json.clone(),
+            undo_json,
         )
         .await
         .map_err(db_err)?;
-        undo = Some((act_db_id, undo_json));
+        undo = Some(act_db_id);
     }
     txn.commit().await.map_err(db_err)?;
 
     // 与 Like 对称：只投原作者。粉丝从没收到过这个 Like，给他们发
     // Undo(Like) 只是空转（远端按 remote_actor_id 删不到任何行）。
-    if let Some((act_db_id, undo_json)) = undo {
-        deliver_to_object_author(db, act_db_id, &undo_json, &object_id).await;
+    if let Some(act_db_id) = undo {
+        deliver_to_object_author(db, act_db_id, &object_id).await;
     }
 
     let st = stats_for_one(db, user_id, &object_id).await?;
@@ -1126,7 +1126,7 @@ pub async fn announce_object(
 
     // 提交后：同实例粉丝进程内投递、通知原作者，都逐个尽力而为。
     content::deliver_to_local_followers(db, &staged.local_followers, &create_json).await;
-    deliver_to_object_author(db, act_db_id, &create_json, &object_id).await;
+    deliver_to_object_author(db, act_db_id, &object_id).await;
 
     let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
@@ -1372,13 +1372,7 @@ pub(crate) async fn deliver_withdrawn_repost(db: &DatabaseConnection, withdrawn:
     content::deliver_to_local_followers(db, &withdrawn.local_followers, &withdrawn.activity_json)
         .await;
     if let Some(object_id) = withdrawn.quoted_object_id.as_deref() {
-        deliver_to_object_author(
-            db,
-            withdrawn.activity_db_id,
-            &withdrawn.activity_json,
-            object_id,
-        )
-        .await;
+        deliver_to_object_author(db, withdrawn.activity_db_id, object_id).await;
     }
 }
 
@@ -1388,7 +1382,6 @@ pub(crate) async fn deliver_withdrawn_repost(db: &DatabaseConnection, withdrawn:
 async fn deliver_to_object_author(
     db: &DatabaseConnection,
     activity_db_id: i32,
-    activity_json: &serde_json::Value,
     object_id: &str,
 ) {
     let Some(author) = resolve_object_author(db, object_id).await else {
@@ -1440,8 +1433,6 @@ async fn deliver_to_object_author(
             [activity_db_id.into(), inbox.into(), domain.into()],
         ))
         .await;
-
-    let _ = activity_json; // activity already stored by caller
 }
 
 // Inbound handling
