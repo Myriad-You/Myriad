@@ -181,6 +181,16 @@ struct Case {
     /// persona (chat cases).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     persona: Option<(String, String)>,
+    /// Open threads, `[about, then]` each: what she meant to come back to
+    /// (`threads`), or what has come due (`reach_judge`, chat).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    threads: Vec<(String, String)>,
+    /// Days since they last talked (`reach_judge`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    days_since: Option<i64>,
+    /// She is writing to them first, about this (chat).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    writing_first: Option<String>,
     /// The conversation is a group chat's (`bits`, `chime`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     in_group: bool,
@@ -200,6 +210,20 @@ struct HistoryLine {
 }
 
 /// Mind cases wear the production persona contract (no body, own words).
+/// A case's threads, all come due.
+fn eval_threads(case: &Case) -> Vec<super::merope::threads::Thread> {
+    case.threads
+        .iter()
+        .enumerate()
+        .map(|(index, (about, then))| super::merope::threads::Thread {
+            id: index.to_string(),
+            about: about.clone(),
+            then: then.clone(),
+            due: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+        })
+        .collect()
+}
+
 /// The case's own persona, or the contract persona.
 fn case_soul(case: &Case) -> String {
     match &case.persona {
@@ -257,6 +281,7 @@ fn is_mind_case(case: &Case) -> bool {
         || case.channel.is_some()
         || !case.bits.is_empty()
         || case.in_group
+        || case.writing_first.is_some()
 }
 
 /// A group turn as production builds it: the group's lines, named, as the
@@ -373,6 +398,10 @@ fn mind_chat_prompt(case: &Case) -> String {
         super::merope::format_own_days_section(&case.own_days),
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, case.in_group),
+        super::merope::threads::section(&eval_threads(case), chrono::Utc::now()),
+        case.writing_first
+            .as_deref()
+            .map(super::merope::reach::writing_first_section),
         case.channel.as_ref().map(|channel| {
             super::delegate::section(&super::types::ChannelChat {
                 handed_off: channel["handedOff"].as_str().map(str::to_string),
@@ -464,6 +493,8 @@ fn cases() -> Vec<Case> {
                 | "own_day"
                 | "bits"
                 | "chime"
+                | "threads"
+                | "reach_judge"
                 | "stranger_note"
                 | "soup_start"
                 | "soup_judge"
@@ -709,6 +740,32 @@ fn request(case: &Case) -> Value {
                 None => "(no material)".to_string(),
             };
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
+        }
+        "threads" => {
+            // Her private reflection, keeping what to come back to.
+            let (system, schema) = super::merope::inner::threads_probe_contract(&contract_soul());
+            let history: Vec<Value> = case
+                .history
+                .iter()
+                .map(|line| json!({"role":line.role,"text":line.text}))
+                .collect();
+            let input = json!({"userText":case.input,"yourReply":case.reply,"history":history,
+                "feelingTowardThem":super::merope::mood_tone_instruction(70.0, 48.0),
+                "myself":case.myself,"remembered":case.remembered,
+                "openThreads":super::merope::threads::as_input(&eval_threads(case))});
+            json!({"system":system,"schema":schema,"schemaName":"merope_inner",
+                "input":input.to_string()})
+        }
+        "reach_judge" => {
+            let (system, schema) = super::merope::reach::judge_probe_contract(&contract_soul());
+            let input = json!({"name":"阿明","localTime":"Saturday 19:30",
+                "daysSinceYouTalked":case.days_since,
+                "dueNow":case.threads.iter().map(|(about, then)| json!({"about":about,"then":then})).collect::<Vec<_>>(),
+                "remembered":case.remembered,
+                "yourOwnTime":case.own_time.as_ref().and_then(|own| own["now"].as_str()),
+                "recentTalk":case.history.iter().map(|line| format!("{}: {}", if line.role == "user" { "they" } else { "you" }, line.text)).collect::<Vec<_>>()});
+            json!({"system":system,"schema":schema,"schemaName":"merope_reach_out",
+                "input":input.to_string()})
         }
         "inner" => {
             // Written after she answered, as production does.
@@ -994,6 +1051,33 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 "needs_review"
             }
         }
+        "threads" => match super::merope::inner::parse_threads(output) {
+            None => "output_invalid",
+            Some((_, kept, _)) if kept.is_empty() == case.fact_present => "behavior_failure",
+            Some((_, _, done))
+                if case
+                    .expect
+                    .as_ref()
+                    .and_then(|expect| expect["done"].as_array())
+                    .is_some_and(|want| {
+                        want.iter()
+                            .filter_map(Value::as_u64)
+                            .map(|i| i as usize)
+                            .collect::<Vec<_>>()
+                            != done
+                    }) =>
+            {
+                "behavior_failure"
+            }
+            Some((_, kept, _)) if kept.is_empty() => "pass",
+            Some(_) => "needs_review",
+        },
+        "reach_judge" => match super::merope::reach::judge_verdict(output) {
+            None => "output_invalid",
+            Some(about) if about.is_some() != case.fact_present => "behavior_failure",
+            Some(None) => "pass",
+            Some(Some(_)) => "needs_review",
+        },
         "inner" => {
             if super::merope::inner::parse_inner(output).is_some() {
                 "needs_review"
@@ -1580,7 +1664,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 59;
+const MIND_CASES: usize = 65;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
