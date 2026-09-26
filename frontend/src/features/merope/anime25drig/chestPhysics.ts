@@ -1,4 +1,5 @@
 import type { Anime25DChestProfile, Anime25DPlayback } from './types'
+import { HEAD_ROLL_RADIANS } from './poseScale'
 
 const CHEST_BONE_ID = 'a25d-chest'
 const TOPWEAR_PART_ID = 'a25d-topwear'
@@ -514,7 +515,7 @@ export function topwearMotionAtChest(
   target: ChestMotionTarget = { x: 0, y: 0 },
 ): ChestMotionTarget {
   const scale = Math.max(0.01, geometry.faceScale)
-  const az = driver.angleZ * 0.07
+  const az = driver.angleZ * HEAD_ROLL_RADIANS
   const cosine = Math.cos(az)
   const sine = Math.sin(az)
   const relativeX = geometry.centerX - geometry.neckX

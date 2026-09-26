@@ -1,4 +1,5 @@
 import type { Anime25DRenderFrame } from './renderer'
+import { bodyLeanShare } from './poseScale'
 
 export interface TouchMesh {
   /** The positions actually submitted to the vertex buffer, not the rest mesh. */
@@ -22,7 +23,7 @@ export function hitTestTouchMesh(
   frame: Pick<
     Anime25DRenderFrame,
     'bodyPivotX' | 'bodyPivotY' | 'bodyRotationCosine' | 'bodyRotationSine'
-  >,
+  > & Partial<Pick<Anime25DRenderFrame, 'bodyBendHeight'>>,
 ): TouchMeshHit | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
   const {
@@ -35,8 +36,19 @@ export function hitTestTouchMesh(
   if (!Number.isFinite(rotationNorm) || rotationNorm < 1e-12) return null
   const dx = x - px
   const dy = y - py
-  const bx = (c * dx + s * dy) / rotationNorm + px
-  const by = (-s * dx + c * dy) / rotationNorm + py
+  const lean = Math.atan2(s, c)
+  const bendHeight = frame.bodyBendHeight ?? 0
+  // The lean each point takes depends on where it came from; a few fixed-point
+  // steps undo the bend exactly enough for a finger.
+  let bx = x
+  let by = y
+  for (let step = 0; step < (bendHeight > 0 ? 4 : 1); step += 1) {
+    const angle = lean * bodyLeanShare(by, py, bendHeight)
+    const ac = Math.cos(angle)
+    const as = Math.sin(angle)
+    bx = ac * dx + as * dy + px
+    by = -as * dx + ac * dy + py
+  }
   const m = mesh.layerTransform
   const determinant = m[0] * m[4] - m[1] * m[3]
   if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-12)

@@ -1368,3 +1368,32 @@ test('an outboard sleeve drawing is still carried by the turn', () => {
   assert.ok(garment > 0)
   assert.ok(outboard > 0, `${outboard}`)
 })
+
+test('a head tilt swings hair near the neck but not the length resting on the body or the cut', () => {
+  const roll = 0.2
+  const tilted = (frame: Anime25DSecondaryDeformationFrame, headRoll: number) => {
+    frame.headRoll = headRoll
+    frame.headRotationCosine = Math.cos(headRoll)
+    frame.headRotationSine = Math.sin(headRoll)
+    frame.hairDrapeLength = 60
+    frame.bodyPivotY = 400
+    frame.bodyBendHeight = 400 - frame.neckBottom
+    return frame
+  }
+  const still = tilted(secondaryFrame(0.3, 13), 0)
+  const moved = tilted(secondaryFrame(0.3, 13), roll)
+  const turned = (role: string, group: Anime25DPlaybackLayer['group'], y: number) => {
+    const binding = secondaryBinding(role, group, false)
+    const a = deformSecondary({ x: 150, y }, binding, still)
+    const b = deformSecondary({ x: 150, y }, binding, moved)
+    const radius = Math.hypot(a.x - still.neckPivotX, a.y - still.neckPivotY)
+    return Math.hypot(b.x - a.x, b.y - a.y) / radius
+  }
+  // Beside the face the hair turns with the whole tilt.
+  assert.ok(Math.abs(turned('back-hair', 'head', 120) - roll) < 0.01)
+  // Hanging past the shoulders it keeps only a little of it, and none at the cut.
+  assert.ok(turned('back-hair', 'head', 300) < roll * 0.2)
+  assert.ok(turned('back-hair', 'head', 400) < 1e-9)
+  // The torso's share of a head tilt fades out onto the cut as well.
+  assert.ok(turned('topwear', 'body', 400) < 1e-9)
+})

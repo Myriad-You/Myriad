@@ -166,6 +166,7 @@ import {
   PoseResponseController,
   resolvePoseResponseScale,
 } from './poseResponse'
+import { BODY_ROLL_RADIANS, bodyLeanShare, HEAD_ROLL_RADIANS } from './poseScale'
 import {
   DIRECTED_BODY_BLOCK_LEVEL,
   RandomActionController,
@@ -272,6 +273,7 @@ export class Anime25DPlayer {
     bodyPivotY: 0,
     bodyRotationCosine: 1,
     bodyRotationSine: 0,
+    bodyBendHeight: 0,
     time: 0,
     eyeCry: 0,
   }
@@ -634,6 +636,10 @@ export class Anime25DPlayer {
       headAngleY: 0,
       headRotationCosine: 1,
       headRotationSine: 0,
+      headRoll: 0,
+      hairDrapeLength: (anchors.face.y1 - anchors.face.y0) * 1.5,
+      bodyPivotY: anchors.bodyPivot.y,
+      bodyBendHeight: Math.max(1, anchors.bodyPivot.y - anchors.neckBottom),
       neckPivotX: anchors.neckPivot.x,
       neckPivotY: anchors.neckPivot.y,
       neckBottom: anchors.neckBottom,
@@ -1235,7 +1241,7 @@ export class Anime25DPlayer {
     const e = this.current
     const frame = this.secondaryDeformationFrame
     if (!e.phys) this.prepareHeadDeformationFrame()
-    const input = { open: e.armY, sway: e.armPos, bodyRoll: e.body * 0.028, dynamic: e.phys }
+    const input = { open: e.armY, sway: e.armPos, bodyRoll: e.body * BODY_ROLL_RADIANS, dynamic: e.phys }
     for (const side of ['L', 'R'] as const) {
       const joint = this.writeArmJoint(side) ? this.armJoint : null
       const angle = this.armPendulums[side].step(input, joint, dt)
@@ -1280,8 +1286,9 @@ export class Anime25DPlayer {
     const breath = 0.5 + chestBreathResidual(this.time)
     const breathHead = 0.5 + 0.5 * Math.sin((this.time * Math.PI * 2) / 3.4 - 0.6)
     frame.headAngleY = e.angleY
-    frame.headRotationCosine = Math.cos(e.angleZ * 0.07)
-    frame.headRotationSine = Math.sin(e.angleZ * 0.07)
+    frame.headRoll = e.angleZ * HEAD_ROLL_RADIANS
+    frame.headRotationCosine = Math.cos(frame.headRoll)
+    frame.headRotationSine = Math.sin(frame.headRoll)
     frame.bodyBreathOffset = breath * 2
     frame.headBreathOffset = breathHead * 1.6
     frame.specialHeadOffset = this.stylizedMotion
@@ -1300,8 +1307,9 @@ export class Anime25DPlayer {
     writeAnime25DShellRotation(e.angleX, e.angleY, this.shellRotation)
     this.renderFrame.bodyPivotX = anchors.bodyPivot.x
     this.renderFrame.bodyPivotY = anchors.bodyPivot.y
-    this.renderFrame.bodyRotationCosine = Math.cos(e.body * 0.028)
-    this.renderFrame.bodyRotationSine = Math.sin(e.body * 0.028)
+    this.renderFrame.bodyBendHeight = frame.bodyBendHeight ?? 0
+    this.renderFrame.bodyRotationCosine = Math.cos(e.body * BODY_ROLL_RADIANS)
+    this.renderFrame.bodyRotationSine = Math.sin(e.body * BODY_ROLL_RADIANS)
     frame.bodyRotationCosine = this.renderFrame.bodyRotationCosine
     frame.bodyRotationSine = this.renderFrame.bodyRotationSine
   }
@@ -1426,6 +1434,10 @@ export class Anime25DPlayer {
       const bn = layer.baseRole
       const isHead = source.group === 'head'
       if (!layer.attachment && layer.shaderGlobalTransform) {
+        // A rigid body part takes the head tilt its centre would under the bend.
+        const carriedRoll = isHead ? 1 : bodyLeanShare(source.y + source.h / 2,
+          A.bodyPivot.y, secondaryDeformationFrame.bodyBendHeight ?? 0)
+        const roll = (secondaryDeformationFrame.headRoll ?? 0) * carriedRoll
         writeAnime25DLayerGlobalTransform(
           {
             headFollow: isHead
@@ -1433,8 +1445,8 @@ export class Anime25DPlayer {
               : source.group === 'body'
                 ? BODY_HEAD_FOLLOW
                 : 0,
-            headRotationCosine: cz,
-            headRotationSine: sz,
+            headRotationCosine: carriedRoll === 1 ? cz : Math.cos(roll),
+            headRotationSine: carriedRoll === 1 ? sz : Math.sin(roll),
             neckPivotX: npx,
             neckPivotY: npy,
             faceScale: fs,

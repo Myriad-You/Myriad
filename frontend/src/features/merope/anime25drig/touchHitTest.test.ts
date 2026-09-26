@@ -5,6 +5,7 @@ import {
   writeAnime25DLayerGlobalTransform,
   writeIdentityLayerTransform,
 } from './layerTransform'
+import { bodyLeanShare } from './poseScale'
 import {
   hitTestTouchMesh,
   sampleTouchAlpha,
@@ -117,4 +118,28 @@ test('alpha lookup rejects transparent texels and interpolates their borders', (
   assert.equal(sampleTouchAlpha(alpha, 2, 2, 1, 1), 1)
   assert.equal(sampleTouchAlpha(alpha, 2, 2, -1, 0), 0)
   assert.equal(sampleTouchAlpha(alpha, 0, 2, 0, 0), 0)
+})
+
+test('picking undoes the torso bend: the cut stays put and the shoulders take the whole lean', () => {
+  const mesh = square()
+  const lean = 0.07
+  const bent = {
+    bodyPivotX: 50,
+    bodyPivotY: 100,
+    bodyRotationCosine: Math.cos(lean),
+    bodyRotationSine: Math.sin(lean),
+    bodyBendHeight: 60,
+  }
+  // Where the vertex shader draws a mesh point, given the lean it takes at its height.
+  const draw = (x: number, y: number) => {
+    const angle = lean * bodyLeanShare(y, 100, 60)
+    const dx = x - 50
+    const dy = y - 100
+    return [50 + dx * Math.cos(angle) - dy * Math.sin(angle), 100 + dx * Math.sin(angle) + dy * Math.cos(angle)]
+  }
+  for (const [x, y] of [[20, 99], [80, 70], [30, 30], [70, 10]]) {
+    const [sx, sy] = draw(x, y)
+    const hit = hitTestTouchMesh(sx, sy, mesh, bent)!
+    assert.ok(Math.abs(hit.u - x / 100) < 1e-3 && Math.abs(hit.v - y / 100) < 1e-3, `${x},${y} -> ${hit.u},${hit.v}`)
+  }
 })
