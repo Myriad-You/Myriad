@@ -235,6 +235,76 @@ test('real thinking-to-speech handoff preserves a newer face and releases the ol
 })
 
 for (const [name, root] of assets) {
+  test(`${name}: shared canvas cut stays joined without changing upper motion`, async ({ page }, testInfo) => {
+    test.setTimeout(120_000)
+    test.skip(!root, 'Set MEROPE_HAIR_ASSETS to include cropped portraits')
+    const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
+    const atlas = await readFile(`${root}/atlas.png`)
+    const modules = `/@fs${fileURLToPath(new URL('../../src/features/merope/anime25drig/', import.meta.url))}`
+    await page.route('**/cut-probe', route => route.fulfill({ contentType: 'text/html', body: '<canvas></canvas>' }))
+    await page.route('**/cut-atlas.png', route => route.fulfill({ contentType: 'image/png', body: atlas }))
+    await page.goto('/cut-probe')
+    const result = await page.evaluate(async ({ manifest, modules }) => {
+      const { Anime25DPlayer } = await import(`${modules}player.ts`)
+      const { IDENTITY_DRIVER } = await import(`${modules}driver.ts`)
+      const player = new Anime25DPlayer(document.querySelector('canvas'), manifest.anime25dPlayback, manifest)
+      await player.replaceLivePackage(manifest.anime25dPlayback, manifest, '/cut-atlas.png')
+      player.resize(768, 1024, 1)
+      player.shellActivation = 1
+      player.setMotionPolicy({ mouth: 'preview', expression: 'preview', gaze: 'preview', headBody: 'preview' })
+      const bound = player.layers.filter(layer => layer.cropBoundary)
+      const bindings = bound.map(layer => layer.cropBoundary)
+      let maxError = 0; let upperChanges = 0; let newFolds = 0; let baselineError = 0
+      const shots = []
+      const area = (vertices, indices, i) => {
+        const a = indices[i] * 2; const b = indices[i + 1] * 2; const c = indices[i + 2] * 2
+        return (vertices[b] - vertices[a]) * (vertices[c + 1] - vertices[a + 1]) - (vertices[b + 1] - vertices[a + 1]) * (vertices[c] - vertices[a])
+      }
+      for (const sign of [0, 1, -1, 0.6, -0.6]) {
+        player.setTarget({ ...IDENTITY_DRIVER, idle: false, rand: false, blink: false, talk: false, mouse: false, phys: true, angleX: sign, angleY: sign * 0.7, angleZ: sign * 0.6, body: sign, armY: sign, armPos: sign * 0.5 })
+        for (let frame = 0; frame < 90; frame++) player.tick(1 / 60)
+        for (const layer of bound) layer.cropBoundary = undefined
+        player.deform()
+        const before = bound.map(layer => layer.deformed.slice())
+        bound.forEach((layer, i) => { layer.cropBoundary = bindings[i] })
+        player.deform(); player.uploadGeometry(); player.draw()
+        for (let n = 0; n < bound.length; n++) {
+          const layer = bound[n]; const binding = bindings[n]
+          const host = binding.host.deformed; const edge = binding.edge
+          for (const i of binding.ownEdge) {
+            const x = layer.deformed[i]
+            let j = 1
+            while (j < edge.length - 1 && host[edge[j]] < x) j++
+            const a = edge[j - 1]; const b = edge[j]
+            const expected = host[a + 1] + (x - host[a]) / (host[b] - host[a]) * (host[b + 1] - host[a + 1])
+            maxError = Math.max(maxError, Math.abs(layer.deformed[i + 1] - expected))
+            baselineError = Math.max(baselineError, Math.abs(before[n][i + 1] - expected))
+          }
+          for (let i = 0; i < binding.weights.length; i++) {
+            if (!binding.weights[i] && (before[n][i * 2] !== layer.deformed[i * 2] || before[n][i * 2 + 1] !== layer.deformed[i * 2 + 1])) upperChanges++
+          }
+          for (let i = 0; i < layer.indices.length; i += 3) {
+            if (area(before[n], layer.indices, i) * area(layer.deformed, layer.indices, i) < 0) newFolds++
+          }
+        }
+        shots.push({ name: `cut-${sign}`, image: player.gl.canvas.toDataURL('image/png').split(',')[1] })
+      }
+      const error = player.gl.getError()
+      player.dispose()
+      return { names: bound.map(layer => layer.source.name), maxError, baselineError, upperChanges, newFolds, error, shots }
+    }, { manifest, modules })
+    await testInfo.attach('cut-metrics', { body: JSON.stringify({ ...result, shots: undefined }), contentType: 'application/json' })
+    for (const shot of result.shots) await testInfo.attach(shot.name, { body: Buffer.from(shot.image, 'base64'), contentType: 'image/png' })
+    expect(result.error).toBe(0)
+    // Natural silhouettes are deliberately unbound; they cannot validate a cut.
+    test.skip(!result.names.length, 'This asset has no shared opaque canvas cut')
+    expect(result.names.length).toBeGreaterThan(0)
+    expect(result.baselineError).toBeGreaterThan(1)
+    expect(result.maxError).toBeLessThan(0.001)
+    expect(result.upperChanges).toBe(0)
+    expect(result.newFolds).toBe(0)
+    expect(result.error).toBe(0)
+  })
   test(`real ${name} visible head surfaces remain oriented at combined pose corners`, async ({ page }, testInfo) => {
     test.setTimeout(120_000)
     test.skip(!root, 'Provide a real split portrait')

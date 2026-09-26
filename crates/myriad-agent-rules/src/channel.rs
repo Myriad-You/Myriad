@@ -1939,6 +1939,62 @@ pub fn parse_telegram_bot_identity(result: &serde_json::Value) -> Option<Telegra
     })
 }
 
+/// The line a group line replies to: who wrote it (or whether it was hers)
+/// and its text, bounded. Attacker-controlled like any group line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuotedLine {
+    pub name: String,
+    pub text: String,
+    pub hers: bool,
+}
+
+const QUOTE_CHARS: usize = 160;
+
+fn quoted_line(name: &str, text: &str, hers: bool) -> Option<QuotedLine> {
+    let text: String = text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(QUOTE_CHARS)
+        .collect();
+    (!text.is_empty()).then(|| QuotedLine {
+        name: group_name(name),
+        text,
+        hers,
+    })
+}
+
+/// A sender's name as a group line shows it: no control characters or
+/// markup, bounded, never empty.
+fn group_name(raw: &str) -> String {
+    let name: String = raw
+        .chars()
+        .filter(|ch| !ch.is_control() && !matches!(ch, '<' | '>' | '：'))
+        .take(GROUP_NAME_CHARS)
+        .collect();
+    if name.trim().is_empty() {
+        "someone".into()
+    } else {
+        name
+    }
+}
+
+fn telegram_name(from: &serde_json::Value) -> String {
+    let part = |key: &str| {
+        from.get(key)
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let full = format!("{} {}", part("first_name"), part("last_name"));
+    if full.trim().is_empty() {
+        part("username")
+    } else {
+        full.trim().to_string()
+    }
+}
+
 /// One human line in a Telegram group or supergroup, as the persona sees it.
 /// `addressed` is whether it speaks to her: an @mention of the bot, a
 /// `text_mention` of the bot, a command aimed at the bot, or a reply to one of
@@ -1955,6 +2011,8 @@ pub struct TelegramGroupMessage {
     /// The text with the bot's own @mention taken out.
     pub text: String,
     pub addressed: bool,
+    /// The line it replies to, if any.
+    pub reply_to: Option<QuotedLine>,
 }
 
 const GROUP_NAME_CHARS: usize = 40;
@@ -2047,13 +2105,21 @@ fn telegram_group_message(
             }
         }
     }
-    let replies_to_her = message
-        .get("reply_to_message")
+    let replied = message.get("reply_to_message");
+    let replies_to_her = replied
         .and_then(|reply| reply.get("from"))
         .and_then(|from| from.get("id"))
         .and_then(json_i64)
         == Some(bot.id);
     addressed |= replies_to_her;
+    let reply_to = replied.and_then(|reply| {
+        let text = reply
+            .get("text")
+            .or_else(|| reply.get("caption"))
+            .and_then(|value| value.as_str())?;
+        let name = reply.get("from").map(telegram_name).unwrap_or_default();
+        quoted_line(&name, text, replies_to_her)
+    });
     let text = without_utf16_ranges(raw, &cut)
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -2061,42 +2127,17 @@ fn telegram_group_message(
     if text.is_empty() {
         return None;
     }
-    let first = from
-        .get("first_name")
-        .and_then(|value| value.as_str())
-        .unwrap_or("");
-    let last = from
-        .get("last_name")
-        .and_then(|value| value.as_str())
-        .unwrap_or("");
-    let handle = from
-        .get("username")
-        .and_then(|value| value.as_str())
-        .unwrap_or("");
-    let name = format!("{first} {last}");
-    let name = if name.trim().is_empty() {
-        handle
-    } else {
-        name.trim()
-    };
-    let display_name: String = name
-        .chars()
-        .filter(|ch| !ch.is_control() && !matches!(ch, '<' | '>' | '：'))
-        .take(GROUP_NAME_CHARS)
-        .collect();
+    let display_name = group_name(&telegram_name(from));
     Some(TelegramGroupMessage {
         update_id,
         message_id,
         chat_id,
         message_thread_id: message.get("message_thread_id").and_then(json_i64),
         from_id,
-        display_name: if display_name.trim().is_empty() {
-            "someone".into()
-        } else {
-            display_name
-        },
+        display_name,
         text,
         addressed,
+        reply_to,
     })
 }
 
@@ -2903,6 +2944,23 @@ pub struct DiscordGroupMessage {
     /// The text with the bot's own mention taken out.
     pub text: String,
     pub addressed: bool,
+    /// The line it replies to, if any.
+    pub reply_to: Option<QuotedLine>,
+}
+
+fn discord_name(author: &serde_json::Value, member: Option<&serde_json::Value>) -> String {
+    [
+        member.and_then(|member| member.get("nick")),
+        author.get("global_name"),
+        author.get("username"),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|value| value.as_str())
+    .map(str::trim)
+    .find(|name| !name.is_empty())
+    .unwrap_or("")
+    .to_string()
 }
 
 /// Server-channel `MESSAGE_CREATE`. DMs, bots, webhooks, the bot itself and
@@ -2935,12 +2993,22 @@ pub fn discord_group_message_from_create(
                 .iter()
                 .any(|user| json_snowflake(user.get("id")).as_deref() == Some(bot_user_id))
         });
-    let replies_to_her = data
+    let replied = data
         .get("referenced_message")
+        .filter(|reply| !reply.is_null());
+    let replies_to_her = replied
         .and_then(|reply| reply.get("author"))
         .and_then(|author| json_snowflake(author.get("id")))
         .as_deref()
         == Some(bot_user_id);
+    let reply_to = replied.and_then(|reply| {
+        let text = reply.get("content").and_then(|value| value.as_str())?;
+        let name = reply
+            .get("author")
+            .map(|author| discord_name(author, reply.get("member")))
+            .unwrap_or_default();
+        quoted_line(&name, text, replies_to_her)
+    });
     let text = raw
         .replace(&format!("<@{bot_user_id}>"), " ")
         .replace(&format!("<@!{bot_user_id}>"), " ")
@@ -2950,34 +3018,16 @@ pub fn discord_group_message_from_create(
     if text.is_empty() {
         return None;
     }
-    let name = [
-        data.get("member").and_then(|member| member.get("nick")),
-        author.get("global_name"),
-        author.get("username"),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(|value| value.as_str())
-    .map(str::trim)
-    .find(|name| !name.is_empty())
-    .unwrap_or("");
-    let display_name: String = name
-        .chars()
-        .filter(|ch| !ch.is_control() && !matches!(ch, '<' | '>' | '：'))
-        .take(GROUP_NAME_CHARS)
-        .collect();
+    let display_name = group_name(&discord_name(author, data.get("member")));
     Some(DiscordGroupMessage {
         message_id: json_snowflake(data.get("id"))?,
         channel_id: json_snowflake(data.get("channel_id"))?,
         guild_id,
         author_id,
-        display_name: if display_name.trim().is_empty() {
-            "someone".into()
-        } else {
-            display_name
-        },
+        display_name,
         text,
         addressed: mentions_her || replies_to_her,
+        reply_to,
     })
 }
 

@@ -227,6 +227,39 @@ fn is_mind_case(case: &Case) -> bool {
         || case.soup.is_some()
         || case.channel.is_some()
         || !case.bits.is_empty()
+        || case.in_group
+}
+
+/// A group turn as production builds it: the group's lines, named, as the
+/// transcript; the one speaking to her is 阿明.
+fn group_chat_prompt(case: &Case) -> String {
+    let transcript: Vec<super::ConversationMessage> = case
+        .history
+        .iter()
+        .map(|line| super::ConversationMessage {
+            role: line.role.clone(),
+            content: match (line.role.as_str(), line.name.as_deref()) {
+                ("user", Some(name)) => format!("{name}：{}", line.text),
+                _ => line.text.clone(),
+            },
+            created_at: None,
+        })
+        .collect();
+    let sections: Vec<String> = [
+        Some(super::merope::group_speaking_section("阿明")),
+        super::merope::format_remembered_section(&case.remembered),
+        super::merope::format_views_section(&case.views),
+        super::merope::format_bits_section(&case.bits, true),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    chat_prompt::build_group_chat_prompt(
+        &contract_soul(),
+        &sections.join("\n\n"),
+        &transcript,
+        &case.input,
+    )
 }
 
 /// A case's attached images, checked as production checks an upload.
@@ -252,6 +285,9 @@ fn case_images(case: &Case) -> Vec<crate::services::analyzer::ImageInput> {
 }
 
 fn mind_chat_prompt(case: &Case) -> String {
+    if case.in_group {
+        return group_chat_prompt(case);
+    }
     let base: chrono::DateTime<chrono::Utc> = "2026-01-01T10:00:00Z".parse().unwrap();
     let history: Vec<super::ConversationMessage> = case
         .history
@@ -1492,7 +1528,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 50;
+const MIND_CASES: usize = 54;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

@@ -1,7 +1,60 @@
 //! Limits apply to received bytes before buffering, including malformed events.
+//!
+//! A stream counts as complete only when the provider says it finished: an
+//! OpenAI-style `[DONE]` or `finish_reason`, a Gemini `finishReason`, an
+//! Anthropic `message_stop`, a Responses `response.completed`. A stream that
+//! just ends (the provider or the connection dropped it mid-reply) is a
+//! [`StreamCut`], never a whole reply; an error event inside the stream is an
+//! error.
 use super::types::StreamDelta;
 use anyhow::{Context, Result, bail};
 use std::future::Future;
+
+/// The stream ended before the provider said it had finished. `partial` is
+/// what arrived, for a caller that has already shown it.
+#[derive(Debug)]
+pub struct StreamCut {
+    pub partial: String,
+}
+
+impl std::fmt::Display for StreamCut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AI stream ended before the reply was complete")
+    }
+}
+
+impl std::error::Error for StreamCut {}
+
+/// Whether this event ends the stream: finished, or failed with a message.
+fn stream_end(json: &serde_json::Value) -> Option<Result<(), String>> {
+    if let Some(error) = json.get("error").filter(|error| !error.is_null()) {
+        let message = error
+            .get("message")
+            .and_then(|message| message.as_str())
+            .unwrap_or("unknown error");
+        return Some(Err(message.chars().take(200).collect()));
+    }
+    match json.get("type").and_then(|kind| kind.as_str()) {
+        Some("error" | "response.failed" | "response.error") => {
+            return Some(Err("the provider reported a failure".into()));
+        }
+        Some("message_stop" | "response.completed") => return Some(Ok(())),
+        _ => {}
+    }
+    if let Some(reason) = json
+        .pointer("/choices/0/finish_reason")
+        .and_then(|reason| reason.as_str())
+    {
+        return Some(if reason == "error" {
+            Err("the provider stopped with an error".into())
+        } else {
+            Ok(())
+        });
+    }
+    json.pointer("/candidates/0/finishReason")
+        .and_then(|reason| reason.as_str())
+        .map(|_| Ok(()))
+}
 
 const MAX_STREAM_BYTES: usize = 4 * 1024 * 1024;
 const MAX_LINE_BYTES: usize = 256 * 1024;
@@ -58,6 +111,7 @@ where
     let mut lines = SseLines::default();
     let mut full_text = String::new();
     let mut decoded_bytes = 0usize;
+    let mut finished = false;
     while let Some(chunk) = response.chunk().await.context("Stream read error")? {
         lines.push(&chunk)?;
         while let Some(line) = lines.next_line() {
@@ -71,6 +125,12 @@ where
             let Ok(json) = serde_json::from_slice::<serde_json::Value>(data) else {
                 continue;
             };
+            match stream_end(&json) {
+                Some(Err(message)) => bail!("AI stream reported an error: {message}"),
+                // The last event may still carry text: take it, then finish.
+                Some(Ok(())) => finished = true,
+                None => {}
+            }
             for delta in extract(&json) {
                 let content = match &delta {
                     StreamDelta::Text(content) | StreamDelta::Reasoning(content) => content,
@@ -89,7 +149,11 @@ where
             }
         }
     }
-    Ok(full_text)
+    if finished {
+        Ok(full_text)
+    } else {
+        Err(StreamCut { partial: full_text }.into())
+    }
 }
 
 #[cfg(test)]
@@ -185,6 +249,52 @@ mod tests {
                     .contains("response size limit")
             );
         }
+    }
+
+    /// A reply the provider never finished is not a reply: the half sentence
+    /// comes back as a cut, and an error event inside the stream is an error.
+    #[tokio::test]
+    async fn a_stream_that_just_ends_is_cut_not_complete() {
+        let text = serde_json::json!({"choices":[{"delta":{"content":"听完要是"}}]});
+        let cut = consume_text_sse(
+            response(format!("data: {text}\n\n").into_bytes()).await,
+            |_| async { true },
+            openai_stream_deltas,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(cut.downcast_ref::<StreamCut>().unwrap().partial, "听完要是");
+
+        let finished = serde_json::json!({"choices":[{"delta":{"content":"。"},"finish_reason":"stop"}]});
+        let whole = consume_text_sse(
+            response(format!("data: {text}\n\ndata: {finished}\n\n").into_bytes()).await,
+            |_| async { true },
+            openai_stream_deltas,
+        )
+        .await
+        .unwrap();
+        assert_eq!(whole, "听完要是。", "finish_reason without [DONE] is finished");
+
+        let gemini = serde_json::json!({"candidates":[{"content":{"parts":[{"text":"好"}]},"finishReason":"STOP"}]});
+        let whole = consume_text_sse(
+            response(format!("data: {gemini}\n\n").into_bytes()).await,
+            |_| async { true },
+            gemini_stream_deltas,
+        )
+        .await
+        .unwrap();
+        assert_eq!(whole, "好");
+
+        let failed = serde_json::json!({"error":{"message":"upstream overloaded"}});
+        let error = consume_text_sse(
+            response(format!("data: {text}\n\ndata: {failed}\n\n").into_bytes()).await,
+            |_| async { true },
+            openai_stream_deltas,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("upstream overloaded"));
+        assert!(error.downcast_ref::<StreamCut>().is_none());
     }
 
     #[tokio::test]

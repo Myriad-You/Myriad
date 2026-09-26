@@ -164,14 +164,24 @@ pub async fn reply(
         crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(REPLY_TIMEOUT))
             .await?
             .with_light_thinking();
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        owner,
-        "merope",
-        "group_stranger",
-        analyzer.analyze_stream_parts_with_images(&prompt, &[], |_| async { true }),
-    )
-    .await
-    .ok()?;
+// A reply the provider dropped halfway reached no one: ask once more.
+    let ask = || {
+        crate::services::ai_cost_ledger::with_site_ai_ledger(
+            owner,
+            "merope",
+            "group_stranger",
+            analyzer.analyze_stream_parts_with_images(&prompt, &[], |_| async { true }),
+        )
+    };
+    let mut raw = ask().await;
+    if raw.as_ref().is_err_and(|error| {
+        error
+            .downcast_ref::<crate::services::analyzer::StreamCut>()
+            .is_some()
+    }) {
+        raw = ask().await;
+    }
+    let raw = raw.ok()?;
     let text = without_directives(&raw);
     (!text.is_empty()).then_some(text)
 }

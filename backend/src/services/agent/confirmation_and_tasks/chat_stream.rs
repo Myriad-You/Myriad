@@ -256,6 +256,23 @@ fn spawn_model_outfit_overlay(
 }
 
 const EMPTY_REPLY: &str = "Chat model returned an empty response";
+/// The provider dropped the reply before it was finished.
+const CUT_REPLY: &str = "Chat model reply was cut off before it finished";
+
+/// Whether only the finished reply reaches anyone: a group or an IM chat,
+/// where a reply is sent whole. On the panel it is shown as it is written.
+fn sent_whole(request: &UserRequest) -> bool {
+    request
+        .context
+        .as_ref()
+        .is_some_and(|context| context.venue.is_some() || context.channel_chat.is_some())
+}
+
+fn is_cut(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<crate::services::analyzer::StreamCut>()
+        .is_some()
+}
 
 /// This turn is a live voice call.
 fn on_call(request: &UserRequest) -> bool {
@@ -304,14 +321,16 @@ impl Agent {
                 speech_delivery.clone(),
             )
             .await;
-        // The model now and then answers with nothing at all. Nothing reached
-        // them, so asking once more is safe.
-        if !matches!(&first, Err(error) if error == EMPTY_REPLY) {
+        // The model now and then answers with nothing at all, or the provider
+        // drops a reply sent whole before it is finished. Nothing reached them,
+        // so asking once more is safe.
+        if !matches!(&first, Err(error) if error == EMPTY_REPLY || error == CUT_REPLY) {
             return first;
         }
         tracing::warn!(
             user_id = request.user_id,
-            "[Chat] empty reply; asking once more"
+            error = first.as_ref().err().map(String::as_str).unwrap_or(""),
+            "[Chat] no whole reply; asking once more"
         );
         let analyzer = chat_analyzer().await?;
         self.stream_chat_response_with_analyzer(request, progress_tx, analyzer, speech_delivery)
@@ -324,11 +343,18 @@ impl Agent {
     ) -> Result<String, String> {
         let analyzer = chat_analyzer().await?;
         let prompt = self.chat_response_prompt(request).await;
-        // The same request as the streamed path, only not relayed.
-        let response = analyzer
+        // The same request as the streamed path, only not relayed. Nothing
+        // was shown, so a reply the provider dropped halfway is asked again.
+        let mut response = analyzer
             .analyze_stream_parts_with_images(&prompt, images_of(request), |_| async { true })
-            .await
-            .map_err(|error| error.to_string())?;
+            .await;
+        if response.as_ref().is_err_and(is_cut) {
+            tracing::warn!(user_id = request.user_id, "[Chat] reply cut off; asking once more");
+            response = analyzer
+                .analyze_stream_parts_with_images(&prompt, images_of(request), |_| async { true })
+                .await;
+        }
+        let response = response.map_err(|error| error.to_string())?;
         let (mut response, started_game) =
             crate::services::agent::merope::soup::split_start(response.trim());
         if started_game {
@@ -551,7 +577,7 @@ impl Agent {
             .context
             .as_ref()
             .and_then(|context| context.session_id.clone());
-        match analyzer
+        let streamed = analyzer
             .analyze_stream_parts_with_images(&prompt, images_of(request), |delta| {
                 let tx = tx.clone();
                 let speech_delivery = speech_delivery.clone();
@@ -588,8 +614,25 @@ impl Agent {
                     true
                 }
             })
-            .await
-        {
+            .await;
+        // The provider dropped the reply halfway. Sent whole, nothing reached
+        // anyone yet: ask again. On the panel they already saw it being
+        // written: keep what they saw rather than take it back.
+        let streamed = match streamed {
+            Err(error) if is_cut(&error) => {
+                let partial = error
+                    .downcast_ref::<crate::services::analyzer::StreamCut>()
+                    .map(|cut| cut.partial.clone())
+                    .unwrap_or_default();
+                if sent_whole(request) || partial.trim().is_empty() {
+                    return Err(CUT_REPLY.to_string());
+                }
+                tracing::warn!(user_id, "[Chat] reply cut off halfway; keeping what was shown");
+                Ok(partial)
+            }
+            other => other,
+        };
+        match streamed {
             Ok(full_text) if !full_text.trim().is_empty() => {
                 let (leftover, directive, music) = wear
                     .lock()

@@ -80,6 +80,7 @@ import {
   disposeCollarClipMesh,
   uploadCollarClipMesh,
 } from './collarRuntime'
+import { applyCropBoundary } from './cropBoundary'
 import { cryTearHorizontalOffset, cryTearVerticalOffset } from './cryMotion'
 import {
   captureAnime25DDeformationChanges,
@@ -1599,6 +1600,11 @@ export class Anime25DPlayer {
       )
       if (work && !layer.geometryDirty)
         work.savedUploadBytes += layer.deformed.byteLength
+    }
+    for (const layer of this.layers) {
+      if (layer.cropBoundary && shouldDeformLayer(layer.source, layer.frameOpacity)) {
+        layer.geometryDirty = applyCropBoundary(layer.cropBoundary, layer.deformed) || layer.geometryDirty
+      }
     }
     // Hosts may be later in draw order. Resolve attachments only after all host
     // vertices include this frame's shell, breathing and hair physics.

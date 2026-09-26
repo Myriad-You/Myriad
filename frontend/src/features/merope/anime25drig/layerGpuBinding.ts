@@ -1,6 +1,7 @@
 import type { ChestWeightField } from './chestPhysics'
 import type { FrontCollarContactModel } from './collarContact'
 import type { CollarClipMesh } from './collarRuntime'
+import type { CropBoundary } from './cropBoundary'
 import type { Anime25DLayerDeformationPlan } from './deformationDependencies'
 import type { Anime25DDriver } from './driver'
 import type { Anime25DExpressionDeformationBinding } from './expressionDeformation'
@@ -23,6 +24,7 @@ import { bindArmRig, bindArmRigMesh } from './armRig'
 import { sampleChestWeight } from './chestPhysics'
 import { buildFrontCollarContactModel } from './collarContact'
 import { createCollarClipMesh, disposeCollarClipMesh } from './collarRuntime'
+import { bindCropBoundary } from './cropBoundary'
 import { deriveCrownOcclusionBand } from './crownOcclusion'
 import {
   createAnime25DLayerDeformationPlan,
@@ -88,6 +90,7 @@ export interface Anime25DGpuLayer extends Anime25DRenderableLayer {
   attachmentDependents?: Anime25DGpuLayer[]
   surfaceContact?: SurfaceContact
   hairSurface?: HairSurface
+  cropBoundary?: CropBoundary
 }
 
 export interface Anime25DCompiledGpuLayers {
@@ -521,6 +524,21 @@ export function compileAnime25DGpuLayers(
           y: Math.round(torso.atlas.y * atlasImage.height),
         })
 }
+    }
+    const cropHost = layers.find((layer) => layer.source === torso)
+    if (cropHost && !cropHost.shaderGlobalTransform) {
+      const bottom = Math.max(...layers.map((layer) => layer.source.y + layer.source.h))
+      for (const layer of layers) {
+        if (!layer.localDynamic || layer.shaderGlobalTransform || layer.attachment || layer.neckwearBridge) continue
+        if (!['back-hair', 'front-hair', 'handwear'].includes(layer.source.role)) continue
+        const binding = bindCropBoundary(layer, cropHost, readBindingPixels(layer.source), torsoPixels, bottom)
+        if (!binding) continue
+        layer.cropBoundary = binding
+        // A new correction always starts from primary geometry, never last frame's
+        // corrected vertices. Keep its host fresh even when hidden by an outfit.
+        layer.deformationPlan.cacheable = false
+        ;(cropHost.attachmentDependents ??= []).push(layer)
+      }
     }
     return { layers, collarClip, atlasPatches }
   } catch (error) {

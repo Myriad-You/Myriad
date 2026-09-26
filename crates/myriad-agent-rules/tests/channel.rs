@@ -1736,7 +1736,7 @@ mod telegram_groups {
                 "text": "小灯 你觉得呢", "entities": [{"type": "text_mention", "offset": 0, "length": 2, "user": {"id": 777}}]}"#,
             // Reply to one of her messages.
             r#"{"message_id": 3, "from": {"id": 13, "username": "zhou"}, "chat": {"id": -100, "type": "group"},
-                "text": "对，就这家", "reply_to_message": {"message_id": 9, "from": {"id": 777, "is_bot": true}}}"#,
+                "text": "对，就这家", "reply_to_message": {"message_id": 9, "from": {"id": 777, "is_bot": true, "first_name": "小灯"}, "text": "楼下那家面馆\n不错"}}"#,
             // Talking about another bot, and plain group chatter.
             r#"{"message_id": 4, "from": {"id": 14, "first_name": "路人"}, "chat": {"id": -100, "type": "group"},
                 "text": "@other_bot 天气", "entities": [{"type": "mention", "offset": 0, "length": 10}]}"#,
@@ -1765,6 +1765,10 @@ mod telegram_groups {
             ]
         );
         assert_eq!(messages[0].chat_id, -100);
+        let quoted = messages[2].reply_to.as_ref().expect("the line it replies to");
+        assert!(quoted.hers);
+        assert_eq!(quoted.text, "楼下那家面馆 不错");
+        assert!(messages[0].reply_to.is_none());
     }
 
     #[test]
@@ -1823,12 +1827,15 @@ fn discord_server_lines_are_heard_and_those_to_her_are_marked() {
     let reply = serde_json::json!({
         "id": "12", "channel_id": "22", "guild_id": "33",
         "author": { "id": "45", "username": "hong" },
-        "referenced_message": { "author": { "id": "99" } },
-        "content": "哈哈真的吗"
+        "referenced_message": { "author": { "id": "99", "username": "her" }, "content": "听完要是" },
+        "content": "说到一半怎么没了"
     });
     let line = discord_group_message_from_create(&reply, "99").unwrap();
     assert!(line.addressed, "a reply to her speaks to her");
     assert_eq!(line.display_name, "hong");
+    let quoted = line.reply_to.expect("the line it replies to");
+    assert!(quoted.hers);
+    assert_eq!(quoted.text, "听完要是");
 
     let talk = serde_json::json!({
         "id": "13", "channel_id": "22", "guild_id": "33",

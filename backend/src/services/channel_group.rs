@@ -39,7 +39,7 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use myriad_agent_rules::channel::{
-    ConnectFailureKind, DiscordGroupMessage, PairingLookup, TelegramGroupMessage,
+    ConnectFailureKind, DiscordGroupMessage, PairingLookup, QuotedLine, TelegramGroupMessage,
 };
 use sea_orm::DatabaseConnection;
 use tracing::{info, warn};
@@ -63,12 +63,24 @@ pub struct GroupLine {
     pub text: String,
     /// Whether it speaks to her.
     pub addressed: bool,
+    /// The line it replies to, if any.
+    pub reply_to: Option<QuotedLine>,
 }
 
 impl GroupLine {
     /// The group, as sessions and memory know it: `<platform>:<chat id>`.
     pub fn venue(&self) -> String {
         format!("{}:{}", self.platform.slug(), self.chat)
+    }
+
+    /// What was said, with the line it replies to in front: a reply makes
+    /// sense only with what it answers ("说到一半怎么没了").
+    pub fn said(&self) -> String {
+        match &self.reply_to {
+            Some(quoted) if quoted.hers => format!("（回复你说的：{}）{}", quoted.text, self.text),
+            Some(quoted) => format!("（回复 {}：{}）{}", quoted.name, quoted.text, self.text),
+            None => self.text.clone(),
+        }
     }
 }
 
@@ -83,6 +95,7 @@ impl From<TelegramGroupMessage> for GroupLine {
             display_name: message.display_name,
             text: message.text,
             addressed: message.addressed,
+            reply_to: message.reply_to,
         }
     }
 }
@@ -98,6 +111,7 @@ impl From<DiscordGroupMessage> for GroupLine {
             display_name: message.display_name,
             text: message.text,
             addressed: message.addressed,
+            reply_to: message.reply_to,
         }
     }
 }
@@ -287,7 +301,7 @@ pub fn record(message: &GroupLine) {
         at: Instant::now(),
         message_id: Some(message.message_id.clone()),
         name: message.display_name.clone(),
-        text: bounded(&message.text),
+        text: bounded(&message.said()),
         hers: false,
     };
     with_group(&message.venue(), |group| push_line(group, line));
@@ -654,7 +668,7 @@ async fn answer_stranger(db: &DatabaseConnection, message: &GroupLine, token: &s
             &venue,
             &stranger,
             &transcript,
-            &message.text,
+            &message.said(),
         ),
     )
     .await
@@ -669,7 +683,7 @@ async fn answer_stranger(db: &DatabaseConnection, message: &GroupLine, token: &s
             owner,
             venue,
             stranger,
-            message.text.clone(),
+            message.said(),
             reply,
         );
     }
@@ -725,7 +739,7 @@ async fn run_turn(
         db.clone(),
         claims,
         crate::api::agent::ProcessRequest {
-            input: message.text.clone(),
+            input: message.said(),
             context: Some(crate::api::agent::ProcessContext {
                 mode: Some(AgentInteractionMode::Chat),
                 session_id: Some(session_id),
@@ -781,6 +795,7 @@ mod tests {
             display_name: name.into(),
             text: text.into(),
             addressed: false,
+            reply_to: None,
         })
     }
 
@@ -897,9 +912,15 @@ mod tests {
             guild_id: "33".into(),
             author_id: "44".into(),
             display_name: "阿明".into(),
-            text: "在吗".into(),
+            text: "说到一半怎么没了".into(),
             addressed: true,
+            reply_to: Some(QuotedLine {
+                name: "若泉".into(),
+                text: "听完要是".into(),
+                hers: true,
+            }),
         });
+        assert_eq!(discord.said(), "（回复你说的：听完要是）说到一半怎么没了");
         assert_eq!(discord.venue(), "discord:22");
         assert_eq!(text_limit(ChannelPlatform::Discord), 2000);
     }
