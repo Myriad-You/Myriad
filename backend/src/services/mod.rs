@@ -68,6 +68,7 @@ pub mod seo_review; // Scheduled SEO review and owner-confirmed apply
 pub mod server_location; // Egress location dual-source probe
 pub mod setup_progress; // Whether the site is set up (tables + claimed), for the wizard and the agent
 pub mod site_owner;
+pub mod site_public_env; // Durable site public origin (DATA_DIR/site_public.env), loaded at startup
 pub mod smart_filter;
 pub mod speech_runtime; // Provider resolve + test/status
 pub mod standalone_tts; // Standalone TTS (cache + configured provider) for HTTP + agent

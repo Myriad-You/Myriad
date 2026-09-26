@@ -114,7 +114,7 @@ pub async fn run() -> anyhow::Result<()> {
             interval.tick().await;
             // Public domain changes persist in the shared read-only data mount.
             // Reload both origin and DB settings independently of the web process.
-            crate::api::site_domain::load_durable_site_public_env();
+            crate::services::site_public_env::load_durable_site_public_env();
             let core = AppConfig::from_env()?;
             crate::middleware::cors_runtime::set_cors_origins(core.cors_origins.clone());
             *crate::GLOBAL_CONFIG.write().await = core;
@@ -224,7 +224,7 @@ async fn health(State(state): State<HealthState>) -> (StatusCode, Json<serde_jso
         },
         Json(json!({
             "role": "persona-worker", "ready": ready, "database": database,
-            "version": crate::api::build_version(), "commit_sha": crate::api::build_commit_sha(),
+            "version": myriad_process_info::build_version(), "commit_sha": myriad_process_info::build_commit_sha(),
             "persona_background": super::background_status(),
         })),
     )

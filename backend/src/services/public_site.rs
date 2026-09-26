@@ -101,8 +101,9 @@ pub(crate) async fn load_site_branding(db: &DatabaseConnection) -> SiteBranding 
         .or_else(|| std::env::var("SITE_VISIBILITY_POLICY").ok())
         .unwrap_or_default();
     let policy =
-        crate::api::seo_policy::normalize_visibility_policy(&policy_raw, noindex_flag).to_string();
-    let noindex = noindex_flag || !crate::api::seo_policy::policy_is_indexable(&policy);
+        crate::services::seo_policy::normalize_visibility_policy(&policy_raw, noindex_flag)
+            .to_string();
+    let noindex = noindex_flag || !crate::services::seo_policy::policy_is_indexable(&policy);
 
     SiteBranding {
         title: branding(
