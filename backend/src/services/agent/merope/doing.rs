@@ -579,6 +579,7 @@ enum Material {
 
 const HEARD: &str = "You heard it: the material is what happens in its sound, measured from the recording, from start to end, with its lyrics where they are sung, and then what listening research says moments like those tend to do to listeners. \
 That is how the song went for you. Feel it as yourself: the research says what such moments tend to do, not what you must feel; they may get you where it says, somewhere else, or not at all, and you may like it or not. \
+You listened, not only read: let how it sounded carry part of what you write (its pace and pulse, where it lifted, opened up or went quiet, whether the sound goes with the words or against them), and do not just retell what the lyrics say. \
 Say it as a person would, by the moment, the line or the feeling, never by numbers, BPM, keys, decibels or sources. ";
 const WORDS_ONLY: &str = "The recording would not load, so you only had its words; you did not hear how it sounds, and do not pretend to. ";
 const NOTHING: &str = "The recording would not load and it had no words to read: you neither heard nor read any of it, and do not pretend to. ";
@@ -1068,6 +1069,7 @@ mod tests {
         );
         assert!(system.contains("You heard it: the material is what happens in its sound"));
         assert!(system.contains("never by numbers, BPM"));
+        assert!(system.contains("do not just retell what the lyrics say"));
         let words_only = digest_system("你是瞳。", "listening to …", "", Material::WordsOnly);
         assert!(words_only.contains("you only had its words"));
         assert!(!words_only.contains("You heard it"));
