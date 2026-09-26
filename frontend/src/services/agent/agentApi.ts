@@ -6,7 +6,6 @@ import type {
   ExecutionTrace,
   HeartbeatTask,
   ManagedMemory,
-  MemoryEntry,
   MeropeDoingResponse,
   MoodTransition,
   ProcessContext,
@@ -905,17 +904,6 @@ class AgentService {
     return apiService.get(`${this.baseUrl}/traces?limit=${limit}`)
   }
 
-  async getMemories(): Promise<MemoryEntry[]> {
-    try {
-      const response = await apiService.get<{ memories: MemoryEntry[] }>(
-        `${this.baseUrl}/memory`,
-      )
-      return response.memories
-    } catch {
-      return []
-    }
-  }
-
   /** All of her memory, sorted by whose it is (site admin). */
   async getAllMemories(): Promise<ManagedMemory[]> {
     const response = await apiService.get<{ memories: ManagedMemory[] }>(
@@ -934,19 +922,6 @@ class AgentService {
   async deleteAnyMemory(memoryId: string): Promise<void> {
     await apiService.delete(
       `${this.baseUrl}/memory/all/${encodeURIComponent(memoryId)}`,
-    )
-  }
-
-  async deleteMemory(memoryId: string): Promise<void> {
-    await apiService.delete(
-      `${this.baseUrl}/memory/${encodeURIComponent(memoryId)}`,
-    )
-  }
-
-  async updateMemory(memoryId: string, content: string): Promise<void> {
-    await apiService.put(
-      `${this.baseUrl}/memory/${encodeURIComponent(memoryId)}`,
-      { content },
     )
   }
 

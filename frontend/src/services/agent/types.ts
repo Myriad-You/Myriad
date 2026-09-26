@@ -697,17 +697,6 @@ export interface ExecutionTrace {
   }
 }
 
-export interface MemoryEntry {
-  id: string
-  /** Unified memory kind. Chat and Work share one store. */
-  memoryType: 'fact' | 'preference' | 'lesson' | 'pattern' | 'knowledge'
-  content: string
-  /** Where it was learned: chat, event, work or import. */
-  source?: string
-  createdAt: string
-  importance?: number
-}
-
 /** A memory as the site admin sees it: whose it is and where it came from. */
 export interface ManagedMemory {
   id: string

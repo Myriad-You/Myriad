@@ -451,14 +451,6 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
-        // 记忆列表（需要认证）
-        .route(
-            "/memory",
-            get(list_memories).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
         // 全部记忆：她自己的、每个人的、每个群的（站长）
         .route(
             "/memory/all",
@@ -471,16 +463,6 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
             "/memory/all/{memory_id}",
             delete(delete_any_memory)
                 .put(update_any_memory)
-                .route_layer(from_fn_with_state(
-                    app_state.clone(),
-                    middleware::auth::auth_middleware,
-                )),
-        )
-        // 删除记忆（需要认证）
-        .route(
-            "/memory/{memory_id}",
-            delete(delete_memory)
-                .put(update_memory)
                 .route_layer(from_fn_with_state(
                     app_state.clone(),
                     middleware::auth::auth_middleware,

@@ -958,49 +958,6 @@ fn next_priming(rows: &[agent_memories::Model], activation: &[f64]) -> Priming {
     }
 }
 
-/// A person's active memories, newest first, for the memory panel.
-pub async fn list<C: ConnectionTrait>(
-    db: &C,
-    user_id: i32,
-    limit: u64,
-) -> Result<Vec<MemoryRecord>, DbErr> {
-    Ok(agent_memories::Entity::find()
-        .filter(agent_memories::Column::UserId.eq(user_id))
-        .filter(agent_memories::Column::InvalidAt.is_null())
-        .order_by_desc(agent_memories::Column::CreatedAt)
-        .limit(limit)
-        .all(db)
-        .await?
-        .into_iter()
-        .map(MemoryRecord::from)
-        .collect())
-}
-
-/// Edit one active memory of the person. Returns whether a row changed.
-pub async fn update_content<C: ConnectionTrait>(
-    db: &C,
-    user_id: i32,
-    id: &str,
-    content: &str,
-) -> Result<bool, DbErr> {
-    let content = normalize_content(content);
-    if content.is_empty() {
-        return Ok(false);
-    }
-    let result = agent_memories::Entity::update_many()
-        .set(agent_memories::ActiveModel {
-            content: Set(content),
-            updated_at: Set(Utc::now().fixed_offset()),
-            ..Default::default()
-        })
-        .filter(agent_memories::Column::UserId.eq(user_id))
-        .filter(agent_memories::Column::InvalidAt.is_null())
-        .filter(agent_memories::Column::Id.eq(id))
-        .exec(db)
-        .await?;
-    Ok(result.rows_affected == 1)
-}
-
 /// Keep one day of her own life. One entry per day: writing the same day
 /// again changes nothing. The text must be built from material that names no
 /// one, because every audience may hear it.
