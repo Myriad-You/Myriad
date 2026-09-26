@@ -241,3 +241,20 @@ test('the handoff window is set by the residue, not by whoever arrives', () => {
   // Saturates rather than growing without bound on an out-of-range residue.
   assert.equal(idleHandoffSeconds(residue({ body: 9 })), HANDOFF_MAX)
 })
+
+test('a held action keeps easing into its pose instead of freezing', () => {
+  const controller = new RandomActionController(() => 0.5)
+  let frozen = 0
+  let longestFrozen = 0
+  let previous: number | null = null
+  for (let frame = 0; frame < 60 * 12; frame += 1) {
+    const sample = controller.sample(frame / 60, true, false)
+    const active = controller.getActiveAction() !== null
+    const pose = sample.angleX + sample.angleY * 3 + sample.angleZ * 7 + sample.body * 11
+    if (active && previous !== null && Math.abs(pose - previous) < 1e-5) frozen += 1
+    else frozen = 0
+    longestFrozen = Math.max(longestFrozen, frozen)
+    previous = active ? pose : null
+  }
+  assert.ok(longestFrozen / 60 < 0.1, `froze for ${longestFrozen / 60}s`)
+})

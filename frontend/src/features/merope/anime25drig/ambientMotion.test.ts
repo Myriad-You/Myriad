@@ -179,3 +179,28 @@ test('a small glance is given long enough to look like a glance', () => {
   assert.ok(duration(0.15) < duration(0.65))
   assert.ok(duration(0.65) < duration(1.8))
 })
+
+test('a held look keeps settling; the head never parks between looks', () => {
+  let seed = 0x2468_ACE0
+  const random = () => {
+    seed = (seed * 1_664_525 + 1_013_904_223) >>> 0
+    return seed / 0x1_0000_0000
+  }
+  const motion = new AmbientMotionController(random)
+  let previous = { ...motion.sample(0, true) }
+  let parked = 0
+  let longestParked = 0
+  for (let frame = 1; frame <= 60 * 300; frame += 1) {
+    const current = { ...motion.sample(frame / 60, true) }
+    const moved = Math.max(
+      Math.abs(current.angleX - previous.angleX),
+      Math.abs(current.angleY - previous.angleY),
+      Math.abs(current.angleZ - previous.angleZ),
+      Math.abs(current.body - previous.body),
+    )
+    parked = frame > 120 && moved < 2e-5 ? parked + 1 : 0
+    longestParked = Math.max(longestParked, parked)
+    previous = current
+  }
+  assert.ok(longestParked / 60 < 0.3, `parked for ${longestParked / 60}s`)
+})

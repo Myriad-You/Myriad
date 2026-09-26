@@ -12,6 +12,13 @@ export interface AmbientPose {
 /** Normalized rig-space, not physiological degrees or scene perception. */
 export const AMBIENT_HEAD_GAZE_SHARE = { x: 0.62, y: 0.55 } as const
 
+/**
+ * Share of a look's travel that is not covered by the move itself but glided
+ * through slowly over the hold that follows, so a held look keeps settling
+ * instead of parking dead still until the next one.
+ */
+export const LOOK_GLIDE_SHARE = { min: 0.1, max: 0.16 } as const
+
 export const EYE_SACCADE_FLOOR_SECONDS = 0.17
 export const EYE_SACCADE_SECONDS_PER_UNIT = 0.05
 
@@ -22,6 +29,11 @@ export class AmbientMotionController {
   private readonly headY = new MinimumJerkMotion()
   private readonly headZ = new MinimumJerkMotion()
   private readonly body = new MinimumJerkMotion()
+  // The slow remainder of each look, played across its whole hold.
+  private readonly glideX = new MinimumJerkMotion()
+  private readonly glideY = new MinimumJerkMotion()
+  private readonly glideZ = new MinimumJerkMotion()
+  private readonly glideBody = new MinimumJerkMotion()
   private readonly output: AmbientPose = {
     angleX: 0,
     angleY: 0,
@@ -60,6 +72,10 @@ export class AmbientMotionController {
         this.headY.retarget(now, 0, 0.65)
         this.headZ.retarget(now, 0, 0.65)
         this.body.retarget(now, 0, 0.85)
+        this.glideX.retarget(now, 0, 0.65)
+        this.glideY.retarget(now, 0, 0.65)
+        this.glideZ.retarget(now, 0, 0.65)
+        this.glideBody.retarget(now, 0, 0.85)
         this.nextPoseAt = Number.POSITIVE_INFINITY
       }
     }
@@ -108,7 +124,7 @@ export class AmbientMotionController {
     const headShare = (0.22 + 0.72 * recruitment) * this.range(0.86, 1)
     const x = this.targetX * headShare
     const y = this.targetY * (0.35 + 0.5 * recruitment)
-    const headTravel = Math.hypot(x - this.headX.value, y - this.headY.value)
+    const headTravel = Math.hypot(x - this.output.angleX, y - this.output.angleY)
     const eyeTravel = Math.hypot(
       this.targetX - this.gazeX.value,
       this.targetY - this.gazeY.value,
@@ -116,22 +132,26 @@ export class AmbientMotionController {
     const eyeDuration =
       EYE_SACCADE_FLOOR_SECONDS +
       Math.min(1.8, eyeTravel) * EYE_SACCADE_SECONDS_PER_UNIT
-    // Anime timing: a brisk move into a held pose. The follow-through layer
-    // turns the brisk stop into a small overshoot and settle.
-    const headDuration = 0.3 + Math.sqrt(headTravel) * this.range(0.34, 0.5)
+    const headDuration = 0.36 + Math.sqrt(headTravel) * this.range(0.42, 0.6)
     const latency = this.range(0.045, 0.13)
     this.gazeX.retarget(now, this.targetX, eyeDuration)
     this.gazeY.retarget(now, this.targetY, eyeDuration)
-    this.headX.retarget(now, x, headDuration, latency)
-    this.headY.retarget(now, y, headDuration, latency)
+    const glideShare = this.range(LOOK_GLIDE_SHARE.min, LOOK_GLIDE_SHARE.max)
+    const glideX = (x - this.output.angleX) * glideShare
+    const glideY = (y - this.output.angleY) * glideShare
+    // The axes do not start and stop together: the turn leads, the nod comes
+    // a touch later and slower, the tilt later still, and the torso last.
+    const pitchLag = this.range(0.04, 0.12)
+    const rollLag = this.range(0.12, 0.26)
+    this.headX.retarget(now, clamp(x - glideX, -1, 1), headDuration, latency)
+    this.headY.retarget(now, clamp(y - glideY, -1, 1), headDuration * 1.12, latency + pitchLag)
     let bodyDuration = 0
+    let glideZ = Number.NaN
+    let glideBody = Number.NaN
     if (!inspect) {
-      this.headZ.retarget(
-        now,
-        this.range(-0.34, 0.34) - x * 0.09,
-        headDuration * 1.1,
-        latency,
-      )
+      const roll = this.range(-0.34, 0.34) - x * 0.09
+      glideZ = (roll - this.output.angleZ) * glideShare
+      this.headZ.retarget(now, clamp(roll - glideZ, -1, 1), headDuration * 1.35, latency + rollLag)
       // Small inspections stay eye/head-led; a broad look recruits the torso.
       // Give its larger travel time instead of accelerating it to catch up.
       const bodyTarget =
@@ -139,9 +159,10 @@ export class AmbientMotionController {
         this.range(-0.07, 0.07)
       bodyDuration = Math.max(
         headDuration * 1.3,
-        0.4 + Math.sqrt(Math.abs(bodyTarget - this.body.value)) * 0.62,
+        0.5 + Math.sqrt(Math.abs(bodyTarget - this.output.body)) * 0.8,
       )
-      this.body.retarget(now, bodyTarget, bodyDuration, latency + 0.12)
+      glideBody = (bodyTarget - this.output.body) * glideShare
+      this.body.retarget(now, clamp(bodyTarget - glideBody, -1, 1), bodyDuration, latency + rollLag + 0.06)
     }
     const dwell = clamp(
       Math.exp(this.range(-0.8, 0.9) + this.range(-0.65, 0.65)),
@@ -151,18 +172,26 @@ export class AmbientMotionController {
     this.nextPoseAt =
       now +
       Math.max(
-        headDuration + latency,
-        bodyDuration + latency + 0.12,
+        headDuration * 1.12 + latency + pitchLag,
+        inspect ? 0 : headDuration * 1.35 + latency + rollLag,
+        bodyDuration + latency + rollLag + 0.06,
         eyeDuration,
       ) +
       dwell * (inspect ? 0.75 : 1.2)
+    // The remainder outlasts the look, so it is still settling when the next
+    // look takes over from it and the head never parks.
+    const glideDuration = (this.nextPoseAt - now) * 1.3
+    this.glideX.retarget(now, glideX, glideDuration, latency)
+    this.glideY.retarget(now, glideY, glideDuration, latency + pitchLag)
+    if (Number.isFinite(glideZ)) this.glideZ.retarget(now, glideZ, glideDuration, latency + rollLag)
+    if (Number.isFinite(glideBody)) this.glideBody.retarget(now, glideBody, glideDuration, latency + rollLag + 0.06)
   }
 
   private resolve(now: number): Readonly<AmbientPose> {
-    this.output.angleX = this.headX.sample(now)
-    this.output.angleY = this.headY.sample(now)
-    this.output.angleZ = this.headZ.sample(now)
-    this.output.body = this.body.sample(now)
+    this.output.angleX = clamp(this.headX.sample(now) + this.glideX.sample(now), -1, 1)
+    this.output.angleY = clamp(this.headY.sample(now) + this.glideY.sample(now), -1, 1)
+    this.output.angleZ = clamp(this.headZ.sample(now) + this.glideZ.sample(now), -1, 1)
+    this.output.body = clamp(this.body.sample(now) + this.glideBody.sample(now), -1, 1)
     this.output.eyeX = clamp(
       this.gazeX.sample(now) - this.output.angleX * AMBIENT_HEAD_GAZE_SHARE.x,
       -1,

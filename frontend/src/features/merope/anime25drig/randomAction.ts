@@ -394,13 +394,21 @@ function mixChannel(base: number, offset: number, scale: number): number {
   return mixBoundedExpressionChannel(base, offset * scale, -1, 1, 0)
 }
 
+/** Share of a clip's pose reached on entry; the rest is crept through while it is held. */
+const HELD_CREEP = 0.16
+
+/**
+ * Enter, hold, leave. The hold is not a freeze: the pose keeps easing further
+ * into itself, so it only comes to rest at the single moment it turns to leave.
+ */
 function stagedEnvelope(
   progress: number,
   enterEnd: number,
   exitStart: number,
 ): number {
-  if (progress < enterEnd) return smootherstep(progress / enterEnd)
-  if (progress <= exitStart) return 1
+  const creep = 1 - HELD_CREEP + HELD_CREEP * smootherstep(progress / exitStart)
+  if (progress < enterEnd) return smootherstep(progress / enterEnd) * creep
+  if (progress <= exitStart) return creep
   return 1 - smootherstep((progress - exitStart) / (1 - exitStart))
 }
 
