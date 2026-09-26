@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -112,14 +112,7 @@ async fn note_on(
     stranger: &Stranger,
 ) -> Option<agent_memories::Model> {
     let marker = evidence_marker(&stranger.who);
-    agent_memories::Entity::find()
-        .filter(agent_memories::Column::UserId.is_null())
-        .filter(agent_memories::Column::Venue.eq(group_venue(venue)))
-        .filter(agent_memories::Column::Source.eq(SOURCE))
-        .filter(agent_memories::Column::InvalidAt.is_null())
-        .filter(agent_memories::Column::Evidence.contains(&marker))
-        .order_by_desc(agent_memories::Column::UpdatedAt)
-        .one(db)
+    unified::unowned_with_evidence(db, &group_venue(venue), SOURCE, &marker)
         .await
         .ok()
         .flatten()

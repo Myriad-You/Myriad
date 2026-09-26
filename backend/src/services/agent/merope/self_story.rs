@@ -242,29 +242,6 @@ async fn last_story(
     Some((row.id, row.created_at, claims))
 }
 
-/// Which of these rows are still kept, faded or not: what happened is still
-/// what happened after it fades from mind, until it is gone.
-async fn still_there<'a>(
-    db: &DatabaseConnection,
-    rows: impl Iterator<Item = &'a String>,
-) -> HashSet<String> {
-    use crate::models::entities::agent_memories;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
-    let ids: Vec<String> = rows.cloned().collect::<HashSet<_>>().into_iter().collect();
-    if ids.is_empty() {
-        return HashSet::new();
-    }
-    agent_memories::Entity::find()
-        .select_only()
-        .column(agent_memories::Column::Id)
-        .filter(agent_memories::Column::Id.is_in(ids))
-        .into_tuple::<String>()
-        .all(db)
-        .await
-        .map(|ids| ids.into_iter().collect())
-        .unwrap_or_default()
-}
-
 /// Who she has been lately, as she last wrote it: one claim a line.
 pub async fn current(db: &DatabaseConnection) -> Vec<String> {
     last_story(db)
@@ -445,7 +422,15 @@ pub async fn look_back(db: &DatabaseConnection, owner: i32) {
         .as_ref()
         .map(|(_, _, claims)| claims.clone())
         .unwrap_or_default();
-    let there = still_there(db, before.iter().flat_map(|claim| claim.rests_on.iter())).await;
+    // What happened is still what happened after it fades from mind, until
+    // it is gone.
+    let ids = before
+        .iter()
+        .flat_map(|claim| claim.rests_on.iter().cloned())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let there = unified::still_kept(db, ids).await.unwrap_or_default();
     for claim in &mut before {
         claim.rests_on.retain(|row| there.contains(row));
     }

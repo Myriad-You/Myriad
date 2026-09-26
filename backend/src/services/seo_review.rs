@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 
 use sea_orm::DatabaseConnection;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::config::ModelTier;

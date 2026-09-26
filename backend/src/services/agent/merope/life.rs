@@ -20,13 +20,10 @@
 //! Model calls are billed to the site owner; without one, the night passes.
 
 use chrono::{Datelike, Duration, NaiveDate, TimeZone, Timelike};
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect,
-};
+use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::models::entities::{agent_addressee_state, agent_proactive_messages, agent_tasks};
 use crate::services::agent::memory::unified::{self, Concept};
 
 /// Her night, on the host clock like the do-not-disturb window.
@@ -113,27 +110,16 @@ async fn day_facts(db: &DatabaseConnection, day: NaiveDate) -> Option<DayFacts> 
     let (start, end) = day_bounds(day)?;
     // Whoever spoke to her last on that day; people who came back later
     // count on the later day. An undercount, never a name.
-    let people_talked_with = agent_addressee_state::Entity::find()
-        .filter(agent_addressee_state::Column::LastUserMessageAt.gte(start))
-        .filter(agent_addressee_state::Column::LastUserMessageAt.lt(end))
-        .count(db)
+    let people_talked_with = super::store::people_last_talked_between(db, start, end)
         .await
         .ok()?;
-    let finished = |status: &'static str| {
-        agent_tasks::Entity::find()
-            .filter(agent_tasks::Column::Status.eq(status))
-            .filter(agent_tasks::Column::CompletedAt.gte(start))
-            .filter(agent_tasks::Column::CompletedAt.lt(end))
-            .count(db)
-    };
-    let work_done = finished("completed").await.ok()?;
-    let work_failed = finished("failed").await.ok()?;
-    let spoke_up_unprompted = agent_proactive_messages::Entity::find()
-        .filter(agent_proactive_messages::Column::CreatedAt.gte(start))
-        .filter(agent_proactive_messages::Column::CreatedAt.lt(end))
-        .count(db)
+    let work_done = super::store::work_ended_between(db, "completed", start, end)
         .await
         .ok()?;
+    let work_failed = super::store::work_ended_between(db, "failed", start, end)
+        .await
+        .ok()?;
+    let spoke_up_unprompted = super::store::spoke_up_between(db, start, end).await.ok()?;
     Some(DayFacts {
         people_talked_with,
         work_done,

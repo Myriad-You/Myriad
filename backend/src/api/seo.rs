@@ -33,11 +33,10 @@ use serde_json::{Value, json};
 
 use crate::models::entities::{phantasi_items, phantasi_sources, tapps};
 pub(crate) use crate::services::public_site::{
-    GEO_PROMPT_LABEL_CHARS, PHANTASI_MINE_CATEGORY, SiteBranding, description_from_manifest,
-    encode_path_segment, geo_link_json, load_site_branding, module_is_public_all,
-    name_from_manifest, own_phantasi_item_links, own_phantasi_note_links, phantasi_item_path,
-    phantasi_source_is_own, public_absolute_url, public_tapp_links, sanitize_geo_label,
-    strip_html_snippet,
+    PHANTASI_MINE_CATEGORY, SiteBranding, description_from_manifest, encode_path_segment,
+    load_site_branding, module_is_public_all, name_from_manifest, own_phantasi_item_links,
+    own_phantasi_note_links, phantasi_item_path, phantasi_source_is_own, public_absolute_url,
+    public_tapp_links, strip_html_snippet,
 };
 use crate::services::tapp_ownership::{find_admin_user_id, public_install_visible_to_viewer};
 use crate::services::tapp_validation::validate_tapp_id;
@@ -1844,67 +1843,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn path_segment_encodes_unsafe_chars() {
-        assert_eq!(encode_path_segment("com.example.app"), "com.example.app");
-        assert!(encode_path_segment("a/b").contains("%2F"));
-    }
-
-    #[test]
-    fn phantasi_own_category_gate() {
-        use phantasi_sources::SourceType;
-
-        assert!(phantasi_source_is_own(
-            &SourceType::Rss,
-            &Some("我".into()),
-            false
-        ));
-        assert!(phantasi_source_is_own(
-            &SourceType::Rss,
-            &Some("博客, 我".into()),
-            false
-        ));
-        assert!(phantasi_source_is_own(
-            &SourceType::Rss,
-            &Some("我, 随笔".into()),
-            false
-        ));
-        assert!(phantasi_source_is_own(&SourceType::Note, &None, false));
-        // Friend links and third-party feeds must never pass
-        assert!(!phantasi_source_is_own(
-            &SourceType::Rss,
-            &Some("友情链接".into()),
-            false
-        ));
-        assert!(!phantasi_source_is_own(
-            &SourceType::Rss,
-            &Some("科技".into()),
-            false
-        ));
-        assert!(!phantasi_source_is_own(&SourceType::Rss, &None, false));
-        assert!(!phantasi_source_is_own(
-            &SourceType::Note,
-            &Some("我".into()),
-            true
-        )); // admin_only
-        // Substring false positive: 「我们」 is not the mine preset
-        assert!(!phantasi_source_is_own(
-            &SourceType::Rss,
-            &Some("我们".into()),
-            false
-        ));
-    }
-
-    #[test]
-    fn strip_html_snippet_truncates() {
-        let s = strip_html_snippet("<p>Hello <b>world</b> &amp; friends</p>", 200);
-        assert_eq!(s, "Hello world & friends");
-        let long = "a".repeat(200);
-        let out = strip_html_snippet(&long, 20);
-        assert!(out.ends_with('…'));
-        assert!(out.chars().count() <= 20);
-    }
-
-    #[test]
     fn share_image_rejects_data_and_emoji() {
         assert!(absolute_share_image("https://x.test", "data:image/png;base64,xx").is_none());
         assert!(absolute_share_image("https://x.test", "🔥").is_none());
@@ -1937,15 +1875,6 @@ mod tests {
                 .get(header::CACHE_CONTROL)
                 .and_then(|v| v.to_str().ok()),
             Some("public, max-age=300")
-        );
-    }
-
-    #[test]
-    fn public_absolute_url_omits_origin_when_base_missing() {
-        assert_eq!(public_absolute_url(None, "/tapp/run/x"), "/tapp/run/x");
-        assert_eq!(
-            public_absolute_url(Some("https://ex.com"), "/tapp/run/x"),
-            "https://ex.com/tapp/run/x"
         );
     }
 
@@ -2114,28 +2043,6 @@ mod tests {
         );
         assert!(html.contains(r#"rel="icon""#));
         assert!(html.contains("/favicon.webp"));
-    }
-
-    #[test]
-    fn geo_label_collapses_whitespace_and_truncates() {
-        assert_eq!(sanitize_geo_label("  Hello\nworld  "), "Hello world");
-        let long = "あ".repeat(80);
-        let out = sanitize_geo_label(&long);
-        assert!(out.ends_with('…'));
-        assert_eq!(out.chars().count(), GEO_PROMPT_LABEL_CHARS);
-    }
-
-    #[test]
-    fn geo_inspect_link_json_keeps_title_and_blurb() {
-        let items = vec![(
-            "/journal/articles/1".into(),
-            "Hello".into(),
-            Some("short".into()),
-        )];
-        let v = geo_link_json(&items);
-        assert_eq!(v[0]["title"], "Hello");
-        assert_eq!(v[0]["url"], "/journal/articles/1");
-        assert_eq!(v[0]["blurb"], "short");
     }
 
     #[test]

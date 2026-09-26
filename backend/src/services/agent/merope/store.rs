@@ -900,6 +900,68 @@ pub async fn list_diary_from_sources(
         .await?)
 }
 
+/// How many people last spoke to her in `[start, end)`: whoever came back
+/// later counts on the later day, so this undercounts and never names.
+pub(crate) async fn people_last_talked_between(
+    db: &DatabaseConnection,
+    start: chrono::DateTime<chrono::FixedOffset>,
+    end: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<u64, sea_orm::DbErr> {
+    use sea_orm::PaginatorTrait;
+    agent_addressee_state::Entity::find()
+        .filter(agent_addressee_state::Column::LastUserMessageAt.gte(start))
+        .filter(agent_addressee_state::Column::LastUserMessageAt.lt(end))
+        .count(db)
+        .await
+}
+
+/// When each person who spoke to her after `since` last did.
+pub(crate) async fn last_talked_since(
+    db: &DatabaseConnection,
+    since: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<Vec<chrono::DateTime<chrono::FixedOffset>>, sea_orm::DbErr> {
+    let spoken: Vec<Option<chrono::DateTime<chrono::FixedOffset>>> =
+        agent_addressee_state::Entity::find()
+            .select_only()
+            .column(agent_addressee_state::Column::LastUserMessageAt)
+            .filter(agent_addressee_state::Column::LastUserMessageAt.gt(since))
+            .into_tuple()
+            .all(db)
+            .await?;
+    Ok(spoken.into_iter().flatten().collect())
+}
+
+/// Work that ended with `status` (`completed`, `failed`) in `[start, end)`.
+pub(crate) async fn work_ended_between(
+    db: &DatabaseConnection,
+    status: &str,
+    start: chrono::DateTime<chrono::FixedOffset>,
+    end: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<u64, sea_orm::DbErr> {
+    use crate::models::entities::agent_tasks;
+    use sea_orm::PaginatorTrait;
+    agent_tasks::Entity::find()
+        .filter(agent_tasks::Column::Status.eq(status))
+        .filter(agent_tasks::Column::CompletedAt.gte(start))
+        .filter(agent_tasks::Column::CompletedAt.lt(end))
+        .count(db)
+        .await
+}
+
+/// How many times she spoke up unprompted in `[start, end)`.
+pub(crate) async fn spoke_up_between(
+    db: &DatabaseConnection,
+    start: chrono::DateTime<chrono::FixedOffset>,
+    end: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<u64, sea_orm::DbErr> {
+    use sea_orm::PaginatorTrait;
+    agent_proactive_messages::Entity::find()
+        .filter(agent_proactive_messages::Column::CreatedAt.gte(start))
+        .filter(agent_proactive_messages::Column::CreatedAt.lt(end))
+        .count(db)
+        .await
+}
+
 /// Event persona-memory insert. Dedup and the retraction check run under the
 /// persona-memory lock, against the unified memory table.
 pub(crate) async fn insert_remembered_if_new(

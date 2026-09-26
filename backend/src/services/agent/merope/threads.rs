@@ -187,12 +187,8 @@ pub fn section(threads: &[Thread], now: DateTime<Utc>) -> Option<String> {
 /// Threads past their time by a few days, or undated and untouched for
 /// two weeks, fade.
 pub async fn let_fade(db: &DatabaseConnection) {
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
     let now = Utc::now();
-    let rows = crate::models::entities::agent_memories::Entity::find()
-        .filter(crate::models::entities::agent_memories::Column::Source.eq(SOURCE))
-        .filter(crate::models::entities::agent_memories::Column::InvalidAt.is_null())
-        .all(db)
+    let rows = unified::active_from_source(db, SOURCE)
         .await
         .unwrap_or_default();
     let mut faded = 0;

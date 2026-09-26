@@ -4,9 +4,7 @@
 //! just to read these flags.
 
 use super::types::PlatformConfig;
-pub(crate) use crate::services::config_service::public_ui_config_value;
 use crate::services::platform_id::PlatformId;
-pub(crate) use crate::services::platform_id::platform_configured_flags;
 
 /// 按管理员配置的平台顺序对平台列表排序。
 /// `order` 中的平台按其顺序排在前面，未列出的平台保持原有默认顺序排在最后。

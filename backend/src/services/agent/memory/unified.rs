@@ -1171,6 +1171,55 @@ pub async fn retire_unowned<C: ConnectionTrait>(
     Ok(result.rows_affected > 0)
 }
 
+/// The unowned row from `source` in `venue` whose evidence carries `marker`,
+/// most recently touched first: a note kept in a group, found by whom it is on.
+pub async fn unowned_with_evidence<C: ConnectionTrait>(
+    db: &C,
+    venue: &str,
+    source: &str,
+    marker: &str,
+) -> Result<Option<agent_memories::Model>, DbErr> {
+    agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.is_null())
+        .filter(agent_memories::Column::Venue.eq(venue))
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .filter(agent_memories::Column::Evidence.contains(marker))
+        .order_by_desc(agent_memories::Column::UpdatedAt)
+        .one(db)
+        .await
+}
+
+/// Every active row from `source`, whoever it is about.
+pub async fn active_from_source<C: ConnectionTrait>(
+    db: &C,
+    source: &str,
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    agent_memories::Entity::find()
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .all(db)
+        .await
+}
+
+/// Which of these rows are still kept, faded or not.
+pub async fn still_kept<C: ConnectionTrait>(
+    db: &C,
+    ids: Vec<String>,
+) -> Result<std::collections::HashSet<String>, DbErr> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let kept: Vec<String> = agent_memories::Entity::find()
+        .select_only()
+        .column(agent_memories::Column::Id)
+        .filter(agent_memories::Column::Id.is_in(ids))
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(kept.into_iter().collect())
+}
+
 /// What she did on her own, most recent first.
 pub async fn own_experiences<C: ConnectionTrait>(
     db: &C,

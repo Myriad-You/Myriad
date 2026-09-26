@@ -12,9 +12,7 @@ pub(crate) use generate_internal::{
 pub(crate) use persist::MAX_CONCURRENT_PLATFORM_REPORTS;
 
 use axum::{Extension, Json, extract::State, http::HeaderMap};
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -23,7 +21,6 @@ use tokio::sync::RwLock;
 use crate::config::DynamicConfig;
 use crate::error::HttpError;
 use crate::middleware::auth::Claims;
-use crate::models::entities::platform_reports;
 use crate::services::platform_id::PlatformId;
 use crate::services::smart_filter::SmartFilteredData;
 use myriad_error::AppError;

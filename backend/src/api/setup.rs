@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use myriad_error::AppError;
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use sea_orm_migration::MigratorTrait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -70,9 +70,7 @@ pub async fn get_setup_config() -> Result<Json<Value>, HttpError> {
 
 // Helper functions
 
-pub(crate) use crate::services::setup_progress::{
-    SetupProgress, check_database_tables, inspect_setup_progress, setup_progress_from_flags,
-};
+use crate::services::setup_progress::{check_database_tables, inspect_setup_progress};
 
 /// 500, not 503: the wizard reads 503 as "tables not initialized".
 fn setup_state_unavailable() -> HttpError {
@@ -615,14 +613,14 @@ mod tests {
 
     #[test]
     fn setup_progress_requires_database_and_admin_not_ai_keys() {
-        let missing_admin = super::setup_progress_from_flags(true, false);
+        let missing_admin = crate::services::setup_progress::setup_progress_from_flags(true, false);
         assert!(missing_admin.is_setup_required);
         assert_eq!(
             missing_admin.missing_configs,
             vec!["No admin user registered".to_string()]
         );
 
-        let ready = super::setup_progress_from_flags(true, true);
+        let ready = crate::services::setup_progress::setup_progress_from_flags(true, true);
         assert!(!ready.is_setup_required);
         assert!(ready.missing_configs.is_empty());
     }

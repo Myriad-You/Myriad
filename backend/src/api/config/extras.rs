@@ -250,9 +250,7 @@ pub async fn update_tapp_window_schemes(
 // 一言（Hitokoto）配置 API
 
 pub(crate) const HITOKOTO_CONFIG_KEY: &str = "hitokoto_config";
-pub use crate::services::hitokoto::{
-    HITOKOTO_BUILTIN_HOSTS, HITOKOTO_SOURCE_IDS, default_hitokoto_url,
-};
+pub use crate::services::hitokoto::{HITOKOTO_SOURCE_IDS, default_hitokoto_url};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -492,7 +490,9 @@ pub async fn update_report_settings(
 
 #[cfg(test)]
 mod hitokoto_catalog_tests {
-    use super::{HITOKOTO_BUILTIN_HOSTS, HITOKOTO_SOURCE_IDS, default_hitokoto_url};
+    use crate::services::hitokoto::{
+        HITOKOTO_BUILTIN_HOSTS, HITOKOTO_SOURCE_IDS, default_hitokoto_url,
+    };
 
     /// Must stay aligned with frontend `BUILTIN_HITOKOTO_SOURCES` + `custom`
     /// (`frontend/src/utils/quote.ts`).
