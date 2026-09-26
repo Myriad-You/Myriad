@@ -149,6 +149,10 @@ struct Case {
     /// What she did on her own lately, one line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     lately: Vec<String>,
+    /// What she wrote the times she had this same thing before
+    /// (`doing_digest`), one line each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    heard_before: Vec<String>,
     /// Lyrics or a note she just took in (`doing_digest`), untrusted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     material: Option<String>,
@@ -744,6 +748,7 @@ fn request(case: &Case) -> Value {
             let input = super::merope::doing::digest_probe_input(
                 case.material.as_deref(),
                 &views,
+                &case.heard_before,
                 &case.lately,
             );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
