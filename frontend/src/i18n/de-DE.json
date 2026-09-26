@@ -842,7 +842,7 @@
       "memoryContent": "Inhalt",
       "confirmRemoveMemory": "Diese Erinnerung löschen? Beim nächsten Handeln wird sie nicht mehr genutzt.",
       "memoryScopes": {"her": "Ihre eigenen", "person": "Über Personen", "group": "In Gruppen"},
-      "memoryCategories": {"experience": "Ihr Erlebnis", "view": "Ihre Sicht", "day": "Ihr Tag", "chat": "Aus dem Chat", "event": "Etwas Geschehenes", "lookup": "Nachgeschlagen", "import": "Importiert", "playing": "Was gespielt wird", "game": "Zusammen gespielt", "bit": "Insider", "thread": "Was sie sich vorgenommen hat", "work": "Arbeitslektion", "stranger": "Notiz zu Außenstehenden", "learned": "In der Gruppe gehört", "self": "Wer sie zuletzt war", "corrected": "Korrigiert worden", "other": "Sonstiges"},
+      "memoryCategories": {"experience": "Ihr Erlebnis", "view": "Ihre Sicht", "day": "Ihr Tag", "chat": "Aus dem Chat", "event": "Etwas Geschehenes", "lookup": "Nachgeschlagen", "import": "Importiert", "playing": "Was gespielt wird", "game": "Zusammen gespielt", "bit": "Insider", "thread": "Was sie sich vorgenommen hat", "work": "Arbeitslektion", "stranger": "Notiz zu Außenstehenden", "learned": "In der Gruppe gehört", "self": "Wer sie zuletzt war", "corrected": "Korrigiert worden", "question": "Was sie wissen will", "other": "Sonstiges"},
       "memoryOwnerHer": "Sie selbst",
       "memoryOwnerUser": "Nutzer {id}",
       "memoryOwnerGroup": "{platform}-Gruppe {id}",

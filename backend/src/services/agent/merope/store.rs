@@ -521,7 +521,7 @@ pub fn portrait_generation_is_pending(value: Option<&Value>) -> bool {
 }
 
 /// Memory sources that belong to the persona, not to Work.
-pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 13] = [
+pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 14] = [
     "chat",
     "event",
     "narrative",
@@ -535,6 +535,7 @@ pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 13] = [
     super::threads::SOURCE,
     super::self_story::SOURCE,
     super::self_story::CORRECTED,
+    super::explore::QUESTION,
 ];
 
 pub async fn clear_persona_on<C>(db: &C) -> Result<(), anyhow::Error>

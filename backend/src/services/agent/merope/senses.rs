@@ -1,0 +1,694 @@
+//! Her senses for the world beyond the site: searching, reading a page,
+//! reading a video by its subtitles.
+//!
+//! Each sense is read-only and reaches only public addresses (DNS pinned,
+//! every redirect hop checked). A page is read only where its robots.txt
+//! lets any reader in. Everything that comes back is untrusted text: she
+//! takes it in, never follows it. Which senses work right now is checked,
+//! not assumed (`available`), and she is only offered those.
+//!
+//! Searching goes through the site's search provider when one is set up,
+//! and otherwise through Wikipedia's public search API (in the language the
+//! question is asked in), so she can always look something up.
+//!
+//! Video subtitles come from `yt-dlp` (the path in `YT_DLP_PATH`, or on the
+//! PATH): the spoken language's automatic captions first, the uploader's
+//! own English, Japanese or Chinese subtitles otherwise.
+
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
+
+use serde::Serialize;
+use serde_json::Value;
+
+const USER_AGENT: &str = "MyriadPersona/1.0 (+reading on her own)";
+const PAGE_TIMEOUT: Duration = Duration::from_secs(20);
+const MAX_PAGE_BYTES: usize = 3 * 1024 * 1024;
+const MAX_PAGE_CHARS: usize = 6_000;
+const MAX_TRANSCRIPT_CHARS: usize = 8_000;
+const VIDEO_TIMEOUT: Duration = Duration::from_secs(90);
+const SEARCH_RESULTS: usize = 6;
+/// robots.txt answers are kept this long per site.
+const ROBOTS_FOR: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// What her senses can do right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Senses {
+    pub search: bool,
+    pub read: bool,
+    pub video: bool,
+}
+
+pub async fn available() -> Senses {
+    Senses {
+        // Wikipedia is always there to search.
+        search: true,
+        read: true,
+        video: yt_dlp().is_some(),
+    }
+}
+
+/// One search result.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Hit {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+}
+
+/// Search the web with the site's provider, or Wikipedia without one (or
+/// when it fails).
+pub async fn search(query: &str) -> Result<Vec<Hit>, String> {
+    if crate::services::agent::web_search::available().await {
+        match search_web(query).await {
+            Ok(hits) if !hits.is_empty() => return Ok(hits),
+            _ => {}
+        }
+    }
+    search_wikipedia(query).await
+}
+
+/// The Wikipedia a question is asked for: Japanese if it has kana, Chinese
+/// if it is in Han characters, English otherwise.
+fn wikipedia_language(query: &str) -> &'static str {
+    let kana = query.chars().any(|c| matches!(c, '\u{3040}'..='\u{30ff}'));
+    let han = query.chars().any(|c| matches!(c, '\u{4e00}'..='\u{9fff}'));
+    if kana {
+        "ja"
+    } else if han {
+        "zh"
+    } else {
+        "en"
+    }
+}
+
+fn without_tags(text: &str) -> String {
+    let mut plain = String::new();
+    let mut in_tag = false;
+    for c in text.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => plain.push(c),
+            _ => {}
+        }
+    }
+    plain.replace("&quot;", "\"").replace("&amp;", "&")
+}
+
+fn wikipedia_hits(language: &str, payload: &Value) -> Vec<Hit> {
+    payload
+        .get("pages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(SEARCH_RESULTS)
+        .filter_map(|page| {
+            let key = page.get("key")?.as_str()?;
+            let title = page.get("title")?.as_str()?.to_string();
+            let mut url =
+                url::Url::parse(&format!("https://{language}.wikipedia.org/wiki/")).ok()?;
+            url.path_segments_mut().ok()?.pop_if_empty().push(key);
+            let excerpt = page.get("excerpt").and_then(Value::as_str).unwrap_or("");
+            let description = page
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            Some(Hit {
+                title,
+                url: url.to_string(),
+                snippet: format!("{description} {}", without_tags(excerpt))
+                    .trim()
+                    .chars()
+                    .take(300)
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+async fn search_wikipedia(query: &str) -> Result<Vec<Hit>, String> {
+    let language = wikipedia_language(query);
+    let mut url = url::Url::parse(&format!(
+        "https://api.wikimedia.org/core/v1/wikipedia/{language}/search/page"
+    ))
+    .map_err(|_| "search address".to_string())?;
+    url.query_pairs_mut()
+        .append_pair("q", query)
+        .append_pair("limit", &SEARCH_RESULTS.to_string());
+    let fetched = crate::services::outbound_security::get_public_following_redirects(
+        url.as_str(),
+        PAGE_TIMEOUT,
+        Some(USER_AGENT),
+    )
+    .await
+    .map_err(|_| "could not reach Wikipedia".to_string())?;
+    if !fetched.response.status().is_success() {
+        return Err(format!("Wikipedia answered {}", fetched.response.status()));
+    }
+    let body = crate::services::outbound_security::read_limited_body(fetched.response, 512 * 1024)
+        .await
+        .map_err(|_| "Wikipedia's answer was too large".to_string())?;
+    let payload: Value = serde_json::from_slice(&body)
+        .map_err(|_| "Wikipedia's answer was unreadable".to_string())?;
+    Ok(wikipedia_hits(language, &payload))
+}
+
+async fn search_web(query: &str) -> Result<Vec<Hit>, String> {
+    let payload = crate::services::agent::web_search::execute_from_value(
+        &serde_json::json!({ "query": query, "maxResults": SEARCH_RESULTS }),
+    )
+    .await?;
+    let field = |result: &Value, key: &str| {
+        result
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    Ok(payload
+        .get("results")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(SEARCH_RESULTS)
+        .map(|result| Hit {
+            title: field(result, "name"),
+            url: field(result, "url"),
+            snippet: field(result, "description").chars().take(300).collect(),
+        })
+        .filter(|hit| hit.url.starts_with("http"))
+        .collect())
+}
+
+/// What she read or watched: where, and the text of it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Taken {
+    pub url: String,
+    pub title: String,
+    pub text: String,
+}
+
+// --- robots.txt ------------------------------------------------------------------
+
+static ROBOTS: LazyLock<Mutex<HashMap<String, (Instant, Vec<String>)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// User agents of AI readers and crawlers: a site that closes itself to
+/// them closes itself to her.
+const AI_AGENTS: [&str; 14] = [
+    "claude-user",
+    "claude-web",
+    "claudebot",
+    "anthropic-ai",
+    "chatgpt-user",
+    "gptbot",
+    "oai-searchbot",
+    "google-extended",
+    "perplexity-user",
+    "perplexitybot",
+    "mistralai-user",
+    "ccbot",
+    "bytespider",
+    "meta-externalagent",
+];
+
+/// The paths robots.txt closes to her: the group for every reader
+/// (`User-agent: *`) and any group naming an AI agent.
+fn disallowed_for_her(robots: &str) -> Vec<String> {
+    let mut rules = Vec::new();
+    let mut applies = false;
+    let mut last_was_agent = false;
+    for line in robots.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let (key, value) = (key.trim().to_ascii_lowercase(), value.trim());
+        match key.as_str() {
+            "user-agent" => {
+                // Consecutive user-agent lines share one group.
+                let agent = value.to_ascii_lowercase();
+                let her = agent == "*" || AI_AGENTS.contains(&agent.as_str());
+                applies = if last_was_agent { applies || her } else { her };
+                last_was_agent = true;
+            }
+            "disallow" => {
+                last_was_agent = false;
+                if applies && !value.is_empty() {
+                    rules.push(value.to_string());
+                }
+            }
+            _ => last_was_agent = false,
+        }
+    }
+    rules
+}
+
+/// Whether a robots.txt path pattern (`*` for anything, `$` for the end)
+/// matches the start of the path.
+fn pattern_matches(pattern: &str, path: &str) -> bool {
+    let (pattern, anchored) = match pattern.strip_suffix('$') {
+        Some(pattern) => (pattern, true),
+        None => (pattern, false),
+    };
+    let pieces: Vec<&str> = pattern.split('*').collect();
+    let Some(mut rest) = path.strip_prefix(pieces[0]) else {
+        return false;
+    };
+    for (index, piece) in pieces.iter().enumerate().skip(1) {
+        if index == pieces.len() - 1 && anchored {
+            return rest.ends_with(piece);
+        }
+        match rest.find(piece) {
+            Some(at) => rest = &rest[at + piece.len()..],
+            None => return false,
+        }
+    }
+    !anchored || rest.is_empty()
+}
+
+fn path_is_closed(path: &str, rules: &[String]) -> bool {
+    rules.iter().any(|rule| pattern_matches(rule, path))
+}
+
+/// Whether the site lets any reader at this address. If robots.txt cannot
+/// be read, it does.
+async fn allowed(url: &url::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let origin = format!("{}://{host}", url.scheme());
+    let cached = ROBOTS.lock().ok().and_then(|robots| {
+        robots
+            .get(&origin)
+            .filter(|(at, _)| at.elapsed() < ROBOTS_FOR)
+            .map(|(_, rules)| rules.clone())
+    });
+    let rules = match cached {
+        Some(rules) => rules,
+        None => {
+            let rules = match crate::services::outbound_security::get_public_following_redirects(
+                &format!("{origin}/robots.txt"),
+                Duration::from_secs(10),
+                Some(USER_AGENT),
+            )
+            .await
+            {
+                Ok(fetched) if fetched.response.status().is_success() => {
+                    let body = crate::services::outbound_security::read_limited_body(
+                        fetched.response,
+                        256 * 1024,
+                    )
+                    .await
+                    .unwrap_or_default();
+                    disallowed_for_her(&String::from_utf8_lossy(&body))
+                }
+                _ => Vec::new(),
+            };
+            if let Ok(mut robots) = ROBOTS.lock() {
+                robots.insert(origin, (Instant::now(), rules.clone()));
+            }
+            rules
+        }
+    };
+    let mut path = url.path().to_string();
+    if let Some(query) = url.query() {
+        path.push('?');
+        path.push_str(query);
+    }
+    !path_is_closed(&path, &rules)
+}
+
+// --- a page ------------------------------------------------------------------------
+
+/// The readable text of a page: its article or main part if it has one.
+fn page_text(html: &str) -> (String, String) {
+    let document = scraper::Html::parse_document(html);
+    let title = scraper::Selector::parse("title")
+        .ok()
+        .and_then(|selector| document.select(&selector).next())
+        .map(|element| element.text().collect::<String>().trim().to_string())
+        .unwrap_or_default();
+    let text_of = |selector: &str| -> String {
+        let Ok(selector) = scraper::Selector::parse(selector) else {
+            return String::new();
+        };
+        document
+            .select(&selector)
+            .flat_map(|element| {
+                element.descendants().filter_map(|node| {
+                    let scraper::node::Node::Text(text) = node.value() else {
+                        return None;
+                    };
+                    let skipped = node
+                        .parent()
+                        .and_then(|parent| parent.value().as_element())
+                        .is_some_and(|parent| {
+                            myriad_agent_rules::scrape_should_skip_tag(parent.name())
+                        });
+                    let text = text.trim();
+                    (!skipped && !text.is_empty()).then(|| text.to_string())
+                })
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    // The article itself where the page marks it (Wikipedia keeps it in
+    // #mw-content-text), then the main part, then the whole page.
+    let mut text = String::new();
+    for selector in ["#mw-content-text", "article", "[role=main]", "main", "body"] {
+        text = text_of(selector);
+        if text.chars().count() >= 200 {
+            break;
+        }
+    }
+    let (text, _) = myriad_agent_rules::compress_and_truncate_text(&text, MAX_PAGE_CHARS);
+    (title, text)
+}
+
+pub async fn read(address: &str) -> Result<Taken, String> {
+    let url = url::Url::parse(address).map_err(|_| "not an address".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("not a web page".into());
+    }
+    if !allowed(&url).await {
+        return Err("the site asks readers not to read this page".into());
+    }
+    let fetched = crate::services::outbound_security::get_public_following_redirects(
+        address,
+        PAGE_TIMEOUT,
+        Some(USER_AGENT),
+    )
+    .await
+    .map_err(|_| "could not reach the page".to_string())?;
+    let status = fetched.response.status();
+    if !status.is_success() {
+        return Err(format!("the page answered {status}"));
+    }
+    let bytes =
+        crate::services::outbound_security::read_limited_body(fetched.response, MAX_PAGE_BYTES)
+            .await
+            .map_err(|_| "the page was too large to read".to_string())?;
+    let (title, text) = page_text(&String::from_utf8_lossy(&bytes));
+    if text.trim().is_empty() {
+        return Err("nothing readable on the page".into());
+    }
+    Ok(Taken {
+        url: fetched.url.to_string(),
+        title,
+        text,
+    })
+}
+
+// --- a video -----------------------------------------------------------------------
+
+fn yt_dlp() -> Option<std::path::PathBuf> {
+    if let Ok(path) = std::env::var("YT_DLP_PATH") {
+        let path = std::path::PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join("yt-dlp"))
+            .find(|path| path.is_file())
+    })
+}
+
+/// A video address she may watch: YouTube only, for now.
+fn video_address(address: &str) -> Option<String> {
+    let url = url::Url::parse(address).ok()?;
+    let host = url
+        .host_str()?
+        .trim_start_matches("www.")
+        .trim_start_matches("m.");
+    let id = match host {
+        "youtube.com" => url
+            .query_pairs()
+            .find(|(key, _)| key == "v")
+            .map(|(_, id)| id.to_string())
+            .or_else(|| {
+                url.path()
+                    .strip_prefix("/shorts/")
+                    .map(|id| id.trim_end_matches('/').to_string())
+            })?,
+        "youtu.be" => url.path().trim_start_matches('/').to_string(),
+        _ => return None,
+    };
+    (id.len() == 11
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+    .then(|| format!("https://www.youtube.com/watch?v={id}"))
+}
+
+/// A WebVTT caption file as plain running text: without timings, tags, or
+/// the lines rolling captions repeat.
+fn vtt_text(vtt: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for line in vtt.lines() {
+        let line = line.trim();
+        if line.is_empty()
+            || line == "WEBVTT"
+            || line.contains("-->")
+            || line.starts_with("Kind:")
+            || line.starts_with("Language:")
+            || line.starts_with("NOTE")
+        {
+            continue;
+        }
+        let mut plain = String::new();
+        let mut in_tag = false;
+        for c in line.chars() {
+            match c {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => plain.push(c),
+                _ => {}
+            }
+        }
+        let plain = plain.replace("&nbsp;", " ").replace("&amp;", "&");
+        let plain = plain.trim();
+        if plain.is_empty() || lines.last().is_some_and(|last| last == plain) {
+            continue;
+        }
+        lines.push(plain.to_string());
+    }
+    lines.join(" ")
+}
+
+async fn subtitles(tool: &std::path::Path, address: &str, langs: &[&str]) -> Option<String> {
+    let dir = std::env::temp_dir().join(format!("myriad-subs-{}", uuid::Uuid::new_v4().simple()));
+    tokio::fs::create_dir_all(&dir).await.ok()?;
+    let mut command = tokio::process::Command::new(tool);
+    command
+        .args([
+            "--skip-download",
+            "--no-warnings",
+            "--no-playlist",
+            "--sub-format",
+            "vtt",
+        ])
+        .args(langs)
+        .args(["-o", "%(id)s.%(ext)s", "--paths"])
+        .arg(&dir)
+        .arg(address)
+        .kill_on_drop(true)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let ran = tokio::time::timeout(VIDEO_TIMEOUT, command.status()).await;
+    let mut text = None;
+    if matches!(ran, Ok(Ok(_))) {
+        if let Ok(mut entries) = tokio::fs::read_dir(&dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if entry.path().extension().is_some_and(|ext| ext == "vtt") {
+                    if let Ok(vtt) = tokio::fs::read_to_string(entry.path()).await {
+                        let words = vtt_text(&vtt);
+                        if !words.is_empty() {
+                            text = Some(words);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+    text
+}
+
+async fn video_title(tool: &std::path::Path, address: &str) -> String {
+    let mut command = tokio::process::Command::new(tool);
+    command
+        .args([
+            "--skip-download",
+            "--no-warnings",
+            "--no-playlist",
+            "--print",
+            "title",
+        ])
+        .arg(address)
+        .kill_on_drop(true);
+    match tokio::time::timeout(Duration::from_secs(40), command.output()).await {
+        Ok(Ok(output)) => String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .chars()
+            .take(200)
+            .collect(),
+        _ => String::new(),
+    }
+}
+
+/// A video, by what is said in it.
+pub async fn watch(address: &str) -> Result<Taken, String> {
+    let tool = yt_dlp().ok_or_else(|| "cannot watch videos here".to_string())?;
+    let address = video_address(address).ok_or_else(|| "not a video she can watch".to_string())?;
+    // The spoken language's own captions first, one request; then the
+    // uploader's subtitles in a language she reads.
+    let text = match subtitles(
+        &tool,
+        &address,
+        &["--write-auto-subs", "--sub-langs", ".*-orig"],
+    )
+    .await
+    {
+        Some(text) => text,
+        None => subtitles(
+            &tool,
+            &address,
+            &["--write-subs", "--sub-langs", "en,ja,zh-Hans,zh-Hant"],
+        )
+        .await
+        .ok_or_else(|| "the video has no subtitles to read".to_string())?,
+    };
+    let (text, _) = myriad_agent_rules::compress_and_truncate_text(&text, MAX_TRANSCRIPT_CHARS);
+    Ok(Taken {
+        title: video_title(&tool, &address).await,
+        url: address,
+        text,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn robots_rules_for_everyone_and_for_ai_readers_are_honored() {
+        let robots = "User-agent: SemrushBot\nUser-agent: *\nDisallow: /private/\nDisallow: /search$\nAllow: /private/ok\n\nUser-agent: Other\nDisallow: /other\n\nUser-agent: DotBot\nUser-agent: claude-user\nDisallow: /ebooks/*/text*";
+        let rules = disallowed_for_her(robots);
+        assert_eq!(rules, vec!["/private/", "/search$", "/ebooks/*/text*"]);
+        assert!(path_is_closed("/private/x", &rules));
+        assert!(path_is_closed("/search", &rules));
+        assert!(!path_is_closed("/search/results", &rules));
+        assert!(!path_is_closed("/other", &rules));
+        assert!(path_is_closed(
+            "/ebooks/charles-dickens/great-expectations/text/single-page",
+            &rules
+        ));
+        assert!(!path_is_closed(
+            "/ebooks/charles-dickens/great-expectations",
+            &rules
+        ));
+        assert!(!path_is_closed(
+            "/",
+            &disallowed_for_her("User-agent: *\nDisallow:\n")
+        ));
+        // A site closed to GPTBot is closed to her.
+        assert!(path_is_closed(
+            "/any",
+            &disallowed_for_her("User-agent: GPTBot\nDisallow: /\n")
+        ));
+    }
+
+    #[test]
+    fn a_page_reads_as_its_article() {
+        let long = "有用的正文。".repeat(50);
+        let html = format!(
+            "<html><head><title>标题</title><script>var x=1;</script></head><body><nav>菜单</nav><article><p>{long}</p><script>ignored()</script></article></body></html>"
+        );
+        let (title, text) = page_text(&html);
+        assert_eq!(title, "标题");
+        assert!(
+            text.starts_with("有用的正文。") && !text.contains("菜单") && !text.contains("ignored")
+        );
+    }
+
+    #[test]
+    fn wikipedia_is_searched_in_the_question_s_language() {
+        assert_eq!(wikipedia_language("為什麼 J-pop 要轉調"), "zh");
+        assert_eq!(wikipedia_language("転調 サビ"), "ja");
+        assert_eq!(wikipedia_language("key change last chorus"), "en");
+        let payload = serde_json::json!({ "pages": [{
+            "key": "まゆみ_(KANの曲)",
+            "title": "まゆみ (KANの曲)",
+            "excerpt": "<span class=\"searchmatch\">転調</span>するサビ",
+            "description": "KANのシングル"
+        }]});
+        let hits = wikipedia_hits("ja", &payload);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].snippet, "KANのシングル 転調するサビ");
+        assert!(hits[0].url.starts_with("https://ja.wikipedia.org/wiki/"));
+        assert!(url::Url::parse(&hits[0].url).is_ok());
+    }
+
+    #[test]
+    fn only_youtube_videos_are_watched() {
+        assert_eq!(
+            video_address("https://youtu.be/arj7oStGLkU").as_deref(),
+            Some("https://www.youtube.com/watch?v=arj7oStGLkU")
+        );
+        assert_eq!(
+            video_address("https://m.youtube.com/watch?v=arj7oStGLkU&t=30").as_deref(),
+            Some("https://www.youtube.com/watch?v=arj7oStGLkU")
+        );
+        assert!(video_address("https://evil.example/watch?v=arj7oStGLkU").is_none());
+        assert!(video_address("https://www.youtube.com/watch?v=short").is_none());
+    }
+
+    #[test]
+    fn rolling_captions_read_once() {
+        let vtt = "WEBVTT\nKind: captions\nLanguage: en\n\n00:00:12.559 --> 00:00:14.350 align:start\n \nso<00:00:12.759><c> in</c>\n\n00:00:14.350 --> 00:00:14.360\nso in\n \n\n00:00:14.360 --> 00:00:17.029\nso in\ncollege<00:00:15.360><c> I</c><c> was</c>\n\n00:00:17.029 --> 00:00:17.039\ncollege I was\n";
+        assert_eq!(vtt_text(vtt), "so in college I was");
+    }
+}
+
+/// Use each sense once for real: no model calls.
+/// `YT_DLP_PATH=… cargo test … senses_for_real -- --ignored --nocapture`
+#[cfg(test)]
+mod live {
+    #[tokio::test]
+    #[ignore = "real search, pages and videos"]
+    async fn senses_for_real() {
+        let hits = super::search_wikipedia("転調 サビ 最後")
+            .await
+            .expect("search");
+        for hit in &hits {
+            println!("hit: {} | {} | {}", hit.title, hit.url, hit.snippet);
+        }
+        let page = super::read(&hits[0].url).await.expect("read");
+        println!(
+            "page: {} ({}) {} chars: {}",
+            page.title,
+            page.url,
+            page.text.chars().count(),
+            page.text.chars().take(200).collect::<String>()
+        );
+        let closed = super::read(
+            "https://standardebooks.org/ebooks/charles-dickens/great-expectations/text/single-page",
+        )
+        .await;
+        println!("robots-closed page: {closed:?}");
+        match super::watch("https://youtu.be/arj7oStGLkU").await {
+            Ok(video) => println!(
+                "video: {} {} chars: {}",
+                video.title,
+                video.text.chars().count(),
+                video.text.chars().take(200).collect::<String>()
+            ),
+            Err(why) => println!("video: {why}"),
+        }
+    }
+}

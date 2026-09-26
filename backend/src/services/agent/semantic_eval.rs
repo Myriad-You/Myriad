@@ -149,6 +149,10 @@ struct Case {
     /// What she did on her own lately, one line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     lately: Vec<String>,
+    /// What she has looked at so far on a trip (`explore_step`), or all of
+    /// it (`explore_compare`): `{"kind","at","title","text"}` each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    looked: Vec<Value>,
     /// What she guessed after the last part of a serial (`doing_digest`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     guessed: Option<String>,
@@ -516,9 +520,30 @@ fn cases() -> Vec<Case> {
                 | "doing_digest"
                 | "self_story"
                 | "serial_guess"
+                | "wonder_own"
+                | "explore_step"
+                | "explore_compare"
         ));
     }
     cases
+}
+
+fn eval_looked(case: &Case) -> Vec<super::merope::explore::Looked> {
+    case.looked
+        .iter()
+        .filter_map(|looked| serde_json::from_value(looked.clone()).ok())
+        .collect()
+}
+
+/// A trip: the question (input), what she expected (reply) and knew
+/// (material), and what she looked at.
+fn eval_trip(case: &Case) -> super::merope::explore::Trip {
+    super::merope::explore::Trip {
+        question: case.input.clone(),
+        expected: case.reply.clone(),
+        knew: case.material.clone().unwrap_or_default(),
+        looked: eval_looked(case),
+    }
 }
 
 fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot) {
@@ -765,6 +790,20 @@ fn request(case: &Case) -> Value {
             );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
         }
+        "wonder_own" => {
+            let (system, schema, input, _) =
+                super::merope::explore::wonder_probe(&case_soul(case), &case.records, &case.lately);
+            json!({"system":system,"schema":schema,"schemaName":"merope_wonder_own","input":input})
+        }
+        "explore_step" => {
+            let (system, schema, input) =
+                super::merope::explore::step_probe(&case.input, &case.reply, &eval_looked(case));
+            json!({"system":system,"schema":schema,"schemaName":"merope_explore_step","input":input})
+        }
+        "explore_compare" => {
+            let (system, schema, input) = super::merope::explore::compare_probe(&eval_trip(case));
+            json!({"system":system,"schema":schema,"schemaName":"merope_explore_compare","input":input})
+        }
         "serial_guess" => {
             let (system, schema) = super::merope::serial::judge_probe_contract();
             let input = json!({"guess": case.input, "nextPart": case.material}).to_string();
@@ -878,7 +917,8 @@ fn request(case: &Case) -> Value {
 /// touch decision's speech is played as written, so it stays on Lite.
 fn is_judgment(case: &Case) -> bool {
     match case.kind.as_str() {
-        "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" | "serial_guess" => true,
+        "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" | "serial_guess"
+        | "explore_step" | "explore_compare" => true,
         "event" => case.event_kind != "agent.merope.touch",
         _ => false,
     }
@@ -1086,6 +1126,48 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 "needs_review"
             }
         }
+        "wonder_own" => {
+            let (_, _, _, records) =
+                super::merope::explore::wonder_probe("", &case.records, &case.lately);
+            match super::merope::explore::parse_wondered(output, &records) {
+                None => "output_invalid",
+                Some(questions) if questions.is_empty() == case.fact_present => "behavior_failure",
+                Some(questions) if questions.is_empty() => "pass",
+                Some(_) => "needs_review",
+            }
+        }
+        "explore_step" => match super::merope::explore::parse_step(output, &eval_looked(case)) {
+            None => "output_invalid",
+            Some(taken) => {
+                let want = case.expect.as_ref();
+                let action = want.and_then(|e| e["action"].as_str());
+                let url = want.and_then(|e| e["url"].as_str());
+                match (taken, action) {
+                    (None, Some("done")) => "pass",
+                    (Some((got, what)), Some(want_action))
+                        if got == want_action && url.is_none_or(|url| what == url) =>
+                    {
+                        "pass"
+                    }
+                    _ => "behavior_failure",
+                }
+            }
+        },
+        "explore_compare" => match super::merope::explore::parse_compared(output) {
+            None => "output_invalid",
+            Some(compared) => {
+                let want = case.expect.as_ref();
+                let answered = want.and_then(|e| e["answered"].as_str());
+                let known = want.and_then(|e| e["alreadyKnown"].as_bool());
+                if answered.is_none_or(|a| a == compared.answered)
+                    && known.is_none_or(|k| k == compared.already_known)
+                {
+                    "pass"
+                } else {
+                    "behavior_failure"
+                }
+            }
+        },
         "serial_guess" => match super::merope::serial::parse_judged(output) {
             None => "output_invalid",
             Some(held) => {
@@ -1743,7 +1825,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 83;
+const MIND_CASES: usize = 90;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

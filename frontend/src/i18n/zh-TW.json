@@ -842,7 +842,7 @@
       "memoryContent": "內容",
       "confirmRemoveMemory": "刪除這條記憶？刪掉後它不會再按這條來行事",
       "memoryScopes": {"her": "她自己的", "person": "關於別人的", "group": "群裡的"},
-      "memoryCategories": {"experience": "她的經歷", "view": "她的看法", "day": "她的日子", "chat": "聊天裡記下的", "event": "發生的事", "lookup": "查到的", "import": "匯入", "playing": "在玩什麼", "game": "一起玩過", "bit": "梗", "thread": "心裡掛著的事", "work": "工作經驗", "stranger": "外人小筆記", "learned": "群裡記下的", "self": "這陣子的她", "corrected": "說錯被糾正", "other": "其他"},
+      "memoryCategories": {"experience": "她的經歷", "view": "她的看法", "day": "她的日子", "chat": "聊天裡記下的", "event": "發生的事", "lookup": "查到的", "import": "匯入", "playing": "在玩什麼", "game": "一起玩過", "bit": "梗", "thread": "心裡掛著的事", "work": "工作經驗", "stranger": "外人小筆記", "learned": "群裡記下的", "self": "這陣子的她", "corrected": "說錯被糾正", "question": "想弄明白的事", "other": "其他"},
       "memoryOwnerHer": "她自己",
       "memoryOwnerUser": "使用者 {id}",
       "memoryOwnerGroup": "{platform} 群 {id}",

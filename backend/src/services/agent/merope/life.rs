@@ -8,6 +8,8 @@
 //!   every audience hears it, nothing about any one person goes in.
 //! - **Her views.** She goes over what she did on her own lately and lets
 //!   views of her own grow or change (see `views`).
+//! - **What she wonders.** From what she did this past week, the questions
+//!   she would like to go and find out (see `explore`).
 //! - **Who she has been.** Once a week she looks back over what she did and
 //!   writes who she has been lately, from those records alone (see
 //!   `self_story`).
@@ -75,6 +77,7 @@ pub async fn tick(db: DatabaseConnection) {
     }
     super::views::go_over(&db, owner).await;
     super::self_story::look_back(&db, owner).await;
+    super::explore::wonder(&db, owner).await;
     // Yesterday with each person, once a night.
     if let Some((start, end)) = now.date_naive().pred_opt().and_then(day_bounds) {
         if BITS_DONE

@@ -48,6 +48,7 @@ pub fn category(row: &agent_memories::Model) -> &'static str {
             "narrative" => "day",
             "self" => "self",
             "corrected" => "corrected",
+            "question" => "question",
             _ => "other",
         },
         Whose::Person(_) => match source {

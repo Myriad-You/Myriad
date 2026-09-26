@@ -144,9 +144,16 @@ fn clip(text: &str) -> String {
 }
 
 /// What happened since `since`, oldest first, and the counts.
-async fn records(db: &DatabaseConnection, since: DateTime<FixedOffset>) -> (Vec<Record>, Value) {
+pub(super) async fn records(
+    db: &DatabaseConnection,
+    since: DateTime<FixedOffset>,
+) -> (Vec<Record>, Value) {
     let mut found: Vec<(DateTime<FixedOffset>, String, String, bool)> = Vec::new();
-    let (mut songs, mut notes) = (HashMap::<String, u32>::new(), HashMap::<String, u32>::new());
+    let (mut songs, mut notes, mut inquiries) = (
+        HashMap::<String, u32>::new(),
+        HashMap::<String, u32>::new(),
+        HashMap::<String, u32>::new(),
+    );
     for row in unified::own_experiences(db, 300).await.unwrap_or_default() {
         if row.created_at < since {
             continue;
@@ -160,6 +167,8 @@ async fn records(db: &DatabaseConnection, since: DateTime<FixedOffset>) -> (Vec<
             .unwrap_or("unsaid");
         let tally = if line.starts_with("listening") {
             &mut songs
+        } else if line.starts_with("finding out") {
+            &mut inquiries
         } else {
             &mut notes
         };
@@ -209,6 +218,7 @@ async fn records(db: &DatabaseConnection, since: DateTime<FixedOffset>) -> (Vec<
     let tally = json!({
         "songs": songs,
         "notes": notes,
+        "findingOut": inquiries,
         "shownWrong": wrong,
     });
     (records, tally)
