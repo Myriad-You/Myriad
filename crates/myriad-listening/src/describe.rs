@@ -17,7 +17,25 @@ fn moment_text(moment: &Moment) -> Option<String> {
             moment.amount
         ),
         MomentKind::NewSection => return None,
+        MomentKind::KeyChange => format!("the key moves {}", key_move(moment.amount)),
     })
+}
+
+/// "up a whole step".
+pub(crate) fn key_move(semitones: f32) -> String {
+    let steps = semitones.round() as i32;
+    let size = match steps.abs() {
+        1 => "a half step",
+        2 => "a whole step",
+        3 => "a minor third",
+        _ => "",
+    };
+    let way = if steps > 0 { "up" } else { "down" };
+    if size.is_empty() {
+        format!("{way} {} semitones", steps.abs())
+    } else {
+        format!("{way} {size}")
+    }
 }
 
 impl ListeningSheet {

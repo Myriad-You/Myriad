@@ -184,6 +184,10 @@ pub fn find(seconds: &Seconds, sections: &[Section]) -> Vec<Moment> {
     }
     push(MomentKind::Build, builds);
 
+    for (at, up) in crate::tonal::key_changes(seconds) {
+        push(MomentKind::KeyChange, vec![(at, up as f32)]);
+    }
+
     for pair in sections.windows(2) {
         moments.push(Moment {
             at_s: pair[1].start_s,

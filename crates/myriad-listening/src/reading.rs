@@ -23,6 +23,9 @@ pub struct Reading {
 const CHILLS: &str = "Moments like this (a sudden swell, the sound widening, a new section breaking in after a quieter one) are where listeners most often report chills, shivers or a lump in the throat.";
 const CHILLS_SOURCE: &str = "Sloboda 1991, Psychology of Music; Grewe et al. 2007, Music Perception; Guhn, Hamm & Zentner 2007, Music Perception";
 
+const KEY_CHANGE: &str = "A change of key, above all a lift for a last chorus, is new and unexpected harmony, among the events listeners most tie to shivers.";
+const KEY_CHANGE_SOURCE: &str = "Sloboda 1991, Psychology of Music";
+
 const CHORUS_IN: &str = "The start of a new part, and above all the chorus arriving, is where listeners' attention peaks and where chills tend to cluster.";
 const CHORUS_IN_SOURCE: &str =
     "Grewe et al. 2007, Music Perception; Guhn, Hamm & Zentner 2007, Music Perception";
@@ -125,6 +128,31 @@ fn chills(sheet: &ListeningSheet) -> Vec<Reading> {
             })
         })
         .collect();
+    for moment in sheet
+        .moments
+        .iter()
+        .filter(|m| m.kind == MomentKind::KeyChange)
+    {
+        let mut heard = format!(
+            "At {} the key moves {}",
+            clock(moment.at_s),
+            crate::describe::key_move(moment.amount)
+        );
+        let chorus = chorus_starts_at(sheet, moment.at_s);
+        if chorus {
+            heard.push_str(", into the chorus");
+        }
+        if let Some(line) = line_at(sheet, moment.at_s) {
+            heard.push_str(&format!("; the line 「{line}」 is sung right there"));
+        }
+        found.push(Candidate {
+            at_s: moment.at_s,
+            score: 12.0 + if chorus { 5.0 } else { 0.0 },
+            heard,
+            tends_to: KEY_CHANGE,
+            source: KEY_CHANGE_SOURCE,
+        });
+    }
     // The chorus coming in is a moment even when the loudness hardly moves
     // (a heavily compressed master): what changes is how it sounds.
     for (index, section) in sheet.sections.iter().enumerate().skip(1) {

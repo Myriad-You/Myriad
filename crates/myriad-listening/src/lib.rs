@@ -92,6 +92,8 @@ pub enum MomentKind {
     Build,
     /// A new section begins.
     NewSection,
+    /// The music moves to a new key and stays there.
+    KeyChange,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,7 +101,7 @@ pub struct Moment {
     pub at_s: f32,
     pub kind: MomentKind,
     /// How much: dB for loudness moments, the ratio for brightness, the
-    /// seconds a build lasted.
+    /// seconds a build lasted, semitones for a key change.
     pub amount: f32,
 }
 
