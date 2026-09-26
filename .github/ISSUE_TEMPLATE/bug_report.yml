@@ -45,6 +45,29 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Problem type · 问题类型
+      options:
+        - Looks wrong (layout / style / interaction) · 界面不对（布局、样式、交互）
+        - Doesn't work (feature / data) · 功能不工作（功能、数据）
+        - Server or deployment error · 服务端或部署报错
+    validations:
+      required: true
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device · 设备
+      options:
+        - Desktop · 桌面端
+        - Mobile · 移动端
+        - Both · 两者都有
+        - Not device-specific (server side) · 与设备无关（服务端）
+    validations:
+      required: true
+
   - type: textarea
     id: what-happened
     attributes:

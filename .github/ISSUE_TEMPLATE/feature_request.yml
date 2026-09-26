@@ -36,6 +36,14 @@ body:
     validations:
       required: true
 
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope · 范围
+      options:
+        - label: Mainly about the UI · 主要涉及界面
+        - label: Mainly about mobile · 主要涉及移动端
+
   - type: textarea
     id: problem
     attributes:

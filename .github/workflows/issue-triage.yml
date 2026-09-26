@@ -1,0 +1,124 @@
+name: Issue triage
+
+# Issues filed through the issue forms: labels UI and mobile issues, and sets
+# the Area field on the Myriad Roadmap project (org project #2).
+#
+# The issue body is untrusted input. It is only read inside github-script and
+# never interpolated into an expression or shell; the area passed between
+# steps is always one of AREAS.
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      HAS_PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN != '' }}
+    steps:
+      - name: Label and read area
+        id: route
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Must match the "Area · 所在模块" options in .github/ISSUE_TEMPLATE/*.yml
+            // and the Area field options on the project.
+            const AREAS = new Set([
+              'Homepage · 首页',
+              'Platforms · 外部平台',
+              'Library & reports · 媒体库与报告',
+              'Persona & 2.5D · 形象与 2.5D',
+              'Tapp',
+              'Agent',
+              'Phantasi',
+              'Federation · 联邦',
+              'Accounts & visibility · 账户与可见性',
+              'Deployment / update / backup · 部署 / 更新 / 备份',
+              'Other · 其他',
+            ]);
+
+            const section = (body, heading) => {
+              const m = (body || '').match(new RegExp(`^###\\s*${heading}\\s*\\n+([\\s\\S]*?)(?=\\n###\\s|(?![\\s\\S]))`, 'm'));
+              return m ? m[1].trim() : '';
+            };
+            const routeOf = (body) => {
+              const area = section(body, 'Area · 所在模块').split('\n')[0].trim();
+              const kind = section(body, 'Problem type · 问题类型');
+              const device = section(body, 'Device · 设备');
+              const scope = section(body, 'Scope · 范围');
+              return {
+                area: AREAS.has(area) ? area : null,
+                ui: kind.startsWith('Looks wrong') || /^- \[x\] Mainly about the UI/im.test(scope),
+                mobile: device === 'Mobile · 移动端' || device === 'Both · 两者都有'
+                  || /^- \[x\] Mainly about mobile/im.test(scope),
+              };
+            };
+            const same = (a, b) => a.area === b.area && a.ui === b.ui && a.mobile === b.mobile;
+
+            const issue = context.payload.issue;
+            const route = routeOf(issue.body);
+            if (!route.area && !route.ui && !route.mobile) {
+              core.info('Not filed through a form; nothing to route.');
+              return;
+            }
+            if (context.payload.action === 'edited') {
+              const before = context.payload.changes?.body?.from;
+              if (before === undefined || same(routeOf(before), route)) {
+                core.info('Routing unchanged by this edit.');
+                return;
+              }
+            }
+            if (route.area) core.setOutput('area', route.area);
+
+            const labels = [route.ui && '🎨UI', route.mobile && '📱Mobile'].filter(Boolean);
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({ ...context.repo, issue_number: issue.number, labels });
+            }
+
+      - name: Set Area on the project
+        if: steps.route.outputs.area != '' && env.HAS_PROJECT_TOKEN == 'true'
+        uses: actions/github-script@v7
+        env:
+          AREA: ${{ steps.route.outputs.area }}
+        with:
+          # Fine-grained token with organization Projects: read and write.
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const { organization: { projectV2: project } } = await github.graphql(`
+              query($org: String!) {
+                organization(login: $org) {
+                  projectV2(number: 2) {
+                    id
+                    field(name: "Area") {
+                      ... on ProjectV2SingleSelectField { id options { id name } }
+                    }
+                  }
+                }
+              }`, { org: context.repo.owner });
+            const option = project.field.options.find((o) => o.name === process.env.AREA);
+            if (!option) {
+              core.warning(`Project has no Area option named "${process.env.AREA}".`);
+              return;
+            }
+            // Idempotent: returns the existing item when auto-add already put it there.
+            const { addProjectV2ItemById: { item } } = await github.graphql(`
+              mutation($project: ID!, $content: ID!) {
+                addProjectV2ItemById(input: { projectId: $project, contentId: $content }) { item { id } }
+              }`, { project: project.id, content: context.payload.issue.node_id });
+            await github.graphql(`
+              mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $project, itemId: $item, fieldId: $field,
+                  value: { singleSelectOptionId: $option }
+                }) { projectV2Item { id } }
+              }`, { project: project.id, item: item.id, field: project.field.id, option: option.id });
+            core.info(`Area set to ${process.env.AREA}.`);
