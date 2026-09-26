@@ -15,6 +15,7 @@ use axum::{
 use sea_orm::DatabaseConnection;
 
 use crate::services::data_paths::paths;
+use crate::services::standalone_tts::{INVALID_TTS_CODEC_MESSAGE, validate_tts_codec};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -433,7 +434,7 @@ pub async fn text_to_speech(
     {
         Ok(response) => (StatusCode::OK, Json(response)),
         Err(msg) => {
-            let status = if msg.contains("empty") {
+            let status = if msg.contains("empty") || msg == INVALID_TTS_CODEC_MESSAGE {
                 StatusCode::BAD_REQUEST
             } else if msg.contains("too long") {
                 StatusCode::BAD_REQUEST
@@ -518,6 +519,19 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
     }
 
     let codec = request.codec.as_deref().unwrap_or("mp3");
+    if let Err(error) = validate_tts_codec(codec) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(BatchTtsApiResponse {
+                success: false,
+                audios: None,
+                cache_hits: 0,
+                generated: 0,
+                errors: None,
+                error: Some(error),
+            }),
+        );
+    }
     let sample_rate = request.sample_rate.unwrap_or(16000);
 
     let mut audios = Vec::new();
@@ -1184,6 +1198,27 @@ mod realtime_error_tests {
         assert_eq!(response["uid"], 42);
         assert_eq!(response["agent_uid"], 43);
         assert_eq!(response["agent_id"], "agent");
+    }
+
+    #[tokio::test]
+    async fn batch_tts_rejects_traversal_codec_before_touching_cache() {
+        let response = batch_text_to_speech_inner(BatchTtsApiRequest {
+            source_id: 1,
+            article_id: 2,
+            dialogues: vec![BatchTtsDialogue {
+                index: 0,
+                speaker: "host".into(),
+                text: "hello".into(),
+                voice_type: None,
+                speed: None,
+            }],
+            codec: Some("mp3/../../../../etc/passwd".into()),
+            sample_rate: None,
+            force_regenerate: false,
+        })
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

@@ -83,6 +83,20 @@ pub fn generate_audio_filename(
     format!("{}_{}_{}.{}", voice_type, speed as i32, sample_rate, codec)
 }
 
+/// Rejection message for a codec that cannot be used as a cache file extension.
+pub const INVALID_TTS_CODEC_MESSAGE: &str = "Unsupported audio codec";
+
+/// The codec becomes the cache file extension (here and in the podcast batch
+/// cache), so it must stay a single safe path component: a `/` or `..` in it
+/// would point the cache read/write outside the cache directory.
+pub fn validate_tts_codec(codec: &str) -> Result<(), String> {
+    if crate::services::tapp_validation::is_safe_path_component(codec) {
+        Ok(())
+    } else {
+        Err(INVALID_TTS_CODEC_MESSAGE.to_string())
+    }
+}
+
 fn get_standalone_tts_dir(text_hash: &str) -> PathBuf {
     paths().phantasi.join(STANDALONE_TTS_SUBDIR).join(text_hash)
 }
@@ -199,6 +213,7 @@ pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApi
     }
 
     let codec = request.codec.as_deref().unwrap_or("mp3");
+    validate_tts_codec(codec)?;
     let provider = configured_provider().await;
     if matches!(
         provider,
@@ -427,6 +442,51 @@ mod tests {
             .block_on(synthesize_standalone_tts(&req))
             .expect_err("empty text");
         assert!(err.contains("empty"), "{err}");
+    }
+
+    #[test]
+    fn codec_must_be_a_single_path_component() {
+        for good in ["mp3", "wav", "pcm", "opus", "flac"] {
+            assert!(validate_tts_codec(good).is_ok(), "{good}");
+        }
+        for bad in [
+            "",
+            ".",
+            "..",
+            "mp3/../../x",
+            "../etc",
+            "a\\b",
+            "/abs",
+            ".hidden",
+        ] {
+            assert_eq!(
+                validate_tts_codec(bad),
+                Err(INVALID_TTS_CODEC_MESSAGE.to_string()),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn traversal_codec_is_rejected_before_cache_lookup() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let req = TtsApiRequest {
+            text: "hello".into(),
+            voice_type: None,
+            speed: None,
+            volume: None,
+            codec: Some("mp3/../../../../etc/passwd".into()),
+            sample_rate: None,
+            emotion: None,
+            force_regenerate: false,
+        };
+        let err = rt
+            .block_on(synthesize_standalone_tts(&req))
+            .expect_err("traversal codec");
+        assert_eq!(err, INVALID_TTS_CODEC_MESSAGE);
     }
 
     #[test]
