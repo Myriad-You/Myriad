@@ -492,6 +492,24 @@ test('arms joined at the hands still import as a left and a right fragment', asy
   assert.ok(right.x > width / 2 - 16 && right.x + right.w > 236, `${right.x}+${right.w}`)
 })
 
+test('a long garment labelled legwear stays as lower-body clothing; feet are dropped', async () => {
+  const source = syntheticSeeThroughPsd()
+  const width = source.width
+  const feet = new Uint8ClampedArray(width * source.height * 4)
+  for (let y = 246; y < 256; y += 1) {
+    for (let x = 90; x < 170; x += 1) feet.set([20, 20, 20, 255], (y * width + x) * 4)
+  }
+  const withFeet = {
+    ...source,
+    children: [...(source.children ?? []), { name: 'footwear', left: 0, top: 0, imageData: { width, height: source.height, data: feet } }],
+  } as Psd
+  const prepared = await prepareWithFakeCanvas(withFeet)
+  const layers = prepared.source.anime25dPlayback?.layers ?? []
+  assert.equal(layers.filter((layer) => layer.role === 'bottomwear').length, 2)
+  // The upper-body contract forbids leg and foot parts by id.
+  assert.ok(!layers.some((layer) => /legwear|footwear/.test(layer.name)))
+})
+
 test('a single arm is still not two arms', async () => {
   const source = syntheticSeeThroughPsd()
   const width = source.width

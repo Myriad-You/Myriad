@@ -78,7 +78,14 @@ export interface PreparedAnime25DRigImport {
   reconciliation: Anime25DPsdReconciliation | null
 }
 
-const UPPER_BODY_IGNORED_LAYERS = new Set(['legwear', 'footwear'])
+const UPPER_BODY_IGNORED_LAYERS = new Set(['footwear'])
+/**
+ * A long garment's visible front is often labelled legwear (a kimono or long
+ * skirt over the legs). Kept as lower-body clothing it paints where it was
+ * drawn and the portrait crop cuts it; dropped, it bares the flat fill a
+ * decomposer paints behind it. Feet are always far below the crop.
+ */
+const UPPER_BODY_AS_BOTTOMWEAR = new Set(['legwear'])
 export {
   anime25DBaseRole,
   normalizeAnime25DLayerName,
@@ -326,10 +333,13 @@ function flattenPsdForRigger(psd: Psd): Psd {
       for (let offset = 3; offset < data.length; offset += 4)
         data[offset] *= opacity
     }
+    const base = anime25DLayerNameParts(normalizeAnime25DLayerName(layer.name)).base
     return {
       ...layer,
       opacity: 1,
-      name: toRiggerLayerName(plainHairBySide(layer.name, index, face)),
+      name: UPPER_BODY_AS_BOTTOMWEAR.has(base)
+        ? 'bottomwear'
+        : toRiggerLayerName(plainHairBySide(layer.name, index, face)),
       imageData: {
         width: pixels.width,
         height: pixels.height,
