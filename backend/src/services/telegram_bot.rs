@@ -238,7 +238,7 @@ async fn run_session(
                             parse_telegram_group_messages(200, &body, &identity).unwrap_or_default();
                         for line in group_lines {
                             let line = crate::services::channel_group::GroupLine::from(line);
-                            crate::services::channel_group::record(&line);
+                            crate::services::channel_group::record(&line).await;
                             if !line.addressed {
                                 // Nobody asked her; now and then she joins in.
                                 if crate::services::channel_group::worth_a_look(&line) {

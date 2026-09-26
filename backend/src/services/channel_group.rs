@@ -227,18 +227,36 @@ const STRANGER_REPLIES_PER_DAY: u32 = 60;
 const TURN_DEADLINE: Duration = Duration::from_secs(90);
 const TYPING_EVERY: Duration = Duration::from_secs(4);
 
-#[derive(Clone)]
+/// Runtime-registry namespace of each group's recent lines: what she keeps
+/// in mind of a group outlives a restart, for as long as she would keep it.
+const LINES_NAMESPACE: &str = "group_lines";
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct Line {
-    at: Instant,
+    at: chrono::DateTime<chrono::Utc>,
     message_id: Option<String>,
     name: String,
     text: String,
     hers: bool,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredLines {
+    lines: Vec<Line>,
+}
+
+/// Whether a line is still one she keeps in mind of the group.
+fn within(line: &Line, window: Duration) -> bool {
+    (chrono::Utc::now() - line.at)
+        .to_std()
+        .map_or(true, |age| age < window)
+}
+
 #[derive(Default)]
 struct Group {
     lines: VecDeque<Line>,
+    /// Whether the lines kept before a restart were brought back.
+    restored: bool,
     busy: bool,
     last_reply: Option<Instant>,
     touched: Option<Instant>,
@@ -297,12 +315,81 @@ fn with_group<T>(venue: &str, act: impl FnOnce(&mut Group) -> T) -> Option<T> {
 }
 
 fn push_line(group: &mut Group, line: Line) {
-    group
-        .lines
-        .retain(|line| line.at.elapsed() < TRANSCRIPT_FOR);
+    group.lines.retain(|line| within(line, TRANSCRIPT_FOR));
     group.lines.push_back(line);
     while group.lines.len() > TRANSCRIPT_LINES {
         group.lines.pop_front();
+    }
+}
+
+/// Lines kept from before a restart, merged under the ones heard since.
+fn merge_restored(group: &mut Group, stored: Vec<Line>) {
+    let mut lines: Vec<Line> = stored;
+    for line in group.lines.drain(..) {
+        let known = line.message_id.is_some()
+            && lines.iter().any(|kept| kept.message_id == line.message_id);
+        if !known {
+            lines.push(line);
+        }
+    }
+    lines.sort_by_key(|line| line.at);
+    for line in lines {
+        push_line(group, line);
+    }
+}
+
+/// Keep a line in mind: in memory, and in the runtime registry so a restart
+/// does not wipe the group from her mind. The first line after a restart
+/// brings back what was kept before it.
+async fn remember_line(venue: &str, line: Line) {
+    let db = crate::services::process_db::database().ok();
+    remember_line_on(db.as_ref(), venue, line).await;
+}
+
+async fn remember_line_on(db: Option<&DatabaseConnection>, venue: &str, line: Line) {
+    if let Some(db) = db {
+        if with_group(venue, |group| !group.restored).unwrap_or(false) {
+            let stored =
+                crate::services::runtime_registry::get::<StoredLines>(db, LINES_NAMESPACE, venue)
+                    .await
+                    .ok()
+                    .flatten();
+            with_group(venue, |group| {
+                if !group.restored {
+                    group.restored = true;
+                    if let Some(stored) = stored {
+                        merge_restored(group, stored.lines);
+                    }
+                }
+            });
+        }
+    }
+    let lines = with_group(venue, |group| {
+        push_line(group, line);
+        group.lines.iter().cloned().collect::<Vec<_>>()
+    });
+    let (Some(db), Some(lines)) = (db, lines) else {
+        return;
+    };
+    let keep_until = (chrono::Utc::now()
+        + chrono::Duration::from_std(TRANSCRIPT_FOR).unwrap_or_default())
+    .timestamp();
+    if let Err(error) = crate::services::runtime_registry::put(
+        db,
+        LINES_NAMESPACE,
+        venue,
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: None,
+            owner_id: None,
+            tapp_id: None,
+            runtime_id: None,
+        },
+        &StoredLines { lines },
+        keep_until,
+    )
+    .await
+    {
+        warn!(%error, %venue, "[Group] could not keep the group's lines");
     }
 }
 
@@ -311,26 +398,26 @@ fn bounded(text: &str) -> String {
 }
 
 /// Keep a group line in mind, whoever wrote it.
-pub fn record(message: &GroupLine) {
+pub async fn record(message: &GroupLine) {
     let line = Line {
-        at: Instant::now(),
+        at: chrono::Utc::now(),
         message_id: Some(message.message_id.clone()),
         name: message.display_name.clone(),
         text: bounded(&message.said()),
         hers: false,
     };
-    with_group(&message.venue(), |group| push_line(group, line));
+    remember_line(&message.venue(), line).await;
 }
 
-fn record_hers(venue: &str, text: &str) {
+async fn record_hers(venue: &str, text: &str) {
     let line = Line {
-        at: Instant::now(),
+        at: chrono::Utc::now(),
         message_id: None,
         name: String::new(),
         text: bounded(text),
         hers: true,
     };
-    with_group(venue, |group| push_line(group, line));
+    remember_line(venue, line).await;
 }
 
 /// The group's recent lines before `message_id` (all of them without one),
@@ -340,7 +427,7 @@ fn transcript(venue: &str, message_id: Option<&str>) -> Vec<ConversationMessage>
         group
             .lines
             .iter()
-            .filter(|line| line.at.elapsed() < TRANSCRIPT_FOR)
+            .filter(|line| within(line, TRANSCRIPT_FOR))
             .take_while(|line| message_id.is_none() || line.message_id.as_deref() != message_id)
             .map(|line| ConversationMessage {
                 role: if line.hers { "assistant" } else { "user" }.into(),
@@ -462,7 +549,7 @@ pub fn worth_a_look(message: &GroupLine) -> bool {
         let lively = group
             .lines
             .iter()
-            .filter(|line| line.at.elapsed() < LIVELY_WINDOW)
+            .filter(|line| within(line, LIVELY_WINDOW))
             .count()
             >= LIVELY_LINES;
         let worth =
@@ -650,7 +737,7 @@ async fn answer(message: &GroupLine, token: &str, chime: Option<String>) -> bool
     let reply = without_reply_mark(&reply);
     let sent = deliver(message, token, &reply).await;
     if sent {
-        record_hers(&message.venue(), &reply);
+        record_hers(&message.venue(), &reply).await;
     }
     sent
 }
@@ -694,7 +781,7 @@ async fn answer_stranger(db: &DatabaseConnection, message: &GroupLine, token: &s
     let reply = without_reply_mark(&reply);
     let sent = deliver(message, token, &reply).await;
     if sent {
-        record_hers(&venue, &reply);
+        record_hers(&venue, &reply).await;
         crate::services::agent::merope::strangers::spawn_after(
             db.clone(),
             owner,
@@ -816,13 +903,13 @@ mod tests {
         format!("telegram:{chat_id}")
     }
 
-    #[test]
-    fn the_group_transcript_is_the_lines_before_the_one_she_answers() {
+    #[tokio::test]
+    async fn the_group_transcript_is_the_lines_before_the_one_she_answers() {
         let chat = -9_001;
-        record(&line(chat, 1, "阿明", "周五聚餐吗"));
-        record(&line(chat, 2, "小红", "我可以"));
-        record_hers(&venue(chat), "我在屏幕里，就不去了，你们吃好");
-        record(&line(chat, 3, "阿明", "@bot 你推荐哪家"));
+        record(&line(chat, 1, "阿明", "周五聚餐吗")).await;
+        record(&line(chat, 2, "小红", "我可以")).await;
+        record_hers(&venue(chat), "我在屏幕里，就不去了，你们吃好").await;
+        record(&line(chat, 3, "阿明", "@bot 你推荐哪家")).await;
         let lines: Vec<(String, String)> = transcript(&venue(chat), Some("3"))
             .into_iter()
             .map(|message| (message.role, message.content))
@@ -860,25 +947,25 @@ mod tests {
         end_turn(&venue(other), false);
     }
 
-    #[test]
-    fn she_looks_at_a_line_nobody_addressed_only_when_it_is_worth_it() {
+    #[tokio::test]
+    async fn she_looks_at_a_line_nobody_addressed_only_when_it_is_worth_it() {
         let chat = -9_005;
         let quiet_group = line(chat, 1, "阿明", "有人在吗有人在吗");
-        record(&quiet_group);
+        record(&quiet_group).await;
         assert!(
             !worth_a_look(&quiet_group),
             "one line is not a lively group"
         );
-        record(&line(chat, 2, "小红", "在呢在呢"));
+        record(&line(chat, 2, "小红", "在呢在呢")).await;
         let third = line(chat, 3, "阿明", "你们看了昨晚的比赛吗");
-        record(&third);
+        record(&third).await;
         assert!(worth_a_look(&third), "a lively group");
         assert!(!worth_a_look(&third), "looks are spaced out");
         let short = line(chat, 4, "小红", "嗯");
         assert!(!worth_a_look(&short));
         let other = -9_006;
         for index in 0..3 {
-            record(&line(other, index, "某人", "今天天气真不错啊"));
+            record(&line(other, index, "某人", "今天天气真不错啊")).await;
         }
         with_group(&venue(other), |group| {
             group.last_reply = Some(Instant::now())
@@ -938,6 +1025,81 @@ mod tests {
         assert_eq!(text_limit(ChannelPlatform::Discord), 2000);
     }
 
+    /// A restart does not wipe the group from her mind: what was kept comes
+    /// back from the runtime registry with the first line after it.
+    #[tokio::test]
+    async fn a_restart_keeps_what_the_group_said() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "group_lines").await;
+        let db = &schema.db;
+        let chat = -9_300;
+        let venue = venue(chat);
+        let said = |id: i64, text: &str| Line {
+            at: chrono::Utc::now(),
+            message_id: Some(id.to_string()),
+            name: "阿明".into(),
+            text: text.into(),
+            hers: false,
+        };
+        remember_line_on(Some(db), &venue, said(1, "来点歌")).await;
+        remember_line_on(Some(db), &venue, said(2, "放一首")).await;
+        // The process restarts: nothing of the group is left in memory.
+        if let Ok(mut groups) = GROUPS.lock() {
+            groups.remove(&venue);
+        }
+        remember_line_on(Some(db), &venue, said(3, "说到一半怎么没了")).await;
+        let lines: Vec<String> = transcript(&venue, None)
+            .into_iter()
+            .map(|line| line.content)
+            .collect();
+        assert_eq!(
+            lines,
+            ["阿明：来点歌", "阿明：放一首", "阿明：说到一半怎么没了"]
+        );
+        schema.drop().await;
+    }
+
+    /// After a restart the group comes back as it was, under what was heard
+    /// since, each line once.
+    #[test]
+    fn lines_kept_before_a_restart_come_back_under_newer_ones() {
+        let at = |minutes: i64| chrono::Utc::now() - chrono::Duration::minutes(minutes);
+        let kept = |id: &str, minutes: i64, text: &str| Line {
+            at: at(minutes),
+            message_id: Some(id.into()),
+            name: "阿明".into(),
+            text: text.into(),
+            hers: false,
+        };
+        let mut group = Group::default();
+        push_line(&mut group, kept("9", 1, "说到一半怎么没了"));
+        merge_restored(
+            &mut group,
+            vec![
+                kept("7", 30, "来点歌"),
+                Line {
+                    at: at(29),
+                    message_id: None,
+                    name: String::new(),
+                    text: "放就放，听完要是".into(),
+                    hers: true,
+                },
+                kept("9", 1, "说到一半怎么没了"),
+                kept("1", 7 * 60, "太久以前的话"),
+            ],
+        );
+        let texts: Vec<&str> = group.lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(texts, ["来点歌", "放就放，听完要是", "说到一半怎么没了"]);
+        let stored = serde_json::to_string(&StoredLines {
+            lines: group.lines.iter().cloned().collect(),
+        })
+        .unwrap();
+        let back: StoredLines = serde_json::from_str(&stored).unwrap();
+        assert_eq!(back.lines.len(), 3);
+    }
+
     #[test]
     fn she_does_not_echo_the_reply_mark() {
         assert_eq!(
@@ -951,11 +1113,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_group_keeps_only_its_recent_lines() {
+    #[tokio::test]
+    async fn a_group_keeps_only_its_recent_lines() {
         let chat = -9_004;
         for index in 0..(TRANSCRIPT_LINES as i64 + 5) {
-            record(&line(chat, index, "某人", &format!("第{index}句")));
+            record(&line(chat, index, "某人", &format!("第{index}句"))).await;
         }
         let lines = transcript(&venue(chat), None);
         assert_eq!(lines.len(), TRANSCRIPT_LINES);

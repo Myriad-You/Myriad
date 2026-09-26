@@ -620,7 +620,7 @@ async fn hear_group_line<P>(
     token: String,
     permit: P,
 ) {
-    crate::services::channel_group::record(&line);
+    crate::services::channel_group::record(&line).await;
     if line.addressed {
         crate::services::channel_group::handle(line, token).await;
         drop(permit);
