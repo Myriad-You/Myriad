@@ -272,6 +272,9 @@ pub struct MemoryRecord {
     pub content: String,
     pub evidence: Option<String>,
     pub source: String,
+    /// Who said it: `user` for what they told her, `agent` for what she
+    /// gathered, `import` for rows carried over from before.
+    pub speaker: String,
     pub importance: f64,
     pub access_count: i32,
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
@@ -289,6 +292,7 @@ impl From<agent_memories::Model> for MemoryRecord {
             content: model.content,
             evidence: model.evidence,
             source: model.source,
+            speaker: model.speaker,
             importance: model.importance,
             access_count: model.access_count,
             created_at: model.created_at,

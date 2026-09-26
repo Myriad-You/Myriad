@@ -906,6 +906,7 @@ pub(crate) async fn insert_remembered_if_new(
     db: &DatabaseConnection,
     user_id: i32,
     candidate: &str,
+    evidence: Option<&str>,
 ) -> Result<bool, anyhow::Error> {
     use crate::services::agent::memory::unified;
     let fact = super::ingest::compact_summary(candidate);
@@ -926,7 +927,10 @@ pub(crate) async fn insert_remembered_if_new(
             user_id,
             kind: unified::MemoryKind::Fact,
             content: fact,
-            evidence: None,
+            // The event she gathered it from.
+            evidence: evidence
+                .map(super::ingest::compact_summary)
+                .filter(|evidence| !evidence.is_empty()),
             speaker: unified::Speaker::Agent,
             source: "event",
             audience: unified::Audience::private(user_id),
@@ -1062,9 +1066,40 @@ pub async fn recall_remembered(
 ) -> Result<Vec<String>, anyhow::Error> {
     let priming = Priming::default();
     let present = crate::services::agent::memory::unified::Audience::private(user_id);
-    let (recalled, _) =
-        recall_remembered_primed(db, user_id, &present, query, limit, &priming, 1.0).await?;
-    Ok(recalled)
+    let (recalled, _) = crate::services::agent::memory::unified::recall_primed(
+        db,
+        user_id,
+        &present,
+        query.filter(|query| !query.trim().is_empty()),
+        &crate::services::agent::memory::unified::MemoryKind::ABOUT_PERSON,
+        limit,
+        &priming,
+        1.0,
+    )
+    .await?;
+    Ok(recalled
+        .iter()
+        .map(as_known)
+        .filter(|fact| !fact.is_empty())
+        .collect())
+}
+
+/// A kept fact as she holds it: what they told her, plainly; anything else
+/// with how she came by it, so she holds it as loosely as it deserves.
+pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRecord) -> String {
+    let content = super::ingest::compact_summary(&note.content);
+    if content.is_empty() {
+        return content;
+    }
+    let how = match (note.source.as_str(), note.speaker.as_str()) {
+        ("chat", "user") => return content,
+        ("event", _) => "you gathered this from their activity on the site, not from them",
+        ("work", _) => "you noted this while doing a task for them",
+        ("presence", _) => "you saw this in what they were playing",
+        ("game", _) => "from a game with them",
+        _ => "kept from before; you no longer know how you came by it",
+    };
+    format!("{content} ({how})")
 }
 
 /// What a turn recalls, split: what they named (or recent context), and what
@@ -1103,7 +1138,7 @@ pub async fn recall_remembered_split(
         brought_to_mind: Vec::new(),
     };
     for note in recalled {
-        let content = super::ingest::compact_summary(&note.content);
+        let content = as_known(&note);
         if content.is_empty() {
             continue;
         }
@@ -1325,6 +1360,28 @@ pub async fn touch_proactive(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
+        let note =
+            |source: &str, speaker: &str| crate::services::agent::memory::unified::MemoryRecord {
+                id: "m".into(),
+                user_id: Some(1),
+                kind: "fact".into(),
+                content: "养了一只猫叫年糕".into(),
+                evidence: None,
+                source: source.into(),
+                speaker: speaker.into(),
+                importance: 0.5,
+                access_count: 0,
+                created_at: chrono::Utc::now().fixed_offset(),
+                brought_to_mind: false,
+            };
+        assert_eq!(super::as_known(&note("chat", "user")), "养了一只猫叫年糕");
+        assert!(super::as_known(&note("event", "agent")).ends_with("not from them)"));
+        assert!(super::as_known(&note("work", "agent")).contains("doing a task for them"));
+        assert!(super::as_known(&note("chat", "import")).contains("kept from before"));
+    }
+
     #[test]
     fn delayed_appraisal_requires_the_same_unexpired_persisted_input() {
         let input = chrono::Utc::now();

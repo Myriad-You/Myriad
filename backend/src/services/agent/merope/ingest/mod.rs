@@ -97,15 +97,17 @@ pub fn persona_remember_insert(candidate: &str, existing: &[String]) -> Option<S
     if duplicate { None } else { Some(compact) }
 }
 
+/// `event` is what happened, kept as where she gathered it from.
 pub(crate) async fn persist_persona_remember(
     db: &DatabaseConnection,
     user_id: i32,
     candidate: Option<&str>,
+    event: &str,
 ) {
     let Some(candidate) = candidate else {
         return;
     };
-    if let Err(error) = insert_remembered_if_new(db, user_id, candidate).await {
+    if let Err(error) = insert_remembered_if_new(db, user_id, candidate, Some(event)).await {
         tracing::debug!(%error, user_id, "[Merope] persona memory write skipped");
     }
 }
@@ -228,7 +230,7 @@ mod tests {
     #[test]
     fn persist_remember_writes_persona_memory_not_event_ledger() {
         let src = include_str!("mod.rs");
-        assert!(src.contains("insert_remembered_if_new(db, user_id, candidate)"));
+        assert!(src.contains("insert_remembered_if_new(db, user_id, candidate, Some(event))"));
         assert!(!src.contains("insert_diary(db, user_id, memory, \"event\")"));
         assert!(!src.contains("insert_diary(db, user_id, &memory, \"event\")"));
     }

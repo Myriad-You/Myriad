@@ -104,8 +104,8 @@ pub fn format_remembered_section(contents: &[String]) -> Option<String> {
         return None;
     }
     Some(format!(
-        "## About this person\nThese are facts you kept, and all you know of their life outside this conversation. Bring them up only when the talk needs them. Do not recite a log or a list.\n{}",
-        lines.join("\n")
+        "## About this person\nThese are facts you kept, and all you know of their life outside this conversation. What they told you is plain; anything else says how you came by it and may be out of date or wrong, so hold it loosely and do not state it as certain. Bring them up only when the talk needs them. Do not recite a log or a list.\n{}",
+        myriad_agent_rules::untrusted_block("about_them", &lines.join("\n"))
     ))
 }
 
@@ -301,7 +301,7 @@ pub fn format_own_days_section(days: &[String]) -> Option<String> {
     }
     Some(format!(
         "## Your recent days\nYour own diary, one line per day, oldest first, each marked with when it was. This is your life, not theirs: let it show only when it fits, and do not recite it.\n{}",
-        lines.join("\n")
+        myriad_agent_rules::untrusted_block("your_days", &lines.join("\n"))
     ))
 }
 
@@ -615,7 +615,9 @@ mod tests {
         let block = format_remembered_section(&["晚上想打独立游戏".into()]).unwrap();
         assert!(block.contains("## About this person"));
         assert!(block.contains("facts you kept"));
+        assert!(block.contains("hold it loosely"));
         assert!(block.contains("- 晚上想打独立游戏"));
+        assert!(block.contains("about_them"), "fenced as data");
         assert!(!block.contains("diary"));
         let recent = format_recent_section(&["Steam 解锁了成就".into()]).unwrap();
         assert!(recent.contains("## Recently"));

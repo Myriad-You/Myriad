@@ -237,17 +237,31 @@ pub async fn ingest(
         }
     };
 
+    // What happened, kept with anything she remembers from it.
+    let gathered_from = format!("{event_key}: {summary}");
     if let Some(value) = consideration.as_ref() {
         match value.decision.action {
             ConsciousnessAction::Ignore => {
                 return Ok(());
             }
             ConsciousnessAction::Remember => {
-                persist_persona_remember(db, user_id, value.decision.memory.as_deref()).await;
+                persist_persona_remember(
+                    db,
+                    user_id,
+                    value.decision.memory.as_deref(),
+                    &gathered_from,
+                )
+                .await;
                 return Ok(());
             }
             ConsciousnessAction::Speak | ConsciousnessAction::Ask => {
-                persist_persona_remember(db, user_id, value.decision.memory.as_deref()).await;
+                persist_persona_remember(
+                    db,
+                    user_id,
+                    value.decision.memory.as_deref(),
+                    &gathered_from,
+                )
+                .await;
             }
             ConsciousnessAction::ProposeWork => {}
         }

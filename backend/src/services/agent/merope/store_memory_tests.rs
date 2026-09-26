@@ -100,7 +100,7 @@ async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolat
         vec!["prefers saffron tea"]
     );
     assert!(
-        !insert_remembered_if_new(&db, user_id, "prefers saffron tea")
+        !insert_remembered_if_new(&db, user_id, "prefers saffron tea", None)
             .await
             .unwrap()
     );
@@ -117,8 +117,8 @@ async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolat
 
     // Concurrent Chat/event writers must serialize their read-check-insert.
     let (first, second) = tokio::join!(
-        insert_remembered_if_new(&db, user_id, "likes jasmine tea"),
-        insert_remembered_if_new(&db, user_id, "  likes   jasmine tea "),
+        insert_remembered_if_new(&db, user_id, "likes jasmine tea", None),
+        insert_remembered_if_new(&db, user_id, "  likes   jasmine tea ", None),
     );
     assert_ne!(
         first.unwrap(),
@@ -126,22 +126,22 @@ async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolat
         "exactly one writer inserts"
     );
     assert!(
-        insert_remembered_if_new(&db, other_user, "likes jasmine tea")
+        insert_remembered_if_new(&db, other_user, "likes jasmine tea", None)
             .await
             .unwrap()
     );
     assert!(
-        !insert_remembered_if_new(&db, -1, "guest memory")
+        !insert_remembered_if_new(&db, -1, "guest memory", None)
             .await
             .unwrap()
     );
     assert!(
-        !insert_remembered_if_new(&db, 0, "system memory")
+        !insert_remembered_if_new(&db, 0, "system memory", None)
             .await
             .unwrap()
     );
     assert!(
-        !insert_remembered_if_new(&db, user_id, "{\"secret\":true}")
+        !insert_remembered_if_new(&db, user_id, "{\"secret\":true}", None)
             .await
             .unwrap()
     );
@@ -247,7 +247,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         "replay cannot reapply retired targets"
     );
     assert!(
-        !insert_remembered_if_new(&db, user_id, "喜欢咖啡")
+        !insert_remembered_if_new(&db, user_id, "喜欢咖啡", None)
             .await
             .unwrap(),
         "event cannot resurrect corrected fact"
