@@ -13,7 +13,7 @@ export function idleBreathOffset(
   output.angleX =
     0.13 * Math.sin(time * 0.42) + 0.05 * Math.sin(time * 1.13)
   output.angleY = 0.08 * Math.sin(time * 0.31 + 1.7)
-  output.angleZ = 0.07 * Math.sin(time * 0.23 + 0.5)
-  output.body = 0.1 * Math.sin(time * 0.19 + 2.1)
+  output.angleZ = 0.12 * Math.sin(time * 0.23 + 0.5)
+  output.body = 0.22 * Math.sin(time * 0.19 + 2.1)
   return output
 }

@@ -17,11 +17,11 @@ export interface FollowThroughChannel {
 }
 
 export const FOLLOW_THROUGH: Readonly<Record<FollowThroughKey, Readonly<FollowThroughChannel>>> = {
-  angleX: { hz: 2.4, damping: 0.3, limit: 0.1 },
-  angleY: { hz: 2.4, damping: 0.3, limit: 0.08 },
-  angleZ: { hz: 2.2, damping: 0.3, limit: 0.1 },
+  angleX: { hz: 2.4, damping: 0.28, limit: 0.14 },
+  angleY: { hz: 2.4, damping: 0.28, limit: 0.1 },
+  angleZ: { hz: 2.2, damping: 0.28, limit: 0.16 },
   // The torso is heavier: slower, and it settles sooner.
-  body: { hz: 1.8, damping: 0.38, limit: 0.08 },
+  body: { hz: 1.8, damping: 0.34, limit: 0.12 },
 }
 
 /** How far each axis may go once the overshoot is added; the motion envelope's limits. */
