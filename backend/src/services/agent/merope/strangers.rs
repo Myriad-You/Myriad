@@ -131,10 +131,7 @@ pub async fn reply(
 ) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
-        .unwrap_or_default()
-        .chars()
-        .take(2000)
-        .collect();
+        .unwrap_or_default();
     let note = note_on(db, venue, stranger).await.map(|row| row.content);
     let mut sections = vec![
         super::group_speaking_section(&stranger.name),
@@ -270,10 +267,7 @@ pub fn spawn_after(
         }
         let soul: String = crate::services::agent::identity::get_speaking_soul()
             .await
-            .unwrap_or_default()
-            .chars()
-            .take(1200)
-            .collect();
+            .unwrap_or_default();
         let input = json!({
             "name": stranger.name,
             "remembered": kept.as_ref().map(|row| row.content.as_str()),

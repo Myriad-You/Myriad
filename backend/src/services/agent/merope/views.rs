@@ -165,10 +165,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     .to_string();
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
-        .unwrap_or_default()
-        .chars()
-        .take(2000)
-        .collect();
+        .unwrap_or_default();
     let Some(analyzer) = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
         std::time::Duration::from_secs(60),
     ))

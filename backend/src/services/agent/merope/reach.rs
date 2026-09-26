@@ -310,10 +310,7 @@ async fn would_write(
 ) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
-        .unwrap_or_default()
-        .chars()
-        .take(1200)
-        .collect();
+        .unwrap_or_default();
     let remembered = super::store::recall_remembered(db, user_id, None, 5)
         .await
         .unwrap_or_default();
@@ -364,10 +361,7 @@ async fn compose(
 ) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
-        .unwrap_or_default()
-        .chars()
-        .take(2000)
-        .collect();
+        .unwrap_or_default();
     let mut sections = super::speaking_prompt_to_reach(db, user_id, about).await;
     sections.push(writing_first(about));
     let prompt = crate::services::agent::chat_prompt::build_chat_lite_prompt_with_perception(

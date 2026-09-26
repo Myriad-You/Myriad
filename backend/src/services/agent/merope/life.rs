@@ -168,7 +168,6 @@ async fn write_yesterday(db: &DatabaseConnection, owner: i32, day: NaiveDate) {
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let soul: String = soul.chars().take(2000).collect();
     // Oldest first, as she would reread them.
     let earlier: Vec<String> = unified::own_days(db, 3)
         .await

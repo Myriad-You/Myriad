@@ -318,10 +318,7 @@ pub async fn go_over(
 ) {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
-        .unwrap_or_default()
-        .chars()
-        .take(2000)
-        .collect();
+        .unwrap_or_default();
     let mut kept = 0;
     let mut circles: Vec<Circle> = people(db, start, end)
         .await

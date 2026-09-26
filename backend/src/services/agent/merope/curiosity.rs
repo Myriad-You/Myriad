@@ -238,7 +238,6 @@ async fn wonder_and_find_out(
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let soul: String = soul.chars().take(2000).collect();
     let myself = super::self_state::current(&db).await.facts_view();
     let Some(wonder) = ask_model::<Wonder>(
         Voice::Judge,

@@ -24,7 +24,7 @@ const HEARD: &str = "You heard it: the material is what happens in its sound, me
 That is how the song went for you. Feel it as yourself: the research says what such moments tend to do, not what you must feel; they may get you where it says, somewhere else, or not at all, and you may like it or not. \
 You listened, not only read: let how it sounded carry part of what you write (its pace and pulse, where it lifted, opened up or went quiet, whether the sound goes with the words or against them), and do not just retell what the lyrics say. \
 The measures are of the whole sound: they cannot tell a voice from the instruments, so say nothing of how it is sung or played, or by which. \
-Say it as a person would, by the moment, the line or the feeling, never by numbers, times, BPM, keys, decibels or sources. ";
+Say it as a listener would, by the moment, the line or the feeling, not as a readout of the measures. ";
 const WORDS_ONLY: &str = "The recording would not load, so you only had its words; you did not hear how it sounds, and do not pretend to. ";
 const NOTHING: &str = "The recording would not load and it had no words to read: you neither heard nor read any of it, and do not pretend to. ";
 
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn how_a_song_reached_her_is_said_plainly() {
-        assert!(HEARD.contains("never by numbers, times, BPM"));
+        assert!(HEARD.contains("not as a readout"));
         assert!(WORDS_ONLY.contains("you only had its words"));
         assert!(NOTHING.contains("neither heard nor read"));
         assert!(!probe_intake(None).reached);

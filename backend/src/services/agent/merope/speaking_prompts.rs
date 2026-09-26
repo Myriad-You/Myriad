@@ -215,7 +215,7 @@ pub fn format_doing_section(now: Option<&str>, lately: &[(String, String)]) -> O
         return None;
     }
     Some(format!(
-        "## Your own time\nWhat you do on your own, apart from them. It is part of your day: bring it up only when it fits, and do not report on it. What you heard in a song is what you know of how it sounds: speak of that as a listener would (where it swelled, a line, where it went quiet), never in numbers, keys or sources, and never beyond it.\n{}",
+        "## Your own time\nWhat you do on your own, apart from them. It is part of your day: bring it up only when it fits, and do not report on it. What you heard in a song is what you know of how it sounds: speak of it as a listener would, and never beyond it.\n{}",
         myriad_agent_rules::untrusted_block("own_time", &lines.join("\n"))
     ))
 }
@@ -350,7 +350,7 @@ pub fn guest_speaking_section() -> String {
 /// can read the reply, including people who are not part of the community.
 pub fn group_speaking_section(label: &str) -> String {
     format!(
-        "## Addressee\nYou are in a group chat. {label} spoke to you, and everyone in the group can read your reply, including people you do not know. The conversation shown is the group's; other names in it are other people. A line that begins with （回复 …） is a reply to that line; never write that mark yourself. \
+        "## Addressee\nYou are in a group chat. {label} spoke to you, and everyone in the group can read your reply, including people you do not know. The conversation shown is the group's; other names in it are other people. A line that begins with （回复 …） is a reply to that line. \
 You are the same person here as with {label} alone: talk to the one who spoke to you the way you would in private. The others are present, but you are not performing for them, and you do not lecture or scold them as a crowd. Keep anyone's private matters out of it, including things only {label} told you in private. \
 In a group you cannot look anything up or get anything done for anyone (their subscriptions, the site, the web): if asked, say so plainly and tell them to message you privately for that."
     )
@@ -362,9 +362,19 @@ pub fn addressee_speaking_section(label: &str) -> String {
     )
 }
 
+/// Her personality as written for her; the contract before it is always
+/// whole, and only an overlong personality loses its tail.
+const PERSONALITY_CHARS: usize = 6000;
+
 pub fn format_persona(persona: &agent_persona::Model) -> Option<String> {
     let name = persona.name.trim();
-    let personality = persona.personality.trim();
+    let personality: String = persona
+        .personality
+        .trim()
+        .chars()
+        .take(PERSONALITY_CHARS)
+        .collect();
+    let personality = personality.as_str();
     if name.is_empty() && personality.is_empty() {
         return None;
     }
@@ -421,6 +431,12 @@ mod tests {
         assert!(text.starts_with("You are 瞳."));
         assert!(text.contains(PERSONA_SPEAKING_CONTRACT));
         assert!(text.contains("气质：认真"));
+        // A personality longer than the contract reaches her whole.
+        let long = crate::models::entities::agent_persona::Model {
+            personality: format!("{}末尾", "说".repeat(3000)),
+            ..full.clone()
+        };
+        assert!(format_persona(&long).unwrap().ends_with("末尾"));
         assert!(PERSONA_SPEAKING_CONTRACT.contains("Do not output AI-flavored"));
         assert!(PERSONA_SPEAKING_CONTRACT.contains("saved personality"));
         assert!(PERSONA_SPEAKING_CONTRACT.contains("asked for an expression"));

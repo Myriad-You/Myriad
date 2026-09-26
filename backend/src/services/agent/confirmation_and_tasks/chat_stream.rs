@@ -374,7 +374,6 @@ impl Agent {
         let soul = crate::services::agent::identity::get_speaking_soul()
             .await
             .unwrap_or_default();
-        let soul: String = soul.chars().take(2000).collect();
         let venue = request
             .context
             .as_ref()

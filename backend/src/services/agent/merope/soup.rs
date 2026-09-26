@@ -339,10 +339,7 @@ const SECOND_TRY: Duration = Duration::from_secs(30);
 async fn make_up(table: &Table, words: &str, billing: i32) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
-        .unwrap_or_default()
-        .chars()
-        .take(2000)
-        .collect();
+        .unwrap_or_default();
     let recent: Vec<String> = RECENT_SURFACES
         .lock()
         .map(|recent| recent.clone())

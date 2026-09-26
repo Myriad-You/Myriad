@@ -221,7 +221,6 @@ async fn compile(
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let soul: String = soul.chars().take(2000).collect();
     let no_priming = crate::services::agent::memory::unified::Priming::default();
     let (state, remembered, myself) = tokio::join!(
         super::get_or_create_state(db, user_id),
