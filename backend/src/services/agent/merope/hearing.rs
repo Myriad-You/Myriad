@@ -192,3 +192,30 @@ mod tests {
         assert_eq!(extension("application/octet-stream"), None);
     }
 }
+
+/// Hear a real song end to end and print what she would get.
+/// `MEROPE_HEAR_SONG=<netease id> cargo test … hear_a_real_song -- --ignored --nocapture`
+#[cfg(test)]
+mod live {
+    #[tokio::test]
+    #[ignore = "fetches a real recording; requires MEROPE_HEAR_SONG"]
+    async fn hear_a_real_song() {
+        let Ok(id) = std::env::var("MEROPE_HEAR_SONG") else {
+            return;
+        };
+        let db = sea_orm::DatabaseConnection::default();
+        let thing = super::Thing::Song {
+            id,
+            source: "netease".into(),
+            name: String::new(),
+            artist: String::new(),
+            album: String::new(),
+            cover: String::new(),
+            duration_ms: 0,
+        };
+        let started = std::time::Instant::now();
+        let sheet = super::hear(&db, &thing).await.expect("heard");
+        println!("heard in {:?}\n{}", started.elapsed(), sheet.describe());
+        println!("\n--- at 1:00 ---\n{}", sheet.so_far(60.0));
+    }
+}

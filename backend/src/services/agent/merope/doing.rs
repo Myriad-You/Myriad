@@ -49,7 +49,7 @@ const TELL_EVERY: Duration = Duration::from_secs(45 * 60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const MATERIAL_CHARS: usize = 2500;
 /// A heard song carries its timeline and lyrics.
-const HEARD_CHARS: usize = 7000;
+const HEARD_CHARS: usize = 12000;
 const CHOICE_SCHEMA: &str = "merope_doing_choice";
 const DIGEST_SCHEMA: &str = "merope_doing_digest";
 
@@ -571,6 +571,8 @@ enum Material {
     Heard,
     /// A song whose recording did not reach her: only its words.
     WordsOnly,
+    /// A song that reached her neither as sound nor as words.
+    Nothing,
     /// A note, read.
     Read,
 }
@@ -579,6 +581,7 @@ const HEARD: &str = "You heard it: the material is what happens in its sound, me
 That is how the song went for you. Feel it as yourself: the research says what such moments tend to do, not what you must feel; they may get you where it says, somewhere else, or not at all, and you may like it or not. \
 Say it as a person would, by the moment, the line or the feeling, never by numbers, BPM, keys, decibels or sources. ";
 const WORDS_ONLY: &str = "The recording would not load, so you only had its words; you did not hear how it sounds, and do not pretend to. ";
+const NOTHING: &str = "The recording would not load and it had no words to read: you neither heard nor read any of it, and do not pretend to. ";
 
 fn digest_system(soul: &str, what: &str, why: &str, material: Material) -> String {
     let why = if why.trim().is_empty() {
@@ -589,6 +592,7 @@ fn digest_system(soul: &str, what: &str, why: &str, material: Material) -> Strin
     let how = match material {
         Material::Heard => HEARD,
         Material::WordsOnly => WORDS_ONLY,
+        Material::Nothing => NOTHING,
         Material::Read => "",
     };
     format!(
@@ -642,11 +646,17 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     };
     let (material, text, limit) = match (&done.thing, &sheet) {
         (Thing::Song { .. }, Some(sheet)) => (Material::Heard, Some(sheet.describe()), HEARD_CHARS),
-        (Thing::Song { .. }, None) => (
-            Material::WordsOnly,
-            lyrics(db, &done.thing).await,
-            MATERIAL_CHARS,
-        ),
+        (Thing::Song { .. }, None) => {
+            let words = lyrics(db, &done.thing)
+                .await
+                .filter(|words| !words.trim().is_empty());
+            let material = if words.is_some() {
+                Material::WordsOnly
+            } else {
+                Material::Nothing
+            };
+            (material, words, MATERIAL_CHARS)
+        }
         (Thing::Note { item_id, .. }, _) => (
             Material::Read,
             note_text(db, *item_id).await,
@@ -905,13 +915,20 @@ pub fn now_line(doing: &Doing, at: DateTime<Utc>) -> String {
     } else {
         format!(" You picked it: {}.", doing.why.trim())
     };
-    let so_far = super::hearing::heard(&doing.thing.key())
-        .map(|sheet| {
-            let seconds =
-                at.signed_duration_since(doing.started).num_milliseconds() as f32 / 1000.0;
-            format!(" {}", sheet.so_far(seconds.max(0.0)))
-        })
-        .unwrap_or_default();
+    let heard = matches!(doing.thing, Thing::Song { .. })
+        .then(|| super::hearing::heard(&doing.thing.key()));
+    let so_far = match heard {
+        // Still being heard, or the recording would not load.
+        Some(None) => " How it sounds has not reached you.".to_string(),
+        heard => heard
+            .flatten()
+            .map(|sheet| {
+                let seconds =
+                    at.signed_duration_since(doing.started).num_milliseconds() as f32 / 1000.0;
+                format!(" {}", sheet.so_far(seconds.max(0.0)))
+            })
+            .unwrap_or_default(),
+    };
     format!(
         "You are {} {}, about {done} of {total} minutes in.{so_far}{why}",
         doing_verb(&doing.thing),
@@ -989,8 +1006,10 @@ pub(crate) fn digest_probe_contract(
         Material::Read
     } else if material.is_some_and(|material| material.contains("How it goes:")) {
         Material::Heard
-    } else {
+    } else if material.is_some() {
         Material::WordsOnly
+    } else {
+        Material::Nothing
     };
     (digest_system(soul, what, why, how), digest_schema())
 }
@@ -1052,6 +1071,10 @@ mod tests {
         let words_only = digest_system("你是瞳。", "listening to …", "", Material::WordsOnly);
         assert!(words_only.contains("you only had its words"));
         assert!(!words_only.contains("You heard it"));
+        let nothing = digest_system("你是瞳。", "listening to …", "", Material::Nothing);
+        assert!(
+            nothing.contains("neither heard nor read") && !nothing.contains("only had its words")
+        );
         let read = digest_system("你是瞳。", "reading …", "", Material::Read);
         assert!(!read.contains("only had its words") && !read.contains("You heard it"));
         assert!(system.contains("You picked it because: 想听点旧歌."));
@@ -1160,7 +1183,7 @@ mod tests {
         };
         assert_eq!(
             now_line(&doing, started + chrono::Duration::minutes(2)),
-            "You are listening to the song 「晴天」 by 周杰伦, about 2 of 4 minutes in. You picked it: 想听点旧歌."
+            "You are listening to the song 「晴天」 by 周杰伦, about 2 of 4 minutes in. How it sounds has not reached you. You picked it: 想听点旧歌."
         );
         assert_eq!(
             ago(started, started - chrono::Duration::minutes(30)),
