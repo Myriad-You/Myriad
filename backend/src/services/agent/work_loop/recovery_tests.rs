@@ -277,7 +277,7 @@ async fn work_process_fixture() {
                 let agent = Agent::new(db.clone()).await;
                 let emitter = executor::events::StepEventEmitter::new(None);
                 agent
-                    .drive_work_loop(&mut state, None, &emitter, &analyzer)
+                    .drive_work_loop(&mut state, None, &emitter, &analyzer.into())
                     .await
                     .unwrap();
                 assert_eq!(state.task.status, TaskStatus::Completed);

@@ -137,7 +137,7 @@ async fn ai_search_rss_feeds(query: &str, ctx: &HandlerContext<'_>) -> Result<Ve
         search_query
     );
 
-    let result = analyzer.analyze(&prompt).await.map_err(|error| {
+    let result = analyzer.text(&prompt).await.map_err(|error| {
         tracing::error!(%error, "AI search failed");
         "AI search failed".to_string()
     })?;

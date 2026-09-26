@@ -249,7 +249,7 @@ Return JSON:
         user_intent = user_intent,
     );
 
-    let ai_result = analyzer.analyze(&prompt).await.map_err(|error| {
+    let ai_result = analyzer.text(&prompt).await.map_err(|error| {
         tracing::error!(%error, "UI analysis failed");
         classify_outbound_fetch("UI analysis failed", &error.to_string())
     })?;
@@ -1146,7 +1146,7 @@ async fn execute_page_understand(
             truncated_context, query
         );
 
-        let result = analyzer.analyze(&prompt).await.map_err(|error| {
+        let result = analyzer.text(&prompt).await.map_err(|error| {
             tracing::error!(%error, "UI analysis failed");
             classify_outbound_fetch("UI analysis failed", &error.to_string())
         })?;

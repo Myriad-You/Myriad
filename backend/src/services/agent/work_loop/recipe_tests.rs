@@ -65,7 +65,7 @@ fn enqueue(state: &mut Checkpoint, pending: PendingCall) {
     state.pending.push_back(pending);
 }
 async fn final_model() -> (
-    crate::services::analyzer::AiAnalyzer,
+    crate::services::agent::work_call::WorkModel,
     tokio::task::JoinHandle<()>,
 ) {
     model(axum::Router::new().route(

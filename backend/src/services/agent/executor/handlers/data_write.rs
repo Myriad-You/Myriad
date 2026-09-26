@@ -4,9 +4,7 @@
 //! 纯 URL/名称/feed 优先级规则见 [`crate::services::agent::data_write_pure`]。
 
 use super::HandlerContext;
-use crate::models::entities::{
-    phantasi_items, phantasi_sources, phantasi_user_states, tapp_storage,
-};
+use crate::models::entities::{phantasi_sources, tapp_storage};
 use crate::services::agent::data_write_pure::{
     clamp_update_interval_minutes, collect_subscribe_url_candidates, is_disallowed_subscribe_ip,
     platform_write_cap_error, platform_write_items_over_cap, sanitize_feed_name,
@@ -25,10 +23,7 @@ use crate::services::tapp_storage::{
     validate_storage_value_size, write_storage_value,
 };
 use chrono::Utc;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
-    QuerySelect, TransactionTrait,
-};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::net::ToSocketAddrs;

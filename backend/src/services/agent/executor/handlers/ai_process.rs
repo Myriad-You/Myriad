@@ -10,7 +10,7 @@ use crate::services::agent::ai_process_pure::{
     IMAGE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS, agent_image_producer_key,
     append_memory_to_system_prompt, capability_needs_conversation_context, capability_needs_memory,
     extract_semantic_text, inject_directive_to_params, inject_steering_to_params,
-    merge_system_prompt, resolve_image_dimensions, resolve_image_prompt, sanitize_prompt_input,
+    resolve_image_dimensions, resolve_image_prompt, sanitize_prompt_input,
     take_recent_conversation_messages, task_image_envelope, task_json_envelope, task_text_envelope,
     with_system_guidance,
 };
@@ -148,7 +148,7 @@ pub async fn execute(
 
 async fn execute_ai_summarize(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let input = params
         .get("content")
@@ -212,7 +212,7 @@ async fn execute_ai_summarize(
         ),
     );
 
-    let result = analyzer.analyze(&prompt).await.map_err(|e| {
+    let result = analyzer.text(&prompt).await.map_err(|e| {
         tracing::error!(error = %e, "AI summarize failed");
         "AI generation failed".to_string()
     })?;
@@ -225,7 +225,7 @@ async fn execute_ai_summarize(
 
 async fn execute_ai_analyze(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let input = params.get("data").cloned().unwrap_or(json!(null));
     let analysis_type = params
@@ -299,7 +299,7 @@ async fn execute_ai_analyze(
         },
     );
 
-    let result = analyzer.analyze(&prompt).await.map_err(|e| {
+    let result = analyzer.text(&prompt).await.map_err(|e| {
         tracing::error!(error = %e, "AI analysis failed");
         "AI generation failed".to_string()
     })?;
@@ -312,7 +312,7 @@ async fn execute_ai_analyze(
 
 async fn execute_ai_recommend(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let context = params.get("context").cloned().unwrap_or(json!({}));
     let preferences = params.get("preferences").cloned().unwrap_or(json!({}));
@@ -345,7 +345,7 @@ async fn execute_ai_recommend(
         ),
     );
 
-    let result = analyzer.analyze(&prompt).await.map_err(|e| {
+    let result = analyzer.text(&prompt).await.map_err(|e| {
         tracing::error!(error = %e, "AI recommendation failed");
         "AI generation failed".to_string()
     })?;
@@ -368,7 +368,7 @@ async fn execute_ai_recommend(
 
 async fn execute_ai_chat(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let message = params
         .get("message")
@@ -406,7 +406,7 @@ async fn execute_ai_chat(
 
     full_prompt.push_str(&format!("User: {}\n\nReply:", message));
 
-    let result = analyzer.analyze(&full_prompt).await.map_err(|e| {
+    let result = analyzer.text(&full_prompt).await.map_err(|e| {
         tracing::error!(error = %e, "AI chat failed");
         "AI generation failed".to_string()
     })?;
@@ -421,7 +421,7 @@ use crate::services::agent::executor::utils::validate_platform_name;
 
 async fn execute_phantasiai_annotate(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
     let item_id = params
@@ -462,7 +462,7 @@ async fn execute_phantasiai_annotate(
     );
 
     let result = analyzer
-        .analyze(&prompt)
+        .text(&prompt)
         .await
         .map_err(|error| ai_step_failed("Annotation generation failed", error))?;
 
@@ -488,7 +488,7 @@ async fn execute_phantasiai_annotate(
 
 async fn execute_phantasiai_podcast(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
     let item_id = params
@@ -546,7 +546,7 @@ async fn execute_phantasiai_podcast(
     );
 
     let result = analyzer
-        .analyze(&prompt)
+        .text(&prompt)
         .await
         .map_err(|error| ai_step_failed("Podcast script generation failed", error))?;
 
@@ -668,7 +668,7 @@ async fn execute_speech_tts(params: &HashMap<String, Value>) -> Result<Value, St
 
 async fn execute_smart_filter(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let platform_raw = params
         .get("platform")
@@ -715,7 +715,7 @@ async fn execute_smart_filter(
             );
 
             let result = analyzer
-                .analyze(&prompt)
+                .text(&prompt)
                 .await
                 .map_err(|error| ai_step_failed("Smart filter failed", error))?;
 
@@ -732,7 +732,7 @@ async fn execute_smart_filter(
 
 async fn execute_compare_content(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let platform_raw = params
         .get("platform")
@@ -771,7 +771,7 @@ async fn execute_compare_content(
             );
 
             let result = analyzer
-                .analyze(&prompt)
+                .text(&prompt)
                 .await
                 .map_err(|error| ai_step_failed("Content comparison failed", error))?;
 
@@ -824,7 +824,7 @@ async fn execute_icon_recommend(params: &HashMap<String, Value>) -> Result<Value
 
 async fn execute_prompt_generate(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let title = params.get("title").and_then(|v| v.as_str()).unwrap_or("");
     let summary = params.get("summary").and_then(|v| v.as_str()).unwrap_or("");
@@ -882,7 +882,7 @@ async fn execute_prompt_generate(
     );
 
     let result = analyzer
-        .analyze(&prompt)
+        .text(&prompt)
         .await
         .map_err(|error| ai_step_failed("Prompt generation failed", error))?;
 
@@ -911,7 +911,7 @@ async fn execute_prompt_generate(
 
 async fn execute_translate_text(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let text = params
         .get("text")
@@ -940,7 +940,7 @@ async fn execute_translate_text(
     );
 
     let result = analyzer
-        .analyze(&prompt)
+        .text(&prompt)
         .await
         .map_err(|error| ai_step_failed("Translation failed", error))?;
 
@@ -954,7 +954,7 @@ async fn execute_translate_text(
 
 async fn execute_code_explain(
     params: &HashMap<String, Value>,
-    analyzer: &crate::services::analyzer::AiAnalyzer,
+    analyzer: &crate::services::agent::work_call::WorkModel,
 ) -> Result<Value, String> {
     let code = params
         .get("code")
@@ -974,7 +974,7 @@ async fn execute_code_explain(
     );
 
     let result = analyzer
-        .analyze(&prompt)
+        .text(&prompt)
         .await
         .map_err(|error| ai_step_failed("Code explanation failed", error))?;
 

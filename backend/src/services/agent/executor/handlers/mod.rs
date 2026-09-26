@@ -13,7 +13,7 @@ mod system_op;
 mod ui_control;
 
 use crate::services::agent::types::*;
-use crate::services::analyzer::AiAnalyzer;
+use crate::services::agent::work_call::WorkModel;
 use sea_orm::DatabaseConnection;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use std::collections::HashMap;
 /// Handler 执行上下文
 pub struct HandlerContext<'a> {
     pub db: &'a DatabaseConnection,
-    pub ai_analyzer: Option<&'a AiAnalyzer>,
+    pub ai_analyzer: Option<&'a WorkModel>,
     pub user_id: i32,
     /// Executor-owned task identity. Capability input is never trusted to
     /// choose which task an asynchronous Tapp result will resume.

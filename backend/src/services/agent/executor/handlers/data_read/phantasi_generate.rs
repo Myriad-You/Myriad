@@ -512,7 +512,7 @@ JSON only."#,
         max_items
     );
 
-    let ai_response = ai_analyzer.analyze(&prompt).await.map_err(|e| {
+    let ai_response = ai_analyzer.text(&prompt).await.map_err(|e| {
         tracing::error!(error = %e, "[phantasi.generateReadingList] AI analysis failed");
         "Failed to analyze with AI".to_string()
     })?;
