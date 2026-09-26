@@ -355,6 +355,8 @@ export class Anime25DPlayer {
   private readonly armDrapes = { L: new ArmDrape(), R: new ArmDrape() } as const
 
   private readonly armJoint = { x: 0, y: 0, reach: 0 }
+  /** Each shoulder as the arm step last found it, for what else hangs there. */
+  private readonly shoulders = { L: { x: 0, y: 0, found: false }, R: { x: 0, y: 0, found: false } }
 
   /** The head is one soft volume: it squashes and stretches about the chin. */
   private readonly headJelly = new JellyVolume(HEAD_JELLY)
@@ -1306,8 +1308,9 @@ export class Anime25DPlayer {
     this.headWorldPoint(element.anchorX, element.anchorY, this.jellyAnchor)
     this.headJelly.step(this.jellyAnchor.x, this.jellyAnchor.y, -downX, -downY, element.length, dt, dynamic)
     for (const part of this.jellyParts.values()) {
-      if (!this.writeArmJoint(part.side)) continue
-      part.volume.step(this.armJoint.x, this.armJoint.y, downX, downY, part.element.length, dt, dynamic)
+      const shoulder = this.shoulders[part.side]
+      if (!shoulder.found) continue
+      part.volume.step(shoulder.x, shoulder.y, downX, downY, part.element.length, dt, dynamic)
     }
   }
 
@@ -1342,6 +1345,10 @@ export class Anime25DPlayer {
     const input = { open: e.armY, sway: e.armPos, bodyRoll: e.body * BODY_ROLL_RADIANS, dynamic: e.phys }
     for (const side of ['L', 'R'] as const) {
       const joint = this.writeArmJoint(side) ? this.armJoint : null
+      const shoulder = this.shoulders[side]
+      shoulder.found = joint !== null
+      shoulder.x = this.armJoint.x
+      shoulder.y = this.armJoint.y
       const angle = this.armPendulums[side].step(input, joint, dt)
       const drape = this.armDrapes[side].step(angle, input.bodyRoll, input.dynamic, dt)
       if (side === 'L') {
