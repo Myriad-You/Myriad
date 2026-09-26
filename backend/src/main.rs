@@ -67,6 +67,8 @@ mod extract;
 mod federation;
 mod held_stream;
 mod i18n;
+#[cfg(test)]
+mod layering;
 mod memory_audit_invariants;
 mod memory_cleanup;
 mod middleware;
