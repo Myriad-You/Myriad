@@ -46,6 +46,11 @@ describe('withDisplayImages', () => {
       '<p><img alt="封面" src="http://localhost:3000/media/federation/1/a.jpg?x=1&amp;y=2"></p>',
     )
   })
+
+  it('地址里字面的 &quot; 来回不变，不被解成引号', () => {
+    const html = '<img src="https://other.test/a.jpg?q=&amp;quot;x">'
+    assert.equal(withDisplayImages(html, api), html)
+  })
 })
 
 describe('prepareNoteReaderHtml', () => {

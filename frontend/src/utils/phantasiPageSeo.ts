@@ -20,10 +20,10 @@ function plainTextSnippet(
   const plain = htmlOrText
     .replaceAll(/<[^>]*>/g, ' ')
     .replaceAll('&nbsp;', ' ')
-    .replaceAll('&amp;', '&')
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
     .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&')
     .replaceAll(/\s+/g, ' ')
     .trim()
   if (!plain) return undefined

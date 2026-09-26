@@ -28,6 +28,11 @@ describe('content Io text', () => {
     assert.match(html, /<strong>there<\/strong>/)
   })
 
+  it('实体只解一层：&amp;lt; 是字面的 &lt;，不是 <', () => {
+    assert.equal(htmlToMarkdown('<p>a &amp;lt;b&amp;gt; &amp;amp; c</p>'), 'a &lt;b&gt; &amp; c')
+    assert.equal(htmlToMarkdown('<p>&lt;tag&gt; &amp; &#60;</p>'), '<tag> & <')
+  })
+
   it('fileSlug 留下中文', () => {
     assert.equal(fileSlug('第一篇 笔记', 0), '第一篇-笔记')
     assert.equal(fileSlug('   ', 2), 'note-3')

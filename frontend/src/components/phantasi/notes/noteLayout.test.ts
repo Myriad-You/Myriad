@@ -166,6 +166,10 @@ describe('serialize', () => {
     assert.deepEqual(decodeWidgetConfigAttr(encoded), { city: 'Tokyo' })
     assert.deepEqual(decodeWidgetConfigAttr('{"city":"Tokyo"}'), { city: 'Tokyo' })
     assert.equal(decodeWidgetConfigAttr('{nope}'), null)
+    assert.deepEqual(
+      decodeWidgetConfigAttr('{&quot;text&quot;:&quot;&amp;lt;b&amp;gt;&quot;}'),
+      { text: '&lt;b&gt;' },
+    )
     assert.equal(encodeWidgetConfigAttr({}), null)
   })
 

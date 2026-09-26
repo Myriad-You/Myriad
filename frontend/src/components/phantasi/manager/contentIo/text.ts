@@ -1,10 +1,10 @@
 /** 导入导出共用的文本收拾，不碰 DOM。 */
 
+/** `&amp;` 必须最后解，否则 `&amp;lt;` 会被解两次变成 `<`。 */
 export function decodeEntities(text: string): string {
   return text
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
@@ -13,6 +13,7 @@ export function decodeEntities(text: string): string {
       String.fromCodePoint(Number.parseInt(hex, 16)),
     )
     .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
+    .replace(/&amp;/g, '&')
 }
 
 export function xmlBlocks(xml: string, tag: string): string[] {
