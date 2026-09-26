@@ -12,8 +12,14 @@ export const ARM_MAX_RADIANS = (MAX_RIGID_ARM_ROTATION_DEGREES * Math.PI) / 180
 /** How much of a body roll the hanging arms give back to gravity. */
 export const ARM_HANG = 0.5
 
-export const ARM_PENDULUM_HZ = 1.25
-export const ARM_PENDULUM_DAMPING = 0.55
+export const ARM_PENDULUM_HZ = 1.6
+export const ARM_PENDULUM_DAMPING = 0.4
+
+/**
+ * A torso twist drawn in 2D moves the shoulder far less than the turning body
+ * moves the arm in depth; the drawn shoulder's acceleration under-reads it.
+ */
+export const ARM_INERTIA_GAIN = 6
 
 /** Shoulder acceleration above this is a discontinuity, not motion. */
 const MAX_SUPPORT_ACCELERATION = 20_000
@@ -89,7 +95,8 @@ export class ArmPendulum {
     const reach = support && support.reach > 0 ? support.reach : Infinity
     const world = this.state + roll
     // A pendulum on a moving support: the hand lags the shoulder's acceleration.
-    const inertia = (accelerationX * Math.cos(world) + accelerationY * Math.sin(world)) / reach
+    const inertia =
+      (ARM_INERTIA_GAIN * (accelerationX * Math.cos(world) + accelerationY * Math.sin(world))) / reach
     const acceleration =
       -omega * omega * (this.state - target) - 2 * ARM_PENDULUM_DAMPING * omega * this.velocity + inertia
     this.velocity += acceleration * step
