@@ -294,6 +294,11 @@ async function getGeoFromFallbackServices(): Promise<GeoLocationData | null> {
   return null
 }
 
+/** 2 decimals ≈ 1.1 km. */
+function coarsenCoordinate(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 function readBrowserGeoCache(ttl: number): GeoLocationData | null {
   try {
     const raw = localStorage.getItem(BROWSER_GEO_CACHE_KEY)
@@ -443,8 +448,10 @@ export async function getBrowserGeolocation(options?: {
         },
       )
 
-      const latitude = position.coords.latitude
-      const longitude = position.coords.longitude
+      // Only weather consumes the fix; ~1 km is its grid, so a finer point is
+      // never persisted nor sent to the geocoding/weather providers.
+      const latitude = coarsenCoordinate(position.coords.latitude)
+      const longitude = coarsenCoordinate(position.coords.longitude)
       const city = await reverseGeocodeCity(latitude, longitude)
 
       const data: GeoLocationData = {
@@ -453,9 +460,7 @@ export async function getBrowserGeolocation(options?: {
         city,
       }
       writeBrowserGeoCache(data)
-      console.debug(
-        `[GeoLocation] 浏览器定位成功: ${city} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
-      )
+      console.debug(`[GeoLocation] 浏览器定位成功: ${city}`)
       return data
     } catch (error) {
       const code =
