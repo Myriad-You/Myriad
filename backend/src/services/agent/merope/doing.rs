@@ -843,9 +843,10 @@ pub struct Experience {
     reaction: Option<Reaction>,
 }
 
-/// What a row of her own experience was, as a line ("listening to …").
+/// What a row of her own experience was and how it landed, as a line
+/// ("listening to … (you liked it)"): her views grow out of these.
 pub(super) fn experience_line(row: &unified_row::Model) -> Option<String> {
-    Experience::of(row).map(|experience| experience.line())
+    Experience::of(row).map(|experience| experience.line_felt())
 }
 
 impl Experience {
