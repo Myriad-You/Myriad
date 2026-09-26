@@ -280,7 +280,9 @@ export function splitHighCollarOcclusion(
 
   const neckIndex = layers.indexOf(neck)
   const topwearIndex = layers.indexOf(topwear)
-  const insertionIndex = Math.min(neckIndex, topwearIndex)
+  // The group takes the topwear's slot. Anything painted between a lower neck
+  // and the topwear (a full-length dress under a jacket) stays under the topwear.
+  const insertionIndex = topwearIndex - (neckIndex < topwearIndex ? 1 : 0)
   const output = layers.filter((layer) => layer !== neck && layer !== topwear)
   // Playback paints in array order rather than consulting semantic depth.
   const withCore = output.toSpliced(

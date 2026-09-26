@@ -51,6 +51,19 @@ test('splits a standalone high collar into rear, neck and deformable front topol
   )
 })
 
+test('a long dress painted between the neck and the jacket stays under the jacket', () => {
+  const neck = raster('neck', 20, 20, 40, 50, () => [245, 205, 190, 255])
+  const topwear = raster('topwear', 0, 0, 80, 100, (_x, y) =>
+    y >= 20 && y <= 35 ? [42, 45, 62, 255] : [184, 176, 196, 255],
+  )
+  const dress = { ...raster('topwear', 5, 40, 70, 60, () => [120, 118, 110, 255]), id: 'dress', role: 'bottomwear' as const }
+  const output = splitHighCollarOcclusion([neck, dress, topwear], anchors)
+  const roles = output.map((layer) => layer.role)
+  assert.ok(roles.includes('collar-back'), roles.join(','))
+  assert.ok(roles.indexOf('bottomwear') < roles.indexOf('topwear'), roles.join(','))
+  assert.ok(roles.indexOf('topwear') < roles.indexOf('neck'))
+})
+
 test('does not promote a duplicated shaded neck into clothing', () => {
   const skin = (
     _x: number,
