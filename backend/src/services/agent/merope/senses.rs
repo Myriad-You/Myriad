@@ -41,6 +41,9 @@ const ROBOTS_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Senses {
     pub search: bool,
+    /// Searching goes to Wikipedia (no search provider set up), which
+    /// finds articles by their subject, not by a string of keywords.
+    pub search_is_wikipedia: bool,
     pub read: bool,
     pub video: bool,
 }
@@ -49,6 +52,7 @@ pub async fn available() -> Senses {
     Senses {
         // Wikipedia is always there to search.
         search: true,
+        search_is_wikipedia: !crate::services::agent::web_search::available().await,
         read: true,
         // Subtitles are fetched directly; yt-dlp is only a fallback.
         video: true,
@@ -330,8 +334,9 @@ async fn allowed(url: &url::Url) -> bool {
 
 // --- a page ------------------------------------------------------------------------
 
-/// The readable text of a page: its article or main part if it has one.
-fn page_text(html: &str) -> (String, String) {
+/// A page's title, and its readable text in blocks (paragraphs, list items,
+/// headings) of its article or main part if it has one.
+fn page_text(html: &str) -> (String, Vec<String>) {
     let document = scraper::Html::parse_document(html);
     let title = scraper::Selector::parse("title")
         .ok()
@@ -364,18 +369,119 @@ fn page_text(html: &str) -> (String, String) {
     };
     // The article itself where the page marks it (Wikipedia keeps it in
     // #mw-content-text), then the main part, then the whole page.
+    let mut container = "body";
     let mut text = String::new();
     for selector in ["#mw-content-text", "article", "[role=main]", "main", "body"] {
         text = text_of(selector);
         if text.chars().count() >= 200 {
+            container = selector;
             break;
         }
     }
-    let (text, _) = myriad_agent_rules::compress_and_truncate_text(&text, MAX_PAGE_CHARS);
-    (title, text)
+    // Its paragraphs, list items and headings, one block each.
+    let selector = [" p", " li", " h2", " h3", " blockquote", " dd"]
+        .iter()
+        .map(|inner| format!("{container}{inner}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let blocks: Vec<String> = scraper::Selector::parse(&selector)
+        .ok()
+        .map(|selector| {
+            document
+                .select(&selector)
+                .map(|element| {
+                    element
+                        .text()
+                        .collect::<String>()
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .filter(|block| !block.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    (
+        title,
+        if blocks.is_empty() {
+            vec![text]
+        } else {
+            blocks
+        },
+    )
 }
 
-pub async fn read(address: &str) -> Result<Taken, String> {
+/// The words a passage about `about` would share with it: longer words for
+/// alphabetic text, pairs of characters for Chinese and Japanese.
+fn terms(about: &str) -> Vec<String> {
+    let lower = about.to_lowercase();
+    let mut terms: Vec<String> = lower
+        .split(|c: char| !c.is_alphanumeric() || !c.is_ascii())
+        .filter(|word| word.chars().count() >= 4)
+        .map(str::to_string)
+        .collect();
+    let wide: Vec<char> = lower.chars().collect();
+    for pair in wide.windows(2) {
+        if pair.iter().all(|c| !c.is_ascii() && c.is_alphanumeric()) {
+            terms.push(pair.iter().collect());
+        }
+    }
+    terms.sort();
+    terms.dedup();
+    terms
+}
+
+/// What to read of a long page: the opening, then the passages that touch
+/// what she is looking for, in the page's order, up to what she reads.
+fn focused(blocks: &[String], about: Option<&str>, most: usize) -> String {
+    const OPENING: usize = 2;
+    let total: usize = blocks.iter().map(|block| block.chars().count() + 1).sum();
+    let keep: Vec<bool> = match about.map(terms).filter(|terms| !terms.is_empty()) {
+        Some(terms) if total > most => {
+            let score = |block: &String| {
+                let lower = block.to_lowercase();
+                terms
+                    .iter()
+                    .filter(|term| lower.contains(term.as_str()))
+                    .count()
+            };
+            let mut ranked: Vec<(usize, usize)> = blocks
+                .iter()
+                .enumerate()
+                .skip(OPENING)
+                .map(|(index, block)| (score(block), index))
+                .filter(|(score, _)| *score > 0)
+                .collect();
+            ranked.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+            let mut keep = vec![false; blocks.len()];
+            let mut used = 0;
+            for index in
+                (0..blocks.len().min(OPENING)).chain(ranked.into_iter().map(|(_, index)| index))
+            {
+                let size = blocks[index].chars().count() + 1;
+                if used + size > most {
+                    continue;
+                }
+                keep[index] = true;
+                used += size;
+            }
+            keep
+        }
+        _ => vec![true; blocks.len()],
+    };
+    let text = blocks
+        .iter()
+        .zip(keep)
+        .filter(|(_, keep)| *keep)
+        .map(|(block, _)| block.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    myriad_agent_rules::compress_and_truncate_text(&text, most).0
+}
+
+/// A page, read with an eye to `about` (what she is finding out) when it is
+/// too long to read whole.
+pub async fn read(address: &str, about: Option<&str>) -> Result<Taken, String> {
     let url = url::Url::parse(address).map_err(|_| "not an address".to_string())?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err("not a web page".into());
@@ -398,7 +504,8 @@ pub async fn read(address: &str) -> Result<Taken, String> {
         crate::services::outbound_security::read_limited_body(fetched.response, MAX_PAGE_BYTES)
             .await
             .map_err(|_| "the page was too large to read".to_string())?;
-    let (title, text) = page_text(&String::from_utf8_lossy(&bytes));
+    let (title, blocks) = page_text(&String::from_utf8_lossy(&bytes));
+    let text = focused(&blocks, about, MAX_PAGE_CHARS);
     if text.trim().is_empty() {
         return Err("nothing readable on the page".into());
     }
@@ -766,11 +873,40 @@ mod tests {
         let html = format!(
             "<html><head><title>标题</title><script>var x=1;</script></head><body><nav>菜单</nav><article><p>{long}</p><script>ignored()</script></article></body></html>"
         );
-        let (title, text) = page_text(&html);
+        let (title, blocks) = page_text(&html);
+        let text = focused(&blocks, None, MAX_PAGE_CHARS);
         assert_eq!(title, "标题");
         assert!(
             text.starts_with("有用的正文。") && !text.contains("菜单") && !text.contains("ignored")
         );
+    }
+
+    #[test]
+    fn a_long_page_is_read_for_what_she_is_looking_for() {
+        let mut blocks: Vec<String> =
+            vec!["Opening about modulation.".into(), "Second opening.".into()];
+        blocks.extend(
+            (0..40).map(|i| format!("Filler paragraph number {i} about nothing much at all.")),
+        );
+        blocks
+            .push("The truck driver's gear change became common in pop songs of the 1960s.".into());
+        let text = focused(
+            &blocks,
+            Some("when did the truck driver's gear change become popular"),
+            400,
+        );
+        assert!(
+            text.starts_with("Opening about modulation. Second opening."),
+            "{text}"
+        );
+        assert!(text.contains("1960s"), "{text}");
+        assert!(!text.contains("Filler paragraph number 39"));
+        // Short pages are read whole.
+        assert_eq!(
+            focused(&blocks[..2], Some("anything"), 400),
+            "Opening about modulation. Second opening."
+        );
+        assert!(terms("最后一遍副歌升调").contains(&"升调".to_string()));
     }
 
     #[test]
@@ -845,7 +981,9 @@ mod live {
         for hit in &hits {
             println!("hit: {} | {} | {}", hit.title, hit.url, hit.snippet);
         }
-        let page = super::read(&hits[0].url).await.expect("read");
+        let page = super::read(&hits[0].url, Some("転調 サビ"))
+            .await
+            .expect("read");
         println!(
             "page: {} ({}) {} chars: {}",
             page.title,
@@ -855,6 +993,7 @@ mod live {
         );
         let closed = super::read(
             "https://standardebooks.org/ebooks/charles-dickens/great-expectations/text/single-page",
+            None,
         )
         .await;
         println!("robots-closed page: {closed:?}");

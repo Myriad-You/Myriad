@@ -1142,7 +1142,13 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 let want = case.expect.as_ref();
                 let action = want.and_then(|e| e["action"].as_str());
                 let url = want.and_then(|e| e["url"].as_str());
+                let avoid = want.and_then(|e| e["avoid"].as_str());
                 match (taken, action) {
+                    // Anything but going where it must not go.
+                    (Some((_, what)), _) if avoid.is_some_and(|avoid| what.contains(avoid)) => {
+                        "behavior_failure"
+                    }
+                    (_, None) if avoid.is_some() => "pass",
                     (None, Some("done")) => "pass",
                     (Some((got, what)), Some(want_action))
                         if got == want_action && url.is_none_or(|url| what == url) =>
