@@ -372,9 +372,9 @@ pub fn by_words(sections: Vec<Section>, lyrics: &[LyricLine]) -> Vec<Section> {
         }
         i
     }
-    for i in 0..n {
-        for j in i + 1..n {
-            if shared[i][j] >= 2 {
+    for (i, row) in shared.iter().enumerate() {
+        for (j, &lines) in row.iter().enumerate().skip(i + 1) {
+            if lines >= 2 {
                 let (a, b) = (find(&mut root, i), find(&mut root, j));
                 root[a.max(b)] = a.min(b);
             }
