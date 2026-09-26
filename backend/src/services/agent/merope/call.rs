@@ -177,31 +177,11 @@ pub(super) fn was_cut(error: &anyhow::Error) -> bool {
 }
 
 /// A model's answer as `T`: the JSON object in it, or the whole of it.
-pub(super) fn parse<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T> {
-    let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-    serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()
-}
+pub(super) use myriad_merope::answer::parse;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_answer_is_read_from_the_json_in_it() {
-        #[derive(serde::Deserialize, Debug, PartialEq)]
-        struct Pick {
-            choice: Option<usize>,
-        }
-        assert_eq!(
-            parse::<Pick>("好的：\n```json\n{\"choice\":2}\n```"),
-            Some(Pick { choice: Some(2) })
-        );
-        assert_eq!(
-            parse::<Pick>("{\"choice\":null}"),
-            Some(Pick { choice: None })
-        );
-        assert_eq!(parse::<Pick>("不知道"), None);
-    }
 
     #[test]
     fn a_call_is_billed_to_merope_unless_told_otherwise() {

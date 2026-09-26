@@ -5,6 +5,7 @@
 
 pub mod affect;
 mod anime25d_contract;
+pub mod answer;
 mod onboarding;
 mod outfit_overlay;
 mod performance;
@@ -16,6 +17,7 @@ mod rig_outfit;
 mod rig_semantics;
 mod rig_spatial;
 mod rig_state;
+pub mod self_story;
 pub mod speaking;
 mod speech_plan;
 mod sticker_avatar;
