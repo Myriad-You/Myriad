@@ -51,6 +51,7 @@ import {
   resolveAnime25DFaceFrame,
 } from './faceFrame'
 import { formatTemplate } from './formatTemplate'
+import { anime25DShoulderSeeds, splitLinkedHandwear } from './linkedHandwear'
 import { inferOutfitProfileFromPartIds } from './outfit'
 import { repairAnime25DPsd } from './psdRepair'
 
@@ -427,13 +428,24 @@ function splitHandwearIfNeeded(
 ): RasterLayer[] {
   const output: RasterLayer[] = []
   const usedIds = new Set(layers.map((layer) => layer.id))
+  const shoulders = anime25DShoulderSeeds(layers)
   for (const layer of layers) {
     if (layer.role !== 'handwear' || layer.side) {
       output.push(layer)
       continue
     }
+    const bySide = {
+      right: splitRasterByComponents(layer, faceCenterX, 'right'),
+      left: splitRasterByComponents(layer, faceCenterX, 'left'),
+    }
+    // Touching hands leave both arms in one piece; cut it at the shoulders'
+    // meeting line instead of losing a whole arm to the other side.
+    const separate = rasterBounds(bySide.right) && rasterBounds(bySide.left)
+    const linked = !separate && shoulders
+      ? splitLinkedHandwear(layer, shoulders, faceCenterX)
+      : null
     for (const side of ['right', 'left'] as const) {
-      const split = splitRasterByComponents(layer, faceCenterX, side)
+      const split = (linked ?? bySide)[side]
       if (!rasterBounds(split)) continue
       split.id = uniquePartId(`handwear-${side}`, usedIds)
       split.side = side
