@@ -33,6 +33,8 @@ export interface PerformanceExpressionOffset {
   bust?: number
   /** Lower lids pushed up by the cheeks: the smile reaches the eyes. */
   eyeSmile?: number
+  /** Eyes opened past their drawing: surprise, sudden interest. */
+  eyeWide?: number
   anger?: number
   speechless?: number
   maniac?: number
@@ -58,6 +60,7 @@ export interface PerformanceExpressionTarget {
   armY?: number
   armPos?: number
   eyeSmile?: number
+  eyeWide?: number
   anger?: number
   speechless?: number
   maniac?: number
@@ -100,6 +103,7 @@ const OFFSET_KEYS = [
   'armPos',
   'bust',
   'eyeSmile',
+  'eyeWide',
   'anger',
   'speechless',
   'maniac',
@@ -125,6 +129,7 @@ const ZERO_OFFSET: PerformanceExpressionOffset = {
   armPos: 0,
   bust: 0,
   eyeSmile: 0,
+  eyeWide: 0,
   anger: 0,
   speechless: 0,
   maniac: 0,
@@ -558,6 +563,9 @@ export function applyPerformanceExpressionExtras(
   )
   if (target.eyeSmile !== undefined) {
     target.eyeSmile = mixBoundedExpressionChannel(target.eyeSmile, (offset.eyeSmile ?? 0) * weight, 0, 1, 0)
+  }
+  if (target.eyeWide !== undefined) {
+    target.eyeWide = mixBoundedExpressionChannel(target.eyeWide, (offset.eyeWide ?? 0) * weight, 0, 1, 0)
   }
   target.irisScale = mixBoundedExpressionChannel(
     target.irisScale,

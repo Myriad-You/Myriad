@@ -64,6 +64,7 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
       angleZ: 0.15 * poseAmount,
       brow: 0.26 * amount,
       eyeOpen: 0.05 * amount,
+      eyeWide: 0.2 * amount,
     }),
   },
   delight: {
@@ -108,6 +109,7 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
       angleZ: -0.11 * poseAmount,
       brow: 0.22 * amount,
       eyeOpen: 0.055 * amount,
+      eyeWide: 0.35 * amount,
     }),
   },
   think: {

@@ -26,7 +26,7 @@ export function touchExpressionPatch(form: TouchReaction, amount: number,
     angleZ: toward * (x * 0.16 + strokeX * 0.09) * strength,
   }
   switch (form) {
-    case 'notice': return { ...spatial, angleY: (0.09 - y * 0.04) * strength, brow: 0.48 * strength, eyeOpen: -0.08 * amount, body: 0.08 * strength }
+    case 'notice': return { ...spatial, angleY: (0.09 - y * 0.04) * strength, brow: 0.48 * strength, eyeOpen: -0.08 * amount, eyeWide: 0.45 * amount, body: 0.08 * strength }
     case 'accept': return { ...spatial, angleY: -strokeY * (0.06 * strength + 0.08 * caress) + 0.12 * response,
       angleZ: spatial.angleZ + strokeX * 0.12 * caress,
       // eyeSqueeze is replacement artwork, not a continuous eyelid control.

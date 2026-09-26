@@ -13,6 +13,7 @@ export type RandomActionName =
   | 'ponder'
   | 'hum'
   | 'yawn'
+  | 'wink'
 
 /** The small feeling an idle clip is played with; the same move reads differently under each. */
 export type IdleMood = 'content' | 'relaxed' | 'curious' | 'pensive'
@@ -29,6 +30,9 @@ export interface RandomActionFrame {
   eyeOpen: number
   irisScale: number
   eyeSmile: number
+  eyeWide: number
+  /** One eye closing: positive the image-left eye, negative the right. */
+  wink: number
   mouthForm: number
   mouthOpen: number
   mouthRound: number
@@ -80,20 +84,21 @@ const IDLE_ACTIONS: readonly ActionDefinition[] = [
   { name: 'ponder', minimumDuration: 2.8, maximumDuration: 4.2, weight: 0.7 },
   { name: 'hum', minimumDuration: 3.2, maximumDuration: 4.6, weight: 0.6 },
   { name: 'yawn', minimumDuration: 2.6, maximumDuration: 3.4, weight: 0.25 },
+  { name: 'wink', minimumDuration: 1.6, maximumDuration: 2.2, weight: 0.2 },
 ]
 
 type MoodFace = Pick<
   RandomActionFrame,
-  'brow' | 'browAngSym' | 'eyeOpen' | 'irisScale' | 'eyeSmile' | 'eyeX' | 'eyeY' | 'mouthForm' | 'mouthOpen' | 'mouthRound'
+  'brow' | 'browAngSym' | 'eyeOpen' | 'irisScale' | 'eyeSmile' | 'eyeWide' | 'eyeX' | 'eyeY' | 'mouthForm' | 'mouthOpen' | 'mouthRound'
 >
 
 /** Faint on purpose: a mood colours an idle move, it is not a performed expression. */
 const MOOD_FACE: Readonly<Record<IdleMood, Readonly<MoodFace>>> = {
-  content: { brow: 0.06, browAngSym: 0, eyeOpen: -0.04, irisScale: 0, eyeSmile: 0.4, eyeX: 0, eyeY: 0, mouthForm: 0.28, mouthOpen: 0, mouthRound: 0 },
-  relaxed: { brow: -0.04, browAngSym: 0, eyeOpen: -0.2, irisScale: 0, eyeSmile: 0.15, eyeX: 0, eyeY: 0, mouthForm: 0.12, mouthOpen: 0, mouthRound: 0 },
-  curious: { brow: 0.26, browAngSym: 0, eyeOpen: 0.05, irisScale: 0.05, eyeSmile: 0, eyeX: 0, eyeY: 0, mouthForm: 0, mouthOpen: 0.06, mouthRound: 0.14 },
+  content: { brow: 0.06, browAngSym: 0, eyeOpen: -0.04, irisScale: 0, eyeSmile: 0.4, eyeWide: 0, eyeX: 0, eyeY: 0, mouthForm: 0.28, mouthOpen: 0, mouthRound: 0 },
+  relaxed: { brow: -0.04, browAngSym: 0, eyeOpen: -0.2, irisScale: 0, eyeSmile: 0.15, eyeWide: 0, eyeX: 0, eyeY: 0, mouthForm: 0.12, mouthOpen: 0, mouthRound: 0 },
+  curious: { brow: 0.26, browAngSym: 0, eyeOpen: 0.05, irisScale: 0.05, eyeSmile: 0, eyeWide: 0.3, eyeX: 0, eyeY: 0, mouthForm: 0, mouthOpen: 0.06, mouthRound: 0.14 },
   // Gaze sideways follows the clip's direction.
-  pensive: { brow: 0.16, browAngSym: -0.14, eyeOpen: -0.1, irisScale: -0.03, eyeSmile: 0, eyeX: 0.35, eyeY: -0.28, mouthForm: -0.12, mouthOpen: 0, mouthRound: 0 },
+  pensive: { brow: 0.16, browAngSym: -0.14, eyeOpen: -0.1, irisScale: -0.03, eyeSmile: 0, eyeWide: 0, eyeX: 0.35, eyeY: -0.28, mouthForm: -0.12, mouthOpen: 0, mouthRound: 0 },
 }
 
 const NEUTRAL_FRAME: RandomActionFrame = {
@@ -108,6 +113,8 @@ const NEUTRAL_FRAME: RandomActionFrame = {
   eyeOpen: 0,
   irisScale: 0,
   eyeSmile: 0,
+  eyeWide: 0,
+  wink: 0,
   mouthForm: 0,
   mouthOpen: 0,
   mouthRound: 0,
@@ -345,6 +352,7 @@ export class RandomActionController {
         this.output.body = -direction * 0.05 * motion * intensity
         this.output.brow = 0.32 * face * intensity
         this.output.eyeOpen = 0.06 * face * intensity
+        this.output.eyeWide = 0.45 * face * intensity
         this.output.irisScale = 0.06 * face * intensity
         this.output.mouthRound = 0.2 * face * intensity
         this.output.mouthOpen = 0.12 * face * intensity
@@ -375,6 +383,18 @@ export class RandomActionController {
         this.output.ambientScale = 1 - 0.3 * motion
         break
       }
+      case 'wink': {
+        // Both eyes smile; one closes on the beat, the head tipping toward it.
+        const beat = stagedEnvelope(progress, 0.3, 0.6)
+        this.output.angleZ = direction * 0.12 * motion * intensity
+        this.output.angleX = direction * 0.05 * motion * intensity
+        this.output.brow = 0.1 * face * intensity
+        this.output.eyeSmile = 0.7 * face
+        this.output.wink = direction * 0.95 * beat
+        this.output.mouthForm = 0.45 * face * intensity
+        this.output.ambientScale = 1 - 0.25 * motion
+        break
+      }
       case 'yawn': {
         const open = stagedEnvelope(progress, 0.3, 0.62)
         this.output.angleY = -0.1 * motion * intensity
@@ -402,6 +422,7 @@ export class RandomActionController {
     output.eyeOpen += mood.eyeOpen * amount
     output.irisScale += mood.irisScale * amount
     output.eyeSmile += mood.eyeSmile * amount
+    output.eyeWide += mood.eyeWide * amount
     output.eyeX += mood.eyeX * direction * amount
     output.eyeY += mood.eyeY * amount
     output.mouthForm += mood.mouthForm * amount
@@ -488,6 +509,8 @@ const ACTION_OFFSET_KEYS = [
   'eyeOpen',
   'irisScale',
   'eyeSmile',
+  'eyeWide',
+  'wink',
   'mouthForm',
   'mouthOpen',
   'mouthRound',

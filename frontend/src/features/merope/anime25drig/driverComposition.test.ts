@@ -65,6 +65,8 @@ test('all shared pose producers land through one channel-weighted composition', 
         eyeOpen: 0,
         irisScale: 0,
         eyeSmile: 0,
+        eyeWide: 0,
+        wink: 0,
         mouthForm: 0,
         mouthOpen: 0,
         mouthRound: 0,
@@ -171,6 +173,8 @@ test('delight realizes its claimed bust resource through head/body ownership', (
         eyeOpen: 0,
         irisScale: 0,
         eyeSmile: 0,
+        eyeWide: 0,
+        wink: 0,
         mouthForm: 0,
         mouthOpen: 0,
         mouthRound: 0,
@@ -675,7 +679,7 @@ test('an idle mood colours a free mouth but yields it to a voice or a song', () 
         ambient: { angleX: 0, angleY: 0, angleZ: 0, body: 0, eyeX: 0, eyeY: 0 },
         randomAction: {
           angleX: 0, angleY: 0, angleZ: 0, body: 0, eyeX: 0, eyeY: 0, brow: 0, browAngSym: 0,
-          eyeOpen: -0.2, irisScale: 0, eyeSmile: 0.3, mouthForm: 0.4, mouthOpen: 0.3, mouthRound: 0.2,
+          eyeOpen: -0.2, irisScale: 0, eyeSmile: 0.3, eyeWide: 0, wink: 0, mouthForm: 0.4, mouthOpen: 0.3, mouthRound: 0.2,
           armY: 0, armPos: 0, ambientScale: 1,
         },
         groove: { angleX: 0, angleY: 0, angleZ: 0, body: 0, armY: 0, armPos: 0, eyeX: 0, brow: 0 },
@@ -698,4 +702,32 @@ test('an idle mood colours a free mouth but yields it to a voice or a song', () 
     // The eyes still carry the mood while she talks.
     assert.ok(owned.eyeOpenL < 1)
   }
+})
+
+test('a wink closes one eye and leaves the other open', () => {
+  const none = { gaze: 0, headBody: 0, expression: 0 }
+  const random = { gaze: 1, headBody: 1, expression: 1 }
+  const stylized = new StylizedExpressionMotionController().sample(0, 0, 0, 0, 0, 0)
+  const target = { ...IDENTITY_DRIVER }
+  applyAnime25DComposedPose(
+    target,
+    { ambient: none, random, groove: none, thinking: none, performance: none, stylized: none, coSpeech: none, speechMouth: 0, grooveMouth: 0 },
+    {
+      ambient: { angleX: 0, angleY: 0, angleZ: 0, body: 0, eyeX: 0, eyeY: 0 },
+      randomAction: {
+        angleX: 0, angleY: 0, angleZ: 0, body: 0, eyeX: 0, eyeY: 0, brow: 0, browAngSym: 0,
+        eyeOpen: 0, irisScale: 0, eyeSmile: 0, eyeWide: 0, wink: 0.95, mouthForm: 0, mouthOpen: 0, mouthRound: 0,
+        armY: 0, armPos: 0, ambientScale: 1,
+      },
+      groove: { angleX: 0, angleY: 0, angleZ: 0, body: 0, armY: 0, armPos: 0, eyeX: 0, brow: 0 },
+      thinking: { angleX: 0, angleY: 0, angleZ: 0, eyeX: 0, eyeY: 0, brow: 0, mouthCY: 0, mouthCAng: 0, mouthScale: 0 },
+      breath: { angleX: 0, angleY: 0, angleZ: 0, body: 0 },
+      performance: intentExpressionOffset('think', 0),
+      stylized,
+      coSpeech: { brow: 0, eyeOpen: 0, angleY: 0, angleZ: 0, body: 0 },
+    },
+    zeroOccupancyOffset(),
+  )
+  assert.ok(target.eyeOpenL < 0.1, `${target.eyeOpenL}`)
+  assert.equal(target.eyeOpenR, IDENTITY_DRIVER.eyeOpenR)
 })

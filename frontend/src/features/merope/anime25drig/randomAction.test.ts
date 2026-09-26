@@ -106,6 +106,7 @@ test('cycles through the complete action catalog without immediate repeats', () 
     'shoulderEase',
     'smile',
     'softBlink',
+    'wink',
     'yawn',
   ])
 })

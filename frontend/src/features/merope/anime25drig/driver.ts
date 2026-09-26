@@ -39,6 +39,8 @@ export interface Anime25DDriver {
   irisScale: number
   /** A smile reaching the eyes: the lower lids push up under the irises. */
   eyeSmile: number
+  /** Eyes opened wider than drawn: surprise, sudden interest. The irises tighten. */
+  eyeWide: number
   mouthEase: number
   eyeEase: number
   fhAmp: number
@@ -102,6 +104,7 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   bustY: 1,
   irisScale: 1,
   eyeSmile: 0,
+  eyeWide: 0,
   mouthEase: 0.45,
   eyeEase: 0.3,
   fhAmp: DEFAULT_FRONT_HAIR_SWAY,
@@ -174,6 +177,7 @@ const DRIVER_LIMITS: Partial<
   bustY: [-3, 3],
   irisScale: [0.5, 1.3],
   eyeSmile: [0, 1],
+  eyeWide: [0, 1],
   mouthEase: [0, 1],
   eyeEase: [0, 1],
   fhAmp: [0, 3],

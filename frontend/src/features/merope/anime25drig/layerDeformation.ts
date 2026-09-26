@@ -25,6 +25,7 @@ type UpstreamFeatureExpression = Pick<
   | 'eyeY'
   | 'irisScale'
   | 'eyeSmile'
+  | 'eyeWide'
 >
 
 export interface Anime25DUpstreamFeatureInput {
@@ -124,12 +125,20 @@ export function deformAnime25DUpstreamFeaturePoint(
     point.y = eye.closeY + (point.y - eye.closeY) * (1 - 0.8 * closing)
     // The iris only rides up a little; the rising lid, not a squash, hides its lower part.
     point.y -= smileAmount(expression.eyeSmile) * (eye.y1 - eye.y0) * SMILE_IRIS_LIFT
+    // Wide eyes show white all round a tightened iris.
+    const wide = smileAmount(expression.eyeWide)
+    if (wide > 0) {
+      const tighten = 1 - WIDE_IRIS_SHRINK * wide
+      point.x = eye.icx + (point.x - eye.icx) * tighten
+      point.y = eye.icy + (point.y - eye.icy) * tighten
+    }
     return
   }
   if (input.kind === 'eye-open-lid') {
     const eye = input.eye!
     point.y = eye.closeY + (point.y - eye.closeY) * (1 - 0.85 * (1 - eyeOpen))
     smileLids(point, eye, smileAmount(expression.eyeSmile))
+    wideLids(point, eye, smileAmount(expression.eyeWide))
     return
   }
   point.y += (-expression.brow * 9 + (1 - eyeOpen) * 3.5) * input.faceScale
@@ -171,6 +180,27 @@ function smileLids(point: Anime25DMutablePoint, eye: Anime25DEyeAnchor, smile: n
   } else {
     const upper = smoothstep((middle - point.y) / (middle - eye.y0 + height * 0.3))
     point.y += smile * height * SMILE_UPPER_DROP * upper * arch
+  }
+}
+
+/** Opened wide, the upper lid lifts this share of the eye's height, the lower drops a little. */
+const WIDE_UPPER_LIFT = 0.2
+const WIDE_LOWER_DROP = 0.06
+const WIDE_IRIS_SHRINK = 0.12
+
+function wideLids(point: Anime25DMutablePoint, eye: Anime25DEyeAnchor, wide: number): void {
+  if (wide <= 0) return
+  const height = Math.max(1, eye.y1 - eye.y0)
+  const halfWidth = Math.max(1, (eye.x1 - eye.x0) / 2)
+  const middle = eye.y0 + height * 0.5
+  const across = Math.min(1, Math.abs(point.x - (eye.x0 + eye.x1) / 2) / (halfWidth * 1.25))
+  const arch = 1 - 0.5 * across * across
+  if (point.y < middle) {
+    const upper = smoothstep((middle - point.y) / (middle - eye.y0 + height * 0.3))
+    point.y -= wide * height * WIDE_UPPER_LIFT * upper * arch
+  } else {
+    const lower = smoothstep((point.y - middle) / (eye.y1 + height * 0.2 - middle))
+    point.y += wide * height * WIDE_LOWER_DROP * lower * arch
   }
 }
 

@@ -353,3 +353,21 @@ test('a smiling closed eye bows up into ^, most at its middle', () => {
   assert.ok(Math.abs(cornerLift) < 1e-9, 'the corners stay where the lid meets them')
   assert.equal(at(middle, 0), at(middle, 0))
 })
+
+test('wide eyes lift the upper lid and tighten the iris', () => {
+  const eye = FRAME.anchors.eyeL!
+  const layer = (role: string) =>
+    ({ role, fade: 'eyeOpen', side: 'L', x: 70, y: 80, w: 45, h: 40 }) as Pick<
+      Anime25DPlaybackLayer, 'fade' | 'h' | 'role' | 'side' | 'w' | 'x' | 'y'>
+  const move = (role: string, x: number, y: number, eyeWide: number) => {
+    const feature = bindAnime25DUpstreamFeature(layer(role), eye, 1, { ...IDENTITY_DRIVER, eyeWide })!
+    const point = { x, y }
+    deformAnime25DUpstreamFeaturePoint(point, feature)
+    return point
+  }
+  const middle = (eye.x0 + eye.x1) / 2
+  const lift = move('eyelash', middle, eye.y0, 0).y - move('eyelash', middle, eye.y0, 1).y
+  assert.ok(lift > (eye.y1 - eye.y0) * 0.1, `${lift}`)
+  const rim = (wide: number) => move('irides', eye.icx + 10, eye.icy, wide).x - eye.icx
+  assert.ok(rim(1) < rim(0), 'the iris tightens')
+})
