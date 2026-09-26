@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { anime25DArmsTouch, armDrapeWeight, bindArmRig, bindArmRigMesh } from './armRig'
+import { anime25DArmsTouch, anime25DHandTouchesHead, armDrapeWeight, bindArmRig, bindArmRigMesh } from './armRig'
 
 const ANCHORS = {
   face: { x0: 300, y0: 150, x1: 700, y1: 650, cx: 500, cy: 400 },
@@ -123,4 +123,13 @@ test('hands holding each other join the arms; arms apart stay apart', () => {
   const rightHeld = sleeve(RIGHT, (x, y) => (x >= 690 && x < 850 && y >= 790) || (y >= 1000 && y < 1060 && x >= 700 && x < 850))
   assert.equal(anime25DArmsTouch(reaching, leftReach, RIGHT, rightHeld), true)
   assert.equal(anime25DArmsTouch(reaching, null, RIGHT, rightHeld), false)
+})
+
+test('a hand raised to the cheek rests on the head; hanging arms do not', () => {
+  const hangingArm = { layer: LEFT, image: sleeve(LEFT, hanging) }
+  assert.equal(anime25DHandTouchesHead([hangingArm], ANCHORS.face), false)
+  // A hand lifted beside the face, inside the ear line.
+  const raised = { x: 560, y: 350, w: 200, h: 700, side: 'R' as const }
+  const toCheek = { layer: raised, image: sleeve(raised, (x, y) => (x >= 620 && x < 700 && y >= 380) || (y >= 380 && y < 520 && x >= 600 && x < 740)) }
+  assert.equal(anime25DHandTouchesHead([hangingArm, toCheek], ANCHORS.face), true)
 })

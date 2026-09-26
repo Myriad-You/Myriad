@@ -13,6 +13,16 @@ export interface Anime25DMotionEnvelopeProfile {
   pitch: Anime25DMotionEnvelopeAxis
   torso: Anime25DMotionEnvelopeAxis
   rigidArm: Anime25DMotionEnvelopeAxis
+  /** Head turn and tilt; narrow only while a hand rests on the head. */
+  headTurn: Anime25DMotionEnvelopeAxis
+}
+
+/** What the arms' drawing allows. */
+export interface Anime25DHandPose {
+  /** The hands hold each other: the arms cannot open or sway apart. */
+  linked?: boolean
+  /** A hand rests on the head: the head cannot turn far out from under it. */
+  touchingHead?: boolean
 }
 
 export interface Anime25DMotionEnvelopeResult {
@@ -67,7 +77,7 @@ type MotionEnvelopeManifest = Pick<MeropeRigManifest, 'outfitProfile'>
 export function deriveAnime25DMotionEnvelopeProfile(
   playback: Readonly<MotionEnvelopePlayback>,
   manifest?: Readonly<MotionEnvelopeManifest>,
-  armsLinked = false,
+  hands: Readonly<Anime25DHandPose> = {},
 ): Anime25DMotionEnvelopeProfile {
   const highCollar = playback.layers.some(
     (layer) => layer.role === 'collar-back' || layer.role === 'collar-front',
@@ -79,7 +89,7 @@ export function deriveAnime25DMotionEnvelopeProfile(
     1,
   )
   // Hands holding each other cannot open or sway apart; arm gestures go to the body.
-  const rigidArmLimit = armMotion && !armsLinked
+  const rigidArmLimit = armMotion && !hands.linked
     ? clamp(
         finiteOr(manifest?.outfitProfile?.secondaryMotionScale, 1),
         0.2,
@@ -89,9 +99,14 @@ export function deriveAnime25DMotionEnvelopeProfile(
   return {
     highCollar,
     armMotion,
-    pitch: axisEnvelope(highCollar ? 0.56 : 1, highCollar ? 0.8 : 1),
+    pitch: hands.touchingHead
+      ? axisEnvelope(HEAD_CONTACT_STARTS_AT, HEAD_CONTACT_LIMIT)
+      : axisEnvelope(highCollar ? 0.56 : 1, highCollar ? 0.8 : 1),
     torso: axisEnvelope(torsoLimit * 0.78, torsoLimit),
     rigidArm: axisEnvelope(rigidArmLimit * 0.78, rigidArmLimit),
+    headTurn: hands.touchingHead
+      ? axisEnvelope(HEAD_CONTACT_STARTS_AT, HEAD_CONTACT_LIMIT)
+      : axisEnvelope(1, 1),
   }
 }
 
@@ -125,6 +140,18 @@ export function projectAnime25DMotionEnvelope(
   const safeBody = softLimitSigned(originalBody, profile.torso)
   target.body = safeBody
   transferTorsoResidual(target, originalBody - safeBody, result)
+
+  if (profile.headTurn.limit < 1) {
+    // Last, after every other transfer has landed on the head: the hand on
+    // the head stays with the body, so the look turns with the eyes and torso.
+    const yaw = finite(target.angleX)
+    target.angleX = softLimitSigned(yaw, profile.headTurn)
+    transferHeadTurnResidual(target, yaw - target.angleX, result)
+    const roll = finite(target.angleZ)
+    target.angleZ = softLimitSigned(roll, profile.headTurn)
+    noteTransfer(result, Math.abs(roll - target.angleZ))
+    target.body = softLimitSigned(addBounded(target.body, (roll - target.angleZ) * 0.3), profile.torso)
+  }
   return result
 }
 
@@ -147,6 +174,18 @@ function transferPitchResidual(
     target.armY = addBounded(target.armY, amount * 0.24)
     target.armPos = addBounded(target.armPos, side * amount * 0.18)
   }
+}
+
+function transferHeadTurnResidual(
+  target: Anime25DDriver,
+  residual: number,
+  result: Anime25DMotionEnvelopeResult,
+): void {
+  const amount = Math.abs(residual)
+  if (amount <= 1e-6) return
+  noteTransfer(result, amount)
+  target.body = addBounded(target.body, residual * 0.45)
+  target.eyeX = addBounded(target.eyeX, residual * 0.4)
 }
 
 function transferArmResidual(
@@ -195,6 +234,10 @@ function noteTransfer(
   result.clippedEnergy += amount
   result.transferredEnergy += amount
 }
+
+/** With a hand on the head, the head keeps to about a third of its range. */
+const HEAD_CONTACT_STARTS_AT = 0.2
+const HEAD_CONTACT_LIMIT = 0.35
 
 const SIDE_BLEND = 0.08
 

@@ -22,7 +22,7 @@ import type { Anime25DExpressionDeformationFrame } from './expressionDeformation
 import type { Anime25DHairSpringFrame } from './hairPhysics'
 import type { JellyElement } from './jellyVolume'
 import type { Anime25DGpuLayer } from './layerGpuBinding'
-import type { Anime25DMotionEnvelopeProfile } from './motionEnvelope'
+import type { Anime25DHandPose, Anime25DMotionEnvelopeProfile } from './motionEnvelope'
 import type { Anime25DMouthDeformationFrame } from './mouthDeformation'
 import type {
   Anime25DMouthMorphSources,
@@ -515,7 +515,10 @@ export class Anime25DPlayer {
         releaseCompiledGpu(this.gl, compiled.layers, compiled.collarClip, nextTexture)
         return
       }
-      this.applyPackage(playback, rigManifest, compiled.armsLinked)
+      this.applyPackage(playback, rigManifest, {
+        linked: compiled.armsLinked,
+        touchingHead: compiled.handTouchesHead,
+      })
     } catch (error) {
       // Keep the live outfit; the not-yet-owned replacement must be released.
       releaseCompiledGpu(
@@ -596,7 +599,7 @@ export class Anime25DPlayer {
   private applyPackage(
     playback: Anime25DPlayback,
     rigManifest?: MeropeRigManifest,
-    armsLinked = false,
+    hands: Anime25DHandPose = {},
   ): void {
     playback = {
       ...playback,
@@ -609,7 +612,7 @@ export class Anime25DPlayer {
     this.motionEnvelopeProfile = deriveAnime25DMotionEnvelopeProfile(
       playback,
       rigManifest,
-      armsLinked,
+      hands,
     )
     this.singingGroove.setArmMotion(
       this.motionEnvelopeProfile.armMotion && this.motionEnvelopeProfile.rigidArm.limit > 0,

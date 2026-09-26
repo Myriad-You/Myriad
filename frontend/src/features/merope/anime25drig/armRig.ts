@@ -236,3 +236,33 @@ function eachOpaque(layer: Layer, image: CroppedLayerPixels, visit: (x: number, 
     }
   }
 }
+
+/** Share of the face's area a hand must cover near it to be resting on the head. */
+const HEAD_CONTACT_SHARE = 0.02
+
+/**
+ * True when a hand rests on the head: at a cheek, an ear or in the hair. The
+ * hand is carried by the body, so a head turning under it would slide out
+ * from beneath the fingers or through them.
+ */
+export function anime25DHandTouchesHead(
+  arms: readonly { layer: Layer; image: CroppedLayerPixels | null }[],
+  face: Anchors['face'],
+): boolean {
+  const radiusX = ((face.x1 - face.x0) / 2) * 1.25
+  const radiusY = ((face.y1 - face.y0) / 2) * 1.2
+  if (!(radiusX > 0 && radiusY > 0)) return false
+  const centerX = (face.x0 + face.x1) / 2
+  const centerY = (face.y0 + face.y1) / 2
+  let covered = 0
+  for (const { layer, image } of arms) {
+    if (!image) continue
+    const pixelArea = (layer.w / image.width) * (layer.h / image.height)
+    eachOpaque(layer, image, (x, y) => {
+      const dx = (x - centerX) / radiusX
+      const dy = (y - centerY) / radiusY
+      if (dx * dx + dy * dy <= 1) covered += pixelArea
+    })
+  }
+  return covered >= (face.x1 - face.x0) * (face.y1 - face.y0) * HEAD_CONTACT_SHARE
+}

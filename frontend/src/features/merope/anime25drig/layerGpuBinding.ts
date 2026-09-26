@@ -20,7 +20,7 @@ import type { AtlasPixelPatch, CroppedLayerPixels } from './webglRuntime'
 import { isAnime25DRigidAttachment } from '../rig/anime25dLayerSemantics'
 import { removeDuplicatedNeckComponents, splitPairedEarwear } from './accessoryComponents'
 import { duplicateAccessoryLayers } from './accessoryDuplicate'
-import { anime25DArmsTouch, bindArmRig, bindArmRigMesh } from './armRig'
+import { anime25DArmsTouch, anime25DHandTouchesHead, bindArmRig, bindArmRigMesh } from './armRig'
 import { sampleChestWeight } from './chestPhysics'
 import { buildFrontCollarContactModel } from './collarContact'
 import { createCollarClipMesh, disposeCollarClipMesh } from './collarRuntime'
@@ -99,6 +99,8 @@ export interface Anime25DCompiledGpuLayers {
   collarClip: CollarClipMesh | null
   /** Both sleeves touch: they move as one piece and take no arm gestures. */
   armsLinked?: boolean
+  /** A hand rests on the head: the head keeps near its drawn pose. */
+  handTouchesHead?: boolean
 }
 
 export function compileAnime25DGpuLayers(
@@ -129,6 +131,11 @@ export function compileAnime25DGpuLayers(
     const rightArm = playback.layers.find((layer) => layer.role === 'handwear' && layer.side === 'R')
     const armsLinked = Boolean(leftArm && rightArm && anime25DArmsTouch(
       leftArm, readBindingPixels(leftArm), rightArm, readBindingPixels(rightArm)))
+    const handTouchesHead = anime25DHandTouchesHead(
+      playback.layers.filter((layer) => layer.role === 'handwear')
+        .map((layer) => ({ layer, image: readBindingPixels(layer) })),
+      playback.anchors.face,
+    )
     const linkedArmAnchorX = armsLinked && leftArm && rightArm
       ? (Math.min(leftArm.x, rightArm.x) + Math.max(leftArm.x + leftArm.w, rightArm.x + rightArm.w)) / 2
       : undefined
@@ -552,7 +559,7 @@ export function compileAnime25DGpuLayers(
         ;(cropHost.attachmentDependents ??= []).push(layer)
       }
     }
-    return { layers, collarClip, atlasPatches, armsLinked }
+    return { layers, collarClip, atlasPatches, armsLinked, handTouchesHead }
   } catch (error) {
     disposeAnime25DGpuLayers(gl, { layers, collarClip })
     throw error
