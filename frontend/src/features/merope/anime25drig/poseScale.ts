@@ -1,8 +1,8 @@
 /** Head roll about the neck at `angleZ` = ±1, in radians. */
-export const HEAD_ROLL_RADIANS = 0.21
+export const HEAD_ROLL_RADIANS = 0.15
 
 /** Upper-body lean at `body` = ±1, in radians; the canvas cut stays put. */
-export const BODY_ROLL_RADIANS = 0.07
+export const BODY_ROLL_RADIANS = 0.05
 
 /**
  * How much of the lean a point at `y` takes: none on the canvas cut at

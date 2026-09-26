@@ -19,7 +19,7 @@ export const ARM_PENDULUM_DAMPING = 0.4
  * A torso twist drawn in 2D moves the shoulder far less than the turning body
  * moves the arm in depth; the drawn shoulder's acceleration under-reads it.
  */
-export const ARM_INERTIA_GAIN = 6
+export const ARM_INERTIA_GAIN = 4.5
 
 /** Shoulder acceleration above this is a discontinuity, not motion. */
 const MAX_SUPPORT_ACCELERATION = 20_000

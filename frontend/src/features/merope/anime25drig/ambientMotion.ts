@@ -128,7 +128,7 @@ export class AmbientMotionController {
     if (!inspect) {
       this.headZ.retarget(
         now,
-        this.range(-0.42, 0.42) - x * 0.1,
+        this.range(-0.34, 0.34) - x * 0.09,
         headDuration * 1.1,
         latency,
       )
