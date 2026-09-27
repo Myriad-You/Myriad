@@ -61,8 +61,13 @@ pub(crate) async fn handle(
         Decision::Allow => {}
         Decision::ProjectContainer(container) => {
             match container_belongs_to_project(&state, &container).await {
-                Ok(true) => {}
-                Ok(false) => {
+                Ok(None) => {
+                    // Authoritative absence is not an authorization failure.
+                    // Return now; never forward a mutation after a missing inspect.
+                    return denial(StatusCode::NOT_FOUND, "container does not exist");
+                }
+                Ok(Some(true)) => {}
+                Ok(Some(false)) => {
                     return denial(
                         StatusCode::FORBIDDEN,
                         "container is not a managed service in this Compose project",
@@ -76,8 +81,13 @@ pub(crate) async fn handle(
         }
         Decision::ProjectContainerLogs(container) => {
             match container_logs_belong_to_project(&state, &container).await {
-                Ok(true) => {}
-                Ok(false) => {
+                Ok(None) => {
+                    // Authoritative absence is not an authorization failure.
+                    // Return now; never forward a mutation after a missing inspect.
+                    return denial(StatusCode::NOT_FOUND, "container does not exist");
+                }
+                Ok(Some(true)) => {}
+                Ok(Some(false)) => {
                     return denial(
                         StatusCode::FORBIDDEN,
                         "container logs are not from a managed service in this Compose project",
@@ -225,14 +235,18 @@ impl Drop for GenericMutationLeaseInner {
     }
 }
 
-async fn container_belongs_to_project(state: &GuardState, id: &str) -> Result<bool> {
-    let value = daemon_json(&state.config.socket_path, &format!("/containers/{id}/json")).await?;
-    Ok(managed_project_service(&value, &state.config).is_some())
+async fn container_belongs_to_project(state: &GuardState, id: &str) -> Result<Option<bool>> {
+    let value =
+        daemon_json_if_present(&state.config.socket_path, &format!("/containers/{id}/json"))
+            .await?;
+    Ok(value.map(|value| managed_project_service(&value, &state.config).is_some()))
 }
 
-async fn container_logs_belong_to_project(state: &GuardState, id: &str) -> Result<bool> {
-    let value = daemon_json(&state.config.socket_path, &format!("/containers/{id}/json")).await?;
-    Ok(managed_project_service_for_logs(&value, &state.config).is_some())
+async fn container_logs_belong_to_project(state: &GuardState, id: &str) -> Result<Option<bool>> {
+    let value =
+        daemon_json_if_present(&state.config.socket_path, &format!("/containers/{id}/json"))
+            .await?;
+    Ok(value.map(|value| managed_project_service_for_logs(&value, &state.config).is_some()))
 }
 
 /// Authorize `networks/{id}/connect|disconnect` against the exact production
@@ -296,6 +310,12 @@ pub(crate) async fn discover_host_compose_root(
 }
 
 pub(crate) async fn daemon_json(socket: &Path, path: &str) -> Result<Value> {
+    daemon_json_if_present(socket, path)
+        .await?
+        .ok_or_else(|| anyhow!("docker inspect returned 404 Not Found"))
+}
+
+async fn daemon_json_if_present(socket: &Path, path: &str) -> Result<Option<Value>> {
     tokio::time::timeout(DOCKER_API_TIMEOUT, async {
         let req = Request::builder()
             .method(Method::GET)
@@ -303,11 +323,14 @@ pub(crate) async fn daemon_json(socket: &Path, path: &str) -> Result<Value> {
             .header(header::HOST, "localhost")
             .body(Body::empty())?;
         let resp = forward(socket, req).await?;
+        if resp.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
         if !resp.status().is_success() {
             return Err(anyhow!("docker inspect returned {}", resp.status()));
         }
         let body = to_bytes(resp.into_body(), MAX_INSPECT_BODY).await?;
-        Ok(serde_json::from_slice(&body)?)
+        Ok(Some(serde_json::from_slice(&body)?))
     })
     .await
     .context("Docker API inspection timed out")?

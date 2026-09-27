@@ -2031,3 +2031,68 @@ async fn storage_guard_accepts_real_compose_mounts() {
     }
     server.abort();
 }
+
+#[tokio::test]
+async fn missing_containers_return_404_but_foreign_or_failed_inspects_stay_denied() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    for (method, suffix) in [
+        (Method::GET, "json"),
+        (Method::POST, "stop"),
+        (Method::GET, "logs?stdout=1&tail=10"),
+    ] {
+        for (status, body, expected) in [
+            (404, json!({"message":"missing"}), StatusCode::NOT_FOUND),
+            (
+                500,
+                json!({"message":"daemon unavailable"}),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                200,
+                json!({"Config":{"Labels":{"com.docker.compose.project":"foreign","com.docker.compose.service":"backend"}}}),
+                StatusCode::FORBIDDEN,
+            ),
+        ] {
+            let dir = tempfile::tempdir_in("/tmp").unwrap();
+            let socket = dir.path().join("docker.sock");
+            let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+            let daemon = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = vec![0; 4096];
+                let n = stream.read(&mut request).await.unwrap();
+                assert!(
+                    String::from_utf8_lossy(&request[..n])
+                        .starts_with("GET /containers/backend/json ")
+                );
+                let body = body.to_string();
+                stream.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                stream.shutdown().await.unwrap();
+                // Rejected/absent requests must never reach the daemon a second time.
+                assert!(
+                    tokio::time::timeout(std::time::Duration::from_millis(50), listener.accept())
+                        .await
+                        .is_err()
+                );
+            });
+            let mut state = state();
+            Arc::make_mut(&mut state.config).socket_path = socket;
+            let request = Request::builder()
+                .method(method.clone())
+                .uri(format!("/v1.48/containers/backend/{suffix}"))
+                .body(Body::empty())
+                .unwrap();
+            let response = super::forward::handle(
+                axum::extract::State(state),
+                axum::extract::ConnectInfo("127.0.0.1:12345".parse().unwrap()),
+                request,
+            )
+            .await;
+            assert_eq!(
+                response.status(),
+                expected,
+                "{method} {suffix} / daemon {status}"
+            );
+            daemon.await.unwrap();
+        }
+    }
+}
