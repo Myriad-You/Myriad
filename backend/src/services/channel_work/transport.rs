@@ -99,7 +99,16 @@ impl ChannelTransport {
                     warn!(?error, "channel typing failed");
                 }
             }
-            Self::Qq { .. } | Self::Feishu { .. } | Self::OneBot { .. } => {}
+            Self::Qq { .. } | Self::Feishu { .. } => {}
+            Self::OneBot { user_id } => {
+                let Some(action) = myriad_agent_rules::onebot::encode::encode_typing(user_id, true)
+                else {
+                    return;
+                };
+                if let Err(error) = crate::services::onebot_send::send_action(action).await {
+                    warn!(%error, "onebot typing failed");
+                }
+            }
         }
     }
 
@@ -221,7 +230,7 @@ impl ChannelTransport {
                     user_id,
                     chunk,
                     &[],
-                    false,
+                    true,
                 ) else {
                     return Ok(());
                 };
