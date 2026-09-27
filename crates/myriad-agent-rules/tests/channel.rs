@@ -2044,8 +2044,78 @@ mod onebot_decode {
     }
 
     #[test]
-    fn group_message_is_dropped() {
+    fn group_message_is_not_a_private_inbound() {
         assert!(decode_private_inbound(&with_message("group", "normal", "message")).is_none());
+    }
+
+    #[test]
+    fn group_at_is_addressed_and_plain_talk_is_not() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let at = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20002,
+            "self_id": 10001,
+            "message_id": 9,
+            "sender": {"nickname": "某人", "card": "群名片"},
+            "message": [
+                {"type": "at", "data": {"qq": "10001"}},
+                {"type": "text", "data": {"text": " 在吗 "}}
+            ]
+        });
+        let line = decode_group_inbound(&at.to_string(), 10001).expect("at");
+        assert!(line.addressed);
+        assert_eq!(line.group_id, "555");
+        assert_eq!(line.user_id, "20002");
+        assert_eq!(line.display_name, "群名片");
+        assert_eq!(line.text, "在吗");
+
+        let plain = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20002,
+            "message_id": 10,
+            "message": [{"type": "text", "data": {"text": "闲聊"}}]
+        });
+        let line = decode_group_inbound(&plain.to_string(), 10001).expect("plain");
+        assert!(!line.addressed);
+        assert_eq!(line.text, "闲聊");
+    }
+
+    #[test]
+    fn group_reply_to_her_is_addressed() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20002,
+            "message_id": 11,
+            "message": [
+                {"type": "reply", "data": {"id": "8", "user_id": "10001", "text": "上一句"}},
+                {"type": "text", "data": {"text": "接着说"}}
+            ]
+        });
+        let line = decode_group_inbound(&raw.to_string(), 10001).expect("reply");
+        assert!(line.addressed);
+        let quoted = line.reply_to.expect("quote");
+        assert!(quoted.hers);
+        assert_eq!(quoted.text, "上一句");
+    }
+
+    #[test]
+    fn her_own_group_line_is_dropped() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 10001,
+            "message": [{"type": "text", "data": {"text": "我自己"}}]
+        });
+        assert!(decode_group_inbound(&raw.to_string(), 10001).is_none());
     }
 
     #[test]
@@ -2192,8 +2262,9 @@ mod onebot_decode {
 mod onebot_encode {
     use myriad_agent_rules::channel::CHANNEL_IMAGE_LIMIT;
     use myriad_agent_rules::onebot::encode::{
-        encode_image_segment, encode_markdown_segment, encode_private_message, encode_text_segment,
-        encode_typing, plan_private_delivery, render_result_markdown,
+        encode_group_message, encode_image_segment, encode_markdown_segment,
+        encode_private_message, encode_text_segment, encode_typing, plan_private_delivery,
+        render_result_markdown,
     };
     use serde_json::json;
 
@@ -2260,6 +2331,15 @@ mod onebot_encode {
     #[test]
     fn empty_segments_return_none() {
         assert!(encode_private_message("10001", &[]).is_none());
+    }
+
+    #[test]
+    fn group_message_action_uses_group_id() {
+        let payload = encode_group_message("555", &[encode_text_segment("hi")]).expect("group");
+        assert_eq!(payload["action"], "send_group_msg");
+        assert_eq!(payload["params"]["group_id"], 555);
+        assert!(payload.get("echo").is_none());
+        assert!(encode_group_message("abc", &[encode_text_segment("hi")]).is_none());
     }
 
     #[test]

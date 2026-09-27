@@ -1,6 +1,7 @@
-//! OneBot 私聊事件 → Myriad 入站。解析失败一律 `None`，不 panic。
+//! OneBot 私聊与群事件 → Myriad 入站。解析失败一律 `None`，不 panic。
 use crate::channel::{
-    CHANNEL_IMAGE_LIMIT, ChannelImageRef, InboundC2cText, QQ_TEXT_LIMIT, split_channel_text,
+    CHANNEL_IMAGE_LIMIT, ChannelImageRef, InboundC2cText, QQ_TEXT_LIMIT, QuotedLine,
+    split_channel_text,
 };
 use crate::onebot::wire::{RawEventJson, WireMessage, WireSegment};
 
@@ -28,6 +29,105 @@ pub fn decode_private_inbound(raw: &str) -> Option<InboundC2cText> {
         content: truncate_qq_text(&decode_segments_to_text(segments)),
         images: decode_images(segments),
     })
+}
+
+/// 群里的一行。`addressed` 为真表示 @ 了她，或回复了她的消息。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OneBotGroupLine {
+    pub group_id: String,
+    pub message_id: String,
+    pub user_id: String,
+    pub display_name: String,
+    pub text: String,
+    pub addressed: bool,
+    pub reply_to: Option<QuotedLine>,
+}
+
+/// 群消息。频道、`message_sent`、没有文字的行丢掉。`self_id` 用来判断 @ 和回复是不是她。
+pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> {
+    let event: RawEventJson = serde_json::from_str(raw).ok()?;
+    if event.post_type.as_deref() != Some("message") {
+        return None;
+    }
+    if event.message_type.as_deref() != Some("group") {
+        return None;
+    }
+    let group_id = event.group_id?;
+    let user_id = event.user_id?;
+    if user_id == self_id {
+        return None;
+    }
+    let segments = match event.message.as_ref() {
+        Some(WireMessage::Array(segments)) => segments.as_slice(),
+        _ => return None,
+    };
+    let (text, addressed) = group_text(segments, self_id);
+    let text = truncate_qq_text(&text);
+    if text.is_empty() {
+        return None;
+    }
+    let reply_to = group_reply(segments, self_id);
+    let addressed = addressed || reply_to.as_ref().is_some_and(|line| line.hers);
+    let name = event
+        .sender
+        .as_ref()
+        .and_then(|sender| {
+            sender
+                .card
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .or(sender.nickname.as_deref())
+        })
+        .unwrap_or("")
+        .trim();
+    Some(OneBotGroupLine {
+        group_id: group_id.to_string(),
+        message_id: event.message_id.map_or(String::new(), |id| id.to_string()),
+        user_id: user_id.to_string(),
+        display_name: name.chars().take(40).collect(),
+        text,
+        addressed,
+        reply_to,
+    })
+}
+
+fn group_text(segments: &[WireSegment], self_id: i64) -> (String, bool) {
+    let mut text = String::new();
+    let mut addressed = false;
+    for segment in segments {
+        match segment.kind.as_str() {
+            "text" => {
+                if let Some(piece) = segment.str_field("text") {
+                    text.push_str(&piece);
+                }
+            }
+            "at" => {
+                if segment.i64_field("qq") == Some(self_id) {
+                    addressed = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (text, addressed)
+}
+
+fn group_reply(segments: &[WireSegment], self_id: i64) -> Option<QuotedLine> {
+    let reply = segments.iter().find(|segment| segment.kind == "reply")?;
+    let text = reply
+        .str_field("text")
+        .or_else(|| reply.str_field("message"))
+        .unwrap_or_default();
+    let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text: String = text.chars().take(160).collect();
+    if text.is_empty() {
+        return None;
+    }
+    let hers = reply.i64_field("user_id") == Some(self_id);
+    let name = reply.str_field("nickname").unwrap_or_default();
+    let name: String = name.chars().take(40).collect();
+    Some(QuotedLine { name, text, hers })
 }
 
 /// 把段数组里所有文本段的 `data.text` 按出现顺序拼起来。

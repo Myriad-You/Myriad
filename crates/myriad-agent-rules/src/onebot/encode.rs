@@ -32,6 +32,21 @@ pub fn encode_private_message(user_id: &str, segments: &[Value]) -> Option<Value
     }))
 }
 
+/// `send_group_msg`。`group_id` 按 i64 写入；空段或非法 id 返回 `None`。
+pub fn encode_group_message(group_id: &str, segments: &[Value]) -> Option<Value> {
+    if segments.is_empty() {
+        return None;
+    }
+    let group_id = group_id.parse::<i64>().ok()?;
+    Some(json!({
+        "action": "send_group_msg",
+        "params": {
+            "group_id": group_id,
+            "message": segments,
+        }
+    }))
+}
+
 /// `set_input_status`，只发正在输入。
 ///
 /// NapCat `SetInputStatus.ts` 的 `payloadExample` 把 `event_type` 写成 `1`，

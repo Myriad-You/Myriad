@@ -251,6 +251,27 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 return Some(ConnectFailureKind::Permanent);
             }
             let raw = serde_json::to_string(event.as_ref()).ok()?;
+            if let Some(group) =
+                myriad_agent_rules::onebot::decode::decode_group_inbound(&raw, event.self_id)
+            {
+                let line = crate::services::channel_group::GroupLine::from(group);
+                mark_inbound().await;
+                tokio::spawn(async move {
+                    crate::services::channel_group::record(&line).await;
+                    if line.addressed {
+                        let Some(permit) =
+                            bot_ingress::try_acquire(bot_ingress::Channel::OneBot, line.text.len())
+                        else {
+                            return;
+                        };
+                        let _permit = permit;
+                        crate::services::channel_group::handle(line, String::new()).await;
+                    } else if crate::services::channel_group::worth_a_look(&line) {
+                        crate::services::channel_group::consider(line, String::new()).await;
+                    }
+                });
+                return None;
+            }
             let Some(decoded) = myriad_agent_rules::onebot::decode::decode_private_inbound(&raw)
             else {
                 return None;
