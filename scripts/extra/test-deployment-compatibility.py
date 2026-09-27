@@ -302,6 +302,9 @@ do_restore --from "$ROOT/archive"
                 env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"], "DOCKER": str(mock),
                      "COMPOSE_PROJECT_NAME": "", "STORAGE_TEST_ROOT": str(root), "STORAGE_TEST_FAILURE": failure or ""})
             calls = [json.loads(line) for line in (root / "calls").read_text().splitlines()] if (root / "calls").exists() else []
+            if caller == "deploy" and result.returncode == 0 and layout == "bind":
+                for relative in ("data/media", "data/federation", "data/federation_media", "cache/images"):
+                    self.assertTrue((root / relative).is_dir(), f"worker bind missing before Compose create: {relative}")
             if caller == "restore" and result.returncode:
                 self.assertEqual((root / ".env").read_text(), original_env)
                 self.assertFalse((root / ".env.bak.restore").exists())

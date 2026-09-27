@@ -133,7 +133,7 @@ try:
     container("echo fresh >/data/fresh", [f"type=bind,src={ROOT / 'data'},dst=/data"])
     for volume in VOLUMES:
         assert run(["docker", "volume", "inspect", volume], check=False).returncode != 0
-    container("test \"$(cat /fixture/data/fresh)\" = fresh; rm /fixture/data/fresh; rmdir /fixture/data /fixture/cache",
+    container("test \"$(cat /fixture/data/fresh)\" = fresh; rm -rf /fixture/data /fixture/cache",
               [f"type=bind,src={ROOT},dst=/fixture"])
     print("Starting legacy named volumes and writing test data", flush=True)
     save(legacy)

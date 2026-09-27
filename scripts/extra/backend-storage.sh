@@ -93,5 +93,11 @@ load_backend_storage() {
             "$root/data/federation" "$root/data/federation_media" "$root/cache/images"; do
             validate_backend_directory "$source" || return 1
         done
+        if [ "$mode" = prepare ]; then
+            # Compose creates dependent containers before starting the init
+            # service. Their bind sources must exist before `compose up`.
+            (umask 077; mkdir -p "$root/data/media" "$root/data/federation" \
+                "$root/data/federation_media" "$root/cache/images") || return 1
+        fi
     fi
 }
