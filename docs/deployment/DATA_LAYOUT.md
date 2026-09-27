@@ -4,7 +4,9 @@
 `/app/data`、`/app/cache`，不再注册 backend named volumes。`data/` 包含媒体、
 Tapp、人设资产及运行时密钥，须像 `.env` 一样保护。`cache/` 可以重建。
 
-`deploy.sh up` 先以 700 创建目录，再修复 uid 1000 的所有权和 owner 权限并探测写入。
+`deploy.sh up` 先以 700 创建根目录及 worker 挂载的四个子目录，再修复 uid 1000 的
+所有权和 owner 权限并探测写入。Compose 在等待初始化服务之前就会创建 worker 容器，
+因此子目录也必须在宿主准备阶段创建，不能仅依赖容器入口脚本。
 Compose 的 `create_host_path: false` 禁止 Docker 自动补空目录；单独运行 Compose
 前必须准备目录。两个 worker 复用相同数据；federation-worker 的 `/app/data` 根挂载
 只读，只有 federation、federation_media、media 和缓存 images 四个子目录可写。
@@ -116,3 +118,6 @@ Compose。不能直接使用迁移前归档，否则会丢失迁移后的写入�
 挂载声明，验证新目录、旧卷迁移、worker 读写边界、容器重建、PostgreSQL/媒体恢复、
 恢复预检拒绝，以及保留新写入的存储回退。业务服务用轻量测试服务替代，不代表完整
 业务功能或带签名发布清单的 updater 升级验证。
+
+真实签名业务发布、updater API 回退与故障恢复演练见
+[RELEASE_REHEARSAL.md](RELEASE_REHEARSAL.md)。
