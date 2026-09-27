@@ -29,6 +29,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--from-version', default='v0.5.6')
 parser.add_argument('--to-version', default='v0.5.7')
 parser.add_argument('--updater-image', default='myriad-updater-dev:storage-rehearsal')
+parser.add_argument('--migrate-before-rollback', action='store_true',
+                    help='start on named volumes, then migrate to binds before restoring the old snapshot')
 parser.add_argument('--out', required=True, type=Path)
 args = parser.parse_args()
 REPO = Path(__file__).resolve().parents[2]
@@ -45,6 +47,7 @@ VALUES = {key: secrets.token_hex(32) for key in SECRET_KEYS}
 RESULTS = {'from': args.from_version, 'to': args.to_version, 'checks': {},
            'scope': 'real signed business release; locally built debug updater/Guard bootstrap'}
 CREATED = False
+LAYOUT = 'volume' if args.migrate_before_rollback else 'bind'
 
 
 def redact(text):
@@ -124,10 +127,48 @@ def assert_layout():
         inspection = json.loads(run(['docker', 'inspect', 'myriad-' + service]).stdout)[0]
         mounts = inspection['Mounts']
         data = next(m for m in mounts if m['Destination'] == '/app/data')
-        assert data['Type'] == 'bind' and data['Source'] == str(ROOT / 'data'), data
+        assert data['Type'] == LAYOUT, data
+        if LAYOUT == 'bind':
+            assert data['Source'] == str(ROOT / 'data'), data
+        else:
+            assert data['Name'] == PROJECT + '_backend_data', data
         assert data['RW'] == (service != 'federation-worker')
     names = run(['docker', 'volume', 'ls', '--format', '{{.Name}}']).stdout.splitlines()
-    assert not any(f'{PROJECT}_backend_{kind}' in names for kind in ('data', 'cache'))
+    for kind in ('data', 'cache'):
+        assert (f'{PROJECT}_backend_{kind}' in names) == (LAYOUT == 'volume')
+
+
+def migrate_to_binds():
+    global LAYOUT
+    writers = ('backend', 'persona-worker', 'federation-worker', 'backend-volume-init')
+    cp('stop', *writers)
+    cp('rm', '-f', *writers)
+    for kind in ('data', 'cache'):
+        volume = f'{PROJECT}_backend_{kind}'
+        run(['docker', 'run', '--rm', '--network', 'none', '--mount',
+             f'type=volume,src={volume},dst=/old,readonly', '--mount',
+             f'type=bind,src={ROOT / kind},dst=/new', 'alpine:3.20', 'sh', '-eu', '-c',
+             'trap \'status=$?; chmod 700 /new || exit 1; exit "$status"\' 0; '
+             'tar czf /tmp/storage.tar.gz -C /old .; tar xzpf /tmp/storage.tar.gz -C /new'])
+        run(['docker', 'volume', 'rm', volume])
+    live = json.loads((ROOT / 'docker-compose.yml').read_text())
+    for service in writers:
+        for mount in live['services'][service]['volumes']:
+            kind = mount['source'].removeprefix('backend_')
+            subpath = mount.pop('volume', {}).get('subpath')
+            relative = kind + ('/' + subpath if subpath else '')
+            mount.update(type='bind', source='./' + relative, bind={'create_host_path': False})
+    for kind in ('data', 'cache'):
+        live.get('volumes', {}).pop('backend_' + kind, None)
+    (ROOT / 'docker-compose.yml').write_text(json.dumps(live))
+    run(['bash', '-eu', '-c', 'source "$1"; load_backend_storage docker "$2" "$PWD" prepare',
+         'prepare', str(REPO / 'scripts/extra/backend-storage.sh'), PROJECT])
+    cp('up', '-d', '--no-deps', '--force-recreate', 'backend-volume-init')
+    initializer = cp('ps', '-a', '-q', 'backend-volume-init').stdout.strip()
+    assert run(['docker', 'wait', initializer]).stdout.strip() == '0'
+    cp('up', '-d', '--no-deps', 'backend', 'persona-worker', 'federation-worker')
+    LAYOUT = 'bind'
+    assert_healthy(args.to_version)
 
 
 def assert_healthy(version):
@@ -200,13 +241,25 @@ try:
     model['services']['fault-proxy'] = {'image': 'python:3.12-alpine',
         'command': ['python3', '/fault/proxy.py'], 'volumes': [f'{ROOT / "fault"}:/fault'],
         'networks': ['myriad-docker-guard-net'], 'restart': 'no'}
+    if args.migrate_before_rollback:
+        model.setdefault('volumes', {}).update(backend_data={}, backend_cache={})
+        for service in ('backend', 'backend-volume-init', 'persona-worker', 'federation-worker'):
+            for mount in model['services'][service]['volumes']:
+                relative = Path(mount['source']).relative_to(ROOT)
+                mount.update(type='volume', source='backend_' + relative.parts[0])
+                mount.pop('bind', None)
+                if len(relative.parts) > 1:
+                    mount['volume'] = {'subpath': '/'.join(relative.parts[1:]), 'nocopy': True}
     # Guard bootstrap writes the host policy before updater begins.
     for filename in ('docker-compose.yml', 'bootstrap.json'):
         (ROOT / filename).write_text(json.dumps(model))
         (ROOT / filename).chmod(0o600)
+    CREATED = True
+    if args.migrate_before_rollback:
+        for kind in ('data', 'cache'):
+            run(['docker', 'volume', 'create', f'{PROJECT}_backend_{kind}'])
     run(['bash', '-eu', '-c', 'source "$1"; load_backend_storage docker "$2" "$PWD" prepare',
          'prepare', str(REPO / 'scripts/extra/backend-storage.sh'), PROJECT])
-    CREATED = True
     print('Starting isolated real business stack:', PROJECT, flush=True)
     cp('up', '-d', '--wait', '--wait-timeout', '240')
     assert_healthy(args.from_version)
@@ -233,11 +286,18 @@ try:
     print('Rolling back through the real updater API', flush=True)
     sql("UPDATE release_canary SET value='after';")
     cp('exec', '-T', 'backend', 'sh', '-c', 'echo newest >/app/data/media/release-canary')
+    if args.migrate_before_rollback:
+        print('Migrating named volumes before selecting the pre-migration snapshot', flush=True)
+        migrate_to_binds()
+        assert sql('SELECT value FROM release_canary') == 'after'
+        assert media() == 'newest'
     wait_job(api('/rollback', {'snapshot_id': job['snapshot_id']})['job_id'], 'succeeded')
     assert_healthy(args.from_version)
     assert sql('SELECT value FROM release_canary') == 'before'
     assert media() == 'newest'  # rollback snapshots cover pgdata, not media
     RESULTS['checks']['explicit_rollback_database_and_latest_media'] = True
+    if args.migrate_before_rollback:
+        RESULTS['checks']['historical_rollback_keeps_migrated_binds'] = True
     print('Injecting one initializer-create failure after the tag/Compose swap', flush=True)
     (ROOT / 'fault/armed').touch()
     failed = update('failed')

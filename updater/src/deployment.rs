@@ -45,6 +45,71 @@ impl PreparedCompose {
         self.write(true)
     }
 
+    /// A historical snapshot owns code/topology, not the current storage source.
+    /// Build this plan before stopping writers; parsing failures must not rewrite
+    /// Compose or switch an explicitly migrated deployment back to old volumes.
+    pub(crate) async fn prepare_restore(
+        &self,
+        compose: &ComposeRunner,
+        baseline_path: PathBuf,
+    ) -> Result<Self> {
+        let saved = tempfile::tempdir()?;
+        let mut paths = Vec::new();
+        for (index, file) in self.files.iter().enumerate() {
+            let path = saved.path().join(format!("{index}.yaml"));
+            std::fs::write(&path, &file.before)?;
+            paths.push(path);
+        }
+        if paths.is_empty() || compose.files().is_empty() {
+            return Err(UpdaterError::Precondition(
+                "rollback Compose files missing".into(),
+            ));
+        }
+        let archived = compose.with_files(paths);
+        let original = archived.source_json().await?;
+        let mut normalized = original.clone();
+        storage::preserve_storage(
+            &original,
+            &archived.config_json().await?,
+            &mut normalized,
+            compose.project_directory(),
+        )?;
+        let mut restored = original.clone();
+        storage::preserve_storage(
+            &compose.source_json().await?,
+            &compose.config_json().await?,
+            &mut restored,
+            compose.project_directory(),
+        )?;
+        let unchanged = normalized == restored && self.files.len() == compose.files().len();
+        let merged = serde_json::to_vec_pretty(&restored)?;
+        let files = compose
+            .files()
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                let before = if unchanged {
+                    self.files[index].before.clone()
+                } else if index == 0 {
+                    merged.clone()
+                } else {
+                    b"{\"services\":{}}".to_vec()
+                };
+                ComposeChange {
+                    path: path.clone(),
+                    before,
+                    after: Vec::new(),
+                }
+            })
+            .collect();
+        Ok(Self {
+            files,
+            baseline_path,
+            restore_baseline: serde_json::to_vec(if unchanged { &original } else { &restored })?,
+            install_baseline: Vec::new(),
+        })
+    }
+
     fn write(&self, restore: bool) -> Result<()> {
         for file in &self.files {
             atomic::write_atomic_bytes(

@@ -231,8 +231,53 @@ mod tests {
                     assert_eq!(sorted(&updated), sorted(&resolved));
                 }
                 assert_eq!(updated.get("volumes"), resolved.get("volumes"));
-                plan.restore().unwrap();
+                plan.prepare_restore(&runner, root.join("baseline.json"))
+                    .await
+                    .unwrap()
+                    .restore()
+                    .unwrap();
                 assert_eq!(std::fs::read(&file).unwrap(), before);
+
+                // The operator subsequently migrated storage. A historical
+                // snapshot must restore code without undoing that migration.
+                let migrated = serde_json::to_vec(candidate).unwrap();
+                std::fs::write(&file, &migrated).unwrap();
+                let expected = runner.config_json().await.unwrap();
+                let restore = plan
+                    .prepare_restore(&runner, root.join("baseline.json"))
+                    .await
+                    .unwrap();
+                assert_eq!(std::fs::read(&file).unwrap(), migrated);
+                restore.restore().unwrap();
+                let actual = runner.config_json().await.unwrap();
+                for service in [
+                    "backend",
+                    "backend-volume-init",
+                    "persona-worker",
+                    "federation-worker",
+                ] {
+                    let mounts = |value: &Value| {
+                        let mut mounts = value["services"][service]["volumes"].as_array().unwrap().clone();
+                        mounts.sort_by_key(|m| m["target"].as_str().unwrap().to_owned());
+                        mounts
+                    };
+                    assert_eq!(mounts(&actual), mounts(&expected));
+                }
+                assert_eq!(actual.get("volumes"), expected.get("volumes"));
+
+                let mut foreign = candidate.clone();
+                foreign["services"]["backend"]["volumes"] = json!([
+                    {"type":"bind", "source":"/foreign/data", "target":"/app/data"},
+                    {"type":"bind", "source":"/foreign/cache", "target":"/app/cache"}
+                ]);
+                let foreign = serde_json::to_vec(&foreign).unwrap();
+                std::fs::write(&file, &foreign).unwrap();
+                assert!(
+                    plan.prepare_restore(&runner, root.join("baseline.json"))
+                        .await
+                        .is_err()
+                );
+                assert_eq!(std::fs::read(&file).unwrap(), foreign);
             }
         }
     }

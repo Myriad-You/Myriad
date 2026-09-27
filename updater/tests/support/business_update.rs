@@ -535,6 +535,42 @@ async fn legacy_target_without_embedded_compose_uses_source_cache() {
 }
 
 #[tokio::test]
+async fn historical_rollback_preserves_a_subsequent_storage_migration() {
+    let mut daemon = Daemon::business("").await;
+    daemon.bundled_database();
+    daemon.start().await;
+    let id = daemon.business_update().await;
+    daemon.completed_job(&id, "succeeded").await;
+    let snapshot = daemon.job(&id).await["snapshot_id"].clone();
+    let root = &daemon.mock.root;
+    let mut migrated: Value = serde_json::from_slice(&fs::read(root.join("compose.yaml")).unwrap()).unwrap();
+    for service in ["backend", "backend-volume-init"] {
+        migrated["services"][service]["volumes"] = json!([
+            {"type":"bind", "source":"./data", "target":"/app/data", "bind":{"create_host_path":false}},
+            {"type":"bind", "source":"./cache", "target":"/app/cache", "bind":{"create_host_path":false}}
+        ]);
+    }
+    migrated.as_object_mut().unwrap().remove("volumes");
+    for kind in ["data", "cache"] { fs::create_dir(root.join(kind)).unwrap(); }
+    fs::write(root.join("data/new-media"), "after migration").unwrap();
+    fs::write(root.join("pgdata/record"), "after upgrade").unwrap();
+    fs::write(root.join("compose.yaml"), migrated.to_string()).unwrap();
+    let response = daemon.post("/rollback", json!({"snapshot_id":snapshot})).await;
+    assert!(response.status().is_success());
+    let job: Value = response.json().await.unwrap();
+    daemon.completed_job(job["job_id"].as_str().unwrap(), "succeeded").await;
+    let restored: Value = serde_json::from_slice(&fs::read(root.join("compose.yaml")).unwrap()).unwrap();
+    assert!(restored["volumes"].get("backend_data").is_none());
+    for service in ["backend", "backend-volume-init"] {
+        assert_eq!(restored["services"][service]["volumes"][0]["type"], "bind");
+        assert_eq!(restored["services"][service]["volumes"][0]["source"], "./data");
+    }
+    assert_eq!(fs::read_to_string(root.join("data/new-media")).unwrap(), "after migration");
+    assert_eq!(fs::read_to_string(root.join("pgdata/record")).unwrap(), "original");
+    assert_eq!(daemon.status().await["current_version"], "v0.5.3");
+}
+
+#[tokio::test]
 async fn status_remains_available_when_recovery_is_interrupted_again() {
     let mut daemon = Daemon::business("swapped").await;
     daemon.start().await;

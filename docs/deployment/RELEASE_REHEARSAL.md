@@ -13,6 +13,8 @@ GitHub、Docker Hub、Fulcio/Rekor 的网络。脚本拒绝在已有 Myriad 固�
 docker build --build-arg CARGO_PROFILE=dev --build-arg MYRIAD_VERSION=v0.5.8 \
   -t myriad-updater-dev:storage-rehearsal -f updater/Dockerfile .
 python3 scripts/extra/test-signed-release.py --out /tmp/myriad-release-evidence
+# 覆盖已有部署：先升级旧卷布局，再迁移目录，选择迁移前的历史快照回退。
+python3 scripts/extra/test-signed-release.py --migrate-before-rollback --out /tmp/myriad-migration-evidence
 ```
 
 默认用 v0.5.6 作为基线、v0.5.7 作为目标。`--from-version`、`--to-version` 可选择
@@ -32,6 +34,10 @@ python3 scripts/extra/test-signed-release.py --out /tmp/myriad-release-evidence
    数据库回到快照值，媒体保留升级后的新写入——媒体不属于 updater 的数据库快照。
 5. 再次请求升级，在切换标签和 Compose 后，由测试代理拒绝一次初始化容器创建请求。
    检查 updater 自动恢复旧版本、数据库与媒体，并清除维护状态。
+
+`--migrate-before-rollback` 先以 named volumes 启动并升级，再停止业务容器，复制数据、
+删除旧卷并切换直接 bind，最后选择迁移前的快照。回退后必须继续使用新目录、保留媒体
+新写入，且不得重新注册旧卷；该路径也继续执行第 5 步的故障恢复检查。
 
 异常时保留脱敏日志与 job 结果；正常和异常退出都会尝试清理本次项目的容器、网络和
 临时数据。`results.json` 的 `cleanup_ok` 表示 Compose 清理是否成功。镜像和构建缓存

@@ -681,6 +681,8 @@ async fn heal_rollback_pair_from_version(
     Ok(())
 }
 
+// Pre-swap recovery belongs to the same in-flight update, before any supported
+// storage migration. Historical snapshot rollback uses prepare_compose_restore.
 pub(crate) fn restore_compose(state: &crate::state::StateDir, job_id: &str) -> Result<()> {
     let path = state.prepared_report_path(job_id);
     if let Some(bytes) = crate::state::read_existing(&path)? {
@@ -688,6 +690,22 @@ pub(crate) fn restore_compose(state: &crate::state::StateDir, job_id: &str) -> R
         pre.compose.restore()?;
     }
     Ok(())
+}
+
+pub(crate) async fn prepare_compose_restore(
+    state: &crate::state::StateDir,
+    job_id: &str,
+    compose: &ComposeRunner,
+) -> Result<Option<crate::deployment::PreparedCompose>> {
+    let Some(bytes) = crate::state::read_existing(&state.prepared_report_path(job_id))? else {
+        return Ok(None); // Older jobs without a saved template keep the live Compose.
+    };
+    let pre: preflight::PreflightReport = serde_json::from_slice(&bytes)?;
+    Ok(Some(
+        pre.compose
+            .prepare_restore(compose, state.root().join("compose-baseline.json"))
+            .await?,
+    ))
 }
 
 /// Restore `PROXY_TAG` to the value it had before the update, when the update
