@@ -142,7 +142,9 @@ async fn send_reply(line: &GroupLine, token: &str, text: &str) -> Result<(), Con
             )
             .await
         }
-        ChannelPlatform::Qq | ChannelPlatform::Feishu => Err(ConnectFailureKind::Permanent),
+        ChannelPlatform::Qq | ChannelPlatform::Feishu | ChannelPlatform::OneBot => {
+            Err(ConnectFailureKind::Permanent)
+        }
     }
 }
 
@@ -154,7 +156,7 @@ async fn send_typing(line: &GroupLine, token: &str) {
         ChannelPlatform::Discord => {
             let _ = crate::services::discord_bot::send_typing(token, &line.chat).await;
         }
-        ChannelPlatform::Qq | ChannelPlatform::Feishu => {}
+        ChannelPlatform::Qq | ChannelPlatform::Feishu | ChannelPlatform::OneBot => {}
     }
 }
 

@@ -47,8 +47,9 @@ pub fn is_pairing_provider(provider: &str) -> bool {
 }
 
 /// SQL predicate excluding pairing rows from OAuth / avatar identity queries.
+/// Kept in sync with `ChannelPlatform::ALL` by `sql_pairing_predicate_lists_every_platform_provider`.
 pub const SQL_NOT_PAIRING_PROVIDER: &str =
-    "LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu')";
+    "LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu', 'onebot')";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredPairingCode {

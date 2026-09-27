@@ -183,6 +183,7 @@ standard_fields! {
         telegram_bot_token,
         discord_bot_token,
         feishu_bot_app_secret,
+        onebot_bot_access_token,
     ],
     flag: [
         ui_evocative_parallax,
@@ -534,6 +535,15 @@ impl ConfigService {
         }
         if let Some(v) = map.get("feishu_bot_app_id") {
             config.feishu_bot_app_id = v.as_str().map(str::trim).unwrap_or("").to_string();
+        }
+        if let Some(v) = map.get("onebot_bot_enabled") {
+            config.onebot_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.onebot_bot_enabled);
+        }
+        if let Some(v) = map.get("onebot_bot_ws_url") {
+            config.onebot_bot_ws_url = v.as_str().map(str::trim).unwrap_or("").to_string();
         }
 
         // OAuth providers 列表
@@ -1514,6 +1524,38 @@ mod tests {
         assert!(!off.feishu_bot_enabled);
         assert!(off.feishu_bot_app_id.is_empty());
         assert_eq!(off.feishu_bot_app_secret, None);
+    }
+
+    #[test]
+    fn parses_onebot_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("onebot_bot_enabled".into(), json!(true)),
+            ("onebot_bot_ws_url".into(), json!("ws://127.0.0.1:3001")),
+            ("onebot_bot_access_token".into(), json!("ob-secret-value")),
+        ]));
+        assert!(configured.onebot_bot_enabled);
+        assert_eq!(configured.onebot_bot_ws_url, "ws://127.0.0.1:3001");
+        assert_eq!(
+            configured.onebot_bot_access_token.as_deref(),
+            Some("ob-secret-value")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("onebot_bot_enabled".into(), json!("true")),
+            ("onebot_bot_ws_url".into(), json!("  ")),
+            ("onebot_bot_access_token".into(), json!("  ")),
+        ]));
+        assert!(from_str.onebot_bot_enabled);
+        assert_eq!(from_str.onebot_bot_ws_url, "");
+        assert_eq!(from_str.onebot_bot_access_token, None);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "onebot_bot_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.onebot_bot_enabled);
+        assert!(off.onebot_bot_ws_url.is_empty());
+        assert_eq!(off.onebot_bot_access_token, None);
     }
 
     #[test]
