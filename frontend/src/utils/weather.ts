@@ -10,6 +10,10 @@ const WEATHER_ICON_BASE = '/icons/weather'
 const WEATHER_CACHE_TTL = 30 * 60 * 1000
 const LAST_WEATHER_KEY = 'weather_data_last'
 const LAST_WEATHER_TIME_KEY = 'weather_time_last'
+/** Location the last entry was fetched for; one slot, so no trail of past places. */
+const LAST_WEATHER_LOCATION_KEY = 'weather_data_last_location'
+/** Retired per-location keys (`weather_data_<lat>,<lon>`) that accumulated a location history. */
+const LEGACY_LOCATION_KEY = /^weather_(?:data|time)_-?\d/
 
 export const WEATHER_ICON_ASSETS = {
   sunny: `${WEATHER_ICON_BASE}/sunny.webp`,
@@ -79,12 +83,43 @@ function writeWeatherCache(dataKey: string, timeKey: string, data: WeatherData, 
   }
 }
 
-function readLastWeather(): WeatherData | null {
+/** Without `locationKey`, any fresh last entry; with it, only one fetched for that location. */
+function readLastWeather(locationKey?: string): WeatherData | null {
+  if (locationKey !== undefined) {
+    try {
+      if (localStorage.getItem(LAST_WEATHER_LOCATION_KEY) !== locationKey) return null
+    } catch {
+      return null
+    }
+  }
   return readWeatherCache(LAST_WEATHER_KEY, LAST_WEATHER_TIME_KEY)?.data ?? null
 }
 
-function writeLastWeather(data: WeatherData, timestamp: number): void {
+let legacyLocationKeysSwept = false
+
+function sweepLegacyLocationKeys(): void {
+  if (legacyLocationKeysSwept) return
+  legacyLocationKeysSwept = true
+  try {
+    const stale: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && LEGACY_LOCATION_KEY.test(key)) stale.push(key)
+    }
+    for (const key of stale) localStorage.removeItem(key)
+  } catch {
+    // Storage unavailable: nothing to sweep.
+  }
+}
+
+function writeLastWeather(data: WeatherData, timestamp: number, locationKey: string): void {
   writeWeatherCache(LAST_WEATHER_KEY, LAST_WEATHER_TIME_KEY, data, timestamp)
+  try {
+    localStorage.setItem(LAST_WEATHER_LOCATION_KEY, locationKey)
+  } catch {
+    // Without the tag the entry still serves the location-agnostic fast path.
+  }
+  sweepLegacyLocationKeys()
 }
 
 export async function getWeatherInfo(): Promise<WeatherData | null> {
@@ -129,15 +164,12 @@ async function getWeatherDataWithCache(location: {
   longitude: number
   city: string
 }): Promise<WeatherData | null> {
-  // Cache key: lat/lon to 2 decimals.
+  // Same place = lat/lon to 2 decimals (~1 km).
   const locationKey = `${location.latitude.toFixed(2)},${location.longitude.toFixed(2)}`
-  const cacheKey = `weather_data_${locationKey}`
-  const cacheTimeKey = `weather_time_${locationKey}`
 
-  const cached = readWeatherCache(cacheKey, cacheTimeKey)
+  const cached = readLastWeather(locationKey)
   if (cached) {
-    writeLastWeather(cached.data, cached.timestamp)
-    return cached.data
+    return cached
   }
 
   try {
@@ -215,9 +247,7 @@ async function getWeatherDataWithCache(location: {
       forecast,
     }
 
-    const timestamp = Date.now()
-    writeWeatherCache(cacheKey, cacheTimeKey, result, timestamp)
-    writeLastWeather(result, timestamp)
+    writeLastWeather(result, Date.now(), locationKey)
 
     return result
   } catch (error) {

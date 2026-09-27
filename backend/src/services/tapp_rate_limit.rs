@@ -148,13 +148,23 @@ pub(crate) fn rate_limit_record_id(key: &str) -> String {
 /// One-way client-address fingerprint for anonymous rate-limit keys.
 /// The source address itself is never persisted in the runtime registry.
 pub fn anonymous_subject_fingerprint(value: &str) -> String {
-    let secret = crate::middleware::auth::session_secret()
-        .unwrap_or_else(|| "myriad-development-anonymous-quota-v1".to_string());
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts arbitrary key lengths");
+    let key = anonymous_fingerprint_key(crate::middleware::auth::session_secret());
+    let mut mac = Hmac::<Sha256>::new_from_slice(&key).expect("HMAC accepts arbitrary key lengths");
     mac.update(b"myriad-tapp-anonymous-quota-v1\0");
     mac.update(value.as_bytes());
     hex::encode(mac.finalize().into_bytes())
+}
+
+/// Without `JWT_SECRET` there is no configured secret to key the fingerprint
+/// with. A key compiled into the public source would make it reversible (the
+/// IPv4 space is small enough to hash exhaustively), so fall back to a random
+/// per-process key: fingerprints stay one-way and are only stable until restart.
+fn anonymous_fingerprint_key(session_secret: Option<String>) -> Vec<u8> {
+    static PROCESS_KEY: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+    match session_secret {
+        Some(secret) => secret.into_bytes(),
+        None => PROCESS_KEY.get_or_init(rand::random::<[u8; 32]>).to_vec(),
+    }
 }
 
 async fn load_rate_limit_row(
@@ -398,8 +408,8 @@ pub async fn get_rate_limiter_active_count(
 #[cfg(test)]
 mod tests {
     use super::{
-        RateLimitError, get_rate_limit_config, host_write_rate_limit_operation, rate_limit_key,
-        rate_limit_record_id,
+        RateLimitError, anonymous_fingerprint_key, get_rate_limit_config,
+        host_write_rate_limit_operation, rate_limit_key, rate_limit_record_id,
     };
     use crate::services::permission_service::TappPermission;
 
@@ -411,6 +421,18 @@ mod tests {
         assert_ne!(base, rate_limit_key(42, "com.example.notes", "ai.task"));
         assert_eq!(rate_limit_record_id(&base).len(), 64);
         assert_eq!(rate_limit_record_id(&base), rate_limit_record_id(&base));
+    }
+
+    #[test]
+    fn anonymous_fingerprint_key_without_session_secret_is_random_not_built_in() {
+        let fallback = anonymous_fingerprint_key(None);
+        assert_eq!(fallback.len(), 32);
+        assert_eq!(fallback, anonymous_fingerprint_key(None));
+        assert_ne!(fallback, b"myriad-development-anonymous-quota-v1".to_vec());
+        assert_eq!(
+            anonymous_fingerprint_key(Some("configured-secret".into())),
+            b"configured-secret".to_vec()
+        );
     }
 
     #[test]

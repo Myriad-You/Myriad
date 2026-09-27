@@ -57,7 +57,8 @@ Actor URL 或 `@<username>@yourdomain.com` 来关注、建频道、邀请进房�
 bash scripts/extra/deploy.sh up
 ```
 
-Windows 用 WSL / Git Bash 跑同一条命令，或直接 `docker compose up -d`。
+脚本须在 Docker daemon 宿主运行。直接运行 `docker compose up -d` 前须先准备数据卷；
+Windows / WSL 的路径限制、旧卷迁移及换机步骤见 [数据布局](deployment/DATA_LAYOUT.md)。
 
 打开 `http://localhost`，或 `.env` 中 `HTTP_PORT` 指向的端口。首次访问会进入初始化向导，浏览器里可以直接做完。官方 compose 已经写好数据库，未设置 `MYRIAD_SETUP_SECRET` 会拒绝启动（`deploy.sh up` 会生成）。向导自己填库则不用。详见 [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md)。
 

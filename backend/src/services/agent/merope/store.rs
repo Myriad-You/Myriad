@@ -1,6 +1,9 @@
+pub(super) mod curiosity;
+pub(super) mod memory_jobs;
+
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
     TransactionTrait,
 };
@@ -154,6 +157,11 @@ fn apply_persona_update(
     active
 }
 
+/// Acquire before locking the persona row when a transaction may replace her.
+pub(crate) async fn lock_persona_on(db: &impl ConnectionTrait) -> anyhow::Result<()> {
+    memory_jobs::lock(db).await
+}
+
 pub async fn upsert_persona_on<C>(
     db: &C,
     name: String,
@@ -165,6 +173,7 @@ pub async fn upsert_persona_on<C>(
 where
     C: ConnectionTrait,
 {
+    memory_jobs::lock(db).await?;
     let (name, personality) = normalize_persona_fields(&name, &personality);
     if let Some(existing) = get_persona_on(db).await? {
         let saved = apply_persona_update(
@@ -521,7 +530,7 @@ pub fn portrait_generation_is_pending(value: Option<&Value>) -> bool {
 }
 
 /// Memory sources that belong to the persona, not to Work.
-pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 11] = [
+pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 14] = [
     "chat",
     "event",
     "narrative",
@@ -533,12 +542,17 @@ pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 11] = [
     super::bits::SOURCE,
     super::strangers::SOURCE,
     super::threads::SOURCE,
+    super::self_story::SOURCE,
+    super::self_story::CORRECTED,
+    super::explore::QUESTION,
 ];
 
 pub async fn clear_persona_on<C>(db: &C) -> Result<(), anyhow::Error>
 where
     C: ConnectionTrait,
 {
+    memory_jobs::lock(db).await?;
+    memory_jobs::forget(db).await?;
     agent_proactive_messages::Entity::delete_many()
         .exec(db)
         .await?;
@@ -567,6 +581,8 @@ where
     super::strangers::forget_counts(db).await?;
     // Turtle soups on now.
     super::soup::forget_games(db).await?;
+    // The serial she followed and the books she finished or let go.
+    super::serial::forget(db).await?;
     resync_persona_avatar_snapshots(db, None).await?;
     Ok(())
 }
@@ -895,12 +911,75 @@ pub async fn list_diary_from_sources(
         .await?)
 }
 
+/// How many people last spoke to her in `[start, end)`: whoever came back
+/// later counts on the later day, so this undercounts and never names.
+pub(crate) async fn people_last_talked_between(
+    db: &DatabaseConnection,
+    start: chrono::DateTime<chrono::FixedOffset>,
+    end: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<u64, sea_orm::DbErr> {
+    use sea_orm::PaginatorTrait;
+    agent_addressee_state::Entity::find()
+        .filter(agent_addressee_state::Column::LastUserMessageAt.gte(start))
+        .filter(agent_addressee_state::Column::LastUserMessageAt.lt(end))
+        .count(db)
+        .await
+}
+
+/// When each person who spoke to her after `since` last did.
+pub(crate) async fn last_talked_since(
+    db: &DatabaseConnection,
+    since: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<Vec<chrono::DateTime<chrono::FixedOffset>>, sea_orm::DbErr> {
+    let spoken: Vec<Option<chrono::DateTime<chrono::FixedOffset>>> =
+        agent_addressee_state::Entity::find()
+            .select_only()
+            .column(agent_addressee_state::Column::LastUserMessageAt)
+            .filter(agent_addressee_state::Column::LastUserMessageAt.gt(since))
+            .into_tuple()
+            .all(db)
+            .await?;
+    Ok(spoken.into_iter().flatten().collect())
+}
+
+/// Work that ended with `status` (`completed`, `failed`) in `[start, end)`.
+pub(crate) async fn work_ended_between(
+    db: &DatabaseConnection,
+    status: &str,
+    start: chrono::DateTime<chrono::FixedOffset>,
+    end: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<u64, sea_orm::DbErr> {
+    use crate::models::entities::agent_tasks;
+    use sea_orm::PaginatorTrait;
+    agent_tasks::Entity::find()
+        .filter(agent_tasks::Column::Status.eq(status))
+        .filter(agent_tasks::Column::CompletedAt.gte(start))
+        .filter(agent_tasks::Column::CompletedAt.lt(end))
+        .count(db)
+        .await
+}
+
+/// How many times she spoke up unprompted in `[start, end)`.
+pub(crate) async fn spoke_up_between(
+    db: &DatabaseConnection,
+    start: chrono::DateTime<chrono::FixedOffset>,
+    end: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<u64, sea_orm::DbErr> {
+    use sea_orm::PaginatorTrait;
+    agent_proactive_messages::Entity::find()
+        .filter(agent_proactive_messages::Column::CreatedAt.gte(start))
+        .filter(agent_proactive_messages::Column::CreatedAt.lt(end))
+        .count(db)
+        .await
+}
+
 /// Event persona-memory insert. Dedup and the retraction check run under the
 /// persona-memory lock, against the unified memory table.
 pub(crate) async fn insert_remembered_if_new(
     db: &DatabaseConnection,
     user_id: i32,
     candidate: &str,
+    evidence: Option<&str>,
 ) -> Result<bool, anyhow::Error> {
     use crate::services::agent::memory::unified;
     let fact = super::ingest::compact_summary(candidate);
@@ -921,7 +1000,10 @@ pub(crate) async fn insert_remembered_if_new(
             user_id,
             kind: unified::MemoryKind::Fact,
             content: fact,
-            evidence: None,
+            // The event she gathered it from.
+            evidence: evidence
+                .map(super::ingest::compact_summary)
+                .filter(|evidence| !evidence.is_empty()),
             speaker: unified::Speaker::Agent,
             source: "event",
             audience: unified::Audience::private(user_id),
@@ -965,8 +1047,23 @@ pub(crate) async fn apply_chat_memory_update(
 /// [`apply_chat_memory_update`] for what was said in front of `present`: in a
 /// group, the fact is kept for that group, and only facts the group heard can
 /// be corrected there.
+#[cfg(test)]
 pub(crate) async fn apply_chat_memory_update_in(
     db: &DatabaseConnection,
+    user_id: i32,
+    input_at: chrono::DateTime<chrono::FixedOffset>,
+    update: &super::chat_remember::ChatMemoryUpdate,
+    present: &crate::services::agent::memory::unified::Audience,
+) -> Result<bool, anyhow::Error> {
+    let transaction = db.begin().await?;
+    let applied =
+        apply_chat_memory_update_on(&transaction, user_id, input_at, update, present).await?;
+    transaction.commit().await?;
+    Ok(applied)
+}
+
+pub(super) async fn apply_chat_memory_update_on<C: ConnectionTrait>(
+    db: &C,
     user_id: i32,
     input_at: chrono::DateTime<chrono::FixedOffset>,
     update: &super::chat_remember::ChatMemoryUpdate,
@@ -975,25 +1072,17 @@ pub(crate) async fn apply_chat_memory_update_in(
     if user_id <= 0 || (update.fact.is_none() && update.supersedes.is_empty()) {
         return Ok(false);
     }
-    let transaction = db.begin().await?;
     // Always acquire in this order. Event-memory writers only take the second.
-    lock_addressee(&transaction, user_id).await?;
-    lock_persona_memory(&transaction, user_id).await?;
-    if !chat_memory_input_is_current(&transaction, user_id, input_at).await? {
-        transaction.commit().await?;
+    lock_addressee(db, user_id).await?;
+    lock_persona_memory(db, user_id).await?;
+    if !chat_memory_input_is_current(db, user_id, input_at).await? {
         return Ok(false);
     }
     use crate::services::agent::memory::unified;
     let mut targets = Vec::new();
     let mut found = std::collections::HashSet::new();
     let mut duplicate = false;
-    for note in unified::active_in(
-        &transaction,
-        user_id,
-        present,
-        &unified::MemoryKind::ABOUT_PERSON,
-    )
-    .await?
+    for note in unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON).await?
     {
         let content = super::ingest::compact_summary(&note.content);
         if update.supersedes.contains(&content) {
@@ -1006,14 +1095,13 @@ pub(crate) async fn apply_chat_memory_update_in(
     // Another extraction already replaced a target: reject the whole edit,
     // rather than appending an ungrounded new fact after a partial correction.
     if found.len() != update.supersedes.len() {
-        transaction.commit().await?;
         return Ok(false);
     }
-    unified::retire(&transaction, user_id, &targets, "superseded").await?;
+    unified::retire(db, user_id, &targets, "superseded").await?;
     let insert = update.fact.as_ref().filter(|_| !duplicate);
     if let Some(fact) = insert {
         unified::remember(
-            &transaction,
+            db,
             unified::NewMemory {
                 user_id,
                 kind: unified::MemoryKind::Fact,
@@ -1028,7 +1116,6 @@ pub(crate) async fn apply_chat_memory_update_in(
         )
         .await?;
     }
-    transaction.commit().await?;
     Ok(!targets.is_empty() || insert.is_some())
 }
 
@@ -1057,9 +1144,40 @@ pub async fn recall_remembered(
 ) -> Result<Vec<String>, anyhow::Error> {
     let priming = Priming::default();
     let present = crate::services::agent::memory::unified::Audience::private(user_id);
-    let (recalled, _) =
-        recall_remembered_primed(db, user_id, &present, query, limit, &priming, 1.0).await?;
-    Ok(recalled)
+    let (recalled, _) = crate::services::agent::memory::unified::recall_primed(
+        db,
+        user_id,
+        &present,
+        query.filter(|query| !query.trim().is_empty()),
+        &crate::services::agent::memory::unified::MemoryKind::ABOUT_PERSON,
+        limit,
+        &priming,
+        1.0,
+    )
+    .await?;
+    Ok(recalled
+        .iter()
+        .map(as_known)
+        .filter(|fact| !fact.is_empty())
+        .collect())
+}
+
+/// A kept fact as she holds it: what they told her, plainly; anything else
+/// with how she came by it, so she holds it as loosely as it deserves.
+pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRecord) -> String {
+    let content = super::ingest::compact_summary(&note.content);
+    if content.is_empty() {
+        return content;
+    }
+    let how = match (note.source.as_str(), note.speaker.as_str()) {
+        ("chat", "user") => return content,
+        ("event", _) => "you gathered this from their activity on the site, not from them",
+        ("work", _) => "you noted this while doing a task for them",
+        ("presence", _) => "you saw this in what they were playing",
+        ("game", _) => "from a game with them",
+        _ => "kept from before; you no longer know how you came by it",
+    };
+    format!("{content} ({how})")
 }
 
 /// What a turn recalls, split: what they named (or recent context), and what
@@ -1098,7 +1216,7 @@ pub async fn recall_remembered_split(
         brought_to_mind: Vec::new(),
     };
     for note in recalled {
-        let content = super::ingest::compact_summary(&note.content);
+        let content = as_known(&note);
         if content.is_empty() {
             continue;
         }
@@ -1206,7 +1324,7 @@ pub async fn latest_open_session(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .filter(agent_sessions::Column::Archived.eq(false))
         // Her own lines to them go to a conversation of theirs, never a group.
-        .filter(crate::api::agent::private_sessions())
+        .filter(crate::services::agent::sessions::private_sessions())
         .order_by_desc(agent_sessions::Column::LastActiveAt)
         .one(db)
         .await?
@@ -1320,6 +1438,28 @@ pub async fn touch_proactive(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
+        let note =
+            |source: &str, speaker: &str| crate::services::agent::memory::unified::MemoryRecord {
+                id: "m".into(),
+                user_id: Some(1),
+                kind: "fact".into(),
+                content: "养了一只猫叫年糕".into(),
+                evidence: None,
+                source: source.into(),
+                speaker: speaker.into(),
+                importance: 0.5,
+                access_count: 0,
+                created_at: chrono::Utc::now().fixed_offset(),
+                brought_to_mind: false,
+            };
+        assert_eq!(super::as_known(&note("chat", "user")), "养了一只猫叫年糕");
+        assert!(super::as_known(&note("event", "agent")).ends_with("not from them)"));
+        assert!(super::as_known(&note("work", "agent")).contains("doing a task for them"));
+        assert!(super::as_known(&note("chat", "import")).contains("kept from before"));
+    }
+
     #[test]
     fn delayed_appraisal_requires_the_same_unexpired_persisted_input() {
         let input = chrono::Utc::now();

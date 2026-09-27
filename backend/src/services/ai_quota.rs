@@ -12,12 +12,11 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, KeyInit, Mac};
+
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait, Value as SeaValue,
 };
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 
 use crate::GLOBAL_DYNAMIC_CONFIG;
 

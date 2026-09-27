@@ -1,11 +1,8 @@
 // Work result assembly: final result and frontend actions.
 
-use crate::services::agent::capability::CapabilityRef;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::super::agent_header::*;
-use super::super::response_agent;
-use super::super::types::*;
 
 impl Agent {
     /// 从执行结果中提取前端动作

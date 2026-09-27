@@ -4,7 +4,7 @@
 //! Frames of 2048 samples (about 93 ms at 22 kHz), one every 512 (about
 //! 23 ms), under a Hann window. Per frame: loudness (RMS, dB), brightness
 //! (spectral centroid), onset strength (spectral flux on log-compressed
-//! magnitudes, the usual onset detector), and the energy of each of the
+//! magnitudes in bands spaced like pitch, the usual onset detector), and the energy of each of the
 //! twelve pitch classes (chroma) between 65 Hz and 4.2 kHz.
 
 use rustfft::FftPlanner;
@@ -15,6 +15,11 @@ use crate::Audio;
 const WINDOW: usize = 2048;
 const HOP: usize = 512;
 const CHROMA_LOW_HZ: f32 = 65.0;
+/// Onsets are measured in bands spaced like pitch, so the many high bins do
+/// not drown the few low ones (a kick drum, a bass note).
+const ONSET_BANDS: usize = 36;
+const ONSET_LOW_HZ: f32 = 40.0;
+const ONSET_HIGH_HZ: f32 = 10_000.0;
 const CHROMA_HIGH_HZ: f32 = 4_200.0;
 /// Quieter than this counts as silence.
 const FLOOR_DB: f32 = -80.0;
@@ -47,6 +52,20 @@ pub fn analyze(audio: &Audio) -> Frames {
         })
         .collect();
 
+    let band_of: Vec<Option<usize>> = (0..bins)
+        .map(|bin| {
+            let hz = bin as f32 * bin_hz;
+            (ONSET_LOW_HZ..ONSET_HIGH_HZ).contains(&hz).then(|| {
+                let place = (hz / ONSET_LOW_HZ).ln() / (ONSET_HIGH_HZ / ONSET_LOW_HZ).ln();
+                ((place * ONSET_BANDS as f32) as usize).min(ONSET_BANDS - 1)
+            })
+        })
+        .collect();
+    let mut band_bins = [0usize; ONSET_BANDS];
+    for band in band_of.iter().flatten() {
+        band_bins[*band] += 1;
+    }
+
     let count = if samples.len() >= WINDOW {
         (samples.len() - WINDOW) / HOP + 1
     } else {
@@ -61,7 +80,7 @@ pub fn analyze(audio: &Audio) -> Frames {
         chroma: Vec::with_capacity(count),
     };
     let mut buffer = vec![Complex::new(0.0f32, 0.0); WINDOW];
-    let mut previous = vec![0.0f32; bins];
+    let mut previous = [0.0f32; ONSET_BANDS];
     for index in 0..count {
         let start = index * HOP;
         let mut energy = 0.0f32;
@@ -78,15 +97,15 @@ pub fn analyze(audio: &Audio) -> Frames {
 
         let mut weighted = 0.0f32;
         let mut total = 0.0f32;
-        let mut flux = 0.0f32;
+        let mut bands = [0.0f32; ONSET_BANDS];
         let mut chroma = [0.0f32; 12];
         for bin in 0..bins {
             let magnitude = buffer[bin].norm();
             weighted += bin as f32 * bin_hz * magnitude;
             total += magnitude;
-            let compressed = (1.0 + 100.0 * magnitude).ln();
-            flux += (compressed - previous[bin]).max(0.0);
-            previous[bin] = compressed;
+            if let Some(band) = band_of[bin] {
+                bands[band] += magnitude;
+            }
             if let Some(class) = pitch_class[bin] {
                 chroma[class] += magnitude * magnitude;
             }
@@ -94,6 +113,15 @@ pub fn analyze(audio: &Audio) -> Frames {
         frames
             .brightness_hz
             .push(if total > 0.0 { weighted / total } else { 0.0 });
+        let mut flux = 0.0f32;
+        for (band, total) in bands.iter().enumerate() {
+            if band_bins[band] == 0 {
+                continue;
+            }
+            let compressed = (1.0 + 100.0 * total / band_bins[band] as f32).ln();
+            flux += (compressed - previous[band]).max(0.0);
+            previous[band] = compressed;
+        }
         frames.onset.push(if index == 0 { 0.0 } else { flux });
         let sum: f32 = chroma.iter().sum();
         if sum > 0.0 {

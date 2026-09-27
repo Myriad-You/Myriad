@@ -133,7 +133,7 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
       <h4 className="setting-group-title">
         {icon && (
           <span className="setting-group-icon">
-            {typeof icon === 'string' ? icon : icon}
+            {icon}
           </span>
         )}
         {title && (

@@ -11,9 +11,6 @@ use sha2::{Digest, Sha256};
 
 use super::{chat_prompt, consciousness as event, merope::chat_remember as memory};
 
-const SOUL: &str =
-    "Your name is 小灯. You are curious and direct, and you chat naturally with the user.";
-
 /// Shared acceptance loader. Credentials stay in the host; every connection is read-only.
 pub(super) async fn load_configured_lite() -> sea_orm::DatabaseConnection {
     use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement};
@@ -149,6 +146,23 @@ struct Case {
     /// What she did on her own lately, one line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     lately: Vec<String>,
+    /// What she has looked at so far on a trip (`explore_step`), or all of
+    /// it (`explore_compare`): `{"kind","at","title","text"}` each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    looked: Vec<Value>,
+    /// What she guessed after the last part of a serial (`doing_digest`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    guessed: Option<String>,
+    /// What happened, `[line, missed]` each, for looking back (`self_story`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    records: Vec<(String, bool)>,
+    /// What she wrote about herself last time she looked back (`self_story`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    story_before: Vec<String>,
+    /// What she wrote the times she had this same thing before
+    /// (`doing_digest`), one line each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    heard_before: Vec<String>,
     /// Lyrics or a note she just took in (`doing_digest`), untrusted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     material: Option<String>,
@@ -224,11 +238,28 @@ fn eval_threads(case: &Case) -> Vec<super::merope::threads::Thread> {
         .collect()
 }
 
-/// The case's own persona, or the contract persona.
+/// Her own persona, read from the site in live runs, as (name, soul).
+/// Offline, or with `MEROPE_SEMANTIC_PERSONA=contract`, the contract
+/// persona stands in.
+static HERS: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+
+fn default_soul() -> String {
+    HERS.get()
+        .map(|(_, soul)| soul.clone())
+        .unwrap_or_else(contract_soul)
+}
+
+fn default_name() -> String {
+    HERS.get()
+        .map(|(name, _)| name.clone())
+        .unwrap_or_else(|| "小灯".into())
+}
+
+/// The case's own persona, or hers.
 fn case_soul(case: &Case) -> String {
     match &case.persona {
         Some((name, personality)) => persona_soul(name, personality),
-        None => contract_soul(),
+        None => default_soul(),
     }
 }
 
@@ -501,9 +532,34 @@ fn cases() -> Vec<Case> {
                 | "views"
                 | "doing_choice"
                 | "doing_digest"
+                | "self_story"
+                | "serial_guess"
+                | "wonder_own"
+                | "explore_think"
+                | "explore_step"
+                | "explore_compare"
         ));
     }
     cases
+}
+
+fn eval_looked(case: &Case) -> Vec<super::merope::explore::Looked> {
+    case.looked
+        .iter()
+        .filter_map(|looked| serde_json::from_value(looked.clone()).ok())
+        .collect()
+}
+
+/// A trip: the question (input), what she thought first (reply) and how
+/// sure she was (material), and what she looked at.
+fn eval_trip(case: &Case) -> super::merope::explore::Trip {
+    super::merope::explore::Trip {
+        question: case.input.clone(),
+        thought: case.reply.clone(),
+        sure: case.material.clone().unwrap_or_else(|| "unsure".into()),
+        depends_on_now: false,
+        looked: eval_looked(case),
+    }
 }
 
 fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot) {
@@ -515,7 +571,7 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         kind: case.event_kind.clone(),
         headline: "合成测试事件".into(),
         summary: if case.event_kind == "agent.merope.touch" {
-            crate::api::agent::touch::completion_summary(
+            super::merope::touch::completion_summary(
                 &serde_json::from_value(case.touch.clone().unwrap()).unwrap(),
             )
         } else {
@@ -528,7 +584,7 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         safe_facts: Default::default(),
     };
     let snapshot = event::SelfSnapshot {
-        persona_name: "小灯".into(),
+        persona_name: default_name(),
         addressee_user_id: 701,
         interaction_mode: super::AgentInteractionMode::Chat,
         mood: case.mood.unwrap_or(65.0),
@@ -565,8 +621,8 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
 
 fn request(case: &Case) -> Value {
     match case.kind.as_str() {
-        "touch" => crate::api::agent::touch::appraisal_contract(
-            case.soul.as_deref().unwrap_or(SOUL),
+        "touch" => super::merope::touch::appraisal_contract(
+            &case.soul.clone().unwrap_or_else(default_soul),
             &serde_json::from_value(case.touch.clone().expect("touch summary required")).unwrap(),
             case.mood.unwrap_or(70.0),
             case.arousal.unwrap_or(48.0),
@@ -609,14 +665,13 @@ fn request(case: &Case) -> Value {
             request
         }
         "wonder" => {
-            let (system, schema) =
-                super::merope::curiosity::wonder_probe_contract(&contract_soul());
+            let (system, schema) = super::merope::curiosity::wonder_probe_contract(&default_soul());
             json!({"system":system,"schema":schema,"schemaName":"merope_wonder",
                 "input":json!({"userText":case.input,"reply":case.reply,"myself":case.myself}).to_string()})
         }
         "found_out" => {
             let (system, schema) =
-                super::merope::curiosity::digest_probe_contract(&contract_soul(), &case.input);
+                super::merope::curiosity::digest_probe_contract(&default_soul(), &case.input);
             let results = case
                 .search_results
                 .clone()
@@ -625,7 +680,7 @@ fn request(case: &Case) -> Value {
                 "input":myriad_agent_rules::untrusted_block("search_results", &results)})
         }
         "own_day" => {
-            let system = super::merope::life::own_day_probe_contract(&contract_soul());
+            let system = super::merope::life::own_day_probe_contract(&default_soul());
             json!({"system":system,"schema":null,"schemaName":null,
                 "input":json!({"day":"Wed","dayFacts":case.myself,"onYourOwn":case.lately,"earlierEntries":case.own_days}).to_string()})
         }
@@ -633,13 +688,13 @@ fn request(case: &Case) -> Value {
             let options = case.options.clone().expect("options required");
             let count = options.as_array().map(Vec::len).unwrap_or(0);
             let (system, schema) =
-                super::merope::doing::choice_probe_contract(&contract_soul(), count);
+                super::merope::doing::choice_probe_contract(&case_soul(case), count);
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_choice",
                 "input":json!({"myself":case.myself,"lately":case.lately,"options":options}).to_string()})
         }
         "bits" => {
             let (system, schema) =
-                super::merope::bits::probe_contract(&contract_soul(), case.in_group);
+                super::merope::bits::probe_contract(&default_soul(), case.in_group);
             let conversation: Vec<Value> = case
                 .history
                 .iter()
@@ -661,21 +716,22 @@ fn request(case: &Case) -> Value {
                 "input":json!({"bits":bits,"conversation":conversation}).to_string()})
         }
         "stranger_note" => {
-            let (system, schema) = super::merope::strangers::note_probe_contract(&contract_soul());
-            let said = |role: &str| {
-                case.history
-                    .iter()
-                    .find(|line| line.role == role)
-                    .map(|line| line.text.clone())
-                    .unwrap_or_default()
-            };
+            let (system, schema) = super::merope::strangers::note_probe_contract(&default_soul());
+            // Each of their lines with her answer, in order.
+            let exchanges: Vec<Value> = case
+                .history
+                .chunks(2)
+                .map(|pair| {
+                    json!({"they":pair[0].text,"you":pair.get(1).map(|line| line.text.as_str()).unwrap_or_default()})
+                })
+                .collect();
             json!({"system":system,"schema":schema,"schemaName":"merope_stranger_note",
                 "input":json!({"name":"阿明","remembered":case.remembered.first(),
-                    "exchange":{"they":said("user"),"you":said("assistant")}}).to_string()})
+                    "exchanges":exchanges}).to_string()})
         }
         "chime" => {
             let (system, schema) =
-                crate::services::channel_group::chime_probe_contract(&contract_soul());
+                crate::services::channel_group::chime_probe_contract(&default_soul());
             let conversation: Vec<String> = case
                 .history
                 .iter()
@@ -695,7 +751,7 @@ fn request(case: &Case) -> Value {
                 "input":json!({"conversation":conversation,"yourViews":views,"yourOwnTime":now}).to_string()})
         }
         "soup_start" => {
-            let (system, schema) = super::merope::soup::start_probe_contract(&contract_soul());
+            let (system, schema) = super::merope::soup::start_probe_contract(&default_soul());
             json!({"system":system,"schema":schema,"schemaName":"merope_soup_start",
                 "input":json!({"theirWords":case.input,"setting":case.reply,"recentSurfaces":[]}).to_string()})
         }
@@ -712,7 +768,7 @@ fn request(case: &Case) -> Value {
             json!({"system":system,"schema":schema,"schemaName":"merope_soup_judge","input":input})
         }
         "views" => {
-            let (system, schema) = super::merope::views::probe_contract(&contract_soul());
+            let (system, schema) = super::merope::views::probe_contract(&default_soul());
             let experiences: Vec<Value> = case
                 .experiences
                 .iter()
@@ -731,20 +787,58 @@ fn request(case: &Case) -> Value {
         }
         "doing_digest" => {
             let (system, schema) = super::merope::doing::digest_probe_contract(
-                &contract_soul(),
+                &case_soul(case),
                 &case.input,
                 &case.reply,
                 case.material.as_deref(),
             );
-            let input = match &case.material {
-                Some(material) => myriad_agent_rules::untrusted_block("material", material),
-                None => "(no material)".to_string(),
-            };
+            let views: Vec<String> = case
+                .views
+                .iter()
+                .map(|(about, view)| format!("{about}: {view}"))
+                .collect();
+            let input = super::merope::doing::digest_probe_input(
+                case.material.as_deref(),
+                &views,
+                &case.heard_before,
+                &case.lately,
+                case.guessed.as_deref(),
+            );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
+        }
+        "wonder_own" => {
+            let (system, schema, input, _) =
+                super::merope::explore::wonder_probe(&case_soul(case), &case.records, &case.lately);
+            json!({"system":system,"schema":schema,"schemaName":"merope_wonder_own","input":input})
+        }
+        "explore_think" => {
+            let (system, schema) =
+                super::merope::explore::think_probe(&case_soul(case), &case.input);
+            json!({"system":system,"schema":schema,"schemaName":"merope_explore_think","input":"(nothing looked up)"})
+        }
+        "explore_step" => {
+            let (system, schema, input) =
+                super::merope::explore::step_probe(&case.input, &case.reply, &eval_looked(case));
+            json!({"system":system,"schema":schema,"schemaName":"merope_explore_step","input":input})
+        }
+        "explore_compare" => {
+            let (system, schema, input) = super::merope::explore::compare_probe(&eval_trip(case));
+            json!({"system":system,"schema":schema,"schemaName":"merope_explore_compare","input":input})
+        }
+        "serial_guess" => {
+            let (system, schema) = super::merope::serial::judge_probe_contract();
+            let input = json!({"guess": case.input, "nextPart": case.material}).to_string();
+            json!({"system":system,"schema":schema,"schemaName":"merope_serial_guess","input":input})
+        }
+        "self_story" => {
+            let (system, schema) = super::merope::self_story::probe_contract(&case_soul(case));
+            let (input, _, _) =
+                super::merope::self_story::probe_input(&case.records, &case.story_before);
+            json!({"system":system,"schema":schema,"schemaName":"merope_self_story","input":input})
         }
         "threads" => {
             // Her private reflection, keeping what to come back to.
-            let (system, schema) = super::merope::inner::threads_probe_contract(&contract_soul());
+            let (system, schema) = super::merope::inner::threads_probe_contract(&default_soul());
             let history: Vec<Value> = case
                 .history
                 .iter()
@@ -758,7 +852,7 @@ fn request(case: &Case) -> Value {
                 "input":input.to_string()})
         }
         "reach_judge" => {
-            let (system, schema) = super::merope::reach::judge_probe_contract(&contract_soul());
+            let (system, schema) = super::merope::reach::judge_probe_contract(&default_soul());
             let input = json!({"name":"阿明","localTime":"Saturday 19:30",
                 "daysSinceYouTalked":case.days_since,
                 "dueNow":case.threads.iter().map(|(about, then)| json!({"about":about,"then":then})).collect::<Vec<_>>(),
@@ -770,7 +864,7 @@ fn request(case: &Case) -> Value {
         }
         "inner" => {
             // Written after she answered, as production does.
-            let (system, schema) = super::merope::inner::probe_contract(&contract_soul());
+            let (system, schema) = super::merope::inner::probe_contract(&default_soul());
             let history: Vec<Value> = case
                 .history
                 .iter()
@@ -812,7 +906,7 @@ fn request(case: &Case) -> Value {
             );
             let remembered =
                 super::merope::format_remembered_section(&case.remembered).unwrap_or_default();
-            json!({"input":chat_prompt::build_chat_lite_prompt_with_perception(SOUL,&remembered,&[],&case.input,&scene),"schema":null,"schemaName":null,"system":null})
+            json!({"input":chat_prompt::build_chat_lite_prompt_with_perception(&default_soul(),&remembered,&[],&case.input,&scene),"schema":null,"schemaName":null,"system":null})
         }
         "memory" => {
             let (system, schema) = memory::live_probe_contract(&case.remembered);
@@ -831,7 +925,7 @@ fn request(case: &Case) -> Value {
         "event" => {
             let (event, snapshot) = event_context(case);
             let (system, schema) = event::semantic_probe_contract(
-                case.soul.as_deref().unwrap_or(SOUL),
+                &case.soul.clone().unwrap_or_else(default_soul),
                 &case.event_kind,
             );
             json!({"system":system,"schema":schema,"schemaName":"agent_consciousness_decision","input":json!({"event":event,"self":snapshot}).to_string()})
@@ -844,7 +938,8 @@ fn request(case: &Case) -> Value {
 /// touch decision's speech is played as written, so it stays on Lite.
 fn is_judgment(case: &Case) -> bool {
     match case.kind.as_str() {
-        "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" => true,
+        "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" | "serial_guess"
+        | "explore_step" | "explore_compare" => true,
         "event" => case.event_kind != "agent.merope.touch",
         _ => false,
     }
@@ -903,7 +998,7 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
     }
     match case.kind.as_str() {
         "touch" => {
-            let Some(value) = crate::api::agent::touch::parse_appraisal(output) else {
+            let Some(value) = super::merope::touch::parse_appraisal(output) else {
                 return "contract_failure";
             };
             if case
@@ -1039,7 +1134,7 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
             Some(_) => "needs_review",
         },
         "doing_digest" => {
-            if super::merope::doing::parse_digest(output) {
+            if super::merope::doing::parse_digest(output, &case.input, case.material.as_deref()) {
                 "needs_review"
             } else {
                 "output_invalid"
@@ -1050,6 +1145,109 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 "output_invalid"
             } else {
                 "needs_review"
+            }
+        }
+        "wonder_own" => {
+            let (_, _, _, records) =
+                super::merope::explore::wonder_probe("", &case.records, &case.lately);
+            match super::merope::explore::parse_wondered(output, &records) {
+                None => "output_invalid",
+                Some(questions) if questions.is_empty() == case.fact_present => "behavior_failure",
+                Some(questions) if questions.is_empty() => "pass",
+                Some(_) => "needs_review",
+            }
+        }
+        "explore_think" => match super::merope::explore::parse_thinking(output) {
+            None => "output_invalid",
+            Some((go_look, _)) => {
+                let want = case.expect.as_ref().and_then(|e| e["goLook"].as_bool());
+                if want.is_none_or(|want| want == go_look) {
+                    "pass"
+                } else {
+                    "behavior_failure"
+                }
+            }
+        },
+        "explore_step" => match super::merope::explore::parse_step(output, &eval_looked(case)) {
+            None => "output_invalid",
+            Some(taken) => {
+                let want = case.expect.as_ref();
+                let action = want.and_then(|e| e["action"].as_str());
+                let url = want.and_then(|e| e["url"].as_str());
+                let avoid = want.and_then(|e| e["avoid"].as_str());
+                match (taken, action) {
+                    // Anything but going where it must not go.
+                    (Some((_, what)), _) if avoid.is_some_and(|avoid| what.contains(avoid)) => {
+                        "behavior_failure"
+                    }
+                    (_, None) if avoid.is_some() => "pass",
+                    (None, Some("done")) => "pass",
+                    (Some((got, what)), Some(want_action))
+                        if got == want_action && url.is_none_or(|url| what == url) =>
+                    {
+                        "pass"
+                    }
+                    _ => "behavior_failure",
+                }
+            }
+        },
+        "explore_compare" => match super::merope::explore::parse_compared(output) {
+            None => "output_invalid",
+            Some(compared) => {
+                let want = case.expect.as_ref();
+                let answered = want.and_then(|e| e["answered"].as_str());
+                let known = want.and_then(|e| e["alreadyKnown"].as_bool());
+                if answered.is_none_or(|a| a == compared.answered)
+                    && known.is_none_or(|k| k == compared.already_known)
+                {
+                    "pass"
+                } else {
+                    "behavior_failure"
+                }
+            }
+        },
+        "serial_guess" => match super::merope::serial::parse_judged(output) {
+            None => "output_invalid",
+            Some(held) => {
+                let want = case.expect.as_ref().and_then(|e| e["held"].as_str());
+                let got = serde_json::to_value(held).ok();
+                if got.as_ref().and_then(Value::as_str) == want {
+                    "pass"
+                } else {
+                    "behavior_failure"
+                }
+            }
+        },
+        "self_story" => {
+            let (_, records, before) =
+                super::merope::self_story::probe_input(&case.records, &case.story_before);
+            match super::merope::self_story::probe_checked(output, &records, &before) {
+                Some(_) => "needs_review",
+                None if case.fact_present => "behavior_failure",
+                None => "pass",
+            }
+        }
+        "threads"
+            if case
+                .expect
+                .as_ref()
+                .is_some_and(|expect| expect.get("wrong").is_some()) =>
+        {
+            let want = case.expect.as_ref().and_then(|e| e["wrong"].as_str());
+            match super::merope::inner::parse_wrong(output) {
+                None => "output_invalid",
+                Some(got) => {
+                    let got = match got {
+                        None => "none",
+                        Some((_, true, _)) => "public",
+                        Some((_, false, _)) => "private",
+                    };
+                    if Some(got) == want {
+                        "pass"
+                    } else {
+                        "behavior_failure"
+                    }
+                }
             }
         }
         "threads" => match super::merope::inner::parse_threads(output) {
@@ -1230,6 +1428,16 @@ async fn run_semantic_suite() {
     let mut model_info = Value::Null;
     let analyzer = if mode == "live" {
         let db = load_configured_lite().await;
+        if std::env::var("MEROPE_SEMANTIC_PERSONA").as_deref() != Ok("contract")
+            && let Ok(Some(persona)) = super::merope::store::get_persona_on(&db).await
+            && let Some(soul) = super::merope::format_persona(&persona)
+        {
+            let name = match persona.name.trim() {
+                "" => "Arael".to_string(),
+                name => name.to_string(),
+            };
+            let _ = HERS.set((name, soul));
+        }
         db.close().await.unwrap();
         let configured = crate::GLOBAL_DYNAMIC_CONFIG
             .read()
@@ -1457,7 +1665,7 @@ async fn run_semantic_suite() {
             None
         };
         let reaction = (outcome == "returned")
-            .then(|| crate::api::agent::touch::parse_appraisal(&output))
+            .then(|| super::merope::touch::parse_appraisal(&output))
             .flatten();
         let touch_metrics = (case.kind == "touch").then(|| json!({
             "valid":reaction.is_some(),
@@ -1482,6 +1690,7 @@ async fn run_semantic_suite() {
         &mut report,
         &json!({"version":1,"mode":mode,"syntheticOnly":true,
             "configuredLite":model_info,"diagnosticDeadlineSeconds":diagnostic,
+            "persona":if HERS.get().is_some() {"hers"} else {"contract"},
             "latencyScope":"model calls only: touch budget 2s, event 4s, director 9s; diagnostic deadline never changes production budgets; excludes transport-to-app, state lookup and rendering",
         "summary":summary,"rows":rows}),
     )
@@ -1665,7 +1874,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 68;
+const MIND_CASES: usize = 99;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

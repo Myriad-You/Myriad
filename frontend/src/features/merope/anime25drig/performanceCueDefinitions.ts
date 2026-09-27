@@ -64,6 +64,7 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
       angleZ: 0.15 * poseAmount,
       brow: 0.26 * amount,
       eyeOpen: 0.05 * amount,
+      eyeWide: 0.2 * amount,
     }),
   },
   delight: {
@@ -76,8 +77,10 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     expression: (amount, poseAmount) => ({
       angleY: -0.12 * poseAmount,
       brow: 0.22 * amount,
-      eyeOpen: -0.025 * amount,
-      eyeSqueeze: 0.84 * amount,
+      // A smile that reaches the eyes, not the squeezed >< artwork: that is a
+      // comic symbol and jars on anything but flat cel faces.
+      eyeOpen: -0.12 * amount,
+      eyeSmile: 0.9 * amount,
       mouthForm: 0.18 * amount,
     }),
   },
@@ -106,6 +109,7 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
       angleZ: -0.11 * poseAmount,
       brow: 0.22 * amount,
       eyeOpen: 0.055 * amount,
+      eyeWide: 0.35 * amount,
     }),
   },
   think: {

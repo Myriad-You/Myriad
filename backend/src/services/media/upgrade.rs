@@ -465,7 +465,7 @@ async fn process_row(
         // Never catalogue a dead site-setting citation: the row could only
         // ever be retried as missing.
         let unresolved = unresolved_paths(db, paths, origins, table, cited).await?;
-        import_cited(db, store, paths, origins, cited, false, &unresolved).await?;
+        import_cited(db, paths, origins, cited, false, &unresolved).await?;
     } else if phase == 0 {
         let asset: media_assets::Model =
             serde_json::from_value(payload.clone()).map_err(|_| MediaError::StoreFailed)?;
@@ -488,7 +488,7 @@ async fn process_row(
             }
         }
     } else {
-        bind_row(db, store, paths, origins, table, &cursor, &payload).await?;
+        bind_row(db, paths, origins, table, &cursor, &payload).await?;
     }
     Ok(())
 }
@@ -508,14 +508,12 @@ async fn ensure_copied(
 
 async fn import_cited(
     db: &impl ConnectionTrait,
-    store: &MediaStore,
     paths: &LegacyPaths,
     origins: &[String],
     payload: &Value,
     copy: bool,
     unresolved: &[String],
 ) -> Result<Vec<String>, MediaError> {
-    let _ = store;
     let mut urls = cited_local_paths(payload, origins);
     urls.retain(|url| !unresolved.contains(url));
     for url in &urls {
@@ -783,7 +781,6 @@ async fn bind_tapp_storage(
 
 async fn bind_row(
     db: &(impl ConnectionTrait + TransactionTrait),
-    store: &MediaStore,
     paths: &LegacyPaths,
     origins: &[String],
     table: &str,
@@ -809,7 +806,7 @@ async fn bind_row(
             // Nothing here to protect; keep the stored value and drop stale refs.
             return bind_empty(db, WALLPAPER_KEY).await;
         }
-        import_cited(db, store, paths, origins, &cited, true, &[]).await?;
+        import_cited(db, paths, origins, &cited, true, &[]).await?;
         // Same binder as saving the setting; clears stale references when unset.
         let published = cite::bind_and_publish_wallpaper(db, &candidate, origins).await?;
         if published != stored {
@@ -827,7 +824,7 @@ async fn bind_row(
     if table == "configurations" {
         record_unresolved(db, table, cursor, &unresolved).await?;
     }
-    let urls = import_cited(db, store, paths, origins, cited, true, &unresolved).await?;
+    let urls = import_cited(db, paths, origins, cited, true, &unresolved).await?;
     match table {
         "phantasi_note_docs" => {
             // Import history citations before the existing atomic draft/history binder.
@@ -840,7 +837,7 @@ async fn bind_row(
                 .await?;
             for row in history {
                 let value: Value = row.try_get("", "snapshot")?;
-                import_cited(db, store, paths, origins, &value, true, &[]).await?;
+                import_cited(db, paths, origins, &value, true, &[]).await?;
             }
             cite::bind_note_draft(
                 db,
@@ -959,7 +956,7 @@ async fn bind_row(
                 .map(|row| row.try_get::<Value>("", "object_json"))
                 .transpose()?
                 .unwrap_or(Value::Null);
-            let urls = import_cited(db, store, paths, origins, &value, true, &[]).await?;
+            let urls = import_cited(db, paths, origins, &value, true, &[]).await?;
             binding::bind(
                 db,
                 &binding::Consumer::federation_outbox(cursor),

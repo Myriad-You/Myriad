@@ -482,8 +482,8 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 
     setBusy('check')
     emitUpdaterToast(null)
-    let manifest: ReleaseManifest | null = null
-    let freshStatus: UpdaterStatus | null = null
+    let manifest: ReleaseManifest | null
+    let freshStatus: UpdaterStatus | null
     try {
       manifest = await api.available()
       setAvailable(manifest)

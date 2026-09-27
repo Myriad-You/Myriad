@@ -17,7 +17,7 @@ export interface ScheduledBodyCue {
 
 type SpeechOwnedDriver = Pick<
   Anime25DDriver,
-  'mouthForm' | 'mouthOpen' | 'talk'
+  'eyeSmile' | 'mouthForm' | 'mouthOpen' | 'talk'
 >
 
 /** This patch owns only what the per-frame offset cannot reach */
@@ -78,6 +78,8 @@ export function idleSpeechDriverPatch(
     talk: false,
     mouthOpen: 0,
     mouthForm: smile * 0.28,
+    // A good mood shows in the eyes too; it stays while she talks.
+    eyeSmile: smile * 0.45,
   }
 }
 

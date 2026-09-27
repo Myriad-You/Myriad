@@ -11,13 +11,16 @@ use serde_json::{Value, json};
 #[cfg(test)]
 use std::collections::HashMap;
 
+#[cfg(test)]
 pub use myriad_agent_rules::{
-    DEFAULT_IMAGE_HEIGHT, DEFAULT_IMAGE_WIDTH, IMAGE_DIM_MAX, IMAGE_DIM_MIN,
-    IMAGE_PROMPT_MAX_CHARS, SANITIZE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS, append_instruction,
-    append_memory_to_system_prompt, capability_needs_conversation_context, capability_needs_memory,
-    clamp_image_dim, extract_semantic_text, inject_directive_to_params, inject_steering_to_params,
-    merge_system_prompt, parse_image_dim, resolve_image_dimensions, resolve_image_prompt,
-    resolve_negative_prompt, sanitize_prompt_input, take_recent_conversation_messages,
+    IMAGE_DIM_MAX, IMAGE_DIM_MIN, SANITIZE_PROMPT_MAX_CHARS, clamp_image_dim, merge_system_prompt,
+    parse_image_dim, resolve_negative_prompt,
+};
+pub use myriad_agent_rules::{
+    IMAGE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS, append_memory_to_system_prompt,
+    capability_needs_conversation_context, capability_needs_memory, extract_semantic_text,
+    inject_directive_to_params, inject_steering_to_params, resolve_image_dimensions,
+    resolve_image_prompt, sanitize_prompt_input, take_recent_conversation_messages,
     task_inner_value, with_system_guidance,
 };
 

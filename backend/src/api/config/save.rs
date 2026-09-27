@@ -75,7 +75,6 @@ pub async fn update_config(
         Ok(new_config) => {
             // 内存节约档：立即收紧并发/缓存/Argon2；DB 池在下次建连/重启后生效
             crate::services::memory_profile::apply_from_saver_flag(new_config.memory_saver_enabled);
-            let seo_review_cadence = new_config.site_seo_review_cadence.clone();
             *dynamic_config.write().await = new_config;
             crate::services::ai_config::invalidate_ai_config_cache().await;
             tracing::info!("✅ Dynamic configuration cache updated");
@@ -87,7 +86,6 @@ pub async fn update_config(
             // OAuth redirect URLs follow site origin / provider list; reload after any config save.
             crate::services::oauth::registry::REGISTRY.reload().await;
             tracing::info!("✅ OAuth provider registry reloaded");
-            crate::services::agent::heartbeat::sync_seo_review_cadence(&seo_review_cadence).await;
         }
         Err(e) => {
             tracing::warn!("⚠️ Failed to reload dynamic config into cache: {}", e);

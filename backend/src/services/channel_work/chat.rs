@@ -19,8 +19,7 @@ use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tracing::warn;
 
-use crate::api::agent::{ProcessContext, ProcessRequest};
-use crate::middleware::auth::Claims;
+use crate::services::agent::run::{ProcessContext, ProcessRequest};
 use crate::services::agent::types::ChannelChat;
 use crate::services::agent::{AgentInteractionMode, AgentProgressEvent};
 
@@ -36,7 +35,6 @@ const MODEL_IMAGE_EDGE: u32 = 1024;
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_chat_turn(
     db: DatabaseConnection,
-    claims: Claims,
     user_id: i32,
     work_session_id: String,
     input: &str,
@@ -63,9 +61,9 @@ pub(super) async fn start_chat_turn(
     } else {
         input.to_string()
     };
-    let run = match crate::api::agent::start_process_run(
+    let run = match crate::services::agent::run::start_for_user(
         db.clone(),
-        claims.clone(),
+        user_id,
         ProcessRequest {
             input: input_text,
             context: Some(ProcessContext {
@@ -84,7 +82,7 @@ pub(super) async fn start_chat_turn(
     {
         Ok(run) => run,
         Err(error) => {
-            let body = error.0.to_json();
+            let body = error.to_json();
             let message = body
                 .get("message")
                 .and_then(Value::as_str)
@@ -121,7 +119,6 @@ pub(super) async fn start_chat_turn(
         let work_input = work_input(instruction, input);
         super::start_work_run(
             db,
-            claims,
             user_id,
             work_session_id,
             &work_input,
@@ -154,9 +151,14 @@ pub(super) async fn chat_session(
     if let Some(id) = stored.chat_session_id.clone().filter(|id| !id.is_empty()) {
         return Some(id);
     }
-    let id = crate::api::agent::ensure_session(db, None, user_id, AgentInteractionMode::Chat)
-        .await
-        .ok()?;
+    let id = crate::services::agent::sessions::ensure_session(
+        db,
+        None,
+        user_id,
+        AgentInteractionMode::Chat,
+    )
+    .await
+    .ok()?;
     stored.chat_session_id = Some(id.clone());
     put_session(db, platform, user_id, session_key, stored)
         .await
@@ -169,9 +171,10 @@ async fn handed_off(db: &DatabaseConnection, work_session_id: &str, busy: bool) 
     if work_session_id.is_empty() {
         return None;
     }
-    let history = crate::api::agent::load_session_history(db, work_session_id, 2, false)
-        .await
-        .ok()?;
+    let history =
+        crate::services::agent::sessions::load_session_history(db, work_session_id, 2, false)
+            .await
+            .ok()?;
     let recent = |at: Option<&str>| {
         at.and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
             .is_some_and(|at| chrono::Utc::now().signed_duration_since(at) < HANDED_OFF_FOR)
@@ -249,7 +252,7 @@ async fn await_reply(
     run: std::sync::Arc<crate::services::agent::run_hub::AgentRun>,
     sink: &ChannelSink,
 ) -> Option<Value> {
-    let mut events = Box::pin(crate::api::agent::agent_run_envelopes(run));
+    let mut events = Box::pin(crate::services::agent::run::agent_run_envelopes(run));
     let mut typing = tokio::time::interval(TYPING_EVERY);
     let deadline = tokio::time::sleep(TURN_DEADLINE);
     tokio::pin!(deadline);

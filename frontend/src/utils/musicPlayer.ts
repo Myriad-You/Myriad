@@ -937,11 +937,11 @@ export function unescapeQQLyricText(s: string): string {
     .replaceAll('&#39;', "'")
     .replaceAll('&quot;', '"')
     .replaceAll('&#34;', '"')
-    .replaceAll('&amp;', '&')
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
     .replaceAll('&#10;', '\n')
     .replaceAll('&#13;', '\r')
+    .replaceAll('&amp;', '&')
 }
 
 export async function getLyricsWithVerbatim(

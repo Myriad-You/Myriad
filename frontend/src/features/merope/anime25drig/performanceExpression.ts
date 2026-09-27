@@ -31,6 +31,10 @@ export interface PerformanceExpressionOffset {
   armY: number
   armPos: number
   bust?: number
+  /** Lower lids pushed up by the cheeks: the smile reaches the eyes. */
+  eyeSmile?: number
+  /** Eyes opened past their drawing: surprise, sudden interest. */
+  eyeWide?: number
   anger?: number
   speechless?: number
   maniac?: number
@@ -55,6 +59,8 @@ export interface PerformanceExpressionTarget {
   body?: number
   armY?: number
   armPos?: number
+  eyeSmile?: number
+  eyeWide?: number
   anger?: number
   speechless?: number
   maniac?: number
@@ -96,6 +102,8 @@ const OFFSET_KEYS = [
   'armY',
   'armPos',
   'bust',
+  'eyeSmile',
+  'eyeWide',
   'anger',
   'speechless',
   'maniac',
@@ -120,6 +128,8 @@ const ZERO_OFFSET: PerformanceExpressionOffset = {
   armY: 0,
   armPos: 0,
   bust: 0,
+  eyeSmile: 0,
+  eyeWide: 0,
   anger: 0,
   speechless: 0,
   maniac: 0,
@@ -551,6 +561,12 @@ export function applyPerformanceExpressionExtras(
     1,
     0,
   )
+  if (target.eyeSmile !== undefined) {
+    target.eyeSmile = mixBoundedExpressionChannel(target.eyeSmile, (offset.eyeSmile ?? 0) * weight, 0, 1, 0)
+  }
+  if (target.eyeWide !== undefined) {
+    target.eyeWide = mixBoundedExpressionChannel(target.eyeWide, (offset.eyeWide ?? 0) * weight, 0, 1, 0)
+  }
   target.irisScale = mixBoundedExpressionChannel(
     target.irisScale,
     offset.irisScale * weight,
@@ -676,7 +692,8 @@ function writeBaselineOffset(
       irisScale: -0.1,
     },
     steady: {},
-    warm: { brow: 0.12, mouthForm: 0.15, irisScale: 0.015 },
+    // Warmth shows in the eyes as much as the mouth.
+    warm: { brow: 0.12, mouthForm: 0.15, irisScale: 0.015, eyeSmile: 0.3 },
   }
   Object.assign(output, patches[baseline.expression])
   const posture: Record<

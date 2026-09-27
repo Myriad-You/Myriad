@@ -11,10 +11,8 @@ use axum::{
 use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{Value, json};
-use std::env;
 
 // Re-export `Claims`.
-pub use crate::middleware::auth::Claims;
 use crate::middleware::auth::{
     CredentialSource, SessionCredential, authenticate_optional_request, clear_auth_cookie_value,
 };
@@ -328,7 +326,6 @@ pub async fn logout(
 #[cfg(test)]
 mod auth_me_probe_tests {
     use super::*;
-    use axum::http::HeaderValue;
 
     /// `/me` resolves the session through the shared auth boundary, never
     /// its own credential parse, JWT decode or epoch compare.

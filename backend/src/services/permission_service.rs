@@ -41,8 +41,10 @@
 use crate::config::DynamicConfig;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+pub use myriad_tapp_contract::permission::UNKNOWN_TAPP_PERMISSION_CODE;
 pub use myriad_tapp_contract::permission::{
-    PermissionLevel, TappPermission, UNKNOWN_TAPP_PERMISSION_CODE, UnknownTappPermission, UserRole,
+    PermissionLevel, TappPermission, UnknownTappPermission, UserRole,
     tapp_permission_replacement_hint,
 };
 

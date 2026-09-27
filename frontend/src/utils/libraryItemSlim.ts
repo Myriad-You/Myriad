@@ -36,7 +36,7 @@ export function preferCardCoverUrl(url: string | null | undefined): string | nul
       .replaceAll(BANGUMI_COVER_GRID, '/pic/cover/c/')
   }
 
-  if (trimmed.includes('music.126.net') || trimmed.includes('music.163.com')) {
+  if (isNeteaseHost(hostOf(trimmed))) {
     return withNeteaseCardSize(trimmed)
   }
 
@@ -72,6 +72,13 @@ function hostOf(url: string): string | null {
   } catch {
     return null
   }
+}
+
+function isNeteaseHost(host: string | null): boolean {
+  if (!host) return false
+  return ['music.126.net', 'music.163.com'].some(
+    (d) => host === d || host.endsWith(`.${d}`),
+  )
 }
 
 function isHdslbHost(host: string): boolean {

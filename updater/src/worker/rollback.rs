@@ -118,6 +118,9 @@ pub async fn execute_inline(
     snapshot_id: &str,
     swap_back_tag: Option<&str>,
 ) -> Result<Option<DeployTag>> {
+    let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(&rec.job_id);
+    let restore =
+        super::update::prepare_compose_restore(worker.state(), source_job, compose).await?;
     info!(snapshot = snapshot_id, "rollback: stopping new containers");
     let _ = rec.enter(Phase::StopNew, "updater.phase.stop_new");
     let stop_app = compose.stop(&["frontend", "backend"], 30).await;
@@ -149,8 +152,9 @@ pub async fn execute_inline(
     }
     let _ = rec.finish_step_ok();
 
-    let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(&rec.job_id);
-    super::update::restore_compose(worker.state(), source_job)?;
+    if let Some(restore) = restore {
+        restore.restore()?;
+    }
     super::update::restore_proxy_tag(worker.state(), source_job, &worker.cli().env_file)?;
 
     // --- Resolve + restore MYRIAD_TAG BEFORE snapshot work ---

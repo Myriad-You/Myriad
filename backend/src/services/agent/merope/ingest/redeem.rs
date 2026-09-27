@@ -14,9 +14,8 @@ use super::super::store::{
     recent_proactive, recently_spoke_event, touch_proactive,
 };
 use super::super::{
-    MoodTransition, MotionContext, MotionPhase, PerformanceDirective, addressee_speaking_section,
-    direct_motion, format_mood_section, local_directive, public_persona_name, refine_motion,
-    resolve_addressee_label, resolve_round_motion_style,
+    MoodTransition, MotionContext, MotionPhase, PerformanceDirective, direct_motion,
+    local_directive, public_persona_name, refine_motion, resolve_round_motion_style,
 };
 use super::{
     SAME_EVENT_MINUTES, compact_summary, current_sight, is_enabled, is_trivial_line, log_skip,
@@ -27,7 +26,6 @@ use crate::services::agent::notification_preferences::{ACTION_OPEN_AGENT, Notifi
 use crate::services::agent::notifications::{
     LiveSpeech, Notification, NotificationPriority, NotificationType, get_notification_manager,
 };
-use crate::services::ai::create_strict_lite_ai_analyzer_with_timeout;
 
 static DELIVERY: Lazy<DeliveryCoordinator> = Lazy::new(DeliveryCoordinator::default);
 
@@ -221,7 +219,7 @@ async fn redeem_speak_intent(
             let id = intent.id.clone();
             let motion_db = db.clone();
             let motion_intent = intent.clone();
-            tokio::spawn(async move {
+            crate::services::agent::merope::background::spawn("speech motion", async move {
                 let Some(performance) = refine_motion(context).await else {
                     return;
                 };
@@ -313,13 +311,11 @@ fn speech_is_shown(event_key: &str, notify: bool) -> bool {
 }
 
 async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> Option<String> {
-    let Some(analyzer) =
-        create_strict_lite_ai_analyzer_with_timeout(Some(std::time::Duration::from_secs(30)))
-            .await
-            .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
-    else {
-        return None;
-    };
+    let model = super::super::call::Ask::new(super::super::call::Voice::Hers, user_id, "speak")
+        .within(std::time::Duration::from_secs(30))
+        .model()
+        .await
+        .ok()?;
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_else(|| "You are Agent.".to_string());
@@ -350,14 +346,7 @@ async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> O
     let system =
         super::super::speaking_prompts::compose_proactive_system(&soul, &mind, &recent_block);
     let prompt = super::super::speaking_prompts::compose_proactive_user(summary);
-    match crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        "speak",
-        analyzer.analyze_with_system(&system, &prompt),
-    )
-    .await
-    {
+    match model.text(&system, &prompt).await {
         Ok(raw) => {
             let spoken = sanitize_speech(&raw);
             (!is_trivial_line(&spoken)).then_some(spoken)
@@ -687,7 +676,7 @@ mod tests {
             .next()
             .unwrap();
         let live = source.split("if decision.live && shown").nth(1).unwrap();
-        assert!(live.find("emit_live_speech(").unwrap() < live.find("tokio::spawn").unwrap());
+        assert!(live.find("emit_live_speech(").unwrap() < live.find("background::spawn").unwrap());
         assert!(live.contains("refine_motion(context).await"));
         assert!(live.contains("emit_live_speech_motion(user_id, id, value)"));
         let selection = source

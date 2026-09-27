@@ -2,88 +2,36 @@
 //!
 //! Source-mode parse, approved-permission selection, and persist snapshots live in
 //! [`crate::services::tapp_install`]; owner/conflict namespaces live in
-//! [`crate::services::tapp_ownership`]. This module keeps Claims/DB/FS and
-//! role-config granted filtering.
+//! [`crate::services::tapp_ownership`]. This module decodes HTTP input and wraps
+//! the results of [`crate::services::tapp_packages`] in the API response envelope.
 
-use super::prepared_package::{
-    PackageStageContext, PreparedTappPackage, PreparedTappPackageHttp, PreparedTappResources,
-    package_from_archive,
-};
 use super::store_package::fetch_from_store;
 use super::{
-    ApiResponse, MAX_TAPP_GAME_ARCHIVE_BYTES, TappDirStage, TappListItem, TappManifest,
-    WidgetTemplateContents, api_http_error, api_response_err, canonical_installation_owner_id,
-    cleanup_reinstall_orphans, current_user_role, ensure_tapp_install_allowed,
-    filter_install_permissions, get_admin_user_id, installation_conflict_owner_ids,
-    lock_tapp_lifecycle, log_install_failure, log_tapp_filesystem_access,
-    reconcile_manifest_widgets, tapp_dir_for, tapp_filesystem_http_error, validate_tapp_id,
+    ApiResponse, MAX_TAPP_GAME_ARCHIVE_BYTES, TappManifest, WidgetTemplateContents, api_http_error,
+    current_user_role, ensure_tapp_install_allowed, validate_tapp_id,
 };
+use crate::config::DynamicConfig;
+use crate::error::HttpError;
+use crate::middleware::auth::Claims;
+use crate::services::permission_service::UserRole;
+use crate::services::tapp_install::{
+    InstallMultipartField, InstallSource, archive_upload_too_large_message,
+    archive_upload_would_exceed, classify_install_multipart_field, parse_install_source,
+};
+use crate::services::tapp_packages::prepared_package::{
+    PreparedTappPackage, PreparedTappResources, package_from_archive,
+};
+use crate::services::tapp_packages::{acquire_install_permit, install_prepared_package};
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
-use chrono::Utc;
-use once_cell::sync::Lazy;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
-    QueryFilter, Set, TransactionTrait,
-};
+use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use std::sync::Arc;
-use std::time::Duration as StdDuration;
-use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore};
-
-use crate::config::DynamicConfig;
-use crate::error::HttpError;
-use crate::middleware::auth::Claims;
-use crate::models::entities::tapps;
-use crate::services::permission_service::UserRole;
-use crate::services::tapp_install::{
-    INSTALL_ACQUIRE_TIMEOUT_SECS, InstallMultipartField, InstallSource, MAX_CONCURRENT_INSTALLS,
-    archive_upload_too_large_message, archive_upload_would_exceed, build_new_install_persist,
-    build_update_install_persist, classify_install_multipart_field, install_overloaded_message,
-    install_overloaded_status, is_public_installation_namespace, parse_install_source,
-    select_install_approved_permissions, select_overwrite_approved_permissions,
-    select_update_approved_permissions,
-};
-
-/// Global install concurrency gate. Bounds simultaneous archive
-/// buffers + extract work so handlers do not hold full zip clones unboundedly.
-static INSTALL_SEMAPHORE: Lazy<Arc<Semaphore>> =
-    Lazy::new(|| Arc::new(Semaphore::new(MAX_CONCURRENT_INSTALLS)));
-
-/// Acquire an install slot, or fail 503 if the wait times out (overloaded).
-async fn acquire_install_permit() -> Result<OwnedSemaphorePermit, HttpError> {
-    match tokio::time::timeout(
-        StdDuration::from_secs(INSTALL_ACQUIRE_TIMEOUT_SECS),
-        INSTALL_SEMAPHORE.clone().acquire_owned(),
-    )
-    .await
-    {
-        Ok(Ok(permit)) => Ok(permit),
-        Ok(Err(e)) => {
-            tracing::error!("Tapp install semaphore closed: {:?}", e);
-            Err(api_http_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to schedule Tapp install",
-            ))
-        }
-        Err(_) => {
-            tracing::warn!(
-                permits = MAX_CONCURRENT_INSTALLS,
-                timeout_secs = INSTALL_ACQUIRE_TIMEOUT_SECS,
-                "Tapp install concurrency limit reached; returning 503"
-            );
-            Err(api_http_error(
-                StatusCode::from_u16(install_overloaded_status())
-                    .unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
-                install_overloaded_message(),
-            ))
-        }
-    }
-}
+use tokio::sync::RwLock;
 
 /// 统一安装 Tapp 的请求体
 ///
@@ -248,439 +196,7 @@ pub(super) async fn install_tapp(
             "install",
         );
     }
-    Ok(result)
-}
-
-/// Install a package an Agent generated through the same core as a direct
-/// install: install gate and permit, store policy, full manifest validation,
-/// conflict check, canonical installation owner and staged activation.
-/// A second install path would skip all of that and write the live directory.
-pub(crate) async fn install_generated(
-    db: &DatabaseConnection,
-    user_id: i32,
-    manifest: TappManifest,
-    modules: std::collections::HashMap<String, String>,
-) -> Result<(), HttpError> {
-    ensure_tapp_install_allowed(db, user_id).await?;
-    let is_current_admin = crate::services::agent::user_is_current_admin(db, user_id)
-        .await
-        .map_err(|error| HttpError(myriad_error::AppError::internal(error)))?;
-    let role = if is_current_admin {
-        UserRole::Admin
-    } else {
-        UserRole::User
-    };
-    let package = PreparedTappPackage::from_resources(
-        manifest,
-        PreparedTappResources {
-            modules,
-            ..Default::default()
-        },
-    );
-    install_prepared_package(
-        db,
-        &crate::GLOBAL_DYNAMIC_CONFIG,
-        user_id,
-        role,
-        is_current_admin,
-        package,
-        None,
-        false,
-        None,
-    )
-    .await
-    .map(|_| ())
-}
-
-/// 409 body for an existing install. Carries the metadata the overwrite prompt
-/// needs (both versions plus which declared permissions are new) — no secrets.
-fn install_conflict_error(manifest: &TappManifest, existing: &tapps::Model) -> HttpError {
-    let previous: Vec<String> =
-        serde_json::from_value(existing.approved_permissions.clone()).unwrap_or_default();
-    let new_permissions: Vec<String> = manifest
-        .permissions
-        .iter()
-        .filter(|permission| !previous.iter().any(|approved| approved == *permission))
-        .cloned()
-        .collect();
-    HttpError::from(
-        myriad_error::AppError::conflict("Tapp already installed").with_details(
-            serde_json::json!({
-                "tappId": manifest.id.clone(),
-                "name": manifest.name.clone(),
-                "installedVersion": existing.version.clone(),
-                "incomingVersion": manifest.version.clone(),
-                "newPermissions": new_permissions,
-            }),
-        ),
-    )
-}
-
-async fn install_prepared_package(
-    db: &DatabaseConnection,
-    dynamic_config: &RwLock<DynamicConfig>,
-    user_id: i32,
-    role: UserRole,
-    is_current_admin: bool,
-    package: PreparedTappPackage,
-    permissions: Option<Vec<String>>,
-    overwrite: bool,
-    install_permit: Option<OwnedSemaphorePermit>,
-) -> Result<Json<ApiResponse<TappListItem>>, HttpError> {
-    let _install_permit = match install_permit {
-        Some(permit) => permit,
-        None => acquire_install_permit().await?,
-    };
-    super::store_policy::ensure_permissions_allowed(&package.manifest.permissions).await?;
-    package.validate_for_http(None).map_err(api_response_err)?;
-    let manifest = package.manifest.clone();
-
-    // 检查是否已安装
-    let admin_id = get_admin_user_id(db).await?;
-    // Every current administrator operates the one canonical public namespace;
-    // the actor account is not used as a second public installation owner.
-    let installation_owner_id = canonical_installation_owner_id(role, user_id, admin_id);
-    let conflict_owner_ids = installation_conflict_owner_ids(role, user_id, admin_id);
-    let existing_query = tapps::Entity::find()
-        .filter(tapps::Column::TappId.eq(&manifest.id))
-        .filter(tapps::Column::UserId.is_in(conflict_owner_ids.clone()));
-    let existing = existing_query.one(db).await.map_err(|error| {
-        log_install_failure(
-            "conflict_recheck_pre",
-            &manifest.id,
-            user_id,
-            installation_owner_id,
-            None,
-            &error,
-        );
-        api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
-    })?;
-
-    if let Some(existing) = existing.as_ref()
-        && !overwrite
-    {
-        return Err(install_conflict_error(&manifest, existing));
-    }
-
-    // 所有资源先写入同文件系统的 staging 目录；校验通过后再原子切换。
-    let final_tapp_dir = tapp_dir_for(installation_owner_id, &manifest.id)
-        .map_err(|error| api_http_error(StatusCode::BAD_REQUEST, error))?;
-    let stage = TappDirStage::create(&final_tapp_dir)
-        .await
-        .map_err(|error| {
-            log_tapp_filesystem_access(&final_tapp_dir, &error);
-            log_install_failure(
-                "TappDirStage::create",
-                &manifest.id,
-                user_id,
-                installation_owner_id,
-                Some(&final_tapp_dir),
-                &error,
-            );
-            tapp_filesystem_http_error("Failed to create Tapp staging directory", &error)
-        })?;
-    let tapp_dir = stage.path();
-    let now = Utc::now().fixed_offset();
-    package
-        .stage_into(
-            tapp_dir,
-            now,
-            PackageStageContext {
-                user_id,
-                installation_owner_id,
-            },
-        )
-        .await
-        .map_err(api_response_err)?;
-    let txn = db.begin().await.map_err(|error| {
-        log_install_failure(
-            "txn.begin",
-            &manifest.id,
-            user_id,
-            installation_owner_id,
-            None,
-            &error,
-        );
-        api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
-    })?;
-    lock_tapp_lifecycle(&txn, &manifest.id)
-        .await
-        .map_err(|error| {
-            log_install_failure(
-                "lock_tapp_lifecycle",
-                &manifest.id,
-                user_id,
-                installation_owner_id,
-                None,
-                &error,
-            );
-            api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
-        })?;
-    let existing_tx = tapps::Entity::find()
-        .filter(tapps::Column::TappId.eq(&manifest.id))
-        .filter(tapps::Column::UserId.is_in(conflict_owner_ids))
-        .one(&txn)
-        .await
-        .map_err(|error| {
-            log_install_failure(
-                "conflict_recheck",
-                &manifest.id,
-                user_id,
-                installation_owner_id,
-                None,
-                &error,
-            );
-            api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
-        })?;
-    if let Some(existing_tx) = &existing_tx {
-        if !overwrite {
-            txn.rollback().await.ok();
-            return Err(install_conflict_error(&manifest, existing_tx));
-        }
-    }
-
-    // Approved = pure domain selection; granted = role-config filter (async).
-    // Overwrite keeps the previous approvals and only adds accepted new ones;
-    // a fresh install defaults to the full declared set when unspecified.
-    let requested = permissions.as_deref().unwrap_or(&[]);
-    let approved = match &existing_tx {
-        Some(existing_tx) => {
-            let previous: Vec<String> =
-                serde_json::from_value(existing_tx.approved_permissions.clone())
-                    .unwrap_or_default();
-            select_overwrite_approved_permissions(&manifest.permissions, requested, &previous)
-        }
-        None => select_install_approved_permissions(&manifest.permissions, requested),
-    };
-    if let Err(error) = filter_install_permissions(dynamic_config, role, approved.clone()).await {
-        txn.rollback().await.ok();
-        return Err(error);
-    }
-
-    // Clean leftover live/uninstall artifacts under the lifecycle lock.
-    // Staging dirs are skipped: they may belong to a concurrent install.
-    // Overwrite keeps the live install; `stage.activate` quarantines it.
-    if existing_tx.is_none() {
-        cleanup_reinstall_orphans(
-            &final_tapp_dir,
-            &manifest.id,
-            installation_owner_id,
-            user_id,
-            Some(stage.path()),
-        );
-    }
-
-    let activated = match stage.activate(&final_tapp_dir).await {
-        Ok(activated) => activated,
-        Err(error) => {
-            txn.rollback().await.ok();
-            log_tapp_filesystem_access(&final_tapp_dir, &error);
-            log_install_failure(
-                "stage.activate",
-                &manifest.id,
-                user_id,
-                installation_owner_id,
-                Some(&final_tapp_dir),
-                &error,
-            );
-            return Err(tapp_filesystem_http_error(
-                "Failed to activate staged Tapp",
-                &error,
-            ));
-        }
-    };
-
-    // Overwrite of an existing install: update in place, preserving live status
-    // and user data (storage is keyed by user+tapp and is never touched here).
-    if let Some(existing_tx) = existing_tx {
-        let persist = build_update_install_persist(&manifest, &approved, &final_tapp_dir, now)
-            .map_err(|error| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
-        let mut active: tapps::ActiveModel = existing_tx.clone().into();
-        active.name = Set(persist.name);
-        active.version = Set(persist.version);
-        active.description = Set(persist.description);
-        active.author = Set(persist.author);
-        active.icon = Set(persist.icon);
-        active.theme_color = Set(persist.theme_color);
-        active.manifest = Set(persist.manifest);
-        active.approved_permissions = Set(persist.approved_permissions);
-        // A successful overwrite is explicit re-authorization.
-        active.needs_reauthorization = Set(persist.needs_reauthorization);
-        active.code_path = Set(persist.code_path);
-        active.updated_at = Set(persist.updated_at);
-        let result = match active.update(&txn).await {
-            Ok(result) => result,
-            Err(error) => {
-                txn.rollback().await.ok();
-                activated.rollback().await;
-                log_install_failure(
-                    "overwrite_update",
-                    &manifest.id,
-                    user_id,
-                    installation_owner_id,
-                    Some(&final_tapp_dir),
-                    &error,
-                );
-                return Err(api_http_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Database error",
-                ));
-            }
-        };
-        if let Err(err) = reconcile_manifest_widgets(
-            &txn,
-            installation_owner_id,
-            &manifest.id,
-            &manifest,
-            Some(&existing_tx.manifest),
-        )
-        .await
-        {
-            txn.rollback().await.ok();
-            activated.rollback().await;
-            log_install_failure(
-                "reconcile_manifest_widgets",
-                &manifest.id,
-                user_id,
-                installation_owner_id,
-                Some(&final_tapp_dir),
-                &format!("status={}", err.0.status_u16()),
-            );
-            return Err(err);
-        }
-        if let Err(error) = txn.commit().await {
-            activated.rollback_after_commit_error().await;
-            log_install_failure(
-                "txn.commit",
-                &manifest.id,
-                user_id,
-                installation_owner_id,
-                Some(&final_tapp_dir),
-                &error,
-            );
-            return Err(api_http_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ));
-        }
-        activated.commit().await;
-        // Code or approved permissions changed; drop runtime grants.
-        crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(
-            db,
-            installation_owner_id,
-            &manifest.id,
-        )
-        .await;
-        crate::api::tapp_runtime::invalidate_tapp_apis_cache(&manifest.id).await;
-        let is_site_owner = is_public_installation_namespace(installation_owner_id, admin_id);
-        return Ok(Json(ApiResponse::success(
-            crate::services::tapp_catalog::update_response_list_item(result, is_site_owner),
-        )));
-    }
-
-    // Column projection (paths, Running default, permission JSON) is pure domain.
-    let persist = build_new_install_persist(
-        &manifest,
-        installation_owner_id,
-        &approved,
-        &final_tapp_dir,
-        now,
-    )
-    .map_err(|error| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
-    let tapp = tapps::ActiveModel {
-        id: NotSet,
-        tapp_id: Set(persist.tapp_id),
-        user_id: Set(persist.user_id),
-        name: Set(persist.name),
-        version: Set(persist.version),
-        description: Set(persist.description),
-        author: Set(persist.author),
-        icon: Set(persist.icon),
-        theme_color: Set(persist.theme_color),
-        manifest: Set(persist.manifest),
-        // start_running is always true for new installs (public widgets render immediately).
-        status: Set(if persist.start_running {
-            tapps::TappStatus::Running
-        } else {
-            tapps::TappStatus::Installed
-        }),
-        approved_permissions: Set(persist.approved_permissions),
-        needs_reauthorization: Set(persist.needs_reauthorization),
-        file_path: Set(persist.file_path),
-        code_path: Set(persist.code_path),
-        installed_at: Set(persist.installed_at),
-        last_run_at: Set(Some(persist.last_run_at)),
-        updated_at: Set(persist.updated_at),
-        error_message: Set(None),
-        // New installs default visibility to everyone.
-        visibility: Set(crate::services::tapp_ownership::TAPP_VISIBILITY_ALL.to_string()),
-    };
-
-    let result = match tapp.insert(&txn).await {
-        Ok(result) => result,
-        Err(error) => {
-            txn.rollback().await.ok();
-            activated.rollback().await;
-            log_install_failure(
-                "insert",
-                &manifest.id,
-                user_id,
-                installation_owner_id,
-                Some(&final_tapp_dir),
-                &error,
-            );
-            return Err(api_http_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ));
-        }
-    };
-    if let Err(err) =
-        reconcile_manifest_widgets(&txn, installation_owner_id, &manifest.id, &manifest, None).await
-    {
-        txn.rollback().await.ok();
-        activated.rollback().await;
-        log_install_failure(
-            "reconcile_manifest_widgets",
-            &manifest.id,
-            user_id,
-            installation_owner_id,
-            Some(&final_tapp_dir),
-            &format!("status={}", err.0.status_u16()),
-        );
-        return Err(err);
-    }
-    if let Err(error) = txn.commit().await {
-        // COMMIT errors are ambiguous: preserve the candidate generation so
-        // startup recovery can follow the database's actual committed state.
-        activated.rollback_after_commit_error().await;
-        log_install_failure(
-            "txn.commit",
-            &manifest.id,
-            user_id,
-            installation_owner_id,
-            Some(&final_tapp_dir),
-            &error,
-        );
-        return Err(api_http_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Database error",
-        ));
-    }
-    activated.commit().await;
-    // Runtime grants and declared-API cache are keyed by tapp_id, not owner.
-    crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(
-        db,
-        installation_owner_id,
-        &manifest.id,
-    )
-    .await;
-    crate::api::tapp_runtime::invalidate_tapp_apis_cache(&manifest.id).await;
-
-    // List projection: services::tapp_catalog (install contract forces status=installed).
-    Ok(Json(ApiResponse::success(
-        crate::services::tapp_catalog::install_response_list_item(result, is_current_admin),
-    )))
+    Ok(Json(ApiResponse::success(result)))
 }
 
 /// Query options for `POST /api/tapps/install-file`.
@@ -756,8 +272,8 @@ pub(super) async fn install_tapp_file(
     let file_data =
         file_data.ok_or_else(|| api_http_error(StatusCode::BAD_REQUEST, "No file uploaded"))?;
 
-    let package = package_from_archive(file_data).map_err(api_response_err)?;
-    install_prepared_package(
+    let package = package_from_archive(file_data)?;
+    let result = install_prepared_package(
         &db,
         &dynamic_config,
         user_id,
@@ -768,7 +284,8 @@ pub(super) async fn install_tapp_file(
         options.overwrite,
         Some(install_permit),
     )
-    .await
+    .await?;
+    Ok(Json(ApiResponse::success(result)))
 }
 
 /// 更新 Tapp 的请求体
@@ -824,10 +341,8 @@ pub(super) async fn update_tapp(
     ensure_tapp_install_allowed(&db, user_id).await?;
     let role = current_user_role(&claims, &db).await?;
     let _update_permit = acquire_install_permit().await?;
-    validate_tapp_id(&tapp_id).map_err(|error| api_http_error(StatusCode::BAD_REQUEST, error))?;
-    let admin_id = get_admin_user_id(&db).await?;
-    let target_owner_id = canonical_installation_owner_id(role, user_id, admin_id);
-    let is_site_owner = is_public_installation_namespace(target_owner_id, admin_id);
+    let target =
+        crate::services::tapp_packages::resolve_update_target(&db, user_id, role, &tapp_id).await?;
 
     let UpdateTappRequest {
         source,
@@ -845,16 +360,6 @@ pub(super) async fn update_tapp(
         store_source,
         permissions,
     } = req;
-
-    // Administrators update the canonical public installation; ordinary users
-    // update only their own temporary installation.
-    let existing_tapp = tapps::Entity::find()
-        .filter(tapps::Column::UserId.eq(target_owner_id))
-        .filter(tapps::Column::TappId.eq(&tapp_id))
-        .one(&db)
-        .await
-        .map_err(|_| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"))?
-        .ok_or_else(|| api_http_error(StatusCode::NOT_FOUND, "Tapp not installed"))?;
 
     let (package, from_store) = match parse_install_source(&source).map_err(|err| {
         api_http_error(
@@ -906,158 +411,18 @@ pub(super) async fn update_tapp(
             (package, true)
         }
     };
-    super::store_policy::ensure_permissions_allowed(&package.manifest.permissions).await?;
-    package
-        .validate_for_http(Some(&tapp_id))
-        .map_err(api_response_err)?;
-    let manifest = package.manifest.clone();
-    let stats_version = manifest.version.clone();
-
-    let final_tapp_dir = tapp_dir_for(target_owner_id, &tapp_id)
-        .map_err(|error| api_http_error(StatusCode::BAD_REQUEST, error))?;
-    let stage = TappDirStage::create(&final_tapp_dir)
-        .await
-        .map_err(|error| {
-            log_tapp_filesystem_access(&final_tapp_dir, &error);
-            log_install_failure(
-                "TappDirStage::create",
-                &tapp_id,
-                user_id,
-                target_owner_id,
-                Some(&final_tapp_dir),
-                &error,
-            );
-            tapp_filesystem_http_error("Failed to create Tapp update staging directory", &error)
-        })?;
-    let tapp_dir = stage.path();
-    let now = Utc::now().fixed_offset();
-    package
-        .stage_into(
-            tapp_dir,
-            now,
-            PackageStageContext {
-                user_id,
-                installation_owner_id: target_owner_id,
-            },
-        )
-        .await
-        .map_err(api_response_err)?;
-    let txn = db.begin().await.map_err(|_| {
-        api_http_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to begin update transaction",
-        )
-    })?;
-    lock_tapp_lifecycle(&txn, &tapp_id).await.map_err(|_| {
-        api_http_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to lock Tapp lifecycle",
-        )
-    })?;
-    let existing_tapp = tapps::Entity::find_by_id(existing_tapp.id)
-        .filter(tapps::Column::UserId.eq(target_owner_id))
-        .filter(tapps::Column::TappId.eq(&tapp_id))
-        .one(&txn)
-        .await
-        .map_err(|_| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"))?
-        .ok_or_else(|| api_http_error(StatusCode::NOT_FOUND, "Tapp not installed"))?;
-
-    // Approved = pure domain selection; granted = role-config filter (async).
-    let previous_approved: Vec<String> =
-        serde_json::from_value(existing_tapp.approved_permissions.clone()).unwrap_or_default();
-    let approved = select_update_approved_permissions(
-        &manifest.permissions,
-        permissions.as_deref(),
-        &previous_approved,
-    );
-    filter_install_permissions(&dynamic_config, role, approved.clone()).await?;
-
-    let activated = match stage.activate(&final_tapp_dir).await {
-        Ok(activated) => activated,
-        Err(error) => {
-            txn.rollback().await.ok();
-            log_tapp_filesystem_access(&final_tapp_dir, &error);
-            tracing::error!(
-                step = "stage.activate",
-                tapp_id = %tapp_id,
-                user_id,
-                owner_id = target_owner_id,
-                path = %final_tapp_dir.display(),
-                kind = ?error.kind(),
-                %error,
-                "Tapp update activate failed"
-            );
-            return Err(tapp_filesystem_http_error(
-                "Failed to activate staged Tapp update",
-                &error,
-            ));
-        }
-    };
-    // Column projection is pure domain; ActiveModel mapping stays here.
-    let persist = build_update_install_persist(&manifest, &approved, &final_tapp_dir, now)
-        .map_err(|error| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
-    let mut active: tapps::ActiveModel = existing_tapp.clone().into();
-    active.name = Set(persist.name);
-    active.version = Set(persist.version);
-    active.description = Set(persist.description);
-    active.author = Set(persist.author);
-    active.icon = Set(persist.icon);
-    active.theme_color = Set(persist.theme_color);
-    active.manifest = Set(persist.manifest);
-    active.approved_permissions = Set(persist.approved_permissions);
-    // Successful update is explicit re-authorization; persist always clears the flag.
-    active.needs_reauthorization = Set(persist.needs_reauthorization);
-    active.code_path = Set(persist.code_path);
-    active.updated_at = Set(persist.updated_at);
-
-    let result = match active.update(&txn).await {
-        Ok(result) => result,
-        Err(error) => {
-            txn.rollback().await.ok();
-            activated.rollback().await;
-            tracing::error!(error = %error, "Tapp update database error");
-            return Err(api_http_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ));
-        }
-    };
-    if let Err(err) = reconcile_manifest_widgets(
-        &txn,
-        target_owner_id,
-        &tapp_id,
-        &manifest,
-        Some(&existing_tapp.manifest),
+    let stats_version = package.manifest.version.clone();
+    let result = crate::services::tapp_packages::update_prepared_package(
+        &db,
+        &dynamic_config,
+        user_id,
+        role,
+        target,
+        tapp_id.clone(),
+        package,
+        permissions,
     )
-    .await
-    {
-        txn.rollback().await.ok();
-        activated.rollback().await;
-        return Err(err);
-    }
-    if txn.commit().await.is_err() {
-        activated.rollback_after_commit_error().await;
-        return Err(api_http_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to commit Tapp update",
-        ));
-    }
-    activated.commit().await;
-
-    // Code or approved permissions may have changed; drop runtime grants.
-    crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(&db, target_owner_id, &tapp_id).await;
-
-    // manifest 已更新，清除 API 解析缓存
-    crate::api::tapp_runtime::invalidate_tapp_apis_cache(&tapp_id).await;
-
-    tracing::info!(
-        "[TAPP] Updated Tapp {} from {} to {} for user {}",
-        tapp_id,
-        existing_tapp.version,
-        result.version,
-        user_id
-    );
-
+    .await?;
     // List projection: services::tapp_catalog (preserves live status/last_run_at).
     if from_store {
         crate::services::store_stats_beacon::spawn_store_stats_hit(
@@ -1066,66 +431,11 @@ pub(super) async fn update_tapp(
             "update",
         );
     }
-    Ok(Json(ApiResponse::success(
-        crate::services::tapp_catalog::update_response_list_item(result, is_site_owner),
-    )))
+    Ok(Json(ApiResponse::success(result)))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn manifest_with_permissions(permissions: &[&str]) -> TappManifest {
-        serde_json::from_value(json!({
-            "id": "com.example.overwrite",
-            "name": "Overwrite",
-            "version": "2.0.0",
-            "core": { "entry": "main.js" },
-            "category": "utility",
-            "permissions": permissions,
-        }))
-        .unwrap()
-    }
-
-    fn existing_model(version: &str, approved: serde_json::Value) -> tapps::Model {
-        let now = Utc::now().fixed_offset();
-        tapps::Model {
-            id: 1,
-            tapp_id: "com.example.overwrite".to_string(),
-            user_id: 7,
-            name: "Overwrite".to_string(),
-            version: version.to_string(),
-            description: None,
-            author: None,
-            icon: None,
-            theme_color: None,
-            manifest: json!({}),
-            status: tapps::TappStatus::Installed,
-            approved_permissions: approved,
-            file_path: "manifest.json".to_string(),
-            code_path: "main.js".to_string(),
-            installed_at: now,
-            last_run_at: None,
-            updated_at: now,
-            error_message: None,
-            visibility: "all".to_string(),
-            needs_reauthorization: false,
-        }
-    }
-
-    #[test]
-    fn conflict_error_reports_versions_and_only_new_permissions() {
-        let manifest = manifest_with_permissions(&["storage:read", "ai:generate"]);
-        let existing = existing_model("1.0.0", json!(["storage:read", "legacy"]));
-        let body = install_conflict_error(&manifest, &existing).0.to_json();
-        assert_eq!(body["error"], "Tapp already installed");
-        assert_eq!(body["code"], "tapp_already_installed");
-        assert_eq!(body["details"]["tappId"], "com.example.overwrite");
-        assert_eq!(body["details"]["installedVersion"], "1.0.0");
-        assert_eq!(body["details"]["incomingVersion"], "2.0.0");
-        assert_eq!(body["details"]["newPermissions"], json!(["ai:generate"]));
-    }
 
     #[test]
     fn install_permit_is_taken_before_archive_or_store_work() {
@@ -1133,7 +443,7 @@ mod tests {
         let install = src
             .split("pub(super) async fn install_tapp(")
             .nth(1)
-            .and_then(|rest| rest.split("fn install_conflict_error").next())
+            .and_then(|rest| rest.split("pub(super) struct InstallOverwriteOptions").next())
             .expect("install_tapp");
         let permit = install.find("acquire_install_permit").expect("permit");
         assert!(permit < install.find("fetch_from_store").expect("store fetch"));

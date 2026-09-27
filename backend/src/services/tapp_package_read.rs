@@ -5,13 +5,15 @@
 
 /// 宿主预编译 Tailwind 产物的固定路径（契约：与作者层样式并行）。
 pub use myriad_tapp_contract::contract_rules::{HOST_PAGE_CSS, HOST_WIDGET_CSS};
+#[cfg(test)]
 pub use myriad_tapp_rules::{
-    InstalledTextResourcePlan, InstalledWidgetTemplatePath, UnknownWidgetId,
-    asset_bytes_within_limit, filter_widget_paths, installed_core_entry, installed_layer_entries,
+    UnknownWidgetId, installed_layer_entries, installed_widget_ids, manifest_declares_asset,
+};
+pub use myriad_tapp_rules::{
+    asset_bytes_within_limit, filter_widget_paths, installed_core_entry,
     installed_manifest_declares_asset, installed_page_entry, installed_text_resource_plan,
-    installed_widget_ids, installed_widget_layer_paths, installed_widget_template_paths,
-    manifest_declares_asset, manifest_declares_core, manifest_declares_page,
-    manifest_declares_widgets, require_known_widget_id,
+    installed_widget_layer_paths, installed_widget_template_paths, manifest_declares_core,
+    manifest_declares_page, manifest_declares_widgets, require_known_widget_id,
 };
 
 #[cfg(test)]

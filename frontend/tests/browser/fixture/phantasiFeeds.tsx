@@ -42,7 +42,7 @@ function Harness() {
     <button onClick={() => setShow(value => !value)}>switch board</button>
     <div style={{ height: 'calc(100vh - 70px)', display: 'flex', padding: 16 }}>
       <PhantasiViewLane wave={show ? 'feeds' : 'other'}>
-        {show ? <PhantasiFeeds sources={sources} stories={visibleStories} onJumpSource={jumpSource} onSourceClick={() => {}} /> : <div data-phantasi-surface="title">Other board</div>}
+        {show ? <PhantasiFeeds sources={sources} stories={visibleStories} onJumpSource={jumpSource} /> : <div data-phantasi-surface="title">Other board</div>}
       </PhantasiViewLane>
     </div>
   </>

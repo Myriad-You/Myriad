@@ -90,7 +90,7 @@ pub(super) fn sse(text: &str, calls: Vec<Value>) -> String {
 pub(super) async fn model(
     app: axum::Router,
 ) -> (
-    crate::services::analyzer::AiAnalyzer,
+    crate::services::agent::work_call::WorkModel,
     tokio::task::JoinHandle<()>,
 ) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -103,7 +103,7 @@ pub(super) async fn model(
         Some(format!("http://{address}/v1")),
     )
     .await;
-    (analyzer, task)
+    (analyzer.into(), task)
 }
 
 pub(super) async fn article_fixture(db: &sea_orm::DatabaseConnection, user: i32) -> Vec<String> {
@@ -357,7 +357,8 @@ async fn configured_model_search_read_save_business_acceptance() {
         Some(std::time::Duration::from_secs(90)),
     )
     .await
-    .expect("configured Work model");
+    .expect("configured Work model")
+    .into();
     let db = business_database(8681).await;
     // Test helper verified current_database before these fixture writes.
     phantasi_items::Entity::delete_many()

@@ -105,6 +105,38 @@ test('assets without rigid sleeves do not advertise an arm envelope', () => {
   assert.equal(driver.armPos, 0)
 })
 
+test('arms whose hands hold each other take no arm gesture; the body carries it', () => {
+  const profile = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }] }, undefined, { linked: true })
+  assert.equal(profile.armMotion, true)
+  assert.equal(profile.rigidArm.limit, 0)
+  const driver = { ...IDENTITY_DRIVER, armY: 0.8, armPos: -0.6 }
+  const result = projectAnime25DMotionEnvelope(driver, profile, { clippedEnergy: 0, transferredEnergy: 0 })
+  assert.equal(driver.armY, 0)
+  assert.equal(driver.armPos, 0)
+  assert.notEqual(driver.body, 0)
+  assert.ok(result.transferredEnergy > 1.3)
+})
+
+test('with a hand on the head, the head keeps near its drawn pose and the look moves elsewhere', () => {
+  const free = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }] })
+  const resting = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }] }, undefined, { touchingHead: true })
+  const turn = () => ({ ...IDENTITY_DRIVER, angleX: 1, angleY: 0.8, angleZ: -1 })
+  const freely = turn()
+  projectAnime25DMotionEnvelope(freely, free, { clippedEnergy: 0, transferredEnergy: 0 })
+  assert.equal(freely.angleX, 1)
+  const held = turn()
+  const result = projectAnime25DMotionEnvelope(held, resting, { clippedEnergy: 0, transferredEnergy: 0 })
+  for (const key of ['angleX', 'angleY', 'angleZ'] as const) {
+    assert.ok(Math.abs(held[key]) <= 0.35 + 1e-9, `${key} ${held[key]}`)
+  }
+  // Small looks pass untouched; the rest goes to the eyes and the torso.
+  const glance = { ...IDENTITY_DRIVER, angleX: 0.15 }
+  projectAnime25DMotionEnvelope(glance, resting, { clippedEnergy: 0, transferredEnergy: 0 })
+  assert.equal(glance.angleX, 0.15)
+  assert.ok(held.eyeX > 0 && held.body !== 0)
+  assert.ok(result.transferredEnergy > 1)
+})
+
 test('all reproducible boundary probes stay inside a restrictive asset envelope', () => {
   const profile = deriveAnime25DMotionEnvelopeProfile(
     {

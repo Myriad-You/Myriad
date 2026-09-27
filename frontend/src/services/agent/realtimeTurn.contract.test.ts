@@ -81,10 +81,13 @@ test('SSE disconnect resumes the same Work run instead of cancelling it', () => 
     'reject_user_abort',
   )
   const process = source('../../../../backend/src/api/agent/process.rs')
-  assert.match(process, /let run = create_run\(/)
+  const start = source('../../../../backend/src/services/agent/run/start.rs')
+  assert.match(process, /crate::services::agent::run::start\(db, caller, req\)/)
+  assert.match(process, /Sse::new\(agent_run_event_stream\(run\)\)/)
+  assert.match(start, /let run = crate::services::agent::run_hub::create_run_with_id\(/)
   assert.match(process, /pub async fn cancel_task/)
   assert.match(process, /cancel_task_for_user/)
-  assert.match(process, /claim_speaking_turn/)
+  assert.match(start, /claim_speaking_turn/)
 })
 
 test('replace and cancel stay idempotent and do not look like faults', () => {

@@ -473,7 +473,7 @@ fn get_related_terms(keyword: &str) -> Vec<&'static str> {
 
 /// AI 理解音乐意图
 async fn ai_understand_music_intent(
-    ai_analyzer: &crate::services::analyzer::AiAnalyzer,
+    ai_analyzer: &crate::services::agent::work_call::WorkModel,
     user_input: &str,
 ) -> Result<String, String> {
     let prompt = format!(
@@ -486,7 +486,7 @@ Return the tag only, no explanation."#,
         user_input
     );
 
-    match ai_analyzer.analyze(&prompt).await {
+    match ai_analyzer.text(&prompt).await {
         Ok(response) => {
             let category = response.trim().to_string();
             // 验证返回的分类是否有效

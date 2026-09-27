@@ -74,6 +74,9 @@ pub struct Section {
     pub loudness_db: f32,
     /// Brightness relative to the whole song, as a ratio.
     pub brightness: f32,
+    /// How different it sounds from what came before, 0 to 1 (the novelty
+    /// at its start; 0 for the first).
+    pub change: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -89,6 +92,8 @@ pub enum MomentKind {
     Build,
     /// A new section begins.
     NewSection,
+    /// The music moves to a new key and stays there.
+    KeyChange,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,7 +101,7 @@ pub struct Moment {
     pub at_s: f32,
     pub kind: MomentKind,
     /// How much: dB for loudness moments, the ratio for brightness, the
-    /// seconds a build lasted.
+    /// seconds a build lasted, semitones for a key change.
     pub amount: f32,
 }
 
@@ -106,14 +111,14 @@ pub fn listen(audio: &Audio, lrc: Option<&str>) -> ListeningSheet {
     let per_second = spectrum::per_second(&frames);
     let rhythm = rhythm::analyze(&frames);
     let tonal = tonal::analyze(&frames);
-    let sections = structure::sections(&per_second);
-    let moments = moments::find(&per_second, &sections);
     let lyrics = lrc
         .map(parse_lrc)
         .unwrap_or_default()
         .into_iter()
         .filter(|line| line.at_s <= frames.duration_s + 1.0)
         .collect::<Vec<_>>();
+    let sections = structure::by_words(structure::sections(&per_second), &lyrics);
+    let moments = moments::find(&per_second, &sections);
     let mut sheet = ListeningSheet {
         duration_s: frames.duration_s,
         tempo_bpm: rhythm.tempo_bpm,
@@ -194,6 +199,54 @@ pub(crate) mod testing {
         Audio {
             samples,
             rate: RATE,
+        }
+    }
+}
+
+/// Hear every recording in `LISTEN_TUNE_DIR` (with `<name>.lrc` beside it)
+/// and write each sheet to `LISTEN_TUNE_OUT/<name>.txt`: for tuning the
+/// thresholds against real songs.
+#[cfg(test)]
+mod tune {
+    #[test]
+    #[ignore = "needs LISTEN_TUNE_DIR and LISTEN_TUNE_OUT"]
+    fn hear_a_folder() {
+        let (Ok(dir), Ok(out)) = (
+            std::env::var("LISTEN_TUNE_DIR"),
+            std::env::var("LISTEN_TUNE_OUT"),
+        ) else {
+            return;
+        };
+        let mut paths: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension().is_some_and(|ext| ext != "lrc"))
+            .collect();
+        paths.sort();
+        for path in paths {
+            let name = path.file_stem().unwrap().to_string_lossy().to_string();
+            let lrc = std::fs::read_to_string(path.with_extension("lrc")).ok();
+            let ext = path
+                .extension()
+                .map(|ext| ext.to_string_lossy().to_string());
+            let bytes = std::fs::read(&path).unwrap();
+            let Ok(sheet) = super::listen_to_bytes(bytes, ext.as_deref(), lrc.as_deref()) else {
+                println!("{name}: could not hear");
+                continue;
+            };
+            std::fs::write(
+                std::path::Path::new(&out).join(format!("{name}.txt")),
+                sheet.describe(),
+            )
+            .unwrap();
+            println!(
+                "{name}: tempo {:?} clarity {:.2} syncopation {:.2} key {:?} sections {}",
+                sheet.tempo_bpm.map(|t| t.round()),
+                sheet.pulse_clarity,
+                sheet.syncopation,
+                sheet.key,
+                sheet.sections.len()
+            );
         }
     }
 }

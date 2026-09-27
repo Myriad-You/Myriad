@@ -20,7 +20,7 @@ import type { AtlasPixelPatch, CroppedLayerPixels } from './webglRuntime'
 import { isAnime25DRigidAttachment } from '../rig/anime25dLayerSemantics'
 import { removeDuplicatedNeckComponents, splitPairedEarwear } from './accessoryComponents'
 import { duplicateAccessoryLayers } from './accessoryDuplicate'
-import { bindArmRig, bindArmRigMesh } from './armRig'
+import { anime25DArmsTouch, anime25DHandTouchesHead, bindArmRig, bindArmRigMesh } from './armRig'
 import { sampleChestWeight } from './chestPhysics'
 import { buildFrontCollarContactModel } from './collarContact'
 import { createCollarClipMesh, disposeCollarClipMesh } from './collarRuntime'
@@ -97,6 +97,10 @@ export interface Anime25DCompiledGpuLayers {
   atlasPatches?: AtlasPixelPatch[]
   layers: Anime25DGpuLayer[]
   collarClip: CollarClipMesh | null
+  /** Both sleeves touch: they move as one piece and take no arm gestures. */
+  armsLinked?: boolean
+  /** A hand rests on the head: the head keeps near its drawn pose. */
+  handTouchesHead?: boolean
 }
 
 export function compileAnime25DGpuLayers(
@@ -121,8 +125,22 @@ export function compileAnime25DGpuLayers(
       return bindingPixels.get(source) ?? null
     }
     const contentBottom = Math.max(...playback.layers.map((layer) => layer.y + layer.h))
+    // Arms whose hands hold each other move as one piece with the torso: no
+    // per-side swing, and one shared carry so the seam between them never opens.
+    const leftArm = playback.layers.find((layer) => layer.role === 'handwear' && layer.side === 'L')
+    const rightArm = playback.layers.find((layer) => layer.role === 'handwear' && layer.side === 'R')
+    const armsLinked = Boolean(leftArm && rightArm && anime25DArmsTouch(
+      leftArm, readBindingPixels(leftArm), rightArm, readBindingPixels(rightArm)))
+    const handTouchesHead = anime25DHandTouchesHead(
+      playback.layers.filter((layer) => layer.role === 'handwear')
+        .map((layer) => ({ layer, image: readBindingPixels(layer) })),
+      playback.anchors.face,
+    )
+    const linkedArmAnchorX = armsLinked && leftArm && rightArm
+      ? (Math.min(leftArm.x, rightArm.x) + Math.max(leftArm.x + leftArm.w, rightArm.x + rightArm.w)) / 2
+      : undefined
     const armBinding = (source: Anime25DPlayback['layers'][number], rest: Float32Array) => {
-      const arm = source.role === 'handwear'
+      const arm = source.role === 'handwear' && !armsLinked
         ? bindArmRig(source, readBindingPixels(source), playback.anchors, contentBottom) : null
       return { arm, armMesh: arm ? bindArmRigMesh(arm, rest) : null }
     }
@@ -340,6 +358,7 @@ export function compileAnime25DGpuLayers(
         shellMode,
         hairlinePinWeights,
         torsoShellMode,
+        handwearAnchorX: linkedArmAnchorX,
         ...armBinding(source, rest),
       })
       const layerTransform = new Float32Array(9)
@@ -540,7 +559,7 @@ export function compileAnime25DGpuLayers(
         ;(cropHost.attachmentDependents ??= []).push(layer)
       }
     }
-    return { layers, collarClip, atlasPatches }
+    return { layers, collarClip, atlasPatches, armsLinked, handTouchesHead }
   } catch (error) {
     disposeAnime25DGpuLayers(gl, { layers, collarClip })
     throw error

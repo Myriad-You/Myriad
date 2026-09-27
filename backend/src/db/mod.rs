@@ -20,7 +20,7 @@ pub(crate) struct IsolatedSchema {
 impl IsolatedSchema {
     pub(crate) async fn migrated(url: &str, prefix: &str) -> Self {
         use sea_orm::ConnectionTrait;
-        use sea_orm_migration::MigratorTrait;
+
         let schema = format!("{prefix}_{}", uuid::Uuid::new_v4().simple());
         let admin = sea_orm::Database::connect(url).await.unwrap();
         admin

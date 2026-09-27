@@ -38,6 +38,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 env:
   REGISTRY: docker.io
   DEFAULT_COMPONENTS: backend,frontend

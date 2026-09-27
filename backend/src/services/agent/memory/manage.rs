@@ -46,6 +46,9 @@ pub fn category(row: &agent_memories::Model) -> &'static str {
             s if s == OWN_EXPERIENCE => "experience",
             s if s == OWN_VIEW => "view",
             "narrative" => "day",
+            "self" => "self",
+            "corrected" => "corrected",
+            "question" => "question",
             _ => "other",
         },
         Whose::Person(_) => match source {

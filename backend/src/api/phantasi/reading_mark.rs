@@ -5,16 +5,17 @@ use axum::{
     http::StatusCode,
 };
 use chrono::Utc;
+#[cfg(test)]
+use sea_orm::QueryTrait;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
-    DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, QueryTrait, Statement,
-    TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
+    QuerySelect, Statement, TransactionTrait,
 };
 use serde_json::json;
 
 use crate::error::HttpError;
 use crate::extract::OptionalViewer;
-use crate::models::entities::{phantasi_items, phantasi_sources, phantasi_user_states};
+use crate::models::entities::{phantasi_sources, phantasi_user_states};
 
 use super::helpers::{get_phantasi_user_and_admin_status, phantasi_http_err, phantasi_store_http};
 

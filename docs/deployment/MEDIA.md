@@ -1,6 +1,7 @@
 # 媒体资产：备份、恢复与旧目录
 
 持久媒体在 `DATA_DIR/media`（compose 里是 `backend_data` 的 `media` 子路径）。
+新部署对应宿主 `./data/media`；旧卷需按 [DATA_LAYOUT.md](DATA_LAYOUT.md) 显式迁移。
 外链抓取缓存在 `CACHE_DIR/images`（`backend_cache`），可再生，不进灾备。
 
 新上传、生成、编辑和联邦附件都写入媒体服务。每个资产只有一个地址

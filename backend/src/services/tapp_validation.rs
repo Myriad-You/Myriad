@@ -8,19 +8,18 @@
 use myriad_tapp_contract::manifest::TappManifest;
 
 // Single source of truth shared with the offline CLI contract exporter.
+#[cfg(test)]
+pub use myriad_tapp_contract::contract_rules::FORBIDDEN_OUTBOUND_HEADERS;
 pub use myriad_tapp_contract::contract_rules::{
-    FORBIDDEN_OUTBOUND_HEADERS, HTTP_BODY_METHODS, HTTP_METHODS, MAX_AGENT_SCHEMA_RESOURCE_BYTES,
-    MAX_CREDENTIAL_HEADER_PREFIX_LEN, MAX_CREDENTIAL_KEY_LEN, MAX_DATA_EXCHANGE_DECLARATIONS,
+    HTTP_METHODS, MAX_AGENT_SCHEMA_RESOURCE_BYTES, MAX_DATA_EXCHANGE_DECLARATIONS,
     MAX_DATA_EXCHANGE_ID_LEN, MAX_DATA_EXCHANGE_RESPONSE_BYTES, MAX_DATA_EXCHANGE_SCHEMA_BYTES,
     MAX_RESOURCE_PATH_LEN, MAX_TAPP_ARCHIVE_BYTES, MAX_TAPP_ARCHIVE_FILES,
     MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES, MAX_TAPP_ASSET_BYTES, MAX_TAPP_ASSETS,
-    MAX_TAPP_ASSETS_TOTAL_BYTES, MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ARCHIVE_BYTES,
-    MAX_TAPP_GAME_ARCHIVE_FILES, MAX_TAPP_GAME_ARCHIVE_UNCOMPRESSED_BYTES,
-    MAX_TAPP_GAME_ASSET_BYTES, MAX_TAPP_GAME_ASSETS, MAX_TAPP_GAME_ASSETS_TOTAL_BYTES,
-    MAX_TAPP_GAME_MESSAGE_BYTES, MAX_TAPP_GAME_PLAYERS, MAX_TAPP_GAME_PROTOCOL_LEN,
-    MAX_TAPP_GAME_RESOURCE_BYTES, MAX_TAPP_I18N_FILES, MAX_TAPP_I18N_RESOURCE_BYTES,
-    MAX_TAPP_ID_LEN, MAX_TAPP_MANIFEST_BYTES, MAX_TAPP_RESOURCE_BYTES, MAX_TAPP_RUNTIME_MODULES,
-    MAX_TAPP_UPLOAD_BYTES, MAX_WIDGETS_PER_TAPP, MIN_TAPP_GAME_PLAYERS, TAPP_RUNTIME_MODULES,
+    MAX_TAPP_ASSETS_TOTAL_BYTES, MAX_TAPP_GAME_ARCHIVE_BYTES, MAX_TAPP_GAME_ARCHIVE_FILES,
+    MAX_TAPP_GAME_ARCHIVE_UNCOMPRESSED_BYTES, MAX_TAPP_GAME_ASSET_BYTES, MAX_TAPP_GAME_ASSETS,
+    MAX_TAPP_GAME_ASSETS_TOTAL_BYTES, MAX_TAPP_GAME_RESOURCE_BYTES, MAX_TAPP_I18N_FILES,
+    MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_ID_LEN, MAX_TAPP_MANIFEST_BYTES,
+    MAX_TAPP_RESOURCE_BYTES, MAX_TAPP_UPLOAD_BYTES, MAX_WIDGETS_PER_TAPP,
 };
 pub use myriad_tapp_contract::paths::{
     is_safe_path_component, is_valid_widget_size, parse_system_version,
@@ -28,8 +27,12 @@ pub use myriad_tapp_contract::paths::{
     validate_inline_data_schema, validate_resource_extension, validate_resource_path,
     validate_tapp_id, validate_tapp_settings, validate_widget_refresh_policy,
 };
-pub use myriad_tapp_contract::urls::{validate_http_url, validate_open_url_target};
-pub use myriad_tapp_contract::validate::{valid_locale_tag, validate_named_resource_keys};
+pub use myriad_tapp_contract::urls::validate_http_url;
+#[cfg(test)]
+pub use myriad_tapp_contract::urls::validate_open_url_target;
+#[cfg(test)]
+pub use myriad_tapp_contract::validate::valid_locale_tag;
+pub use myriad_tapp_contract::validate::validate_named_resource_keys;
 
 pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     let current = semver::Version::parse(env!("CARGO_PKG_VERSION"))

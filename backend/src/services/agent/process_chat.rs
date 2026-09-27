@@ -30,19 +30,21 @@ impl Agent {
         crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
         let (reply, handed_off) = crate::services::agent::delegate::split(&reply);
         let (reply, music) = publish_model_outfit_overlay(&self.db, &request, &reply, None).await;
-        crate::services::agent::merope::spawn_chat_remember(
+        crate::services::agent::merope::enqueue_chat_remember(
+            &self.db,
             user_id,
             request.raw_input.clone(),
             reply.clone(),
             memory_input_at,
             crate::services::agent::merope::audience_for(&request),
             crate::services::agent::merope::turn_context(&request),
-        );
+        )
+        .await;
         crate::services::agent::merope::spawn_inner_after(self.db.clone(), &request, &reply);
         {
             let db = self.db.clone();
             let request = request.clone();
-            tokio::spawn(async move {
+            super::merope::background::spawn("game aftermath", async move {
                 crate::services::agent::merope::soup::after_turn(&db, &request).await;
             });
         }
@@ -162,19 +164,21 @@ impl Agent {
         // Close text without waiting for the director. Already-published plans
         // remain owned by the client's playback clock, not this generation task.
         response_agent::finish_stream(&progress_tx).await;
-        crate::services::agent::merope::spawn_chat_remember(
+        crate::services::agent::merope::enqueue_chat_remember(
+            &self.db,
             user_id,
             request.raw_input.clone(),
             reply.clone(),
             memory_input_at,
             crate::services::agent::merope::audience_for(&request),
             crate::services::agent::merope::turn_context(&request),
-        );
+        )
+        .await;
         crate::services::agent::merope::spawn_inner_after(self.db.clone(), &request, &reply);
         {
             let db = self.db.clone();
             let request = request.clone();
-            tokio::spawn(async move {
+            super::merope::background::spawn("game aftermath", async move {
                 crate::services::agent::merope::soup::after_turn(&db, &request).await;
             });
         }

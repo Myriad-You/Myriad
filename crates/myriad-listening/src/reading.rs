@@ -23,6 +23,13 @@ pub struct Reading {
 const CHILLS: &str = "Moments like this (a sudden swell, the sound widening, a new section breaking in after a quieter one) are where listeners most often report chills, shivers or a lump in the throat.";
 const CHILLS_SOURCE: &str = "Sloboda 1991, Psychology of Music; Grewe et al. 2007, Music Perception; Guhn, Hamm & Zentner 2007, Music Perception";
 
+const KEY_CHANGE: &str = "A change of key, above all a lift for a last chorus, is new and unexpected harmony, among the events listeners most tie to shivers.";
+const KEY_CHANGE_SOURCE: &str = "Sloboda 1991, Psychology of Music";
+
+const CHORUS_IN: &str = "The start of a new part, and above all the chorus arriving, is where listeners' attention peaks and where chills tend to cluster.";
+const CHORUS_IN_SOURCE: &str =
+    "Grewe et al. 2007, Music Perception; Guhn, Hamm & Zentner 2007, Music Perception";
+
 const ARRIVAL: &str = "A long build makes the arrival foreseeable; when it comes, the fulfilled expectation is felt as release and pleasure, and a longer wait tends to make the payoff stronger.";
 const WITHHELD: &str = "When a build is cut off instead of arriving, the broken expectation lands as surprise, and the arrival that does come later tends to feel stronger by contrast.";
 const EXPECTATION_SOURCE: &str = "Huron 2006, Sweet Anticipation (ITPRA theory of expectation)";
@@ -70,8 +77,19 @@ fn chorus_starts_at(sheet: &ListeningSheet, at_s: f32) -> bool {
         .any(|section| section.likely_chorus && (section.start_s - at_s).abs() <= 2.0)
 }
 
+/// Moments like this stay among the few read for a song.
+const MOST_MOMENTS: usize = 4;
+
+struct Candidate {
+    at_s: f32,
+    score: f32,
+    heard: String,
+    tends_to: &'static str,
+    source: &'static str,
+}
+
 fn chills(sheet: &ListeningSheet) -> Vec<Reading> {
-    let mut found: Vec<(f32, f32, String)> = sheet
+    let mut found: Vec<Candidate> = sheet
         .moments
         .iter()
         .filter_map(|moment| {
@@ -101,26 +119,96 @@ fn chills(sheet: &ListeningSheet) -> Vec<Reading> {
             if let Some(line) = line_at(sheet, moment.at_s) {
                 heard.push_str(&format!("; the line 「{line}」 is sung right there"));
             }
-            let score = score + if chorus { 5.0 } else { 0.0 };
-            Some((moment.at_s, score, heard))
+            Some(Candidate {
+                at_s: moment.at_s,
+                score: score + if chorus { 5.0 } else { 0.0 },
+                heard,
+                tends_to: CHILLS,
+                source: CHILLS_SOURCE,
+            })
         })
         .collect();
+    for moment in sheet
+        .moments
+        .iter()
+        .filter(|m| m.kind == MomentKind::KeyChange)
+    {
+        let mut heard = format!(
+            "At {} the key moves {}",
+            clock(moment.at_s),
+            crate::describe::key_move(moment.amount)
+        );
+        let chorus = chorus_starts_at(sheet, moment.at_s);
+        if chorus {
+            heard.push_str(", into the chorus");
+        }
+        if let Some(line) = line_at(sheet, moment.at_s) {
+            heard.push_str(&format!("; the line 「{line}」 is sung right there"));
+        }
+        found.push(Candidate {
+            at_s: moment.at_s,
+            score: 12.0 + if chorus { 5.0 } else { 0.0 },
+            heard,
+            tends_to: KEY_CHANGE,
+            source: KEY_CHANGE_SOURCE,
+        });
+    }
+    // The chorus coming in is a moment even when the loudness hardly moves
+    // (a heavily compressed master): what changes is how it sounds.
+    for (index, section) in sheet.sections.iter().enumerate().skip(1) {
+        if !section.likely_chorus {
+            continue;
+        }
+        let before = &sheet.sections[index - 1];
+        let again = sheet.sections[..index]
+            .iter()
+            .any(|s| s.label == section.label);
+        let mut heard = format!(
+            "At {} the chorus comes in{}",
+            clock(section.start_s),
+            if again { " again" } else { "" }
+        );
+        let louder = section.loudness_db - before.loudness_db;
+        if louder >= 3.0 {
+            heard.push_str(&format!(", {louder:.0} dB louder than before"));
+        } else if louder > -3.0 {
+            // Said, so that it is not heard as a burst.
+            heard.push_str(", at about the same loudness as before");
+        }
+        if before.brightness > 0.0 && section.brightness / before.brightness >= 1.15 {
+            heard.push_str(", brighter than before");
+        }
+        if let Some(line) = line_at(sheet, section.start_s) {
+            heard.push_str(&format!("; the line 「{line}」 is sung right there"));
+        }
+        found.push(Candidate {
+            at_s: section.start_s,
+            score: 5.0 + section.change * 10.0,
+            heard,
+            tends_to: CHORUS_IN,
+            source: CHORUS_IN_SOURCE,
+        });
+    }
     // The same place heard twice (a surge that is also a new section) is
     // one moment.
-    found.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let mut kept: Vec<(f32, f32, String)> = Vec::new();
+    found.sort_by(|a, b| b.score.total_cmp(&a.score));
+    let mut kept: Vec<Candidate> = Vec::new();
     for candidate in found {
-        if kept.len() < 3 && kept.iter().all(|other| (other.0 - candidate.0).abs() > 3.0) {
+        if kept.len() < MOST_MOMENTS
+            && kept
+                .iter()
+                .all(|other| (other.at_s - candidate.at_s).abs() > 3.0)
+        {
             kept.push(candidate);
         }
     }
-    kept.sort_by(|a, b| a.0.total_cmp(&b.0));
+    kept.sort_by(|a, b| a.at_s.total_cmp(&b.at_s));
     kept.into_iter()
-        .map(|(at_s, _, heard)| Reading {
-            at_s: Some(at_s),
-            heard,
-            tends_to: CHILLS,
-            source: CHILLS_SOURCE,
+        .map(|candidate| Reading {
+            at_s: Some(candidate.at_s),
+            heard: candidate.heard,
+            tends_to: candidate.tends_to,
+            source: candidate.source,
         })
         .collect()
 }
@@ -177,7 +265,7 @@ fn groove(sheet: &ListeningSheet) -> Vec<Reading> {
         "About {tempo:.0} BPM; pulse clarity {:.2}, syncopation {:.2}",
         sheet.pulse_clarity, sheet.syncopation
     );
-    let tends_to = if sheet.pulse_clarity < 0.3 {
+    let tends_to = if sheet.pulse_clarity < STEADY {
         FAINT
     } else if sheet.syncopation > 0.5 {
         LOST
@@ -192,7 +280,7 @@ fn groove(sheet: &ListeningSheet) -> Vec<Reading> {
         tends_to,
         source: GROOVE_SOURCE,
     });
-    if (110.0..=135.0).contains(&tempo) && sheet.pulse_clarity >= 0.3 {
+    if (110.0..=135.0).contains(&tempo) && sheet.pulse_clarity >= STEADY {
         readings.push(Reading {
             at_s: None,
             heard: format!("The tempo is about {tempo:.0} BPM"),
@@ -203,10 +291,14 @@ fn groove(sheet: &ListeningSheet) -> Vec<Reading> {
     readings
 }
 
+/// Below this pulse clarity a tempo is only a guess.
+pub(crate) const STEADY: f32 = 0.3;
+
 fn cues(sheet: &ListeningSheet, minor: bool) -> Option<Reading> {
-    let tempo = sheet.tempo_bpm?;
-    let fast = tempo >= 120.0;
-    let slow = tempo < 90.0;
+    // Pace is a cue only when a beat can be felt.
+    let tempo = sheet.tempo_bpm.filter(|_| sheet.pulse_clarity >= STEADY);
+    let fast = tempo.is_some_and(|tempo| tempo >= 120.0);
+    let slow = tempo.is_some_and(|tempo| tempo < 90.0);
     let bright = sheet.brightness_hz >= 2_500.0;
     let dark = sheet.brightness_hz < 1_500.0;
     let mode = sheet.key.as_ref().map(|_| minor);
@@ -217,12 +309,11 @@ fn cues(sheet: &ListeningSheet, minor: bool) -> Option<Reading> {
         None if slow && dark => SAD_CUES,
         _ => MIXED_CUES,
     };
-    let pace = if fast {
-        "fast"
-    } else if slow {
-        "slow"
-    } else {
-        "moderate"
+    let pace = match tempo {
+        Some(tempo) if fast => format!("A fast tempo ({tempo:.0} BPM)"),
+        Some(tempo) if slow => format!("A slow tempo ({tempo:.0} BPM)"),
+        Some(tempo) => format!("A moderate tempo ({tempo:.0} BPM)"),
+        None => "No steady pace".to_string(),
     };
     let colour = if bright {
         "bright"
@@ -251,7 +342,7 @@ fn cues(sheet: &ListeningSheet, minor: bool) -> Option<Reading> {
     Some(Reading {
         at_s: None,
         heard: format!(
-            "A {pace} tempo ({tempo:.0} BPM), a {colour} sound ({:.0} Hz spectral centroid), {key}{contrast}",
+            "{pace}, a {colour} sound ({:.0} Hz spectral centroid), {key}{contrast}",
             sheet.brightness_hz
         ),
         tends_to,
@@ -319,6 +410,7 @@ pub(crate) mod tests {
             likely_chorus,
             loudness_db,
             brightness: 1.0,
+            change: 0.5,
         };
         let moment = |at_s, kind, amount| Moment { at_s, kind, amount };
         ListeningSheet {
@@ -378,6 +470,34 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_chorus_coming_in_is_a_moment_even_at_the_same_loudness() {
+        let mut flat = sheet();
+        flat.moments.clear();
+        for section in &mut flat.sections {
+            section.loudness_db = 0.0;
+        }
+        flat.sections[3].brightness = 1.3;
+        let readings = read(&flat, false);
+        let entries: Vec<&Reading> = readings
+            .iter()
+            .filter(|r| r.tends_to == CHORUS_IN)
+            .collect();
+        assert_eq!(entries.len(), 2, "{readings:#?}");
+        assert!(
+            entries[0]
+                .heard
+                .starts_with("At 0:30 the chorus comes in, at about the same loudness as before;")
+        );
+        assert!(entries[0].heard.contains("「就是现在」"));
+        assert!(
+            entries[1]
+                .heard
+                .starts_with("At 1:30 the chorus comes in again, at about the same loudness as before, brighter than before")
+        );
+        assert!(!entries[1].heard.contains("dB"));
+    }
+
+    #[test]
     fn a_slow_dark_minor_song_is_read_by_its_cues() {
         let mut slow = sheet();
         slow.tempo_bpm = Some(72.0);
@@ -386,6 +506,13 @@ pub(crate) mod tests {
         let readings = read(&slow, true);
         assert!(readings.iter().any(|r| r.tends_to == SAD_CUES));
         assert!(!readings.iter().any(|r| r.tends_to == PREFERRED_TEMPO));
+        slow.pulse_clarity = 0.2;
+        let faint = read(&slow, true);
+        assert!(faint.iter().any(|r| r.tends_to == FAINT));
+        // A tempo that is only a guess is no cue.
+        let cue = faint.iter().find(|r| r.source == CUES_SOURCE).unwrap();
+        assert!(cue.heard.starts_with("No steady pace"), "{}", cue.heard);
+        assert_eq!(cue.tends_to, MIXED_CUES);
         slow.tempo_bpm = None;
         assert!(read(&slow, true).iter().any(|r| r.tends_to == FAINT));
     }

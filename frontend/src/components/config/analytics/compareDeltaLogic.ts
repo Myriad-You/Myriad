@@ -58,7 +58,7 @@ export function formatComparePct(
 ): string {
   if (pct == null || !Number.isFinite(pct)) return '—'
   const abs = Math.abs(pct)
-  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 1
+  const digits = abs >= 100 ? 0 : 1
   let body: string
   try {
     body = new Intl.NumberFormat(locale, {

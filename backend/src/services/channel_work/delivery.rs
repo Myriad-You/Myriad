@@ -228,7 +228,7 @@ pub(super) async fn deliver_run(
         .await
         .filter(|session| session.last_run_id.as_deref() == Some(&run_id))
         .map(|session| session.last_event_seq);
-    let mut envelopes = Box::pin(crate::api::agent::agent_run_envelopes(run));
+    let mut envelopes = Box::pin(crate::services::agent::run::agent_run_envelopes(run));
     let mut refresh = tokio::time::interval(TYPING_REFRESH);
     loop {
         tokio::select! {

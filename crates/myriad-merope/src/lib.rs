@@ -3,19 +3,38 @@
 //! Database repositories, model-provider calls, worker scheduling, and HTTP
 //! adapters belong to the backend crate.
 
+pub mod affect;
 mod anime25d_contract;
+pub mod answer;
+pub mod bits;
+pub mod chat_remember;
+pub mod curiosity;
+pub mod doing;
+pub mod explore;
+pub mod inner;
+pub mod life;
 mod onboarding;
 mod outfit_overlay;
 mod performance;
 mod persona;
+pub mod reach;
+pub mod reading;
 mod rig;
 mod rig_contract;
 mod rig_outfit;
 mod rig_semantics;
 mod rig_spatial;
 mod rig_state;
+pub mod self_story;
+pub mod serial;
+pub mod soup;
+pub mod sources;
+pub mod speaking;
 mod speech_plan;
 mod sticker_avatar;
+pub mod strangers;
+pub mod threads;
+pub mod views;
 mod visual_contract;
 mod visual_design;
 mod visual_prompt;

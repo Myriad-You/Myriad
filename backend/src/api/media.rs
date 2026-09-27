@@ -5,7 +5,7 @@ use axum::{
     Json,
     body::Bytes,
     extract::{Path, Query, Request, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::Response,
 };
 use sea_orm::DatabaseConnection;

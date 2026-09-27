@@ -7,6 +7,7 @@
 
 use myriad_tapp_contract::manifest::{TappCategory, TappManifest};
 
+#[cfg(test)]
 use crate::services::tapp_validation::MAX_TAPP_ASSETS;
 
 /// Package directory on the store host (parent of the core entry / manifest.json).

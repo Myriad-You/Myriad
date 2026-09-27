@@ -13,6 +13,16 @@ pub(super) async fn tick(db: DatabaseConnection, stopped: watch::Receiver<bool>,
     let Some(hb) = agent::heartbeat::get_heartbeat() else {
         return;
     };
+    // 站点设置在 web 进程里保存，心跳只归本进程；按本进程刷新到的配置对齐 SEO 复查任务。
+    let cadence = crate::GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .site_seo_review_cadence
+        .clone();
+    let cron = crate::services::seo_policy::seo_review_cron(&cadence);
+    if let Err(error) = hb.upsert_seo_review_task(cron).await {
+        tracing::error!(%error, "Failed to sync SEO review heartbeat");
+    }
     let due = hb.check_due_tasks().await;
     // Keep the reservation's minute across the bounded batch. Claiming with the
     // execution-start minute would relabel queued work as a later cron occurrence.
@@ -184,15 +194,15 @@ async fn execute_seo_review(
     let mut claim_status = ClaimStatus::Done;
     match tokio::time::timeout(
         timeout,
-        crate::api::seo_review::run_scheduled_seo_review(&task_db),
+        crate::services::seo_review::run_scheduled_seo_review(&task_db),
     )
     .await
     {
-        Ok(Ok(crate::api::seo_review::SeoReviewOutcome::Unchanged)) => {
+        Ok(Ok(crate::services::seo_review::SeoReviewOutcome::Unchanged)) => {
             hb_ref.record_result(&task.id, "unchanged").await;
             tracing::info!(task_id = %task.id, "[Heartbeat] SEO review unchanged");
         }
-        Ok(Ok(crate::api::seo_review::SeoReviewOutcome::Draft {
+        Ok(Ok(crate::services::seo_review::SeoReviewOutcome::Draft {
             why,
             site_description,
             site_keywords,

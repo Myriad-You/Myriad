@@ -3,6 +3,7 @@
 //! No I/O. Backend services re-export moved symbols so existing imports compile.
 
 pub mod channel;
+pub mod concept;
 pub mod data_read;
 pub mod error;
 pub mod external;
@@ -75,6 +76,8 @@ pub const SANITIZE_PROMPT_MAX_CHARS: usize = USER_TEXT_MAX_CHARS;
 /// Unicode scalar cap. Must stay <= `image_generation::MAX_PROMPT_CHARS` (32680).
 /// Counted with `chars()`, not bytes — CJK prompts are 3 bytes per character.
 pub const IMAGE_PROMPT_MAX_CHARS: usize = USER_TEXT_MAX_CHARS;
+
+pub use concept::Concept;
 
 #[cfg(test)]
 mod tests {

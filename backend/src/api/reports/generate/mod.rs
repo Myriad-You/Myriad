@@ -5,16 +5,14 @@ mod generate_internal;
 mod persist;
 
 pub(crate) use enrich::finalize_public_platform_report;
+pub(crate) use generate_internal::generate_platform_reports_internal;
+#[cfg(test)]
 pub(crate) use generate_internal::{
-    anime_status_counts_five, generate_platform_reports_internal, github_contribution_level,
-    normalize_steam_player_type,
+    anime_status_counts_five, github_contribution_level, normalize_steam_player_type,
 };
-pub(crate) use persist::MAX_CONCURRENT_PLATFORM_REPORTS;
 
 use axum::{Extension, Json, extract::State, http::HeaderMap};
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -23,7 +21,6 @@ use tokio::sync::RwLock;
 use crate::config::DynamicConfig;
 use crate::error::HttpError;
 use crate::middleware::auth::Claims;
-use crate::models::entities::platform_reports;
 use crate::services::platform_id::PlatformId;
 use crate::services::smart_filter::SmartFilteredData;
 use myriad_error::AppError;
@@ -227,58 +224,16 @@ impl Drop for ReportGeneration {
 }
 
 /// Public latest owner: `site_owner_user_id` (lowest admin) then user_id 1.
-/// Viewer credentials never select public report ownership. Used by `get_latest_report` + catalog, not authed `/api/reports/list`.
-pub(crate) async fn public_report_owner_user_id(db: &DatabaseConnection) -> i32 {
-    if let Ok(owner_id) = crate::api::profile::site_owner_user_id(db).await {
-        return owner_id;
-    }
-    1
-}
+pub(crate) use crate::services::public_reports::public_report_owner_user_id;
 
-/// Prefer `preferred` when they have platform reports; otherwise use the user_id
-/// that most recently wrote a non-`all` platform report.
-///
-/// If `preferred` has no non-`all` platform reports, use the user_id that
-/// most recently wrote one.
+/// [`crate::services::public_reports::owner_for_public_read`], as an HTTP error.
 pub(crate) async fn resolve_report_user_id_for_public_read(
     db: &DatabaseConnection,
     preferred: i32,
 ) -> Result<i32, HttpError> {
-    let preferred_count = platform_reports::Entity::find()
-        .filter(platform_reports::Column::UserId.eq(preferred))
-        .filter(platform_reports::Column::Platform.ne("all"))
-        .count(db)
+    crate::services::public_reports::owner_for_public_read(db, preferred)
         .await
-        .map_err(|e| {
-            tracing::error!("count platform_reports for owner {}: {}", preferred, e);
-            HttpError(AppError::internal("Database error"))
-        })?;
-    if preferred_count > 0 {
-        return Ok(preferred);
-    }
-
-    let fallback = platform_reports::Entity::find()
-        .filter(platform_reports::Column::Platform.ne("all"))
-        .order_by_desc(platform_reports::Column::CreatedAt)
-        .one(db)
-        .await
-        .map_err(|e| {
-            tracing::error!("fallback platform_reports lookup failed: {}", e);
-            HttpError(AppError::internal("Database error"))
-        })?;
-
-    if let Some(row) = fallback {
-        if row.user_id != preferred {
-            tracing::warn!(
-                preferred,
-                fallback = row.user_id,
-                "Site owner has no platform_reports; serving latest reports from user_id={}",
-                row.user_id
-            );
-        }
-        return Ok(row.user_id);
-    }
-    Ok(preferred)
+        .map_err(|_| HttpError(AppError::internal("Database error")))
 }
 
 #[cfg(test)]

@@ -166,6 +166,12 @@ fn no_search_provider() -> String {
     api_key_not_configured("web search")
 }
 
+/// Whether any search provider is configured.
+pub async fn available() -> bool {
+    let (tinyfish, gemini) = search_providers().await;
+    tinyfish.is_some() || gemini.is_some()
+}
+
 async fn search_providers() -> (Option<String>, Option<(String, String)>) {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
     (

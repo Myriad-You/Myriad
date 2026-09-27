@@ -18,15 +18,13 @@ use sea_orm::DatabaseConnection;
 
 use super::gates::IngestSight;
 use super::is_logged_in_addressee;
-use super::store::{insert_diary, insert_remembered_if_new, latest_open_session};
+use super::store::{insert_remembered_if_new, latest_open_session};
 use super::{activity_is_busy, current_activity, effective_do_not_disturb};
 use crate::models::entities::agent_addressee_state;
 use crate::services::agent::consciousness::last_live_presence;
 use crate::services::agent::run_hub;
 
-pub use produce::{
-    ingest, spawn, spawn_diary, spawn_presence, stable_consciousness_event_id, work_outcome_parent,
-};
+pub use produce::{spawn, spawn_diary, spawn_presence};
 pub use redeem::tick_speak_intents;
 
 const SAME_EVENT_MINUTES: i64 = 15;
@@ -97,15 +95,17 @@ pub fn persona_remember_insert(candidate: &str, existing: &[String]) -> Option<S
     if duplicate { None } else { Some(compact) }
 }
 
+/// `event` is what happened, kept as where she gathered it from.
 pub(crate) async fn persist_persona_remember(
     db: &DatabaseConnection,
     user_id: i32,
     candidate: Option<&str>,
+    event: &str,
 ) {
     let Some(candidate) = candidate else {
         return;
     };
-    if let Err(error) = insert_remembered_if_new(db, user_id, candidate).await {
+    if let Err(error) = insert_remembered_if_new(db, user_id, candidate, Some(event)).await {
         tracing::debug!(%error, user_id, "[Merope] persona memory write skipped");
     }
 }
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn persist_remember_writes_persona_memory_not_event_ledger() {
         let src = include_str!("mod.rs");
-        assert!(src.contains("insert_remembered_if_new(db, user_id, candidate)"));
+        assert!(src.contains("insert_remembered_if_new(db, user_id, candidate, Some(event))"));
         assert!(!src.contains("insert_diary(db, user_id, memory, \"event\")"));
         assert!(!src.contains("insert_diary(db, user_id, &memory, \"event\")"));
     }

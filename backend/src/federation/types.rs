@@ -694,7 +694,7 @@ pub async fn insert_local_activity(
     object_type: Option<&str>,
     object_json: serde_json::Value,
 ) -> Result<i32, sea_orm::DbErr> {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    use sea_orm::{DatabaseBackend, Statement};
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -721,7 +721,7 @@ pub async fn enqueue_delivery(
     target_inbox: &str,
     status: &str,
 ) -> Result<(), sea_orm::DbErr> {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    use sea_orm::{DatabaseBackend, Statement};
     let domain = extract_domain(target_inbox).unwrap_or_default();
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -1554,7 +1554,10 @@ mod tests {
         let body = src
             .split("pub(crate) async fn enqueue_delivery(")
             .nth(1)
-            .and_then(|rest| rest.split("pub(crate) async fn enqueue_delivery_queue").next())
+            .and_then(|rest| {
+                rest.split("pub(crate) async fn enqueue_delivery_queue")
+                    .next()
+            })
             .expect("enqueue_delivery");
         assert!(body.contains("returning_id"));
         assert!(!body.contains("unwrap_or(0)"));

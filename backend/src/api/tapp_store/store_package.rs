@@ -4,9 +4,11 @@
 //! [`crate::services::tapp_store_package`]. This module owns DB source load,
 //! outbound HTTP, and status mapping.
 
-use super::prepared_package::{PreparedTappPackage, PreparedTappResources};
 use super::{TappManifest, WidgetTemplateContents, api_http_error};
 use crate::error::HttpError;
+use crate::services::tapp_packages::prepared_package::{
+    PreparedTappPackage, PreparedTappResources,
+};
 use axum::http::StatusCode;
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use sea_orm::{DatabaseConnection, EntityTrait};

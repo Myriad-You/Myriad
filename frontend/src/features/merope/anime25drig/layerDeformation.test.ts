@@ -304,3 +304,70 @@ function runtimeExpression(
     ...overrides,
   }
 }
+
+test('a smile reaching the eyes lifts the lower lid in an arch; the iris only rides up', () => {
+  const eye = FRAME.anchors.eyeL!
+  const layer = (role: string) =>
+    ({ role, fade: 'eyeOpen', side: 'L', x: 70, y: 80, w: 45, h: 40 }) as Pick<
+      Anime25DPlaybackLayer, 'fade' | 'h' | 'role' | 'side' | 'w' | 'x' | 'y'>
+  const move = (role: string, x: number, y: number, eyeSmile: number) => {
+    const feature = bindAnime25DUpstreamFeature(layer(role), eye, 1, { ...IDENTITY_DRIVER, eyeSmile })!
+    const point = { x, y }
+    deformAnime25DUpstreamFeaturePoint(point, feature)
+    return point
+  }
+  const middle = (eye.x0 + eye.x1) / 2
+  // No smile leaves every point where it was drawn.
+  for (const [x, y] of [[middle, eye.y1], [eye.x0, eye.y0]]) {
+    const at = move('eyewhite', x, y, 0)
+    assert.equal(at.y, move('eyewhite', x, y, 0).y)
+  }
+  const rest = (x: number, y: number) => move('eyewhite', x, y, 0).y
+  const lower = rest(middle, eye.y1) - move('eyewhite', middle, eye.y1, 1).y
+  const lowerCorner = rest(eye.x0 + 2, eye.y1) - move('eyewhite', eye.x0 + 2, eye.y1, 1).y
+  const upper = move('eyewhite', middle, eye.y0, 1).y - rest(middle, eye.y0)
+  const height = eye.y1 - eye.y0
+  assert.ok(lower > height * 0.25, `lower lid lift ${lower}`)
+  assert.ok(lowerCorner < lower, 'the lid arches: its middle rises most')
+  assert.ok(upper > 0 && upper < height * 0.1, `upper lid drop ${upper}`)
+  // The iris is not squashed: its top and bottom move together, a little.
+  const irisTop = move('irides', middle, eye.y0 + 2, 0).y - move('irides', middle, eye.y0 + 2, 1).y
+  const irisBottom = move('irides', middle, eye.y1 - 2, 0).y - move('irides', middle, eye.y1 - 2, 1).y
+  assert.ok(Math.abs(irisTop - irisBottom) < 1e-9 && irisTop > 0 && irisTop < height * 0.1)
+})
+
+test('a smiling closed eye bows up into ^, most at its middle', () => {
+  const eye = FRAME.anchors.eyeL!
+  const closed = { role: 'eye-close', fade: 'eyeClose', side: 'L', x: 70, y: 98, w: 45, h: 10 } as Pick<
+    Anime25DPlaybackLayer, 'fade' | 'h' | 'role' | 'side' | 'w' | 'x' | 'y'>
+  const at = (x: number, eyeSmile: number) => {
+    const feature = bindAnime25DUpstreamFeature(closed, eye, 1, { ...IDENTITY_DRIVER, eyeOpenL: 0, eyeSmile })!
+    const point = { x, y: eye.closeY }
+    deformAnime25DUpstreamFeaturePoint(point, feature)
+    return point.y
+  }
+  const middle = (eye.x0 + eye.x1) / 2
+  const lift = at(middle, 0) - at(middle, 1)
+  const cornerLift = at(eye.x0, 0) - at(eye.x0, 1)
+  assert.ok(lift > (eye.y1 - eye.y0) * 0.3, `${lift}`)
+  assert.ok(Math.abs(cornerLift) < 1e-9, 'the corners stay where the lid meets them')
+  assert.equal(at(middle, 0), at(middle, 0))
+})
+
+test('wide eyes lift the upper lid and tighten the iris', () => {
+  const eye = FRAME.anchors.eyeL!
+  const layer = (role: string) =>
+    ({ role, fade: 'eyeOpen', side: 'L', x: 70, y: 80, w: 45, h: 40 }) as Pick<
+      Anime25DPlaybackLayer, 'fade' | 'h' | 'role' | 'side' | 'w' | 'x' | 'y'>
+  const move = (role: string, x: number, y: number, eyeWide: number) => {
+    const feature = bindAnime25DUpstreamFeature(layer(role), eye, 1, { ...IDENTITY_DRIVER, eyeWide })!
+    const point = { x, y }
+    deformAnime25DUpstreamFeaturePoint(point, feature)
+    return point
+  }
+  const middle = (eye.x0 + eye.x1) / 2
+  const lift = move('eyelash', middle, eye.y0, 0).y - move('eyelash', middle, eye.y0, 1).y
+  assert.ok(lift > (eye.y1 - eye.y0) * 0.1, `${lift}`)
+  const rim = (wide: number) => move('irides', eye.icx + 10, eye.icy, wide).x - eye.icx
+  assert.ok(rim(1) < rim(0), 'the iris tightens')
+})

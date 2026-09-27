@@ -2,7 +2,7 @@
 
 use myriad_agent_rules::channel::{
     DiscordPrivateComponent, DiscordPrivateText, InboundC2cText, PAIRING_REQUIRED_REPLY,
-    PairingBindResult, PairingLookup, session_key,
+    PairingLookup, session_key,
 };
 use sea_orm::{DatabaseConnection, DbErr};
 use tracing::warn;

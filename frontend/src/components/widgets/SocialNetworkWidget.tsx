@@ -826,7 +826,6 @@ const InfoTooltip = memo(
     anchorRef: React.RefObject<HTMLDivElement | null>
   }) => {
     const { t } = useI18n()
-    const [_copied, setCopied] = useState(false)
 
     const { textContent, imageUrls } = useMemo(
       () => parsePopupContent(popupData.text),
@@ -846,8 +845,6 @@ const InfoTooltip = memo(
       if (!textContent) return
       try {
         await navigator.clipboard.writeText(textContent)
-        setCopied(true)
-        setTimeout(setCopied, 1500, false)
       } catch (e) {
         console.error('Failed to copy:', e)
         showError(userFacingError(e, currentCopy().errors.clipboardFailed))

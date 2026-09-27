@@ -123,7 +123,7 @@ const PlayingSpectrum = memo(({
   const containerStyle = useMemo(
     () => ({
       gap: `${Math.max(1.25, 1.75 * scale)}px`,
-      height: `${(centered ? 16 : 16) * scale}px`,
+      height: `${16 * scale}px`,
       display: 'flex' as const,
       alignItems: (centered ? 'center' : 'flex-end') as
         | 'center'

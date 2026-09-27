@@ -70,8 +70,11 @@ export interface Anime25DRenderFrame {
   viewHeight: number
   bodyPivotX: number
   bodyPivotY: number
+  /** The lean the shoulders and everything above them take. */
   bodyRotationCosine: number
   bodyRotationSine: number
+  /** Height above the pivot over which the torso bends into the lean; 0 is rigid. */
+  bodyBendHeight: number
   time: number
   eyeCry: number
 }
@@ -132,8 +135,8 @@ export function drawAnime25DFrame(
     bindings.bodyTransform,
     frame.bodyPivotX,
     frame.bodyPivotY,
-    frame.bodyRotationCosine,
-    frame.bodyRotationSine,
+    Math.atan2(frame.bodyRotationSine, frame.bodyRotationCosine),
+    frame.bodyBendHeight,
   )
   gl.uniform1f(bindings.cryTime, frame.time)
   gl.activeTexture(gl.TEXTURE0)

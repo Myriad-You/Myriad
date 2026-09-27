@@ -28,6 +28,7 @@ import {
   FRONT_COLLAR_INNER_REGION,
 } from './collarRuntime'
 import { applyPoseCorrections } from './poseCorrections'
+import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint } from './shellDeformation'
 import {
   anime25DSleeveAnchorX,
@@ -50,12 +51,22 @@ type SecondaryDeformationDriver = Pick<
   | 'soft'
 >
 
+/** The share of a head tilt that the lowest hair still takes. */
+const HAIR_DRAPE_ROLL_FLOOR = 0.2
+
 export interface Anime25DSecondaryDeformationFrame {
   expression: Readonly<SecondaryDeformationDriver>
   faceScale: number
   headAngleY: number
   headRotationCosine: number
   headRotationSine: number
+  /** The head roll itself, in radians; hair below the shoulders takes less of it. */
+  headRoll?: number
+  /** Below the neck, hair turns from following the head to resting on the body over this length. */
+  hairDrapeLength?: number
+  /** The canvas cut the torso bends from; a head tilt carried by the body fades out onto it. */
+  bodyPivotY?: number
+  bodyBendHeight?: number
   bodyRotationCosine: number
   bodyRotationSine: number
   neckPivotX: number
@@ -83,6 +94,8 @@ export interface Anime25DSecondaryDeformationFrame {
   inverseChestRadiusY: number
   chestOffsetX: number
   chestOffsetY: number
+  /** The chest's own stretch (+) or squash (−) as its spring carries it; it keeps its area. */
+  chestStretch?: number
   chestField: Readonly<ChestSpatialField>
   chestVolumeScale: number
   shellProfile: Readonly<Anime25DShellProfile>
@@ -150,6 +163,8 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   torsoShellMode?: Anime25DTorsoShellMode | null
   arm?: ArmRig | null
   armMesh?: ArmRigMesh | null
+  /** A shared torso carry point for arms that move as one piece. */
+  handwearAnchorX?: number
 }): Anime25DSecondaryDeformationBinding {
   return {
     ...input,
@@ -161,7 +176,7 @@ export function createAnime25DSecondaryDeformationBinding(input: {
     handwear: input.baseRole === 'handwear',
     handwearSide:
       input.baseRole === 'handwear' ? (input.source.side ?? null) : null,
-    handwearAnchorX: input.source.x + input.source.w / 2,
+    handwearAnchorX: input.handwearAnchorX ?? input.source.x + input.source.w / 2,
     shellMode: input.shellMode ?? null,
     hairlinePinWeights: input.hairlinePinWeights ?? null,
     torsoShellMode: input.torsoShellMode ?? null,
@@ -247,14 +262,34 @@ export function deformAnime25DSecondaryPoint(
         : source.depth
       const localX = point.x
       const localY = point.y
+      let rollCosine = frame.headRotationCosine
+      let rollSine = frame.headRotationSine
+      if (frame.headRoll && restY > frame.neckBottom) {
+        // Anything the canvas cuts stays on the cut, so a tilt carried below
+        // the neck fades out toward it the way the torso's own lean does.
+        let share = frame.bodyBendHeight
+          ? bodyLeanShare(restY, frame.bodyPivotY ?? restY, frame.bodyBendHeight)
+          : 1
+        if (binding.head && frame.hairDrapeLength) {
+          // Long hair hangs over the shoulders: it swings with a tilted head
+          // near the neck, but its lower length rests on the body.
+          const drape = smoothstep((restY - frame.neckBottom) / frame.hairDrapeLength)
+          share *= 1 - (1 - HAIR_DRAPE_ROLL_FLOOR) * drape
+        }
+        if (share < 1) {
+          const roll = frame.headRoll * share
+          rollCosine = Math.cos(roll)
+          rollSine = Math.sin(roll)
+        }
+      }
       const rotationX = point.x - frame.neckPivotX
       const rotationY = point.y - frame.neckPivotY
       const rotatedX =
-        rotationX * frame.headRotationCosine -
-        rotationY * frame.headRotationSine
+        rotationX * rollCosine -
+        rotationY * rollSine
       const rotatedY =
-        rotationX * frame.headRotationSine +
-        rotationY * frame.headRotationCosine
+        rotationX * rollSine +
+        rotationY * rollCosine
       point.x += (rotatedX - rotationX) * headFollow
       point.y += (rotatedY - rotationY) * headFollow
       let depthOffset =
@@ -293,8 +328,8 @@ export function deformAnime25DSecondaryPoint(
         if (binding.poseCorrections) applyPoseCorrections(point, vertex, binding.poseCorrections)
         const shellX = point.x - frame.neckPivotX
         const shellY = point.y - frame.neckPivotY
-        point.x += (shellX * frame.headRotationCosine - shellY * frame.headRotationSine - shellX) * headFollow
-        point.y += (shellX * frame.headRotationSine + shellY * frame.headRotationCosine - shellY) * headFollow
+        point.x += (shellX * rollCosine - shellY * rollSine - shellX) * headFollow
+        point.y += (shellX * rollSine + shellY * rollCosine - shellY) * headFollow
         point.x = legacyX + (point.x - legacyX) * frame.shellBlend
         point.y = legacyY + (point.y - legacyY) * frame.shellBlend
       } else {
@@ -356,6 +391,11 @@ export function deformAnime25DSecondaryPoint(
     )
     point.x += frame.chestOffsetX * chestWeight
     point.y += frame.chestOffsetY * chestWeight
+    if (frame.chestStretch) {
+      const scale = 1 + frame.chestStretch * chestWeight
+      point.x += (restX - frame.chestCenterX) * (1 / scale - 1)
+      point.y += (restY - frame.chestMotionCenterY) * (scale - 1)
+    }
   }
   if (binding.torsoShellMode === 'sleeve') {
     // A sleeve is one rigid drawing hanging beside the cylinder, not a patch of its surface.

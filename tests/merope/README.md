@@ -84,6 +84,8 @@ node scripts/test-merope-semantics.mjs --live
 使用现有严格 Lite 解析，不绑定模型；只读站点配置，不写角色状态或登录态。
 用 `--kind` 限定场景，`--repeat 1|2|3` 限定重复次数，顺序执行、每例最多 5 秒总时限，无评测层重试（Analyzer 自身可能协商请求格式）。
 该诊断时限不是生产 Chat 延迟指标。`--report NEW_FILE` 可指定新报告位置，拒绝覆盖文件。
+现场模式默认用站点里她本人的人格（从只读库读出，报告 `persona` 为 `hers`）；用例自带人格时用用例的。
+`MEROPE_SEMANTIC_PERSONA=contract` 改用契约里的示例人格，导出与回放不读库，也用示例人格。
 
 报告把 `request_failure`、`output_invalid`、`contract_failure`、`behavior_failure`、
 `needs_review`、`not_run` 分开。精确空记忆/撤回目标/ignore 动作可自动判断；自然语言回复、

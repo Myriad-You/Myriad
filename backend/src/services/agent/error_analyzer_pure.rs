@@ -1,6 +1,8 @@
 //! Step failure types, re-exported from the rules crate.
 
-pub use myriad_agent_rules::{StepError, StepOutcome};
+pub use myriad_agent_rules::StepError;
+#[cfg(test)]
+pub use myriad_agent_rules::StepOutcome;
 
 #[cfg(test)]
 mod tests {

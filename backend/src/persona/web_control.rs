@@ -2,9 +2,7 @@
 //! No model-supplied URL, category, permission grant or executable is accepted.
 use crate::services::agent::{self, executor::handlers::HandlerContext};
 use axum::{
-    Json,
     body::Bytes,
-    extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };

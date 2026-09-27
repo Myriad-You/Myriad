@@ -39,13 +39,11 @@ pub(crate) fn outbound_client_error_counts_as_remote_failure(error: &str) -> boo
 /// present (survives domain-move G retarget). Fallback: recompute from base_url.
 /// For `Move`, always recompute from `base_url` (the **old** actor origin) so
 /// peers verifying against the departing actor document succeed.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn deliver_activity(
     keypair: &KeyPair,
     base_url: &str,
     username: &str,
     target_inbox: &str,
-    target_domain: &str,
     body: Vec<u8>,
     stored_key_id: Option<&str>,
     activity_type: &str,
@@ -59,7 +57,6 @@ pub(crate) async fn deliver_activity(
     }
 
     let kid = resolve_signing_key_id(activity_type, base_url, username, stored_key_id);
-    let _ = target_domain;
 
     let (path, host_header) = parse_delivery_inbox(target_inbox)
         .map_err(DeliveryAttemptError::local)?;

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::api::tapp_store::{TappAiOperation, TappAiOutputFormat};
+#[cfg(test)]
 use serde_json::json;
 use std::collections::HashSet;
 

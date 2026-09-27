@@ -20,7 +20,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::external_pure::classify_outbound_fetch;
 use super::skill::{Skill, SkillOrigin, get_skill_registry};
 
 fn skill_io_failed(action: &str, error: std::io::Error) -> String {

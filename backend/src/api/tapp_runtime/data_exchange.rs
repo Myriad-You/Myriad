@@ -232,7 +232,3 @@ pub(super) async fn cancel_runtime_data_exchanges(
 pub(super) async fn cancel_tapp_data_exchanges(subject_id: i32, tapp_id: &str) {
     tapp_data_exchange::cancel_tapp_data_exchanges(subject_id, tapp_id).await;
 }
-
-pub(super) async fn cancel_all_tapp_data_exchanges(owner_id: i32, tapp_id: &str) {
-    tapp_data_exchange::cancel_all_tapp_data_exchanges(owner_id, tapp_id).await;
-}

@@ -15,14 +15,10 @@ mod receipt;
 mod receive;
 mod signature;
 
-pub use activities::{
-    extract_accept_object_id, extract_activity_actor_id, resolve_follow_accept_target,
-};
 pub use local_deliver::deliver_activity_locally;
 pub use receive::*;
 
 use axum::{Json, http::StatusCode};
-use serde_json::json;
 
 use crate::federation::errors::{is_permanent_federation_error, map_inbox_handler_error};
 
@@ -46,7 +42,10 @@ struct LocalReply {
 }
 
 impl PostCommit {
-    pub(crate) fn push(&mut self, notice: Option<crate::federation::file_transfer::TransferNotice>) {
+    pub(crate) fn push(
+        &mut self,
+        notice: Option<crate::federation::file_transfer::TransferNotice>,
+    ) {
         self.notices.extend(notice);
     }
 

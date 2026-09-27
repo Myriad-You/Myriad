@@ -1,8 +1,8 @@
 //! Telegram DM pairing entry: classify inbound text, then shared pairing I/O.
 
 use myriad_agent_rules::channel::{
-    InboundC2cText, PAIRING_REQUIRED_REPLY, PairingBindResult, PairingLookup,
-    TelegramPrivateCallback, TelegramPrivateText,
+    InboundC2cText, PAIRING_REQUIRED_REPLY, PairingLookup, TelegramPrivateCallback,
+    TelegramPrivateText,
 };
 use sea_orm::{DatabaseConnection, DbErr};
 use tracing::warn;

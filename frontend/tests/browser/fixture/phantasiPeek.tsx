@@ -35,7 +35,6 @@ function Harness() {
           key={route}
           sources={sources}
           stories={stories}
-          onSourceClick={() => {}}
           onPeekItem={session.handlePeekItem}
           onPeekEnd={session.handlePeekEnd}
         />

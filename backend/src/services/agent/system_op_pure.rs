@@ -5,13 +5,17 @@
 //! - phantasi.schedule action validation
 //! - heartbeat task-id param keys
 
-use serde_json::{Value, json};
+#[cfg(test)]
+use serde_json::json;
+#[cfg(test)]
 use std::collections::HashMap;
 
+#[cfg(test)]
+pub use myriad_agent_rules::build_schedule_config;
 pub use myriad_agent_rules::{
-    AgentExecutionTarget, AgentScheduleType, PhantasiScheduleAction, build_schedule_config,
-    extract_raw_backend_actions, heartbeat_task_id, heartbeat_update_has_fields,
-    parse_execution_target, parse_phantasi_schedule_action, parse_schedule_type,
+    AgentExecutionTarget, AgentScheduleType, PhantasiScheduleAction, extract_raw_backend_actions,
+    heartbeat_task_id, heartbeat_update_has_fields, parse_execution_target,
+    parse_phantasi_schedule_action, parse_schedule_type,
 };
 
 #[cfg(test)]

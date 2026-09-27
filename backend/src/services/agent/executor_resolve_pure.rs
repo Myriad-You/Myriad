@@ -1,14 +1,4 @@
-use crate::services::agent::executor_utils_pure::truncate_str;
-
-use crate::services::agent::types::{QuestionType, RiskLevel, UserQuestion};
-
-use crate::services::agent::SYSTEM_USER_ID;
-
-use chrono::{DateTime, Utc};
-
-use serde_json::{Value, json};
-
-use std::collections::HashMap;
+use crate::services::agent::types::RiskLevel;
 
 /// 心跳（`SYSTEM_USER_ID`）无人值守时始终不能执行的能力：它们会创建、修改或
 /// 触发新的自动执行，一次注入就能借心跳自我扩散。
@@ -35,7 +25,6 @@ pub fn unattended_may_auto_run(capability_id: &str, risk: RiskLevel) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn heartbeat_auto_runs_low_and_medium_but_never_self_spreading_work() {

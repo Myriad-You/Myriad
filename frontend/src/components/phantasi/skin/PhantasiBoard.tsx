@@ -122,7 +122,6 @@ export default function PhantasiBoardView({
         isEditMode={isEditMode}
         selectedIds={selectedIds}
         onToggleSelect={onToggleSelect}
-        onSourceClick={onSourceClick}
         onOpenItem={onOpenItem}
         onPeekItem={onPeekItem}
         onPeekEnd={onPeekEnd}

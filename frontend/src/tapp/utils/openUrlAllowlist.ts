@@ -52,15 +52,13 @@ function normalizeMatch(raw: unknown): OpenUrlMatchMode {
 function pathHasTraversal(pathname: string): boolean {
   const segments = pathname.split('/')
   for (const segment of segments) {
-    let decoded = segment
+    let decoded: string
     try {
       decoded = decodeURIComponent(segment)
     } catch {
       return true
     }
-    if (decoded === '..' || decoded === '.') {
-      if (decoded === '..') return true
-    }
+    if (decoded === '..') return true
     if (decoded.includes('\\') || decoded.includes('\0')) return true
   }
   return false

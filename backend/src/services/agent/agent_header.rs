@@ -1,11 +1,6 @@
 use once_cell::sync::Lazy;
 use sea_orm::DatabaseConnection;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-
-use super::types::*;
 
 /// 全局 Lane Queue（控制并发和会话级串行；无 session 时退回 `user:{id}`）
 pub static LANE_QUEUE: Lazy<Arc<super::queue::LaneQueue>> =

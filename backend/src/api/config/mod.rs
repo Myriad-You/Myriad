@@ -20,12 +20,13 @@ mod visibility;
 pub use backup::*;
 pub use build::*;
 pub use extras::*;
-pub use flags::*;
+#[cfg(test)]
+pub(crate) use flags::*;
 pub use permissions_oauth::*;
 pub use platform_test::test_platform;
 pub use public_ui::*;
 pub use save::*;
-pub use secrets::*;
+pub(crate) use secrets::*;
 pub use site_icon::*;
 pub use types::*;
 pub use visibility::*;

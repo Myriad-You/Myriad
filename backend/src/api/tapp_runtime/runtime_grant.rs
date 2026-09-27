@@ -345,11 +345,7 @@ pub async fn revoke_all_tapp_runtime_grants(
     owner_id: i32,
     tapp_id: &str,
 ) -> usize {
-    let revoked = tapp_runtime_grant::revoke_all_tapp_runtime_grants(db, owner_id, tapp_id).await;
-    super::ai_tasks::cancel_all_tapp_ai_tasks(owner_id, tapp_id).await;
-    super::events::disconnect_all_tapp_events(owner_id, tapp_id).await;
-    super::data_exchange::cancel_all_tapp_data_exchanges(owner_id, tapp_id).await;
-    revoked
+    crate::services::tapp_packages::runtime::revoke_installation(db, owner_id, tapp_id).await
 }
 
 #[cfg(test)]

@@ -41,6 +41,16 @@ describe('preferCardCoverUrl', () => {
     )
   })
 
+  it('leaves non-netease hosts that merely mention netease untouched', () => {
+    for (const url of [
+      'https://evil.example/x.jpg?ref=music.126.net',
+      'https://music.126.net.evil.example/x.jpg',
+      'https://evil.example/music.163.com/x.jpg',
+    ]) {
+      assert.equal(preferCardCoverUrl(url), url)
+    }
+  })
+
   it('adds bilibili card width without cropping', () => {
     assert.equal(
       preferCardCoverUrl('https://i0.hdslb.com/bfs/bangumi/image/x.jpg'),

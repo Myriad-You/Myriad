@@ -29,6 +29,7 @@ pub mod federation_gate; // Egress-location decision: may this server federate?
 pub mod fetcher;
 pub mod gemini_media; // Gemini generateContent image + speech
 pub mod governed_text; // Governed AI text sink (scheduler + declared-API builtins)
+pub mod hitokoto; // Quote (一言) sources: ids, built-in hosts, default address
 pub mod http_client; // Shared HTTP client with proxy support
 pub mod image_generation; // OpenAI / OpenRouter / Volcengine / Gemini image providers
 pub mod image_proxy_urls; // Shared image proxy URL rewrite (profile/export/library)
@@ -56,14 +57,22 @@ pub mod platform_refresh; // Platform fetch/cache (profile HTTP + scheduler)
 pub mod principal; // 当前角色、站长、安装是否已认领：唯一来源
 pub mod process_db; // The process database connection (platform infrastructure)
 pub mod profile_text; // 名称/简介文案来源（与 avatar 独立）
+pub mod public_reports; // Whose reports the public sees
+pub mod public_site; // What the site shows guests: branding, open modules, public links
 pub mod retired_configuration; // Backup denylist for retired configuration keys
 pub mod runtime_registry; // Platform runtime registry/mailbox shared by replicas (workspace crate)
 pub mod see_through; // Remote See-through layered-PSD decomposition
+pub mod seo_copy; // AI-drafted SEO / GEO settings copy
+pub mod seo_policy; // Site visibility / GEO policy for robots.txt and llms.txt
+pub mod seo_review; // Scheduled SEO review and owner-confirmed apply
 pub mod server_location; // Egress location dual-source probe
+pub mod setup_progress; // Whether the site is set up (tables + claimed), for the wizard and the agent
 pub mod site_owner;
+pub mod site_public_env; // Durable site public origin (DATA_DIR/site_public.env), loaded at startup
 pub mod smart_filter;
 pub mod speech_runtime; // Provider resolve + test/status
 pub mod standalone_tts; // Standalone TTS (cache + configured provider) for HTTP + agent
+pub mod steam_presence; // Site owner's Steam status, cached for the card and the persona
 pub mod sticker_cutout; // Local alpha fallback for home stickers
 pub mod store_stats_beacon; // Official store install/update edge stats beacon
 pub mod tapp_agent_interaction; // Agent interaction registry + state machine
@@ -89,6 +98,7 @@ pub mod tapp_notification;
 pub mod tapp_ownership;
 pub mod tapp_package_fs; // Install-dir lifecycle artifacts + orphan/path rules
 pub mod tapp_package_read; // Installed package resource path plans
+pub(crate) mod tapp_packages;
 pub mod tapp_playground_knowledge; // Playground Agent read-only contract retrieval
 pub mod tapp_prepared_package; // Prepared package validate + resource overrides
 pub mod tapp_rate_limit;

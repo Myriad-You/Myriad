@@ -110,9 +110,9 @@ function unescapeHtmlAttr(value: string): string {
   return value
     .replaceAll('&quot;', '"')
     .replaceAll('&#34;', '"')
-    .replaceAll('&amp;', '&')
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&')
 }
 
 /** 声明式 settings，或首页那套长按自定义面板。 */

@@ -6,10 +6,12 @@ use crate::services::agent::consciousness::{
     autonomy_claim_decision, build_autonomy_work_request,
 };
 use crate::services::agent::queue::LaneQueue;
-use crate::services::agent::run_hub::create_run;
+use crate::services::agent::run_hub::{AgentRun, create_run};
+use crate::services::agent::sessions::{
+    ensure_session, persist_user_message, require_user_message_persisted,
+};
 use crate::services::agent::{
-    Agent, AgentProgressEvent, AgentResponse, AgentResponseType, LANE_QUEUE, SYSTEM_USER_ID,
-    TaskStatus,
+    Agent, AgentProgressEvent, AgentResponse, LANE_QUEUE, SYSTEM_USER_ID,
 };
 use serde_json::{Value, json};
 
@@ -612,4 +614,6 @@ mod tests {
         assert_eq!(resume["task"]["pendingQuestion"]["questionId"], "q2");
     }
 }
+#[cfg(test)]
+use crate::services::agent::{AgentResponseType, TaskStatus};
 use myriad_error::AppError;

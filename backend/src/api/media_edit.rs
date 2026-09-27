@@ -69,7 +69,6 @@ use crate::{GLOBAL_DYNAMIC_CONFIG, error::HttpError, extract::AdminClaims};
 use axum::{
     Json,
     extract::{Path, State},
-    http::HeaderMap,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use myriad_error::AppError;

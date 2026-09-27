@@ -1,5 +1,14 @@
-//! Agent API — types
-use super::*;
+//! The shapes an agent run is asked for and answers in: the request and its
+//! context (a private chat, a group turn), tasks, steps and questions, and
+//! the response every channel reads. HTTP serves them as they are.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::models::entities::agent_task_presets;
+use crate::services::agent::{AgentProgressEvent, AgentResponse, AgentResponseType, TaskState};
+
+use super::convert_data_display_hint;
 
 // 请求/响应类型
 
@@ -600,9 +609,21 @@ pub(crate) fn agent_response_type_name(response_type: &AgentResponseType) -> &'s
     }
 }
 
+/// 回答问题请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerQuestionRequest {
+    /// 问题 ID
+    pub question_id: String,
+    /// 用户答案
+    pub answer: String,
+}
+
 #[cfg(test)]
 mod api_contract_tests {
+    use super::super::*;
     use super::*;
+    use crate::services::agent::queue::LaneQueue;
 
     #[test]
     fn task_status_uses_public_snake_case_contract() {

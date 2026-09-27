@@ -4,7 +4,9 @@
 
 use crate::services::agent::capability::CapabilityRef;
 use crate::services::agent::types::*;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use std::collections::HashMap;
 
 /// Breach (wrong JSON type / missing required) fails the step.

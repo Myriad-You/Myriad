@@ -662,7 +662,7 @@ pub(crate) async fn interrupt_session(
     match new_agent.process(request).await {
         Ok(response) => {
             // Same camelCase agent wire shape as POST /process (ApiResponse::from).
-            let api_response: crate::api::agent::types::ApiResponse = response.into();
+            let api_response: crate::services::agent::run::ApiResponse = response.into();
             Ok(Json(json!({
                 "success": true,
                 "cancelledTasks": cancelled_count,

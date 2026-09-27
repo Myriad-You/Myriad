@@ -74,7 +74,7 @@ pub fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
 /// Place each line in its section and on any moment it lands on.
 pub fn place(lines: &[LyricLine], sections: &[Section], moments: &[Moment]) -> Vec<LyricLine> {
     let weight = |kind: MomentKind| match kind {
-        MomentKind::Surge | MomentKind::OpensUp => 3,
+        MomentKind::Surge | MomentKind::OpensUp | MomentKind::KeyChange => 3,
         MomentKind::Drop | MomentKind::Build => 2,
         MomentKind::NewSection => 1,
     };
@@ -130,6 +130,7 @@ mod tests {
             likely_chorus,
             loudness_db: 0.0,
             brightness: 1.0,
+            change: 0.5,
         };
         let sections = [
             section(0.0, 30.0, 'A', false),

@@ -271,15 +271,11 @@ fn parse_room_stickers_filters_invalid() {
 
 #[test]
 fn parse_room_stickers_rejects_oversized() {
-    let big = format!(
-        "data:image/png;base64,{}",
-        "A".repeat(ROOM_STICKER_MAX_DATA_LEN)
-    );
     let too_big = format!(
         "data:image/png;base64,{}",
         "B".repeat(ROOM_STICKER_MAX_DATA_LEN)
     );
-    // `big` length is prefix + max => > MAX; craft exact edge
+    // The prefix plus the maximum payload exceeds the cap; craft the exact edge.
     let ok_data = format!(
         "data:image/png;base64,{}",
         "C".repeat(ROOM_STICKER_MAX_DATA_LEN - "data:image/png;base64,".len())
@@ -305,7 +301,6 @@ fn parse_room_stickers_rejects_oversized() {
     let list = parse_room_stickers(&shared);
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].id, "stk_ok");
-    let _ = big; // unused_variables: `big` is only constructed, not asserted.
 }
 
 #[test]

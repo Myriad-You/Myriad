@@ -652,6 +652,7 @@ async fn postgres_fencing_recovery_and_observation_driven_execution() {
         Some(format!("http://{address}/v1")),
     )
     .await;
+    let analyzer = crate::services::agent::work_call::WorkModel::from(analyzer);
     let agent = Agent::new(db.clone()).await;
     let mut state = checkpoint();
     store::save(&db, &mut state).await.unwrap();

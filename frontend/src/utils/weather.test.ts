@@ -18,4 +18,10 @@ describe('weather location coalescing', () => {
     assert.match(info, /isPreciseLocationEnabled/)
     assert.match(info, /hasBrowserGeoFix/)
   })
+
+  it('keeps one weather slot instead of a key per visited location', () => {
+    assert.doesNotMatch(src, /`weather_(?:data|time)_\$\{/)
+    assert.match(src, /LAST_WEATHER_LOCATION_KEY/)
+    assert.match(src, /sweepLegacyLocationKeys/)
+  })
 })

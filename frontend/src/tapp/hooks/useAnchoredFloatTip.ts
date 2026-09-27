@@ -42,7 +42,7 @@ function computePosition(
   const needH = panelH + GAP
   const needW = panelW + GAP
 
-  let placement: AnchoredFloatPlacement = 'top'
+  let placement: AnchoredFloatPlacement
   if (needH <= spaceAbove) {
     placement = 'top'
   } else if (needW <= spaceLeft) {

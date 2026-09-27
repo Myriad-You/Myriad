@@ -10,7 +10,7 @@ info() { echo -e "${CYAN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 err()  { echo -e "${RED}$1${NC}"; }
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$ROOT"
 
 COMMAND="${1:-}"
@@ -57,10 +57,6 @@ compose() {
     kind="$(compose_bin)"
     # shellcheck disable=SC2086
     $kind --env-file .env -p "$(active_project)" "$@"
-}
-
-data_volume() {
-    printf '%s_backend_data' "$(active_project)"
 }
 
 # Official writers that share backend_data / the same database.
@@ -111,12 +107,21 @@ quiesce_writers() {
     done
 }
 
-ensure_data_volume() {
-    local volume="$1"
-    if ! $DOCKER volume inspect "$volume" >/dev/null 2>&1; then
-        info "==> creating empty volume $volume"
-        $DOCKER volume create "$volume" >/dev/null
-    fi
+load_backup_storage() {
+    # shellcheck source=backend-storage.sh
+    source "$ROOT/scripts/extra/backend-storage.sh"
+    load_backend_storage "$DOCKER" "$(active_project)" "$ROOT" existing
+}
+
+preflight_restore_storage() {
+    load_backup_storage || return 1
+    # Prove mount/write access before stopping writers or replacing .env/database.
+    "$DOCKER" run --rm --network none \
+        --mount "$BACKEND_DATA_MOUNT,dst=/data" \
+        alpine:3.20 sh -eu -c '
+            probe="$(mktemp /data/.myriad-restore-probe.XXXXXX)"
+            rm -f -- "$probe"
+        '
 }
 
 # POSIX payload used by the alpine restore container and by host tests.
@@ -134,6 +139,10 @@ if [ ! -f "$archive" ]; then
     echo "restore archive missing" >&2
     exit 1
 fi
+# Archive metadata may restore a historical 0755 root. Keep private data private
+# even when extraction fails after applying that metadata.
+chmod 700 "$dest"
+trap 'status=$?; chmod 700 "$dest" || exit 1; exit "$status"' 0
 find "$dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 leftover=""
 for p in "$dest"/* "$dest"/.[!.]* "$dest"/..?*; do
@@ -147,6 +156,13 @@ if [ -n "$leftover" ]; then
     exit 1
 fi
 tar xzf "$archive" -C "$dest"
+if [ -n "${RESTORE_OWNER:-}" ]; then
+    # Writers are recreated with --no-deps, so volume-init will not repair an
+    # old archive's nested root-owned/private files. Do not follow symlinks.
+    chown -Rh "$RESTORE_OWNER" "$dest"
+    find "$dest" -type d -exec chmod u+rwx {} +
+    find "$dest" -type f -exec chmod u+rw {} +
+fi
 EOF
 }
 
@@ -222,7 +238,7 @@ show_usage() {
 Usage: $0 <backup|restore> [options]
 
   backup [--out DIR] [--no-stop]
-      Dump Postgres, archive the backend_data volume, and copy .env.
+      Dump Postgres, archive backend data selected by Compose, and copy .env.
       Stops backend / federation-worker / persona-worker briefly unless
       --no-stop is set. Excludes cache.
       If this script stopped a running writer, EXIT restarts it and
@@ -234,7 +250,7 @@ Usage: $0 <backup|restore> [options]
       Supported scope: same compose project and the same
       POSTGRES_PASSWORD as the running role. A different password or
       compose project is refused before any stop, copy, or restore.
-      Order: match password and project → pin project → stop writers →
+      Order: match password and project → pin project → probe data volume → stop writers →
       restore .env → restore Postgres → restore volume → recreate
       backend → wait /ready → recreate workers.
       A failed restore leaves stopped writers down.
@@ -289,6 +305,7 @@ do_backup() {
     STOPPED_WRITERS=""
     trap 'code=$?; trap - EXIT; restart_writers_keep_status "$code"; exit $?' EXIT
 
+    load_backup_storage || return 1
     info "==> backup directory $out"
     if [ "$no_stop" -eq 0 ]; then
         quiesce_writers
@@ -300,14 +317,14 @@ do_backup() {
     compose exec -T postgres pg_dump -U myriad -d myriad -Fc > "$out/postgres.dump"
     chmod 600 "$out/postgres.dump"
 
-    local volume
-    volume="$(data_volume)"
-    info "==> backend_data volume ($volume)"
-    $DOCKER run --rm \
-        -v "${volume}:/data:ro" \
-        -v "$out:/out" \
+    info "==> backend data"
+    # Let the host operator create the archive. A root container writing through
+    # /out would leave a root-owned file that non-root Linux operators cannot chmod.
+    umask 077
+    "$DOCKER" run --rm \
+        --mount "$BACKEND_DATA_MOUNT,dst=/data,readonly" \
         alpine:3.20 \
-        tar czf /out/backend_data.tar.gz -C /data .
+        tar czf - -C /data . > "$out/backend_data.tar.gz"
     chmod 600 "$out/backend_data.tar.gz"
 
     umask 077
@@ -342,6 +359,8 @@ do_restore() {
     require_same_postgres_password "$from/env"
     require_same_compose_project "$from/env"
 
+    preflight_restore_storage || return 1
+
     WRITERS_STOPPED_BY_US=0
     STOPPED_WRITERS=""
     trap 'code=$?; trap - EXIT; if [ "$code" -ne 0 ] && [ "${WRITERS_STOPPED_BY_US:-0}" -eq 1 ]; then err "restore failed; writers left stopped so writes stay quiesced"; fi; exit "$code"' EXIT
@@ -364,14 +383,12 @@ do_restore() {
     info "==> restoring PostgreSQL"
     compose exec -T postgres pg_restore -U myriad -d myriad --clean --if-exists < "$from/postgres.dump"
 
-    local volume
-    volume="$(data_volume)"
-    ensure_data_volume "$volume"
-    info "==> restoring backend_data ($volume)"
-    $DOCKER run --rm \
+    info "==> restoring backend data"
+    "$DOCKER" run --rm \
         -e DEST=/data \
         -e ARCHIVE=/in/backend_data.tar.gz \
-        -v "${volume}:/data" \
+        -e RESTORE_OWNER=1000:1000 \
+        --mount "$BACKEND_DATA_MOUNT,dst=/data" \
         -v "$from:/in:ro" \
         alpine:3.20 \
         sh -c "$(volume_restore_posix)"

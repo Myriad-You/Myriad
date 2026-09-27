@@ -158,6 +158,10 @@ impl ComposeOutput {
 }
 
 impl ComposeRunner {
+    pub(crate) fn project_directory(&self) -> &std::path::Path {
+        &self.project_directory
+    }
+
     pub(crate) fn files(&self) -> &[PathBuf] {
         &self.files
     }

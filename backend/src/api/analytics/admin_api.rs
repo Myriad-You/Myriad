@@ -15,7 +15,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Instant;
 
 fn analytics_db_error(error: impl std::fmt::Display) -> (StatusCode, Json<Value>) {
     tracing::warn!("analytics query failed: {error}");
@@ -51,12 +50,11 @@ use super::intake_helpers::{
     ANALYTICS_BACKUP_FORMAT, ANALYTICS_BACKUP_VERSION, DAILY_RETENTION_DAYS, ENGAGE_MARKER,
     MAX_IMPORT_COUNTRY_DAILY, MAX_IMPORT_COUNTRY_VISITOR, MAX_IMPORT_EVENT_DAILY,
     MAX_IMPORT_EVENT_VISITOR, MAX_IMPORT_PAGE_DAILY, MAX_IMPORT_REFERRER_DAILY,
-    MAX_IMPORT_VISITOR_SEEN, MAX_SUMMARY_DAYS, SITE_PATH, SUMMARY_CACHES, SummaryQuery,
-    VISITOR_RETENTION_DAYS, analytics_collection_enabled, analytics_today, analytics_tz_label,
-    compare_range_kind, count_distinct_site, invalidate_summary_cache, metric_delta,
-    normalize_country_code, normalize_country_name, normalize_event_name, normalize_path,
-    normalize_referrer_host, normalize_target, read_visitor_ordinal, resolve_visitor_hash,
-    sum_all_time_page_views,
+    MAX_IMPORT_VISITOR_SEEN, SITE_PATH, SUMMARY_CACHES, SummaryQuery, VISITOR_RETENTION_DAYS,
+    analytics_collection_enabled, analytics_today, analytics_tz_label, compare_range_kind,
+    count_distinct_site, invalidate_summary_cache, metric_delta, normalize_country_code,
+    normalize_country_name, normalize_event_name, normalize_path, normalize_referrer_host,
+    normalize_target, read_visitor_ordinal, resolve_visitor_hash, sum_all_time_page_views,
 };
 
 /// GET /api/analytics/summary?days=7  or  ?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -1211,7 +1209,13 @@ impl ImportBatch {
         row_tail: &'static str,
         conflict: &'static str,
     ) -> Self {
-        Self::with_max_rows(head, columns, row_tail, conflict, IMPORT_BIND_BUDGET / columns)
+        Self::with_max_rows(
+            head,
+            columns,
+            row_tail,
+            conflict,
+            IMPORT_BIND_BUDGET / columns,
+        )
     }
 
     pub(crate) fn with_max_rows(

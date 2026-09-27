@@ -7,14 +7,22 @@ in vec2 a_pos;
 in vec2 a_uv;
 uniform vec2 u_view;
 uniform mat3 u_layer_transform;
+// Pivot on the canvas cut, lean angle, and the height over which the torso
+// bends into it: the cut stays on the frame while the shoulders take it all.
 uniform vec4 u_body_transform;
 out vec2 v_uv;
 void main() {
   vec2 layer_position = (u_layer_transform * vec3(a_pos, 1.0)).xy;
   vec2 offset = layer_position - u_body_transform.xy;
+  float share = u_body_transform.w > 0.0
+    ? smoothstep(0.0, 1.0, -offset.y / u_body_transform.w)
+    : 1.0;
+  float angle = u_body_transform.z * share;
+  float c = cos(angle);
+  float s = sin(angle);
   vec2 transformed = u_body_transform.xy + vec2(
-    offset.x * u_body_transform.z - offset.y * u_body_transform.w,
-    offset.x * u_body_transform.w + offset.y * u_body_transform.z
+    offset.x * c - offset.y * s,
+    offset.x * s + offset.y * c
   );
   vec2 clip = vec2(transformed.x / u_view.x * 2.0 - 1.0, 1.0 - transformed.y / u_view.y * 2.0);
   gl_Position = vec4(clip, 0.0, 1.0);

@@ -98,10 +98,11 @@ function extractBilibiliVideoId(
   return null
 }
 
+/** owner/repo 会原样拼进卡片 HTML，只收 GitHub 自己允许的字符。 */
 function extractGithubRepo(
   url: string,
 ): { owner: string; repo: string } | null {
-  const match = url.match(/github\.com\/([^/]+)\/([^/?#]+)/)
+  const match = url.match(/github\.com\/([A-Za-z0-9-]+)\/([\w.-]+)(?:[/?#]|$)/)
   if (match) return { owner: match[1], repo: match[2] }
   return null
 }

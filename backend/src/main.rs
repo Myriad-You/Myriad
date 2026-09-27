@@ -1,10 +1,7 @@
 //! Myriad backend binary.
 //!
-//! Re-exports are path-stable on purpose: submodules reach each other through
-//! `use super::*`, and several `use` lines only feed `#[cfg(test)]` blocks, so
-//! the non-test target reports them unused. Removing them breaks the test
-//! target — keep the allow rather than trusting `cargo fix --all-targets`.
-#![allow(unused_imports)]
+//! Test-only imports are cfg-gated rather than hidden behind a crate-wide
+//! unused-imports allowance. Both production and test targets are linted.
 #![allow(private_interfaces)]
 // Clippy style allows（doc / signature / locals）；不是安全闸。
 #![allow(clippy::needless_update)]
@@ -51,7 +48,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
@@ -67,6 +63,8 @@ mod extract;
 mod federation;
 mod held_stream;
 mod i18n;
+#[cfg(test)]
+mod layering;
 mod memory_audit_invariants;
 mod memory_cleanup;
 mod middleware;
@@ -79,7 +77,6 @@ mod services;
 mod state;
 
 use config::{AppConfig, DynamicConfig};
-use sea_orm::ConnectionTrait;
 use services::config_service::ConfigService;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -774,9 +771,12 @@ async fn shutdown_signal() {
 
     // 停止全部后台 job（含 Tapp / Phantasi 调度器）：先停发新 tick，
     // 在期限内等在途 tick 收尾，超时中止。
-    services::jobs::shutdown(services::jobs::SHUTDOWN_DRAIN).await;
-
-    persona::shutdown().await;
+    services::jobs::jobs().stop_admission();
+    persona::request_stop().await;
+    tokio::join!(
+        services::jobs::shutdown(services::jobs::SHUTDOWN_DRAIN),
+        persona::shutdown(),
+    );
 }
 
 #[cfg(test)]

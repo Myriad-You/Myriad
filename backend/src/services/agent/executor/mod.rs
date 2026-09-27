@@ -29,7 +29,7 @@ pub use task_store::{
     TASK_STORE, cancel_task_for_user, enqueue_steering, get_task_for_user, get_user_tasks,
     init_task_store_db, is_cancelled, refresh_task_for_user, request_cancel, take_steering,
 };
-pub use utils::{extract_image_url, summarize_output, truncate_str};
+pub use utils::{extract_image_url, summarize_output};
 
 pub(crate) mod executor_footer;
 pub(crate) mod params;

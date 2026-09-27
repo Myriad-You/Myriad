@@ -5,7 +5,7 @@ mod heartbeat;
 pub(crate) mod web_control;
 pub mod worker;
 
-use crate::{api, services};
+use crate::services;
 use sea_orm::DatabaseConnection;
 use services::agent;
 use std::{sync::LazyLock, time::Duration};
@@ -45,8 +45,8 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
 
     // Re-create run hubs + wait-loops for waiting_for_input tasks so
     // answer/subscribe work after process restart.
-    api::agent::restore_waiting_runs_after_boot(&db).await;
-    api::agent::reclaim_stranded_running_intentions(&db).await;
+    services::agent::run::restore_waiting_runs_after_boot(&db).await;
+    services::agent::run::reclaim_stranded_running_intentions(&db).await;
     agent::heartbeat::init_heartbeat(agent_data_dir.join("HEARTBEAT.md"))
         .await
         .map_err(anyhow::Error::msg)?;
@@ -66,7 +66,7 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
         "autonomy",
         Duration::from_secs(15),
         Duration::ZERO,
-        move || api::agent::tick_autonomy_work(work_db.clone()),
+        move || services::agent::run::tick_autonomy_work(work_db.clone()),
     );
     // Own recovery admission and shutdown alongside the other persona drivers.
     // Reattach questions only after the lease scan has committed recovery.
@@ -81,9 +81,16 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
                 if let Err(error) = agent::work_loop::recover(&db).await {
                     tracing::warn!(%error, "Work recovery scan failed");
                 }
-                api::agent::restore_waiting_runs_after_boot(&db).await;
+                services::agent::run::restore_waiting_runs_after_boot(&db).await;
             }
         },
+    );
+    let memory_db = db.clone();
+    drivers.periodic(
+        "memory jobs",
+        Duration::from_secs(5),
+        Duration::ZERO,
+        move || agent::merope::memory_jobs::tick(memory_db.clone()),
     );
     let speak_db = db.clone();
     drivers.periodic(
@@ -180,7 +187,8 @@ pub fn background_status() -> &'static str {
     }
 }
 
-pub(super) async fn request_stop() {
+pub(crate) async fn request_stop() {
+    agent::merope::background::stop_admission();
     STARTED.store(false, std::sync::atomic::Ordering::Release);
     if let Some(runtime) = RUNTIME.lock().await.as_ref() {
         runtime.request_stop();
@@ -188,12 +196,16 @@ pub(super) async fn request_stop() {
 }
 
 pub async fn shutdown() {
-    STARTED.store(false, std::sync::atomic::Ordering::Release);
-    if let Some(runtime) = RUNTIME.lock().await.take() {
-        // Stop admission before draining. Previously the tick/heartbeat loops
-        // kept spawning work while the process waited for inflight execution.
-        runtime.shutdown().await;
-    }
+    request_stop().await;
+    let runtime = RUNTIME.lock().await.take();
+    tokio::join!(
+        async {
+            if let Some(runtime) = runtime {
+                runtime.shutdown().await;
+            }
+        },
+        agent::merope::background::shutdown(),
+    );
     if let Some(evolution) = agent::skill_evolution::get_skill_evolution() {
         evolution.flush().await;
     }

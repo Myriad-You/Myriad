@@ -18,14 +18,12 @@ import '../ui/phantasi.css'
 interface RSSHubConfigProps {
   initialConfig?: RSSHubConfig
   onConfigChange: (config: RSSHubConfig, fullUrl: string) => void
-  isEditMode?: boolean
   disabled?: boolean
 }
 
 export default function RSSHubConfigComponent({
   initialConfig,
   onConfigChange,
-  isEditMode: _isEditMode = false,
   disabled = false,
 }: RSSHubConfigProps) {
   const { t, format } = useI18n()

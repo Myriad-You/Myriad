@@ -31,7 +31,7 @@ test('opening swings each arm away from the body, and sway carries both one way'
   assert.ok(Math.abs(settle(right, sway) + 0.5 * ARM_SWAY_RADIANS) < 0.01)
 })
 
-test('an arm springs past a sudden change and then settles on it', () => {
+test('an arm overshoots a sudden change a little and then settles on it', () => {
   const arm = new ArmPendulum(1)
   settle(arm, STILL, 0.1)
   const target = 0.3 * ARM_OPEN_RADIANS
@@ -40,7 +40,7 @@ test('an arm springs past a sudden change and then settles on it', () => {
     arm.step({ ...STILL, open: 0.3 }, null, DT)
     peak = Math.max(peak, arm.angle)
   }
-  assert.ok(peak > target * 1.12 && peak < target * 1.3, `${peak} vs ${target}`)
+  assert.ok(peak > target * 1.03 && peak < target * 1.2, `${peak} vs ${target}`)
   assert.ok(Math.abs(settle(arm, { ...STILL, open: 0.3 }) - target) < 0.01)
 })
 

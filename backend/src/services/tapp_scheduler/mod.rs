@@ -12,7 +12,6 @@ pub use types_frontend::{
     MAX_SCHEDULER_RETRIES, MAX_SCHEDULER_RETRY_DELAY_MS, SCHEDULER_MAILBOX_POLL_MILLIS,
     SCHEDULER_PRESENCE_REFRESH_SECONDS, TappSchedulerEngine, active_frontend_subject_count,
     backend_action_permissions_of, drain_frontend_messages, normalize_backend_actions_parsed,
-    parse_backend_action_wrappers, register_frontend_connection, scheduler_counters,
-    scheduler_mailbox_depth, unregister_frontend_connection,
-    validate_backend_action_declarations_of,
+    register_frontend_connection, scheduler_counters, scheduler_mailbox_depth,
+    unregister_frontend_connection, validate_backend_action_declarations_of,
 };

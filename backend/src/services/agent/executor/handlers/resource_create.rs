@@ -5,7 +5,7 @@
 
 use super::HandlerContext;
 use crate::GLOBAL_DYNAMIC_CONFIG;
-use crate::models::entities::{tapp_storage, tapps};
+use crate::models::entities::tapp_storage;
 use crate::services::agent::resource_create_pure::{
     AGENT_BOOKMARKS_TAPP_ID, AGENT_NOTES_TAPP_ID, AGENT_REMINDERS_TAPP_ID, AGENT_REPORTS_TAPP_ID,
     agent_page_require_core_source, extract_html_title, extract_note_content, extract_string_tags,
@@ -15,7 +15,6 @@ use crate::services::agent::resource_create_pure::{
     reminder_repeat_or_default, render_report_content, require_nonempty_code,
     resolve_bookmark_title, truncate_json_for_prompt,
 };
-use crate::services::data_paths::paths;
 use crate::services::permission_service::{TappPermissionService, UserRole};
 use crate::services::tapp_install::select_install_approved_permissions;
 use crate::services::tapp_package_read::{installed_core_entry, installed_page_entry};
@@ -91,14 +90,14 @@ async fn persist_agent_tapp(
     // The same install core as any direct install: validation, conflict
     // check, canonical owner and staged activation instead of writing the
     // live directory and inserting the row by hand.
-    crate::api::tapp_store::install_generated(
+    crate::services::tapp_packages::install_generated(
         ctx.db,
         ctx.user_id,
         typed_manifest,
         HashMap::from([(core_entry, code.to_string()), (page_entry, page_source)]),
     )
     .await
-    .map_err(|error| error.0.to_string())?;
+    .map_err(|error| error.to_string())?;
     Ok(Utc::now())
 }
 
@@ -153,7 +152,7 @@ Return valid JSON only:
 }}"#
     );
 
-    let result = analyzer.analyze(&prompt).await.map_err(|e| {
+    let result = analyzer.text(&prompt).await.map_err(|e| {
         tracing::error!(error = %e, "Tapp generation failed");
         "Tapp generation failed".to_string()
     })?;

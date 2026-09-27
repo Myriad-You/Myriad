@@ -386,7 +386,6 @@ export function EditSourceMode({
                 setRsshubFullUrl(fullUrl)
                 setRsshubRoute(config.routePath)
               }}
-              isEditMode
               disabled={saving}
             />
           </FormBlock>

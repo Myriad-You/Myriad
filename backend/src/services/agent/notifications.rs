@@ -13,8 +13,8 @@ use std::sync::{Arc, OnceLock};
 
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
-    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, Statement,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Statement,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};

@@ -51,6 +51,11 @@ pub async fn exit_maintenance(ctx: &Context, force: bool) -> Result<()> {
 }
 
 pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
+    let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(snapshot_id);
+    let compose = build_compose_runner(ctx).await?;
+    let restore =
+        crate::worker::update::prepare_compose_restore(&ctx.state, source_job, &compose)
+            .await?;
     let snapshots = ctx.state.read_snapshots()?;
     let meta = snapshots.items.iter().find(|s| s.id == snapshot_id);
 
@@ -80,8 +85,9 @@ pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
     // Reuse the prepared record so the CLI restores the same Compose the worker's
     // automatic rollback does. Restoring only MYRIAD_TAG would start the old images
     // with the new version's definition, which is what `restore_compose` prevents.
-    let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(snapshot_id);
-    crate::worker::update::restore_compose(&ctx.state, source_job)?;
+    if let Some(restore) = restore {
+        restore.restore()?;
+    }
     crate::worker::update::restore_proxy_tag(&ctx.state, source_job, &ctx.env_file)?;
 
     if ctx.db_mode.is_external() {
@@ -227,7 +233,7 @@ pub async fn clean_snapshots(ctx: &Context, keep: usize) -> Result<()> {
     Ok(())
 }
 
-async fn compose_v2_or_v1(ctx: &Context, args: &[&str]) -> Result<()> {
+async fn build_compose_runner(ctx: &Context) -> Result<crate::docker::ComposeRunner> {
     let project = std::env::var("COMPOSE_PROJECT_NAME").unwrap_or_else(|_| "myriad".into());
     let guard_env_file = crate::docker::compose::guard_env_file_path();
     crate::docker::compose::validate_guard_policy_file(&guard_env_file)?;
@@ -240,7 +246,7 @@ async fn compose_v2_or_v1(ctx: &Context, args: &[&str]) -> Result<()> {
         .and_then(|path| path.parent())
         .unwrap_or(&ctx.compose_dir);
     let host_root = docker.resolve_host_bind_source(base).await?;
-    let compose = crate::docker::ComposeRunner::new(
+    Ok(crate::docker::ComposeRunner::new(
         binary,
         project,
         probe.compose_files,
@@ -248,7 +254,11 @@ async fn compose_v2_or_v1(ctx: &Context, args: &[&str]) -> Result<()> {
         guard_env_file,
         ctx.compose_dir.clone(),
         host_root,
-    );
+    ))
+}
+
+async fn compose_v2_or_v1(ctx: &Context, args: &[&str]) -> Result<()> {
+    let compose = build_compose_runner(ctx).await?;
     // Share service expansion and old-image capability checks with ordinary
     // update/rollback. A database restore must stop the worker as well as web.
     let output = match args {

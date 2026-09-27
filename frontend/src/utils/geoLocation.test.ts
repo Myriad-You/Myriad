@@ -35,6 +35,14 @@ describe('geoLocation fallbacks', () => {
     assert.match(precise, /getClientGeoLocation/)
   })
 
+  it('coarsens the browser fix before it is cached or sent out', () => {
+    const browser = src.slice(src.indexOf('export async function getBrowserGeolocation'))
+    const coarsen = browser.indexOf('coarsenCoordinate(position.coords.latitude)')
+    assert.ok(coarsen >= 0, 'browser fix must be coarsened')
+    assert.ok(coarsen < browser.indexOf('reverseGeocodeCity('))
+    assert.ok(coarsen < browser.indexOf('writeBrowserGeoCache('))
+  })
+
   it('shares host IP geo with TAPP context.getGeo', () => {
     assert.match(handlerSrc, /getClientGeoLocation/)
     assert.match(

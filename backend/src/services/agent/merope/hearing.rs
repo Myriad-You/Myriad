@@ -17,8 +17,13 @@ use std::time::Duration;
 use myriad_listening::ListeningSheet;
 use sea_orm::DatabaseConnection;
 
-use super::doing::Thing;
+use super::sources::Thing;
 use crate::services::music_player_view::PlayerMusicSource;
+
+// The permit moves into the CPU job. Aborting its async parent cannot abort
+// spawn_blocking, so capacity must stay held until decoding actually finishes.
+static DECODER: LazyLock<Arc<tokio::sync::Semaphore>> =
+    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(1)));
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -41,7 +46,7 @@ pub fn start(db: DatabaseConnection, key: String, thing: Thing) {
     if let Ok(mut heard) = HEARD.lock() {
         *heard = None;
     }
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("hearing", async move {
         if let Some(sheet) = hear(&db, &thing).await {
             if let Ok(mut heard) = HEARD.lock() {
                 *heard = Some((key, Arc::new(sheet)));
@@ -77,6 +82,7 @@ async fn hear(db: &DatabaseConnection, thing: &Thing) -> Option<ListeningSheet> 
     let Thing::Song { id, source, .. } = thing else {
         return None;
     };
+    let _permit = DECODER.clone().try_acquire_owned().ok()?;
     let fetched = tokio::time::timeout(FETCH_TIMEOUT, async {
         let lrc = timed_lyrics(db, source, id).await;
         let audio = recording(db, source, id).await;
@@ -88,6 +94,7 @@ async fn hear(db: &DatabaseConnection, thing: &Thing) -> Option<ListeningSheet> 
         return None;
     };
     let heard = tokio::task::spawn_blocking(move || {
+        let _permit = _permit;
         myriad_listening::listen_to_bytes(bytes, ext, lrc.as_deref())
     })
     .await;
@@ -190,5 +197,47 @@ mod tests {
         assert_eq!(extension("audio/mpeg"), Some("mp3"));
         assert_eq!(extension("Audio/FLAC; charset=binary"), Some("flac"));
         assert_eq!(extension("application/octet-stream"), None);
+    }
+}
+
+/// Hear a real song end to end and print what she would get.
+/// `MEROPE_HEAR_SONG=<netease id> cargo test … hear_a_real_song -- --ignored --nocapture`
+#[cfg(test)]
+mod live {
+    #[tokio::test]
+    #[ignore = "fetches a real recording; requires MEROPE_HEAR_SONG"]
+    async fn hear_a_real_song() {
+        let Ok(id) = std::env::var("MEROPE_HEAR_SONG") else {
+            return;
+        };
+        let db = sea_orm::DatabaseConnection::default();
+        let thing = super::Thing::Song {
+            id,
+            source: "netease".into(),
+            name: String::new(),
+            artist: String::new(),
+            album: String::new(),
+            cover: String::new(),
+            duration_ms: 0,
+        };
+        // For tuning: keep the recording and its lyrics where asked.
+        if let Ok(dir) = std::env::var("MEROPE_HEAR_KEEP") {
+            let super::Thing::Song { id, .. } = &thing else {
+                unreachable!()
+            };
+            let (bytes, ext) = super::recording(&db, "netease", id)
+                .await
+                .expect("recording");
+            let dir = std::path::Path::new(&dir);
+            std::fs::write(dir.join(format!("{id}.{}", ext.unwrap_or("mp3"))), bytes).unwrap();
+            if let Some(lrc) = super::timed_lyrics(&db, "netease", id).await {
+                std::fs::write(dir.join(format!("{id}.lrc")), lrc).unwrap();
+            }
+            return;
+        }
+        let started = std::time::Instant::now();
+        let sheet = super::hear(&db, &thing).await.expect("heard");
+        println!("heard in {:?}\n{}", started.elapsed(), sheet.describe());
+        println!("\n--- at 1:00 ---\n{}", sheet.so_far(60.0));
     }
 }

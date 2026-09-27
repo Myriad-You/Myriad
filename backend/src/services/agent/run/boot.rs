@@ -838,7 +838,7 @@ mod tests {
             .and_then(|rest| rest.split("#[cfg(test)]").next())
             .expect("restore_waiting_runs_after_boot");
         assert!(!boot.contains("persist_task_async"));
-        let store = include_str!("../../services/agent/executor/task_store.rs");
+        let store = include_str!("../executor/task_store.rs");
         let store_fn = store
             .split("pub fn store(&mut self, user_id: i32, task: TaskState)")
             .nth(1)

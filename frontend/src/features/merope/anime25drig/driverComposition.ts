@@ -207,6 +207,8 @@ export function applyAnime25DComposedPose(
     target,
     sources.randomAction,
     gate.random.expression,
+    // A voice or a song owns the mouth; an idle mood only colours a free one.
+    (1 - clamp(gate.speechMouth, 0, 1)) * (1 - clamp(gate.grooveMouth, 0, 1)),
   )
   applyThinkingMouth(target, sources.thinking, gate.thinking.expression)
   target.bust = mixBoundedExpressionChannel(
@@ -222,9 +224,28 @@ function applyRandomActionExpressionExtras(
   target: Anime25DDriver,
   frame: Readonly<RandomActionFrame>,
   amount: number,
+  mouthFree: number,
 ): void {
   const weight = clamp(amount, 0, 1)
   if (weight <= 0) return
+  target.eyeSmile = mixBoundedExpressionChannel(target.eyeSmile, frame.eyeSmile * weight, 0, 1, 0)
+  target.eyeWide = mixBoundedExpressionChannel(target.eyeWide, frame.eyeWide * weight, 0, 1, 0)
+  if (frame.wink !== 0) {
+    target.eyeOpenL = mixEyeOpen(target.eyeOpenL, -Math.max(0, frame.wink) * weight)
+    target.eyeOpenR = mixEyeOpen(target.eyeOpenR, -Math.max(0, -frame.wink) * weight)
+  }
+  const mouth = weight * clamp(mouthFree, 0, 1)
+  if (mouth > 0) {
+    target.mouthForm = mixBoundedExpressionChannel(
+      target.mouthForm,
+      frame.mouthForm * mouth,
+      -1,
+      1,
+      0,
+    )
+    target.mouthOpen = Math.max(target.mouthOpen, frame.mouthOpen * mouth)
+    target.mouthRound = Math.max(target.mouthRound, frame.mouthRound * mouth)
+  }
   target.browAngSym = mixBoundedExpressionChannel(
     target.browAngSym,
     frame.browAngSym * weight,

@@ -11,8 +11,9 @@ mod fetch;
 
 pub use cache::*;
 pub use errors::{
-    humanize_platform_fetch_error_for, platform_data_warning, platform_data_warning_for,
-    platform_fetch_details, platform_has_usable_data, resolve_platform_fetch_message,
-    resolve_platform_fetch_message_for,
+    humanize_platform_fetch_error_for, platform_data_warning_for, platform_fetch_details,
+    platform_has_usable_data, resolve_platform_fetch_message_for,
 };
-pub use fetch::{FreshPlatformData, configured_platform_ids, fetch_fresh_platform_data, refresh_platform_for_scheduler};
+pub use fetch::{
+    configured_platform_ids, fetch_fresh_platform_data, refresh_platform_for_scheduler,
+};

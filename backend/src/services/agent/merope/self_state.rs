@@ -26,9 +26,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Timelike, Utc};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
-
-use crate::models::entities::agent_addressee_state;
+use sea_orm::DatabaseConnection;
 
 /// Energy each recent person costs at the moment they spoke.
 const FATIGUE_PER_PERSON: f64 = 12.0;
@@ -198,17 +196,9 @@ async fn recent_contacts(
     now: DateTime<Utc>,
 ) -> Result<Vec<f64>, sea_orm::DbErr> {
     let since = (now - chrono::Duration::hours(LOOKBACK_H)).fixed_offset();
-    let spoken: Vec<Option<chrono::DateTime<chrono::FixedOffset>>> =
-        agent_addressee_state::Entity::find()
-            .select_only()
-            .column(agent_addressee_state::Column::LastUserMessageAt)
-            .filter(agent_addressee_state::Column::LastUserMessageAt.gt(since))
-            .into_tuple()
-            .all(db)
-            .await?;
-    Ok(spoken
+    Ok(super::store::last_talked_since(db, since)
+        .await?
         .into_iter()
-        .flatten()
         .map(|at| (now - at.with_timezone(&Utc)).num_seconds().max(0) as f64 / 3600.0)
         .collect())
 }

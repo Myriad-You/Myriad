@@ -3,7 +3,7 @@
 //! 将 Follow / Channel / Room 等入站事件翻译为用户通知。
 //! 消息类按会话稳定 ID upsert，避免刷屏；邀请/关注独立条目。
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{Value, json};
 
 use crate::services::agent::notification_preferences::NotificationEventKey;

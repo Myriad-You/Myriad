@@ -252,7 +252,7 @@ pub fn spawn(db: DatabaseConnection, request: &UserRequest, state: &agent_addres
     };
     let user_id = request.user_id;
     let input = AppraisalInput::from_request(request, state.mood, state.arousal);
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("appraisal", async move {
         // Includes context reads and analyzer setup, not just HTTP response time.
         let result =
             tokio::time::timeout(TOTAL_TIMEOUT, evaluate(&db, user_id, input_at, input)).await;

@@ -100,7 +100,36 @@ impl From<anyhow::Error> for ProviderCallFailure {
     }
 }
 
+/// Provider status preserved through retries and public anyhow boundaries.
+#[derive(Debug)]
+pub struct ProviderHttpError {
+    pub status: reqwest::StatusCode,
+    error: anyhow::Error,
+}
+
+impl std::fmt::Display for ProviderHttpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+impl std::error::Error for ProviderHttpError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.error.as_ref())
+    }
+}
+
 impl ProviderCallFailure {
+    fn into_error(self) -> anyhow::Error {
+        match self.status {
+            Some(status) => ProviderHttpError {
+                status,
+                error: self.error,
+            }
+            .into(),
+            None => self.error,
+        }
+    }
+
     fn http(status: reqwest::StatusCode, error: anyhow::Error) -> Self {
         Self {
             status: Some(status),
@@ -338,12 +367,16 @@ impl AiAnalyzer {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = Self::read_limited_error_text(response).await;
-            return Err(anyhow::anyhow!(format_openai_compatible_http_error(
+            return Err(ProviderCallFailure::http(
                 status,
-                &url,
-                &self.model,
-                &error_text,
-            )));
+                anyhow::anyhow!(format_openai_compatible_http_error(
+                    status,
+                    &url,
+                    &self.model,
+                    &error_text,
+                )),
+            )
+            .into_error());
         }
         Ok(response)
     }
@@ -379,19 +412,13 @@ impl AiAnalyzer {
                     .await
             }
         };
-        self.note_ledger(input_chars, &result, "analyze").await;
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
     /// Best-effort site-wide cost ledger. Writes even without attribution
     /// (`source=internal`). Governed Tapp+scheduler paths suppress this hook.
-    async fn note_ledger(
-        &self,
-        input_chars: usize,
-        result: &Result<String, anyhow::Error>,
-        operation: &str,
-    ) {
-        let _ = operation;
+    async fn note_ledger(&self, input_chars: usize, result: &Result<String, anyhow::Error>) {
         match result {
             Ok(text) => {
                 crate::services::ai_cost_ledger::record_ai_call_from_attribution(
@@ -445,11 +472,11 @@ impl AiAnalyzer {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = Self::read_limited_error_text(response).await;
-            return Err(anyhow::anyhow!(
-                "Gemini API error {}: {}",
+            return Err(ProviderCallFailure::http(
                 status,
-                error_text
-            ));
+                anyhow::anyhow!("Gemini API error {}: {}", status, error_text),
+            )
+            .into_error());
         }
 
         let gemini_response: GeminiResponse =
@@ -525,12 +552,16 @@ impl AiAnalyzer {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = Self::read_limited_error_text(response).await;
-            return Err(anyhow::anyhow!(format_openai_compatible_http_error(
+            return Err(ProviderCallFailure::http(
                 status,
-                &url,
-                &self.model,
-                &error_text,
-            )));
+                anyhow::anyhow!(format_openai_compatible_http_error(
+                    status,
+                    &url,
+                    &self.model,
+                    &error_text,
+                )),
+            )
+            .into_error());
         }
 
         let openai_response: OpenAIResponse =
@@ -586,7 +617,7 @@ impl AiAnalyzer {
     ) -> Result<String> {
         self.send_text_protocol(system, messages, None, None)
             .await
-            .map_err(|failure| failure.error)
+            .map_err(ProviderCallFailure::into_error)
     }
 
     /// prompt-only wrapper around `analyze_profile`.
@@ -667,12 +698,16 @@ impl AiAnalyzer {
                         if !response.status().is_success() {
                             let status = response.status();
                             let error_text = Self::read_limited_error_text(response).await;
-                            Err(anyhow::anyhow!(format_openai_compatible_http_error(
+                            Err(ProviderCallFailure::http(
                                 status,
-                                &url,
-                                &self.model,
-                                &error_text,
-                            )))
+                                anyhow::anyhow!(format_openai_compatible_http_error(
+                                    status,
+                                    &url,
+                                    &self.model,
+                                    &error_text,
+                                )),
+                            )
+                            .into_error())
                         } else {
                             let openai_response: OpenAIResponse =
                                 Self::read_limited_json(response, 2 * 1024 * 1024).await?;
@@ -681,14 +716,14 @@ impl AiAnalyzer {
                     }
                     Err(e) => Err(e),
                 };
-                self.note_ledger(input_chars, &result, "chat").await;
+                self.note_ledger(input_chars, &result).await;
                 result
             }
             AiProvider::OpenAIResponses | AiProvider::Anthropic => {
                 let input_chars =
                     system.len() + messages.iter().map(|m| m.content.len()).sum::<usize>();
                 let result = self.analyze_with_text_protocol(system, &messages).await;
-                self.note_ledger(input_chars, &result, "chat").await;
+                self.note_ledger(input_chars, &result).await;
                 result
             }
         }
@@ -769,8 +804,8 @@ impl AiAnalyzer {
             }
         }
 
-        let result = result.map_err(|failure| failure.error);
-        self.note_ledger(input_chars, &result, "structured").await;
+        let result = result.map_err(ProviderCallFailure::into_error);
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -844,9 +879,8 @@ impl AiAnalyzer {
                 .await;
         }
 
-        let result = result.map_err(|failure| failure.error);
-        self.note_ledger(input_chars, &result, "structured-short")
-            .await;
+        let result = result.map_err(ProviderCallFailure::into_error);
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -881,8 +915,7 @@ impl AiAnalyzer {
         match streamed {
             Ok(text) => {
                 let result = Ok(text);
-                self.note_ledger(input_chars, &result, "structured-stream")
-                    .await;
+                self.note_ledger(input_chars, &result).await;
                 result
             }
             Err(failure) if failure.rejected_request() => {
@@ -892,7 +925,7 @@ impl AiAnalyzer {
                 );
                 self.analyze_json(system, prompt, schema_name, schema).await
             }
-            Err(failure) => Err(failure.error),
+            Err(failure) => Err(failure.into_error()),
         }
     }
 
@@ -1228,7 +1261,7 @@ impl AiAnalyzer {
     {
         let input_chars = prompt.len();
         let result = self.analyze_stream_inner(prompt, on_delta).await;
-        self.note_ledger(input_chars, &result, "stream").await;
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -1260,7 +1293,7 @@ impl AiAnalyzer {
         const IMAGE_INPUT_CHARS: usize = 4_000;
         let input_chars = prompt.len() + images.len() * IMAGE_INPUT_CHARS;
         let result = self.analyze_stream_images(prompt, images, on_delta).await;
-        self.note_ledger(input_chars, &result, "stream").await;
+        self.note_ledger(input_chars, &result).await;
         result
     }
 
@@ -1286,11 +1319,11 @@ impl AiAnalyzer {
             if !response.status().is_success() {
                 let status = response.status();
                 let error_text = Self::read_limited_error_text(response).await;
-                return Err(anyhow::anyhow!(
-                    "Gemini streaming API error {}: {}",
+                return Err(ProviderCallFailure::http(
                     status,
-                    error_text
-                ));
+                    anyhow::anyhow!("Gemini streaming API error {}: {}", status, error_text),
+                )
+                .into_error());
             }
             return super::sse::consume_text_sse(response, on_delta, gemini_stream_deltas).await;
         }
@@ -1331,11 +1364,11 @@ impl AiAnalyzer {
                 if !response.status().is_success() {
                     let status = response.status();
                     let error_text = Self::read_limited_error_text(response).await;
-                    return Err(anyhow::anyhow!(
-                        "Gemini streaming API error {}: {}",
+                    return Err(ProviderCallFailure::http(
                         status,
-                        error_text
-                    ));
+                        anyhow::anyhow!("Gemini streaming API error {}: {}", status, error_text),
+                    )
+                    .into_error());
                 }
 
                 super::sse::consume_text_sse(response, on_delta, gemini_stream_deltas).await
@@ -1381,10 +1414,12 @@ impl AiAnalyzer {
                     .send()
                     .await?;
                 if !response.status().is_success() {
-                    anyhow::bail!(
-                        "AI provider streaming API returned HTTP {}",
-                        response.status()
-                    );
+                    let status = response.status();
+                    return Err(ProviderCallFailure::http(
+                        status,
+                        anyhow::anyhow!("AI provider streaming API returned HTTP {status}"),
+                    )
+                    .into_error());
                 }
                 super::sse::consume_text_sse(response, on_delta, self.protocol_stream_extractor())
                     .await
@@ -1589,5 +1624,30 @@ mod tests {
             );
         }
         assert!(!ProviderCallFailure::transport(anyhow::anyhow!("timeout")).rejected_request());
+    }
+}
+
+#[cfg(test)]
+mod failure_contract_tests {
+    use super::*;
+
+    #[test]
+    fn public_errors_keep_http_status_and_source_through_context() {
+        let error = ProviderCallFailure::http(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            anyhow::anyhow!("upstream unavailable"),
+        )
+        .into_error()
+        .context("outer call");
+        let typed = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<ProviderHttpError>())
+            .unwrap();
+        assert_eq!(typed.status, reqwest::StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            error
+                .chain()
+                .any(|cause| cause.to_string() == "upstream unavailable")
+        );
     }
 }

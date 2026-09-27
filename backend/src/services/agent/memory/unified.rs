@@ -18,7 +18,6 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait,
     ExprTrait, QueryFilter, QueryOrder, QuerySelect,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::models::entities::agent_memories;
@@ -103,14 +102,14 @@ impl Speaker {
 }
 
 /// Who was present when something was said, and where.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Audience {
     members: Vec<i32>,
     venue: Venue,
 }
 
 /// Where a conversation happens.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Venue {
     /// One person and her.
     Private,
@@ -181,24 +180,7 @@ pub fn audience_admits(original: &[i32], present: &Audience) -> bool {
     !present.members.is_empty() && present.members.iter().all(|id| original.contains(id))
 }
 
-/// Something a memory is about, with the other names people use for it, so
-/// "喵" finds the memory about the cat. Written by the same model call that
-/// wrote the memory; the aliases are that model's knowledge, not the person's
-/// words, and are used only to match, never shown as something they said.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Concept {
-    pub name: String,
-    #[serde(default)]
-    pub aliases: Vec<String>,
-}
-
-impl Concept {
-    /// Every name this concept answers to, the canonical one first.
-    pub fn surface_forms(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(self.name.as_str()).chain(self.aliases.iter().map(String::as_str))
-    }
-}
+pub use myriad_agent_rules::Concept;
 
 fn clean_name(text: &str) -> Option<String> {
     let text: String = text
@@ -272,6 +254,9 @@ pub struct MemoryRecord {
     pub content: String,
     pub evidence: Option<String>,
     pub source: String,
+    /// Who said it: `user` for what they told her, `agent` for what she
+    /// gathered, `import` for rows carried over from before.
+    pub speaker: String,
     pub importance: f64,
     pub access_count: i32,
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
@@ -289,6 +274,7 @@ impl From<agent_memories::Model> for MemoryRecord {
             content: model.content,
             evidence: model.evidence,
             source: model.source,
+            speaker: model.speaker,
             importance: model.importance,
             access_count: model.access_count,
             created_at: model.created_at,
@@ -1167,6 +1153,55 @@ pub async fn retire_unowned<C: ConnectionTrait>(
     Ok(result.rows_affected > 0)
 }
 
+/// The unowned row from `source` in `venue` whose evidence carries `marker`,
+/// most recently touched first: a note kept in a group, found by whom it is on.
+pub async fn unowned_with_evidence<C: ConnectionTrait>(
+    db: &C,
+    venue: &str,
+    source: &str,
+    marker: &str,
+) -> Result<Option<agent_memories::Model>, DbErr> {
+    agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.is_null())
+        .filter(agent_memories::Column::Venue.eq(venue))
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .filter(agent_memories::Column::Evidence.contains(marker))
+        .order_by_desc(agent_memories::Column::UpdatedAt)
+        .one(db)
+        .await
+}
+
+/// Every active row from `source`, whoever it is about.
+pub async fn active_from_source<C: ConnectionTrait>(
+    db: &C,
+    source: &str,
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    agent_memories::Entity::find()
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .all(db)
+        .await
+}
+
+/// Which of these rows are still kept, faded or not.
+pub async fn still_kept<C: ConnectionTrait>(
+    db: &C,
+    ids: Vec<String>,
+) -> Result<std::collections::HashSet<String>, DbErr> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let kept: Vec<String> = agent_memories::Entity::find()
+        .select_only()
+        .column(agent_memories::Column::Id)
+        .filter(agent_memories::Column::Id.is_in(ids))
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(kept.into_iter().collect())
+}
+
 /// What she did on her own, most recent first.
 pub async fn own_experiences<C: ConnectionTrait>(
     db: &C,
@@ -1183,7 +1218,8 @@ pub async fn own_views<C: ConnectionTrait>(
     own_rows(db, OWN_VIEW, limit).await
 }
 
-async fn own_rows<C: ConnectionTrait>(
+/// Her own rows of one source, most recent first.
+pub async fn own_rows<C: ConnectionTrait>(
     db: &C,
     source: &str,
     limit: u64,

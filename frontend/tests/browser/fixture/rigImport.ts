@@ -236,12 +236,18 @@ async function touchSurface(region = 'face') {
   }
   raf = requestAnimationFrame(tick)
   const bounds = canvas.getBoundingClientRect()
-  let point: { x: number; y: number } | null = null
-  for (let y = bounds.top + 20; y < bounds.bottom - 20 && !point; y += 10) {
-    for (let x = bounds.left + 20; x < bounds.right - 20; x += 10) {
-      if (player.hitTestTouch(x, y)?.region === region) { point = { x, y }; break }
+  const inside: { x: number; y: number }[] = []
+  const outside: { x: number; y: number }[] = []
+  for (let y = bounds.top; y <= bounds.bottom; y += 10) {
+    for (let x = bounds.left; x <= bounds.right; x += 10) {
+      const points = player.hitTestTouch(x, y)?.region === region ? inside : outside
+      points.push({ x, y })
     }
   }
+  // Use the deepest interior hit. The first hit lies on the animated silhouette:
+  // a head response can move it out from under the pointer and correctly cancel.
+  const margin = (p: { x: number; y: number }) => Math.min(...outside.map(q => (p.x - q.x) ** 2 + (p.y - q.y) ** 2))
+  const point = inside.toSorted((a, b) => margin(b) - margin(a))[0] ?? null
   Object.assign(window, { touchSurfaceState: {
     events,
     current: () => ({ active: runtime.touch.current() !== null, form: runtime.touch.current()?.behaviors[0].form.id, pose: player.getCurrent() }),

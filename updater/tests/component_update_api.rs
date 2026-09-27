@@ -223,6 +223,7 @@ esac
                 format!("{}:{}", root.display(), std::env::var("PATH").unwrap()),
             )
             .env("TEST_ROOT", root)
+            .env("HOSTNAME", "fixture-updater")
             .env("RUST_LOG", "info")
             .env("UPDATE_TOKEN", TOKEN)
             .env("DOCKER_GUARD_SELF_UPDATE_TOKEN", TOKEN)

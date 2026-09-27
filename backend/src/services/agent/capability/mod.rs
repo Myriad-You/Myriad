@@ -7,7 +7,7 @@ mod output_contract;
 mod reference;
 mod utils;
 
-pub use output_contract::{ContractViolation, check_output_contract, declared_output_fields};
+pub use output_contract::{check_output_contract, declared_output_fields};
 pub use reference::{CapabilityRef, mcp_capability_id, skill_capability_id};
 pub use utils::*;
 

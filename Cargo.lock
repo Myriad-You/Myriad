@@ -2556,7 +2556,7 @@ checksum = "c2a86d3146ed3995b5913c414f6664344b9617457320782e64f0bb44afd49d74"
 
 [[package]]
 name = "migration"
-version = "0.5.7"
+version = "0.6.0"
 dependencies = [
  "myriad-phantasi",
  "sea-orm",
@@ -2680,7 +2680,7 @@ dependencies = [
 
 [[package]]
 name = "myriad-backend"
-version = "0.5.7"
+version = "0.6.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2691,6 +2691,7 @@ dependencies = [
  "chrono",
  "cron",
  "dotenvy",
+ "encoding_rs",
  "flate2",
  "futures",
  "hex",
@@ -2725,6 +2726,7 @@ dependencies = [
  "oauth2",
  "oauth2-reqwest",
  "once_cell",
+ "proc-macro2",
  "prost",
  "quick-xml",
  "rand 0.10.2",
@@ -2806,7 +2808,6 @@ version = "0.1.0"
 dependencies = [
  "rustfft",
  "serde",
- "serde_json",
  "symphonia",
 ]
 
@@ -2829,11 +2830,15 @@ dependencies = [
 name = "myriad-merope"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "earcutr",
+ "myriad-agent-rules",
+ "scraper",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.20",
+ "url",
 ]
 
 [[package]]

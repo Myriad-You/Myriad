@@ -1,15 +1,19 @@
 //! Merope: site persona, per-addressee state, hidden proactive speech.
 
 mod appraisal;
+pub(crate) mod background;
 pub mod bits;
+mod call;
 pub mod chat_remember;
 pub mod curiosity;
 pub mod doing;
+pub mod explore;
 pub mod gates;
 pub mod hearing;
 pub mod ingest;
 pub(crate) mod inner;
 pub mod life;
+pub(crate) mod memory_jobs;
 pub mod motion;
 pub mod motion_local;
 pub mod motion_preview;
@@ -21,16 +25,21 @@ mod priming;
 pub mod reach;
 pub mod report_dna;
 pub mod self_state;
+pub mod self_story;
+pub mod senses;
+pub mod serial;
 pub mod soup;
+pub mod sources;
 pub mod speaking_prompts;
 pub mod state;
 pub mod store;
 pub mod strangers;
 pub mod threads;
+pub mod touch;
 pub mod views;
 pub mod wander;
 
-pub use chat_remember::spawn_chat_remember;
+pub use chat_remember::enqueue_chat_remember;
 pub use curiosity::spawn_curiosity;
 pub use ingest::{
     allow_existing_notify, is_enabled, spawn as spawn_ingest, spawn_diary, spawn_presence,
@@ -40,17 +49,16 @@ pub use motion::{
     MotionContext, MotionPhase, PerformanceDirective, direct_motion, local_directive,
     refine_motion, resolve_round_motion_style,
 };
-pub use myriad_merope::RigStateSummary;
 pub use outfit_overlay::{apply_model_wear_directive, chat_wardrobe_section, overlay_outfit_id};
 pub use store::{
     JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate, acquire_avatar_generation,
     acquire_portrait_generation, avatar_generation_is_pending, clear_persona_on,
     complete_avatar_generation, complete_portrait_generation, credit_music_listening,
-    generation_inputs_changed, get_or_create_state, get_persona, get_persona_on, insert_diary,
-    insert_proactive, latest_diary, list_diary_from_sources, normalize_persona_fields,
-    portrait_generation_is_pending, promote_activity, recent_proactive, release_avatar_generation,
-    release_portrait_generation, rewrite_persona_media_urls, set_activity, set_dnd_schedule,
-    set_do_not_disturb, sticker_avatar_asset_id, update_affect, upsert_persona_on,
+    get_or_create_state, get_persona, get_persona_on, insert_diary, latest_diary,
+    list_diary_from_sources, portrait_generation_is_pending, promote_activity,
+    release_avatar_generation, release_portrait_generation, rewrite_persona_media_urls,
+    set_activity, set_dnd_schedule, set_do_not_disturb, sticker_avatar_asset_id, update_affect,
+    upsert_persona_on,
 };
 
 /// Logged-in users only. Guests use negative ids; heartbeat is `SYSTEM_USER_ID` (0).
@@ -185,7 +193,7 @@ pub async fn note_user_turn(
 /// What surrounded a chat turn, for the calls that follow it: what she said
 /// just before, what was on their screen or playing, whether it was a move in
 /// a game, and how many images came with it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TurnContext {
     pub before: Option<String>,
     pub scene: Option<String>,
@@ -338,8 +346,9 @@ pub use speaking_prompts::{
     format_brought_to_mind_section, format_curious_section, format_doing_section,
     format_emotion_section, format_found_out_section, format_inner_moment_ago_section,
     format_mood_section, format_on_your_mind_section, format_own_days_section, format_persona,
-    format_playing_section, format_recent_section, format_remembered_section, format_since_section,
-    format_views_section, group_speaking_section, guest_speaking_section, mood_tone_instruction,
+    format_playing_section, format_recent_section, format_remembered_section,
+    format_self_story_section, format_since_section, format_views_section, group_speaking_section,
+    guest_speaking_section, mood_tone_instruction,
 };
 
 /// Prompt sections for whoever this turn is speaking to. Empty when Merope is off.
@@ -671,6 +680,11 @@ async fn speaking_prompt_from_db(
         if let Some(block) = format_own_days_section(&life::recent_days(db, OWN_DAYS_LIMIT).await) {
             sections.push(block);
         }
+        // Who she has been lately, told from what she did: hers, heard
+        // wherever she is.
+        if let Some(block) = format_self_story_section(&self_story::current(db).await) {
+            sections.push(block);
+        }
         // Her own time is about public things, so any audience may hear it.
         let words = match turn {
             Turn::Chat(words) | Turn::Event(words) => Some(words),
@@ -745,11 +759,13 @@ pub fn has_custom_persona(persona: &agent_persona::Model) -> bool {
     format_persona(persona).is_some()
 }
 
-pub use gates::{IngestDecision, IngestSight, decide_ingest, is_valuable_event};
+#[cfg(test)]
+pub use gates::{IngestSight, decide_ingest};
+#[cfg(test)]
+pub use state::Affect;
 pub use state::{
-    ACTIVITY_STALE_SECS, Affect, AffectBaseline, DEFAULT_AROUSAL, DEFAULT_MOOD, MOOD_FLOOR,
-    MUSIC_LISTENING_MIN_SECS, MoodTransition, ORIGIN, apply_task_outcome, apply_user_utterance,
-    clamp_mood, detect_mood_cue, effective_activity, is_extremely_low, mood_band,
+    MUSIC_LISTENING_MIN_SECS, MoodTransition, apply_task_outcome, apply_user_utterance, clamp_mood,
+    detect_mood_cue, effective_activity, is_extremely_low, mood_band,
 };
 
 /// The activity to act on, with a stale one read as idle.

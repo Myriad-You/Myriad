@@ -796,7 +796,7 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
               {iconBadge(
                 'rest',
                 isWide ? 'w-7 h-7' : 'w-6 h-6',
-                isWide ? 'text-xl' : 'text-xl',
+                'text-xl',
               )}
             </div>
             <div className="tapp-app-card__meta">

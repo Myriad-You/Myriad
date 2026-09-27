@@ -1,6 +1,8 @@
 //! QQ C2C pairing entry: classify inbound text, then shared pairing I/O.
 
-use myriad_agent_rules::channel::{InboundC2cText, PairingBindResult, PairingLookup};
+use myriad_agent_rules::channel::InboundC2cText;
+#[cfg(test)]
+use myriad_agent_rules::channel::PairingLookup;
 use sea_orm::{DatabaseConnection, DbErr};
 use tracing::warn;
 

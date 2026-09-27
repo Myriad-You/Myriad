@@ -85,7 +85,7 @@ impl MotionRefinementGuard {
         mut self,
         live: super::playback_direction::PlaybackDirection,
     ) {
-        tokio::spawn(async move {
+        super::merope::background::spawn("playback refinement", async move {
             let completed = tokio::select! {
                 biased;
                 _ = live.cancelled() => true,

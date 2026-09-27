@@ -21,9 +21,9 @@ use super::{Agent, capability, executor, types::*};
 use crate::services::agent::capability::CapabilityRef;
 use crate::services::analyzer::tool_calling::{ToolCall, ToolDefinition, ToolMessage};
 use serde_json::{Value, json};
-use std::collections::HashMap;
 pub(crate) use state::is_work_recipe;
 use state::*;
+use std::collections::HashMap;
 pub(crate) use store::{expire_question, recover};
 use tokio::sync::mpsc::Sender;
 
@@ -287,9 +287,7 @@ impl Agent {
             state.task.step_results.keys().cloned().collect();
         super::merope::mark_activity(&self.db, state.user_id, "working").await;
         let result =
-            match crate::services::ai::create_ai_analyzer_for_tier(crate::config::ModelTier::Pro)
-                .await
-            {
+            match super::work_call::WorkModel::configured(crate::config::ModelTier::Pro).await {
                 Some(analyzer) => {
                     self.drive_work_loop(&mut state, tx.clone(), &emitter, &analyzer)
                         .await
@@ -366,7 +364,7 @@ impl Agent {
         state: &mut Checkpoint,
         tx: Option<Sender<AgentProgressEvent>>,
         emitter: &executor::events::StepEventEmitter,
-        analyzer: &crate::services::analyzer::AiAnalyzer,
+        analyzer: &super::work_call::WorkModel,
     ) -> Result<(), String> {
         // Legacy checkpoints keep their already-consumed context estimate.
         let budget = state.budget.get_or_insert_with(|| budget::Budget {
@@ -400,7 +398,7 @@ impl Agent {
         state: &mut Checkpoint,
         tx: Option<Sender<AgentProgressEvent>>,
         emitter: &executor::events::StepEventEmitter,
-        analyzer: &crate::services::analyzer::AiAnalyzer,
+        analyzer: &super::work_call::WorkModel,
     ) -> Result<(), String> {
         loop {
             if executor::is_cancelled(&state.task.task_id).await {
@@ -794,7 +792,7 @@ impl Agent {
             .await;
         let started = std::time::Instant::now();
         let tier = super::tier_router::resolve_tier_with_breaker(id, step.model_tier);
-        let analyzer = crate::services::ai::create_ai_analyzer_for_tier(tier).await;
+        let analyzer = super::work_call::WorkModel::configured(tier).await;
         let handler = executor::handlers::HandlerContext {
             db: &self.db,
             ai_analyzer: analyzer.as_ref(),

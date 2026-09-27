@@ -466,6 +466,67 @@ test('preflight rejects a PSD that cannot satisfy the rigid two-arm contract', a
   )
 })
 
+test('arms joined at the hands still import as a left and a right fragment', async () => {
+  const source = syntheticSeeThroughPsd()
+  const width = source.width
+  const joined = new Uint8ClampedArray(width * source.height * 4)
+  // Two arms whose hands meet in a bar across the body.
+  for (const [left, top, right, bottom] of [[12, 132, 72, 244], [184, 132, 244, 244], [12, 226, 244, 244]]) {
+    for (let y = top; y < bottom; y += 1) {
+      for (let x = left; x < right; x += 1) joined.set([48, 32, 24, 255], (y * width + x) * 4)
+    }
+  }
+  const linked = {
+    ...source,
+    children: source.children?.map((layer) =>
+      layer.name === 'handwear'
+        ? { ...layer, imageData: { width, height: source.height, data: joined } }
+        : layer),
+  } as Psd
+  const prepared = await prepareWithFakeCanvas(linked)
+  const arms = prepared.source.anime25dPlayback?.layers.filter((layer) => layer.role === 'handwear') ?? []
+  assert.deepEqual(arms.map((layer) => layer.side).toSorted(), ['L', 'R'])
+  const [left, right] = ['L', 'R'].map((side) => arms.find((layer) => layer.side === side)!)
+  // Each fragment keeps its own arm; the seam is on the bar between them.
+  assert.ok(left.x < 20 && left.x + left.w < width / 2 + 16, `${left.x}+${left.w}`)
+  assert.ok(right.x > width / 2 - 16 && right.x + right.w > 236, `${right.x}+${right.w}`)
+})
+
+test('a long garment labelled legwear stays as lower-body clothing; feet are dropped', async () => {
+  const source = syntheticSeeThroughPsd()
+  const width = source.width
+  const feet = new Uint8ClampedArray(width * source.height * 4)
+  for (let y = 246; y < 256; y += 1) {
+    for (let x = 90; x < 170; x += 1) feet.set([20, 20, 20, 255], (y * width + x) * 4)
+  }
+  const withFeet = {
+    ...source,
+    children: [...(source.children ?? []), { name: 'footwear', left: 0, top: 0, imageData: { width, height: source.height, data: feet } }],
+  } as Psd
+  const prepared = await prepareWithFakeCanvas(withFeet)
+  const layers = prepared.source.anime25dPlayback?.layers ?? []
+  assert.equal(layers.filter((layer) => layer.role === 'bottomwear').length, 2)
+  // The upper-body contract forbids leg and foot parts by id.
+  assert.ok(!layers.some((layer) => /legwear|footwear/.test(layer.name)))
+})
+
+test('a single arm is still not two arms', async () => {
+  const source = syntheticSeeThroughPsd()
+  const width = source.width
+  const single = new Uint8ClampedArray(width * source.height * 4)
+  for (let y = 132; y < 244; y += 1) {
+    for (let x = 12; x < 72; x += 1) single.set([48, 32, 24, 255], (y * width + x) * 4)
+  }
+  const oneArm = {
+    ...source,
+    children: source.children?.map((layer) =>
+      layer.name === 'handwear'
+        ? { ...layer, imageData: { width, height: source.height, data: single } }
+        : layer),
+  } as Psd
+  await assert.rejects(() => prepareWithFakeCanvas(oneArm), /rigid-right-arm-fragment|rigid-left-arm-fragment/)
+})
+
 test('unknown layers follow rigger head/body split by centroid vs chin', async () => {
   const source = syntheticSeeThroughPsd()
   const withUnknown = {

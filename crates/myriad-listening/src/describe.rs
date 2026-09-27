@@ -9,7 +9,7 @@ use crate::{ListeningSheet, Moment, MomentKind};
 fn moment_text(moment: &Moment) -> Option<String> {
     Some(match moment.kind {
         MomentKind::Surge => format!("swells {:+.0} dB", moment.amount),
-        MomentKind::Drop => format!("falls away {:.0} dB", -moment.amount),
+        MomentKind::Drop => format!("falls away {:.0} dB", moment.amount),
         MomentKind::OpensUp => format!("the sound opens up ({:.1}x brighter)", moment.amount),
         MomentKind::Build => format!(
             "a build that began at {} peaks here ({:.0} s)",
@@ -17,7 +17,25 @@ fn moment_text(moment: &Moment) -> Option<String> {
             moment.amount
         ),
         MomentKind::NewSection => return None,
+        MomentKind::KeyChange => format!("the key moves {}", key_move(moment.amount)),
     })
+}
+
+/// "up a whole step".
+pub(crate) fn key_move(semitones: f32) -> String {
+    let steps = semitones.round() as i32;
+    let size = match steps.abs() {
+        1 => "a half step",
+        2 => "a whole step",
+        3 => "a minor third",
+        _ => "",
+    };
+    let way = if steps > 0 { "up" } else { "down" };
+    if size.is_empty() {
+        format!("{way} {} semitones", steps.abs())
+    } else {
+        format!("{way} {size}")
+    }
 }
 
 impl ListeningSheet {
@@ -43,9 +61,14 @@ impl ListeningSheet {
         let _ = write!(out, "Length {}.", clock(self.duration_s));
         match self.tempo_bpm {
             Some(tempo) => {
+                let about = if self.pulse_clarity >= crate::reading::STEADY {
+                    "About"
+                } else {
+                    "A faint pulse, perhaps about"
+                };
                 let _ = write!(
                     out,
-                    " About {tempo:.0} BPM, pulse clarity {:.2}, syncopation {:.2}.",
+                    " {about} {tempo:.0} BPM, pulse clarity {:.2}, syncopation {:.2}.",
                     self.pulse_clarity, self.syncopation
                 );
             }
@@ -68,7 +91,7 @@ impl ListeningSheet {
             " Loudness range {:.0} dB; spectral centroid {:.0} Hz. {:.0}% of it is parts that come back.",
             self.dynamic_range_db,
             self.brightness_hz,
-            self.repetition * 100.0
+            self.repetition * 100.0 + 0.0
         );
         out
     }
@@ -114,12 +137,19 @@ impl ListeningSheet {
 
         if !self.readings.is_empty() {
             out.push_str("\nWhat listening research says about things like these:\n");
+            // One finding once, with every place in the song it applies to.
+            let mut findings: Vec<(&str, &str, Vec<&str>)> = Vec::new();
             for reading in &self.readings {
-                let _ = writeln!(
-                    out,
-                    "- {}. {} ({})",
-                    reading.heard, reading.tends_to, reading.source
-                );
+                match findings
+                    .iter_mut()
+                    .find(|(tends_to, _, _)| *tends_to == reading.tends_to)
+                {
+                    Some((_, _, heard)) => heard.push(&reading.heard),
+                    None => findings.push((reading.tends_to, reading.source, vec![&reading.heard])),
+                }
+            }
+            for (tends_to, source, heard) in findings {
+                let _ = writeln!(out, "- {}. {tends_to} ({source})", heard.join(". "));
             }
         }
     }
@@ -204,6 +234,13 @@ mod tests {
         let line = text.find("0:30 「就是现在」").unwrap();
         assert!(build < line && line < surge, "{text}");
         assert!(text.contains("(Huron 2006"));
+        // A finding is given once, with all its places.
+        assert_eq!(
+            text.matches("where listeners most often report chills")
+                .count(),
+            1
+        );
+        assert!(text.contains("At 0:30 a section breaks in") && text.contains(". At 1:30"));
         assert!(text.contains("come back.\n\nHow it goes:\n"), "{text}");
         let gist = sheet.gist();
         assert!(

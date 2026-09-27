@@ -186,3 +186,83 @@ export function bindArmRigMesh(rig: ArmRig, rest: Float32Array): ArmRigMesh {
   }
   return { weights, jointVertex }
 }
+
+/** Contact shorter than this is two arms brushing, not hands holding each other. */
+const MIN_ARM_CONTACT = 6
+
+/**
+ * True when the two sleeve drawings touch: hands clasped, one gripping the
+ * other. Such arms cannot swing apart without tearing their contact, so they
+ * move as one piece with the torso.
+ */
+export function anime25DArmsTouch(
+  first: Layer,
+  firstImage: CroppedLayerPixels | null,
+  second: Layer,
+  secondImage: CroppedLayerPixels | null,
+  reach = 2,
+): boolean {
+  if (!firstImage || !secondImage) return false
+  const cell = Math.max(1, reach)
+  const key = (x: number, y: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)}`
+  const occupied = new Set<string>()
+  eachOpaque(second, secondImage, (x, y) => occupied.add(key(x, y)))
+  let contact = 0
+  eachOpaque(first, firstImage, (x, y) => {
+    if (contact >= MIN_ARM_CONTACT) return
+    const cx = Math.floor(x / cell)
+    const cy = Math.floor(y / cell)
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (occupied.has(`${cx + dx},${cy + dy}`)) {
+          contact++
+          return
+        }
+      }
+    }
+  })
+  return contact >= MIN_ARM_CONTACT
+}
+
+function eachOpaque(layer: Layer, image: CroppedLayerPixels, visit: (x: number, y: number) => void): void {
+  const { width, height, pixels } = image
+  if (width < 1 || height < 1 || pixels.length !== width * height * 4) return
+  const scaleX = layer.w / width
+  const scaleY = layer.h / height
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (pixels[(y * width + x) * 4 + 3] < OPAQUE) continue
+      visit(layer.x + (x + 0.5) * scaleX, layer.y + (y + 0.5) * scaleY)
+    }
+  }
+}
+
+/** Share of the face's area a hand must cover near it to be resting on the head. */
+const HEAD_CONTACT_SHARE = 0.02
+
+/**
+ * True when a hand rests on the head: at a cheek, an ear or in the hair. The
+ * hand is carried by the body, so a head turning under it would slide out
+ * from beneath the fingers or through them.
+ */
+export function anime25DHandTouchesHead(
+  arms: readonly { layer: Layer; image: CroppedLayerPixels | null }[],
+  face: Anchors['face'],
+): boolean {
+  const radiusX = ((face.x1 - face.x0) / 2) * 1.25
+  const radiusY = ((face.y1 - face.y0) / 2) * 1.2
+  if (!(radiusX > 0 && radiusY > 0)) return false
+  const centerX = (face.x0 + face.x1) / 2
+  const centerY = (face.y0 + face.y1) / 2
+  let covered = 0
+  for (const { layer, image } of arms) {
+    if (!image) continue
+    const pixelArea = (layer.w / image.width) * (layer.h / image.height)
+    eachOpaque(layer, image, (x, y) => {
+      const dx = (x - centerX) / radiusX
+      const dy = (y - centerY) / radiusY
+      if (dx * dx + dy * dy <= 1) covered += pixelArea
+    })
+  }
+  return covered >= (face.x1 - face.x0) * (face.y1 - face.y0) * HEAD_CONTACT_SHARE
+}

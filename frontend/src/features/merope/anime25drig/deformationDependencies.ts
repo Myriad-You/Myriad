@@ -29,6 +29,8 @@ const EYE_DRIVER_KEYS = [
   'eyeX',
   'eyeY',
   'irisScale',
+  'eyeSmile',
+  'eyeWide',
   'brow',
   'browAngL',
   'browAngR',

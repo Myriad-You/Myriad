@@ -21,6 +21,7 @@ import {
   placeFaceBitmap,
   resolveAnime25DFaceFrame,
 } from './faceFrame'
+import { createLipMouthBitmap, detectPaintedLips, LIP_MOUTH_KINDS, lipMouthSize } from './lipMouth'
 import {
   createLovestruckDroolBitmap,
   createLovestruckFaceEffectBitmap,
@@ -629,6 +630,8 @@ function synthesizeMissingMouthExpressions(
     mouthToChin: Math.max(1, anchors.face.y1 - anchors.mouth.cy),
   })
   const palette = sampleMouthExpressionPalette(reference.data)
+  // A painted mouth with lips gets speaking mouths painted to match, not cel glyphs.
+  const paintedLips = detectPaintedLips(reference)
   const usedIds = new Set(layers.map((layer) => layer.id))
   const generated: RasterLayer[] = []
   const mouthCenter = { x: anchors.mouth.cx, y: anchors.mouth.cy }
@@ -645,7 +648,9 @@ function synthesizeMissingMouthExpressions(
     )
   let generatedManiacSize: { width: number; height: number } | null = null
   for (const { role, kind } of missing) {
-    const bitmap = createMouthExpressionBitmap(kind, sizes[kind], palette)
+    const bitmap = paintedLips && LIP_MOUTH_KINDS.has(kind)
+      ? createLipMouthBitmap(kind, lipMouthSize(kind, sizes[kind]), paintedLips)
+      : createMouthExpressionBitmap(kind, sizes[kind], palette)
     if (kind === 'maniac') {
       generatedManiacSize = { width: bitmap.width, height: bitmap.height }
     }

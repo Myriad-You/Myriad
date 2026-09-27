@@ -830,14 +830,16 @@ async fn answer_stranger(db: &DatabaseConnection, message: &GroupLine, token: &s
     let sent = deliver(message, token, &reply).await;
     if sent {
         record_hers(&venue, &reply).await;
-        crate::services::agent::merope::strangers::spawn_after(
-            db.clone(),
+        crate::services::agent::merope::strangers::enqueue_after(
+            db,
             owner,
             venue,
             stranger,
             message.said(),
             reply,
-        );
+            &message.message_id,
+        )
+        .await;
     }
     sent
 }
@@ -861,9 +863,9 @@ async fn run_turn(
     token: &str,
     chime: Option<String>,
 ) -> Option<String> {
-    let claims = crate::services::channel_work::claims_for_user(db, user_id)
+    crate::services::principal::current_roles(db, user_id)
         .await
-        .ok()?;
+        .ok()??;
     let venue = message.venue();
     let key = (venue.clone(), user_id);
     let known = SESSIONS
@@ -871,7 +873,7 @@ async fn run_turn(
         .ok()
         .and_then(|sessions| sessions.get(&key).cloned());
     // Made as the group's from the start: never read back as a private one.
-    let session_id = crate::api::agent::ensure_session_in(
+    let session_id = crate::services::agent::sessions::ensure_session_in(
         db,
         known.as_deref(),
         user_id,
@@ -883,15 +885,15 @@ async fn run_turn(
     if let Ok(mut sessions) = SESSIONS.lock() {
         sessions.insert(key, session_id.clone());
     }
-    let run = crate::api::agent::start_process_run(
+    let run = crate::services::agent::run::start_for_user(
         db.clone(),
-        claims,
-        crate::api::agent::ProcessRequest {
+        user_id,
+        crate::services::agent::run::ProcessRequest {
             input: message.said(),
-            context: Some(crate::api::agent::ProcessContext {
+            context: Some(crate::services::agent::run::ProcessContext {
                 mode: Some(AgentInteractionMode::Chat),
                 session_id: Some(session_id),
-                group: Some(crate::api::agent::GroupTurn {
+                group: Some(crate::services::agent::run::GroupTurn {
                     transcript: transcript(&venue, Some(&message.message_id)),
                     venue,
                     chime,
@@ -903,7 +905,7 @@ async fn run_turn(
     )
     .await
     .ok()?;
-    let mut events = Box::pin(crate::api::agent::agent_run_envelopes(run));
+    let mut events = Box::pin(crate::services::agent::run::agent_run_envelopes(run));
     let mut typing = tokio::time::interval(TYPING_EVERY);
     let deadline = tokio::time::sleep(TURN_DEADLINE);
     tokio::pin!(deadline);

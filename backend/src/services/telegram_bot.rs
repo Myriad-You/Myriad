@@ -15,7 +15,7 @@ use myriad_agent_rules::channel::{
 use myriad_error::redact_secrets;
 use serde::Serialize;
 use tokio::sync::{RwLock, watch};
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::GLOBAL_DYNAMIC_CONFIG;
 use crate::config::DynamicConfig;

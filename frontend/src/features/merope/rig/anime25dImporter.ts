@@ -51,6 +51,7 @@ import {
   resolveAnime25DFaceFrame,
 } from './faceFrame'
 import { formatTemplate } from './formatTemplate'
+import { anime25DShoulderSeeds, splitLinkedHandwear } from './linkedHandwear'
 import { inferOutfitProfileFromPartIds } from './outfit'
 import { repairAnime25DPsd } from './psdRepair'
 
@@ -77,7 +78,14 @@ export interface PreparedAnime25DRigImport {
   reconciliation: Anime25DPsdReconciliation | null
 }
 
-const UPPER_BODY_IGNORED_LAYERS = new Set(['legwear', 'footwear'])
+const UPPER_BODY_IGNORED_LAYERS = new Set(['footwear'])
+/**
+ * A long garment's visible front is often labelled legwear (a kimono or long
+ * skirt over the legs). Kept as lower-body clothing it paints where it was
+ * drawn and the portrait crop cuts it; dropped, it bares the flat fill a
+ * decomposer paints behind it. Feet are always far below the crop.
+ */
+const UPPER_BODY_AS_BOTTOMWEAR = new Set(['legwear'])
 export {
   anime25DBaseRole,
   normalizeAnime25DLayerName,
@@ -325,10 +333,13 @@ function flattenPsdForRigger(psd: Psd): Psd {
       for (let offset = 3; offset < data.length; offset += 4)
         data[offset] *= opacity
     }
+    const base = anime25DLayerNameParts(normalizeAnime25DLayerName(layer.name)).base
     return {
       ...layer,
       opacity: 1,
-      name: toRiggerLayerName(plainHairBySide(layer.name, index, face)),
+      name: UPPER_BODY_AS_BOTTOMWEAR.has(base)
+        ? 'bottomwear'
+        : toRiggerLayerName(plainHairBySide(layer.name, index, face)),
       imageData: {
         width: pixels.width,
         height: pixels.height,
@@ -427,13 +438,24 @@ function splitHandwearIfNeeded(
 ): RasterLayer[] {
   const output: RasterLayer[] = []
   const usedIds = new Set(layers.map((layer) => layer.id))
+  const shoulders = anime25DShoulderSeeds(layers)
   for (const layer of layers) {
     if (layer.role !== 'handwear' || layer.side) {
       output.push(layer)
       continue
     }
+    const bySide = {
+      right: splitRasterByComponents(layer, faceCenterX, 'right'),
+      left: splitRasterByComponents(layer, faceCenterX, 'left'),
+    }
+    // Touching hands leave both arms in one piece; cut it at the shoulders'
+    // meeting line instead of losing a whole arm to the other side.
+    const separate = rasterBounds(bySide.right) && rasterBounds(bySide.left)
+    const linked = !separate && shoulders
+      ? splitLinkedHandwear(layer, shoulders, faceCenterX)
+      : null
     for (const side of ['right', 'left'] as const) {
-      const split = splitRasterByComponents(layer, faceCenterX, side)
+      const split = (linked ?? bySide)[side]
       if (!rasterBounds(split)) continue
       split.id = uniquePartId(`handwear-${side}`, usedIds)
       split.side = side

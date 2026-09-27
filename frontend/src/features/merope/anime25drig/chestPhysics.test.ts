@@ -424,3 +424,28 @@ test('adaptive frequency changes timing while keeping the spring stable', () => 
   assert.ok(Number.isFinite(slower))
   assert.ok(Number.isFinite(faster))
 })
+
+test('a mid size estimate, where small chests are often read, bounces far less than a large one', () => {
+  const dynamics = (source: 'ai-vision' | 'geometry-fallback', visibleScale: number) =>
+    resolveChestDynamics({
+      enabled: true,
+      source,
+      visibleScale,
+      motionScale: 1,
+      frequencyScale: 1,
+      supportScale: 0.55,
+      garmentMotionScale: 0.45,
+    })
+  const bounce = (tuning: ReturnType<typeof dynamics>) =>
+    chestResponseMix(2.5, tuning.responseScale) * tuning.inertiaGain
+  const large = dynamics('ai-vision', 0.8)
+  const mid = dynamics('ai-vision', 0.55)
+  const small = dynamics('ai-vision', 0.45)
+  const unknown = dynamics('geometry-fallback', 0.5)
+  assert.ok(bounce(mid) < bounce(large) * 0.25, `${bounce(mid)} vs ${bounce(large)}`)
+  // Without an estimate the size is unknown, so it moves no more than a small one.
+  assert.ok(bounce(unknown) <= bounce(small) * 1.25, `${bounce(unknown)} vs ${bounce(small)}`)
+  // A flat chest has no volume to change shape; a large one does.
+  assert.equal(small.volumeScale, 0)
+  assert.equal(large.volumeScale, 1)
+})

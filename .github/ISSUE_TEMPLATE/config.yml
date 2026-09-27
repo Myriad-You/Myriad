@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability · 安全漏洞
+    url: https://github.com/Myriad-You/Myriad/security/advisories/new
+    about: Report privately. Never open a public issue for security problems. · 请私密报告，不要公开发 issue。
+  - name: Questions & help · 使用求助
+    url: https://github.com/Myriad-You/Myriad/discussions
+    about: Deployment questions, how-tos and ideas still taking shape. · 部署疑问、用法咨询、尚未成形的想法。
+  - name: Docs · 文档
+    url: https://github.com/Myriad-You/Myriad/blob/preview/docs/INDEX.md
+    about: Quick start, deployment, updater, Tapp development. · 快速开始、部署、更新器、Tapp 开发。
+  - name: Discord
+    url: https://discord.gg/Jr5HccgxyD
+    about: Chat with the community. · 社区交流。
+  - name: Telegram
+    url: https://t.me/myriadyou
+    about: Chat with the community. · 社区交流。

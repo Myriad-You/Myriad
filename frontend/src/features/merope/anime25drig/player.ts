@@ -19,10 +19,10 @@ import type {
   Anime25DStylizedTargets,
 } from './driverComposition'
 import type { Anime25DExpressionDeformationFrame } from './expressionDeformation'
-import type { FollowThroughKey } from './followThrough'
 import type { Anime25DHairSpringFrame } from './hairPhysics'
+import type { JellyElement } from './jellyVolume'
 import type { Anime25DGpuLayer } from './layerGpuBinding'
-import type { Anime25DMotionEnvelopeProfile } from './motionEnvelope'
+import type { Anime25DHandPose, Anime25DMotionEnvelopeProfile } from './motionEnvelope'
 import type { Anime25DMouthDeformationFrame } from './mouthDeformation'
 import type {
   Anime25DMouthMorphSources,
@@ -105,7 +105,6 @@ import {
 import { deformAnime25DExpressionPoint } from './expressionDeformation'
 import { ThinkingExpressionOwnership } from './expressionPresets'
 import { expressiveEyeOpenOffset } from './expressiveMotionEnvelope'
-import { FollowThroughController } from './followThrough'
 import {
   animationCatchupSeconds,
   animationElapsedSeconds,
@@ -122,6 +121,14 @@ import {
   jawTravelPixels,
   stepJawMotion,
 } from './jawMotion'
+import {
+  chestVolumeStretch,
+  HEAD_JELLY,
+  jellyDisplacement,
+
+  JellyVolume,
+  SLEEVE_JELLY,
+} from './jellyVolume'
 import { deformNeckwearBridge, writeAnime25DAttachmentTransform } from './layerAttachment'
 import { deformAnime25DUpstreamFeaturePoint } from './layerDeformation'
 import { compileAnime25DGpuLayers } from './layerGpuBinding'
@@ -166,6 +173,7 @@ import {
   PoseResponseController,
   resolvePoseResponseScale,
 } from './poseResponse'
+import { BODY_ROLL_RADIANS, bodyLeanShare, HEAD_ROLL_RADIANS } from './poseScale'
 import {
   DIRECTED_BODY_BLOCK_LEVEL,
   RandomActionController,
@@ -256,9 +264,18 @@ function releaseCompiledGpu(
   if (texture) gl.deleteTexture(texture)
 }
 
+/** Share of an arm with a bare forearm that is sleeve: only that much of it is soft. */
+const SLEEVE_SOFT_REACH = 0.55
+
+interface JellyPart {
+  element: JellyElement
+  volume: JellyVolume
+  /** The shoulder the sleeve hangs from. */
+  side: 'L' | 'R'
+}
+
 export class Anime25DPlayer {
   private readonly thinkingSticker = new ThinkingSticker()
-  private readonly thinkingStickerTransform = new Float32Array(9)
   private readonly gl: WebGL2RenderingContext
   private playback!: Anime25DPlayback
   private rigManifest: MeropeRigManifest | undefined
@@ -272,6 +289,7 @@ export class Anime25DPlayer {
     bodyPivotY: 0,
     bodyRotationCosine: 1,
     bodyRotationSine: 0,
+    bodyBendHeight: 0,
     time: 0,
     eyeCry: 0,
   }
@@ -281,17 +299,11 @@ export class Anime25DPlayer {
   private touchAtlas: TouchAtlas | null = null
   private touchLayers: TouchPaintLayer[] = []
   private readonly performanceTelemetry = new Anime25DPerformanceTelemetry()
-  /** The pose as shown: the primary one plus its follow-through. Everything downstream reads this. */
   private readonly current: Anime25DDriver = { ...IDENTITY_DRIVER }
-  /** The response filter's own state; only the follow-through reads it. */
-  private readonly primary: Anime25DDriver = { ...IDENTITY_DRIVER }
   private readonly target: Anime25DDriver = { ...IDENTITY_DRIVER }
   private readonly workingTarget: Anime25DDriver = { ...IDENTITY_DRIVER }
 
   private readonly poseResponse = new PoseResponseController()
-  private readonly followThrough = new FollowThroughController()
-  private readonly followThroughAcceleration = (key: FollowThroughKey) => this.poseResponse.accelerationOf(key)
-  private readonly followThroughBounds: Record<FollowThroughKey, number> = { angleX: 1, angleY: 1, angleZ: 1, body: 1 }
 
   private readonly mouthMorph: MouthMorphState = {
     centerX: 0,
@@ -335,6 +347,17 @@ export class Anime25DPlayer {
   private readonly armDrapes = { L: new ArmDrape(), R: new ArmDrape() } as const
 
   private readonly armJoint = { x: 0, y: 0, reach: 0 }
+  /** Each shoulder as the arm step last found it, for what else hangs there. */
+  private readonly shoulders = { L: { x: 0, y: 0, found: false }, R: { x: 0, y: 0, found: false } }
+
+  /** The head is one soft volume: it squashes and stretches about the chin. */
+  private readonly headJelly = new JellyVolume(HEAD_JELLY)
+  private headJellyElement: JellyElement | null = null
+  /** Each hanging sleeve wobbles in its own volume as well. */
+  private jellyParts = new Map<Anime25DGpuLayer, JellyPart>()
+  private readonly jellyShift = { x: 0, y: 0 }
+  private readonly jellyAnchor = { x: 0, y: 0 }
+  private readonly headWorldTransform = new Float32Array(9)
 
   private readonly torsoShellRotation: Anime25DTorsoShellRotation = {
     active: false,
@@ -492,7 +515,10 @@ export class Anime25DPlayer {
         releaseCompiledGpu(this.gl, compiled.layers, compiled.collarClip, nextTexture)
         return
       }
-      this.applyPackage(playback, rigManifest)
+      this.applyPackage(playback, rigManifest, {
+        linked: compiled.armsLinked,
+        touchingHead: compiled.handTouchesHead,
+      })
     } catch (error) {
       // Keep the live outfit; the not-yet-owned replacement must be released.
       releaseCompiledGpu(
@@ -507,6 +533,7 @@ export class Anime25DPlayer {
     this.atlasTexture = nextTexture
     this.layers = compiled.layers
     this.collarClip = compiled.collarClip
+    this.bindJelly()
     this.touchAtlas = touchAtlas
     this.thinkingSticker.setLinePixels(linePixels)
     this.touchLayers = this.layers.map((layer) => {
@@ -572,6 +599,7 @@ export class Anime25DPlayer {
   private applyPackage(
     playback: Anime25DPlayback,
     rigManifest?: MeropeRigManifest,
+    hands: Anime25DHandPose = {},
   ): void {
     playback = {
       ...playback,
@@ -584,8 +612,11 @@ export class Anime25DPlayer {
     this.motionEnvelopeProfile = deriveAnime25DMotionEnvelopeProfile(
       playback,
       rigManifest,
+      hands,
     )
-    this.singingGroove.setArmMotion(this.motionEnvelopeProfile.armMotion)
+    this.singingGroove.setArmMotion(
+      this.motionEnvelopeProfile.armMotion && this.motionEnvelopeProfile.rigidArm.limit > 0,
+    )
     this.neckDepth =
       playback.layers.find((layer) => layer.role === 'neck')?.depth ?? 0.95
     this.mouthTransition = new MouthTransitionController(playback.mouthProfile)
@@ -634,6 +665,10 @@ export class Anime25DPlayer {
       headAngleY: 0,
       headRotationCosine: 1,
       headRotationSine: 0,
+      headRoll: 0,
+      hairDrapeLength: (anchors.face.y1 - anchors.face.y0) * 1.5,
+      bodyPivotY: anchors.bodyPivot.y,
+      bodyBendHeight: Math.max(1, anchors.bodyPivot.y - anchors.neckBottom),
       neckPivotX: anchors.neckPivot.x,
       neckPivotY: anchors.neckPivot.y,
       neckBottom: anchors.neckBottom,
@@ -1141,16 +1176,13 @@ export class Anime25DPlayer {
       },
     ])
     stepAnime25DDriverResponse(
-      this.primary,
+      this.current,
       this.target,
       tgt,
       this.poseResponse,
       dt,
       this.responseScale,
     )
-    this.followThroughBounds.angleY = this.motionEnvelopeProfile.pitch.limit
-    this.followThroughBounds.body = this.motionEnvelopeProfile.torso.limit
-    this.followThrough.step(this.primary, this.followThroughAcceleration, dt, this.followThroughBounds, this.current)
     this.irisRebound.step(
       this.time,
       this.blinkState.activeSeconds,
@@ -1229,15 +1261,90 @@ export class Anime25DPlayer {
     hairSpringFrame.time = this.time
     stepAnime25DHairLayerSprings(this.layers, hairSpringFrame, dt)
     this.stepArms(dt)
+    this.stepJelly(dt)
+  }
+
+  private bindJelly(): void {
+    const anchors = this.playback.anchors
+    const face = anchors.face
+    const faceHeight = face.y1 - face.y0
+    this.jellyParts = new Map()
+    this.headJellyElement = faceHeight > 0
+      ? { anchorX: face.cx, anchorY: face.y1, axisX: 0, axisY: -1, length: faceHeight * 1.5, cutY: null }
+      : null
+    if (!this.headJellyElement) return
+    for (const layer of this.layers) {
+      const binding = layer.secondaryDeformation
+      if (binding.handwear && binding.arm && binding.arm.scale === 1 && binding.handwearSide) {
+        // A hanging sleeve's cloth hangs from the shoulder joint.
+        const arm = binding.arm
+        this.jellyParts.set(layer, {
+          element: {
+            anchorX: arm.pivotX, anchorY: arm.pivotY, axisX: 0, axisY: 1, length: arm.length, cutY: arm.cutY,
+            // Cloth all the way down is soft all the way; a bare forearm and hand are not.
+            softReach: arm.drape ? 1 : SLEEVE_SOFT_REACH,
+          },
+          volume: new JellyVolume(SLEEVE_JELLY),
+          side: binding.handwearSide === 'L' ? 'L' : 'R',
+        })
+      }
+    }
+  }
+
+  private stepJelly(dt: number): void {
+    const element = this.headJellyElement
+    if (!element) return
+    const dynamic = this.current.phys
+    const frame = this.secondaryDeformationFrame
+    this.writeHeadWorldTransform(this.headWorldTransform)
+    // Directions in the drawing turn with the head and body roll.
+    const roll = (frame.headRoll ?? 0) + Math.atan2(frame.bodyRotationSine, frame.bodyRotationCosine)
+    const downX = -Math.sin(roll)
+    const downY = Math.cos(roll)
+    this.headWorldPoint(element.anchorX, element.anchorY, this.jellyAnchor)
+    this.headJelly.step(this.jellyAnchor.x, this.jellyAnchor.y, -downX, -downY, element.length, dt, dynamic)
+    for (const part of this.jellyParts.values()) {
+      const shoulder = this.shoulders[part.side]
+      if (!shoulder.found) continue
+      part.volume.step(shoulder.x, shoulder.y, downX, downY, part.element.length, dt, dynamic)
+    }
+  }
+
+  /** The rigid head carry the shader gives a head-following layer. */
+  private writeHeadWorldTransform(m: Float32Array): void {
+    const f = this.secondaryDeformationFrame
+    writeAnime25DLayerGlobalTransform({
+      headFollow: 1, headRotationCosine: f.headRotationCosine,
+      headRotationSine: f.headRotationSine, neckPivotX: f.neckPivotX,
+      neckPivotY: f.neckPivotY, faceScale: f.faceScale,
+      angleX: this.current.angleX, angleY: f.headAngleY, depthOffset: 0.3,
+      faceCenterY: f.faceCenterY, specialOffsetY: f.specialHeadOffset,
+      breathOffset: f.headBreathOffset,
+    }, m)
+    m[6] += f.torsoNeckOffsetX
+  }
+
+  /** A head point through `headWorldTransform`, then the body lean the shoulders take. */
+  private headWorldPoint(x: number, y: number, out: { x: number; y: number }): void {
+    const m = this.headWorldTransform
+    const frame = this.renderFrame
+    const px = m[0] * x + m[3] * y + m[6] - frame.bodyPivotX
+    const py = m[1] * x + m[4] * y + m[7] - frame.bodyPivotY
+    out.x = frame.bodyPivotX + px * frame.bodyRotationCosine - py * frame.bodyRotationSine
+    out.y = frame.bodyPivotY + px * frame.bodyRotationSine + py * frame.bodyRotationCosine
   }
 
   private stepArms(dt: number): void {
     const e = this.current
     const frame = this.secondaryDeformationFrame
     if (!e.phys) this.prepareHeadDeformationFrame()
-    const input = { open: e.armY, sway: e.armPos, bodyRoll: e.body * 0.028, dynamic: e.phys }
+    const input = { open: e.armY, sway: e.armPos, bodyRoll: e.body * BODY_ROLL_RADIANS, dynamic: e.phys }
     for (const side of ['L', 'R'] as const) {
       const joint = this.writeArmJoint(side) ? this.armJoint : null
+      const shoulder = this.shoulders[side]
+      shoulder.found = joint !== null
+      shoulder.x = this.armJoint.x
+      shoulder.y = this.armJoint.y
       const angle = this.armPendulums[side].step(input, joint, dt)
       const drape = this.armDrapes[side].step(angle, input.bodyRoll, input.dynamic, dt)
       if (side === 'L') {
@@ -1280,8 +1387,9 @@ export class Anime25DPlayer {
     const breath = 0.5 + chestBreathResidual(this.time)
     const breathHead = 0.5 + 0.5 * Math.sin((this.time * Math.PI * 2) / 3.4 - 0.6)
     frame.headAngleY = e.angleY
-    frame.headRotationCosine = Math.cos(e.angleZ * 0.07)
-    frame.headRotationSine = Math.sin(e.angleZ * 0.07)
+    frame.headRoll = e.angleZ * HEAD_ROLL_RADIANS
+    frame.headRotationCosine = Math.cos(frame.headRoll)
+    frame.headRotationSine = Math.sin(frame.headRoll)
     frame.bodyBreathOffset = breath * 2
     frame.headBreathOffset = breathHead * 1.6
     frame.specialHeadOffset = this.stylizedMotion
@@ -1300,8 +1408,9 @@ export class Anime25DPlayer {
     writeAnime25DShellRotation(e.angleX, e.angleY, this.shellRotation)
     this.renderFrame.bodyPivotX = anchors.bodyPivot.x
     this.renderFrame.bodyPivotY = anchors.bodyPivot.y
-    this.renderFrame.bodyRotationCosine = Math.cos(e.body * 0.028)
-    this.renderFrame.bodyRotationSine = Math.sin(e.body * 0.028)
+    this.renderFrame.bodyBendHeight = frame.bodyBendHeight ?? 0
+    this.renderFrame.bodyRotationCosine = Math.cos(e.body * BODY_ROLL_RADIANS)
+    this.renderFrame.bodyRotationSine = Math.sin(e.body * BODY_ROLL_RADIANS)
     frame.bodyRotationCosine = this.renderFrame.bodyRotationCosine
     frame.bodyRotationSine = this.renderFrame.bodyRotationSine
   }
@@ -1310,6 +1419,8 @@ export class Anime25DPlayer {
     this.prepareHeadDeformationFrame()
     const A = this.playback.anchors
     const e = this.current
+    const headJellyElement = e.phys ? this.headJellyElement : null
+    const headStretch = this.headJelly.stretch
     const fs = A.faceScale
     const t = this.time
     const breathResidual = chestBreathResidual(t)
@@ -1365,6 +1476,10 @@ export class Anime25DPlayer {
     secondaryDeformationFrame.inverseChestRadiusY = inverseChestRy
     secondaryDeformationFrame.chestOffsetX = chestOffsetX
     secondaryDeformationFrame.chestOffsetY = chestOffsetY
+    secondaryDeformationFrame.chestStretch = e.phys
+      ? chestVolumeStretch(this.chest.offsetY * chestMotionMix * this.chestDynamics.inertiaGain, chestRy) *
+        this.chestDynamics.volumeScale
+      : 0
     secondaryDeformationFrame.chestVolumeScale =
       1 + breathResidual * this.chestDynamics.breathVolumeScale
     writeAnime25DOpacityFrame(
@@ -1426,6 +1541,10 @@ export class Anime25DPlayer {
       const bn = layer.baseRole
       const isHead = source.group === 'head'
       if (!layer.attachment && layer.shaderGlobalTransform) {
+        // A rigid body part takes the head tilt its centre would under the bend.
+        const carriedRoll = isHead ? 1 : bodyLeanShare(source.y + source.h / 2,
+          A.bodyPivot.y, secondaryDeformationFrame.bodyBendHeight ?? 0)
+        const roll = (secondaryDeformationFrame.headRoll ?? 0) * carriedRoll
         writeAnime25DLayerGlobalTransform(
           {
             headFollow: isHead
@@ -1433,8 +1552,8 @@ export class Anime25DPlayer {
               : source.group === 'body'
                 ? BODY_HEAD_FOLLOW
                 : 0,
-            headRotationCosine: cz,
-            headRotationSine: sz,
+            headRotationCosine: carriedRoll === 1 ? cz : Math.cos(roll),
+            headRotationSine: carriedRoll === 1 ? sz : Math.sin(roll),
             neckPivotX: npx,
             neckPivotY: npy,
             faceScale: fs,
@@ -1450,6 +1569,14 @@ export class Anime25DPlayer {
           layer.layerTransform,
         )
         if (isHead) layer.layerTransform[6] += secondaryDeformationFrame.torsoNeckOffsetX
+        if (isHead && headJellyElement && headStretch !== 0) {
+          // A small rigid feature rides the squashed head at its own centre.
+          const m = layer.layerTransform
+          const shift = jellyDisplacement(source.x + source.w / 2, source.y + source.h / 2,
+            headJellyElement, headStretch, 0, this.jellyShift)
+          m[6] += m[0] * shift.x + m[3] * shift.y
+          m[7] += m[1] * shift.x + m[4] * shift.y
+        }
       }
       // Do not deform/mark it dirty and later upload into a null binding.
       if (!layer.vertexBuffer) {
@@ -1484,6 +1611,7 @@ export class Anime25DPlayer {
         ? cryTearHorizontalOffset(t, source.side, e.eyeCry, fs)
         : 0
       const mouthDeformation = layer.mouthDeformation
+      const jellyPart = e.phys ? this.jellyParts.get(layer) : undefined
       if (layer.secondaryDeformation.poseCorrections) {
         writePoseCorrectionWeights(layer.secondaryDeformation.poseCorrections, e)
       }
@@ -1543,6 +1671,17 @@ export class Anime25DPlayer {
           )
           x = deformationPoint.x
           y = deformationPoint.y
+        }
+        if (isHead && headJellyElement && headStretch !== 0) {
+          const shift = jellyDisplacement(rest[index], rest[index + 1], headJellyElement, headStretch, 0, this.jellyShift)
+          x += shift.x
+          y += shift.y
+        }
+        if (jellyPart) {
+          const shift = jellyDisplacement(rest[index], rest[index + 1], jellyPart.element,
+            jellyPart.volume.stretch, jellyPart.volume.sway, this.jellyShift)
+          x += shift.x
+          y += shift.y
         }
         deformationPoint.x = x
         deformationPoint.y = y
@@ -1684,28 +1823,14 @@ export class Anime25DPlayer {
     const sampled = this.performanceExpression.getSampledTouch()
     if (this.atlasTexture) {
       const a = this.playback.anchors
-      const f = this.secondaryDeformationFrame
-      const m = this.thinkingStickerTransform
-      writeAnime25DLayerGlobalTransform({
-        headFollow: 1, headRotationCosine: f.headRotationCosine,
-        headRotationSine: f.headRotationSine, neckPivotX: f.neckPivotX,
-        neckPivotY: f.neckPivotY, faceScale: f.faceScale,
-        angleX: this.current.angleX, angleY: f.headAngleY, depthOffset: 0.3,
-        faceCenterY: f.faceCenterY, specialOffsetY: f.specialHeadOffset,
-        breathOffset: f.headBreathOffset,
-      }, m)
-      m[6] += f.torsoNeckOffsetX
+      this.writeHeadWorldTransform(this.headWorldTransform)
       const faceWidth = a.face.x1 - a.face.x0
-      const x = a.face.x1 - faceWidth * 0.04
-      const y = a.face.y0 + (a.face.y1 - a.face.y0) * 0.08
+      const point = this.jellyAnchor
+      this.headWorldPoint(a.face.x1 - faceWidth * 0.04, a.face.y0 + (a.face.y1 - a.face.y0) * 0.08, point)
       const frame = this.renderFrame
-      const px = m[0] * x + m[3] * y + m[6] - frame.bodyPivotX
-      const py = m[1] * x + m[4] * y + m[7] - frame.bodyPivotY
       this.thinkingSticker.draw(this.gl, this.time,
         this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.performanceExpression.getThinkingLevel(),
-        frame.bodyPivotX + px * frame.bodyRotationCosine - py * frame.bodyRotationSine,
-        frame.bodyPivotY + px * frame.bodyRotationSine + py * frame.bodyRotationCosine,
-        faceWidth * 0.155, frame.viewWidth, frame.viewHeight)
+        point.x, point.y, faceWidth * 0.155, frame.viewWidth, frame.viewHeight)
     }
     this.presentedTouch = sampled
       ? { ...sampled, atMs: performance.now() }

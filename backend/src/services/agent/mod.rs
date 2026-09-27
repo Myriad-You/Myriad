@@ -26,8 +26,10 @@ pub(crate) mod presence_window;
 pub mod queue;
 pub mod resource_create_pure;
 pub mod response_agent;
+pub mod run;
 pub mod run_hub;
 pub mod search_output;
+pub mod sessions;
 pub mod skill;
 pub mod skill_evolution;
 pub mod system_op_pure;
@@ -66,7 +68,9 @@ pub use agent_footer::{
     get_user_permissions, init_task_store, user_is_current_admin,
 };
 pub(crate) use agent_footer::{
-    granted_covers_tapp_permission, max_user_agent_permissions,
-    scheduler_create_actions_within_grants, scheduler_create_tapp_permissions_within_grants,
+    max_user_agent_permissions, scheduler_create_actions_within_grants,
+    scheduler_create_tapp_permissions_within_grants,
 };
 pub use agent_header::{Agent, LANE_QUEUE, SYSTEM_USER_ID};
+
+pub(crate) mod work_call;

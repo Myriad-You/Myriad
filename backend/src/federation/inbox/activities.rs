@@ -2,7 +2,9 @@
 
 use axum::{Json, http::StatusCode};
 use myriad_error::AppError;
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
+#[cfg(test)]
+use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
 use crate::federation::actor::RemoteActorInfo;

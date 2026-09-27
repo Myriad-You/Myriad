@@ -547,9 +547,7 @@ export class TappBridge {
           )
         const maxRaw = isImage
           ? MAX_IMAGE_RAW_BYTES
-          : isVideo
-            ? MAX_VIDEO_RAW_BYTES
-            : MAX_VIDEO_RAW_BYTES
+          : MAX_VIDEO_RAW_BYTES
         const maxDataChars = Math.ceil((maxRaw * 4) / 3) + 256
         if (options.data.length > maxDataChars) {
           return {

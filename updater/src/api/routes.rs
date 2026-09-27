@@ -370,6 +370,17 @@ async fn get_job(
     State(st): State<ApiState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    // The id becomes part of a state-dir file name; job ids are uuid simple form.
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            format!("invalid job id: {id:?}"),
+        ));
+    }
     let job = st.state.read_job(&id)?;
     Ok(Json(serde_json::to_value(job)?))
 }

@@ -19,7 +19,6 @@ mod lifecycle;
 mod list_card_sizes;
 mod package_api;
 mod package_files;
-mod prepared_package;
 mod storage;
 mod store_package;
 mod store_policy;
@@ -34,11 +33,12 @@ pub(crate) use access::{
     TappStorageAccess, authorize_runtime_storage_write, installation_write_forbidden_error,
 };
 use access::{
-    authorize_runtime_storage, can_write_installation_settings, canonical_installation_owner_id,
-    current_is_admin, current_user_role, ensure_tapp_install_allowed, filter_install_permissions,
-    find_admin_user_id, find_visible_tapp, get_admin_user_id, installation_conflict_owner_ids,
-    lock_tapp_lifecycle, optional_authenticated_user_id, require_current_admin,
+    authorize_runtime_storage, can_write_installation_settings, current_is_admin,
+    current_user_role, ensure_tapp_install_allowed, find_admin_user_id, find_visible_tapp,
+    get_admin_user_id, lock_tapp_lifecycle, optional_authenticated_user_id, require_current_admin,
 };
+#[cfg(test)]
+use access::{canonical_installation_owner_id, installation_conflict_owner_ids};
 #[cfg(test)]
 use catalog::tapp_detail_from_model;
 use catalog::{get_tapp, list_tapp_details, list_tapps, set_tapp_visibility};
@@ -62,15 +62,15 @@ use storage::{
 };
 use store_stats::report_store_stats;
 // Path-stable for manifest_tests / handlers that import via `super::`.
+#[cfg(test)]
 pub(crate) use storage::validate_sandbox_storage_key;
 
 #[cfg(test)]
 use store_package::validate_store_manifest_category;
 pub use store_sources::*;
+use types::api_http_error;
 pub use types::{ApiResponse, TappDetail, TappListItem};
-use types::{api_error, api_http_error, api_response_err};
 pub use uninstall::prune_stale_private_tapps;
-pub(crate) use installation::install_generated;
 pub(crate) use uninstall::uninstall_tapp_for_user;
 use uninstall::{cleanup_temporary_tapps, uninstall_tapp};
 pub(crate) use validation::*;
@@ -78,7 +78,7 @@ pub(crate) use validation::*;
 use widgets::runtime_widget_belongs_to_installation;
 #[cfg(test)]
 pub type RegisterWidgetRequest = widgets::RegisterWidgetRequest;
-use widgets::{list_all_widgets, reconcile_manifest_widgets, register_widget, unregister_widget};
+use widgets::{list_all_widgets, register_widget, unregister_widget};
 
 use axum::{
     Router,

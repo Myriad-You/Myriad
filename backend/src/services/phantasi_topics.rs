@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, QueryTrait,
     sea_query::Expr,
 };
 use serde_json::json;

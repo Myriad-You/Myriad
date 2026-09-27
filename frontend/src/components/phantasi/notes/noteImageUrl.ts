@@ -36,7 +36,7 @@ export function prepareNoteReaderHtml(
 }
 
 function decodeAttr(value: string): string {
-  return value.replaceAll('&amp;', '&').replaceAll('&quot;', '"')
+  return value.replaceAll('&quot;', '"').replaceAll('&amp;', '&')
 }
 
 function encodeAttr(value: string): string {

@@ -164,6 +164,7 @@ test('keeps active speech channels out of a full base refresh', () => {
     talk: false,
     mouthOpen: 0,
     mouthForm: 0.07,
+    eyeSmile: 0.1125,
   })
 })
 

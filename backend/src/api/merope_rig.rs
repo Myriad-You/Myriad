@@ -21,16 +21,18 @@ use myriad_error::AppError;
 use myriad_merope::{
     CHARACTER_ASSET_CONTRACT_VERSION, MEROPE_STICKER_STYLE_REFERENCE_SHA256,
     MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL_VERSION, PORTRAIT_CANVAS_HEIGHT,
-    PORTRAIT_CANVAS_WIDTH, PORTRAIT_GENERATION_HEIGHT, PORTRAIT_GENERATION_WIDTH,
-    RIG_SCHEMA_VERSION, RigBone, RigCompileSource, RigLayerSource, RigManifest, RigMotionProfile,
-    RigOutfitProfile, RigPart, RigPoint, RigQuality, RigSemanticAnchor, RigSemantics, RigSize,
-    RigSpatialProfile, RigTexture, RigVertex, STICKER_AVATAR_CONTRACT_VERSION, STICKER_AVATAR_SIZE,
-    build_character_asset_contract, build_character_visual_edit_prompt,
-    build_character_visual_prompt, build_sticker_avatar_contract, build_sticker_avatar_prompt,
+    PORTRAIT_CANVAS_WIDTH, PORTRAIT_GENERATION_HEIGHT, PORTRAIT_GENERATION_WIDTH, RigBone,
+    RigCompileSource, RigLayerSource, RigManifest, RigMotionProfile, RigOutfitProfile,
+    RigSemanticAnchor, RigSemantics, RigSize, RigSpatialProfile, RigTexture,
+    STICKER_AVATAR_CONTRACT_VERSION, STICKER_AVATAR_SIZE, build_character_asset_contract,
+    build_character_visual_edit_prompt, build_character_visual_prompt,
+    build_sticker_avatar_contract, build_sticker_avatar_prompt,
     character_asset_contract_fingerprint, compile_layered_rig, migrate_rig_manifest,
     validate_character_asset_source,
 };
-use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, QuerySelect, TransactionTrait};
+#[cfg(test)]
+use myriad_merope::{RIG_SCHEMA_VERSION, RigPart, RigPoint, RigQuality, RigVertex};
+use sea_orm::{DatabaseConnection, EntityTrait, QuerySelect, TransactionTrait};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -433,6 +435,9 @@ async fn bind_and_activate_outfit_rig(
     expected_rig: Option<&str>,
 ) -> ApiResult<()> {
     let transaction = db.begin().await.map_err(internal_error)?;
+    merope::store::lock_persona_on(&transaction)
+        .await
+        .map_err(internal_error)?;
     // The row lock spans provenance validation, outfit binding and activation.
     // A concurrent portrait/outfit UPDATE cannot slip between those operations.
     let row =
