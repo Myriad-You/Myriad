@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn onebot_table_is_markdown_not_colon_text() {
+    fn onebot_table_is_plain_text_not_a_markdown_segment() {
         let (event, parked) = map_completed(
             &serde_json::json!({
                 "success": true,
@@ -502,9 +502,10 @@ mod tests {
         let ChannelEvent::Answer { message, .. } = event else {
             panic!("{event:?}");
         };
-        assert!(message.contains("| 名称 |"));
-        assert!(message.contains("| A |"));
-        assert!(!message.contains('：'));
+        assert!(message.contains("查到了"));
+        assert!(message.contains("名称"));
+        assert!(message.contains('A'));
+        assert!(!message.contains("| 名称 |"));
         assert!(parked.is_none());
     }
 

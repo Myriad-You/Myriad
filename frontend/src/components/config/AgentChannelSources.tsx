@@ -1084,7 +1084,7 @@ function OneBotChannelCard({
         onChange={(value) =>
           updateValue('onebot_bot_groups_enabled', value ? 'true' : 'false')
         }
-        hint={t.config.onebotBotGroupsHint}
+        description={t.config.onebotBotGroupsHint}
       />
       <InputItem
         itemKey="onebot_bot_access_token"
