@@ -2193,7 +2193,7 @@ mod onebot_encode {
     use myriad_agent_rules::channel::CHANNEL_IMAGE_LIMIT;
     use myriad_agent_rules::onebot::encode::{
         encode_image_segment, encode_markdown_segment, encode_private_message, encode_text_segment,
-        plan_private_delivery,
+        encode_typing, plan_private_delivery,
     };
     use serde_json::json;
 
@@ -2269,6 +2269,17 @@ mod onebot_encode {
             payload["params"]["message"],
             json!([{"type":"text","data":{"text":"hi"}}])
         );
+    }
+
+    #[test]
+    fn typing_action_uses_set_input_status() {
+        let payload = encode_typing("10001", true).expect("typing");
+        assert_eq!(payload["action"], "set_input_status");
+        assert_eq!(payload["params"]["user_id"], 10001);
+        assert_eq!(payload["params"]["event_type"], 1);
+        let stopped = encode_typing("10001", false).expect("stop");
+        assert_eq!(stopped["params"]["event_type"], 0);
+        assert!(encode_typing("not-a-number", true).is_none());
     }
 
     #[test]

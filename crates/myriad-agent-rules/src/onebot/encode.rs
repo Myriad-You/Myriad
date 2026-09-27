@@ -32,6 +32,19 @@ pub fn encode_private_message(user_id: &str, segments: &[Value]) -> Option<Value
     }))
 }
 
+/// `set_input_status`。`event_type`：`1` 正在输入，`0` 取消。
+/// 这两个取值来自 NapCat 扩展文档的转述，仓库内没有对应源码，标 `uncertain`。
+pub fn encode_typing(user_id: &str, typing: bool) -> Option<Value> {
+    let user_id = user_id.parse::<i64>().ok()?;
+    Some(json!({
+        "action": "set_input_status",
+        "params": {
+            "user_id": user_id,
+            "event_type": if typing { 1 } else { 0 },
+        }
+    }))
+}
+
 /// 文本（或 markdown）在前，图片随后，最多 [`CHANNEL_IMAGE_LIMIT`] 张。全空则 `None`。
 pub fn plan_private_delivery(
     user_id: &str,
