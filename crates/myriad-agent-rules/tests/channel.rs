@@ -1765,7 +1765,10 @@ mod telegram_groups {
             ]
         );
         assert_eq!(messages[0].chat_id, -100);
-        let quoted = messages[2].reply_to.as_ref().expect("the line it replies to");
+        let quoted = messages[2]
+            .reply_to
+            .as_ref()
+            .expect("the line it replies to");
         assert!(quoted.hers);
         assert_eq!(quoted.text, "楼下那家面馆 不错");
         assert!(messages[0].reply_to.is_none());
@@ -1866,4 +1869,137 @@ fn discord_server_lines_are_heard_and_those_to_her_are_marked() {
         DISCORD_DIRECT_MESSAGES | DISCORD_GUILD_MESSAGES | DISCORD_MESSAGE_CONTENT
     );
     assert_eq!(discord_identify_intents(false) & DISCORD_MESSAGE_CONTENT, 0);
+}
+
+/// OneBot v11 wire 层：宽松解析是移植的核心价值。
+/// 各协议端（Lagrange / NapCat / LLOneBot）随时加字段，解不开的事件必须降级，绝不报错。
+mod onebot_wire {
+    use myriad_agent_rules::onebot::wire::{
+        Inbound, RawEventJson, RespJson, WireMessage, value_as_string,
+    };
+    use serde_json::json;
+
+    /// NapCat 真实私聊事件（`messagePostFormat: "array"`）。
+    fn private_text_event() -> &'static str {
+        r#"{
+          "time": 1790000000, "self_id": 10001, "post_type": "message",
+          "message_type": "private", "sub_type": "friend",
+          "message_id": 1234567890, "user_id": 20002,
+          "message": [{"type":"text","data":{"text":"帮我看一下"}},
+                      {"type":"image","data":{"file":"x.jpg","url":"https://example.com/x.jpg"}}],
+          "raw_message": "帮我看一下", "font": 0,
+          "sender": {"user_id":20002,"nickname":"某人","card":""}
+        }"#
+    }
+
+    #[test]
+    fn private_event_parses_into_text_and_image_segments() {
+        let event: RawEventJson =
+            serde_json::from_str(private_text_event()).expect("a real event must decode");
+        assert_eq!(event.post_type.as_deref(), Some("message"));
+        assert_eq!(event.message_type.as_deref(), Some("private"));
+        assert_eq!(event.sub_type.as_deref(), Some("friend"));
+        assert_eq!(event.user_id, Some(20002));
+        assert_eq!(event.self_id, 10001);
+        assert_eq!(event.message_id, Some(1234567890));
+        assert_eq!(
+            event.sender.as_ref().and_then(|s| s.nickname.as_deref()),
+            Some("某人")
+        );
+
+        let WireMessage::Array(segments) = event.message.expect("message present") else {
+            panic!("array format must stay an array");
+        };
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].kind, "text");
+        assert_eq!(segments[0].str_field("text").as_deref(), Some("帮我看一下"));
+        assert_eq!(segments[1].kind, "image");
+        assert_eq!(
+            segments[1].str_field("url").as_deref(),
+            Some("https://example.com/x.jpg")
+        );
+    }
+
+    /// 这是移植过来的最重要一条保证：未知顶层字段与未知段类型都不能让解析失败。
+    #[test]
+    fn unknown_fields_and_unknown_segments_degrade_instead_of_failing() {
+        let raw = r#"{
+          "post_type":"message","message_type":"private","user_id":1,
+          "totally_new_field":{"nested":[1,2,3]},
+          "message":[{"type":"brand_new_segment","data":{"x":1}}]
+        }"#;
+        let event: RawEventJson = serde_json::from_str(raw).expect("unknown fields must not fail");
+        assert_eq!(event.user_id, Some(1));
+        assert!(
+            event.extra.contains_key("totally_new_field"),
+            "the escape hatch keeps the whole payload"
+        );
+
+        let WireMessage::Array(segments) = event.message.expect("message present") else {
+            panic!("array stays an array");
+        };
+        assert_eq!(segments[0].kind, "brand_new_segment");
+    }
+
+    #[test]
+    fn sloppy_wire_types_are_read_leniently() {
+        let raw = r#"{"message":[{"type":"image","data":{"file":12345,"size":"999"}}]}"#;
+        let event: RawEventJson = serde_json::from_str(raw).expect("sloppy fields decode");
+        let WireMessage::Array(segments) = event.message.expect("message present") else {
+            panic!("array stays an array");
+        };
+        assert_eq!(
+            segments[0].str_field("file").as_deref(),
+            Some("12345"),
+            "a JSON number reads as a string"
+        );
+        assert_eq!(
+            segments[0].i64_field("size"),
+            Some(999),
+            "a numeric string reads as i64"
+        );
+
+        assert_eq!(value_as_string(&json!(true)).as_deref(), Some("true"));
+        assert_eq!(value_as_string(&json!(7)).as_deref(), Some("7"));
+        assert_eq!(value_as_string(&json!([1])), None);
+    }
+
+    #[test]
+    fn cq_string_format_still_decodes() {
+        let raw = r#"{"message":"[CQ:image,file=x.jpg]","message_type":"private"}"#;
+        let event: RawEventJson = serde_json::from_str(raw).expect("string format decodes");
+        assert!(matches!(event.message, Some(WireMessage::Cq(_))));
+    }
+
+    /// 入站帧 demux：只有 `echo` 能判别响应与事件。
+    #[test]
+    fn echo_is_the_only_discriminator_between_response_and_event() {
+        let event: Inbound =
+            serde_json::from_str(private_text_event()).expect("a real event must decode");
+        assert!(
+            matches!(event, Inbound::Event(_)),
+            "no echo → an event, not a response"
+        );
+
+        let response = r#"{"status":"ok","retcode":0,"data":{"message_id":999},"echo":"uuid-1"}"#;
+        let inbound: Inbound = serde_json::from_str(response).expect("a response must decode");
+        let Inbound::Resp(envelope) = inbound else {
+            panic!("an echo → a response");
+        };
+        assert_eq!(envelope.echo.as_str(), Some("uuid-1"));
+
+        let full: RespJson = serde_json::from_str(response).expect("full response decodes");
+        assert_eq!(full.status, "ok");
+        assert_eq!(full.data["message_id"], 999);
+    }
+
+    /// 站点内全链路是字符串，但 int64 必须先完整保住，不能经浮点。
+    #[test]
+    fn int64_survives_without_going_through_a_float() {
+        let raw = r#"{"user_id":9007199254740993,"message":[]}"#;
+        let event: RawEventJson = serde_json::from_str(raw).expect("a large id decodes");
+        let user_id = event.user_id.expect("user_id present");
+        assert_eq!(user_id, 9007199254740993i64);
+        assert_eq!(user_id.to_string(), "9007199254740993");
+    }
 }
