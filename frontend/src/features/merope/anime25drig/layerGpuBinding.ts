@@ -4,6 +4,7 @@ import type { CollarClipMesh } from './collarRuntime'
 import type { CropBoundary } from './cropBoundary'
 import type { Anime25DLayerDeformationPlan } from './deformationDependencies'
 import type { Anime25DDriver } from './driver'
+import type { EarwearPhysics } from './earwearPhysics'
 import type { Anime25DExpressionDeformationBinding } from './expressionDeformation'
 import type { HairRootMotion } from './hairRootMotion'
 import type { HairSurface } from './hairSurface'
@@ -30,6 +31,7 @@ import {
   createAnime25DLayerDeformationPlan,
   resolveAnime25DDeformationDependencies,
 } from './deformationDependencies'
+import { bindEarwearPhysics } from './earwearPhysics'
 import { resolveAnime25DExpressionDeformation } from './expressionDeformation'
 import { bindHairRootMotion } from './hairRootMotion'
 import { bindHairSurface } from './hairSurface'
@@ -86,6 +88,7 @@ export interface Anime25DGpuLayer extends Anime25DRenderableLayer {
   deformationPlan: Anime25DLayerDeformationPlan
   geometryDirty: boolean
   attachment: Anime25DLayerAttachment | null
+  earwearPhysics?: EarwearPhysics | null
   neckwearBridge?: Anime25DNeckwearBridge | null
   attachmentDependents?: Anime25DGpuLayer[]
   surfaceContact?: SurfaceContact
@@ -516,6 +519,10 @@ export function compileAnime25DGpuLayers(
         playback.pixelCanvas.width,
         readBindingPixels,
       )
+      if (layer.source.role === 'earwear') {
+        layer.earwearPhysics = bindEarwearPhysics(layer.source, layer.attachment,
+          readBindingPixels(layer.source), playback.anchors.face.y1 - playback.anchors.face.y0)
+      }
     }
     for (const child of layers) {
       const sources = new Set([

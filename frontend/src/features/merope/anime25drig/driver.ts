@@ -24,6 +24,10 @@ export interface Anime25DDriver {
   mouthCY: number
   body: number
   bodyYaw: number
+  /** Upper-body rise (+) / settle (-), independent of head pitch and physics. */
+  bodyLift: number
+  /** Forward/back torso orientation; independent of vertical lift. */
+  bodyPitch: number
   physAmp: number
   soft: number
   browAngL: number
@@ -90,6 +94,8 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   mouthCY: 0,
   body: 0,
   bodyYaw: 1,
+  bodyLift: 0,
+  bodyPitch: 0,
   physAmp: DEFAULT_REAR_HAIR_SWAY,
   soft: 2,
   browAngL: 0,
@@ -163,6 +169,8 @@ const DRIVER_LIMITS: Partial<
   mouthCY: [-1, 1],
   body: [-1, 1],
   bodyYaw: [0, 1],
+  bodyLift: [-1, 1],
+  bodyPitch: [-1, 1],
   physAmp: [0, 3],
   soft: [0, 3],
   browAngL: [-1, 1],

@@ -69,8 +69,9 @@ test('eye curves have feature-scaled sampling while neutral UV coverage stays in
       const binding = buildAnime25DLayerBinding({ source, canvasWidth: CANVAS_WIDTH * scale,
         face: { ...ANCHORS.face, x0: ANCHORS.face.x0 * scale, x1: ANCHORS.face.x1 * scale }, layerZ: 4 })
       assert.ok(binding.extensions.includes('eye-mesh-density'))
-      assert.equal(binding.cols, 8)
-      assert.equal(binding.rows, 4)
+      const curvedLid = role === 'eyewhite' || role === 'eyelash'
+      assert.equal(binding.cols, curvedLid ? Math.round(80 / (4 * (ANCHORS.face.x1 - ANCHORS.face.x0) / 333)) : 8)
+      assert.equal(binding.rows, curvedLid ? 16 : 4)
       assert.equal(binding.rest[0], source.x)
       assert.equal(binding.rest[1], source.y)
       assert.equal(binding.rest.at(-2), source.x + source.w)

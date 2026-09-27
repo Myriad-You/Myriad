@@ -1,7 +1,9 @@
 import type { AttachmentMeshSample } from './attachmentMesh'
+import type { BodyLift } from './bodyLift'
 import type { Anime25DSecondaryDeformationBinding, Anime25DSecondaryDeformationFrame } from './secondaryDeformation'
 import type { Anime25DPlaybackLayer } from './types'
 import { bindAttachmentMesh, offsetAttachmentMeshSample } from './attachmentMesh'
+import { applyBodyLift } from './bodyLift'
 import { deformAnime25DSecondaryPoint } from './secondaryDeformation'
 
 export interface HairRootMotion {
@@ -47,6 +49,7 @@ export function writeHairRootMotion(
   bodyPivotY: number,
   bodyCosine: number,
   bodySine: number,
+  bodyLift?: Readonly<BodyLift>,
 ): void {
   const { samples, point, deformation } = roots
   for (let i = 0; i < samples.length; i++) {
@@ -67,5 +70,10 @@ export function writeHairRootMotion(
       (x - bodyPivotX) * bodyCosine - (y - bodyPivotY) * bodySine - sample.x
     deformation.springs![i].supportY = bodyPivotY +
       (x - bodyPivotX) * bodySine + (y - bodyPivotY) * bodyCosine - sample.y
+    point.x = deformation.springs![i].supportX + sample.x
+    point.y = deformation.springs![i].supportY + sample.y
+    applyBodyLift(point, bodyLift)
+    deformation.springs![i].supportX = point.x - sample.x
+    deformation.springs![i].supportY = point.y - sample.y
   }
 }

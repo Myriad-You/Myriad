@@ -1,4 +1,5 @@
 import type { Anime25DRenderFrame } from './renderer'
+import { applyBodyLift } from './bodyLift'
 import { bodyLeanShare } from './poseScale'
 
 export interface TouchMesh {
@@ -23,9 +24,29 @@ export function hitTestTouchMesh(
   frame: Pick<
     Anime25DRenderFrame,
     'bodyPivotX' | 'bodyPivotY' | 'bodyRotationCosine' | 'bodyRotationSine'
-  > & Partial<Pick<Anime25DRenderFrame, 'bodyBendHeight'>>,
+  > & Partial<Pick<Anime25DRenderFrame, 'bodyBendHeight' | 'bodyLift'>>,
 ): TouchMeshHit | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  if (frame.bodyLift && (frame.bodyLift.amount || frame.bodyLift.pitch)) {
+    // The GPU interpolates transformed triangle vertices, not the continuous
+    // field inside each triangle. Pick those exact triangles (no inverse-warp
+    // approximation near a coarse garment edge).
+    const positions = new Float32Array(mesh.positions.length)
+    const m = mesh.layerTransform; const point = { x: 0, y: 0 }
+    const lean = Math.atan2(frame.bodyRotationSine, frame.bodyRotationCosine)
+    for (let i = 0; i < positions.length; i += 2) {
+      const x = mesh.positions[i]; const y = mesh.positions[i + 1]
+      const px = m[0] * x + m[3] * y + m[6]; const py = m[1] * x + m[4] * y + m[7]
+      const angle = lean * bodyLeanShare(py, frame.bodyPivotY, frame.bodyBendHeight ?? 0)
+      const c = Math.cos(angle); const s = Math.sin(angle)
+      point.x = frame.bodyPivotX + (px - frame.bodyPivotX) * c - (py - frame.bodyPivotY) * s
+      point.y = frame.bodyPivotY + (px - frame.bodyPivotX) * s + (py - frame.bodyPivotY) * c
+      applyBodyLift(point, frame.bodyLift)
+      positions[i] = point.x; positions[i + 1] = point.y
+    }
+    return hitTestTouchMesh(x, y, { ...mesh, positions, layerTransform: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]) },
+      { bodyPivotX: 0, bodyPivotY: 0, bodyRotationCosine: 1, bodyRotationSine: 0 })
+  }
   const {
     bodyRotationCosine: c,
     bodyRotationSine: s,
