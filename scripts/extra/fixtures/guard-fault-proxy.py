@@ -42,7 +42,10 @@ class Proxy(BaseHTTPRequestHandler):
         self.send_response(status)
         for key, value in headers:
             if key.lower() not in ('connection', 'transfer-encoding', 'content-length'):
-                self.send_header(key, value)
+                # http.client accepts folded upstream headers; BaseHTTPRequestHandler
+                # does not sanitize them when emitting a response.
+                self.send_header(key.replace('\r', '').replace('\n', ''),
+                                 value.replace('\r', '').replace('\n', ''))
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Connection', 'close')
         self.end_headers()
@@ -52,4 +55,5 @@ class Proxy(BaseHTTPRequestHandler):
     do_GET = do_POST = do_DELETE = do_HEAD = do_PUT = forward
 
 
-ThreadingHTTPServer(('0.0.0.0', 2375), Proxy).serve_forever()
+if __name__ == '__main__':
+    ThreadingHTTPServer(('0.0.0.0', 2375), Proxy).serve_forever()
