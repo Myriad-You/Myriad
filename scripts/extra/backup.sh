@@ -314,11 +314,13 @@ do_backup() {
     chmod 600 "$out/postgres.dump"
 
     info "==> backend data"
+    # Let the host operator create the archive. A root container writing through
+    # /out would leave a root-owned file that non-root Linux operators cannot chmod.
+    umask 077
     "$DOCKER" run --rm \
         --mount "$BACKEND_DATA_MOUNT,dst=/data,readonly" \
-        -v "$out:/out" \
         alpine:3.20 \
-        tar czf /out/backend_data.tar.gz -C /data .
+        tar czf - -C /data . > "$out/backend_data.tar.gz"
     chmod 600 "$out/backend_data.tar.gz"
 
     umask 077

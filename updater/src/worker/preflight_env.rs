@@ -192,7 +192,9 @@ fn check_persona_runtime(config: &serde_json::Value) -> Result<()> {
                     && m["source"]
                         .as_str()
                         .is_some_and(|s| Path::new(s).is_absolute())
-                    && m.pointer("/bind/create_host_path") == Some(&serde_json::json!(false))
+                    // Compose v2 omits false in its resolved JSON. Short syntax
+                    // and automatic creation normalize to true and remain denied.
+                    && m.pointer("/bind/create_host_path").is_none_or(|v| v == false)
                     && config
                         .pointer("/services/backend/volumes")
                         .and_then(serde_json::Value::as_array)
@@ -767,6 +769,11 @@ mod persona_runtime_tests {
         direct["services"]["backend"] = json!({"volumes":mounts.clone()});
         direct["services"]["persona-worker"]["volumes"] = mounts;
         assert!(check_persona_runtime(&direct).is_ok());
+        let mut compose_v2 = direct.clone();
+        for mount in compose_v2["services"]["persona-worker"]["volumes"].as_array_mut().unwrap() {
+            mount["bind"].as_object_mut().unwrap().remove("create_host_path");
+        }
+        assert!(check_persona_runtime(&compose_v2).is_ok());
         for (path, value) in [
             ("/volumes/0/source", json!("/other/data")),
             ("/volumes/0/bind/create_host_path", json!(true)),

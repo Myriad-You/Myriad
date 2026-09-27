@@ -64,6 +64,7 @@ def start():
 
 def save(model):
     (ROOT / "docker-compose.yml").write_text(json.dumps(model))
+    (ROOT / "docker-compose.yml").chmod(0o600)
 
 
 def archive(kind, folder, restore=False, bind=False):
@@ -122,6 +123,7 @@ test "$(stat -c %a /restored)" = 700
                 "MYRIAD_SETUP_SECRET", "GUARD_SELF_UPDATE_TOKEN", "UPDATE_TOKEN", "UPDATER_GATEWAY_SECRET"):
         values[key] = secrets.token_hex(24)
     (ROOT / ".env").write_text("".join(f"{k}={v}\n" for k, v in values.items()))
+    (ROOT / ".env").chmod(0o600)
     production = json.loads(run(["docker", "compose", "--project-directory", str(ROOT),
         "--env-file", str(ROOT / ".env"), "-f", str(REPO / "docker-compose.yml"),
         "config", "--no-env-resolution", "--format", "json"]).stdout)
@@ -140,7 +142,7 @@ test "$(stat -c %a /restored)" = 700
         "mkdir /tmp/www; echo ready >/tmp/www/ready; exec python3 -m http.server 1103 --directory /tmp/www"]
     model["services"]["postgres"] = {"image": "postgres:18-alpine", "network_mode": "none",
         "environment": {"POSTGRES_USER": "myriad", "POSTGRES_DB": "myriad",
-                        "POSTGRES_PASSWORD": values["POSTGRES_PASSWORD"]},
+                        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}"},
         "volumes": ["pgdata:/var/lib/postgresql"],
         "healthcheck": {"test": ["CMD-SHELL", "pg_isready -U myriad -d myriad"],
                         "interval": "1s", "timeout": "3s", "retries": 30}}
@@ -206,6 +208,9 @@ test "$(stat -c %a /restored)" = 700
     # the new host data directory with those historical permissions.
     container("chmod 755 /data; chown 0:0 /data", [f"type=bind,src={ROOT / 'data'},dst=/data"])
     run(["bash", str(scripts / "backup.sh"), "backup", "--out", str(backup)])
+    archive_stat = (backup / "backend_data.tar.gz").stat()
+    assert archive_stat.st_uid == os.getuid(), "backup archive must belong to the host operator"
+    assert archive_stat.st_mode & 0o777 == 0o600
     sql("UPDATE volume_test SET value='changed';")
     compose("exec", "-T", "backend", "sh", "-c", "echo changed >/app/data/media/sentinel")
     with (ROOT / ".env").open("a") as env_file:

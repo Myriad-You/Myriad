@@ -220,12 +220,12 @@ class ComposeTagSelection(unittest.TestCase):
                         mount = next(m for m in mounts if m["target"] == f"/app/{kind}")
                         self.assertEqual(mount["type"], "bind")
                         self.assertEqual(Path(mount["source"]).resolve(), Path(directory).resolve() / kind)
-                        self.assertFalse(mount["bind"]["create_host_path"])
+                        self.assertFalse(mount.get("bind", {}).get("create_host_path", False))
                 mounts = model["services"]["federation-worker"]["volumes"]
                 self.assertEqual(len(mounts), 5)
                 for mount in mounts:
                     self.assertEqual(mount["type"], "bind")
-                    self.assertFalse(mount["bind"]["create_host_path"])
+                    self.assertFalse(mount.get("bind", {}).get("create_host_path", False))
                     self.assertEqual(mount.get("read_only", False), mount["target"] == "/app/data")
 
 
