@@ -234,7 +234,7 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
             let response: RespJson = serde_json::from_str(text).ok()?;
             // A matched echo only fails that one action. Closing the socket is
             // reserved for a refusal that names no request.
-            onebot_send::complete_echo(&envelope.echo, response.retcode).await;
+            onebot_send::complete_echo(&envelope.echo, &response.status, response.retcode).await;
             None
         }
         Inbound::Event(event) => {

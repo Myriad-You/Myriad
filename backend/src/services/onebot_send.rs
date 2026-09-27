@@ -98,12 +98,15 @@ pub async fn send_action(mut action: Value) -> ActionResult {
     }
 }
 
-fn action_result(retcode: i64) -> ActionResult {
+fn action_result(status: &str, retcode: i64) -> ActionResult {
+    // OneBot: `ok` / `async` (retcode 1) means accepted. `failed` with retcode 1
+    // is still a failure. retcode 0 is success even when status is omitted.
+    if status == "ok" || status == "async" || retcode == 0 {
+        return Ok(None);
+    }
     let kind = classify_onebot_handshake(None, Some(retcode));
     if kind == ConnectFailureKind::Permanent {
         Ok(Some(ConnectFailureKind::Permanent))
-    } else if retcode == 0 {
-        Ok(None)
     } else {
         Err(format!("onebot action failed: {retcode}"))
     }
@@ -113,7 +116,7 @@ fn action_result(retcode: i64) -> ActionResult {
 ///
 /// A matched echo never closes the socket. A handshake refusal has no echo
 /// and is classified by the worker, not here.
-pub async fn complete_echo(echo: &Value, retcode: i64) {
+pub async fn complete_echo(echo: &Value, status: &str, retcode: i64) {
     let Some(key) = echo.as_str() else {
         return;
     };
@@ -124,7 +127,7 @@ pub async fn complete_echo(echo: &Value, retcode: i64) {
     let Some(sender) = live.pending.remove(key) else {
         return;
     };
-    let _ = sender.send(action_result(retcode));
+    let _ = sender.send(action_result(status, retcode));
 }
 
 #[cfg(test)]
@@ -159,7 +162,7 @@ mod tests {
 
         let send = tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
         let echo = wait_for_echo(&seen).await;
-        complete_echo(&json!(echo), 0).await;
+        complete_echo(&json!(echo), "ok", 0).await;
         assert_eq!(send.await.expect("join"), Ok(None));
 
         let pending =
@@ -168,6 +171,47 @@ mod tests {
         clear().await;
         let closed = pending.await.expect("join");
         assert!(closed.is_err());
+    }
+
+    #[tokio::test]
+    async fn async_status_is_accepted_and_failed_retcode_one_is_not() {
+        let _lock = TEST_LOCK.lock().expect("test lock");
+        clear().await;
+        install(Arc::new(|_| Ok(()))).await;
+        let accepted =
+            tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
+        tokio::task::yield_now().await;
+        let echo = {
+            let guard = slot().lock().await;
+            guard
+                .as_ref()
+                .expect("live")
+                .pending
+                .keys()
+                .next()
+                .cloned()
+                .expect("echo")
+        };
+        complete_echo(&json!(echo), "async", 1).await;
+        assert_eq!(accepted.await.expect("join"), Ok(None));
+
+        let refused =
+            tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
+        tokio::task::yield_now().await;
+        let echo = {
+            let guard = slot().lock().await;
+            guard
+                .as_ref()
+                .expect("live")
+                .pending
+                .keys()
+                .next()
+                .cloned()
+                .expect("echo")
+        };
+        complete_echo(&json!(echo), "failed", 1).await;
+        assert!(refused.await.expect("join").is_err());
+        clear().await;
     }
 
     #[tokio::test]
@@ -188,7 +232,7 @@ mod tests {
                 .cloned()
                 .expect("echo");
             drop(guard);
-            complete_echo(&json!(echo), 1403).await;
+            complete_echo(&json!(echo), "failed", 1403).await;
         }
         assert_eq!(
             send.await.expect("join"),
