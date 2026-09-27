@@ -9,7 +9,7 @@ pub(crate) async fn validate_intention_work_request(
     intent_id: Option<&str>,
     user_id: i32,
     input: &str,
-) -> Result<(), HttpError> {
+) -> Result<(), AppError> {
     let Some(intent_id) = intent_id else {
         return Ok(());
     };
@@ -18,18 +18,12 @@ pub(crate) async fn validate_intention_work_request(
         .await
         .map_err(intention_error)?;
     if intent.status != IntentStatus::Accepted {
-        return Err(HttpError::from((
-            StatusCode::CONFLICT,
-            Json(AppError::public_json("The intention is not awaiting Work")),
-        )));
+        return Err(AppError::conflict("The intention is not awaiting Work"));
     }
     if intent.proposal.instruction.trim() != input.trim() {
-        return Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(AppError::public_json(
-                "Work input does not match the accepted intention",
-            )),
-        )));
+        return Err(AppError::bad_request(
+            "Work input does not match the accepted intention",
+        ));
     }
     let grant = AutonomyGrantStore::new(db.clone())
         .find(user_id)
@@ -48,7 +42,7 @@ pub(crate) async fn begin_intention_work(
     user_id: i32,
     session_id: Option<String>,
     run_id: Option<String>,
-) -> Result<(), HttpError> {
+) -> Result<(), AppError> {
     let Some(intent_id) = intent_id else {
         return Ok(());
     };
@@ -70,7 +64,7 @@ pub(crate) async fn autonomy_cap_for_intention(
     db: &DatabaseConnection,
     intent_id: Option<&str>,
     user_id: i32,
-) -> Result<Option<Vec<String>>, HttpError> {
+) -> Result<Option<Vec<String>>, AppError> {
     let Some(intent_id) = intent_id else {
         return Ok(None);
     };
@@ -93,12 +87,9 @@ pub(crate) async fn autonomy_cap_for_intention(
         AutonomyVerdict::AllowPersonalWork {
             granted_permissions,
         } => Ok(Some(granted_permissions)),
-        AutonomyVerdict::RequireUserReview => Err(HttpError::from((
-            StatusCode::FORBIDDEN,
-            Json(AppError::public_json(
-                "Personal autonomy is no longer granted; review is required",
-            )),
-        ))),
+        AutonomyVerdict::RequireUserReview => Err(AppError::forbidden(
+            "Personal autonomy is no longer granted; review is required",
+        )),
     }
 }
 
@@ -120,20 +111,15 @@ pub(crate) async fn advance_intention_work(
     }
 }
 
-pub(crate) fn intention_error(error: sea_orm::DbErr) -> HttpError {
-    let (status, message) = match &error {
-        sea_orm::DbErr::RecordNotFound(_) => (StatusCode::NOT_FOUND, "Intention not found"),
-        sea_orm::DbErr::Custom(_) => (
-            StatusCode::CONFLICT,
-            "Intention state changed; refresh and try again",
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Intention service is temporarily unavailable",
-        ),
-    };
-    tracing::warn!(%error, "[Agent API] intention operation failed");
-    HttpError::from((status, Json(AppError::public_json(message))))
+pub(crate) fn intention_error(error: sea_orm::DbErr) -> AppError {
+    tracing::warn!(%error, "[Agent] intention operation failed");
+    match error {
+        sea_orm::DbErr::RecordNotFound(_) => AppError::not_found("Intention not found"),
+        sea_orm::DbErr::Custom(_) => {
+            AppError::conflict("Intention state changed; refresh and try again")
+        }
+        _ => AppError::internal("Intention service is temporarily unavailable"),
+    }
 }
 
 /// Grant re-filter at Work entry. Extracted so tests drive the same function
@@ -143,22 +129,16 @@ pub(crate) fn validate_intention_work_grant(
     grant: Option<&crate::services::agent::consciousness::AutonomyGrantView>,
     current_granted_permissions: &[String],
     accept_source: AcceptSource,
-) -> Result<(), HttpError> {
+) -> Result<(), AppError> {
     if user_id == crate::services::agent::SYSTEM_USER_ID || user_id <= 0 {
-        return Err(HttpError::from((
-            StatusCode::FORBIDDEN,
-            Json(AppError::public_json(
-                "Personal autonomy cannot run as the heartbeat identity",
-            )),
-        )));
+        return Err(AppError::forbidden(
+            "Personal autonomy cannot run as the heartbeat identity",
+        ));
     }
     if !intention_may_enter_work(user_id, grant, current_granted_permissions, accept_source) {
-        return Err(HttpError::from((
-            StatusCode::FORBIDDEN,
-            Json(AppError::public_json(
-                "Personal autonomy is no longer granted; review is required",
-            )),
-        )));
+        return Err(AppError::forbidden(
+            "Personal autonomy is no longer granted; review is required",
+        ));
     }
     Ok(())
 }

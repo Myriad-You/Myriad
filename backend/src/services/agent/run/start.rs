@@ -8,12 +8,10 @@
 
 use std::sync::Arc;
 
-use axum::{Json, http::StatusCode};
 use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
-use crate::error::HttpError;
 use crate::services::agent::queue::LaneQueue;
 use crate::services::agent::run_hub::{AgentRun, create_run};
 use crate::services::agent::{
@@ -30,12 +28,9 @@ use crate::services::agent::sessions::{
 pub(crate) async fn agent_access_gate(
     db: &DatabaseConnection,
     user_id: i32,
-) -> Result<(), HttpError> {
+) -> Result<(), AppError> {
     if let Err(msg) = crate::services::agent::ensure_agent_usage_allowed(db, user_id).await {
-        return Err(HttpError::from((
-            StatusCode::FORBIDDEN,
-            Json(json!({ "error": msg, "code": "agent_access_denied" })),
-        )));
+        return Err(AppError::forbidden(msg).with_code("agent_access_denied"));
     }
     Ok(())
 }
@@ -54,13 +49,13 @@ pub(crate) async fn start_for_user(
     db: DatabaseConnection,
     user_id: i32,
     req: ProcessRequest,
-) -> Result<Arc<AgentRun>, HttpError> {
+) -> Result<Arc<AgentRun>, AppError> {
     agent_access_gate(&db, user_id).await?;
     let is_admin = crate::services::principal::is_current_admin(&db, user_id)
         .await
         .map_err(|error| {
             tracing::warn!(user_id, %error, "[Agent] could not read the caller's role");
-            HttpError(AppError::internal("Database error"))
+            AppError::internal("Database error")
         })?;
     start(db, Caller { user_id, is_admin }, req).await
 }
@@ -74,35 +69,20 @@ pub(crate) async fn answer_for_user(
     question_id: String,
     answer_text: String,
     session_id: Option<String>,
-) -> Result<Arc<AgentRun>, HttpError> {
+) -> Result<Arc<AgentRun>, AppError> {
     agent_access_gate(&db, user_id).await?;
     answer(db, user_id, task_id, question_id, answer_text, session_id).await
 }
 
-/// Map an agent turn failure to an HTTP error.
-///
-/// A turn now reserves AI quota before it runs, so "you are out of budget" and
-/// "the agent broke" arrive on the same `Err(String)` channel. Reporting a
-/// budget rejection as a 500 would both mislead the user and hide a retryable
-/// condition from the client, so client limits become 429 and carry the quota
-/// code through for the UI to act on.
-pub(crate) fn agent_turn_error(error: String) -> HttpError {
+/// Classify a turn failure once for HTTP and non-HTTP callers alike.
+pub(crate) fn agent_turn_error(error: String) -> AppError {
     if crate::services::ai_quota::is_client_limit_message(&error) {
         let code = quota_code(&error);
-        tracing::info!(error = %error, "[Agent API] Turn rejected by AI quota");
-        return HttpError::from((
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({ "error": error, "code": code })),
-        ));
+        tracing::info!(%error, "[Agent] Turn rejected by AI quota");
+        return AppError::too_many_requests(error).with_code(code);
     }
-    tracing::error!(error = %error, "[Agent API] Processing failed");
-    HttpError::from((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({
-            "error": error,
-            "code": "agent_processing_failed"
-        })),
-    ))
+    tracing::error!(%error, "[Agent] Processing failed");
+    AppError::internal(error).with_code("agent_processing_failed")
 }
 
 /// `AiQuotaError` renders as `CODE: message`, so the leading token is the code.
@@ -204,7 +184,7 @@ pub(crate) async fn start(
     db: DatabaseConnection,
     caller: Caller,
     mut req: ProcessRequest,
-) -> Result<Arc<AgentRun>, HttpError> {
+) -> Result<Arc<AgentRun>, AppError> {
     let user_id = caller.user_id;
     validate_input(&req.input)?;
     let interaction_mode = req
@@ -218,10 +198,7 @@ pub(crate) async fn start(
         .as_mut()
         .and_then(|context| context.group.take());
     if group.is_some() && interaction_mode != crate::services::agent::AgentInteractionMode::Chat {
-        return Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(AppError::public_json("A group turn must be a Chat turn")),
-        )));
+        return Err(AppError::bad_request("A group turn must be a Chat turn"));
     }
     let channel_chat = req
         .context
@@ -230,12 +207,9 @@ pub(crate) async fn start(
     if channel_chat.is_some()
         && interaction_mode != crate::services::agent::AgentInteractionMode::Chat
     {
-        return Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(AppError::public_json(
-                "A channel chat turn must be a Chat turn",
-            )),
-        )));
+        return Err(AppError::bad_request(
+            "A channel chat turn must be a Chat turn",
+        ));
     }
     // Started from a chat app or a group, and answered there.
     let answered_elsewhere = group.is_some()
@@ -251,12 +225,9 @@ pub(crate) async fn start(
     if source_intent_id.is_some()
         && interaction_mode != crate::services::agent::AgentInteractionMode::Work
     {
-        return Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(AppError::public_json(
-                "An accepted intention must enter Work mode",
-            )),
-        )));
+        return Err(AppError::bad_request(
+            "An accepted intention must enter Work mode",
+        ));
     }
     validate_intention_work_request(&db, source_intent_id.as_deref(), user_id, &req.input).await?;
 
@@ -290,12 +261,9 @@ pub(crate) async fn start(
             if source_intent_id.is_some()
                 || interaction_mode == crate::services::agent::AgentInteractionMode::Chat
             {
-                return Err(HttpError::from((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(AppError::public_json(
-                        "Could not prepare durable Agent session",
-                    )),
-                )));
+                return Err(AppError::internal(
+                    "Could not prepare durable Agent session",
+                ));
             }
             // 不阻塞主流程，降级为无会话模式
             String::new()
@@ -355,10 +323,7 @@ pub(crate) async fn start(
         .await
         .map_err(|error| {
             tracing::error!(%error, "[Agent API] Failed to load session history");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AppError::public_json("Could not load Agent session")),
-            ))
+            AppError::internal("Could not load Agent session")
         })?;
         if !history.is_empty() {
             tracing::info!(
@@ -377,12 +342,7 @@ pub(crate) async fn start(
             require_user_message_persisted(persist_user_message(&db, &session_id, &req.input).await)
         {
             tracing::error!("[Agent API] Failed to persist user message: {}", e);
-            return Err(HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AppError::public_json(
-                    "Could not save durable Agent message",
-                )),
-            )));
+            return Err(AppError::internal("Could not save durable Agent message"));
         }
     }
 
@@ -456,7 +416,7 @@ pub(crate) async fn start(
             actor.as_ref(),
         )
         .await
-        .map_err(|error| HttpError(error.into()))?;
+        .map_err(|error| AppError::from(error))?;
         txn.commit()
             .await
             .map_err(|_| agent_turn_error("Could not save media references".into()))?;
@@ -897,16 +857,11 @@ pub(crate) async fn answer(
     question_id: String,
     answer: String,
     session_id: Option<String>,
-) -> Result<Arc<AgentRun>, HttpError> {
+) -> Result<Arc<AgentRun>, AppError> {
     validate_input(&answer)?;
     let task = crate::services::agent::executor::get_task_for_user(&task_id, user_id)
         .await
-        .ok_or_else(|| {
-            HttpError::from((
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Task not found"})),
-            ))
-        })?;
+        .ok_or_else(|| AppError::not_found("Task not found"))?;
     let session_id =
         myriad_agent_rules::session_id_from_lane_id(task.lane_id.as_deref()).or(session_id);
     if task
@@ -927,9 +882,7 @@ pub(crate) async fn answer(
                 user_id,
             )
             .await
-            .map_err(|message| {
-                HttpError::from((StatusCode::CONFLICT, Json(json!({"error":message}))))
-            })?;
+            .map_err(|message| AppError::conflict(message))?;
     }
     let run = create_run(user_id, session_id).await;
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);

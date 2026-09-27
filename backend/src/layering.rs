@@ -240,6 +240,37 @@ fn work_handlers_use_the_model_boundary() {
     }
 }
 
+fn is_http_adapter(path: &[String]) -> bool {
+    path.first().is_some_and(|part| part == "axum")
+        || path.last().is_some_and(|part| part == "HttpError")
+        || path.starts_with(&["crate".into(), "error".into()])
+}
+
+#[test]
+fn agent_runs_have_no_http_adapter_dependencies() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/agent/run");
+    let mut files = Vec::new();
+    rust_files(&root, &mut files);
+    for path in files {
+        let found = forbidden_paths_in(
+            &path.display().to_string(),
+            &fs::read_to_string(&path).unwrap(),
+            is_http_adapter,
+        );
+        assert!(
+            found.is_empty(),
+            "run services depend on HTTP adapters: {found:?}"
+        );
+    }
+    for source in [
+        "use axum::{Json, http::StatusCode};",
+        "use crate::{error::HttpError as Error};",
+        "use crate::error;",
+    ] {
+        assert!(!forbidden_paths_in("test.rs", source, is_http_adapter).is_empty());
+    }
+}
+
 #[test]
 fn merope_background_work_uses_the_managed_runner() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/agent");

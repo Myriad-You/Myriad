@@ -5,12 +5,10 @@
 // What every part of a run reads, as `use super::*`.
 use std::sync::Arc;
 
-use axum::{Json, http::StatusCode};
 use myriad_error::AppError;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Value, json};
 
-use crate::error::HttpError;
 use crate::services::agent::AgentProgressEvent;
 use crate::services::agent::consciousness::{
     AcceptSource, AutonomyGrantStore, AutonomyVerdict, IntentStatus, IntentStore,

@@ -9,6 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
+#[cfg(test)]
+use myriad_agent_rules::channel::task_started_reply;
 use myriad_agent_rules::channel::{
     CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT, CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY,
     ChannelCommand, ChannelEvent, ChannelImageRef, DISCORD_TEXT_LIMIT, DeliveryContext,
@@ -22,12 +24,9 @@ use myriad_agent_rules::channel::{
     split_channel_text, telegram_callback_action, telegram_dm_capabilities,
     telegram_force_reply_markup, telegram_reply_markup,
 };
-#[cfg(test)]
-use myriad_agent_rules::channel::task_started_reply;
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
-use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -547,7 +546,7 @@ async fn start_work_run(
     {
         Ok(run) => run,
         Err(error) => {
-            let body = error.0.to_json();
+            let body = error.to_json();
             let message = body
                 .get("message")
                 .and_then(Value::as_str)
@@ -610,7 +609,7 @@ async fn resume_pending(
                 },
             )
             .await
-            .map_err(|error| error.0.to_json())
+            .map_err(|error| error.to_json())
         }
         // Recipe-level confirmations are gone; only prompts stored before
         // that change can still carry this kind.
@@ -630,7 +629,7 @@ async fn resume_pending(
             sid,
         )
         .await
-        .map_err(|error| error.0.to_json()),
+        .map_err(|error| error.to_json()),
     };
 
     match run {
@@ -761,7 +760,6 @@ pub(crate) async fn say_first(
     }
     None
 }
-
 
 async fn bind_session(
     db: &DatabaseConnection,

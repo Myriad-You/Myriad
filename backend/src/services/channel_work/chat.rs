@@ -82,7 +82,7 @@ pub(super) async fn start_chat_turn(
     {
         Ok(run) => run,
         Err(error) => {
-            let body = error.0.to_json();
+            let body = error.to_json();
             let message = body
                 .get("message")
                 .and_then(Value::as_str)

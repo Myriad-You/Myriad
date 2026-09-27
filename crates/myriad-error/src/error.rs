@@ -123,6 +123,10 @@ impl AppError {
         Self::new(StatusCode::CONFLICT, error)
     }
 
+    pub fn too_many_requests(error: impl Into<String>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, error)
+    }
+
     pub fn service_unavailable(error: impl Into<String>) -> Self {
         Self::new(StatusCode::SERVICE_UNAVAILABLE, error)
     }

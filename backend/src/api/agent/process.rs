@@ -151,7 +151,7 @@ pub async fn process(
                 Some(error.clone()),
             )
             .await;
-            return Err(agent_turn_error(error));
+            return Err(agent_turn_error(error).into());
         }
     };
     let intention_status = if response.is_successful_outcome() {
@@ -222,7 +222,9 @@ pub(crate) async fn start_process_run(
         user_id,
         is_admin: claims.is_admin,
     };
-    crate::services::agent::run::start(db, caller, req).await
+    crate::services::agent::run::start(db, caller, req)
+        .await
+        .map_err(Into::into)
 }
 
 /// An answer to her question, from a login: [`crate::services::agent::run::answer`].
@@ -235,7 +237,9 @@ pub(crate) async fn start_answer_run(
     session_id: Option<String>,
 ) -> Result<Arc<AgentRun>, HttpError> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
-    crate::services::agent::run::answer(db, user_id, task_id, question_id, answer, session_id).await
+    crate::services::agent::run::answer(db, user_id, task_id, question_id, answer, session_id)
+        .await
+        .map_err(Into::into)
 }
 
 /// 重新订阅一个已存在的 Agent run。
@@ -569,7 +573,7 @@ pub async fn answer_task_question(
         .map(|response| Json(ApiResponse::from(response)))
         // Resume reserves its own budget, so a quota rejection can surface here
         // too and must not be reported as a server error.
-        .map_err(agent_turn_error)
+        .map_err(|error| agent_turn_error(error).into())
 }
 
 /// 回答问题（SSE 流式版本）
@@ -667,6 +671,47 @@ mod quota_error_tests {
         }
     }
     use crate::services::ai_quota::AiQuotaError;
+
+    #[tokio::test]
+    async fn run_service_errors_keep_the_http_contract() {
+        use crate::services::agent::run::{agent_turn_error, intention_error, validate_input};
+        use axum::{body::to_bytes, response::IntoResponse};
+        let cases = [
+            (validate_input("  ").unwrap_err(), 400, Some("bad_request")),
+            (
+                intention_error(sea_orm::DbErr::RecordNotFound("missing".into())),
+                404,
+                Some("not_found"),
+            ),
+            (
+                intention_error(sea_orm::DbErr::Custom("stale".into())),
+                409,
+                Some("conflict"),
+            ),
+            (
+                agent_turn_error(AiQuotaError::DailyCallLimit { anonymous: false }.to_string()),
+                429,
+                Some("AI_DAILY_CALL_LIMIT"),
+            ),
+            (
+                agent_turn_error("injected failure".into()),
+                500,
+                Some("agent_processing_failed"),
+            ),
+        ];
+        for (error, status, code) in cases {
+            let expected_body = error.to_json();
+            let response = crate::error::HttpError::from(error).into_response();
+            assert_eq!(response.status().as_u16(), status);
+            let body: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap())
+                    .unwrap();
+            assert_eq!(body, expected_body);
+            if let Some(code) = code {
+                assert_eq!(body["code"], code);
+            }
+        }
+    }
 
     #[test]
     fn stream_errors_carry_the_quota_code_instead_of_a_generic_one() {

@@ -1,10 +1,8 @@
 //! What a run is asked with: the message's limits, its context as the agent
 //! reads it, and how a data display hint is shaped for the response.
 
-use axum::{Json, http::StatusCode};
 use myriad_error::AppError;
 
-use crate::error::HttpError;
 use crate::services::agent::RequestContext;
 use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 
@@ -105,22 +103,16 @@ pub(crate) fn convert_data_display_hint(
 }
 
 /// 验证输入长度
-pub(crate) fn validate_input(input: &str) -> Result<(), HttpError> {
+pub(crate) fn validate_input(input: &str) -> Result<(), AppError> {
     if input.chars().count() > MAX_INPUT_LEN {
-        return Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(AppError::public_json(
-                crate::services::agent::response_agent::input_too_long(MAX_INPUT_LEN),
-            )),
-        )));
+        return Err(AppError::bad_request(
+            crate::services::agent::response_agent::input_too_long(MAX_INPUT_LEN),
+        ));
     }
     if input.trim().is_empty() {
-        return Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(AppError::public_json(
-                crate::services::agent::response_agent::input_empty(),
-            )),
-        )));
+        return Err(AppError::bad_request(
+            crate::services::agent::response_agent::input_empty(),
+        ));
     }
     Ok(())
 }
