@@ -62,5 +62,8 @@ cargo test --manifest-path updater/Cargo.toml --test signed_release -- --ignored
 Guard，不替代 Guard 的权限判断。
 
 本地尚未发布的 updater/Guard 使用项目已有的 debug 镜像身份入口。此演练**不覆盖**
-新 updater 自身的正式摘要身份引导、TCB 自更新交接，也不会为未发布代码生成 GitHub
-OIDC 签名。要验证这些环节，仍需正式签名制品及独立的控制平面升级演练。
+新 updater 自身的正式摘要身份引导、TCB 自更新交接。TCB 自更新的 `dockerhub_tag`
+路径从固定官方仓库拉取镜像，再锁定其摘要；它不调用业务发布的 Cosign 验签
+（`updater/src/docker/guard/self_update.rs` 的 `pull_trusted_tag_and_resolve`）。
+要验证这些环节，仍需包含待验代码的官方仓库镜像及独立的控制平面升级演练；本地
+debug 镜像和已签名的业务发布清单不能代替它。
