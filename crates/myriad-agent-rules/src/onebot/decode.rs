@@ -101,10 +101,8 @@ fn group_text(segments: &[WireSegment], self_id: i64) -> (String, bool) {
                     text.push_str(&piece);
                 }
             }
-            "at" => {
-                if segment.i64_field("qq") == Some(self_id) {
-                    addressed = true;
-                }
+            "at" if segment.i64_field("qq") == Some(self_id) => {
+                addressed = true;
             }
             _ => {}
         }

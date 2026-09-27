@@ -41,7 +41,7 @@ describe('agentChannels', () => {
   it('keeps catalog order and ignores unknown revealed ids', () => {
     const get = () => ''
     assert.deepEqual(visibleAgentChannels(get, ['feishu', 'qq']), ['qq', 'feishu'])
-    assert.deepEqual(AGENT_CHANNEL_IDS, ['qq', 'telegram', 'discord', 'feishu'])
+    assert.deepEqual(AGENT_CHANNEL_IDS, ['qq', 'telegram', 'discord', 'feishu', 'onebot'])
   })
 
   it('clears enable and credential fields on remove', () => {
