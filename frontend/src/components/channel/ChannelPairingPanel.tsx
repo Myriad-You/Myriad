@@ -9,7 +9,7 @@ import { userFacingError } from '../../utils/userFacingError'
 import { pairingCodeLive } from './channelPairing'
 import './ChannelPairingPanel.css'
 
-export type ChannelPairingKind = 'qq' | 'telegram' | 'discord_dm' | 'feishu'
+export type ChannelPairingKind = 'qq' | 'telegram' | 'discord_dm' | 'feishu' | 'onebot'
 
 export function ChannelPairingPanel({
   channel,
@@ -37,7 +37,9 @@ export function ChannelPairingPanel({
             ? await agentService.getTelegramPairing()
             : channel === 'feishu'
               ? await agentService.getFeishuPairing()
-              : await agentService.getDiscordPairing()
+              : channel === 'onebot'
+                ? await agentService.getOneBotPairing()
+                : await agentService.getDiscordPairing()
       setPairing(data.pairing)
       loadFailedToastRef.current = false
     } catch (err) {
@@ -90,7 +92,9 @@ export function ChannelPairingPanel({
             ? await agentService.issueTelegramPairingCode()
             : channel === 'feishu'
               ? await agentService.issueFeishuPairingCode()
-              : await agentService.issueDiscordPairingCode()
+              : channel === 'onebot'
+                ? await agentService.issueOneBotPairingCode()
+                : await agentService.issueDiscordPairingCode()
       setPairing(data.pairing)
     } catch (err) {
       showStickyToast({
@@ -121,6 +125,8 @@ export function ChannelPairingPanel({
         await agentService.unpairTelegram()
       } else if (channel === 'feishu') {
         await agentService.unpairFeishu()
+      } else if (channel === 'onebot') {
+        await agentService.unpairOneBot()
       } else {
         await agentService.unpairDiscord()
       }
@@ -229,6 +235,25 @@ function pairingCopy(
   t: ReturnType<typeof useI18n>['t'],
   channel: ChannelPairingKind,
 ) {
+  if (channel === 'onebot') {
+    return {
+      title: t.userModal.onebotPairingTitle,
+      hint: t.userModal.onebotPairingHint,
+      loadFailed: t.userModal.onebotPairingLoadFailed,
+      issueFailed: t.userModal.onebotPairingIssueFailed,
+      copyFailed: t.userModal.onebotPairingCopyFailed,
+      generateHint: t.userModal.onebotPairingGenerateHint,
+      sendCode: t.userModal.onebotPairingSendCode,
+      generate: t.userModal.onebotGenerateCode,
+      refresh: t.userModal.onebotRefreshCode,
+      copy: t.userModal.onebotCopyCode,
+      paired: t.userModal.onebotPaired,
+      notPaired: t.userModal.onebotNotPaired,
+      unpair: t.userModal.onebotUnpair,
+      unpairConfirm: t.userModal.onebotUnpairConfirm,
+      unpairFailed: t.userModal.onebotUnpairFailed,
+    }
+  }
   if (channel === 'feishu') {
     return {
       title: t.userModal.feishuPairingTitle,

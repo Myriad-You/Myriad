@@ -4,6 +4,7 @@ import type {
   DiscordBotStatus,
   FeishuBotPhase,
   FeishuBotStatus,
+  OneBotStatus,
   QqBotPhase,
   QqBotStatus,
   TelegramBotPhase,
@@ -64,6 +65,7 @@ function ChannelIcon({ id }: { id: AgentChannelId }) {
     case 'discord':
       return <SiDiscord />
     case 'feishu':
+    case 'onebot':
       return <LuMessageSquare />
   }
 }
@@ -113,6 +115,7 @@ export function AgentChannelAddTrigger({
         { id: 'telegram' as const, title: t.config.telegramBotTitle },
         { id: 'discord' as const, title: t.config.discordBotTitle },
         { id: 'feishu' as const, title: t.config.feishuBotTitle },
+        { id: 'onebot' as const, title: t.config.onebotBotTitle },
       ] satisfies Array<{ id: AgentChannelId; title: string }>,
     [t.config],
   )
@@ -261,6 +264,16 @@ function AgentChannelCard({
     case 'feishu':
       return (
         <FeishuChannelCard
+          justAdded={justAdded}
+          getFieldValue={getFieldValue}
+          updateValue={updateValue}
+          onRemove={onRemove}
+          removeLabel={t.common.delete}
+        />
+      )
+    case 'onebot':
+      return (
+        <OneBotChannelCard
           justAdded={justAdded}
           getFieldValue={getFieldValue}
           updateValue={updateValue}
@@ -983,6 +996,121 @@ function FeishuChannelCard({
       (status?.hasAppId || status?.hasSecret) ? (
         <ChannelPairingPanel
           channel="feishu"
+          receiveReady={status?.phase === 'online'}
+        />
+      ) : null}
+    </ChannelCardFrame>
+  )
+}
+
+function OneBotChannelCard({
+  justAdded,
+  getFieldValue,
+  updateValue,
+  onRemove,
+  removeLabel,
+}: {
+  justAdded: boolean
+  getFieldValue: (key: string, defaultValue?: string) => string
+  updateValue: (key: string, value: string) => void
+  onRemove: () => void
+  removeLabel: string
+}) {
+  const { t, locale, format } = useI18n()
+  const { catalog: g, bindGuide } = useSettingGuide()
+  const [status, setStatus] = useState<OneBotStatus | null>(null)
+
+  const loadStatus = useCallback(async () => {
+    try {
+      setStatus(await agentService.getOneBotStatus())
+    } catch {
+      setStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadStatus()
+    const timer = window.setInterval(() => {
+      void loadStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadStatus])
+
+  const phase = botPhaseLabel(status?.phase, {
+    online: t.config.onebotBotPhaseOnline,
+    connecting: t.config.onebotBotPhaseConnecting,
+    reconnecting: t.config.onebotBotPhaseReconnecting,
+    rejected: t.config.onebotBotPhaseRejected,
+    offline: t.config.onebotBotPhaseOffline,
+  })
+
+  return (
+    <ChannelCardFrame
+      id="onebot"
+      title={t.config.onebotBotTitle}
+      justAdded={justAdded}
+      configured={channelCredentialsFilled('onebot', getFieldValue)}
+      enabled={getFieldValue('onebot_bot_enabled') === 'true'}
+      onEnabledChange={(value) =>
+        updateValue('onebot_bot_enabled', value ? 'true' : 'false')
+      }
+      enableLabel={t.config.onebotBotTitle}
+      enableTitle={t.config.onebotBotHint}
+      {...bindGuide('agent.onebotBot', g.agent.onebotBot)}
+      badge={
+        <SettingTitleTag
+          variant={status?.phase === 'rejected' ? 'danger' : 'muted'}
+          title={t.config.onebotBotHint}
+        >
+          {phase}
+        </SettingTitleTag>
+      }
+      onRemove={onRemove}
+      removeLabel={removeLabel}
+    >
+      <InputItem
+        itemKey="onebot_bot_ws_url"
+        label={t.config.onebotBotWsUrl}
+        value={getFieldValue('onebot_bot_ws_url')}
+        onChange={(value) => updateValue('onebot_bot_ws_url', value)}
+        placeholder="ws://127.0.0.1:3001"
+        hint={t.config.onebotBotHint}
+        layout="vertical"
+        {...bindGuide('agent.onebotBot', g.agent.onebotBot)}
+      />
+      <InputItem
+        itemKey="onebot_bot_access_token"
+        label={t.config.onebotBotAccessToken}
+        value={getFieldValue('onebot_bot_access_token')}
+        onChange={(value) => updateValue('onebot_bot_access_token', value)}
+        inputType="password"
+        autoSelectOnMask
+        layout="vertical"
+        {...bindGuide('agent.onebotBot', g.agent.onebotBot)}
+      />
+      <ChannelConnectFacts
+        credentialLabel={t.config.onebotBotCredentialLabel}
+        credentialValue={t.config.onebotBotCredentialUntested}
+        receiveLabel={t.config.onebotBotReceiveLabel}
+        receiveValue={phase}
+        identityLabel={t.config.onebotBotIdentityLabel}
+        identityValue={status?.wsUrl || null}
+        inboundLabel={
+          formatInboundTime(status?.lastInboundAt, locale)
+            ? format(t.config.onebotBotLastInbound, {
+                time: formatInboundTime(
+                  status?.lastInboundAt,
+                  locale,
+                ) as string,
+              })
+            : t.config.onebotBotLastInboundNone
+        }
+        openHint={t.config.onebotBotOpenHint}
+      />
+      {getFieldValue('onebot_bot_enabled') === 'true' &&
+      (status?.hasUrl || status?.hasToken) ? (
+        <ChannelPairingPanel
+          channel="onebot"
           receiveReady={status?.phase === 'online'}
         />
       ) : null}

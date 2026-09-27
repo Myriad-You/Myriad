@@ -598,6 +598,12 @@
       "frontend": "設定 → Agent → 機器人。從右上角新增飛書。",
       "notes": "Use an internal company app, not a group custom-bot webhook. AppSecret never appears in page plaintext or error text."
     },
+    "onebotBot": {
+      "what": "用已登入 NapCat 的 QQ 號私聊把一句話交給站點辦事，結果回到同一條私聊。",
+      "chain": "① 打開開關，填 NapCat 正向 WebSocket 位址和 access token，點儲存。標題旁的標籤是收發工人：離線 / 連線中 / 在線 / 憑證無效 / 重連中。\n② 沒有單獨的測試按鈕。token 對不對，要等連上後再由 NapCat 回執判斷。\n③ token 只寫：讀回是遮罩，空值清除，遮罩再提交不覆蓋庫裡的值。位址可以清空。\n④ 關掉、沒填位址或 token 被拒時工人停掉；網路抖動會重連。\n⑤ 連線成功後在本頁綁定自己的 QQ：複製配對碼，發到那個號的私聊。配對碼有有效期，過期後重新生成。\n⑥ 配對後發請求辦事。可發「停止」「新對話」「當前任務」。",
+      "frontend": "設定 → Agent → 機器人。從右上角新增 OneBot。",
+      "notes": "這不是官方 QQ 機器人，也不代替 QQ 登入。位址和 token 不會出現在報錯裡。token 不會以明文讀回。"
+    },
     "heartbeat": {
       "what": "讓 Agent 按時間表自己做一件事，不必你盯著。",
       "chain": "① 在本項新增任務：名字、時間表（預設或 cron）、要做的事。\n② 到點後 Agent 用辦事檔去執行那句話。\n③ 列表裡可開關、改、刪；上次結果寫在行上。\n④ 和人設心情無關：心跳不會被心情擋住。\n⑤ 要登入後才能讀寫這些任務。",

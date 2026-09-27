@@ -598,6 +598,12 @@
       "frontend": "Settings → Agent → Bots. Add Feishu from the top right.",
       "notes": "Use an internal company app, not a group custom-bot webhook. AppSecret never appears in page plaintext or error text."
     },
+    "onebotBot": {
+      "what": "Send one request through the QQ account logged into NapCat and get the result back in the same private chat.",
+      "chain": "① Turn on, paste NapCat's forward WebSocket URL and access token, then save. The tag is the worker: offline / connecting / online / rejected / reconnecting.\n② There is no separate test button. A bad token is known only after NapCat accepts the socket and rejects it.\n③ The token is write-only: reads come back masked, empty clears it, and submitting the mask does not overwrite the stored value. The URL can be cleared.\n④ Off, a missing URL, or a rejected token stops the worker. Network drops reconnect.\n⑤ Once online, bind your QQ here: copy the code and send it to that account. Codes expire; generate another.\n⑥ After pairing, send a request. You can send stop, new chat, and current task.",
+      "frontend": "Settings → Agent → Bots. Add OneBot from the top right.",
+      "notes": "This is not the official QQ bot and it is not QQ login. The URL and token do not appear in errors. The token is never read back in clear text."
+    },
     "heartbeat": {
       "what": "Let Agent run a task on a schedule without you watching.",
       "chain": "1) Add a task here: name, schedule (preset or cron), and what to do.\n2) When due, Agent runs that instruction in Work mode.\n3) The list can enable, edit, or delete; last result shows on the row.\n4) Independent of persona mood — heartbeat is never blocked by mood.\n5) You must be signed in to read or write these tasks.",
