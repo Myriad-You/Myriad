@@ -475,6 +475,8 @@ pub struct DynamicConfig {
     pub onebot_bot_enabled: bool,
     pub onebot_bot_ws_url: String,
     pub onebot_bot_access_token: Option<String>,
+    /// 群聊默认关。个人 QQ 号已经在很多群里，不打开就不记录、不应答。
+    pub onebot_bot_groups_enabled: bool,
 
     // UI 配置
     pub ui_wallpaper_url: Option<String>,
@@ -870,6 +872,7 @@ impl Default for DynamicConfig {
             onebot_bot_enabled: false,
             onebot_bot_ws_url: String::new(),
             onebot_bot_access_token: None,
+            onebot_bot_groups_enabled: false,
 
             ui_wallpaper_url: None,
             ui_wallpaper_blur: 3,

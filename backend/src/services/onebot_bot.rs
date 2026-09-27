@@ -18,11 +18,25 @@ use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::H
 use tracing::{info, warn};
 
 use crate::config::DynamicConfig;
+use crate::GLOBAL_DYNAMIC_CONFIG;
 use crate::services::bot_ingress;
 use crate::services::bot_supervisor::{BotWorker, SessionResult, SupervisorPhase, supervise};
 use crate::services::onebot_send;
 
 const READ_IDLE: Duration = Duration::from_secs(90);
+
+fn connect_failure(error: tokio_tungstenite::tungstenite::Error) -> ConnectFailureKind {
+    match error {
+        tokio_tungstenite::tungstenite::Error::Http(response) => {
+            classify_onebot_handshake(Some(response.status().as_u16()), None)
+        }
+        _ => ConnectFailureKind::Transient,
+    }
+}
+
+async fn groups_enabled() -> bool {
+    GLOBAL_DYNAMIC_CONFIG.read().await.onebot_bot_groups_enabled
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -181,7 +195,7 @@ async fn run_socket(
 
     let (socket, _response) = tokio_tungstenite::connect_async(request)
         .await
-        .map_err(|_| ConnectFailureKind::Transient)?;
+        .map_err(connect_failure)?;
     let (write, mut read) = socket.split();
     let (outbound_tx, mut outbound_rx) = mpsc::channel::<String>(32);
     onebot_send::install(std::sync::Arc::new(move |text| {
@@ -257,7 +271,11 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 return Some(ConnectFailureKind::Permanent);
             }
             let raw = serde_json::to_string(event.as_ref()).ok()?;
-            if let Some(group) =
+            if !groups_enabled().await {
+                // Groups stay off until the deployer turns them on. A personal
+                // QQ number is already in many groups; recording all of them
+                // is not the private-chat default.
+            } else if let Some(group) =
                 myriad_agent_rules::onebot::decode::decode_group_inbound(&raw, event.self_id)
             {
                 let line = crate::services::channel_group::GroupLine::from(group);
@@ -278,7 +296,11 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 });
                 return None;
             }
-            let decoded = myriad_agent_rules::onebot::decode::decode_private_inbound(&raw)?;
+            if myriad_agent_rules::onebot::decode::private_message_is_cq_string(&raw) {
+        warn!("OneBot private message used CQ string format; set messagePostFormat to array");
+        return None;
+    }
+    let decoded = myriad_agent_rules::onebot::decode::decode_private_inbound(&raw)?;
             let permit = bot_ingress::try_acquire(bot_ingress::Channel::OneBot, raw.len())?;
             mark_inbound().await;
             tokio::spawn(async move {

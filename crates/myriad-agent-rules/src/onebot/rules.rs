@@ -20,7 +20,9 @@ pub fn onebot_private_capabilities() -> ChannelCapabilities {
         inbound_media: true,
         inbound_callback: false,
         outbound_final_text: true,
-        outbound_markdown: true,
+        // Markdown segments cannot be sent directly on NapCat. Structured
+        // results are rendered as readable text and sent as a text segment.
+        outbound_markdown: false,
         outbound_image: true,
         outbound_edit: false,
         outbound_streaming_draft: false,

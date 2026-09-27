@@ -226,11 +226,13 @@ impl ChannelTransport {
                     .map_err(SendError::from)
             }
             Self::OneBot { user_id } => {
+                // NapCat cannot send a top-level markdown segment on a normal QQ
+                // account. Tables stay readable as plain text.
                 let Some(action) = myriad_agent_rules::onebot::encode::plan_private_delivery(
                     user_id,
                     chunk,
                     &[],
-                    true,
+                    false,
                 ) else {
                     return Ok(());
                 };

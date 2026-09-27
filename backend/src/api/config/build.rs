@@ -1260,6 +1260,17 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
+                    key: "onebot_bot_groups_enabled".to_string(),
+                    label: "OneBot groups".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.onebot_bot_groups_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
                     key: "onebot_bot_ws_url".to_string(),
                     label: "OneBot WebSocket URL".to_string(),
                     field_type: "text".to_string(),

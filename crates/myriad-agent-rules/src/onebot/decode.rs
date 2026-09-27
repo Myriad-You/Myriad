@@ -19,9 +19,10 @@ pub fn decode_private_inbound(raw: &str) -> Option<InboundC2cText> {
         _ => return None,
     }
     let user_id = event.user_id?;
-    let segments = match event.message.as_ref() {
-        Some(WireMessage::Array(segments)) => segments.as_slice(),
-        _ => &[],
+    // CQ strings are not a private inbound. The worker warns once instead of
+    // answering every such message with "no text or image".
+    let Some(WireMessage::Array(segments)) = event.message.as_ref() else {
+        return None;
     };
     Some(InboundC2cText {
         msg_id: event.message_id.map_or(String::new(), |id| id.to_string()),
@@ -29,6 +30,16 @@ pub fn decode_private_inbound(raw: &str) -> Option<InboundC2cText> {
         content: truncate_qq_text(&decode_segments_to_text(segments)),
         images: decode_images(segments),
     })
+}
+
+/// `Some(true)` when the payload is a private message reported as a CQ string.
+pub fn private_message_is_cq_string(raw: &str) -> bool {
+    let Ok(event) = serde_json::from_str::<RawEventJson>(raw) else {
+        return false;
+    };
+    event.post_type.as_deref() == Some("message")
+        && event.message_type.as_deref() == Some("private")
+        && matches!(event.message, Some(WireMessage::Cq(_)))
 }
 
 /// 群里的一行。`addressed` 为真表示 @ 了她，或回复了她的消息。

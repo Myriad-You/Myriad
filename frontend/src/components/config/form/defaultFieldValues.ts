@@ -12,6 +12,7 @@ export const AGENT_AI_FIELD_KEYS = new Set([
   'feishu_bot_app_id',
   'feishu_bot_app_secret',
   'onebot_bot_enabled',
+  'onebot_bot_groups_enabled',
   'onebot_bot_ws_url',
   'onebot_bot_access_token',
 ])
@@ -48,6 +49,7 @@ const AI_FIELD_DEFAULTS: Readonly<Record<string, string>> = {
   discord_bot_enabled: 'false',
   feishu_bot_enabled: 'false',
   onebot_bot_enabled: 'false',
+  onebot_bot_groups_enabled: 'false',
 }
 
 export function defaultAiFieldValue(key: string): string {

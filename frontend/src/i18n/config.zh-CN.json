@@ -1975,6 +1975,9 @@
   "onebotBotDesc": "私聊办事。填 NapCat 的正向 WebSocket 地址和 access token，后台连上去收消息。",
   "onebotBotWsUrl": "OneBot WebSocket 地址",
   "onebotBotAccessToken": "OneBot access token",
+  "onebotBotGroups": "接收群消息",
+  "onebotBotGroupsHint": "默认关闭。打开后，这个号所在的群里 @ 她或回复她才会答。",
+
   "onebotBotHint": "token 只写，读回是掩码。空值清除。地址可清空。关掉或 token 不对时机器人不在线。",
   "onebotBotPhaseOffline": "离线",
   "onebotBotPhaseConnecting": "连接中",

@@ -2049,6 +2049,14 @@ mod onebot_decode {
     }
 
     #[test]
+    fn cq_string_private_message_is_not_an_inbound() {
+        use myriad_agent_rules::onebot::decode::private_message_is_cq_string;
+        let raw = r#"{"post_type":"message","message_type":"private","sub_type":"friend","user_id":1,"message":"[CQ:image,file=x.jpg]"}"#;
+        assert!(private_message_is_cq_string(raw));
+        assert!(decode_private_inbound(raw).is_none());
+    }
+
+    #[test]
     fn group_at_is_addressed_and_plain_talk_is_not() {
         use myriad_agent_rules::onebot::decode::decode_group_inbound;
         let at = json!({
@@ -2484,7 +2492,7 @@ mod onebot_rules {
         assert!(caps.inbound_media);
         assert!(!caps.inbound_callback);
         assert!(caps.outbound_final_text);
-        assert!(caps.outbound_markdown);
+        assert!(!caps.outbound_markdown);
         assert!(caps.outbound_image);
         assert!(!caps.outbound_edit);
         assert!(!caps.outbound_streaming_draft);
@@ -2495,8 +2503,8 @@ mod onebot_rules {
     }
 
     #[test]
-    fn onebot_is_the_only_channel_with_markdown() {
-        assert!(onebot_private_capabilities().outbound_markdown);
+    fn no_channel_sends_a_top_level_markdown_segment() {
+        assert!(!onebot_private_capabilities().outbound_markdown);
         assert!(!qq_c2c_capabilities().outbound_markdown);
         assert!(!telegram_dm_capabilities().outbound_markdown);
         assert!(!discord_dm_capabilities().outbound_markdown);

@@ -1890,6 +1890,8 @@
   "onebotBotDesc": "Private-chat Work. Paste NapCat's forward WebSocket URL and access token; the site connects and receives messages.",
   "onebotBotWsUrl": "OneBot WebSocket URL",
   "onebotBotAccessToken": "OneBot access token",
+  "onebotBotGroups": "Receive group messages",
+  "onebotBotGroupsHint": "Off by default. When on, she answers only when @-mentioned or replied to in a group this account is already in.",
   "onebotBotHint": "The token is write-only; reads come back masked. Empty clears it. The URL can be cleared. Off or a bad token stays offline.",
   "onebotBotPhaseOffline": "Offline",
   "onebotBotPhaseConnecting": "Connecting",

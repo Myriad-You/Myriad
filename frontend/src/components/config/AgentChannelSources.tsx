@@ -1078,6 +1078,14 @@ function OneBotChannelCard({
         layout="vertical"
         {...bindGuide('agent.onebotBot', g.agent.onebotBot)}
       />
+      <CheckboxCard
+        label={t.config.onebotBotGroups}
+        checked={getFieldValue('onebot_bot_groups_enabled') === 'true'}
+        onChange={(value) =>
+          updateValue('onebot_bot_groups_enabled', value ? 'true' : 'false')
+        }
+        hint={t.config.onebotBotGroupsHint}
+      />
       <InputItem
         itemKey="onebot_bot_access_token"
         label={t.config.onebotBotAccessToken}
