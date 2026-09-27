@@ -108,10 +108,22 @@ if sh /checks/directories.sh prepare; then exit 1; fi
 mkdir /old /restored
 chmod 755 /old
 echo content >/old/media
+mkdir -p /old/private/nested /outside
+echo private >/old/private/nested/item
+echo untouched >/outside/item
+chmod 600 /outside/item
+ln -s /outside /old/external
+chmod 000 /old/private/nested/item /old/private/nested /old/private
 tar czf /tmp/archive.tar.gz -C /old .
 DEST=/restored ARCHIVE=/tmp/archive.tar.gz RESTORE_OWNER=1000:1000 sh /checks/restore.sh
 test "$(stat -c %a:%u:%g /restored)" = 700:1000:1000
 test "$(cat /restored/media)" = content
+adduser -D -u 1000 restore-check
+su restore-check -s /bin/sh -c 'test "$(cat /restored/private/nested/item)" = private; echo updated >>/restored/private/nested/item; touch /restored/private/nested/new'
+test "$(stat -c %a:%u:%g /restored/private/nested/item)" = 600:1000:1000
+test "$(stat -c %a:%u:%g /outside/item)" = 600:0:0
+test "$(stat -c %u:%g /outside)" = 0:0
+test "$(cat /outside/item)" = untouched
 chmod 755 /restored
 echo invalid >/tmp/archive.tar.gz
 if DEST=/restored ARCHIVE=/tmp/archive.tar.gz sh /checks/restore.sh; then exit 1; fi

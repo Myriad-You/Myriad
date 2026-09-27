@@ -157,7 +157,11 @@ if [ -n "$leftover" ]; then
 fi
 tar xzf "$archive" -C "$dest"
 if [ -n "${RESTORE_OWNER:-}" ]; then
-    chown "$RESTORE_OWNER" "$dest"
+    # Writers are recreated with --no-deps, so volume-init will not repair an
+    # old archive's nested root-owned/private files. Do not follow symlinks.
+    chown -Rh "$RESTORE_OWNER" "$dest"
+    find "$dest" -type d -exec chmod u+rwx {} +
+    find "$dest" -type f -exec chmod u+rw {} +
 fi
 EOF
 }
