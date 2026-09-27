@@ -32,16 +32,21 @@ pub fn encode_private_message(user_id: &str, segments: &[Value]) -> Option<Value
     }))
 }
 
-/// `set_input_status`。`event_type` `1` 是正在输入：NapCat `SetInputStatus.ts`
-/// 的 `payloadExample` 就是 `1`。`0` 表示取消，源码只把它原样传给
-/// `sendShowInputStatusReq`，没有写出取值表，标 `uncertain`。
+/// `set_input_status`，只发正在输入。
+///
+/// NapCat `SetInputStatus.ts` 的 `payloadExample` 把 `event_type` 写成 `1`，
+/// `napcat-core` 再原样传给 `sendShowInputStatusReq`。源码没有取消取值，
+/// `typing == false` 返回 `None`，不发明一个 `0`。
 pub fn encode_typing(user_id: &str, typing: bool) -> Option<Value> {
+    if !typing {
+        return None;
+    }
     let user_id = user_id.parse::<i64>().ok()?;
     Some(json!({
         "action": "set_input_status",
         "params": {
             "user_id": user_id,
-            "event_type": if typing { 1 } else { 0 },
+            "event_type": 1,
         }
     }))
 }

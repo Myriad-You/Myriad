@@ -42,6 +42,16 @@ impl PrivateText for OneBotText {
         input: &str,
         session_key: &str,
     ) {
+        // Voice, file, and other segments are dropped by the decoder. A paired
+        // sender would otherwise start Work with an empty input and no reply.
+        if input.trim().is_empty() && self.inbound.images.is_empty() {
+            self.reply(
+                db,
+                "这条消息里没有文字或图片，语音、文件和其他类型暂不支持。",
+            )
+            .await;
+            return;
+        }
         crate::services::onebot_work::start_paired_work_with_images(
             db,
             user_id,

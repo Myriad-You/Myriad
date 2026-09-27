@@ -2277,8 +2277,7 @@ mod onebot_encode {
         assert_eq!(payload["action"], "set_input_status");
         assert_eq!(payload["params"]["user_id"], 10001);
         assert_eq!(payload["params"]["event_type"], 1);
-        let stopped = encode_typing("10001", false).expect("stop");
-        assert_eq!(stopped["params"]["event_type"], 0);
+        assert!(encode_typing("10001", false).is_none());
         assert!(encode_typing("not-a-number", true).is_none());
     }
 
