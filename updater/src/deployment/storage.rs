@@ -257,13 +257,69 @@ mod tests {
                     "federation-worker",
                 ] {
                     let mounts = |value: &Value| {
-                        let mut mounts = value["services"][service]["volumes"].as_array().unwrap().clone();
+                        let mut mounts = value["services"][service]["volumes"]
+                            .as_array()
+                            .unwrap()
+                            .clone();
                         mounts.sort_by_key(|m| m["target"].as_str().unwrap().to_owned());
                         mounts
                     };
                     assert_eq!(mounts(&actual), mounts(&expected));
                 }
                 assert_eq!(actual.get("volumes"), expected.get("volumes"));
+
+                // Even with the same file selection, never flatten a migrated
+                // multi-file deployment into one file plus blank overrides.
+                let extra = root.join("panel.yml");
+                let extra_bytes =
+                    b"# operator formatting\nservices:\n  audit:\n    image: alpine:3.20\n";
+                std::fs::write(&extra, extra_bytes).unwrap();
+                std::fs::write(&file, &migrated).unwrap();
+                let multi_runner = runner.with_files(vec![file.clone(), extra.clone()]);
+                let multi_plan = super::super::PreparedCompose {
+                    files: vec![
+                        super::super::ComposeChange {
+                            path: file.clone(),
+                            before: before.clone(),
+                            after: vec![],
+                        },
+                        super::super::ComposeChange {
+                            path: extra.clone(),
+                            before: extra_bytes.to_vec(),
+                            after: vec![],
+                        },
+                    ],
+                    baseline_path: root.join("baseline.json"),
+                    install_baseline: vec![],
+                    restore_baseline: vec![],
+                };
+                let baseline_before = std::fs::read(root.join("baseline.json")).unwrap();
+                let error = multi_plan
+                    .prepare_restore(&multi_runner, root.join("baseline.json"))
+                    .await
+                    .unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("refusing to flatten override files"),
+                    "{error}"
+                );
+                assert_eq!(std::fs::read(&file).unwrap(), migrated);
+                assert_eq!(std::fs::read(&extra).unwrap(), extra_bytes);
+                assert_eq!(
+                    std::fs::read(root.join("baseline.json")).unwrap(),
+                    baseline_before
+                );
+                // Without a storage migration, restore every original file verbatim.
+                std::fs::write(&file, &before).unwrap();
+                multi_plan
+                    .prepare_restore(&multi_runner, root.join("baseline.json"))
+                    .await
+                    .unwrap()
+                    .restore()
+                    .unwrap();
+                assert_eq!(std::fs::read(&file).unwrap(), before);
+                assert_eq!(std::fs::read(&extra).unwrap(), extra_bytes);
 
                 let mut foreign = candidate.clone();
                 foreign["services"]["backend"]["volumes"] = json!([

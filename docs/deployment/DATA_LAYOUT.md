@@ -109,6 +109,10 @@ bind-backed named volumes 的部署，先确认 `docker volume inspect` 的 `Opt
 Compose。不能直接使用迁移前归档，否则会丢失迁移后的写入。保留宿主目录直到回退
 验证完成。updater 的文件快照仍只覆盖 `pgdata`，不包含媒体。
 
+历史回退要求当前 Compose 文件路径及顺序与快照一致；新增、删除、重命名或重排
+override 文件会在停止服务和写回前被拒绝。文件选择一致但发生过存储迁移时，自动
+回退仅支持单 Compose 文件，多文件部署须由管理员协调恢复，避免将 override 清空。
+
 整目录换机前，确认已迁移旧卷且 PostgreSQL 在本机。运行 `docker compose down`，
 停机后保留数字 uid/gid、权限和隐藏文件，复制部署目录，包括 `.env`、`guard-policy/`、
 `pgdata/`、`data/`、`state/`；`cache/` 可不复制。跨 PostgreSQL 主版本或 CPU 架构应使用
