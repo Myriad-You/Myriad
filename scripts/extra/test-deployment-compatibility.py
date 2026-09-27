@@ -110,6 +110,10 @@ seed_guard_policy_from_env
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "_digests").mkdir()
+            # Release assembly now also renders notes; supply its real helper.
+            (root / "scripts/extra").mkdir(parents=True)
+            (root / "scripts/extra/release-notes.py").write_text(
+                (ROOT / "scripts/extra/release-notes.py").read_text())
             # No infra release: compatibility requirement must survive independent cadence.
             for component in ["backend", "frontend"]:
                 (root / f"_digests/{component}.digest").write_text("sha256:" + "0" * 64)
@@ -158,6 +162,7 @@ class ComposeTagSelection(unittest.TestCase):
     def resolve(self, directory, template, tag):
         root = Path(directory)
         values = {
+            "COMPOSE_PROJECT_NAME": "custom-site",
             "MYRIAD_TAG": "v0.4.14", "PROXY_TAG": "v0.3.32", "UPDATER_TAG": tag,
             "DOCKER_GUARD_IMAGE": "docker.io/somekawahitomi/myriad-updater@sha256:" + "a" * 64,
             "UPDATER_IMAGE_REF": "docker.io/somekawahitomi/myriad-updater@sha256:" + "b" * 64,
@@ -199,6 +204,117 @@ class ComposeTagSelection(unittest.TestCase):
                 result = self.resolve(directory, template, "")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("UPDATER_TAG", result.stderr)
+
+    def test_external_volumes_preserve_worker_mount_contract(self):
+        for template in self.templates:
+            with self.subTest(template=template), tempfile.TemporaryDirectory() as directory:
+                result = self.resolve(directory, template, "v0.5.7")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                model = json.loads(result.stdout)
+                for kind in ("data", "cache"):
+                    volume = model["volumes"][f"backend_{kind}"]
+                    self.assertTrue(volume["external"])
+                    self.assertEqual(volume["name"], f"custom-site_backend_{kind}")
+                    self.assertNotIn("driver_opts", volume)
+                for service in ("backend", "backend-volume-init", "persona-worker"):
+                    mounts = model["services"][service]["volumes"]
+                    for kind in ("data", "cache"):
+                        mount = next(m for m in mounts if m["target"] == f"/app/{kind}")
+                        self.assertEqual(mount["type"], "volume")
+                        self.assertEqual(mount["source"], f"backend_{kind}")
+                mounts = model["services"]["federation-worker"]["volumes"]
+                self.assertEqual({m.get("volume", {}).get("subpath") for m in mounts}
+                                 - {None}, {"media", "federation_media", "federation", "images"})
+
+
+class BackendVolumeProvisioning(unittest.TestCase):
+    def exercise(self, layout=None, failure=None, caller="deploy"):
+        with tempfile.TemporaryDirectory(prefix="myriad volume test ") as directory:
+            root = Path(directory).resolve()
+            scripts = root / "scripts/extra"
+            scripts.mkdir(parents=True)
+            for name in ("backend-volumes.sh", "backup.sh"):
+                (scripts / name).write_text((ROOT / "scripts/extra" / name).read_text())
+            (root / ".env").write_text('COMPOSE_PROJECT_NAME="custom-site"\n')
+            mock = root / "docker"
+            mock.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+root = Path(os.environ["VOLUME_TEST_ROOT"])
+args = sys.argv[1:]
+with (root / "calls").open("a") as f:
+    f.write(json.dumps(args) + "\\n")
+state = json.loads((root / "state.json").read_text())
+if args[:2] == ["volume", os.environ.get("VOLUME_TEST_FAILURE")]:
+    sys.exit(1)
+if args[:2] == ["volume", "ls"]:
+    print("\\n".join(state))
+elif args[:2] == ["volume", "create"]:
+    device = next(a[7:] for a in args if a.startswith("device="))
+    assert Path(device).is_dir()
+    state[args[-1]] = "bind:" + device
+    (root / "state.json").write_text(json.dumps(state))
+elif args[:2] == ["volume", "inspect"]:
+    print(state[args[-1]])
+elif args[0] != "run":
+    sys.exit(2)
+''')
+            mock.chmod(0o755)
+            state = {} if layout is None else {
+                f"custom-site_backend_{kind}": layout.replace("{root}", str(root)).replace("{kind}", kind)
+                for kind in ("data", "cache")}
+            (root / "state.json").write_text(json.dumps(state))
+            if caller == "deploy":
+                library = (ROOT / "scripts/extra/deploy.sh").read_text().split("COMPOSE_KIND=$(detect_compose)", 1)[0]
+                script = library + "\nensure_backend_volume_perms\n"
+            else:
+                script = 'source "$(dirname "$0")/backup.sh"\nensure_data_volume custom-site_backend_data\n'
+            entry = scripts / "exercise.sh"
+            entry.write_text(script)
+            result = subprocess.run(["bash", str(entry)], capture_output=True, text=True,
+                                    env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                                         "DOCKER": str(mock), "COMPOSE_PROJECT_NAME": "",
+                                         "VOLUME_TEST_ROOT": str(root), "VOLUME_TEST_FAILURE": failure or ""})
+            calls = [json.loads(line) for line in (root / "calls").read_text().splitlines()]
+            return result, calls, str(root)
+
+    def test_fresh_deploy_and_restore_use_absolute_bind_directories(self):
+        for caller in ("deploy", "restore"):
+            with self.subTest(caller=caller):
+                result, calls, root = self.exercise(caller=caller)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                creates = [c for c in calls if c[:2] == ["volume", "create"]]
+                self.assertEqual(len(creates), 2 if caller == "deploy" else 1)
+                for call in creates:
+                    kind = call[-1].rsplit("_", 1)[-1]
+                    self.assertIn(f"device={root}/{kind}", call)
+                    self.assertIn("type=none", call)
+                    self.assertIn("o=bind", call)
+
+    def test_existing_legacy_and_matching_bind_volumes_are_never_recreated(self):
+        for layout in ("legacy", "bind:{root}/{kind}"):
+            with self.subTest(layout=layout):
+                result, calls, _ = self.exercise(layout)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(any(c[:2] == ["volume", "create"] for c in calls))
+                if layout == "legacy":
+                    self.assertIn("NOT in", result.stderr)
+
+    def test_moved_or_unsupported_volumes_fail_before_permission_repair(self):
+        for layout in ("bind:/old/deployment/data", "unsupported"):
+            with self.subTest(layout=layout):
+                result, calls, _ = self.exercise(layout)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(any(c[0] == "run" or c[:2] == ["volume", "create"] for c in calls))
+
+    def test_api_failures_do_not_turn_into_empty_volumes_or_repairs(self):
+        for failure in ("ls", "inspect", "create"):
+            with self.subTest(failure=failure):
+                result, calls, _ = self.exercise("legacy" if failure == "inspect" else None, failure)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(any(c[0] == "run" for c in calls))
+                if failure != "create":
+                    self.assertFalse(any(c[:2] == ["volume", "create"] for c in calls))
 
 
 if __name__ == "__main__":

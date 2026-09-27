@@ -82,6 +82,10 @@ for service in config["services"].values():
 # Keep database writes in a disposable named volume, never a host installation.
 config["services"]["postgres"]["volumes"] = ["test_pgdata:/var/lib/postgresql"]
 config["volumes"]["test_pgdata"] = {}
+# This isolated smoke owns disposable volumes; production provisions external
+# bind-backed volumes on the host before starting Compose.
+for name in ("backend_data", "backend_cache"):
+    config["volumes"][name] = {}
 (root / "state").mkdir()
 config["services"]["proxy"]["image"] = args.proxy
 config["services"]["backend-volume-init"]["image"] = args.backend

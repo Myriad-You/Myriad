@@ -22,7 +22,7 @@ info() { echo -e "${CYAN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 err()  { echo -e "${RED}$1${NC}"; }
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$ROOT"
 
 COMPOSE_GUARD_DIR="$ROOT/guard-policy"
@@ -320,7 +320,7 @@ ensure_env() {
         warn "  - JWT_SECRET        (openssl rand -base64 32)"
         warn "  - CORS_ORIGINS      (your domain)"
         warn ""
-        warn "This script will create pgdata/state/backups/guard-policy and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET / PERSONA_DB_PASSWORD / FEDERATION_DB_PASSWORD / GUARD_SELF_UPDATE_TOKEN."
+        warn "This script will create data/cache/pgdata/state/backups/guard-policy and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET / PERSONA_DB_PASSWORD / FEDERATION_DB_PASSWORD / GUARD_SELF_UPDATE_TOKEN."
         warn ""
         read -r -p "Open .env in \$EDITOR now? (y/N): " r
         if [[ "$r" =~ ^[Yy]$ ]]; then
@@ -387,9 +387,11 @@ ensure_backend_volume_perms() {
     local cache_vol="${project}_backend_cache"
     local data_vol="${project}_backend_data"
 
+    # shellcheck source=backend-volumes.sh
+    source "$ROOT/scripts/extra/backend-volumes.sh"
     info "==> Ensuring backend named volumes writable by uid 1000 (myriad)"
-    docker volume create "$cache_vol" >/dev/null
-    docker volume create "$data_vol" >/dev/null
+    ensure_backend_volume docker "$cache_vol" "$ROOT/cache" || return 1
+    ensure_backend_volume docker "$data_vol" "$ROOT/data" || return 1
     if ! docker run --rm \
         -v "${cache_vol}:/app/cache" \
         -v "${data_vol}:/app/data" \

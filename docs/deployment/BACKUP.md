@@ -4,6 +4,10 @@
 小组件字体在 `backend_data`（容器内 `/app/data`）。密钥在部署目录的 `.env`。
 这三样都要带上，才能从空机器恢复。
 
+新部署的 `backend_data` 对应部署目录 `./data`，旧部署仍可能使用 Docker 管理卷。
+备份脚本统一按卷名归档，两种布局均可用；恢复时缺少的数据卷会绑定到当前部署目录
+`./data`。布局迁移、停机打包和换机步骤见 [DATA_LAYOUT.md](DATA_LAYOUT.md)。
+
 `cache` / `backend_cache` 可再生，不要当灾备。媒体资产在 `backend_data/media`，
 会进 `backend_data.tar.gz`。旧 `/media/federation` 与 image-cache 地址靠别名读，
 不依赖缓存卷。细节见 [MEDIA.md](MEDIA.md)。Updater 对 `./pgdata` 的文件级
@@ -40,6 +44,9 @@ bash scripts/extra/backup.sh backup --out /var/backups/myriad-20260101
 
 ## 恢复
 
+新机器先按 [部署文档](DOCKER_DEPLOYMENT.md) 运行 `deploy.sh up`，准备 data/cache
+两卷并启动 PostgreSQL，再执行恢复；Compose 不会自动创建 external 卷。
+
 **支持范围：** 同一 compose 项目、运行中的 Postgres 角色口令与备份 `.env`
 的 `POSTGRES_PASSWORD` 相同。官方 compose 用该值初始化角色
 （`postgres://myriad:${POSTGRES_PASSWORD}@postgres:5432/myriad`）。
@@ -51,7 +58,7 @@ bash scripts/extra/backup.sh backup --out /var/backups/myriad-20260101
 会覆盖当前库、数据卷和 `.env`。现有 `.env` 会先复制为 `.env.bak.restore`。
 
 顺序：核对口令 → 停写（worker + backend）→ 覆盖 `.env` → 恢复 Postgres →
-恢复数据卷（没有卷则先建空卷）→ `compose up -d --force-recreate --no-deps backend`
+恢复数据卷（没有卷则先创建绑定到 `./data` 的卷）→ `compose up -d --force-recreate --no-deps backend`
 → 容器内探测 `/ready` → 同样重建两个 worker。中途失败会保持已停的写进程停止。
 不要用前端 HTML 的 200 认定就绪。
 

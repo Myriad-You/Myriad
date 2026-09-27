@@ -103,6 +103,8 @@ jobs:
               - docs/deployment/**
               - scripts/extra/test-deployment-compatibility.py
               - scripts/extra/deploy.sh
+              - scripts/extra/backend-volumes.sh
+              - scripts/extra/backup.sh
               - .env.production.example
               - docker-compose.yml
               - .github/workflows/release.yml

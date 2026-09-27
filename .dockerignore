@@ -65,3 +65,11 @@ Dockerfile*
 tmp/
 temp/
 backend/cache/
+
+# Deployment runtime data (including media and write-only credentials)
+/data/
+/cache/
+/pgdata/
+/state/
+/backups/
+/guard-policy/

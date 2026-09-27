@@ -10,7 +10,7 @@ info() { echo -e "${CYAN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 err()  { echo -e "${RED}$1${NC}"; }
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$ROOT"
 
 COMMAND="${1:-}"
@@ -113,10 +113,9 @@ quiesce_writers() {
 
 ensure_data_volume() {
     local volume="$1"
-    if ! $DOCKER volume inspect "$volume" >/dev/null 2>&1; then
-        info "==> creating empty volume $volume"
-        $DOCKER volume create "$volume" >/dev/null
-    fi
+    # shellcheck source=backend-volumes.sh
+    source "$ROOT/scripts/extra/backend-volumes.sh"
+    ensure_backend_volume "$DOCKER" "$volume" "$ROOT/data"
 }
 
 # POSIX payload used by the alpine restore container and by host tests.

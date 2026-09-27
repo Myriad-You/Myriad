@@ -590,8 +590,17 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
 volumes:
-  backend_cache: { driver: local }
-  backend_data: { driver: local }
+  # Provisioned on the host by deploy.sh: local driver, type=none, o=bind,
+  # device=<absolute deployment root>/data or /cache. Existing legacy volumes
+  # remain usable until explicitly migrated (docs/deployment/DATA_LAYOUT.md).
+  # External prevents Compose/updater from replacing volumes or creating them
+  # through Docker Guard, whose volume API is read-only.
+  backend_cache:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-myriad}_backend_cache
+  backend_data:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-myriad}_backend_data
 
 networks:
   # [外置数据库] 解除本节注释。该网须先在宿主机创建，外部 PostgreSQL 容器接入；

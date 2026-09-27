@@ -106,7 +106,9 @@ cp .env.production.example .env
 bash scripts/extra/deploy.sh up
 ```
 
-On Windows use WSL / Git Bash for the same command, or `docker compose up -d`.
+Run on the Docker daemon host. Backend volumes must be provisioned before a direct
+`docker compose up -d`; see [data layout and migration](./DATA_LAYOUT.md), including
+the Docker Desktop / WSL path limitation.
 
 Guard writes `./guard-policy/docker-guard.env` on first start.
 
@@ -302,8 +304,15 @@ Full runbook and example compose:
 | `./pgdata` | ignored | PostgreSQL bind mount used for updater snapshots (**local DB only**; omit when external) |
 | `./state` | ignored | Proxy maintenance state and updater lock/history |
 | `./backups` | ignored | Operator-managed backups and diagnostics |
-| `backend_cache` volume | Docker volume | Backend cache |
-| `backend_data` volume | Docker volume | Backend app data |
+| `./cache` | ignored | New deployments: `backend_cache` local bind-backed volume (regenerable) |
+| `./data` | ignored | New deployments: `backend_data` local bind-backed volume (persistent app data) |
+
+The host deploy script creates these named volumes with absolute `device` paths;
+Compose uses external volumes, and Guard retains its read-only volume API.
+Existing Docker-managed volumes are preserved until explicitly migrated. Follow
+[DATA_LAYOUT.md](./DATA_LAYOUT.md) for migration, rollback and moving a stopped
+deployment directory to another host. The directory contains the whole site only
+after volume migration and only when PostgreSQL is local.
 
 `pgdata` must be a bind mount, not a named Docker volume, because updater
 rollback needs file-level snapshots.

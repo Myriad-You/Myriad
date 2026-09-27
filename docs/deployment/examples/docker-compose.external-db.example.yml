@@ -421,8 +421,13 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
 volumes:
-  backend_cache: { driver: local }
-  backend_data: { driver: local }
+  # Host provisioning and legacy migration: ../DATA_LAYOUT.md.
+  backend_cache:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-myriad}_backend_cache
+  backend_data:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:-myriad}_backend_data
 
 networks:
   # Existing shared network; the external PostgreSQL container must also join it.
