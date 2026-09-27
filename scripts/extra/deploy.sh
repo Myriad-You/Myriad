@@ -22,7 +22,7 @@ info() { echo -e "${CYAN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 err()  { echo -e "${RED}$1${NC}"; }
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$ROOT"
 
 COMPOSE_GUARD_DIR="$ROOT/guard-policy"
@@ -320,7 +320,7 @@ ensure_env() {
         warn "  - JWT_SECRET        (openssl rand -base64 32)"
         warn "  - CORS_ORIGINS      (your domain)"
         warn ""
-        warn "This script will create pgdata/state/backups/guard-policy and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET / PERSONA_DB_PASSWORD / FEDERATION_DB_PASSWORD / GUARD_SELF_UPDATE_TOKEN."
+        warn "This script will create data/cache/pgdata/state/backups/guard-policy and fill empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET / PERSONA_DB_PASSWORD / FEDERATION_DB_PASSWORD / GUARD_SELF_UPDATE_TOKEN."
         warn ""
         read -r -p "Open .env in \$EDITOR now? (y/N): " r
         if [[ "$r" =~ ^[Yy]$ ]]; then
@@ -384,27 +384,24 @@ ensure_backend_volume_perms() {
         return 1
     fi
 
-    local cache_vol="${project}_backend_cache"
-    local data_vol="${project}_backend_data"
-
-    info "==> Ensuring backend named volumes writable by uid 1000 (myriad)"
-    docker volume create "$cache_vol" >/dev/null
-    docker volume create "$data_vol" >/dev/null
+    # shellcheck source=backend-storage.sh
+    source "$ROOT/scripts/extra/backend-storage.sh"
+    info "==> Checking Compose storage and access for uid 1000 (myriad)"
+    load_backend_storage docker "$project" "$ROOT" prepare || return 1
     if ! docker run --rm \
-        -v "${cache_vol}:/app/cache" \
-        -v "${data_vol}:/app/data" \
+        --mount "$BACKEND_CACHE_MOUNT,dst=/app/cache" \
+        --mount "$BACKEND_DATA_MOUNT,dst=/app/data" \
         alpine:3.20 \
-        sh -c 'chown -R 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data'
+        sh -c 'chown -R -h 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data'
     then
         err "Backend volume ownership/permission repair failed; refusing to start a broken backend."
-        err "Run as host admin:"
-        err "  docker run --rm -v ${cache_vol}:/app/cache -v ${data_vol}:/app/data alpine:3.20 sh -c 'chown -R 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data'"
+        err "Inspect the storage paths in Compose before retrying as host administrator."
         return 1
     fi
 
     if ! docker run --rm --user 1000:1000 \
-        -v "${cache_vol}:/app/cache" \
-        -v "${data_vol}:/app/data" \
+        --mount "$BACKEND_CACHE_MOUNT,dst=/app/cache" \
+        --mount "$BACKEND_DATA_MOUNT,dst=/app/data" \
         alpine:3.20 \
         sh -eu -c '
             umask 077

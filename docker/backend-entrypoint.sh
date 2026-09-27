@@ -21,6 +21,7 @@ if [ "${MYRIAD_VOLUME_INIT_ONLY:-false}" = "true" ]; then
     # directories without owner-write/search bits (for example 0555). Restore
     # only the owner's access; never broaden group/world permissions.
     chmod -R u+rwX /app/cache /app/data
+    chmod 700 /app/cache /app/data
 
     # Verify access as the same uid/gid used by the regular backend. Testing as
     # root would miss root_squash, ACL, read-only-mount and mode-bit failures.

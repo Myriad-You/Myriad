@@ -14,6 +14,8 @@ use std::{
     sync::Arc,
 };
 
+mod storage;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PreparedCompose {
     files: Vec<ComposeChange>,
@@ -43,9 +45,88 @@ impl PreparedCompose {
         self.write(true)
     }
 
+    /// A historical snapshot owns code/topology, not the current storage source.
+    /// Build this plan before stopping writers; parsing failures must not rewrite
+    /// Compose or switch an explicitly migrated deployment back to old volumes.
+    pub(crate) async fn prepare_restore(
+        &self,
+        compose: &ComposeRunner,
+        baseline_path: PathBuf,
+    ) -> Result<Self> {
+        // File order is Compose override precedence. Never replace an added,
+        // renamed, removed or reordered operator-owned file with snapshot data.
+        if self.files.is_empty()
+            || self
+                .files
+                .iter()
+                .map(|file| &file.path)
+                .ne(compose.files().iter())
+        {
+            return Err(UpdaterError::Precondition(
+                "rollback Compose file paths or order changed; restore the snapshot file selection before retrying".into(),
+            ));
+        }
+        let saved = tempfile::tempdir()?;
+        let mut paths = Vec::new();
+        for (index, file) in self.files.iter().enumerate() {
+            let path = saved.path().join(format!("{index}.yaml"));
+            std::fs::write(&path, &file.before)?;
+            paths.push(path);
+        }
+        let archived = compose.with_files(paths);
+        let original = archived.source_json().await?;
+        let mut normalized = original.clone();
+        storage::preserve_storage(
+            &original,
+            &archived.config_json().await?,
+            &mut normalized,
+            compose.project_directory(),
+        )?;
+        let mut restored = original.clone();
+        storage::preserve_storage(
+            &compose.source_json().await?,
+            &compose.config_json().await?,
+            &mut restored,
+            compose.project_directory(),
+        )?;
+        let unchanged = normalized == restored;
+        if !unchanged && self.files.len() > 1 {
+            return Err(UpdaterError::Precondition(
+                "rollback storage migration requires a single Compose file; refusing to flatten override files".into(),
+            ));
+        }
+        let merged = serde_json::to_vec_pretty(&restored)?;
+        let files = compose
+            .files()
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                let before = if unchanged {
+                    self.files[index].before.clone()
+                } else {
+                    merged.clone()
+                };
+                ComposeChange {
+                    path: path.clone(),
+                    before,
+                    after: Vec::new(),
+                }
+            })
+            .collect();
+        Ok(Self {
+            files,
+            baseline_path,
+            restore_baseline: serde_json::to_vec(if unchanged { &original } else { &restored })?,
+            install_baseline: Vec::new(),
+        })
+    }
+
     fn write(&self, restore: bool) -> Result<()> {
         for file in &self.files {
-            atomic::write_atomic_bytes(&file.path, if restore { &file.before } else { &file.after })?;
+            atomic::write_atomic_bytes(
+                &file.path,
+                if restore { &file.before } else { &file.after },
+            )?;
         }
         let baseline = if restore {
             &self.restore_baseline
@@ -105,7 +186,17 @@ pub async fn prepare(
     atomic::write_atomic_bytes(&candidate, &template)?;
     let candidate_runner = compose.with_files(vec![candidate.clone()]);
     let current = compose.source_json().await?;
-    let target_json = candidate_runner.source_json().await?;
+    let mut target_json = candidate_runner.source_json().await?;
+    // Updating code must not migrate storage. The installed Compose remains the
+    // sole layout record; carry its sources into the target's fixed mount map.
+    storage::preserve_storage(
+        &current,
+        &compose.config_json().await?,
+        &mut target_json,
+        compose.project_directory(),
+    )?;
+    let template = serde_json::to_vec_pretty(&target_json)?;
+    atomic::write_atomic_bytes(&candidate, &template)?;
 
     // Detect manual edits: the current compose vs the baseline the updater last
     // wrote. A missing/unreadable baseline counts as changed (fail-safe: prompt).
@@ -168,6 +259,67 @@ fn read_baseline(path: &Path) -> Option<serde_json::Value> {
 mod tests {
     use super::*;
     use std::process::Command;
+
+    #[tokio::test]
+    async fn rollback_rejects_changed_file_selection_before_parsing_or_writing() {
+        for (saved, live) in [
+            (vec!["base.yml"], vec!["base.yml", "panel.yml"]),
+            (vec!["base.yml", "panel.yml"], vec!["base.yml"]),
+            (
+                vec!["base.yml", "panel.yml"],
+                vec!["base.yml", "renamed.yml"],
+            ),
+            (vec!["base.yml", "panel.yml"], vec!["panel.yml", "base.yml"]),
+            (vec![], vec!["base.yml"]),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            let baseline = root.join("baseline.json");
+            std::fs::write(&baseline, b"keep baseline").unwrap();
+            for path in &live {
+                // Invalid YAML also proves rejection happens before Compose parsing.
+                std::fs::write(root.join(path), b"keep user contents: [").unwrap();
+            }
+            let plan = PreparedCompose {
+                files: saved
+                    .iter()
+                    .map(|path| ComposeChange {
+                        path: root.join(path),
+                        before: b"old content".to_vec(),
+                        after: vec![],
+                    })
+                    .collect(),
+                baseline_path: baseline.clone(),
+                install_baseline: vec![],
+                restore_baseline: vec![],
+            };
+            let runner = ComposeRunner::new(
+                crate::probe::compose::ComposeBinary::DockerComposeV2,
+                "file-selection-fixture",
+                live.iter().map(|path| root.join(path)).collect(),
+                root.join(".env"),
+                root.join("policy.env"),
+                root.into(),
+                root.into(),
+            );
+            let error = plan
+                .prepare_restore(&runner, baseline.clone())
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, UpdaterError::Precondition(ref message)
+                if message.contains("file paths or order changed")),
+                "{error}"
+            );
+            for path in &live {
+                assert_eq!(
+                    std::fs::read(root.join(path)).unwrap(),
+                    b"keep user contents: ["
+                );
+            }
+            assert_eq!(std::fs::read(&baseline).unwrap(), b"keep baseline");
+        }
+    }
 
     #[test]
     fn published_labels_contain_the_source_templates() {

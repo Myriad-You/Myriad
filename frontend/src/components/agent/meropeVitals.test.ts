@@ -25,7 +25,7 @@ test('activityKey treats unknown and stale labels as idle', () => {
 
 test('moodBand thresholds stay aligned with backend mood_band source', () => {
   const backend = readFileSync(
-    new URL('../../../../backend/src/services/agent/merope/state.rs', import.meta.url),
+    new URL('../../../../crates/myriad-merope/src/affect.rs', import.meta.url),
     'utf8',
   )
   const frontend = readFileSync(new URL('./meropeVitals.ts', import.meta.url), 'utf8')

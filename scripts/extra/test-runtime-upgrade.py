@@ -28,7 +28,7 @@ parser.add_argument("--mcp", default="myriad-closeout/mcp-fixture:current")
 parser.add_argument("--legacy", default="v0.4.8")
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[2]
-root = Path(tempfile.mkdtemp(prefix="myriad-upgrade-"))
+root = Path(tempfile.mkdtemp(prefix="myriad-upgrade-")).resolve()
 project = "myriad-upgrade-" + secrets.token_hex(4)
 with socket.socket() as port:
     port.bind(("127.0.0.1", 0))
@@ -81,7 +81,10 @@ for service in config["services"].values():
         service["healthcheck"].update(interval="3s", start_interval="1s")
 # Keep database writes in a disposable named volume, never a host installation.
 config["services"]["postgres"]["volumes"] = ["test_pgdata:/var/lib/postgresql"]
-config["volumes"]["test_pgdata"] = {}
+config.setdefault("volumes", {})["test_pgdata"] = {}
+# Use the production direct-bind layout in a disposable deployment directory.
+for kind in ("data", "cache"):
+    (root / kind).mkdir(mode=0o700)
 (root / "state").mkdir()
 config["services"]["proxy"]["image"] = args.proxy
 config["services"]["backend-volume-init"]["image"] = args.backend
@@ -236,5 +239,8 @@ try:
 finally:
     (root / "containers.log").write_text(redact(cp("logs", "--no-color", check=False).stdout))
     cp("down", "-v", "--remove-orphans")
+    run(["docker", "run", "--rm", "--network", "none",
+         "--mount", f"type=bind,src={root},dst=/fixture", "alpine:3.20",
+         "sh", "-c", "rm -rf /fixture/data /fixture/cache"])
     compose_file.unlink(missing_ok=True)
     print("Redacted test evidence:", root, flush=True)

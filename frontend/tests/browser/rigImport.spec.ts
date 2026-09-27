@@ -55,6 +55,8 @@ test('repeated hair clicks never reopen the settled happy eyes between presses',
   })
   expect(samples.length).toBeGreaterThan(20)
   const diagnostics = await page.evaluate(() => ({ events: (window as any).touchSurfaceState.events, current: (window as any).touchSurfaceState.current() }))
+  expect(diagnostics.events.filter((event: string) => event === 'end:tap')).toHaveLength(9)
+  expect(diagnostics.events.some((event: string) => event.startsWith('cancel:'))).toBe(false)
   expect(Math.max(...samples), JSON.stringify(diagnostics)).toBeLessThan(0.68)
   expect(Math.max(...samples) - Math.min(...samples)).toBeLessThan(0.15)
   await page.evaluate(() => (window as any).touchSurfaceState.dispose())

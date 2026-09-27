@@ -9,6 +9,7 @@ export function applyNoteSourceEdit(
   result: NoteSourceEdit,
   setContent: (value: string) => void,
 ) {
+  el.focus()
   const previous = el.value
   if (previous !== result.value) {
     // 只替换变化的区间，并通过原生编辑命令入栈；直接设置 value 会绕过撤销历史。
@@ -30,7 +31,6 @@ export function applyNoteSourceEdit(
       end--
       nextEnd--
     }
-    el.focus()
     el.setSelectionRange(start, end)
     el.ownerDocument.execCommand(
       'insertText',
@@ -39,8 +39,7 @@ export function applyNoteSourceEdit(
     )
   }
   setContent(result.value)
-  requestAnimationFrame(() => {
-    el.focus()
-    el.setSelectionRange(result.selectionStart, result.selectionEnd)
-  })
+  // Native insertion already updated the value. Finish its selection now;
+  // a deferred callback would overwrite a newer selection or steal focus.
+  el.setSelectionRange(result.selectionStart, result.selectionEnd)
 }

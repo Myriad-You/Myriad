@@ -479,9 +479,9 @@ jobs:
           # example.release.json documents the same policy but is not read at
           # assemble time.
           MIN_FROM_VERSION="v0.4.0"
-          # v0.4.10 first enforces running proxy split-worker routing capabilities.
-          # Older updaters must self-update before they can install split runtimes.
-          MIN_UPDATER_VERSION="v0.4.10"
+          # v0.5.8 preserves the installed storage layout across template updates
+          # and permits only fixed direct data/cache binds through Guard.
+          MIN_UPDATER_VERSION="v0.5.8"
 
           jq -n \
             --arg version "$VERSION" \

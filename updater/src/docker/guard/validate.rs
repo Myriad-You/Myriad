@@ -631,7 +631,11 @@ fn validate_persona_worker(value: &Value, host: &Value) -> std::result::Result<(
     Ok(())
 }
 
-fn validate_bind(state: &GuardState, service: &str, bind: &str) -> std::result::Result<(), String> {
+pub(super) fn validate_bind(
+    state: &GuardState,
+    service: &str,
+    bind: &str,
+) -> std::result::Result<(), String> {
     let parts = bind.split(':').collect::<Vec<_>>();
     if !(2..=3).contains(&parts.len()) {
         return Err("invalid bind syntax".into());
@@ -650,7 +654,7 @@ fn validate_bind(state: &GuardState, service: &str, bind: &str) -> std::result::
     )
 }
 
-fn validate_mount(
+pub(super) fn validate_mount(
     state: &GuardState,
     service: &str,
     mount: &Value,
@@ -729,6 +733,30 @@ fn validate_mount_pair(
     let exact_host_pair = |relative: &str, expected_target: &str| {
         source_path == root.join(relative) && target == expected_target
     };
+    if host_bind
+        && matches!(
+            service,
+            "backend" | "backend-volume-init" | "persona-worker" | "federation-worker"
+        )
+    {
+        let paths: &[(&str, &str, bool)] = if service == "federation-worker" {
+            &[
+                ("data", "/app/data", true),
+                ("data/federation", "/app/data/federation", false),
+                ("data/federation_media", "/app/data/federation_media", false),
+                ("data/media", "/app/data/media", false),
+                ("cache/images", "/tmp/cache/images", false),
+            ]
+        } else {
+            &[("data", "/app/data", false), ("cache", "/app/cache", false)]
+        };
+        for (relative, destination, ro) in paths {
+            if exact_host_pair(relative, destination) && read_only == *ro {
+                return validate_visible_host_directory(state, relative);
+            }
+        }
+        return Err("business host bind is outside the fixed storage boundary".into());
+    }
     match service {
         "frontend" => Err("frontend container may not add mounts".into()),
         "federation-worker" => {
