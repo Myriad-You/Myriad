@@ -185,9 +185,8 @@ async fn run_socket(
     let (write, mut read) = socket.split();
     let writer = std::sync::Arc::new(tokio::sync::Mutex::new(write));
     let outbound = writer.clone();
-    onebot_send::install(std::sync::Arc::new(move |action| {
+    onebot_send::install(std::sync::Arc::new(move |text| {
         let outbound = outbound.clone();
-        let text = serde_json::to_string(&action).map_err(|error| error.to_string())?;
         tokio::spawn(async move {
             let _ = outbound.lock().await.send(Message::Text(text.into())).await;
         });
@@ -233,15 +232,22 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
     match inbound {
         Inbound::Resp(envelope) => {
             let response: RespJson = serde_json::from_str(text).ok()?;
-            let kind = classify_onebot_handshake(None, Some(response.retcode));
-            if kind == ConnectFailureKind::Permanent {
-                warn!(retcode = response.retcode, "OneBot action refused");
-                return Some(kind);
-            }
-            let _ = envelope;
+            // A matched echo only fails that one action. Closing the socket is
+            // reserved for a refusal that names no request.
+            onebot_send::complete_echo(&envelope.echo, response.retcode).await;
             None
         }
         Inbound::Event(event) => {
+            if let Some(retcode) = event
+                .extra
+                .get("retcode")
+                .and_then(serde_json::Value::as_i64)
+            {
+                if classify_onebot_handshake(None, Some(retcode)) == ConnectFailureKind::Permanent {
+                    warn!(retcode, "OneBot handshake refused");
+                    return Some(ConnectFailureKind::Permanent);
+                }
+            }
             let raw = serde_json::to_string(event.as_ref()).ok()?;
             let Some(decoded) = myriad_agent_rules::onebot::decode::decode_private_inbound(&raw)
             else {
