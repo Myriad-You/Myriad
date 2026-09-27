@@ -163,7 +163,16 @@ pub(crate) fn map_completed(
     } else {
         None
     };
-    let rendered = format_channel_result(message, data, response.get("dataDisplay"));
+    let rendered = if caps.outbound_markdown {
+        myriad_agent_rules::onebot::encode::render_result_markdown(
+            message,
+            data,
+            response.get("dataDisplay"),
+        )
+        .unwrap_or_else(|| format_channel_result(message, data, response.get("dataDisplay")))
+    } else {
+        format_channel_result(message, data, response.get("dataDisplay"))
+    };
     if response.get("success").and_then(Value::as_bool) == Some(false) || response_type == "error" {
         return (
             ChannelEvent::Error {
@@ -471,6 +480,31 @@ mod tests {
         assert!(message.contains("查到了"));
         assert!(message.contains("名称"));
         assert!(message.contains("A"));
+        assert!(parked.is_none());
+    }
+
+    #[test]
+    fn onebot_table_is_markdown_not_colon_text() {
+        let (event, parked) = map_completed(
+            &serde_json::json!({
+                "success": true,
+                "responseType": "answer",
+                "message": "查到了",
+                "data": [{"name": "A"}],
+                "dataDisplay": {
+                    "type": "table",
+                    "columns": [{"field": "name", "title": "名称"}]
+                }
+            }),
+            "查",
+            &myriad_agent_rules::onebot::rules::onebot_private_capabilities(),
+        );
+        let ChannelEvent::Answer { message, .. } = event else {
+            panic!("{event:?}");
+        };
+        assert!(message.contains("| 名称 |"));
+        assert!(message.contains("| A |"));
+        assert!(!message.contains('：'));
         assert!(parked.is_none());
     }
 

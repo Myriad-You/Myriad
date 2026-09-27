@@ -2193,7 +2193,7 @@ mod onebot_encode {
     use myriad_agent_rules::channel::CHANNEL_IMAGE_LIMIT;
     use myriad_agent_rules::onebot::encode::{
         encode_image_segment, encode_markdown_segment, encode_private_message, encode_text_segment,
-        encode_typing, plan_private_delivery,
+        encode_typing, plan_private_delivery, render_result_markdown,
     };
     use serde_json::json;
 
@@ -2327,6 +2327,46 @@ mod onebot_encode {
     #[test]
     fn whitespace_only_text_is_treated_as_empty() {
         assert!(plan_private_delivery("10001", "   ", &[], false).is_none());
+    }
+
+    #[test]
+    fn table_result_becomes_a_markdown_table_not_colon_text() {
+        let data = json!([{"name": "A"}]);
+        let display = json!({
+            "type": "table",
+            "columns": [{"field": "name", "title": "名称"}]
+        });
+        let markdown =
+            render_result_markdown("查到了", Some(&data), Some(&display)).expect("table markdown");
+        assert!(markdown.starts_with("查到了\n\n"));
+        assert!(markdown.contains("| 名称 |"));
+        assert!(markdown.contains("| --- |"));
+        assert!(markdown.contains("| A |"));
+        assert!(!markdown.contains('：'));
+        let payload = plan_private_delivery("10001", &markdown, &[], true).expect("delivery");
+        assert_eq!(payload["params"]["message"][0]["type"], "markdown");
+    }
+
+    #[test]
+    fn markdown_only_display_without_body_does_not_render() {
+        let display = json!({"type": "markdown"});
+        assert!(render_result_markdown("", None, Some(&display)).is_none());
+        assert!(render_result_markdown("", Some(&json!("  ")), Some(&display)).is_none());
+    }
+
+    #[test]
+    fn chart_result_becomes_a_two_column_markdown_table() {
+        let data = json!([{"month": "1月", "value": 3}]);
+        let display = json!({
+            "type": "chart",
+            "chartType": "bar",
+            "xField": "month",
+            "yField": "value"
+        });
+        let markdown = render_result_markdown("", Some(&data), Some(&display)).expect("chart");
+        assert!(markdown.contains("| month | value |"));
+        assert!(markdown.contains("| 1月 | 3 |"));
+        assert!(!markdown.contains('：'));
     }
 }
 
