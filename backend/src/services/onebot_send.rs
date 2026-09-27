@@ -83,12 +83,18 @@ pub async fn send_action(mut action: Value) -> ActionResult {
             return Err("onebot socket is not connected".to_string());
         };
         live.write.as_ref()(text).map_err(|_| "onebot socket is not connected".to_string())?;
-        live.pending.insert(echo, tx);
+        live.pending.insert(echo.clone(), tx);
     }
     match tokio::time::timeout(ACTION_TIMEOUT, rx).await {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => Err("onebot socket closed".to_string()),
-        Err(_) => Err("onebot action timed out".to_string()),
+        Err(_) => {
+            // A late frame must not complete this action after the caller gave up.
+            if let Some(live) = slot().lock().await.as_mut() {
+                live.pending.remove(&echo);
+            }
+            Err("onebot action timed out".to_string())
+        }
     }
 }
 
