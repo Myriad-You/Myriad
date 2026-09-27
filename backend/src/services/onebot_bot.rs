@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
+use tokio::sync::mpsc;
 use myriad_agent_rules::channel::{ConnectFailureKind, WorkerIntent};
 use myriad_agent_rules::onebot::rules::{classify_onebot_handshake, onebot_worker_intent};
 use myriad_agent_rules::onebot::wire::{Inbound, RespJson};
@@ -182,24 +183,28 @@ async fn run_socket(
         .await
         .map_err(|_| ConnectFailureKind::Transient)?;
     let (write, mut read) = socket.split();
-    let writer = std::sync::Arc::new(tokio::sync::Mutex::new(write));
-    let outbound = writer.clone();
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<String>(32);
     onebot_send::install(std::sync::Arc::new(move |text| {
-        let outbound = outbound.clone();
-        tokio::spawn(async move {
-            let _ = outbound.lock().await.send(Message::Text(text.into())).await;
-        });
-        Ok(())
+        outbound_tx
+            .try_send(text)
+            .map_err(|_| "onebot socket is not connected".to_string())
     }))
     .await;
     publish_status(OneBotPhase::Online, fingerprint).await;
     info!(url = %fingerprint.ws_url, "OneBot socket connected");
 
+    let mut write = write;
     let outcome = loop {
         tokio::select! {
             _ = cancel.changed() => {
                 if *cancel.borrow() {
                     break Ok(());
+                }
+            }
+            outgoing = outbound_rx.recv() => {
+                let Some(text) = outgoing else { continue };
+                if write.send(Message::Text(text.into())).await.is_err() {
+                    break Err(ConnectFailureKind::Transient);
                 }
             }
             frame = tokio::time::timeout(READ_IDLE, read.next()) => {
@@ -209,7 +214,9 @@ async fn run_socket(
                     Ok(Some(Err(_))) => break Err(ConnectFailureKind::Transient),
                     Ok(Some(Ok(Message::Close(_)))) => break Err(ConnectFailureKind::Transient),
                     Ok(Some(Ok(Message::Ping(payload)))) => {
-                        let _ = writer.lock().await.send(Message::Pong(payload)).await;
+                        if write.send(Message::Pong(payload)).await.is_err() {
+                            break Err(ConnectFailureKind::Transient);
+                        }
                     }
                     Ok(Some(Ok(Message::Text(text)))) => {
                         if let Some(kind) = handle_text(text.as_str()).await {
