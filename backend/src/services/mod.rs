@@ -126,6 +126,7 @@ pub mod media_catalog;
 pub mod note_authors;
 pub mod note_publish;
 pub mod notion_service;
+pub(crate) mod onebot_send; // Live OneBot socket for private-chat actions
 pub mod phantasi_parser;
 pub(crate) mod phantasi_reading;
 pub mod phantasi_scheduler;

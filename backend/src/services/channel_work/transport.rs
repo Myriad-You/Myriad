@@ -19,6 +19,9 @@ pub enum ChannelTransport {
     Feishu {
         chat_id: String,
     },
+    OneBot {
+        user_id: String,
+    },
 }
 
 impl ChannelTransport {
@@ -28,6 +31,7 @@ impl ChannelTransport {
             Self::Discord { .. } => ChannelPlatform::Discord,
             Self::Qq { .. } => ChannelPlatform::Qq,
             Self::Feishu { .. } => ChannelPlatform::Feishu,
+            Self::OneBot { .. } => ChannelPlatform::OneBot,
         }
     }
 
@@ -37,6 +41,7 @@ impl ChannelTransport {
             Self::Discord { .. } => discord_dm_capabilities(),
             Self::Qq { .. } => qq_c2c_capabilities(),
             Self::Feishu { .. } => feishu_dm_capabilities(),
+            Self::OneBot { .. } => myriad_agent_rules::onebot::rules::onebot_private_capabilities(),
         }
     }
 
@@ -46,6 +51,7 @@ impl ChannelTransport {
             Self::Discord { .. } => DISCORD_TEXT_LIMIT,
             Self::Qq { .. } => QQ_TEXT_LIMIT,
             Self::Feishu { .. } => FEISHU_TEXT_LIMIT,
+            Self::OneBot { .. } => QQ_TEXT_LIMIT,
         }
     }
 
@@ -62,6 +68,12 @@ impl ChannelTransport {
                 passive_window_open: false,
                 remaining_passive_replies: 0,
                 typing: false,
+            },
+            Self::OneBot { .. } => DeliveryContext {
+                inbound_msg_id: None,
+                passive_window_open: false,
+                remaining_passive_replies: 0,
+                typing: myriad_agent_rules::onebot::rules::onebot_worker_supports_typing(),
             },
             Self::Qq { inbound_msg_id, .. } => DeliveryContext {
                 inbound_msg_id: inbound_msg_id.clone(),
@@ -87,7 +99,7 @@ impl ChannelTransport {
                     warn!(?error, "channel typing failed");
                 }
             }
-            Self::Qq { .. } | Self::Feishu { .. } => {}
+            Self::Qq { .. } | Self::Feishu { .. } | Self::OneBot { .. } => {}
         }
     }
 
@@ -101,7 +113,7 @@ impl ChannelTransport {
             )
             .await
             .map_err(|error| SendError::from(error).to_string()),
-            Self::Discord { .. } | Self::Qq { .. } | Self::Feishu { .. } => {
+            Self::Discord { .. } | Self::Qq { .. } | Self::Feishu { .. } | Self::OneBot { .. } => {
                 self.send_text("请直接回复这一问。").await
             }
         }
@@ -145,7 +157,7 @@ impl ChannelTransport {
                     Self::Telegram { .. } => telegram_reply_markup(prompt),
                     Self::Discord { .. } => discord_reply_markup(prompt),
                     Self::Feishu { .. } => feishu_reply_markup(prompt),
-                    Self::Qq { .. } => None,
+                    Self::Qq { .. } | Self::OneBot { .. } => None,
                 });
             self.send_text_chunk(chunk, markup)
                 .await
@@ -159,7 +171,7 @@ impl ChannelTransport {
                         Self::Telegram { .. } => telegram_reply_markup(prompt),
                         Self::Discord { .. } => discord_reply_markup(prompt),
                         Self::Feishu { .. } => feishu_reply_markup(prompt),
-                        Self::Qq { .. } => None,
+                        Self::Qq { .. } | Self::OneBot { .. } => None,
                     });
             self.send_image_chunk(url, markup)
                 .await
@@ -203,6 +215,19 @@ impl ChannelTransport {
                 crate::services::feishu_bot_api::send_outbound(chat_id, chunk, markup)
                     .await
                     .map_err(SendError::from)
+            }
+            Self::OneBot { user_id } => {
+                let Some(action) = myriad_agent_rules::onebot::encode::plan_private_delivery(
+                    user_id,
+                    chunk,
+                    &[],
+                    false,
+                ) else {
+                    return Ok(());
+                };
+                crate::services::onebot_send::send_action(action)
+                    .await
+                    .map_err(|_| SendError::Transient)
             }
         }
     }
@@ -263,6 +288,19 @@ impl ChannelTransport {
             )
             .await
             .map_err(SendError::from),
+            Self::OneBot { user_id } => {
+                let Some(action) = myriad_agent_rules::onebot::encode::plan_private_delivery(
+                    user_id,
+                    "",
+                    &[url.to_string()],
+                    false,
+                ) else {
+                    return Ok(());
+                };
+                crate::services::onebot_send::send_action(action)
+                    .await
+                    .map_err(|_| SendError::Transient)
+            }
         }
     }
 }
@@ -490,6 +528,7 @@ pub(super) enum ChannelAddress {
     Discord { channel_id: String },
     Qq { openid: String },
     Feishu { chat_id: String },
+    OneBot { user_id: String },
 }
 
 impl ChannelTransport {
@@ -506,6 +545,9 @@ impl ChannelTransport {
             },
             Self::Feishu { chat_id } => ChannelAddress::Feishu {
                 chat_id: chat_id.clone(),
+            },
+            Self::OneBot { user_id } => ChannelAddress::OneBot {
+                user_id: user_id.clone(),
             },
         }
     }
@@ -537,6 +579,9 @@ impl ChannelAddress {
             }),
             Self::Feishu { chat_id } => Some(ChannelTransport::Feishu {
                 chat_id: chat_id.clone(),
+            }),
+            Self::OneBot { user_id } => Some(ChannelTransport::OneBot {
+                user_id: user_id.clone(),
             }),
         }
     }
