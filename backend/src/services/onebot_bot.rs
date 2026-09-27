@@ -238,15 +238,17 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
             None
         }
         Inbound::Event(event) => {
-            if let Some(retcode) = event
-                .extra
-                .get("retcode")
-                .and_then(serde_json::Value::as_i64)
+            // A heartbeat carries `status` as an object. Only a failed action
+            // envelope with no echo is a handshake refusal.
+            if event.status.as_ref().and_then(serde_json::Value::as_str) == Some("failed")
+                && let Some(retcode) = event
+                    .extra
+                    .get("retcode")
+                    .and_then(serde_json::Value::as_i64)
+                && classify_onebot_handshake(None, Some(retcode)) == ConnectFailureKind::Permanent
             {
-                if classify_onebot_handshake(None, Some(retcode)) == ConnectFailureKind::Permanent {
-                    warn!(retcode, "OneBot handshake refused");
-                    return Some(ConnectFailureKind::Permanent);
-                }
+                warn!(retcode, "OneBot handshake refused");
+                return Some(ConnectFailureKind::Permanent);
             }
             let raw = serde_json::to_string(event.as_ref()).ok()?;
             let Some(decoded) = myriad_agent_rules::onebot::decode::decode_private_inbound(&raw)
