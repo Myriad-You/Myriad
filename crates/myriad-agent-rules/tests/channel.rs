@@ -2187,3 +2187,134 @@ mod onebot_decode {
         assert_eq!(inbound.content, "hi");
     }
 }
+
+/// OneBot 私聊出站编码。只产出请求体，不带 echo。
+mod onebot_encode {
+    use myriad_agent_rules::channel::CHANNEL_IMAGE_LIMIT;
+    use myriad_agent_rules::onebot::encode::{
+        encode_image_segment, encode_markdown_segment, encode_private_message, encode_text_segment,
+        plan_private_delivery,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn text_segment_has_the_exact_wire_shape() {
+        assert_eq!(
+            encode_text_segment("hi"),
+            json!({"type":"text","data":{"text":"hi"}})
+        );
+    }
+
+    #[test]
+    fn image_segment_uses_file_not_url() {
+        let segment = encode_image_segment("https://example.com/a.png");
+        assert_eq!(segment["data"]["file"], json!("https://example.com/a.png"));
+        assert!(segment["data"].get("url").is_none());
+    }
+
+    #[test]
+    fn markdown_segment_has_the_exact_wire_shape() {
+        assert_eq!(
+            encode_markdown_segment("# hi"),
+            json!({"type":"markdown","data":{"content":"# hi"}})
+        );
+    }
+
+    #[test]
+    fn private_message_action_wraps_segments_in_params() {
+        let payload =
+            encode_private_message("10001", &[encode_text_segment("hi")]).expect("request");
+        assert_eq!(payload["action"], "send_private_msg");
+        assert_eq!(payload["params"]["user_id"], 10001);
+        assert!(payload["params"]["message"].is_array());
+        assert!(payload.get("echo").is_none());
+    }
+
+    #[test]
+    fn user_id_is_a_json_number_not_a_string() {
+        let payload =
+            encode_private_message("10001", &[encode_text_segment("hi")]).expect("request");
+        assert!(payload["params"]["user_id"].is_i64());
+        assert!(!payload["params"]["user_id"].is_string());
+        assert_eq!(payload["params"]["user_id"].as_i64(), Some(10001));
+    }
+
+    #[test]
+    fn user_id_keeps_int64_precision() {
+        let payload = encode_private_message("9007199254740993", &[encode_text_segment("hi")])
+            .expect("large id");
+        assert_eq!(
+            payload["params"]["user_id"].as_i64(),
+            Some(9007199254740993i64)
+        );
+    }
+
+    #[test]
+    fn bad_user_id_returns_none() {
+        let segment = encode_text_segment("hi");
+        assert!(encode_private_message("", std::slice::from_ref(&segment)).is_none());
+        assert!(encode_private_message("abc", std::slice::from_ref(&segment)).is_none());
+        assert!(encode_private_message("1.5", &[segment]).is_none());
+    }
+
+    #[test]
+    fn empty_segments_return_none() {
+        assert!(encode_private_message("10001", &[]).is_none());
+    }
+
+    #[test]
+    fn plain_text_plan_sends_one_text_segment() {
+        let payload = plan_private_delivery("10001", "hi", &[], false).expect("text");
+        assert_eq!(
+            payload["params"]["message"],
+            json!([{"type":"text","data":{"text":"hi"}}])
+        );
+    }
+
+    #[test]
+    fn markdown_plan_sends_a_markdown_segment() {
+        let payload = plan_private_delivery("10001", "# hi", &[], true).expect("markdown");
+        assert_eq!(
+            payload["params"]["message"],
+            json!([{"type":"markdown","data":{"content":"# hi"}}])
+        );
+    }
+
+    #[test]
+    fn empty_text_with_no_images_returns_none() {
+        assert!(plan_private_delivery("10001", "", &[], false).is_none());
+    }
+
+    #[test]
+    fn text_and_images_are_both_encoded() {
+        let urls = vec![
+            "https://example.com/a.png".to_string(),
+            "https://example.com/b.png".to_string(),
+        ];
+        let payload = plan_private_delivery("10001", "hi", &urls, false).expect("mixed");
+        let message = payload["params"]["message"].as_array().expect("array");
+        assert_eq!(message.len(), 3);
+        assert_eq!(message[0]["type"], "text");
+        assert_eq!(message[1]["type"], "image");
+        assert_eq!(message[1]["data"]["file"], "https://example.com/a.png");
+        assert_eq!(message[2]["data"]["file"], "https://example.com/b.png");
+    }
+
+    #[test]
+    fn images_are_capped_at_the_shared_limit() {
+        let urls: Vec<String> = (0..6)
+            .map(|index| format!("https://example.com/{index}.png"))
+            .collect();
+        let payload = plan_private_delivery("10001", "", &urls, false).expect("images");
+        let message = payload["params"]["message"].as_array().expect("array");
+        assert_eq!(message.len(), CHANNEL_IMAGE_LIMIT);
+        assert_eq!(message.len(), 4);
+        assert_eq!(message[0]["data"]["file"], "https://example.com/0.png");
+        assert_eq!(message[3]["data"]["file"], "https://example.com/3.png");
+    }
+
+    #[test]
+    fn whitespace_only_text_is_treated_as_empty() {
+        assert!(plan_private_delivery("10001", "   ", &[], false).is_none());
+    }
+}
