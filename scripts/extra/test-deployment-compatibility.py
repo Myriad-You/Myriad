@@ -54,6 +54,13 @@ class DeploymentCompatibility(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertGreaterEqual(version(values[key]), ROUTING_FLOOR)
 
+    def test_external_database_example_supports_direct_storage(self):
+        text = (ROOT / "docs/deployment/EXTERNAL_POSTGRES.md").read_text()
+        pins = re.findall(r"^UPDATER_TAG=(v\d+\.\d+\.\d+)$", text, re.MULTILINE)
+        self.assertTrue(pins)
+        for pin in pins:
+            self.assertGreaterEqual(version(pin), STORAGE_FLOOR)
+
     def test_bootstrap_reads_release_defaults_from_template(self):
         template = "MYRIAD_TAG=v1.2.3\nPROXY_TAG=v1.1.0\nUPDATER_TAG=v1.0.0\n"
         with tempfile.TemporaryDirectory() as directory:
