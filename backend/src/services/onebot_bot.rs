@@ -271,10 +271,7 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 });
                 return None;
             }
-            let Some(decoded) = myriad_agent_rules::onebot::decode::decode_private_inbound(&raw)
-            else {
-                return None;
-            };
+            let decoded = myriad_agent_rules::onebot::decode::decode_private_inbound(&raw)?;
             let permit = bot_ingress::try_acquire(bot_ingress::Channel::OneBot, raw.len())?;
             mark_inbound().await;
             tokio::spawn(async move {

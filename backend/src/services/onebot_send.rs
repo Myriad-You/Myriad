@@ -138,11 +138,14 @@ mod tests {
 
     // The live socket is one process-wide slot. Parallel tests would install
     // over each other and fail the wrong waiter.
-    static TEST_LOCK: StdMutex<()> = StdMutex::new(());
+    fn test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[tokio::test]
     async fn a_missing_socket_fails_before_any_frame_is_written() {
-        let _lock = TEST_LOCK.lock().expect("test lock");
+        let _lock = test_lock().lock().await;
         clear().await;
         let missing = send_action(json!({"action": "send_private_msg"})).await;
         assert!(missing.is_err());
@@ -150,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn echo_completes_the_matching_action_and_close_fails_the_rest() {
-        let _lock = TEST_LOCK.lock().expect("test lock");
+        let _lock = test_lock().lock().await;
         clear().await;
         let seen = Arc::new(StdMutex::new(Vec::new()));
         let capture = seen.clone();
@@ -175,7 +178,7 @@ mod tests {
 
     #[tokio::test]
     async fn async_status_is_accepted_and_failed_retcode_one_is_not() {
-        let _lock = TEST_LOCK.lock().expect("test lock");
+        let _lock = test_lock().lock().await;
         clear().await;
         install(Arc::new(|_| Ok(()))).await;
         let accepted =
@@ -216,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_retcode_fails_that_action_and_is_permanent() {
-        let _lock = TEST_LOCK.lock().expect("test lock");
+        let _lock = test_lock().lock().await;
         clear().await;
         install(Arc::new(|_| Ok(()))).await;
         let send = tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
