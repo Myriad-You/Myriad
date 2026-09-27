@@ -304,12 +304,14 @@ Full runbook and example compose:
 | `./pgdata` | ignored | PostgreSQL bind mount used for updater snapshots (**local DB only**; omit when external) |
 | `./state` | ignored | Proxy maintenance state and updater lock/history |
 | `./backups` | ignored | Operator-managed backups and diagnostics |
-| `./cache` | ignored | New deployments: `backend_cache` local bind-backed volume (regenerable) |
-| `./data` | ignored | New deployments: `backend_data` local bind-backed volume (persistent app data) |
+| `./cache` | ignored | New deployments: direct `./cache` bind mount (regenerable) |
+| `./data` | ignored | New deployments: direct `./data` bind mount (persistent app data) |
 
-The host deploy script creates these named volumes with absolute `device` paths;
-Compose uses external volumes, and Guard retains its read-only volume API.
-Existing Docker-managed volumes are preserved until explicitly migrated. Follow
+The host deploy script prepares these directories; Compose mounts them directly.
+Guard permits only the fixed storage paths and retains its read-only volume API.
+The host scripts require local Docker, Compose v2+ and `jq`. Updater template
+replacement preserves the installed storage layout; existing named volumes require
+an explicit migration. This behavior requires updater/Guard v0.5.8 or newer. Follow
 [DATA_LAYOUT.md](./DATA_LAYOUT.md) for migration, rollback and moving a stopped
 deployment directory to another host. The directory contains the whole site only
 after volume migration and only when PostgreSQL is local.

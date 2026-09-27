@@ -47,8 +47,14 @@ services:
     environment:
       MYRIAD_VOLUME_INIT_ONLY: "true"
     volumes:
-      - backend_cache:/app/cache
-      - backend_data:/app/data
+      - type: bind
+        source: ./cache
+        target: /app/cache
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind: { create_host_path: false }
     network_mode: none
     restart: "no"
     security_opt: [no-new-privileges:true]
@@ -108,8 +114,14 @@ services:
       retries: 3
       start_period: 60s
     volumes:
-      - backend_cache:/app/cache
-      - backend_data:/app/data
+      - type: bind
+        source: ./cache
+        target: /app/cache
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind: { create_host_path: false }
     networks: [myriad-net, myriad-admin-net, myriad-backend-ext]
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
@@ -156,23 +168,27 @@ services:
       retries: 3
       start_period: 60s
     volumes:
-      - backend_data:/app/data:ro
-      - type: volume
-        source: backend_data
+      - type: bind
+        source: ./data
+        target: /app/data
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./data/federation
         target: /app/data/federation
-        volume: { subpath: federation, nocopy: true }
-      - type: volume
-        source: backend_data
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./data/federation_media
         target: /app/data/federation_media
-        volume: { subpath: federation_media, nocopy: true }
-      - type: volume
-        source: backend_data
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./data/media
         target: /app/data/media
-        volume: { subpath: media, nocopy: true }
-      - type: volume
-        source: backend_cache
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./cache/images
         target: /tmp/cache/images
-        volume: { subpath: images, nocopy: true }
+        bind: { create_host_path: false }
     networks: [myriad-net, myriad-backend-ext]
     # Geographic disablement exits 0; do not loop an idle worker.
     restart: on-failure
@@ -224,8 +240,14 @@ services:
       retries: 3
       start_period: 60s
     volumes:
-      - backend_data:/app/data
-      - backend_cache:/app/cache
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./cache
+        target: /app/cache
+        bind: { create_host_path: false }
     networks: [myriad-net, myriad-backend-ext]
     stop_grace_period: 45s
     restart: unless-stopped
@@ -420,14 +442,7 @@ services:
       driver: "json-file"
       options: { max-size: "10m", max-file: "3" }
 
-volumes:
-  # Host provisioning and legacy migration: ../DATA_LAYOUT.md.
-  backend_cache:
-    external: true
-    name: ${COMPOSE_PROJECT_NAME:-myriad}_backend_cache
-  backend_data:
-    external: true
-    name: ${COMPOSE_PROJECT_NAME:-myriad}_backend_data
+# Runtime storage is declared on each service; no Docker volume registration.
 
 networks:
   # Existing shared network; the external PostgreSQL container must also join it.

@@ -187,8 +187,23 @@ fn check_persona_runtime(config: &serde_json::Value) -> Result<()> {
         .iter()
         .any(|(source, target)| {
             !mounts.iter().any(|m| {
-                m["type"] == "volume"
-                    && m["source"] == *source
+                let named = m["type"] == "volume" && m["source"] == *source;
+                let bind = m["type"] == "bind"
+                    && m["source"]
+                        .as_str()
+                        .is_some_and(|s| Path::new(s).is_absolute())
+                    && m.pointer("/bind/create_host_path") == Some(&serde_json::json!(false))
+                    && config
+                        .pointer("/services/backend/volumes")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|mounts| {
+                            mounts.iter().any(|backend| {
+                                backend["type"] == "bind"
+                                    && backend["target"] == *target
+                                    && backend["source"] == m["source"]
+                            })
+                        });
+                (named || bind)
                     && m["target"] == *target
                     && m["read_only"] != true
                     && m.pointer("/volume/subpath").is_none()
@@ -744,6 +759,25 @@ mod persona_runtime_tests {
             "volumes":[{"type":"volume","source":"backend_data","target":"/app/data","read_only":false},{"type":"volume","source":"backend_cache","target":"/app/cache"}]
         }}});
         assert!(check_persona_runtime(&config).is_ok());
+        let mut direct = config.clone();
+        let mounts = json!([
+            {"type":"bind","source":"/srv/site/data","target":"/app/data","bind":{"create_host_path":false}},
+            {"type":"bind","source":"/srv/site/cache","target":"/app/cache","bind":{"create_host_path":false}}
+        ]);
+        direct["services"]["backend"] = json!({"volumes":mounts.clone()});
+        direct["services"]["persona-worker"]["volumes"] = mounts;
+        assert!(check_persona_runtime(&direct).is_ok());
+        for (path, value) in [
+            ("/volumes/0/source", json!("/other/data")),
+            ("/volumes/0/bind/create_host_path", json!(true)),
+            ("/volumes/1/type", json!("volume")),
+        ] {
+            let mut invalid = direct.clone();
+            *invalid["services"]["persona-worker"]
+                .pointer_mut(path)
+                .unwrap() = value;
+            assert!(check_persona_runtime(&invalid).is_err(), "accepted {path}");
+        }
         for (path, value) in [
             ("/command", json!(["/app/myriad-backend"])),
             ("/environment/MYRIAD_PROCESS_ROLE", json!("all")),

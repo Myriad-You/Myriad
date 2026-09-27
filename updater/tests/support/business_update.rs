@@ -97,10 +97,10 @@ impl Daemon {
             .unwrap();
         writeln!(env, "JWT_SECRET={TOKEN}\nBACKEND_IMAGE=docker.io/example/backend\nFRONTEND_IMAGE=docker.io/example/frontend\nDATABASE_URL=postgres://fixture/db").unwrap();
         let model = json!({"name":"myriad", "services": {
-            "backend":{"container_name":"myriad-backend","image":"docker.io/example/backend:${MYRIAD_TAG}","networks":{"default":{}}},
+            "backend":{"container_name":"myriad-backend","image":"docker.io/example/backend:${MYRIAD_TAG}","networks":{"default":{}},"volumes":["backend_data:/app/data","backend_cache:/app/cache"]},
             "frontend":{"container_name":"myriad-frontend","image":"docker.io/example/frontend:${MYRIAD_TAG}","networks":{"default":{}}},
             "backend-volume-init":{"image":"docker.io/example/backend:${MYRIAD_TAG}"}
-        }, "networks":{"default":{"name":"myriad-net"}}});
+        }, "volumes":{"backend_data":{},"backend_cache":{}}, "networks":{"default":{"name":"myriad-net"}}});
         fs::create_dir_all(root.join("state/cache")).unwrap();
         fs::create_dir_all(root.join("state/compose")).unwrap();
         fs::write(root.join("state/compose/compose.yaml"), model.to_string()).unwrap();
@@ -454,7 +454,7 @@ async fn failed_upgrade_and_power_cut_during_restore_recover_old_compose_and_dat
 }
 
 #[tokio::test]
-async fn upgrade_writes_the_target_compose_in_place() {
+async fn upgrade_writes_the_target_compose_but_preserves_storage() {
     let mut daemon = Daemon::business("").await;
     let root = &daemon.mock.root;
     fs::write(root.join("split-worker"), "").unwrap();
@@ -465,7 +465,7 @@ async fn upgrade_writes_the_target_compose_in_place() {
         current["services"]["federation-worker"]["volumes"].as_array_mut().unwrap().push(json!({"type":"volume","source":"backend_data","target":format!("/app/data/{subpath}"),"volume":{"subpath":subpath,"nocopy":true}}));
     }
     current["services"]["federation-worker"]["volumes"].as_array_mut().unwrap().push(json!({"type":"volume","source":"backend_cache","target":"/tmp/cache/images","volume":{"subpath":"images","nocopy":true}}));
-    current["volumes"] = json!({"backend_data":{"name":"existing-data"}, "backend_cache":{}});
+    current["volumes"] = json!({"backend_data":{"name":"myriad_backend_data"}, "backend_cache":{}});
     current["services"]["backend"]["extra_hosts"] = json!(["db.example:192.0.2.1"]);
     current["services"]["backend"]["environment"] = json!({"DATABASE_URL":"postgres://custom/database","CUSTOM_SETTING":"keep", "MYRIAD_PROCESS_ROLE":"web"});
     current["services"]["frontend"]["ports"] = json!(["8088:80"]);
@@ -508,8 +508,14 @@ async fn upgrade_writes_the_target_compose_in_place() {
     );
     let after: Value =
         serde_json::from_slice(&fs::read(daemon.mock.root.join("compose.yaml")).unwrap()).unwrap();
-    // The target template is written in place; the host's hand edits are not merged.
-    assert_eq!(after, target);
+    // Version-owned configuration changes, while the installed data source stays put.
+    assert_eq!(after["services"]["backend"]["image"], target["services"]["backend"]["image"]);
+    assert_eq!(after["services"]["backend"]["environment"], target["services"]["backend"]["environment"]);
+    assert_eq!(after["services"]["frontend"]["ports"][0]["published"], "80");
+    assert_eq!(after["services"]["frontend"]["ports"][0]["target"], 80);
+    assert_eq!(after["services"]["proxy"], target["services"]["proxy"]);
+    assert_eq!(after["volumes"]["backend_data"]["name"], "myriad_backend_data");
+    assert_eq!(after["services"]["backend"]["volumes"][0]["source"], "backend_data");
     assert!(
         after["services"]["federation-worker"]["volumes"]
             .as_array()
@@ -550,4 +556,32 @@ async fn status_remains_available_when_recovery_is_interrupted_again() {
         fs::read_to_string(daemon.mock.root.join("app-starts")).unwrap(),
         starts
     );
+}
+
+#[tokio::test]
+async fn business_upgrade_keeps_direct_binds_when_target_still_uses_named_volumes() {
+    let mut daemon = Daemon::business("").await;
+    let root = &daemon.mock.root;
+    let mut installed: Value = serde_json::from_slice(&fs::read(root.join("compose.yaml")).unwrap()).unwrap();
+    installed["services"]["backend"]["volumes"] = json!([
+        {"type":"bind","source":"./data","target":"/app/data","bind":{"create_host_path":false}},
+        {"type":"bind","source":"./cache","target":"/app/cache","bind":{"create_host_path":false}}
+    ]);
+    installed.as_object_mut().unwrap().remove("volumes");
+    for kind in ["data", "cache"] { fs::create_dir(root.join(kind)).unwrap(); }
+    fs::write(root.join("compose.yaml"), installed.to_string()).unwrap();
+    // The cached target remains the old named-volume template from business().
+    daemon.start().await;
+    let id = daemon.business_update().await;
+    daemon.completed_job(&id, "succeeded").await;
+    let after: Value = serde_json::from_slice(&fs::read(daemon.mock.root.join("compose.yaml")).unwrap()).unwrap();
+    for service in ["backend", "backend-volume-init"] {
+        for (index, kind) in ["data", "cache"].iter().enumerate() {
+            let mount = &after["services"][service]["volumes"][index];
+            assert_eq!(mount["type"], "bind");
+            assert_eq!(mount["source"], format!("./{kind}"));
+            assert_eq!(mount["bind"]["create_host_path"], false);
+        }
+    }
+    assert!(after["volumes"].get("backend_data").is_none());
 }

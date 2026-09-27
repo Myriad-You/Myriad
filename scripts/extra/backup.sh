@@ -59,10 +59,6 @@ compose() {
     $kind --env-file .env -p "$(active_project)" "$@"
 }
 
-data_volume() {
-    printf '%s_backend_data' "$(active_project)"
-}
-
 # Official writers that share backend_data / the same database.
 # Stop workers before web so persona/federation cannot keep writing.
 WRITER_STOP_ORDER="federation-worker persona-worker backend"
@@ -111,21 +107,17 @@ quiesce_writers() {
     done
 }
 
-ensure_data_volume() {
-    local volume="$1"
-    # shellcheck source=backend-volumes.sh
-    source "$ROOT/scripts/extra/backend-volumes.sh"
-    ensure_backend_volume "$DOCKER" "$volume" "$ROOT/data"
+load_backup_storage() {
+    # shellcheck source=backend-storage.sh
+    source "$ROOT/scripts/extra/backend-storage.sh"
+    load_backend_storage "$DOCKER" "$(active_project)" "$ROOT" existing
 }
 
-preflight_restore_volume() {
-    local volume="$1"
-    ensure_data_volume "$volume" || return 1
-    # A matching device string alone does not prove that the daemon can mount
-    # the directory. Probe before stopping writers or replacing .env/database.
-    # --mount + volume-nocopy avoids populating an empty volume from the image.
-    "$DOCKER" run --rm \
-        --mount "type=volume,src=$volume,dst=/data,volume-nocopy" \
+preflight_restore_storage() {
+    load_backup_storage || return 1
+    # Prove mount/write access before stopping writers or replacing .env/database.
+    "$DOCKER" run --rm --network none \
+        --mount "$BACKEND_DATA_MOUNT,dst=/data" \
         alpine:3.20 sh -eu -c '
             probe="$(mktemp /data/.myriad-restore-probe.XXXXXX)"
             rm -f -- "$probe"
@@ -235,7 +227,7 @@ show_usage() {
 Usage: $0 <backup|restore> [options]
 
   backup [--out DIR] [--no-stop]
-      Dump Postgres, archive the backend_data volume, and copy .env.
+      Dump Postgres, archive backend data selected by Compose, and copy .env.
       Stops backend / federation-worker / persona-worker briefly unless
       --no-stop is set. Excludes cache.
       If this script stopped a running writer, EXIT restarts it and
@@ -302,6 +294,7 @@ do_backup() {
     STOPPED_WRITERS=""
     trap 'code=$?; trap - EXIT; restart_writers_keep_status "$code"; exit $?' EXIT
 
+    load_backup_storage || return 1
     info "==> backup directory $out"
     if [ "$no_stop" -eq 0 ]; then
         quiesce_writers
@@ -313,11 +306,9 @@ do_backup() {
     compose exec -T postgres pg_dump -U myriad -d myriad -Fc > "$out/postgres.dump"
     chmod 600 "$out/postgres.dump"
 
-    local volume
-    volume="$(data_volume)"
-    info "==> backend_data volume ($volume)"
+    info "==> backend data"
     "$DOCKER" run --rm \
-        -v "${volume}:/data:ro" \
+        --mount "$BACKEND_DATA_MOUNT,dst=/data,readonly" \
         -v "$out:/out" \
         alpine:3.20 \
         tar czf /out/backend_data.tar.gz -C /data .
@@ -355,9 +346,7 @@ do_restore() {
     require_same_postgres_password "$from/env"
     require_same_compose_project "$from/env"
 
-    local volume
-    volume="$(data_volume)"
-    preflight_restore_volume "$volume" || return 1
+    preflight_restore_storage || return 1
 
     WRITERS_STOPPED_BY_US=0
     STOPPED_WRITERS=""
@@ -381,11 +370,11 @@ do_restore() {
     info "==> restoring PostgreSQL"
     compose exec -T postgres pg_restore -U myriad -d myriad --clean --if-exists < "$from/postgres.dump"
 
-    info "==> restoring backend_data ($volume)"
+    info "==> restoring backend data"
     "$DOCKER" run --rm \
         -e DEST=/data \
         -e ARCHIVE=/in/backend_data.tar.gz \
-        -v "${volume}:/data" \
+        --mount "$BACKEND_DATA_MOUNT,dst=/data" \
         -v "$from:/in:ro" \
         alpine:3.20 \
         sh -c "$(volume_restore_posix)"

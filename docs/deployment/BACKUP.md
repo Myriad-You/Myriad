@@ -5,8 +5,8 @@
 这三样都要带上，才能从空机器恢复。
 
 新部署的 `backend_data` 对应部署目录 `./data`，旧部署仍可能使用 Docker 管理卷。
-备份脚本统一按卷名归档，两种布局均可用；恢复时缺少的数据卷会绑定到当前部署目录
-`./data`。布局迁移、停机打包和换机步骤见 [DATA_LAYOUT.md](DATA_LAYOUT.md)。
+备份和恢复脚本读取当前 Compose 中的实际挂载来源，两种布局均可用，归档名保持不变。
+脚本需要本地 Docker、Compose v2+ 和 `jq`；缺少目录或旧卷时会拒绝操作。布局迁移、停机打包和换机步骤见 [DATA_LAYOUT.md](DATA_LAYOUT.md)。
 
 `cache` / `backend_cache` 可再生，不要当灾备。媒体资产在 `backend_data/media`，
 会进 `backend_data.tar.gz`。旧 `/media/federation` 与 image-cache 地址靠别名读，
@@ -30,7 +30,7 @@ bash scripts/extra/backup.sh backup --out /var/backups/myriad-20260101
 | 文件 | 内容 |
 | --- | --- |
 | `postgres.dump` | `pg_dump -Fc` |
-| `backend_data.tar.gz` | named volume `*_backend_data`（phantasi / tapps / agent / site） |
+| `backend_data.tar.gz` | Compose 的 `/app/data` 来源（`./data` 或旧 named volume；phantasi / tapps / agent / site） |
 | `env` | 当时的 `.env`（含 JWT、数据库口令等） |
 | `MANIFEST.txt` | 时间戳与包含清单，不含秘密值 |
 
@@ -45,7 +45,7 @@ bash scripts/extra/backup.sh backup --out /var/backups/myriad-20260101
 ## 恢复
 
 新机器先按 [部署文档](DOCKER_DEPLOYMENT.md) 运行 `deploy.sh up`，准备 data/cache
-两卷并启动 PostgreSQL，再执行恢复；Compose 不会自动创建 external 卷。
+目录并启动 PostgreSQL，再执行恢复。旧 Compose 布局必须先准备对应 named volumes。
 
 **支持范围：** 同一 compose 项目、运行中的 Postgres 角色口令与备份 `.env`
 的 `POSTGRES_PASSWORD` 相同。官方 compose 用该值初始化角色
@@ -62,8 +62,8 @@ bash scripts/extra/backup.sh backup --out /var/backups/myriad-20260101
 → 容器内探测 `/ready` → 同样重建两个 worker。中途失败会保持已停的写进程停止。
 不要用前端 HTML 的 200 认定就绪。
 
-数据卷不存在时，预检会先创建绑定到 `./data` 的卷；现有 bind 卷的目录丢失时则拒绝，
-不自动补空目录。目录为符号链接、卷指向其他目录、Docker 无法挂载或写入时，拒绝发生在
+预检不创建目录或卷。存储来源缺失、目录为符号链接、bind 指向其他目录、Docker
+无法挂载或写入时，拒绝发生在
 停服务、覆盖 `.env` 和数据库恢复之前。预检只证明此时可用，恢复期间仍须避免管理员
 并发移动目录或更改卷；它不提供整站恢复的事务原子性。
 

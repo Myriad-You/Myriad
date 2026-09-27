@@ -14,6 +14,8 @@ use std::{
     sync::Arc,
 };
 
+mod storage;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PreparedCompose {
     files: Vec<ComposeChange>,
@@ -45,7 +47,10 @@ impl PreparedCompose {
 
     fn write(&self, restore: bool) -> Result<()> {
         for file in &self.files {
-            atomic::write_atomic_bytes(&file.path, if restore { &file.before } else { &file.after })?;
+            atomic::write_atomic_bytes(
+                &file.path,
+                if restore { &file.before } else { &file.after },
+            )?;
         }
         let baseline = if restore {
             &self.restore_baseline
@@ -105,7 +110,17 @@ pub async fn prepare(
     atomic::write_atomic_bytes(&candidate, &template)?;
     let candidate_runner = compose.with_files(vec![candidate.clone()]);
     let current = compose.source_json().await?;
-    let target_json = candidate_runner.source_json().await?;
+    let mut target_json = candidate_runner.source_json().await?;
+    // Updating code must not migrate storage. The installed Compose remains the
+    // sole layout record; carry its sources into the target's fixed mount map.
+    storage::preserve_storage(
+        &current,
+        &compose.config_json().await?,
+        &mut target_json,
+        compose.project_directory(),
+    )?;
+    let template = serde_json::to_vec_pretty(&target_json)?;
+    atomic::write_atomic_bytes(&candidate, &template)?;
 
     // Detect manual edits: the current compose vs the baseline the updater last
     // wrote. A missing/unreadable baseline counts as changed (fail-safe: prompt).

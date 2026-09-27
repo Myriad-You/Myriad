@@ -16,6 +16,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 # v0.4.10 first shipped both split-worker routing and updater capability gates.
 ROUTING_FLOOR = (0, 4, 10)
+STORAGE_FLOOR = (0, 5, 8)
 
 
 def version(value):
@@ -48,6 +49,7 @@ class DeploymentCompatibility(unittest.TestCase):
     def test_bootstrap_defaults_support_split_worker_routes(self):
         with tempfile.TemporaryDirectory() as directory:
             values = self.bootstrap(directory)
+        self.assertGreaterEqual(version(values["UPDATER_TAG"]), STORAGE_FLOOR)
         for key in ["PROXY_TAG", "UPDATER_TAG"]:
             with self.subTest(key=key):
                 self.assertGreaterEqual(version(values[key]), ROUTING_FLOOR)
@@ -120,7 +122,7 @@ seed_guard_policy_from_env
             subprocess.run(["bash", "-c", script], cwd=root, check=True, capture_output=True,
                            env={**os.environ, "VERSION": "v0.4.99", "CHANNEL": "stable", "COMMIT_SHA": "a" * 40})
             manifest = json.loads((root / "release.json").read_text())
-        self.assertGreaterEqual(version(manifest["updater"]["min_updater_version"]), ROUTING_FLOOR)
+        self.assertGreaterEqual(version(manifest["updater"]["min_updater_version"]), STORAGE_FLOOR)
         self.assertNotIn("proxy", manifest["images"])
         self.assertNotIn("updater", manifest["images"])
 
@@ -205,156 +207,149 @@ class ComposeTagSelection(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("UPDATER_TAG", result.stderr)
 
-    def test_external_volumes_preserve_worker_mount_contract(self):
+    def test_direct_binds_preserve_worker_mount_contract(self):
         for template in self.templates:
             with self.subTest(template=template), tempfile.TemporaryDirectory() as directory:
-                result = self.resolve(directory, template, "v0.5.7")
+                result = self.resolve(directory, template, "v0.5.8")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 model = json.loads(result.stdout)
-                for kind in ("data", "cache"):
-                    volume = model["volumes"][f"backend_{kind}"]
-                    self.assertTrue(volume["external"])
-                    self.assertEqual(volume["name"], f"custom-site_backend_{kind}")
-                    self.assertNotIn("driver_opts", volume)
+                self.assertNotIn("backend_data", model.get("volumes", {}))
                 for service in ("backend", "backend-volume-init", "persona-worker"):
                     mounts = model["services"][service]["volumes"]
                     for kind in ("data", "cache"):
                         mount = next(m for m in mounts if m["target"] == f"/app/{kind}")
-                        self.assertEqual(mount["type"], "volume")
-                        self.assertEqual(mount["source"], f"backend_{kind}")
+                        self.assertEqual(mount["type"], "bind")
+                        self.assertEqual(Path(mount["source"]).resolve(), Path(directory).resolve() / kind)
+                        self.assertFalse(mount["bind"]["create_host_path"])
                 mounts = model["services"]["federation-worker"]["volumes"]
-                self.assertEqual({m.get("volume", {}).get("subpath") for m in mounts}
-                                 - {None}, {"media", "federation_media", "federation", "images"})
+                self.assertEqual(len(mounts), 5)
+                for mount in mounts:
+                    self.assertEqual(mount["type"], "bind")
+                    self.assertFalse(mount["bind"]["create_host_path"])
+                    self.assertEqual(mount.get("read_only", False), mount["target"] == "/app/data")
 
 
-class BackendVolumeProvisioning(unittest.TestCase):
-    def exercise(self, layout=None, failure=None, caller="deploy", unsafe_path=None):
-        with tempfile.TemporaryDirectory(prefix="myriad volume test ") as directory:
+class BackendStorage(unittest.TestCase):
+    def exercise(self, layout="bind", failure=None, caller="deploy", unsafe=None, old_volumes=False):
+        with tempfile.TemporaryDirectory(prefix="myriad storage test ") as directory:
             root = Path(directory).resolve()
             scripts = root / "scripts/extra"
             scripts.mkdir(parents=True)
-            for name in ("backend-volumes.sh", "backup.sh"):
+            for name in ("backend-storage.sh", "backup.sh"):
                 (scripts / name).write_text((ROOT / "scripts/extra" / name).read_text())
-            original_env = 'COMPOSE_PROJECT_NAME=custom-site\nPOSTGRES_PASSWORD=test-only-password\nMARKER=original\n'
+            original_env = "COMPOSE_PROJECT_NAME=custom-site\nPOSTGRES_PASSWORD=test-only-password\nMARKER=original\n"
             (root / ".env").write_text(original_env)
+            model = {"services": {"backend": {"volumes": []}}, "volumes": {}}
+            for kind in ("data", "cache"):
+                model["services"]["backend"]["volumes"].append({
+                    "type": "volume" if layout.startswith("legacy") else "bind",
+                    "source": f"backend_{kind}" if layout.startswith("legacy") else str(root / kind),
+                    "target": f"/app/{kind}", "bind": {"create_host_path": False}})
+                model["volumes"][f"backend_{kind}"] = {"name": f"custom-site_backend_{kind}"}
+            if layout == "foreign":
+                model["services"]["backend"]["volumes"][0]["source"] = "/other/data"
+            if ((caller != "deploy" and not layout.startswith("legacy")) or layout == "legacy-bind") and unsafe != "missing":
+                (root / "data").mkdir()
+                (root / "cache").mkdir()
+            if unsafe in ("symlink", "dangling", "file"):
+                target = root / "data"
+                if target.is_dir(): target.rmdir()
+                if unsafe == "file":
+                    target.write_text("keep")
+                else:
+                    outside = root / "outside"
+                    if unsafe == "symlink": outside.mkdir()
+                    target.symlink_to(outside, target_is_directory=True)
+            for kind in ("data", "cache"):
+                options = {"type":"none", "o":"bind", "device":str(root / kind)} if layout == "legacy-bind" else None
+                (root / f"inspect-{kind}.json").write_text(json.dumps([{"Driver":"local", "Options":options}]))
+            (root / "model.json").write_text(json.dumps(model))
+            (root / "volumes.txt").write_text("custom-site_backend_data\ncustom-site_backend_cache\n"
+                if layout.startswith("legacy") or old_volumes else "")
             mock = root / "docker"
             mock.write_text('''#!/usr/bin/env python3
 import json, os, sys
 from pathlib import Path
-root = Path(os.environ["VOLUME_TEST_ROOT"])
+root = Path(os.environ["STORAGE_TEST_ROOT"])
 args = sys.argv[1:]
-with (root / "calls").open("a") as f:
-    f.write(json.dumps(args) + "\\n")
-state = json.loads((root / "state.json").read_text())
-if args[:2] == ["volume", os.environ.get("VOLUME_TEST_FAILURE")] or (args[0] == "run" and os.environ.get("VOLUME_TEST_FAILURE") == "run"):
-    sys.exit(1)
-if args[:2] == ["volume", "ls"]:
-    print("\\n".join(state))
-elif args[:2] == ["volume", "create"]:
-    device = next(a[7:] for a in args if a.startswith("device="))
-    assert Path(device).is_dir()
-    state[args[-1]] = "bind:" + device
-    (root / "state.json").write_text(json.dumps(state))
-elif args[:2] == ["volume", "inspect"]:
-    print(state[args[-1]])
-elif args[0] != "run":
-    sys.exit(2)
+with (root / "calls").open("a") as f: f.write(json.dumps(args) + "\\n")
+failure = os.environ.get("STORAGE_TEST_FAILURE")
+if (args[0] == "compose" and failure == "config") or (args[0] == "volume" and args[1] == failure) or (args[0] == "run" and failure == "run"): sys.exit(1)
+if args[0] == "compose": print((root / "model.json").read_text())
+elif args[:2] == ["volume", "ls"]: print((root / "volumes.txt").read_text())
+elif args[:2] == ["volume", "inspect"]: print((root / ("inspect-" + args[2].rsplit("_", 1)[1] + ".json")).read_text())
+elif args[0] == "run": pass
+else: sys.exit(2)
 ''')
             mock.chmod(0o755)
-            state = {} if layout is None else {
-                f"custom-site_backend_{kind}": layout.replace("{root}", str(root)).replace("{kind}", kind)
-                for kind in ("data", "cache")}
-            if layout == "bind:{root}/{kind}" and unsafe_path != "missing":
-                for kind in ("data", "cache"):
-                    (root / kind).mkdir()
-            if unsafe_path in ("symlink", "dangling", "file"):
-                target = root / "data"
-                if target.is_dir():
-                    target.rmdir()
-                if unsafe_path == "file":
-                    target.write_text("must not change")
-                else:
-                    outside = root / "outside"
-                    if unsafe_path == "symlink":
-                        outside.mkdir()
-                        (outside / "keep").write_text("must not change")
-                    target.symlink_to(outside, target_is_directory=True)
-            (root / "state.json").write_text(json.dumps(state))
             if caller == "deploy":
-                library = (ROOT / "scripts/extra/deploy.sh").read_text().split("COMPOSE_KIND=$(detect_compose)", 1)[0]
-                script = library + "\nensure_backend_volume_perms\n"
-            elif caller == "restore":
-                script = 'source "$(dirname "$0")/backup.sh"\nensure_data_volume custom-site_backend_data\n'
+                script = (ROOT / "scripts/extra/deploy.sh").read_text().split("COMPOSE_KIND=$(detect_compose)", 1)[0]
+                script += "\nensure_backend_volume_perms\n"
             else:
                 archive = root / "archive"
                 archive.mkdir()
                 (archive / "env").write_text(original_env.replace("original", "restored"))
-                for name in ("postgres.dump", "backend_data.tar.gz"):
-                    (archive / name).touch()
+                for name in ("postgres.dump", "backend_data.tar.gz"): (archive / name).touch()
                 script = '''source "$(dirname "$0")/backup.sh"
 quiesce_writers() { printf '["stop"]\\n' >> "$ROOT/calls"; }
-compose() { printf '["compose", "%s"]\\n' "$1" >> "$ROOT/calls"; }
+compose() { printf '["compose-action", "%s"]\\n' "$1" >> "$ROOT/calls"; }
 wait_backend_ready() { :; }
 do_restore --from "$ROOT/archive"
 '''
             entry = scripts / "exercise.sh"
             entry.write_text(script)
             result = subprocess.run(["bash", str(entry)], capture_output=True, text=True,
-                                    env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
-                                         "DOCKER": str(mock), "COMPOSE_PROJECT_NAME": "",
-                                         "VOLUME_TEST_ROOT": str(root), "VOLUME_TEST_FAILURE": failure or ""})
+                env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"], "DOCKER": str(mock),
+                     "COMPOSE_PROJECT_NAME": "", "STORAGE_TEST_ROOT": str(root), "STORAGE_TEST_FAILURE": failure or ""})
             calls = [json.loads(line) for line in (root / "calls").read_text().splitlines()] if (root / "calls").exists() else []
-            if caller == "restore-command" and result.returncode != 0:
+            if caller == "restore" and result.returncode:
                 self.assertEqual((root / ".env").read_text(), original_env)
                 self.assertFalse((root / ".env.bak.restore").exists())
-                self.assertFalse(any(c[0] in ("stop", "compose") for c in calls))
+                self.assertFalse(any(c[0] in ("stop", "compose-action") for c in calls))
             return result, calls, str(root)
 
-    def test_fresh_deploy_and_restore_use_absolute_bind_directories(self):
-        for caller in ("deploy", "restore"):
-            with self.subTest(caller=caller):
-                result, calls, root = self.exercise(caller=caller)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                creates = [c for c in calls if c[:2] == ["volume", "create"]]
-                self.assertEqual(len(creates), 2 if caller == "deploy" else 1)
-                for call in creates:
-                    kind = call[-1].rsplit("_", 1)[-1]
-                    self.assertIn(f"device={root}/{kind}", call)
-                    self.assertIn("type=none", call)
-                    self.assertIn("o=bind", call)
+    def test_fresh_deploy_uses_bind_directories_without_creating_volumes(self):
+        result, calls, root = self.exercise()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        runs = [c for c in calls if c[0] == "run"]
+        self.assertEqual(len(runs), 2)
+        self.assertIn(f"type=bind,src={root}/data,dst=/app/data", runs[0])
+        self.assertFalse(any(c[:2] == ["volume", "create"] for c in calls))
 
-    def test_existing_legacy_and_matching_bind_volumes_are_never_recreated(self):
-        for layout in ("legacy", "bind:{root}/{kind}"):
-            with self.subTest(layout=layout):
-                result, calls, _ = self.exercise(layout)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertFalse(any(c[:2] == ["volume", "create"] for c in calls))
-                if layout == "legacy":
-                    self.assertIn("NOT in", result.stderr)
+    def test_legacy_deploy_keeps_existing_named_volume_sources(self):
+        result, calls, _ = self.exercise("legacy")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("type=volume,src=custom-site_backend_data,volume-nocopy,dst=/app/data",
+                      next(c for c in calls if c[0] == "run"))
 
-    def test_moved_or_unsupported_volumes_fail_before_permission_repair(self):
-        for layout in ("bind:/old/deployment/data", "unsupported"):
-            with self.subTest(layout=layout):
-                result, calls, _ = self.exercise(layout)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(any(c[0] == "run" or c[:2] == ["volume", "create"] for c in calls))
+    def test_host_deploy_cannot_silently_switch_an_existing_install_to_empty_binds(self):
+        result, calls, _ = self.exercise(old_volumes=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(c[0] == "run" for c in calls))
 
-    def test_api_failures_do_not_turn_into_empty_volumes_or_repairs(self):
-        for failure in ("ls", "inspect", "create"):
-            with self.subTest(failure=failure):
-                result, calls, _ = self.exercise("legacy" if failure == "inspect" else None, failure)
+    def test_unsafe_paths_and_api_failures_fail_before_repairs(self):
+        for layout, failure, unsafe in [("foreign", None, None), ("bind", "config", None),
+                ("bind", "ls", None), ("legacy", "inspect", None),
+                *[(layout, None, u) for layout in ("bind", "legacy-bind") for u in ("symlink", "dangling", "file")]]:
+            with self.subTest(layout=layout, failure=failure, unsafe=unsafe):
+                result, calls, _ = self.exercise(layout, failure, unsafe=unsafe)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(any(c[0] == "run" for c in calls))
-                if failure != "create":
-                    self.assertFalse(any(c[:2] == ["volume", "create"] for c in calls))
 
-    def test_unsafe_directories_fail_before_any_docker_operation(self):
-        for unsafe in ("symlink", "dangling", "file"):
-            for layout in (None, "legacy", "bind:{root}/{kind}"):
-                with self.subTest(unsafe=unsafe, layout=layout):
-                    result, calls, _ = self.exercise(layout, unsafe_path=unsafe)
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertEqual(calls, [])
+    def test_restore_rejects_before_stopping_or_replacing_env_and_database(self):
+        for layout, failure, unsafe in [("foreign", None, None), ("legacy", "inspect", None),
+                ("bind", "run", None), ("bind", None, "symlink"), ("bind", None, "missing")]:
+            with self.subTest(layout=layout, failure=failure, unsafe=unsafe):
+                result, _, _ = self.exercise(layout, failure, "restore", unsafe)
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_restore_probe_precedes_stop_for_both_layouts(self):
+        for layout in ("bind", "legacy", "legacy-bind"):
+            result, calls, _ = self.exercise(layout, caller="restore")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            probe = next(i for i, c in enumerate(calls) if c[0] == "run")
+            self.assertLess(probe, calls.index(["stop"]))
+            self.assertLess(probe, calls.index(["compose-action", "exec"]))
 
     def test_symlinked_parent_and_dot_segments_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -362,32 +357,9 @@ do_restore --from "$ROOT/archive"
             (root / "real").mkdir()
             (root / "link").symlink_to(root / "real", target_is_directory=True)
             for path in (str(root / "link/data"), f"{root}/real/../data", f"{root}/real/.."):
-                with self.subTest(path=path):
-                    result = subprocess.run(["bash", "-c", 'source "$1"; validate_backend_directory "$2"',
-                                             "test", str(ROOT / "scripts/extra/backend-volumes.sh"), path],
-                                            capture_output=True, text=True)
-                    self.assertNotEqual(result.returncode, 0)
-
-    def test_existing_bind_with_missing_directory_is_not_recreated(self):
-        result, calls, _ = self.exercise("bind:{root}/{kind}", unsafe_path="missing")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(any(c[0] == "run" or c[:2] == ["volume", "create"] for c in calls))
-
-    def test_restore_preflight_rejects_before_stopping_or_replacing_env_and_database(self):
-        for layout, failure, unsafe in (("bind:/old/data", None, None),
-                                        ("legacy", "inspect", None),
-                                        ("legacy", "run", None),
-                                        (None, None, "symlink")):
-            with self.subTest(layout=layout, failure=failure, unsafe=unsafe):
-                result, _, _ = self.exercise(layout, failure, "restore-command", unsafe)
+                result = subprocess.run(["bash", "-c", 'source "$1"; validate_backend_directory "$2"',
+                    "test", str(ROOT / "scripts/extra/backend-storage.sh"), path], capture_output=True, text=True)
                 self.assertNotEqual(result.returncode, 0)
-
-    def test_restore_mount_probe_precedes_stop_and_database_restore(self):
-        result, calls, _ = self.exercise("legacy", caller="restore-command")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        probe_index = next(i for i, c in enumerate(calls) if c[0] == "run")
-        self.assertLess(probe_index, calls.index(["stop"]))
-        self.assertLess(probe_index, calls.index(["compose", "exec"]))
 
 
 if __name__ == "__main__":

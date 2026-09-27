@@ -384,31 +384,24 @@ ensure_backend_volume_perms() {
         return 1
     fi
 
-    local cache_vol="${project}_backend_cache"
-    local data_vol="${project}_backend_data"
-
-    # shellcheck source=backend-volumes.sh
-    source "$ROOT/scripts/extra/backend-volumes.sh"
-    info "==> Ensuring backend named volumes writable by uid 1000 (myriad)"
-    validate_backend_directory "$ROOT/cache" || return 1
-    validate_backend_directory "$ROOT/data" || return 1
-    ensure_backend_volume docker "$cache_vol" "$ROOT/cache" || return 1
-    ensure_backend_volume docker "$data_vol" "$ROOT/data" || return 1
+    # shellcheck source=backend-storage.sh
+    source "$ROOT/scripts/extra/backend-storage.sh"
+    info "==> Checking Compose storage and access for uid 1000 (myriad)"
+    load_backend_storage docker "$project" "$ROOT" prepare || return 1
     if ! docker run --rm \
-        -v "${cache_vol}:/app/cache" \
-        -v "${data_vol}:/app/data" \
+        --mount "$BACKEND_CACHE_MOUNT,dst=/app/cache" \
+        --mount "$BACKEND_DATA_MOUNT,dst=/app/data" \
         alpine:3.20 \
-        sh -c 'chown -R 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data'
+        sh -c 'chown -R -h 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data'
     then
         err "Backend volume ownership/permission repair failed; refusing to start a broken backend."
-        err "Run as host admin:"
-        err "  docker run --rm -v ${cache_vol}:/app/cache -v ${data_vol}:/app/data alpine:3.20 sh -c 'chown -R 1000:1000 /app/cache /app/data && chmod -R u+rwX /app/cache /app/data'"
+        err "Inspect the storage paths in Compose before retrying as host administrator."
         return 1
     fi
 
     if ! docker run --rm --user 1000:1000 \
-        -v "${cache_vol}:/app/cache" \
-        -v "${data_vol}:/app/data" \
+        --mount "$BACKEND_CACHE_MOUNT,dst=/app/cache" \
+        --mount "$BACKEND_DATA_MOUNT,dst=/app/data" \
         alpine:3.20 \
         sh -eu -c '
             umask 077

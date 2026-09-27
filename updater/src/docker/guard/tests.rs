@@ -305,6 +305,100 @@ fn backend_create_allows_only_named_project_volumes() {
     assert!(validate_container_create(&state(), &body).is_ok());
 }
 
+#[test]
+fn direct_storage_binds_require_exact_paths_destinations_and_modes() {
+    let dir = tempfile::tempdir().unwrap();
+    for path in [
+        "data/federation",
+        "data/federation_media",
+        "data/media",
+        "cache/images",
+    ] {
+        fs::create_dir_all(dir.path().join(path)).unwrap();
+    }
+    let state = state_with_visible_root(dir.path().to_owned());
+    for (service, relative, destination, ro) in [
+        ("backend", "data", "/app/data", false),
+        ("backend-volume-init", "cache", "/app/cache", false),
+        ("persona-worker", "data", "/app/data", false),
+        ("federation-worker", "data", "/app/data", true),
+        ("federation-worker", "data/media", "/app/data/media", false),
+        (
+            "federation-worker",
+            "data/federation",
+            "/app/data/federation",
+            false,
+        ),
+        (
+            "federation-worker",
+            "data/federation_media",
+            "/app/data/federation_media",
+            false,
+        ),
+        (
+            "federation-worker",
+            "cache/images",
+            "/tmp/cache/images",
+            false,
+        ),
+    ] {
+        let source = format!("/srv/myriad/{relative}");
+        let mount = json!({"Type":"bind", "Source":source, "Target":destination, "ReadOnly":ro});
+        assert!(super::validate::validate_mount(&state, service, &mount).is_ok());
+        for (field, value) in [
+            ("ReadOnly", json!(!ro)),
+            ("Source", json!("/etc")),
+            (
+                "Source",
+                json!(format!("/srv/myriad/{relative}/../{relative}")),
+            ),
+            ("Target", json!("/app/other")),
+        ] {
+            let mut invalid = mount.clone();
+            invalid[field] = value;
+            assert!(
+                super::validate::validate_mount(&state, service, &invalid).is_err(),
+                "{service} accepted {field}"
+            );
+        }
+        assert!(
+            super::validate::validate_bind(
+                &state,
+                service,
+                &format!("{source}:{destination}:{}", if ro { "ro" } else { "rw" })
+            )
+            .is_ok()
+        );
+    }
+    let body = create(
+        "backend",
+        "docker.io/example/backend:v1",
+        json!({
+            "Binds":["/srv/myriad/data:/app/data:rw","/srv/myriad/cache:/app/cache:rw"]
+        }),
+    );
+    assert!(validate_container_create(&state, &body).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn direct_storage_binds_reject_missing_and_symlinked_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir_all(outside.path().join("media")).unwrap();
+    let state = state_with_visible_root(dir.path().to_owned());
+    let mount =
+        json!({"Type":"bind","Source":"/srv/myriad/data/media", "Target":"/app/data/media"});
+    assert!(super::validate::validate_mount(&state, "federation-worker", &mount).is_err());
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("data")).unwrap();
+    assert!(super::validate::validate_mount(&state, "federation-worker", &mount).is_err());
+    fs::remove_file(dir.path().join("data")).unwrap();
+    fs::create_dir(dir.path().join("data")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("media"), dir.path().join("data/media"))
+        .unwrap();
+    assert!(super::validate::validate_mount(&state, "federation-worker", &mount).is_err());
+}
+
 fn backend_volume_init_create(user: &str, init_env: &str, host: Value) -> Bytes {
     backend_volume_init_create_oneoff(user, init_env, host, "True")
 }
@@ -1770,4 +1864,170 @@ async fn startup_does_not_finalize_a_request_still_owned_by_the_worker() {
             .unwrap(),
         pending
     );
+}
+
+// The normal test suite checks policy without a daemon. This explicit smoke
+// sends real Compose create/recreate requests through the production handler.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires local Docker, Compose and alpine:3.20"]
+async fn storage_guard_accepts_real_compose_mounts() {
+    use std::process::{Command, Output};
+    fn checked(output: Output) -> Vec<u8> {
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output.stdout
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let project = format!("myriad-storage-{}", uuid::Uuid::new_v4().simple());
+    let endpoint = std::env::var("DOCKER_HOST").unwrap_or_else(|_| {
+        String::from_utf8(checked(
+            Command::new("docker")
+                .args([
+                    "context",
+                    "inspect",
+                    "--format",
+                    "{{.Endpoints.docker.Host}}",
+                ])
+                .output()
+                .unwrap(),
+        ))
+        .unwrap()
+        .trim()
+        .to_owned()
+    });
+    let socket = endpoint
+        .strip_prefix("unix://")
+        .expect("local Unix Docker socket required");
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_owned();
+    let env = root.join(".env");
+    fs::write(&env, "MYRIAD_TAG=fixture\nUPDATER_TAG=fixture\nPROXY_TAG=fixture\nPOSTGRES_PASSWORD=fixture\nPERSONA_DB_PASSWORD=fixture\nFEDERATION_DB_PASSWORD=fixture\nJWT_SECRET=fixture\nMYRIAD_SETUP_SECRET=fixture\nGUARD_SELF_UPDATE_TOKEN=fixture\nUPDATE_TOKEN=fixture\nUPDATER_GATEWAY_SECRET=fixture\n").unwrap();
+    let production: Value = serde_json::from_slice(&checked(
+        Command::new("docker")
+            .args(["compose", "--project-directory"])
+            .arg(&root)
+            .arg("--env-file")
+            .arg(&env)
+            .arg("-f")
+            .arg(repo.join("docker-compose.yml"))
+            .args(["config", "--no-env-resolution", "--format", "json"])
+            .output()
+            .unwrap(),
+    ))
+    .unwrap();
+    for path in [
+        "data/federation",
+        "data/federation_media",
+        "data/media",
+        "cache/images",
+    ] {
+        fs::create_dir_all(root.join(path)).unwrap();
+    }
+    let services = ["backend", "persona-worker", "federation-worker"];
+    let mut model = json!({"services":{}});
+    for service in services {
+        let original = &production["services"][service];
+        let mut config = json!({"image":"alpine:3.20", "network_mode":"none"});
+        for key in [
+            "user",
+            "read_only",
+            "cap_drop",
+            "security_opt",
+            "tmpfs",
+            "pids_limit",
+            "deploy",
+            "environment",
+            "command",
+            "volumes",
+            "healthcheck",
+        ] {
+            if let Some(value) = original.get(key) {
+                config[key] = value.clone();
+            }
+        }
+        model["services"][service] = config;
+    }
+    let file = root.join("compose.json");
+    fs::write(&file, serde_json::to_vec(&model).unwrap()).unwrap();
+    struct Cleanup {
+        file: PathBuf,
+        project: String,
+        endpoint: String,
+    }
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = Command::new("docker")
+                .env("DOCKER_HOST", &self.endpoint)
+                .args(["compose", "-p", &self.project, "-f"])
+                .arg(&self.file)
+                .args(["down", "--remove-orphans"])
+                .output();
+        }
+    }
+    let _cleanup = Cleanup {
+        file: file.clone(),
+        project: project.clone(),
+        endpoint: endpoint.clone(),
+    };
+    let mut state = state_with_visible_root(root.clone());
+    state.host_compose_root = Arc::new(root);
+    let cfg = Arc::make_mut(&mut state.config);
+    cfg.project = project.clone();
+    cfg.socket_path = socket.into();
+    cfg.allowed_images.insert("alpine".into());
+    for service in services {
+        cfg.service_images.insert(service.into(), "alpine".into());
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let host = format!("tcp://{}", listener.local_addr().unwrap());
+    let router = axum::Router::new()
+        .fallback(super::forward::handle)
+        .with_state(state);
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    for _ in 0..2 {
+        checked(
+            Command::new("docker")
+                .env("DOCKER_HOST", &host)
+                .args(["compose", "-p", &project, "-f"])
+                .arg(&file)
+                .args(["create", "--pull", "never", "--force-recreate"])
+                .output()
+                .unwrap(),
+        );
+    }
+    for service in services {
+        let name = format!("{project}-{service}-1");
+        let inspection: Value = serde_json::from_slice(&checked(
+            Command::new("docker")
+                .env("DOCKER_HOST", &endpoint)
+                .args(["inspect", &name])
+                .output()
+                .unwrap(),
+        ))
+        .unwrap();
+        let actual = inspection[0]["Mounts"].as_array().unwrap();
+        for expected in model["services"][service]["volumes"].as_array().unwrap() {
+            let mount = actual
+                .iter()
+                .find(|m| m["Destination"] == expected["target"])
+                .unwrap();
+            assert_eq!(mount["Type"], "bind");
+            assert_eq!(mount["Source"], expected["source"]);
+            assert_eq!(mount["RW"], expected["read_only"] != true);
+        }
+    }
+    server.abort();
 }

@@ -6,6 +6,7 @@ Missing images are pulled.
 Uses production mount declarations and real backup/restore scripts, with small
 shell services replacing business processes. This is NOT a full updater rollout.
 """
+import copy
 import json
 import os
 from pathlib import Path
@@ -43,11 +44,8 @@ def container(command, mounts=()):
 
 
 def provision():
-    run(["bash", "-eu", "-c", '''source "$1"
-for kind in data cache; do
-    ensure_backend_volume docker "${COMPOSE_PROJECT_NAME}_backend_${kind}" "$PWD/$kind"
-done
-''', "provision", str(REPO / "scripts/extra/backend-volumes.sh")])
+    run(["bash", "-eu", "-c", 'source "$1"; load_backend_storage docker "$COMPOSE_PROJECT_NAME" "$PWD" prepare',
+         "provision", str(REPO / "scripts/extra/backend-storage.sh")])
 
 
 def sql(query):
@@ -94,7 +92,7 @@ try:
     production = json.loads(run(["docker", "compose", "--project-directory", str(ROOT),
         "--env-file", str(ROOT / ".env"), "-f", str(REPO / "docker-compose.yml"),
         "config", "--no-env-resolution", "--format", "json"]).stdout)
-    model = {"services": {}, "volumes": {"backend_data": {}, "backend_cache": {}, "pgdata": {}}}
+    model = {"services": {}, "volumes": {"pgdata": {}}}
     for service in ("backend", "backend-volume-init", "persona-worker", "federation-worker"):
         model["services"][service] = {
             "image": "alpine:3.20", "network_mode": "none", "user": "1000:1000",
@@ -113,20 +111,34 @@ try:
         "volumes": ["pgdata:/var/lib/postgresql"],
         "healthcheck": {"test": ["CMD-SHELL", "pg_isready -U myriad -d myriad"],
                         "interval": "1s", "timeout": "3s", "retries": 30}}
-    save(model)
+    direct = copy.deepcopy(model)
+    legacy = copy.deepcopy(model)
+    legacy["volumes"].update(backend_data={}, backend_cache={})
+    for service in ("backend", "backend-volume-init", "persona-worker", "federation-worker"):
+        mounts = legacy["services"][service]["volumes"]
+        for mount in mounts:
+            relative = Path(mount["source"]).relative_to(ROOT)
+            mount.update(type="volume", source="backend_" + relative.parts[0])
+            mount.pop("bind", None)
+            if len(relative.parts) > 1:
+                mount["volume"] = {"subpath": "/".join(relative.parts[1:]), "nocopy": True}
+    save(direct)
     scripts = ROOT / "scripts/extra"
     scripts.mkdir(parents=True)
-    for name in ("backup.sh", "backend-volumes.sh"):
+    for name in ("backup.sh", "backend-storage.sh"):
         shutil.copyfile(REPO / "scripts/extra" / name, scripts / name)
 
-    print("Provisioning fresh bind-backed volumes and verifying host persistence", flush=True)
+    print("Provisioning direct binds without Docker volume registrations", flush=True)
     provision()
-    container("echo fresh >/data/fresh", [f"type=volume,src={VOLUMES[0]},dst=/data,volume-nocopy"])
-    run(["docker", "volume", "rm", *VOLUMES])
+    container("echo fresh >/data/fresh", [f"type=bind,src={ROOT / 'data'},dst=/data"])
+    for volume in VOLUMES:
+        assert run(["docker", "volume", "inspect", volume], check=False).returncode != 0
     container("test \"$(cat /fixture/data/fresh)\" = fresh; rm /fixture/data/fresh; rmdir /fixture/data /fixture/cache",
               [f"type=bind,src={ROOT},dst=/fixture"])
     print("Starting legacy named volumes and writing test data", flush=True)
+    save(legacy)
     start()
+    provision()
     compose("exec", "-T", "backend", "sh", "-c", "echo original >/app/data/media/sentinel; echo private >/app/data/private")
     sql("CREATE TABLE volume_test (value text); INSERT INTO volume_test VALUES ('original');")
     compose("down")
@@ -137,10 +149,9 @@ try:
         (ROOT / kind).mkdir(mode=0o700)
         archive(kind, old, restore=True, bind=True)
     run(["docker", "volume", "rm", *VOLUMES])
+    save(direct)
     provision()
-    model["volumes"].update(production["volumes"])
-    save(model)
-    print("Starting bind-backed volumes with production worker subpaths", flush=True)
+    print("Starting direct binds with production worker boundaries", flush=True)
     start()
     assert compose("exec", "-T", "backend", "cat", "/app/data/media/sentinel").stdout.strip() == "original"
     for path in ("/app/data/media", "/app/data/federation", "/app/data/federation_media", "/tmp/cache/images"):
@@ -192,15 +203,15 @@ try:
     recent = ROOT / "recent-archives"
     recent.mkdir(mode=0o700)
     for kind in ("data", "cache"):
-        archive(kind, recent)
-    run(["docker", "volume", "rm", *VOLUMES])
+        archive(kind, recent, bind=True)
+    save(legacy)
     for kind in ("data", "cache"):
         run(["docker", "volume", "create", f"{PROJECT}_backend_{kind}"])
         archive(kind, recent, restore=True)
     provision()  # Existing legacy volumes must be preserved.
     start()
     assert compose("exec", "-T", "backend", "cat", "/app/data/media/sentinel").stdout.strip() == "newest"
-    print("PASS: fresh volumes, migration, uid 1000 writes, read-only root, worker subpaths, recreation, rejected restore, database/media restore, rollback", flush=True)
+    print("PASS: fresh direct binds, migration, uid 1000 writes, read-only root, worker subpaths, recreation, rejected restore, database/media restore, rollback", flush=True)
 finally:
     if (ROOT / "docker-compose.yml").exists():
         compose("down", "--volumes", "--remove-orphans", check=False)
