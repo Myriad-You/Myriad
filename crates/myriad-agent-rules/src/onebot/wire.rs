@@ -1,6 +1,7 @@
 // Ported from nagisa 0.12.0 — crates/nagisa-onebot/src/wire.rs
 // Source: https://github.com/djkcyl/nagisa
 // License: MIT OR Apache-2.0 (see LICENSES/Apache-2.0.txt)
+
 //! OneBot v11 wire 层类型(serde)。
 //!
 //! 所有结构都**宽松**:`#[serde(default)]`、`Option`,wire 枚举带 `#[serde(other)] Unknown` 分支。
@@ -107,8 +108,11 @@ pub struct RawEventJson {
     pub message_type: Option<String>,
     #[serde(default)]
     pub sub_type: Option<String>,
+    /// OneBot 规范写的是 `int32`，但 NapCat 实测会发出大于 `i32::MAX` 的值
+    /// （官方 issue #213 的报文里是 `3425462029`）。按 `i32` 读会让整条事件解不开，
+    /// 所以这里放宽到 `i64`——宽松层跟现实，不跟规范字面。
     #[serde(default)]
-    pub message_id: Option<i32>,
+    pub message_id: Option<i64>,
     #[serde(default)]
     pub group_id: Option<i64>,
     #[serde(default)]

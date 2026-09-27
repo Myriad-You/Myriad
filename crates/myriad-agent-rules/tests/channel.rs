@@ -2003,3 +2003,187 @@ mod onebot_wire {
         assert_eq!(user_id.to_string(), "9007199254740993");
     }
 }
+
+/// OneBot 私聊事件解码成 Myriad 入站。解不开就 `None`，不 panic。
+mod onebot_decode {
+    use myriad_agent_rules::channel::{CHANNEL_IMAGE_LIMIT, QQ_TEXT_LIMIT};
+    use myriad_agent_rules::onebot::decode::{decode_private_inbound, decode_segments_to_text};
+    use myriad_agent_rules::onebot::wire::WireSegment;
+    use serde_json::{Map, Value, json};
+
+    fn private_text_event() -> &'static str {
+        r#"{
+          "time": 1790000000, "self_id": 10001, "post_type": "message",
+          "message_type": "private", "sub_type": "friend",
+          "message_id": 1234567890, "user_id": 20002,
+          "message": [{"type":"text","data":{"text":"帮我看一下"}},
+                      {"type":"image","data":{"file":"x.jpg","url":"https://example.com/x.jpg"}}],
+          "raw_message": "帮我看一下", "font": 0,
+          "sender": {"user_id":20002,"nickname":"某人","card":""}
+        }"#
+    }
+
+    fn with_message(message_type: &str, sub_type: &str, post_type: &str) -> String {
+        json!({
+            "post_type": post_type,
+            "message_type": message_type,
+            "sub_type": sub_type,
+            "message_id": 1,
+            "user_id": 20002,
+            "message": [{"type":"text","data":{"text":"hi"}}]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn private_text_becomes_inbound() {
+        let inbound = decode_private_inbound(private_text_event()).expect("private text");
+        assert_eq!(inbound.user_openid, "20002");
+        assert_eq!(inbound.msg_id, "1234567890");
+        assert_eq!(inbound.content, "帮我看一下");
+    }
+
+    #[test]
+    fn group_message_is_dropped() {
+        assert!(decode_private_inbound(&with_message("group", "normal", "message")).is_none());
+    }
+
+    #[test]
+    fn message_sent_is_dropped() {
+        assert!(
+            decode_private_inbound(&with_message("private", "friend", "message_sent")).is_none()
+        );
+    }
+
+    #[test]
+    fn group_temp_session_is_dropped() {
+        assert!(decode_private_inbound(&with_message("private", "group", "message")).is_none());
+    }
+
+    #[test]
+    fn text_and_images_are_both_kept() {
+        let inbound = decode_private_inbound(private_text_event()).expect("mixed");
+        assert_eq!(inbound.content, "帮我看一下");
+        assert_eq!(inbound.images.len(), 1);
+        assert_eq!(inbound.images[0].url, "https://example.com/x.jpg");
+        assert_eq!(inbound.images[0].name, "x.jpg");
+        assert_eq!(inbound.images[0].mime, "image/png");
+        assert_eq!(inbound.images[0].size, 0);
+    }
+
+    #[test]
+    fn image_without_http_url_is_skipped() {
+        let missing = json!({
+            "post_type": "message",
+            "message_type": "private",
+            "sub_type": "friend",
+            "message_id": 1,
+            "user_id": 20002,
+            "message": [
+                {"type":"image","data":{"file":"a.jpg"}},
+                {"type":"image","data":{"file":"b.jpg","url":"file:///tmp/b.jpg"}}
+            ]
+        });
+        let inbound = decode_private_inbound(&missing.to_string()).expect("textless private");
+        assert!(inbound.images.is_empty());
+        assert!(inbound.content.is_empty());
+    }
+
+    #[test]
+    fn images_are_capped_at_the_shared_limit() {
+        let segments: Vec<_> = (0..6)
+            .map(|index| {
+                json!({
+                    "type": "image",
+                    "data": {
+                        "file": format!("p{index}.png"),
+                        "url": format!("https://example.com/{index}.png"),
+                        "file_size": index
+                    }
+                })
+            })
+            .collect();
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "private",
+            "sub_type": "other",
+            "message_id": 7,
+            "user_id": 20002,
+            "message": segments
+        });
+        let inbound = decode_private_inbound(&raw.to_string()).expect("images");
+        assert_eq!(inbound.images.len(), CHANNEL_IMAGE_LIMIT);
+        assert_eq!(inbound.images[0].url, "https://example.com/0.png");
+        assert_eq!(inbound.images[3].name, "p3.png");
+        assert_eq!(inbound.images[3].size, 3);
+    }
+
+    #[test]
+    fn long_text_is_truncated_not_dropped() {
+        let over = "字".repeat(QQ_TEXT_LIMIT + 40);
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "private",
+            "sub_type": "friend",
+            "message_id": 8,
+            "user_id": 20002,
+            "message": [{"type":"text","data":{"text": over}}]
+        });
+        let inbound = decode_private_inbound(&raw.to_string()).expect("long text");
+        let len = inbound.content.chars().count();
+        assert!(!inbound.content.is_empty());
+        assert!(len <= QQ_TEXT_LIMIT, "len={len}");
+        assert!(len < over.chars().count());
+    }
+
+    #[test]
+    fn int64_ids_keep_full_precision() {
+        let raw = r#"{
+            "post_type":"message","message_type":"private","sub_type":"friend",
+            "message_id":1,"user_id":9007199254740993,"message":[]
+        }"#;
+        let inbound = decode_private_inbound(raw).expect("large user id");
+        assert_eq!(inbound.user_openid, "9007199254740993");
+        assert_eq!(inbound.msg_id, "1");
+    }
+
+    #[test]
+    fn malformed_json_returns_none() {
+        assert!(decode_private_inbound("not json").is_none());
+    }
+
+    #[test]
+    fn unknown_event_type_returns_none() {
+        let raw = r#"{"post_type":"notice","notice_type":"friend_add","user_id":1}"#;
+        assert!(decode_private_inbound(raw).is_none());
+    }
+
+    #[test]
+    fn decode_segments_to_text_joins_only_text_pieces() {
+        let text = |value: &str| WireSegment {
+            kind: "text".into(),
+            data: Map::from_iter([("text".into(), Value::String(value.into()))]),
+        };
+        let image = WireSegment {
+            kind: "image".into(),
+            data: Map::new(),
+        };
+        assert_eq!(
+            decode_segments_to_text(&[text("a"), image, text("b")]),
+            "ab"
+        );
+        assert_eq!(decode_segments_to_text(&[]), "");
+    }
+
+    /// 回归：NapCat 实测会发出大于 `i32::MAX` 的 `message_id`（官方 issue #213 的报文里
+    /// 是 `3425462029`）。OneBot 规范写的是 int32，但按 int32 读会让整条事件解不开，
+    /// 于是用户的消息被静默丢弃。宽松层跟现实，不跟规范字面。
+    #[test]
+    fn napcat_message_id_beyond_i32_is_not_dropped() {
+        let raw = r#"{"post_type":"message","message_type":"private","sub_type":"friend","message_id":3425462029,"user_id":10001,"message":[{"type":"text","data":{"text":"hi"}}]}"#;
+        let inbound = decode_private_inbound(raw)
+            .expect("a real NapCat message_id must not drop the whole event");
+        assert_eq!(inbound.msg_id, "3425462029");
+        assert_eq!(inbound.content, "hi");
+    }
+}

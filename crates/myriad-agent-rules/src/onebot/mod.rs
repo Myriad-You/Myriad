@@ -2,4 +2,5 @@
 //!
 //! 第一刀只做私聊办事：正向 WebSocket 收事件、Action 出站。
 
+pub mod decode;
 pub mod wire;
