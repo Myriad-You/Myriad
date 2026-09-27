@@ -390,6 +390,8 @@ ensure_backend_volume_perms() {
     # shellcheck source=backend-volumes.sh
     source "$ROOT/scripts/extra/backend-volumes.sh"
     info "==> Ensuring backend named volumes writable by uid 1000 (myriad)"
+    validate_backend_directory "$ROOT/cache" || return 1
+    validate_backend_directory "$ROOT/data" || return 1
     ensure_backend_volume docker "$cache_vol" "$ROOT/cache" || return 1
     ensure_backend_volume docker "$data_vol" "$ROOT/data" || return 1
     if ! docker run --rm \

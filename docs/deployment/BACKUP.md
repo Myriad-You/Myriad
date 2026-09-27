@@ -57,13 +57,19 @@ bash scripts/extra/backup.sh backup --out /var/backups/myriad-20260101
 
 会覆盖当前库、数据卷和 `.env`。现有 `.env` 会先复制为 `.env.bak.restore`。
 
-顺序：核对口令 → 停写（worker + backend）→ 覆盖 `.env` → 恢复 Postgres →
-恢复数据卷（没有卷则先创建绑定到 `./data` 的卷）→ `compose up -d --force-recreate --no-deps backend`
+顺序：核对口令和项目 → 检查数据卷及真实目录、探测挂载与写入 → 停写（worker + backend）→
+覆盖 `.env` → 恢复 Postgres → 恢复数据卷 → `compose up -d --force-recreate --no-deps backend`
 → 容器内探测 `/ready` → 同样重建两个 worker。中途失败会保持已停的写进程停止。
 不要用前端 HTML 的 200 认定就绪。
 
-空数据卷与「目标口令不同」只做过脚本级演练（拒绝路径 / `volume create`），
-没有在真实库上做过破坏性恢复；账户、Tapp、形象文件与凭据可用性 uncertain。
+数据卷不存在时，预检会先创建绑定到 `./data` 的卷；现有 bind 卷的目录丢失时则拒绝，
+不自动补空目录。目录为符号链接、卷指向其他目录、Docker 无法挂载或写入时，拒绝发生在
+停服务、覆盖 `.env` 和数据库恢复之前。预检只证明此时可用，恢复期间仍须避免管理员
+并发移动目录或更改卷；它不提供整站恢复的事务原子性。
+
+`python3 scripts/extra/test-backend-volumes.py` 使用独立临时 Docker 项目演练真实
+PostgreSQL 表和媒体文件的备份/恢复，并检查预检拒绝时库、`.env` 和写进程保持原状。
+业务进程由测试服务替代，账户、Tapp、形象文件与凭据的端到端可用性仍为 uncertain。
 
 ```bash
 bash scripts/extra/backup.sh restore --from /var/backups/myriad-20260101

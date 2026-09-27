@@ -102,6 +102,7 @@ jobs:
               # Read by updater tests and the deployment compatibility script.
               - docs/deployment/**
               - scripts/extra/test-deployment-compatibility.py
+              - scripts/extra/test-backend-volumes.py
               - scripts/extra/deploy.sh
               - scripts/extra/backend-volumes.sh
               - scripts/extra/backup.sh
@@ -278,6 +279,8 @@ jobs:
       # socket, pgdata snapshots, image tags) and had no CI coverage at all.
       - name: Deployment compatibility
         run: python3 ../scripts/extra/test-deployment-compatibility.py
+      - name: Backend volume migration and restore (Docker)
+        run: python3 ../scripts/extra/test-backend-volumes.py
       - name: Updater tests
         run: cargo test --all-targets --locked
 

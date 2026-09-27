@@ -8,14 +8,19 @@
 宿主脚本创建 `local` 卷，选项为 `type=none,o=bind,device=<部署目录绝对路径>/data`
 （缓存对应 `/cache`）。目录先以 700 创建，再由原有 uid 1000 权限修复与写探测处理。
 [Docker 要求 device 是已存在的绝对宿主路径](https://docs.docker.com/reference/compose-file/volumes/)。
-脚本须在 Docker daemon 所在主机运行；远程 Docker context 不适用。Docker Desktop / WSL
-的路径共享由 Docker 管理，未经本项目实机验证（uncertain）；不要用 Windows Git Bash
+脚本须在本地 Docker 环境运行；远程 Docker context 不适用。Docker Desktop / WSL
+的路径共享由 Docker 管理；本次存储演练已在 macOS Docker Desktop（Engine 29.7.2、
+Compose 5.5.1）通过，其他 Desktop / WSL 组合仍为 uncertain。不要用 Windows Git Bash
 路径直接替代 Linux daemon 路径。
 
 Compose 把卷声明为 `external`，由宿主管理其创建和删除。这样 updater 只复用卷，
 不需要放开 Guard 的卷写 API 或 backend 的宿主 bind 禁令。不要在服务挂载上设置
 `VolumeOptions.DriverConfig`。旧部署卷照常使用，脚本会明确提示它们尚不在部署目录；
 不会自动搬迁、删除或覆盖旧卷。历史发布版测试夹具保留原布局以验证兼容性。
+
+宿主 `data/`、`cache/` 必须是真实目录，不能是符号链接（包括悬空链接）。绑定目录丢失
+时拒绝启动，不会悄悄创建空目录。目录检查在 root 权限修复之前执行；部署根目录及卷
+仍须由可信管理员控制，部署/恢复期间不要并发移动目录或改卷。
 
 ## 不使用 deploy.sh 的安装
 
@@ -107,3 +112,10 @@ tar xzpf /in/data.tar.gz -C /new` 恢复数据卷（缓存同理，改为 cache�
 不需要修改 `.env` 中的路径。首次启动前必须准备卷，单独 `docker compose up -d`
 不会创建 external 卷。在同一 daemon 上换目录时，先停止原栈并删除旧 bind 卷注册，
 再在新目录启动；脚本会拒绝复用指向旧目录的 bind 卷。
+
+## 回归演练
+
+运行 `python3 scripts/extra/test-backend-volumes.py`，需要 Docker daemon 和 Compose。
+脚本只操作随机命名的临时项目及卷，结束时清理；使用正式 Compose 的挂载声明，验证
+新卷、旧卷迁移、worker 子目录读写边界、容器重建、PostgreSQL/媒体恢复和保留新写入的
+回滚。业务服务由轻量测试服务替代，因此不代表完整 updater 发布升级或业务功能验证。

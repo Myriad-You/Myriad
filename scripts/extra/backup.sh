@@ -118,6 +118,20 @@ ensure_data_volume() {
     ensure_backend_volume "$DOCKER" "$volume" "$ROOT/data"
 }
 
+preflight_restore_volume() {
+    local volume="$1"
+    ensure_data_volume "$volume" || return 1
+    # A matching device string alone does not prove that the daemon can mount
+    # the directory. Probe before stopping writers or replacing .env/database.
+    # --mount + volume-nocopy avoids populating an empty volume from the image.
+    "$DOCKER" run --rm \
+        --mount "type=volume,src=$volume,dst=/data,volume-nocopy" \
+        alpine:3.20 sh -eu -c '
+            probe="$(mktemp /data/.myriad-restore-probe.XXXXXX)"
+            rm -f -- "$probe"
+        '
+}
+
 # POSIX payload used by the alpine restore container and by host tests.
 # DEST and ARCHIVE are paths inside the shell that runs this text.
 volume_restore_posix() {
@@ -233,7 +247,7 @@ Usage: $0 <backup|restore> [options]
       Supported scope: same compose project and the same
       POSTGRES_PASSWORD as the running role. A different password or
       compose project is refused before any stop, copy, or restore.
-      Order: match password and project → pin project → stop writers →
+      Order: match password and project → pin project → probe data volume → stop writers →
       restore .env → restore Postgres → restore volume → recreate
       backend → wait /ready → recreate workers.
       A failed restore leaves stopped writers down.
@@ -302,7 +316,7 @@ do_backup() {
     local volume
     volume="$(data_volume)"
     info "==> backend_data volume ($volume)"
-    $DOCKER run --rm \
+    "$DOCKER" run --rm \
         -v "${volume}:/data:ro" \
         -v "$out:/out" \
         alpine:3.20 \
@@ -341,6 +355,10 @@ do_restore() {
     require_same_postgres_password "$from/env"
     require_same_compose_project "$from/env"
 
+    local volume
+    volume="$(data_volume)"
+    preflight_restore_volume "$volume" || return 1
+
     WRITERS_STOPPED_BY_US=0
     STOPPED_WRITERS=""
     trap 'code=$?; trap - EXIT; if [ "$code" -ne 0 ] && [ "${WRITERS_STOPPED_BY_US:-0}" -eq 1 ]; then err "restore failed; writers left stopped so writes stay quiesced"; fi; exit "$code"' EXIT
@@ -363,11 +381,8 @@ do_restore() {
     info "==> restoring PostgreSQL"
     compose exec -T postgres pg_restore -U myriad -d myriad --clean --if-exists < "$from/postgres.dump"
 
-    local volume
-    volume="$(data_volume)"
-    ensure_data_volume "$volume"
     info "==> restoring backend_data ($volume)"
-    $DOCKER run --rm \
+    "$DOCKER" run --rm \
         -e DEST=/data \
         -e ARCHIVE=/in/backend_data.tar.gz \
         -v "${volume}:/data" \
