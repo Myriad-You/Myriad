@@ -4,4 +4,5 @@
 
 pub mod decode;
 pub mod encode;
+pub mod rules;
 pub mod wire;

@@ -2318,3 +2318,140 @@ mod onebot_encode {
         assert!(plan_private_delivery("10001", "   ", &[], false).is_none());
     }
 }
+
+mod onebot_rules {
+    use myriad_agent_rules::channel::{
+        ConnectFailureKind, WorkerIntent, discord_dm_capabilities, feishu_dm_capabilities,
+        qq_c2c_capabilities, telegram_dm_capabilities,
+    };
+    use myriad_agent_rules::onebot::rules::{
+        classify_onebot_handshake, onebot_private_capabilities, onebot_worker_intent,
+        onebot_worker_supports_typing as worker_supports_typing,
+    };
+
+    #[test]
+    fn onebot_worker_runs_only_with_switch_url_and_token() {
+        assert_eq!(
+            onebot_worker_intent(true, "ws://127.0.0.1:3001", true),
+            WorkerIntent::Run
+        );
+        assert_eq!(
+            onebot_worker_intent(false, "ws://127.0.0.1:3001", true),
+            WorkerIntent::Stop
+        );
+        assert_eq!(onebot_worker_intent(true, "", true), WorkerIntent::Stop);
+        assert_eq!(onebot_worker_intent(true, "   ", true), WorkerIntent::Stop);
+        assert_eq!(
+            onebot_worker_intent(true, "ws://127.0.0.1:3001", false),
+            WorkerIntent::Stop
+        );
+    }
+
+    #[test]
+    fn onebot_capabilities_open_text_media_markdown_but_not_edit() {
+        let caps = onebot_private_capabilities();
+        assert!(caps.inbound_text);
+        assert!(caps.inbound_media);
+        assert!(!caps.inbound_callback);
+        assert!(caps.outbound_final_text);
+        assert!(caps.outbound_markdown);
+        assert!(caps.outbound_image);
+        assert!(!caps.outbound_edit);
+        assert!(!caps.outbound_streaming_draft);
+        assert!(caps.interactive);
+        assert!(!caps.frontend_action);
+        assert!(!caps.performance);
+        assert!(!caps.outfit);
+    }
+
+    #[test]
+    fn onebot_is_the_only_channel_with_markdown() {
+        assert!(onebot_private_capabilities().outbound_markdown);
+        assert!(!qq_c2c_capabilities().outbound_markdown);
+        assert!(!telegram_dm_capabilities().outbound_markdown);
+        assert!(!discord_dm_capabilities().outbound_markdown);
+        assert!(!feishu_dm_capabilities().outbound_markdown);
+    }
+
+    #[test]
+    fn onebot_worker_supports_typing() {
+        assert!(worker_supports_typing());
+    }
+
+    #[test]
+    fn bad_token_is_permanent_not_retried() {
+        assert_eq!(
+            classify_onebot_handshake(None, Some(1403)),
+            ConnectFailureKind::Permanent
+        );
+        assert_eq!(
+            classify_onebot_handshake(Some(403), None),
+            ConnectFailureKind::Permanent
+        );
+    }
+
+    #[test]
+    fn unreachable_server_is_transient() {
+        assert_eq!(
+            classify_onebot_handshake(Some(503), None),
+            ConnectFailureKind::Transient
+        );
+        assert_eq!(
+            classify_onebot_handshake(None, None),
+            ConnectFailureKind::Transient
+        );
+    }
+
+    #[test]
+    fn unknown_path_is_permanent() {
+        assert_eq!(
+            classify_onebot_handshake(Some(404), None),
+            ConnectFailureKind::Permanent
+        );
+    }
+
+    /// OneBot 标准把 1400/1401/1403/1404 对应 HTTP 400/401/403/404。
+    /// 整段都是「配置或请求本身不对」，重试无用；只有 1405 往后的 14xx 才可重试。
+    /// 漏掉 1404 会让路径写错时无限重试，正是这条测试要钉住的。
+    #[test]
+    fn the_whole_documented_retcode_range_is_permanent() {
+        for retcode in 1400..=1404 {
+            assert_eq!(
+                classify_onebot_handshake(None, Some(retcode)),
+                ConnectFailureKind::Permanent,
+                "retcode {retcode} is a configuration fault"
+            );
+        }
+        for retcode in [1405, 1499, 1500] {
+            assert_eq!(
+                classify_onebot_handshake(None, Some(retcode)),
+                ConnectFailureKind::Transient,
+                "retcode {retcode} is retryable"
+            );
+        }
+    }
+
+    /// 4xx/5xx 的边界，以及 retcode 优先于 status 的优先级。
+    #[test]
+    fn status_boundaries_and_retcode_precedence() {
+        for status in [400, 499] {
+            assert_eq!(
+                classify_onebot_handshake(Some(status), None),
+                ConnectFailureKind::Permanent,
+                "status {status}"
+            );
+        }
+        for status in [399, 500, 599, 600] {
+            assert_eq!(
+                classify_onebot_handshake(Some(status), None),
+                ConnectFailureKind::Transient,
+                "status {status}"
+            );
+        }
+        assert_eq!(
+            classify_onebot_handshake(Some(503), Some(1403)),
+            ConnectFailureKind::Permanent,
+            "a token rejection outranks a server-side status"
+        );
+    }
+}
