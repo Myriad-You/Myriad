@@ -17,10 +17,8 @@
 //!
 //! She writes the note when they stop talking for a little while, or after
 //! several exchanges if they keep going, from all of it at once; a restart
-//! in between loses only those few exchanges' worth of note.
+//! in between resumes the durable batch after its lease expires.
 
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use sea_orm::DatabaseConnection;
@@ -28,9 +26,11 @@ use serde_json::json;
 
 use crate::models::entities::agent_memories;
 use crate::services::agent::memory::unified;
+#[cfg(test)]
+use myriad_merope::strangers::talks_key;
 use myriad_merope::strangers::{
     EXCHANGE_CHARS, Exchange, NOTE_SCHEMA, evidence_marker, evidence_of, note_schema, note_system,
-    parse_note, talks_key, without_directives,
+    parse_note, without_directives,
 };
 pub use myriad_merope::strangers::{Stranger, section};
 #[cfg(test)]
@@ -43,26 +43,11 @@ const REGULAR_AFTER: i64 = 3;
 const FADE_AFTER: chrono::Duration = chrono::Duration::days(60);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
 const NOTE_TIMEOUT: Duration = Duration::from_secs(30);
-/// She writes her note once they have been quiet this long…
-const QUIET: Duration = Duration::from_secs(3 * 60);
-/// …or once this many exchanges have piled up.
-const WRITE_EVERY: usize = 8;
-
-/// Exchanges since her note on someone was last written, by `talks_key`.
-struct Pending {
-    stranger: Stranger,
-    exchanges: Vec<Exchange>,
-    /// Bumped by every exchange; a wait that wakes to a newer one yields.
-    round: u64,
-}
-
-static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
 /// Runtime-registry namespace of the exchange counts.
 pub const TALKS_NAMESPACE: &str = "merope_stranger_talks";
 
 /// One more exchange with this person in this group; how many so far.
+#[cfg(test)]
 async fn count_exchange(db: &DatabaseConnection, venue: &str, who: &str) -> i64 {
     let keep_until = (chrono::Utc::now() + FADE_AFTER).timestamp();
     crate::services::runtime_registry::increment(
@@ -150,7 +135,8 @@ pub async fn reply(
     let model = super::call::Ask::new(super::call::Voice::Hers, owner, "group_stranger")
         .within(REPLY_TIMEOUT)
         .model()
-        .await?;
+        .await
+        .ok()?;
     // A reply the provider dropped halfway reached no one: ask once more.
     let mut raw = model.say(&prompt).await;
     if raw.as_ref().is_err_and(super::call::was_cut) {
@@ -172,113 +158,115 @@ pub async fn reply(
 /// After she answered someone from outside: count it, and when they pause
 /// (or after several exchanges), let her note on them catch up with all of
 /// it, once they are someone she keeps running into.
-pub fn spawn_after(
-    db: DatabaseConnection,
+pub async fn enqueue_after(
+    db: &DatabaseConnection,
     owner: i32,
     venue: String,
     stranger: Stranger,
     words: String,
     reply: String,
+    event_id: &str,
 ) {
-    crate::services::agent::merope::background::spawn("stranger memory", async move {
-        let count = count_exchange(&db, &venue, &stranger.who).await;
-        let key = talks_key(&venue, &stranger.who);
-        let Some((round, full)) = queue(&key, stranger, words, reply) else {
-            return;
-        };
-        if !full {
-            tokio::time::sleep(QUIET).await;
-        }
-        // They said more since: that wait writes it.
-        let Some(Pending {
-            stranger,
-            exchanges,
-            ..
-        }) = take(&key, round, full)
-        else {
-            return;
-        };
-        write_note(&db, owner, &venue, &stranger, &exchanges, count).await;
-    });
+    let clip = |text: String| {
+        super::ingest::redact_event_text(&text)
+            .chars()
+            .take(EXCHANGE_CHARS)
+            .collect()
+    };
+    let id = super::memory_jobs::key(&["stranger", &venue, &stranger.who]);
+    let event = super::memory_jobs::key(&["stranger", &venue, &stranger.who, event_id]);
+    let data = super::memory_jobs::Payload::Stranger {
+        venue,
+        stranger,
+        exchanges: vec![Exchange {
+            they: clip(words),
+            you: clip(reply),
+        }],
+        count: 0,
+    };
+    if !matches!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            super::store::memory_jobs::enqueue(db, &id, owner, data, Some(&event))
+        )
+        .await,
+        Ok(Ok(()))
+    ) {
+        tracing::warn!(
+            owner,
+            outcome = "enqueue_failed",
+            "[Merope] stranger memory"
+        );
+    }
 }
 
-/// Adds an exchange to what her note has yet to take in: its round, and
-/// whether enough has piled up to write now.
-fn queue(key: &str, stranger: Stranger, words: String, reply: String) -> Option<(u64, bool)> {
-    let clip = |text: String| text.chars().take(EXCHANGE_CHARS).collect::<String>();
-    let mut pending = PENDING.lock().ok()?;
-    let entry = pending.entry(key.to_string()).or_insert_with(|| Pending {
-        stranger: stranger.clone(),
-        exchanges: Vec::new(),
-        round: 0,
-    });
-    // The name they show now.
-    entry.stranger = stranger;
-    entry.exchanges.push(Exchange {
-        they: clip(words),
-        you: clip(reply),
-    });
-    entry.round += 1;
-    Some((entry.round, entry.exchanges.len() >= WRITE_EVERY))
-}
-
-/// What her note has yet to take in, if this wait is the one to write it:
-/// nothing has been said since, or enough has piled up.
-fn take(key: &str, round: u64, full: bool) -> Option<Pending> {
-    let mut pending = PENDING.lock().ok()?;
-    let current = pending
-        .get(key)
-        .is_some_and(|entry| full || entry.round == round);
-    current.then(|| pending.remove(key)).flatten()
-}
-
-async fn write_note(
+pub(super) async fn prepare_note(
     db: &DatabaseConnection,
     owner: i32,
     venue: &str,
     stranger: &Stranger,
     exchanges: &[Exchange],
     count: i64,
-) {
-    let kept = note_on(db, venue, stranger).await;
+) -> Result<super::memory_jobs::Effect, super::memory_jobs::Failure> {
+    use super::memory_jobs::{Effect, Failure};
+    let kept = unified::unowned_with_evidence(
+        db,
+        &group_venue(venue),
+        SOURCE,
+        &evidence_marker(&stranger.who),
+    )
+    .await
+    .map_err(|_| Failure::Storage)?;
     if kept.is_none() && count < REGULAR_AFTER {
-        return;
+        return Ok(Effect::NoChange);
     }
-    let soul: String = crate::services::agent::identity::get_speaking_soul()
+    let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let input = json!({
-        "name": stranger.name,
-        "remembered": kept.as_ref().map(|row| row.content.as_str()),
-        "exchanges": exchanges,
-    })
-    .to_string();
+    let input = json!({ "name": stranger.name, "remembered": kept.as_ref().map(|row| row.content.as_str()), "exchanges": exchanges }).to_string();
     let raw = super::call::Ask::new(super::call::Voice::HersAtLength, owner, NOTE_SCHEMA)
         .within(NOTE_TIMEOUT)
         .json_raw(&note_system(&soul), &input, NOTE_SCHEMA, &note_schema())
-        .await;
-    let Some(note) = raw.and_then(|raw| parse_note(&raw)) else {
-        return;
-    };
+        .await?;
+    let note = parse_note(&raw).ok_or(super::call::Failure::InvalidOutput)?;
+    Ok(Effect::Stranger {
+        previous: kept.map(|row| row.id),
+        note,
+    })
+}
+
+/// Called inside the same transaction as queue acknowledgement. Only replace
+/// the note read by this attempt; a concurrent fade/change cannot be undone.
+pub(super) async fn apply_note(
+    db: &impl sea_orm::ConnectionTrait,
+    venue: &str,
+    stranger: &Stranger,
+    previous: Option<&str>,
+    note: Option<&str>,
+) -> anyhow::Result<()> {
     let group = group_venue(venue);
+    let kept =
+        unified::unowned_with_evidence(db, &group, SOURCE, &evidence_marker(&stranger.who)).await?;
+    if kept.as_ref().map(|row| row.id.as_str()) != previous {
+        return Ok(());
+    }
     match (note, kept) {
-        // Nothing new: the note stays, and stays fresh.
         (None, Some(row)) => {
-            let _ = unified::refresh_unowned(db, &group, &row.id).await;
+            unified::refresh_unowned(db, &group, &row.id).await?;
         }
         (None, None) => {}
         (Some(note), kept) => {
             if let Some(row) = kept {
-                if unified::normalize_content(&row.content) == unified::normalize_content(&note) {
-                    let _ = unified::refresh_unowned(db, &group, &row.id).await;
-                    return;
+                if unified::normalize_content(&row.content) == unified::normalize_content(note) {
+                    unified::refresh_unowned(db, &group, &row.id).await?;
+                    return Ok(());
                 }
-                let _ = unified::retire_unowned(db, &group, &row.id, "superseded").await;
+                unified::retire_unowned(db, &group, &row.id, "superseded").await?;
             }
-            let _ =
-                unified::remember_in_venue(db, &group, &note, &evidence_of(stranger), SOURCE).await;
+            unified::remember_in_venue(db, &group, note, &evidence_of(stranger), SOURCE).await?;
         }
     }
+    Ok(())
 }
 
 /// Notes on people she has not run into for a long time fade.
@@ -287,43 +275,6 @@ pub async fn let_fade(db: &DatabaseConnection) {
         Ok(faded) if faded > 0 => tracing::info!(faded, "[Merope] notes on strangers faded"),
         Ok(_) => {}
         Err(error) => tracing::warn!(%error, "[Merope] could not let notes on strangers fade"),
-    }
-}
-
-#[cfg(test)]
-mod pending_tests {
-    use super::*;
-
-    fn someone() -> Stranger {
-        Stranger {
-            who: "telegram:1".into(),
-            name: "阿明".into(),
-        }
-    }
-
-    #[test]
-    fn her_note_waits_for_a_pause_or_a_pile() {
-        let key = "test|pause";
-        let (first, full) = queue(key, someone(), "在吗".into(), "在".into()).unwrap();
-        assert!(!full);
-        let (second, _) = queue(key, someone(), "练吉他呢".into(), "练多久了".into()).unwrap();
-        // The first wait wakes to a newer exchange and yields to it.
-        assert!(take(key, first, false).is_none());
-        let pending = take(key, second, false).unwrap();
-        assert_eq!(pending.exchanges.len(), 2);
-        assert_eq!(pending.exchanges[1].they, "练吉他呢");
-        assert!(take(key, second, false).is_none(), "written once");
-
-        let key = "test|pile";
-        let mut last = (0, false);
-        for n in 0..WRITE_EVERY {
-            last = queue(key, someone(), format!("第{n}句"), "嗯".into()).unwrap();
-        }
-        assert!(last.1, "enough piled up to write now");
-        assert_eq!(
-            take(key, last.0, true).unwrap().exchanges.len(),
-            WRITE_EVERY
-        );
     }
 }
 

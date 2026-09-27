@@ -199,7 +199,8 @@ async fn compile(
             SCHEMA_NAME,
             &schema_for(private),
         )
-        .await?;
+        .await
+        .ok()?;
     let reflected = parse_reflection(&raw)?;
     if private {
         let now = chrono::Utc::now();

@@ -1,4 +1,5 @@
 pub(super) mod curiosity;
+pub(super) mod memory_jobs;
 
 use chrono::Utc;
 use sea_orm::{
@@ -156,6 +157,11 @@ fn apply_persona_update(
     active
 }
 
+/// Acquire before locking the persona row when a transaction may replace her.
+pub(crate) async fn lock_persona_on(db: &impl ConnectionTrait) -> anyhow::Result<()> {
+    memory_jobs::lock(db).await
+}
+
 pub async fn upsert_persona_on<C>(
     db: &C,
     name: String,
@@ -167,6 +173,7 @@ pub async fn upsert_persona_on<C>(
 where
     C: ConnectionTrait,
 {
+    memory_jobs::lock(db).await?;
     let (name, personality) = normalize_persona_fields(&name, &personality);
     if let Some(existing) = get_persona_on(db).await? {
         let saved = apply_persona_update(
@@ -544,6 +551,8 @@ pub async fn clear_persona_on<C>(db: &C) -> Result<(), anyhow::Error>
 where
     C: ConnectionTrait,
 {
+    memory_jobs::lock(db).await?;
+    memory_jobs::forget(db).await?;
     agent_proactive_messages::Entity::delete_many()
         .exec(db)
         .await?;
@@ -1038,8 +1047,23 @@ pub(crate) async fn apply_chat_memory_update(
 /// [`apply_chat_memory_update`] for what was said in front of `present`: in a
 /// group, the fact is kept for that group, and only facts the group heard can
 /// be corrected there.
+#[cfg(test)]
 pub(crate) async fn apply_chat_memory_update_in(
     db: &DatabaseConnection,
+    user_id: i32,
+    input_at: chrono::DateTime<chrono::FixedOffset>,
+    update: &super::chat_remember::ChatMemoryUpdate,
+    present: &crate::services::agent::memory::unified::Audience,
+) -> Result<bool, anyhow::Error> {
+    let transaction = db.begin().await?;
+    let applied =
+        apply_chat_memory_update_on(&transaction, user_id, input_at, update, present).await?;
+    transaction.commit().await?;
+    Ok(applied)
+}
+
+pub(super) async fn apply_chat_memory_update_on<C: ConnectionTrait>(
+    db: &C,
     user_id: i32,
     input_at: chrono::DateTime<chrono::FixedOffset>,
     update: &super::chat_remember::ChatMemoryUpdate,
@@ -1048,25 +1072,17 @@ pub(crate) async fn apply_chat_memory_update_in(
     if user_id <= 0 || (update.fact.is_none() && update.supersedes.is_empty()) {
         return Ok(false);
     }
-    let transaction = db.begin().await?;
     // Always acquire in this order. Event-memory writers only take the second.
-    lock_addressee(&transaction, user_id).await?;
-    lock_persona_memory(&transaction, user_id).await?;
-    if !chat_memory_input_is_current(&transaction, user_id, input_at).await? {
-        transaction.commit().await?;
+    lock_addressee(db, user_id).await?;
+    lock_persona_memory(db, user_id).await?;
+    if !chat_memory_input_is_current(db, user_id, input_at).await? {
         return Ok(false);
     }
     use crate::services::agent::memory::unified;
     let mut targets = Vec::new();
     let mut found = std::collections::HashSet::new();
     let mut duplicate = false;
-    for note in unified::active_in(
-        &transaction,
-        user_id,
-        present,
-        &unified::MemoryKind::ABOUT_PERSON,
-    )
-    .await?
+    for note in unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON).await?
     {
         let content = super::ingest::compact_summary(&note.content);
         if update.supersedes.contains(&content) {
@@ -1079,14 +1095,13 @@ pub(crate) async fn apply_chat_memory_update_in(
     // Another extraction already replaced a target: reject the whole edit,
     // rather than appending an ungrounded new fact after a partial correction.
     if found.len() != update.supersedes.len() {
-        transaction.commit().await?;
         return Ok(false);
     }
-    unified::retire(&transaction, user_id, &targets, "superseded").await?;
+    unified::retire(db, user_id, &targets, "superseded").await?;
     let insert = update.fact.as_ref().filter(|_| !duplicate);
     if let Some(fact) = insert {
         unified::remember(
-            &transaction,
+            db,
             unified::NewMemory {
                 user_id,
                 kind: unified::MemoryKind::Fact,
@@ -1101,7 +1116,6 @@ pub(crate) async fn apply_chat_memory_update_in(
         )
         .await?;
     }
-    transaction.commit().await?;
     Ok(!targets.is_empty() || insert.is_some())
 }
 

@@ -122,7 +122,7 @@ async fn write_yesterday(db: &DatabaseConnection, owner: i32, day: NaiveDate) {
     let Some(facts) = day_facts(db, day).await else {
         return;
     };
-    let Some(model) = super::call::Ask::new(super::call::Voice::HersAtLength, owner, DAY_SCHEMA)
+    let Ok(model) = super::call::Ask::new(super::call::Voice::HersAtLength, owner, DAY_SCHEMA)
         .within(std::time::Duration::from_secs(60))
         .model()
         .await
@@ -177,7 +177,7 @@ async fn fill_old_concepts(db: &DatabaseConnection, owner: i32) {
         if memories.is_empty() {
             continue;
         }
-        let Some(model) = super::call::Ask::new(super::call::Voice::Judge, owner, CONCEPTS_SCHEMA)
+        let Ok(model) = super::call::Ask::new(super::call::Voice::Judge, owner, CONCEPTS_SCHEMA)
             .within(std::time::Duration::from_secs(60))
             .model()
             .await

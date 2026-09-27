@@ -180,7 +180,8 @@ async fn write(
     let model = super::call::Ask::new(super::call::Voice::Hers, owner, "self_story")
         .within(CALL_TIMEOUT)
         .model()
-        .await?;
+        .await
+        .ok()?;
     for _ in 0..2 {
         let Ok(raw) = model
             .json(&system(soul), &input, SCHEMA_NAME, &schema())

@@ -6,9 +6,6 @@
 
 use std::time::Duration;
 
-#[path = "chat_remember_request.rs"]
-mod request;
-
 use serde::Deserialize;
 use serde_json::json;
 
@@ -36,7 +33,6 @@ pub fn should_extract_chat_remember_against(user_text: &str, existing: &[String]
 
 // Nobody waits on this: generous enough to ride out a stalled provider.
 const EXTRACT_TIMEOUT: Duration = Duration::from_secs(20);
-const EXTRACT_TOTAL_TIMEOUT: Duration = Duration::from_secs(25);
 
 fn memory_user_text(text: &str) -> Option<String> {
     let text = super::ingest::redact_event_text(text)
@@ -116,7 +112,8 @@ pub fn parse_chat_memory_update(
     Some(update)
 }
 
-pub fn spawn_chat_remember(
+pub async fn enqueue_chat_remember(
+    db: &sea_orm::DatabaseConnection,
     user_id: i32,
     user_text: String,
     reply: String,
@@ -127,20 +124,35 @@ pub fn spawn_chat_remember(
     let Some(input_at) = input_at else {
         return;
     };
-    if !should_extract_chat_remember(&user_text) {
+    let Some(user_text) = memory_user_text(&user_text) else {
+        return;
+    };
+    if !is_logged_in_addressee(user_id) || !should_extract_chat_remember(&user_text) {
         return;
     }
-    crate::services::agent::merope::background::spawn("chat memory", async move {
-        if tokio::time::timeout(
-            Duration::from_secs(45),
-            extract_and_store(user_id, &user_text, &reply, input_at, &present, &turn),
+    let id = super::memory_jobs::key(&[
+        "chat",
+        &user_id.to_string(),
+        &input_at.to_rfc3339(),
+        &present.venue(),
+    ]);
+    let data = super::memory_jobs::Payload::Chat {
+        user_text,
+        reply: compact_summary(&reply),
+        input_at,
+        present,
+        turn,
+    };
+    if !matches!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            super::store::memory_jobs::enqueue(db, &id, user_id, data, None)
         )
-        .await
-        .is_err()
-        {
-            tracing::warn!(user_id, outcome = "deadline", "[Merope] memory extraction");
-        }
-    });
+        .await,
+        Ok(Ok(()))
+    ) {
+        tracing::warn!(user_id, outcome = "enqueue_failed", "[Merope] chat memory");
+    }
 }
 
 /// What the extraction reads: their words, her reply, and what surrounded
@@ -168,131 +180,49 @@ fn extract_input(
     input.to_string()
 }
 
-async fn extract_and_store(
+pub(super) async fn extract(
+    db: &sea_orm::DatabaseConnection,
     user_id: i32,
     user_text: &str,
     reply: &str,
     input_at: chrono::DateTime<chrono::FixedOffset>,
     present: &crate::services::agent::memory::unified::Audience,
     turn: &super::TurnContext,
-) {
-    let Some(user_text) = memory_user_text(user_text) else {
-        return;
-    };
-    if !is_logged_in_addressee(user_id) || !super::is_enabled().await {
-        return;
-    }
-    let Ok(db) = crate::services::process_db::database() else {
-        tracing::warn!(
-            user_id,
-            outcome = "database_unavailable",
-            "[Merope] memory extraction"
-        );
-        return;
-    };
-    // What is known in front of this audience: in a group, what the group
-    // heard. A private fact is neither shown to nor corrected from a group.
-    let existing = match super::store::recall_remembered_primed(
-        &db,
+) -> Result<super::memory_jobs::Effect, super::memory_jobs::Failure> {
+    use super::memory_jobs::{Effect, Failure};
+    let (existing, _) = super::store::recall_remembered_primed(
+        db,
         user_id,
         present,
-        Some(&user_text),
+        Some(user_text),
         8,
         &crate::services::agent::memory::unified::Priming::default(),
         1.0,
     )
     .await
-    {
-        Ok((facts, _)) => facts,
-        Err(_) => {
-            tracing::warn!(
-                user_id,
-                outcome = "recall_failed",
-                "[Merope] memory extraction"
-            );
-            return;
-        }
-    };
-    if !should_extract_chat_remember_against(&user_text, &existing) {
-        return;
+    .map_err(|_| Failure::Storage)?;
+    if !should_extract_chat_remember_against(user_text, &existing) {
+        return Ok(Effect::NoChange);
     }
-    let Some(model) = super::call::Ask::new(super::call::Voice::Judge, user_id, "chat_remember")
+    // Recovery retains the date of the original assertion.
+    let input = extract_input(
+        user_text,
+        reply,
+        turn,
+        input_at.with_timezone(&chrono::Local),
+    );
+    let raw = super::call::Ask::new(super::call::Voice::Judge, user_id, "chat_remember")
         .within(EXTRACT_TIMEOUT)
-        .model()
-        .await
-    else {
-        tracing::warn!(
-            user_id,
-            outcome = "model_unavailable",
-            "[Merope] memory extraction"
-        );
-        return;
-    };
-    let input = extract_input(&user_text, reply, turn, chrono::Local::now());
-    let schema = extract_schema();
-    let system_prompt = extract_system_prompt(&existing);
-    let raw = match request::request(
-        || async {
-            match tokio::time::timeout(
-                EXTRACT_TOTAL_TIMEOUT,
-                model.json(&system_prompt, &input, EXTRACT_SCHEMA_NAME, &schema),
-            )
-            .await
-            {
-                Ok(Ok(raw)) => Ok(raw),
-                Ok(Err(error)) => Err(request::classify(&error)),
-                Err(_) => Err(request::Failure::Transient),
-            }
-        },
-        || async {
-            super::is_enabled().await
-                && super::store::chat_memory_input_is_current(&db, user_id, input_at)
-                    .await
-                    .unwrap_or(false)
-        },
-        Duration::from_millis(300),
-    )
-    .await
-    {
-        Ok(raw) => raw,
-        Err(error) => {
-            tracing::warn!(user_id, outcome = ?error, "[Merope] memory extraction stopped");
-            return;
-        }
-    };
-    let Some(update) = parse_chat_memory_update(&raw, &user_text, &existing) else {
-        tracing::warn!(
-            user_id,
-            outcome = "invalid_output",
-            "[Merope] memory extraction"
-        );
-        return;
-    };
-    if !super::is_enabled().await {
-        tracing::info!(user_id, outcome = "disabled", "[Merope] memory extraction");
-        return;
-    }
-    if update.fact.is_none() && update.supersedes.is_empty() {
-        tracing::info!(user_id, outcome = "no_change", "[Merope] memory extraction");
-        return;
-    }
-    match super::store::apply_chat_memory_update_in(&db, user_id, input_at, &update, present).await
-    {
-        Ok(applied) => tracing::info!(
-            user_id,
-            outcome = if applied {
-                "applied"
-            } else {
-                "stale_or_duplicate"
-            },
-            "[Merope] memory extraction"
-        ),
-        Err(_) => tracing::warn!(
-            user_id,
-            outcome = "write_failed",
-            "[Merope] memory extraction"
-        ),
-    }
+        .json_raw(
+            &extract_system_prompt(&existing),
+            &input,
+            EXTRACT_SCHEMA_NAME,
+            &extract_schema(),
+        )
+        .await?;
+    let update = parse_chat_memory_update(&raw, user_text, &existing)
+        .ok_or(super::call::Failure::InvalidOutput)?;
+    Ok(Effect::Chat(update))
 }
 
 #[cfg(test)]
@@ -476,7 +406,7 @@ mod tests {
             .find("spawn_chat_motion_refinement(")
             .expect("parallel delivery observer");
         let extract = after
-            .find("spawn_chat_remember")
+            .find("enqueue_chat_remember")
             .expect("chat remember extract");
         let ret = after.find("return Ok(AgentResponse").expect("chat return");
         assert!(

@@ -314,7 +314,8 @@ async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> O
     let model = super::super::call::Ask::new(super::super::call::Voice::Hers, user_id, "speak")
         .within(std::time::Duration::from_secs(30))
         .model()
-        .await?;
+        .await
+        .ok()?;
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_else(|| "You are Agent.".to_string());

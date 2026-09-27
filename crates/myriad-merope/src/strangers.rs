@@ -12,7 +12,7 @@ pub const NOTE_SCHEMA: &str = "merope_stranger_note";
 pub const EXCHANGE_CHARS: usize = 400;
 
 /// One back-and-forth, as it goes into her note.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Exchange {
     pub they: String,
     pub you: String,
@@ -20,7 +20,7 @@ pub struct Exchange {
 
 /// Someone in a group: who they are on the platform (`telegram:123`) and the
 /// name they show.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stranger {
     pub who: String,
     pub name: String,

@@ -94,7 +94,8 @@ pub(crate) async fn appraise(
             request["schemaName"].as_str()?,
             &request["schema"],
         )
-        .await?;
+        .await
+        .ok()?;
     parse_appraisal(&raw)
 }
 

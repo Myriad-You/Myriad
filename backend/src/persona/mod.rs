@@ -84,6 +84,13 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
             }
         },
     );
+    let memory_db = db.clone();
+    drivers.periodic(
+        "memory jobs",
+        Duration::from_secs(5),
+        Duration::ZERO,
+        move || agent::merope::memory_jobs::tick(memory_db.clone()),
+    );
     let speak_db = db.clone();
     drivers.periodic(
         "speech intents",

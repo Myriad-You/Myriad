@@ -121,7 +121,7 @@ async fn wonder_and_find_out(
         .await
         .unwrap_or_default();
     let myself = super::self_state::current(&db).await.facts_view();
-    let Some(wonder) = call::Ask::new(Voice::Judge, user_id, "wonder")
+    let Ok(wonder) = call::Ask::new(Voice::Judge, user_id, "wonder")
         .within(CALL_TIMEOUT)
         .json::<Wonder>(
             &wonder_system(&soul),
@@ -179,7 +179,7 @@ async fn wonder_and_find_out(
         return;
     }
     let why = wonder.why.unwrap_or_default();
-    let Some(found) = call::Ask::new(Voice::Hers, user_id, "found_out")
+    let Ok(found) = call::Ask::new(Voice::Hers, user_id, "found_out")
         .within(CALL_TIMEOUT)
         .json::<FoundOut>(
             &digest_system(&soul, why.trim()),

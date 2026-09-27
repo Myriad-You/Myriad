@@ -153,7 +153,7 @@ pub async fn wonder(db: &DatabaseConnection, owner: i32) {
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let Some(wondered) = call::Ask::new(Voice::Hers, owner, "wonder_own")
+    let Ok(wondered) = call::Ask::new(Voice::Hers, owner, "wonder_own")
         .within(CALL_TIMEOUT)
         .json::<Wondered>(
             &wonder_system(&soul),
@@ -365,7 +365,8 @@ async fn go(owner: i32, question: &str) -> Option<Trip> {
             "merope_explore_think",
             &think_schema(),
         )
-        .await?;
+        .await
+        .ok()?;
     let senses = senses::available().await;
     let mut looked: Vec<Looked> = Vec::new();
     let steps = if thinking.go_look() { STEPS } else { 0 };
@@ -378,7 +379,8 @@ async fn go(owner: i32, question: &str) -> Option<Trip> {
                 "merope_explore_step",
                 &step_schema_for(&looked, senses),
             )
-            .await;
+            .await
+            .ok();
         let Some(go) = step.as_ref().and_then(|step| go_for(step, &looked, senses)) else {
             break;
         };
@@ -490,6 +492,7 @@ pub async fn compare(owner: i32, trip: &Trip) -> Option<Compared> {
             &compare_schema(),
         )
         .await
+        .ok()
 }
 
 // --- for the semantic suite ---------------------------------------------------------------

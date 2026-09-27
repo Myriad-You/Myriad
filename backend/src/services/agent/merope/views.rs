@@ -135,7 +135,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         .within(std::time::Duration::from_secs(60))
         .json_raw(&system(&soul), &input, SCHEMA_NAME, &schema())
         .await;
-    let Some(changes) = raw.and_then(|raw| parse(&raw)) else {
+    let Some(changes) = raw.ok().and_then(|raw| parse(&raw)) else {
         tracing::info!("[Merope] could not go over her own time");
         return;
     };

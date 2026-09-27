@@ -278,7 +278,7 @@ pub async fn go_over(
                 &schema(),
             )
             .await;
-        let Some(changes) = raw.and_then(|raw| parse(&raw)) else {
+        let Some(changes) = raw.ok().and_then(|raw| parse(&raw)) else {
             continue;
         };
         for change in changes.bits.into_iter().take(MAX_CHANGES) {

@@ -13,6 +13,7 @@ pub mod hearing;
 pub mod ingest;
 pub(crate) mod inner;
 pub mod life;
+pub(crate) mod memory_jobs;
 pub mod motion;
 pub mod motion_local;
 pub mod motion_preview;
@@ -38,7 +39,7 @@ pub mod touch;
 pub mod views;
 pub mod wander;
 
-pub use chat_remember::spawn_chat_remember;
+pub use chat_remember::enqueue_chat_remember;
 pub use curiosity::spawn_curiosity;
 pub use ingest::{
     allow_existing_notify, is_enabled, spawn as spawn_ingest, spawn_diary, spawn_presence,
@@ -192,7 +193,7 @@ pub async fn note_user_turn(
 /// What surrounded a chat turn, for the calls that follow it: what she said
 /// just before, what was on their screen or playing, whether it was a move in
 /// a game, and how many images came with it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TurnContext {
     pub before: Option<String>,
     pub scene: Option<String>,

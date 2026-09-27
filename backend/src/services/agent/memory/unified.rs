@@ -102,14 +102,14 @@ impl Speaker {
 }
 
 /// Who was present when something was said, and where.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Audience {
     members: Vec<i32>,
     venue: Venue,
 }
 
 /// Where a conversation happens.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Venue {
     /// One person and her.
     Private,

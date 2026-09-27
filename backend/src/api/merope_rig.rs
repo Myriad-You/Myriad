@@ -435,6 +435,9 @@ async fn bind_and_activate_outfit_rig(
     expected_rig: Option<&str>,
 ) -> ApiResult<()> {
     let transaction = db.begin().await.map_err(internal_error)?;
+    merope::store::lock_persona_on(&transaction)
+        .await
+        .map_err(internal_error)?;
     // The row lock spans provenance validation, outfit binding and activation.
     // A concurrent portrait/outfit UPDATE cannot slip between those operations.
     let row =

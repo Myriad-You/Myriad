@@ -206,7 +206,8 @@ async fn make_up(table: &Table, words: &str, billing: i32) -> Option<String> {
         let model = super::call::Ask::new(voice, billing, "soup_start")
             .within(limit)
             .model()
-            .await?;
+            .await
+            .ok()?;
         let raw = tokio::time::timeout(
             limit,
             model.json(&start_system(&soul), &input, START_SCHEMA, &start_schema()),
@@ -286,7 +287,8 @@ pub async fn this_turn_at(
                 JUDGE_SCHEMA,
                 &judge_schema(game.keys.len()),
             )
-            .await;
+            .await
+            .ok();
     let Some(judged) = judged else {
         // Unjudged, she must not guess an answer.
         return Some(section(&game, None, table.is_group(), asker));

@@ -794,14 +794,16 @@ async fn answer_stranger(db: &DatabaseConnection, message: &GroupLine, token: &s
     let sent = deliver(message, token, &reply).await;
     if sent {
         record_hers(&venue, &reply).await;
-        crate::services::agent::merope::strangers::spawn_after(
-            db.clone(),
+        crate::services::agent::merope::strangers::enqueue_after(
+            db,
             owner,
             venue,
             stranger,
             message.said(),
             reply,
-        );
+            &message.message_id,
+        )
+        .await;
     }
     sent
 }

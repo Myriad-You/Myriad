@@ -228,7 +228,8 @@ async fn would_write(
     let raw = super::call::Ask::new(super::call::Voice::Judge, user_id, "reach_judge")
         .within(CALL_TIMEOUT)
         .json_raw(&judge_system(&soul), &input, JUDGE_SCHEMA, &judge_schema())
-        .await?;
+        .await
+        .ok()?;
     parse_judged(&raw).flatten()
 }
 
@@ -253,7 +254,8 @@ async fn compose(
     let raw = super::call::Ask::new(super::call::Voice::Hers, user_id, "reach_out")
         .within(CALL_TIMEOUT)
         .model()
-        .await?
+        .await
+        .ok()?
         .say(&prompt)
         .await
         .ok()?;

@@ -206,7 +206,8 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
             CHOICE_SCHEMA,
             &choice_schema(options.len()),
         )
-        .await;
+        .await
+        .ok();
     let Some(choice) = choice else {
         tracing::info!("[Merope] could not decide what to do on her own");
         return Err(None);
@@ -250,7 +251,7 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     );
     let soul = soul().await;
     let what = format!("{} {}", done.thing.verb(), done.thing.describe());
-    let Some(raw) = call::Ask::new(Voice::Hers, owner, "doing_digest")
+    let Ok(raw) = call::Ask::new(Voice::Hers, owner, "doing_digest")
         .within(CALL_TIMEOUT)
         .json_raw(
             &digest_system(&soul, &what, &done.why, &intake.how),

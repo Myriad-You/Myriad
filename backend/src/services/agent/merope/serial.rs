@@ -313,7 +313,8 @@ pub async fn judge_guess(
     let judged: Judged = super::call::Ask::new(super::call::Voice::Judge, owner, "serial_guess")
         .within(JUDGE_TIMEOUT)
         .json(judge_system(), &input, JUDGE_SCHEMA, &judge_schema())
-        .await?;
+        .await
+        .ok()?;
     Some(Guessed {
         said: guess.to_string(),
         held: judged.held,

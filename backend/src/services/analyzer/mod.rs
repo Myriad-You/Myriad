@@ -24,3 +24,5 @@ pub(crate) use openai::openai_chat_completions_url;
 pub(crate) mod request_budget;
 
 pub(crate) use client::cleanup_shape_memo;
+
+pub use client::ProviderHttpError;
