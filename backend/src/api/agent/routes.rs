@@ -564,6 +564,23 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                     middleware::auth::auth_middleware,
                 )),
         )
+        .route(
+            "/onebot/status",
+            get(get_onebot_bot_status).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/onebot/pairing",
+            get(get_onebot_pairing)
+                .post(post_onebot_pairing)
+                .delete(delete_onebot_pairing)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::auth_middleware,
+                )),
+        )
         // 通知路由
         // 通知 SSE 流
         .route(

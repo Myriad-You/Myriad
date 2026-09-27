@@ -39,6 +39,7 @@ pub const QQ: PairingChannel = PairingChannel::of(ChannelPlatform::Qq);
 pub const TELEGRAM: PairingChannel = PairingChannel::of(ChannelPlatform::Telegram);
 pub const DISCORD_DM: PairingChannel = PairingChannel::of(ChannelPlatform::Discord);
 pub const FEISHU: PairingChannel = PairingChannel::of(ChannelPlatform::Feishu);
+pub const ONEBOT: PairingChannel = PairingChannel::of(ChannelPlatform::OneBot);
 
 /// Pairing rows share `user_identities` with OAuth, but they are not login identities.
 /// `discord` is the login / data-platform slug and must stay out of this set.

@@ -59,6 +59,10 @@ fn snapshot() -> &'static RwLock<OneBotStatus> {
     })
 }
 
+pub async fn current_status() -> OneBotStatus {
+    snapshot().read().await.clone()
+}
+
 async fn publish_status(phase: OneBotPhase, fingerprint: &CredentialFingerprint) {
     let mut snap = snapshot().write().await;
     snap.phase = phase;
