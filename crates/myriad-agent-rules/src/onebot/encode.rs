@@ -32,8 +32,9 @@ pub fn encode_private_message(user_id: &str, segments: &[Value]) -> Option<Value
     }))
 }
 
-/// `set_input_status`。`event_type`：`1` 正在输入，`0` 取消。
-/// 这两个取值来自 NapCat 扩展文档的转述，仓库内没有对应源码，标 `uncertain`。
+/// `set_input_status`。`event_type` `1` 是正在输入：NapCat `SetInputStatus.ts`
+/// 的 `payloadExample` 就是 `1`。`0` 表示取消，源码只把它原样传给
+/// `sendShowInputStatusReq`，没有写出取值表，标 `uncertain`。
 pub fn encode_typing(user_id: &str, typing: bool) -> Option<Value> {
     let user_id = user_id.parse::<i64>().ok()?;
     Some(json!({
