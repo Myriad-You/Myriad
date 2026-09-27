@@ -268,17 +268,25 @@ class BackendStorage(unittest.TestCase):
                 if layout.startswith("legacy") or old_volumes else "")
             mock = root / "docker"
             mock.write_text('''#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, subprocess, shlex
 from pathlib import Path
 root = Path(os.environ["STORAGE_TEST_ROOT"])
 args = sys.argv[1:]
 with (root / "calls").open("a") as f: f.write(json.dumps(args) + "\\n")
 failure = os.environ.get("STORAGE_TEST_FAILURE")
 if (args[0] == "compose" and failure == "config") or (args[0] == "volume" and args[1] == failure) or (args[0] == "run" and failure == "run"): sys.exit(1)
+if failure == "probe" and args[0] == "run" and any(a.endswith(",dst=/data") for a in args): sys.exit(1)
 if args[0] == "compose": print((root / "model.json").read_text())
 elif args[:2] == ["volume", "ls"]: print((root / "volumes.txt").read_text())
 elif args[:2] == ["volume", "inspect"]: print((root / ("inspect-" + args[2].rsplit("_", 1)[1] + ".json")).read_text())
-elif args[0] == "run": pass
+elif args[0] == "run":
+    if args[-2:] == ["storage", "prepare"]:
+        program = args[args.index("-c") + 1]
+        program = program.replace("/app/data", shlex.quote(str(root / "data"))).replace("/app/cache", shlex.quote(str(root / "cache")))
+        # Plain named volumes live outside this host fixture; actual volume
+        # preparation is exercised by the real Docker smoke.
+        if (root / "data").is_dir():
+            sys.exit(subprocess.run(["sh", "-eu", "-c", program, "storage", "prepare"]).returncode)
 else: sys.exit(2)
 ''')
             mock.chmod(0o755)
@@ -315,8 +323,8 @@ do_restore --from "$ROOT/archive"
         result, calls, root = self.exercise()
         self.assertEqual(result.returncode, 0, result.stderr)
         runs = [c for c in calls if c[0] == "run"]
-        self.assertEqual(len(runs), 2)
-        self.assertIn(f"type=bind,src={root}/data,dst=/app/data", runs[0])
+        self.assertEqual(len(runs), 3)
+        self.assertIn(f"type=bind,src={root}/data,dst=/app/data", runs[1])
         self.assertFalse(any(c[:2] == ["volume", "create"] for c in calls))
 
     def test_legacy_deploy_keeps_existing_named_volume_sources(self):
@@ -341,7 +349,7 @@ do_restore --from "$ROOT/archive"
 
     def test_restore_rejects_before_stopping_or_replacing_env_and_database(self):
         for layout, failure, unsafe in [("foreign", None, None), ("legacy", "inspect", None),
-                ("bind", "run", None), ("bind", None, "symlink"), ("bind", None, "missing")]:
+                ("bind", "run", None), ("bind", "probe", None), ("bind", None, "symlink"), ("bind", None, "missing")]:
             with self.subTest(layout=layout, failure=failure, unsafe=unsafe):
                 result, _, _ = self.exercise(layout, failure, "restore", unsafe)
                 self.assertNotEqual(result.returncode, 0)
@@ -350,7 +358,8 @@ do_restore --from "$ROOT/archive"
         for layout in ("bind", "legacy", "legacy-bind"):
             result, calls, _ = self.exercise(layout, caller="restore")
             self.assertEqual(result.returncode, 0, result.stderr)
-            probe = next(i for i, c in enumerate(calls) if c[0] == "run")
+            probe = next(i for i, c in enumerate(calls)
+                         if c[0] == "run" and any(a.endswith(",dst=/data") for a in c))
             self.assertLess(probe, calls.index(["stop"]))
             self.assertLess(probe, calls.index(["compose-action", "exec"]))
 
@@ -363,6 +372,29 @@ do_restore --from "$ROOT/archive"
                 result = subprocess.run(["bash", "-c", 'source "$1"; validate_backend_directory "$2"',
                     "test", str(ROOT / "scripts/extra/backend-storage.sh"), path], capture_output=True, text=True)
                 self.assertNotEqual(result.returncode, 0)
+
+    def test_restore_protects_root_permissions_on_success_and_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old, dest = root / "old", root / "restored"
+            old.mkdir(mode=0o755)
+            old.chmod(0o755)
+            (old / "media").write_text("keep")
+            dest.mkdir(mode=0o700)
+            archive = root / "data.tar.gz"
+            subprocess.run(["tar", "czf", str(archive), "-C", str(old), "."], check=True)
+            for valid in (True, False):
+                if not valid:
+                    archive.write_bytes(b"invalid archive")
+                    dest.chmod(0o755)
+                result = subprocess.run(["bash", "-c",
+                    'source "$1" help; restore_data_tree "$2" "$3"', "restore",
+                    str(ROOT / "scripts/extra/backup.sh"), str(dest), str(archive)],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, valid, result.stderr)
+                self.assertEqual(dest.stat().st_mode & 0o777, 0o700)
+                if valid:
+                    self.assertEqual((dest / "media").read_text(), "keep")
 
 
 if __name__ == "__main__":

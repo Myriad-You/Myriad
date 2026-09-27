@@ -139,6 +139,10 @@ if [ ! -f "$archive" ]; then
     echo "restore archive missing" >&2
     exit 1
 fi
+# Archive metadata may restore a historical 0755 root. Keep private data private
+# even when extraction fails after applying that metadata.
+chmod 700 "$dest"
+trap 'status=$?; chmod 700 "$dest" || exit 1; exit "$status"' 0
 find "$dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 leftover=""
 for p in "$dest"/* "$dest"/.[!.]* "$dest"/..?*; do
@@ -152,6 +156,9 @@ if [ -n "$leftover" ]; then
     exit 1
 fi
 tar xzf "$archive" -C "$dest"
+if [ -n "${RESTORE_OWNER:-}" ]; then
+    chown "$RESTORE_OWNER" "$dest"
+fi
 EOF
 }
 
@@ -374,6 +381,7 @@ do_restore() {
     "$DOCKER" run --rm \
         -e DEST=/data \
         -e ARCHIVE=/in/backend_data.tar.gz \
+        -e RESTORE_OWNER=1000:1000 \
         --mount "$BACKEND_DATA_MOUNT,dst=/data" \
         -v "$from:/in:ro" \
         alpine:3.20 \

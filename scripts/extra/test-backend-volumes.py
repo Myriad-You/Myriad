@@ -70,7 +70,7 @@ def archive(kind, folder, restore=False, bind=False):
     volume = f"{PROJECT}_backend_{kind}"
     target = (f"type=bind,src={ROOT / kind},dst=/data" if bind
               else f"type=volume,src={volume},dst=/data,volume-nocopy")
-    command = (f"tar xzpf /archive/{kind}.tar.gz -C /data" if restore
+    command = (f"trap 'status=$?; chmod 700 /data || exit 1; exit \"$status\"' 0; tar xzpf /archive/{kind}.tar.gz -C /data" if restore
                else f"tar czf /archive/{kind}.tar.gz -C /data .")
     container(command, [target, f"type=bind,src={folder},dst=/archive"])
     if not restore:
@@ -83,6 +83,39 @@ try:
     for image in ("alpine:3.20", "python:3.12-alpine", "postgres:18-alpine"):
         if run(["docker", "image", "inspect", image], check=False).returncode:
             run(["docker", "pull", image])
+    print("Checking Linux private storage with a non-owner operator", flush=True)
+    checks = ROOT / "checks"
+    checks.mkdir()
+    validator = run(["bash", "-c", 'source "$1"; declare -f validate_backend_directory',
+                     "check", str(REPO / "scripts/extra/backend-storage.sh")]).stdout
+    (checks / "root-check.sh").write_text(validator + '\nvalidate_backend_directory /app/data\nvalidate_backend_directory /app/cache\n')
+    payload = run(["bash", "-c", 'source "$1"; backend_storage_directories_posix',
+                   "check", str(REPO / "scripts/extra/backend-storage.sh")]).stdout
+    (checks / "directories.sh").write_text(payload)
+    restore = run(["bash", "-c", 'source "$1" help; volume_restore_posix',
+                   "check", str(REPO / "scripts/extra/backup.sh")]).stdout
+    (checks / "restore.sh").write_text(restore)
+    container('''mkdir -p /app/data /app/cache
+chown 1000:1000 /app/data /app/cache
+chmod 700 /app/data /app/cache
+su nobody -s /bin/sh -c 'sh -eu /checks/root-check.sh; test ! -x /app/data; test ! -x /app/cache'
+sh /checks/directories.sh prepare
+test -d /app/data/federation_media && test -d /app/cache/images
+test "$(stat -c %a /app/data)" = 700
+rmdir /app/data/media; ln -s /tmp /app/data/media
+if sh /checks/directories.sh prepare; then exit 1; fi
+mkdir /old /restored
+chmod 755 /old
+echo content >/old/media
+tar czf /tmp/archive.tar.gz -C /old .
+DEST=/restored ARCHIVE=/tmp/archive.tar.gz RESTORE_OWNER=1000:1000 sh /checks/restore.sh
+test "$(stat -c %a:%u:%g /restored)" = 700:1000:1000
+test "$(cat /restored/media)" = content
+chmod 755 /restored
+echo invalid >/tmp/archive.tar.gz
+if DEST=/restored ARCHIVE=/tmp/archive.tar.gz sh /checks/restore.sh; then exit 1; fi
+test "$(stat -c %a /restored)" = 700
+''', [f"type=bind,src={checks},dst=/checks,readonly"])
     values = {"COMPOSE_PROJECT_NAME": PROJECT, "MYRIAD_TAG": "fixture", "PROXY_TAG": "fixture",
               "UPDATER_TAG": "fixture", "CORS_ORIGINS": "http://localhost"}
     for key in ("POSTGRES_PASSWORD", "PERSONA_DB_PASSWORD", "FEDERATION_DB_PASSWORD", "JWT_SECRET",
@@ -169,6 +202,9 @@ try:
 
     print("Running real PostgreSQL + media backup and restore", flush=True)
     backup = ROOT / "backup"
+    # Old volume archives can carry a 0755 root; restoring one must not expose
+    # the new host data directory with those historical permissions.
+    container("chmod 755 /data; chown 0:0 /data", [f"type=bind,src={ROOT / 'data'},dst=/data"])
     run(["bash", str(scripts / "backup.sh"), "backup", "--out", str(backup)])
     sql("UPDATE volume_test SET value='changed';")
     compose("exec", "-T", "backend", "sh", "-c", "echo changed >/app/data/media/sentinel")
@@ -196,6 +232,10 @@ try:
     run(["bash", str(scripts / "backup.sh"), "restore", "--from", str(backup)])
     assert sql("SELECT value FROM volume_test;") == "original"
     assert compose("exec", "-T", "backend", "cat", "/app/data/media/sentinel").stdout.strip() == "original"
+    assert container("stat -c %a /data", [f"type=bind,src={ROOT / 'data'},dst=/data,readonly"]).stdout.strip() == "700"
+    # Docker Desktop remaps bind ownership; actual uid-1000 access is the
+    # portable assertion. Exact Linux ownership is checked above on its filesystem.
+    compose("exec", "-T", "backend", "sh", "-eu", "-c", "touch /app/data/restored-write-probe; rm /app/data/restored-write-probe")
 
     print("Rolling back to Docker-managed volumes, preserving post-migration writes", flush=True)
     compose("exec", "-T", "backend", "sh", "-c", "echo newest >/app/data/media/sentinel")

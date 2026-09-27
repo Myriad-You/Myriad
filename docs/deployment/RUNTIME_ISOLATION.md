@@ -34,8 +34,8 @@ admin or Guard networks. See [external PostgreSQL](EXTERNAL_POSTGRES.md).
 ## Federation worker boundary
 
 The official worker has a read-only root filesystem, UID/GID 1000, all capabilities
-dropped, `no-new-privileges`, and a 32 MiB `/tmp`. `backend_data` is read-only at
-`/app/data`; only these existing volume subdirectories are writable:
+dropped, `no-new-privileges`, and a 32 MiB `/tmp`. The data root is read-only at
+`/app/data`; only these existing data/cache subdirectories are writable:
 
 | Volume subpath | Container path | Purpose |
 | --- | --- | --- |
@@ -44,10 +44,11 @@ dropped, `no-new-privileges`, and a 32 MiB `/tmp`. `backend_data` is read-only a
 | `backend_data/media` | `/app/data/media` | Persistent media assets |
 | `backend_cache/images` | `/tmp/cache/images` | Rebuildable outbound image cache |
 
-The volume initializer creates these directories before container creation and
-rejects symlinks. No data relocation is needed. This requires Docker/Compose support
-for [volume subpath mounts](https://docs.docker.com/reference/compose-file/services/#long-syntax-5).
-Guard allows only these exact source/subpath/destination tuples, with `nocopy`; it
+New deployments use direct binds under `./data` and `./cache`; host preparation
+creates the child directories before Compose creates worker containers. Existing
+named-volume deployments retain their volume subpaths with `nocopy`. Both paths
+reject symlinks; see [storage layout and migration](DATA_LAYOUT.md).
+Guard allows only the fixed source/destination pairs and read/write modes; it
 rejects writable access to the data root, agent files or other caches. The process
 has no updater secret, Docker socket or management-network attachment. Container
 limits remain 0.5 CPU, 512 MiB memory and 64 PIDs. Its DB pool has at most four

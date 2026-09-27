@@ -22,12 +22,32 @@ validate_backend_directory() {
     esac
 }
 
+# Runs inside the already validated data/cache mounts as container root. Host
+# operators need Docker access, not search permission on uid-1000 private data.
+backend_storage_directories_posix() {
+    cat <<'EOF'
+set -eu
+for path in /app/data/media /app/data/federation /app/data/federation_media /app/cache/images; do
+    if [ -L "$path" ] || { [ -e "$path" ] && [ ! -d "$path" ]; }; then
+        echo "Backend storage child must be a real directory: $path" >&2
+        exit 1
+    fi
+done
+if [ "$1" = prepare ]; then
+    umask 077
+    mkdir -p /app/data/media /app/data/federation /app/data/federation_media /app/cache/images
+    chmod 700 /app/data /app/cache
+fi
+EOF
+}
+
 # Resolve storage from Compose rather than recording a second layout flag.
 # Sets BACKEND_DATA_MOUNT / BACKEND_CACHE_MOUNT as Docker --mount source options.
 # "prepare" is host bootstrap; "existing" is non-migrating backup/restore preflight.
 load_backend_storage() {
     local docker_bin="$1" project="$2" root="$3" mode="${4:-existing}"
-    local model kind mount type source name names legacy="" current inspection device
+    local model kind mount type source name names legacy="" current inspection device readonly=""
+    case "$mode" in prepare|existing) ;; *) echo "Invalid storage mode" >&2; return 1 ;; esac
     command -v jq >/dev/null || { echo "jq is required to read Compose storage" >&2; return 1; }
     model="$("$docker_bin" compose --project-directory "$root" --env-file "$root/.env" \
         -p "$project" config --no-env-resolution --format json)" || return 1
@@ -69,11 +89,6 @@ load_backend_storage() {
                 if [ "$device" != managed ]; then
                     [ -d "$device" ] || { echo "Backend storage directory missing: $device" >&2; return 1; }
                     validate_backend_directory "$device" || return 1
-                    for source in "$device"/*; do
-                        case "${source##*/}" in
-                            media|federation|federation_media|images) validate_backend_directory "$source" || return 1 ;;
-                        esac
-                    done
                 fi
                 current="type=volume,src=$name,volume-nocopy"
                 ;;
@@ -89,15 +104,12 @@ load_backend_storage() {
         if [ "$mode" = prepare ]; then
             (umask 077; mkdir -p "$root/data" "$root/cache") || return 1
         fi
-        for source in "$root/data" "$root/cache" "$root/data/media" \
-            "$root/data/federation" "$root/data/federation_media" "$root/cache/images"; do
-            validate_backend_directory "$source" || return 1
-        done
-        if [ "$mode" = prepare ]; then
-            # Compose creates dependent containers before starting the init
-            # service. Their bind sources must exist before `compose up`.
-            (umask 077; mkdir -p "$root/data/media" "$root/data/federation" \
-                "$root/data/federation_media" "$root/cache/images") || return 1
-        fi
     fi
+    # Compose creates worker containers before starting the init service, so
+    # prepare their sources now. Backup/restore preflight remains read-only.
+    [ "$mode" = prepare ] || readonly=",readonly"
+    "$docker_bin" run --rm --network none \
+        --mount "$BACKEND_DATA_MOUNT,dst=/app/data$readonly" \
+        --mount "$BACKEND_CACHE_MOUNT,dst=/app/cache$readonly" \
+        alpine:3.20 sh -eu -c "$(backend_storage_directories_posix)" storage "$mode"
 }

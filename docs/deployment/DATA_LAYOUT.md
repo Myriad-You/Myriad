@@ -4,7 +4,7 @@
 `/app/data`、`/app/cache`，不再注册 backend named volumes。`data/` 包含媒体、
 Tapp、人设资产及运行时密钥，须像 `.env` 一样保护。`cache/` 可以重建。
 
-`deploy.sh up` 先以 700 创建根目录及 worker 挂载的四个子目录，再修复 uid 1000 的
+`deploy.sh up` 通过 Docker 内的 root 准备 worker 子目录，将数据根目录收紧为 700，再修复 uid 1000 的
 所有权和 owner 权限并探测写入。Compose 在等待初始化服务之前就会创建 worker 容器，
 因此子目录也必须在宿主准备阶段创建，不能仅依赖容器入口脚本。
 Compose 的 `create_host_path: false` 禁止 Docker 自动补空目录；单独运行 Compose
@@ -39,6 +39,9 @@ source scripts/extra/backend-storage.sh
 load_backend_storage docker "$project" "$(pwd -P)" prepare
 docker compose up -d
 ```
+
+宿主运维用户需要 Docker 访问权限，不要求其 UID 为 1000。脚本只在宿主检查数据根目录
+及其父路径；私有目录内部的检查和准备在固定挂载的容器内执行，不向其他宿主用户开放权限。
 
 如果新 Compose 指向目录，但同项目旧 backend 卷仍注册，宿主部署脚本会拒绝启动，
 避免误把旧站点启动为空站。必须先完成以下显式迁移。
@@ -76,7 +79,8 @@ for kind in data cache; do
     mkdir "$root/$kind"
     docker run --rm --network none --mount "type=bind,src=$saved,dst=/in,readonly" \
         --mount "type=bind,src=$root/$kind,dst=/new" alpine:3.20 \
-        tar xzpf "/in/$kind.tar.gz" -C /new
+        sh -eu -c 'trap '\''status=$?; chmod 700 /new || exit 1; exit "$status"'\'' 0; tar xzpf "$1" -C /new' \
+        migration "/in/$kind.tar.gz"
 done
 printf 'Retained old volume archives: %s\n' "$saved"
 ```
@@ -99,7 +103,8 @@ bind-backed named volumes 的部署，先确认 `docker volume inspect` 的 `Opt
 
 ## 回退与换机
 
-代码回退继续使用当前存储来源。若确需把目录改回 Docker 管理卷，先停止整栈，从
+代码回退继续使用当前存储来源，包括选择迁移前生成的历史快照；API 与 rescue CLI 都在
+停止服务前准备恢复模板，将当前存储来源保留到旧版本模板中。若确需把目录改回 Docker 管理卷，先停止整栈，从
 **当前目录**重新归档并验证 data/cache，创建原卷名并解包进去，然后恢复旧卷布局的
 Compose。不能直接使用迁移前归档，否则会丢失迁移后的写入。保留宿主目录直到回退
 验证完成。updater 的文件快照仍只覆盖 `pgdata`，不包含媒体。
