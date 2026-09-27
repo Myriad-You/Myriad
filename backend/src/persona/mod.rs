@@ -60,6 +60,7 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
     drivers.continuous("Telegram bot", services::telegram_bot::run_worker());
     drivers.continuous("Discord bot", services::discord_bot::run_worker());
     drivers.continuous("Feishu bot", services::feishu_bot::run_worker());
+    drivers.continuous("OneBot", services::onebot_bot::run_worker());
     let work_db = db.clone();
     drivers.periodic(
         "autonomy",

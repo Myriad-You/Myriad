@@ -126,6 +126,7 @@ pub mod media_catalog;
 pub mod note_authors;
 pub mod note_publish;
 pub mod notion_service;
+pub(crate) mod onebot_bot; // OneBot forward-WebSocket worker
 pub(crate) mod onebot_pairing; // OneBot private-chat pairing
 pub(crate) mod onebot_send; // Live OneBot socket for private-chat actions
 pub(crate) mod onebot_work; // OneBot private-chat Work entry
