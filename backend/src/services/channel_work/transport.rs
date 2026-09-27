@@ -234,9 +234,7 @@ impl ChannelTransport {
                 ) else {
                     return Ok(());
                 };
-                crate::services::onebot_send::send_action(action)
-                    .await
-                    .map_err(|_| SendError::Transient)
+                map_onebot_send(crate::services::onebot_send::send_action(action).await)
             }
         }
     }
@@ -306,11 +304,19 @@ impl ChannelTransport {
                 ) else {
                     return Ok(());
                 };
-                crate::services::onebot_send::send_action(action)
-                    .await
-                    .map_err(|_| SendError::Transient)
+                map_onebot_send(crate::services::onebot_send::send_action(action).await)
             }
         }
+    }
+}
+
+fn map_onebot_send(
+    result: Result<Option<myriad_agent_rules::channel::ConnectFailureKind>, String>,
+) -> Result<(), SendError> {
+    match result {
+        Ok(None) => Ok(()),
+        Ok(Some(kind)) => Err(SendError::from(kind)),
+        Err(_) => Err(SendError::Transient),
     }
 }
 

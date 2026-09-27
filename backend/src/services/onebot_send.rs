@@ -20,9 +20,13 @@ use uuid::Uuid;
 
 type WriteFn = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
 
+/// `Ok(None)` is a successful action. `Ok(Some(Permanent))` is a refusal of
+/// this one action. `Err` is retryable and never closes the socket.
+type ActionResult = Result<Option<ConnectFailureKind>, String>;
+
 struct Live {
     write: WriteFn,
-    pending: HashMap<String, oneshot::Sender<Result<(), String>>>,
+    pending: HashMap<String, oneshot::Sender<ActionResult>>,
 }
 
 static SLOT: OnceLock<Mutex<Option<Live>>> = OnceLock::new();
@@ -61,10 +65,12 @@ fn fail_all(live: Live, reason: &str) {
 
 /// Send one action and wait for its `echo`.
 ///
-/// A missing socket, a write failure, a timeout, or a close is transient.
-/// `retcode` 1400..=1404 is permanent for this action. The caller still uses
-/// that range to close the socket when the frame is a handshake refusal.
-pub async fn send_action(mut action: Value) -> Result<(), String> {
+/// `Ok(Some(Permanent))` is a refusal of this one action (`retcode`
+/// 1400..=1404). `Ok(None)` means the action was accepted. A missing socket,
+/// a write failure, a timeout, a close, or any other retcode is `Err`:
+/// retryable, and it does not close the socket. A handshake refusal has no
+/// echo and is classified by the worker.
+pub async fn send_action(mut action: Value) -> ActionResult {
     let echo = Uuid::new_v4().to_string();
     if let Some(object) = action.as_object_mut() {
         object.insert("echo".into(), json!(echo));
@@ -86,6 +92,17 @@ pub async fn send_action(mut action: Value) -> Result<(), String> {
     }
 }
 
+fn action_result(retcode: i64) -> ActionResult {
+    let kind = classify_onebot_handshake(None, Some(retcode));
+    if kind == ConnectFailureKind::Permanent {
+        Ok(Some(ConnectFailureKind::Permanent))
+    } else if retcode == 0 {
+        Ok(None)
+    } else {
+        Err(format!("onebot action failed: {retcode}"))
+    }
+}
+
 /// Finish the action whose `echo` came back.
 ///
 /// A matched echo never closes the socket. A handshake refusal has no echo
@@ -94,7 +111,6 @@ pub async fn complete_echo(echo: &Value, retcode: i64) {
     let Some(key) = echo.as_str() else {
         return;
     };
-    let kind = classify_onebot_handshake(None, Some(retcode));
     let mut guard = slot().lock().await;
     let Some(live) = guard.as_mut() else {
         return;
@@ -102,14 +118,7 @@ pub async fn complete_echo(echo: &Value, retcode: i64) {
     let Some(sender) = live.pending.remove(key) else {
         return;
     };
-    let result = if kind == ConnectFailureKind::Permanent {
-        Err(format!("onebot action refused: {retcode}"))
-    } else if retcode == 0 {
-        Ok(())
-    } else {
-        Err(format!("onebot action failed: {retcode}"))
-    };
-    let _ = sender.send(result);
+    let _ = sender.send(action_result(retcode));
 }
 
 #[cfg(test)]
@@ -145,7 +154,7 @@ mod tests {
         let send = tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
         let echo = wait_for_echo(&seen).await;
         complete_echo(&json!(echo), 0).await;
-        assert!(send.await.expect("join").is_ok());
+        assert_eq!(send.await.expect("join"), Ok(None));
 
         let pending =
             tokio::spawn(async { send_action(json!({"action": "set_input_status"})).await });
@@ -175,7 +184,10 @@ mod tests {
             drop(guard);
             complete_echo(&json!(echo), 1403).await;
         }
-        assert!(send.await.expect("join").is_err());
+        assert_eq!(
+            send.await.expect("join"),
+            Ok(Some(ConnectFailureKind::Permanent))
+        );
         clear().await;
     }
 
