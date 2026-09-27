@@ -15,11 +15,8 @@
 //! looking, and the budget is capped per person and per site each day.
 //! Search results are untrusted data from the web.
 
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use chrono::NaiveDate;
 use serde_json::json;
 
 use super::call::{self, Voice};
@@ -32,52 +29,8 @@ use myriad_merope::curiosity::{
 use serde_json::Value;
 
 pub const FOUND_OUT_EVENT: &str = "agent.merope.found_out";
-const PER_PERSON_PER_DAY: u32 = 3;
-const PER_SITE_PER_DAY: u32 = 40;
 const MIN_USER_CHARS: usize = 6;
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
-
-#[derive(Default)]
-struct Budget {
-    day: Option<NaiveDate>,
-    per_person: HashMap<i32, u32>,
-    site: u32,
-    /// Queries already run today, per person, so she does not look the same
-    /// thing up twice.
-    asked: HashMap<i32, Vec<String>>,
-}
-
-static BUDGET: LazyLock<Mutex<Budget>> = LazyLock::new(|| Mutex::new(Budget::default()));
-
-fn has_budget(user_id: i32, today: NaiveDate) -> bool {
-    let Ok(mut budget) = BUDGET.lock() else {
-        return false;
-    };
-    if budget.day != Some(today) {
-        *budget = Budget {
-            day: Some(today),
-            ..Budget::default()
-        };
-    }
-    budget.site < PER_SITE_PER_DAY
-        && budget.per_person.get(&user_id).copied().unwrap_or(0) < PER_PERSON_PER_DAY
-}
-
-/// Spend one lookup; false when this query was already run today.
-fn spend(user_id: i32, query: &str) -> bool {
-    let Ok(mut budget) = BUDGET.lock() else {
-        return false;
-    };
-    let key = query.trim().to_lowercase();
-    let asked = budget.asked.entry(user_id).or_default();
-    if asked.contains(&key) {
-        return false;
-    }
-    asked.push(key);
-    *budget.per_person.entry(user_id).or_insert(0) += 1;
-    budget.site += 1;
-    true
-}
 
 pub fn spawn_curiosity(
     user_id: i32,
@@ -145,13 +98,18 @@ async fn wonder_and_find_out(
     if !super::is_logged_in_addressee(user_id) || !super::is_enabled().await {
         return;
     }
-    let today = chrono::Local::now().date_naive();
-    if !has_budget(user_id, today) {
-        return;
-    }
     let Ok(db) = crate::services::process_db::database() else {
         return;
     };
+    match super::store::curiosity::available(&db, user_id, chrono::Local::now().date_naive()).await
+    {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            tracing::warn!(user_id, %error, "[Merope] could not read curiosity allowance");
+            return;
+        }
+    }
     // Only someone who may search can set her searching on the site's key.
     if !crate::services::agent::get_user_permissions(&db, user_id)
         .await
@@ -194,8 +152,23 @@ async fn wonder_and_find_out(
     else {
         return;
     };
-    if !spend(user_id, &query) {
+    // Re-read grants after the model wait and claim against the current day.
+    if !super::is_enabled().await
+        || !crate::services::agent::get_user_permissions(&db, user_id)
+            .await
+            .contains("ai:search")
+    {
         return;
+    }
+    match super::store::curiosity::claim(&db, user_id, &query, chrono::Local::now().date_naive())
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            tracing::warn!(user_id, %error, "[Merope] could not claim curiosity allowance");
+            return;
+        }
     }
     tracing::info!(user_id, "[Merope] curious enough to look something up");
     let Some((text, found_at)) = look_up(&query, wonder.slang).await else {
@@ -278,19 +251,6 @@ pub(crate) fn parse_found_out(raw: &str) -> bool {
 mod tests {
     use super::*;
     use myriad_merope::curiosity::MAX_RESULTS_CHARS;
-    #[test]
-    fn looking_things_up_is_budgeted_per_person_and_never_twice() {
-        let today = NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
-        let user = -94_001;
-        assert!(has_budget(user, today));
-        assert!(spend(user, "Tame Impala"));
-        assert!(!spend(user, " tame impala "), "the same thing twice");
-        assert!(spend(user, "Currents 专辑"));
-        assert!(spend(user, "Kevin Parker"));
-        assert!(!has_budget(user, today), "three a day per person");
-        assert!(has_budget(user - 1, today), "another person has their own");
-    }
-
     #[test]
     fn search_results_are_flattened_to_text_and_addresses() {
         let hits = vec![super::super::senses::Hit {

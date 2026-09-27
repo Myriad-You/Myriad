@@ -389,6 +389,16 @@ jobs:
         run: |
           createdb myriad_work_loop_test
           cargo test --workspace --locked services::agent::work_loop:: -- --ignored --skip configured_model_search_read_save_business_acceptance --skip work_process_fixture --test-threads=1 --nocapture
+      - name: Merope daily curiosity allowance contracts
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: myriad
+          PGPASSWORD: myriad_ci
+          MYRIAD_MEROPE_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_merope_test
+        run: |
+          createdb myriad_merope_test
+          cargo test --workspace --locked concurrent_claims_survive_reconnect_and_roll_over_by_day -- --ignored --nocapture
 
   dependency-audit:
     name: Dependency vulnerability scan
