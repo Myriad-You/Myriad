@@ -2,7 +2,6 @@
 pub mod activity_event_service;
 pub mod agent;
 pub mod agent_interaction; // Agent ↔ Tapp interaction create surface
-pub mod audio_tags; // MP3/FLAC/Ogg embedded tags for local music
 pub mod agora_chat; // Realtime transport bindings to shared Agent Chat runs
 pub mod agora_convo; // Shengwang Conversational AI join/leave/interrupt
 pub mod agora_rtc_token; // Agora AccessToken2
@@ -18,6 +17,7 @@ pub mod ai_task_provider; // Text/image provider execution for AI Tasks
 pub mod ai_task_registry; // Cross-replica register/persist
 pub mod ai_task_runtime; // Process-local AI_TASKS map + state transitions
 pub mod analyzer;
+pub mod audio_tags; // MP3/FLAC/Ogg embedded tags for local music
 pub mod avatar; // 头像来源枚举/解析（单一解析处；HTTP JSON 走代理，联邦 Actor 不经代理 URL）
 pub mod background_processor;
 pub mod config_service;
@@ -126,7 +126,9 @@ pub mod media_catalog;
 pub mod note_authors;
 pub mod note_publish;
 pub mod notion_service;
+pub(crate) mod onebot_pairing; // OneBot private-chat pairing
 pub(crate) mod onebot_send; // Live OneBot socket for private-chat actions
+pub(crate) mod onebot_work; // OneBot private-chat Work entry
 pub mod phantasi_parser;
 pub(crate) mod phantasi_reading;
 pub mod phantasi_scheduler;
