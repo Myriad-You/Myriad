@@ -1,6 +1,7 @@
 //! Merope: site persona, per-addressee state, hidden proactive speech.
 
 mod appraisal;
+pub(crate) mod background;
 pub mod bits;
 mod call;
 pub mod chat_remember;

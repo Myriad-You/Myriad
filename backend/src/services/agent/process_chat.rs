@@ -42,7 +42,7 @@ impl Agent {
         {
             let db = self.db.clone();
             let request = request.clone();
-            tokio::spawn(async move {
+            super::merope::background::spawn("game aftermath", async move {
                 crate::services::agent::merope::soup::after_turn(&db, &request).await;
             });
         }
@@ -174,7 +174,7 @@ impl Agent {
         {
             let db = self.db.clone();
             let request = request.clone();
-            tokio::spawn(async move {
+            super::merope::background::spawn("game aftermath", async move {
                 crate::services::agent::merope::soup::after_turn(&db, &request).await;
             });
         }

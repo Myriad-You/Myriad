@@ -59,7 +59,7 @@ pub fn spawn_diary(user_id: i32, summary: impl Into<String>) {
     if summary.is_empty() {
         return;
     }
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("diary", async move {
         if !is_logged_in_addressee(user_id) || !is_enabled().await {
             return;
         }
@@ -76,7 +76,7 @@ pub fn spawn_presence(user_id: i32) {
     if !is_logged_in_addressee(user_id) {
         return;
     }
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("presence", async move {
         if !is_enabled().await {
             return;
         }
@@ -129,7 +129,7 @@ pub fn spawn(user_id: i32, event_key: impl Into<String>, summary: impl Into<Stri
         };
     let event_key = event_key.into();
     let summary = summary.into();
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("observation", async move {
         let _relay_permit = relay_permit;
         let Ok(db) = crate::services::process_db::database() else {
             return;
@@ -300,7 +300,7 @@ pub async fn ingest(
         }
         enqueue_speak_intent(intent);
         let speak_db = db.clone();
-        tokio::spawn(async move {
+        crate::services::agent::merope::background::spawn("speak intents", async move {
             super::tick_speak_intents(speak_db).await;
         });
     }

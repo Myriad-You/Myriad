@@ -179,7 +179,8 @@ pub fn background_status() -> &'static str {
     }
 }
 
-pub(super) async fn request_stop() {
+pub(crate) async fn request_stop() {
+    agent::merope::background::stop_admission();
     STARTED.store(false, std::sync::atomic::Ordering::Release);
     if let Some(runtime) = RUNTIME.lock().await.as_ref() {
         runtime.request_stop();
@@ -187,12 +188,16 @@ pub(super) async fn request_stop() {
 }
 
 pub async fn shutdown() {
-    STARTED.store(false, std::sync::atomic::Ordering::Release);
-    if let Some(runtime) = RUNTIME.lock().await.take() {
-        // Stop admission before draining. Previously the tick/heartbeat loops
-        // kept spawning work while the process waited for inflight execution.
-        runtime.shutdown().await;
-    }
+    request_stop().await;
+    let runtime = RUNTIME.lock().await.take();
+    tokio::join!(
+        async {
+            if let Some(runtime) = runtime {
+                runtime.shutdown().await;
+            }
+        },
+        agent::merope::background::shutdown(),
+    );
     if let Some(evolution) = agent::skill_evolution::get_skill_evolution() {
         evolution.flush().await;
     }

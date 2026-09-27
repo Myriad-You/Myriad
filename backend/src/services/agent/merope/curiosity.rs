@@ -42,7 +42,7 @@ pub fn spawn_curiosity(
     if user_id <= 0 || user_text.trim().chars().count() < MIN_USER_CHARS {
         return;
     }
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("curiosity", async move {
         if tokio::time::timeout(
             Duration::from_secs(120),
             wonder_and_find_out(user_id, &user_text, &reply, &present, &turn),

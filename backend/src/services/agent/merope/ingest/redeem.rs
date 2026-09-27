@@ -219,7 +219,7 @@ async fn redeem_speak_intent(
             let id = intent.id.clone();
             let motion_db = db.clone();
             let motion_intent = intent.clone();
-            tokio::spawn(async move {
+            crate::services::agent::merope::background::spawn("speech motion", async move {
                 let Some(performance) = refine_motion(context).await else {
                     return;
                 };
@@ -675,7 +675,7 @@ mod tests {
             .next()
             .unwrap();
         let live = source.split("if decision.live && shown").nth(1).unwrap();
-        assert!(live.find("emit_live_speech(").unwrap() < live.find("tokio::spawn").unwrap());
+        assert!(live.find("emit_live_speech(").unwrap() < live.find("background::spawn").unwrap());
         assert!(live.contains("refine_motion(context).await"));
         assert!(live.contains("emit_live_speech_motion(user_id, id, value)"));
         let selection = source

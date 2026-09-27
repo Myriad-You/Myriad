@@ -418,12 +418,20 @@ pub fn start(owner: i32, question_id: String, question: String) {
     if let Ok(mut trips) = TRIPS.lock() {
         trips.insert(question_id.clone(), None);
     }
-    tokio::spawn(async move {
+    let pending_id = question_id.clone();
+    if !super::background::spawn("exploration", async move {
         let trip = go(owner, &question).await;
         if let Ok(mut trips) = TRIPS.lock() {
             trips.insert(question_id, trip);
         }
-    });
+    }) {
+        if let Ok(mut trips) = TRIPS.lock() {
+            trips.remove(&pending_id);
+        }
+        if let Ok(mut state) = TODAY.lock() {
+            state.went = state.went.saturating_sub(1);
+        }
+    }
 }
 
 /// What she found, once back. If the trip was lost (a restart), she goes

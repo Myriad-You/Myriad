@@ -110,7 +110,7 @@ pub fn spawn_after(db: DatabaseConnection, request: &UserRequest, reply: &str) {
     let present = super::audience_for(request);
     let key = key(user_id, &present);
     let turn = super::turn_context(request);
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("inner state", async move {
         if !super::is_enabled().await {
             return;
         }

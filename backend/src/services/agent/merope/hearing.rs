@@ -20,6 +20,11 @@ use sea_orm::DatabaseConnection;
 use super::sources::Thing;
 use crate::services::music_player_view::PlayerMusicSource;
 
+// The permit moves into the CPU job. Aborting its async parent cannot abort
+// spawn_blocking, so capacity must stay held until decoding actually finishes.
+static DECODER: LazyLock<Arc<tokio::sync::Semaphore>> =
+    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(1)));
+
 const FETCH_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// The song heard now, by its key.
@@ -41,7 +46,7 @@ pub fn start(db: DatabaseConnection, key: String, thing: Thing) {
     if let Ok(mut heard) = HEARD.lock() {
         *heard = None;
     }
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("hearing", async move {
         if let Some(sheet) = hear(&db, &thing).await {
             if let Ok(mut heard) = HEARD.lock() {
                 *heard = Some((key, Arc::new(sheet)));
@@ -77,6 +82,7 @@ async fn hear(db: &DatabaseConnection, thing: &Thing) -> Option<ListeningSheet> 
     let Thing::Song { id, source, .. } = thing else {
         return None;
     };
+    let _permit = DECODER.clone().try_acquire_owned().ok()?;
     let fetched = tokio::time::timeout(FETCH_TIMEOUT, async {
         let lrc = timed_lyrics(db, source, id).await;
         let audio = recording(db, source, id).await;
@@ -88,6 +94,7 @@ async fn hear(db: &DatabaseConnection, thing: &Thing) -> Option<ListeningSheet> 
         return None;
     };
     let heard = tokio::task::spawn_blocking(move || {
+        let _permit = _permit;
         myriad_listening::listen_to_bytes(bytes, ext, lrc.as_deref())
     })
     .await;

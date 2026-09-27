@@ -180,7 +180,7 @@ pub fn spawn_after(
     words: String,
     reply: String,
 ) {
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("stranger memory", async move {
         let count = count_exchange(&db, &venue, &stranger.who).await;
         let key = talks_key(&venue, &stranger.who);
         let Some((round, full)) = queue(&key, stranger, words, reply) else {

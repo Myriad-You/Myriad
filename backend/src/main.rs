@@ -771,9 +771,12 @@ async fn shutdown_signal() {
 
     // 停止全部后台 job（含 Tapp / Phantasi 调度器）：先停发新 tick，
     // 在期限内等在途 tick 收尾，超时中止。
-    services::jobs::shutdown(services::jobs::SHUTDOWN_DRAIN).await;
-
-    persona::shutdown().await;
+    services::jobs::jobs().stop_admission();
+    persona::request_stop().await;
+    tokio::join!(
+        services::jobs::shutdown(services::jobs::SHUTDOWN_DRAIN),
+        persona::shutdown(),
+    );
 }
 
 #[cfg(test)]

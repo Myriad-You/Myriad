@@ -41,14 +41,25 @@ fn is_test_file(path: &Path) -> bool {
 /// Parse Rust syntax so aliases, whitespace, nested imports and code after a
 /// test module are checked too. Comments and string literals are not code.
 fn crossings_in(relative: &str, source: &str) -> Vec<(String, usize, String)> {
+    forbidden_paths_in(relative, source, |path| {
+        path.len() >= 2 && path[0] == "crate" && path[1] == "api"
+    })
+}
+
+fn forbidden_paths_in(
+    relative: &str,
+    source: &str,
+    forbidden: fn(&[String]) -> bool,
+) -> Vec<(String, usize, String)> {
     use syn::visit::Visit;
     struct References<'a> {
         file: &'a str,
+        forbidden: fn(&[String]) -> bool,
         found: Vec<(String, usize, String)>,
     }
     impl References<'_> {
         fn record(&mut self, path: &[String], span: proc_macro2::Span) {
-            if path.len() >= 2 && path[0] == "crate" && path[1] == "api" {
+            if (self.forbidden)(path) {
                 self.found
                     .push((self.file.into(), span.start().line, path.join("::")));
             }
@@ -120,6 +131,7 @@ fn crossings_in(relative: &str, source: &str) -> Vec<(String, usize, String)> {
     let file = syn::parse_file(source).unwrap_or_else(|error| panic!("{relative}: {error}"));
     let mut visitor = References {
         file: relative,
+        forbidden,
         found: Vec::new(),
     };
     if !test_only(&file.attrs) {
@@ -224,6 +236,32 @@ fn work_handlers_use_the_model_boundary() {
             !source.contains("AiAnalyzer") && !source.contains("create_ai_analyzer"),
             "{} bypasses WorkModel",
             path.display()
+        );
+    }
+}
+
+#[test]
+fn merope_background_work_uses_the_managed_runner() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/agent");
+    let mut files = vec![src.join("process_chat.rs")];
+    rust_files(&src.join("merope"), &mut files);
+    for path in files {
+        if is_test_file(&path) {
+            continue;
+        }
+        let found = forbidden_paths_in(
+            &path.display().to_string(),
+            &fs::read_to_string(&path).unwrap(),
+            |path| {
+                // The awaited CPU decoder in hearing.rs uses spawn_blocking and is
+                // separately capacity-limited; detached async work must be registered.
+                path.first().is_some_and(|part| part == "tokio")
+                    && path.last().is_some_and(|part| part == "spawn")
+            },
+        );
+        assert!(
+            found.is_empty(),
+            "unmanaged Merope background task: {found:?}"
         );
     }
 }

@@ -130,7 +130,7 @@ pub fn spawn_chat_remember(
     if !should_extract_chat_remember(&user_text) {
         return;
     }
-    tokio::spawn(async move {
+    crate::services::agent::merope::background::spawn("chat memory", async move {
         if tokio::time::timeout(
             Duration::from_secs(45),
             extract_and_store(user_id, &user_text, &reply, input_at, &present, &turn),

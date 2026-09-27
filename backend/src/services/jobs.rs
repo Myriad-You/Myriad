@@ -1,8 +1,10 @@
 //! Process-owned background jobs.
 //!
 //! One cancellation root and one join set for every loop the web process runs
-//! outside a request. Two kinds:
+//! outside a request. Three kinds:
 //!
+//! - [`JobRunner::try_once`]: one finite task, admitted immediately or refused at
+//!   capacity. Completion is reaped; panics are logged without retrying effects.
 //! - [`JobRunner::periodic`]: a serial tick. Slow work delays its own next
 //!   tick (missed ticks are skipped) and never overlaps itself or holds
 //!   another job.
@@ -162,6 +164,45 @@ impl JobRunner {
         self.register(name, move |cancel| {
             run_supervised(name, cancel, backoff, run)
         })
+    }
+
+    /// Admit a one-shot background task without creating an unbounded waiter queue.
+    /// Finished tasks are reaped before checking capacity. Panics are observed here;
+    /// work is never retried because it may already have performed side effects.
+    pub fn try_once<F>(&self, name: &'static str, capacity: usize, work: F) -> bool
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        while let Some(finished) = tasks.try_join_next() {
+            log_join_result(finished);
+        }
+        if self.root.is_cancelled() || tasks.len() >= capacity {
+            tracing::warn!(
+                job = name,
+                stopping = self.root.is_cancelled(),
+                capacity,
+                "background task refused"
+            );
+            return false;
+        }
+        tasks.spawn(async move {
+            if let Err(panic) = AssertUnwindSafe(work).catch_unwind().await {
+                tracing::error!(
+                    job = name,
+                    panic = panic_message(panic.as_ref()),
+                    "background task panicked"
+                );
+            }
+            name
+        });
+        true
+    }
+
+    /// Close admission immediately, before starting any asynchronous drain.
+    pub fn stop_admission(&self) {
+        let _guard = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        self.root.cancel();
     }
 
     fn register<J>(&self, name: &'static str, job: impl FnOnce(CancellationToken) -> J) -> JobHandle
@@ -669,6 +710,65 @@ mod tests {
         assert!(handle.is_cancelled());
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(runs.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn one_shots_are_bounded_reaped_and_drained() {
+        let runner = JobRunner::new();
+        let (release, wait) = tokio::sync::oneshot::channel();
+        let (done, finished) = tokio::sync::oneshot::channel();
+        assert!(runner.try_once("first", 1, async move {
+            let _ = wait.await;
+            let _ = done.send(());
+        }));
+        assert!(!runner.try_once("overflow", 1, async {
+            panic!("must not run");
+        }));
+        release.send(()).unwrap();
+        finished.await.unwrap();
+        // JoinSet publishes completion immediately after the future returns.
+        tokio::task::yield_now().await;
+        let (release, wait) = tokio::sync::oneshot::channel();
+        let (done, finished) = tokio::sync::oneshot::channel();
+        assert!(runner.try_once("replacement", 1, async move {
+            let _ = wait.await;
+            let _ = done.send(());
+        }));
+        runner.stop_admission();
+        assert!(!runner.try_once("late", 2, async {
+            panic!("must not run");
+        }));
+        release.send(()).unwrap();
+        runner.shutdown(Duration::from_secs(1)).await;
+        finished.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn one_shot_panic_is_contained_and_shutdown_aborts_stuck_work() {
+        let runner = JobRunner::new();
+        assert!(runner.try_once("panics", 2, async {
+            panic!("injected");
+        }));
+        struct Dropped(Arc<AtomicBool>);
+        impl Drop for Dropped {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let guard = Dropped(dropped.clone());
+        assert!(runner.try_once("stuck", 2, async move {
+            let _guard = guard;
+            std::future::pending::<()>().await;
+        }));
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            runner.shutdown(Duration::from_millis(10)),
+        )
+        .await
+        .expect("bounded shutdown");
+        assert!(dropped.load(Ordering::SeqCst));
+        assert!(!runner.try_once("after shutdown", 2, async {}));
     }
 
     /// Spawns that are allowed to hold a long-lived `loop` / interval outside
