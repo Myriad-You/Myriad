@@ -7,6 +7,7 @@ import { UpdaterError } from '../../../services/updaterApi.ts'
 import {
   explainUpdaterError,
   infraCompatibility,
+  isComposeOverrideFailure,
   isDismissedLastFailed,
   isFreshInfraOutcome,
 } from './helpers.ts'
@@ -189,5 +190,47 @@ describe('explainUpdaterError', () => {
     assert.equal(explainUpdaterError(new UpdaterError(403, 'manual-override required'), u), 'OVERRIDE')
     assert.equal(explainUpdaterError(new UpdaterError(409, 'updater upstream 409 Conflict'), u), 'BUSY')
     assert.equal(explainUpdaterError(new UpdaterError(503, 'backend cannot authenticate'), u), 'UPSTREAM')
+  })
+})
+
+describe('isComposeOverrideFailure', () => {
+  const reason =
+    'preflight: precondition failed: the deployment compose will be overwritten; ' +
+    're-submit with allow_compose_override=true (or allow_risk=true)'
+
+  it('accepts structured codes and the exact legacy reason without a code', () => {
+    assert.equal(
+      isComposeOverrideFailure({
+        code: 'compose_override_required',
+        reason: 'localized',
+      }),
+      true,
+    )
+    assert.equal(isComposeOverrideFailure({ reason }), true)
+    assert.equal(isComposeOverrideFailure({ code: null, reason }), true)
+    assert.equal(
+      isComposeOverrideFailure({ reason: reason.replace('preflight: ', '') }),
+      true,
+    )
+  })
+
+  it('does not reinterpret another code or unrelated compose failures as consent', () => {
+    assert.equal(isComposeOverrideFailure(null), false)
+    assert.equal(
+      isComposeOverrideFailure({ code: 'another_error', reason }),
+      false,
+    )
+    assert.equal(
+      isComposeOverrideFailure({ reason: 'compose mount permission denied' }),
+      false,
+    )
+    assert.equal(
+      isComposeOverrideFailure({ reason: `pull failed: ${reason}` }),
+      false,
+    )
+    assert.equal(
+      isComposeOverrideFailure({ reason: 'allow_compose_override=true' }),
+      false,
+    )
   })
 })

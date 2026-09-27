@@ -46,6 +46,7 @@ import {
   format,
   formatBytes,
   infraCompatibility,
+  isComposeOverrideFailure,
   isDismissedLastFailed,
   isFreshInfraOutcome,
   isTransientUpdaterError,
@@ -856,12 +857,12 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                 from: status.last_failed_update.from_version ?? '—',
                 to: status.last_failed_update.to_version ?? '—',
                 reason:
-                  status.last_failed_update.code === 'compose_override_required'
+                  isComposeOverrideFailure(status.last_failed_update)
                     ? u.updaterLastFailedComposeReason
                     : status.last_failed_update.reason,
               })}
             </span>
-            {status.last_failed_update.code === 'compose_override_required' &&
+            {isComposeOverrideFailure(status.last_failed_update) &&
               status.last_failed_update.to_version && (
                 <button
                   type="button"

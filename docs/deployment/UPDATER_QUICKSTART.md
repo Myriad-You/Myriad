@@ -83,14 +83,43 @@ updater、updater-gateway）的定义都随版本走。
 preflight 阶段要求 `allow_compose_override` 确认；确认后、覆盖前，把原文件备份到
 `state/compose-backup/`。未改动则直接覆盖。
 
-挂载仍由 `docker-guard` 校验：只接受模板自带的 `*_backend_data` / `*_backend_cache` 卷及
-其固定容器路径（例如 `federation-worker` 的 `/app/data/media` 子挂载）。宿主自加的绑定挂载
-或第三方卷会被 Guard 拒绝，容器在停服切换后无法启动。
+挂载仍由 `docker-guard` 校验：支持原项目的 `*_backend_data` / `*_backend_cache` 卷，
+以及部署目录下固定的 `data` / `cache` 绑定挂载和 worker 子目录。升级保留当前存储来源，
+不会把旧卷自动替换成空目录；目录布局要求兼容的 updater/Guard。其他宿主路径或第三方卷
+不在这项兼容范围内。
 
 **不要直接编辑被托管的 Compose 文件。** 站点改动应放在 `.env`；Compose 里的结构改动会在
 下一次更新时被覆盖（覆盖前会被检测出来并弹确认）。多份 Compose 分片（面板生成的 `*.yml`）
 会合并进第一个文件、其余在更新时置空；置空记录写入 history/audit
 （`audit: compose_fragments_blanked ...`）。
+
+### 2.2 旧前端只有“不再显示”，没有覆盖重试按钮
+
+v0.5.7 前端不能显示 Compose 覆盖确认入口；“不再显示”只隐藏失败通知，不重试任务。
+新版前端可以识别 `compose_override_required`，也兼容旧更新器留下的无错误码记录。
+因此，即使先把更新器升级到 v0.6.0，仍运行 v0.5.7 的站点前端也不会凭空出现新按钮。
+
+从 v0.5.7 更新到 v0.6.0 时，**先在更新页面确认更新器与 Guard 已完成 v0.6.0 自更新**。
+旧 v0.5.7 更新器尚不具备保留旧存储布局的逻辑，不能仅放开覆盖确认就套用新模板。
+更新器自更新与业务站点更新是两步操作。
+
+确认可以覆盖当前 Compose 后，在 Docker 主机的**原部署目录**执行：
+
+```sh
+docker compose --env-file .env exec -T updater sh -eu -c '
+  test -n "${UPDATE_TOKEN:-}"
+  printf "X-Update-Token: %s\n" "$UPDATE_TOKEN" |
+    curl --fail-with-body -sS --header @- \
+      -H "Content-Type: application/json" \
+      --data "{\"target_version\":\"v0.6.0\",\"mode\":\"release\",\"allow_compose_override\":true,\"confirm_risk\":true}" \
+      http://127.0.0.1:1101/update
+'
+```
+
+这条命令会提交更新任务，只确认 Compose 覆盖；不设置 `allow_risk`，不跳过降级、镜像验签或
+其他前置检查。令牌从 updater 容器内读取并经标准输入交给 curl，无需复制或打印。
+覆盖前原 Compose 会备份到 `state/compose-backup/`；需要保留的自定义结构应先审查。
+返回 `job_id` 只表示已受理，回到更新页面检查任务最终结果；不能把 HTTP 成功当作升级完成。
 
 ## 3. 打开 updater UI
 
