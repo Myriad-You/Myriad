@@ -190,9 +190,20 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
     for (index, thing) in options.iter().enumerate() {
         option_views.push(sources::view(db, index, thing).await);
     }
+    let kinds: Vec<(&str, chrono::Duration)> = lately
+        .iter()
+        .filter_map(|row| {
+            let experience = Experience::of(row)?;
+            Some((
+                experience.thing.kind(),
+                now.signed_duration_since(row.created_at.with_timezone(&Utc)),
+            ))
+        })
+        .collect();
     let input = json!({
         "myself": myself,
         "lately": lately_view,
+        "sameThingLately": myriad_merope::doing::same_run(&kinds),
         "yourViews": super::views::held(db, 5).await,
         "whoYouHaveBeen": super::self_story::current(db).await,
         "options": option_views,

@@ -136,6 +136,9 @@ struct Case {
     /// she can make this month.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     stickers: Vec<String>,
+    /// What she has been doing on end, for her choice of what to do next.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    same_thing_lately: Option<String>,
     /// A group's running jokes (handle, how it goes), for the night she
     /// thinks of making one a sticker.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -761,7 +764,7 @@ fn request(case: &Case) -> Value {
             let (system, schema) =
                 super::merope::doing::choice_probe_contract(&case_soul(case), count);
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_choice",
-                "input":json!({"myself":case.myself,"lately":case.lately,"options":options}).to_string()})
+                "input":json!({"myself":case.myself,"lately":case.lately,"sameThingLately":case.same_thing_lately,"options":options}).to_string()})
         }
         "bits" => {
             let (system, schema) =
