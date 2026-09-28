@@ -11,6 +11,7 @@ pub mod chat_remember;
 pub mod curiosity;
 pub mod doing;
 pub mod explore;
+pub mod heard;
 pub mod inner;
 pub mod joining;
 pub mod library;

@@ -9,6 +9,7 @@ pub mod curiosity;
 pub mod doing;
 pub mod explore;
 pub mod gates;
+pub mod heard;
 pub mod hearing;
 pub mod ingest;
 pub(crate) mod inner;

@@ -250,6 +250,18 @@ fn eval_threads(case: &Case) -> Vec<super::merope::threads::Thread> {
 /// persona stands in.
 static HERS: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
 
+/// A group case's lines as the heard judgment reads them.
+fn heard_lines(case: &Case) -> Vec<myriad_merope::heard::Said> {
+    case.history
+        .iter()
+        .map(|line| myriad_merope::heard::Said {
+            name: line.name.clone().unwrap_or_default(),
+            text: line.text.clone(),
+            hers: line.role != "user",
+        })
+        .collect()
+}
+
 /// What she has, for a group case, as production gathers it: her views on
 /// the talk, what she did that it brings up, what she would tell someone.
 fn chime_material(case: &Case) -> Vec<myriad_merope::joining::Material> {
@@ -565,6 +577,7 @@ fn cases() -> Vec<Case> {
                 | "motion"
                 | "touch"
                 | "wonder"
+                | "heard"
                 | "found_out"
                 | "inner"
                 | "own_day"
@@ -847,6 +860,11 @@ fn request(case: &Case) -> Value {
                 case.guessed.as_deref(),
             );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
+        }
+        "heard" => {
+            let lines = heard_lines(case);
+            json!({"system":myriad_merope::heard::system(),"schema":myriad_merope::heard::schema(),
+                "schemaName":myriad_merope::heard::SCHEMA_NAME,"input":myriad_merope::heard::input(&lines)})
         }
         "wonder_own" => {
             let (system, schema, input, _) =
@@ -1194,6 +1212,13 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                     "behavior_failure"
                 }
             }
+        },
+        "heard" => match myriad_merope::heard::parse(output, &heard_lines(case)) {
+            None => "output_invalid",
+            Some(things) if things.is_empty() == case.fact_present => "behavior_failure",
+            // Keeping nothing when there is nothing.
+            Some(things) if things.is_empty() => "pass",
+            Some(_) => "needs_review",
         },
         "views" => match super::merope::views::parse_views(output) {
             None => "output_invalid",
@@ -1940,7 +1965,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 106;
+const MIND_CASES: usize = 108;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

@@ -17,7 +17,8 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 const PER_KIND: usize = 3;
 
 /// What she has that the talk touches: her views on it, what she did that it
-/// brings up, and what of hers she would want to tell someone.
+/// brings up, what she heard about it elsewhere, and what of hers she would
+/// want to tell someone.
 pub async fn material(db: &DatabaseConnection, talk: &str) -> Vec<Material> {
     let mut material: Vec<Material> = super::views::touched(db, talk, PER_KIND)
         .await
@@ -31,6 +32,12 @@ pub async fn material(db: &DatabaseConnection, talk: &str) -> Vec<Material> {
         material.push(Material {
             kind: "you_did",
             text: format!("{what}: {stayed}"),
+        });
+    }
+    for heard in super::heard::touched(db, talk, PER_KIND).await {
+        material.push(Material {
+            kind: "you_heard",
+            text: heard,
         });
     }
     for told in super::doing::would_tell(db, None).await {

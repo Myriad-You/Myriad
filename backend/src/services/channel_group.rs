@@ -273,6 +273,12 @@ const CONVERSATION_LINES: usize = 15;
 const LOOP_ROUNDS: usize = 20;
 const LOOP_WINDOW: Duration = Duration::from_secs(10 * 60);
 const LOOP_PAUSE: Duration = Duration::from_secs(15 * 60);
+/// What she heard about things (see `merope::heard`) is taken in every this
+/// many lines from others, or, in a slow group, once a few have waited this
+/// long: always while the lines are still in mind.
+const HEARD_EVERY: usize = 20;
+const HEARD_AT_LEAST: usize = 4;
+const HEARD_AFTER: chrono::Duration = chrono::Duration::hours(2);
 /// Replies a day to people outside the community, per group.
 const STRANGER_REPLIES_PER_DAY: u32 = 60;
 
@@ -330,6 +336,8 @@ struct Group {
     waiting: VecDeque<GroupLine>,
     /// Replies today to people outside the community: the day, and how many.
     stranger_replies: Option<(chrono::NaiveDate, u32)>,
+    /// The last line she took in for what she heard (see `take_in`).
+    heard_upto: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 enum Turn {
@@ -470,7 +478,54 @@ pub async fn record(message: &GroupLine) {
         text: bounded(&message.said()),
         hers: false,
     };
-    remember_line(&message.venue(), line).await;
+    let venue = message.venue();
+    remember_line(&venue, line).await;
+    take_in(&venue);
+}
+
+/// Once enough of the group's talk has gone by, take in what she heard in
+/// it about things, on the site owner's account: she keeps it as her own,
+/// with no name and no group on it.
+fn take_in(venue: &str) {
+    let stretch = with_group(venue, |group| {
+        let upto = group.heard_upto;
+        let fresh: Vec<&Line> = group
+            .lines
+            .iter()
+            .filter(|line| upto.is_none_or(|upto| line.at > upto))
+            .collect();
+        let theirs = fresh.iter().filter(|line| !line.hers).count();
+        let waited = fresh
+            .first()
+            .is_some_and(|line| chrono::Utc::now() - line.at >= HEARD_AFTER);
+        if theirs < HEARD_EVERY && !(waited && theirs >= HEARD_AT_LEAST) {
+            return None;
+        }
+        group.heard_upto = fresh.last().map(|line| line.at);
+        Some(
+            fresh
+                .into_iter()
+                .map(|line| myriad_merope::heard::Said {
+                    name: line.name.clone(),
+                    text: line.text.clone(),
+                    hers: line.hers,
+                })
+                .collect::<Vec<_>>(),
+        )
+    })
+    .flatten();
+    let Some(stretch) = stretch else {
+        return;
+    };
+    tokio::spawn(async move {
+        let Ok(db) = crate::services::process_db::database() else {
+            return;
+        };
+        let Ok(owner) = crate::services::site_owner::site_owner_user_id(&db).await else {
+            return;
+        };
+        crate::services::agent::merope::heard::take_in(&db, owner, stretch).await;
+    });
 }
 
 async fn record_hers(venue: &str, text: &str) {
