@@ -34,12 +34,40 @@ export function applyBodyLift(point: { x: number; y: number }, field?: Readonly<
  * No head flattening and no independent deformation of collars/accessories.
  */
 export function applyBodyPitch(point: { x: number; y: number }, field: Readonly<BodyLift>): void {
-  const pitch = Math.max(-0.18, Math.min(0.18, field.pitch ?? 0))
-  if (!pitch || !(field.depth && field.depth > 0)) return
-  const top = field.shoulderY ?? field.upperY
+  if (!resolveBodyPitch(field, pitchScratch)) return
+  const [top, stretch, offset] = pitchScratch
   const span = Math.max(1, field.lowerY - top)
   const t = Math.max(0, Math.min(1, (field.lowerY - point.y) / span))
   const share = t * t * (3 - 2 * t)
+  point.x = field.centerX + (point.x - field.centerX) * (1 + stretch * share)
+  point.y += offset * share + (point.y < top
+    ? (point.y - top) * stretch
+    : stretch * span * t * t * (1 - t))
+}
+
+const pitchScratch = new Float64Array(3)
+
+/**
+ * The part of the pitch projection that depends on the field alone: shoulder
+ * line, upper-body scale minus one, and upper-body offset. It is the only part
+ * that needs trigonometry, so the CPU resolves it once per frame and the shader
+ * receives numbers. GLSL ES leaves highp sin/cos accuracy to the implementation;
+ * headless Chromium's is off by about 1e-4, which moved the head 0.07 px away
+ * from the CPU projection that picking and support sampling use.
+ */
+export function bodyPitchUniform(field: Readonly<BodyLift> | undefined, out: Float32Array): Float32Array {
+  if (field) resolveBodyPitch(field, pitchScratch)
+  else pitchScratch.fill(0)
+  out.set(pitchScratch)
+  return out
+}
+
+function resolveBodyPitch(field: Readonly<BodyLift>, out: Float64Array): boolean {
+  const top = field.shoulderY ?? field.upperY
+  out[0] = top; out[1] = 0; out[2] = 0
+  const pitch = Math.max(-0.18, Math.min(0.18, field.pitch ?? 0))
+  if (!pitch || !(field.depth && field.depth > 0)) return false
+  const span = Math.max(1, field.lowerY - top)
   const depth = Math.min(field.depth, span * 0.45)
   // Project an upper-body frame around an interior reference, not the cut.
   // The lower constraint is resolved by a Hermite transition with matched
@@ -50,34 +78,22 @@ export function applyBodyPitch(point: { x: number; y: number }, field: Readonly<
   const rotatedZ = localY * s + depth * c
   const focal = Math.max(span * 6, depth * 12)
   const upperScale = (focal - depth) / (focal - rotatedZ)
-  const offset = rotatedY * upperScale - localY
-  const scale = 1 + (upperScale - 1) * share
-  point.x = field.centerX + (point.x - field.centerX) * scale
-  point.y += offset * share + (point.y < top
-    ? (point.y - top) * (upperScale - 1)
-    : (upperScale - 1) * span * t * t * (1 - t))
+  out[1] = upperScale - 1
+  out[2] = rotatedY * upperScale - localY
+  return true
 }
 
 /** Keep the shader equation alongside the CPU equation used by picking/physics. */
 export const BODY_LIFT_GLSL = `
+// pose = bodyPitchUniform(): shoulder line, upper-body scale - 1, upper-body offset.
 vec2 bodyPitch(vec2 p, vec4 f, vec3 pose) {
-  float pitch = clamp(pose.x, -0.18, 0.18);
-  if (pitch == 0.0 || pose.y <= 0.0) return p;
-  float span = max(1.0, f.z - pose.z);
+  if (pose.y == 0.0 && pose.z == 0.0) return p;
+  float span = max(1.0, f.z - pose.x);
   float t = clamp((f.z - p.y) / span, 0.0, 1.0);
   float share = t * t * (3.0 - 2.0 * t);
-  float depth = min(pose.y, span * 0.45);
-  float ly = -span * 0.55;
-  float c = cos(pitch), s = sin(pitch);
-  float ry = ly * c - depth * s;
-  float rz = ly * s + depth * c;
-  float focal = max(span * 6.0, depth * 12.0);
-  float upperScale = (focal - depth) / (focal - rz);
-  float offset = ry * upperScale - ly;
-  float scale = 1.0 + (upperScale - 1.0) * share;
-  float correction = p.y < pose.z ? (p.y - pose.z) * (upperScale - 1.0)
-    : (upperScale - 1.0) * span * t * t * (1.0 - t);
-  return vec2(f.x + (p.x - f.x) * scale, p.y + offset * share + correction);
+  float correction = p.y < pose.x ? (p.y - pose.x) * pose.y
+    : pose.y * span * t * t * (1.0 - t);
+  return vec2(f.x + (p.x - f.x) * (1.0 + pose.y * share), p.y + pose.z * share + correction);
 }
 vec2 bodyLift(vec2 p, vec4 f) {
   float span = max(1.0, f.z - f.y);
