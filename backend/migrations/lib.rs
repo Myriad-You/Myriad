@@ -20,12 +20,6 @@ mod federation;
 #[path = "006_oauth_identities.rs"]
 mod oauth_identities;
 
-#[path = "007_local_music.rs"]
-mod local_music;
-
-#[path = "008_local_music_playlists.rs"]
-mod local_music_playlists;
-
 mod ai_cost_ledger_rename;
 mod ai_quota_usage_rename;
 mod phantasi_legacy_rename;
@@ -89,8 +83,6 @@ impl MigratorTrait for Migrator {
             Box::new(agent_system::Migration),
             Box::new(federation::Migration),
             Box::new(oauth_identities::Migration),
-            Box::new(local_music::Migration),
-            Box::new(local_music_playlists::Migration),
         ]
     }
 }
@@ -203,8 +195,6 @@ mod tests {
                 "004_agent_system",
                 "005_federation",
                 "006_oauth_identities",
-                "007_local_music",
-                "008_local_music_playlists",
             ]
         );
         assert!(
@@ -220,7 +210,7 @@ mod tests {
         let keep = keep_migration_versions();
         let sql = discard_unknown_history_sql(keep.len());
         assert!(sql.starts_with("DELETE FROM seaql_migrations WHERE version NOT IN ("));
-        assert_eq!(keep.len(), 8);
+        assert_eq!(keep.len(), 6);
         for index in 1..=keep.len() {
             assert!(sql.contains(&format!("${index}")));
         }

@@ -508,6 +508,20 @@ CREATE TABLE IF NOT EXISTS agent_proactive_messages (
 CREATE INDEX IF NOT EXISTS idx_agent_proactive_user_created
     ON agent_proactive_messages (user_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS merope_stickers (
+    id VARCHAR(64) PRIMARY KEY,
+    picture TEXT NOT NULL,
+    meaning TEXT NOT NULL,
+    venue VARCHAR(96),
+    asset_id VARCHAR(512) NOT NULL,
+    identity VARCHAR(64) NOT NULL,
+    sent INTEGER NOT NULL DEFAULT 0,
+    last_sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_merope_stickers_created
+    ON merope_stickers (created_at);
+
 CREATE TABLE IF NOT EXISTS agent_intentions (
     id VARCHAR(64) PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -579,6 +593,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_memories_venue_created
             .get_connection()
             .execute_unprepared(
                 r#"
+DROP TABLE IF EXISTS merope_stickers;
 DROP TABLE IF EXISTS agent_memories;
 DROP TABLE IF EXISTS agent_autonomy_grants;
 DROP TABLE IF EXISTS agent_proactive_messages;

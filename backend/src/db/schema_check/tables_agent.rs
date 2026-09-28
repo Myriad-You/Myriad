@@ -4,6 +4,24 @@ use super::types::{ColumnDef, TableDef};
 pub(crate) fn tables() -> Vec<TableDef> {
     vec![
         TableDef {
+            name: "merope_stickers".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("picture", "text").not_null(),
+                ColumnDef::new("meaning", "text").not_null(),
+                ColumnDef::new("venue", "character varying"),
+                ColumnDef::new("asset_id", "character varying").not_null(),
+                ColumnDef::new("identity", "character varying").not_null(),
+                ColumnDef::new("sent", "integer")
+                    .not_null()
+                    .default_value("0"),
+                ColumnDef::new("last_sent_at", "timestamp with time zone"),
+                ColumnDef::new("created_at", "timestamp with time zone")
+                    .not_null()
+                    .default_value("now()"),
+            ],
+        },
+        TableDef {
             name: "agent_tasks".to_string(),
             columns: vec![
                 ColumnDef {

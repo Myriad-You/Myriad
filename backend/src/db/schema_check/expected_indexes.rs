@@ -4,6 +4,12 @@ use super::types::IndexDef;
 pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
     vec![
         IndexDef {
+            name: "idx_merope_stickers_created".into(),
+            table: "merope_stickers".into(),
+            columns: vec!["created_at".into()],
+            is_unique: false,
+        },
+        IndexDef {
             name: "idx_media_assets_created_id".into(),
             table: "media_assets".into(),
             columns: vec!["created_at".into(), "id".into()],

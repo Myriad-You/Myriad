@@ -1,4 +1,5 @@
-//! Expected schema for local music library tables (migrations 007–008).
+//! Expected schema for local music library tables (migration 003,
+//! `local_music.sql`; healed by `ensure_local_music_tables`).
 use super::types::{ColumnDef, TableDef};
 
 pub(crate) fn tables() -> Vec<TableDef> {

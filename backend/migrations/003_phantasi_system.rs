@@ -1023,6 +1023,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_source_applications_pending_feed
             .execute_unprepared(include_str!("media_asset_model.sql"))
             .await?;
 
+        // Local music over media_assets; same DDL as
+        // schema_check::ensure_local_music_tables.
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("local_music.sql"))
+            .await?;
+
         // 与 schema_check::ensure_phantasi_state_revision /
         // ensure_phantasi_content_revision 同一段 DDL。
         manager
@@ -1072,7 +1079,7 @@ CREATE TRIGGER phantasi_content_revision BEFORE UPDATE ON phantasi_items FOR EAC
         manager
             .get_connection()
             .execute_unprepared(
-                "DROP TABLE IF EXISTS phantasi_source_applications; DROP TABLE IF EXISTS media_migration_jobs; DROP TABLE IF EXISTS media_url_aliases; DROP TABLE IF EXISTS media_references; DROP TABLE IF EXISTS media_assets; DROP TABLE IF EXISTS phantasi_note_authors; DROP TABLE IF EXISTS phantasi_note_docs",
+                "DROP TABLE IF EXISTS local_music_playlist_tracks; DROP TABLE IF EXISTS local_music_playlists; DROP TABLE IF EXISTS local_music_tracks; DROP TABLE IF EXISTS phantasi_source_applications; DROP TABLE IF EXISTS media_migration_jobs; DROP TABLE IF EXISTS media_url_aliases; DROP TABLE IF EXISTS media_references; DROP TABLE IF EXISTS media_assets; DROP TABLE IF EXISTS phantasi_note_authors; DROP TABLE IF EXISTS phantasi_note_docs",
             )
             .await?;
 

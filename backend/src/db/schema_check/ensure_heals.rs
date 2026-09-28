@@ -122,9 +122,31 @@ CREATE TABLE IF NOT EXISTS agent_proactive_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_proactive_user_created
     ON agent_proactive_messages (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS merope_stickers (
+    id VARCHAR(64) PRIMARY KEY,
+    picture TEXT NOT NULL,
+    meaning TEXT NOT NULL,
+    venue VARCHAR(96),
+    asset_id VARCHAR(512) NOT NULL,
+    identity VARCHAR(64) NOT NULL,
+    sent INTEGER NOT NULL DEFAULT 0,
+    last_sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_merope_stickers_created
+    ON merope_stickers (created_at);
 "#,
     )
     .await?;
+    Ok(())
+}
+
+/// 本地音乐曲库兜底（`migrations/003` 已 CREATE，同一份 `local_music.sql`）；
+/// 依赖 `media_assets`，须在 `ensure_media_assets_table` 之后执行。
+pub(crate) async fn ensure_local_music_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/local_music.sql"))
+        .await?;
     Ok(())
 }
 
