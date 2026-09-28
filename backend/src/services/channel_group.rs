@@ -101,6 +101,22 @@ impl From<TelegramGroupMessage> for GroupLine {
     }
 }
 
+impl From<myriad_agent_rules::onebot::decode::OneBotGroupLine> for GroupLine {
+    fn from(message: myriad_agent_rules::onebot::decode::OneBotGroupLine) -> Self {
+        Self {
+            platform: ChannelPlatform::OneBot,
+            chat: message.group_id,
+            message_id: message.message_id,
+            thread: None,
+            from: message.user_id,
+            display_name: message.display_name,
+            text: message.text,
+            addressed: message.addressed,
+            reply_to: message.reply_to,
+        }
+    }
+}
+
 impl From<DiscordGroupMessage> for GroupLine {
     fn from(message: DiscordGroupMessage) -> Self {
         Self {
@@ -142,6 +158,21 @@ async fn send_reply(line: &GroupLine, token: &str, text: &str) -> Result<(), Con
             )
             .await
         }
+        ChannelPlatform::OneBot => {
+            let Some(action) = myriad_agent_rules::onebot::encode::encode_group_message(
+                &line.chat,
+                &[myriad_agent_rules::onebot::encode::encode_text_segment(
+                    text,
+                )],
+            ) else {
+                return Err(ConnectFailureKind::Permanent);
+            };
+            match crate::services::onebot_send::send_action(action).await {
+                Ok(None) => Ok(()),
+                Ok(Some(kind)) => Err(kind),
+                Err(_) => Err(ConnectFailureKind::Transient),
+            }
+        }
         ChannelPlatform::Qq | ChannelPlatform::Feishu => Err(ConnectFailureKind::Permanent),
     }
 }
@@ -153,6 +184,11 @@ async fn send_typing(line: &GroupLine, token: &str) {
         }
         ChannelPlatform::Discord => {
             let _ = crate::services::discord_bot::send_typing(token, &line.chat).await;
+        }
+        ChannelPlatform::OneBot => {
+            // Group typing is not a documented NapCat action. Private typing
+            // uses `set_input_status` with a user id, which a group line has
+            // no reason to poke.
         }
         ChannelPlatform::Qq | ChannelPlatform::Feishu => {}
     }

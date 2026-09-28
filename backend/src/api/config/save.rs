@@ -594,6 +594,19 @@ pub(crate) fn collect_database_updates_with_vendor(
                 "feishu_bot_app_secret",
                 JsonValue::String(field.value.clone()),
             ),
+            "onebot_bot_enabled" => (
+                "onebot_bot_enabled",
+                JsonValue::Bool(field.value == "true" || field.value == "1"),
+            ),
+            "onebot_bot_ws_url" => ("onebot_bot_ws_url", JsonValue::String(field.value.clone())),
+            "onebot_bot_groups_enabled" => (
+                "onebot_bot_groups_enabled",
+                JsonValue::Bool(field.value == "true" || field.value == "1"),
+            ),
+            "onebot_bot_access_token" => (
+                "onebot_bot_access_token",
+                JsonValue::String(field.value.clone()),
+            ),
             "ai_vendor_sources" => {
                 let parsed = serde_json::from_str::<JsonValue>(&field.value)
                     .map_err(|error| format!("invalid ai_vendor_sources JSON: {error}"))?;
@@ -632,6 +645,9 @@ pub(crate) fn collect_database_updates_with_vendor(
                 | "discord_bot_enabled"
                 | "feishu_bot_enabled"
                 | "feishu_bot_app_id"
+                | "onebot_bot_enabled"
+                | "onebot_bot_groups_enabled"
+                | "onebot_bot_ws_url"
         );
         if is_masked(&field.value) {
             continue;

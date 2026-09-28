@@ -475,6 +475,32 @@ mod tests {
     }
 
     #[test]
+    fn onebot_table_is_plain_text_not_a_markdown_segment() {
+        let (event, parked) = map_completed(
+            &serde_json::json!({
+                "success": true,
+                "responseType": "answer",
+                "message": "查到了",
+                "data": [{"name": "A"}],
+                "dataDisplay": {
+                    "type": "table",
+                    "columns": [{"field": "name", "title": "名称"}]
+                }
+            }),
+            "查",
+            &myriad_agent_rules::onebot::rules::onebot_private_capabilities(),
+        );
+        let ChannelEvent::Answer { message, .. } = event else {
+            panic!("{event:?}");
+        };
+        assert!(message.contains("查到了"));
+        assert!(message.contains("名称"));
+        assert!(message.contains('A'));
+        assert!(!message.contains("| 名称 |"));
+        assert!(parked.is_none());
+    }
+
+    #[test]
     fn frontend_action_points_at_the_session() {
         let (event, parked) = map_completed(
             &serde_json::json!({

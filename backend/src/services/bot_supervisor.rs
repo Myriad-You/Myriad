@@ -133,6 +133,7 @@ mod tests {
             ("feishu_bot", include_str!("feishu_bot.rs")),
             ("discord_bot", include_str!("discord_bot.rs")),
             ("telegram_bot", include_str!("telegram_bot.rs")),
+            ("onebot_bot", include_str!("onebot_bot.rs")),
         ] {
             assert!(
                 source.contains("supervise::<"),

@@ -39,6 +39,7 @@ pub const QQ: PairingChannel = PairingChannel::of(ChannelPlatform::Qq);
 pub const TELEGRAM: PairingChannel = PairingChannel::of(ChannelPlatform::Telegram);
 pub const DISCORD_DM: PairingChannel = PairingChannel::of(ChannelPlatform::Discord);
 pub const FEISHU: PairingChannel = PairingChannel::of(ChannelPlatform::Feishu);
+pub const ONEBOT: PairingChannel = PairingChannel::of(ChannelPlatform::OneBot);
 
 /// Pairing rows share `user_identities` with OAuth, but they are not login identities.
 /// `discord` is the login / data-platform slug and must stay out of this set.
@@ -47,8 +48,9 @@ pub fn is_pairing_provider(provider: &str) -> bool {
 }
 
 /// SQL predicate excluding pairing rows from OAuth / avatar identity queries.
+/// Kept in sync with `ChannelPlatform::ALL` by `sql_pairing_predicate_lists_every_platform_provider`.
 pub const SQL_NOT_PAIRING_PROVIDER: &str =
-    "LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu')";
+    "LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu', 'onebot')";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredPairingCode {

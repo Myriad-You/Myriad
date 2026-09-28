@@ -598,6 +598,12 @@
       "frontend": "설정 → Agent → 봇. 오른쪽 위에서 Feishu를 추가해요.",
       "notes": "Use an internal company app, not a group custom-bot webhook. AppSecret never appears in page plaintext or error text."
     },
+    "onebotBot": {
+      "what": "Send one request through the QQ account logged into NapCat and get the result back in the same private chat.",
+      "chain": "① Turn on, paste NapCat's forward WebSocket URL and access token, then save. The tag is the worker: offline / connecting / online / rejected / reconnecting.\n② There is no separate test button. A bad token is known only after NapCat accepts the socket and rejects it.\n③ The token is write-only: reads come back masked, empty clears it, and submitting the mask does not overwrite the stored value. The URL can be cleared.\n④ Off, a missing URL, or a rejected token stops the worker. Network drops reconnect.\n⑤ Once online, bind your QQ here: copy the code and send it to that account. Codes expire; generate another.\n⑥ After pairing, send a request. You can send stop, new chat, and current task.",
+      "frontend": "Settings → Agent → Bots. Add OneBot from the top right.",
+      "notes": "This is not the official QQ bot and it is not QQ login. The URL and token do not appear in errors. The token is never read back in clear text."
+    },
     "heartbeat": {
       "what": "Agent가 시간표대로 일을 하나 하게 해요. 당신이 보고 있지 않아도 돼요.",
       "chain": "1) 이 항목에서 작업을 더해요. 이름, 시간표(기본값 또는 cron), 할 일.\n2) 시간이 되면 Agent가 일 처리 단계로 그 문장을 실행해요.\n3) 목록에서 켜고 고치고 지울 수 있어요. 지난 결과는 줄에 써져요.\n4) 인격 기분과 상관없어요. Heartbeat는 기분에 막히지 않아요.\n5) 로그인한 뒤에만 이 작업을 읽고 쓸 수 있어요.",

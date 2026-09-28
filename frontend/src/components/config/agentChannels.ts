@@ -3,6 +3,7 @@ export const AGENT_CHANNEL_IDS = [
   'telegram',
   'discord',
   'feishu',
+  'onebot',
 ] as const
 
 export type AgentChannelId = (typeof AGENT_CHANNEL_IDS)[number]
@@ -26,6 +27,10 @@ export const AGENT_CHANNEL_FIELDS: Record<
   feishu: {
     enabled: 'feishu_bot_enabled',
     credentials: ['feishu_bot_app_id', 'feishu_bot_app_secret'],
+  },
+  onebot: {
+    enabled: 'onebot_bot_enabled',
+    credentials: ['onebot_bot_ws_url', 'onebot_bot_access_token'],
   },
 }
 

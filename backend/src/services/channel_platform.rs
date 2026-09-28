@@ -14,10 +14,17 @@ pub enum ChannelPlatform {
     Telegram,
     Discord,
     Feishu,
+    OneBot,
 }
 
 impl ChannelPlatform {
-    pub const ALL: [Self; 4] = [Self::Qq, Self::Telegram, Self::Discord, Self::Feishu];
+    pub const ALL: [Self; 5] = [
+        Self::Qq,
+        Self::Telegram,
+        Self::Discord,
+        Self::Feishu,
+        Self::OneBot,
+    ];
 
     /// Platform slug used in session keys and logs.
     pub const fn slug(self) -> &'static str {
@@ -26,17 +33,21 @@ impl ChannelPlatform {
             Self::Telegram => "telegram",
             Self::Discord => "discord",
             Self::Feishu => "feishu",
+            Self::OneBot => "onebot",
         }
     }
 
     /// `user_identities.provider` of a pairing. Discord pairings are
     /// `discord_dm`: `discord` is the OAuth login / data-platform provider.
+    /// OneBot is its own platform, not a second QQ transport: a QQ number
+    /// reached through NapCat is a different identity from the official bot's.
     pub const fn provider(self) -> &'static str {
         match self {
             Self::Qq => "qq",
             Self::Telegram => "telegram",
             Self::Discord => "discord_dm",
             Self::Feishu => "feishu",
+            Self::OneBot => "onebot",
         }
     }
 
@@ -53,6 +64,7 @@ impl ChannelPlatform {
             Self::Telegram => "telegram_dm_session",
             Self::Discord => "discord_dm_session",
             Self::Feishu => "feishu_p2p_session",
+            Self::OneBot => "onebot_private_session",
         }
     }
 
@@ -62,6 +74,7 @@ impl ChannelPlatform {
             Self::Telegram => "telegram_dm_pending",
             Self::Discord => "discord_dm_pending",
             Self::Feishu => "feishu_p2p_pending",
+            Self::OneBot => "onebot_private_pending",
         }
     }
 
@@ -71,6 +84,7 @@ impl ChannelPlatform {
             Self::Telegram => "telegram_dm_outbound",
             Self::Discord => "discord_dm_outbound",
             Self::Feishu => "feishu_p2p_outbound",
+            Self::OneBot => "onebot_private_outbound",
         }
     }
 
@@ -80,6 +94,7 @@ impl ChannelPlatform {
             Self::Telegram => "telegram_dm_update",
             Self::Discord => "discord_dm_msg",
             Self::Feishu => "feishu_p2p_msg",
+            Self::OneBot => "onebot_private_msg",
         }
     }
 
@@ -89,10 +104,13 @@ impl ChannelPlatform {
             Self::Telegram => "telegram_pairing_code",
             Self::Discord => "discord_dm_pairing_code",
             Self::Feishu => "feishu_pairing_code",
+            Self::OneBot => "onebot_pairing_code",
         }
     }
 
     /// `configurations` keys: (enabled, app id or "", secret).
+    /// OneBot's second slot is its WebSocket URL, which is routing information
+    /// rather than a credential: it is readable back, unlike the access token.
     pub const fn config_keys(self) -> (&'static str, &'static str, &'static str) {
         match self {
             Self::Qq => ("qq_bot_enabled", "qq_bot_app_id", "qq_bot_app_secret"),
@@ -103,6 +121,11 @@ impl ChannelPlatform {
                 "feishu_bot_app_id",
                 "feishu_bot_app_secret",
             ),
+            Self::OneBot => (
+                "onebot_bot_enabled",
+                "onebot_bot_ws_url",
+                "onebot_bot_access_token",
+            ),
         }
     }
 
@@ -112,6 +135,7 @@ impl ChannelPlatform {
             Self::Telegram => config.telegram_bot_enabled,
             Self::Discord => config.discord_bot_enabled,
             Self::Feishu => config.feishu_bot_enabled,
+            Self::OneBot => config.onebot_bot_enabled,
         }
     }
 
@@ -127,6 +151,10 @@ impl ChannelPlatform {
             Self::Feishu => (
                 config.feishu_bot_app_id.as_str(),
                 config.feishu_bot_app_secret.as_deref(),
+            ),
+            Self::OneBot => (
+                config.onebot_bot_ws_url.as_str(),
+                config.onebot_bot_access_token.as_deref(),
             ),
         }
     }
