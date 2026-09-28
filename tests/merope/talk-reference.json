@@ -10,6 +10,19 @@
       "charsP90": 15,
       "endMark": 0.03,
       "bang": 0.0
+    },
+    "answerToAt": {
+      "source": "Same group and day: how long a member took to answer a line that @'d them, when they answered within 10 minutes (19 answers); she answered after 3 s at the median then.",
+      "medianSeconds": 27,
+      "p25Seconds": 19,
+      "p75Seconds": 54,
+      "answers": 19
+    },
+    "nextInARow": {
+      "source": "Same group and day: seconds between a member's messages sent in a row (54 pairs).",
+      "medianSeconds": 6,
+      "p25Seconds": 3,
+      "p75Seconds": 8
     }
   }
 }

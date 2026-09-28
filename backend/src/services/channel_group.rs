@@ -234,10 +234,9 @@ fn without_reply_mark(reply: &str) -> String {
 }
 
 /// Her reply, chunk by chunk; whether any of it reached the group.
-async fn deliver(line: &GroupLine, token: &str, reply: &str) -> bool {
-    use myriad_agent_rules::channel::{
-        as_messages, as_messages_at_most, split_channel_text, typing_pause,
-    };
+async fn deliver(line: &GroupLine, token: &str, reply: &str, began: Instant) -> bool {
+    use crate::services::agent::merope::timing::typing;
+    use myriad_agent_rules::channel::{as_messages, as_messages_at_most, split_channel_text};
     let venue = line.venue();
     let people = people(&venue);
     let room = room(&venue);
@@ -254,9 +253,16 @@ async fn deliver(line: &GroupLine, token: &str, reply: &str) -> bool {
             Some(room) => myriad_merope::talk_shape::typed_like(&message, room),
             None => message,
         };
-        if index > 0 {
+        // Typing it takes as long as it takes; the first she was already
+        // at while she thought.
+        let left = if index == 0 {
+            typing(&message).saturating_sub(began.elapsed())
+        } else {
+            typing(&message)
+        };
+        if !left.is_zero() {
             send_typing(line, token).await;
-            tokio::time::sleep(typing_pause(message.chars().count())).await;
+            tokio::time::sleep(left).await;
         }
         for chunk in split_channel_text(&message, text_limit(line.platform)) {
             let pieces = myriad_agent_rules::mentions::split_mentions(&chunk, &people);
@@ -327,6 +333,9 @@ const HEARD_AFTER: chrono::Duration = chrono::Duration::hours(2);
 /// Replies a day to people outside the community, per group.
 const STRANGER_REPLIES_PER_DAY: u32 = 60;
 
+/// A wait before she sees a line longer than this goes on apart from the
+/// caller, which holds an ingress permit while it waits.
+const HOLD_AT_MOST: Duration = Duration::from_secs(120);
 /// Longest she takes over one group reply before giving up on it.
 const TURN_DEADLINE: Duration = Duration::from_secs(90);
 const TYPING_EVERY: Duration = Duration::from_secs(4);
@@ -772,6 +781,22 @@ fn said_now(message: &GroupLine) -> String {
     .unwrap_or_else(|| message.said())
 }
 
+/// How long ago `message` was said, when that is long enough ago that she
+/// knows she is only now seeing it.
+fn seen_late(message: &GroupLine) -> Option<String> {
+    with_group(&message.venue(), |group| {
+        group
+            .lines
+            .iter()
+            .rev()
+            .find(|line| !line.hers && line.message_id.as_deref() == Some(&message.message_id))
+            .map(|line| chrono::Utc::now() - line.at)
+    })
+    .flatten()
+    .filter(|age| *age >= LATE)
+    .map(myriad_merope::doing::ago_text)
+}
+
 /// `@123` (someone @-ed by their platform id, as QQ gives it without a
 /// name) as `@name`, for whoever spoke in the group lately.
 fn by_name(text: &str, people: &[(String, String)]) -> String {
@@ -900,14 +925,35 @@ fn end_turn(venue: &str, replied: bool) {
     });
 }
 
-/// Answer one group line that spoke to her: now, or when she is done with
-/// the one on hand.
-pub async fn handle(mut message: GroupLine, token: String) {
+/// Answer one group line that spoke to her, once she sees it (see
+/// `merope::timing`): at once in talk she is in, otherwise when she next
+/// looks, and after she wakes if she is asleep; then now, or when she is
+/// done with the one on hand. A long wait does not hold the caller.
+pub async fn handle(message: GroupLine, token: String) {
+    use crate::services::agent::merope::timing;
     let venue = message.venue();
-    with_group(&venue, |group| {
-        group.called = Some(Instant::now());
+    let talking = with_group(&venue, |group| {
         taken_up(group);
-    });
+        in_talk(group)
+    })
+    .unwrap_or(false);
+    let at = timing::where_she_is(talking, true);
+    let wait = timing::until_read(at, &message.text);
+    info!(%venue, ?at, seconds = wait.as_secs(), "[Group] she will see the line");
+    if wait > HOLD_AT_MOST {
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            take_up(message, token).await;
+        });
+        return;
+    }
+    tokio::time::sleep(wait).await;
+    take_up(message, token).await;
+}
+
+async fn take_up(mut message: GroupLine, token: String) {
+    let venue = message.venue();
+    with_group(&venue, |group| group.called = Some(Instant::now()));
     loop {
         // Busy or not is decided under the same lock that parks the line, so
         // the turn on hand cannot end without seeing it.
@@ -1020,9 +1066,16 @@ fn in_talk(group: &Group) -> bool {
 }
 
 /// How long until she glances at a group she is not in: once what she is
-/// doing on her own is done, and then a while, as a person looks at their
-/// phone.
+/// doing on her own is done (or she is up, if asleep), and then a while, as
+/// a person looks at their phone.
 fn glance_after() -> Duration {
+    // Asleep, she looks once she is up.
+    if let myriad_merope::timing::Where::Asleep { wakes_in } =
+        crate::services::agent::merope::timing::where_she_is(false, true)
+    {
+        return Duration::from_secs_f64(wakes_in)
+            + Duration::from_secs(rand::random_range(GLANCE_AFTER_SECONDS));
+    }
     let free_in = crate::services::agent::merope::doing::current()
         .and_then(|doing| (doing.ends - chrono::Utc::now()).to_std().ok())
         .unwrap_or_default()
@@ -1248,6 +1301,7 @@ async fn answer(message: &GroupLine, token: &str, chime: Option<String>) -> bool
     let Some(binding) = current_binding(&db, message, user_id).await else {
         return false;
     };
+    let began = Instant::now();
     let Some((reply, sticker)) = run_turn(&db, message, user_id, token, chime).await else {
         return false;
     };
@@ -1256,7 +1310,7 @@ async fn answer(message: &GroupLine, token: &str, chime: Option<String>) -> bool
         return false;
     }
     let reply = without_reply_mark(&reply);
-    let sent = say_and_send(message, token, &reply, sticker).await;
+    let sent = say_and_send(message, token, &reply, sticker, began).await;
     if sent {
         answered(message);
     }
@@ -1270,11 +1324,12 @@ async fn say_and_send(
     token: &str,
     reply: &str,
     sticker: Option<serde_json::Value>,
+    began: Instant,
 ) -> bool {
     let venue = message.venue();
     let mut sent = false;
     if !reply.trim().is_empty() {
-        sent = deliver(message, token, reply).await;
+        sent = deliver(message, token, reply, began).await;
         if sent {
             record_hers(&venue, reply).await;
         }
@@ -1384,6 +1439,7 @@ async fn answer_stranger(
         name: message.display_name.chars().take(40).collect(),
     };
     send_typing(message, token).await;
+    let began = Instant::now();
     let transcript = transcript(&venue, Some(&message.message_id));
     let Ok(Some((reply, sticker))) = tokio::time::timeout(
         TURN_DEADLINE,
@@ -1402,7 +1458,7 @@ async fn answer_stranger(
         return false;
     };
     let reply = without_reply_mark(&reply);
-    let sent = say_and_send(message, token, &reply, sticker).await;
+    let sent = say_and_send(message, token, &reply, sticker, began).await;
     if sent {
         answered(message);
         crate::services::agent::merope::strangers::enqueue_after(
@@ -1471,6 +1527,7 @@ async fn run_turn(
                 group: Some(crate::services::agent::run::GroupTurn {
                     transcript: transcript(&venue, Some(&message.message_id)),
                     room: room(&venue),
+                    late: seen_late(message),
                     venue,
                     chime,
                     speaker: message.display_name.clone(),
@@ -1636,9 +1693,16 @@ mod tests {
         // Not in the talk: one glance is planned, not one per line.
         notice(line(chat, 1, "阿明", "周五聚餐吗"), String::new());
         let planned = with_group(&venue(chat), |group| group.glance_at).flatten();
+        // Busy at most so long first, or asleep until she is up.
+        let first = match crate::services::agent::merope::timing::where_she_is(false, true) {
+            myriad_merope::timing::Where::Asleep { wakes_in } => {
+                Duration::from_secs_f64(wakes_in + 60.0)
+            }
+            _ => LONGEST_BUSY,
+        };
         assert!(planned.is_some_and(|at| {
             let wait = at - Instant::now();
-            wait <= Duration::from_secs(*GLANCE_AFTER_SECONDS.end()) + LONGEST_BUSY
+            wait <= Duration::from_secs(*GLANCE_AFTER_SECONDS.end()) + first
         }));
         notice(line(chat, 2, "小红", "可以"), String::new());
         assert_eq!(
@@ -1938,6 +2002,31 @@ mod tests {
             without_reply_mark("谁暴躁了（回复一下）"),
             "谁暴躁了（回复一下）"
         );
+    }
+
+    #[tokio::test]
+    async fn a_line_she_sees_hours_later_she_knows_she_sees_late() {
+        let chat = -9_005;
+        let asked = line(chat, 1, "阿明", "@bot 在吗");
+        record(&asked).await;
+        assert_eq!(seen_late(&asked), None);
+        with_group(&venue(chat), |group| {
+            group.lines[0].at = chrono::Utc::now() - chrono::Duration::hours(7);
+        });
+        assert_eq!(seen_late(&asked).as_deref(), Some("7 hours ago"));
+    }
+
+    #[tokio::test]
+    async fn the_room_is_how_the_others_type_not_her() {
+        let chat = -9_006;
+        for index in 0..myriad_merope::talk_shape::ROOM_AT_LEAST as i64 {
+            record(&line(chat, index, "阿明", "哈哈哈")).await;
+            record_hers(&venue(chat), "这句话很长很长很长很长很长很长！").await;
+        }
+        let room = room(&venue(chat)).unwrap();
+        assert_eq!(room.messages, myriad_merope::talk_shape::ROOM_AT_LEAST);
+        assert_eq!(room.chars_median, 3);
+        assert_eq!(room.bang, 0.0);
     }
 
     #[tokio::test]

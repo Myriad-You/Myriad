@@ -98,6 +98,10 @@ pub struct RequestContext {
     /// `myriad_merope::talk_shape`). Server-set only.
     #[serde(skip)]
     pub room: Option<myriad_merope::talk_shape::Shape>,
+    /// In a group, how long ago the line she answers was said, when she only
+    /// sees it a while later. Server-set only.
+    #[serde(skip)]
+    pub late: Option<String>,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.

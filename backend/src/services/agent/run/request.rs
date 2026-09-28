@@ -50,6 +50,7 @@ pub(crate) fn build_request_context(mut ctx: ProcessContext) -> RequestContext {
         chime: None,
         speaker: None,
         room: None,
+        late: None,
     }
 }
 

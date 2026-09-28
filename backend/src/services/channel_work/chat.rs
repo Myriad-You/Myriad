@@ -10,7 +10,9 @@
 //! Her replies are best effort, like a group reply: a restart mid-turn loses
 //! that one reply. Work keeps its own ledger.
 
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures::StreamExt;
@@ -31,7 +33,62 @@ const TYPING_EVERY: Duration = Duration::from_secs(4);
 /// What she handed off still counts as recent this long.
 const HANDED_OFF_FOR: chrono::Duration = chrono::Duration::hours(24);
 const MODEL_IMAGE_EDGE: u32 = 1024;
+/// She is in a chat's talk this long after her last reply there: she sees
+/// what comes at once.
+const IN_TALK: Duration = Duration::from_secs(10 * 60);
 
+/// Messages of a chat she has not seen yet, read together once she does.
+struct Unseen {
+    texts: Vec<String>,
+    images: Vec<ChannelImageRef>,
+}
+
+static UNSEEN: LazyLock<Mutex<HashMap<String, Unseen>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static LAST_REPLY: LazyLock<Mutex<HashMap<String, Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+const CHATS_KEPT: usize = 4096;
+
+/// Whatever happens to the turn, what it was to read is let go, so the
+/// next message is seen afresh.
+struct Seeing<'a>(&'a str);
+
+impl Drop for Seeing<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut unseen) = UNSEEN.lock() {
+            unseen.remove(self.0);
+        }
+    }
+}
+
+/// Keep a message she has not seen: true when it is the first unseen one
+/// in the chat, and so the one to wait on; the rest she reads with it.
+fn take_in(session_key: &str, input: &str, images: &[ChannelImageRef]) -> bool {
+    let Ok(mut unseen) = UNSEEN.lock() else {
+        return false;
+    };
+    if let Some(waiting) = unseen.get_mut(session_key) {
+        waiting.texts.push(input.to_string());
+        waiting.images.extend_from_slice(images);
+        return false;
+    }
+    if unseen.len() >= CHATS_KEPT {
+        return false;
+    }
+    unseen.insert(
+        session_key.to_string(),
+        Unseen {
+            texts: vec![input.to_string()],
+            images: images.to_vec(),
+        },
+    );
+    true
+}
+
+/// A message comes in a private chat. She sees it when she would (see
+/// `merope::timing`; she is not held off by sleep here, as nothing would
+/// keep the message across a restart); what they send meanwhile she reads
+/// with it, and answers once.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_chat_turn(
     db: DatabaseConnection,
@@ -42,7 +99,69 @@ pub(super) async fn start_chat_turn(
     sink: ChannelSink,
     session_key: &str,
 ) {
+    use crate::services::agent::merope::timing;
+    if !take_in(session_key, input, images) {
+        return;
+    }
+    let seeing = Seeing(session_key);
+    let talking = LAST_REPLY
+        .lock()
+        .ok()
+        .and_then(|last| last.get(session_key).copied())
+        .is_some_and(|at| at.elapsed() < IN_TALK);
+    let at = timing::where_she_is(talking, false);
+    let wait = timing::until_read(at, input);
+    tracing::info!(
+        ?at,
+        seconds = wait.as_secs(),
+        "[Channel] she will see the message"
+    );
+    tokio::time::sleep(wait).await;
+    let Some(seen) = UNSEEN
+        .lock()
+        .ok()
+        .and_then(|mut unseen| unseen.remove(session_key))
+    else {
+        return;
+    };
+    drop(seeing);
+    let input = seen
+        .texts
+        .iter()
+        .map(|text| text.trim())
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    answer(
+        db,
+        user_id,
+        work_session_id,
+        &input,
+        &seen.images,
+        sink,
+        session_key,
+    )
+    .await;
+    if let Ok(mut last) = LAST_REPLY.lock() {
+        if last.len() >= CHATS_KEPT {
+            last.retain(|_, at| at.elapsed() < IN_TALK);
+        }
+        last.insert(session_key.to_string(), Instant::now());
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn answer(
+    db: DatabaseConnection,
+    user_id: i32,
+    work_session_id: String,
+    input: &str,
+    images: &[ChannelImageRef],
+    sink: ChannelSink,
+    session_key: &str,
+) {
     sink.send_typing().await;
+    let began = Instant::now();
     let platform = sink.platform();
     let Some(chat_session_id) = chat_session(&db, platform, user_id, session_key).await else {
         let _ = sink.send_text("无法保存通道会话，请稍后重试。").await;
@@ -112,12 +231,17 @@ pub(super) async fn start_chat_turn(
         .into_iter()
         .enumerate()
     {
-        if index > 0 {
+        // Typing takes as long as it takes; the first she was already at
+        // while she thought.
+        let typing = crate::services::agent::merope::timing::typing(&line);
+        let left = if index == 0 {
+            typing.saturating_sub(began.elapsed())
+        } else {
+            typing
+        };
+        if !left.is_zero() {
             sink.send_typing().await;
-            tokio::time::sleep(myriad_agent_rules::channel::typing_pause(
-                line.chars().count(),
-            ))
-            .await;
+            tokio::time::sleep(left).await;
         }
         for chunk in split_channel_text(&line, sink.text_limit()) {
             if sink.send_text(&chunk).await.is_err() {
@@ -341,5 +465,27 @@ mod tests {
         let small = image::load_from_memory(&bytes).unwrap();
         assert_eq!((small.width(), small.height()), (1024, 512));
         assert!(model_copy(b"not an image").is_none());
+    }
+}
+
+#[cfg(test)]
+mod seeing_tests {
+    use super::*;
+
+    #[test]
+    fn what_they_send_before_she_looks_is_read_together() {
+        let key = "test:seeing:1";
+        assert!(take_in(key, "在吗", &[]));
+        assert!(!take_in(key, "问你个事", &[]));
+        assert!(!take_in(key, "", &[]));
+        let seeing = Seeing(key);
+        let seen = UNSEEN.lock().unwrap().remove(key).unwrap();
+        assert_eq!(seen.texts, ["在吗", "问你个事", ""]);
+        drop(seeing);
+        // Seen: the next message is waited on afresh.
+        assert!(take_in(key, "人呢", &[]));
+        // A turn that ends any way lets go of what it was to read.
+        drop(Seeing(key));
+        assert!(UNSEEN.lock().unwrap().get(key).is_none());
     }
 }

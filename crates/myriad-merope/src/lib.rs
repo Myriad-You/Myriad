@@ -40,6 +40,7 @@ pub mod stickers;
 pub mod strangers;
 pub mod talk_shape;
 pub mod threads;
+pub mod timing;
 pub mod views;
 mod visual_contract;
 mod visual_design;

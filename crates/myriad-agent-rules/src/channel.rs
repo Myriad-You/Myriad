@@ -2523,13 +2523,6 @@ pub fn as_messages_at_most(text: &str, most: usize) -> Vec<String> {
     lines
 }
 
-/// About how long it takes to type a message of `chars` characters before
-/// sending it: a beat, and a little for each character, never long.
-pub fn typing_pause(chars: usize) -> std::time::Duration {
-    let millis = 500 + 80 * chars as u64;
-    std::time::Duration::from_millis(millis.min(3_500))
-}
-
 /// Split on paragraph / line / word boundaries so a long result is complete.
 pub fn split_channel_text(text: &str, limit: usize) -> Vec<String> {
     if limit == 0 {

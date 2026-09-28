@@ -69,6 +69,8 @@ pub struct GroupTurn {
     pub speaker: String,
     /// How the group's people type there lately, once there is enough.
     pub room: Option<myriad_merope::talk_shape::Shape>,
+    /// How long ago the line she answers was said, when she sees it late.
+    pub late: Option<String>,
 }
 
 /// 对话消息（API 格式）

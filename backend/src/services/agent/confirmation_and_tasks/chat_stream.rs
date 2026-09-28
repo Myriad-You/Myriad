@@ -537,6 +537,17 @@ impl Agent {
                     myriad_merope::talk_shape::describe(room, "How people type here")
                 );
             }
+            // She only now sees the line she answers.
+            if let Some(ago) = request
+                .context
+                .as_ref()
+                .and_then(|context| context.late.as_deref())
+            {
+                merope_block = format!(
+                    "{merope_block}\n\n{}",
+                    myriad_merope::joining::seeing_it_late(ago)
+                );
+            }
             // Stickers of her: hers, and this group's own.
             if let Some(stickers) = crate::services::agent::merope::stickers::section(
                 &self.db,
