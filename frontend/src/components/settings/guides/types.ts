@@ -116,6 +116,7 @@ export interface SettingGuidesCatalog {
     telegramBot: SettingGuideEntry
     discordBot: SettingGuideEntry
     feishuBot: SettingGuideEntry
+    onebotBot: SettingGuideEntry
     heartbeat: SettingGuideEntry
     skills: SettingGuideEntry
     memory: SettingGuideEntry

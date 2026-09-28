@@ -1210,6 +1210,60 @@ mod settings_backup_tests {
         assert_eq!(cleared.get("feishu_bot_app_secret"), Some(&Value::Null));
     }
 
+    /// OneBot's URL is routing information (readable back, clearable), while the
+    /// access token is a write-only secret: a mask keeps it, an empty clears it.
+    #[test]
+    fn saves_onebot_routable_url_and_write_only_token() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("onebot_bot_enabled", "true"),
+            ui_field("onebot_bot_groups_enabled", "true"),
+            ui_field("onebot_bot_ws_url", "ws://127.0.0.1:3001"),
+            ui_field("onebot_bot_access_token", "ob-secret-value"),
+        ];
+        let set = collect_database_updates(&config).expect("valid config");
+        assert_eq!(set.get("onebot_bot_enabled"), Some(&json!(true)));
+        assert_eq!(set.get("onebot_bot_groups_enabled"), Some(&json!(true)));
+        assert_eq!(
+            set.get("onebot_bot_ws_url"),
+            Some(&json!("ws://127.0.0.1:3001"))
+        );
+        assert_eq!(
+            set.get("onebot_bot_access_token"),
+            Some(&json!("ob-secret-value"))
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("onebot_bot_enabled", "true"),
+            ui_field("onebot_bot_ws_url", "ws://127.0.0.1:3001"),
+            ui_field("onebot_bot_access_token", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config).expect("valid config");
+        assert_eq!(masked.get("onebot_bot_enabled"), Some(&json!(true)));
+        assert_eq!(
+            masked.get("onebot_bot_ws_url"),
+            Some(&json!("ws://127.0.0.1:3001"))
+        );
+        assert!(
+            !masked.contains_key("onebot_bot_access_token"),
+            "mask must keep the stored token"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("onebot_bot_enabled", "false"),
+            ui_field("onebot_bot_ws_url", ""),
+            ui_field("onebot_bot_access_token", ""),
+        ];
+        let cleared = collect_database_updates(&config).expect("valid config");
+        assert_eq!(cleared.get("onebot_bot_enabled"), Some(&json!(false)));
+        assert_eq!(
+            cleared.get("onebot_bot_ws_url"),
+            Some(&json!("")),
+            "the URL is clearable, not sealed"
+        );
+        assert_eq!(cleared.get("onebot_bot_access_token"), Some(&Value::Null));
+    }
+
     #[test]
     fn saves_telegram_bot_write_only_token() {
         let mut config = empty_config();

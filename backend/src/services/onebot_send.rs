@@ -1,0 +1,294 @@
+//! OneBot outbound over the worker's live WebSocket.
+//!
+//! NapCat accepts a connection and then speaks actions on that same socket.
+//! A second connection would not replace it, so delivery cannot open its own.
+//! The worker installs a sender while the socket is up and removes it on close.
+//!
+//! Each action gets an `echo`. The matching response completes that delivery.
+//! Closing the socket fails every action still waiting, instead of leaving it
+//! pending. The pure encoder stays free of `echo`; correlation lives here.
+
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+
+use myriad_agent_rules::channel::ConnectFailureKind;
+use serde_json::{Value, json};
+use tokio::sync::{Mutex, oneshot};
+use uuid::Uuid;
+
+type WriteFn = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
+
+/// `Ok(None)` is a successful action. `Ok(Some(Permanent))` is a refusal of
+/// this one action. `Err` is retryable and never closes the socket.
+type ActionResult = Result<Option<ConnectFailureKind>, String>;
+
+/// The response frame that answered one echo, or why none will come.
+type Reply = Result<ActionReply, String>;
+
+#[derive(Debug)]
+struct ActionReply {
+    status: String,
+    retcode: i64,
+    data: Value,
+}
+
+struct Live {
+    write: WriteFn,
+    pending: HashMap<String, oneshot::Sender<Reply>>,
+}
+
+static SLOT: OnceLock<Mutex<Option<Live>>> = OnceLock::new();
+
+const ACTION_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn slot() -> &'static Mutex<Option<Live>> {
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Install the function that writes one text frame on the current socket.
+pub async fn install(write: WriteFn) {
+    let mut guard = slot().lock().await;
+    if let Some(previous) = guard.take() {
+        fail_all(previous, "onebot socket closed");
+    }
+    *guard = Some(Live {
+        write,
+        pending: HashMap::new(),
+    });
+}
+
+/// Drop the sender and fail every action still waiting.
+pub async fn clear() {
+    let mut guard = slot().lock().await;
+    if let Some(previous) = guard.take() {
+        fail_all(previous, "onebot socket closed");
+    }
+}
+
+fn fail_all(live: Live, reason: &str) {
+    for (_, sender) in live.pending {
+        let _ = sender.send(Err(reason.to_string()));
+    }
+}
+
+/// Send one action and wait for its `echo`.
+///
+/// `Ok(None)` means the action was accepted. `Ok(Some(Permanent))` means
+/// NapCat answered `failed`: it tried this action and refused it. A missing
+/// socket, a write failure, a timeout, or a close is `Err`: retryable, and it
+/// does not close the socket. A handshake refusal has no echo and is
+/// classified by the worker.
+pub async fn send_action(action: Value) -> ActionResult {
+    exchange(action)
+        .await
+        .and_then(|reply| action_result(&reply.status, reply.retcode))
+}
+
+/// Send one query action and return its `data` when it succeeds.
+pub async fn call_action(action: Value) -> Result<Value, String> {
+    let reply = exchange(action).await?;
+    match action_result(&reply.status, reply.retcode) {
+        Ok(None) => Ok(reply.data),
+        Ok(Some(_)) => Err(format!("onebot action refused: {}", reply.retcode)),
+        Err(error) => Err(error),
+    }
+}
+
+async fn exchange(mut action: Value) -> Reply {
+    let echo = Uuid::new_v4().to_string();
+    if let Some(object) = action.as_object_mut() {
+        object.insert("echo".into(), json!(echo));
+    }
+    let text = serde_json::to_string(&action).map_err(|error| error.to_string())?;
+    let (tx, rx) = oneshot::channel();
+    {
+        let mut guard = slot().lock().await;
+        let Some(live) = guard.as_mut() else {
+            return Err("onebot socket is not connected".to_string());
+        };
+        live.write.as_ref()(text).map_err(|_| "onebot socket is not connected".to_string())?;
+        live.pending.insert(echo.clone(), tx);
+    }
+    match tokio::time::timeout(ACTION_TIMEOUT, rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("onebot socket closed".to_string()),
+        Err(_) => {
+            // A late frame must not complete this action after the caller gave up.
+            if let Some(live) = slot().lock().await.as_mut() {
+                live.pending.remove(&echo);
+            }
+            Err("onebot action timed out".to_string())
+        }
+    }
+}
+
+fn action_result(status: &str, retcode: i64) -> ActionResult {
+    // OneBot: `ok` / `async` (retcode 1) means accepted. retcode 0 is success
+    // even when status is omitted.
+    if status == "ok" || status == "async" || retcode == 0 {
+        return Ok(None);
+    }
+    // NapCat answers `failed` with 1400 for bad params and 1200 for anything the
+    // action threw: not a friend, risk control, a file it cannot read. Retrying
+    // the same item cannot change that, and a retried item holds the session's
+    // outbox until it expires. Only a missing answer is worth retrying.
+    if status == "failed" {
+        return Ok(Some(ConnectFailureKind::Permanent));
+    }
+    Err(format!("onebot action returned {status}: {retcode}"))
+}
+
+/// Finish the action whose `echo` came back.
+///
+/// A matched echo never closes the socket. A handshake refusal has no echo
+/// and is classified by the worker, not here.
+pub async fn complete_echo(echo: &Value, status: &str, retcode: i64, data: Value) {
+    let Some(key) = echo.as_str() else {
+        return;
+    };
+    let mut guard = slot().lock().await;
+    let Some(live) = guard.as_mut() else {
+        return;
+    };
+    let Some(sender) = live.pending.remove(key) else {
+        return;
+    };
+    let _ = sender.send(Ok(ActionReply {
+        status: status.to_string(),
+        retcode,
+        data,
+    }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::Mutex as StdMutex;
+
+    // The live socket is one process-wide slot. Parallel tests would install
+    // over each other and fail the wrong waiter.
+    fn test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[tokio::test]
+    async fn a_missing_socket_fails_before_any_frame_is_written() {
+        let _lock = test_lock().lock().await;
+        clear().await;
+        let missing = send_action(json!({"action": "send_private_msg"})).await;
+        assert!(missing.is_err());
+    }
+
+    #[tokio::test]
+    async fn echo_completes_the_matching_action_and_close_fails_the_rest() {
+        let _lock = test_lock().lock().await;
+        clear().await;
+        let seen = Arc::new(StdMutex::new(Vec::new()));
+        let capture = seen.clone();
+        install(Arc::new(move |text| {
+            capture.lock().expect("frames").push(text);
+            Ok(())
+        }))
+        .await;
+
+        let send = tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
+        let echo = wait_for_echo(&seen).await;
+        complete_echo(&json!(echo), "ok", 0, Value::Null).await;
+        assert_eq!(send.await.expect("join"), Ok(None));
+
+        let pending =
+            tokio::spawn(async { send_action(json!({"action": "set_input_status"})).await });
+        let _ = wait_for_echo(&seen).await;
+        clear().await;
+        let closed = pending.await.expect("join");
+        assert!(closed.is_err());
+    }
+
+    #[tokio::test]
+    async fn async_status_is_accepted_and_a_failed_answer_is_a_refusal() {
+        let _lock = test_lock().lock().await;
+        clear().await;
+        install(Arc::new(|_| Ok(()))).await;
+        let accepted =
+            tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
+        tokio::task::yield_now().await;
+        let echo = {
+            let guard = slot().lock().await;
+            guard
+                .as_ref()
+                .expect("live")
+                .pending
+                .keys()
+                .next()
+                .cloned()
+                .expect("echo")
+        };
+        complete_echo(&json!(echo), "async", 1, Value::Null).await;
+        assert_eq!(accepted.await.expect("join"), Ok(None));
+
+        let refused =
+            tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
+        tokio::task::yield_now().await;
+        let echo = {
+            let guard = slot().lock().await;
+            guard
+                .as_ref()
+                .expect("live")
+                .pending
+                .keys()
+                .next()
+                .cloned()
+                .expect("echo")
+        };
+        // NapCat's catch-all for a thrown action. Retrying would pin the outbox.
+        complete_echo(&json!(echo), "failed", 1200, Value::Null).await;
+        assert_eq!(
+            refused.await.expect("join"),
+            Ok(Some(ConnectFailureKind::Permanent))
+        );
+        clear().await;
+    }
+
+    #[tokio::test]
+    async fn a_refused_retcode_fails_that_action_and_is_permanent() {
+        let _lock = test_lock().lock().await;
+        clear().await;
+        install(Arc::new(|_| Ok(()))).await;
+        let send = tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
+        tokio::task::yield_now().await;
+        {
+            let guard = slot().lock().await;
+            let echo = guard
+                .as_ref()
+                .expect("live")
+                .pending
+                .keys()
+                .next()
+                .cloned()
+                .expect("echo");
+            drop(guard);
+            complete_echo(&json!(echo), "failed", 1403, Value::Null).await;
+        }
+        assert_eq!(
+            send.await.expect("join"),
+            Ok(Some(ConnectFailureKind::Permanent))
+        );
+        clear().await;
+    }
+
+    async fn wait_for_echo(seen: &StdMutex<Vec<String>>) -> String {
+        for _ in 0..50 {
+            if let Some(text) = seen.lock().expect("frames").last() {
+                let value: Value = serde_json::from_str(text).expect("json");
+                if let Some(echo) = value.get("echo").and_then(Value::as_str) {
+                    return echo.to_string();
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("echo was not written");
+    }
+}

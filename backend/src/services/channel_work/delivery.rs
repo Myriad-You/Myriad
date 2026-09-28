@@ -44,7 +44,7 @@ impl StoredOutbound {
                 ChannelPlatform::Telegram => telegram_reply_markup(prompt),
                 ChannelPlatform::Discord => discord_reply_markup(prompt),
                 ChannelPlatform::Feishu => feishu_reply_markup(prompt),
-                ChannelPlatform::Qq => None,
+                ChannelPlatform::Qq | ChannelPlatform::OneBot => None,
             })
     }
 }

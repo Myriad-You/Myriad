@@ -1765,7 +1765,10 @@ mod telegram_groups {
             ]
         );
         assert_eq!(messages[0].chat_id, -100);
-        let quoted = messages[2].reply_to.as_ref().expect("the line it replies to");
+        let quoted = messages[2]
+            .reply_to
+            .as_ref()
+            .expect("the line it replies to");
         assert!(quoted.hers);
         assert_eq!(quoted.text, "楼下那家面馆 不错");
         assert!(messages[0].reply_to.is_none());
@@ -1866,4 +1869,788 @@ fn discord_server_lines_are_heard_and_those_to_her_are_marked() {
         DISCORD_DIRECT_MESSAGES | DISCORD_GUILD_MESSAGES | DISCORD_MESSAGE_CONTENT
     );
     assert_eq!(discord_identify_intents(false) & DISCORD_MESSAGE_CONTENT, 0);
+}
+
+/// OneBot v11 wire 层：宽松解析是移植的核心价值。
+/// 各协议端（Lagrange / NapCat / LLOneBot）随时加字段，解不开的事件必须降级，绝不报错。
+mod onebot_wire {
+    use myriad_agent_rules::onebot::wire::{
+        Inbound, RawEventJson, RespJson, WireMessage, value_as_string,
+    };
+    use serde_json::json;
+
+    /// NapCat 真实私聊事件（`messagePostFormat: "array"`）。
+    fn private_text_event() -> &'static str {
+        r#"{
+          "time": 1790000000, "self_id": 10001, "post_type": "message",
+          "message_type": "private", "sub_type": "friend",
+          "message_id": 1234567890, "user_id": 20002,
+          "message": [{"type":"text","data":{"text":"帮我看一下"}},
+                      {"type":"image","data":{"file":"x.jpg","url":"https://example.com/x.jpg"}}],
+          "raw_message": "帮我看一下", "font": 0,
+          "sender": {"user_id":20002,"nickname":"某人","card":""}
+        }"#
+    }
+
+    #[test]
+    fn private_event_parses_into_text_and_image_segments() {
+        let event: RawEventJson =
+            serde_json::from_str(private_text_event()).expect("a real event must decode");
+        assert_eq!(event.post_type.as_deref(), Some("message"));
+        assert_eq!(event.message_type.as_deref(), Some("private"));
+        assert_eq!(event.sub_type.as_deref(), Some("friend"));
+        assert_eq!(event.user_id, Some(20002));
+        assert_eq!(event.self_id, 10001);
+        assert_eq!(event.message_id, Some(1234567890));
+        assert_eq!(
+            event.sender.as_ref().and_then(|s| s.nickname.as_deref()),
+            Some("某人")
+        );
+
+        let WireMessage::Array(segments) = event.message.expect("message present") else {
+            panic!("array format must stay an array");
+        };
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].kind, "text");
+        assert_eq!(segments[0].str_field("text").as_deref(), Some("帮我看一下"));
+        assert_eq!(segments[1].kind, "image");
+        assert_eq!(
+            segments[1].str_field("url").as_deref(),
+            Some("https://example.com/x.jpg")
+        );
+    }
+
+    /// 这是移植过来的最重要一条保证：未知顶层字段与未知段类型都不能让解析失败。
+    #[test]
+    fn unknown_fields_and_unknown_segments_degrade_instead_of_failing() {
+        let raw = r#"{
+          "post_type":"message","message_type":"private","user_id":1,
+          "totally_new_field":{"nested":[1,2,3]},
+          "message":[{"type":"brand_new_segment","data":{"x":1}}]
+        }"#;
+        let event: RawEventJson = serde_json::from_str(raw).expect("unknown fields must not fail");
+        assert_eq!(event.user_id, Some(1));
+        assert!(
+            event.extra.contains_key("totally_new_field"),
+            "the escape hatch keeps the whole payload"
+        );
+
+        let WireMessage::Array(segments) = event.message.expect("message present") else {
+            panic!("array stays an array");
+        };
+        assert_eq!(segments[0].kind, "brand_new_segment");
+    }
+
+    #[test]
+    fn sloppy_wire_types_are_read_leniently() {
+        let raw = r#"{"message":[{"type":"image","data":{"file":12345,"size":"999"}}]}"#;
+        let event: RawEventJson = serde_json::from_str(raw).expect("sloppy fields decode");
+        let WireMessage::Array(segments) = event.message.expect("message present") else {
+            panic!("array stays an array");
+        };
+        assert_eq!(
+            segments[0].str_field("file").as_deref(),
+            Some("12345"),
+            "a JSON number reads as a string"
+        );
+        assert_eq!(
+            segments[0].i64_field("size"),
+            Some(999),
+            "a numeric string reads as i64"
+        );
+
+        assert_eq!(value_as_string(&json!(true)).as_deref(), Some("true"));
+        assert_eq!(value_as_string(&json!(7)).as_deref(), Some("7"));
+        assert_eq!(value_as_string(&json!([1])), None);
+    }
+
+    #[test]
+    fn cq_string_format_still_decodes() {
+        let raw = r#"{"message":"[CQ:image,file=x.jpg]","message_type":"private"}"#;
+        let event: RawEventJson = serde_json::from_str(raw).expect("string format decodes");
+        assert!(matches!(event.message, Some(WireMessage::Cq(_))));
+    }
+
+    /// 入站帧 demux：只有 `echo` 能判别响应与事件。
+    #[test]
+    fn echo_is_the_only_discriminator_between_response_and_event() {
+        let event: Inbound =
+            serde_json::from_str(private_text_event()).expect("a real event must decode");
+        assert!(
+            matches!(event, Inbound::Event(_)),
+            "no echo → an event, not a response"
+        );
+
+        let response = r#"{"status":"ok","retcode":0,"data":{"message_id":999},"echo":"uuid-1"}"#;
+        let inbound: Inbound = serde_json::from_str(response).expect("a response must decode");
+        let Inbound::Resp(envelope) = inbound else {
+            panic!("an echo → a response");
+        };
+        assert_eq!(envelope.echo.as_str(), Some("uuid-1"));
+
+        let full: RespJson = serde_json::from_str(response).expect("full response decodes");
+        assert_eq!(full.status, "ok");
+        assert_eq!(full.data["message_id"], 999);
+    }
+
+    /// NapCat `OB11Response.createResponse` 的原样成功帧：`message` 与 `wording` 同时出现。
+    /// 解不开它，每个动作都等不到回执，超时后重试会把同一条消息反复发出去。
+    #[test]
+    fn napcat_response_with_message_and_wording_decodes() {
+        let ok = r#"{"status":"ok","retcode":0,"data":{"message_id":-2147480000},"message":"","wording":"","echo":"uuid-2","stream":"normal-action"}"#;
+        let full: RespJson = serde_json::from_str(ok).expect("a NapCat response decodes");
+        assert_eq!(full.status, "ok");
+        assert_eq!(full.retcode, 0);
+        assert_eq!(full.echo, json!("uuid-2"));
+        assert_eq!(full.data["message_id"], -2147480000i64);
+    }
+
+    /// NapCat `websocket-server.ts` 的 `authorize` 原样发出的拒绝帧：`echo` 是 `null`，不是缺失。
+    /// 它按响应解出来，所以拒绝必须在响应分支里认出来，否则 token 写错会被当成断线无限重连。
+    #[test]
+    fn napcat_token_refusal_is_a_response_that_refuses_the_connection() {
+        use myriad_agent_rules::onebot::rules::onebot_frame_refuses_connection;
+        let refusal = r#"{"status":"failed","retcode":1403,"data":null,"message":"token验证失败","wording":"token验证失败","echo":null,"stream":"normal-action"}"#;
+        let inbound: Inbound = serde_json::from_str(refusal).expect("the refusal decodes");
+        let Inbound::Resp(envelope) = inbound else {
+            panic!("`echo: null` is still a response");
+        };
+        let full: RespJson = serde_json::from_str(refusal).expect("full refusal decodes");
+        assert!(onebot_frame_refuses_connection(
+            &envelope.echo,
+            &full.status,
+            full.retcode
+        ));
+
+        // One refused action carries our echo; it fails that action, not the socket.
+        assert!(!onebot_frame_refuses_connection(
+            &json!("uuid-1"),
+            "failed",
+            1403
+        ));
+        // A send failure (NapCat 1200) with no echo is not a credential problem.
+        assert!(!onebot_frame_refuses_connection(
+            &json!(null),
+            "failed",
+            1200
+        ));
+        assert!(!onebot_frame_refuses_connection(&json!(null), "ok", 0));
+    }
+
+    /// 站点内全链路是字符串，但 int64 必须先完整保住，不能经浮点。
+    #[test]
+    fn int64_survives_without_going_through_a_float() {
+        let raw = r#"{"user_id":9007199254740993,"message":[]}"#;
+        let event: RawEventJson = serde_json::from_str(raw).expect("a large id decodes");
+        let user_id = event.user_id.expect("user_id present");
+        assert_eq!(user_id, 9007199254740993i64);
+        assert_eq!(user_id.to_string(), "9007199254740993");
+    }
+}
+
+/// OneBot 私聊事件解码成 Myriad 入站。解不开就 `None`，不 panic。
+mod onebot_decode {
+    use myriad_agent_rules::channel::{CHANNEL_IMAGE_LIMIT, QQ_TEXT_LIMIT};
+    use myriad_agent_rules::onebot::decode::{decode_private_inbound, decode_segments_to_text};
+    use myriad_agent_rules::onebot::wire::WireSegment;
+    use serde_json::{Map, Value, json};
+
+    fn private_text_event() -> &'static str {
+        r#"{
+          "time": 1790000000, "self_id": 10001, "post_type": "message",
+          "message_type": "private", "sub_type": "friend",
+          "message_id": 1234567890, "user_id": 20002,
+          "message": [{"type":"text","data":{"text":"帮我看一下"}},
+                      {"type":"image","data":{"file":"x.jpg","url":"https://example.com/x.jpg"}}],
+          "raw_message": "帮我看一下", "font": 0,
+          "sender": {"user_id":20002,"nickname":"某人","card":""}
+        }"#
+    }
+
+    fn with_message(message_type: &str, sub_type: &str, post_type: &str) -> String {
+        json!({
+            "post_type": post_type,
+            "message_type": message_type,
+            "sub_type": sub_type,
+            "message_id": 1,
+            "user_id": 20002,
+            "message": [{"type":"text","data":{"text":"hi"}}]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn private_text_becomes_inbound() {
+        let inbound = decode_private_inbound(private_text_event()).expect("private text");
+        assert_eq!(inbound.user_openid, "20002");
+        assert_eq!(inbound.msg_id, "1234567890");
+        assert_eq!(inbound.content, "帮我看一下");
+    }
+
+    #[test]
+    fn group_message_is_not_a_private_inbound() {
+        assert!(decode_private_inbound(&with_message("group", "normal", "message")).is_none());
+    }
+
+    #[test]
+    fn cq_string_private_message_is_not_an_inbound() {
+        use myriad_agent_rules::onebot::decode::private_message_is_cq_string;
+        let raw = r#"{"post_type":"message","message_type":"private","sub_type":"friend","user_id":1,"message":"[CQ:image,file=x.jpg]"}"#;
+        assert!(private_message_is_cq_string(raw));
+        assert!(decode_private_inbound(raw).is_none());
+    }
+
+    #[test]
+    fn group_at_is_addressed_and_plain_talk_is_not() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let at = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20002,
+            "self_id": 10001,
+            "message_id": 9,
+            "sender": {"nickname": "某人", "card": "群名片"},
+            "message": [
+                {"type": "at", "data": {"qq": "10001"}},
+                {"type": "text", "data": {"text": " 在吗 "}}
+            ]
+        });
+        let line = decode_group_inbound(&at.to_string(), 10001).expect("at");
+        assert!(line.addressed);
+        assert_eq!(line.group_id, "555");
+        assert_eq!(line.user_id, "20002");
+        assert_eq!(line.display_name, "群名片");
+        assert_eq!(line.text, "在吗");
+
+        let plain = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20002,
+            "message_id": 10,
+            "message": [{"type": "text", "data": {"text": "闲聊"}}]
+        });
+        let line = decode_group_inbound(&plain.to_string(), 10001).expect("plain");
+        assert!(!line.addressed);
+        assert_eq!(line.text, "闲聊");
+    }
+
+    #[test]
+    fn group_reply_to_her_is_addressed() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20002,
+            "message_id": 11,
+            "message": [
+                {"type": "reply", "data": {"id": "8", "user_id": "10001", "text": "上一句"}},
+                {"type": "text", "data": {"text": "接着说"}}
+            ]
+        });
+        let line = decode_group_inbound(&raw.to_string(), 10001).expect("reply");
+        assert!(line.addressed);
+        let quoted = line.reply_to.expect("quote");
+        assert!(quoted.hers);
+        assert_eq!(quoted.text, "上一句");
+        assert!(line.reply_id.is_none());
+    }
+
+    /// NapCat 的回复段只有 `id`（`api/msg.ts` 只写 `data: { id }`）。解码认不出是不是她，
+    /// 只留下 id 给工人用 `get_msg` 反查。
+    #[test]
+    fn napcat_reply_carries_only_an_id_to_look_up() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20002,
+            "message_id": 12,
+            "message": [
+                {"type": "reply", "data": {"id": "-2147480000"}},
+                {"type": "text", "data": {"text": "接着说"}}
+            ]
+        });
+        let line = decode_group_inbound(&raw.to_string(), 10001).expect("reply");
+        assert!(
+            !line.addressed,
+            "an id alone does not say who was replied to"
+        );
+        assert!(line.reply_to.is_none());
+        assert_eq!(line.reply_id.as_deref(), Some("-2147480000"));
+    }
+
+    #[test]
+    fn looked_up_reply_says_whether_it_was_hers() {
+        use myriad_agent_rules::onebot::decode::decode_replied_message;
+        let hers = json!({
+            "self_id": 10001,
+            "user_id": 10001,
+            "message_id": -2147480000,
+            "message_type": "group",
+            "sender": {"user_id": 10001, "nickname": "她", "card": ""},
+            "message": [{"type": "text", "data": {"text": " 上一句 "}}]
+        });
+        let quoted = decode_replied_message(&hers, 10001).expect("quote");
+        assert!(quoted.hers);
+        assert_eq!(quoted.text, "上一句");
+        assert_eq!(quoted.name, "她");
+
+        let someone = json!({
+            "user_id": 20003,
+            "sender": {"user_id": 20003, "nickname": "别人", "card": "群名片"},
+            "message": [{"type": "text", "data": {"text": "别人的话"}}]
+        });
+        let quoted = decode_replied_message(&someone, 10001).expect("quote");
+        assert!(!quoted.hers);
+        assert_eq!(quoted.name, "群名片");
+
+        let cq = json!({"user_id": 10001, "message": "[CQ:face,id=1]", "raw_message": "原文"});
+        assert_eq!(
+            decode_replied_message(&cq, 10001).expect("raw text").text,
+            "原文"
+        );
+        assert!(decode_replied_message(&json!(null), 10001).is_none());
+    }
+
+    #[test]
+    fn her_own_group_line_is_dropped() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 10001,
+            "message": [{"type": "text", "data": {"text": "我自己"}}]
+        });
+        assert!(decode_group_inbound(&raw.to_string(), 10001).is_none());
+    }
+
+    #[test]
+    fn message_sent_is_dropped() {
+        assert!(
+            decode_private_inbound(&with_message("private", "friend", "message_sent")).is_none()
+        );
+    }
+
+    #[test]
+    fn group_temp_session_is_dropped() {
+        assert!(decode_private_inbound(&with_message("private", "group", "message")).is_none());
+    }
+
+    #[test]
+    fn text_and_images_are_both_kept() {
+        let inbound = decode_private_inbound(private_text_event()).expect("mixed");
+        assert_eq!(inbound.content, "帮我看一下");
+        assert_eq!(inbound.images.len(), 1);
+        assert_eq!(inbound.images[0].url, "https://example.com/x.jpg");
+        assert_eq!(inbound.images[0].name, "x.jpg");
+        assert_eq!(inbound.images[0].mime, "image/jpeg");
+        assert_eq!(inbound.images[0].size, 0);
+    }
+
+    #[test]
+    fn image_without_http_url_is_skipped() {
+        let missing = json!({
+            "post_type": "message",
+            "message_type": "private",
+            "sub_type": "friend",
+            "message_id": 1,
+            "user_id": 20002,
+            "message": [
+                {"type":"image","data":{"file":"a.jpg"}},
+                {"type":"image","data":{"file":"b.jpg","url":"file:///tmp/b.jpg"}}
+            ]
+        });
+        let inbound = decode_private_inbound(&missing.to_string()).expect("textless private");
+        assert!(inbound.images.is_empty());
+        assert!(inbound.content.is_empty());
+    }
+
+    #[test]
+    fn images_are_capped_at_the_shared_limit() {
+        let segments: Vec<_> = (0..6)
+            .map(|index| {
+                json!({
+                    "type": "image",
+                    "data": {
+                        "file": format!("p{index}.png"),
+                        "url": format!("https://example.com/{index}.png"),
+                        "file_size": index
+                    }
+                })
+            })
+            .collect();
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "private",
+            "sub_type": "other",
+            "message_id": 7,
+            "user_id": 20002,
+            "message": segments
+        });
+        let inbound = decode_private_inbound(&raw.to_string()).expect("images");
+        assert_eq!(inbound.images.len(), CHANNEL_IMAGE_LIMIT);
+        assert_eq!(inbound.images[0].url, "https://example.com/0.png");
+        assert_eq!(inbound.images[3].name, "p3.png");
+        assert_eq!(inbound.images[3].mime, "image/png");
+        assert_eq!(inbound.images[3].size, 3);
+    }
+
+    #[test]
+    fn long_text_is_truncated_not_dropped() {
+        let over = "字".repeat(QQ_TEXT_LIMIT + 40);
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "private",
+            "sub_type": "friend",
+            "message_id": 8,
+            "user_id": 20002,
+            "message": [{"type":"text","data":{"text": over}}]
+        });
+        let inbound = decode_private_inbound(&raw.to_string()).expect("long text");
+        let len = inbound.content.chars().count();
+        assert!(!inbound.content.is_empty());
+        assert!(len <= QQ_TEXT_LIMIT, "len={len}");
+        assert!(len < over.chars().count());
+    }
+
+    #[test]
+    fn int64_ids_keep_full_precision() {
+        let raw = r#"{
+            "post_type":"message","message_type":"private","sub_type":"friend",
+            "message_id":1,"user_id":9007199254740993,"message":[]
+        }"#;
+        let inbound = decode_private_inbound(raw).expect("large user id");
+        assert_eq!(inbound.user_openid, "9007199254740993");
+        assert_eq!(inbound.msg_id, "1");
+    }
+
+    #[test]
+    fn malformed_json_returns_none() {
+        assert!(decode_private_inbound("not json").is_none());
+    }
+
+    #[test]
+    fn unknown_event_type_returns_none() {
+        let raw = r#"{"post_type":"notice","notice_type":"friend_add","user_id":1}"#;
+        assert!(decode_private_inbound(raw).is_none());
+    }
+
+    #[test]
+    fn decode_segments_to_text_joins_only_text_pieces() {
+        let text = |value: &str| WireSegment {
+            kind: "text".into(),
+            data: Map::from_iter([("text".into(), Value::String(value.into()))]),
+        };
+        let image = WireSegment {
+            kind: "image".into(),
+            data: Map::new(),
+        };
+        assert_eq!(
+            decode_segments_to_text(&[text("a"), image, text("b")]),
+            "ab"
+        );
+        assert_eq!(decode_segments_to_text(&[]), "");
+    }
+
+    /// 回归：NapCat 实测会发出大于 `i32::MAX` 的 `message_id`（官方 issue #213 的报文里
+    /// 是 `3425462029`）。OneBot 规范写的是 int32，但按 int32 读会让整条事件解不开，
+    /// 于是用户的消息被静默丢弃。宽松层跟现实，不跟规范字面。
+    #[test]
+    fn napcat_message_id_beyond_i32_is_not_dropped() {
+        let raw = r#"{"post_type":"message","message_type":"private","sub_type":"friend","message_id":3425462029,"user_id":10001,"message":[{"type":"text","data":{"text":"hi"}}]}"#;
+        let inbound = decode_private_inbound(raw)
+            .expect("a real NapCat message_id must not drop the whole event");
+        assert_eq!(inbound.msg_id, "3425462029");
+        assert_eq!(inbound.content, "hi");
+    }
+}
+
+/// OneBot 私聊出站编码。只产出请求体，不带 echo。
+mod onebot_encode {
+    use myriad_agent_rules::channel::CHANNEL_IMAGE_LIMIT;
+    use myriad_agent_rules::onebot::encode::{
+        encode_get_msg, encode_group_message, encode_image_segment, encode_private_message,
+        encode_text_segment, encode_typing, plan_private_delivery,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn text_segment_has_the_exact_wire_shape() {
+        assert_eq!(
+            encode_text_segment("hi"),
+            json!({"type":"text","data":{"text":"hi"}})
+        );
+    }
+
+    #[test]
+    fn image_segment_uses_file_not_url() {
+        let segment = encode_image_segment("https://example.com/a.png");
+        assert_eq!(segment["data"]["file"], json!("https://example.com/a.png"));
+        assert!(segment["data"].get("url").is_none());
+    }
+
+    #[test]
+    fn private_message_action_wraps_segments_in_params() {
+        let payload =
+            encode_private_message("10001", &[encode_text_segment("hi")]).expect("request");
+        assert_eq!(payload["action"], "send_private_msg");
+        assert_eq!(payload["params"]["user_id"], 10001);
+        assert!(payload["params"]["message"].is_array());
+        assert!(payload.get("echo").is_none());
+    }
+
+    #[test]
+    fn user_id_is_a_json_number_not_a_string() {
+        let payload =
+            encode_private_message("10001", &[encode_text_segment("hi")]).expect("request");
+        assert!(payload["params"]["user_id"].is_i64());
+        assert!(!payload["params"]["user_id"].is_string());
+        assert_eq!(payload["params"]["user_id"].as_i64(), Some(10001));
+    }
+
+    #[test]
+    fn user_id_keeps_int64_precision() {
+        let payload = encode_private_message("9007199254740993", &[encode_text_segment("hi")])
+            .expect("large id");
+        assert_eq!(
+            payload["params"]["user_id"].as_i64(),
+            Some(9007199254740993i64)
+        );
+    }
+
+    #[test]
+    fn bad_user_id_returns_none() {
+        let segment = encode_text_segment("hi");
+        assert!(encode_private_message("", std::slice::from_ref(&segment)).is_none());
+        assert!(encode_private_message("abc", std::slice::from_ref(&segment)).is_none());
+        assert!(encode_private_message("1.5", &[segment]).is_none());
+    }
+
+    #[test]
+    fn empty_segments_return_none() {
+        assert!(encode_private_message("10001", &[]).is_none());
+    }
+
+    #[test]
+    fn group_message_action_uses_group_id() {
+        let payload = encode_group_message("555", &[encode_text_segment("hi")]).expect("group");
+        assert_eq!(payload["action"], "send_group_msg");
+        assert_eq!(payload["params"]["group_id"], 555);
+        assert!(payload.get("echo").is_none());
+        assert!(encode_group_message("abc", &[encode_text_segment("hi")]).is_none());
+    }
+
+    #[test]
+    fn plain_text_plan_sends_one_text_segment() {
+        let payload = plan_private_delivery("10001", "hi", &[]).expect("text");
+        assert_eq!(
+            payload["params"]["message"],
+            json!([{"type":"text","data":{"text":"hi"}}])
+        );
+    }
+
+    #[test]
+    fn typing_action_uses_set_input_status() {
+        let payload = encode_typing("10001", true).expect("typing");
+        assert_eq!(payload["action"], "set_input_status");
+        assert_eq!(payload["params"]["user_id"], 10001);
+        assert_eq!(payload["params"]["event_type"], 1);
+        assert!(encode_typing("10001", false).is_none());
+        assert!(encode_typing("not-a-number", true).is_none());
+    }
+
+    #[test]
+    fn markdown_looking_text_still_goes_out_as_a_text_segment() {
+        let payload = plan_private_delivery("10001", "| a |\n| --- |", &[]).expect("text");
+        assert_eq!(payload["params"]["message"][0]["type"], "text");
+    }
+
+    #[test]
+    fn get_msg_looks_up_a_reply_id() {
+        let payload = encode_get_msg("-2147480000").expect("lookup");
+        assert_eq!(payload["action"], "get_msg");
+        assert_eq!(payload["params"]["message_id"], -2147480000i64);
+        assert!(payload.get("echo").is_none());
+        assert!(encode_get_msg("abc").is_none());
+    }
+
+    #[test]
+    fn empty_text_with_no_images_returns_none() {
+        assert!(plan_private_delivery("10001", "", &[]).is_none());
+    }
+
+    #[test]
+    fn text_and_images_are_both_encoded() {
+        let urls = vec![
+            "https://example.com/a.png".to_string(),
+            "https://example.com/b.png".to_string(),
+        ];
+        let payload = plan_private_delivery("10001", "hi", &urls).expect("mixed");
+        let message = payload["params"]["message"].as_array().expect("array");
+        assert_eq!(message.len(), 3);
+        assert_eq!(message[0]["type"], "text");
+        assert_eq!(message[1]["type"], "image");
+        assert_eq!(message[1]["data"]["file"], "https://example.com/a.png");
+        assert_eq!(message[2]["data"]["file"], "https://example.com/b.png");
+    }
+
+    #[test]
+    fn images_are_capped_at_the_shared_limit() {
+        let urls: Vec<String> = (0..6)
+            .map(|index| format!("https://example.com/{index}.png"))
+            .collect();
+        let payload = plan_private_delivery("10001", "", &urls).expect("images");
+        let message = payload["params"]["message"].as_array().expect("array");
+        assert_eq!(message.len(), CHANNEL_IMAGE_LIMIT);
+        assert_eq!(message.len(), 4);
+        assert_eq!(message[0]["data"]["file"], "https://example.com/0.png");
+        assert_eq!(message[3]["data"]["file"], "https://example.com/3.png");
+    }
+
+    #[test]
+    fn whitespace_only_text_is_treated_as_empty() {
+        assert!(plan_private_delivery("10001", "   ", &[]).is_none());
+    }
+}
+
+mod onebot_rules {
+    use myriad_agent_rules::channel::{
+        ConnectFailureKind, WorkerIntent, discord_dm_capabilities, feishu_dm_capabilities,
+        qq_c2c_capabilities, telegram_dm_capabilities,
+    };
+    use myriad_agent_rules::onebot::rules::{
+        classify_onebot_handshake, onebot_private_capabilities, onebot_worker_intent,
+        onebot_worker_supports_typing as worker_supports_typing,
+    };
+
+    #[test]
+    fn onebot_worker_runs_only_with_switch_url_and_token() {
+        assert_eq!(
+            onebot_worker_intent(true, "ws://127.0.0.1:3001", true),
+            WorkerIntent::Run
+        );
+        assert_eq!(
+            onebot_worker_intent(false, "ws://127.0.0.1:3001", true),
+            WorkerIntent::Stop
+        );
+        assert_eq!(onebot_worker_intent(true, "", true), WorkerIntent::Stop);
+        assert_eq!(onebot_worker_intent(true, "   ", true), WorkerIntent::Stop);
+        assert_eq!(
+            onebot_worker_intent(true, "ws://127.0.0.1:3001", false),
+            WorkerIntent::Stop
+        );
+    }
+
+    #[test]
+    fn onebot_capabilities_open_text_and_media_but_not_markdown_or_edit() {
+        let caps = onebot_private_capabilities();
+        assert!(caps.inbound_text);
+        assert!(caps.inbound_media);
+        assert!(!caps.inbound_callback);
+        assert!(caps.outbound_final_text);
+        assert!(!caps.outbound_markdown);
+        assert!(caps.outbound_image);
+        assert!(!caps.outbound_edit);
+        assert!(!caps.outbound_streaming_draft);
+        assert!(caps.interactive);
+        assert!(!caps.frontend_action);
+        assert!(!caps.performance);
+        assert!(!caps.outfit);
+    }
+
+    #[test]
+    fn no_channel_sends_a_top_level_markdown_segment() {
+        assert!(!onebot_private_capabilities().outbound_markdown);
+        assert!(!qq_c2c_capabilities().outbound_markdown);
+        assert!(!telegram_dm_capabilities().outbound_markdown);
+        assert!(!discord_dm_capabilities().outbound_markdown);
+        assert!(!feishu_dm_capabilities().outbound_markdown);
+    }
+
+    #[test]
+    fn onebot_worker_supports_typing() {
+        assert!(worker_supports_typing());
+    }
+
+    #[test]
+    fn bad_token_is_permanent_not_retried() {
+        assert_eq!(
+            classify_onebot_handshake(None, Some(1403)),
+            ConnectFailureKind::Permanent
+        );
+        assert_eq!(
+            classify_onebot_handshake(Some(403), None),
+            ConnectFailureKind::Permanent
+        );
+    }
+
+    #[test]
+    fn unreachable_server_is_transient() {
+        assert_eq!(
+            classify_onebot_handshake(Some(503), None),
+            ConnectFailureKind::Transient
+        );
+        assert_eq!(
+            classify_onebot_handshake(None, None),
+            ConnectFailureKind::Transient
+        );
+    }
+
+    #[test]
+    fn unknown_path_is_permanent() {
+        assert_eq!(
+            classify_onebot_handshake(Some(404), None),
+            ConnectFailureKind::Permanent
+        );
+    }
+
+    /// OneBot 标准把 1400/1401/1403/1404 对应 HTTP 400/401/403/404。
+    /// 整段都是「配置或请求本身不对」，重试无用；只有 1405 往后的 14xx 才可重试。
+    /// 漏掉 1404 会让路径写错时无限重试，正是这条测试要钉住的。
+    #[test]
+    fn the_whole_documented_retcode_range_is_permanent() {
+        for retcode in 1400..=1404 {
+            assert_eq!(
+                classify_onebot_handshake(None, Some(retcode)),
+                ConnectFailureKind::Permanent,
+                "retcode {retcode} is a configuration fault"
+            );
+        }
+        for retcode in [1405, 1499, 1500] {
+            assert_eq!(
+                classify_onebot_handshake(None, Some(retcode)),
+                ConnectFailureKind::Transient,
+                "retcode {retcode} is retryable"
+            );
+        }
+    }
+
+    /// 4xx/5xx 的边界，以及 retcode 优先于 status 的优先级。
+    #[test]
+    fn status_boundaries_and_retcode_precedence() {
+        for status in [400, 499] {
+            assert_eq!(
+                classify_onebot_handshake(Some(status), None),
+                ConnectFailureKind::Permanent,
+                "status {status}"
+            );
+        }
+        for status in [399, 500, 599, 600] {
+            assert_eq!(
+                classify_onebot_handshake(Some(status), None),
+                ConnectFailureKind::Transient,
+                "status {status}"
+            );
+        }
+        assert_eq!(
+            classify_onebot_handshake(Some(503), Some(1403)),
+            ConnectFailureKind::Permanent,
+            "a token rejection outranks a server-side status"
+        );
+    }
 }
