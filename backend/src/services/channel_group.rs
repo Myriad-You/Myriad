@@ -147,6 +147,7 @@ async fn send_reply(
     line: &GroupLine,
     token: &str,
     pieces: &[myriad_agent_rules::mentions::Piece],
+    quoting: bool,
 ) -> Result<(), ConnectFailureKind> {
     use myriad_agent_rules::mentions;
     match line.platform {
@@ -160,7 +161,7 @@ async fn send_reply(
                 chat,
                 &text,
                 &entities,
-                message_id,
+                quoting.then_some(message_id),
                 line.thread,
             )
             .await
@@ -172,7 +173,7 @@ async fn send_reply(
                 &line.chat,
                 &content,
                 &users,
-                &line.message_id,
+                quoting.then_some(line.message_id.as_str()),
             )
             .await
         }
@@ -234,15 +235,24 @@ fn without_reply_mark(reply: &str) -> String {
 
 /// Her reply, chunk by chunk; whether any of it reached the group.
 async fn deliver(line: &GroupLine, token: &str, reply: &str) -> bool {
+    use myriad_agent_rules::channel::{as_messages, split_channel_text, typing_pause};
     let people = people(&line.venue());
     let mut sent = false;
-    for chunk in myriad_agent_rules::channel::split_channel_text(reply, text_limit(line.platform)) {
-        let pieces = myriad_agent_rules::mentions::split_mentions(&chunk, &people);
-        match send_reply(line, token, &pieces).await {
-            Ok(()) => sent = true,
-            Err(kind) => {
-                warn!(?kind, venue = %line.venue(), "[Group] reply not sent");
-                break;
+    // A line at a time, as people send a few in a row: typing each before
+    // it goes, and only the first quoting the line she answers.
+    for (index, message) in as_messages(reply).into_iter().enumerate() {
+        if index > 0 {
+            send_typing(line, token).await;
+            tokio::time::sleep(typing_pause(message.chars().count())).await;
+        }
+        for chunk in split_channel_text(&message, text_limit(line.platform)) {
+            let pieces = myriad_agent_rules::mentions::split_mentions(&chunk, &people);
+            match send_reply(line, token, &pieces, !sent).await {
+                Ok(()) => sent = true,
+                Err(kind) => {
+                    warn!(?kind, venue = %line.venue(), "[Group] reply not sent");
+                    return sent;
+                }
             }
         }
     }

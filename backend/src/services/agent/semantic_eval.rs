@@ -414,6 +414,7 @@ fn group_chat_prompt(case: &Case) -> String {
     });
     let sections: Vec<String> = [
         Some(super::merope::group_speaking_section("阿明")),
+        Some(myriad_merope::speaking::chat_app_section().to_string()),
         super::merope::format_remembered_section(&case.remembered),
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, true),
@@ -997,6 +998,10 @@ fn request(case: &Case) -> Value {
                 remembered = format!("{remembered}\n\n{stickers}");
             }
             if case.in_chat_app {
+                remembered = format!(
+                    "{remembered}\n\n{}",
+                    myriad_merope::speaking::chat_app_section()
+                );
                 let songs: Vec<(String, String)> = case
                     .songs_to_share
                     .iter()

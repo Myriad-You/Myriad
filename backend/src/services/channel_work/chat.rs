@@ -102,8 +102,19 @@ pub(super) async fn start_chat_turn(
         .and_then(Value::as_str)
         .map(str::trim)
         .unwrap_or("");
-    if !message.is_empty() {
-        for chunk in split_channel_text(message, sink.text_limit()) {
+    // A line at a time, as people send a few in a row, typing each first.
+    for (index, line) in myriad_agent_rules::channel::as_messages(message)
+        .into_iter()
+        .enumerate()
+    {
+        if index > 0 {
+            sink.send_typing().await;
+            tokio::time::sleep(myriad_agent_rules::channel::typing_pause(
+                line.chars().count(),
+            ))
+            .await;
+        }
+        for chunk in split_channel_text(&line, sink.text_limit()) {
             if sink.send_text(&chunk).await.is_err() {
                 return;
             }

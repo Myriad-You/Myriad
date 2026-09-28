@@ -366,7 +366,7 @@ pub async fn send_group_reply(
     chat_id: i64,
     text: &str,
     entities: &[serde_json::Value],
-    reply_to: i64,
+    reply_to: Option<i64>,
     thread: Option<i64>,
 ) -> Result<(), ConnectFailureKind> {
     if text.is_empty() {
@@ -382,8 +382,12 @@ pub async fn send_group_reply(
     let mut payload = serde_json::json!({
         "chat_id": chat_id,
         "text": myriad_agent_rules::channel::truncate_telegram_text(text),
-        "reply_parameters": {"message_id": reply_to, "allow_sending_without_reply": true},
     });
+    // Only the first of a few messages in a row quotes the line she answers.
+    if let Some(reply_to) = reply_to {
+        payload["reply_parameters"] =
+            serde_json::json!({"message_id": reply_to, "allow_sending_without_reply": true});
+    }
     if let Some(thread) = thread {
         payload["message_thread_id"] = serde_json::json!(thread);
     }

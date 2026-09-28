@@ -858,7 +858,7 @@ pub async fn send_group_reply(
     channel_id: &str,
     text: &str,
     mentioned: &[String],
-    reply_to: &str,
+    reply_to: Option<&str>,
 ) -> Result<(), ConnectFailureKind> {
     if channel_id.is_empty() || text.is_empty() || !bot_enabled().await {
         return Ok(());
@@ -880,12 +880,17 @@ pub async fn send_group_reply(
 }
 
 /// Only the people she named may be pinged: never everyone, never a role.
-fn group_reply_payload(content: &str, mentioned: &[String], reply_to: &str) -> Value {
-    serde_json::json!({
+fn group_reply_payload(content: &str, mentioned: &[String], reply_to: Option<&str>) -> Value {
+    let mut payload = serde_json::json!({
         "content": content,
-        "message_reference": { "message_id": reply_to, "fail_if_not_exists": false },
         "allowed_mentions": { "parse": [], "users": mentioned, "replied_user": true },
-    })
+    });
+    // Only the first of a few messages in a row quotes the line she answers.
+    if let Some(reply_to) = reply_to {
+        payload["message_reference"] =
+            serde_json::json!({ "message_id": reply_to, "fail_if_not_exists": false });
+    }
+    payload
 }
 
 pub async fn send_typing(token: &str, channel_id: &str) -> Result<(), ConnectFailureKind> {
@@ -1044,10 +1049,10 @@ mod tests {
 
     #[test]
     fn her_group_reply_pings_nobody_but_the_one_she_answers() {
-        let payload = group_reply_payload("@everyone 看这里", &[], "11");
+        let payload = group_reply_payload("@everyone 看这里", &[], Some("11"));
         assert_eq!(payload["allowed_mentions"]["parse"], serde_json::json!([]));
         assert_eq!(payload["allowed_mentions"]["users"], serde_json::json!([]));
-        let named = group_reply_payload("<@42> 看这里", &["42".to_string()], "11");
+        let named = group_reply_payload("<@42> 看这里", &["42".to_string()], None);
         assert_eq!(
             named["allowed_mentions"]["users"],
             serde_json::json!(["42"])

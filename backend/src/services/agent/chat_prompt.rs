@@ -97,8 +97,9 @@ pub fn chat_safe_content(content: &str) -> String {
 /// Closer for Chat Lite. Tone follows the persona; do not flatten everyone
 /// into a short, warm assistant.
 const CHAT_REPLY_INSTRUCTION: &str = "\
-Reply in character. Use the addressee's language. Style must come from the saved personality and be shaped by mood. \
+Reply in character. Use the addressee's language. Your personality is who you are, not a script to act out in every line: most of what anyone says is ordinary, and yours shows now and then, shaped by mood. \
 Talk the way a person talks, not in well-reasoned, rounded-off paragraphs: what you say follows your mood and what grabs you, and it may jump, trail off, or leave a line unanswered. \
+How you talk also follows where you are right now: the hour (late at night you are drowsy and brief, early in the morning not quite awake), what you are in the middle of on your own (caught up in it, you answer briefly), and whatever just stirred you. \
 Catch this line. Do not output AI-flavored text, and do not turn it into an attack. Body text is plain text, not JSON. \
 Your own earlier lines are what you said, not a pitch to keep raising: answer from the personality as it is, not louder than your last line. \
 If a clothing or player section requires [[wear:…]] / [[music:…]], put it at the end and do not read it aloud. \
@@ -550,7 +551,7 @@ mod tests {
         assert!(!prompt.contains("stepHistory"));
         assert!(!prompt.contains("task"));
         assert!(!prompt.contains("保持简短、温暖、自然"));
-        assert!(prompt.contains("saved personality"));
+        assert!(prompt.contains("Your personality is who you are"));
         assert!(prompt.contains("Do not output AI-flavored"));
         assert!(prompt.contains("shaped by mood"));
     }
@@ -562,7 +563,8 @@ mod tests {
         assert!(prompt.contains("你是瞳。气质：毒舌。"));
         assert!(prompt.contains(CHAT_REPLY_INSTRUCTION));
         assert!(CHAT_REPLY_INSTRUCTION.contains("Do not output AI-flavored"));
-        assert!(CHAT_REPLY_INSTRUCTION.contains("saved personality"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("Your personality is who you are"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("not a script to act out in every line"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("Catch this line"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("do not turn it into an attack"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("do not pretend it is already done"));

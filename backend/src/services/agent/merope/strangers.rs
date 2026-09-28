@@ -104,6 +104,7 @@ pub async fn reply(
     let note = note_on(db, venue, stranger).await.map(|row| row.content);
     let mut sections = vec![
         super::group_speaking_section(&stranger.name),
+        myriad_merope::speaking::chat_app_section().to_string(),
         section(&stranger.name, note.as_deref()),
         super::speaking_prompts::format_now_section(chrono::Local::now()),
     ];

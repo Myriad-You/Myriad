@@ -468,6 +468,8 @@ impl Agent {
             {
                 player.push_str("\n\n");
                 player.push_str(&crate::services::agent::delegate::section(chat));
+                player.push_str("\n\n");
+                player.push_str(myriad_merope::speaking::chat_app_section());
                 // No player there: a song goes as its link.
                 if let Some(songs) =
                     crate::services::agent::chat_music::offer_song_links(&self.db).await
@@ -511,6 +513,10 @@ impl Agent {
             if let Some(game) = game {
                 merope_block = format!("{merope_block}\n\n{game}");
             }
+            merope_block = format!(
+                "{merope_block}\n\n{}",
+                myriad_merope::speaking::chat_app_section()
+            );
             // Stickers of her: hers, and this group's own.
             if let Some(stickers) = crate::services::agent::merope::stickers::section(
                 &self.db,

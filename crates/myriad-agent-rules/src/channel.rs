@@ -2490,6 +2490,33 @@ pub fn truncate_feishu_text(text: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Messages her chat reply goes out as, at most: the rest stay together in
+/// the last.
+pub const CHAT_MESSAGES: usize = 5;
+
+/// Her chat reply as the messages it goes out as: each line its own, the
+/// way people send a few in a row. Blank lines are dropped.
+pub fn as_messages(text: &str) -> Vec<String> {
+    let mut lines: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    if lines.len() > CHAT_MESSAGES {
+        let rest = lines.split_off(CHAT_MESSAGES - 1).join("\n");
+        lines.push(rest);
+    }
+    lines
+}
+
+/// About how long it takes to type a message of `chars` characters before
+/// sending it: a beat, and a little for each character, never long.
+pub fn typing_pause(chars: usize) -> std::time::Duration {
+    let millis = 500 + 80 * chars as u64;
+    std::time::Duration::from_millis(millis.min(3_500))
+}
+
 /// Split on paragraph / line / word boundaries so a long result is complete.
 pub fn split_channel_text(text: &str, limit: usize) -> Vec<String> {
     if limit == 0 {

@@ -2791,3 +2791,19 @@ mod group_pictures {
         assert_eq!(line.images[1].hint.as_deref(), Some("[doge]"));
     }
 }
+
+#[test]
+fn her_reply_goes_out_a_line_at_a_time_like_typing() {
+    use myriad_agent_rules::channel::{CHAT_MESSAGES, as_messages, typing_pause};
+    assert_eq!(as_messages("哈哈\n\n  真的假的 \n"), ["哈哈", "真的假的"]);
+    assert_eq!(as_messages("嗯"), ["嗯"]);
+    assert!(as_messages(" \n ").is_empty());
+    let many = as_messages("1\n2\n3\n4\n5\n6\n7");
+    assert_eq!(many.len(), CHAT_MESSAGES);
+    assert_eq!(many[CHAT_MESSAGES - 1], "5\n6\n7");
+    assert!(typing_pause(2) < typing_pause(20));
+    assert_eq!(
+        typing_pause(10_000),
+        std::time::Duration::from_millis(3_500)
+    );
+}
