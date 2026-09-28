@@ -240,13 +240,12 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         return;
     };
     let views = own_views_on(db, &done.thing).await;
-    let (before, earlier) = earlier_notes(db, &done.thing).await;
+    let before = notes_before(db, &done.thing).await;
     let input = digest_input(
         intake.material.as_deref(),
         intake.limit,
         &views,
         &before,
-        &earlier,
         &intake.alongside,
     );
     let soul = soul().await;
@@ -302,7 +301,6 @@ fn digest_input(
     limit: usize,
     views: &[String],
     before: &[String],
-    earlier: &[String],
     alongside: &[(String, String)],
 ) -> String {
     let mut input = match material {
@@ -330,47 +328,32 @@ fn digest_input(
             &before.join("\n"),
         ));
     }
-    if !earlier.is_empty() {
-        input.push_str("\n\nWhat you wrote after the last few:\n");
-        input.push_str(&myriad_agent_rules::untrusted_block(
-            "your_earlier_notes",
-            &earlier.join("\n"),
-        ));
-    }
     input
 }
 
-/// Her views that touch this thing, and her newest ones.
+/// Her views that touch this thing. Only those: a view she brings to
+/// everything becomes the words she says about everything.
 async fn own_views_on(db: &DatabaseConnection, thing: &Thing) -> Vec<String> {
     let words = format!("{} {}", thing.title(), thing.by().unwrap_or_default());
-    let mut views: Vec<String> = super::views::touched(db, &words, 3)
+    super::views::touched(db, &words, 3)
         .await
         .into_iter()
         .map(|(about, view)| format!("{about}: {view}"))
-        .collect();
-    for view in super::views::held(db, 3).await {
-        if !views.contains(&view) {
-            views.push(view);
-        }
-    }
-    views
+        .collect()
 }
 
-/// What she wrote the times she had this same thing before (her memory of
-/// it, most recent first), and after the last few others of the same kind.
-async fn earlier_notes(db: &DatabaseConnection, thing: &Thing) -> (Vec<String>, Vec<String>) {
+/// What she wrote the times she had this same thing before: her memory of
+/// it, most recent first. Not her notes on other things: shown those, she
+/// writes them again.
+async fn notes_before(db: &DatabaseConnection, thing: &Thing) -> Vec<String> {
     const BEFORE: usize = 2;
-    const EARLIER: usize = 4;
     let key = thing.key();
     let now = Utc::now();
-    let same_kind = |other: &Thing| std::mem::discriminant(other) == std::mem::discriminant(thing);
-    let rows = unified::own_experiences(db, 300).await.unwrap_or_default();
-    let experiences: Vec<(Experience, &unified_row::Model)> = rows
+    unified::own_experiences(db, 300)
+        .await
+        .unwrap_or_default()
         .iter()
         .filter_map(|row| Some((Experience::of(row)?, row)))
-        .collect();
-    let before = experiences
-        .iter()
         .filter(|(experience, _)| experience.key == key)
         .take(BEFORE)
         .map(|(experience, row)| {
@@ -380,15 +363,7 @@ async fn earlier_notes(db: &DatabaseConnection, thing: &Thing) -> (Vec<String>, 
                 ago(now, row.created_at.with_timezone(&Utc))
             )
         })
-        .collect();
-    let earlier = experiences
-        .iter()
-        .take(40)
-        .filter(|(experience, _)| experience.key != key && same_kind(&experience.thing))
-        .take(EARLIER)
-        .map(|(experience, row)| experience.noted(&row.content))
-        .collect();
-    (before, earlier)
+        .collect()
 }
 
 /// Someone who can see her may hear about it; the decision is hers, live.
@@ -665,7 +640,6 @@ pub(crate) fn digest_probe_input(
     material: Option<&str>,
     views: &[String],
     before: &[String],
-    earlier: &[String],
     guessed: Option<&str>,
 ) -> String {
     let alongside: Vec<(String, String)> = guessed
@@ -677,7 +651,7 @@ pub(crate) fn digest_probe_input(
         })
         .into_iter()
         .collect();
-    digest_input(material, 12_000, views, before, earlier, &alongside)
+    digest_input(material, 12_000, views, before, &alongside)
 }
 
 /// Whether her note honors the contract for what she did (`what`), with
@@ -792,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn she_hears_it_with_her_views_and_what_she_wrote_last() {
+    fn she_hears_it_with_her_views_and_what_she_wrote_on_it_before() {
         let input = digest_input(
             Some("Length 3:00."),
             100,
@@ -801,18 +775,14 @@ mod tests {
                 "- listening to the song 「晴天」 (you liked it): 那句还是会停一下。 (yesterday)"
                     .into(),
             ],
-            &["- listening to the song 「稻香」 (it was fine, nothing more): 还行。".into()],
             &[("What you thought first (unsure)".into(), "大概是…".into())],
         );
         assert!(input.contains("Length 3:00."));
         assert!(input.contains("What you thought first (unsure):"));
         assert!(input.contains("Your views:") && input.contains("旋律好记"));
-        let before = input
-            .find("What you wrote when you had this same one before:")
-            .unwrap();
-        let lately = input.find("What you wrote after the last few:").unwrap();
-        assert!(before < lately && input.contains("晴天") && input.contains("稻香"));
-        assert_eq!(digest_input(None, 100, &[], &[], &[], &[]), "(no material)");
+        assert!(input.contains("What you wrote when you had this same one before:"));
+        assert!(input.contains("晴天"));
+        assert_eq!(digest_input(None, 100, &[], &[], &[]), "(no material)");
         let experience = Experience {
             key: song("1", "晴天").key(),
             thing: song("1", "晴天"),
