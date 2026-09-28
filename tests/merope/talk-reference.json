@@ -1,0 +1,15 @@
+{
+  "chatApp": {
+    "source": "One active QQ group, 2026-09-28, its members only (bots left out): 165 typed messages in 127 turns. A turn is one person's messages no more than 60 s apart; pictures and stickers are not typed. Counts only, no content kept.",
+    "shape": {
+      "turns": 127,
+      "messages": 165,
+      "perTurn": 1.3,
+      "single": 0.77,
+      "charsMedian": 7,
+      "charsP90": 15,
+      "endMark": 0.03,
+      "bang": 0.0
+    }
+  }
+}

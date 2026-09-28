@@ -1484,13 +1484,43 @@ fn summary(rows: &[Value]) -> Value {
                 .push(json!({"id":row["id"],"output":row["output"],"grade":row["grade"]}));
         }
     }
-    json!({"total":rows.len(),"grades":counts,"completePass":rows.iter().all(|row| row["withinRequestBudget"] != false && matches!(row["grade"].as_str(),Some("pass"|"reviewed_pass"|"gate_pass"))),
+    let talk = talk_shape(rows);
+    json!({"total":rows.len(),"grades":counts,"talkShape":talk,"completePass":talk["outOfLine"].as_array().is_none_or(|off| off.is_empty()) && rows.iter().all(|row| row["withinRequestBudget"] != false && matches!(row["grade"].as_str(),Some("pass"|"reviewed_pass"|"gate_pass"))),
         "touch":{"attempted":attempted,"valid":valid,"timed":timed,"timely":timely,
             "validRate":(attempted>0).then(|| valid as f64 / attempted as f64),
             "timelyRate":(timed>0).then(|| timely as f64 / timed as f64),
             "p50Ms":latencies.get(latencies.len().saturating_sub(1)/2),
             "p95Ms":latencies.get((latencies.len()*95).div_ceil(100).saturating_sub(1)),
             "independentRepeatSamples":repeated,"visibleImprovement":null}})
+}
+
+/// Replies typed in a chat app are held to how people there type: each
+/// reply is a turn, as the messages it goes out as. Too few turns to say
+/// anything are reported, never judged.
+const TALK_SHAPE_AT_LEAST: usize = 8;
+
+fn talk_shape(rows: &[Value]) -> Value {
+    let replies: Vec<Vec<String>> = rows
+        .iter()
+        .filter(|row| row["typedIn"] == "chatApp" && row["outcome"] == "returned")
+        .filter_map(|row| row["output"].as_str())
+        .map(myriad_agent_rules::channel::as_messages)
+        .filter(|turn| !turn.is_empty())
+        .collect();
+    let turns: Vec<Vec<&str>> = replies
+        .iter()
+        .map(|turn| turn.iter().map(String::as_str).collect())
+        .collect();
+    let reference: Value =
+        serde_json::from_str(include_str!("../../../../tests/merope/talk-reference.json")).unwrap();
+    let people: myriad_merope::talk_shape::Shape =
+        serde_json::from_value(reference["chatApp"]["shape"].clone()).unwrap();
+    let Some(hers) = myriad_merope::talk_shape::of_turns(&turns) else {
+        return json!({"hers":null,"people":people,"outOfLine":null});
+    };
+    let judged = hers.turns >= TALK_SHAPE_AT_LEAST;
+    json!({"hers":hers,"people":people,
+        "outOfLine":judged.then(|| myriad_merope::talk_shape::out_of_line(&hers, &people))})
 }
 
 #[tokio::test]
@@ -1810,6 +1840,7 @@ async fn run_semantic_suite() {
         }));
         rows.push(
             json!({"id":case.id,"kind":case.kind,"requestHash":hash,"request":request,
+            "typedIn":(case.kind == "chat" && (case.in_group || case.in_chat_app)).then_some("chatApp"),
             "rubric":case.rubric,"outcome":outcome,"output":output,"grade":grade,"review":review,
             "latencyMs":latency,"firstTextMs":first_text_ms,"touchMetrics":touch_metrics,
             "probeObservation": if mode == "replay" { replay.iter().find(|r| r["id"] == case.id).and_then(|r| r.get("probeObservation")).cloned().unwrap_or(Value::Null) } else if probe.is_some() { json!(observation) } else { Value::Null },
@@ -1837,6 +1868,31 @@ async fn run_semantic_suite() {
             "incomplete/failed evaluation; see report (pending review is not pass)"
         );
     }
+}
+
+#[test]
+fn chat_app_replies_are_held_to_how_people_there_type() {
+    let row = |output: &str| json!({"typedIn":"chatApp","outcome":"returned","output":output});
+    let wordy: Vec<Value> = (0..TALK_SHAPE_AT_LEAST)
+        .map(|_| row("？\n骂谁呢你！\n皮痒了是不是，我看你才是！"))
+        .collect();
+    let off = talk_shape(&wordy);
+    let off: Vec<&str> = off["outOfLine"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line.as_str().unwrap())
+        .collect();
+    assert!(off.iter().any(|line| line.starts_with("messages a turn")));
+    assert!(off.iter().any(|line| line.starts_with("exclamations")));
+    let like: Vec<Value> = (0..TALK_SHAPE_AT_LEAST)
+        .map(|index| row(if index % 4 == 0 { "哈哈哈\n笑死" } else { "那确实" }))
+        .collect();
+    assert_eq!(talk_shape(&like)["outOfLine"], json!([]));
+    // Too few replies to say anything: reported, not judged; nothing typed
+    // in a chat app, nothing to report.
+    assert!(talk_shape(&wordy[..2])["outOfLine"].is_null());
+    assert!(talk_shape(&[json!({"outcome":"returned","output":"好"})])["hers"].is_null());
 }
 
 #[test]
