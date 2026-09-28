@@ -43,19 +43,35 @@ fn ends_in_mark(message: &str) -> bool {
 }
 
 pub fn of_turns(turns: &[Turn<'_>]) -> Option<Shape> {
-    let turns: Vec<Vec<&str>> = turns
-        .iter()
-        .map(|turn| turn.iter().filter_map(|message| typed(message)).collect())
-        .filter(|turn: &Vec<&str>| !turn.is_empty())
-        .collect();
-    let messages: Vec<&str> = turns.iter().flatten().copied().collect();
+    measure(
+        turns
+            .iter()
+            .map(|turn| {
+                turn.iter()
+                    .filter_map(|message| typed(message))
+                    .map(|message| {
+                        (
+                            message.chars().count(),
+                            ends_in_mark(message),
+                            message.contains('！') || message.contains('!'),
+                        )
+                    })
+                    .collect()
+            })
+            .collect(),
+    )
+}
+
+/// Turns of messages, each message (characters, ends in a mark, has an
+/// exclamation mark), as their shape.
+fn measure(turns: Vec<Vec<(usize, bool, bool)>>) -> Option<Shape> {
+    let turns: Vec<Vec<(usize, bool, bool)>> =
+        turns.into_iter().filter(|turn| !turn.is_empty()).collect();
+    let messages: Vec<(usize, bool, bool)> = turns.iter().flatten().copied().collect();
     if messages.is_empty() {
         return None;
     }
-    let mut chars: Vec<usize> = messages
-        .iter()
-        .map(|message| message.chars().count())
-        .collect();
+    let mut chars: Vec<usize> = messages.iter().map(|(chars, _, _)| *chars).collect();
     chars.sort_unstable();
     let quantile = |q: f64| chars[((chars.len() as f64 * q) as usize).min(chars.len() - 1)];
     let share = |count: usize, of: usize| count as f64 / of as f64;
@@ -70,19 +86,80 @@ pub fn of_turns(turns: &[Turn<'_>]) -> Option<Shape> {
         chars_median: quantile(0.5),
         chars_p90: quantile(0.9),
         end_mark: share(
-            messages
-                .iter()
-                .filter(|message| ends_in_mark(message))
-                .count(),
+            messages.iter().filter(|(_, mark, _)| *mark).count(),
             messages.len(),
         ),
         bang: share(
-            messages
-                .iter()
-                .filter(|message| message.contains('！') || message.contains('!'))
-                .count(),
+            messages.iter().filter(|(_, _, bang)| *bang).count(),
             messages.len(),
         ),
+    })
+}
+
+/// One message as it was typed, without what it said: when, by whom (any
+/// stable token), how long, and its marks. Enough to measure a place's
+/// talk shape later without keeping anyone's words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Typed {
+    pub at: i64,
+    pub by: String,
+    pub chars: u32,
+    pub mark: bool,
+    pub bang: bool,
+}
+
+/// `text` as typed by `by` at `at` (seconds); None for a picture or sticker.
+pub fn typed_by(by: &str, at: i64, text: &str) -> Option<Typed> {
+    let text = typed(text)?;
+    Some(Typed {
+        at,
+        by: by.to_string(),
+        chars: u32::try_from(text.chars().count()).unwrap_or(u32::MAX),
+        mark: ends_in_mark(text),
+        bang: text.contains('！') || text.contains('!'),
+    })
+}
+
+/// The shape of messages kept as `Typed`, oldest first; a turn is one
+/// speaker's messages no more than 60 s apart, as in `turns_of`.
+pub fn shape_of(messages: &[Typed]) -> Option<Shape> {
+    let mut turns: Vec<Vec<(usize, bool, bool)>> = Vec::new();
+    let mut last: Option<(&str, i64)> = None;
+    for message in messages {
+        let this = (message.chars as usize, message.mark, message.bang);
+        match (last, turns.last_mut()) {
+            (Some((by, then)), Some(turn)) if by == message.by && message.at - then <= 60 => {
+                turn.push(this);
+            }
+            _ => turns.push(vec![this]),
+        }
+        last = Some((message.by.as_str(), message.at));
+    }
+    measure(turns)
+}
+
+/// Waits in seconds, as how many there were and their median and quartiles.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Waits {
+    pub count: usize,
+    pub median: f64,
+    pub p25: f64,
+    pub p75: f64,
+}
+
+pub fn waits(seconds: &[f64]) -> Option<Waits> {
+    let mut sorted: Vec<f64> = seconds.iter().copied().filter(|s| s.is_finite()).collect();
+    if sorted.is_empty() {
+        return None;
+    }
+    sorted.sort_by(f64::total_cmp);
+    let at = |q: f64| sorted[((sorted.len() as f64 * q) as usize).min(sorted.len() - 1)];
+    Some(Waits {
+        count: sorted.len(),
+        median: at(0.5),
+        p25: at(0.25),
+        p75: at(0.75),
     })
 }
 
@@ -348,6 +425,31 @@ mod tests {
         assert!((shape.per_turn - 1.25).abs() < 1e-9);
         assert!((shape.single - 0.75).abs() < 1e-9);
         assert_eq!(shape.end_mark, 0.0);
+    }
+
+    #[test]
+    fn a_ledger_of_numbers_measures_the_same_as_the_words() {
+        let lines = [
+            ("a", 0, "中午吃啥"),
+            ("a", 4, "饿了！"),
+            ("b", 10, "[图片]"),
+            ("b", 11, "拉面。"),
+            ("a", 12, "又是拉面"),
+            ("a", 200, "算了"),
+        ];
+        let from_words = of_turns(&turns_of(&lines, 60)).unwrap();
+        let kept: Vec<Typed> = lines
+            .iter()
+            .filter_map(|(by, at, text)| typed_by(by, *at, text))
+            .collect();
+        assert_eq!(kept.len(), 5);
+        assert!(kept.iter().all(|message| message.by.len() == 1));
+        assert_eq!(shape_of(&kept), Some(from_words));
+        assert_eq!(shape_of(&[]), None);
+        let waited = waits(&[27.0, 19.0, 54.0, 3.0, f64::NAN]).unwrap();
+        assert_eq!(waited.count, 4);
+        assert_eq!((waited.p25, waited.median, waited.p75), (19.0, 27.0, 54.0));
+        assert_eq!(waits(&[]), None);
     }
 
     #[test]

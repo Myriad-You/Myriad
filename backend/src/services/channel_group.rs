@@ -267,14 +267,29 @@ async fn deliver(line: &GroupLine, token: &str, reply: &str, began: Instant) -> 
         for chunk in split_channel_text(&message, text_limit(line.platform)) {
             let pieces = myriad_agent_rules::mentions::split_mentions(&chunk, &people);
             match send_reply(line, token, &pieces, !sent).await {
-                Ok(()) => sent = true,
+                Ok(()) => {
+                    // How long whoever called her waited for her first words.
+                    let waited = (!sent && line.addressed)
+                        .then(|| said_ago(line))
+                        .flatten()
+                        .map(|age| age.num_milliseconds() as f64 / 1000.0);
+                    let typed = myriad_merope::talk_shape::typed_by(
+                        HER,
+                        chrono::Utc::now().timestamp(),
+                        &chunk,
+                    );
+                    note_typed(&venue, typed, waited);
+                    sent = true;
+                }
                 Err(kind) => {
                     warn!(?kind, venue = %line.venue(), "[Group] reply not sent");
+                    keep_ledger(&venue).await;
                     return sent;
                 }
             }
         }
     }
+    keep_ledger(&venue).await;
     sent
 }
 
@@ -429,6 +444,9 @@ struct Group {
     /// How often each picture was sent there lately (by its key): one sent
     /// again is the group's (see `bits::picture_again`).
     pictures: HashMap<String, u32>,
+    /// Messages and waits not yet written to the group's ledger.
+    ledger: Vec<myriad_merope::talk_shape::Typed>,
+    ledger_waits: Vec<f64>,
 }
 
 enum Turn {
@@ -573,6 +591,14 @@ pub async fn record(message: &GroupLine) {
     };
     let venue = message.venue();
     remember_line(&venue, line).await;
+    let typed = myriad_merope::talk_shape::typed_by(
+        &ledger_who(&message.from),
+        chrono::Utc::now().timestamp(),
+        &message.text,
+    );
+    if note_typed(&venue, typed, None) {
+        keep_ledger(&venue).await;
+    }
     take_in(&venue);
     with_group(&venue, |group| {
         if group.pictures.len() > PICTURES_KEPT {
@@ -784,6 +810,13 @@ fn said_now(message: &GroupLine) -> String {
 /// How long ago `message` was said, when that is long enough ago that she
 /// knows she is only now seeing it.
 fn seen_late(message: &GroupLine) -> Option<String> {
+    said_ago(message)
+        .filter(|age| *age >= LATE)
+        .map(myriad_merope::doing::ago_text)
+}
+
+/// How long ago `message` was said in its group, while its line is kept.
+fn said_ago(message: &GroupLine) -> Option<chrono::Duration> {
     with_group(&message.venue(), |group| {
         group
             .lines
@@ -793,8 +826,6 @@ fn seen_late(message: &GroupLine) -> Option<String> {
             .map(|line| chrono::Utc::now() - line.at)
     })
     .flatten()
-    .filter(|age| *age >= LATE)
-    .map(myriad_merope::doing::ago_text)
 }
 
 /// `@123` (someone @-ed by their platform id, as QQ gives it without a
@@ -885,6 +916,97 @@ fn transcript(venue: &str, message_id: Option<&str>) -> Vec<ConversationMessage>
             .collect()
     })
     .unwrap_or_default()
+}
+
+/// Runtime-registry namespace of each group's talk ledger (see `Ledger`).
+const LEDGER_NAMESPACE: &str = "group_talk_ledger";
+const LEDGER_MESSAGES: usize = 2000;
+const LEDGER_WAITS: usize = 500;
+const LEDGER_DAYS: i64 = 30;
+/// Messages gathered before the ledger is written; her reply writes it too.
+const LEDGER_EVERY: usize = 10;
+/// Who she is in the ledger.
+const HER: &str = "her";
+
+/// How a group types, and how long she took there to answer whoever
+/// called her, as numbers only: what the process layer is checked against
+/// (see `myriad_merope::talk_shape::Typed`). Who is a hash, never an id;
+/// nobody's words are kept.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+struct Ledger {
+    messages: Vec<myriad_merope::talk_shape::Typed>,
+    her_waits: Vec<f64>,
+}
+
+/// A member as the ledger knows them: the same token for the same person,
+/// never their id.
+fn ledger_who(from: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    from.hash(&mut hasher);
+    format!("{:012x}", hasher.finish() & 0xffff_ffff_ffff)
+}
+
+/// Note a message typed there, and how long she took if it was her first
+/// answer to someone who called her; whether the ledger is due a write.
+fn note_typed(
+    venue: &str,
+    typed: Option<myriad_merope::talk_shape::Typed>,
+    waited: Option<f64>,
+) -> bool {
+    with_group(venue, |group| {
+        group.ledger.extend(typed);
+        group.ledger_waits.extend(waited);
+        group.ledger.len() >= LEDGER_EVERY || !group.ledger_waits.is_empty()
+    })
+    .unwrap_or(false)
+}
+
+/// Write what was noted to the group's ledger, keeping the latest.
+async fn keep_ledger(venue: &str) {
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    let Some((messages, waits)) = with_group(venue, |group| {
+        (
+            std::mem::take(&mut group.ledger),
+            std::mem::take(&mut group.ledger_waits),
+        )
+    }) else {
+        return;
+    };
+    if messages.is_empty() && waits.is_empty() {
+        return;
+    }
+    let mut ledger = crate::services::runtime_registry::get::<Ledger>(&db, LEDGER_NAMESPACE, venue)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    ledger.messages.extend(messages);
+    let over = ledger.messages.len().saturating_sub(LEDGER_MESSAGES);
+    ledger.messages.drain(..over);
+    ledger.her_waits.extend(waits);
+    let over = ledger.her_waits.len().saturating_sub(LEDGER_WAITS);
+    ledger.her_waits.drain(..over);
+    let keep_until = (chrono::Utc::now() + chrono::Duration::days(LEDGER_DAYS)).timestamp();
+    if let Err(error) = crate::services::runtime_registry::put(
+        &db,
+        LEDGER_NAMESPACE,
+        venue,
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: None,
+            owner_id: None,
+            tapp_id: None,
+            runtime_id: None,
+        },
+        &ledger,
+        keep_until,
+    )
+    .await
+    {
+        warn!(%error, %venue, "[Group] could not keep the talk ledger");
+    }
 }
 
 /// Take the group's single turn, if it is free and not just replied in.
@@ -2027,6 +2149,75 @@ mod tests {
         assert_eq!(room.messages, myriad_merope::talk_shape::ROOM_AT_LEAST);
         assert_eq!(room.chars_median, 3);
         assert_eq!(room.bang, 0.0);
+    }
+
+    #[tokio::test]
+    async fn the_ledger_keeps_numbers_not_words_or_ids() {
+        let chat = -9_007;
+        let venue = venue(chat);
+        for index in 0..(LEDGER_EVERY as i64 - 1) {
+            record(&line(chat, index, "阿明", "周五聚餐吗")).await;
+        }
+        record(&line(chat, 99, "阿明", "[图片]")).await;
+        let kept = with_group(&venue, |group| group.ledger.clone()).unwrap();
+        assert_eq!(kept.len(), LEDGER_EVERY - 1);
+        let first = &kept[0];
+        assert_eq!(first.chars, 5);
+        assert!(!first.mark && !first.bang);
+        // The member is a token, the same each time, and not their id.
+        assert_eq!(first.by, ledger_who("1"));
+        assert_ne!(first.by, "1");
+        assert!(kept.iter().all(|typed| typed.by == first.by));
+        let json = serde_json::to_string(&kept).unwrap();
+        assert!(!json.contains("聚餐"));
+        // Her first words to someone who called her are due a write at once.
+        assert!(note_typed(
+            &venue,
+            myriad_merope::talk_shape::typed_by(HER, 0, "在"),
+            Some(12.0)
+        ));
+    }
+
+    /// How she talks in each group against its members, from the ledgers in
+    /// the site database: `MEROPE_TALK_REPORT=1 DATABASE_URL=… cargo test
+    /// -p myriad-backend --bin myriad-backend -- --ignored
+    /// how_she_talks_against_the_members --nocapture`.
+    #[tokio::test]
+    #[ignore = "reads the site database; MEROPE_TALK_REPORT=1 with DATABASE_URL"]
+    async fn how_she_talks_against_the_members() {
+        use myriad_merope::talk_shape::{out_of_line, shape_of, waits};
+        assert_eq!(std::env::var("MEROPE_TALK_REPORT").as_deref(), Ok("1"));
+        let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+        let db = sea_orm::Database::connect(url).await.expect("database");
+        let reference: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/merope/talk-reference.json"))
+                .unwrap();
+        let rows = crate::services::runtime_registry::list(&db, LEDGER_NAMESPACE, None, None)
+            .await
+            .expect("ledgers");
+        println!("ledgers: {}", rows.len());
+        for row in rows {
+            let Ok(ledger) = serde_json::from_value::<Ledger>(row.payload) else {
+                continue;
+            };
+            let (hers, members): (Vec<_>, Vec<_>) = ledger
+                .messages
+                .into_iter()
+                .partition(|typed| typed.by == HER);
+            let members = shape_of(&members);
+            let hers = shape_of(&hers);
+            println!("\n{}", row.record_id);
+            println!("  members: {members:?}");
+            println!("  hers:    {hers:?}");
+            if let (Some(hers), Some(members)) = (&hers, &members) {
+                println!("  out of line: {:?}", out_of_line(hers, members));
+            }
+            println!(
+                "  she answered a call after (s): {:?}; members in the reference group: {}",
+                waits(&ledger.her_waits),
+                reference["chatApp"]["answerToAt"]
+            );
+        }
     }
 
     #[tokio::test]
