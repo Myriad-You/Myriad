@@ -1658,6 +1658,42 @@ mod tests {
         assert_eq!(said_now(&picture(3)), "[表情：😂]");
     }
 
+    /// Replayed from the QQ group's own traffic on 2026-09-28 (NapCat's log of
+    /// it): a member @-ing another, by number only and with a name.
+    #[tokio::test]
+    async fn a_real_qq_line_at_someone_else_reads_as_who() {
+        let wire = |at: &str| {
+            format!(
+                r#"{{"post_type":"message","message_type":"group","group_id":1076198,"user_id":3059342645,"self_id":3264977935,"message_id":7,
+                "sender":{{"card":"梦想成为猪侯王的leaphy"}},
+                "message":[{{"type":"text","data":{{"text":"你去看ave mujika "}}}},{at}]}}"#
+            )
+        };
+        let spoke = GroupLine::from(
+            myriad_agent_rules::onebot::decode::decode_group_inbound(
+                r#"{"post_type":"message","message_type":"group","group_id":1076198,"user_id":798494815,"self_id":3264977935,"message_id":6,
+                "sender":{"card":"染川 瞳"},"message":[{"type":"text","data":{"text":"所以乐奈是什么意思"}}]}"#,
+                3264977935,
+            )
+            .unwrap(),
+        );
+        let venue = spoke.venue();
+        record(&spoke).await;
+        for at in [
+            r#"{"type":"at","data":{"qq":"798494815"}}"#,
+            r#"{"type":"at","data":{"qq":"798494815","name":"染川 瞳"}}"#,
+        ] {
+            let line = GroupLine::from(
+                myriad_agent_rules::onebot::decode::decode_group_inbound(&wire(at), 3264977935)
+                    .unwrap(),
+            );
+            assert!(!line.addressed, "someone else @-ed, not her");
+            record(&line).await;
+            let last = transcript(&venue, None).last().unwrap().content.clone();
+            assert_eq!(last, "梦想成为猪侯王的leaphy：你去看ave mujika @染川 瞳");
+        }
+    }
+
     #[test]
     fn someone_at_by_their_id_reads_as_their_name_when_known() {
         let people = vec![("小红".to_string(), "111".to_string())];
