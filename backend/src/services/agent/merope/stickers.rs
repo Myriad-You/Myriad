@@ -209,6 +209,69 @@ pub async fn make_sticker(
     }
 }
 
+/// Groups looked at a night, at most, and their jokes each.
+const JOKE_GROUPS: i64 = 5;
+const JOKES: u64 = 10;
+
+/// At night, for each group whose jokes came up lately: whether she makes a
+/// sticker of one of them for that group, to send when it comes up again.
+/// One a group a night at most; billed to `owner`.
+pub async fn for_group_jokes(db: &DatabaseConnection, owner: i32) {
+    if current_identity(db).await.is_none() {
+        return;
+    }
+    let soul = crate::services::agent::identity::get_speaking_soul()
+        .await
+        .unwrap_or_default();
+    for venue in super::bits::groups_lately(db, 3, JOKE_GROUPS).await {
+        if left_this_month(db).await == 0 {
+            return;
+        }
+        let jokes = super::bits::in_group(db, &venue, JOKES).await;
+        if jokes.is_empty() {
+            continue;
+        }
+        let here: Vec<String> = Entity::find()
+            .filter(Column::Venue.eq(venue.as_str()))
+            .all(db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|sticker| sticker.meaning)
+            .collect();
+        let input = serde_json::json!({
+            "jokes": jokes.iter().enumerate()
+                .map(|(index, (handle, how))| serde_json::json!({"index": index, "joke": handle, "how": how}))
+                .collect::<Vec<_>>(),
+            "stickersHere": here,
+            "leftThisMonth": left_this_month(db).await,
+        })
+        .to_string();
+        let Ok(raw) = super::call::Ask::new(super::call::Voice::Hers, owner, "joke_sticker")
+            .within(std::time::Duration::from_secs(45))
+            .json_raw(
+                &myriad_merope::stickers::joke_system(&soul),
+                &input,
+                myriad_merope::stickers::JOKE_SCHEMA,
+                &myriad_merope::stickers::joke_schema(),
+            )
+            .await
+        else {
+            continue;
+        };
+        let Some(Some((shows, means))) = myriad_merope::stickers::parse_joke(&raw, jokes.len())
+        else {
+            continue;
+        };
+        if make_sticker(db, owner, &shows, &means, Some(&venue))
+            .await
+            .is_some()
+        {
+            tracing::info!(%venue, "[Merope] made a sticker of a group's joke");
+        }
+    }
+}
+
 /// One of her stickers, by id.
 pub async fn by_id(db: &DatabaseConnection, id: &str) -> Option<Model> {
     Entity::find_by_id(id.to_string())
@@ -292,7 +355,17 @@ pub async fn offered(db: &DatabaseConnection, venue: Option<&str>, talk: &str) -
     let mut order: Vec<(usize, f64)> = lexical::score_all(talk, &documents)
         .into_iter()
         .enumerate()
-        .map(|(index, score)| (index, if score.strong { score.value } else { 0.0 }))
+        .map(|(index, score)| {
+            let touched = if score.strong { score.value } else { 0.0 };
+            // A group's own stickers come before those for anywhere: there
+            // are few, and they are why she made them.
+            let own = if rows[index].venue.is_some() {
+                1.0
+            } else {
+                0.0
+            };
+            (index, touched + own)
+        })
         .collect();
     // Stable: ties keep the most-sent-first order.
     order.sort_by(|a, b| b.1.total_cmp(&a.1));

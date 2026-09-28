@@ -75,6 +75,8 @@ pub async fn tick(db: DatabaseConnection) {
                 *done = Some(start.date_naive());
             }
             super::bits::go_over(&db, owner, start, end).await;
+            // A group's joke that keeps coming back may become its sticker.
+            super::stickers::for_group_jokes(&db, owner).await;
         }
     }
     super::views::let_fade(&db).await;

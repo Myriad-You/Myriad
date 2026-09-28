@@ -389,6 +389,25 @@ pub async fn picture_again(
     }
 }
 
+/// Groups whose bits came up lately (as sessions know the group:
+/// `telegram:-100123`), most recent first.
+pub async fn groups_lately(db: &DatabaseConnection, days: i32, limit: i64) -> Vec<String> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT venue FROM agent_memories \
+         WHERE source = $1 AND venue LIKE 'group:%' AND invalid_at IS NULL \
+           AND updated_at > NOW() - make_interval(days => $2) \
+         GROUP BY venue ORDER BY max(updated_at) DESC LIMIT $3",
+        [SOURCE.into(), days.into(), limit.into()],
+    ))
+    .await
+    .unwrap_or_default()
+    .iter()
+    .filter_map(|row| row.try_get::<String>("", "venue").ok())
+    .filter_map(|venue| venue.strip_prefix("group:").map(str::to_string))
+    .collect()
+}
+
 /// What only she and this person share, freshest first: (handle, how).
 pub async fn between(db: &DatabaseConnection, user_id: i32, limit: u64) -> Vec<(String, String)> {
     held_in(db, &Circle::Person(user_id), limit)

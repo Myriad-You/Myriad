@@ -136,6 +136,10 @@ struct Case {
     /// she can make this month.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     stickers: Vec<String>,
+    /// A group's running jokes (handle, how it goes), for the night she
+    /// thinks of making one a sticker.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    jokes: Vec<(String, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stickers_left: Option<usize>,
     /// Her compiled inner state for this turn.
@@ -584,6 +588,7 @@ fn cases() -> Vec<Case> {
                 | "touch"
                 | "wonder"
                 | "heard"
+                | "joke_sticker"
                 | "found_out"
                 | "inner"
                 | "own_day"
@@ -866,6 +871,18 @@ fn request(case: &Case) -> Value {
                 case.guessed.as_deref(),
             );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
+        }
+        "joke_sticker" => {
+            let input = json!({
+                "jokes": case.jokes.iter().enumerate()
+                    .map(|(index, (handle, how))| json!({"index": index, "joke": handle, "how": how}))
+                    .collect::<Vec<_>>(),
+                "stickersHere": case.stickers,
+                "leftThisMonth": 20,
+            });
+            json!({"system":myriad_merope::stickers::joke_system(&default_soul()),
+                "schema":myriad_merope::stickers::joke_schema(),
+                "schemaName":myriad_merope::stickers::JOKE_SCHEMA,"input":input.to_string()})
         }
         "heard" => {
             let lines = heard_lines(case);
@@ -1224,6 +1241,12 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                     "behavior_failure"
                 }
             }
+        },
+        "joke_sticker" => match myriad_merope::stickers::parse_joke(output, case.jokes.len()) {
+            None => "output_invalid",
+            Some(made) if made.is_some() != case.fact_present => "behavior_failure",
+            Some(None) => "pass",
+            Some(Some(_)) => "needs_review",
         },
         "heard" => match myriad_merope::heard::parse(output, &heard_lines(case)) {
             None => "output_invalid",
@@ -1977,7 +2000,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 108;
+const MIND_CASES: usize = 111;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
