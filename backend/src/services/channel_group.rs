@@ -47,6 +47,7 @@ use sea_orm::DatabaseConnection;
 use tracing::{info, warn};
 
 use crate::services::agent::AgentInteractionMode;
+use crate::services::agent::merope::joining::Why;
 use crate::services::agent::types::{AgentProgressEvent, ConversationMessage};
 use crate::services::channel_pairing::{ChannelBinding, PairingChannel};
 use crate::services::channel_platform::ChannelPlatform;
@@ -276,6 +277,10 @@ const GLANCE_AFTER_SECONDS: std::ops::RangeInclusive<u64> = 30..=180;
 const LONGEST_BUSY: Duration = Duration::from_secs(30 * 60);
 /// Talk this old when she sees it, she knows she is seeing it late.
 const LATE: chrono::Duration = chrono::Duration::minutes(3);
+/// Her speaking up unasked counts as taken up if someone turns to her this
+/// soon after; she keeps this many of them in mind.
+const TAKEN_UP_WITHIN: Duration = Duration::from_secs(5 * 60);
+const SPOKE_UP_KEPT: usize = 8;
 /// Lines of the talk she looks at.
 const CONVERSATION_LINES: usize = 15;
 /// Two bots answering each other never stop, and no person talks like that:
@@ -342,6 +347,9 @@ struct Group {
     /// When she was last called there, and when she means to glance at it.
     called: Option<Instant>,
     glance_at: Option<Instant>,
+    /// Her speaking up unasked there lately, oldest first: when, and whether
+    /// anyone took it up.
+    spoke_up: VecDeque<(Instant, bool)>,
     /// Whom she answered lately, in order, and whom she stopped answering
     /// (see `LOOP_ROUNDS`).
     answered: VecDeque<(String, Instant)>,
@@ -642,7 +650,10 @@ fn end_turn(venue: &str, replied: bool) {
 /// the one on hand.
 pub async fn handle(mut message: GroupLine, token: String) {
     let venue = message.venue();
-    with_group(&venue, |group| group.called = Some(Instant::now()));
+    with_group(&venue, |group| {
+        group.called = Some(Instant::now());
+        taken_up(group);
+    });
     loop {
         // Busy or not is decided under the same lock that parks the line, so
         // the turn on hand cannot end without seeing it.
@@ -804,14 +815,26 @@ async fn look(venue: String, mut id: String, token: String) {
             }
             Look::Now(message) => message,
         };
-        let why = judge(&message).await;
-        with_group(&venue, |group| group.judging = false);
-        if let Some(why) = why
+        let decided = judge(&message).await;
+        with_group(&venue, |group| {
+            group.judging = false;
+            // Going on with what she said, without calling her: taken up.
+            if decided.as_ref().is_some_and(|(why, _)| *why == Why::Answer) {
+                taken_up(group);
+            }
+        });
+        if let Some((why, reason)) = decided
             && matches!(begin_turn(&venue), Turn::Began)
         {
-            let replied = answer(&message, &token, Some(why)).await;
-            if replied {
+            let replied = answer(&message, &token, Some(reason)).await;
+            if replied && why != Why::Answer {
                 info!(%venue, "[Group] she spoke up");
+                with_group(&venue, |group| {
+                    group.spoke_up.push_back((Instant::now(), false));
+                    while group.spoke_up.len() > SPOKE_UP_KEPT {
+                        group.spoke_up.pop_front();
+                    }
+                });
             }
             let mut next = finish_turn(&venue, replied).await;
             while let Some(message) = next {
@@ -833,7 +856,17 @@ async fn look(venue: String, mut id: String, token: String) {
 /// Whether she says something about the talk this line ends, and why. Her
 /// judgment is billed to the one who said it if they are of the community,
 /// else to the site's owner, who hosts her there.
-async fn judge(message: &GroupLine) -> Option<String> {
+/// Someone turned to her: her latest speaking up there, if recent, was
+/// taken up.
+fn taken_up(group: &mut Group) {
+    if let Some((at, taken)) = group.spoke_up.back_mut()
+        && at.elapsed() < TAKEN_UP_WITHIN
+    {
+        *taken = true;
+    }
+}
+
+async fn judge(message: &GroupLine) -> Option<(Why, String)> {
     let db = crate::services::process_db::database().ok()?;
     if stopped_answering(message) {
         return None;
@@ -881,12 +914,22 @@ async fn judge(message: &GroupLine) -> Option<String> {
             .map(|line| myriad_merope::doing::ago_text(chrono::Utc::now() - line.at))
     })
     .flatten();
+    let how_it_went = with_group(&venue, |group| {
+        myriad_merope::joining::how_it_went(
+            group.spoke_up.len(),
+            group.spoke_up.iter().filter(|(_, taken)| *taken).count(),
+        )
+    })
+    .flatten();
     crate::services::agent::merope::joining::decide(
         &db,
         owner,
         &conversation,
-        last_spoke.as_deref(),
-        late.as_deref(),
+        &crate::services::agent::merope::joining::Here {
+            last_spoke: last_spoke.as_deref(),
+            late: late.as_deref(),
+            how_it_went: how_it_went.as_deref(),
+        },
     )
     .await
 }
@@ -1247,6 +1290,28 @@ mod tests {
         let other = -9_475;
         with_group(&venue(other), |group| group.called = Some(Instant::now()));
         with_group(&venue(other), |group| assert!(in_talk(group)));
+    }
+
+    #[test]
+    fn her_speaking_up_counts_as_taken_up_when_someone_turns_to_her_soon() {
+        let mut group = Group::default();
+        taken_up(&mut group);
+        assert!(group.spoke_up.is_empty());
+        group
+            .spoke_up
+            .push_back((Instant::now() - TAKEN_UP_WITHIN, false));
+        taken_up(&mut group);
+        assert_eq!(group.spoke_up.back().map(|(_, taken)| *taken), Some(false));
+        group.spoke_up.push_back((Instant::now(), false));
+        taken_up(&mut group);
+        assert_eq!(
+            group
+                .spoke_up
+                .iter()
+                .map(|(_, taken)| *taken)
+                .collect::<Vec<_>>(),
+            [false, true]
+        );
     }
 
     #[test]

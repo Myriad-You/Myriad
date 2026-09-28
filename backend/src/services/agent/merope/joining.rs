@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use chrono::Utc;
+pub use myriad_merope::joining::Why;
 use myriad_merope::joining::{Material, SCHEMA_NAME, material_view, parse, reason, schema, system};
 use sea_orm::DatabaseConnection;
 use serde_json::json;
@@ -51,33 +52,38 @@ pub async fn material(db: &DatabaseConnection, talk: &str) -> Vec<Material> {
     material
 }
 
-fn input(
-    conversation: &[String],
-    last_spoke: Option<&str>,
-    late: Option<&str>,
-    material: &[Material],
-) -> String {
+/// Where she stands in the group, beside what was said.
+#[derive(Debug, Default, Clone)]
+pub struct Here<'a> {
+    /// How long ago she last spoke there.
+    pub last_spoke: Option<&'a str>,
+    /// How long ago the latest line was said, when she sees it late.
+    pub late: Option<&'a str>,
+    /// How her speaking up unasked went there lately.
+    pub how_it_went: Option<&'a str>,
+}
+
+fn input(conversation: &[String], here: &Here, material: &[Material]) -> String {
     json!({
         "conversation": conversation,
-        "youLastSpokeHere": last_spoke,
-        "youAreSeeingItLate": late,
+        "youLastSpokeHere": here.last_spoke,
+        "youAreSeeingItLate": here.late,
+        "howItWentHere": here.how_it_went,
         "yourOwnTime": super::doing::current().map(|doing| super::doing::now_line(&doing, Utc::now())),
         "whatYouHave": material_view(material),
     })
     .to_string()
 }
 
-/// Whether she speaks up, and why, as the turn that speaks is told it; the
-/// judgment is billed to `owner`. `conversation` is the group's recent lines,
-/// hers as `you：…`. `late` is how long ago the latest line was said, when she
-/// sees it only a while after.
+/// Whether she speaks up: why, and the reason as the turn that speaks is
+/// told it; the judgment is billed to `owner`. `conversation` is the group's
+/// recent lines, hers as `you：…`.
 pub async fn decide(
     db: &DatabaseConnection,
     owner: i32,
     conversation: &[String],
-    last_spoke: Option<&str>,
-    late: Option<&str>,
-) -> Option<String> {
+    here: &Here<'_>,
+) -> Option<(Why, String)> {
     let material = material(db, &conversation.join("\n")).await;
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -86,7 +92,7 @@ pub async fn decide(
         .within(CALL_TIMEOUT)
         .json_raw(
             &system(&soul),
-            &input(conversation, last_spoke, late, &material),
+            &input(conversation, here, &material),
             SCHEMA_NAME,
             &schema(),
         )
@@ -94,10 +100,13 @@ pub async fn decide(
         .ok()?;
     let decision = parse(&raw, material.len()).flatten()?;
     let reason = reason(&decision, &material);
-    Some(match late {
-        Some(ago) => format!("{reason}\n{}", myriad_merope::joining::seeing_it_late(ago)),
-        None => reason,
-    })
+    Some((
+        decision.why,
+        match here.late {
+            Some(ago) => format!("{reason}\n{}", myriad_merope::joining::seeing_it_late(ago)),
+            None => reason,
+        },
+    ))
 }
 
 /// The judgment as production asks it, for the semantic suite.
@@ -110,7 +119,7 @@ pub(crate) fn probe(
     (
         system(soul),
         schema(),
-        input(conversation, None, None, material),
+        input(conversation, &Here::default(), material),
     )
 }
 
