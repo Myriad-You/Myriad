@@ -2807,3 +2807,30 @@ fn her_reply_goes_out_a_line_at_a_time_like_typing() {
         std::time::Duration::from_millis(3_500)
     );
 }
+
+#[test]
+fn someone_else_at_in_a_group_still_reads_as_who() {
+    let raw = r#"{"post_type":"message","message_type":"group","group_id":123,"user_id":456,"self_id":789,"message_id":1,
+        "sender":{"nickname":"阿明"},
+        "message":[{"type":"at","data":{"qq":"111","name":"小红"}},{"type":"text","data":{"text":" 你识别不了吗"}},
+                   {"type":"at","data":{"qq":"222"}},{"type":"at","data":{"qq":"all"}},{"type":"at","data":{"qq":"789"}}]}"#;
+    let line = myriad_agent_rules::onebot::decode::decode_group_inbound(raw, 789).unwrap();
+    assert_eq!(line.text, "@小红 你识别不了吗 @222 @全体成员");
+    assert!(
+        line.addressed,
+        "@-ing her still calls her, and her name is not in the text"
+    );
+
+    let discord = myriad_agent_rules::channel::discord_group_message_from_create(
+        &serde_json::json!({
+            "id": "11", "channel_id": "22", "guild_id": "33",
+            "author": { "id": "44", "username": "ming" },
+            "mentions": [{ "id": "55", "username": "hong", "global_name": "小红" }],
+            "content": "<@55> 你看 <@!55>"
+        }),
+        "99",
+    )
+    .unwrap();
+    assert_eq!(discord.text, "@小红 你看 @小红");
+    assert!(!discord.addressed);
+}

@@ -215,6 +215,21 @@ fn group_text(segments: &[WireSegment], self_id: i64) -> (String, bool) {
             "at" if segment.i64_field("qq") == Some(self_id) => {
                 addressed = true;
             }
+            // Someone else @-ed: kept, so who is talking to whom still reads.
+            "at" => {
+                let qq = segment.str_field("qq").unwrap_or_default();
+                let name = segment
+                    .str_field("name")
+                    .map(|name| name.trim().trim_start_matches('@').to_string())
+                    .filter(|name| !name.is_empty());
+                let shown = match (qq.as_str(), name) {
+                    ("all", _) => "全体成员".to_string(),
+                    (_, Some(name)) => name.chars().take(40).collect(),
+                    (qq, None) if !qq.is_empty() => qq.to_string(),
+                    _ => continue,
+                };
+                text.push_str(&format!(" @{shown} "));
+            }
             _ => {}
         }
     }

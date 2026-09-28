@@ -544,7 +544,7 @@ pub async fn record(message: &GroupLine) {
         message_id: Some(message.message_id.clone()),
         name: message.display_name.clone(),
         from: Some(message.from.clone()),
-        text: bounded(&message.said()),
+        text: bounded(&by_name(&message.said(), &people(&message.venue()))),
         hers: false,
         images: message.images.clone(),
         seen: Vec::new(),
@@ -757,6 +757,29 @@ fn said_now(message: &GroupLine) -> String {
     })
     .flatten()
     .unwrap_or_else(|| message.said())
+}
+
+/// `@123` (someone @-ed by their platform id, as QQ gives it without a
+/// name) as `@name`, for whoever spoke in the group lately.
+fn by_name(text: &str, people: &[(String, String)]) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('@') {
+        out.push_str(&rest[..at + 1]);
+        rest = &rest[at + 1..];
+        let digits = rest.chars().take_while(char::is_ascii_digit).count();
+        if digits == 0 {
+            continue;
+        }
+        let id = &rest[..digits];
+        match people.iter().find(|(_, from)| from == id) {
+            Some((name, _)) if !name.is_empty() => out.push_str(name),
+            _ => out.push_str(id),
+        }
+        rest = &rest[digits..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Who she can mention in the group: whoever spoke there lately, by the
@@ -1633,6 +1656,16 @@ mod tests {
             "阿明：[表情：一只翻白眼的猫（无语）]"
         );
         assert_eq!(said_now(&picture(3)), "[表情：😂]");
+    }
+
+    #[test]
+    fn someone_at_by_their_id_reads_as_their_name_when_known() {
+        let people = vec![("小红".to_string(), "111".to_string())];
+        assert_eq!(
+            by_name("@111 你看 @1112 @222", &people),
+            "@小红 你看 @1112 @222"
+        );
+        assert_eq!(by_name("邮箱 a@b.c", &people), "邮箱 a@b.c");
     }
 
     #[test]

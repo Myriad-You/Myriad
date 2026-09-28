@@ -3191,12 +3191,26 @@ pub fn discord_group_message_from_create(
             .unwrap_or_default();
         quoted_line(&name, text, replies_to_her)
     });
-    let text = raw
+    let mut text = raw
         .replace(&format!("<@{bot_user_id}>"), " ")
-        .replace(&format!("<@!{bot_user_id}>"), " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+        .replace(&format!("<@!{bot_user_id}>"), " ");
+    // Others @-ed read as their names, so who is talking to whom still reads.
+    for user in data
+        .get("mentions")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let Some(id) = json_snowflake(user.get("id")) else {
+            continue;
+        };
+        let name = group_name(&discord_name(user, user.get("member")));
+        let shown = if name.is_empty() { id.clone() } else { name };
+        text = text
+            .replace(&format!("<@{id}>"), &format!("@{shown}"))
+            .replace(&format!("<@!{id}>"), &format!("@{shown}"));
+    }
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let images = discord_images(data);
     if text.is_empty() && images.is_empty() {
         return None;
