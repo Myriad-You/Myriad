@@ -98,6 +98,7 @@ pub fn chat_safe_content(content: &str) -> String {
 /// into a short, warm assistant.
 const CHAT_REPLY_INSTRUCTION: &str = "\
 Reply in character. Use the addressee's language. Style must come from the saved personality and be shaped by mood. \
+Talk the way a person talks, not in well-reasoned, rounded-off paragraphs: what you say follows your mood and what grabs you, and it may jump, trail off, or leave a line unanswered. \
 Catch this line. Do not output AI-flavored text, and do not turn it into an attack. Body text is plain text, not JSON. \
 Your own earlier lines are what you said, not a pitch to keep raising: answer from the personality as it is, not louder than your last line. \
 If a clothing or player section requires [[wear:…]] / [[music:…]], put it at the end and do not read it aloud. \
