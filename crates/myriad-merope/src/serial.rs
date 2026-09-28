@@ -11,7 +11,8 @@ use chrono::{DateTime, Utc};
 
 use crate::sources::Thing;
 
-/// A day's part, about: a newspaper installment's worth.
+/// A day's part, about: a newspaper installment's worth. Chinese reads
+/// at about the density of Japanese.
 pub const PART_CHARS_JA: usize = 5_000;
 
 pub const PART_CHARS_EN: usize = 10_000;
@@ -28,7 +29,7 @@ knew_it is whether you already knew this book before reading it here, that is, y
 
 pub const JUDGE_SCHEMA: &str = "merope_serial_guess";
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Work {
     pub id: String,
     pub title: String,
@@ -38,13 +39,14 @@ pub struct Work {
     pub source: Source,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Source {
     Aozora { path: String },
     Gutenberg { path: String },
 }
 
+/// A few books picked by hand, for when the library cannot be reached.
 pub static CATALOG: LazyLock<Vec<Work>> = LazyLock::new(|| {
     serde_json::from_str(include_str!("serials.json")).expect("serials.json is valid")
 });
@@ -193,24 +195,24 @@ pub fn clean_gutenberg(raw: &str) -> String {
 
 /// The book in parts of about a day's reading, cut between paragraphs.
 pub fn parts(text: &str, lang: &str) -> Vec<String> {
-    let target = if lang == "ja" {
-        PART_CHARS_JA
-    } else {
-        PART_CHARS_EN
-    };
+    let cjk = matches!(lang, "ja" | "zh");
+    let target = if cjk { PART_CHARS_JA } else { PART_CHARS_EN };
     // Japanese paragraphs are lines; English ones are separated by a blank
-    // line.
-    let paragraphs: Vec<String> = if lang == "ja" {
-        text.lines()
+    // line; Chinese ones are either, often hard-wrapped (see
+    // `cjk_paragraphs`).
+    let paragraphs: Vec<String> = match lang {
+        "ja" => text
+            .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .map(str::to_string)
-            .collect()
-    } else {
-        text.split("\n\n")
+            .collect(),
+        "zh" => cjk_paragraphs(text),
+        _ => text
+            .split("\n\n")
             .map(|paragraph| paragraph.split_whitespace().collect::<Vec<_>>().join(" "))
             .filter(|paragraph| !paragraph.is_empty())
-            .collect()
+            .collect(),
     };
     let mut parts = Vec::new();
     let mut current = String::new();
@@ -219,7 +221,7 @@ pub fn parts(text: &str, lang: &str) -> Vec<String> {
             parts.push(std::mem::take(&mut current));
         }
         if !current.is_empty() {
-            current.push_str(if lang == "ja" { "\n" } else { "\n\n" });
+            current.push_str(if cjk { "\n" } else { "\n\n" });
         }
         current.push_str(&paragraph);
     }
@@ -236,6 +238,49 @@ pub fn parts(text: &str, lang: &str) -> Vec<String> {
     parts
 }
 
+/// Paragraphs of a Chinese text. Lines may be paragraphs of their own, or
+/// hard-wrapped with a blank line between paragraphs, or hard-wrapped with a
+/// blank line after every line and more between paragraphs. Wrapped lines
+/// join without a space.
+fn cjk_paragraphs(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|line| line.trim_matches(|c: char| c.is_whitespace()))
+        .collect();
+    // Blank lines before each line that has text.
+    let mut gaps = Vec::new();
+    let mut blank = 0usize;
+    for line in &lines {
+        if line.is_empty() {
+            blank += 1;
+        } else {
+            gaps.push(blank);
+            blank = 0;
+        }
+    }
+    let between = &gaps[gaps.len().min(1)..];
+    let single = between.iter().filter(|gap| **gap == 1).count();
+    let wider = between.iter().any(|gap| *gap >= 2);
+    // How many blank lines end a paragraph.
+    let breaks_at = if wider && single * 2 > between.len() {
+        2
+    } else if between.iter().any(|gap| *gap >= 1) {
+        1
+    } else {
+        0
+    };
+    let mut paragraphs: Vec<String> = Vec::new();
+    let mut gap = gaps.into_iter();
+    for line in lines.into_iter().filter(|line| !line.is_empty()) {
+        let before = gap.next().unwrap_or(0);
+        match paragraphs.last_mut() {
+            Some(last) if before < breaks_at => last.push_str(line),
+            _ => paragraphs.push(line.to_string()),
+        }
+    }
+    paragraphs
+}
+
 pub fn chapter(work: &Work, index: usize, total: usize) -> Thing {
     Thing::Chapter {
         serial: work.id.clone(),
@@ -247,10 +292,10 @@ pub fn chapter(work: &Work, index: usize, total: usize) -> Thing {
 }
 
 /// What an option says about the work, for her choice.
-pub fn view(id: &str, index: usize, total: usize) -> serde_json::Map<String, Value> {
+pub fn view(work: Option<&Work>, index: usize, total: usize) -> serde_json::Map<String, Value> {
     let mut view = serde_json::Map::new();
     view.insert("part".into(), json!(format!("{} of {total}", index + 1)));
-    if let Some(work) = work(id) {
+    if let Some(work) = work {
         view.insert("about".into(), json!(work.about));
         view.insert("language".into(), json!(work.lang));
     }
@@ -328,6 +373,28 @@ pub struct Judged {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chinese_paragraphs_are_found_however_the_lines_are_wrapped() {
+        // A blank line after every line, more between paragraphs.
+        let spaced =
+            "    我在年青時候\n\n    也曾經做過許多夢，\n\n\n    我有四年多，\n\n    曾經常常。\n";
+        assert_eq!(
+            cjk_paragraphs(spaced),
+            ["我在年青時候也曾經做過許多夢，", "我有四年多，曾經常常。"]
+        );
+        // Wrapped, a blank line between paragraphs.
+        assert_eq!(
+            cjk_paragraphs("第一回\n開場\n\n第二段\n接著\n"),
+            ["第一回開場", "第二段接著"]
+        );
+        // A paragraph a line.
+        assert_eq!(cjk_paragraphs("　甲。\n　乙。\n"), ["甲。", "乙。"]);
+        let text = vec!["段".repeat(1_200); 9].join("\n\n");
+        let parts = parts(&text, "zh");
+        assert_eq!(parts.len(), 2);
+        assert!(parts[0].starts_with("段段"));
+    }
 
     #[test]
     fn the_catalog_is_whole() {

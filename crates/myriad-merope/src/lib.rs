@@ -12,6 +12,7 @@ pub mod curiosity;
 pub mod doing;
 pub mod explore;
 pub mod inner;
+pub mod library;
 pub mod life;
 mod onboarding;
 mod outfit_overlay;

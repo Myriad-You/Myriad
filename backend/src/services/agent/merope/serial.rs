@@ -1,10 +1,11 @@
 //! A serial she follows on her own: a book she picked, one part a day.
 //!
-//! The books are public-domain works, most of them first published in
-//! installments (`myriad_merope::serial::CATALOG`), fetched from archives that allow it: the
-//! Aozora Bunko text archive and the Project Gutenberg mirror. Which one she
-//! follows is hers to choose, as this personality, among a few offered when
-//! she follows nothing; she may let it go after any part, for good.
+//! The books are the public-domain literature of Project Gutenberg (English
+//! and Chinese) and Aozora Bunko (Japanese), tens of thousands of works (see
+//! `library`), fetched from archives that allow it. When she follows nothing
+//! a shelf of a few is put out for the day, one in each language she reads;
+//! which one she takes up is hers to choose, as this personality, and she may
+//! let it go after any part, for good.
 //!
 //! A new part comes out each day from the day she started; she reads it when
 //! she chooses to, in her own time (see `doing`). After each part she writes
@@ -28,17 +29,25 @@ use myriad_merope::serial::{
     CATALOG, HOW, JUDGE_SCHEMA, Judged, PART_CHARS, PART_CHARS_EN, Past, Source, asks, chapter,
     clean_aozora, clean_gutenberg, judge_schema, judge_system,
 };
-pub use myriad_merope::serial::{Ended, Following, Guessed, Work, parts, view, work};
+pub use myriad_merope::serial::{Ended, Following, Guessed, Work, parts, work};
 
 pub const NAMESPACE: &str = "merope_serial";
 const FOLLOWING: &str = "following";
 const PAST: &str = "past";
+const SHELF: &str = "shelf";
+/// Each work she was shown or took up, so it reads the same whatever the
+/// library holds later.
+const WORK: &str = "work:";
 const KEEP_DAYS: i64 = 400;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_BOOK_BYTES: usize = 4 * 1024 * 1024;
 const USER_AGENT: &str = "MyriadSerialReader/1.0";
-/// Works offered to start when she follows nothing.
-const START_OPTIONS: usize = 2;
+/// Tries at finding a book of a readable length, per language.
+const TRIES: usize = 4;
+/// Longer than this many days of reading is not something to follow.
+const MAX_PARTS: usize = 150;
+/// Books fetched for a shelf and not taken up are dropped after this long.
+const KEEP_TEXT_DAYS: u64 = 30;
 const JUDGE_TIMEOUT: Duration = Duration::from_secs(45);
 
 fn identity() -> crate::services::runtime_registry::RegistryIdentity<'static> {
@@ -73,6 +82,31 @@ async fn past(db: &DatabaseConnection) -> Past {
         .ok()
         .flatten()
         .unwrap_or_default()
+}
+
+/// The work under this id: as it was when she was shown it, or one of the
+/// books picked by hand.
+pub async fn known(db: &DatabaseConnection, id: &str) -> Option<Work> {
+    let kept: Option<Work> =
+        crate::services::runtime_registry::get(db, NAMESPACE, &format!("{WORK}{id}"))
+            .await
+            .ok()
+            .flatten();
+    kept.or_else(|| work(id).cloned())
+}
+
+async fn remember(db: &DatabaseConnection, work: &Work) {
+    put(db, &format!("{WORK}{}", work.id), work).await;
+}
+
+/// What an option says about the work, for her choice.
+pub async fn view(
+    db: &DatabaseConnection,
+    id: &str,
+    index: usize,
+    total: usize,
+) -> serde_json::Map<String, Value> {
+    myriad_merope::serial::view(known(db, id).await.as_ref(), index, total)
 }
 
 /// A new persona follows nothing and has read nothing.
@@ -139,49 +173,145 @@ async fn text(work: &Work) -> Option<String> {
 }
 
 /// Part `index` of a work, and how many parts it has.
-pub async fn part(id: &str, index: usize) -> Option<(String, usize)> {
-    let work = work(id)?;
-    let parts = parts(&text(work).await?, &work.lang);
+pub async fn part(db: &DatabaseConnection, id: &str, index: usize) -> Option<(String, usize)> {
+    let work = known(db, id).await?;
+    let parts = parts(&text(&work).await?, &work.lang);
     let total = parts.len();
     parts.into_iter().nth(index).map(|part| (part, total))
 }
 
 /// What she could take up: the next part of what she follows once it is
-/// out, or, when she follows nothing, a couple of works to start that she
-/// has neither finished nor let go.
+/// out, or, when she follows nothing, today's shelf.
 pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
     if let Some(following) = following(db).await {
-        let Some(work) = work(&following.id) else {
+        let Some(work) = known(db, &following.id).await else {
             return Vec::new();
         };
         return (following.next < following.out(Utc::now()))
-            .then(|| chapter(work, following.next, following.total))
+            .then(|| chapter(&work, following.next, following.total))
             .into_iter()
             .collect();
     }
     let past = past(db).await;
-    let mut fresh: Vec<&Work> = CATALOG
+    shelf(db)
+        .await
+        .into_iter()
+        .filter(|(work, _)| !past.finished.contains(&work.id) && !past.dropped.contains(&work.id))
+        .map(|(work, total)| chapter(&work, 0, total))
+        .collect()
+}
+
+/// A few books put out for the day, with how many parts each has.
+#[derive(Default, Serialize, serde::Deserialize)]
+struct Shelf {
+    day: String,
+    books: Vec<(Work, usize)>,
+    /// Every book put out before, so the next shelf has others.
+    #[serde(default)]
+    shown: Vec<String>,
+}
+
+async fn shelf(db: &DatabaseConnection) -> Vec<(Work, usize)> {
+    let today = chrono::Local::now().date_naive().to_string();
+    let mut shelf: Shelf = crate::services::runtime_registry::get(db, NAMESPACE, SHELF)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    if shelf.day == today {
+        return shelf.books;
+    }
+    let past = past(db).await;
+    let mut passed: std::collections::HashSet<String> = past
+        .finished
         .iter()
-        .filter(|work| !past.finished.contains(&work.id) && !past.dropped.contains(&work.id))
+        .chain(&past.dropped)
+        .chain(&shelf.shown)
+        .cloned()
         .collect();
-    for index in (1..fresh.len()).rev() {
-        fresh.swap(index, rand::random_range(0..=index));
+    let mut library = super::library::works().await;
+    if library.is_empty() {
+        library = CATALOG.clone();
     }
-    let mut options = Vec::new();
-    for work in fresh {
-        if options.len() >= START_OPTIONS {
-            break;
-        }
-        if let Some(text) = text(work).await {
-            options.push(chapter(work, 0, parts(&text, &work.lang).len()));
+    let mut roll = |below: usize| rand::random_range(0..below);
+    let mut books = Vec::new();
+    for lang in myriad_merope::library::LANGUAGES {
+        for _ in 0..TRIES {
+            let Some(work) =
+                myriad_merope::library::pick(&library, lang, &passed, &mut roll).cloned()
+            else {
+                break;
+            };
+            passed.insert(work.id.clone());
+            let Some(text) = text(&work).await else {
+                continue;
+            };
+            let total = parts(&text, &work.lang).len();
+            if (1..=MAX_PARTS).contains(&total) {
+                books.push((work, total));
+                break;
+            }
+            forget_text(&work).await;
         }
     }
-    options
+    drop(library);
+    for (work, _) in &books {
+        remember(db, work).await;
+    }
+    shelf
+        .shown
+        .extend(books.iter().map(|(work, _)| work.id.clone()));
+    shelf.day = today;
+    shelf.books = books;
+    put(db, SHELF, &shelf).await;
+    prune_texts(db).await;
+    tracing::info!(
+        books = shelf.books.len(),
+        "[Merope] a shelf of books is out for the day"
+    );
+    shelf.books
+}
+
+async fn forget_text(work: &Work) {
+    let _ = tokio::fs::remove_file(cache_path(work)).await;
+}
+
+/// Books fetched for a shelf long ago and never taken up; not the one she
+/// follows.
+async fn prune_texts(db: &DatabaseConnection) {
+    let following = following(db).await.map(|following| following.id);
+    let Some(dir) = cache_path(&CATALOG[0])
+        .parent()
+        .map(std::path::Path::to_path_buf)
+    else {
+        return;
+    };
+    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+        return;
+    };
+    let old = std::time::SystemTime::now() - Duration::from_secs(KEEP_TEXT_DAYS * 24 * 60 * 60);
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let Some(id) = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".txt"))
+        else {
+            continue;
+        };
+        if following.as_deref() == Some(id) {
+            continue;
+        }
+        let modified = entry.metadata().await.and_then(|meta| meta.modified());
+        if modified.is_ok_and(|modified| modified < old) {
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+    }
 }
 
 /// The part she reads, with what she guessed after the one before.
 pub async fn intake(db: &DatabaseConnection, id: &str, index: usize) -> Option<Intake> {
-    let Some((part, _)) = part(id, index).await else {
+    let Some((part, _)) = part(db, id, index).await else {
         tracing::info!(serial = %id, "[Merope] the part she meant to read would not load");
         return None;
     };
@@ -402,8 +532,22 @@ mod live {
     #[tokio::test]
     #[ignore = "fetches real books"]
     async fn read_real_books() {
-        for id in ["aozora-773", "pg-2852"] {
-            let work = super::work(id).unwrap();
+        let chinese = super::Work {
+            id: "pg-27166".into(),
+            title: "吶喊".into(),
+            author: "Lu Xun".into(),
+            lang: "zh".into(),
+            about: String::new(),
+            source: super::Source::Gutenberg {
+                path: "cache/epub/27166/pg27166.txt".into(),
+            },
+        };
+        for work in [
+            super::work("aozora-773").unwrap(),
+            super::work("pg-2852").unwrap(),
+            &chinese,
+        ] {
+            let id = &work.id;
             let text = super::text(work).await.expect("text");
             let parts = super::parts(&text, &work.lang);
             println!(

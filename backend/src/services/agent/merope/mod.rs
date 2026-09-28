@@ -12,6 +12,7 @@ pub mod gates;
 pub mod hearing;
 pub mod ingest;
 pub(crate) mod inner;
+mod library;
 pub mod life;
 pub(crate) mod memory_jobs;
 pub mod motion;

@@ -129,7 +129,7 @@ pub async fn view(db: &DatabaseConnection, index: usize, thing: &Thing) -> Value
             index,
             total,
             ..
-        } => serial::view(serial, *index, *total),
+        } => serial::view(db, serial, *index, *total).await,
         Thing::Inquiry { question_id, .. } => explore::view(db, question_id).await,
         Thing::Song { .. } | Thing::Note { .. } => Map::new(),
     };
