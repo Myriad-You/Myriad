@@ -466,6 +466,13 @@ impl Agent {
             {
                 player.push_str("\n\n");
                 player.push_str(&crate::services::agent::delegate::section(chat));
+                // No player there: a song goes as its link.
+                if let Some(songs) =
+                    crate::services::agent::chat_music::offer_song_links(&self.db).await
+                {
+                    player.push_str("\n\n");
+                    player.push_str(&songs);
+                }
             }
             if merope_block.is_empty() {
                 merope_block = player;

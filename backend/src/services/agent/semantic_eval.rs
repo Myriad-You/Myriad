@@ -129,6 +129,9 @@ struct Case {
     /// with them the chat has a player.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     songs_to_share: Vec<String>,
+    /// The chat is in a chat app: no player, songs go as links.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    in_chat_app: bool,
     /// Her compiled inner state for this turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     inner: Option<String>,
@@ -910,7 +913,23 @@ fn request(case: &Case) -> Value {
             );
             let mut remembered =
                 super::merope::format_remembered_section(&case.remembered).unwrap_or_default();
-            if let Some(songs) = myriad_merope::speaking::format_share_section(&case.songs_to_share)
+            if case.in_chat_app {
+                let songs: Vec<(String, String)> = case
+                    .songs_to_share
+                    .iter()
+                    .enumerate()
+                    .map(|(index, song)| {
+                        (
+                            song.clone(),
+                            format!("https://music.163.com/song?id={}", 1000 + index),
+                        )
+                    })
+                    .collect();
+                if let Some(songs) = myriad_merope::speaking::format_share_links_section(&songs) {
+                    remembered = format!("{remembered}\n\n{songs}");
+                }
+            } else if let Some(songs) =
+                myriad_merope::speaking::format_share_section(&case.songs_to_share)
             {
                 let player = super::chat_music::format_chat_player_section(Some(
                     &json!({"isPlaying": true, "currentSong": {"name": "夜航", "artist": "合成测试歌手"}}),
@@ -2003,7 +2022,7 @@ fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
     assert_eq!(
         cases.iter().filter(|c| c.kind != "touch").count(),
-        29 + MIND_CASES
+        30 + MIND_CASES
     );
     for mut case in cases {
         let request = request(&case);

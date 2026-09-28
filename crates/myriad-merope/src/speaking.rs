@@ -235,6 +235,22 @@ pub fn format_share_section(songs: &[String]) -> Option<String> {
     ))
 }
 
+/// The same songs for a chat app, where there is no player: each with its
+/// link, to send as a friend sends a song.
+pub fn format_share_links_section(songs: &[(String, String)]) -> Option<String> {
+    if songs.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = songs
+        .iter()
+        .map(|(song, link)| format!("- {song}\n  {link}"))
+        .collect();
+    Some(format!(
+        "## Songs you could send them\nSongs you listened to on your own lately and liked, with what you wrote then and each one's link. If they want to hear what you have been listening to, or one fits the talk, put its link in your reply, as a friend sends a song; one song. What you say about it is what you wrote then or know of it. Of any song not here you know nothing you did not hear: do not make it up.\n{}",
+        myriad_agent_rules::untrusted_block("songs_you_liked", &lines.join("\n"))
+    ))
+}
+
 /// Views of her own that their words touch: (about, view). She answers from
 /// them; they grew out of outside text, so they are fenced.
 pub fn format_views_section(views: &[(String, String)]) -> Option<String> {
@@ -423,6 +439,20 @@ mod tests {
         assert!(section.contains("[[music:share N]]"));
         assert!(section.contains("do not make it up"));
         assert!(section.contains("songs_you_liked"));
+    }
+
+    #[test]
+    fn in_a_chat_app_a_song_goes_as_its_link() {
+        assert!(format_share_links_section(&[]).is_none());
+        let section = format_share_links_section(&[(
+            "the song 「晴天」 by 周杰伦 (you liked it), 2 days ago: 那句还是会停一下。".into(),
+            "https://music.163.com/song?id=186016".into(),
+        )])
+        .unwrap();
+        assert!(section.contains("- the song 「晴天」"));
+        assert!(section.contains("  https://music.163.com/song?id=186016"));
+        assert!(section.contains("put its link in your reply"));
+        assert!(!section.contains("[[music:"));
     }
 
     use super::*;

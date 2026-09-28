@@ -79,6 +79,23 @@ pub async fn offer_songs(
     myriad_merope::speaking::format_share_section(&lines)
 }
 
+/// The songs she could send them in a chat app, as links. Only songs with
+/// a public page (NetEase Cloud Music) can be sent.
+pub async fn offer_song_links(db: &sea_orm::DatabaseConnection) -> Option<String> {
+    use crate::services::agent::merope::doing::{self, Thing};
+    let songs: Vec<(String, String)> = doing::songs_to_share(db)
+        .await
+        .into_iter()
+        .filter_map(|(thing, line)| match thing {
+            Thing::Song { id, source, .. } if source == "netease" => {
+                Some((line, format!("https://music.163.com/song?id={id}")))
+            }
+            _ => None,
+        })
+        .collect();
+    myriad_merope::speaking::format_share_links_section(&songs)
+}
+
 /// What the player is told to do. A song to share is the one she was
 /// offered under that number; with none, there is nothing to do.
 pub fn control_event(
