@@ -139,6 +139,14 @@ pub async fn view(db: &DatabaseConnection, index: usize, thing: &Thing) -> Value
     view
 }
 
+/// What she picked, ready to take up; none if it will not come.
+pub async fn open(db: &DatabaseConnection, thing: Thing) -> Option<Thing> {
+    match thing {
+        Thing::Chapter { .. } => serial::open(db, thing).await,
+        _ => Some(thing),
+    }
+}
+
 /// How long it takes, once she has picked it.
 pub async fn length(db: &DatabaseConnection, thing: &Thing) -> chrono::Duration {
     match thing {

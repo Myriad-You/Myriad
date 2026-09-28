@@ -3,7 +3,7 @@
 //! The books are the public-domain books of Project Gutenberg (English and
 //! Chinese) and Aozora Bunko (Japanese), fiction and not, tens of thousands
 //! of them (see `library`), fetched from archives that allow it. When she follows nothing
-//! a shelf of a few is put out for the day, one in each language she reads;
+//! a shelf is put out for the day, a handful drawn at random in each language she reads;
 //! which one she takes up is hers to choose, as this personality, and she may
 //! let it go after any part, for good.
 //!
@@ -15,6 +15,7 @@
 //! answer is where surprise, and so learning, happens (Brod et al. 2018), and
 //! what she guessed wrong is part of who she has been (see `self_story`).
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -42,11 +43,9 @@ const KEEP_DAYS: i64 = 400;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_BOOK_BYTES: usize = 4 * 1024 * 1024;
 const USER_AGENT: &str = "MyriadSerialReader/1.0";
-/// Tries at finding a book of a readable length, per language.
-const TRIES: usize = 4;
-/// Longer than this many days of reading is not something to follow.
-const MAX_PARTS: usize = 150;
-/// Books fetched for a shelf and not taken up are dropped after this long.
+/// Books put out a day in each language, drawn at random from the library.
+const PER_LANGUAGE: usize = 5;
+/// Books opened and not followed are dropped from disk after this long.
 const KEEP_TEXT_DAYS: u64 = 30;
 const JUDGE_TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -181,7 +180,7 @@ pub async fn part(db: &DatabaseConnection, id: &str, index: usize) -> Option<(St
 }
 
 /// What she could take up: the next part of what she follows once it is
-/// out, or, when she follows nothing, today's shelf.
+/// out, or, when she follows nothing, the books on today's shelf.
 pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
     if let Some(following) = following(db).await {
         let Some(work) = known(db, &following.id).await else {
@@ -196,22 +195,54 @@ pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
     shelf(db)
         .await
         .into_iter()
-        .filter(|(work, _)| !past.finished.contains(&work.id) && !past.dropped.contains(&work.id))
-        .map(|(work, total)| chapter(&work, 0, total))
+        .filter(|work| !past.finished.contains(&work.id) && !past.dropped.contains(&work.id))
+        // How long it is shows once she opens it (see `open`).
+        .map(|work| chapter(&work, 0, 0))
         .collect()
 }
 
-/// A few books put out for the day, with how many parts each has.
+/// A book from the shelf she picked, opened: its first part with how many
+/// there are. None if its text will not come; it leaves the shelf.
+pub async fn open(db: &DatabaseConnection, thing: Thing) -> Option<Thing> {
+    let Thing::Chapter {
+        serial,
+        index: 0,
+        total: 0,
+        ..
+    } = &thing
+    else {
+        return Some(thing);
+    };
+    let work = known(db, serial).await?;
+    let total = match text(&work).await {
+        Some(text) => parts(&text, &work.lang).len(),
+        None => 0,
+    };
+    if total == 0 {
+        tracing::info!(serial = %work.id, "[Merope] a book she picked would not open");
+        let mut shelf: Shelf = crate::services::runtime_registry::get(db, NAMESPACE, SHELF)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        shelf.books.retain(|book| book.id != work.id);
+        put(db, SHELF, &shelf).await;
+        return None;
+    }
+    Some(chapter(&work, 0, total))
+}
+
+/// The books put out for the day, drawn at random from the library.
 #[derive(Default, Serialize, serde::Deserialize)]
 struct Shelf {
     day: String,
-    books: Vec<(Work, usize)>,
+    books: Vec<Work>,
     /// Every book put out before, so the next shelf has others.
     #[serde(default)]
     shown: Vec<String>,
 }
 
-async fn shelf(db: &DatabaseConnection) -> Vec<(Work, usize)> {
+async fn shelf(db: &DatabaseConnection) -> Vec<Work> {
     let today = chrono::Local::now().date_naive().to_string();
     let mut shelf: Shelf = crate::services::runtime_registry::get(db, NAMESPACE, SHELF)
         .await
@@ -222,13 +253,8 @@ async fn shelf(db: &DatabaseConnection) -> Vec<(Work, usize)> {
         return shelf.books;
     }
     let past = past(db).await;
-    let mut passed: std::collections::HashSet<String> = past
-        .finished
-        .iter()
-        .chain(&past.dropped)
-        .chain(&shelf.shown)
-        .cloned()
-        .collect();
+    let done: HashSet<String> = past.finished.iter().chain(&past.dropped).cloned().collect();
+    let mut passed: HashSet<String> = done.iter().chain(&shelf.shown).cloned().collect();
     let mut library = super::library::works().await;
     if library.is_empty() {
         library = CATALOG.clone();
@@ -236,31 +262,29 @@ async fn shelf(db: &DatabaseConnection) -> Vec<(Work, usize)> {
     let mut roll = |below: usize| rand::random_range(0..below);
     let mut books = Vec::new();
     for lang in myriad_merope::library::LANGUAGES {
-        for _ in 0..TRIES {
-            let Some(work) =
-                myriad_merope::library::pick(&library, lang, &passed, &mut roll).cloned()
-            else {
+        for _ in 0..PER_LANGUAGE {
+            let picked = myriad_merope::library::pick(&library, lang, &passed, &mut roll)
+                // Every book in this language was put out once: again,
+                // only not what she finished or let go.
+                .or_else(|| {
+                    let today: HashSet<String> =
+                        books.iter().map(|work: &Work| work.id.clone()).collect();
+                    let passed: HashSet<String> = done.union(&today).cloned().collect();
+                    myriad_merope::library::pick(&library, lang, &passed, &mut roll)
+                })
+                .cloned();
+            let Some(work) = picked else {
                 break;
             };
             passed.insert(work.id.clone());
-            let Some(text) = text(&work).await else {
-                continue;
-            };
-            let total = parts(&text, &work.lang).len();
-            if (1..=MAX_PARTS).contains(&total) {
-                books.push((work, total));
-                break;
-            }
-            forget_text(&work).await;
+            books.push(work);
         }
     }
     drop(library);
-    for (work, _) in &books {
+    for work in &books {
         remember(db, work).await;
     }
-    shelf
-        .shown
-        .extend(books.iter().map(|(work, _)| work.id.clone()));
+    shelf.shown.extend(books.iter().map(|work| work.id.clone()));
     shelf.day = today;
     shelf.books = books;
     put(db, SHELF, &shelf).await;
@@ -270,10 +294,6 @@ async fn shelf(db: &DatabaseConnection) -> Vec<(Work, usize)> {
         "[Merope] a shelf of books is out for the day"
     );
     shelf.books
-}
-
-async fn forget_text(work: &Work) {
-    let _ = tokio::fs::remove_file(cache_path(work)).await;
 }
 
 /// Books fetched for a shelf long ago and never taken up; not the one she

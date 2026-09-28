@@ -222,6 +222,10 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
         );
         return Err(rest);
     };
+    // A book off the shelf is opened only now.
+    let Some(thing) = sources::open(db, thing).await else {
+        return Err(None);
+    };
     let started = Utc::now();
     let length = sources::length(db, &thing).await;
     tracing::info!(kind = %thing.key(), "[Merope] doing something of her own");

@@ -294,7 +294,10 @@ pub fn chapter(work: &Work, index: usize, total: usize) -> Thing {
 /// What an option says about the work, for her choice.
 pub fn view(work: Option<&Work>, index: usize, total: usize) -> serde_json::Map<String, Value> {
     let mut view = serde_json::Map::new();
-    view.insert("part".into(), json!(format!("{} of {total}", index + 1)));
+    // A book on the shelf is not opened yet: how long it is is not known.
+    if total > 0 {
+        view.insert("part".into(), json!(format!("{} of {total}", index + 1)));
+    }
     if let Some(work) = work {
         view.insert("about".into(), json!(work.about));
         view.insert("language".into(), json!(work.lang));

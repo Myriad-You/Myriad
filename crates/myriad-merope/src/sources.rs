@@ -78,6 +78,15 @@ impl Thing {
                 Self::Chapter {
                     title,
                     author,
+                    total: 0,
+                    ..
+                },
+                _,
+            ) => format!("「{title}」 by {author}, a book not yet opened"),
+            (
+                Self::Chapter {
+                    title,
+                    author,
                     index,
                     total,
                     ..
@@ -178,6 +187,20 @@ mod tests {
             chapter.describe(),
             "part 1 of 33 of 「The Hound of the Baskervilles」 by Arthur Conan Doyle"
         );
+        let unopened = Thing::Chapter {
+            serial: "pg-2852".into(),
+            title: "The Hound of the Baskervilles".into(),
+            author: "Arthur Conan Doyle".into(),
+            index: 0,
+            total: 0,
+        };
+        assert_eq!(unopened.kind(), "start_serial");
+        assert_eq!(
+            unopened.describe(),
+            "「The Hound of the Baskervilles」 by Arthur Conan Doyle, a book not yet opened"
+        );
+        assert!(!crate::serial::view(None, 0, 0).contains_key("part"));
+        assert!(crate::serial::view(None, 0, 33).contains_key("part"));
         let inquiry = Thing::Inquiry {
             question_id: "q".into(),
             question: "为什么？".into(),
