@@ -801,7 +801,6 @@ fn request(case: &Case) -> Value {
                 case.material.as_deref(),
                 &views,
                 &case.heard_before,
-                &case.lately,
                 case.guessed.as_deref(),
             );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})

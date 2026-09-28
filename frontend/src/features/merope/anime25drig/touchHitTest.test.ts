@@ -1,6 +1,7 @@
 import type { TouchMesh } from './touchHitTest'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { applyBodyLift } from './bodyLift'
 import {
   writeAnime25DLayerGlobalTransform,
   writeIdentityLayerTransform,
@@ -29,6 +30,18 @@ function square(): TouchMesh {
     layerTransform,
   }
 }
+
+test('lifted coarse mesh is picked at its rendered triangle barycentre', () => {
+  const mesh = square()
+  const bodyLift = { centerX: 50, upperY: 20, lowerY: 100, amount: 5 }
+  const vertices = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 100 }]
+  vertices.forEach(p => applyBodyLift(p, bodyLift))
+  const hit = hitTestTouchMesh(vertices.reduce((n, p) => n + p.x, 0) / 3,
+    vertices.reduce((n, p) => n + p.y, 0) / 3, mesh, { ...frame, bodyLift })
+  assert.ok(hit)
+  assert.ok(Math.abs(hit.u - 1 / 3) < 1e-6)
+  assert.ok(Math.abs(hit.v - 1 / 3) < 1e-6)
+})
 
 test('triangle hit returns interpolated atlas UVs, not bounding-box coordinates', () => {
   const mesh = square()

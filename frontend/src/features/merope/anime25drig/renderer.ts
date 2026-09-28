@@ -1,3 +1,4 @@
+import type { BodyLift } from './bodyLift'
 import type { CollarClipMesh } from './collarRuntime'
 import type { NeckSurfaceContour } from './neckSurfaceContour'
 import type { Anime25DFrameWork } from './performanceTelemetry'
@@ -39,6 +40,8 @@ export interface Anime25DRendererBindings {
   view: WebGLUniformLocation
   layerTransform: WebGLUniformLocation
   bodyTransform: WebGLUniformLocation
+  bodyLift: WebGLUniformLocation
+  bodyPitch: WebGLUniformLocation
   opacity: WebGLUniformLocation
   cut: WebGLUniformLocation
   cryTime: WebGLUniformLocation
@@ -75,6 +78,7 @@ export interface Anime25DRenderFrame {
   bodyRotationSine: number
   /** Height above the pivot over which the torso bends into the lean; 0 is rigid. */
   bodyBendHeight: number
+  bodyLift?: Readonly<BodyLift>
   time: number
   eyeCry: number
 }
@@ -87,6 +91,8 @@ export function createAnime25DRendererBindings(
     view: requiredUniform(gl, program, 'u_view'),
     layerTransform: requiredUniform(gl, program, 'u_layer_transform'),
     bodyTransform: requiredUniform(gl, program, 'u_body_transform'),
+    bodyLift: requiredUniform(gl, program, 'u_body_lift'),
+    bodyPitch: requiredUniform(gl, program, 'u_body_pitch'),
     opacity: requiredUniform(gl, program, 'u_opacity'),
     cut: requiredUniform(gl, program, 'u_cut'),
     cryTime: requiredUniform(gl, program, 'u_cry_time'),
@@ -139,6 +145,9 @@ export function drawAnime25DFrame(
     frame.bodyBendHeight,
   )
   gl.uniform1f(bindings.cryTime, frame.time)
+  const lift = frame.bodyLift
+  gl.uniform4f(bindings.bodyLift, lift?.centerX ?? 0, lift?.upperY ?? 0, lift?.lowerY ?? 1, lift?.amount ?? 0)
+  gl.uniform3f(bindings.bodyPitch, lift?.pitch ?? 0, lift?.depth ?? 0, lift?.shoulderY ?? lift?.upperY ?? 0)
   gl.activeTexture(gl.TEXTURE0)
   if (!atlasTexture) return
   gl.bindTexture(gl.TEXTURE_2D, atlasTexture)

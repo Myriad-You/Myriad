@@ -58,6 +58,7 @@ import { noteTurnTraceFrame } from '../turnTrace'
 import { AmbientMotionController } from './ambientMotion'
 import { ArmDrape, ArmPendulum } from './armPendulum'
 import { Anime25DBehaviorMotionController } from './behaviorMotion'
+import { applyBodyLift, BodyLiftResponse } from './bodyLift'
 import {
   buildChestWeightField,
   chestBodyExcitationY,
@@ -340,6 +341,9 @@ export class Anime25DPlayer {
   }
 
   private readonly torsoYaw: Anime25DTorsoYawState = { value: 0, velocity: 0 }
+  private bodyLiftResponse = new BodyLiftResponse()
+  private bodyPitchResponse = new BodyLiftResponse()
+  private readonly bodyLiftField = { centerX: 0, upperY: 0, lowerY: 1, amount: 0, pitch: 0, depth: 0, shoulderY: 0 }
 
   /** Each sleeve hangs from its shoulder; its swing is simulated, not authored. */
   private readonly armPendulums = { L: new ArmPendulum(1), R: new ArmPendulum(-1) } as const
@@ -1211,6 +1215,15 @@ export class Anime25DPlayer {
       this.torsoShellRotation,
       anime25DTorsoYawFollow(this.shellProfile.torso, this.current.bodyYaw),
     )
+    // Explicit posture can be directed independently. Existing performances also
+    // recruit the upper body, without adding an unrelated periodic oscillator.
+    this.bodyLiftResponse.step(Math.max(-1, Math.min(1,
+      this.target.bodyLift + this.current.angleY * 0.45 + this.current.armY * 0.2 +
+      (this.current.idle || this.current.talk || this.current.singing ? chestBreathResidual(t) * 0.7 : 0),
+    )), dt)
+    this.bodyPitchResponse.step(Math.max(-1, Math.min(1,
+      this.target.bodyPitch + this.current.angleY * 0.35,
+    )), dt)
   }
 
   private updateSprings(dt: number): void {
@@ -1255,7 +1268,7 @@ export class Anime25DPlayer {
         if (roots.deformation.poseCorrections) writePoseCorrectionWeights(roots.deformation.poseCorrections, e)
         writeHairRootMotion(roots, this.secondaryDeformationFrame,
           anchors.bodyPivot.x, anchors.bodyPivot.y,
-          this.renderFrame.bodyRotationCosine, this.renderFrame.bodyRotationSine)
+          this.renderFrame.bodyRotationCosine, this.renderFrame.bodyRotationSine, this.bodyLiftField)
       }
     }
     hairSpringFrame.time = this.time
@@ -1265,6 +1278,8 @@ export class Anime25DPlayer {
   }
 
   private bindJelly(): void {
+    this.bodyLiftResponse = new BodyLiftResponse()
+    this.bodyPitchResponse = new BodyLiftResponse()
     const anchors = this.playback.anchors
     const face = anchors.face
     const faceHeight = face.y1 - face.y0
@@ -1332,6 +1347,7 @@ export class Anime25DPlayer {
     const py = m[1] * x + m[4] * y + m[7] - frame.bodyPivotY
     out.x = frame.bodyPivotX + px * frame.bodyRotationCosine - py * frame.bodyRotationSine
     out.y = frame.bodyPivotY + px * frame.bodyRotationSine + py * frame.bodyRotationCosine
+    applyBodyLift(out, this.bodyLiftField)
   }
 
   private stepArms(dt: number): void {
@@ -1375,6 +1391,7 @@ export class Anime25DPlayer {
     const { bodyPivotX, bodyPivotY, bodyRotationCosine: c, bodyRotationSine: s } = this.renderFrame
     this.armJoint.x = bodyPivotX + (x - bodyPivotX) * c - (y - bodyPivotY) * s
     this.armJoint.y = bodyPivotY + (x - bodyPivotX) * s + (y - bodyPivotY) * c
+    applyBodyLift(this.armJoint, this.bodyLiftField)
     this.armJoint.reach = binding.arm.reach
     return true
   }
@@ -1386,6 +1403,18 @@ export class Anime25DPlayer {
     const anchors = this.playback.anchors
     const breath = 0.5 + chestBreathResidual(this.time)
     const breathHead = 0.5 + 0.5 * Math.sin((this.time * Math.PI * 2) / 3.4 - 0.6)
+    const faceHeight = anchors.face.y1 - anchors.face.y0
+    const span = Math.max(1, anchors.bodyPivot.y - anchors.neckBottom)
+    Object.assign(this.bodyLiftField, {
+      centerX: anchors.neckPivot.x,
+      upperY: anchors.neckBottom + Math.min(faceHeight * 0.65, span * 0.5),
+      lowerY: anchors.bodyPivot.y,
+      amount: this.bodyLiftResponse.value * Math.min(faceHeight * 0.05, span * 0.035),
+      pitch: this.bodyPitchResponse.value * 0.18,
+      depth: this.shellProfile.torso.enabled ? Math.min(this.shellProfile.torso.radiusZ, span * 0.45) : 0,
+      shoulderY: anchors.neckBottom,
+    })
+    this.renderFrame.bodyLift = this.bodyLiftField
     frame.headAngleY = e.angleY
     frame.headRoll = e.angleZ * HEAD_ROLL_RADIANS
     frame.headRotationCosine = Math.cos(frame.headRoll)
@@ -1780,6 +1809,7 @@ export class Anime25DPlayer {
           secondaryDeformationFrame,
           layer.layerTransform,
         )
+        layer.earwearPhysics?.apply(layer.attachment, layer.layerTransform, t, e.angleX, e.angleY, e.phys)
 }
     }
   }

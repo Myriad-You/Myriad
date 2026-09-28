@@ -98,10 +98,13 @@ export function buildAnime25DLayerBinding(
   const eyeFeature =
     source.group === 'head' &&
     ['eyewhite', 'eyelash', 'irides', 'eye-close', 'eye-close2', 'eyebrow'].includes(source.role)
+  // Smile/wide-eye lid curves bend vertically inside the eye; the old four
+  // rows could miss that curvature even when the outer contour was resolved.
+  const curvedLid = source.role === 'eyewhite' || source.role === 'eyelash'
   // Thin eye art needs enough horizontal samples to retain its curve during
   // yaw/pitch and closure. Canvas-sized cells can leave just two columns.
   const cell = eyeFeature
-    ? extension(extensions, 'eye-mesh-density', 12 * Math.max(0.25, (input.face.x1 - input.face.x0) / 333))
+    ? extension(extensions, 'eye-mesh-density', (curvedLid ? 4 : 12) * Math.max(0.25, (input.face.x1 - input.face.x0) / 333))
     : (flexibleCell ?? (source.phys ? 30 : 42)) *
       Math.max(0.6, input.canvasWidth / 768)
   const morphingMouth =
@@ -125,6 +128,8 @@ export function buildAnime25DLayerBinding(
       ? 10
       : sillyMouthMesh
         ? 8
+        : curvedLid
+          ? 16
         : morphingMouth || eyeFeature
           ? 4
           : source.role === 'eye-cry'

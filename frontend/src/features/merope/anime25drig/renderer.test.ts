@@ -445,6 +445,8 @@ function fakeBindings(): Anime25DRendererBindings {
     view: location('view'),
     layerTransform: location('layerTransform'),
     bodyTransform: location('bodyTransform'),
+    bodyLift: location('bodyLift'),
+    bodyPitch: location('bodyPitch'),
     opacity: location('opacity'),
     cut: location('cut'),
     cryTime: location('cryTime'),
@@ -505,6 +507,7 @@ function fakeGl(
     uniform2fv: (location: WebGLUniformLocation, values: Float32Array) =>
       calls.push(`uniform2fv:${location}:${values.length}`),
     uniform4f: () => calls.push('uniform4f'),
+    uniform3f: () => calls.push('uniform3f'),
     uniform1f: () => calls.push('uniform1f'),
     uniformMatrix3fv: () => calls.push('uniformMatrix3fv'),
     activeTexture: () => calls.push('activeTexture'),

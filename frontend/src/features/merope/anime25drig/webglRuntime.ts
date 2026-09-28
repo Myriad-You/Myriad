@@ -1,5 +1,6 @@
 import type { Anime25DPlaybackLayer } from './types'
 import { currentCopy } from '../../../i18n/localeCopy'
+import { BODY_LIFT_GLSL } from './bodyLift'
 import { NECK_SURFACE_COLUMNS } from './neckSurfaceContour'
 
 const VERTEX_SHADER = `#version 300 es
@@ -10,6 +11,9 @@ uniform mat3 u_layer_transform;
 // Pivot on the canvas cut, lean angle, and the height over which the torso
 // bends into it: the cut stays on the frame while the shoulders take it all.
 uniform vec4 u_body_transform;
+uniform vec4 u_body_lift;
+uniform vec3 u_body_pitch;
+${BODY_LIFT_GLSL}
 out vec2 v_uv;
 void main() {
   vec2 layer_position = (u_layer_transform * vec3(a_pos, 1.0)).xy;
@@ -24,6 +28,7 @@ void main() {
     offset.x * c - offset.y * s,
     offset.x * s + offset.y * c
   );
+  transformed = bodyLift(bodyPitch(transformed, u_body_lift, u_body_pitch), u_body_lift);
   vec2 clip = vec2(transformed.x / u_view.x * 2.0 - 1.0, 1.0 - transformed.y / u_view.y * 2.0);
   gl_Position = vec4(clip, 0.0, 1.0);
   v_uv = a_uv;
