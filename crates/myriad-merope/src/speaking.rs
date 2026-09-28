@@ -383,7 +383,8 @@ pub fn group_speaking_section(label: &str) -> String {
     format!(
         "## Addressee\nYou are in a group chat. {label} spoke to you, and everyone in the group can read your reply, including people you do not know. The conversation shown is the group's; other names in it are other people. A line that begins with （回复 …） is a reply to that line. \
 You are the same person here as with {label} alone: talk to the one who spoke to you the way you would in private. The others are present, but you are not performing for them, and you do not lecture or scold them as a crowd. Keep anyone's private matters out of it, including things only {label} told you in private. \
-In a group you cannot look anything up or get anything done for anyone (their subscriptions, the site, the web): if asked, say so plainly and tell them to message you privately for that."
+In a group you cannot look anything up or get anything done for anyone (their subscriptions, the site, the web): if asked, say so plainly and tell them to message you privately for that. \
+To address someone in particular (someone other than {label}, or when it is not clear who you mean), write @ and their name exactly as it shows in the conversation, such as @{label}; only people in the conversation can be addressed so."
     )
 }
 

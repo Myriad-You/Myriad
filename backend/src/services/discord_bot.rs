@@ -859,13 +859,14 @@ pub async fn send_group_reply(
     token: &str,
     channel_id: &str,
     text: &str,
+    mentioned: &[String],
     reply_to: &str,
 ) -> Result<(), ConnectFailureKind> {
     if channel_id.is_empty() || text.is_empty() || !bot_enabled().await {
         return Ok(());
     }
     let content: String = text.chars().take(DISCORD_TEXT_LIMIT).collect();
-    let payload = group_reply_payload(&content, reply_to);
+    let payload = group_reply_payload(&content, mentioned, reply_to);
     let path = format!("/channels/{channel_id}/messages");
     let (status, body) =
         discord_request(token, reqwest::Method::POST, &path, Some(payload)).await?;
@@ -880,11 +881,12 @@ pub async fn send_group_reply(
     Ok(())
 }
 
-fn group_reply_payload(content: &str, reply_to: &str) -> Value {
+/// Only the people she named may be pinged: never everyone, never a role.
+fn group_reply_payload(content: &str, mentioned: &[String], reply_to: &str) -> Value {
     serde_json::json!({
         "content": content,
         "message_reference": { "message_id": reply_to, "fail_if_not_exists": false },
-        "allowed_mentions": { "parse": [], "replied_user": true },
+        "allowed_mentions": { "parse": [], "users": mentioned, "replied_user": true },
     })
 }
 
@@ -1044,8 +1046,15 @@ mod tests {
 
     #[test]
     fn her_group_reply_pings_nobody_but_the_one_she_answers() {
-        let payload = group_reply_payload("@everyone 看这里", "11");
+        let payload = group_reply_payload("@everyone 看这里", &[], "11");
         assert_eq!(payload["allowed_mentions"]["parse"], serde_json::json!([]));
+        assert_eq!(payload["allowed_mentions"]["users"], serde_json::json!([]));
+        let named = group_reply_payload("<@42> 看这里", &["42".to_string()], "11");
+        assert_eq!(
+            named["allowed_mentions"]["users"],
+            serde_json::json!(["42"])
+        );
+        assert_eq!(named["allowed_mentions"]["parse"], serde_json::json!([]));
         assert_eq!(payload["allowed_mentions"]["replied_user"], true);
         assert_eq!(payload["message_reference"]["message_id"], "11");
     }

@@ -370,6 +370,7 @@ pub async fn send_group_reply(
     token: &str,
     chat_id: i64,
     text: &str,
+    entities: &[serde_json::Value],
     reply_to: i64,
     thread: Option<i64>,
 ) -> Result<(), ConnectFailureKind> {
@@ -390,6 +391,11 @@ pub async fn send_group_reply(
     });
     if let Some(thread) = thread {
         payload["message_thread_id"] = serde_json::json!(thread);
+    }
+    // Mentions (`text_mention`), when she names someone: only where the text
+    // was not cut, so no entity points past its end.
+    if !entities.is_empty() && payload["text"].as_str() == Some(text) {
+        payload["entities"] = serde_json::json!(entities);
     }
     let (status, body) =
         telegram_request(token, "sendMessage", Some(payload), HTTP_TIMEOUT).await?;

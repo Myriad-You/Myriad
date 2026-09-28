@@ -8,6 +8,7 @@ pub mod data_read;
 pub mod error;
 pub mod external;
 pub mod image;
+pub mod mentions;
 pub mod onebot;
 pub mod phantasi;
 pub mod prompt;

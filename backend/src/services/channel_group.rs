@@ -133,27 +133,37 @@ impl From<DiscordGroupMessage> for GroupLine {
     }
 }
 
-/// Deliver one chunk of her reply in the group, as a reply to `line`.
-async fn send_reply(line: &GroupLine, token: &str, text: &str) -> Result<(), ConnectFailureKind> {
+/// Deliver one chunk of her reply in the group, as a reply to `line`, with
+/// her `@name`s as the platform's mentions.
+async fn send_reply(
+    line: &GroupLine,
+    token: &str,
+    pieces: &[myriad_agent_rules::mentions::Piece],
+) -> Result<(), ConnectFailureKind> {
+    use myriad_agent_rules::mentions;
     match line.platform {
         ChannelPlatform::Telegram => {
             let (Ok(chat), Ok(message_id)) = (line.chat.parse(), line.message_id.parse()) else {
                 return Err(ConnectFailureKind::Permanent);
             };
+            let (text, entities) = mentions::telegram_text_and_entities(pieces);
             crate::services::telegram_bot::send_group_reply(
                 token,
                 chat,
-                text,
+                &text,
+                &entities,
                 message_id,
                 line.thread,
             )
             .await
         }
         ChannelPlatform::Discord => {
+            let (content, users) = mentions::discord_content_and_users(pieces);
             crate::services::discord_bot::send_group_reply(
                 token,
                 &line.chat,
-                text,
+                &content,
+                &users,
                 &line.message_id,
             )
             .await
@@ -161,9 +171,7 @@ async fn send_reply(line: &GroupLine, token: &str, text: &str) -> Result<(), Con
         ChannelPlatform::OneBot => {
             let Some(action) = myriad_agent_rules::onebot::encode::encode_group_message(
                 &line.chat,
-                &[myriad_agent_rules::onebot::encode::encode_text_segment(
-                    text,
-                )],
+                &mentions::onebot_segments(pieces),
             ) else {
                 return Err(ConnectFailureKind::Permanent);
             };
@@ -218,9 +226,11 @@ fn without_reply_mark(reply: &str) -> String {
 
 /// Her reply, chunk by chunk; whether any of it reached the group.
 async fn deliver(line: &GroupLine, token: &str, reply: &str) -> bool {
+    let people = people(&line.venue());
     let mut sent = false;
     for chunk in myriad_agent_rules::channel::split_channel_text(reply, text_limit(line.platform)) {
-        match send_reply(line, token, &chunk).await {
+        let pieces = myriad_agent_rules::mentions::split_mentions(&chunk, &people);
+        match send_reply(line, token, &pieces).await {
             Ok(()) => sent = true,
             Err(kind) => {
                 warn!(?kind, venue = %line.venue(), "[Group] reply not sent");
@@ -275,6 +285,9 @@ struct Line {
     at: chrono::DateTime<chrono::Utc>,
     message_id: Option<String>,
     name: String,
+    /// Who said it, as the platform knows them: how she can mention them.
+    #[serde(default)]
+    from: Option<String>,
     text: String,
     hers: bool,
 }
@@ -442,6 +455,7 @@ pub async fn record(message: &GroupLine) {
         at: chrono::Utc::now(),
         message_id: Some(message.message_id.clone()),
         name: message.display_name.clone(),
+        from: Some(message.from.clone()),
         text: bounded(&message.said()),
         hers: false,
     };
@@ -453,10 +467,34 @@ async fn record_hers(venue: &str, text: &str) {
         at: chrono::Utc::now(),
         message_id: None,
         name: String::new(),
+        from: None,
         text: bounded(text),
         hers: true,
     };
     remember_line(venue, line).await;
+}
+
+/// Who she can mention in the group: whoever spoke there lately, by the
+/// name they showed last.
+fn people(venue: &str) -> Vec<(String, String)> {
+    with_group(venue, |group| {
+        let mut people: Vec<(String, String)> = Vec::new();
+        for line in group
+            .lines
+            .iter()
+            .rev()
+            .filter(|line| within(line, TRANSCRIPT_FOR))
+        {
+            let Some(from) = line.from.as_ref().filter(|_| !line.hers) else {
+                continue;
+            };
+            if !people.iter().any(|(_, id)| id == from) {
+                people.push((line.name.clone(), from.clone()));
+            }
+        }
+        people
+    })
+    .unwrap_or_default()
 }
 
 /// The group's recent lines before `message_id` (all of them without one),
@@ -975,6 +1013,35 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn she_can_mention_whoever_spoke_there_lately_by_their_last_name() {
+        let chat = -9_471;
+        let said = |id: i64, from: i64, name: &str| {
+            GroupLine::from(TelegramGroupMessage {
+                update_id: id,
+                message_id: id,
+                chat_id: chat,
+                message_thread_id: None,
+                from_id: from,
+                display_name: name.into(),
+                text: "嗯嗯".into(),
+                addressed: false,
+                reply_to: None,
+            })
+        };
+        record(&said(1, 11, "阿明")).await;
+        record(&said(2, 12, "小红")).await;
+        record_hers(&venue(chat), "@阿明 你好").await;
+        record(&said(3, 11, "阿明同学")).await;
+        assert_eq!(
+            people(&venue(chat)),
+            vec![
+                ("阿明同学".to_string(), "11".to_string()),
+                ("小红".to_string(), "12".to_string())
+            ]
+        );
+    }
+
     #[test]
     fn a_group_gets_one_turn_at_a_time_and_a_pause_after_replying() {
         let chat = -9_002;
@@ -1100,6 +1167,7 @@ mod tests {
             at: chrono::Utc::now(),
             message_id: Some(id.to_string()),
             name: "阿明".into(),
+            from: Some("1".into()),
             text: text.into(),
             hers: false,
         };
@@ -1130,6 +1198,7 @@ mod tests {
             at: at(minutes),
             message_id: Some(id.into()),
             name: "阿明".into(),
+            from: Some("1".into()),
             text: text.into(),
             hers: false,
         };
@@ -1143,6 +1212,7 @@ mod tests {
                     at: at(29),
                     message_id: None,
                     name: String::new(),
+                    from: None,
                     text: "放就放，听完要是".into(),
                     hers: true,
                 },
