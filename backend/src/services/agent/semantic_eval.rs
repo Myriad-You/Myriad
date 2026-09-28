@@ -132,6 +132,10 @@ struct Case {
     /// The chat is in a chat app: no player, songs go as links.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     in_chat_app: bool,
+    /// How long she has known them: days since they first wrote, and on how
+    /// many different days they have written; `[0, 1]` is their first time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    known: Option<(i64, u32)>,
     /// Her stickers offered this turn (what each means), and how many more
     /// she can make this month.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -426,6 +430,7 @@ fn is_mind_case(case: &Case) -> bool {
         || !case.bits.is_empty()
         || case.in_group
         || case.writing_first.is_some()
+        || case.known.is_some()
 }
 
 /// A group turn as production builds it: the group's lines, named, as the
@@ -536,7 +541,15 @@ fn mind_chat_prompt(case: &Case) -> String {
         .collect();
     let history = super::merope::merge_said_unprompted(&history, &said);
     // Same order as production: her inner state last, nearest their words.
+    let now = chrono::Utc::now();
     let sections: Vec<String> = [
+        case.known.map(|(days_ago, days)| {
+            myriad_merope::speaking::format_acquaintance_section(
+                Some(now - chrono::Duration::days(days_ago)),
+                days,
+                now,
+            )
+        }),
         super::merope::format_remembered_section(&case.remembered),
         super::merope::format_brought_to_mind_section(&case.brought_to_mind),
         case.gap
@@ -1955,7 +1968,13 @@ fn chat_app_replies_are_held_to_how_people_there_type() {
     assert!(off.iter().any(|line| line.starts_with("messages a turn")));
     assert!(off.iter().any(|line| line.starts_with("exclamations")));
     let like: Vec<Value> = (0..TALK_SHAPE_AT_LEAST)
-        .map(|index| row(if index % 4 == 0 { "哈哈哈\n笑死" } else { "那确实" }))
+        .map(|index| {
+            row(if index % 4 == 0 {
+                "哈哈哈\n笑死"
+            } else {
+                "那确实"
+            })
+        })
         .collect();
     assert_eq!(talk_shape(&like)["outOfLine"], json!([]));
     // Too few replies to say anything: reported, not judged; nothing typed
@@ -1964,8 +1983,10 @@ fn chat_app_replies_are_held_to_how_people_there_type() {
     assert!(talk_shape(&[json!({"outcome":"returned","output":"好"})])["hers"].is_null());
     // What went out is judged; what was written is reported beside it.
     let sent: Vec<Value> = (0..TALK_SHAPE_AT_LEAST)
-        .map(|_| json!({"typedIn":"chatApp","outcome":"returned",
-            "output":"？\n骂谁呢你！\n找抽是不是","sent":["？ 骂谁呢你 找抽是不是"]}))
+        .map(|_| {
+            json!({"typedIn":"chatApp","outcome":"returned",
+            "output":"？\n骂谁呢你！\n找抽是不是","sent":["？ 骂谁呢你 找抽是不是"]})
+        })
         .collect();
     let shape = talk_shape(&sent);
     assert_eq!(shape["hers"]["perTurn"], 1.0);
@@ -1983,8 +2004,15 @@ fn a_replayed_group_reply_goes_out_as_production_sends_it() {
     assert!(group_chat_prompt(&case).contains("## How people type here"));
     // The same row always rolls the same, and every message is typed like the room.
     let first = as_sent("x-sample-1", "干嘛。\n吓我一跳！", Some(&room));
-    assert_eq!(first, as_sent("x-sample-1", "干嘛。\n吓我一跳！", Some(&room)));
-    assert!(first.iter().all(|message| !message.ends_with('。') && !message.contains('！')));
+    assert_eq!(
+        first,
+        as_sent("x-sample-1", "干嘛。\n吓我一跳！", Some(&room))
+    );
+    assert!(
+        first
+            .iter()
+            .all(|message| !message.ends_with('。') && !message.contains('！'))
+    );
 }
 
 #[test]
@@ -2156,7 +2184,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 116;
+const MIND_CASES: usize = 118;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

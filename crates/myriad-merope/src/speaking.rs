@@ -304,6 +304,48 @@ pub fn format_since_section(minutes: i64) -> Option<String> {
     ))
 }
 
+/// How long she has known this person and how often they have talked, as
+/// facts: a friendship grows with time spent together and cools when it
+/// stops (Hall 2019; Roberts & Dunbar 2011). How that sounds between them is
+/// hers to know. `first` is when they first wrote to her, `days` how many
+/// different days they have written, today included.
+pub fn format_acquaintance_section(
+    first: Option<chrono::DateTime<chrono::Utc>>,
+    days: u32,
+    now: chrono::DateTime<chrono::Utc>,
+) -> String {
+    const JUST_NOW: i64 = 15;
+    let heading = "## You and them";
+    let Some(first) = first.filter(|first| (now - *first).num_minutes() >= JUST_NOW) else {
+        return format!(
+            "{heading}\nThis is the first time they have ever talked to you: you do not know them, and nothing has passed between you before."
+        );
+    };
+    let known = (now - first).num_days();
+    let since = match known {
+        0 => "earlier today".to_string(),
+        1 => "yesterday".to_string(),
+        2..60 => format!("{known} days ago"),
+        60..730 => format!("about {} months ago", (known + 15) / 30),
+        _ => format!("about {} years ago", (known + 182) / 365),
+    };
+    let days = days.max(1);
+    let often = if days == 1 {
+        "and only that one day".to_string()
+    } else {
+        format!("and have talked on {days} different days since")
+    };
+    // What the counts come to, in the words people use for it.
+    let so = match (days, known) {
+        (1..=2, _) => "you hardly know each other yet",
+        (3..=14, _) => "you are getting to know each other",
+        (15..=59, _) => "you know each other by now",
+        (_, ..180) => "you know each other well",
+        _ => "you are old acquaintances",
+    };
+    format!("{heading}\nThey first talked to you {since}, {often}: {so}.")
+}
+
 /// What only she and this person share: (handle, how it goes).
 pub fn format_bits_section(bits: &[(String, String)], group: bool) -> Option<String> {
     if bits.is_empty() {
@@ -686,5 +728,35 @@ mod tests {
         );
         assert!(format_since_section(200).unwrap().contains("about 3 hours"));
         assert!(format_since_section(4000).unwrap().contains("about 3 days"));
+    }
+
+    #[test]
+    fn how_long_she_has_known_them_is_told_as_it_is() {
+        let now: chrono::DateTime<chrono::Utc> = "2026-09-29T12:00:00Z".parse().unwrap();
+        let ago = |days: i64| Some(now - chrono::Duration::days(days));
+        assert!(format_acquaintance_section(None, 0, now).contains("first time they have ever"));
+        assert!(
+            format_acquaintance_section(Some(now - chrono::Duration::minutes(3)), 1, now)
+                .contains("you do not know them")
+        );
+        assert_eq!(
+            format_acquaintance_section(ago(1), 1, now),
+            "## You and them\nThey first talked to you yesterday, and only that one day: you hardly know each other yet."
+        );
+        assert_eq!(
+            format_acquaintance_section(ago(40), 12, now),
+            "## You and them\nThey first talked to you 40 days ago, and have talked on 12 different days since: you are getting to know each other."
+        );
+        assert!(
+            format_acquaintance_section(ago(100), 40, now).ends_with("you know each other by now.")
+        );
+        assert!(
+            format_acquaintance_section(ago(100), 70, now).ends_with("you know each other well.")
+        );
+        assert!(
+            format_acquaintance_section(ago(220), 95, now).ends_with("you are old acquaintances.")
+        );
+        assert!(format_acquaintance_section(ago(200), 3, now).contains("about 7 months ago"));
+        assert!(format_acquaintance_section(ago(800), 90, now).contains("about 2 years ago"));
     }
 }

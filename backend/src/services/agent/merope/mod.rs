@@ -347,6 +347,59 @@ pub async fn resolve_addressee_label(db: &sea_orm::DatabaseConnection, user_id: 
     format_addressee_label(user_id, display_name.as_deref(), username.as_deref())
 }
 
+/// When this person first wrote to her and on how many different days they
+/// have written, from everything they sent her anywhere. Looked up at most
+/// every few minutes per person.
+async fn acquaintance(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+) -> Option<(Option<chrono::DateTime<chrono::Utc>>, u32)> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
+    type Known = (Option<chrono::DateTime<chrono::Utc>>, u32);
+    static KNOWN: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<i32, (std::time::Instant, Known)>>,
+    > = std::sync::LazyLock::new(Default::default);
+    const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+    const PEOPLE_KEPT: usize = 4096;
+    if let Some((_, known)) = KNOWN
+        .lock()
+        .ok()?
+        .get(&user_id)
+        .filter(|(at, _)| at.elapsed() < FRESH_FOR)
+    {
+        return Some(*known);
+    }
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT MIN(m.created_at) AS first, \
+                    COUNT(DISTINCT (m.created_at AT TIME ZONE 'UTC')::date) AS days \
+             FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE s.user_id = $1 AND m.role = 'user'",
+            vec![SeaValue::Int(Some(user_id))],
+        ))
+        .await
+        .ok()??;
+    let first = row
+        .try_get::<Option<chrono::DateTime<chrono::FixedOffset>>>("", "first")
+        .ok()
+        .flatten()
+        .map(|first| first.with_timezone(&chrono::Utc));
+    let days = row
+        .try_get::<i64>("", "days")
+        .ok()
+        .and_then(|days| u32::try_from(days).ok())
+        .unwrap_or(0);
+    let known = (first, days);
+    if let Ok(mut cache) = KNOWN.lock() {
+        if cache.len() >= PEOPLE_KEPT {
+            cache.retain(|_, (at, _)| at.elapsed() < FRESH_FOR);
+        }
+        cache.insert(user_id, (std::time::Instant::now(), known));
+    }
+    Some(known)
+}
+
 pub use speaking_prompts::{
     addressee_speaking_section, format_activity_section, format_bits_section,
     format_brought_to_mind_section, format_curious_section, format_doing_section,
@@ -588,6 +641,13 @@ async fn speaking_prompt_from_db(
     } else {
         addressee_speaking_section(&addressee)
     }];
+    if let Some((first, days)) = acquaintance(db, user_id).await {
+        sections.push(myriad_merope::speaking::format_acquaintance_section(
+            first,
+            days,
+            chrono::Utc::now(),
+        ));
+    }
     let Ok(state) = get_or_create_state(db, user_id).await else {
         return sections;
     };
