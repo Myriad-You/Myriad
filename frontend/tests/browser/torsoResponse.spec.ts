@@ -7,7 +7,7 @@ test('body posture GPU projection agrees with CPU picking and support sampling',
   const modules = `/@fs${fileURLToPath(new URL('../../src/features/merope/anime25drig/', import.meta.url))}`
   await page.goto('/tests/browser/fixture/rigImport.html')
   const error = await page.evaluate(async (modules) => {
-    const { BODY_LIFT_GLSL, applyBodyLift } = await import(`${modules}bodyLift.ts`)
+    const { BODY_LIFT_GLSL, applyBodyLift, bodyPitchUniform } = await import(`${modules}bodyLift.ts`)
     const gl = document.createElement('canvas').getContext('webgl2')!
     const compile = (kind, code) => {
       const shader = gl.createShader(kind)!
@@ -35,7 +35,7 @@ test('body posture GPU projection agrees with CPU picking and support sampling',
     for (const pitch of [-0.18, 0, 0.18]) { for (const amount of [-25, 0, 25]) {
       const field = { centerX: 500, upperY: 800, lowerY: 1200, amount, pitch, depth: 220, shoulderY: 600 }
       gl.uniform4f(gl.getUniformLocation(program, 'f'), 500, 800, 1200, amount)
-      gl.uniform3f(gl.getUniformLocation(program, 'pose'), pitch, 220, 600)
+      gl.uniform3fv(gl.getUniformLocation(program, 'pose'), bodyPitchUniform(field, new Float32Array(3)))
       gl.beginTransformFeedback(gl.POINTS); gl.drawArrays(gl.POINTS, 0, input.length / 2); gl.endTransformFeedback()
       gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER, 0, values)
       for (let i = 0; i < input.length; i += 2) {

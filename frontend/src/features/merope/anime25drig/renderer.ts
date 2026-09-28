@@ -3,11 +3,13 @@ import type { CollarClipMesh } from './collarRuntime'
 import type { NeckSurfaceContour } from './neckSurfaceContour'
 import type { Anime25DFrameWork } from './performanceTelemetry'
 import type { Anime25DPlaybackLayer } from './types'
+import { bodyPitchUniform } from './bodyLift'
 import { requiredUniform } from './webglRuntime'
 
 const COLLAR_STENCIL = 4
 const CROWN_STENCIL = 8
 const EYE_MASK_UNIT = 1
+const bodyPitchValue = new Float32Array(3)
 
 /** Mask channel per eye: red for the left, green for the right. */
 function eyeMaskChannel(layer: Anime25DRenderableLayer): 0 | 1 | null {
@@ -147,7 +149,8 @@ export function drawAnime25DFrame(
   gl.uniform1f(bindings.cryTime, frame.time)
   const lift = frame.bodyLift
   gl.uniform4f(bindings.bodyLift, lift?.centerX ?? 0, lift?.upperY ?? 0, lift?.lowerY ?? 1, lift?.amount ?? 0)
-  gl.uniform3f(bindings.bodyPitch, lift?.pitch ?? 0, lift?.depth ?? 0, lift?.shoulderY ?? lift?.upperY ?? 0)
+  const pitch = bodyPitchUniform(lift, bodyPitchValue)
+  gl.uniform3f(bindings.bodyPitch, pitch[0], pitch[1], pitch[2])
   gl.activeTexture(gl.TEXTURE0)
   if (!atlasTexture) return
   gl.bindTexture(gl.TEXTURE_2D, atlasTexture)
