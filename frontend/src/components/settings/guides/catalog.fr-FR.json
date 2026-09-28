@@ -598,6 +598,12 @@
       "frontend": "Paramètres → Agent → Bots. Ajoutez Feishu en haut à droite.",
       "notes": "Use an internal company app, not a group custom-bot webhook. AppSecret never appears in page plaintext or error text."
     },
+    "onebotBot": {
+      "what": "Send one request through the QQ account logged into NapCat and get the result back in the same private chat.",
+      "chain": "① Turn on, paste NapCat's forward WebSocket URL and access token, then save. The tag is the worker: offline / connecting / online / rejected / reconnecting.\n② There is no separate test button. A bad token is known only after NapCat accepts the socket and rejects it.\n③ The token is write-only: reads come back masked, empty clears it, and submitting the mask does not overwrite the stored value. The URL can be cleared.\n④ Off, a missing URL, or a rejected token stops the worker. Network drops reconnect.\n⑤ Once online, bind your QQ here: copy the code and send it to that account. Codes expire; generate another.\n⑥ After pairing, send a request. You can send stop, new chat, and current task.",
+      "frontend": "Settings → Agent → Bots. Add OneBot from the top right.",
+      "notes": "This is not the official QQ bot and it is not QQ login. The URL and token do not appear in errors. The token is never read back in clear text."
+    },
     "heartbeat": {
       "what": "Laisser l’Agent exécuter une tâche selon un planning sans que vous regardiez.",
       "chain": "1) Ajoutez une tâche ici : nom, planning (préréglage ou cron), et quoi faire.\n2) À l’échéance, l’Agent exécute cette consigne en mode Travail.\n3) La liste peut activer, modifier ou supprimer ; le dernier résultat s’affiche sur la ligne.\n4) Indépendant de l’humeur de la persona — Heartbeat n’est jamais bloqué par l’humeur.\n5) Vous devez être connecté pour lire ou écrire ces tâches.",

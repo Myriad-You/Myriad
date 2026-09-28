@@ -134,6 +134,7 @@ mod tests {
             ("discord_pairing", include_str!("../discord_pairing.rs")),
             ("telegram_pairing", include_str!("../telegram_pairing.rs")),
             ("feishu_pairing", include_str!("../feishu_pairing.rs")),
+            ("onebot_pairing", include_str!("../onebot_pairing.rs")),
         ] {
             let body = source.split("#[cfg(test)]\nmod tests").next().unwrap();
             assert!(

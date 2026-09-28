@@ -470,6 +470,14 @@ pub struct DynamicConfig {
     pub feishu_bot_app_id: String,
     pub feishu_bot_app_secret: Option<String>,
 
+    /// OneBot 11 办事通道（正向 WebSocket，对接 NapCat 等协议端）。默认关。
+    /// ws_url 是路由信息，可读回；access_token 只写。
+    pub onebot_bot_enabled: bool,
+    pub onebot_bot_ws_url: String,
+    pub onebot_bot_access_token: Option<String>,
+    /// 群聊默认关。个人 QQ 号已经在很多群里，不打开就不记录、不应答。
+    pub onebot_bot_groups_enabled: bool,
+
     // UI 配置
     pub ui_wallpaper_url: Option<String>,
     pub ui_wallpaper_blur: i32,
@@ -861,6 +869,10 @@ impl Default for DynamicConfig {
             feishu_bot_enabled: false,
             feishu_bot_app_id: String::new(),
             feishu_bot_app_secret: None,
+            onebot_bot_enabled: false,
+            onebot_bot_ws_url: String::new(),
+            onebot_bot_access_token: None,
+            onebot_bot_groups_enabled: false,
 
             ui_wallpaper_url: None,
             ui_wallpaper_blur: 3,

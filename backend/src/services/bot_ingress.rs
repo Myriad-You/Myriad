@@ -14,6 +14,7 @@ pub(crate) enum Channel {
     Telegram,
     Discord,
     Qq,
+    OneBot,
 }
 
 pub(crate) struct IngressPermit {
@@ -25,7 +26,7 @@ pub(crate) struct IngressPermit {
 struct Budget {
     tasks: Arc<Semaphore>,
     bytes: Arc<Semaphore>,
-    channels: [Arc<Semaphore>; 4],
+    channels: [Arc<Semaphore>; 5],
     max_bytes: usize,
 }
 

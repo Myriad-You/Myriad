@@ -598,6 +598,12 @@
       "frontend": "設定 → Agent → ボット。右上から Feishu を追加。",
       "notes": "企業自建アプリを使う。群カスタムボットの webhook は使わない。AppSecret は画面の平文にもエラー文にも出ない。"
     },
+    "onebotBot": {
+      "what": "Send one request through the QQ account logged into NapCat and get the result back in the same private chat.",
+      "chain": "① Turn on, paste NapCat's forward WebSocket URL and access token, then save. The tag is the worker: offline / connecting / online / rejected / reconnecting.\n② There is no separate test button. A bad token is known only after NapCat accepts the socket and rejects it.\n③ The token is write-only: reads come back masked, empty clears it, and submitting the mask does not overwrite the stored value. The URL can be cleared.\n④ Off, a missing URL, or a rejected token stops the worker. Network drops reconnect.\n⑤ Once online, bind your QQ here: copy the code and send it to that account. Codes expire; generate another.\n⑥ After pairing, send a request. You can send stop, new chat, and current task.",
+      "frontend": "Settings → Agent → Bots. Add OneBot from the top right.",
+      "notes": "This is not the official QQ bot and it is not QQ login. The URL and token do not appear in errors. The token is never read back in clear text."
+    },
     "heartbeat": {
       "what": "Agent に時間割で仕事をさせ、見ていなくても進める。",
       "chain": "① ここでタスクを追加：名前、時間割（定型または cron）、やること。\n② 時刻になると Agent が仕事モードでその文を実行する。\n③ 一覧でオンオフ・編集・削除。前回の結果は行に出る。\n④ ペルソナの気持ちとは別：Heartbeat は気持ちで止まらない。\n⑤ 読み書きにはログインが必要。",

@@ -6,7 +6,8 @@ export function isChannelPairingProvider(
     key === 'qq' ||
     key === 'telegram' ||
     key === 'discord_dm' ||
-    key === 'feishu'
+    key === 'feishu' ||
+    key === 'onebot'
   )
 }
 

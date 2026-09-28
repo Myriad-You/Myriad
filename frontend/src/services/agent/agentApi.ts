@@ -123,6 +123,19 @@ export interface FeishuBotStatus {
 
 export type FeishuPairingStatus = QqPairingStatus
 
+export type OneBotPhase = QqBotPhase
+
+export interface OneBotStatus {
+  phase: OneBotPhase
+  enabled: boolean
+  hasUrl: boolean
+  hasToken: boolean
+  wsUrl?: string | null
+  lastInboundAt?: string | null
+}
+
+export type OneBotPairingStatus = QqPairingStatus
+
 function sharePersonaGeneration<T>(
   key: string,
   start: () => Promise<T>,
@@ -470,6 +483,26 @@ class AgentService {
 
   async testFeishuBot(): Promise<{ success: boolean; phase?: FeishuBotPhase }> {
     return apiService.post(`${this.baseUrl}/feishu/test`)
+  }
+
+  async getOneBotPairing(): Promise<{ pairing: OneBotPairingStatus }> {
+    return apiService.get(`${this.baseUrl}/onebot/pairing`)
+  }
+
+  async issueOneBotPairingCode(): Promise<{
+    code: string
+    expiresAt: string
+    pairing: OneBotPairingStatus
+  }> {
+    return apiService.post(`${this.baseUrl}/onebot/pairing`)
+  }
+
+  async unpairOneBot(): Promise<{ success: boolean }> {
+    return apiService.delete(`${this.baseUrl}/onebot/pairing`)
+  }
+
+  async getOneBotStatus(): Promise<OneBotStatus> {
+    return apiService.get(`${this.baseUrl}/onebot/status`)
   }
 
   /**

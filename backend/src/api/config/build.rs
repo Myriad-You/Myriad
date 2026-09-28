@@ -1248,6 +1248,52 @@ pub(crate) async fn build_config(
                     placeholder: "".to_string(),
                     required: false,
                 },
+                ConfigField {
+                    key: "onebot_bot_enabled".to_string(),
+                    label: "OneBot bot".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.onebot_bot_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "onebot_bot_groups_enabled".to_string(),
+                    label: "OneBot groups".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.onebot_bot_groups_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "onebot_bot_ws_url".to_string(),
+                    label: "OneBot WebSocket URL".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.onebot_bot_ws_url.clone())
+                        .unwrap_or_default(),
+                    placeholder: "ws://127.0.0.1:3001".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "onebot_bot_access_token".to_string(),
+                    label: "OneBot access token".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.onebot_bot_access_token.clone())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
             ],
         },
         tripo_config: TripoConfig {
