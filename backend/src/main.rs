@@ -727,16 +727,40 @@ async fn start_server(config: AppConfig, app: Router) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("🚀 Server listening on http://{}", addr);
 
-    // Use graceful shutdown with ConnectInfo support
-    axum::serve(
+    // Use graceful shutdown with ConnectInfo support. Long-lived
+    // connections (event streams, sockets) never close on their own, so
+    // once the signal came they get `CONNECTION_DRAIN` to finish; after
+    // that the server stops waiting for them.
+    let (stopping, stopped) = tokio::sync::oneshot::channel::<()>();
+    let server = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        let _ = stopping.send(());
+    });
+    tokio::select! {
+        served = server => served?,
+        () = async {
+            if stopped.await.is_ok() {
+                tokio::time::sleep(CONNECTION_DRAIN).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        } => {
+            tracing::warn!(
+                "Open connections did not close within {:?}; stopping anyway",
+                CONNECTION_DRAIN
+            );
+        }
+    }
 
     Ok(())
 }
+
+/// How long open connections get to finish once shutdown begins.
+const CONNECTION_DRAIN: std::time::Duration = std::time::Duration::from_secs(10);
 
 async fn shutdown_signal() {
     use tokio::signal;
