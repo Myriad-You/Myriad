@@ -55,6 +55,38 @@ pub fn format_mood_section(mood: f64, arousal: f64) -> String {
 /// within the hour). Mood is the standing weather; this is the gust. Nothing
 /// when it is near rest. It says what moved, never how to show it: that is
 /// the model's and the personality's call.
+/// How long a feeling from one talk stays with her into the next, as a time
+/// constant in hours. A mood carries over (Kuppens et al. 2010); how long is
+/// a guess, not measured.
+pub const CARRIES_FOR_HOURS: f64 = 2.0;
+
+/// What a talk with someone else left in her, told without who or what:
+/// `felt` is how far each such talk's last feeling was from even (the
+/// emotion's valence off its origin) and how many hours ago. The strongest
+/// that is still felt is told; the one she is talking with now is not in it.
+pub fn format_carried_section(felt: &[(f64, f64)]) -> Option<String> {
+    const CLEAR: f64 = 10.0;
+    const STRONG: f64 = 25.0;
+    let left = felt
+        .iter()
+        .map(|(valence, hours)| valence * (-hours.max(0.0) / CARRIES_FOR_HOURS).exp())
+        .max_by(|left, right| left.abs().total_cmp(&right.abs()))?;
+    let what = if left >= STRONG {
+        "something really pleased you, and you are still in good spirits from it"
+    } else if left >= CLEAR {
+        "something pleased you a little, and a bit of it is still with you"
+    } else if left <= -STRONG {
+        "something hurt, and it has not left you yet"
+    } else if left <= -CLEAR {
+        "something stung a little, and it has not quite left you"
+    } else {
+        return None;
+    };
+    Some(format!(
+        "## Carried over\nEarlier, talking with someone else, {what}. It was not them: it is only how you are."
+    ))
+}
+
 pub fn format_emotion_section(emotion: f64, emotion_arousal: f64) -> Option<String> {
     const CLEAR: f64 = 10.0;
     const STRONG: f64 = 25.0;
@@ -758,5 +790,25 @@ mod tests {
         );
         assert!(format_acquaintance_section(ago(200), 3, now).contains("about 7 months ago"));
         assert!(format_acquaintance_section(ago(800), 90, now).contains("about 2 years ago"));
+    }
+
+    #[test]
+    fn a_feeling_from_one_talk_carries_into_the_next_for_a_while() {
+        // Hurt half an hour ago by someone else: it is still with her.
+        let hurt = format_carried_section(&[(-40.0, 0.5)]).unwrap();
+        assert!(hurt.contains("something hurt"));
+        assert!(hurt.contains("It was not them"));
+        // Some hours later it has faded, first to a sting, then to nothing.
+        assert!(
+            format_carried_section(&[(-40.0, 1.5)])
+                .unwrap()
+                .contains("stung a little")
+        );
+        assert_eq!(format_carried_section(&[(-40.0, 3.5)]), None);
+        // The strongest still felt is told, whichever way it went.
+        let both = format_carried_section(&[(-12.0, 0.1), (45.0, 0.2)]).unwrap();
+        assert!(both.contains("really pleased you"));
+        assert_eq!(format_carried_section(&[]), None);
+        assert_eq!(format_carried_section(&[(5.0, 0.0)]), None);
     }
 }

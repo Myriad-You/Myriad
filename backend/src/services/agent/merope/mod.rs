@@ -400,6 +400,33 @@ async fn acquaintance(
     Some(known)
 }
 
+/// How her last talks with others left her (see
+/// `myriad_merope::speaking::format_carried_section`): each one's last
+/// feeling off even, and how many hours ago, for talks in the last hours.
+async fn carried(db: &sea_orm::DatabaseConnection, user_id: i32) -> Vec<(f64, f64)> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
+    const WITHIN_HOURS: i32 = 6;
+    let Ok(rows) = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT emotion, (EXTRACT(EPOCH FROM (now() - emotion_settled_at)) / 3600.0)::float8 AS hours \
+             FROM agent_addressee_state \
+             WHERE user_id <> $1 AND emotion_settled_at > now() - make_interval(hours => $2)",
+            vec![SeaValue::Int(Some(user_id)), SeaValue::Int(Some(WITHIN_HOURS))],
+        ))
+        .await
+    else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|row| {
+            let emotion = row.try_get::<f64>("", "emotion").ok()?;
+            let hours = row.try_get::<f64>("", "hours").ok()?;
+            Some((emotion - myriad_merope::affect::ORIGIN, hours))
+        })
+        .collect()
+}
+
 pub use speaking_prompts::{
     addressee_speaking_section, format_activity_section, format_bits_section,
     format_brought_to_mind_section, format_curious_section, format_doing_section,
@@ -725,6 +752,11 @@ async fn speaking_prompt_from_db(
         }
     }
     sections.push(format_mood_section(state.mood, state.arousal));
+    if let Some(block) =
+        myriad_merope::speaking::format_carried_section(&carried(db, user_id).await)
+    {
+        sections.push(block);
+    }
     // Her state after the last exchange already weighs how she has been and
     // how her day went; the raw facts would say it twice.
     let compiled = match turn {

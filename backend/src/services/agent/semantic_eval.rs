@@ -136,6 +136,9 @@ struct Case {
     /// many different days they have written; `[0, 1]` is their first time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     known: Option<(i64, u32)>,
+    /// How her last talks with others left her: (feeling off even, hours ago).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    carried: Vec<(f64, f64)>,
     /// Her stickers offered this turn (what each means), and how many more
     /// she can make this month.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -431,6 +434,7 @@ fn is_mind_case(case: &Case) -> bool {
         || case.in_group
         || case.writing_first.is_some()
         || case.known.is_some()
+        || !case.carried.is_empty()
 }
 
 /// A group turn as production builds it: the group's lines, named, as the
@@ -550,6 +554,7 @@ fn mind_chat_prompt(case: &Case) -> String {
                 now,
             )
         }),
+        myriad_merope::speaking::format_carried_section(&case.carried),
         super::merope::format_remembered_section(&case.remembered),
         super::merope::format_brought_to_mind_section(&case.brought_to_mind),
         case.gap
@@ -2184,7 +2189,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 118;
+const MIND_CASES: usize = 120;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
