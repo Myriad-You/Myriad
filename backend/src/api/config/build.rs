@@ -1271,6 +1271,17 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
+                    key: "onebot_bot_group_ids".to_string(),
+                    label: "OneBot group allowlist".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.onebot_bot_group_ids.clone())
+                        .unwrap_or_default(),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
                     key: "onebot_bot_ws_url".to_string(),
                     label: "OneBot WebSocket URL".to_string(),
                     field_type: "text".to_string(),

@@ -2578,6 +2578,31 @@ mod onebot_rules {
     }
 
     #[test]
+    fn group_allowlist_is_normalized_and_rejects_typos() {
+        use myriad_agent_rules::onebot::rules::normalize_onebot_group_allowlist;
+        assert_eq!(
+            normalize_onebot_group_allowlist(" 751307618，461758846、123 ; 123\n9").as_deref(),
+            Ok("9,123,461758846,751307618")
+        );
+        assert_eq!(normalize_onebot_group_allowlist("  ").as_deref(), Ok(""));
+        assert!(normalize_onebot_group_allowlist("123, abc").is_err());
+        assert!(normalize_onebot_group_allowlist("0").is_err());
+        assert!(normalize_onebot_group_allowlist("-5").is_err());
+    }
+
+    #[test]
+    fn only_listed_groups_are_heard_and_an_empty_list_hears_all() {
+        use myriad_agent_rules::onebot::rules::onebot_group_allowed;
+        assert!(onebot_group_allowed("", "555"));
+        assert!(onebot_group_allowed("555,777", "555"));
+        assert!(onebot_group_allowed("555，777", "777"));
+        assert!(!onebot_group_allowed("555,777", "5555"));
+        assert!(!onebot_group_allowed("555,777", "55"));
+        // A list that cannot be read hears no group rather than every group.
+        assert!(!onebot_group_allowed("555,abc", "555"));
+    }
+
+    #[test]
     fn bad_token_is_permanent_not_retried() {
         assert_eq!(
             classify_onebot_handshake(None, Some(1403)),

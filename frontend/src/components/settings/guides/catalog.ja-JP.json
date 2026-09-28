@@ -602,7 +602,7 @@
       "what": "Send one request through the QQ account logged into NapCat and get the result back in the same private chat.",
       "chain": "① Turn on, paste NapCat's forward WebSocket URL and access token, then save. The tag is the worker: offline / connecting / online / rejected / reconnecting.\n② There is no separate test button. A bad token is known only after NapCat accepts the socket and rejects it.\n③ The token is write-only: reads come back masked, empty clears it, and submitting the mask does not overwrite the stored value. The URL can be cleared.\n④ Off, a missing URL, or a rejected token stops the worker. Network drops reconnect.\n⑤ Once online, bind your QQ here: copy the code and send it to that account. Codes expire; generate another.\n⑥ After pairing, send a request. You can send stop, new chat, and current task.",
       "frontend": "Settings → Agent → Bots. Add OneBot from the top right.",
-      "notes": "This is not the official QQ bot and it is not QQ login. The URL and token do not appear in errors. The token is never read back in clear text."
+      "notes": "This is not the official QQ bot and it is not QQ login. The URL and token do not appear in errors. The token is never read back in clear text. Groups stay off until enabled; a group allowlist keeps her to the groups you name, and groups outside it are neither recorded nor answered."
     },
     "heartbeat": {
       "what": "Agent に時間割で仕事をさせ、見ていなくても進める。",

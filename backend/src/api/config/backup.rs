@@ -1218,10 +1218,12 @@ mod settings_backup_tests {
         config.ai_config.config_fields = vec![
             ui_field("onebot_bot_enabled", "true"),
             ui_field("onebot_bot_groups_enabled", "true"),
+            ui_field("onebot_bot_group_ids", "777， 555 555"),
             ui_field("onebot_bot_ws_url", "ws://127.0.0.1:3001"),
             ui_field("onebot_bot_access_token", "ob-secret-value"),
         ];
         let set = collect_database_updates(&config).expect("valid config");
+        assert_eq!(set.get("onebot_bot_group_ids"), Some(&json!("555,777")));
         assert_eq!(set.get("onebot_bot_enabled"), Some(&json!(true)));
         assert_eq!(set.get("onebot_bot_groups_enabled"), Some(&json!(true)));
         assert_eq!(
@@ -1249,12 +1251,20 @@ mod settings_backup_tests {
             "mask must keep the stored token"
         );
 
+        config.ai_config.config_fields = vec![ui_field("onebot_bot_group_ids", "555, abc")];
+        assert!(
+            collect_database_updates(&config).is_err(),
+            "a typo must not save as a list that silently misses a group"
+        );
+
         config.ai_config.config_fields = vec![
             ui_field("onebot_bot_enabled", "false"),
+            ui_field("onebot_bot_group_ids", ""),
             ui_field("onebot_bot_ws_url", ""),
             ui_field("onebot_bot_access_token", ""),
         ];
         let cleared = collect_database_updates(&config).expect("valid config");
+        assert_eq!(cleared.get("onebot_bot_group_ids"), Some(&json!("")));
         assert_eq!(cleared.get("onebot_bot_enabled"), Some(&json!(false)));
         assert_eq!(
             cleared.get("onebot_bot_ws_url"),

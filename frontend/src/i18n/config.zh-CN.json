@@ -1976,7 +1976,9 @@
   "onebotBotWsUrl": "OneBot WebSocket 地址",
   "onebotBotAccessToken": "OneBot access token",
   "onebotBotGroups": "接收群消息",
-  "onebotBotGroupsHint": "默认关闭。打开后，这个号所在的群里 @ 她或回复她才会答。",
+  "onebotBotGroupsHint": "默认关闭。打开后她会读这个号所在的群：被 @ 或回复时回答，其余时候自己判断要不要插话。可以用下面的群号名单只留指定的群。",
+  "onebotBotGroupIds": "只接收这些群",
+  "onebotBotGroupIdsHint": "群号，用逗号或空格分隔。留空表示这个号所在的所有群。名单外的群不记录、不应答。",
 
   "onebotBotHint": "token 只写，读回是掩码。空值清除。地址可清空。关掉或 token 不对时机器人不在线。",
   "onebotBotPhaseOffline": "离线",

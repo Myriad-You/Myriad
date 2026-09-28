@@ -570,6 +570,9 @@ impl ConfigService {
                 .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
                 .unwrap_or(config.onebot_bot_groups_enabled);
         }
+        if let Some(v) = map.get("onebot_bot_group_ids") {
+            config.onebot_bot_group_ids = v.as_str().map(str::trim).unwrap_or("").to_string();
+        }
 
         // OAuth providers 列表
         if let Some(v) = map.get("oauth_providers") {
@@ -1556,11 +1559,13 @@ mod tests {
         let configured = ConfigService::parse_config(HashMap::from([
             ("onebot_bot_enabled".into(), json!(true)),
             ("onebot_bot_groups_enabled".into(), json!(true)),
+            ("onebot_bot_group_ids".into(), json!(" 555,777 ")),
             ("onebot_bot_ws_url".into(), json!("ws://127.0.0.1:3001")),
             ("onebot_bot_access_token".into(), json!("ob-secret-value")),
         ]));
         assert!(configured.onebot_bot_enabled);
         assert!(configured.onebot_bot_groups_enabled);
+        assert_eq!(configured.onebot_bot_group_ids, "555,777");
         assert_eq!(configured.onebot_bot_ws_url, "ws://127.0.0.1:3001");
         assert_eq!(
             configured.onebot_bot_access_token.as_deref(),

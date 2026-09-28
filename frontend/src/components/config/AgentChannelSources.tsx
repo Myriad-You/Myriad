@@ -1086,6 +1086,17 @@ function OneBotChannelCard({
         }
         description={t.config.onebotBotGroupsHint}
       />
+      {getFieldValue('onebot_bot_groups_enabled') === 'true' && (
+        <InputItem
+          itemKey="onebot_bot_group_ids"
+          label={t.config.onebotBotGroupIds}
+          value={getFieldValue('onebot_bot_group_ids')}
+          onChange={(value) => updateValue('onebot_bot_group_ids', value)}
+          placeholder="123456789, 987654321"
+          hint={t.config.onebotBotGroupIdsHint}
+          layout="vertical"
+        />
+      )}
       <InputItem
         itemKey="onebot_bot_access_token"
         label={t.config.onebotBotAccessToken}

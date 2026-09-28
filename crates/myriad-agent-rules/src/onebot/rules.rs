@@ -65,3 +65,33 @@ pub fn onebot_frame_refuses_connection(echo: &Value, status: &str, retcode: i64)
         && status == "failed"
         && classify_onebot_handshake(None, Some(retcode)) == ConnectFailureKind::Permanent
 }
+
+/// 群号白名单的分隔符：逗号、顿号、分号（全角半角都认）和空白。
+fn group_allowlist_items(raw: &str) -> impl Iterator<Item = &str> {
+    raw.split(|c: char| matches!(c, ',' | '，' | '、' | ';' | '；') || c.is_whitespace())
+        .filter(|item| !item.is_empty())
+}
+
+/// 把设置页填的群号名单规范化成升序、去重、逗号分隔。空名单是空串。
+/// 有一项不是群号就整体拒绝，免得写错一个号却以为它在名单里。
+pub fn normalize_onebot_group_allowlist(raw: &str) -> Result<String, String> {
+    let mut ids = Vec::new();
+    for item in group_allowlist_items(raw) {
+        match item.parse::<u64>() {
+            Ok(id) if id > 0 => ids.push(id),
+            _ => return Err(format!("「{item}」不是群号")),
+        }
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids.iter().map(u64::to_string).collect::<Vec<_>>().join(","))
+}
+
+/// 这个群的消息能不能进来。名单为空：不限群。名单解不开：一个群都不进——
+/// 宁可漏听，也不听到没被允许的群。
+pub fn onebot_group_allowed(allowlist: &str, group_id: &str) -> bool {
+    let Ok(allowlist) = normalize_onebot_group_allowlist(allowlist) else {
+        return false;
+    };
+    allowlist.is_empty() || allowlist.split(',').any(|id| id == group_id.trim())
+}

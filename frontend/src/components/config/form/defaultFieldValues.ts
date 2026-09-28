@@ -13,6 +13,7 @@ export const AGENT_AI_FIELD_KEYS = new Set([
   'feishu_bot_app_secret',
   'onebot_bot_enabled',
   'onebot_bot_groups_enabled',
+  'onebot_bot_group_ids',
   'onebot_bot_ws_url',
   'onebot_bot_access_token',
 ])

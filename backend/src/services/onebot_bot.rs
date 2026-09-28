@@ -16,7 +16,8 @@ use myriad_agent_rules::onebot::decode::{
 };
 use myriad_agent_rules::onebot::encode::encode_get_msg;
 use myriad_agent_rules::onebot::rules::{
-    classify_onebot_handshake, onebot_frame_refuses_connection, onebot_worker_intent,
+    classify_onebot_handshake, onebot_frame_refuses_connection, onebot_group_allowed,
+    onebot_worker_intent,
 };
 use myriad_agent_rules::onebot::wire::{Inbound, RespJson};
 use serde::Serialize;
@@ -43,6 +44,13 @@ fn connect_failure(error: tokio_tungstenite::tungstenite::Error) -> ConnectFailu
 
 async fn groups_enabled() -> bool {
     GLOBAL_DYNAMIC_CONFIG.read().await.onebot_bot_groups_enabled
+}
+
+/// Groups outside the deployer's allowlist are never recorded and never
+/// answered: she does not hear them at all.
+async fn group_allowed(group_id: &str) -> bool {
+    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+    onebot_group_allowed(&config.onebot_bot_group_ids, group_id)
 }
 
 /// NapCat also accepts the token as `?access_token=` and reads it first, so a
@@ -304,6 +312,9 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 // QQ number is already in many groups; recording all of them
                 // is not the private-chat default.
             } else if let Some(group) = decode_group_inbound(&raw, event.self_id) {
+                if !group_allowed(&group.group_id).await {
+                    return None;
+                }
                 mark_inbound().await;
                 let self_id = event.self_id;
                 tokio::spawn(async move {
