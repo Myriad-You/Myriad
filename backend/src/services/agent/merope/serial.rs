@@ -1,11 +1,12 @@
-//! A serial she follows on her own: a book she picked, one part a day.
+//! Serials she follows on her own: books she picked, each one part a day.
 //!
 //! The books are the public-domain books of Project Gutenberg (English and
 //! Chinese) and Aozora Bunko (Japanese), fiction and not, tens of thousands
-//! of them (see `library`), fetched from archives that allow it. When she follows nothing
-//! a shelf is put out for the day, a handful drawn at random in each language she reads;
-//! which one she takes up is hers to choose, as this personality, and she may
-//! let it go after any part, for good.
+//! of them (see `library`), fetched from archives that allow it. Each day a
+//! shelf is put out, a handful drawn at random in each language she reads.
+//! She may follow a few books at once, as anyone reads more than one; while
+//! she follows fewer, which one she takes up next is hers to choose, as this
+//! personality, and she may let any of them go after any part, for good.
 //!
 //! A new part comes out each day from the day she started; she reads it when
 //! she chooses to, in her own time (see `doing`). After each part she writes
@@ -33,7 +34,12 @@ use myriad_merope::serial::{
 pub use myriad_merope::serial::{Ended, Following, Guessed, Work, parts, work};
 
 pub const NAMESPACE: &str = "merope_serial";
+/// What she follows, as it was kept when she could follow only one.
 const FOLLOWING: &str = "following";
+/// Everything she follows now.
+const READING: &str = "reading";
+/// Books she follows at once, at most, each a part a day.
+const AT_ONCE: usize = 3;
 const PAST: &str = "past";
 const SHELF: &str = "shelf";
 /// Each work she was shown or took up, so it reads the same whatever the
@@ -68,11 +74,24 @@ async fn put<T: Serialize>(db: &DatabaseConnection, record: &str, value: &T) {
     }
 }
 
-pub async fn following(db: &DatabaseConnection) -> Option<Following> {
-    crate::services::runtime_registry::get(db, NAMESPACE, FOLLOWING)
+/// The books she follows now.
+pub async fn following(db: &DatabaseConnection) -> Vec<Following> {
+    if let Ok(Some(all)) =
+        crate::services::runtime_registry::get::<Vec<Following>>(db, NAMESPACE, READING).await
+    {
+        return all;
+    }
+    crate::services::runtime_registry::get::<Following>(db, NAMESPACE, FOLLOWING)
         .await
         .ok()
         .flatten()
+        .into_iter()
+        .collect()
+}
+
+async fn keep_following(db: &DatabaseConnection, all: &[Following]) {
+    put(db, READING, &all).await;
+    let _ = crate::services::runtime_registry::delete(db, NAMESPACE, FOLLOWING).await;
 }
 
 async fn past(db: &DatabaseConnection) -> Past {
@@ -179,26 +198,38 @@ pub async fn part(db: &DatabaseConnection, id: &str, index: usize) -> Option<(St
     parts.into_iter().nth(index).map(|part| (part, total))
 }
 
-/// What she could take up: the next part of what she follows once it is
-/// out, or, when she follows nothing, the books on today's shelf.
+/// What she could take up: the next part of each book she follows once it
+/// is out, and, while she follows fewer than she could, the books on
+/// today's shelf.
 pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
-    if let Some(following) = following(db).await {
-        let Some(work) = known(db, &following.id).await else {
-            return Vec::new();
-        };
-        return (following.next < following.out(Utc::now()))
-            .then(|| chapter(&work, following.next, following.total))
-            .into_iter()
-            .collect();
+    let following = following(db).await;
+    let now = Utc::now();
+    let mut options = Vec::new();
+    for following in &following {
+        if following.next >= following.out(now) {
+            continue;
+        }
+        if let Some(work) = known(db, &following.id).await {
+            options.push(chapter(&work, following.next, following.total));
+        }
+    }
+    if following.len() >= AT_ONCE {
+        return options;
     }
     let past = past(db).await;
-    shelf(db)
-        .await
-        .into_iter()
-        .filter(|work| !past.finished.contains(&work.id) && !past.dropped.contains(&work.id))
-        // How long it is shows once she opens it (see `open`).
-        .map(|work| chapter(&work, 0, 0))
-        .collect()
+    options.extend(
+        shelf(db)
+            .await
+            .into_iter()
+            .filter(|work| {
+                !past.finished.contains(&work.id)
+                    && !past.dropped.contains(&work.id)
+                    && !following.iter().any(|following| following.id == work.id)
+            })
+            // How long it is shows once she opens it (see `open`).
+            .map(|work| chapter(&work, 0, 0)),
+    );
+    options
 }
 
 /// A book from the shelf she picked, opened: its first part with how many
@@ -296,10 +327,13 @@ async fn shelf(db: &DatabaseConnection) -> Vec<Work> {
     shelf.books
 }
 
-/// Books fetched for a shelf long ago and never taken up; not the one she
-/// follows.
+/// Books opened long ago and not followed; not the ones she follows.
 async fn prune_texts(db: &DatabaseConnection) {
-    let following = following(db).await.map(|following| following.id);
+    let following: Vec<String> = following(db)
+        .await
+        .into_iter()
+        .map(|following| following.id)
+        .collect();
     let Some(dir) = cache_path(&CATALOG[0])
         .parent()
         .map(std::path::Path::to_path_buf)
@@ -319,7 +353,7 @@ async fn prune_texts(db: &DatabaseConnection) {
         else {
             continue;
         };
-        if following.as_deref() == Some(id) {
+        if following.iter().any(|following| following == id) {
             continue;
         }
         let modified = entry.metadata().await.and_then(|meta| meta.modified());
@@ -337,8 +371,12 @@ pub async fn intake(db: &DatabaseConnection, id: &str, index: usize) -> Option<I
     };
     // What she guessed after the last part, and whether she knew the book
     // (so it was memory, not a guess).
-    let (guessed_before, knew_it) = match following(db).await {
-        Some(following) if following.id == id && index > 0 => (following.guess, following.knew_it),
+    let (guessed_before, knew_it) = match following(db)
+        .await
+        .into_iter()
+        .find(|following| following.id == id)
+    {
+        Some(following) if index > 0 => (following.guess, following.knew_it),
         _ => (None, false),
     };
     let mut intake = Intake::plain(Some(part.clone()), PART_CHARS, HOW);
@@ -409,40 +447,28 @@ pub async fn read(
     go_on: bool,
     knew_it: bool,
 ) -> Option<Ended> {
-    let now = Utc::now();
-    let mut following = match following(db).await {
-        Some(following) if following.id == id => following,
-        _ => Following {
-            id: id.to_string(),
-            next: 0,
+    let mut all = following(db).await;
+    let ended = myriad_merope::serial::advance(
+        &mut all,
+        myriad_merope::serial::Read {
+            id,
+            index,
             total,
-            started: now,
-            guess: None,
-            knew_it: false,
+            guess,
+            go_on,
+            knew_it,
         },
-    };
-    following.next = index + 1;
-    following.knew_it |= knew_it;
-    following.guess = guess.filter(|guess| !guess.trim().is_empty());
-    let ended = if following.next >= following.total {
-        Some(Ended::Finished)
-    } else if !go_on {
-        Some(Ended::LetGo)
-    } else {
-        None
-    };
-    match ended {
-        Some(ended) => {
-            let mut past = past(db).await;
-            match ended {
-                Ended::Finished => past.finished.push(id.to_string()),
-                Ended::LetGo => past.dropped.push(id.to_string()),
-            }
-            put(db, PAST, &past).await;
-            let _ = crate::services::runtime_registry::delete(db, NAMESPACE, FOLLOWING).await;
+        Utc::now(),
+    );
+    if let Some(ended) = ended {
+        let mut past = past(db).await;
+        match ended {
+            Ended::Finished => past.finished.push(id.to_string()),
+            Ended::LetGo => past.dropped.push(id.to_string()),
         }
-        None => put(db, FOLLOWING, &following).await,
+        put(db, PAST, &past).await;
     }
+    keep_following(db, &all).await;
     ended
 }
 

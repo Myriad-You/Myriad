@@ -82,6 +82,51 @@ impl Following {
     }
 }
 
+/// A part she just read, and what she said after it.
+pub struct Read<'a> {
+    pub id: &'a str,
+    pub index: usize,
+    pub total: usize,
+    pub guess: Option<String>,
+    pub go_on: bool,
+    pub knew_it: bool,
+}
+
+/// Where she is in the books she follows, after reading a part: on to the
+/// next, or the book ends (finished, or let go) and leaves the list.
+/// Reading the first part of a book starts following it.
+pub fn advance(all: &mut Vec<Following>, read: Read, now: DateTime<Utc>) -> Option<Ended> {
+    let at = match all.iter().position(|following| following.id == read.id) {
+        Some(at) => at,
+        None => {
+            all.push(Following {
+                id: read.id.to_string(),
+                next: 0,
+                total: read.total,
+                started: now,
+                guess: None,
+                knew_it: false,
+            });
+            all.len() - 1
+        }
+    };
+    let following = &mut all[at];
+    following.next = read.index + 1;
+    following.knew_it |= read.knew_it;
+    following.guess = read.guess.filter(|guess| !guess.trim().is_empty());
+    let ended = if following.next >= following.total {
+        Some(Ended::Finished)
+    } else if !read.go_on {
+        Some(Ended::LetGo)
+    } else {
+        None
+    };
+    if ended.is_some() {
+        all.remove(at);
+    }
+    ended
+}
+
 /// What she finished and what she let go.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Past {
@@ -376,6 +421,51 @@ pub struct Judged {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn she_follows_several_books_each_on_its_own() {
+        let now: DateTime<Utc> = "2026-09-28T03:00:00Z".parse().unwrap();
+        let read = |id, index, total, go_on| Read {
+            id,
+            index,
+            total,
+            guess: Some("他会回来".into()),
+            go_on,
+            knew_it: false,
+        };
+        let mut all = vec![Following {
+            id: "pg-120".into(),
+            next: 2,
+            total: 38,
+            started: now - chrono::Duration::days(2),
+            guess: None,
+            knew_it: false,
+        }];
+        // Opening another book starts following it, beside the first.
+        assert_eq!(
+            advance(&mut all, read("aozora-773", 0, 40, true), now),
+            None
+        );
+        assert_eq!(all.len(), 2);
+        assert_eq!((all[1].next, all[1].started), (1, now));
+        assert_eq!(all[0].next, 2, "the first book is where it was");
+        // Reading on in the first moves only it.
+        assert_eq!(advance(&mut all, read("pg-120", 2, 38, true), now), None);
+        assert_eq!(all[0].next, 3);
+        assert_eq!(all[0].guess.as_deref(), Some("他会回来"));
+        // Letting one go takes it off the list, and only it.
+        assert_eq!(
+            advance(&mut all, read("aozora-773", 1, 40, false), now),
+            Some(Ended::LetGo)
+        );
+        assert_eq!(all.len(), 1);
+        // The last part finishes it.
+        assert_eq!(
+            advance(&mut all, read("pg-120", 37, 38, true), now),
+            Some(Ended::Finished)
+        );
+        assert!(all.is_empty());
+    }
 
     #[test]
     fn chinese_paragraphs_are_found_however_the_lines_are_wrapped() {
