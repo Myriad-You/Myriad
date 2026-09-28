@@ -1,8 +1,8 @@
 //! A serial she follows on her own: a book she picked, one part a day.
 //!
-//! The books are the public-domain literature of Project Gutenberg (English
-//! and Chinese) and Aozora Bunko (Japanese), tens of thousands of works (see
-//! `library`), fetched from archives that allow it. When she follows nothing
+//! The books are the public-domain books of Project Gutenberg (English and
+//! Chinese) and Aozora Bunko (Japanese), fiction and not, tens of thousands
+//! of them (see `library`), fetched from archives that allow it. When she follows nothing
 //! a shelf of a few is put out for the day, one in each language she reads;
 //! which one she takes up is hers to choose, as this personality, and she may
 //! let it go after any part, for good.

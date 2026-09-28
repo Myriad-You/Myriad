@@ -1,8 +1,10 @@
 //! The library she picks a book to follow from: the public-domain catalogs
 //! of Project Gutenberg (English and Chinese) and Aozora Bunko (Japanese),
-//! read into works (see `serial::Work`). Only literature: a book of tables
-//! or a legal code is not something to follow one part a day. Fetching the
-//! catalogs and keeping them is the backend's.
+//! read into works (see `serial::Work`): novels, history, philosophy,
+//! science, travel, whatever a book is about. Left out is what is not read
+//! from start to end one part a day: single issues of magazines,
+//! dictionaries and reference works, bibliographies and indexes. Fetching
+//! the catalogs and keeping them is the backend's.
 
 use std::collections::{HashMap, HashSet};
 
@@ -114,8 +116,12 @@ fn aozora_name(family: &str, given: &str) -> String {
     }
 }
 
-/// Project Gutenberg's literature (Library of Congress class P) in English
-/// and Chinese.
+/// Library of Congress classes that are not read through: general
+/// reference and dictionaries (AG), encyclopedias (AE), indexes (AI),
+/// periodicals (AP), yearbooks (AY), bibliography (Z).
+const NOT_READ_THROUGH: [&str; 6] = ["AG", "AE", "AI", "AP", "AY", "Z"];
+
+/// Project Gutenberg's books in English and Chinese.
 pub fn from_gutenberg(csv: &str) -> Vec<Work> {
     rows(csv)
         .filter_map(|row| {
@@ -124,15 +130,17 @@ pub fn from_gutenberg(csv: &str) -> Vec<Work> {
             if get("Type") != "Text" || !matches!(lang, "en" | "zh") {
                 return None;
             }
-            if !get("LoCC")
-                .split(';')
-                .any(|class| class.trim().starts_with('P'))
+            if get("LoCC").split(';').any(|class| {
+                NOT_READ_THROUGH
+                    .iter()
+                    .any(|not| class.trim().starts_with(not))
+            }) || get("Subjects").contains("Periodicals")
             {
                 return None;
             }
             let number: u32 = get("Text#").trim().parse().ok()?;
             let title = clip(get("Title").lines().next().unwrap_or_default(), TITLE_CHARS);
-            if title.is_empty() {
+            if title.is_empty() || title == "No title" {
                 return None;
             }
             let mut about: Vec<String> = Vec::new();
@@ -159,17 +167,15 @@ pub fn from_gutenberg(csv: &str) -> Vec<Work> {
         .collect()
 }
 
-/// Aozora Bunko's literature (NDC class 9, and 9 for children) whose text is
-/// free, once a work, under its author.
+/// Aozora Bunko's works whose text is free, once a work, under its author.
+/// Its catalog holds books, not magazine issues or reference works.
 pub fn from_aozora(csv: &str) -> Vec<Work> {
     let mut seen = HashSet::new();
     rows(csv)
         .filter_map(|row| {
             let get = |name: &str| row.get(name).map(String::as_str).unwrap_or_default();
-            let class = get("分類番号");
             if get("作品著作権フラグ") != "なし"
                 || get("役割フラグ") != "著者"
-                || !(class.starts_with("NDC 9") || class.starts_with("NDC K9"))
                 || get("テキストファイル符号化方式") != "ShiftJIS"
             {
                 return None;
@@ -243,15 +249,18 @@ mod tests {
     }
 
     #[test]
-    fn gutenberg_literature_in_english_and_chinese() {
+    fn gutenberg_books_in_english_and_chinese_read_through() {
         let csv = "Text#,Type,Issued,Title,Language,Authors,Subjects,LoCC,Bookshelves\n\
 120,Text,2006-01-12,Treasure Island,en,\"Stevenson, Robert Louis, 1850-1894; Wyeth, N. C. [Illustrator]\",\"Pirates -- Juvenile fiction; Adventure stories\",PZ,\"Category: Novels; Category: Adventure\"\n\
 1,Text,1971-12-01,\"The Declaration of Independence\nof the United States\",en,\"Jefferson, Thomas, 1743-1826\",History,E201,Politics\n\
+2,Text,1899-01-01,\"Punch, Volume 1\",en,,\"English wit and humor -- Periodicals\",AP101,\n\
+3,Text,1899-01-01,A Dictionary,en,,Dictionaries,AG,\n\
+4,Text,1899-01-01,No title,zh,,,,\n\
 27166,Text,2008-11-03,吶喊,zh,\"Lu, Xun, 1881-1936\",Chinese fiction,PL,\n\
 1400,Text,1998-07-01,Great Expectations,fr,\"Dickens, Charles, 1812-1870\",,PR,\n\
 99,Sound,1998-07-01,Heard,en,,,PR,\n";
         let works = from_gutenberg(csv);
-        assert_eq!(works.len(), 2, "only literature, only en and zh, only text");
+        assert_eq!(works.len(), 3, "books read through, in en and zh, as text");
         let island = &works[0];
         assert_eq!(island.id, "pg-120");
         assert_eq!(island.author, "Robert Louis Stevenson");
@@ -262,12 +271,13 @@ mod tests {
         assert!(
             matches!(&island.source, Source::Gutenberg { path } if path == "cache/epub/120/pg120.txt")
         );
-        assert_eq!(works[1].author, "Lu Xun");
-        assert_eq!(works[1].lang, "zh");
+        assert_eq!(works[1].title, "The Declaration of Independence");
+        assert_eq!(works[2].author, "Lu Xun");
+        assert_eq!(works[2].lang, "zh");
     }
 
     #[test]
-    fn aozora_literature_once_a_work_with_its_text() {
+    fn aozora_works_once_a_work_with_their_text() {
         let head = "作品ID,作品名,副題,初出,分類番号,文字遣い種別,作品著作権フラグ,姓,名,役割フラグ,テキストファイルURL,テキストファイル符号化方式";
         let csv = format!(
             "\u{feff}{head}\n\
@@ -278,14 +288,15 @@ mod tests {
 \"000003\",\"ごんぎつね\",\"\",\"\",\"NDC K913\",\"新字新仮名\",\"なし\",\"新美\",\"南吉\",\"著者\",\"https://www.aozora.gr.jp/cards/000121/files/628_14895.zip\",\"ShiftJIS\"\n"
         );
         let works = from_aozora(&csv);
-        assert_eq!(works.len(), 2);
+        assert_eq!(works.len(), 3);
         assert_eq!(works[0].id, "aozora-773");
         assert_eq!(works[0].author, "夏目漱石");
         assert!(works[0].about.starts_with("初出：「朝日新聞」"));
         assert!(
             matches!(&works[0].source, Source::Aozora { path } if path == "cards/000148/files/773_ruby_5968")
         );
-        assert_eq!(works[1].title, "ごんぎつね");
+        assert_eq!(works[1].title, "統計表");
+        assert_eq!(works[2].title, "ごんぎつね");
         assert_eq!(
             aozora_name("アーヴィング", "ワシントン"),
             "ワシントン・アーヴィング"
