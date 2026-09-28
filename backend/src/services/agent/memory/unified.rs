@@ -514,14 +514,26 @@ async fn fade_excess<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<(), DbE
     Ok(())
 }
 
-/// First to fade: least important, then least recently used.
+/// First to fade: least important, then least ready to come to mind (see
+/// `strength`): seldom recalled, and not lately.
 fn fade_order(left: &agent_memories::Model, right: &agent_memories::Model) -> std::cmp::Ordering {
-    let used = |row: &agent_memories::Model| row.last_accessed_at.unwrap_or(row.created_at);
+    let now = Utc::now().fixed_offset();
     left.importance
         .partial_cmp(&right.importance)
         .unwrap_or(std::cmp::Ordering::Equal)
-        .then_with(|| used(left).cmp(&used(right)))
+        .then_with(|| readiness(left, now).total_cmp(&readiness(right, now)))
 }
+
+/// How readily a memory comes to mind now (see `strength`).
+fn readiness(row: &agent_memories::Model, now: chrono::DateTime<chrono::FixedOffset>) -> f64 {
+    super::strength::of_row(row.created_at, row.access_count, row.last_accessed_at, now)
+}
+
+/// How much a memory's readiness counts in recall: named or brought to mind,
+/// an old untouched one still comes, a little behind a fresh one.
+const READINESS_WEIGHT: f64 = 0.3;
+/// Readiness in steps this wide ranks alike, newest first.
+const READINESS_STEP: f64 = 0.05;
 
 /// Activation left over from recent turns, by memory id: what was on the
 /// person's mind a moment ago. It seeds the next recall, so a topic carries
@@ -684,7 +696,10 @@ fn rank_marked(
         })
         .collect();
     let residual: Vec<f64> = rows.iter().map(|row| priming.of(&row.id)).collect();
-    // By weak evidence, then recency (stable: newest-first from the query).
+    let now = Utc::now().fixed_offset();
+    let ready: Vec<f64> = rows.iter().map(|row| readiness(row, now)).collect();
+    // By weak evidence, then how readily each comes to mind, then recency
+    // (stable: newest-first from the query).
     let mut by_recency: Vec<(f64, usize)> = scores
         .iter()
         .enumerate()
@@ -695,7 +710,13 @@ fn rank_marked(
             *value > 0.0 || !NOTED_IN_PASSING.contains(&rows[*index].source.as_str())
         })
         .collect();
-    by_recency.sort_by(|left, right| right.0.total_cmp(&left.0));
+    let step = |index: usize| (ready[index] / READINESS_STEP).floor();
+    by_recency.sort_by(|left, right| {
+        right
+            .0
+            .total_cmp(&left.0)
+            .then_with(|| step(right.1).total_cmp(&step(left.1)))
+    });
     if named.iter().chain(&residual).all(|seed| *seed <= 0.0) {
         // Nothing named and nothing on the mind: no association starts from
         // a guess.
@@ -730,7 +751,8 @@ fn rank_marked(
         .filter(|(_, (named, activation))| **named > 0.0 || **activation >= ASSOCIATED_MIN)
         .map(|(index, (named, activation))| {
             (
-                DIRECT_WEIGHT * named + (1.0 - DIRECT_WEIGHT) * activation,
+                (DIRECT_WEIGHT * named + (1.0 - DIRECT_WEIGHT) * activation)
+                    * (1.0 - READINESS_WEIGHT + READINESS_WEIGHT * ready[index]),
                 *named > 0.0,
                 index,
             )
@@ -1559,6 +1581,56 @@ mod tests {
             .map(|row| row.id)
             .collect();
         assert!(named.contains(&"played".to_string()));
+    }
+
+    fn recalled(
+        mut row: agent_memories::Model,
+        times: i32,
+        ago_secs: i64,
+    ) -> agent_memories::Model {
+        row.access_count = times;
+        row.last_accessed_at =
+            Some((Utc::now() - chrono::Duration::seconds(ago_secs)).fixed_offset());
+        row
+    }
+
+    #[test]
+    fn with_nothing_named_what_she_often_recalls_comes_before_what_she_never_does() {
+        const DAY: i64 = 86_400;
+        let rows = vec![
+            row("new", "他今天换了新手机", 0.5, 60),
+            row("untouched", "他上个月说过想学吉他", 0.5, 30 * DAY),
+            recalled(row("often", "他养了一只叫年糕的猫", 0.5, 30 * DAY), 6, DAY),
+        ];
+        let order: Vec<String> = rank(rows, None, 3).into_iter().map(|row| row.id).collect();
+        assert_eq!(order, ["new", "often", "untouched"]);
+    }
+
+    #[test]
+    fn an_old_memory_named_outright_still_comes_to_mind() {
+        const DAY: i64 = 86_400;
+        let rows = vec![
+            row("guitar", "他说过想学吉他", 0.5, 300 * DAY),
+            recalled(row("cat", "他养了一只叫年糕的猫", 0.5, DAY), 9, 60),
+        ];
+        let named: Vec<String> = rank(rows, Some("吉他"), 1)
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(named, ["guitar"]);
+    }
+
+    #[test]
+    fn of_two_as_important_the_one_never_recalled_fades_first() {
+        const DAY: i64 = 86_400;
+        let untouched = row("untouched", "他说过想学吉他", 0.5, 30 * DAY);
+        let often = recalled(row("often", "他养了一只叫年糕的猫", 0.5, 60 * DAY), 6, DAY);
+        let minor = recalled(row("minor", "他提过一次天气", 0.1, DAY), 9, 60);
+        let mut rows = [often, untouched, minor];
+        rows.sort_by(fade_order);
+        let order: Vec<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+        // Importance first; then the one she never thinks of.
+        assert_eq!(order, ["minor", "untouched", "often"]);
     }
 
     fn row(id: &str, content: &str, importance: f64, age_secs: i64) -> agent_memories::Model {
