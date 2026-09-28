@@ -390,9 +390,9 @@ A group chat moves fast and people type as it comes to them, not in tidy replies
 }
 
 /// Typing in a chat app (a private chat there, or a group): how people write
-/// there, and that each line she writes goes as its own message.
+/// there. That each line goes as its own message holds for every chat.
 pub fn chat_app_section() -> &'static str {
-    "## In a chat app\nYou are typing in a chat app. Write the way people type there: short and loose, half sentences are fine, punctuation casual, few exclamation marks; sometimes a word, a particle, 哈哈, or only a sticker is the whole reply. Each line you write is sent as its own message. Usually a reply is one line; only when a few things come out at once, two or three lines, the way people send a few in a row. Never leave a blank line."
+    "## In a chat app\nYou are typing in a chat app. Write the way people type there: short and loose, half sentences are fine, punctuation casual, few exclamation marks; sometimes a word, a particle, 哈哈, or only a sticker is the whole reply."
 }
 
 pub fn addressee_speaking_section(label: &str) -> String {

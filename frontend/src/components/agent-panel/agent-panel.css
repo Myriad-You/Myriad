@@ -2059,6 +2059,29 @@ html .agent-panel-session.glass {
   color: var(--color-error, #ef4444);
 }
 
+/* 聊天里她的一条回复读起来是连着发的几条：一行一个气泡。外层不画，只留
+   高度动画；每一行用同一套表面、边框和阴影画成气泡。 */
+.agent-panel-message[data-split-lines='true'] .agent-panel-message-answer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.agent-panel-message[data-split-lines='true']
+  .agent-panel-message-answer
+  > .agent-md-p {
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  background: var(
+    --surface-bg,
+    rgb(var(--surface-rgb) / var(--surface-alpha))
+  );
+  box-shadow: var(--surface-shadow);
+}
+
 /* 句尾光标挂在正文最后一块。思考、提问、图不是「还在说」。 */
 .agent-panel-message[data-state='streaming']
   .agent-panel-message-answer

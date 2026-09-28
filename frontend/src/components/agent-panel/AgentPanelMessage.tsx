@@ -251,18 +251,22 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
         ? !!(message.content || message.attachments?.length)
         : hasAnswer || showsThinking || keepThinking
     const { ref: bubbleRef, growRef } = useBubbleHeight(showsBody)
+    // In chat her reply reads as a few messages in a row: each line its own
+    // bubble. The outer body keeps its height animation but draws nothing.
+    const splitsLines = mode === 'chat' && isAssistant && !message.body
 
     return (
       <div
         className="agent-panel-message"
         data-role={message.role}
         data-state={message.state ?? 'settled'}
+        data-split-lines={splitsLines ? 'true' : undefined}
       >
         {showsBody ? (
           <div
             ref={bubbleRef}
             className={
-              message.role === 'system'
+              message.role === 'system' || splitsLines
                 ? 'agent-panel-message-body'
                 : 'agent-panel-message-body glass'
             }
