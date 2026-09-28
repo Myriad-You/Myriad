@@ -2510,6 +2510,19 @@ pub fn as_messages(text: &str) -> Vec<String> {
     lines
 }
 
+/// Her reply as at most `most` messages: lines past the last one she sends
+/// on its own go with it, in one message, the way a person types two
+/// things before hitting send.
+pub fn as_messages_at_most(text: &str, most: usize) -> Vec<String> {
+    let mut lines = as_messages(text);
+    let most = most.max(1);
+    if lines.len() > most {
+        let rest = lines.split_off(most - 1);
+        lines.push(rest.join(" "));
+    }
+    lines
+}
+
 /// About how long it takes to type a message of `chars` characters before
 /// sending it: a beat, and a little for each character, never long.
 pub fn typing_pause(chars: usize) -> std::time::Duration {

@@ -94,6 +94,10 @@ pub struct RequestContext {
     /// In a group, who spoke to her, as the group knows them. Server-set only.
     #[serde(skip)]
     pub speaker: Option<String>,
+    /// In a group, how its people type there lately (see
+    /// `myriad_merope::talk_shape`). Server-set only.
+    #[serde(skip)]
+    pub room: Option<myriad_merope::talk_shape::Shape>,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.

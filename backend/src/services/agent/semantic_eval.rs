@@ -241,6 +241,48 @@ struct HistoryLine {
     /// Who said it, in a group chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,
+    /// When, in seconds, for a replayed chat; lines without one are each
+    /// their own turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    at: Option<i64>,
+}
+
+/// How the people in a group case type, from its history, as production
+/// reads a group's lines.
+fn case_room(case: &Case) -> Option<myriad_merope::talk_shape::Shape> {
+    let lines: Vec<(&str, i64, &str)> = case
+        .history
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.role == "user")
+        .map(|(index, line)| {
+            (
+                line.name.as_deref().unwrap_or(""),
+                line.at.unwrap_or(index as i64 * 3600),
+                line.text.as_str(),
+            )
+        })
+        .collect();
+    myriad_merope::talk_shape::room_of(&lines)
+}
+
+/// What production sends of a reply typed in a chat app: as many messages
+/// as it rolls for (the roll made from the row id, so a replay sends the
+/// same), each typed the way the room types.
+fn as_sent(id: &str, reply: &str, room: Option<&myriad_merope::talk_shape::Shape>) -> Vec<String> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut hasher);
+    let roll = (hasher.finish() % 1_000_000) as f64 / 1_000_000.0;
+    let lines = myriad_agent_rules::channel::as_messages(reply);
+    let most = myriad_merope::talk_shape::messages_this_turn(lines.len(), roll);
+    myriad_agent_rules::channel::as_messages_at_most(reply, most)
+        .into_iter()
+        .map(|message| match room {
+            Some(room) => myriad_merope::talk_shape::typed_like(&message, room),
+            None => message,
+        })
+        .collect()
 }
 
 /// Mind cases wear the production persona contract (no body, own words).
@@ -418,6 +460,8 @@ fn group_chat_prompt(case: &Case) -> String {
     let sections: Vec<String> = [
         Some(super::merope::group_speaking_section("阿明")),
         Some(myriad_merope::speaking::chat_app_section().to_string()),
+        case_room(case)
+            .map(|room| myriad_merope::talk_shape::describe(&room, "How people type here")),
         super::merope::format_remembered_section(&case.remembered),
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, true),
@@ -1500,26 +1544,49 @@ fn summary(rows: &[Value]) -> Value {
 const TALK_SHAPE_AT_LEAST: usize = 8;
 
 fn talk_shape(rows: &[Value]) -> Value {
-    let replies: Vec<Vec<String>> = rows
+    let typed: Vec<&Value> = rows
         .iter()
         .filter(|row| row["typedIn"] == "chatApp" && row["outcome"] == "returned")
-        .filter_map(|row| row["output"].as_str())
-        .map(myriad_agent_rules::channel::as_messages)
-        .filter(|turn| !turn.is_empty())
         .collect();
-    let turns: Vec<Vec<&str>> = replies
-        .iter()
-        .map(|turn| turn.iter().map(String::as_str).collect())
-        .collect();
+    let shape_of = |replies: Vec<Vec<String>>| {
+        let turns: Vec<Vec<&str>> = replies
+            .iter()
+            .filter(|turn| !turn.is_empty())
+            .map(|turn| turn.iter().map(String::as_str).collect())
+            .collect();
+        myriad_merope::talk_shape::of_turns(&turns)
+    };
+    // What the model wrote, a line a message, beside what went out.
+    let written = shape_of(
+        typed
+            .iter()
+            .filter_map(|row| row["output"].as_str())
+            .map(myriad_agent_rules::channel::as_messages)
+            .collect(),
+    );
+    let sent = shape_of(
+        typed
+            .iter()
+            .map(|row| match row["sent"].as_array() {
+                Some(sent) => sent
+                    .iter()
+                    .filter_map(|message| message.as_str().map(str::to_string))
+                    .collect(),
+                None => myriad_agent_rules::channel::as_messages(
+                    row["output"].as_str().unwrap_or_default(),
+                ),
+            })
+            .collect(),
+    );
     let reference: Value =
         serde_json::from_str(include_str!("../../../../tests/merope/talk-reference.json")).unwrap();
     let people: myriad_merope::talk_shape::Shape =
         serde_json::from_value(reference["chatApp"]["shape"].clone()).unwrap();
-    let Some(hers) = myriad_merope::talk_shape::of_turns(&turns) else {
-        return json!({"hers":null,"people":people,"outOfLine":null});
+    let Some(hers) = sent else {
+        return json!({"hers":null,"written":null,"people":people,"outOfLine":null});
     };
     let judged = hers.turns >= TALK_SHAPE_AT_LEAST;
-    json!({"hers":hers,"people":people,
+    json!({"hers":hers,"written":written,"people":people,
         "outOfLine":judged.then(|| myriad_merope::talk_shape::out_of_line(&hers, &people))})
 }
 
@@ -1838,9 +1905,11 @@ async fn run_semantic_suite() {
             "consistencyGroup":case.consistency_group,
             "scope":"synthetic remaining-contact window; excludes transport/state lookup/render latency; disagreement is not proof of visual improvement"
         }));
+        let typed_in = case.kind == "chat" && (case.in_group || case.in_chat_app);
         rows.push(
             json!({"id":case.id,"kind":case.kind,"requestHash":hash,"request":request,
-            "typedIn":(case.kind == "chat" && (case.in_group || case.in_chat_app)).then_some("chatApp"),
+            "typedIn":typed_in.then_some("chatApp"),
+            "sent":typed_in.then(|| as_sent(&case.id, &output, case_room(&case).as_ref())),
             "rubric":case.rubric,"outcome":outcome,"output":output,"grade":grade,"review":review,
             "latencyMs":latency,"firstTextMs":first_text_ms,"touchMetrics":touch_metrics,
             "probeObservation": if mode == "replay" { replay.iter().find(|r| r["id"] == case.id).and_then(|r| r.get("probeObservation")).cloned().unwrap_or(Value::Null) } else if probe.is_some() { json!(observation) } else { Value::Null },
@@ -1893,6 +1962,29 @@ fn chat_app_replies_are_held_to_how_people_there_type() {
     // in a chat app, nothing to report.
     assert!(talk_shape(&wordy[..2])["outOfLine"].is_null());
     assert!(talk_shape(&[json!({"outcome":"returned","output":"好"})])["hers"].is_null());
+    // What went out is judged; what was written is reported beside it.
+    let sent: Vec<Value> = (0..TALK_SHAPE_AT_LEAST)
+        .map(|_| json!({"typedIn":"chatApp","outcome":"returned",
+            "output":"？\n骂谁呢你！\n找抽是不是","sent":["？ 骂谁呢你 找抽是不是"]}))
+        .collect();
+    let shape = talk_shape(&sent);
+    assert_eq!(shape["hers"]["perTurn"], 1.0);
+    assert_eq!(shape["written"]["perTurn"], 3.0);
+}
+
+#[test]
+fn a_replayed_group_reply_goes_out_as_production_sends_it() {
+    let case: Case = serde_json::from_value(json!({"id":"x","kind":"chat","inGroup":true,"input":"在吗","rubric":"",
+        "history":(0..10).map(|index| json!({"role":"user","name":if index % 2 == 0 {"a"} else {"b"},
+            "text":"哈哈哈","at":index * 30})).collect::<Vec<_>>()}))
+    .unwrap();
+    let room = case_room(&case).expect("ten lines are enough to say how they type");
+    assert_eq!(room.end_mark, 0.0);
+    assert!(group_chat_prompt(&case).contains("## How people type here"));
+    // The same row always rolls the same, and every message is typed like the room.
+    let first = as_sent("x-sample-1", "干嘛。\n吓我一跳！", Some(&room));
+    assert_eq!(first, as_sent("x-sample-1", "干嘛。\n吓我一跳！", Some(&room)));
+    assert!(first.iter().all(|message| !message.ends_with('。') && !message.contains('！')));
 }
 
 #[test]

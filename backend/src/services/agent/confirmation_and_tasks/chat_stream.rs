@@ -470,6 +470,16 @@ impl Agent {
                 player.push_str(&crate::services::agent::delegate::section(chat));
                 player.push_str("\n\n");
                 player.push_str(myriad_merope::speaking::chat_app_section());
+                // How they type to her, once there is enough of it.
+                if let Some(room) = request
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.conversation_history.as_deref())
+                    .and_then(crate::services::agent::merope::their_typing)
+                {
+                    player.push_str("\n\n");
+                    player.push_str(&myriad_merope::talk_shape::describe(&room, "How they type"));
+                }
                 // No player there: a song goes as its link.
                 if let Some(songs) =
                     crate::services::agent::chat_music::offer_song_links(&self.db).await
@@ -517,6 +527,16 @@ impl Agent {
                 "{merope_block}\n\n{}",
                 myriad_merope::speaking::chat_app_section()
             );
+            if let Some(room) = request
+                .context
+                .as_ref()
+                .and_then(|context| context.room.as_ref())
+            {
+                merope_block = format!(
+                    "{merope_block}\n\n{}",
+                    myriad_merope::talk_shape::describe(room, "How people type here")
+                );
+            }
             // Stickers of her: hers, and this group's own.
             if let Some(stickers) = crate::services::agent::merope::stickers::section(
                 &self.db,

@@ -49,6 +49,7 @@ pub(crate) fn build_request_context(mut ctx: ProcessContext) -> RequestContext {
         channel_chat: None,
         chime: None,
         speaker: None,
+        room: None,
     }
 }
 

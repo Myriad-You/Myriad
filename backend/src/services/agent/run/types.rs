@@ -67,6 +67,8 @@ pub struct GroupTurn {
     pub chime: Option<String>,
     /// Who spoke to her, as the group knows them.
     pub speaker: String,
+    /// How the group's people type there lately, once there is enough.
+    pub room: Option<myriad_merope::talk_shape::Shape>,
 }
 
 /// 对话消息（API 格式）

@@ -102,8 +102,13 @@ pub(super) async fn start_chat_turn(
         .and_then(Value::as_str)
         .map(str::trim)
         .unwrap_or("");
-    // A line at a time, as people send a few in a row, typing each first.
-    for (index, line) in myriad_agent_rules::channel::as_messages(message)
+    // Most turns go as one message, and a few in a row when something grabs
+    // her, typing each first.
+    let most = myriad_merope::talk_shape::messages_this_turn(
+        myriad_agent_rules::channel::as_messages(message).len(),
+        rand::random::<f64>(),
+    );
+    for (index, line) in myriad_agent_rules::channel::as_messages_at_most(message, most)
         .into_iter()
         .enumerate()
     {

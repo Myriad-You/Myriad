@@ -508,6 +508,29 @@ pub async fn with_said_unprompted(
     merge_said_unprompted(history, &said)
 }
 
+/// How the one she is talking with types to her, from their lines in the
+/// conversation; None while there are too few. Lines without a time are
+/// each their own turn.
+pub fn their_typing(
+    history: &[crate::services::agent::ConversationMessage],
+) -> Option<myriad_merope::talk_shape::Shape> {
+    let lines: Vec<(&str, i64, &str)> = history
+        .iter()
+        .enumerate()
+        .filter(|(_, message)| message.role == "user")
+        .map(|(index, message)| {
+            let at = message
+                .created_at
+                .as_deref()
+                .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+                .map(|at| at.timestamp())
+                .unwrap_or(index as i64 * 3600);
+            ("them", at, message.content.as_str())
+        })
+        .collect();
+    myriad_merope::talk_shape::room_of(&lines)
+}
+
 /// Put her unprompted lines into the history by time. A line already in the
 /// history is not added twice; history without timestamps keeps its order
 /// and her lines go after it.

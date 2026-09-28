@@ -235,12 +235,25 @@ fn without_reply_mark(reply: &str) -> String {
 
 /// Her reply, chunk by chunk; whether any of it reached the group.
 async fn deliver(line: &GroupLine, token: &str, reply: &str) -> bool {
-    use myriad_agent_rules::channel::{as_messages, split_channel_text, typing_pause};
-    let people = people(&line.venue());
+    use myriad_agent_rules::channel::{
+        as_messages, as_messages_at_most, split_channel_text, typing_pause,
+    };
+    let venue = line.venue();
+    let people = people(&venue);
+    let room = room(&venue);
     let mut sent = false;
-    // A line at a time, as people send a few in a row: typing each before
-    // it goes, and only the first quoting the line she answers.
-    for (index, message) in as_messages(reply).into_iter().enumerate() {
+    // Most turns go as one message, and a few in a row when something grabs
+    // her: typing each before it goes, typed the way people there type, and
+    // only the first quoting the line she answers.
+    let most = myriad_merope::talk_shape::messages_this_turn(
+        as_messages(reply).len(),
+        rand::random::<f64>(),
+    );
+    for (index, message) in as_messages_at_most(reply, most).into_iter().enumerate() {
+        let message = match &room {
+            Some(room) => myriad_merope::talk_shape::typed_like(&message, room),
+            None => message,
+        };
         if index > 0 {
             send_typing(line, token).await;
             tokio::time::sleep(typing_pause(message.chars().count())).await;
@@ -803,6 +816,27 @@ fn people(venue: &str) -> Vec<(String, String)> {
         people
     })
     .unwrap_or_default()
+}
+
+/// How the group's people type there lately (their lines, not hers), once
+/// there is enough of it.
+fn room(venue: &str) -> Option<myriad_merope::talk_shape::Shape> {
+    with_group(venue, |group| {
+        let lines: Vec<(&str, i64, &str)> = group
+            .lines
+            .iter()
+            .filter(|line| !line.hers && within(line, TRANSCRIPT_FOR))
+            .map(|line| {
+                (
+                    line.from.as_deref().unwrap_or(line.name.as_str()),
+                    line.at.timestamp(),
+                    line.text.as_str(),
+                )
+            })
+            .collect();
+        myriad_merope::talk_shape::room_of(&lines)
+    })
+    .flatten()
 }
 
 /// The group's recent lines before `message_id` (all of them without one),
@@ -1436,6 +1470,7 @@ async fn run_turn(
                 session_id: Some(session_id),
                 group: Some(crate::services::agent::run::GroupTurn {
                     transcript: transcript(&venue, Some(&message.message_id)),
+                    room: room(&venue),
                     venue,
                     chime,
                     speaker: message.display_name.clone(),
