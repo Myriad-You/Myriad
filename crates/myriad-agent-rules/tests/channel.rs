@@ -2679,3 +2679,115 @@ mod onebot_rules {
         );
     }
 }
+
+mod group_pictures {
+    use myriad_agent_rules::channel::{
+        GroupImage, ImageFetch, TelegramBotIdentity, discord_group_message_from_create,
+        parse_telegram_group_messages,
+    };
+
+    #[test]
+    fn a_telegram_photo_or_sticker_is_a_line_even_without_words() {
+        let bot = TelegramBotIdentity {
+            id: 777,
+            first_name: "小灯".into(),
+            username: Some("xiaodeng_bot".into()),
+        };
+        let body = r#"{"ok": true, "result": [
+            {"update_id": 1, "message": {"message_id": 1, "from": {"id": 11, "first_name": "阿明"}, "chat": {"id": -100, "type": "group"},
+              "photo": [{"file_id": "small", "file_unique_id": "u-small", "width": 320},
+                        {"file_id": "mid", "file_unique_id": "u-mid", "width": 1280},
+                        {"file_id": "big", "file_unique_id": "u-big", "width": 2560}]}},
+            {"update_id": 2, "message": {"message_id": 2, "from": {"id": 12, "first_name": "小红"}, "chat": {"id": -100, "type": "group"},
+              "sticker": {"file_id": "anim", "file_unique_id": "s-1", "emoji": "😂", "is_animated": true,
+                          "thumbnail": {"file_id": "thumb", "file_unique_id": "t-1"}}}},
+            {"update_id": 3, "message": {"message_id": 3, "from": {"id": 13, "first_name": "老周"}, "chat": {"id": -100, "type": "group"},
+              "caption": "看这个", "photo": [{"file_id": "p", "file_unique_id": "u-p", "width": 800}]}}
+        ]}"#;
+        let lines = parse_telegram_group_messages(200, body, &bot).unwrap();
+        assert_eq!(lines.len(), 3, "pictures without words are lines too");
+        assert_eq!(lines[0].text, "");
+        assert_eq!(
+            lines[0].images,
+            vec![GroupImage {
+                key: "telegram:u-mid".into(),
+                fetch: ImageFetch::TelegramFile {
+                    file_id: "mid".into()
+                },
+                hint: None,
+                sticker: false,
+            }]
+        );
+        let sticker = &lines[1].images[0];
+        assert!(sticker.sticker);
+        assert_eq!(
+            sticker.key, "telegram:s-1",
+            "known by the sticker, not its thumbnail"
+        );
+        assert_eq!(
+            sticker.fetch,
+            ImageFetch::TelegramFile {
+                file_id: "thumb".into()
+            }
+        );
+        assert_eq!(sticker.hint.as_deref(), Some("😂"));
+        assert_eq!(lines[2].text, "看这个");
+        assert_eq!(lines[2].images.len(), 1);
+    }
+
+    #[test]
+    fn a_discord_attachment_and_still_sticker_are_pictures() {
+        let line = discord_group_message_from_create(
+            &serde_json::json!({
+                "id": "11", "channel_id": "22", "guild_id": "33",
+                "author": { "id": "44", "username": "ming" },
+                "content": "",
+                "attachments": [
+                    { "url": "https://cdn.discordapp.com/a/cat.png?ex=1", "filename": "cat.png", "size": 1234, "content_type": "image/png" },
+                    { "url": "https://cdn.discordapp.com/a/a.pdf", "filename": "a.pdf", "size": 9, "content_type": "application/pdf" }
+                ],
+                "sticker_items": [
+                    { "id": "555", "name": "wave", "format_type": 1 },
+                    { "id": "556", "name": "lottie", "format_type": 3 }
+                ]
+            }),
+            "99",
+        )
+        .expect("a line of pictures");
+        let keys: Vec<&str> = line.images.iter().map(|image| image.key.as_str()).collect();
+        assert_eq!(keys, ["discord:cat.png:1234", "discord-sticker:555"]);
+        assert_eq!(
+            line.images[1].fetch,
+            ImageFetch::Url {
+                url: "https://media.discordapp.net/stickers/555.png".into()
+            }
+        );
+        assert!(
+            discord_group_message_from_create(
+                &serde_json::json!({
+                    "id": "12", "channel_id": "22", "guild_id": "33",
+                    "author": { "id": "44", "username": "ming" }, "content": ""
+                }),
+                "99"
+            )
+            .is_none(),
+            "nothing said and nothing shown"
+        );
+    }
+
+    #[test]
+    fn a_qq_image_and_sticker_are_pictures() {
+        let raw = r#"{"post_type":"message","message_type":"group","group_id":123,"user_id":456,"self_id":789,"message_id":1,
+            "sender":{"nickname":"阿明"},
+            "message":[{"type":"image","data":{"file":"ABC.jpg","url":"https://multimedia.nt.qq.com.cn/download?x=1","summary":"[动画表情]","sub_type":1}},
+                       {"type":"mface","data":{"emoji_id":"e9","url":"https://gxh.vip.qq.com/e9.gif","summary":"[doge]"}},
+                       {"type":"face","data":{"id":"14"}}]}"#;
+        let line = myriad_agent_rules::onebot::decode::decode_group_inbound(raw, 789)
+            .expect("a line of pictures");
+        assert_eq!(line.text, "");
+        let keys: Vec<&str> = line.images.iter().map(|image| image.key.as_str()).collect();
+        assert_eq!(keys, ["qq:ABC.jpg", "qq-mface:e9"]);
+        assert!(line.images.iter().all(|image| image.sticker));
+        assert_eq!(line.images[1].hint.as_deref(), Some("[doge]"));
+    }
+}

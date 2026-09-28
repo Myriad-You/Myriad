@@ -27,6 +27,7 @@ pub mod playing;
 mod priming;
 pub mod reach;
 pub mod report_dna;
+pub mod seeing;
 pub mod self_state;
 pub mod self_story;
 pub mod senses;

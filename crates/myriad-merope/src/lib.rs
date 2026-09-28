@@ -28,6 +28,7 @@ mod rig_outfit;
 mod rig_semantics;
 mod rig_spatial;
 mod rig_state;
+pub mod seeing;
 pub mod self_story;
 pub mod serial;
 pub mod soup;

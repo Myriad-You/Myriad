@@ -335,6 +335,60 @@ pub async fn go_over(
     }
 }
 
+/// A picture a group keeps sending is one of its bits, known by the picture
+/// (`key`): kept once, and fresh again each time it comes back. `keeper` is
+/// who the group's bits are kept with.
+pub async fn picture_again(
+    db: &DatabaseConnection,
+    keeper: i32,
+    venue: &str,
+    key: &str,
+    seen: &myriad_merope::seeing::Seen,
+) {
+    let circle = Circle::Group {
+        venue: venue.to_string(),
+        keeper,
+    };
+    let held = held_in(db, &circle, 60).await;
+    let this_picture = |row: &&crate::models::entities::agent_memories::Model| {
+        row.evidence
+            .as_deref()
+            .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+            .is_some_and(|evidence| evidence.get("picture").and_then(Value::as_str) == Some(key))
+    };
+    if let Some(row) = held.iter().find(this_picture) {
+        let _ = unified::refresh(db, row.user_id.unwrap_or(keeper), &row.id).await;
+        return;
+    }
+    let handle: String = seen.what.chars().take(30).collect();
+    let how = match &seen.says {
+        Some(says) => format!("群里常发这张图：{}，意思是{says}", seen.what),
+        None => format!("群里常发这张图：{}", seen.what),
+    };
+    let remembered = unified::remember(
+        db,
+        unified::NewMemory {
+            user_id: keeper,
+            kind: unified::MemoryKind::Fact,
+            content: how,
+            evidence: Some(json!({ "handle": handle, "picture": key }).to_string()),
+            speaker: unified::Speaker::Agent,
+            source: SOURCE,
+            // Heard only in that group, where it lands.
+            audience: circle.audience(),
+            importance: 0.5,
+            concepts: vec![Concept {
+                name: handle.clone(),
+                aliases: Vec::new(),
+            }],
+        },
+    )
+    .await;
+    if matches!(remembered, Ok(Some(_))) {
+        tracing::info!(%venue, "[Merope] a picture this group keeps sending is one of its bits");
+    }
+}
+
 /// What only she and this person share, freshest first: (handle, how).
 pub async fn between(db: &DatabaseConnection, user_id: i32, limit: u64) -> Vec<(String, String)> {
     held_in(db, &Circle::Person(user_id), limit)

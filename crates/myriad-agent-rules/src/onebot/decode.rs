@@ -56,6 +56,8 @@ pub struct OneBotGroupLine {
     pub addressed: bool,
     pub reply_to: Option<QuotedLine>,
     pub reply_id: Option<String>,
+    /// Pictures in it: images and QQ stickers.
+    pub images: Vec<crate::channel::GroupImage>,
 }
 
 /// 群消息。频道、`message_sent`、没有文字的行丢掉。`self_id` 用来判断 @ 和回复是不是她。
@@ -78,7 +80,8 @@ pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> 
     };
     let (text, addressed) = group_text(segments, self_id);
     let text = truncate_qq_text(&text);
-    if text.is_empty() {
+    let images = group_images(segments);
+    if text.is_empty() && images.is_empty() {
         return None;
     }
     let reply_to = group_reply(segments, self_id);
@@ -114,7 +117,52 @@ pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> 
         addressed,
         reply_to,
         reply_id,
+        images,
     })
+}
+
+/// Images (`image`) and QQ stickers (`mface`) in a group line. An image is
+/// known again by its file name, which QQ derives from its content; its URL
+/// is QQ's own download link.
+fn group_images(segments: &[WireSegment]) -> Vec<crate::channel::GroupImage> {
+    use crate::channel::{GROUP_IMAGES, GroupImage, ImageFetch};
+    segments
+        .iter()
+        .filter_map(|segment| {
+            let url = segment
+                .str_field("url")
+                .filter(|url| url.starts_with("https://") || url.starts_with("http://"))?;
+            let summary = segment
+                .str_field("summary")
+                .map(|summary| summary.trim().chars().take(40).collect::<String>())
+                .filter(|summary| !summary.is_empty());
+            match segment.kind.as_str() {
+                "image" => Some(GroupImage {
+                    key: format!(
+                        "qq:{}",
+                        segment.str_field("file").unwrap_or_else(|| url.clone())
+                    ),
+                    sticker: segment.i64_field("sub_type") == Some(1)
+                        || summary
+                            .as_deref()
+                            .is_some_and(|summary| summary.contains("表情")),
+                    hint: summary,
+                    fetch: ImageFetch::Url { url },
+                }),
+                "mface" => Some(GroupImage {
+                    key: format!(
+                        "qq-mface:{}",
+                        segment.str_field("emoji_id").unwrap_or_else(|| url.clone())
+                    ),
+                    hint: summary,
+                    sticker: true,
+                    fetch: ImageFetch::Url { url },
+                }),
+                _ => None,
+            }
+        })
+        .take(GROUP_IMAGES)
+        .collect()
 }
 
 /// `get_msg` 的 `data` → 被回复的那一行。形状与消息事件相同；`hers` 看发送者是不是 `self_id`。

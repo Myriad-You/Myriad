@@ -1999,6 +1999,155 @@ fn telegram_name(from: &serde_json::Value) -> String {
 /// `addressed` is whether it speaks to her: an @mention of the bot, a
 /// `text_mention` of the bot, a command aimed at the bot, or a reply to one of
 /// her messages. Only addressed lines are answered; the rest is context.
+/// Pictures kept of a group line, at most.
+pub const GROUP_IMAGES: usize = 3;
+
+/// A picture in a group line, as the platform gives it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GroupImage {
+    /// The same when the same picture is sent again, where the platform says
+    /// so (a Telegram `file_unique_id`, a QQ image file, a Discord sticker);
+    /// otherwise where it is fetched from.
+    pub key: String,
+    pub fetch: ImageFetch,
+    /// What the platform calls it: a sticker's emoji or name, QQ's summary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// A sticker rather than a photo.
+    #[serde(default)]
+    pub sticker: bool,
+}
+
+/// Where a group picture's bytes come from.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ImageFetch {
+    Url {
+        url: String,
+    },
+    /// A Telegram file, fetched with the bot's token.
+    TelegramFile {
+        file_id: String,
+    },
+}
+
+fn bounded_hint(value: Option<&str>) -> Option<String> {
+    let hint: String = value?.trim().chars().take(40).collect();
+    (!hint.is_empty()).then_some(hint)
+}
+
+/// A Telegram message's photo (its largest size up to 1280 across) and
+/// static sticker (animated ones by their thumbnail).
+fn telegram_images(message: &serde_json::Value) -> Vec<GroupImage> {
+    let mut images = Vec::new();
+    let file = |value: &serde_json::Value| -> Option<(String, String)> {
+        Some((
+            value.get("file_unique_id")?.as_str()?.to_string(),
+            value.get("file_id")?.as_str()?.to_string(),
+        ))
+    };
+    if let Some(sizes) = message.get("photo").and_then(|value| value.as_array()) {
+        let fits = |size: &&serde_json::Value| {
+            size.get("width")
+                .and_then(|value| value.as_u64())
+                .is_some_and(|width| width <= 1280)
+        };
+        let chosen = sizes.iter().rfind(fits).or_else(|| sizes.first());
+        if let Some((key, file_id)) = chosen.and_then(file) {
+            images.push(GroupImage {
+                key: format!("telegram:{key}"),
+                fetch: ImageFetch::TelegramFile { file_id },
+                hint: None,
+                sticker: false,
+            });
+        }
+    }
+    if let Some(sticker) = message.get("sticker") {
+        let moving = sticker.get("is_animated").and_then(|value| value.as_bool()) == Some(true)
+            || sticker.get("is_video").and_then(|value| value.as_bool()) == Some(true);
+        let picture = if moving {
+            sticker.get("thumbnail").or_else(|| sticker.get("thumb"))
+        } else {
+            Some(sticker)
+        };
+        if let (Some((key, _)), Some((_, file_id))) = (file(sticker), picture.and_then(file)) {
+            images.push(GroupImage {
+                key: format!("telegram:{key}"),
+                fetch: ImageFetch::TelegramFile { file_id },
+                hint: bounded_hint(sticker.get("emoji").and_then(|value| value.as_str())),
+                sticker: true,
+            });
+        }
+    }
+    images.truncate(GROUP_IMAGES);
+    images
+}
+
+/// A Discord message's image attachments and still stickers.
+fn discord_images(data: &serde_json::Value) -> Vec<GroupImage> {
+    let mut images = Vec::new();
+    for attachment in data
+        .get("attachments")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let is_image = attachment
+            .get("content_type")
+            .and_then(|value| value.as_str())
+            .is_some_and(|kind| kind.starts_with("image/"));
+        let Some(url) = attachment.get("url").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        if !is_image || !url.starts_with("https://") {
+            continue;
+        }
+        let name = attachment
+            .get("filename")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let size = attachment
+            .get("size")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        images.push(GroupImage {
+            key: format!("discord:{name}:{size}"),
+            fetch: ImageFetch::Url {
+                url: url.to_string(),
+            },
+            hint: None,
+            sticker: false,
+        });
+    }
+    for sticker in data
+        .get("sticker_items")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+    {
+        // 1 PNG, 2 APNG (its first frame), 4 GIF; 3 is Lottie, not a picture.
+        let format = sticker.get("format_type").and_then(|value| value.as_u64());
+        let Some(id) = json_snowflake(sticker.get("id")) else {
+            continue;
+        };
+        let extension = match format {
+            Some(1 | 2) => "png",
+            Some(4) => "gif",
+            _ => continue,
+        };
+        images.push(GroupImage {
+            key: format!("discord-sticker:{id}"),
+            fetch: ImageFetch::Url {
+                url: format!("https://media.discordapp.net/stickers/{id}.{extension}"),
+            },
+            hint: bounded_hint(sticker.get("name").and_then(|value| value.as_str())),
+            sticker: true,
+        });
+    }
+    images.truncate(GROUP_IMAGES);
+    images
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TelegramGroupMessage {
     pub update_id: i64,
@@ -2013,6 +2162,8 @@ pub struct TelegramGroupMessage {
     pub addressed: bool,
     /// The line it replies to, if any.
     pub reply_to: Option<QuotedLine>,
+    /// Pictures in it.
+    pub images: Vec<GroupImage>,
 }
 
 const GROUP_NAME_CHARS: usize = 40;
@@ -2061,7 +2212,8 @@ fn telegram_group_message(
         .or_else(|| message.get("caption"))
         .and_then(|value| value.as_str())
         .unwrap_or("");
-    if raw.trim().is_empty() {
+    let images = telegram_images(message);
+    if raw.trim().is_empty() && images.is_empty() {
         return None;
     }
     let entities = message
@@ -2124,7 +2276,7 @@ fn telegram_group_message(
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    if text.is_empty() {
+    if text.is_empty() && images.is_empty() {
         return None;
     }
     let display_name = group_name(&telegram_name(from));
@@ -2138,6 +2290,7 @@ fn telegram_group_message(
         text,
         addressed,
         reply_to,
+        images,
     })
 }
 
@@ -2946,6 +3099,8 @@ pub struct DiscordGroupMessage {
     pub addressed: bool,
     /// The line it replies to, if any.
     pub reply_to: Option<QuotedLine>,
+    /// Pictures in it.
+    pub images: Vec<GroupImage>,
 }
 
 fn discord_name(author: &serde_json::Value, member: Option<&serde_json::Value>) -> String {
@@ -3015,7 +3170,8 @@ pub fn discord_group_message_from_create(
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    if text.is_empty() {
+    let images = discord_images(data);
+    if text.is_empty() && images.is_empty() {
         return None;
     }
     let display_name = group_name(&discord_name(author, data.get("member")));
@@ -3028,6 +3184,7 @@ pub fn discord_group_message_from_create(
         text,
         addressed: mentions_her || replies_to_her,
         reply_to,
+        images,
     })
 }
 

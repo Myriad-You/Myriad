@@ -41,7 +41,8 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use myriad_agent_rules::channel::{
-    ConnectFailureKind, DiscordGroupMessage, PairingLookup, QuotedLine, TelegramGroupMessage,
+    ConnectFailureKind, DiscordGroupMessage, GroupImage, ImageFetch, PairingLookup, QuotedLine,
+    TelegramGroupMessage,
 };
 use sea_orm::DatabaseConnection;
 use tracing::{info, warn};
@@ -68,6 +69,8 @@ pub struct GroupLine {
     pub addressed: bool,
     /// The line it replies to, if any.
     pub reply_to: Option<QuotedLine>,
+    /// Pictures in it.
+    pub images: Vec<GroupImage>,
 }
 
 impl GroupLine {
@@ -99,6 +102,7 @@ impl From<TelegramGroupMessage> for GroupLine {
             text: message.text,
             addressed: message.addressed,
             reply_to: message.reply_to,
+            images: message.images,
         }
     }
 }
@@ -115,6 +119,7 @@ impl From<myriad_agent_rules::onebot::decode::OneBotGroupLine> for GroupLine {
             text: message.text,
             addressed: message.addressed,
             reply_to: message.reply_to,
+            images: message.images,
         }
     }
 }
@@ -131,6 +136,7 @@ impl From<DiscordGroupMessage> for GroupLine {
             text: message.text,
             addressed: message.addressed,
             reply_to: message.reply_to,
+            images: message.images,
         }
     }
 }
@@ -316,6 +322,34 @@ struct Line {
     from: Option<String>,
     text: String,
     hers: bool,
+    /// Pictures in it, and what she saw of each once she looked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    images: Vec<GroupImage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    seen: Vec<Option<myriad_merope::seeing::Seen>>,
+}
+
+impl Line {
+    /// What it says, with its pictures as she saw them.
+    fn said(&self) -> String {
+        let pictures: Vec<String> = self
+            .images
+            .iter()
+            .enumerate()
+            .map(|(index, image)| {
+                myriad_merope::seeing::as_said(
+                    self.seen.get(index).and_then(Option::as_ref),
+                    image.hint.as_deref(),
+                    image.sticker,
+                )
+            })
+            .collect();
+        [self.text.clone(), pictures.join("")]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -360,6 +394,9 @@ struct Group {
     stranger_replies: Option<(chrono::NaiveDate, u32)>,
     /// The last line she took in for what she heard (see `take_in`).
     heard_upto: Option<chrono::DateTime<chrono::Utc>>,
+    /// How often each picture was sent there lately (by its key): one sent
+    /// again is the group's (see `bits::picture_again`).
+    pictures: HashMap<String, u32>,
 }
 
 enum Turn {
@@ -499,10 +536,20 @@ pub async fn record(message: &GroupLine) {
         from: Some(message.from.clone()),
         text: bounded(&message.said()),
         hers: false,
+        images: message.images.clone(),
+        seen: Vec::new(),
     };
     let venue = message.venue();
     remember_line(&venue, line).await;
     take_in(&venue);
+    with_group(&venue, |group| {
+        if group.pictures.len() > PICTURES_KEPT {
+            group.pictures.clear();
+        }
+        for image in &message.images {
+            *group.pictures.entry(image.key.clone()).or_default() += 1;
+        }
+    });
 }
 
 /// Once enough of the group's talk has gone by, take in what she heard in
@@ -558,8 +605,148 @@ async fn record_hers(venue: &str, text: &str) {
         from: None,
         text: bounded(text),
         hers: true,
+        images: Vec::new(),
+        seen: Vec::new(),
     };
     remember_line(venue, line).await;
+}
+
+/// Pictures she looks at when she reads a group's talk, at most at once.
+const PICTURES_AT_ONCE: usize = 6;
+/// Pictures a group's counts are kept for, at most.
+const PICTURES_KEPT: usize = 512;
+const PICTURE_BYTES: usize = 5 * 1024 * 1024;
+const PICTURE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// A picture's bytes, from where the platform keeps it.
+async fn fetch_picture(token: &str, image: &GroupImage) -> Option<Vec<u8>> {
+    match &image.fetch {
+        ImageFetch::TelegramFile { file_id } => {
+            crate::services::telegram_bot::download_file_bytes(token, file_id)
+                .await
+                .ok()
+                .map(|(bytes, _)| bytes)
+                .filter(|bytes| bytes.len() <= PICTURE_BYTES)
+        }
+        ImageFetch::Url { url } => {
+            let fetched = crate::services::outbound_security::get_public_following_redirects(
+                url,
+                PICTURE_TIMEOUT,
+                None,
+            )
+            .await
+            .ok()?;
+            if !fetched.response.status().is_success() {
+                return None;
+            }
+            crate::services::outbound_security::read_limited_body(fetched.response, PICTURE_BYTES)
+                .await
+                .ok()
+        }
+    }
+}
+
+/// Look at the pictures in the group's recent talk she has not seen yet,
+/// as a person reads back over what was sent. Billed to the site's owner,
+/// who hosts her there.
+async fn see(venue: &str, token: &str) {
+    let unseen: Vec<(Option<String>, usize, GroupImage)> = with_group(venue, |group| {
+        let lines = group.lines.len();
+        group
+            .lines
+            .iter()
+            .skip(lines.saturating_sub(CONVERSATION_LINES))
+            .filter(|line| !line.hers)
+            .flat_map(|line| {
+                line.images
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| line.seen.get(*index).is_none_or(Option::is_none))
+                    .map(|(index, image)| (line.message_id.clone(), index, image.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .take(PICTURES_AT_ONCE)
+            .collect()
+    })
+    .unwrap_or_default();
+    if unseen.is_empty() {
+        return;
+    }
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    let Ok(owner) = crate::services::site_owner::site_owner_user_id(&db).await else {
+        return;
+    };
+    let db = &db;
+    let looked = futures::future::join_all(unseen.into_iter().map(
+        |(message_id, index, image)| async move {
+            let seen = match crate::services::agent::merope::seeing::known(db, &image.key).await {
+                Some(seen) => Some(seen),
+                None => match fetch_picture(token, &image).await {
+                    Some(bytes) => {
+                        crate::services::agent::merope::seeing::look(
+                            db,
+                            owner,
+                            &image.key,
+                            bytes,
+                            image.hint.as_deref(),
+                        )
+                        .await
+                    }
+                    None => None,
+                },
+            };
+            (message_id, index, seen)
+        },
+    ))
+    .await;
+    let mut again = Vec::new();
+    with_group(venue, |group| {
+        for (message_id, index, seen) in looked {
+            let Some(seen) = seen else {
+                continue;
+            };
+            let key = group
+                .lines
+                .iter()
+                .find(|line| !line.hers && line.message_id == message_id)
+                .and_then(|line| line.images.get(index))
+                .map(|image| image.key.clone());
+            if let Some(key) = key
+                && group.pictures.get(&key).is_some_and(|sent| *sent >= 2)
+            {
+                again.push((key, seen.clone()));
+            }
+            if let Some(line) = group
+                .lines
+                .iter_mut()
+                .find(|line| !line.hers && line.message_id == message_id)
+            {
+                if line.seen.len() <= index {
+                    line.seen.resize(index + 1, None);
+                }
+                line.seen[index] = Some(seen);
+            }
+        }
+    });
+    for (key, seen) in again {
+        crate::services::agent::merope::bits::picture_again(db, owner, venue, &key, &seen).await;
+    }
+}
+
+/// What this line says as she has it in mind, pictures as she saw them.
+fn said_now(message: &GroupLine) -> String {
+    with_group(&message.venue(), |group| {
+        group
+            .lines
+            .iter()
+            .rev()
+            .find(|line| !line.hers && line.message_id.as_deref() == Some(&message.message_id))
+            .map(Line::said)
+    })
+    .flatten()
+    .unwrap_or_else(|| message.said())
 }
 
 /// Who she can mention in the group: whoever spoke there lately, by the
@@ -599,7 +786,7 @@ fn transcript(venue: &str, message_id: Option<&str>) -> Vec<ConversationMessage>
                 content: if line.hers {
                     line.text.clone()
                 } else {
-                    format!("{}：{}", line.name, line.text)
+                    format!("{}：{}", line.name, line.said())
                 },
                 created_at: None,
             })
@@ -781,7 +968,7 @@ enum Look {
     Done,
     /// She is talking or looking already: again in a moment.
     Later,
-    Now(GroupLine),
+    Now(Box<GroupLine>),
 }
 
 /// Look at the talk once it has settled on line `id`, or once it has gone
@@ -804,7 +991,10 @@ async fn look(venue: String, mut id: String, token: String) {
             }
             group.judging = true;
             group.unjudged_since = None;
-            group.pending.take().map_or(Look::Done, Look::Now)
+            group
+                .pending
+                .take()
+                .map_or(Look::Done, |line| Look::Now(Box::new(line)))
         })
         .unwrap_or(Look::Done);
         let message = match next {
@@ -813,9 +1003,9 @@ async fn look(venue: String, mut id: String, token: String) {
                 tokio::time::sleep(SETTLE).await;
                 continue;
             }
-            Look::Now(message) => message,
+            Look::Now(message) => *message,
         };
-        let decided = judge(&message).await;
+        let decided = judge(&message, &token).await;
         with_group(&venue, |group| {
             group.judging = false;
             // Going on with what she said, without calling her: taken up.
@@ -866,7 +1056,7 @@ fn taken_up(group: &mut Group) {
     }
 }
 
-async fn judge(message: &GroupLine) -> Option<(Why, String)> {
+async fn judge(message: &GroupLine, token: &str) -> Option<(Why, String)> {
     let db = crate::services::process_db::database().ok()?;
     if stopped_answering(message) {
         return None;
@@ -881,6 +1071,7 @@ async fn judge(message: &GroupLine) -> Option<(Why, String)> {
             .ok()?,
     };
     let venue = message.venue();
+    see(&venue, token).await;
     let lines = transcript(&venue, None);
     let conversation: Vec<String> = lines
         .iter()
@@ -980,6 +1171,7 @@ async fn answer(message: &GroupLine, token: &str, chime: Option<String>) -> bool
     {
         return false;
     }
+    see(&message.venue(), token).await;
     let user_id = match lookup(&db, message).await {
         Some(PairingLookup::Paired { user_id }) => user_id,
         // Someone from outside the community: answered lightly.
@@ -1134,7 +1326,7 @@ async fn answer_stranger(
             &venue,
             &stranger,
             &transcript,
-            &message.said(),
+            &said_now(message),
             why,
         ),
     )
@@ -1151,7 +1343,7 @@ async fn answer_stranger(
             owner,
             venue,
             stranger,
-            message.said(),
+            said_now(message),
             reply,
             &message.message_id,
         )
@@ -1205,7 +1397,7 @@ async fn run_turn(
         db.clone(),
         user_id,
         crate::services::agent::run::ProcessRequest {
-            input: message.said(),
+            input: said_now(message),
             context: Some(crate::services::agent::run::ProcessContext {
                 mode: Some(AgentInteractionMode::Chat),
                 session_id: Some(session_id),
@@ -1268,6 +1460,7 @@ mod tests {
             text: text.into(),
             addressed: false,
             reply_to: None,
+            images: Vec::new(),
         })
     }
 
@@ -1310,6 +1503,7 @@ mod tests {
                 text: "嗯嗯".into(),
                 addressed: false,
                 reply_to: None,
+                images: Vec::new(),
             })
         };
         record(&said(1, 11, "阿明")).await;
@@ -1391,6 +1585,46 @@ mod tests {
         with_group(&venue(other), |group| assert!(in_talk(group)));
     }
 
+    #[tokio::test]
+    async fn pictures_read_as_she_saw_them_and_one_sent_again_is_counted() {
+        let chat = -9_476;
+        let picture = |id: i64| {
+            let mut line = line(chat, id, "阿明", "");
+            line.images = vec![GroupImage {
+                key: "telegram:cat".into(),
+                fetch: ImageFetch::TelegramFile {
+                    file_id: "f".into(),
+                },
+                hint: Some("😂".into()),
+                sticker: true,
+            }];
+            line
+        };
+        record(&picture(1)).await;
+        record(&line(chat, 2, "小红", "哈哈哈")).await;
+        record(&picture(3)).await;
+        let lines: Vec<String> = transcript(&venue(chat), None)
+            .into_iter()
+            .map(|line| line.content)
+            .collect();
+        assert_eq!(
+            lines[0], "阿明：[表情：😂]",
+            "not looked at yet: what the app calls it"
+        );
+        with_group(&venue(chat), |group| {
+            assert_eq!(group.pictures.get("telegram:cat"), Some(&2));
+            group.lines[0].seen = vec![Some(myriad_merope::seeing::Seen {
+                what: "一只翻白眼的猫".into(),
+                says: Some("无语".into()),
+            })];
+        });
+        assert_eq!(
+            transcript(&venue(chat), None)[0].content,
+            "阿明：[表情：一只翻白眼的猫（无语）]"
+        );
+        assert_eq!(said_now(&picture(3)), "[表情：😂]");
+    }
+
     #[test]
     fn her_speaking_up_counts_as_taken_up_when_someone_turns_to_her_soon() {
         let mut group = Group::default();
@@ -1427,6 +1661,7 @@ mod tests {
                 text: "在吗".into(),
                 addressed: false,
                 reply_to: None,
+                images: Vec::new(),
             })
         };
         let bot = from(1, 77, "复读机");
@@ -1487,6 +1722,7 @@ mod tests {
                 text: "听完要是".into(),
                 hers: true,
             }),
+            images: Vec::new(),
         });
         assert_eq!(discord.said(), "（回复你说的：听完要是）说到一半怎么没了");
         assert_eq!(discord.venue(), "discord:22");
@@ -1511,6 +1747,8 @@ mod tests {
             from: Some("1".into()),
             text: text.into(),
             hers: false,
+            images: Vec::new(),
+            seen: Vec::new(),
         };
         remember_line_on(Some(db), &venue, said(1, "来点歌")).await;
         remember_line_on(Some(db), &venue, said(2, "放一首")).await;
@@ -1542,6 +1780,8 @@ mod tests {
             from: Some("1".into()),
             text: text.into(),
             hers: false,
+            images: Vec::new(),
+            seen: Vec::new(),
         };
         let mut group = Group::default();
         push_line(&mut group, kept("9", 1, "说到一半怎么没了"));
@@ -1556,6 +1796,8 @@ mod tests {
                     from: None,
                     text: "放就放，听完要是".into(),
                     hers: true,
+                    images: Vec::new(),
+                    seen: Vec::new(),
                 },
                 kept("9", 1, "说到一半怎么没了"),
                 kept("1", 7 * 60, "太久以前的话"),

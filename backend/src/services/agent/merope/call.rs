@@ -262,6 +262,19 @@ impl Model {
         )
         .await
     }
+
+    /// What she makes of pictures, asked in `prompt`.
+    pub(super) async fn look(
+        &self,
+        prompt: &str,
+        pictures: &[crate::services::analyzer::ImageInput],
+    ) -> Result<String, Failure> {
+        self.billed(
+            self.analyzer
+                .analyze_stream_parts_with_images(prompt, pictures, |_| async { true }),
+        )
+        .await
+    }
 }
 
 /// Who pays for what she does on her own, with no one asking: the site
