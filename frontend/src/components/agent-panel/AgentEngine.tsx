@@ -55,7 +55,7 @@ import {
   stopTurnSpeech,
   turnSpeechAlreadyFed,
 } from '../../features/merope/engineFace'
-import { listenTogether } from '../../features/merope/listenTogether'
+import { listenTogether, playHerSong } from '../../features/merope/listenTogether'
 import { playbackDirection, startPlaybackDirection } from '../../features/merope/motion/playbackDirectionHost'
 import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/speech/agoraConversation'
 import { bindRealtimeChat } from '../../features/merope/speech/realtimeChat'
@@ -1042,6 +1042,11 @@ export const AgentEngine: React.FC = () => {
             if (action === 'join') {
               // Her song on this player, where she is in it.
               void listenTogether()
+              break
+            }
+            if (action === 'share') {
+              // A song she heard and liked, from the start.
+              playHerSong(musicEvent.song)
               break
             }
             if (

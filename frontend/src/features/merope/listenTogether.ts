@@ -1,4 +1,4 @@
-import type { MeropeDoingResponse } from '../../services/agent/types'
+import type { MeropeDoingResponse, MeropeThing } from '../../services/agent/types'
 import type { MusicSource, Song } from '../../utils/musicPlayer'
 import { getGlobalState } from '../../hooks/musicPlayer/globalState'
 import { agentService } from '../../services/agent/agentApi'
@@ -10,6 +10,8 @@ const NEAR_END_SECONDS = 8
 /** Starting a few seconds late is still listening together. */
 const SEEK_AFTER_SECONDS = 3
 const WAIT_FOR_PLAYBACK_MS = 10_000
+
+type MeropeSong = Extract<MeropeThing, { kind: 'song' }>
 
 export interface ListenTogetherPlan {
   song: Song
@@ -38,6 +40,19 @@ export function planListenTogether(
     Math.max(0, now - fetchedAt) / 1000
   const duration = thing.durationMs / 1000
   if (!Number.isFinite(elapsed) || elapsed >= duration - NEAR_END_SECONDS) return null
+  const placed = placeSong(thing, playlist, audioUrl)
+  return placed ? { ...placed, offsetSeconds: Math.max(0, elapsed) } : null
+}
+
+/**
+ * A song of hers as this player would play it: from its queue when it is
+ * there, else fetched directly. Null when this player cannot fetch it.
+ */
+export function placeSong(
+  thing: MeropeSong,
+  playlist: readonly unknown[] | null,
+  audioUrl: (id: string) => string,
+): { song: Song; index: number | null } | null {
   const index = (playlist ?? []).findIndex(
     (entry) =>
       typeof entry === 'object' &&
@@ -60,7 +75,14 @@ export function planListenTogether(
   return {
     song: index < 0 ? song : { ...song, ...(playlist?.[index] as Partial<Song>) },
     index: index < 0 ? null : index,
-    offsetSeconds: Math.max(0, elapsed),
+  }
+}
+
+function startSong(placed: { song: Song; index: number | null }): void {
+  if (placed.index !== null) {
+    emitAppEvent('play-song-at-index', { index: placed.index, song: placed.song })
+  } else {
+    emitAppEvent('play-song', { song: placed.song })
   }
 }
 
@@ -98,15 +120,25 @@ export async function listenTogether(): Promise<boolean> {
     planned,
   )
   if (!plan) return false
-  if (plan.index !== null) {
-    emitAppEvent('play-song-at-index', { index: plan.index, song: plan.song })
-  } else {
-    emitAppEvent('play-song', { song: plan.song })
-  }
+  startSong(plan)
   if (!(await untilPlaying(plan.song.id))) return true
   const position = plan.offsetSeconds + (Date.now() - planned) / 1000
   if (position > SEEK_AFTER_SECONDS) {
     emitAppEvent('music-player-seek', { position })
   }
+  return true
+}
+
+/** Put a song she heard and chose to share on this player, from the start. */
+export function playHerSong(thing: MeropeThing | null | undefined): boolean {
+  if (thing?.kind !== 'song') return false
+  const playlist = getGlobalState()?.playlist
+  const placed = placeSong(
+    thing,
+    Array.isArray(playlist) ? playlist : null,
+    getNeteaseAudioUrlImmediate,
+  )
+  if (!placed) return false
+  startSong(placed)
   return true
 }

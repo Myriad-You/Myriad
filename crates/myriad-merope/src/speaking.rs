@@ -218,6 +218,23 @@ pub fn format_doing_section(now: Option<&str>, lately: &[(String, String)]) -> O
     ))
 }
 
+/// Songs she heard on her own and liked, numbered, for playing one to
+/// them. Each line says what she wrote then; nothing else is hers to say.
+pub fn format_share_section(songs: &[String]) -> Option<String> {
+    if songs.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = songs
+        .iter()
+        .enumerate()
+        .map(|(index, song)| format!("{}. {song}", index + 1))
+        .collect();
+    Some(format!(
+        "## Songs you could play them\nSongs you listened to on your own lately and liked, with what you wrote then. If they want to hear what you have been listening to, or one fits the talk, you can put it on their player: [[music:share N]] on its own last line, N its number here; one song. What you say about it is what you wrote then or know of it. Of any song not here, and of whatever their player plays next, you know nothing you did not hear: do not make it up.\n{}",
+        myriad_agent_rules::untrusted_block("songs_you_liked", &lines.join("\n"))
+    ))
+}
+
 /// Views of her own that their words touch: (about, view). She answers from
 /// them; they grew out of outside text, so they are fenced.
 pub fn format_views_section(views: &[(String, String)]) -> Option<String> {
@@ -392,6 +409,22 @@ pub fn compose_proactive_system(soul: &str, mind: &str, recent_block: &str) -> S
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn songs_to_share_are_numbered_fenced_and_only_what_she_wrote() {
+        assert!(format_share_section(&[]).is_none());
+        let section = format_share_section(&[
+            "the song 「晴天」 by 周杰伦 (you liked it), 2 days ago: 那句还是会停一下。".into(),
+            "the song 「稻香」 by 周杰伦 (it moved you), just now: 回家。".into(),
+        ])
+        .unwrap();
+        assert!(section.contains("1. the song 「晴天」"));
+        assert!(section.contains("2. the song 「稻香」"));
+        assert!(section.contains("[[music:share N]]"));
+        assert!(section.contains("do not make it up"));
+        assert!(section.contains("songs_you_liked"));
+    }
+
     use super::*;
 
     #[test]

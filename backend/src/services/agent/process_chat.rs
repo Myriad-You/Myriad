@@ -66,7 +66,8 @@ impl Agent {
                 data_display: None,
                 suggestions: vec![],
                 task: None,
-                frontend_action: music.map(chat_music_frontend_action),
+                frontend_action: music
+                    .and_then(|music| chat_music_frontend_action(&request, music)),
                 performance: None,
             }),
             &request,
@@ -255,13 +256,27 @@ impl Agent {
 }
 
 fn chat_music_frontend_action(
+    request: &UserRequest,
     action: crate::services::agent::chat_music::ChatMusicAction,
-) -> Value {
-    json!({
+) -> Option<Value> {
+    let session_id = request
+        .context
+        .as_ref()
+        .and_then(|context| context.session_id.as_deref());
+    let AgentProgressEvent::MusicControl { action, song } =
+        crate::services::agent::chat_music::control_event(action, request.user_id, session_id)?
+    else {
+        return None;
+    };
+    let mut value = json!({
         "type": "music_control",
-        "action": action.as_str(),
+        "action": action,
         "timestamp": chrono::Utc::now().timestamp_millis(),
-    })
+    });
+    if let Some(song) = song {
+        value["song"] = song;
+    }
+    Some(value)
 }
 
 async fn chat_reply_with_overlay(

@@ -217,14 +217,17 @@ impl WearStreamFilter {
 
 fn spawn_chat_music_control(
     action: crate::services::agent::chat_music::ChatMusicAction,
+    user_id: i32,
+    session_id: Option<&str>,
     tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
 ) {
+    let Some(event) =
+        crate::services::agent::chat_music::control_event(action, user_id, session_id)
+    else {
+        return;
+    };
     tokio::spawn(async move {
-        let _ = tx
-            .send(AgentProgressEvent::MusicControl {
-                action: action.as_str().to_string(),
-            })
-            .await;
+        let _ = tx.send(event).await;
     });
 }
 
@@ -430,6 +433,19 @@ impl Agent {
                 player.push('\n');
                 player.push_str(line);
             }
+            // Songs she could put on for them, where there is a player.
+            if music.is_some() {
+                if let Some(section) = crate::services::agent::chat_music::offer_songs(
+                    &self.db,
+                    request.user_id,
+                    session_id,
+                )
+                .await
+                {
+                    player.push_str("\n\n");
+                    player.push_str(&section);
+                }
+            }
             // A turtle soup on in this conversation, with their message
             // judged; or how she would start one.
             let game = match crate::services::agent::merope::soup::this_turn(request).await {
@@ -611,7 +627,12 @@ impl Agent {
                                 );
                             }
                             if let Some(music) = music {
-                                spawn_chat_music_control(music, tx.clone());
+                                spawn_chat_music_control(
+                                    music,
+                                    user_id,
+                                    session_id.as_deref(),
+                                    tx.clone(),
+                                );
                             }
                             if spoken.is_empty() {
                                 return true;
@@ -648,6 +669,14 @@ impl Agent {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .flush();
+                if let Some(music) = music {
+                    spawn_chat_music_control(
+                        music,
+                        user_id,
+                        session_id.as_deref(),
+                        progress_tx.clone(),
+                    );
+                }
                 if let Some(directive) = directive {
                     spawn_model_outfit_overlay(
                         self.db.clone(),
@@ -656,9 +685,6 @@ impl Agent {
                         directive,
                         progress_tx.clone(),
                     );
-                }
-                if let Some(music) = music {
-                    spawn_chat_music_control(music, progress_tx.clone());
                 }
                 if !leftover.is_empty() {
                     emit_chat_delta(

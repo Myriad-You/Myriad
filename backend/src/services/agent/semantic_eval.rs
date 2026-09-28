@@ -125,6 +125,10 @@ struct Case {
     /// Memories their words brought to mind without naming them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     brought_to_mind: Vec<String>,
+    /// Songs she heard and liked, as her chat is offered them to play;
+    /// with them the chat has a player.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    songs_to_share: Vec<String>,
     /// Her compiled inner state for this turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     inner: Option<String>,
@@ -903,8 +907,15 @@ fn request(case: &Case) -> Value {
                 case.page.as_ref(),
                 &case.input,
             );
-            let remembered =
+            let mut remembered =
                 super::merope::format_remembered_section(&case.remembered).unwrap_or_default();
+            if let Some(songs) = myriad_merope::speaking::format_share_section(&case.songs_to_share)
+            {
+                let player = super::chat_music::format_chat_player_section(Some(
+                    &json!({"isPlaying": true, "currentSong": {"name": "夜航", "artist": "合成测试歌手"}}),
+                ));
+                remembered = format!("{remembered}\n\n{player}\n\n{songs}");
+            }
             json!({"input":chat_prompt::build_chat_lite_prompt_with_perception(&default_soul(),&remembered,&[],&case.input,&scene),"schema":null,"schemaName":null,"system":null})
         }
         "memory" => {
@@ -1991,7 +2002,7 @@ fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
     assert_eq!(
         cases.iter().filter(|c| c.kind != "touch").count(),
-        27 + MIND_CASES
+        29 + MIND_CASES
     );
     for mut case in cases {
         let request = request(&case);

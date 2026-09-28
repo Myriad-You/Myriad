@@ -349,6 +349,8 @@ export interface OutfitOverlayEvent {
 export interface MusicControlEvent {
   type: 'music_control'
   action: string
+  /** With `share`: the song of hers to put on. */
+  song?: MeropeThing
 }
 
 /** What she is doing on her own right now (`GET /agent/doing`). */
@@ -580,6 +582,8 @@ export interface FrontendAction {
   waitFor?: WaitCondition
   payload?: ReadingListPayload
   criteria?: string
+  /** `music_control` `share`: the song of hers to put on. */
+  song?: MeropeThing
 }
 
 export interface Capability {

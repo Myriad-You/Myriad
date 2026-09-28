@@ -2,7 +2,7 @@ import type { MeropeDoingResponse, MeropeThing } from '../../services/agent/type
 import assert from 'node:assert/strict'
 
 import { describe, it } from 'node:test'
-import { planListenTogether } from './listenTogether'
+import { placeSong, planListenTogether } from './listenTogether'
 
 const song: MeropeThing = {
   kind: 'song',
@@ -60,5 +60,18 @@ describe('planListenTogether', () => {
       planListenTogether({ doing: null, now: new Date().toISOString() }, null, url, 0, 0),
       null,
     )
+  })
+})
+
+describe('placeSong', () => {
+  it('puts a song she shares on from this queue, or fetched when it is not there', () => {
+    if (song.kind !== 'song') throw new Error('song')
+    const queued = placeSong(song, [{ id: 186016, url: 'queued-url' }], url)
+    assert.equal(queued?.index, 0)
+    assert.equal(queued?.song.url, 'queued-url')
+    const fetched = placeSong(song, [], url)
+    assert.equal(fetched?.index, null)
+    assert.equal(fetched?.song.url, 'https://audio.example/186016')
+    assert.equal(placeSong({ ...song, source: 'qq' }, [], url), null)
   })
 })

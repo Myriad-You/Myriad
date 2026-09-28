@@ -1189,7 +1189,12 @@ pub enum AgentProgressEvent {
         outfit_id: Option<String>,
     },
     /// Chat 流式路径发出的播放器控制（`ChatMusicAction::as_str()`）。
-    MusicControl { action: String },
+    /// `share` 带上她要放的那首歌（她自己听过的记录里的那一首）。
+    MusicControl {
+        action: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        song: Option<Value>,
+    },
     /// 错误
     Error {
         #[serde(rename = "taskId", skip_serializing_if = "Option::is_none")]

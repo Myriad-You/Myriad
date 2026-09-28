@@ -11,6 +11,9 @@ pub enum ChatMusicAction {
     Previous,
     /// Put the song she is listening to on their player, where she is in it.
     Join,
+    /// Put a song she heard and liked on their player: its number in the
+    /// songs offered to her this turn.
+    Share(u8),
 }
 
 impl ChatMusicAction {
@@ -22,6 +25,7 @@ impl ChatMusicAction {
             Self::Next => "next",
             Self::Previous => "previous",
             Self::Join => "join",
+            Self::Share(_) => "share",
         }
     }
 }
@@ -58,8 +62,45 @@ pub fn format_chat_player_section(music: Option<&Value>) -> String {
     format!(
         "## Player\n{status}\n\
          To play, pause, skip next, or skip previous, put [[music:play]], [[music:pause]], \
-         [[music:next]], or [[music:prev]] on its own last line. Finding tracks and switching the queue belong in Work. Do not read that line aloud. Omit it if you are not changing playback."
+         [[music:next]], or [[music:prev]] on its own last line. Skipping, you do not know what comes next: say nothing about it. Finding tracks and switching the queue belong in Work. Do not read that line aloud. Omit it if you are not changing playback."
     )
+}
+
+/// The songs she could play them this turn, remembered for this
+/// conversation so `[[music:share N]]` finds the one she saw.
+pub async fn offer_songs(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    session_id: &str,
+) -> Option<String> {
+    use crate::services::agent::merope::doing;
+    let (songs, lines): (Vec<_>, Vec<_>) = doing::songs_to_share(db).await.into_iter().unzip();
+    doing::offer_songs(user_id, session_id, songs);
+    myriad_merope::speaking::format_share_section(&lines)
+}
+
+/// What the player is told to do. A song to share is the one she was
+/// offered under that number; with none, there is nothing to do.
+pub fn control_event(
+    action: ChatMusicAction,
+    user_id: i32,
+    session_id: Option<&str>,
+) -> Option<crate::services::agent::AgentProgressEvent> {
+    let song = match action {
+        ChatMusicAction::Share(number) => {
+            let thing = crate::services::agent::merope::doing::offered_song(
+                user_id,
+                session_id.unwrap_or(""),
+                number,
+            )?;
+            Some(serde_json::to_value(thing).ok()?)
+        }
+        _ => None,
+    };
+    Some(crate::services::agent::AgentProgressEvent::MusicControl {
+        action: action.as_str().to_string(),
+        song,
+    })
 }
 
 pub fn hold_incomplete_live_marker(spoken: &str) -> &str {
@@ -85,7 +126,18 @@ fn take_music_marker(text: &str) -> Option<(String, String)> {
 }
 
 fn parse_music_inner(inner: &str) -> Option<ChatMusicAction> {
-    match inner.trim().to_ascii_lowercase().as_str() {
+    let inner = inner.trim().to_ascii_lowercase();
+    for prefix in ["share", "分享"] {
+        if let Some(number) = inner.strip_prefix(prefix) {
+            let number = number.trim_start_matches([' ', ':', '：']).trim();
+            return number
+                .parse::<u8>()
+                .ok()
+                .filter(|number| *number > 0)
+                .map(ChatMusicAction::Share);
+        }
+    }
+    match inner.as_str() {
         "play" | "播放" | "唱" | "唱歌" => Some(ChatMusicAction::Play),
         "pause" | "暂停" | "停" => Some(ChatMusicAction::Pause),
         "toggle" => Some(ChatMusicAction::Toggle),
@@ -172,6 +224,15 @@ mod tests {
         let (spoken, action) = split_chat_music_directive("来，一起听。\n[[music:join]]");
         assert_eq!(spoken, "来，一起听。");
         assert_eq!(action, Some(ChatMusicAction::Join));
+        let (spoken, action) = split_chat_music_directive("放给你听。\n[[music:share 2]]");
+        assert_eq!(spoken, "放给你听。");
+        assert_eq!(action, Some(ChatMusicAction::Share(2)));
+        assert_eq!(
+            split_chat_music_directive("[[music:share:3]]").1,
+            Some(ChatMusicAction::Share(3))
+        );
+        assert_eq!(split_chat_music_directive("[[music:share 0]]").1, None);
+        assert_eq!(split_chat_music_directive("[[music:share x]]").1, None);
     }
 
     #[test]
@@ -185,6 +246,49 @@ mod tests {
         assert!(section.contains("Work"));
         assert!(!section.contains("playlist"));
         assert!(!section.contains("search"));
+    }
+
+    #[test]
+    fn she_shares_only_a_song_she_was_offered_in_this_conversation() {
+        use crate::services::agent::merope::doing::{Thing, offer_songs};
+        let user = -94_201;
+        assert!(control_event(ChatMusicAction::Share(1), user, Some("s")).is_none());
+        offer_songs(
+            user,
+            "s",
+            vec![Thing::Song {
+                id: "186016".into(),
+                source: "netease".into(),
+                name: "晴天".into(),
+                artist: "周杰伦".into(),
+                album: String::new(),
+                cover: String::new(),
+                duration_ms: 269_000,
+            }],
+        );
+        let Some(crate::services::agent::AgentProgressEvent::MusicControl { action, song }) =
+            control_event(ChatMusicAction::Share(1), user, Some("s"))
+        else {
+            panic!("the offered song is shared");
+        };
+        assert_eq!(action, "share");
+        let song = song.unwrap();
+        assert_eq!(
+            (song["kind"].as_str(), song["id"].as_str()),
+            (Some("song"), Some("186016"))
+        );
+        assert_eq!(song["durationMs"], 269_000);
+        assert!(control_event(ChatMusicAction::Share(2), user, Some("s")).is_none());
+        assert!(control_event(ChatMusicAction::Share(1), user, Some("other")).is_none());
+        assert!(matches!(
+            control_event(ChatMusicAction::Next, user, None),
+            Some(crate::services::agent::AgentProgressEvent::MusicControl { song: None, .. })
+        ));
+    }
+
+    #[test]
+    fn skipping_she_does_not_describe_the_next_song() {
+        assert!(format_chat_player_section(None).contains("you do not know what comes next"));
     }
 
     #[test]

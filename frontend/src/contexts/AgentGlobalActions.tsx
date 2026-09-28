@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   isJournalAppPath,
 } from '../components/phantasi/logic/journalRoutes'
+import { playHerSong } from '../features/merope/listenTogether'
 import { currentCopy } from '../i18n/localeCopy'
 import {
   registerActionHandler,
@@ -454,6 +455,10 @@ export function AgentGlobalActions() {
             emitAppEvent('music-player-seek', { position: value })
           }
           break
+
+        case 'share':
+          // A song she heard and liked, from the start.
+          return playHerSong(frontendAction.song)
 
         default:
           console.warn('[AgentGlobalActions] Unknown music action:', action)
