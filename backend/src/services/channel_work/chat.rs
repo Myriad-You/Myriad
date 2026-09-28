@@ -109,6 +109,14 @@ pub(super) async fn start_chat_turn(
             }
         }
     }
+    // A sticker she chose goes after her words; one she is making, when it
+    // is made, while she carries on.
+    if let Some(chosen) = response.pointer("/data/sticker").cloned() {
+        let (db, sink) = (db.clone(), sink.clone());
+        tokio::spawn(async move {
+            send_sticker(&db, &sink, &chosen).await;
+        });
+    }
     // What she handed off starts as their own Work, unless one is running.
     let instruction = response
         .pointer("/data/handOff/instruction")
@@ -127,6 +135,24 @@ pub(super) async fn start_chat_turn(
             session_key,
         )
         .await;
+    }
+}
+
+/// Send the sticker she chose, making it first if it is a new one.
+async fn send_sticker(db: &DatabaseConnection, sink: &ChannelSink, chosen: &Value) {
+    use crate::services::agent::merope::stickers;
+    if chosen.get("make").is_some() {
+        sink.send_typing().await;
+    }
+    let Some(sticker) = stickers::resolve(db, chosen, None).await else {
+        return;
+    };
+    let Some((png, _)) = stickers::picture(&sticker).await else {
+        return;
+    };
+    match sink.transport.send_sticker(png).await {
+        Ok(()) => stickers::sent(db, &sticker).await,
+        Err(_) => warn!("channel sticker not sent"),
     }
 }
 

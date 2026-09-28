@@ -28,6 +28,7 @@ pub mod media_assets;
 pub mod media_migration_jobs;
 pub mod media_references;
 pub mod media_url_aliases;
+pub mod merope_stickers;
 pub mod phantasi_annotations;
 pub mod phantasi_categories;
 pub mod phantasi_comments;

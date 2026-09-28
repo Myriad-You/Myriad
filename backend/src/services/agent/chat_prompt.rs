@@ -79,6 +79,7 @@ fn cut_off_marker(role: &str, metadata: Option<&Value>) -> Option<&'static str> 
 pub fn chat_safe_content(content: &str) -> String {
     let spoken = myriad_merope::split_chat_wear_directive(content).0;
     let spoken = super::chat_music::split_chat_music_directive(&spoken).0;
+    let spoken = myriad_merope::stickers::split_sticker_directive(&spoken).0;
     spoken
         .lines()
         .filter(|line| {

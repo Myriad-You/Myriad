@@ -74,6 +74,7 @@ pub mod speech_runtime; // Provider resolve + test/status
 pub mod standalone_tts; // Standalone TTS (cache + configured provider) for HTTP + agent
 pub mod steam_presence; // Site owner's Steam status, cached for the card and the persona
 pub mod sticker_cutout; // Local alpha fallback for home stickers
+pub mod sticker_send;
 pub mod store_stats_beacon; // Official store install/update edge stats beacon
 pub mod tapp_agent_interaction; // Agent interaction registry + state machine
 pub mod tapp_api_service; // Declared-API execution (public/protected/manager)

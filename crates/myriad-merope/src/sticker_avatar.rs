@@ -60,6 +60,14 @@ fn identity_line(identity: &Value, key: &str, label: &str) -> Option<String> {
     Some(format!("{label}: {value}"))
 }
 
+/// 重绘里最容易漂的那几项身份，一行一项。`identity` 是归一化、摊平后的身份。
+pub(crate) fn identity_facts(identity: &Value) -> Vec<String> {
+    STICKER_IDENTITY_FIELDS
+        .iter()
+        .filter_map(|(key, label)| identity_line(identity, key, label))
+        .collect()
+}
+
 /// 头像提示词。`visual_profile` 是人设那份完整视觉设定，取的是它归一化后的身份。
 pub fn build_sticker_avatar_prompt(name: &str, visual_profile: &Value) -> String {
     let identity = crate::visual_prompt::normalize_visual_identity_for_prompt(visual_profile)
@@ -77,10 +85,7 @@ pub fn build_sticker_avatar_prompt(name: &str, visual_profile: &Value) -> String
     if !name.is_empty() {
         parts.push(format!("Identity name: {name}."));
     }
-    let carried: Vec<String> = STICKER_IDENTITY_FIELDS
-        .iter()
-        .filter_map(|(key, label)| identity_line(&identity, key, label))
-        .collect();
+    let carried = identity_facts(&identity);
     if !carried.is_empty() {
         parts.push(format!(
             "Identity facts that must survive the restyle:\n{}",

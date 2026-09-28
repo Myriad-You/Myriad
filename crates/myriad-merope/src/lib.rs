@@ -35,6 +35,7 @@ pub mod sources;
 pub mod speaking;
 mod speech_plan;
 mod sticker_avatar;
+pub mod stickers;
 pub mod strangers;
 pub mod threads;
 pub mod views;

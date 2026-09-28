@@ -252,6 +252,38 @@ impl ChannelTransport {
                 return Ok(());
             }
         };
+        self.send_image_bytes(&image, markup).await
+    }
+
+    /// A sticker of hers, from its drawn PNG: a real sticker where the app
+    /// has them, a small picture elsewhere.
+    pub(crate) async fn send_sticker(&self, png: Vec<u8>) -> Result<(), SendError> {
+        let Some(prepared) = crate::services::sticker_send::prepare(png, self.platform()).await
+        else {
+            return Ok(());
+        };
+        if let Self::Telegram { token, chat_id } = self {
+            return crate::services::telegram_bot::send_sticker(
+                token,
+                chat_id,
+                &prepared.bytes,
+                None,
+            )
+            .await
+            .map_err(SendError::from);
+        }
+        let image = ChannelImageBytes {
+            bytes: prepared.bytes,
+            mime: prepared.mime.to_string(),
+        };
+        self.send_image_bytes(&image, None).await
+    }
+
+    async fn send_image_bytes(
+        &self,
+        image: &ChannelImageBytes,
+        markup: Option<Value>,
+    ) -> Result<(), SendError> {
         match self {
             Self::Telegram { token, chat_id } => crate::services::telegram_bot::send_photo(
                 token,

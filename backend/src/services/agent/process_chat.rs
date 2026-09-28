@@ -29,6 +29,7 @@ impl Agent {
         };
         crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
         let (reply, handed_off) = crate::services::agent::delegate::split(&reply);
+        let (reply, sticker) = myriad_merope::stickers::split_sticker_directive(&reply);
         let (reply, music) = publish_model_outfit_overlay(&self.db, &request, &reply, None).await;
         crate::services::agent::merope::enqueue_chat_remember(
             &self.db,
@@ -60,8 +61,14 @@ impl Agent {
                 response_type: AgentResponseType::Answer,
                 message: reply.clone(),
                 data: Some(
-                    chat_reply_with_overlay(&self.db, &request, &reply, handed_off.as_deref())
-                        .await,
+                    chat_reply_with_overlay(
+                        &self.db,
+                        &request,
+                        &reply,
+                        handed_off.as_deref(),
+                        sticker,
+                    )
+                    .await,
                 ),
                 data_display: None,
                 suggestions: vec![],
@@ -140,17 +147,19 @@ impl Agent {
         crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
             .await;
 
-        let (reply, handed_off) = match self
+        let (reply, handed_off, sticker) = match self
             .stream_strict_lite_chat_response(&request, &progress_tx, speech_delivery)
             .await
         {
             Ok(reply) => {
                 let (reply, handed_off) = crate::services::agent::delegate::split(&reply);
+                let (reply, sticker) = myriad_merope::stickers::split_sticker_directive(&reply);
                 (
                     publish_model_outfit_overlay(&self.db, &request, &reply, Some(&progress_tx))
                         .await
                         .0,
                     handed_off,
+                    sticker,
                 )
             }
             Err(error) => {
@@ -244,7 +253,8 @@ impl Agent {
             response_type: AgentResponseType::Answer,
             message: reply.clone(),
             data: Some(
-                chat_reply_with_overlay(&self.db, &request, &reply, handed_off.as_deref()).await,
+                chat_reply_with_overlay(&self.db, &request, &reply, handed_off.as_deref(), sticker)
+                    .await,
             ),
             data_display: None,
             suggestions: vec![],
@@ -284,8 +294,21 @@ async fn chat_reply_with_overlay(
     request: &UserRequest,
     reply: &str,
     handed_off: Option<&str>,
+    sticker: Option<myriad_merope::stickers::Choice>,
 ) -> Value {
     let mut data = crate::services::agent::chat_prompt::chat_reply_data(reply, &request.raw_input);
+    // A sticker she chose, for the chat app to send; only there.
+    let in_chat_app = request
+        .context
+        .as_ref()
+        .is_some_and(|context| context.channel_chat.is_some() || context.venue.is_some());
+    if let (Some(sticker), true) = (sticker, in_chat_app)
+        && let Some(value) =
+            crate::services::agent::merope::stickers::chosen(db, request, sticker).await
+        && let Some(object) = data.as_object_mut()
+    {
+        object.insert("sticker".into(), value);
+    }
     // Work she handed off, for the channel to start; only where she may.
     if let (Some(instruction), Some(object)) = (
         handed_off.filter(|_| {

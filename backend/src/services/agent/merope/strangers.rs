@@ -97,7 +97,7 @@ pub async fn reply(
     transcript: &[crate::services::agent::ConversationMessage],
     words: &str,
     why: Option<&str>,
-) -> Option<String> {
+) -> Option<(String, Option<serde_json::Value>)> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
@@ -127,6 +127,11 @@ pub async fn reply(
         None => super::soup::GROUP_OFFER.to_string(),
     };
     sections.push(game);
+    // Stickers of her: hers, and this group's own.
+    let sticker_key = format!("stranger:{venue}:{}", stranger.who);
+    if let Some(stickers) = super::stickers::section(db, &sticker_key, Some(venue), words).await {
+        sections.push(stickers);
+    }
     // They did not call her: she speaks for a reason of her own.
     if let Some(why) = why {
         sections.push(myriad_merope::joining::speaking_up_section(why));
@@ -149,6 +154,11 @@ pub async fn reply(
     }
     let raw = raw.ok()?;
     let (said, started) = super::soup::split_start(&raw);
+    let (said, sticker) = myriad_merope::stickers::split_sticker_directive(&said);
+    let sticker = match sticker {
+        Some(choice) => super::stickers::chosen_in(db, &sticker_key, choice).await,
+        None => None,
+    };
     let mut text = without_directives(&said);
     // She said she would think one up: the puzzle follows her words.
     if started {
@@ -157,7 +167,7 @@ pub async fn reply(
     }
     // A game this line ended is over, and the group remembers it.
     super::soup::after_turn_at(db, &table).await;
-    (!text.is_empty()).then_some(text)
+    (!text.is_empty() || sticker.is_some()).then_some((text, sticker))
 }
 
 /// After she answered someone from outside: count it, and when they pause

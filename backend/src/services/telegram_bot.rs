@@ -446,6 +446,43 @@ pub async fn send_photo(
     parse_telegram_ok_payload(status, &body).map(|_| ())
 }
 
+/// `sendSticker` multipart: a static WebP sticker, into a forum topic when
+/// there is one.
+pub async fn send_sticker(
+    token: &str,
+    chat_id: &str,
+    webp: &[u8],
+    thread: Option<i64>,
+) -> Result<(), ConnectFailureKind> {
+    if chat_id.is_empty() || webp.is_empty() {
+        return Ok(());
+    }
+    let enabled = {
+        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        config.telegram_bot_enabled
+    };
+    if !enabled {
+        return Ok(());
+    }
+    let sticker = reqwest::multipart::Part::bytes(webp.to_vec())
+        .file_name("sticker.webp")
+        .mime_str("image/webp")
+        .unwrap_or_else(|_| reqwest::multipart::Part::bytes(webp.to_vec()));
+    let mut form = reqwest::multipart::Form::new()
+        .text("chat_id", chat_id.to_string())
+        .part("sticker", sticker);
+    if let Some(thread) = thread {
+        form = form.text("message_thread_id", thread.to_string());
+    }
+    let (status, body) = telegram_multipart(token, "sendSticker", form).await?;
+    if status == 429 {
+        let wait = telegram_retry_after(&body).unwrap_or(1);
+        warn!(retry_after = wait, "Telegram sendSticker rate-limited");
+        return Err(ConnectFailureKind::Transient);
+    }
+    parse_telegram_ok_payload(status, &body).map(|_| ())
+}
+
 fn photo_filename(mime: &str) -> &'static str {
     match mime {
         "image/jpeg" | "image/jpg" => "photo.jpg",

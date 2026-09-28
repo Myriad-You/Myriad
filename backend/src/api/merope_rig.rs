@@ -54,23 +54,12 @@ const MAX_RIG_IMPORT_ATLAS_BYTES: usize = 20 * 1024 * 1024;
 const MAX_RIG_ANALYSIS_REFERENCE_BYTES: usize = 10 * 1024 * 1024;
 const MEROPE_STYLE_REFERENCE_BYTES: &[u8] =
     include_bytes!("../../assets/merope/style-reference.png");
-/// 项目 logo 那张贴纸。Q 版头像的造型语言就是照它来的。
-const MEROPE_STICKER_STYLE_REFERENCE_BYTES: &[u8] =
-    include_bytes!("../../assets/merope/sticker-style-reference.webp");
 
 fn merope_style_reference()
 -> Result<image_generation::ImageReference, image_generation::ImageGenerationError> {
     image_generation::ImageReference::new(
         axum::body::Bytes::from_static(MEROPE_STYLE_REFERENCE_BYTES),
         "image/png",
-    )
-}
-
-fn merope_sticker_style_reference()
--> Result<image_generation::ImageReference, image_generation::ImageGenerationError> {
-    image_generation::ImageReference::new(
-        axum::body::Bytes::from_static(MEROPE_STICKER_STYLE_REFERENCE_BYTES),
-        "image/webp",
     )
 }
 
@@ -1892,7 +1881,8 @@ pub async fn generate_sticker_avatar(
                 })),
             )
         })?;
-    let style = merope_sticker_style_reference().map_err(portrait_generation_config_error)?;
+    let style = crate::services::agent::merope::stickers::style_reference()
+        .map_err(portrait_generation_config_error)?;
 
     let contract = build_sticker_avatar_contract(name, &visual_profile, &portrait_asset_id);
     let contract_fingerprint = character_asset_contract_fingerprint(&contract);

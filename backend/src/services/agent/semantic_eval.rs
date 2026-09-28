@@ -132,6 +132,12 @@ struct Case {
     /// The chat is in a chat app: no player, songs go as links.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     in_chat_app: bool,
+    /// Her stickers offered this turn (what each means), and how many more
+    /// she can make this month.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    stickers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stickers_left: Option<usize>,
     /// Her compiled inner state for this turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     inner: Option<String>,
@@ -967,6 +973,12 @@ fn request(case: &Case) -> Value {
             );
             let mut remembered =
                 super::merope::format_remembered_section(&case.remembered).unwrap_or_default();
+            if let Some(stickers) = myriad_merope::stickers::format_sticker_section(
+                &case.stickers,
+                case.stickers_left.unwrap_or(0),
+            ) {
+                remembered = format!("{remembered}\n\n{stickers}");
+            }
             if case.in_chat_app {
                 let songs: Vec<(String, String)> = case
                     .songs_to_share
@@ -2083,7 +2095,7 @@ fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
     assert_eq!(
         cases.iter().filter(|c| c.kind != "touch").count(),
-        30 + MIND_CASES
+        33 + MIND_CASES
     );
     for mut case in cases {
         let request = request(&case);

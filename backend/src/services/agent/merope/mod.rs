@@ -35,6 +35,7 @@ pub mod soup;
 pub mod sources;
 pub mod speaking_prompts;
 pub mod state;
+pub mod stickers;
 pub mod store;
 pub mod strangers;
 pub mod threads;

@@ -164,6 +164,8 @@ impl WearStreamFilter {
         self.started_game |= started;
         // A hand-off line is for the channel, not to be seen or heard.
         let (spoken, _) = crate::services::agent::delegate::split(&spoken);
+        // A sticker line is for the chat app, not to be seen or heard.
+        let (spoken, _) = myriad_merope::stickers::split_sticker_directive(&spoken);
         let visible = if hold {
             crate::services::agent::chat_music::hold_incomplete_live_marker(&spoken)
         } else {
@@ -473,6 +475,18 @@ impl Agent {
                     player.push_str("\n\n");
                     player.push_str(&songs);
                 }
+                // Stickers of her, to send there.
+                if let Some(stickers) = crate::services::agent::merope::stickers::section(
+                    &self.db,
+                    &crate::services::agent::merope::stickers::key(request),
+                    None,
+                    &request.raw_input,
+                )
+                .await
+                {
+                    player.push_str("\n\n");
+                    player.push_str(&stickers);
+                }
             }
             if merope_block.is_empty() {
                 merope_block = player;
@@ -496,6 +510,17 @@ impl Agent {
             };
             if let Some(game) = game {
                 merope_block = format!("{merope_block}\n\n{game}");
+            }
+            // Stickers of her: hers, and this group's own.
+            if let Some(stickers) = crate::services::agent::merope::stickers::section(
+                &self.db,
+                &crate::services::agent::merope::stickers::key(request),
+                venue.as_deref(),
+                &request.raw_input,
+            )
+            .await
+            {
+                merope_block = format!("{merope_block}\n\n{stickers}");
             }
             // Nobody called her by name: she chose to say something.
             if let Some(why) = request

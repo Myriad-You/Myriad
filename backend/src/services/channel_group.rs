@@ -989,7 +989,7 @@ async fn answer(message: &GroupLine, token: &str, chime: Option<String>) -> bool
     let Some(binding) = current_binding(&db, message, user_id).await else {
         return false;
     };
-    let Some(reply) = run_turn(&db, message, user_id, token, chime).await else {
+    let Some((reply, sticker)) = run_turn(&db, message, user_id, token, chime).await else {
         return false;
     };
     // Unpaired or switched off while she was thinking: say nothing.
@@ -997,12 +997,107 @@ async fn answer(message: &GroupLine, token: &str, chime: Option<String>) -> bool
         return false;
     }
     let reply = without_reply_mark(&reply);
-    let sent = deliver(message, token, &reply).await;
+    let sent = say_and_send(message, token, &reply, sticker).await;
     if sent {
-        record_hers(&message.venue(), &reply).await;
         answered(message);
     }
     sent
+}
+
+/// Her words, if any, and the sticker she chose, if any: the sticker after
+/// the words; one she is making, once it is made. Whether anything went.
+async fn say_and_send(
+    message: &GroupLine,
+    token: &str,
+    reply: &str,
+    sticker: Option<serde_json::Value>,
+) -> bool {
+    let venue = message.venue();
+    let mut sent = false;
+    if !reply.trim().is_empty() {
+        sent = deliver(message, token, reply).await;
+        if sent {
+            record_hers(&venue, reply).await;
+        }
+    }
+    if let Some(chosen) = sticker {
+        let (message, token) = (message.clone(), token.to_string());
+        tokio::spawn(async move {
+            send_sticker(&message, &token, &chosen).await;
+        });
+        sent = true;
+    }
+    sent
+}
+
+/// Send the sticker she chose into the group, making it first if it is new.
+async fn send_sticker(message: &GroupLine, token: &str, chosen: &serde_json::Value) {
+    use crate::services::agent::merope::stickers;
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    if chosen.get("make").is_some() {
+        send_typing(message, token).await;
+    }
+    let Some(sticker) = stickers::resolve(&db, chosen, None).await else {
+        return;
+    };
+    let Some((png, _)) = stickers::picture(&sticker).await else {
+        return;
+    };
+    let Some(prepared) = crate::services::sticker_send::prepare(png, message.platform).await else {
+        return;
+    };
+    let sent = match message.platform {
+        ChannelPlatform::Telegram => crate::services::telegram_bot::send_sticker(
+            token,
+            &message.chat,
+            &prepared.bytes,
+            message.thread,
+        )
+        .await
+        .is_ok(),
+        ChannelPlatform::Discord => crate::services::discord_bot::send_photo(
+            token,
+            &message.chat,
+            &prepared.bytes,
+            prepared.mime,
+            None,
+        )
+        .await
+        .is_ok(),
+        ChannelPlatform::OneBot => {
+            use base64::Engine as _;
+            let inline = format!(
+                "base64://{}",
+                base64::engine::general_purpose::STANDARD.encode(&prepared.bytes)
+            );
+            match myriad_agent_rules::onebot::encode::encode_group_message(
+                &message.chat,
+                &[myriad_agent_rules::onebot::encode::encode_image_segment(
+                    &inline,
+                )],
+            ) {
+                Some(action) => matches!(
+                    crate::services::onebot_send::send_action(action).await,
+                    Ok(None)
+                ),
+                None => false,
+            }
+        }
+        ChannelPlatform::Qq | ChannelPlatform::Feishu => false,
+    };
+    if sent {
+        stickers::sent(&db, &sticker).await;
+        // The group sees she sent it, and so does she.
+        record_hers(
+            &message.venue(),
+            &format!("（表情包：{}）", sticker.meaning),
+        )
+        .await;
+    } else {
+        warn!(venue = %message.venue(), "[Group] sticker not sent");
+    }
 }
 
 /// Answer someone from outside the community, with little context, on the
@@ -1031,7 +1126,7 @@ async fn answer_stranger(
     };
     send_typing(message, token).await;
     let transcript = transcript(&venue, Some(&message.message_id));
-    let Ok(Some(reply)) = tokio::time::timeout(
+    let Ok(Some((reply, sticker))) = tokio::time::timeout(
         TURN_DEADLINE,
         crate::services::agent::merope::strangers::reply(
             db,
@@ -1048,9 +1143,8 @@ async fn answer_stranger(
         return false;
     };
     let reply = without_reply_mark(&reply);
-    let sent = deliver(message, token, &reply).await;
+    let sent = say_and_send(message, token, &reply, sticker).await;
     if sent {
-        record_hers(&venue, &reply).await;
         answered(message);
         crate::services::agent::merope::strangers::enqueue_after(
             db,
@@ -1084,7 +1178,7 @@ async fn run_turn(
     user_id: i32,
     token: &str,
     chime: Option<String>,
-) -> Option<String> {
+) -> Option<(String, Option<serde_json::Value>)> {
     crate::services::principal::current_roles(db, user_id)
         .await
         .ok()??;
@@ -1139,12 +1233,17 @@ async fn run_turn(
                 match envelope?.event {
                     AgentProgressEvent::TaskCompleted { success, response, .. } => {
                         // A superseded or failed turn says nothing in the group.
-                        return success
-                            .then(|| response.get("message").and_then(|value| value.as_str()))
-                            .flatten()
+                        if !success {
+                            return None;
+                        }
+                        let text = response
+                            .get("message")
+                            .and_then(|value| value.as_str())
                             .map(str::trim)
-                            .filter(|text| !text.is_empty())
-                            .map(str::to_string);
+                            .unwrap_or_default()
+                            .to_string();
+                        let sticker = response.pointer("/data/sticker").cloned();
+                        return (!text.is_empty() || sticker.is_some()).then_some((text, sticker));
                     }
                     AgentProgressEvent::Error { .. } => return None,
                     _ => {}
