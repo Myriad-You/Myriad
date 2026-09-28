@@ -280,6 +280,7 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         thing: done.thing.clone(),
         // Nothing reached her: no taste to keep.
         reaction: reached.then_some(digest.reaction),
+        tell: digest.tell,
         kept,
     };
     let Ok(Some(_)) = unified::remember_own(
@@ -413,6 +414,9 @@ pub struct Experience {
     /// How it landed with her.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reaction: Option<Reaction>,
+    /// She would want to tell someone about it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    tell: bool,
     /// What only its kind keeps (see `sources`).
     #[serde(flatten)]
     kept: Kept,
@@ -584,6 +588,28 @@ fn ago(now: DateTime<Utc>, at: DateTime<Utc>) -> String {
 
 /// For the player section of a private chat: whether they are already
 /// listening with her, or how she can put her song on for them.
+/// What she did on her own after `since` (within the last day) that she
+/// would want to tell someone, most recent first: what it was, how it
+/// landed and what she wrote.
+pub async fn would_tell(db: &DatabaseConnection, since: Option<DateTime<Utc>>) -> Vec<String> {
+    const WITHIN: chrono::Duration = chrono::Duration::hours(24);
+    const AT_MOST: usize = 3;
+    let now = Utc::now();
+    unified::own_experiences(db, 60)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|row| {
+            let at = row.created_at.with_timezone(&Utc);
+            now.signed_duration_since(at) < WITHIN && since.is_none_or(|since| at > since)
+        })
+        .filter_map(|row| Some((Experience::of(row)?, row)))
+        .filter(|(experience, _)| experience.tell)
+        .take(AT_MOST)
+        .map(|(experience, row)| format!("{}: {}", experience.line_felt(), row.content))
+        .collect()
+}
+
 /// Songs she could play for someone: ones she listened to on her own
 /// lately and liked, most recent first, each with what she wrote then.
 /// What she says about a song she plays comes from here, not from nowhere.
@@ -810,6 +836,7 @@ mod tests {
             key: song("186016", "晴天").key(),
             thing: song("186016", "晴天"),
             reaction: None,
+            tell: false,
             kept: Kept::default(),
         };
         let stored = serde_json::to_string(&experience).unwrap();
@@ -849,6 +876,7 @@ mod tests {
             key: song("1", "晴天").key(),
             thing: song("1", "晴天"),
             reaction: Some(Reaction::NotForMe),
+            tell: false,
             kept: Kept::default(),
         };
         assert_eq!(

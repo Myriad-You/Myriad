@@ -134,7 +134,9 @@ async fn recent_talk(
 async fn reach_out(db: &DatabaseConnection, user_id: i32, here: Route) -> bool {
     let now = Utc::now();
     let threads = threads::open(db, user_id).await;
-    let Some(reason) = reason(&threads, last_talk(db, user_id).await, now) else {
+    let last = last_talk(db, user_id).await;
+    let to_tell = super::doing::would_tell(db, last).await;
+    let Some(reason) = reason(&threads, last, to_tell, now) else {
         return false;
     };
     let talk = recent_talk(db, user_id).await;
@@ -219,7 +221,10 @@ async fn would_write(
         "daysSinceYouTalked": reason.days_since,
         "dueNow": reason.due.iter().map(|thread| json!({"about": thread.about, "then": thread.then})).collect::<Vec<_>>(),
         "remembered": remembered,
-        "yourOwnTime": super::doing::current().map(|doing| super::doing::now_line(&doing, Utc::now())),
+        "yourOwnTime": {
+            "now": super::doing::current().map(|doing| super::doing::now_line(&doing, Utc::now())),
+            "wouldTell": reason.to_tell,
+        },
         "recentTalk": talk.iter().rev().take(6).rev()
             .map(|message| format!("{}: {}", if message.role == "user" { "they" } else { "you" }, message.content.chars().take(200).collect::<String>()))
             .collect::<Vec<_>>(),

@@ -860,7 +860,8 @@ fn request(case: &Case) -> Value {
                 "daysSinceYouTalked":case.days_since,
                 "dueNow":case.threads.iter().map(|(about, then)| json!({"about":about,"then":then})).collect::<Vec<_>>(),
                 "remembered":case.remembered,
-                "yourOwnTime":case.own_time.as_ref().and_then(|own| own["now"].as_str()),
+                "yourOwnTime":{"now":case.own_time.as_ref().and_then(|own| own["now"].as_str()),
+                    "wouldTell":case.own_time.as_ref().map(|own| own["wouldTell"].clone()).filter(Value::is_array).unwrap_or(json!([]))},
                 "recentTalk":case.history.iter().map(|line| format!("{}: {}", if line.role == "user" { "they" } else { "you" }, line.text)).collect::<Vec<_>>()});
             json!({"system":system,"schema":schema,"schemaName":"merope_reach_out",
                 "input":input.to_string()})
@@ -1884,7 +1885,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 99;
+const MIND_CASES: usize = 101;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
