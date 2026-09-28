@@ -51,10 +51,16 @@ pub async fn material(db: &DatabaseConnection, talk: &str) -> Vec<Material> {
     material
 }
 
-fn input(conversation: &[String], last_spoke: Option<&str>, material: &[Material]) -> String {
+fn input(
+    conversation: &[String],
+    last_spoke: Option<&str>,
+    late: Option<&str>,
+    material: &[Material],
+) -> String {
     json!({
         "conversation": conversation,
         "youLastSpokeHere": last_spoke,
+        "youAreSeeingItLate": late,
         "yourOwnTime": super::doing::current().map(|doing| super::doing::now_line(&doing, Utc::now())),
         "whatYouHave": material_view(material),
     })
@@ -63,12 +69,14 @@ fn input(conversation: &[String], last_spoke: Option<&str>, material: &[Material
 
 /// Whether she speaks up, and why, as the turn that speaks is told it; the
 /// judgment is billed to `owner`. `conversation` is the group's recent lines,
-/// hers as `you：…`.
+/// hers as `you：…`. `late` is how long ago the latest line was said, when she
+/// sees it only a while after.
 pub async fn decide(
     db: &DatabaseConnection,
     owner: i32,
     conversation: &[String],
     last_spoke: Option<&str>,
+    late: Option<&str>,
 ) -> Option<String> {
     let material = material(db, &conversation.join("\n")).await;
     let soul = crate::services::agent::identity::get_speaking_soul()
@@ -78,14 +86,18 @@ pub async fn decide(
         .within(CALL_TIMEOUT)
         .json_raw(
             &system(&soul),
-            &input(conversation, last_spoke, &material),
+            &input(conversation, last_spoke, late, &material),
             SCHEMA_NAME,
             &schema(),
         )
         .await
         .ok()?;
     let decision = parse(&raw, material.len()).flatten()?;
-    Some(reason(&decision, &material))
+    let reason = reason(&decision, &material);
+    Some(match late {
+        Some(ago) => format!("{reason}\n{}", myriad_merope::joining::seeing_it_late(ago)),
+        None => reason,
+    })
 }
 
 /// The judgment as production asks it, for the semantic suite.
@@ -95,7 +107,11 @@ pub(crate) fn probe(
     conversation: &[String],
     material: &[Material],
 ) -> (String, serde_json::Value, String) {
-    (system(soul), schema(), input(conversation, None, material))
+    (
+        system(soul),
+        schema(),
+        input(conversation, None, None, material),
+    )
 }
 
 #[cfg(test)]

@@ -261,10 +261,21 @@ const MAX_LINE_CHARS: usize = 500;
 const WAITING_LINES: usize = 5;
 /// Between two of her replies in the same group.
 const GROUP_PAUSE: Duration = Duration::from_secs(5);
-/// Lines that did not call her by name: she looks once the talk pauses
-/// this long, and in talk that never pauses, at least this often.
+/// Lines that did not call her by name, in talk she is in: she looks once
+/// the talk pauses this long, and in talk that never pauses, at least this
+/// often.
 const SETTLE: Duration = Duration::from_secs(5);
 const MAX_WAIT: Duration = Duration::from_secs(30);
+/// She is in a group's talk while she spoke there, or was called there,
+/// this recently; otherwise she glances at it now and then, when she is
+/// free: this many seconds after a line, give or take, and while she is in
+/// the middle of something of her own, once it is done (waiting at most so
+/// long for it).
+const IN_TALK: Duration = Duration::from_secs(10 * 60);
+const GLANCE_AFTER_SECONDS: std::ops::RangeInclusive<u64> = 30..=180;
+const LONGEST_BUSY: Duration = Duration::from_secs(30 * 60);
+/// Talk this old when she sees it, she knows she is seeing it late.
+const LATE: chrono::Duration = chrono::Duration::minutes(3);
 /// Lines of the talk she looks at.
 const CONVERSATION_LINES: usize = 15;
 /// Two bots answering each other never stop, and no person talks like that:
@@ -328,6 +339,9 @@ struct Group {
     pending: Option<GroupLine>,
     unjudged_since: Option<Instant>,
     judging: bool,
+    /// When she was last called there, and when she means to glance at it.
+    called: Option<Instant>,
+    glance_at: Option<Instant>,
     /// Whom she answered lately, in order, and whom she stopped answering
     /// (see `LOOP_ROUNDS`).
     answered: VecDeque<(String, Instant)>,
@@ -628,6 +642,7 @@ fn end_turn(venue: &str, replied: bool) {
 /// the one on hand.
 pub async fn handle(mut message: GroupLine, token: String) {
     let venue = message.venue();
+    with_group(&venue, |group| group.called = Some(Instant::now()));
     loop {
         // Busy or not is decided under the same lock that parks the line, so
         // the turn on hand cannot end without seeing it.
@@ -681,22 +696,73 @@ async fn finish_turn(venue: &str, replied: bool) -> Option<GroupLine> {
 }
 
 /// A line that did not call her by name. She reads a group the way a person
-/// does: when the talk pauses (or, in talk that never pauses, every so
-/// often) she looks at what was said and judges, as herself, whether to say
-/// something (see `merope::joining`). Nothing is held while she waits.
+/// does. In talk she is in, she looks when it pauses (or, in talk that never
+/// pauses, every so often). Otherwise she glances at the group now and then
+/// when she is free, not at every line. Either way she judges, as herself,
+/// whether to say something (see `merope::joining`). Nothing is held while
+/// she waits.
 pub fn notice(message: GroupLine, token: String) {
     let venue = message.venue();
     let id = message.message_id.clone();
-    let noticed = with_group(&venue, |group| {
+    let wake = with_group(&venue, |group| {
         group.unjudged_since.get_or_insert_with(Instant::now);
         group.pending = Some(message);
-    });
-    if noticed.is_some() {
+        if in_talk(group) {
+            Some(SETTLE)
+        } else if group.glance_at.is_some() {
+            None
+        } else {
+            let after = glance_after();
+            group.glance_at = Some(Instant::now() + after);
+            Some(after)
+        }
+    })
+    .flatten();
+    if let Some(after) = wake {
         tokio::spawn(async move {
-            tokio::time::sleep(SETTLE).await;
-            look(venue, id, token).await;
+            tokio::time::sleep(after).await;
+            // A glance takes in whatever is latest by then.
+            let id = with_group(&venue, |group| {
+                if group.glance_at.is_some_and(|at| at <= Instant::now()) {
+                    group.glance_at = None;
+                    group.pending.as_ref().map(|line| line.message_id.clone())
+                } else {
+                    Some(id)
+                }
+            })
+            .flatten();
+            if let Some(id) = id {
+                look(venue, id, token).await;
+            }
         });
     }
+}
+
+/// Whether she is in the group's talk: she spoke there, or was called
+/// there, lately.
+fn in_talk(group: &Group) -> bool {
+    group.called.is_some_and(|at| at.elapsed() < IN_TALK)
+        || group
+            .lines
+            .iter()
+            .rev()
+            .find(|line| line.hers)
+            .is_some_and(|line| {
+                (chrono::Utc::now() - line.at)
+                    .to_std()
+                    .is_ok_and(|age| age < IN_TALK)
+            })
+}
+
+/// How long until she glances at a group she is not in: once what she is
+/// doing on her own is done, and then a while, as a person looks at their
+/// phone.
+fn glance_after() -> Duration {
+    let free_in = crate::services::agent::merope::doing::current()
+        .and_then(|doing| (doing.ends - chrono::Utc::now()).to_std().ok())
+        .unwrap_or_default()
+        .min(LONGEST_BUSY);
+    free_in + Duration::from_secs(rand::random_range(GLANCE_AFTER_SECONDS))
 }
 
 enum Look {
@@ -794,6 +860,18 @@ async fn judge(message: &GroupLine) -> Option<String> {
             }
         })
         .collect();
+    // Talk she sees only a while after it was said.
+    let late = with_group(&venue, |group| {
+        group
+            .lines
+            .iter()
+            .rev()
+            .find(|line| !line.hers)
+            .map(|line| chrono::Utc::now() - line.at)
+            .filter(|age| *age >= LATE)
+            .map(myriad_merope::doing::ago_text)
+    })
+    .flatten();
     let last_spoke = with_group(&venue, |group| {
         group
             .lines
@@ -808,6 +886,7 @@ async fn judge(message: &GroupLine) -> Option<String> {
         owner,
         &conversation,
         last_spoke.as_deref(),
+        late.as_deref(),
     )
     .await
 }
@@ -1143,6 +1222,31 @@ mod tests {
             );
             assert!(group.unjudged_since.is_some());
         });
+    }
+
+    #[tokio::test]
+    async fn she_follows_talk_she_is_in_and_glances_at_the_rest_now_and_then() {
+        let chat = -9_474;
+        record(&line(chat, 1, "阿明", "周五聚餐吗")).await;
+        with_group(&venue(chat), |group| assert!(!in_talk(group)));
+        // Not in the talk: one glance is planned, not one per line.
+        notice(line(chat, 1, "阿明", "周五聚餐吗"), String::new());
+        let planned = with_group(&venue(chat), |group| group.glance_at).flatten();
+        assert!(planned.is_some_and(|at| {
+            let wait = at - Instant::now();
+            wait <= Duration::from_secs(*GLANCE_AFTER_SECONDS.end()) + LONGEST_BUSY
+        }));
+        notice(line(chat, 2, "小红", "可以"), String::new());
+        assert_eq!(
+            with_group(&venue(chat), |group| group.glance_at).flatten(),
+            planned
+        );
+        // She said something there: she is in the talk now.
+        record_hers(&venue(chat), "我在屏幕里，你们吃好").await;
+        with_group(&venue(chat), |group| assert!(in_talk(group)));
+        let other = -9_475;
+        with_group(&venue(other), |group| group.called = Some(Instant::now()));
+        with_group(&venue(other), |group| assert!(in_talk(group)));
     }
 
     #[test]
