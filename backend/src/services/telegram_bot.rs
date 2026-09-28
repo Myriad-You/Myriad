@@ -240,13 +240,8 @@ async fn run_session(
                             let line = crate::services::channel_group::GroupLine::from(line);
                             crate::services::channel_group::record(&line).await;
                             if !line.addressed {
-                                // Nobody asked her; now and then she joins in.
-                                if crate::services::channel_group::worth_a_look(&line) {
-                                    tokio::spawn(crate::services::channel_group::consider(
-                                        line,
-                                        token.to_string(),
-                                    ));
-                                }
+                                // Read with the rest of the talk.
+                                crate::services::channel_group::notice(line, token.to_string());
                                 continue;
                             }
                             let permit = tokio::select! {

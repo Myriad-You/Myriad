@@ -250,6 +250,45 @@ fn eval_threads(case: &Case) -> Vec<super::merope::threads::Thread> {
 /// persona stands in.
 static HERS: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
 
+/// What she has, for a group case, as production gathers it: her views on
+/// the talk, what she did that it brings up, what she would tell someone.
+fn chime_material(case: &Case) -> Vec<myriad_merope::joining::Material> {
+    use myriad_merope::joining::Material;
+    let mut material: Vec<Material> = case
+        .views
+        .iter()
+        .map(|(about, view)| Material {
+            kind: "your_view",
+            text: format!("{about}: {view}"),
+        })
+        .collect();
+    let own = case.own_time.as_ref();
+    for pair in own
+        .and_then(|own| own["lately"].as_array())
+        .into_iter()
+        .flatten()
+    {
+        if let (Some(what), Some(stayed)) = (pair[0].as_str(), pair[1].as_str()) {
+            material.push(Material {
+                kind: "you_did",
+                text: format!("{what}: {stayed}"),
+            });
+        }
+    }
+    for told in own
+        .and_then(|own| own["wouldTell"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        material.push(Material {
+            kind: "you_would_tell",
+            text: told.to_string(),
+        });
+    }
+    material
+}
+
 fn default_soul() -> String {
     HERS.get()
         .map(|(_, soul)| soul.clone())
@@ -737,8 +776,6 @@ fn request(case: &Case) -> Value {
                     "exchanges":exchanges}).to_string()})
         }
         "chime" => {
-            let (system, schema) =
-                crate::services::channel_group::chime_probe_contract(&default_soul());
             let conversation: Vec<String> = case
                 .history
                 .iter()
@@ -748,14 +785,13 @@ fn request(case: &Case) -> Value {
                     _ => format!("you：{}", line.text),
                 })
                 .collect();
-            let views: Vec<String> = case
-                .views
-                .iter()
-                .map(|(about, view)| format!("{about}: {view}"))
-                .collect();
-            let now = case.own_time.as_ref().and_then(|own| own["now"].as_str());
-            json!({"system":system,"schema":schema,"schemaName":"merope_group_chime",
-                "input":json!({"conversation":conversation,"yourViews":views,"yourOwnTime":now}).to_string()})
+            let (system, schema, input) = super::merope::joining::probe(
+                &default_soul(),
+                &conversation,
+                &chime_material(case),
+            );
+            json!({"system":system,"schema":schema,"schemaName":myriad_merope::joining::SCHEMA_NAME,
+                "input":input})
         }
         "soup_start" => {
             let (system, schema) = super::merope::soup::start_probe_contract(&default_soul());
@@ -1128,7 +1164,7 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
             // What she keeps is judged by the reviewer.
             Some(Some(_)) => "needs_review",
         },
-        "chime" => match crate::services::channel_group::chime_verdict(output) {
+        "chime" => match super::merope::joining::verdict(output, chime_material(case).len()) {
             None => "output_invalid",
             Some(why) if why.is_some() != case.fact_present => "behavior_failure",
             // Staying quiet when she should.
@@ -1904,7 +1940,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 101;
+const MIND_CASES: usize = 106;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

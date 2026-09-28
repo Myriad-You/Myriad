@@ -96,6 +96,7 @@ pub async fn reply(
     stranger: &Stranger,
     transcript: &[crate::services::agent::ConversationMessage],
     words: &str,
+    why: Option<&str>,
 ) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -126,6 +127,10 @@ pub async fn reply(
         None => super::soup::GROUP_OFFER.to_string(),
     };
     sections.push(game);
+    // They did not call her: she speaks for a reason of her own.
+    if let Some(why) = why {
+        sections.push(myriad_merope::joining::speaking_up_section(why));
+    }
     let prompt = crate::services::agent::chat_prompt::build_group_chat_prompt(
         &soul,
         &sections.join("\n\n"),

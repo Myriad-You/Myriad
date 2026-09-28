@@ -497,15 +497,15 @@ impl Agent {
             if let Some(game) = game {
                 merope_block = format!("{merope_block}\n\n{game}");
             }
-            // Nobody asked her: she chose to say something.
+            // Nobody called her by name: she chose to say something.
             if let Some(why) = request
                 .context
                 .as_ref()
                 .and_then(|context| context.chime.as_deref())
             {
                 merope_block = format!(
-                    "{merope_block}\n\n## Chiming in\nNobody addressed you: you are joining the group's talk on your own because {why}. Say one or two short lines to the group, as yourself; do not make it a speech.",
-                    why = why.trim().trim_end_matches('.')
+                    "{merope_block}\n\n{}",
+                    myriad_merope::joining::speaking_up_section(why.trim())
                 );
             }
             // A group turn: the history is the group's transcript, other

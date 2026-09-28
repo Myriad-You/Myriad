@@ -319,8 +319,8 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                         };
                         let _permit = permit;
                         crate::services::channel_group::handle(line, String::new()).await;
-                    } else if crate::services::channel_group::worth_a_look(&line) {
-                        crate::services::channel_group::consider(line, String::new()).await;
+                    } else {
+                        crate::services::channel_group::notice(line, String::new());
                     }
                 });
                 return None;

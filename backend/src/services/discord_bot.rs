@@ -612,7 +612,7 @@ where
 }
 
 /// A server-channel line: kept in mind; answered when it speaks to her, and
-/// now and then joined in on when it does not.
+/// otherwise read with the rest of the talk (see `channel_group::notice`).
 /// The ingress permit is held only while she answers a line that speaks to
 /// her, as for DMs; deciding whether to join in does not hold it.
 async fn hear_group_line<P>(
@@ -627,9 +627,7 @@ async fn hear_group_line<P>(
         return;
     }
     drop(permit);
-    if crate::services::channel_group::worth_a_look(&line) {
-        crate::services::channel_group::consider(line, token).await;
-    }
+    crate::services::channel_group::notice(line, token);
 }
 
 async fn wait_hello<S>(
