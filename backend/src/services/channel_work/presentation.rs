@@ -163,16 +163,7 @@ pub(crate) fn map_completed(
     } else {
         None
     };
-    let rendered = if caps.outbound_markdown {
-        myriad_agent_rules::onebot::encode::render_result_markdown(
-            message,
-            data,
-            response.get("dataDisplay"),
-        )
-        .unwrap_or_else(|| format_channel_result(message, data, response.get("dataDisplay")))
-    } else {
-        format_channel_result(message, data, response.get("dataDisplay"))
-    };
+    let rendered = format_channel_result(message, data, response.get("dataDisplay"));
     if response.get("success").and_then(Value::as_bool) == Some(false) || response_type == "error" {
         return (
             ChannelEvent::Error {

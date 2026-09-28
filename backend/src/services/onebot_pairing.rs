@@ -26,12 +26,13 @@ impl PrivateText for OneBotText {
             &self.inbound.user_openid,
             text,
             &[],
-            false,
         ) else {
             return;
         };
-        if let Err(error) = crate::services::onebot_send::send_action(action).await {
-            tracing::warn!(error = %error, "OneBot pairing reply failed");
+        match crate::services::onebot_send::send_action(action).await {
+            Ok(None) => {}
+            Ok(Some(_)) => tracing::warn!("OneBot pairing reply refused"),
+            Err(error) => tracing::warn!(error = %error, "OneBot pairing reply failed"),
         }
     }
 

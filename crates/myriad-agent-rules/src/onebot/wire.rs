@@ -174,9 +174,14 @@ pub struct RespJson {
     pub data: Value,
     #[serde(default)]
     pub echo: Value,
-    /// 部分实现在失败时放一段人类可读消息(`msg`/`message`/`wording`)。
-    #[serde(default, alias = "msg", alias = "wording")]
+    /// 部分实现在失败时放一段人类可读消息。三个字段各自独立:NapCat 每个响应都同时带
+    /// `message` 和 `wording`,写成别名会让 serde 报重复字段,整帧解不开。
+    #[serde(default)]
     pub message: Option<String>,
+    #[serde(default)]
+    pub wording: Option<String>,
+    #[serde(default)]
+    pub msg: Option<String>,
 }
 
 /// 入站帧 demux:动作响应带 `echo`,事件不带。`#[serde(untagged)]` 先试 `Resp`,再回退到裸

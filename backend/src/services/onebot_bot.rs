@@ -5,20 +5,27 @@
 //! credential rejection, and phase publishing stay in `bot_supervisor`.
 
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
 use myriad_agent_rules::channel::{ConnectFailureKind, WorkerIntent};
-use myriad_agent_rules::onebot::rules::{classify_onebot_handshake, onebot_worker_intent};
+use myriad_agent_rules::onebot::decode::{
+    OneBotGroupLine, decode_group_inbound, decode_private_inbound, decode_replied_message,
+    private_message_is_cq_string,
+};
+use myriad_agent_rules::onebot::encode::encode_get_msg;
+use myriad_agent_rules::onebot::rules::{
+    classify_onebot_handshake, onebot_frame_refuses_connection, onebot_worker_intent,
+};
 use myriad_agent_rules::onebot::wire::{Inbound, RespJson};
 use serde::Serialize;
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest, http::HeaderValue};
 use tracing::{info, warn};
 
-use crate::config::DynamicConfig;
 use crate::GLOBAL_DYNAMIC_CONFIG;
+use crate::config::DynamicConfig;
 use crate::services::bot_ingress;
 use crate::services::bot_supervisor::{BotWorker, SessionResult, SupervisorPhase, supervise};
 use crate::services::onebot_send;
@@ -36,6 +43,13 @@ fn connect_failure(error: tokio_tungstenite::tungstenite::Error) -> ConnectFailu
 
 async fn groups_enabled() -> bool {
     GLOBAL_DYNAMIC_CONFIG.read().await.onebot_bot_groups_enabled
+}
+
+/// NapCat also accepts the token as `?access_token=` and reads it first, so a
+/// deployer may put it in the URL. Logs and the status API show only the part
+/// before the query.
+fn redacted_url(url: &str) -> String {
+    url.split(['?', '#']).next().unwrap_or_default().to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -86,7 +100,7 @@ async fn publish_status(phase: OneBotPhase, fingerprint: &CredentialFingerprint)
     snap.ws_url = if fingerprint.ws_url.is_empty() {
         None
     } else {
-        Some(fingerprint.ws_url.clone())
+        Some(redacted_url(&fingerprint.ws_url))
     };
     if !fingerprint.enabled || fingerprint.ws_url.is_empty() || !fingerprint.has_token {
         snap.last_inbound_at = None;
@@ -205,7 +219,7 @@ async fn run_socket(
     }))
     .await;
     publish_status(OneBotPhase::Online, fingerprint).await;
-    info!(url = %fingerprint.ws_url, "OneBot socket connected");
+    info!(url = %redacted_url(&fingerprint.ws_url), "OneBot socket connected");
 
     let mut write = write;
     let outcome = loop {
@@ -216,7 +230,11 @@ async fn run_socket(
                 }
             }
             outgoing = outbound_rx.recv() => {
-                let Some(text) = outgoing else { continue };
+                // The sender lives in the installed slot; losing it means this
+                // socket is no longer the one delivery writes to.
+                let Some(text) = outgoing else {
+                    break Err(ConnectFailureKind::Transient);
+                };
                 if write.send(Message::Text(text.into())).await.is_err() {
                     break Err(ConnectFailureKind::Transient);
                 }
@@ -252,20 +270,30 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
     match inbound {
         Inbound::Resp(envelope) => {
             let response: RespJson = serde_json::from_str(text).ok()?;
-            // A matched echo only fails that one action. Closing the socket is
-            // reserved for a refusal that names no request.
-            onebot_send::complete_echo(&envelope.echo, &response.status, response.retcode).await;
+            // NapCat's token refusal arrives as a response with `echo: null`.
+            // A matched echo only fails that one action.
+            if onebot_frame_refuses_connection(&envelope.echo, &response.status, response.retcode) {
+                warn!(retcode = response.retcode, "OneBot handshake refused");
+                return Some(ConnectFailureKind::Permanent);
+            }
+            onebot_send::complete_echo(
+                &envelope.echo,
+                &response.status,
+                response.retcode,
+                response.data,
+            )
+            .await;
             None
         }
         Inbound::Event(event) => {
             // A heartbeat carries `status` as an object. Only a failed action
-            // envelope with no echo is a handshake refusal.
-            if event.status.as_ref().and_then(serde_json::Value::as_str) == Some("failed")
+            // envelope with no echo field at all is a handshake refusal.
+            if let Some(status) = event.status.as_ref().and_then(serde_json::Value::as_str)
                 && let Some(retcode) = event
                     .extra
                     .get("retcode")
                     .and_then(serde_json::Value::as_i64)
-                && classify_onebot_handshake(None, Some(retcode)) == ConnectFailureKind::Permanent
+                && onebot_frame_refuses_connection(&serde_json::Value::Null, status, retcode)
             {
                 warn!(retcode, "OneBot handshake refused");
                 return Some(ConnectFailureKind::Permanent);
@@ -275,12 +303,13 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 // Groups stay off until the deployer turns them on. A personal
                 // QQ number is already in many groups; recording all of them
                 // is not the private-chat default.
-            } else if let Some(group) =
-                myriad_agent_rules::onebot::decode::decode_group_inbound(&raw, event.self_id)
-            {
-                let line = crate::services::channel_group::GroupLine::from(group);
+            } else if let Some(group) = decode_group_inbound(&raw, event.self_id) {
                 mark_inbound().await;
+                let self_id = event.self_id;
                 tokio::spawn(async move {
+                    // The lookup waits on this socket's read loop, so it runs here.
+                    let group = resolve_reply(group, self_id).await;
+                    let line = crate::services::channel_group::GroupLine::from(group);
                     crate::services::channel_group::record(&line).await;
                     if line.addressed {
                         let Some(permit) =
@@ -296,11 +325,16 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 });
                 return None;
             }
-            if myriad_agent_rules::onebot::decode::private_message_is_cq_string(&raw) {
-        warn!("OneBot private message used CQ string format; set messagePostFormat to array");
-        return None;
-    }
-    let decoded = myriad_agent_rules::onebot::decode::decode_private_inbound(&raw)?;
+            if private_message_is_cq_string(&raw) {
+                static WARNED: AtomicBool = AtomicBool::new(false);
+                if !WARNED.swap(true, Ordering::Relaxed) {
+                    warn!(
+                        "OneBot private message used CQ string format; set messagePostFormat to array"
+                    );
+                }
+                return None;
+            }
+            let decoded = decode_private_inbound(&raw)?;
             let permit = bot_ingress::try_acquire(bot_ingress::Channel::OneBot, raw.len())?;
             mark_inbound().await;
             tokio::spawn(async move {
@@ -310,6 +344,25 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
             None
         }
     }
+}
+
+/// NapCat's reply segment names only a message id. Look it up so a reply to
+/// her counts as addressed and the quoted line reaches the group context.
+/// A failed lookup leaves the line as it was: an `@` still addresses her.
+async fn resolve_reply(mut group: OneBotGroupLine, self_id: i64) -> OneBotGroupLine {
+    let Some(action) = group.reply_id.as_deref().and_then(encode_get_msg) else {
+        return group;
+    };
+    match onebot_send::call_action(action).await {
+        Ok(data) => {
+            if let Some(quoted) = decode_replied_message(&data, self_id) {
+                group.addressed |= quoted.hers;
+                group.reply_to = Some(quoted);
+            }
+        }
+        Err(error) => warn!(%error, "OneBot reply lookup failed"),
+    }
+    group
 }
 
 #[cfg(test)]
@@ -330,5 +383,15 @@ mod tests {
             ..ready
         };
         assert_eq!(off.intent(), WorkerIntent::Stop);
+    }
+
+    #[test]
+    fn token_in_the_url_query_never_reaches_logs_or_status() {
+        assert_eq!(
+            redacted_url("ws://127.0.0.1:3001/?access_token=secret"),
+            "ws://127.0.0.1:3001/"
+        );
+        assert_eq!(redacted_url("ws://host:3001#frag"), "ws://host:3001");
+        assert_eq!(redacted_url("ws://host:3001"), "ws://host:3001");
     }
 }

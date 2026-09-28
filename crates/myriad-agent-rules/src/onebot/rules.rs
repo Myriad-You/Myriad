@@ -1,5 +1,7 @@
 //! OneBot 私聊通道的纯规则：开关、能力位、打字状态、握手失败归类。无 I/O。
 
+use serde_json::Value;
+
 use crate::channel::{ChannelCapabilities, ConnectFailureKind, WorkerIntent};
 
 /// 开关打开、`ws_url` 去空白后非空、且已配置 token → 运行；否则停止。
@@ -11,7 +13,7 @@ pub fn onebot_worker_intent(enabled: bool, ws_url: &str, has_token: bool) -> Wor
     }
 }
 
-/// OneBot 私聊：文本与媒体入站，最终文本、markdown 与图片出站。
+/// OneBot 私聊：文本与媒体入站，最终文本与图片出站。
 /// 没有按钮段，澄清靠编号文本；只有撤回，没有编辑。
 /// 打字状态走 `set_input_status`，不占能力位，见 [`onebot_worker_supports_typing`]。
 pub fn onebot_private_capabilities() -> ChannelCapabilities {
@@ -51,4 +53,15 @@ pub fn classify_onebot_handshake(status: Option<u16>, retcode: Option<i64>) -> C
         // 其余 14xx，以及 status/retcode 都缺失：连接可重试。
         _ => ConnectFailureKind::Transient,
     }
+}
+
+/// 一帧 `failed` 响应没有可认领的 `echo`（缺失或 `null`），且 `retcode` 属于配置错误：连接被拒。
+///
+/// NapCat 鉴权失败时发 `OB11Response.res(null, 'failed', 1403, 'token验证失败')` 再断开，
+/// 这个响应的 `echo` 是 `null` 而不是缺失，所以它按动作响应解出来，不会落到事件分支。
+/// 本端发出的动作都带字符串 `echo`，被拒的单个动作由 echo 认领，不在这里。
+pub fn onebot_frame_refuses_connection(echo: &Value, status: &str, retcode: i64) -> bool {
+    !echo.is_string()
+        && status == "failed"
+        && classify_onebot_handshake(None, Some(retcode)) == ConnectFailureKind::Permanent
 }

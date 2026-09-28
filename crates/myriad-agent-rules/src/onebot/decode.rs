@@ -43,6 +43,9 @@ pub fn private_message_is_cq_string(raw: &str) -> bool {
 }
 
 /// 群里的一行。`addressed` 为真表示 @ 了她，或回复了她的消息。
+///
+/// NapCat 的回复段只有 `{id}`，解码时认不出被回复的是不是她。这时 `reply_to` 为空、
+/// `reply_id` 带着那条消息的 id，由工人用 `get_msg` 反查后交给 [`decode_replied_message`]。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OneBotGroupLine {
     pub group_id: String,
@@ -52,6 +55,7 @@ pub struct OneBotGroupLine {
     pub text: String,
     pub addressed: bool,
     pub reply_to: Option<QuotedLine>,
+    pub reply_id: Option<String>,
 }
 
 /// 群消息。频道、`message_sent`、没有文字的行丢掉。`self_id` 用来判断 @ 和回复是不是她。
@@ -78,6 +82,16 @@ pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> 
         return None;
     }
     let reply_to = group_reply(segments, self_id);
+    let reply_id = reply_to
+        .is_none()
+        .then(|| {
+            segments
+                .iter()
+                .find(|segment| segment.kind == "reply")
+                .and_then(|segment| segment.str_field("id"))
+        })
+        .flatten()
+        .filter(|id| !id.trim().is_empty());
     let addressed = addressed || reply_to.as_ref().is_some_and(|line| line.hers);
     let name = event
         .sender
@@ -99,6 +113,44 @@ pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> 
         text,
         addressed,
         reply_to,
+        reply_id,
+    })
+}
+
+/// `get_msg` 的 `data` → 被回复的那一行。形状与消息事件相同；`hers` 看发送者是不是 `self_id`。
+pub fn decode_replied_message(data: &serde_json::Value, self_id: i64) -> Option<QuotedLine> {
+    let message: RawEventJson = serde_json::from_value(data.clone()).ok()?;
+    let sender = message
+        .user_id
+        .or_else(|| message.sender.as_ref().and_then(|sender| sender.user_id))?;
+    let text = match message.message.as_ref() {
+        Some(WireMessage::Array(segments)) => decode_segments_to_text(segments),
+        _ => message.raw_message.clone().unwrap_or_default(),
+    };
+    let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text: String = text.chars().take(160).collect();
+    if text.is_empty() {
+        return None;
+    }
+    let name = message
+        .sender
+        .as_ref()
+        .and_then(|sender| {
+            sender
+                .card
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .or(sender.nickname.as_deref())
+        })
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(40)
+        .collect();
+    Some(QuotedLine {
+        name,
+        text,
+        hers: sender == self_id,
     })
 }
 
@@ -169,20 +221,32 @@ fn decode_images(segments: &[WireSegment]) -> Vec<ChannelImageRef> {
             .str_field("file")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "photo.png".to_string());
+            .unwrap_or_else(|| "photo.jpg".to_string());
         let size = segment
             .i64_field("file_size")
             .filter(|value| *value >= 0)
             .and_then(|value| u64::try_from(value).ok())
             .unwrap_or(0);
+        let mime = image_mime(&name).to_string();
         images.push(ChannelImageRef {
             url,
             name,
-            mime: "image/png".to_string(),
+            mime,
             size,
         });
     }
     images
+}
+
+/// QQ 图片多为 jpg；`file` 带扩展名时按它来，认不出就按 jpg。
+fn image_mime(name: &str) -> &'static str {
+    let ext = name.rsplit_once('.').map_or("", |(_, ext)| ext);
+    match ext.to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        _ => "image/jpeg",
+    }
 }
 
 fn http_url(segment: &WireSegment) -> Option<String> {

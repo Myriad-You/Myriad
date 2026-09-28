@@ -1993,6 +1993,50 @@ mod onebot_wire {
         assert_eq!(full.data["message_id"], 999);
     }
 
+    /// NapCat `OB11Response.createResponse` 的原样成功帧：`message` 与 `wording` 同时出现。
+    /// 解不开它，每个动作都等不到回执，超时后重试会把同一条消息反复发出去。
+    #[test]
+    fn napcat_response_with_message_and_wording_decodes() {
+        let ok = r#"{"status":"ok","retcode":0,"data":{"message_id":-2147480000},"message":"","wording":"","echo":"uuid-2","stream":"normal-action"}"#;
+        let full: RespJson = serde_json::from_str(ok).expect("a NapCat response decodes");
+        assert_eq!(full.status, "ok");
+        assert_eq!(full.retcode, 0);
+        assert_eq!(full.echo, json!("uuid-2"));
+        assert_eq!(full.data["message_id"], -2147480000i64);
+    }
+
+    /// NapCat `websocket-server.ts` 的 `authorize` 原样发出的拒绝帧：`echo` 是 `null`，不是缺失。
+    /// 它按响应解出来，所以拒绝必须在响应分支里认出来，否则 token 写错会被当成断线无限重连。
+    #[test]
+    fn napcat_token_refusal_is_a_response_that_refuses_the_connection() {
+        use myriad_agent_rules::onebot::rules::onebot_frame_refuses_connection;
+        let refusal = r#"{"status":"failed","retcode":1403,"data":null,"message":"token验证失败","wording":"token验证失败","echo":null,"stream":"normal-action"}"#;
+        let inbound: Inbound = serde_json::from_str(refusal).expect("the refusal decodes");
+        let Inbound::Resp(envelope) = inbound else {
+            panic!("`echo: null` is still a response");
+        };
+        let full: RespJson = serde_json::from_str(refusal).expect("full refusal decodes");
+        assert!(onebot_frame_refuses_connection(
+            &envelope.echo,
+            &full.status,
+            full.retcode
+        ));
+
+        // One refused action carries our echo; it fails that action, not the socket.
+        assert!(!onebot_frame_refuses_connection(
+            &json!("uuid-1"),
+            "failed",
+            1403
+        ));
+        // A send failure (NapCat 1200) with no echo is not a credential problem.
+        assert!(!onebot_frame_refuses_connection(
+            &json!(null),
+            "failed",
+            1200
+        ));
+        assert!(!onebot_frame_refuses_connection(&json!(null), "ok", 0));
+    }
+
     /// 站点内全链路是字符串，但 int64 必须先完整保住，不能经浮点。
     #[test]
     fn int64_survives_without_going_through_a_float() {
@@ -2111,6 +2155,65 @@ mod onebot_decode {
         let quoted = line.reply_to.expect("quote");
         assert!(quoted.hers);
         assert_eq!(quoted.text, "上一句");
+        assert!(line.reply_id.is_none());
+    }
+
+    /// NapCat 的回复段只有 `id`（`api/msg.ts` 只写 `data: { id }`）。解码认不出是不是她，
+    /// 只留下 id 给工人用 `get_msg` 反查。
+    #[test]
+    fn napcat_reply_carries_only_an_id_to_look_up() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20002,
+            "message_id": 12,
+            "message": [
+                {"type": "reply", "data": {"id": "-2147480000"}},
+                {"type": "text", "data": {"text": "接着说"}}
+            ]
+        });
+        let line = decode_group_inbound(&raw.to_string(), 10001).expect("reply");
+        assert!(
+            !line.addressed,
+            "an id alone does not say who was replied to"
+        );
+        assert!(line.reply_to.is_none());
+        assert_eq!(line.reply_id.as_deref(), Some("-2147480000"));
+    }
+
+    #[test]
+    fn looked_up_reply_says_whether_it_was_hers() {
+        use myriad_agent_rules::onebot::decode::decode_replied_message;
+        let hers = json!({
+            "self_id": 10001,
+            "user_id": 10001,
+            "message_id": -2147480000,
+            "message_type": "group",
+            "sender": {"user_id": 10001, "nickname": "她", "card": ""},
+            "message": [{"type": "text", "data": {"text": " 上一句 "}}]
+        });
+        let quoted = decode_replied_message(&hers, 10001).expect("quote");
+        assert!(quoted.hers);
+        assert_eq!(quoted.text, "上一句");
+        assert_eq!(quoted.name, "她");
+
+        let someone = json!({
+            "user_id": 20003,
+            "sender": {"user_id": 20003, "nickname": "别人", "card": "群名片"},
+            "message": [{"type": "text", "data": {"text": "别人的话"}}]
+        });
+        let quoted = decode_replied_message(&someone, 10001).expect("quote");
+        assert!(!quoted.hers);
+        assert_eq!(quoted.name, "群名片");
+
+        let cq = json!({"user_id": 10001, "message": "[CQ:face,id=1]", "raw_message": "原文"});
+        assert_eq!(
+            decode_replied_message(&cq, 10001).expect("raw text").text,
+            "原文"
+        );
+        assert!(decode_replied_message(&json!(null), 10001).is_none());
     }
 
     #[test]
@@ -2145,7 +2248,7 @@ mod onebot_decode {
         assert_eq!(inbound.images.len(), 1);
         assert_eq!(inbound.images[0].url, "https://example.com/x.jpg");
         assert_eq!(inbound.images[0].name, "x.jpg");
-        assert_eq!(inbound.images[0].mime, "image/png");
+        assert_eq!(inbound.images[0].mime, "image/jpeg");
         assert_eq!(inbound.images[0].size, 0);
     }
 
@@ -2193,6 +2296,7 @@ mod onebot_decode {
         assert_eq!(inbound.images.len(), CHANNEL_IMAGE_LIMIT);
         assert_eq!(inbound.images[0].url, "https://example.com/0.png");
         assert_eq!(inbound.images[3].name, "p3.png");
+        assert_eq!(inbound.images[3].mime, "image/png");
         assert_eq!(inbound.images[3].size, 3);
     }
 
@@ -2270,9 +2374,8 @@ mod onebot_decode {
 mod onebot_encode {
     use myriad_agent_rules::channel::CHANNEL_IMAGE_LIMIT;
     use myriad_agent_rules::onebot::encode::{
-        encode_group_message, encode_image_segment, encode_markdown_segment,
-        encode_private_message, encode_text_segment, encode_typing, plan_private_delivery,
-        render_result_markdown,
+        encode_get_msg, encode_group_message, encode_image_segment, encode_private_message,
+        encode_text_segment, encode_typing, plan_private_delivery,
     };
     use serde_json::json;
 
@@ -2289,14 +2392,6 @@ mod onebot_encode {
         let segment = encode_image_segment("https://example.com/a.png");
         assert_eq!(segment["data"]["file"], json!("https://example.com/a.png"));
         assert!(segment["data"].get("url").is_none());
-    }
-
-    #[test]
-    fn markdown_segment_has_the_exact_wire_shape() {
-        assert_eq!(
-            encode_markdown_segment("# hi"),
-            json!({"type":"markdown","data":{"content":"# hi"}})
-        );
     }
 
     #[test]
@@ -2352,7 +2447,7 @@ mod onebot_encode {
 
     #[test]
     fn plain_text_plan_sends_one_text_segment() {
-        let payload = plan_private_delivery("10001", "hi", &[], false).expect("text");
+        let payload = plan_private_delivery("10001", "hi", &[]).expect("text");
         assert_eq!(
             payload["params"]["message"],
             json!([{"type":"text","data":{"text":"hi"}}])
@@ -2370,17 +2465,23 @@ mod onebot_encode {
     }
 
     #[test]
-    fn markdown_plan_sends_a_markdown_segment() {
-        let payload = plan_private_delivery("10001", "# hi", &[], true).expect("markdown");
-        assert_eq!(
-            payload["params"]["message"],
-            json!([{"type":"markdown","data":{"content":"# hi"}}])
-        );
+    fn markdown_looking_text_still_goes_out_as_a_text_segment() {
+        let payload = plan_private_delivery("10001", "| a |\n| --- |", &[]).expect("text");
+        assert_eq!(payload["params"]["message"][0]["type"], "text");
+    }
+
+    #[test]
+    fn get_msg_looks_up_a_reply_id() {
+        let payload = encode_get_msg("-2147480000").expect("lookup");
+        assert_eq!(payload["action"], "get_msg");
+        assert_eq!(payload["params"]["message_id"], -2147480000i64);
+        assert!(payload.get("echo").is_none());
+        assert!(encode_get_msg("abc").is_none());
     }
 
     #[test]
     fn empty_text_with_no_images_returns_none() {
-        assert!(plan_private_delivery("10001", "", &[], false).is_none());
+        assert!(plan_private_delivery("10001", "", &[]).is_none());
     }
 
     #[test]
@@ -2389,7 +2490,7 @@ mod onebot_encode {
             "https://example.com/a.png".to_string(),
             "https://example.com/b.png".to_string(),
         ];
-        let payload = plan_private_delivery("10001", "hi", &urls, false).expect("mixed");
+        let payload = plan_private_delivery("10001", "hi", &urls).expect("mixed");
         let message = payload["params"]["message"].as_array().expect("array");
         assert_eq!(message.len(), 3);
         assert_eq!(message[0]["type"], "text");
@@ -2403,7 +2504,7 @@ mod onebot_encode {
         let urls: Vec<String> = (0..6)
             .map(|index| format!("https://example.com/{index}.png"))
             .collect();
-        let payload = plan_private_delivery("10001", "", &urls, false).expect("images");
+        let payload = plan_private_delivery("10001", "", &urls).expect("images");
         let message = payload["params"]["message"].as_array().expect("array");
         assert_eq!(message.len(), CHANNEL_IMAGE_LIMIT);
         assert_eq!(message.len(), 4);
@@ -2413,47 +2514,7 @@ mod onebot_encode {
 
     #[test]
     fn whitespace_only_text_is_treated_as_empty() {
-        assert!(plan_private_delivery("10001", "   ", &[], false).is_none());
-    }
-
-    #[test]
-    fn table_result_becomes_a_markdown_table_not_colon_text() {
-        let data = json!([{"name": "A"}]);
-        let display = json!({
-            "type": "table",
-            "columns": [{"field": "name", "title": "名称"}]
-        });
-        let markdown =
-            render_result_markdown("查到了", Some(&data), Some(&display)).expect("table markdown");
-        assert!(markdown.starts_with("查到了\n\n"));
-        assert!(markdown.contains("| 名称 |"));
-        assert!(markdown.contains("| --- |"));
-        assert!(markdown.contains("| A |"));
-        assert!(!markdown.contains('：'));
-        let payload = plan_private_delivery("10001", &markdown, &[], true).expect("delivery");
-        assert_eq!(payload["params"]["message"][0]["type"], "markdown");
-    }
-
-    #[test]
-    fn markdown_only_display_without_body_does_not_render() {
-        let display = json!({"type": "markdown"});
-        assert!(render_result_markdown("", None, Some(&display)).is_none());
-        assert!(render_result_markdown("", Some(&json!("  ")), Some(&display)).is_none());
-    }
-
-    #[test]
-    fn chart_result_becomes_a_two_column_markdown_table() {
-        let data = json!([{"month": "1月", "value": 3}]);
-        let display = json!({
-            "type": "chart",
-            "chartType": "bar",
-            "xField": "month",
-            "yField": "value"
-        });
-        let markdown = render_result_markdown("", Some(&data), Some(&display)).expect("chart");
-        assert!(markdown.contains("| month | value |"));
-        assert!(markdown.contains("| 1月 | 3 |"));
-        assert!(!markdown.contains('：'));
+        assert!(plan_private_delivery("10001", "   ", &[]).is_none());
     }
 }
 
@@ -2486,7 +2547,7 @@ mod onebot_rules {
     }
 
     #[test]
-    fn onebot_capabilities_open_text_media_markdown_but_not_edit() {
+    fn onebot_capabilities_open_text_and_media_but_not_markdown_or_edit() {
         let caps = onebot_private_capabilities();
         assert!(caps.inbound_text);
         assert!(caps.inbound_media);

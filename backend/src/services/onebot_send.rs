@@ -13,7 +13,6 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use myriad_agent_rules::channel::ConnectFailureKind;
-use myriad_agent_rules::onebot::rules::classify_onebot_handshake;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, oneshot};
 use uuid::Uuid;
@@ -24,9 +23,19 @@ type WriteFn = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
 /// this one action. `Err` is retryable and never closes the socket.
 type ActionResult = Result<Option<ConnectFailureKind>, String>;
 
+/// The response frame that answered one echo, or why none will come.
+type Reply = Result<ActionReply, String>;
+
+#[derive(Debug)]
+struct ActionReply {
+    status: String,
+    retcode: i64,
+    data: Value,
+}
+
 struct Live {
     write: WriteFn,
-    pending: HashMap<String, oneshot::Sender<ActionResult>>,
+    pending: HashMap<String, oneshot::Sender<Reply>>,
 }
 
 static SLOT: OnceLock<Mutex<Option<Live>>> = OnceLock::new();
@@ -65,12 +74,28 @@ fn fail_all(live: Live, reason: &str) {
 
 /// Send one action and wait for its `echo`.
 ///
-/// `Ok(Some(Permanent))` is a refusal of this one action (`retcode`
-/// 1400..=1404). `Ok(None)` means the action was accepted. A missing socket,
-/// a write failure, a timeout, a close, or any other retcode is `Err`:
-/// retryable, and it does not close the socket. A handshake refusal has no
-/// echo and is classified by the worker.
-pub async fn send_action(mut action: Value) -> ActionResult {
+/// `Ok(None)` means the action was accepted. `Ok(Some(Permanent))` means
+/// NapCat answered `failed`: it tried this action and refused it. A missing
+/// socket, a write failure, a timeout, or a close is `Err`: retryable, and it
+/// does not close the socket. A handshake refusal has no echo and is
+/// classified by the worker.
+pub async fn send_action(action: Value) -> ActionResult {
+    exchange(action)
+        .await
+        .and_then(|reply| action_result(&reply.status, reply.retcode))
+}
+
+/// Send one query action and return its `data` when it succeeds.
+pub async fn call_action(action: Value) -> Result<Value, String> {
+    let reply = exchange(action).await?;
+    match action_result(&reply.status, reply.retcode) {
+        Ok(None) => Ok(reply.data),
+        Ok(Some(_)) => Err(format!("onebot action refused: {}", reply.retcode)),
+        Err(error) => Err(error),
+    }
+}
+
+async fn exchange(mut action: Value) -> Reply {
     let echo = Uuid::new_v4().to_string();
     if let Some(object) = action.as_object_mut() {
         object.insert("echo".into(), json!(echo));
@@ -99,24 +124,26 @@ pub async fn send_action(mut action: Value) -> ActionResult {
 }
 
 fn action_result(status: &str, retcode: i64) -> ActionResult {
-    // OneBot: `ok` / `async` (retcode 1) means accepted. `failed` with retcode 1
-    // is still a failure. retcode 0 is success even when status is omitted.
+    // OneBot: `ok` / `async` (retcode 1) means accepted. retcode 0 is success
+    // even when status is omitted.
     if status == "ok" || status == "async" || retcode == 0 {
         return Ok(None);
     }
-    let kind = classify_onebot_handshake(None, Some(retcode));
-    if kind == ConnectFailureKind::Permanent {
-        Ok(Some(ConnectFailureKind::Permanent))
-    } else {
-        Err(format!("onebot action failed: {retcode}"))
+    // NapCat answers `failed` with 1400 for bad params and 1200 for anything the
+    // action threw: not a friend, risk control, a file it cannot read. Retrying
+    // the same item cannot change that, and a retried item holds the session's
+    // outbox until it expires. Only a missing answer is worth retrying.
+    if status == "failed" {
+        return Ok(Some(ConnectFailureKind::Permanent));
     }
+    Err(format!("onebot action returned {status}: {retcode}"))
 }
 
 /// Finish the action whose `echo` came back.
 ///
 /// A matched echo never closes the socket. A handshake refusal has no echo
 /// and is classified by the worker, not here.
-pub async fn complete_echo(echo: &Value, status: &str, retcode: i64) {
+pub async fn complete_echo(echo: &Value, status: &str, retcode: i64, data: Value) {
     let Some(key) = echo.as_str() else {
         return;
     };
@@ -127,7 +154,11 @@ pub async fn complete_echo(echo: &Value, status: &str, retcode: i64) {
     let Some(sender) = live.pending.remove(key) else {
         return;
     };
-    let _ = sender.send(action_result(status, retcode));
+    let _ = sender.send(Ok(ActionReply {
+        status: status.to_string(),
+        retcode,
+        data,
+    }));
 }
 
 #[cfg(test)]
@@ -165,7 +196,7 @@ mod tests {
 
         let send = tokio::spawn(async { send_action(json!({"action": "send_private_msg"})).await });
         let echo = wait_for_echo(&seen).await;
-        complete_echo(&json!(echo), "ok", 0).await;
+        complete_echo(&json!(echo), "ok", 0, Value::Null).await;
         assert_eq!(send.await.expect("join"), Ok(None));
 
         let pending =
@@ -177,7 +208,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn async_status_is_accepted_and_failed_retcode_one_is_not() {
+    async fn async_status_is_accepted_and_a_failed_answer_is_a_refusal() {
         let _lock = test_lock().lock().await;
         clear().await;
         install(Arc::new(|_| Ok(()))).await;
@@ -195,7 +226,7 @@ mod tests {
                 .cloned()
                 .expect("echo")
         };
-        complete_echo(&json!(echo), "async", 1).await;
+        complete_echo(&json!(echo), "async", 1, Value::Null).await;
         assert_eq!(accepted.await.expect("join"), Ok(None));
 
         let refused =
@@ -212,8 +243,12 @@ mod tests {
                 .cloned()
                 .expect("echo")
         };
-        complete_echo(&json!(echo), "failed", 1).await;
-        assert!(refused.await.expect("join").is_err());
+        // NapCat's catch-all for a thrown action. Retrying would pin the outbox.
+        complete_echo(&json!(echo), "failed", 1200, Value::Null).await;
+        assert_eq!(
+            refused.await.expect("join"),
+            Ok(Some(ConnectFailureKind::Permanent))
+        );
         clear().await;
     }
 
@@ -235,7 +270,7 @@ mod tests {
                 .cloned()
                 .expect("echo");
             drop(guard);
-            complete_echo(&json!(echo), "failed", 1403).await;
+            complete_echo(&json!(echo), "failed", 1403, Value::Null).await;
         }
         assert_eq!(
             send.await.expect("join"),

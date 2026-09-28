@@ -228,12 +228,9 @@ impl ChannelTransport {
             Self::OneBot { user_id } => {
                 // NapCat cannot send a top-level markdown segment on a normal QQ
                 // account. Tables stay readable as plain text.
-                let Some(action) = myriad_agent_rules::onebot::encode::plan_private_delivery(
-                    user_id,
-                    chunk,
-                    &[],
-                    false,
-                ) else {
+                let Some(action) =
+                    myriad_agent_rules::onebot::encode::plan_private_delivery(user_id, chunk, &[])
+                else {
                     return Ok(());
                 };
                 map_onebot_send(crate::services::onebot_send::send_action(action).await)
@@ -298,11 +295,17 @@ impl ChannelTransport {
             .await
             .map_err(SendError::from),
             Self::OneBot { user_id } => {
+                // NapCat fetches a `file` URL itself and cannot reach a site-relative
+                // image-cache path. Send the bytes already read, as other platforms do.
+                use base64::Engine as _;
+                let inline = format!(
+                    "base64://{}",
+                    base64::engine::general_purpose::STANDARD.encode(&image.bytes)
+                );
                 let Some(action) = myriad_agent_rules::onebot::encode::plan_private_delivery(
                     user_id,
                     "",
-                    &[url.to_string()],
-                    false,
+                    &[inline],
                 ) else {
                     return Ok(());
                 };
