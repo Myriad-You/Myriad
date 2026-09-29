@@ -62,6 +62,9 @@ Write what you found out and what you make of it, in your own words, never a cop
 const THOUGHT_OVER: &str = "You thought it over from what you already know, without looking anything up; the material is what you thought. \
 Write what you make of it now, in your own words, as a thought of your own, not as something you just found out. ";
 
+/// What she heard lately that she goes over at night with what she did.
+const HEARD_WONDERED: u64 = 12;
+
 pub async fn open(db: &DatabaseConnection) -> Vec<Question> {
     unified::own_rows(db, QUESTION, OPEN_MAX as u64 * 2)
         .await
@@ -146,7 +149,27 @@ pub async fn wonder(db: &DatabaseConnection, owner: i32) {
     if !senses::available().await.search {
         return;
     }
-    let (records, _) = super::self_story::records(db, now - chrono::Duration::days(7)).await;
+    let week_ago = now - chrono::Duration::days(7);
+    let (mut records, _) = super::self_story::records(db, week_ago).await;
+    // What people brought up where she was (a game someone recommended, a
+    // piece of news) is hers to wonder about too: what others put her onto
+    // is much of how anyone comes to new things. Heard is about things, with
+    // no one named.
+    for row in unified::own_rows(db, super::heard::SOURCE, HEARD_WONDERED)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| row.created_at >= week_ago)
+        .rev()
+    {
+        let id = format!("r{}", records.len() + 1);
+        records.push(super::self_story::Record {
+            id,
+            row: row.id,
+            line: format!("you heard: {}", row.content),
+            missed: false,
+        });
+    }
     if records.is_empty() {
         return;
     }
@@ -631,6 +654,23 @@ mod tests {
         let kept = checked_questions(wondered, &records, &[]);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].2, vec!["row1"]);
+        // Something heard where she was grows questions as what she did does.
+        let mut records = records;
+        records.push(super::super::self_story::Record {
+            id: "r3".into(),
+            row: "heard1".into(),
+            line: "you heard: 有人推荐《Outer Wilds》，说最好别看攻略".into(),
+            missed: false,
+        });
+        let wondered: Wondered = serde_json::from_value(json!({ "questions": [
+            { "question": "《Outer Wilds》为什么都说别看攻略？", "why": "听人说起，挺好奇", "cites": ["r3"] }
+        ]}))
+        .unwrap();
+        assert_eq!(
+            checked_questions(wondered, &records, &[])[0].2,
+            vec!["heard1"]
+        );
+        assert!(wonder_system("你是小灯。").contains("you heard"));
     }
 }
 
