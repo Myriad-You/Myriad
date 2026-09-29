@@ -124,6 +124,13 @@ pub async fn tick(db: DatabaseConnection) {
     if !free_to_start(now) {
         return;
     }
+    // Asleep, she does nothing of her own; she looks again when she wakes.
+    if let Some(wakes_in) = super::timing::asleep_now() {
+        if let Ok(mut life) = LIFE.lock() {
+            life.next_at = Some(now + chrono::Duration::seconds(wakes_in as i64));
+        }
+        return;
+    }
     let chosen = tokio::time::timeout(Duration::from_secs(120), choose(&db, owner))
         .await
         .unwrap_or(Err(None));

@@ -7,21 +7,25 @@ use std::time::Duration;
 use chrono::{Datelike, Timelike};
 use myriad_merope::timing::{self, Where};
 
+/// Seconds until she wakes, if she is asleep now: one night for all of her,
+/// in chat apps and in her own time alike.
+pub fn asleep_now() -> Option<f64> {
+    let local = chrono::Local::now();
+    // A night is the date she went to bed: before noon, yesterday's.
+    let date = if local.hour() < 12 {
+        local.date_naive() - chrono::Duration::days(1)
+    } else {
+        local.date_naive()
+    };
+    let night = u64::try_from(date.num_days_from_ce()).unwrap_or_default();
+    timing::asleep_for(night, local.hour() * 60 + local.minute())
+}
+
 /// What she is doing as a message comes: asleep (where `may_sleep`),
 /// talking there just now, in the middle of something of her own, or free.
 pub fn where_she_is(in_talk: bool, may_sleep: bool) -> Where {
-    let local = chrono::Local::now();
-    if may_sleep {
-        // A night is the date she went to bed: before noon, yesterday's.
-        let date = if local.hour() < 12 {
-            local.date_naive() - chrono::Duration::days(1)
-        } else {
-            local.date_naive()
-        };
-        let night = u64::try_from(date.num_days_from_ce()).unwrap_or_default();
-        if let Some(wakes_in) = timing::asleep_for(night, local.hour() * 60 + local.minute()) {
-            return Where::Asleep { wakes_in };
-        }
+    if may_sleep && let Some(wakes_in) = asleep_now() {
+        return Where::Asleep { wakes_in };
     }
     if in_talk {
         return Where::InTalk;
