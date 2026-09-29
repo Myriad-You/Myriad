@@ -1,9 +1,11 @@
+import type { HeadTurn, HeadTurnFeature, HeadTurnOffset } from './headTurn'
 import type {
   Anime25DPlaybackLayer,
   Anime25DShellCurvePoint,
   Anime25DShellEllipsoid,
   Anime25DShellProfile,
 } from './types'
+import { headTurnOffset, moveHeadFeature } from './headTurn'
 
 export type Anime25DShellMode = 'head' | 'front-hair' | 'back-hair'
 
@@ -169,6 +171,8 @@ export function deformAnime25DShellPoint(
   profile: Readonly<Anime25DShellProfile>,
   rotation: Readonly<Anime25DShellRotation>,
   depth: number,
+  turn?: Readonly<HeadTurn>,
+  feature?: Readonly<HeadTurnFeature> | null,
 ): void {
   if (!profile.enabled || profile.blend <= 0 || !rotation.active) {
     return
@@ -193,24 +197,40 @@ export function deformAnime25DShellPoint(
     const rearDepth = -profile.hair.backDepth * radialDepth - 0.05
     const frontDepth = profile.hair.frontBulge * radialDepth + profile.hair.frontGap
     normalizedDepth = rearDepth * (1 - crownSurface) + frontDepth * crownSurface
-  } else if (profile.faceProfile.enabled) {
+  } else {
     // Eye/jaw geometry has already moved locally. Depth is a field on that
     // resulting face, not a different field for each vertex's original row.
-    const vertical =
-      (point.y - profile.faceProfile.startY) /
-      Math.max(1, profile.faceProfile.endY - profile.faceProfile.startY)
-    const profileDepth = evaluateCurve(profile.faceProfile.points, vertical)
-    const profileWidth = Math.max(1, profile.head.radiusX * 0.34)
-    const profileX = (point.x - profile.head.centerX) / profileWidth
-    normalizedDepth =
-      radialDepth +
-      profileDepth * Math.exp(-(profileX * profileX)) +
-      depthOffset * 0.55
-  } else {
-    normalizedDepth = radialDepth + depthOffset * 0.55
+    normalizedDepth = radialDepth + faceRelief(point.x, point.y, profile, depthOffset)
   }
 
   const shellX = point.x
+  // With the drawn outline to turn on, the head is a ball turning under it;
+  // the ellipsoid only stands in when there is no outline to read.
+  if (turn?.silhouette) {
+    if (mode === 'head' && feature) {
+      moveHeadFeature(
+        turn,
+        point,
+        feature,
+        faceRelief(feature.centerX, feature.centerY, profile, depthOffset) * ellipsoid.radiusZ,
+      )
+      return
+    }
+    headTurnOffset(
+      turn,
+      point.x,
+      point.y,
+      mode === 'head' ? 'skin' : mode,
+      mode === 'head'
+        ? (normalizedDepth - radialDepth) * ellipsoid.radiusZ
+        : profile.hair.frontGap * ellipsoid.radiusZ,
+      crownSurface,
+      TURN_OFFSET,
+    )
+    point.x += TURN_OFFSET.x
+    point.y += TURN_OFFSET.y
+    return
+  }
   applyProjectionDelta(point, ellipsoid, normalizedDepth, rotation)
 
   // A pinned root keeps the coiffure's depth and follows the same head rotation.
@@ -234,6 +254,25 @@ export function deformAnime25DShellPoint(
     point.x += (crownX - point.x) * crownMix
     point.y += (crownY - point.y) * crownMix
   }
+}
+
+const TURN_OFFSET: HeadTurnOffset = { x: 0, y: 0 }
+
+/** How far the face stands off its ellipsoid here (nose, brow), in its depth radii. */
+function faceRelief(
+  x: number,
+  y: number,
+  profile: Readonly<Anime25DShellProfile>,
+  depthOffset: number,
+): number {
+  if (!profile.faceProfile.enabled) return depthOffset * 0.55
+  const vertical =
+    (y - profile.faceProfile.startY) /
+    Math.max(1, profile.faceProfile.endY - profile.faceProfile.startY)
+  const profileDepth = evaluateCurve(profile.faceProfile.points, vertical)
+  const profileWidth = Math.max(1, profile.head.radiusX * 0.34)
+  const profileX = (x - profile.head.centerX) / profileWidth
+  return profileDepth * Math.exp(-(profileX * profileX)) + depthOffset * 0.55
 }
 
 function applyProjectionDelta(

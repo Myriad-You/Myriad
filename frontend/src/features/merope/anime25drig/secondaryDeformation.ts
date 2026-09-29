@@ -1,6 +1,7 @@
 import type { ArmRig, ArmRigMesh } from './armRig'
 import type { ChestSpatialField } from './chestPhysics'
 import type { Anime25DDriver } from './driver'
+import type { HeadTurn, HeadTurnFeature } from './headTurn'
 import type { Anime25DLayerSpringBinding } from './layerBinding'
 import type { BoundPoseCorrection } from './poseCorrections'
 import type {
@@ -27,6 +28,7 @@ import {
   FRONT_COLLAR_HEAD_FOLLOW,
   FRONT_COLLAR_INNER_REGION,
 } from './collarRuntime'
+import { HEAD_TURN_SHARE } from './headTurn'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint } from './shellDeformation'
@@ -102,6 +104,8 @@ export interface Anime25DSecondaryDeformationFrame {
   shellBlend: number
   shellActivation: number
   shellRotation: Readonly<Anime25DShellRotation>
+  /** Turns and nods the head on its drawn outline; without one the ellipsoid does. */
+  headTurn?: Readonly<HeadTurn>
   torsoProfile: Readonly<Anime25DTorsoShellProfile>
   torsoChestShape: Anime25DTorsoChestShape | null
   torsoShellBlend: number
@@ -126,6 +130,7 @@ export interface Anime25DSecondaryDeformationBinding {
   handwear: boolean
   handwearSide: Anime25DPlaybackLayer['side']
   handwearAnchorX: number
+  turnFeature?: HeadTurnFeature | null
   arm: ArmRig | null
   armMesh: ArmRigMesh | null
   frontHair: boolean
@@ -165,6 +170,8 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   armMesh?: ArmRigMesh | null
   /** A shared torso carry point for arms that move as one piece. */
   handwearAnchorX?: number
+  /** The drawn feature this layer belongs to; it turns with the head as one piece. */
+  turnFeature?: HeadTurnFeature | null
 }): Anime25DSecondaryDeformationBinding {
   return {
     ...input,
@@ -324,14 +331,18 @@ export function deformAnime25DSecondaryPoint(
           frame.shellProfile,
           frame.shellRotation,
           surfaceDepth,
+          frame.headTurn,
+          binding.turnFeature,
         )
         if (binding.poseCorrections) applyPoseCorrections(point, vertex, binding.poseCorrections)
         const shellX = point.x - frame.neckPivotX
         const shellY = point.y - frame.neckPivotY
         point.x += (shellX * rollCosine - shellY * rollSine - shellX) * headFollow
         point.y += (shellX * rollSine + shellY * rollCosine - shellY) * headFollow
-        point.x = legacyX + (point.x - legacyX) * frame.shellBlend
-        point.y = legacyY + (point.y - legacyY) * frame.shellBlend
+        // A head turning on its outline is all ball: none of the flat card slide.
+        const turnBlend = frame.headTurn?.silhouette ? frame.shellActivation * HEAD_TURN_SHARE : frame.shellBlend
+        point.x = legacyX + (point.x - legacyX) * turnBlend
+        point.y = legacyY + (point.y - legacyY) * turnBlend
       } else {
         point.x = legacyX
         point.y = legacyY
