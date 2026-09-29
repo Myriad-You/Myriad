@@ -1264,9 +1264,13 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
             }
         }
         "memory" => {
-            let Some(update) =
-                memory::parse_chat_memory_update(output, &case.input, &case.remembered)
-            else {
+            let Some(update) = memory::parse_chat_memory_updates(
+                output,
+                &case.input,
+                &case.reply,
+                &case.remembered,
+            )
+            .map(|updates| updates.combined()) else {
                 return "output_invalid";
             };
             let mut actual = update.supersedes;
@@ -2203,12 +2207,14 @@ fn semantic_grader_does_not_turn_transport_or_keyword_matches_into_success() {
         grade(
             correction,
             "returned",
-            r#"{"fact":null,"supersedes":[],"evidence":null,"concepts":[]}"#
+            r#"{"facts":[],"supersedes":[],"supersedesEvidence":null,"said":[]}"#
         ),
         "behavior_failure"
     );
     // Same keywords, wrong negation: never an automatic semantic pass.
-    let wrong = json!({"fact":"现在喜欢咖啡，不喝茉莉花茶","supersedes":["喜欢咖啡"],"evidence":correction.input,"concepts":[]}).to_string();
+    let wrong = json!({"facts":[{"fact":"现在喜欢咖啡，不喝茉莉花茶","evidence":correction.input,"concepts":[]}],
+        "supersedes":["喜欢咖啡"],"supersedesEvidence":correction.input,"said":[]})
+    .to_string();
     assert_eq!(grade(correction, "returned", &wrong), "needs_review");
     assert_eq!(
         reviewed_grade(
@@ -2416,7 +2422,7 @@ fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
 fn empty_memory_and_event_actions_are_checked_without_a_text_judge() {
     let cases = cases();
     let quoted = cases.iter().find(|c| c.id == "memory-quote").unwrap();
-    let empty = r#"{"fact":null,"supersedes":[],"evidence":null,"concepts":[]}"#;
+    let empty = r#"{"facts":[],"supersedes":[],"supersedesEvidence":null,"said":[]}"#;
     assert_eq!(grade(quoted, "returned", empty), "pass");
     let unrelated = cases.iter().find(|c| c.id == "event-irrelevant").unwrap();
     let ignore = json!({"action":"ignore","reason_code":"no_change","confidence":0.9,

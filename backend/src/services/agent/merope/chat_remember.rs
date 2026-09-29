@@ -46,7 +46,7 @@ fn memory_user_text(text: &str) -> Option<String> {
 
 /// One bounded interpretation of the user's own assertion. Targets are exact
 /// recalled facts, never free-form selectors or model-generated database ids.
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ChatMemoryUpdate {
     pub fact: Option<String>,
@@ -54,6 +54,106 @@ pub struct ChatMemoryUpdate {
     pub evidence: Option<String>,
     /// What `fact` is about, for recall to find it by other names.
     pub concepts: Vec<crate::services::agent::memory::unified::Concept>,
+}
+
+/// Something she told them that she would remember having said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Said {
+    pub said: String,
+    pub evidence: String,
+}
+
+/// What one message leaves her: single updates applied in order (a
+/// withdrawal first, then each new fact), and what she said worth keeping.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ChatMemoryUpdates {
+    pub updates: Vec<ChatMemoryUpdate>,
+    pub said: Vec<Said>,
+}
+
+#[cfg(test)]
+impl ChatMemoryUpdates {
+    /// Seen as one update, for checks written against one: its first new
+    /// fact, and everything it withdraws.
+    pub fn combined(&self) -> ChatMemoryUpdate {
+        ChatMemoryUpdate {
+            fact: self.updates.iter().find_map(|update| update.fact.clone()),
+            supersedes: self
+                .updates
+                .iter()
+                .flat_map(|update| update.supersedes.iter().cloned())
+                .collect(),
+            evidence: None,
+            concepts: Vec::new(),
+        }
+    }
+}
+
+/// The extraction's answer (see `extract_schema`), each part held to the
+/// same checks as a single update; `reply` is what her said-lines must
+/// quote. None when the answer is malformed as a whole.
+pub fn parse_chat_memory_updates(
+    raw: &str,
+    user_text: &str,
+    reply: &str,
+    existing: &[String],
+) -> Option<ChatMemoryUpdates> {
+    let value: serde_json::Value = serde_json::from_str(strip_json_fence(raw)).ok()?;
+    let facts = value.get("facts")?.as_array()?;
+    let supersedes = value.get("supersedes")?.as_array()?;
+    let said = value.get("said")?.as_array()?;
+    let mut out = ChatMemoryUpdates::default();
+    // A withdrawal or correction of what she knew comes first, on its own.
+    if !supersedes.is_empty() {
+        let single = serde_json::json!({
+            "fact": null,
+            "supersedes": supersedes,
+            "evidence": value.get("supersedesEvidence").cloned().unwrap_or_default(),
+            "concepts": [],
+        });
+        out.updates.push(parse_chat_memory_update(
+            &single.to_string(),
+            user_text,
+            existing,
+        )?);
+    }
+    for fact in facts.iter().take(myriad_merope::chat_remember::MAX_FACTS) {
+        let single = serde_json::json!({
+            "fact": fact.get("fact"),
+            "supersedes": [],
+            "evidence": fact.get("evidence"),
+            "concepts": fact.get("concepts").cloned().unwrap_or_else(|| serde_json::json!([])),
+        });
+        // One fact that does not hold up does not take the others with it.
+        if let Some(update) = parse_chat_memory_update(&single.to_string(), user_text, existing)
+            && update.fact.is_some()
+            && !out.updates.iter().any(|kept| kept.fact == update.fact)
+        {
+            out.updates.push(update);
+        }
+    }
+    for item in said.iter().take(myriad_merope::chat_remember::MAX_SAID) {
+        let (Some(line), Some(evidence)) = (
+            item.get("said").and_then(serde_json::Value::as_str),
+            item.get("evidence").and_then(serde_json::Value::as_str),
+        ) else {
+            continue;
+        };
+        let line = compact_summary(line);
+        let evidence = evidence.trim();
+        if line.is_empty()
+            || line.chars().count() > 200
+            || evidence.chars().filter(|ch| ch.is_alphanumeric()).count() < 2
+            || !reply.contains(evidence)
+        {
+            continue;
+        }
+        out.said.push(Said {
+            said: line,
+            evidence: evidence.to_string(),
+        });
+    }
+    Some(out)
 }
 
 pub fn parse_chat_memory_update(
@@ -157,7 +257,7 @@ pub async fn enqueue_chat_remember(
 
 /// What the extraction reads: their words, her reply, and what surrounded
 /// them. Only what they said in `userText` may become a fact.
-fn extract_input(
+pub(super) fn extract_input(
     user_text: &str,
     reply: &str,
     turn: &super::TurnContext,
@@ -220,9 +320,12 @@ pub(super) async fn extract(
             &extract_schema(),
         )
         .await?;
-    let update = parse_chat_memory_update(&raw, user_text, &existing)
+    let updates = parse_chat_memory_updates(&raw, user_text, reply, &existing)
         .ok_or(super::call::Failure::InvalidOutput)?;
-    Ok(Effect::Chat(update))
+    if updates.updates.is_empty() && updates.said.is_empty() {
+        return Ok(Effect::NoChange);
+    }
+    Ok(Effect::Chat(updates))
 }
 
 #[cfg(test)]
@@ -243,6 +346,72 @@ pub(crate) fn probe_input(user_text: &str, reply: &str, turn: &super::TurnContex
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn one_message_can_leave_several_facts_and_what_she_said() {
+        let user = "上周五把自行车修好了，下周二车要去保养。对了我换工作了";
+        let reply = "修好就好！我推荐你试试「夜航」这首歌，下班路上听。";
+        let raw = serde_json::json!({
+            "facts": [
+                {"fact": "2026-09-19 把自行车修好了", "evidence": "上周五把自行车修好了", "concepts": []},
+                {"fact": "2026-09-30 车要去保养", "evidence": "下周二车要去保养", "concepts": []},
+                // Not what they said: dropped, the others stay.
+                {"fact": "他很喜欢骑车", "evidence": "我喜欢骑车", "concepts": []},
+                {"fact": "换了工作", "evidence": "我换工作了", "concepts": []}
+            ],
+            "supersedes": ["在银行上班"],
+            "supersedesEvidence": "我换工作了",
+            "said": [
+                {"said": "我推荐了「夜航」这首歌", "evidence": "我推荐你试试「夜航」这首歌"},
+                {"said": "我说过要陪他跑步", "evidence": "陪你跑步"}
+            ]
+        })
+        .to_string();
+        let updates = parse_chat_memory_updates(&raw, user, reply, &["在银行上班".into()]).unwrap();
+        // The withdrawal first, then each fact that holds up.
+        assert_eq!(
+            updates.updates[0].supersedes,
+            vec!["在银行上班".to_string()]
+        );
+        assert_eq!(updates.updates[0].fact, None);
+        let facts: Vec<&str> = updates.updates[1..]
+            .iter()
+            .filter_map(|update| update.fact.as_deref())
+            .collect();
+        assert_eq!(
+            facts,
+            [
+                "2026-09-19 把自行车修好了",
+                "2026-09-30 车要去保养",
+                "换了工作"
+            ]
+        );
+        // What she said is kept only when her reply says it.
+        assert_eq!(updates.said.len(), 1);
+        assert_eq!(updates.said[0].said, "我推荐了「夜航」这首歌");
+        assert_eq!(
+            updates.combined().supersedes,
+            vec!["在银行上班".to_string()]
+        );
+        assert_eq!(
+            updates.combined().fact.as_deref(),
+            Some("2026-09-19 把自行车修好了")
+        );
+        // Nothing to keep is an empty answer, not an invalid one.
+        let nothing = r#"{"facts":[],"supersedes":[],"supersedesEvidence":null,"said":[]}"#;
+        assert_eq!(
+            parse_chat_memory_updates(nothing, user, reply, &[]),
+            Some(ChatMemoryUpdates::default())
+        );
+        assert_eq!(
+            parse_chat_memory_updates(r#"{"fact":null}"#, user, reply, &[]),
+            None
+        );
+        // A withdrawal of something she never knew spoils the whole answer.
+        let unknown =
+            r#"{"facts":[],"supersedes":["从没记过"],"supersedesEvidence":"我换工作了","said":[]}"#;
+        assert_eq!(parse_chat_memory_updates(unknown, user, reply, &[]), None);
+    }
+
     use super::*;
 
     #[test]

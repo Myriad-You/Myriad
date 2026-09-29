@@ -44,12 +44,17 @@ async fn chat(db: &DatabaseConnection, id: &str, audience: Audience) {
     .unwrap();
 }
 fn fact() -> Effect {
-    Effect::Chat(ChatMemoryUpdate {
-        fact: Some("养了一只猫叫年糕".into()),
-        supersedes: vec![],
-        evidence: Some("我养了一只猫叫年糕".into()),
-        concepts: vec![],
-    })
+    Effect::Chat(
+        crate::services::agent::merope::chat_remember::ChatMemoryUpdates {
+            updates: vec![ChatMemoryUpdate {
+                fact: Some("养了一只猫叫年糕".into()),
+                supersedes: vec![],
+                evidence: Some("我养了一只猫叫年糕".into()),
+                concepts: vec![],
+            }],
+            said: vec![],
+        },
+    )
 }
 async fn loaded(db: &DatabaseConnection, id: &str) -> Job {
     registry::get(db, NAMESPACE, id).await.unwrap().unwrap()

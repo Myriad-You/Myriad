@@ -347,7 +347,7 @@ pub(in crate::services::agent::merope) async fn finish(
                     else {
                         anyhow::bail!("wrong memory job kind");
                     };
-                    if super::apply_chat_memory_update_on(
+                    if super::apply_chat_memory_updates_on(
                         &tx, job.owner, *input_at, &update, present,
                     )
                     .await?

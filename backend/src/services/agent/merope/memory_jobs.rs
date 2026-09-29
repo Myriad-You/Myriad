@@ -21,7 +21,7 @@ pub(super) enum Payload {
     },
 }
 pub(super) enum Effect {
-    Chat(chat_remember::ChatMemoryUpdate),
+    Chat(chat_remember::ChatMemoryUpdates),
     Stranger {
         previous: Option<String>,
         note: Option<String>,

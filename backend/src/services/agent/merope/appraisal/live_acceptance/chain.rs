@@ -119,7 +119,8 @@ pub(super) async fn run(
             .as_ref()
             .ok()
             .and_then(|r| r.as_ref().ok())
-            .and_then(|raw| chat_remember::parse_chat_memory_update(raw, user, &existing));
+            .and_then(|raw| chat_remember::parse_chat_memory_updates(raw, user, "", &existing))
+            .map(|updates| updates.combined());
         let valid = update.is_some();
         let semantic =
             update

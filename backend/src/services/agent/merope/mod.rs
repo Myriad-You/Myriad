@@ -17,6 +17,8 @@ pub mod joining;
 mod library;
 pub mod life;
 pub mod making_sense;
+#[cfg(test)]
+mod memory_bench;
 pub(crate) mod memory_jobs;
 pub mod motion;
 pub mod motion_local;
@@ -27,6 +29,7 @@ pub mod outfit_overlay;
 pub mod playing;
 mod priming;
 pub mod reach;
+pub mod remembering;
 pub mod report_dna;
 pub mod seeing;
 pub mod self_state;
@@ -747,12 +750,18 @@ async fn speaking_prompt_from_db(
     let myself = self_state::current(db).await;
     // Only a chat turn (it has the person's words) carries its train of
     // thought to the next turn; other readers see memory without moving it.
+    // Before answering what they said, she thinks what to try to remember.
+    let cues = match turn {
+        Turn::Chat(words) => remembering::cues(user_id, words).await,
+        _ => None,
+    };
     let remembered = match turn {
-        Turn::Chat(words) | Turn::Event(words) => store::recall_remembered_split(
+        Turn::Chat(words) | Turn::Event(words) => remembering::recall_with(
             db,
             user_id,
             present,
-            Some(words),
+            words,
+            cues.as_ref(),
             REMEMBERED_PROMPT_LIMIT,
             &if group {
                 crate::services::agent::memory::unified::Priming::default()

@@ -23,6 +23,7 @@ mod outfit_overlay;
 mod performance;
 mod persona;
 pub mod reach;
+pub mod remembering;
 pub mod reading;
 mod rig;
 mod rig_contract;

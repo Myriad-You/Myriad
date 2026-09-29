@@ -1066,6 +1066,46 @@ pub(crate) async fn apply_chat_memory_update_in(
     Ok(applied)
 }
 
+/// Everything one message left her, applied in order: each single update
+/// as `apply_chat_memory_update_on`, then what she said worth keeping, all
+/// only while the message is still the person's latest. Whether anything
+/// was kept.
+pub(super) async fn apply_chat_memory_updates_on<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    input_at: chrono::DateTime<chrono::FixedOffset>,
+    updates: &super::chat_remember::ChatMemoryUpdates,
+    present: &crate::services::agent::memory::unified::Audience,
+) -> Result<bool, anyhow::Error> {
+    let mut kept = false;
+    for update in &updates.updates {
+        kept |= apply_chat_memory_update_on(db, user_id, input_at, update, present).await?;
+    }
+    if updates.said.is_empty() || !chat_memory_input_is_current(db, user_id, input_at).await? {
+        return Ok(kept);
+    }
+    use crate::services::agent::memory::unified;
+    for said in &updates.said {
+        let remembered = unified::remember(
+            db,
+            unified::NewMemory {
+                user_id,
+                kind: unified::MemoryKind::Fact,
+                content: said.said.clone(),
+                evidence: Some(said.evidence.clone()),
+                speaker: unified::Speaker::Agent,
+                source: SAID_SOURCE,
+                audience: present.clone(),
+                importance: 0.4,
+                concepts: Vec::new(),
+            },
+        )
+        .await?;
+        kept |= remembered.is_some();
+    }
+    Ok(kept)
+}
+
 pub(super) async fn apply_chat_memory_update_on<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
@@ -1173,16 +1213,23 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
     if content.is_empty() {
         return content;
     }
+    // When she came to know it: what happened "last week" is placed in time.
+    let when = note.created_at.format("%Y-%m-%d");
     let how = match (note.source.as_str(), note.speaker.as_str()) {
-        ("chat", "user") => return content,
+        ("chat", "user") => return format!("[{when}] {content}"),
+        (SAID_SOURCE, _) => return format!("[{when}] {content} (what you told them)"),
         ("event", _) => "you gathered this from their activity on the site, not from them",
         ("work", _) => "you noted this while doing a task for them",
         ("presence", _) => "you saw this in what they were playing",
         ("game", _) => "from a game with them",
         _ => "kept from before; you no longer know how you came by it",
     };
-    format!("{content} ({how})")
+    format!("[{when}] {content} ({how})")
 }
+
+/// Source of what she herself told someone and would remember saying (a
+/// recommendation, a promise, an answer they may come back to).
+pub const SAID_SOURCE: &str = "said";
 
 /// What a turn recalls, split: what they named (or recent context), and what
 /// that brought to mind by association.
@@ -1458,7 +1505,12 @@ mod tests {
                 created_at: chrono::Utc::now().fixed_offset(),
                 brought_to_mind: false,
             };
-        assert_eq!(super::as_known(&note("chat", "user")), "养了一只猫叫年糕");
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        assert_eq!(
+            super::as_known(&note("chat", "user")),
+            format!("[{today}] 养了一只猫叫年糕")
+        );
+        assert!(super::as_known(&note("said", "agent")).ends_with("(what you told them)"));
         assert!(super::as_known(&note("event", "agent")).ends_with("not from them)"));
         assert!(super::as_known(&note("work", "agent")).contains("doing a task for them"));
         assert!(super::as_known(&note("chat", "import")).contains("kept from before"));
