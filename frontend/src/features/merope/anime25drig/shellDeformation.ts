@@ -1,9 +1,11 @@
+import type { HeadTurn, HeadTurnOffset } from './headTurn'
 import type {
   Anime25DPlaybackLayer,
   Anime25DShellCurvePoint,
   Anime25DShellEllipsoid,
   Anime25DShellProfile,
 } from './types'
+import { headTurnOffset } from './headTurn'
 
 export type Anime25DShellMode = 'head' | 'front-hair' | 'back-hair'
 
@@ -169,6 +171,7 @@ export function deformAnime25DShellPoint(
   profile: Readonly<Anime25DShellProfile>,
   rotation: Readonly<Anime25DShellRotation>,
   depth: number,
+  turn?: Readonly<HeadTurn>,
 ): void {
   if (!profile.enabled || profile.blend <= 0 || !rotation.active) {
     return
@@ -211,6 +214,24 @@ export function deformAnime25DShellPoint(
   }
 
   const shellX = point.x
+  // With the drawn outline to turn on, the head is a ball turning under it;
+  // the ellipsoid only stands in when there is no outline to read.
+  if (turn?.silhouette) {
+    headTurnOffset(
+      turn,
+      point.x,
+      point.y,
+      mode === 'head' ? 'skin' : mode,
+      mode === 'head'
+        ? (normalizedDepth - radialDepth) * ellipsoid.radiusZ
+        : profile.hair.frontGap * ellipsoid.radiusZ,
+      crownSurface,
+      TURN_OFFSET,
+    )
+    point.x += TURN_OFFSET.x
+    point.y += TURN_OFFSET.y
+    return
+  }
   applyProjectionDelta(point, ellipsoid, normalizedDepth, rotation)
 
   // A pinned root keeps the coiffure's depth and follows the same head rotation.
@@ -235,6 +256,8 @@ export function deformAnime25DShellPoint(
     point.y += (crownY - point.y) * crownMix
   }
 }
+
+const TURN_OFFSET: HeadTurnOffset = { x: 0, y: 0 }
 
 function applyProjectionDelta(
   point: Anime25DMutableShellPoint,

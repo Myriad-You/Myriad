@@ -1,6 +1,7 @@
 import type { ArmRig, ArmRigMesh } from './armRig'
 import type { ChestSpatialField } from './chestPhysics'
 import type { Anime25DDriver } from './driver'
+import type { HeadTurn } from './headTurn'
 import type { Anime25DLayerSpringBinding } from './layerBinding'
 import type { BoundPoseCorrection } from './poseCorrections'
 import type {
@@ -102,6 +103,8 @@ export interface Anime25DSecondaryDeformationFrame {
   shellBlend: number
   shellActivation: number
   shellRotation: Readonly<Anime25DShellRotation>
+  /** Turns and nods the head on its drawn outline; without one the ellipsoid does. */
+  headTurn?: Readonly<HeadTurn>
   torsoProfile: Readonly<Anime25DTorsoShellProfile>
   torsoChestShape: Anime25DTorsoChestShape | null
   torsoShellBlend: number
@@ -324,14 +327,17 @@ export function deformAnime25DSecondaryPoint(
           frame.shellProfile,
           frame.shellRotation,
           surfaceDepth,
+          frame.headTurn,
         )
         if (binding.poseCorrections) applyPoseCorrections(point, vertex, binding.poseCorrections)
         const shellX = point.x - frame.neckPivotX
         const shellY = point.y - frame.neckPivotY
         point.x += (shellX * rollCosine - shellY * rollSine - shellX) * headFollow
         point.y += (shellX * rollSine + shellY * rollCosine - shellY) * headFollow
-        point.x = legacyX + (point.x - legacyX) * frame.shellBlend
-        point.y = legacyY + (point.y - legacyY) * frame.shellBlend
+        // A head turning on its outline is all ball: none of the flat card slide.
+        const turnBlend = frame.headTurn?.silhouette ? frame.shellActivation : frame.shellBlend
+        point.x = legacyX + (point.x - legacyX) * turnBlend
+        point.y = legacyY + (point.y - legacyY) * turnBlend
       } else {
         point.x = legacyX
         point.y = legacyY
