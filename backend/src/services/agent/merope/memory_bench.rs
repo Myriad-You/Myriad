@@ -388,11 +388,13 @@ async fn her_memory_on_longmemeval() {
     ))
     .await
     .expect("judgment model");
+    // Her voice thinks little, as production asks.
     let lite = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
         Duration::from_secs(60),
     ))
     .await
-    .expect("Lite model");
+    .expect("Lite model")
+    .with_light_thinking();
     let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
     let isolated = crate::db::IsolatedSchema::migrated(&url, "memory_bench").await;
     let db = isolated.db.clone();
