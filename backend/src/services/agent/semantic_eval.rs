@@ -499,6 +499,24 @@ fn group_chat_prompt(case: &Case) -> String {
             .map(|room| myriad_merope::talk_shape::describe(&room, "How people type here")),
         case_differs(case),
         case.made_sense.clone(),
+        case.own_time.as_ref().and_then(|own| {
+            let lately: Vec<(String, String)> =
+                serde_json::from_value(own["lately"].clone()).unwrap_or_default();
+            super::merope::format_doing_section(own["now"].as_str(), &lately)
+        }),
+        case.own_time
+            .as_ref()
+            .and_then(|own| own["now"].as_str())
+            .and_then(|now| {
+                let hers: Vec<&str> = kept_lines(case)
+                    .iter()
+                    .filter(|line| line.role == "assistant")
+                    .flat_map(|line| line.text.lines())
+                    .collect();
+                myriad_merope::speaking::format_already_told_section(
+                    &myriad_merope::speaking::already_told(now, &hers),
+                )
+            }),
         super::merope::format_remembered_section(&case.remembered),
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, true),

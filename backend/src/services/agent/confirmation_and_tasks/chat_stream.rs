@@ -511,6 +511,23 @@ impl Agent {
             .as_ref()
             .and_then(|context| context.conversation_history.as_deref())
             .unwrap_or(&[]);
+        // What of her own time she has already told them in this talk.
+        if let Some(doing) = crate::services::agent::merope::doing::current() {
+            let hers: Vec<&str> = supplied
+                .iter()
+                .filter(|message| message.role == "assistant")
+                .flat_map(|message| message.content.lines())
+                .collect();
+            let about = crate::services::agent::merope::doing::now_line(&doing, chrono::Utc::now());
+            let told = myriad_merope::speaking::already_told(&about, &hers);
+            if let Some(section) = myriad_merope::speaking::format_already_told_section(&told) {
+                merope_block = if merope_block.is_empty() {
+                    section
+                } else {
+                    format!("{merope_block}\n\n{section}")
+                };
+            }
+        }
         if venue.is_some() {
             // A turtle soup on in this group, with this line judged; or how
             // she would start one for the group.

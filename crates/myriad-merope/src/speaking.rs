@@ -251,6 +251,61 @@ pub fn format_doing_section(now: Option<&str>, lately: &[(String, String)]) -> O
     ))
 }
 
+/// Two-character pieces of the Chinese in `text`, the grain things are named
+/// in (「金银岛」 → 金银, 银岛).
+fn han_pairs(text: &str) -> std::collections::HashSet<String> {
+    let han: Vec<char> = text
+        .chars()
+        .map(|c| {
+            if ('\u{4e00}'..='\u{9fff}').contains(&c) {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    han.windows(2)
+        .filter(|pair| pair.iter().all(|c| *c != ' '))
+        .map(|pair| pair.iter().collect())
+        .collect()
+}
+
+/// Her lines in this conversation that already told them about `about`
+/// (something of her own time): a line naming at least two of its pieces.
+pub fn already_told<'a>(about: &str, hers: &[&'a str]) -> Vec<&'a str> {
+    let pieces = han_pairs(about);
+    if pieces.is_empty() {
+        return Vec::new();
+    }
+    hers.iter()
+        .copied()
+        .filter(|line| han_pairs(line).intersection(&pieces).count() >= 2)
+        .collect()
+}
+
+/// What she has already told the people here about her own time, as it
+/// stands: people keep track of what they have told whom, and what was
+/// told is known to both.
+pub fn format_already_told_section(told: &[&str]) -> Option<String> {
+    const QUOTED: usize = 3;
+    const QUOTE_CHARS: usize = 40;
+    if told.is_empty() {
+        return None;
+    }
+    let quoted: Vec<String> = told
+        .iter()
+        .rev()
+        .take(QUOTED)
+        .map(|line| format!("「{}」", line.chars().take(QUOTE_CHARS).collect::<String>()))
+        .collect();
+    Some(format!(
+        "## Already said here\nWhat you are doing on your own, you have already brought up in this conversation {} time{}, most lately: {}. They have heard it.",
+        told.len(),
+        if told.len() == 1 { "" } else { "s" },
+        quoted.join(" ")
+    ))
+}
+
 /// Songs she heard on her own and liked, numbered, for playing one to
 /// them. Each line says what she wrote then; nothing else is hers to say.
 pub fn format_share_section(songs: &[String]) -> Option<String> {
@@ -810,5 +865,26 @@ mod tests {
         assert!(both.contains("really pleased you"));
         assert_eq!(format_carried_section(&[]), None);
         assert_eq!(format_carried_section(&[(5.0, 0.0)]), None);
+    }
+
+    #[test]
+    fn she_knows_what_she_has_already_told_them_about_her_own_time() {
+        let doing = "You are reading 《金银岛》 on your own, about 12 of 40 minutes in. You picked it: 李甫西医生给人放血那段，想查清楚用的什么刀。";
+        let hers = [
+            "会聊天，会杠，会看热闹",
+            "顺便在研究十八世纪怎么拿刀给人放血",
+            "谁在18世纪了 我在看金银岛呢，李甫西医生中风那段割得太利索了",
+            "你才小土猪",
+            "我刚在查十八世纪放血到底用什么刀止不住血呢",
+        ];
+        let told = already_told(doing, &hers);
+        assert_eq!(told.len(), 3);
+        assert!(!told.contains(&"你才小土猪"));
+        let section = format_already_told_section(&told).unwrap();
+        assert!(section.contains("3 times"));
+        assert!(section.starts_with("## Already said here\n"));
+        assert!(section.contains("「我刚在查十八世纪放血到底用什么刀止不住血呢」"));
+        assert_eq!(format_already_told_section(&[]), None);
+        assert!(already_told("You are listening to a song.", &hers).is_empty());
     }
 }
