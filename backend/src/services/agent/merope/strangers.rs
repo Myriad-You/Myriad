@@ -117,6 +117,9 @@ pub async fn reply(
     transcript: &[crate::services::agent::ConversationMessage],
     words: &str,
     why: Option<&str>,
+    // How the group types, how her lines differ from theirs, and what she
+    // made of the talk, as for anyone in the group.
+    reading: &[String],
 ) -> Option<(String, Option<serde_json::Value>)> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -153,6 +156,7 @@ pub async fn reply(
     if let Some(stickers) = super::stickers::section(db, &sticker_key, Some(venue), words).await {
         sections.push(stickers);
     }
+    sections.extend(reading.iter().cloned());
     // They did not call her: she speaks for a reason of her own.
     if let Some(why) = why {
         sections.push(myriad_merope::joining::speaking_up_section(why));

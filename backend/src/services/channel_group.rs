@@ -1745,6 +1745,14 @@ async fn answer_stranger(
         who: format!("{}:{}", message.platform.slug(), message.from),
         name: message.display_name.chars().take(40).collect(),
     };
+    let reading: Vec<String> = [
+        room(&venue).map(|room| myriad_merope::talk_shape::describe(&room, "How people type here")),
+        how_she_differs(&venue).await,
+        make_sense(db, message).await,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     send_typing(message, token).await;
     let began = Instant::now();
     let transcript = transcript(&venue, Some(&message.message_id));
@@ -1758,6 +1766,7 @@ async fn answer_stranger(
             &transcript,
             &said_now(message),
             why,
+            &reading,
         ),
     )
     .await
