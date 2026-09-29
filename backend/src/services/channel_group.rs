@@ -1150,6 +1150,50 @@ async fn how_she_differs(venue: &str) -> Option<String> {
     describe(&overused(&hers, &theirs))
 }
 
+/// Before answering `message`, she reads the talk: what is going on, what
+/// it means, what people are telling her about herself (kept, see
+/// `merope::making_sense`). With what the group told her before, as the
+/// sections her reply starts from.
+async fn make_sense(db: &DatabaseConnection, message: &GroupLine) -> Option<String> {
+    use crate::services::agent::merope::making_sense;
+    let venue = message.venue();
+    let stored = unified_venue(&venue);
+    let owner = crate::services::site_owner::site_owner_user_id(db)
+        .await
+        .ok()?;
+    let lines = transcript(&venue, Some(&message.message_id));
+    let said = said_now(message);
+    let mut conversation: Vec<String> = lines
+        .iter()
+        .skip(lines.len().saturating_sub(CONVERSATION_LINES))
+        .map(|line| {
+            if line.role == "assistant" {
+                format!("you：{}", line.content)
+            } else {
+                line.content.clone()
+            }
+        })
+        .collect();
+    conversation.push(format!("{}：{said}", message.display_name));
+    let sense = making_sense::read(owner, &conversation).await;
+    if let Some(told) = sense.as_ref().and_then(|sense| sense.about_you.as_deref()) {
+        making_sense::remember_told(db, &stored, told, &said).await;
+    }
+    let sections: Vec<String> = [
+        making_sense::told_section(db, &stored).await,
+        sense.as_ref().map(myriad_merope::making_sense::section),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!sections.is_empty()).then(|| sections.join("\n\n"))
+}
+
+/// A group's venue as memories store it (`group:telegram:-100123`).
+fn unified_venue(venue: &str) -> String {
+    crate::services::agent::memory::unified::Audience::group(venue, 0).venue()
+}
+
 /// Take the group's single turn, if it is free and not just replied in.
 fn begin_turn(venue: &str) -> Turn {
     with_group(venue, begin).unwrap_or(Turn::Busy)
@@ -1791,6 +1835,7 @@ async fn run_turn(
                     transcript: transcript(&venue, Some(&message.message_id)),
                     room: room(&venue),
                     differs: how_she_differs(&venue).await,
+                    making_sense: make_sense(db, message).await,
                     late: seen_late(message),
                     venue,
                     chime,

@@ -537,6 +537,14 @@ impl Agent {
                     myriad_merope::talk_shape::describe(room, "How people type here")
                 );
             }
+            // What she made of the talk before answering: she answers from it.
+            if let Some(sense) = request
+                .context
+                .as_ref()
+                .and_then(|context| context.making_sense.as_deref())
+            {
+                merope_block = format!("{merope_block}\n\n{sense}");
+            }
             // She only now sees the line she answers.
             if let Some(ago) = request
                 .context

@@ -350,9 +350,10 @@ async fn rows_for<C: ConnectionTrait>(
 
 /// Sources of rows recalled on their own, not with ordinary memories: bits
 /// (see `merope::bits`), notes on people outside the community (see
-/// `merope::strangers`), and what she meant to come back to with someone
-/// (see `merope::threads`).
-const KEPT_APART: [&str; 3] = ["bit", "stranger", "thread"];
+/// `merope::strangers`), what she meant to come back to with someone (see
+/// `merope::threads`), and what a group told her about herself (see
+/// `merope::making_sense`).
+const KEPT_APART: [&str; 4] = ["bit", "stranger", "thread", "about_me"];
 
 async fn active_rows<C: ConnectionTrait>(
     db: &C,
@@ -1225,6 +1226,23 @@ pub async fn adopt_unowned<C: ConnectionTrait>(
         .exec(db)
         .await?;
     Ok(result.rows_affected)
+}
+
+/// The latest active rows of `source` kept in `venue`, newest first.
+pub async fn latest_in_venue<C: ConnectionTrait>(
+    db: &C,
+    venue: &str,
+    source: &str,
+    limit: u64,
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    agent_memories::Entity::find()
+        .filter(agent_memories::Column::Venue.eq(venue))
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .order_by_desc(agent_memories::Column::CreatedAt)
+        .limit(limit)
+        .all(db)
+        .await
 }
 
 /// Every active row from `source`, whoever it is about.

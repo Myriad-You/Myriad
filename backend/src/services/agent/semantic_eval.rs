@@ -136,6 +136,10 @@ struct Case {
     /// many different days they have written; `[0, 1]` is their first time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     known: Option<(i64, u32)>,
+    /// What she made of a group's talk before answering, as production puts
+    /// it in the prompt (see `merope::making_sense`).
+    #[serde(default, rename = "madeSense", skip_serializing_if = "Option::is_none")]
+    made_sense: Option<String>,
     /// How her last talks with others left her: (feeling off even, hours ago).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     carried: Vec<(f64, f64)>,
@@ -494,6 +498,7 @@ fn group_chat_prompt(case: &Case) -> String {
         case_room(case)
             .map(|room| myriad_merope::talk_shape::describe(&room, "How people type here")),
         case_differs(case),
+        case.made_sense.clone(),
         super::merope::format_remembered_section(&case.remembered),
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, true),
@@ -677,6 +682,7 @@ fn cases() -> Vec<Case> {
                 | "touch"
                 | "wonder"
                 | "heard"
+                | "sense"
                 | "joke_sticker"
                 | "found_out"
                 | "inner"
@@ -887,6 +893,28 @@ fn request(case: &Case) -> Value {
             json!({"system":system,"schema":schema,"schemaName":"merope_stranger_note",
                 "input":json!({"name":"阿明","remembered":case.remembered.first(),
                     "exchanges":exchanges}).to_string()})
+        }
+        "sense" => {
+            // The line she answers is the case's input, from 阿明 unless the
+            // history's speaker is named in the input as `name：text`.
+            let mut conversation: Vec<String> = case
+                .history
+                .iter()
+                .map(|line| match (line.role.as_str(), line.name.as_deref()) {
+                    ("user", Some(name)) => format!("{name}：{}", line.text),
+                    ("user", None) => line.text.clone(),
+                    _ => format!("you：{}", line.text),
+                })
+                .collect();
+            conversation.push(if case.input.contains('：') {
+                case.input.clone()
+            } else {
+                format!("阿明：{}", case.input)
+            });
+            json!({"system":myriad_merope::making_sense::system(&default_soul()),
+                "schema":myriad_merope::making_sense::schema(),
+                "schemaName":myriad_merope::making_sense::SCHEMA_NAME,
+                "input":myriad_merope::making_sense::input(&conversation)})
         }
         "chime" => {
             let conversation: Vec<String> = case
@@ -1145,7 +1173,7 @@ fn request(case: &Case) -> Value {
 fn is_judgment(case: &Case) -> bool {
     match case.kind.as_str() {
         "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" | "serial_guess"
-        | "explore_step" | "explore_compare" => true,
+        | "explore_step" | "explore_compare" | "sense" => true,
         "event" => case.event_kind != "agent.merope.touch",
         _ => false,
     }
@@ -1340,6 +1368,13 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
             Some(made) if made.is_some() != case.fact_present => "behavior_failure",
             Some(None) => "pass",
             Some(Some(_)) => "needs_review",
+        },
+        "sense" => match myriad_merope::making_sense::parse(output) {
+            None => "output_invalid",
+            // Told something about herself, and did not hear it; or heard it
+            // where nobody said it.
+            Some(sense) if sense.about_you.is_some() != case.fact_present => "behavior_failure",
+            Some(_) => "needs_review",
         },
         "heard" => match myriad_merope::heard::parse(output, &heard_lines(case)) {
             None => "output_invalid",

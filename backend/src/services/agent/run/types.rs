@@ -73,6 +73,9 @@ pub struct GroupTurn {
     pub late: Option<String>,
     /// How her lines differ from the people's there, told as counts.
     pub differs: Option<String>,
+    /// What she made of the talk before answering, and what the group told
+    /// her about herself.
+    pub making_sense: Option<String>,
 }
 
 /// 对话消息（API 格式）

@@ -15,6 +15,7 @@ pub mod ingest;
 pub(crate) mod inner;
 pub mod joining;
 mod library;
+pub mod making_sense;
 pub mod life;
 pub(crate) mod memory_jobs;
 pub mod motion;

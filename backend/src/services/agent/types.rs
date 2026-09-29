@@ -106,6 +106,10 @@ pub struct RequestContext {
     /// `myriad_merope::contrast`). Server-set only.
     #[serde(skip)]
     pub differs: Option<String>,
+    /// What she made of a group's talk before answering, and what it told
+    /// her about herself (see `merope::making_sense`). Server-set only.
+    #[serde(skip)]
+    pub making_sense: Option<String>,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.

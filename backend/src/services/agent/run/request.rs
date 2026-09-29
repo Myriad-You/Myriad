@@ -52,6 +52,7 @@ pub(crate) fn build_request_context(mut ctx: ProcessContext) -> RequestContext {
         room: None,
         late: None,
         differs: None,
+        making_sense: None,
     }
 }
 
