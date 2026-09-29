@@ -28,6 +28,8 @@ import {
   FRONT_COLLAR_HEAD_FOLLOW,
   FRONT_COLLAR_INNER_REGION,
 } from './collarRuntime'
+import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
+import { hairChainOffset, hairChainTurn } from './hairChain'
 import { HEAD_TURN_SHARE } from './headTurn'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
@@ -474,11 +476,17 @@ export function deformAnime25DSecondaryPoint(
   point.x += frame.torsoNeckOffsetX * torsoNeckFollow
 }
 
+const chainPoint = { x: 0, y: 0 }
+/** Half a lock's width, as a share of its length, for turning its width with its bend. */
+const LOCK_HALF_WIDTH_SHARE = 0.15
+
 export function deformAnime25DHairPoint(
   point: Anime25DMutableSecondaryPoint,
   vertex: number,
   binding: Readonly<Anime25DSecondaryDeformationBinding>,
   frame: Readonly<Anime25DSecondaryDeformationFrame>,
+  /** Rest x of the vertex; with it, the lock's width turns with its bend. */
+  restX?: number,
 ): void {
   const alongStrand = binding.alongStrand
   const authoredPinWeight = binding.hairlinePinWeights?.[vertex] ?? 0
@@ -506,24 +514,30 @@ export function deformAnime25DHairPoint(
     return
   }
   const along = alongStrand[vertex]
-  const easedAlong = binding.frontHair ? Math.min(1, along * 1.6) : along
-  const amplitude =
-    easedAlong ** (binding.frontHair ? 1.8 : 2.1) *
-    (binding.frontHair ? frame.expression.fhAmp : frame.expression.physAmp)
-  // Softness selects between spring responses. Motion amplitude has its own
-  // driver above; extrapolation here would create a negative stiff weight.
-  const softMix =
-    clamp(easedAlong ** 1.2 *
-      (binding.frontHair ? frame.expression.fhSoft : frame.expression.soft), 0, 1)
+  // The chain carries the shape of the swing; the drivers only scale it.
+  const amplitude = binding.frontHair
+    ? frame.expression.fhAmp / DEFAULT_FRONT_HAIR_SWAY
+    : frame.expression.physAmp / DEFAULT_REAR_HAIR_SWAY
   let offsetX = 0
   let offsetY = 0
   for (let strand = 0; strand < springs.length; strand += 1) {
-    const weight = strandWeights[vertex * springs.length + strand]
+    // Binding weights also carry the old length amplitude; the chain's own length already does that.
+    const weight = strandWeights[vertex * springs.length + strand] / springs[strand].amplitudeScale
     if (weight < 0.001) continue
-    const spring = springs[strand]
-    offsetX +=
-      weight * (spring.stiff.dx * (1 - softMix) + spring.soft.dx * softMix)
-    offsetY += weight * spring.vertical.dx
+    const chain = springs[strand].chain
+    hairChainOffset(chain, along, chainPoint)
+    offsetX += weight * chainPoint.x
+    offsetY += weight * chainPoint.y
+    if (restX !== undefined) {
+      // Across the lock, the drawing turns with it like a ribbon instead of
+      // shearing. A lock is far narrower than it is long; hair further out
+      // belongs to its neighbours, not to a wide plank swinging round this one.
+      const reach = LOCK_HALF_WIDTH_SHARE * chain.linkLength * chain.links
+      const across = clamp(restX - springs[strand].rootX, -reach, reach)
+      const turn = hairChainTurn(chain, along)
+      offsetX += weight * across * (Math.cos(turn) - 1)
+      offsetY += weight * across * Math.sin(turn)
+    }
   }
   const scale = amplitude * motionScale
   // Inputs are sampled after the body transform. Bring the lag vector back

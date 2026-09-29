@@ -1,61 +1,101 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createHairChain } from './hairChain'
 import {
   frontHairUpperParallaxScale,
+  HAIR_CHAIN_LINKS,
   hairStrandDynamics,
   stepAnime25DHairLayerSprings,
-  stepHairSpring,
 } from './hairPhysics'
 
-test('hair trails a moving support and settles instead of accelerating ahead of it', () => {
-  for (const direction of [-1, 1]) {
-    const spring = { x: 0, v: 0, dx: 0 }
-    stepHairSpring(spring, direction * 20, 70, 9, 1 / 60)
-    assert.ok(spring.dx * direction < 0)
-    for (let i = 0; i < 600; i++) stepHairSpring(spring, direction * 20, 70, 9, 1 / 60)
-    assert.ok(Math.abs(spring.dx) < 1e-6)
-  }
-})
+function tip(spring: ReturnType<typeof strand>) {
+  return {
+  x: spring.chain.offsetX[spring.chain.links],
+  y: spring.chain.offsetY[spring.chain.links],
+}
+}
 
-test('body support movement excites hair with local head angles held still', () => {
+test('a lock trails a moving root, then settles back to hanging as drawn', () => {
   const layers = springLayers()
   const springs = layers.flatMap(layer => layer.springs ?? [])
-  for (const spring of springs) spring.supportX = 24
-  const frame = { enabled: true, idle: false, faceScale: 1, time: 0 }
+  const frame = hairFrame()
   stepAnime25DHairLayerSprings(layers, frame, 1 / 60)
-  for (const spring of springs) {
-    assert.ok(spring.stiff.dx < -20)
-    assert.ok(spring.soft.dx < -20)
-  }
+  for (const spring of springs) spring.supportX = 24
+  stepAnime25DHairLayerSprings(layers, frame, 1 / 60)
+  stepAnime25DHairLayerSprings(layers, frame, 1 / 60)
+  for (const spring of springs) assert.ok(tip(spring).x < -5, `tip ${tip(spring).x}`)
   for (let i = 0; i < 1800; i++) stepAnime25DHairLayerSprings(layers, frame, 1 / 60)
   for (const spring of springs) {
-    assert.ok(Math.abs(spring.stiff.dx) < 1e-5)
-    assert.ok(Math.abs(spring.soft.dx) < 1e-5)
+    assert.ok(Math.abs(tip(spring).x) < 0.01)
+    assert.ok(Math.abs(tip(spring).y) < 0.01)
   }
 })
 
-test('vertical-only support has signed lag, settles and agrees across frame rates', () => {
+test('a root lifted or dropped is trailed along the lock, not stretched', () => {
+  const layers = springLayers()
+  const springs = layers.flatMap(layer => layer.springs ?? [])
+  const frame = hairFrame()
+  stepAnime25DHairLayerSprings(layers, frame, 1 / 60)
+  for (const goal of [24, -24, 0]) {
+    for (const spring of springs) spring.supportY = goal
+    for (let i = 0; i < 120; i++) stepAnime25DHairLayerSprings(layers, frame, 1 / 60)
+    for (const spring of springs) {
+      const { x, y, links, linkLength } = spring.chain
+      for (let index = 1; index <= links; index++) {
+        assert.ok(Math.abs(Math.hypot(x[index] - x[index - 1], y[index] - y[index - 1]) - linkLength) < 1e-6)
+      }
+    }
+  }
+})
+
+test('the swing does not depend on the frame rate', () => {
   const run = (fps: number) => {
     const layers = springLayers()
     const springs = layers.flatMap(layer => layer.springs ?? [])
-    const frame = { enabled: true, idle: false, faceScale: 1, time: 0 }
-    for (const goal of [24, -24, 0]) {
-      for (const spring of springs) spring.supportY = goal
+    const frame = hairFrame()
+    stepAnime25DHairLayerSprings(layers, frame, 1 / fps)
+    for (let i = 0; i < fps; i++) {
+      for (const spring of springs) spring.supportX = 40 * Math.min(1, i / (fps * 0.3))
       stepAnime25DHairLayerSprings(layers, frame, 1 / fps)
-      for (const spring of springs) {
-        if (goal) assert.ok(spring.vertical.dx * goal < 0)
-      }
-      for (let i = 1; i < fps * 2; i++) stepAnime25DHairLayerSprings(layers, frame, 1 / fps)
-      for (const spring of springs) {
-        assert.ok(Math.abs(spring.vertical.dx) < 0.0001)
-        assert.equal(spring.stiff.dx, 0)
-        assert.equal(spring.soft.dx, 0)
-      }
     }
-    return layers
+    return springs.map(spring => tip(spring).x)
   }
   const reference = run(120)
-  for (const fps of [30, 60]) assert.deepEqual(run(fps), reference)
+  for (const fps of [30, 60]) {
+    run(fps).forEach((value, index) => assert.ok(Math.abs(value - reference[index]) < 0.5, `${fps} fps ${value} vs ${reference[index]}`))
+  }
+})
+
+test('idle air sways a lock by a few pixels whatever its stiffness, and still air not at all', () => {
+  for (const idle of [true, false]) {
+    const layers = springLayers()
+    const springs = layers.flatMap(layer => layer.springs ?? [])
+    const frame = { ...hairFrame(), idle }
+    let most = 0
+    for (let i = 0; i < 1200; i++) {
+      frame.time = i / 60
+      stepAnime25DHairLayerSprings(layers, frame, 1 / 60)
+      for (const spring of springs) most = Math.max(most, Math.abs(tip(spring).x))
+    }
+    if (idle) assert.ok(most > 1 && most < 12, `idle sway ${most}`)
+    else assert.equal(most, 0)
+  }
+})
+
+test('bangs hold their shape better than long rear hair', () => {
+  const front = { frontHair: true, springs: [strand(0, 1)] }
+  const rear = { frontHair: false, springs: [strand(0, 1)] }
+  const frame = hairFrame()
+  stepAnime25DHairLayerSprings([front, rear], frame, 1 / 60)
+  let frontMost = 0
+  let rearMost = 0
+  for (let i = 0; i < 120; i++) {
+    front.springs[0].supportX = rear.springs[0].supportX = 60 * Math.min(1, i / 12)
+    stepAnime25DHairLayerSprings([front, rear], frame, 1 / 60)
+    frontMost = Math.max(frontMost, Math.abs(tip(front.springs[0]).x))
+    rearMost = Math.max(rearMost, Math.abs(tip(rear.springs[0]).x))
+  }
+  assert.ok(frontMost < rearMost, `front ${frontMost} rear ${rearMost}`)
 })
 
 test('reduces only composite front-hair upper parallax and preserves its lower locks', () => {
@@ -118,133 +158,28 @@ test('length response scaling preserves the authored damping ratio', () => {
   })
 })
 
-test('hair spring response stays consistent across rendering frame rates', () => {
-  const simulate = (fps: number) => {
-    const spring = { x: 0, v: 0, dx: 0 }
-    const dynamics = hairStrandDynamics(100, 1100, 500)
-    const frames = Math.round(fps * 1.5)
-    for (let frame = 0; frame < frames; frame += 1) {
-      stepHairSpring(
-        spring,
-        20,
-        70 * dynamics.stiffnessScale,
-        9 * dynamics.dampingScale,
-        1 / fps,
-      )
-    }
-    return spring
-  }
-
-  const at30 = simulate(30)
-  const at60 = simulate(60)
-  const at120 = simulate(120)
-  assert.ok(Math.abs(at30.x - at120.x) < 1e-10)
-  assert.ok(Math.abs(at60.x - at120.x) < 1e-10)
-  assert.ok(Math.abs(at30.dx - at120.dx) < 1e-10)
-})
-
-test('layer springs retain the reference dynamics without its estimated-input gain', () => {
-  const actual = springLayers()
-  const expected = springLayers()
-  for (let frameIndex = 0; frameIndex < 120; frameIndex += 1) {
-    const time = frameIndex / 60
-    const frame = {
-      enabled: frameIndex % 17 !== 0,
-      idle: frameIndex % 11 !== 0,
-      angleX: Math.sin(time * 1.7) * 0.8,
-      angleZ: Math.cos(time * 1.1) * 0.65,
-      faceScale: 0.83,
-      neckPivotY: 220,
-      faceCenterY: 126,
-      time,
-    }
-    const elapsedSeconds = frameIndex % 9 === 0 ? 1 / 30 : 1 / 60
-    // Keep the upstream orchestration as a reference at identical support input.
-    // Production support now comes from each projected root, not this estimate.
-    const support = (frame.angleX * 14 + frame.angleZ * 0.07 * (frame.neckPivotY - frame.faceCenterY)) * frame.faceScale
-    for (const layers of [actual, expected]) { for (const layer of layers) {
-      for (const spring of layer.springs ?? []) spring.supportX = support
-    }
+function hairFrame() {
+  return { enabled: true, idle: false, faceScale: 1, time: 0, frontSoft: 0.4, rearSoft: 2 }
 }
-    legacyStepLayerSprings(expected, frame, elapsedSeconds)
-    stepAnime25DHairLayerSprings(actual, frame, elapsedSeconds)
-    for (let i = 0; i < actual.length; i++) {
-      const a = actual[i].springs
-      const b = expected[i].springs
-      if (!a || !b) { assert.equal(a, b); continue }
-      for (let j = 0; j < a.length; j++) {
-        for (const [kind, oldGain] of [['stiff', 2.2], ['soft', 3]] as const) {
-          assert.equal(a[j][kind].x, b[j][kind].x)
-          assert.equal(a[j][kind].v, b[j][kind].v)
-          assert.ok(Math.abs(a[j][kind].dx - b[j][kind].dx / oldGain) < 1e-10)
-        }
-      }
-    }
-  }
-})
 
-function springLayers() {
-  const spring = (phase: number, scale: number) => ({
+function strand(phase: number, scale: number) {
+  return {
     supportX: 0,
     supportY: 0,
-    stiff: { x: 0, v: 0, dx: 0 },
-    soft: { x: 0, v: 0, dx: 0 },
-    vertical: { x: 0, v: 0, dx: 0 },
+    rootX: 100,
+    rootY: 50,
+    chain: createHairChain(100, 50, 100, 350, HAIR_CHAIN_LINKS),
     phase,
+    amplitudeScale: 1,
     stiffnessScale: scale,
     dampingScale: Math.sqrt(scale),
-  })
-  return [
-    { springs: [spring(0.3, 0.8), spring(1.7, 1.2)] },
-    { springs: null },
-    { springs: [spring(2.8, 0.64)] },
-  ]
+  }
 }
 
-function legacyStepLayerSprings(
-  layers: ReturnType<typeof springLayers>,
-  frame: {
-    enabled: boolean
-    idle: boolean
-    angleX: number
-    angleZ: number
-    faceScale: number
-    neckPivotY: number
-    faceCenterY: number
-    time: number
-  },
-  elapsedSeconds: number,
-): void {
-  if (!frame.enabled) return
-  const headOffsetX =
-    (frame.angleX * 14 +
-      frame.angleZ * 0.07 * (frame.neckPivotY - frame.faceCenterY)) *
-    frame.faceScale
-  const windAmplitude = frame.idle ? 1 : 0
-  for (const layer of layers) {
-    if (!layer.springs) continue
-    for (const spring of layer.springs) {
-      const wind =
-        windAmplitude *
-        (1.8 * Math.sin(frame.time * 0.8 + spring.phase) +
-          Math.sin(frame.time * 1.9 + spring.phase * 2.3))
-      const target = headOffsetX + wind * frame.faceScale
-      stepHairSpring(
-        spring.stiff,
-        target,
-        70 * spring.stiffnessScale,
-        9 * spring.dampingScale,
-        elapsedSeconds,
-      )
-      spring.stiff.dx *= 2.2
-      stepHairSpring(
-        spring.soft,
-        target,
-        16 * spring.stiffnessScale,
-        1.3 * spring.dampingScale,
-        elapsedSeconds,
-      )
-      spring.soft.dx *= 3
-    }
-  }
+function springLayers() {
+  return [
+    { frontHair: true, springs: [strand(0.3, 0.8), strand(1.7, 1.2)] },
+    { frontHair: false, springs: null },
+    { frontHair: false, springs: [strand(2.8, 0.64)] },
+  ]
 }

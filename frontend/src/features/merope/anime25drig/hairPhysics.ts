@@ -1,3 +1,6 @@
+import type { HairChain, HairChainTuning } from './hairChain'
+import { stepHairChain } from './hairChain'
+
 const COMPOSITE_TAIL_START = 0.2
 const COMPOSITE_TAIL_END = 0.45
 const FRONT_HAIR_UPPER_PARALLAX_FLOOR = 0.2
@@ -6,8 +9,6 @@ const FRONT_HAIR_UPPER_RELEASE_END = 0.75
 const MIN_STRAND_LENGTH_RATIO = 0.5
 const MAX_STRAND_LENGTH_RATIO = 2.5
 const LENGTH_RESPONSE_EXPONENT = -0.25
-const MAX_HAIR_SPRING_STEP_SECONDS = 1 / 120
-const MAX_HAIR_SPRING_ELAPSED_SECONDS = 0.05
 
 interface LayerVerticalBounds {
   y: number
@@ -25,24 +26,23 @@ export interface HairStrandDynamics {
   dampingScale: number
 }
 
-export interface HairSpringState {
-  x: number
-  v: number
-  dx: number
-}
-
 export interface Anime25DHairSpringBinding {
+  /** Displacement of the strand's root this frame, from its primary deformation. */
   supportX: number
   supportY: number
-  stiff: HairSpringState
-  soft: HairSpringState
-  vertical: HairSpringState
+  /** The strand's root at rest, in canvas pixels. */
+  rootX: number
+  rootY: number
+  chain: HairChain
   phase: number
+  /** How much the strand's length amplified the old single-spring lag; its weights still carry it. */
+  amplitudeScale: number
   stiffnessScale: number
   dampingScale: number
 }
 
 export interface Anime25DHairSpringLayer {
+  frontHair: boolean
   springs: readonly Anime25DHairSpringBinding[] | null
 }
 
@@ -51,7 +51,28 @@ export interface Anime25DHairSpringFrame {
   idle: boolean
   faceScale: number
   time: number
+  /** Softness drivers: a softer lock bends more toward its tip. */
+  frontSoft: number
+  rearSoft: number
 }
+
+/** Links per lock: enough for the bend to travel down it. */
+export const HAIR_CHAIN_LINKS = 5
+
+/**
+ * Bangs are short and hold their shape: they swing back about a fifth of how
+ * far the head went and are still within 0.8 s. Long rear hair is heavier
+ * and slower, swings back about a third and drifts more in idle air.
+ */
+const FRONT_HAIR_CHAIN: Readonly<HairChainTuning> = { omega: 24, damping: 1.1, carry: 0.8, tipStiffness: 0.8, drag: 10 }
+const REAR_HAIR_CHAIN: Readonly<HairChainTuning> = { omega: 12, damping: 0.9, carry: 0.55, tipStiffness: 0.6, drag: 3 }
+/**
+ * Idle air holds a lock aside by the same few pixels however stiff it is, in
+ * face-scale pixels per unit of wind: about ±4 at a bang's tip, ±8 at the
+ * rear hair's.
+ */
+const FRONT_WIND_SWAY = 0.2
+const REAR_WIND_SWAY = 0.4
 
 export function hairStrandDynamics(
   rootY: number,
@@ -85,32 +106,7 @@ export function hairStrandDynamics(
   }
 }
 
-export function stepHairSpring(
-  spring: HairSpringState,
-  target: number,
-  stiffness: number,
-  damping: number,
-  elapsedSeconds: number,
-): void {
-  if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0) return
-  const boundedElapsed = Math.min(
-    elapsedSeconds,
-    MAX_HAIR_SPRING_ELAPSED_SECONDS,
-  )
-  const steps = Math.max(
-    1,
-    Math.ceil(boundedElapsed / MAX_HAIR_SPRING_STEP_SECONDS),
-  )
-  const dt = boundedElapsed / steps
-  for (let step = 0; step < steps; step += 1) {
-    const acceleration = -stiffness * (spring.x - target) - damping * spring.v
-    spring.v += acceleration * dt
-    spring.x += spring.v * dt
-  }
-  // Support is already in displayed mesh pixels. Preserve its relative lag;
-  // only the animation driver owns amplitude, not an estimated-input multiplier.
-  spring.dx = spring.x - target
-}
+const chainTuning: HairChainTuning = { omega: 0, damping: 0, carry: 0, tipStiffness: 1, drag: 0 }
 
 export function stepAnime25DHairLayerSprings(
   layers: readonly Anime25DHairSpringLayer[],
@@ -121,34 +117,25 @@ export function stepAnime25DHairLayerSprings(
   const windAmplitude = frame.idle ? 1 : 0
   for (const layer of layers) {
     if (!layer.springs) continue
+    const base = layer.frontHair ? FRONT_HAIR_CHAIN : REAR_HAIR_CHAIN
+    const soft = Math.max(0, layer.frontHair ? frame.frontSoft : frame.rearSoft)
     for (const spring of layer.springs) {
       const wind =
         windAmplitude *
         (1.8 * Math.sin(frame.time * 0.8 + spring.phase) +
           Math.sin(frame.time * 1.9 + spring.phase * 2.3))
-      const target = spring.supportX + wind * frame.faceScale
-      stepHairSpring(
-        spring.stiff,
-        target,
-        70 * spring.stiffnessScale,
-        9 * spring.dampingScale,
-        elapsedSeconds,
-      )
-      stepHairSpring(
-        spring.soft,
-        target,
-        16 * spring.stiffnessScale,
-        1.3 * spring.dampingScale,
-        elapsedSeconds,
-      )
-      // Projected vertical following is less compliant than lateral bending.
-      // Near-critical damping avoids an axial rubber-band bounce. This is an
-      // authored 2.5D response, not a measured material constant.
-      stepHairSpring(
-        spring.vertical,
-        spring.supportY,
-        140 * spring.stiffnessScale,
-        24 * spring.dampingScale,
+      // Longer locks swing slower, as a pendulum does.
+      chainTuning.omega = base.omega * Math.sqrt(spring.stiffnessScale)
+      chainTuning.damping = base.damping
+      chainTuning.carry = base.carry
+      chainTuning.drag = base.drag
+      chainTuning.tipStiffness = base.tipStiffness / (1 + 0.3 * soft)
+      stepHairChain(
+        spring.chain,
+        spring.rootX + spring.supportX,
+        spring.rootY + spring.supportY,
+        chainTuning,
+        wind * (layer.frontHair ? FRONT_WIND_SWAY : REAR_WIND_SWAY) * frame.faceScale * chainTuning.omega * chainTuning.omega,
         elapsedSeconds,
       )
     }

@@ -18,7 +18,9 @@ import {
   FRONT_COLLAR_INNER_REGION,
   HIGH_COLLAR_NECK_FOLLOW_POWER,
 } from './collarRuntime'
-import { IDENTITY_DRIVER } from './driver'
+import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY, IDENTITY_DRIVER } from './driver'
+import { createHairChain } from './hairChain'
+import { HAIR_CHAIN_LINKS } from './hairPhysics'
 import { bindPoseCorrections, writePoseCorrectionWeights } from './poseCorrections'
 import {
   createAnime25DSecondaryDeformationBinding,
@@ -169,6 +171,8 @@ test('primary shape and lateral hair motion retain the reference without fake do
     // used negative stiff weights; the separate convexity test covers that fix.
     frame.expression.soft = Math.min(1, frame.expression.soft)
     frame.expression.fhSoft = Math.min(1, frame.expression.fhSoft)
+    // The swing itself is the chain's now, tested on its own below.
+    frame.expression.phys = false
     for (const binding of bindings) {
       for (let row = 0; row <= 5; row += 1) {
         for (let column = 0; column <= 7; column += 1) {
@@ -213,38 +217,75 @@ test('primary shape and lateral hair motion retain the reference without fake do
   }
 })
 
-test('hair softness cannot extrapolate beyond either spring while amplitude remains independent', () => {
+test('a lock takes its chain\'s swing where it is along it, scaled only by the drivers', () => {
   for (const front of [false, true]) {
     const binding = secondaryBinding(front ? 'front-hair' : 'back-hair', 'head', false, false, true, front)
-    binding.springs = [{ supportX: 0, supportY: 0, stiff: { x: 0, v: 0, dx: -10 }, soft: { x: 0, v: 0, dx: -30 }, vertical: { x: 0, v: 0, dx: 0 }, phase: 0, stiffnessScale: 1, dampingScale: 1 }]
+    binding.springs = [spring(-30, -4)]
     binding.strandWeights = new Float32Array(VERTEX_COUNT).fill(1)
-    binding.alongStrand = new Float32Array(VERTEX_COUNT).fill(1)
+    binding.alongStrand = new Float32Array(VERTEX_COUNT)
+    binding.alongStrand[1] = 0.5
+    binding.alongStrand[2] = 1
     binding.bangWeights = null
     const frame = secondaryFrame(0.4, 1)
     frame.expression.phys = true
-    for (const softness of [0, 0.5, 1, 2, 3]) {
-      for (const amplitude of [0.5, 3]) {
-        frame.expression.soft = frame.expression.fhSoft = softness
-        frame.expression.physAmp = frame.expression.fhAmp = amplitude
+    frame.bodyRotationCosine = 1
+    frame.bodyRotationSine = 0
+    const standard = front ? DEFAULT_FRONT_HAIR_SWAY : DEFAULT_REAR_HAIR_SWAY
+    for (const amplitude of [standard, standard * 2]) {
+      frame.expression.physAmp = frame.expression.fhAmp = amplitude
+      const scale = amplitude / standard
+      for (const [vertex, share] of [[0, 0], [1, 0.5], [2, 1]] as const) {
         const point = { x: 0, y: 0 }
-        deformAnime25DHairPoint(point, 0, binding, frame)
-        assert.ok(Math.abs(point.x - (-10 - 20 * Math.min(1, softness)) * amplitude) < 1e-8)
+        deformAnime25DHairPoint(point, vertex, binding, frame)
+        assert.ok(Math.abs(point.x - -30 * share * scale) < 1e-5, `x ${point.x}`)
+        assert.ok(Math.abs(point.y - -4 * share * scale) < 1e-5, `y ${point.y}`)
       }
     }
   }
 })
 
+test('a lock\'s width turns with its bend, as far as the lock is wide', () => {
+  const binding = secondaryBinding('back-hair', 'head', false, false, true, false)
+  const lock = spring(0, 0)
+  // The whole lock turned 0.2 rad about its root.
+  for (let index = 0; index <= lock.chain.links; index++) {
+    lock.chain.x[index] = Math.sin(0.2) * lock.chain.linkLength * index
+    lock.chain.y[index] = Math.cos(0.2) * lock.chain.linkLength * index
+  }
+  binding.springs = [lock]
+  binding.strandWeights = new Float32Array(VERTEX_COUNT).fill(1)
+  binding.alongStrand = new Float32Array(VERTEX_COUNT).fill(0.5)
+  binding.bangWeights = null
+  const frame = secondaryFrame(0.4, 1)
+  frame.expression.phys = true
+  frame.expression.physAmp = DEFAULT_REAR_HAIR_SWAY
+  frame.bodyRotationCosine = 1
+  frame.bodyRotationSine = 0
+  const at = (restX: number) => {
+    const point = { x: 0, y: 0 }
+    deformAnime25DHairPoint(point, 0, binding, frame, restX)
+    return point
+  }
+  const middle = at(0)
+  const side = at(10)
+  // A point beside the lock swings round with it: turning toward +x lifts its left side.
+  assert.ok(Math.abs(side.x - middle.x - 10 * (Math.cos(-0.2) - 1)) < 1e-6)
+  assert.ok(Math.abs(side.y - middle.y - 10 * Math.sin(-0.2)) < 1e-6)
+  // Far beyond the lock's own width, the turn no longer grows.
+  const far = at(40)
+  const farther = at(400)
+  assert.ok(Math.abs(far.y - farther.y) < 1e-9)
+})
+
 test('two-axis hair lag rotates into mesh space once and root pins hold both axes', () => {
   const binding = secondaryBinding('back-hair', 'head', false, false, true, false)
-  const s = spring(12, 12)
-  s.vertical.dx = -8
-  binding.springs = [s]
+  binding.springs = [spring(12, -8)]
   binding.strandWeights = new Float32Array(VERTEX_COUNT).fill(1)
   binding.alongStrand = new Float32Array(VERTEX_COUNT).fill(1)
   binding.bangWeights = null
   const frame = secondaryFrame(0.5, 1)
   frame.expression.phys = true
-  frame.expression.physAmp = 1
+  frame.expression.physAmp = DEFAULT_REAR_HAIR_SWAY
   frame.shellActivation = 1
   for (const roll of [-0.3, 0, 0.3]) {
     const c = Math.cos(roll); const sine = Math.sin(roll)
@@ -790,14 +831,21 @@ function shellProfile(): Anime25DShellProfile {
   }
 }
 
-function spring(stiffDx: number, softDx: number): Anime25DLayerSpringBinding {
+/** A lock whose chain is swung so its tip sits `tipX/Y` off rest, bending evenly. */
+function spring(tipX: number, tipY: number): Anime25DLayerSpringBinding {
+  const chain = createHairChain(0, 0, 0, 100, HAIR_CHAIN_LINKS)
+  for (let index = 0; index <= chain.links; index++) {
+    chain.offsetX[index] = (tipX * index) / chain.links
+    chain.offsetY[index] = (tipY * index) / chain.links
+  }
   return {
     supportX: 0,
     supportY: 0,
-    stiff: { x: 0, v: 0, dx: stiffDx },
-    soft: { x: 0, v: 0, dx: softDx },
-    vertical: { x: 0, v: 0, dx: 0 },
+    rootX: 0,
+    rootY: 0,
+    chain,
     phase: 0,
+    amplitudeScale: 1,
     stiffnessScale: 1,
     dampingScale: 1,
   }

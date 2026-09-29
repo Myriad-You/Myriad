@@ -1,12 +1,14 @@
-import type { HairSpringState } from './hairPhysics'
+import type { Anime25DHairSpringBinding } from './hairPhysics'
 import type {
   Anime25DPlaybackAnchors,
   Anime25DPlaybackLayer,
   Anime25DShellProfile,
 } from './types'
 import { localToAtlasUv } from './atlasUv'
+import { createHairChain } from './hairChain'
 import {
   frontHairUpperParallaxScale,
+  HAIR_CHAIN_LINKS,
   hairStrandDynamics,
 } from './hairPhysics'
 
@@ -24,16 +26,7 @@ export type Anime25DLayerBindingExtension =
   | 'hair-length-dynamics'
   | 'front-hair-upper-parallax'
 
-export interface Anime25DLayerSpringBinding {
-  supportX: number
-  supportY: number
-  stiff: HairSpringState
-  soft: HairSpringState
-  vertical: HairSpringState
-  phase: number
-  stiffnessScale: number
-  dampingScale: number
-}
+export type Anime25DLayerSpringBinding = Anime25DHairSpringBinding
 
 export interface Anime25DLayerBinding {
   rest: Float32Array
@@ -345,13 +338,14 @@ function bindHair(
     strandWeights,
     alongStrand,
     bangWeights,
-    springs: strands.map((_, index) => ({
+    springs: strands.map((strand, index) => ({
       supportX: 0,
       supportY: 0,
-      stiff: { x: 0, v: 0, dx: 0 },
-      soft: { x: 0, v: 0, dx: 0 },
-      vertical: { x: 0, v: 0, dx: 0 },
+      rootX: strand.x,
+      rootY: strand.rootY,
+      chain: createHairChain(strand.x, strand.rootY, strand.x, Math.max(strand.tipY, strand.rootY + 1), HAIR_CHAIN_LINKS),
       phase: index * 1.37 + layerZ,
+      amplitudeScale: dynamics[index].amplitudeScale,
       stiffnessScale: dynamics[index].stiffnessScale,
       dampingScale: dynamics[index].dampingScale,
     })),

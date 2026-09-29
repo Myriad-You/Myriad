@@ -740,6 +740,8 @@ export class Anime25DPlayer {
       idle: true,
       faceScale: anchors.faceScale,
       time: 0,
+      frontSoft: 0,
+      rearSoft: 0,
     }
   }
 
@@ -1266,6 +1268,8 @@ export class Anime25DPlayer {
     const hairSpringFrame = this.hairSpringFrame
     hairSpringFrame.enabled = e.phys
     hairSpringFrame.idle = e.idle
+    hairSpringFrame.frontSoft = e.fhSoft
+    hairSpringFrame.rearSoft = e.soft
     if (e.phys) {
       this.prepareHeadDeformationFrame()
       for (const layer of this.layers) {
@@ -1738,6 +1742,7 @@ export class Anime25DPlayer {
           vertex,
           layer.secondaryDeformation,
           secondaryDeformationFrame,
+          rest[index],
         )
         // Compare in the GPU buffer's precision. Comparing a double to last
         // frame's float marks an identical pose dirty forever.
