@@ -1,6 +1,7 @@
 //! AI analysis service using Google Gemini API or OpenAI-compatible API.
 
 mod client;
+mod embeddings;
 mod gemini;
 mod openai;
 mod schema;

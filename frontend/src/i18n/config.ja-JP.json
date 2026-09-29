@@ -1104,6 +1104,8 @@
   "aiLiteProviderHint": "スタンダードと別設定可。キーは上のサービス設定へ",
   "aiLiteJudgeModelLabel": "判断用モデル",
   "aiLiteJudgeModelPlaceholder": "空欄なら Lite と同じ。気分・話しかけるか・何を覚えるかなど小さな判断用。速いモデル向け",
+  "aiLiteEmbeddingModelLabel": "埋め込みモデル",
+  "aiLiteEmbeddingModelPlaceholder": "空欄なら言葉どおりにだけ思い出す。埋め込みモデル（例：perplexity/pplx-embed-v1-0.6b）を入れると意味でも思い出せる",
   "aiStandardModelTitle": "スタンダードモデル",
   "aiStandardModelDesc": "既定階層。通常タスク向け",
   "aiProModelTitle": "Pro モデル",

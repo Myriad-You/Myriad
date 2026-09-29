@@ -46,6 +46,7 @@ fn test_folded_extension_tables_in_expected_schema() {
         "analytics_country_visitor",
         // 004
         "heartbeat_claims",
+        "agent_memory_embeddings",
         "agent_intentions",
         "agent_autonomy_grants",
         // 005 扩展

@@ -581,6 +581,17 @@ CREATE INDEX IF NOT EXISTS idx_agent_memories_user_kind
     ON agent_memories (user_id, kind);
 CREATE INDEX IF NOT EXISTS idx_agent_memories_venue_created
     ON agent_memories (venue, created_at DESC);
+-- What each memory means, as a vector: recall finds a memory by what it
+-- means as well as by its words. Kept apart so recall reads vectors only when
+-- it uses them; `digest` is of the text embedded, so an edited memory is
+-- embedded again rather than found by what it used to say.
+CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
+    memory_id VARCHAR(64) PRIMARY KEY REFERENCES agent_memories(id) ON DELETE CASCADE,
+    model VARCHAR(128) NOT NULL,
+    digest VARCHAR(64) NOT NULL,
+    vector BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
 "#,
             )
             .await?;
@@ -594,6 +605,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_memories_venue_created
             .execute_unprepared(
                 r#"
 DROP TABLE IF EXISTS merope_stickers;
+DROP TABLE IF EXISTS agent_memory_embeddings;
 DROP TABLE IF EXISTS agent_memories;
 DROP TABLE IF EXISTS agent_autonomy_grants;
 DROP TABLE IF EXISTS agent_proactive_messages;

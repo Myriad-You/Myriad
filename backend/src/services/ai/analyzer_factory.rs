@@ -123,6 +123,18 @@ pub async fn create_lite_judge_ai_analyzer_with_timeout(
         .map(AiAnalyzer::with_light_thinking)
 }
 
+/// Lite's embedding model (`lite_embedding_model`), when one is set: what a
+/// memory means, as a vector. `None`: recall goes by words alone.
+pub async fn create_lite_embedding_analyzer_with_timeout(
+    request_timeout: Option<std::time::Duration>,
+) -> Option<AiAnalyzer> {
+    let resolved = GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .resolve_lite_embedding_ai_config()?;
+    lite_analyzer(resolved, request_timeout).await
+}
+
 async fn lite_analyzer(
     resolved: crate::config::ResolvedAiConfig,
     request_timeout: Option<std::time::Duration>,

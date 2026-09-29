@@ -898,5 +898,15 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 },
             ],
         },
+        TableDef {
+            name: "agent_memory_embeddings".to_string(),
+            columns: vec![
+                ColumnDef::new("memory_id", "character varying").not_null(),
+                ColumnDef::new("model", "character varying").not_null(),
+                ColumnDef::new("digest", "character varying").not_null(),
+                ColumnDef::new("vector", "bytea").not_null(),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+            ],
+        },
     ]
 }

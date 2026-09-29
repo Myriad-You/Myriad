@@ -192,7 +192,9 @@ const ModelTierGroup: React.FC<
               label={
                 field.key === 'lite_judge_model'
                   ? t.config.aiLiteJudgeModelLabel
-                  : field.key.endsWith('model')
+                  : field.key === 'lite_embedding_model'
+                    ? t.config.aiLiteEmbeddingModelLabel
+                    : field.key.endsWith('model')
                     ? t.config.openaiModelLabel
                     : field.label
               }
@@ -204,7 +206,9 @@ const ModelTierGroup: React.FC<
               placeholder={
                 field.key === 'lite_judge_model'
                   ? t.config.aiLiteJudgeModelPlaceholder
-                  : field.placeholder
+                  : field.key === 'lite_embedding_model'
+                    ? t.config.aiLiteEmbeddingModelPlaceholder
+                    : field.placeholder
               }
               inputType={field.field_type as 'text' | 'password'}
               autoSelectOnMask
@@ -231,7 +235,12 @@ function fieldsForModelTier(
       return false
     }
     // Same provider as Lite, whichever it is: only a model name.
-    if (prefix === 'lite_' && field.key === 'lite_judge_model') return true
+    if (
+      prefix === 'lite_' &&
+      (field.key === 'lite_judge_model' || field.key === 'lite_embedding_model')
+    ) {
+      return true
+    }
     if (provider === 'gemini') {
       return field.key.startsWith(geminiPrefix) && field.key.endsWith('model')
     }

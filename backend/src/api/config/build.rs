@@ -816,6 +816,19 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
+                    key: "lite_embedding_model".to_string(),
+                    label: "Embedding Model".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.lite_embedding_model.clone())
+                        .unwrap_or_else(|| {
+                            std::env::var("LITE_EMBEDDING_MODEL").unwrap_or_default()
+                        }),
+                    placeholder: "Blank: recall by words only".to_string(),
+                    required: false,
+                },
+                ConfigField {
                     key: "lite_openai_base_url".to_string(),
                     label: "【Lite Model】OpenAI Base URL".to_string(),
                     field_type: "text".to_string(),

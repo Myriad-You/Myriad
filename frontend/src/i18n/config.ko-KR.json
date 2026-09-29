@@ -1104,6 +1104,8 @@
   "aiLiteProviderHint": "Standard와 달라도 됩니다. 키는 위의 제공자에 있습니다",
   "aiLiteJudgeModelLabel": "판단용 모델",
   "aiLiteJudgeModelPlaceholder": "비워 두면 Lite와 같습니다. 기분, 말을 걸지, 무엇을 기억할지 같은 작은 판단용으로 빠른 모델이 적합합니다",
+  "aiLiteEmbeddingModelLabel": "임베딩 모델",
+  "aiLiteEmbeddingModelPlaceholder": "비워 두면 단어로만 떠올립니다. 임베딩 모델(예: perplexity/pplx-embed-v1-0.6b)을 넣으면 의미로도 떠올립니다",
   "aiStandardModelTitle": "Standard 모델",
   "aiStandardModelDesc": "일상 작업용 기본 등급",
   "aiProModelTitle": "Pro 모델",

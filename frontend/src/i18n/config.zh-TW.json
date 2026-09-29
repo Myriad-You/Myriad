@@ -1104,6 +1104,8 @@
   "aiLiteProviderHint": "可與標準模型不同；金鑰在上面的服務商裡填",
   "aiLiteJudgeModelLabel": "判斷用模型",
   "aiLiteJudgeModelPlaceholder": "留空則與 Lite 相同。用於情緒、要不要開口、記什麼這類小判斷，適合更快的模型",
+  "aiLiteEmbeddingModelLabel": "向量模型",
+  "aiLiteEmbeddingModelPlaceholder": "留空則只按字面回想。填一個 embedding 模型（如 perplexity/pplx-embed-v1-0.6b），她也能按意思想起事情",
   "aiStandardModelTitle": "標準模型",
   "aiStandardModelDesc": "預設層級，用於常規任務",
   "aiProModelTitle": "Pro 模型",

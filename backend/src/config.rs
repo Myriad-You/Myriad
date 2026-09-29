@@ -339,6 +339,10 @@ pub struct DynamicConfig {
     /// event decisions, memory extraction, whether to look something up),
     /// on the same provider and credentials. Blank: Lite's own model.
     pub lite_judge_model: String,
+    /// Optional embedding model on Lite's provider and credentials: recall
+    /// then finds a memory by what it means, not only by its words. Blank:
+    /// words only.
+    pub lite_embedding_model: String,
     // AI 配置（Pro 模型）
     pub pro_enabled: bool,
     pub pro_ai_provider: String,
@@ -782,6 +786,7 @@ impl Default for DynamicConfig {
             lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
             // 留空：判断也用 Lite 的模型。
             lite_judge_model: String::new(),
+            lite_embedding_model: String::new(),
             // Pro 模型默认配置
             pro_enabled: false,
             pro_ai_provider: "openai".to_string(),
@@ -1585,6 +1590,18 @@ impl DynamicConfig {
         Some(resolved)
     }
 
+    /// The embedding model on Lite's provider and credentials, when one is
+    /// set; `None` leaves recall to words alone.
+    pub fn resolve_lite_embedding_ai_config(&self) -> Option<ResolvedAiConfig> {
+        let model = self.lite_embedding_model.trim();
+        if model.is_empty() {
+            return None;
+        }
+        let mut resolved = self.resolve_strict_lite_ai_config()?;
+        resolved.model = model.to_string();
+        Some(resolved)
+    }
+
     /// 这一档要的模型没配、实际会落到 Standard 上吗？
     ///
     /// 开关打开但模型字段留空时，`resolve_tier` 会取 Standard 的模型。配置上
@@ -2175,6 +2192,33 @@ mod tests {
             off.resolve_lite_judge_ai_config().is_none(),
             "no Lite, no judge"
         );
+    }
+
+    #[test]
+    fn embeddings_are_off_until_a_model_is_named_on_lite() {
+        let lite = DynamicConfig {
+            lite_enabled: true,
+            lite_ai_provider: "openai".to_string(),
+            lite_openai_model: "google/gemini-3.8-flash".to_string(),
+            lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
+            ..DynamicConfig::default()
+        };
+        assert!(lite.resolve_lite_embedding_ai_config().is_none());
+        let on = DynamicConfig {
+            lite_embedding_model: " perplexity/pplx-embed-v1-0.6b ".to_string(),
+            ..lite.clone()
+        };
+        let embedding = on.resolve_lite_embedding_ai_config().unwrap();
+        assert_eq!(embedding.model, "perplexity/pplx-embed-v1-0.6b");
+        assert_eq!(
+            embedding.base_url,
+            on.resolve_strict_lite_ai_config().unwrap().base_url
+        );
+        let off = DynamicConfig {
+            lite_enabled: false,
+            ..on
+        };
+        assert!(off.resolve_lite_embedding_ai_config().is_none());
     }
 
     #[test]

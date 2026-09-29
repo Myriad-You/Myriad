@@ -1104,6 +1104,8 @@
   "aiLiteProviderHint": "May differ from Standard; keys live in Providers above",
   "aiLiteJudgeModelLabel": "Judgment model",
   "aiLiteJudgeModelPlaceholder": "Blank: same as the Lite model. A fast model for small decisions (mood, whether to speak up, what to remember)",
+  "aiLiteEmbeddingModelLabel": "Embedding model",
+  "aiLiteEmbeddingModelPlaceholder": "Blank: recall by words only. An embedding model (e.g. perplexity/pplx-embed-v1-0.6b) lets her recall by meaning too",
   "aiStandardModelTitle": "Standard Model",
   "aiStandardModelDesc": "Default tier for everyday tasks",
   "aiProModelTitle": "Pro Model",

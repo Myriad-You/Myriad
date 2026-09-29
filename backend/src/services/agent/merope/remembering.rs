@@ -54,8 +54,17 @@ const PEOPLE_KEPT: usize = 4096;
 pub fn begin(owner: i32, message: &str) {
     let thinking: Thinking = think(owner, message.to_string()).boxed().shared();
     let running = thinking.clone();
+    let said = [message.to_string()];
     super::background::spawn("remembering", async move {
-        running.await;
+        // What it means, while she thinks what to look for.
+        let (_, cues) = futures::join!(
+            crate::services::agent::memory::meaning::warm(&said),
+            running
+        );
+        // And what the cues mean, before recall goes through them.
+        if let Some(cues) = cues {
+            crate::services::agent::memory::meaning::warm(&cues.cues).await;
+        }
     });
     if let Ok(mut all) = THINKING.lock() {
         if all.len() >= PEOPLE_KEPT {
@@ -202,6 +211,8 @@ pub async fn recall_with(
     let Some(cues) = cues.filter(|cues| !cues.cues.is_empty()) else {
         return Ok((first, next));
     };
+    // What the cues mean, in one request rather than one each.
+    crate::services::agent::memory::meaning::warm(&cues.cues).await;
     let mut tries = vec![first.named];
     for cue in &cues.cues {
         let (found, _) = store::recall_remembered_split(

@@ -604,7 +604,13 @@ pub async fn recall_primed<C: ConnectionTrait>(
         return Ok((Vec::new(), Priming::default()));
     }
     let rows = rows_for(db, user_id, present, kinds).await?;
-    let (chosen, next) = rank_marked(rows, query, limit, priming, breadth);
+    let by_meaning = match query {
+        Some(query) => super::meaning::standing_out(
+            &super::meaning::closeness(db, &rows, query, super::meaning::FILL).await,
+        ),
+        None => std::collections::HashMap::new(),
+    };
+    let (chosen, next) = rank_marked(rows, query, limit, priming, breadth, &by_meaning);
     if !chosen.is_empty() {
         let now = Utc::now().fixed_offset();
         agent_memories::Entity::update_many()
@@ -649,18 +655,64 @@ fn rank_primed(
     priming: &Priming,
     breadth: f64,
 ) -> (Vec<agent_memories::Model>, Priming) {
-    let (chosen, next) = rank_marked(rows, query, limit, priming, breadth);
+    let (chosen, next) = rank_marked(
+        rows,
+        query,
+        limit,
+        priming,
+        breadth,
+        &std::collections::HashMap::new(),
+    );
     (chosen.into_iter().map(|(row, _)| row).collect(), next)
 }
 
+/// How named each memory is, by its words and by its meaning together: each
+/// stands by its place among those its words matched and among those that
+/// stand out by meaning, so one found both ways comes first; the first
+/// counts 1.
+fn named_by_words_or_meaning(words: &[f64], meaning: &[f64]) -> Vec<f64> {
+    /// How much a place matters against being found both ways (as in
+    /// `myriad_merope::remembering::merged`).
+    const FUSED_AT: f64 = 6.0;
+    let places = |values: &[f64]| {
+        let mut order: Vec<usize> = (0..values.len()).filter(|i| values[*i] > 0.0).collect();
+        order.sort_by(|left, right| values[*right].total_cmp(&values[*left]));
+        let mut place = vec![None; values.len()];
+        for (rank, index) in order.into_iter().enumerate() {
+            place[index] = Some(rank);
+        }
+        place
+    };
+    let (by_words, by_meaning) = (places(words), places(meaning));
+    let fused: Vec<f64> = by_words
+        .iter()
+        .zip(&by_meaning)
+        .map(|(words, meaning)| {
+            [words, meaning]
+                .into_iter()
+                .flatten()
+                .map(|rank| 1.0 / (FUSED_AT + *rank as f64))
+                .sum()
+        })
+        .collect();
+    let top = fused.iter().copied().fold(0.0, f64::max);
+    if top <= 0.0 {
+        return fused;
+    }
+    fused.into_iter().map(|value| value / top).collect()
+}
+
 /// [`rank_primed`], marking each row that came to mind by association with
-/// what was named rather than being named itself.
+/// what was named rather than being named itself. `by_meaning` holds the
+/// memories that stand out by meaning from the rest (memory id → how far,
+/// [`super::meaning::standing_out`]): they count as named as well.
 fn rank_marked(
     rows: Vec<agent_memories::Model>,
     query: Option<&str>,
     limit: usize,
     priming: &Priming,
     breadth: f64,
+    by_meaning: &std::collections::HashMap<String, f64>,
 ) -> (Vec<(agent_memories::Model, bool)>, Priming) {
     // Blank and repeated legacy rows must not spend the recall budget.
     let mut seen = std::collections::HashSet::new();
@@ -696,6 +748,17 @@ fn rank_marked(
             }
         })
         .collect();
+    let (named, strongest) = if by_meaning.is_empty() {
+        (named, strongest)
+    } else {
+        let meaning: Vec<f64> = rows
+            .iter()
+            .map(|row| by_meaning.get(&row.id).copied().unwrap_or(0.0))
+            .collect();
+        let named = named_by_words_or_meaning(&named, &meaning);
+        let strongest = named.iter().copied().fold(0.0, f64::max);
+        (named, strongest)
+    };
     let residual: Vec<f64> = rows.iter().map(|row| priming.of(&row.id)).collect();
     let now = Utc::now().fixed_offset();
     let ready: Vec<f64> = rows.iter().map(|row| readiness(row, now)).collect();
@@ -1651,6 +1714,30 @@ mod tests {
         assert!(named.contains(&"played".to_string()));
     }
 
+    #[test]
+    fn what_stands_out_by_meaning_is_named_even_with_no_word_shared() {
+        // Asked for cultural events; the memory is about language exchanges.
+        let rows = vec![
+            row("exchange", "想参加语言交换活动，练口语", 0.5, 1_000),
+            row("weather", "明天下雨", 0.5, 10),
+            row("events", "上周去看了一个展览活动", 0.5, 100),
+        ];
+        let query = Some("推荐点这周末的文化活动");
+        let by_meaning: std::collections::HashMap<String, f64> =
+            [("exchange".to_string(), 3.1)].into();
+        let (chosen, _) = rank_marked(rows, query, 2, &Priming::default(), 0.0, &by_meaning);
+        let chosen: Vec<(String, bool)> = chosen
+            .into_iter()
+            .map(|(row, brought)| (row.id, brought))
+            .collect();
+        assert!(chosen.contains(&("exchange".to_string(), false)));
+        // Found both ways comes before found one way; the first counts 1.
+        let fused = named_by_words_or_meaning(&[1.0, 0.5, 0.0], &[0.0, 2.5, 3.0]);
+        assert_eq!(fused[1], 1.0);
+        assert!(fused[0] > 0.0 && fused[2] > 0.0 && fused[0] < 1.0);
+        assert_eq!(named_by_words_or_meaning(&[0.0], &[0.0]), vec![0.0]);
+    }
+
     fn recalled(
         mut row: agent_memories::Model,
         times: i32,
@@ -1908,15 +1995,28 @@ mod tests {
             about(row("cat", "养了一只猫叫年糕", 0.5, 0), &["猫", "年糕"]),
             about(row("vet", "年糕上周打了疫苗", 0.5, 30 * DAY), &["年糕"]),
         ];
-        let (chosen, _) = rank_marked(rows.clone(), Some("猫怎么样"), 8, &Priming::default(), 1.0);
+        let (chosen, _) = rank_marked(
+            rows.clone(),
+            Some("猫怎么样"),
+            8,
+            &Priming::default(),
+            1.0,
+            &std::collections::HashMap::new(),
+        );
         let marks: Vec<(String, bool)> = chosen
             .into_iter()
             .map(|(row, brought)| (row.id, brought))
             .collect();
         assert_eq!(marks, vec![("cat".into(), false), ("vet".into(), true)]);
         // A topic only lingering from before is not a new association.
-        let (lingering, _) =
-            rank_marked(rows, Some("明日预报"), 8, &Priming::with("cat", 0.8), 1.0);
+        let (lingering, _) = rank_marked(
+            rows,
+            Some("明日预报"),
+            8,
+            &Priming::with("cat", 0.8),
+            1.0,
+            &std::collections::HashMap::new(),
+        );
         assert!(lingering.iter().all(|(_, brought)| !brought));
     }
 
