@@ -88,26 +88,33 @@ pub fn parse(raw: &str) -> Option<Cues> {
     })
 }
 
-/// Recalled lines from each try, merged: the first try's order kept, each
-/// line once, at most `limit`.
+/// Recalled lines from each try, merged: a line stands by where it came in
+/// each try that found it, so what several cues bring back comes first, as
+/// what comes to mind from more than one direction is surer; each line once,
+/// at most `limit`, ties in the order found.
 pub fn merged(tries: &[Vec<String>], limit: usize) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    // Take from each try in turn, so every cue gets its best lines in.
-    let longest = tries.iter().map(Vec::len).max().unwrap_or(0);
-    for rank in 0..longest {
-        for recalled in tries {
-            if let Some(line) = recalled.get(rank)
-                && !out.contains(line)
-            {
-                out.push(line.clone());
-            }
-            if out.len() == limit {
-                return out;
+    let mut standing: Vec<(String, f64)> = Vec::new();
+    for recalled in tries {
+        for (rank, line) in recalled.iter().enumerate() {
+            let weight = 1.0 / (FUSED_AT + rank as f64);
+            match standing.iter_mut().find(|(seen, _)| seen == line) {
+                Some((_, score)) => *score += weight,
+                None => standing.push((line.clone(), weight)),
             }
         }
     }
-    out
+    // Stable: equal standing keeps the order found.
+    standing.sort_by(|left, right| right.1.total_cmp(&left.1));
+    standing
+        .into_iter()
+        .take(limit)
+        .map(|(line, _)| line)
+        .collect()
 }
+
+/// How much a line's place in one try matters against being found by
+/// another: first in one try stands with 7th in two.
+const FUSED_AT: f64 = 6.0;
 
 /// Pieces a search looks for: words of three letters or more, and the
 /// two-character pieces of Chinese, Japanese and the like.
@@ -211,8 +218,9 @@ mod tests {
             vec!["b".to_string(), "d".into()],
             vec!["e".to_string()],
         ];
-        assert_eq!(merged(&tries, 4), ["a", "b", "e", "d"]);
-        assert_eq!(merged(&tries, 10), ["a", "b", "e", "d", "c"]);
+        // Found by two tries, b comes before what one found first.
+        assert_eq!(merged(&tries, 4), ["b", "a", "e", "d"]);
+        assert_eq!(merged(&tries, 10), ["b", "a", "e", "d", "c"]);
         assert!(system().contains("thorough"));
         assert!(
             parse(r#"{"cues":["work from home jobs"],"thorough":false,"lookBack":true}"#)

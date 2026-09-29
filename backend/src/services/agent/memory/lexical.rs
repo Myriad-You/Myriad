@@ -8,6 +8,11 @@
 //!
 //! Repeating a word is not extra evidence: query terms are counted once.
 //!
+//! An English word is read as a reader reads it, whatever its ending: "bikes"
+//! is "bike", "cooking" and "cooked" are "cook". Only regular endings are
+//! taken off, and alike in memory and query, so what two forms fold to need
+//! not be a word, only the same.
+//!
 //! A memory's concepts are terms too. When the query names a concept by any
 //! of its names (猫, 喵, cat), every memory about that concept shares one
 //! term with it, even with no word in common.
@@ -62,11 +67,55 @@ fn flush_word(word: &mut String, out: &mut Vec<Term>) {
     // One letter or digit alone says nothing.
     if word.chars().count() >= 2 {
         out.push(Term {
-            text: std::mem::take(word),
+            text: folded(std::mem::take(word)),
             weight: 1.0,
         });
     }
     word.clear();
+}
+
+/// `word` (lowercase) without its regular English ending; any other word as
+/// it is.
+fn folded(word: String) -> String {
+    if !word.bytes().all(|byte| byte.is_ascii_lowercase()) || word.len() < 4 {
+        return word;
+    }
+    let has_vowel = |stem: &str| stem.bytes().any(|byte| b"aeiouy".contains(&byte));
+    let mut stem = word.clone();
+    if let Some(base) = stem.strip_suffix("ies").filter(|base| base.len() >= 2) {
+        stem = format!("{base}y");
+    } else if let Some(base) = stem.strip_suffix("ied").filter(|base| base.len() >= 2) {
+        stem = format!("{base}y");
+    } else if ["sses", "shes", "ches", "xes", "zes"]
+        .iter()
+        .any(|ending| stem.ends_with(ending))
+    {
+        stem.truncate(stem.len() - 2);
+    } else if stem.ends_with('s')
+        && !["ss", "us", "is"]
+            .iter()
+            .any(|ending| stem.ends_with(ending))
+    {
+        stem.pop();
+    } else if let Some(base) = stem
+        .strip_suffix("ing")
+        .or_else(|| stem.strip_suffix("ed"))
+        .filter(|base| base.len() >= 3 && has_vowel(base))
+    {
+        let mut base = base.to_string();
+        // running, stopped: the doubled consonant is the ending's.
+        let bytes = base.as_bytes();
+        let last = bytes[bytes.len() - 1];
+        if bytes[bytes.len() - 2] == last && !b"aeioulsz".contains(&last) {
+            base.pop();
+        }
+        stem = base;
+    }
+    // bake, baked, baking: the silent e goes with the ending.
+    if stem.len() >= 4 && stem.ends_with('e') {
+        stem.pop();
+    }
+    stem
 }
 
 fn flush_run(run: &mut Vec<char>, out: &mut Vec<Term>) {
@@ -240,6 +289,43 @@ mod tests {
     }
 
     #[test]
+    fn an_english_word_is_the_same_word_whatever_its_ending() {
+        for (one, other) in [
+            ("bikes", "bike"),
+            ("cooking", "cook"),
+            ("cooked", "cooks"),
+            ("baking", "bake"),
+            ("baked", "bake"),
+            ("stories", "story"),
+            ("studied", "study"),
+            ("classes", "class"),
+            ("watches", "watch"),
+            ("running", "run"),
+            ("stopped", "stop"),
+            ("buses", "bus"),
+        ] {
+            assert_eq!(
+                folded(one.to_string()),
+                folded(other.to_string()),
+                "{one} / {other}"
+            );
+        }
+        // Short words, words without such an ending, and anything not plain
+        // English letters stay as they are.
+        for word in [
+            "was", "this", "class", "yoga", "thing", "being", "café", "mp3s",
+        ] {
+            assert_eq!(
+                folded(word.to_string()),
+                word.trim_end_matches('e'),
+                "{word}"
+            );
+        }
+        let scores = score_all("How many bikes do I own?", &["They also have a road bike."]);
+        assert!(scores[0].strong);
+    }
+
+    #[test]
     fn cjk_runs_become_bigrams_with_weak_characters() {
         assert_eq!(
             texts("今天"),
@@ -253,7 +339,8 @@ mod tests {
         assert_eq!(
             texts("Likes 抹茶 a lot"),
             vec![
-                ("likes".into(), 1.0),
+                // "likes", read as any form of "like".
+                ("lik".into(), 1.0),
                 ("抹".into(), WEAK),
                 ("茶".into(), WEAK),
                 ("抹茶".into(), 1.0),
