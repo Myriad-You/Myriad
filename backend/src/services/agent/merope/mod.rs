@@ -173,6 +173,10 @@ pub async fn note_user_turn(
     if !praised && !scolded && !text.trim().is_empty() {
         appraisal::spawn(db.clone(), request, &saved);
     }
+    // What to try to remember is thought of while the words land.
+    if !text.trim().is_empty() {
+        remembering::begin(user_id, text);
+    }
     if !is_extremely_low(previous.mood) && is_extremely_low(after.mood) {
         spawn_ingest(
             user_id,
@@ -748,13 +752,13 @@ async fn speaking_prompt_from_db(
         return sections;
     };
     let myself = self_state::current(db).await;
-    // Only a chat turn (it has the person's words) carries its train of
-    // thought to the next turn; other readers see memory without moving it.
     // Before answering what they said, she thinks what to try to remember.
     let cues = match turn {
         Turn::Chat(words) => remembering::cues(user_id, words).await,
         _ => None,
     };
+    // Only a chat turn (it has the person's words) carries its train of
+    // thought to the next turn; other readers see memory without moving it.
     let remembered = match turn {
         Turn::Chat(words) | Turn::Event(words) => remembering::recall_with(
             db,
