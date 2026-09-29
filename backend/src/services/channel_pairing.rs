@@ -615,6 +615,10 @@ async fn bind_openids(
         return Ok(PairingBindResult::InvalidOrExpired);
     }
     txn.commit().await?;
+    // Whom she knew in groups before by this account is them.
+    if let Some(platform) = ChannelPlatform::from_provider(channel.provider) {
+        crate::services::agent::merope::strangers::adopt(db, platform, &keys, user_id).await;
+    }
     Ok(PairingBindResult::Bound { user_id })
 }
 

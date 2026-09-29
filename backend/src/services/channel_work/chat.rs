@@ -33,8 +33,9 @@ const TYPING_EVERY: Duration = Duration::from_secs(4);
 /// What she handed off still counts as recent this long.
 const HANDED_OFF_FOR: chrono::Duration = chrono::Duration::hours(24);
 const MODEL_IMAGE_EDGE: u32 = 1024;
-/// She is in a chat's talk this long after her last reply there: she sees
-/// what comes at once.
+/// She is in talk with someone this long after they last wrote to her, or
+/// she to them, anywhere (the site, a group, any app they paired): she sees
+/// what they send at once.
 const IN_TALK: Duration = Duration::from_secs(10 * 60);
 
 /// Messages of a chat she has not seen yet, read together once she does.
@@ -45,7 +46,8 @@ struct Unseen {
 
 static UNSEEN: LazyLock<Mutex<HashMap<String, Unseen>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-static LAST_REPLY: LazyLock<Mutex<HashMap<String, Instant>>> =
+/// When she last answered each person in a private chat, by site user.
+static LAST_REPLY: LazyLock<Mutex<HashMap<i32, Instant>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const CHATS_KEPT: usize = 4096;
 
@@ -107,8 +109,9 @@ pub(super) async fn start_chat_turn(
     let talking = LAST_REPLY
         .lock()
         .ok()
-        .and_then(|last| last.get(session_key).copied())
-        .is_some_and(|at| at.elapsed() < IN_TALK);
+        .and_then(|last| last.get(&user_id).copied())
+        .is_some_and(|at| at.elapsed() < IN_TALK)
+        || wrote_lately(&db, user_id).await;
     let at = timing::where_she_is(talking, false);
     let wait = timing::until_read(at, input);
     tracing::info!(
@@ -146,8 +149,22 @@ pub(super) async fn start_chat_turn(
         if last.len() >= CHATS_KEPT {
             last.retain(|_, at| at.elapsed() < IN_TALK);
         }
-        last.insert(session_key.to_string(), Instant::now());
+        last.insert(user_id, Instant::now());
     }
+}
+
+/// Whether this person wrote to her anywhere in the last few minutes.
+async fn wrote_lately(db: &DatabaseConnection, user_id: i32) -> bool {
+    crate::services::agent::merope::store::get_or_create_state(db, user_id)
+        .await
+        .ok()
+        .and_then(|state| state.last_user_message_at)
+        .and_then(|at| {
+            (chrono::Utc::now() - at.with_timezone(&chrono::Utc))
+                .to_std()
+                .ok()
+        })
+        .is_some_and(|age| age < IN_TALK)
 }
 
 #[allow(clippy::too_many_arguments)]

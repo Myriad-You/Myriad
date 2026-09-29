@@ -69,6 +69,26 @@ pub async fn forget_counts<C: sea_orm::ConnectionTrait>(db: &C) -> Result<u64, s
         .await
 }
 
+/// Someone she knew only from groups has paired `platform` account `keys`
+/// with `user_id`: what she noted on them there is theirs now, an ordinary
+/// memory of that group. Only accounts proven theirs are taken over; nobody
+/// is matched by name.
+pub async fn adopt(
+    db: &DatabaseConnection,
+    platform: crate::services::channel_platform::ChannelPlatform,
+    keys: &[String],
+    user_id: i32,
+) {
+    for key in keys {
+        let who = format!("{}:{}", platform.slug(), key);
+        match unified::adopt_unowned(db, SOURCE, &evidence_marker(&who), user_id, "chat").await {
+            Ok(0) => {}
+            Ok(taken) => tracing::info!(user_id, taken, "[Merope] notes from groups taken over"),
+            Err(error) => tracing::warn!(%error, "[Merope] could not take over notes from groups"),
+        }
+    }
+}
+
 /// The stored venue of a group (`telegram:-100123` → `group:telegram:-100123`).
 fn group_venue(venue: &str) -> String {
     unified::Audience::group(venue, 0).venue()
@@ -331,5 +351,102 @@ mod tests {
         assert_eq!(forget_counts(db).await.unwrap(), 3);
         assert_eq!(count_exchange(db, venue, "telegram:1").await, 1);
         schema.drop().await;
+    }
+
+    /// Someone she knew only as a stranger in a group pairs that account:
+    /// her note on them is theirs, in that group only; a note on anyone else
+    /// stays as it was.
+    #[tokio::test]
+    async fn pairing_takes_over_what_she_noted_on_that_account_only() {
+        use crate::services::channel_platform::ChannelPlatform;
+        use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "stranger_adopt").await;
+        let db = isolated.db.clone();
+        let user_id: i32 = db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "INSERT INTO users (username) VALUES ('adopt-test') RETURNING id",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get("", "id")
+            .unwrap();
+        let venue = "onebot:1057102407";
+        let group = group_venue(venue);
+        let them = Stranger {
+            who: "onebot:3059342645".into(),
+            name: "leaphy".into(),
+        };
+        let other = Stranger {
+            who: "onebot:111".into(),
+            name: "别人".into(),
+        };
+        let mine = unified::remember_in_venue(
+            &db,
+            &group,
+            "leaphy 在做自己的 bot",
+            &evidence_of(&them),
+            SOURCE,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let theirs =
+            unified::remember_in_venue(&db, &group, "别人喜欢拉面", &evidence_of(&other), SOURCE)
+                .await
+                .unwrap()
+                .unwrap();
+        adopt(
+            &db,
+            ChannelPlatform::OneBot,
+            &["3059342645".to_string()],
+            user_id,
+        )
+        .await;
+        let row = |id: String| {
+            let db = db.clone();
+            async move {
+                agent_memories::Entity::find_by_id(id)
+                    .one(&db)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            }
+        };
+        let adopted = row(mine).await;
+        assert_eq!(adopted.user_id, Some(user_id));
+        assert_eq!(adopted.source, "chat");
+        assert_eq!(adopted.venue, group);
+        let untouched = row(theirs).await;
+        assert_eq!(untouched.user_id, None);
+        assert_eq!(untouched.source, SOURCE);
+        // It comes up in that group, and never in private.
+        let in_group = unified::recall(
+            &db,
+            user_id,
+            &unified::Audience::group(venue, user_id),
+            Some("bot"),
+            &[],
+            8,
+        )
+        .await
+        .unwrap();
+        assert!(in_group.iter().any(|memory| memory.content.contains("bot")));
+        let in_private = unified::recall(
+            &db,
+            user_id,
+            &unified::Audience::private(user_id),
+            Some("bot"),
+            &[],
+            8,
+        )
+        .await
+        .unwrap();
+        assert!(in_private.is_empty());
+        isolated.drop().await;
     }
 }

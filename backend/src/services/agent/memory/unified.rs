@@ -1194,6 +1194,39 @@ pub async fn unowned_with_evidence<C: ConnectionTrait>(
         .await
 }
 
+/// Notes kept on someone from outside (rows of `source` with no owner whose
+/// evidence carries `marker`) become `user_id`'s ordinary memories from
+/// `as_source` once they pair: still of the group they were said in, so
+/// they come up there and nowhere else. How many were taken over.
+pub async fn adopt_unowned<C: ConnectionTrait>(
+    db: &C,
+    source: &str,
+    marker: &str,
+    user_id: i32,
+    as_source: &str,
+) -> Result<u64, DbErr> {
+    let result = agent_memories::Entity::update_many()
+        .col_expr(
+            agent_memories::Column::UserId,
+            sea_orm::sea_query::Expr::value(user_id),
+        )
+        .col_expr(
+            agent_memories::Column::Source,
+            sea_orm::sea_query::Expr::value(as_source),
+        )
+        .col_expr(
+            agent_memories::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(Utc::now().fixed_offset()),
+        )
+        .filter(agent_memories::Column::UserId.is_null())
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .filter(agent_memories::Column::Evidence.contains(marker))
+        .exec(db)
+        .await?;
+    Ok(result.rows_affected)
+}
+
 /// Every active row from `source`, whoever it is about.
 pub async fn active_from_source<C: ConnectionTrait>(
     db: &C,
