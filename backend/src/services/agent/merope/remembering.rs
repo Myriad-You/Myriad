@@ -14,6 +14,11 @@ use super::store::{self, Recalled};
 use crate::services::agent::memory::unified::{Audience, Priming};
 use myriad_merope::remembering::{Cues, SCHEMA_NAME, input, merged, parse, schema, system};
 
+/// Messages she reads when scrolling back: for a detail, and when answering
+/// needs all of it (the amounts and names memory may have lost are there).
+pub const LOOK_BACK: usize = 3;
+pub const LOOK_BACK_THOROUGH: usize = 8;
+
 /// Past this she answers from what their words alone brought back.
 const THINK_WITHIN: Duration = Duration::from_secs(3);
 /// What she goes through when answering needs all of it.
@@ -87,10 +92,10 @@ pub async fn look_back(
     user_id: i32,
     query: &str,
     asked: &str,
+    found: usize,
 ) -> Vec<(String, bool, String)> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
     const LATEST: i32 = 3000;
-    const FOUND: usize = 3;
     const SHOWN_CHARS: usize = 600;
     let Ok(rows) = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -135,7 +140,7 @@ pub async fn look_back(
     // question is the reply below it.
     let mut shown: Vec<usize> = named
         .iter()
-        .take(FOUND)
+        .take(found)
         .flat_map(|(_, index)| [*index, index + 1])
         .filter(|index| *index < chat.len())
         .collect();

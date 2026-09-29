@@ -47,8 +47,6 @@ struct Turn {
 
 const RECALLED: usize = 8;
 const THOROUGH: usize = super::remembering::THOROUGH;
-/// A wider going-through, compared against production's.
-const WIDE: usize = 32;
 const AT_ONCE: usize = 6;
 
 fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
@@ -297,7 +295,7 @@ async fn run_one(
     // The same memories, recalled once from their words alone and once
     // with the cues: the difference is recall's, not writing's.
     let plain = answer_one(
-        db, judge, lite, question, user_id, &present, None, THOROUGH, &answering,
+        db, judge, lite, question, user_id, &present, None, THOROUGH, false, &answering,
     )
     .await;
     let cued = answer_one(
@@ -309,10 +307,12 @@ async fn run_one(
         &present,
         cues.as_ref(),
         THOROUGH,
+        false,
         &answering,
     )
     .await;
-    // The same, going through more when it needs all of it.
+    // The same, also scrolling back through the chat when answering needs
+    // all of it, as production does.
     let wide = answer_one(
         db,
         judge,
@@ -321,7 +321,8 @@ async fn run_one(
         user_id,
         &present,
         cues.as_ref(),
-        WIDE,
+        THOROUGH,
+        true,
         &answering,
     )
     .await;
@@ -362,6 +363,7 @@ async fn answer_one(
     present: &Audience,
     cues: Option<&myriad_merope::remembering::Cues>,
     thorough: usize,
+    back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
     let recalled = super::remembering::recall_with(
@@ -388,14 +390,25 @@ async fn answer_one(
         .iter()
         .any(|fact| recalled.iter().any(|line| line.contains(fact.as_str())));
     // Asked about what was said in detail, she scrolls back, as in a chat.
-    let scrolled = match cues.filter(|cues| cues.look_back) {
+    let scrolled = match cues.filter(|cues| cues.look_back || (back_when_thorough && cues.thorough))
+    {
         Some(cues) => {
             let query = std::iter::once(question.question.as_str())
                 .chain(cues.cues.iter().map(String::as_str))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let found =
-                super::remembering::look_back(db, user_id, &query, &question.question).await;
+            let found = super::remembering::look_back(
+                db,
+                user_id,
+                &query,
+                &question.question,
+                if back_when_thorough && cues.thorough {
+                    super::remembering::LOOK_BACK_THOROUGH
+                } else {
+                    super::remembering::LOOK_BACK
+                },
+            )
+            .await;
             myriad_merope::remembering::looked_back_section(&found)
         }
         None => None,
@@ -530,7 +543,8 @@ async fn her_memory_on_longmemeval() {
             "question":question.question,"answer":question.answer,
             "written":outcome.written,"kept":outcome.kept,
             "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
-            "wide":answered(&outcome.wide),"memories":outcome.memories}),
+            "wide":answered(&outcome.wide),
+            "memories":outcome.memories}),
         );
     }
     let total = outcomes.len();

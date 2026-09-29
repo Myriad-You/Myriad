@@ -799,15 +799,27 @@ async fn speaking_prompt_from_db(
             sections.push(block);
         }
     }
-    // Asked about what was said in detail, she scrolls back through the chat.
+    // Asked about what was said in detail, or for all of it, she scrolls
+    // back through the chat.
     if let (false, Turn::Chat(words), Some(cues)) = (group, turn, cues.as_ref())
-        && cues.look_back
+        && (cues.look_back || cues.thorough)
     {
         let query = std::iter::once(words)
             .chain(cues.cues.iter().map(String::as_str))
             .collect::<Vec<_>>()
             .join(" ");
-        let found = remembering::look_back(db, user_id, &query, words).await;
+        let found = remembering::look_back(
+            db,
+            user_id,
+            &query,
+            words,
+            if cues.thorough {
+                remembering::LOOK_BACK_THOROUGH
+            } else {
+                remembering::LOOK_BACK
+            },
+        )
+        .await;
         if let Some(block) = myriad_merope::remembering::looked_back_section(&found) {
             sections.push(block);
         }
