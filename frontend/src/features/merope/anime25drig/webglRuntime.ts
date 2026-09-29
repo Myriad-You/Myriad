@@ -43,6 +43,9 @@ uniform float u_opacity;
 uniform float u_cry_time;
 uniform float u_cry;
 uniform vec4 u_atlas_rect;
+// A layer painted live into its own texture samples it here: offset and
+// scale of its drawing within that texture. Zero scale is the atlas.
+uniform vec4 u_own_uv;
 uniform vec2 u_neck_surface_fade;
 uniform vec2 u_crown_band;
 uniform vec2 u_neck_surface_bounds;
@@ -85,8 +88,10 @@ float tear_center(float y, float side) {
 }
 
 void main() {
-  vec4 color = texture(u_texture, v_uv);
   vec2 local_uv = (v_uv - u_atlas_rect.xy) / u_atlas_rect.zw;
+  vec4 color = u_own_uv.z > 0.0
+    ? texture(u_texture, u_own_uv.xy + local_uv * u_own_uv.zw)
+    : texture(u_texture, v_uv);
   float cry_amount = abs(u_cry);
   if (cry_amount > 0.001) {
     float side = u_cry < 0.0 ? -1.0 : 1.0;

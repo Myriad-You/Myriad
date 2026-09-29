@@ -57,6 +57,8 @@ export interface Anime25DOpacityFrame {
   /** The open drawing the underlay is taking over from, and how far that handoff is. */
   mouthPrevious: SpeechMouthMaterial
   mouthHandoff: number
+  /** The open mouth is drawn live as every speaking shape; the other speaking drawings stay hidden. */
+  continuousMouth: boolean
   /** The closed line still showing over lips that have only just parted. */
   closedLinger: number
   /** How far the parting slit has come in over that line. */
@@ -329,6 +331,7 @@ export function createAnime25DOpacityFrame(): Anime25DOpacityFrame {
     mouthUnderlay: 'mouthClose',
     mouthPrevious: 'mouthClose',
     mouthHandoff: 1,
+    continuousMouth: false,
     closedLinger: 0,
     partingReveal: 1,
   }
@@ -340,6 +343,7 @@ export function writeAnime25DOpacityFrame(
   activeMouthMaterial: SpeechMouthMaterial,
   sillyMouthShare = 1,
   handoff?: Readonly<{ previous: SpeechMouthMaterial, handoff: number }>,
+  continuousMouth = false,
 ): void {
   const dizzy = smoothstep(driver.eyeDizzy)
   const cry = smoothstep(driver.eyeCry)
@@ -387,9 +391,12 @@ export function writeAnime25DOpacityFrame(
   output.lovestruckHeartR =
     lovestruck * smoothstep((driver.eyeOpenR - 0.12) / 0.28)
   output.activeMouthMaterial = activeMouthMaterial
-  output.mouthUnderlay = regularMouthMaterial(driver, activeMouthMaterial)
-  output.mouthPrevious = handoff?.previous ?? output.mouthUnderlay
+  const fold = (material: SpeechMouthMaterial) =>
+    continuousMouth && isSpeakingMaterial(material) ? 'mouthOpen' : material
+  output.mouthUnderlay = fold(regularMouthMaterial(driver, activeMouthMaterial))
+  output.mouthPrevious = fold(handoff?.previous ?? output.mouthUnderlay)
   output.mouthHandoff = handoff?.handoff ?? 1
+  output.continuousMouth = continuousMouth
   output.closedLinger = closedLinger(driver)
   output.partingReveal = partingReveal(driver)
 }
@@ -471,6 +478,10 @@ export function shouldDeformLayer(
   opacity: number,
 ): boolean {
   return opacity >= 0.004 || layer.name.startsWith('eyewhite')
+}
+
+function isSpeakingMaterial(material: SpeechMouthMaterial): boolean {
+  return material === 'mouthOpen' || material === 'mouthWide' || material === 'mouthRound' || material === 'mouthNarrow'
 }
 
 function mouthLayerMix(

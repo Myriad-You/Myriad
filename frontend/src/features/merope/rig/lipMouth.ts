@@ -92,21 +92,93 @@ export function createLipMouthBitmap(
   const width = Math.max(16, Math.min(200, Math.round(requestedSize.width)))
   const height = Math.max(10, Math.min(160, Math.round(requestedSize.height)))
   const outer = mouthExpressionOuterPath(kind)
-  // The opening sits a little high: the lower lip is the fuller one.
-  const opening = scalePath(outer, kind === 'narrow' ? 0.84 : 0.8, kind === 'narrow' ? 0.46 : 0.62, -0.06)
-  const lipLine = scalePath(outer, kind === 'narrow' ? 0.88 : 0.845, kind === 'narrow' ? 0.56 : 0.7, -0.06)
+  const cut = lipCut(kind === 'narrow' ? 1 : 0, kind === 'round' ? 1 : 0)
+  const opening = scalePath(outer, cut.openingX, cut.openingY, LIP_CUT_OFFSET)
+  const lipLine = scalePath(outer, cut.lineX, cut.lineY, LIP_CUT_OFFSET)
+  const data = new Uint8ClampedArray(width * height * 4)
   const openingTop = Math.min(...opening.map(([, y]) => y))
   const openingBottom = Math.max(...opening.map(([, y]) => y))
-  const openingRows = ((openingBottom - openingTop) / 2.2) * height
+  paintLipMouth(data, width, height, painted, {
+    toShape: (x, y, out) => {
+      out.x = (x / width - 0.5) * 2.2
+      out.y = (y / height - 0.5) * 2.2
+    },
+    openingRows: ((openingBottom - openingTop) / 2.2) * height,
+    openingTop,
+    openingBottom,
+    teethMinimum: cut.teethMinimum,
+    inOuter: (x, y) => pointInPolygon(x, y, outer),
+    inLipLine: (x, y) => pointInPolygon(x, y, lipLine),
+    inOpening: (x, y) => pointInPolygon(x, y, opening),
+  })
+  return { width, height, data: soften(data, width, height) }
+}
+
+/** The opening sits a little high: the lower lip is the fuller one. */
+export const LIP_CUT_OFFSET = -0.06
+
+export interface LipCut {
+  openingX: number
+  openingY: number
+  lineX: number
+  lineY: number
+  /** Shallowest band of teeth, as a share of the opening's depth. */
+  teethMinimum: number
+}
+
+/**
+ * Where the lips part inside a mouth's outline, for a blend of the narrow and
+ * round drawings (the rest being open or wide, which part alike). A narrow
+ * mouth is mostly lip with a thin slit; a round one shows less of its teeth.
+ */
+export function lipCut(narrow: number, round: number): LipCut {
+  const n = Math.max(0, Math.min(1, narrow))
+  const r = Math.max(0, Math.min(1 - n, round))
+  return {
+    openingX: 0.8 + 0.04 * n,
+    openingY: 0.62 - 0.16 * n,
+    lineX: 0.845 + 0.035 * n,
+    lineY: 0.7 - 0.14 * n,
+    teethMinimum: 0.24 + 0.06 * n - 0.08 * r,
+  }
+}
+
+/** A lip mouth's shape, however it is described, in the drawings' ±1.1 space. */
+export interface LipMouthGeometry {
+  /** Where bitmap position (x, y), in pixels, lies in shape space. */
+  toShape: (x: number, y: number, out: { x: number; y: number }) => void
+  /** How many pixels deep the opening is drawn. */
+  openingRows: number
+  openingTop: number
+  openingBottom: number
+  teethMinimum: number
+  inOuter: (x: number, y: number) => boolean
+  inLipLine: (x: number, y: number) => boolean
+  inOpening: (x: number, y: number) => boolean
+}
+
+/**
+ * Paints lips, teeth, cavity and tongue for any lip mouth shape into `data`,
+ * unsoftened. The drawn mouths and the continuous speaking mouth share it, so
+ * the continuous one is the same painting at every blend.
+ */
+export function paintLipMouth(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  painted: Readonly<PaintedLips>,
+  shape: Readonly<LipMouthGeometry>,
+): void {
+  const { openingTop, openingBottom, openingRows } = shape
+  const point = { x: 0, y: 0 }
   // A band of teeth at least a few pixels deep, or softening greys it into the cavity.
-  const teethDepth = Math.min(0.45, Math.max(kind === 'narrow' ? 0.3 : kind === 'round' ? 0.16 : 0.24, 3.5 / Math.max(1, openingRows)))
+  const teethDepth = Math.min(0.45, Math.max(shape.teethMinimum, 3.5 / Math.max(1, openingRows)))
   const lipShade = shade(painted.lips, 0.14)
   const lipLight = mix(painted.lips, { red: 255, green: 236, blue: 236 }, 0.3)
   const lineColor = shade(painted.lips, 0.55)
   const cavityTop = shade(mix(painted.lips, { red: 70, green: 18, blue: 30 }, 0.55), 0.35)
   const cavityBottom = shade(mix(painted.lips, { red: 90, green: 26, blue: 38 }, 0.45), 0.18)
   const tongue = mix(painted.lips, { red: 245, green: 150, blue: 160 }, 0.45)
-  const data = new Uint8ClampedArray(width * height * 4)
   const grid = 4
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -115,19 +187,21 @@ export function createLipMouthBitmap(
       let openCoverage = 0
       for (let sy = 0; sy < grid; sy++) {
         for (let sx = 0; sx < grid; sx++) {
-          const px = ((x + (sx + 0.5) / grid) / width - 0.5) * 2.2
-          const py = ((y + (sy + 0.5) / grid) / height - 0.5) * 2.2
-          if (!pointInPolygon(px, py, outer)) continue
+          shape.toShape(x + (sx + 0.5) / grid, y + (sy + 0.5) / grid, point)
+          const px = point.x
+          const py = point.y
+          if (!shape.inOuter(px, py)) continue
           outerCoverage++
-          if (!pointInPolygon(px, py, lipLine)) continue
+          if (!shape.inLipLine(px, py)) continue
           lineCoverage++
-          if (pointInPolygon(px, py, opening)) openCoverage++
+          if (shape.inOpening(px, py)) openCoverage++
         }
       }
       if (outerCoverage === 0) continue
       const samples = grid * grid
-      const px = ((x + 0.5) / width - 0.5) * 2.2
-      const py = ((y + 0.5) / height - 0.5) * 2.2
+      shape.toShape(x + 0.5, y + 0.5, point)
+      const px = point.x
+      const py = point.y
       const offset = (y * width + x) * 4
       // Lips: the upper lip in shadow, the lower lip lit across its middle.
       const lower = smoothstep((py - openingTop) / Math.max(0.01, openingBottom - openingTop))
@@ -146,11 +220,10 @@ export function createLipMouthBitmap(
       }
     }
   }
-  return { width, height, data: soften(data, width, height) }
 }
 
 /** One pass of a small blur: painted edges are soft, never pixel-crisp. */
-function soften(data: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray {
+export function soften(data: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray {
   const output = new Uint8ClampedArray(data.length)
   const kernel = [1, 2, 1]
   for (let y = 0; y < height; y++) {

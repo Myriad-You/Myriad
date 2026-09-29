@@ -27,6 +27,14 @@ export interface Anime25DRenderableLayer {
   cryDirection: number
   neckSurfaceFade?: { start: number; end: number; contour?: NeckSurfaceContour }
   crownOccluders?: { layer: Anime25DRenderableLayer; start: number; end: number }[]
+  /** Painted live into its own texture instead of read from the atlas. */
+  ownTexture?: Anime25DOwnTexture | null
+}
+
+export interface Anime25DOwnTexture {
+  texture: WebGLTexture
+  /** Offset and scale of the drawing within that texture, in its UVs. */
+  uv: readonly [x: number, y: number, width: number, height: number]
 }
 
 export type Anime25DRenderKind = 'ordinary' | 'neck' | 'eyewhite' | 'iris'
@@ -49,6 +57,7 @@ export interface Anime25DRendererBindings {
   cryTime: WebGLUniformLocation
   cry: WebGLUniformLocation
   atlasRect: WebGLUniformLocation
+  ownUv: WebGLUniformLocation
   neckSurfaceFade: WebGLUniformLocation
   neckSurfaceContour: WebGLUniformLocation
   neckSurfaceBounds: WebGLUniformLocation
@@ -100,6 +109,7 @@ export function createAnime25DRendererBindings(
     cryTime: requiredUniform(gl, program, 'u_cry_time'),
     cry: requiredUniform(gl, program, 'u_cry'),
     atlasRect: requiredUniform(gl, program, 'u_atlas_rect'),
+    ownUv: requiredUniform(gl, program, 'u_own_uv'),
     neckSurfaceFade: requiredUniform(gl, program, 'u_neck_surface_fade'),
     neckSurfaceContour: requiredUniform(
       gl,
@@ -154,6 +164,7 @@ export function drawAnime25DFrame(
   gl.activeTexture(gl.TEXTURE0)
   if (!atlasTexture) return
   gl.bindTexture(gl.TEXTURE_2D, atlasTexture)
+  gl.uniform4f(bindings.ownUv, 0, 0, 0, 0)
   drawEyeMask(gl, bindings, layers, frame, work)
   for (const layer of layers) {
     const opacity = layer.frameOpacity
@@ -184,6 +195,14 @@ export function drawAnime25DFrame(
       gl.uniform1f(bindings.cut, 0)
       gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
       gl.uniform2f(bindings.eyeMaskChannel, 0, 0)
+    } else if (layer.ownTexture) {
+      const own = layer.ownTexture
+      gl.bindTexture(gl.TEXTURE_2D, own.texture)
+      gl.uniform4f(bindings.ownUv, own.uv[0], own.uv[1], own.uv[2], own.uv[3])
+      gl.uniform1f(bindings.cut, 0)
+      gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
+      gl.uniform4f(bindings.ownUv, 0, 0, 0, 0)
+      gl.bindTexture(gl.TEXTURE_2D, atlasTexture)
     } else {
       gl.uniform1f(bindings.cut, 0)
       gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)

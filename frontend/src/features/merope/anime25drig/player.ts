@@ -83,6 +83,7 @@ import {
   disposeCollarClipMesh,
   uploadCollarClipMesh,
 } from './collarRuntime'
+import { ContinuousMouthTexture, prepareContinuousMouth } from './continuousMouthTexture'
 import { applyCropBoundary } from './cropBoundary'
 import { cryTearHorizontalOffset, cryTearVerticalOffset } from './cryMotion'
 import {
@@ -335,6 +336,8 @@ export class Anime25DPlayer {
   private secondaryDeformationFrame!: Anime25DSecondaryDeformationFrame
 
   private headTurn: HeadTurn = createHeadTurn(null)
+  /** The speaking mouth drawn live, when the portrait's speaking mouths are the importer's. */
+  private continuousMouth: ContinuousMouthTexture | null = null
 
   private readonly shellRotation: Anime25DShellRotation = {
     active: false,
@@ -541,6 +544,7 @@ export class Anime25DPlayer {
     this.atlasTexture = nextTexture
     this.layers = compiled.layers
     this.collarClip = compiled.collarClip
+    this.bindContinuousMouth(resolved, image)
     this.headTurn = createHeadTurn(compiled.headSilhouette ?? null)
     this.secondaryDeformationFrame.headTurn = this.headTurn
     this.bindJelly()
@@ -984,6 +988,8 @@ export class Anime25DPlayer {
     this.atlasAbort?.abort()
     this.atlasAbort = null
     releaseCompiledGpu(this.gl, this.layers, this.collarClip, this.atlasTexture)
+    this.continuousMouth?.dispose()
+    this.continuousMouth = null
     this.layers = []
     this.collarClip = null
     this.atlasTexture = null
@@ -1288,6 +1294,22 @@ export class Anime25DPlayer {
     this.stepJelly(dt)
   }
 
+  private bindContinuousMouth(playback: Readonly<Anime25DPlayback>, atlas: HTMLImageElement): void {
+    this.continuousMouth?.dispose()
+    this.continuousMouth = null
+    const setup = prepareContinuousMouth(
+      playback.layers,
+      playback.anchors,
+      atlas.naturalWidth || atlas.width,
+      atlas.naturalHeight || atlas.height,
+      (layer) => readLayerPixels(atlas, layer),
+    )
+    const layer = setup && this.layers.find((candidate) => candidate.source === setup.layer)
+    if (!setup || !layer) return
+    this.continuousMouth = new ContinuousMouthTexture(this.gl, setup)
+    layer.ownTexture = this.continuousMouth.own
+  }
+
   private bindJelly(): void {
     this.bodyLiftResponse = new BodyLiftResponse()
     this.bodyPitchResponse = new BodyLiftResponse()
@@ -1501,6 +1523,7 @@ export class Anime25DPlayer {
       this.mouthMorph,
     )
     applyMouthTransitionBridge(this.mouthMorph, mouthTransition)
+    if (this.continuousMouth && this.mouthMorph.openMix > 0) this.continuousMouth.paint(this.mouthMorph)
     const deformationFrame = this.deformationFrame
     deformationFrame.faceScale = fs
     deformationFrame.jawDrop = jawDrop
@@ -1529,6 +1552,7 @@ export class Anime25DPlayer {
       this.activeMouthMaterial,
       this.sillyMouthShare,
       mouthTransition,
+      this.continuousMouth !== null,
     )
     const deformationChanges = captureAnime25DDeformationChanges(
       this.deformationChangeState,

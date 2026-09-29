@@ -55,6 +55,8 @@ export interface Anime25DPlaybackLayer {
   h: number
   atlas: { x: number; y: number; w: number; h: number }
   strands: Anime25DStrand[]
+  /** Drawn by the importer rather than the artist; the runtime may redraw it. */
+  synthetic?: true
 }
 
 export interface Anime25DEyeAnchor {

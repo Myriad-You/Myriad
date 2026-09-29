@@ -21,6 +21,7 @@ export interface Anime25DPlaybackBuildLayer {
   bounds: { x: number; y: number; width: number; height: number }
   textureBounds: { x: number; y: number; width: number; height: number }
   strands: Array<{ x: number; rootY: number; tipY: number }>
+  synthetic?: boolean
 }
 
 export interface Anime25DRiggerAnchors {
@@ -165,6 +166,7 @@ function toPlaybackLayer(
       rootY: strand.rootY * frameWidth,
       tipY: strand.tipY * frameWidth,
     })),
+    ...(layer.synthetic ? { synthetic: true as const } : {}),
   }
 }
 
