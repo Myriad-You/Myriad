@@ -300,3 +300,23 @@ test('a closed-eye smile shuts the lids and lifts the corners; it never uses the
   assert.ok(smile > 0.3, `${smile}`)
   assert.equal('eyeSqueeze' in controller.sample(10, true, false), false)
 })
+
+test('in a posture change the body goes first and the head follows it round', () => {
+  for (const [name, leader, follower] of [['postureShift', 'body', 'angleZ'], ['headDrift', 'angleX', 'body']] as const) {
+    const controller = new RandomActionController(() => 0.5)
+    const catalog = (controller as unknown as { catalog: () => { name: string }[] }).catalog()
+    const index = catalog.findIndex((action) => action.name === name)
+    ;(controller as unknown as { nextActionIndex: () => number }).nextActionIndex = () => index
+    const trace: { t: number, lead: number, follow: number }[] = []
+    for (let frame = 0; frame < 60 * 8; frame += 1) {
+      const sample = controller.sample(frame / 60, true, false)
+      if (controller.getActiveAction() !== name) continue
+      trace.push({ t: frame / 60, lead: Math.abs(sample[leader]), follow: Math.abs(sample[follower]) })
+    }
+    const leadPeak = Math.max(...trace.map((row) => row.lead))
+    const followPeak = Math.max(...trace.map((row) => row.follow))
+    const leadHalf = trace.find((row) => row.lead >= leadPeak / 2)!.t
+    const followHalf = trace.find((row) => row.follow >= followPeak / 2)!.t
+    assert.ok(followHalf - leadHalf > 0.15, `${name}: lead ${leadHalf} follow ${followHalf}`)
+  }
+})

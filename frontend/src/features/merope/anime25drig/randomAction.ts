@@ -289,6 +289,11 @@ export class RandomActionController {
       1,
     )
     const motion = stagedEnvelope(progress, 0.2, 0.68)
+    // Overlap: in a posture change one part leads and the other follows it
+    // round a moment later, all the way through, instead of both moving as one.
+    const lag = Math.min(MAX_OVERLAP_SHARE, OVERLAP_SECONDS / this.actionDuration)
+    const leading = stagedEnvelope(clamp(progress / (1 - lag), 0, 1), 0.2, 0.68)
+    const following = stagedEnvelope(clamp((progress - lag) / (1 - lag), 0, 1), 0.2, 0.68)
     const face = stagedEnvelope(progress, 0.16, 0.7)
     const gesture = stagedEnvelope(progress, 0.24, 0.66)
     const direction = this.actionDirection
@@ -297,26 +302,28 @@ export class RandomActionController {
 
     switch (action.name) {
       case 'postureShift': {
-        this.output.angleY = 0.1 * motion * intensity
-        this.output.angleZ = direction * 0.14 * motion * intensity
-        this.output.body = direction * 0.19 * motion * intensity
+        // The body settles first; the head is carried round after it.
+        this.output.angleY = 0.1 * following * intensity
+        this.output.angleZ = direction * 0.14 * following * intensity
+        this.output.body = direction * 0.19 * leading * intensity
         this.output.eyeOpen = -0.035 * face * intensity
         this.output.ambientScale = 1 - 0.15 * motion
         break
       }
       case 'headDrift':
-        this.output.angleX = direction * 0.15 * motion * intensity
-        this.output.angleY = -0.07 * motion * intensity
-        this.output.angleZ = direction * 0.16 * motion * intensity
-        this.output.body = -direction * 0.12 * motion * intensity
+        // The head wanders off; the body answers it a moment later.
+        this.output.angleX = direction * 0.15 * leading * intensity
+        this.output.angleY = -0.07 * leading * intensity
+        this.output.angleZ = direction * 0.16 * leading * intensity
+        this.output.body = -direction * 0.12 * following * intensity
         this.output.eyeOpen = -0.025 * face * intensity
         this.output.ambientScale = 1 - 0.18 * motion
         break
       case 'shoulderEase':
-        this.output.angleX = direction * 0.1 * motion * intensity
-        this.output.angleY = -0.075 * motion * intensity
-        this.output.angleZ = -direction * 0.13 * motion * intensity
-        this.output.body = direction * 0.22 * motion * intensity
+        this.output.angleX = direction * 0.1 * following * intensity
+        this.output.angleY = -0.075 * following * intensity
+        this.output.angleZ = -direction * 0.13 * following * intensity
+        this.output.body = direction * 0.22 * leading * intensity
         this.output.eyeOpen = -0.035 * face * intensity
         this.output.armY = 0.42 * gesture * intensity
         this.output.armPos = -direction * 0.18 * gesture * intensity
@@ -557,6 +564,11 @@ const HELD_CREEP = 0.16
  * Enter, hold, leave. The hold is not a freeze: the pose keeps easing further
  * into itself, so it only comes to rest at the single moment it turns to leave.
  */
+/** How long the following part trails the leading one in a posture change. */
+const OVERLAP_SECONDS = 0.32
+/** In a short clip the overlap shrinks, so neither part's move is squeezed to a jolt. */
+const MAX_OVERLAP_SHARE = 0.14
+
 function stagedEnvelope(
   progress: number,
   enterEnd: number,
