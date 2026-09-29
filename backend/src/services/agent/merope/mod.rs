@@ -500,8 +500,8 @@ pub use speaking_prompts::{
     format_emotion_section, format_found_out_section, format_inner_moment_ago_section,
     format_mood_section, format_on_your_mind_section, format_own_days_section, format_persona,
     format_playing_section, format_recent_section, format_remembered_section,
-    format_self_story_section, format_since_section, format_views_section, group_speaking_section,
-    guest_speaking_section, mood_tone_instruction,
+    format_self_story_section, format_since_section, format_us_section, format_views_section,
+    group_speaking_section, guest_speaking_section, mood_tone_instruction,
 };
 
 /// Prompt sections for whoever this turn is speaking to. Empty when Merope is off.
@@ -929,6 +929,19 @@ async fn speaking_prompt_from_db(
         };
         if let Some(block) = format_bits_section(&shared, group) {
             sections.push(block);
+        }
+        // What they are to her: private, never in a group.
+        if !group {
+            if let Some(us) = bits::us(db, user_id).await {
+                if let Some(block) = format_us_section(
+                    &us.now,
+                    us.since.with_timezone(&chrono::Utc),
+                    us.before.as_deref(),
+                    chrono::Utc::now(),
+                ) {
+                    sections.push(block);
+                }
+            }
         }
         // What she meant to come back to with them: private, never in a group.
         if !group {

@@ -221,6 +221,7 @@ async fn would_write(
         "daysSinceYouTalked": reason.days_since,
         "dueNow": reason.due.iter().map(|thread| json!({"about": thread.about, "then": thread.then})).collect::<Vec<_>>(),
         "remembered": remembered,
+        "whatTheyAreToYou": super::bits::us(db, user_id).await.map(|us| us.now),
         "yourOwnTime": {
             "now": super::doing::current().map(|doing| super::doing::now_line(&doing, Utc::now())),
             "wouldTell": reason.to_tell,

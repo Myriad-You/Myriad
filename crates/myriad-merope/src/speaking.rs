@@ -433,6 +433,36 @@ pub fn format_acquaintance_section(
     format!("{heading}\nThey first talked to you {since}, {often}: {so}.")
 }
 
+/// What they are to her, as she put it to herself when she last went over a
+/// day with them, and how she had put it before if it has changed. Hers,
+/// from what passed between them: not a way she is told to be with them.
+pub fn format_us_section(
+    now: &str,
+    since: chrono::DateTime<chrono::Utc>,
+    before: Option<&str>,
+    today: chrono::DateTime<chrono::Utc>,
+) -> Option<String> {
+    let now = now.trim();
+    if now.is_empty() {
+        return None;
+    }
+    let ago = (today - since).num_days();
+    let when = match ago {
+        ..=0 => "last night".to_string(),
+        1 => "the night before last".to_string(),
+        _ => format!("{} days ago", ago + 1),
+    };
+    let mut lines = vec![format!(
+        "What they are to you, as you put it to yourself {when}, going over a day with them:"
+    )];
+    lines.push(myriad_agent_rules::untrusted_block("us", now));
+    if let Some(before) = before.map(str::trim).filter(|before| !before.is_empty()) {
+        lines.push("Before that, you had put it this way:".to_string());
+        lines.push(myriad_agent_rules::untrusted_block("us_before", before));
+    }
+    Some(format!("## What they are to you\n{}", lines.join("\n")))
+}
+
 /// What only she and this person share: (handle, how it goes).
 pub fn format_bits_section(bits: &[(String, String)], group: bool) -> Option<String> {
     if bits.is_empty() {
@@ -594,6 +624,28 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn what_they_are_to_her_is_hers_and_dated() {
+        let now = chrono::Utc::now();
+        assert_eq!(format_us_section("  ", now, None, now), None);
+        let section = format_us_section(
+            "总在半夜来吐槽工作的朋友。",
+            now - chrono::Duration::days(3),
+            Some("刚认识，话不多。"),
+            now,
+        )
+        .unwrap();
+        assert!(section.starts_with("## What they are to you\n"));
+        assert!(section.contains("4 days ago"));
+        assert!(section.contains("Before that, you had put it this way:"));
+        assert!(section.contains("刚认识"));
+        assert!(
+            format_us_section("x", now, None, now)
+                .unwrap()
+                .contains("last night")
+        );
+    }
 
     #[test]
     fn persona_contract_is_attached_even_on_name_only() {

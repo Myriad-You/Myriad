@@ -13,6 +13,10 @@
 //! matter they would not want brought up. A bit that comes back again stays
 //! fresh; one that has not come back in a month fades.
 //!
+//! Going over a day with one person, she also puts to herself what they are
+//! to her (`us`): only when there is none yet or the day added to it, and
+//! the one it replaces is kept with it as how things were before.
+//!
 //! What happens in a place stays there. A person's bits are kept with them
 //! and heard only in private with them, and are grown only from private
 //! conversation. A group's bits are grown only from that group's
@@ -24,10 +28,12 @@ use serde_json::{Value, json};
 
 use crate::services::agent::memory::unified::{self, Audience, Concept};
 use myriad_merope::bits::{
-    ChangeKind, Changes, MAX_CHANGES, SCHEMA_NAME, same_handle, schema, system,
+    ChangeKind, Changes, MAX_CHANGES, SCHEMA_NAME, US_CHARS, same_handle, schema, system,
 };
 
 pub const SOURCE: &str = "bit";
+/// What someone is to her, kept with them, heard only in private with them.
+pub const US_SOURCE: &str = "us";
 /// People and groups gone over per night, and how much of a day with each.
 const PEOPLE_PER_NIGHT: i64 = 10;
 const GROUPS_PER_NIGHT: i64 = 5;
@@ -262,25 +268,35 @@ pub async fn go_over(
             continue;
         }
         let held = held_in(db, &circle, 30).await;
-        let input = json!({
+        let now_us = match &circle {
+            Circle::Person(user_id) => us_row(db, *user_id).await,
+            Circle::Group { .. } => None,
+        };
+        let mut input = json!({
             "bits": held.iter().filter_map(bit_of)
                 .map(|(handle, how)| json!({"handle": handle, "how": how}))
                 .collect::<Vec<_>>(),
             "conversation": lines,
-        })
-        .to_string();
+        });
+        if let Circle::Person(_) = circle {
+            input["us"] = json!(now_us.as_ref().map(|row| row.content.clone()));
+        }
+        let input = input.to_string();
         let raw = super::call::Ask::new(super::call::Voice::HersAtLength, owner, SCHEMA_NAME)
             .within(std::time::Duration::from_secs(60))
             .json_raw(
                 &system(&soul, matches!(circle, Circle::Group { .. })),
                 &input,
                 SCHEMA_NAME,
-                &schema(),
+                &schema(matches!(circle, Circle::Group { .. })),
             )
             .await;
         let Some(changes) = raw.ok().and_then(|raw| parse(&raw)) else {
             continue;
         };
+        if let Circle::Person(user_id) = circle {
+            put_us(db, user_id, &changes.us, now_us.as_ref()).await;
+        }
         for change in changes.bits.into_iter().take(MAX_CHANGES) {
             let handle: String = change.handle.trim().chars().take(30).collect();
             let how = super::ingest::compact_summary(&change.how);
@@ -333,6 +349,76 @@ pub async fn go_over(
     if kept > 0 {
         tracing::info!(kept, "[Merope] bits kept");
     }
+}
+
+/// What they are to her as she last put it.
+async fn us_row(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Option<crate::models::entities::agent_memories::Model> {
+    unified::venue_source_rows(db, Some(user_id), "private", US_SOURCE, 1)
+        .await
+        .ok()?
+        .into_iter()
+        .next()
+}
+
+/// Keep what they are to her now, when she said it anew; the one it
+/// replaces goes with it as how things were before.
+async fn put_us(
+    db: &DatabaseConnection,
+    user_id: i32,
+    said: &str,
+    was: Option<&crate::models::entities::agent_memories::Model>,
+) {
+    let now: String = said.trim().chars().take(US_CHARS).collect();
+    if now.is_empty() || was.is_some_and(|row| row.content.trim() == now) {
+        return;
+    }
+    let before = was.map(|row| json!({ "before": row.content }).to_string());
+    if let Some(row) = was {
+        let _ = unified::retire(db, user_id, &[row.id.clone()], "superseded").await;
+    }
+    let kept = unified::remember(
+        db,
+        unified::NewMemory {
+            user_id,
+            kind: unified::MemoryKind::Fact,
+            content: now,
+            evidence: before,
+            speaker: unified::Speaker::Agent,
+            source: US_SOURCE,
+            audience: Audience::private(user_id),
+            importance: 0.7,
+            concepts: Vec::new(),
+        },
+    )
+    .await;
+    if matches!(kept, Ok(Some(_))) {
+        tracing::info!(user_id, "[Merope] what someone is to her, put anew");
+    }
+}
+
+/// What they are to her as she now puts it, when she put it so, and what it
+/// was before, if she has put it differently.
+pub struct Us {
+    pub now: String,
+    pub since: DateTime<FixedOffset>,
+    pub before: Option<String>,
+}
+
+pub async fn us(db: &DatabaseConnection, user_id: i32) -> Option<Us> {
+    let row = us_row(db, user_id).await?;
+    let before = row
+        .evidence
+        .as_deref()
+        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+        .and_then(|evidence| Some(evidence.get("before")?.as_str()?.to_string()));
+    Some(Us {
+        now: row.content,
+        since: row.created_at,
+        before,
+    })
 }
 
 /// A picture a group keeps sending is one of its bits, known by the picture
@@ -433,7 +519,7 @@ pub async fn in_group(db: &DatabaseConnection, venue: &str, limit: u64) -> Vec<(
 
 #[cfg(test)]
 pub(crate) fn probe_contract(soul: &str, group: bool) -> (String, Value) {
-    (system(soul, group), schema())
+    (system(soul, group), schema(group))
 }
 
 #[cfg(test)]
@@ -469,6 +555,22 @@ mod tests {
         assert!(parse_bits(r#"{"bits":[{"handle":"x","how":"y","change":"maybe"}]}"#).is_none());
         assert_eq!(parse_bits(r#"{"bits":[]}"#), Some(Vec::new()));
         assert!(same_handle(" 咸鱼", "咸鱼 "));
+    }
+
+    #[test]
+    fn what_someone_is_to_her_grows_only_in_private_and_only_from_what_passed() {
+        let private = system("你是小灯。", false);
+        assert!(private.contains("us is what they are to you"));
+        assert!(private.contains("nothing invented, no compliments for their sake"));
+        assert!(private.contains("otherwise us is empty"));
+        assert!(!system("你是小灯。", true).contains("us is"));
+        assert_eq!(schema(false)["required"], json!(["bits", "us"]));
+        assert!(schema(true)["properties"].get("us").is_none());
+        let changes =
+            parse(r#"{"bits":[],"us":"总在半夜来吐槽工作的朋友，嘴上嫌他烦，其实挺担心他。"}"#)
+                .unwrap();
+        assert!(changes.us.contains("担心"));
+        assert_eq!(parse(r#"{"bits":[]}"#).unwrap().us, "");
     }
 
     #[test]
