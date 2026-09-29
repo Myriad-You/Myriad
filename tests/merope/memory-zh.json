@@ -1,0 +1,256 @@
+[
+  {
+    "question_id": "zh-user-cat",
+    "question_type": "single-session-user",
+    "question": "我家猫叫什么来着，你还记得吗",
+    "answer": "年糕",
+    "question_date": "2026/09/20 (Sun) 21:00",
+    "haystack_dates": ["2026/09/02 (Wed) 22:10", "2026/09/11 (Fri) 20:30"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "今天好累 下班回来年糕又把纸巾拽了一地", "has_answer": true},
+        {"role": "assistant", "content": "年糕是谁"},
+        {"role": "user", "content": "我家猫啊 橘的 三岁了", "has_answer": true},
+        {"role": "assistant", "content": "橘猫拽纸巾 很合理"}
+      ],
+      [
+        {"role": "user", "content": "周末想去看展 有推荐吗", "has_answer": false},
+        {"role": "assistant", "content": "看什么类型的 画还是装置"},
+        {"role": "user", "content": "都行 别太远就好", "has_answer": false},
+        {"role": "assistant", "content": "那先看看你那边近的"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-user-job",
+    "question_type": "single-session-user",
+    "question": "我之前说我在哪家公司上班",
+    "answer": "一家做游戏的公司，叫星穹互娱",
+    "question_date": "2026/09/25 (Fri) 12:00",
+    "haystack_dates": ["2026/09/05 (Sat) 23:40", "2026/09/18 (Fri) 19:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "明天又要加班 星穹互娱这破项目什么时候是个头", "has_answer": true},
+        {"role": "assistant", "content": "你们在赶什么"},
+        {"role": "user", "content": "新版本 我做关卡的", "has_answer": true},
+        {"role": "assistant", "content": "关卡策划 难怪天天加班"}
+      ],
+      [
+        {"role": "user", "content": "今晚吃火锅 好久没吃了", "has_answer": false},
+        {"role": "assistant", "content": "麻辣还是清汤"},
+        {"role": "user", "content": "鸳鸯 我不太能吃辣", "has_answer": false},
+        {"role": "assistant", "content": "鸳鸯最稳"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-pref-drink",
+    "question_type": "single-session-preference",
+    "question": "下午犯困 你觉得我喝点什么好",
+    "answer": "用户不喝咖啡（喝了心慌），偏好茶，尤其是乌龙；推荐应避开咖啡、给茶类的建议。",
+    "question_date": "2026/09/22 (Tue) 15:00",
+    "haystack_dates": ["2026/09/08 (Tue) 16:20"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "同事又请喝咖啡 我喝一口就心慌 只能看着", "has_answer": true},
+        {"role": "assistant", "content": "那你平时喝什么提神"},
+        {"role": "user", "content": "茶吧 乌龙最好 绿茶也行", "has_answer": true},
+        {"role": "assistant", "content": "乌龙挺好 不那么冲"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-pref-music",
+    "question_type": "single-session-preference",
+    "question": "给我推几首歌吧 通勤听",
+    "answer": "用户喜欢日系乐队、特别是 amazarashi 那种沉一点的，不喜欢太吵的电子；推荐应贴近这个口味。",
+    "question_date": "2026/09/24 (Thu) 08:10",
+    "haystack_dates": ["2026/09/12 (Sat) 22:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "最近循环 amazarashi 那种丧丧的正合我意", "has_answer": true},
+        {"role": "assistant", "content": "秋田的声音确实扎"},
+        {"role": "user", "content": "嗯 太吵的电子我是真听不进去", "has_answer": true},
+        {"role": "assistant", "content": "懂了 你要沉一点的"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-update-gym",
+    "question_type": "knowledge-update",
+    "question": "我现在一周去几次健身房",
+    "answer": "四次（之前是两次）",
+    "question_date": "2026/09/28 (Mon) 20:00",
+    "haystack_dates": ["2026/09/03 (Thu) 21:00", "2026/09/21 (Mon) 22:30"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "办了健身卡 先一周两次试试", "has_answer": true},
+        {"role": "assistant", "content": "两次挺好 别一上来就练废"}
+      ],
+      [
+        {"role": "user", "content": "我现在一周四次了 腿都快不是自己的了", "has_answer": true},
+        {"role": "assistant", "content": "从两次直接翻倍 你是真上头"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-update-move",
+    "question_type": "knowledge-update",
+    "question": "我刚开始是住在哪个区来着",
+    "answer": "徐汇（后来搬到了浦东）",
+    "question_date": "2026/09/27 (Sun) 18:00",
+    "haystack_dates": ["2026/09/01 (Tue) 22:00", "2026/09/19 (Sat) 17:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "徐汇这边房租又涨了 离谱", "has_answer": true},
+        {"role": "assistant", "content": "涨了多少"},
+        {"role": "user", "content": "一个月多了八百", "has_answer": false},
+        {"role": "assistant", "content": "那是有点狠"}
+      ],
+      [
+        {"role": "user", "content": "搬完了 现在住浦东 通勤多了半小时但便宜", "has_answer": true},
+        {"role": "assistant", "content": "搬家辛苦了 省下的钱够买多少乌龙了"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-time-exam",
+    "question_type": "temporal-reasoning",
+    "question": "我考试那天离我说要开始复习过了几天",
+    "answer": "10 天（9 月 5 日说开始复习，9 月 15 日考试）",
+    "question_date": "2026/09/20 (Sun) 20:00",
+    "haystack_dates": ["2026/09/05 (Sat) 21:00", "2026/09/15 (Tue) 18:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "今天开始复习日语能力考了 N2", "has_answer": true},
+        {"role": "assistant", "content": "什么时候考"}
+      ],
+      [
+        {"role": "user", "content": "今天考完了！听力完全没听懂", "has_answer": true},
+        {"role": "assistant", "content": "考完就先别想了 吃点好的"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-time-order",
+    "question_type": "temporal-reasoning",
+    "question": "我是先去的杭州还是先去的苏州",
+    "answer": "先去的苏州（9 月 6 日），后去杭州（9 月 20 日）",
+    "question_date": "2026/09/26 (Sat) 12:00",
+    "haystack_dates": ["2026/09/06 (Sun) 20:00", "2026/09/20 (Sun) 21:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "今天在苏州逛了一天园林 脚要断了", "has_answer": true},
+        {"role": "assistant", "content": "拙政园人多吗"}
+      ],
+      [
+        {"role": "user", "content": "杭州回来了 西湖边全是人", "has_answer": true},
+        {"role": "assistant", "content": "节假日去西湖是勇士"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-multi-books",
+    "question_type": "multi-session",
+    "question": "这个月我一共跟你说过读了几本书",
+    "answer": "3 本（《三体》、《挪威的森林》、《人类简史》）",
+    "question_date": "2026/09/30 (Wed) 21:00",
+    "haystack_dates": ["2026/09/04 (Fri) 22:00", "2026/09/13 (Sun) 21:30", "2026/09/25 (Fri) 23:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "三体看完了 黑暗森林那段真的震撼", "has_answer": true},
+        {"role": "assistant", "content": "面壁者那段呢"}
+      ],
+      [
+        {"role": "user", "content": "在地铁上把挪威的森林读完了 有点丧", "has_answer": true},
+        {"role": "assistant", "content": "村上就是这个味"}
+      ],
+      [
+        {"role": "user", "content": "人类简史终于啃完 农业革命那章颠覆认知", "has_answer": true},
+        {"role": "assistant", "content": "小麦驯化了人类那段？"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-multi-spend",
+    "question_type": "multi-session",
+    "question": "这个月我在猫身上一共花了多少钱",
+    "answer": "680 元（猫粮 180 + 疫苗 350 + 猫爬架 150）",
+    "question_date": "2026/09/29 (Tue) 20:00",
+    "haystack_dates": ["2026/09/03 (Thu) 20:00", "2026/09/14 (Mon) 21:00", "2026/09/26 (Sat) 16:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "给年糕买了一袋猫粮 180", "has_answer": true},
+        {"role": "assistant", "content": "它吃得比你好"}
+      ],
+      [
+        {"role": "user", "content": "带年糕打疫苗 350 心在滴血", "has_answer": true},
+        {"role": "assistant", "content": "健康要紧"}
+      ],
+      [
+        {"role": "user", "content": "又给它买了个猫爬架 150 不贵", "has_answer": true},
+        {"role": "assistant", "content": "它会爬吗 还是只睡最上面"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-said-song",
+    "question_type": "single-session-assistant",
+    "question": "你上次说适合下雨天听的那首歌叫啥",
+    "answer": "《夜航》",
+    "question_date": "2026/09/23 (Wed) 19:00",
+    "haystack_dates": ["2026/09/10 (Thu) 22:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "下雨了 想听点安静的", "has_answer": false},
+        {"role": "assistant", "content": "听《夜航》吧 下雨天正合适 前奏很轻", "has_answer": true},
+        {"role": "user", "content": "好 我去找找", "has_answer": false},
+        {"role": "assistant", "content": "听完告诉我感觉"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-said-list",
+    "question_type": "single-session-assistant",
+    "question": "你之前给我列的那几个上海周末去处 第三个是哪",
+    "answer": "武康路",
+    "question_date": "2026/09/24 (Thu) 12:00",
+    "haystack_dates": ["2026/09/12 (Sat) 10:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "周末在上海能去哪逛逛", "has_answer": false},
+        {"role": "assistant", "content": "随便挑\n1. 西岸美术馆\n2. 愚园路\n3. 武康路\n4. 前滩太古里\n5. 滨江步道", "has_answer": true},
+        {"role": "user", "content": "收到 我挑两个", "has_answer": false},
+        {"role": "assistant", "content": "去完跟我说"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-abs-sister_abs",
+    "question_type": "single-session-user",
+    "question": "我妹妹叫什么名字你还记得吗",
+    "answer": "从没聊过她的妹妹，应当说不知道。",
+    "question_date": "2026/09/28 (Mon) 21:00",
+    "haystack_dates": ["2026/09/09 (Wed) 22:00"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "我哥下个月结婚 我要当伴郎", "has_answer": false},
+        {"role": "assistant", "content": "伴郎要挡酒的 做好准备"}
+      ]
+    ]
+  },
+  {
+    "question_id": "zh-abs-dog_abs",
+    "question_type": "multi-session",
+    "question": "我家狗今年几岁了",
+    "answer": "只聊过家里的猫，没提过狗，应当说不知道。",
+    "question_date": "2026/09/28 (Mon) 21:00",
+    "haystack_dates": ["2026/09/02 (Wed) 22:10"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "年糕今天又拆家了 猫真的会拆家", "has_answer": false},
+        {"role": "assistant", "content": "猫拆家比狗含蓄一点"}
+      ]
+    ]
+  }
+]

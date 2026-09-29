@@ -17,7 +17,7 @@ use myriad_merope::remembering::{Cues, SCHEMA_NAME, input, merged, parse, schema
 /// Past this she answers from what their words alone brought back.
 const THINK_WITHIN: Duration = Duration::from_secs(3);
 /// What she goes through when answering needs all of it.
-pub const THOROUGH: usize = 16;
+pub const THOROUGH: usize = 24;
 
 /// What she would try to remember before answering `message`; billed to
 /// `owner`.
@@ -106,7 +106,8 @@ pub async fn look_back(
     else {
         return Vec::new();
     };
-    let mut scored: Vec<(usize, chrono::DateTime<chrono::FixedOffset>, bool, String)> = rows
+    // Oldest first, as the chat reads.
+    let mut chat: Vec<(chrono::DateTime<chrono::FixedOffset>, bool, String)> = rows
         .iter()
         .filter_map(|row| {
             let role = row.try_get::<String>("", "role").ok()?;
@@ -117,27 +118,54 @@ pub async fn look_back(
             let at = row
                 .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
                 .ok()?;
-            let named = myriad_merope::remembering::overlap(query, &content);
-            (named >= 2).then_some((named, at, role == "assistant", content))
+            Some((at, role == "assistant", content))
         })
         .collect();
-    scored.sort_by(|left, right| right.0.cmp(&left.0));
-    scored.truncate(FOUND);
-    scored.sort_by_key(|(_, at, _, _)| *at);
-    scored
+    chat.sort_by_key(|(at, _, _)| *at);
+    let mut named: Vec<(usize, usize)> = chat
+        .iter()
+        .enumerate()
+        .map(|(index, (_, _, content))| {
+            (myriad_merope::remembering::overlap(query, content), index)
+        })
+        .filter(|(named, _)| *named >= 2)
+        .collect();
+    named.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+    // Finding a line, the eye reads on to the one after it: the answer to a
+    // question is the reply below it.
+    let mut shown: Vec<usize> = named
+        .iter()
+        .take(FOUND)
+        .flat_map(|(_, index)| [*index, index + 1])
+        .filter(|index| *index < chat.len())
+        .collect();
+    shown.sort_unstable();
+    shown.dedup();
+    shown
         .into_iter()
-        .map(|(_, at, hers, content)| {
-            (
-                at.format("%Y-%m-%d").to_string(),
-                hers,
-                myriad_merope::remembering::excerpt(&content, query, SHOWN_CHARS),
-            )
+        .map(|index| {
+            let (at, hers, content) = &chat[index];
+            let text = if myriad_merope::remembering::overlap(query, content) == 0 {
+                content
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+                    .chars()
+                    .take(SHOWN_CHARS)
+                    .collect()
+            } else {
+                myriad_merope::remembering::excerpt(content, query, SHOWN_CHARS)
+            };
+            (at.format("%Y-%m-%d").to_string(), *hers, text)
         })
         .collect()
 }
 
 /// Recall for `message` as a chat turn does, and for each cue besides,
-/// merged; `limit` lines, or `THOROUGH` when answering needs all of it.
+/// merged; `limit` lines, or `thorough` when answering needs all of it
+/// (`THOROUGH` in production).
 /// What their words brought to mind comes from their words only, and only
 /// their words move what stays on her mind.
 #[allow(clippy::too_many_arguments)]
@@ -148,11 +176,12 @@ pub async fn recall_with(
     message: &str,
     cues: Option<&Cues>,
     limit: usize,
+    thorough: usize,
     priming: &Priming,
     breadth: f64,
 ) -> Result<(Recalled, Priming), anyhow::Error> {
     let limit = match cues {
-        Some(cues) if cues.thorough => THOROUGH.max(limit),
+        Some(cues) if cues.thorough => thorough.max(limit),
         _ => limit,
     };
     let (first, next) = store::recall_remembered_split(

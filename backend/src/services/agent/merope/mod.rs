@@ -767,6 +767,7 @@ async fn speaking_prompt_from_db(
             words,
             cues.as_ref(),
             REMEMBERED_PROMPT_LIMIT,
+            remembering::THOROUGH,
             &if group {
                 crate::services::agent::memory::unified::Priming::default()
             } else {

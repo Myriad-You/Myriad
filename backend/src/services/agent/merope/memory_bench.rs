@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use chrono::TimeZone;
 use futures::StreamExt;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseBackend, Set, Statement};
 use serde::Deserialize;
@@ -45,6 +46,9 @@ struct Turn {
 }
 
 const RECALLED: usize = 8;
+const THOROUGH: usize = super::remembering::THOROUGH;
+/// A wider going-through, compared against production's.
+const WIDE: usize = 32;
 const AT_ONCE: usize = 6;
 
 fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
@@ -56,7 +60,12 @@ fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
         .join(" ");
     let naive = chrono::NaiveDateTime::parse_from_str(&cleaned, "%Y/%m/%d %H:%M")
         .unwrap_or_else(|_| panic!("unreadable date {text}"));
-    naive.and_utc().fixed_offset()
+    // Their local time, as a chat's times are.
+    chrono::Local
+        .from_local_datetime(&naive)
+        .earliest()
+        .unwrap_or_else(|| naive.and_utc().with_timezone(&chrono::Local))
+        .fixed_offset()
 }
 
 /// As she would answer in a chat: from what she remembers of them (each
@@ -126,6 +135,8 @@ struct Outcome {
     written: bool,
     plain: Answered,
     cued: Answered,
+    wide: Answered,
+    memories: Vec<String>,
     kept: usize,
 }
 
@@ -286,7 +297,7 @@ async fn run_one(
     // The same memories, recalled once from their words alone and once
     // with the cues: the difference is recall's, not writing's.
     let plain = answer_one(
-        db, judge, lite, question, user_id, &present, None, &answering,
+        db, judge, lite, question, user_id, &present, None, THOROUGH, &answering,
     )
     .await;
     let cued = answer_one(
@@ -297,14 +308,40 @@ async fn run_one(
         user_id,
         &present,
         cues.as_ref(),
+        THOROUGH,
         &answering,
     )
     .await;
+    // The same, going through more when it needs all of it.
+    let wide = answer_one(
+        db,
+        judge,
+        lite,
+        question,
+        user_id,
+        &present,
+        cues.as_ref(),
+        WIDE,
+        &answering,
+    )
+    .await;
+    // Everything she kept, to tell unwritten from unfound afterwards.
+    let memories = crate::services::agent::memory::unified::active_in(
+        db,
+        user_id,
+        &present,
+        &crate::services::agent::memory::unified::MemoryKind::ABOUT_PERSON,
+    )
+    .await
+    .map(|rows| rows.into_iter().map(|row| row.content).collect())
+    .unwrap_or_default();
     Outcome {
         written: !answering.is_empty(),
         plain,
         cued,
+        wide,
         kept,
+        memories,
     }
 }
 
@@ -324,6 +361,7 @@ async fn answer_one(
     user_id: i32,
     present: &Audience,
     cues: Option<&myriad_merope::remembering::Cues>,
+    thorough: usize,
     answering: &[String],
 ) -> Answered {
     let recalled = super::remembering::recall_with(
@@ -333,6 +371,7 @@ async fn answer_one(
         &question.question,
         cues,
         RECALLED,
+        thorough,
         &Priming::default(),
         1.0,
     )
@@ -465,7 +504,7 @@ async fn her_memory_on_longmemeval() {
     isolated.drop().await;
     // Per type: questions, written, then retrieved and correct for recall
     // from their words alone and with cues.
-    let mut summary: BTreeMap<String, [usize; 6]> = BTreeMap::new();
+    let mut summary: BTreeMap<String, [usize; 8]> = BTreeMap::new();
     let mut rows = Vec::new();
     for (question, outcome) in &outcomes {
         let kind = if question.question_id.ends_with("_abs") {
@@ -480,6 +519,8 @@ async fn her_memory_on_longmemeval() {
         slot[3] += usize::from(outcome.plain.correct == Some(true));
         slot[4] += usize::from(outcome.cued.retrieved);
         slot[5] += usize::from(outcome.cued.correct == Some(true));
+        slot[6] += usize::from(outcome.wide.retrieved);
+        slot[7] += usize::from(outcome.wide.correct == Some(true));
         let answered = |answered: &Answered| {
             json!({"retrieved":answered.retrieved,"correct":answered.correct,
                 "recalled":answered.recalled,"response":answered.answer})
@@ -488,7 +529,8 @@ async fn her_memory_on_longmemeval() {
             json!({"id":question.question_id,"type":question.question_type,
             "question":question.question,"answer":question.answer,
             "written":outcome.written,"kept":outcome.kept,
-            "plain":answered(&outcome.plain),"cued":answered(&outcome.cued)}),
+            "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
+            "wide":answered(&outcome.wide),"memories":outcome.memories}),
         );
     }
     let total = outcomes.len();
@@ -504,12 +546,25 @@ async fn her_memory_on_longmemeval() {
     let summary: Value = summary
         .into_iter()
         .map(
-            |(kind, [n, written, plain_found, plain_right, cued_found, cued_right])| {
+            |(
+                kind,
+                [
+                    n,
+                    written,
+                    plain_found,
+                    plain_right,
+                    cued_found,
+                    cued_right,
+                    wide_found,
+                    wide_right,
+                ],
+            )| {
                 (
                     kind,
                     json!({"questions":n,"written":written,
                     "plain":{"retrieved":plain_found,"correct":plain_right},
-                    "cued":{"retrieved":cued_found,"correct":cued_right}}),
+                    "cued":{"retrieved":cued_found,"correct":cued_right},
+                    "wide":{"retrieved":wide_found,"correct":wide_right}}),
                 )
             },
         )
@@ -524,4 +579,37 @@ async fn her_memory_on_longmemeval() {
         .unwrap(),
     )
     .unwrap();
+}
+
+/// The Chinese set (tests/merope/memory-zh.json): her kind of chat, in the
+/// shape the bench reads, every type covered, each answer's turn marked.
+#[test]
+fn the_chinese_memory_set_reads_as_the_bench_needs() {
+    let questions: Vec<Question> =
+        serde_json::from_str(include_str!("../../../../../tests/merope/memory-zh.json")).unwrap();
+    let types: std::collections::BTreeSet<&str> = questions
+        .iter()
+        .map(|question| question.question_type.as_str())
+        .collect();
+    assert_eq!(types.len(), 6);
+    for question in &questions {
+        assert_eq!(
+            question.haystack_dates.len(),
+            question.haystack_sessions.len()
+        );
+        for date in &question.haystack_dates {
+            date_of(date);
+        }
+        let marked = question
+            .haystack_sessions
+            .iter()
+            .flatten()
+            .any(|turn| turn.has_answer);
+        assert_eq!(
+            marked,
+            !question.question_id.ends_with("_abs"),
+            "{}",
+            question.question_id
+        );
+    }
 }
