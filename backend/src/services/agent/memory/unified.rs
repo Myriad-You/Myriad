@@ -1228,6 +1228,23 @@ pub async fn adopt_unowned<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// The latest active rows of `source` about `user_id`, newest first.
+pub async fn latest_of<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    source: &str,
+    limit: u64,
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.eq(user_id))
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .order_by_desc(agent_memories::Column::CreatedAt)
+        .limit(limit)
+        .all(db)
+        .await
+}
+
 /// The latest active rows of `source` kept in `venue`, newest first.
 pub async fn latest_in_venue<C: ConnectionTrait>(
     db: &C,

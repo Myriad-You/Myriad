@@ -16,7 +16,8 @@ pub const THREADS: &str = "\n\n\
 openThreads are things you already meant to come back to with them. \
 keep: from this exchange, anything you would want to come back to with them later, in your own words (then: what you would ask or say): something they are about to do or face (dueInHours: hours from now until it would be natural to ask, for example the evening after an exam; null for whenever), or something left unfinished between you. Only what they said or what happened here, never a guess; most exchanges keep nothing. \
 done: the i of each open thread your reply already took up, or that no longer matters. \
-wrong: only if in this exchange they showed you that something you said was wrong (a fact, a name, a date, a claim; not a difference of taste or opinion), otherwise null: about is what it was about, in a few words; note is one first-person sentence of what you had said and what turned out right; public is whether it is about a public matter (a song, a film, a place, a fact of the world) rather than about them or their life; took is how you took it: took_it, not_sure, or stood_by.";
+wrong: only if in this exchange they showed you that something you said was wrong (a fact, a name, a date, a claim; not a difference of taste or opinion), otherwise null: about is what it was about, in a few words; note is one first-person sentence of what you had said and what turned out right; public is whether it is about a public matter (a song, a film, a place, a fact of the world) rather than about them or their life; took is how you took it: took_it, not_sure, or stood_by. \
+toldYou: only if in this exchange they told you something about yourself (how what you said came across, the way you talk, what you did), what they told you, as they meant it, in one first-person sentence; being teased or called a name is not that; otherwise null.";
 
 pub fn system_for(soul: &str, private: bool) -> String {
     let base = system(soul);
@@ -60,9 +61,10 @@ pub fn schema_for(private: bool) -> Value {
                 },
                 "required": ["about", "note", "public", "took"],
                 "additionalProperties": false
-            }
+            },
+            "toldYou": { "type": ["string", "null"], "maxLength": 160 }
         },
-        "required": ["inner", "keep", "done", "wrong"],
+        "required": ["inner", "keep", "done", "wrong", "toldYou"],
         "additionalProperties": false
     })
 }

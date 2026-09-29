@@ -105,6 +105,11 @@ pub fn section(sense: &Sense) -> String {
 /// What people in a group have told her about herself, latest first, with
 /// how long ago: she carries it as a person carries being told.
 pub fn told_section(told: &[(String, String)]) -> Option<String> {
+    told_section_titled(told, "What people here have told you about yourself")
+}
+
+/// `told_section` under `title` (in private: what they told her).
+pub fn told_section_titled(told: &[(String, String)], title: &str) -> Option<String> {
     if told.is_empty() {
         return None;
     }
@@ -112,10 +117,7 @@ pub fn told_section(told: &[(String, String)]) -> Option<String> {
         .iter()
         .map(|(what, ago)| format!("- {ago}: {what}"))
         .collect();
-    Some(format!(
-        "## What people here have told you about yourself\n{}",
-        lines.join("\n")
-    ))
+    Some(format!("## {title}\n{}", lines.join("\n")))
 }
 
 #[cfg(test)]

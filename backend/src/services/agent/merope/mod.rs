@@ -15,8 +15,8 @@ pub mod ingest;
 pub(crate) mod inner;
 pub mod joining;
 mod library;
-pub mod making_sense;
 pub mod life;
+pub mod making_sense;
 pub(crate) mod memory_jobs;
 pub mod motion;
 pub mod motion_local;
@@ -730,6 +730,9 @@ async fn speaking_prompt_from_db(
     }];
     if !group && let Some(differs) = how_she_differs_with(db, user_id).await {
         sections.push(differs);
+    }
+    if !group && let Some(told) = making_sense::told_by_section(db, user_id).await {
+        sections.push(told);
     }
     if let Some((first, days)) = acquaintance(db, user_id).await {
         sections.push(myriad_merope::speaking::format_acquaintance_section(

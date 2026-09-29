@@ -74,6 +74,9 @@ struct Inner {
     /// In private: they showed her something she said was wrong.
     #[serde(default)]
     wrong: Option<super::self_story::Corrected>,
+    /// In private: what they told her about herself.
+    #[serde(default, rename = "toldYou")]
+    told_you: Option<String>,
 }
 
 fn history_of(request: &UserRequest) -> Vec<Value> {
@@ -218,6 +221,10 @@ async fn compile(
         if let Some(wrong) = reflected.wrong.as_ref().filter(|wrong| wrong.public) {
             super::self_story::remember_corrected(db, wrong).await;
         }
+        // Told something about herself: she carries it with them.
+        if let Some(told) = reflected.told_you.as_deref() {
+            super::making_sense::remember_told_by(db, user_id, told).await;
+        }
     }
     Some(reflected.inner)
 }
@@ -229,6 +236,7 @@ struct Reflection {
     keep: Vec<super::threads::Kept>,
     done: Vec<usize>,
     wrong: Option<super::self_story::Corrected>,
+    told_you: Option<String>,
 }
 
 fn parse_reflection(raw: &str) -> Option<Reflection> {
@@ -247,6 +255,10 @@ fn parse_reflection(raw: &str) -> Option<Reflection> {
         keep: parsed.keep,
         done: parsed.done,
         wrong: parsed.wrong,
+        told_you: parsed
+            .told_you
+            .map(|told| told.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|told| !told.is_empty() && told != "null"),
     })
 }
 
@@ -318,6 +330,32 @@ pub fn current(user_id: i32, present: &Audience) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// In private, what they told her about herself comes out of her
+    /// reflection, and nothing when they did not.
+    #[test]
+    fn what_they_told_her_about_herself_is_read_from_her_reflection() {
+        let told = parse_reflection(
+            r#"{"inner":"被说吵了，有点不服","keep":[],"done":[],"wrong":null,"toldYou":"他们嫌我句句带感叹号，听着太吵。"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            told.told_you.as_deref(),
+            Some("他们嫌我句句带感叹号，听着太吵。")
+        );
+        let nothing =
+            parse_reflection(r#"{"inner":"还行","keep":[],"done":[],"wrong":null,"toldYou":null}"#)
+                .unwrap();
+        assert_eq!(nothing.told_you, None);
+        let (system, schema) = threads_probe_contract("你是小灯。");
+        assert!(system.contains("toldYou"));
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("toldYou"))
+        );
+    }
     /// In private her reflection also keeps what to come back to, and lets
     /// go of what her reply took up; a group's keeps nothing.
     #[test]
