@@ -542,6 +542,7 @@ async fn her_memory_on_longmemeval() {
         .collect();
     let config_db = super::super::semantic_eval::load_configured_lite().await;
     config_db.close().await.ok();
+    embedding_as_asked().await;
     let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
         Duration::from_secs(60),
     ))
@@ -797,6 +798,7 @@ async fn her_memory_at_its_full_size() {
         });
     let config_db = super::super::semantic_eval::load_configured_lite().await;
     config_db.close().await.ok();
+    embedding_as_asked().await;
     let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
         Duration::from_secs(60),
     ))
@@ -889,6 +891,8 @@ async fn her_memory_at_its_full_size() {
                 keep(alone, own_dated.clone()).await;
                 keep(among, others_dated).await;
                 keep(among, own_dated).await;
+                embed_all(&db, alone).await;
+                embed_all(&db, among).await;
                 // Thought of once and kept, so runs compare recall and not
                 // what the cues happened to be.
                 let thought = cue_cache
@@ -1035,6 +1039,10 @@ async fn her_memory_at_its_full_size() {
         .collect()
         .await;
     isolated.drop().await;
+    println!(
+        "embedding requests that failed or timed out: {}",
+        crate::services::agent::memory::meaning::failed()
+    );
     if let (Some(path), Ok(cache)) = (&cue_path, cue_cache.lock()) {
         std::fs::write(path, serde_json::to_string_pretty(&*cache).unwrap()).unwrap();
     }
@@ -1093,6 +1101,28 @@ async fn her_memory_at_its_full_size() {
     .unwrap();
 }
 
+/// `MEROPE_MEMORY_EMBEDDING_MODEL`, when set: recall also by meaning, with
+/// this model on Lite's credentials; unset, by words alone as configured.
+async fn embedding_as_asked() {
+    if let Ok(model) = std::env::var("MEROPE_MEMORY_EMBEDDING_MODEL") {
+        crate::GLOBAL_DYNAMIC_CONFIG
+            .write()
+            .await
+            .lite_embedding_model = model;
+    }
+}
+
+/// Every memory of `user_id` given what it means, as recall would over time.
+async fn embed_all(db: &sea_orm::DatabaseConnection, user_id: i32) {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    let rows = crate::models::entities::agent_memories::Entity::find()
+        .filter(crate::models::entities::agent_memories::Column::UserId.eq(user_id))
+        .all(db)
+        .await
+        .unwrap_or_default();
+    crate::services::agent::memory::meaning::fill(db, &rows).await;
+}
+
 /// One person's memories as they build up over half a year: `own`
 /// scattered among `others` in an order `seed` fixes, each dated at its
 /// place in time.
@@ -1132,6 +1162,110 @@ fn over_half_a_year(
     (hers, theirs)
 }
 
+/// Whether an embedding model finds what was said by what it means in
+/// Chinese, as her conversations mostly are: everything the people of the
+/// Chinese set said is one pool, and each question should bring its answer
+/// lines into the first five, by meaning and by words. `MEROPE_MEMORY_BENCH=
+/// tests/merope/memory-zh.json MEROPE_MEMORY_EMBEDDING_MODEL=<model>`.
+#[tokio::test]
+#[ignore = "spends on the site's embedding model; see the module docs"]
+async fn meaning_in_chinese() {
+    const FIRST: usize = 5;
+    let questions: Vec<Question> = serde_json::from_str(
+        &std::fs::read_to_string(std::env::var("MEROPE_MEMORY_BENCH").expect("questions")).unwrap(),
+    )
+    .unwrap();
+    let config_db = super::super::semantic_eval::load_configured_lite().await;
+    config_db.close().await.ok();
+    embedding_as_asked().await;
+    let embedder = crate::services::ai::create_lite_embedding_analyzer_with_timeout(Some(
+        Duration::from_secs(60),
+    ))
+    .await
+    .expect("an embedding model");
+    let pool: Vec<(String, String, bool)> = questions
+        .iter()
+        .flat_map(|question| {
+            question
+                .haystack_sessions
+                .iter()
+                .flatten()
+                .filter(|turn| turn.role == "user")
+                .map(move |turn| {
+                    (
+                        question.question_id.clone(),
+                        turn.content.clone(),
+                        turn.has_answer,
+                    )
+                })
+        })
+        .collect();
+    let lines: Vec<String> = pool.iter().map(|(_, line, _)| line.clone()).collect();
+    let started = std::time::Instant::now();
+    let vectors = embedder.embed(&lines).await.expect("pool embedded");
+    let pool_ms = started.elapsed().as_millis();
+    let asked: Vec<String> = questions.iter().map(|q| q.question.clone()).collect();
+    let started = std::time::Instant::now();
+    let asked_vectors = embedder.embed(&asked).await.expect("questions embedded");
+    let asked_ms = started.elapsed().as_millis();
+    let documents: Vec<crate::services::agent::memory::lexical::Document> = lines
+        .iter()
+        .map(|text| crate::services::agent::memory::lexical::Document {
+            text,
+            concepts: &[],
+        })
+        .collect();
+    let (mut by_meaning, mut by_words, mut needed) = (0, 0, 0);
+    for (question, asked) in questions.iter().zip(&asked_vectors) {
+        let answers: Vec<usize> = pool
+            .iter()
+            .enumerate()
+            .filter(|(_, (id, _, answer))| *id == question.question_id && *answer)
+            .map(|(index, _)| index)
+            .collect();
+        if answers.is_empty() {
+            continue;
+        }
+        let first = |scores: Vec<f64>| {
+            let mut order: Vec<usize> = (0..scores.len()).collect();
+            order.sort_by(|left, right| scores[*right].total_cmp(&scores[*left]));
+            order.into_iter().take(FIRST).collect::<Vec<_>>()
+        };
+        let meaning = first(
+            vectors
+                .iter()
+                .map(|vector| crate::services::agent::memory::meaning::cosine(asked, vector))
+                .collect(),
+        );
+        let words = first(
+            crate::services::agent::memory::lexical::score_all(&question.question, &documents)
+                .into_iter()
+                .map(|score| if score.strong { score.value } else { 0.0 })
+                .collect(),
+        );
+        let found = |first: &[usize]| answers.iter().filter(|index| first.contains(index)).count();
+        println!(
+            "{} {} meaning {}/{} words {}/{}",
+            question.question_type,
+            question.question_id,
+            found(&meaning),
+            answers.len(),
+            found(&words),
+            answers.len()
+        );
+        by_meaning += found(&meaning);
+        by_words += found(&words);
+        needed += answers.len();
+    }
+    println!(
+        "pool {} lines, {} dimensions; answer lines in the first {FIRST}: meaning {by_meaning}/{needed}, \
+         words {by_words}/{needed}; embedding {pool_ms}ms for the pool, {asked_ms}ms for {} questions",
+        lines.len(),
+        vectors.first().map_or(0, Vec::len),
+        asked.len()
+    );
+}
+
 /// Before spending on a run: do the site's models answer at all, and if
 /// not, what do they say. Prints each model's reply or its error chain.
 #[tokio::test]
@@ -1139,6 +1273,7 @@ fn over_half_a_year(
 async fn the_models_answer() {
     let config_db = super::super::semantic_eval::load_configured_lite().await;
     config_db.close().await.ok();
+    embedding_as_asked().await;
     let lite = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
         Duration::from_secs(30),
     ))
@@ -1149,6 +1284,26 @@ async fn the_models_answer() {
     ))
     .await
     .expect("judgment model");
+    if let Ok(model) = std::env::var("MEROPE_MEMORY_EMBEDDING_MODEL") {
+        crate::GLOBAL_DYNAMIC_CONFIG
+            .write()
+            .await
+            .lite_embedding_model = model;
+        match crate::services::ai::create_lite_embedding_analyzer_with_timeout(Some(
+            Duration::from_secs(30),
+        ))
+        .await
+        {
+            Some(embedder) => match embedder.embed(&["猫".to_string()]).await {
+                Ok(vectors) => println!("embedding: ok {} dimensions", vectors[0].len()),
+                Err(error) => {
+                    let chain: Vec<String> = error.chain().map(ToString::to_string).collect();
+                    println!("embedding: error {}", chain.join(" <- "));
+                }
+            },
+            None => println!("embedding: not configured"),
+        }
+    }
     for (name, analyzer) in [("lite", &lite), ("judge", &judge)] {
         match analyzer
             .analyze_with_system("Reply with one word.", "ping")
