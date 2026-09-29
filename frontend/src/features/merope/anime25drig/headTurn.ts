@@ -200,10 +200,12 @@ export interface HeadTurn {
   nodSlide: number
   nodSine: number
   silhouette: HeadSilhouette | null
+  /** Changes whenever the turn does; what is worked out per feature is kept until then. */
+  version: number
 }
 
 export function createHeadTurn(silhouette: HeadSilhouette | null): HeadTurn {
-  return { active: false, slide: 0, sine: 0, nodSlide: 0, nodSine: 0, silhouette }
+  return { active: false, slide: 0, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0 }
 }
 
 /** `angleX` turns toward +x; `angleY` raises the face. */
@@ -215,6 +217,7 @@ export function updateHeadTurn(turn: HeadTurn, angleX: number, angleY: number): 
   turn.sine = Math.sin(x * HEAD_TURN_RADIANS)
   turn.nodSlide = y * NOD_SLIDE
   turn.nodSine = Math.sin(y * HEAD_NOD_RADIANS)
+  turn.version++
 }
 
 export type HeadTurnSurface = 'skin' | 'front-hair' | 'back-hair'
@@ -342,17 +345,38 @@ export function moveHeadFeature(
   feature: Readonly<HeadTurnFeature>,
   lift: number,
 ): void {
-  const { centerX, centerY, halfWidth, halfHeight } = feature
-  headTurnOffset(turn, centerX, centerY, 'skin', lift, 0, featureCenter)
-  headTurnOffset(turn, centerX + halfWidth, centerY, 'skin', lift, 0, featureSide)
-  headTurnOffset(turn, centerX - halfWidth, centerY, 'skin', lift, 0, featureOtherSide)
-  const scaleX = clamp(1 + (featureSide.x - featureOtherSide.x) / (2 * halfWidth), FEATURE_SCALE_MIN, FEATURE_SCALE_MAX)
-  headTurnOffset(turn, centerX, centerY + halfHeight, 'skin', lift, 0, featureSide)
-  headTurnOffset(turn, centerX, centerY - halfHeight, 'skin', lift, 0, featureOtherSide)
-  const scaleY = clamp(1 + (featureSide.y - featureOtherSide.y) / (2 * halfHeight), FEATURE_SCALE_MIN, FEATURE_SCALE_MAX)
-  point.x += featureCenter.x + (point.x - centerX) * (scaleX - 1)
-  point.y += featureCenter.y + (point.y - centerY) * (scaleY - 1)
+  // Every point of a feature moves alike: work its move out once per turn.
+  let move = featureMoves.get(feature)
+  if (!move || move.turn !== turn || move.version !== turn.version || move.lift !== lift) {
+    move = move ?? { turn, version: -1, lift, x: 0, y: 0, scaleX: 1, scaleY: 1 }
+    const { centerX, centerY, halfWidth, halfHeight } = feature
+    headTurnOffset(turn, centerX, centerY, 'skin', lift, 0, featureCenter)
+    headTurnOffset(turn, centerX + halfWidth, centerY, 'skin', lift, 0, featureSide)
+    headTurnOffset(turn, centerX - halfWidth, centerY, 'skin', lift, 0, featureOtherSide)
+    move.scaleX = clamp(1 + (featureSide.x - featureOtherSide.x) / (2 * halfWidth), FEATURE_SCALE_MIN, FEATURE_SCALE_MAX)
+    headTurnOffset(turn, centerX, centerY + halfHeight, 'skin', lift, 0, featureSide)
+    headTurnOffset(turn, centerX, centerY - halfHeight, 'skin', lift, 0, featureOtherSide)
+    move.scaleY = clamp(1 + (featureSide.y - featureOtherSide.y) / (2 * halfHeight), FEATURE_SCALE_MIN, FEATURE_SCALE_MAX)
+    move.x = featureCenter.x
+    move.y = featureCenter.y
+    move.turn = turn
+    move.version = turn.version
+    move.lift = lift
+    featureMoves.set(feature, move)
+  }
+  point.x += move.x + (point.x - feature.centerX) * (move.scaleX - 1)
+  point.y += move.y + (point.y - feature.centerY) * (move.scaleY - 1)
 }
+
+const featureMoves = new WeakMap<Readonly<HeadTurnFeature>, {
+  turn: Readonly<HeadTurn>
+  version: number
+  lift: number
+  x: number
+  y: number
+  scaleX: number
+  scaleY: number
+}>()
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
