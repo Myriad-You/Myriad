@@ -714,7 +714,12 @@ fn the_chinese_memory_set_reads_as_the_bench_needs() {
 #[ignore = "spends on the site's models; see the module docs"]
 async fn her_memory_at_its_full_size() {
     use crate::services::agent::memory::unified::MemoryKind;
-    const FULL: usize = 1000;
+    // `MEROPE_MEMORY_SCALE_FULL`: how many she keeps of the person, when
+    // not the cap.
+    let full: usize = std::env::var("MEROPE_MEMORY_SCALE_FULL")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1000);
     let source: Value = serde_json::from_str(
         &std::fs::read_to_string(std::env::var("MEROPE_MEMORY_SCALE").expect("scale source"))
             .unwrap(),
@@ -876,7 +881,7 @@ async fn her_memory_at_its_full_size() {
                 let others: Vec<String> = everyone
                     .iter()
                     .filter(|m| !own.contains(m))
-                    .take(FULL.saturating_sub(own.len()))
+                    .take(full.saturating_sub(own.len()))
                     .cloned()
                     .collect();
                 let (own_dated, others_dated) =
@@ -953,7 +958,7 @@ async fn her_memory_at_its_full_size() {
                                 among,
                                 &Audience::private(among),
                                 Some(&query),
-                                FULL,
+                                full,
                                 &Priming::default(),
                                 0.0,
                             )
