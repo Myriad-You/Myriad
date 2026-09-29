@@ -51,7 +51,7 @@ import {
   resolveAnime25DFaceFrame,
 } from './faceFrame'
 import { formatTemplate } from './formatTemplate'
-import { anime25DShoulderSeeds, splitLinkedHandwear } from './linkedHandwear'
+import { addHiddenArmFragments, anime25DShoulderSeeds, splitLinkedHandwear } from './linkedHandwear'
 import { inferOutfitProfileFromPartIds } from './outfit'
 import { repairAnime25DPsd } from './psdRepair'
 
@@ -140,6 +140,7 @@ export async function prepareAnime25DRigPsd(
   let layers = rig.layers.map((part) => rasterFromRiggerPart(part, usedIds))
   if (staticSeeThroughMouth) layers = preserveStaticMouthAsClosed(layers)
   layers = splitHandwearIfNeeded(layers, rig.anchors.face.cx)
+  layers = addHiddenArmFragments(layers, anime25DShoulderSeeds(layers), new Set(layers.map((layer) => layer.id)))
   layers = splitVariantEyesIfNeeded(layers, rig.anchors.face.cx, 'eye-dizzy')
   layers = splitVariantEyesIfNeeded(layers, rig.anchors.face.cx, 'eye-squeeze')
   layers = splitVariantEyesIfNeeded(layers, rig.anchors.face.cx, 'eye-cry')

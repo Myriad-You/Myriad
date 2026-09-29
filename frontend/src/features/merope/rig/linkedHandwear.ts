@@ -1,5 +1,5 @@
 import type { EyeSide, RasterLayer } from './anime25dImportTypes'
-import { rasterBounds } from './anime25dRaster'
+import { rasterBounds, uniquePartId } from './anime25dRaster'
 
 /**
  * Hands that touch — clasped, gripping a glove, one resting on the other —
@@ -207,4 +207,42 @@ class MinHeap {
     this.priorities[index] = lastPriority
     return pixel
   }
+}
+
+/** Size of the empty stand-in for an arm the portrait does not show. */
+const HIDDEN_ARM_SIZE = 4
+
+/**
+ * A bust whose arms are out of frame or inside its clothes still has two arm
+ * fragments in the character contract. An arm it does not show is an empty
+ * fragment at its shoulder: nothing is drawn and nothing moves, and the rest
+ * of the portrait imports as it is.
+ */
+export function addHiddenArmFragments(
+  layers: readonly RasterLayer[],
+  shoulders: Anime25DShoulderSeeds | null,
+  usedIds: Set<string>,
+): RasterLayer[] {
+  const missing = (['left', 'right'] as const).filter(
+    (side) => !layers.some((layer) => layer.role === 'handwear' && layer.side === side),
+  )
+  if (missing.length === 0 || !shoulders) return [...layers]
+  const hidden = missing.map((side): RasterLayer => {
+    const id = uniquePartId(`handwear-${side}`, usedIds)
+    return {
+      id,
+      role: 'handwear',
+      sourceName: id,
+      order: 0,
+      side,
+      group: 'body',
+      left: Math.round(shoulders[side].x - HIDDEN_ARM_SIZE / 2),
+      top: Math.round(shoulders[side].y),
+      width: HIDDEN_ARM_SIZE,
+      height: HIDDEN_ARM_SIZE,
+      data: new Uint8ClampedArray(HIDDEN_ARM_SIZE * HIDDEN_ARM_SIZE * 4),
+      synthetic: true,
+    }
+  })
+  return [...layers, ...hidden]
 }

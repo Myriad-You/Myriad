@@ -454,16 +454,21 @@ test('semantic content framing removes letterboxing and pads into the 3:4 stage'
   )
 })
 
-test('preflight rejects a PSD that cannot satisfy the rigid two-arm contract', async () => {
+test('a bust whose arms are out of frame imports with two empty arm fragments', async () => {
   const source = syntheticSeeThroughPsd()
   const withoutArms = {
     ...source,
     children: source.children?.filter((layer) => layer.name !== 'handwear'),
   } as Psd
-  await assert.rejects(
-    () => prepareWithFakeCanvas(withoutArms),
-    /rigid-left-arm-fragment, rigid-right-arm-fragment/,
-  )
+  const prepared = await prepareWithFakeCanvas(withoutArms)
+  const arms = prepared.source.anime25dPlayback?.layers.filter((layer) => layer.role === 'handwear') ?? []
+  assert.deepEqual(arms.map((layer) => layer.side).toSorted(), ['L', 'R'])
+  assert.ok(arms.every((layer) => layer.synthetic && layer.w <= 8 && layer.h <= 8))
+  // The contract's rigid fragments are there, each on its own bone.
+  for (const side of ['left', 'right']) {
+    const layer = prepared.source.layers.find((candidate) => candidate.id === `a25d-handwear-${side}`)
+    assert.equal(layer?.boneHandles[0].boneId, `a25d-handwear-${side}`)
+  }
 })
 
 test('arms joined at the hands still import as a left and a right fragment', async () => {
@@ -524,7 +529,13 @@ test('a single arm is still not two arms', async () => {
         ? { ...layer, imageData: { width, height: source.height, data: single } }
         : layer),
   } as Psd
-  await assert.rejects(() => prepareWithFakeCanvas(oneArm), /rigid-right-arm-fragment|rigid-left-arm-fragment/)
+  // The one arm is not cut in two: it keeps its side whole, and the other side is empty.
+  const prepared = await prepareWithFakeCanvas(oneArm)
+  const arms = prepared.source.anime25dPlayback?.layers.filter((layer) => layer.role === 'handwear') ?? []
+  const drawn = arms.filter((layer) => !layer.synthetic)
+  assert.equal(drawn.length, 1)
+  assert.ok(drawn[0].w >= 50, `${drawn[0].w}`)
+  assert.equal(arms.filter((layer) => layer.synthetic).length, 1)
 })
 
 test('unknown layers follow rigger head/body split by centroid vs chin', async () => {
