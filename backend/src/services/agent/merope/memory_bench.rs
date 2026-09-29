@@ -135,6 +135,8 @@ struct Outcome {
     cued: Answered,
     wide: Answered,
     memories: Vec<String>,
+    /// Each memory's concepts, as kept beside it.
+    concepts: Vec<Value>,
     kept: usize,
 }
 
@@ -327,15 +329,35 @@ async fn run_one(
     )
     .await;
     // Everything she kept, to tell unwritten from unfound afterwards.
-    let memories = crate::services::agent::memory::unified::active_in(
+    let kept_rows = crate::services::agent::memory::unified::active_in(
         db,
         user_id,
         &present,
         &crate::services::agent::memory::unified::MemoryKind::ABOUT_PERSON,
     )
     .await
-    .map(|rows| rows.into_iter().map(|row| row.content).collect())
     .unwrap_or_default();
+    let concepts_by_id: std::collections::HashMap<String, Value> = {
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        crate::models::entities::agent_memories::Entity::find()
+            .filter(
+                crate::models::entities::agent_memories::Column::Id
+                    .is_in(kept_rows.iter().map(|row| row.id.clone())),
+            )
+            .all(db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| (row.id, row.concepts))
+            .collect()
+    };
+    let (memories, concepts): (Vec<String>, Vec<Value>) = kept_rows
+        .into_iter()
+        .map(|row| {
+            let concepts = concepts_by_id.get(&row.id).cloned().unwrap_or(json!([]));
+            (row.content, concepts)
+        })
+        .unzip();
     Outcome {
         written: !answering.is_empty(),
         plain,
@@ -343,7 +365,40 @@ async fn run_one(
         wide,
         kept,
         memories,
+        concepts,
     }
+}
+
+/// What a chat turn would recall for `question`: from their words, and
+/// the cues when there are any.
+async fn recalled_for(
+    db: &sea_orm::DatabaseConnection,
+    question: &Question,
+    user_id: i32,
+    present: &Audience,
+    cues: Option<&myriad_merope::remembering::Cues>,
+    thorough: usize,
+) -> Vec<String> {
+    super::remembering::recall_with(
+        db,
+        user_id,
+        present,
+        &question.question,
+        cues,
+        RECALLED,
+        thorough,
+        &Priming::default(),
+        1.0,
+    )
+    .await
+    .map(|(recalled, _)| {
+        recalled
+            .named
+            .into_iter()
+            .chain(recalled.brought_to_mind)
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_default()
 }
 
 struct Answered {
@@ -366,26 +421,7 @@ async fn answer_one(
     back_when_thorough: bool,
     answering: &[String],
 ) -> Answered {
-    let recalled = super::remembering::recall_with(
-        db,
-        user_id,
-        present,
-        &question.question,
-        cues,
-        RECALLED,
-        thorough,
-        &Priming::default(),
-        1.0,
-    )
-    .await
-    .map(|(recalled, _)| {
-        recalled
-            .named
-            .into_iter()
-            .chain(recalled.brought_to_mind)
-            .collect::<Vec<_>>()
-    })
-    .unwrap_or_default();
+    let recalled = recalled_for(db, question, user_id, present, cues, thorough).await;
     let retrieved = answering
         .iter()
         .any(|fact| recalled.iter().any(|line| line.contains(fact.as_str())));
@@ -560,7 +596,7 @@ async fn her_memory_on_longmemeval() {
             "written":outcome.written,"kept":outcome.kept,
             "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
             "wide":answered(&outcome.wide),
-            "memories":outcome.memories}),
+            "memories":outcome.memories,"concepts":outcome.concepts}),
         );
     }
     let total = outcomes.len();
@@ -653,6 +689,17 @@ fn the_chinese_memory_set_reads_as_the_bench_needs() {
 /// the same cues. `MEROPE_MEMORY_SCALE=<report> MEROPE_MEMORY_BENCH=<its
 /// questions> MEROPE_MEMORY_BENCH_REPORT=<new file>`, optional
 /// `MEROPE_MEMORY_BENCH_PER_TYPE`.
+///
+/// The thousand build up over half a year, the question's own scattered
+/// among the rest, and the question alone has its own at the same dates:
+/// the others are the only difference. Those dates are the timeline's, not
+/// the conversations', so questions about when are left out of answering.
+/// With `MEROPE_MEMORY_SCALE_LABELS=<file>` (id → `needed`, the indices of
+/// its memories answering rests on) only recall is measured, from their
+/// words alone and with cues, and no answer is asked for. Reports from
+/// before concepts were kept beside memories have none, and recall also
+/// searches them: what is found from those is lower than production for
+/// both, alike.
 #[tokio::test]
 #[ignore = "spends on the site's models; see the module docs"]
 async fn her_memory_at_its_full_size() {
@@ -704,6 +751,35 @@ async fn her_memory_at_its_full_size() {
         .flat_map(|row| row["memories"].as_array().cloned().unwrap_or_default())
         .filter_map(|m| m.as_str().map(str::to_string))
         .collect();
+    // Concepts kept beside each memory, where the report has them.
+    let concepts_of: std::collections::HashMap<String, Value> = rows
+        .iter()
+        .flat_map(|row| {
+            let memories = row["memories"].as_array().cloned().unwrap_or_default();
+            let concepts = row["concepts"].as_array().cloned().unwrap_or_default();
+            memories.into_iter().zip(concepts)
+        })
+        .filter_map(|(memory, concepts)| Some((memory.as_str()?.to_string(), concepts)))
+        .collect();
+    let labels: Option<BTreeMap<String, Vec<usize>>> = std::env::var("MEROPE_MEMORY_SCALE_LABELS")
+        .ok()
+        .map(|path| {
+            let raw: BTreeMap<String, Value> =
+                serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            raw.into_iter()
+                .map(|(id, label)| {
+                    let needed = label["needed"]
+                        .as_array()
+                        .map(|all| {
+                            all.iter()
+                                .filter_map(|index| index.as_u64().map(|index| index as usize))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    (id, needed)
+                })
+                .collect()
+        });
     let config_db = super::super::semantic_eval::load_configured_lite().await;
     config_db.close().await.ok();
     let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
@@ -722,17 +798,19 @@ async fn her_memory_at_its_full_size() {
     let db = isolated.db.clone();
     // Kept as production keeps a memory, in one insert: remembering them one
     // by one checks the whole store each time.
-    let keep = |user_id: i32, contents: Vec<String>| {
+    let keep = |user_id: i32, dated: Vec<(String, chrono::DateTime<chrono::FixedOffset>)>| {
         let db = db.clone();
+        let concepts_of = &concepts_of;
         async move {
             use sea_orm::EntityTrait;
-            let now = chrono::Utc::now().fixed_offset();
             let audience = Audience::private(user_id);
-            let rows: Vec<crate::models::entities::agent_memories::ActiveModel> = contents
+            let rows: Vec<crate::models::entities::agent_memories::ActiveModel> = dated
                 .into_iter()
-                .enumerate()
-                .map(|(index, content)| {
-                    let at = now - chrono::Duration::seconds(10_000 - index as i64);
+                .map(|(content, at)| {
+                    let concepts = concepts_of.get(&content).cloned().unwrap_or(json!([]));
+                    (content, concepts, at)
+                })
+                .map(|(content, concepts, at)| {
                     crate::models::entities::agent_memories::ActiveModel {
                         id: Set(format!("mem_{}", uuid::Uuid::new_v4().simple())),
                         user_id: Set(Some(user_id)),
@@ -743,7 +821,7 @@ async fn her_memory_at_its_full_size() {
                         source: Set("chat".into()),
                         venue: Set(audience.venue()),
                         audience: Set(json!(audience.members())),
-                        concepts: Set(json!([])),
+                        concepts: Set(concepts),
                         importance: Set(0.5),
                         access_count: Set(0),
                         last_accessed_at: Set(None),
@@ -763,38 +841,136 @@ async fn her_memory_at_its_full_size() {
             }
         }
     };
+    let chosen: Vec<(Question, Vec<String>)> = chosen
+        .into_iter()
+        .filter(|(question, _)| labels.is_some() || question.question_type != "temporal-reasoning")
+        .collect();
+    // `MEROPE_MEMORY_SCALE_CUES=<file>`: the cues thought of for each
+    // question, read when there and written after.
+    let cue_path = std::env::var("MEROPE_MEMORY_SCALE_CUES").ok();
+    let cue_cache: std::sync::Mutex<BTreeMap<String, String>> = std::sync::Mutex::new(
+        cue_path
+            .as_ref()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default(),
+    );
     let outcomes: Vec<Value> = futures::stream::iter(chosen)
         .map(|(question, own)| {
-            let (db, judge, lite, everyone) = (db.clone(), &judge, &lite, &everyone);
+            let (db, judge, lite, everyone, labels, cue_cache) =
+                (db.clone(), &judge, &lite, &everyone, &labels, &cue_cache);
             let keep = &keep;
             async move {
                 let alone = new_user(&db, &format!("alone-{}", question.question_id)).await;
                 let among = new_user(&db, &format!("among-{}", question.question_id)).await;
-                keep(alone, own.clone()).await;
-                // Others' memories first, hers about this last: the newest,
-                // as a question about lately would find them.
                 let others: Vec<String> = everyone
                     .iter()
                     .filter(|m| !own.contains(m))
                     .take(FULL.saturating_sub(own.len()))
                     .cloned()
                     .collect();
-                keep(among, others).await;
-                keep(among, own.clone()).await;
-                let cues = judge
-                    .analyze_json(
-                        &myriad_merope::remembering::system(),
-                        &myriad_merope::remembering::input(
-                            &question.question,
-                            None,
-                            &question.question_date,
-                        ),
-                        myriad_merope::remembering::SCHEMA_NAME,
-                        Some(&myriad_merope::remembering::schema()),
-                    )
-                    .await
+                let (own_dated, others_dated) =
+                    over_half_a_year(&question.question_id, &own, &others);
+                keep(alone, own_dated.clone()).await;
+                keep(among, others_dated).await;
+                keep(among, own_dated).await;
+                // Thought of once and kept, so runs compare recall and not
+                // what the cues happened to be.
+                let thought = cue_cache
+                    .lock()
                     .ok()
-                    .and_then(|raw| myriad_merope::remembering::parse(&raw));
+                    .and_then(|cache| cache.get(&question.question_id).cloned());
+                let raw = match thought {
+                    Some(raw) => Some(raw),
+                    None => {
+                        let raw = judge
+                            .analyze_json(
+                                &myriad_merope::remembering::system(),
+                                &myriad_merope::remembering::input(
+                                    &question.question,
+                                    None,
+                                    &question.question_date,
+                                ),
+                                myriad_merope::remembering::SCHEMA_NAME,
+                                Some(&myriad_merope::remembering::schema()),
+                            )
+                            .await
+                            .ok();
+                        if let (Some(raw), Ok(mut cache)) = (&raw, cue_cache.lock()) {
+                            cache.insert(question.question_id.clone(), raw.clone());
+                        }
+                        raw
+                    }
+                };
+                let cues = raw.and_then(|raw| myriad_merope::remembering::parse(&raw));
+                if let Some(labels) = labels {
+                    let needed: Vec<&String> = labels
+                        .get(&question.question_id)
+                        .map(|indices| indices.iter().filter_map(|i| own.get(*i)).collect())
+                        .unwrap_or_default();
+                    let found = |recalled: &[String]| {
+                        needed
+                            .iter()
+                            .filter(|memory| {
+                                recalled.iter().any(|line| line.contains(memory.as_str()))
+                            })
+                            .count()
+                    };
+                    let mut row = json!({"id":question.question_id,"type":question.question_type,
+                        "needed":needed.len(),"cued":cues.is_some()});
+                    for (name, user_id) in [("alone", alone), ("among", among)] {
+                        for (way, with) in [("plain", None), ("cued", cues.as_ref())] {
+                            let recalled = recalled_for(
+                                &db,
+                                &question,
+                                user_id,
+                                &Audience::private(user_id),
+                                with,
+                                THOROUGH,
+                            )
+                            .await;
+                            row[format!("{name}_{way}")] = json!(found(&recalled));
+                        }
+                    }
+                    // Where each needed memory stands in the whole ranking,
+                    // from their words and at best over the cues: just past
+                    // the budget is a matter of room, far down of matching.
+                    let place = |query: String| {
+                        let db = db.clone();
+                        async move {
+                            super::store::recall_remembered_split(
+                                &db,
+                                among,
+                                &Audience::private(among),
+                                Some(&query),
+                                FULL,
+                                &Priming::default(),
+                                0.0,
+                            )
+                            .await
+                            .map(|(recalled, _)| recalled.named)
+                            .unwrap_or_default()
+                        }
+                    };
+                    let mut rankings = vec![place(question.question.clone()).await];
+                    for cue in cues.iter().flat_map(|cues| cues.cues.iter()) {
+                        rankings.push(place(cue.clone()).await);
+                    }
+                    let at = |ranking: &[String], memory: &str| {
+                        ranking.iter().position(|line| line.contains(memory))
+                    };
+                    row["places"] = json!(
+                        needed
+                            .iter()
+                            .map(|memory| json!({
+                                "plain": at(&rankings[0], memory),
+                                "best": rankings.iter().filter_map(|ranking| at(ranking, memory)).min(),
+                            }))
+                            .collect::<Vec<_>>()
+                    );
+                    println!("{row}");
+                    return row;
+                }
                 let small = answer_one(
                     &db,
                     judge,
@@ -844,6 +1020,41 @@ async fn her_memory_at_its_full_size() {
         .collect()
         .await;
     isolated.drop().await;
+    if let (Some(path), Ok(cache)) = (&cue_path, cue_cache.lock()) {
+        std::fs::write(path, serde_json::to_string_pretty(&*cache).unwrap()).unwrap();
+    }
+    if labels.is_some() {
+        // Per type: memories needed, then found alone and among, from their
+        // words and with cues; and questions with all of them found.
+        let mut summary: BTreeMap<String, [usize; 9]> = BTreeMap::new();
+        for row in &outcomes {
+            let slot = summary
+                .entry(row["type"].as_str().unwrap_or_default().to_string())
+                .or_default();
+            let needed = row["needed"].as_u64().unwrap_or(0) as usize;
+            slot[0] += needed;
+            for (at, key) in ["alone_plain", "alone_cued", "among_plain", "among_cued"]
+                .iter()
+                .enumerate()
+            {
+                let found = row[*key].as_u64().unwrap_or(0) as usize;
+                slot[1 + at] += found;
+                slot[5 + at] += usize::from(needed > 0 && found == needed);
+            }
+        }
+        for (kind, slot) in &summary {
+            println!(
+                "{kind:<28} needed {:>3}  found alone {}/{}  among {}/{}  complete alone {}/{}  among {}/{}",
+                slot[0], slot[1], slot[2], slot[3], slot[4], slot[5], slot[6], slot[7], slot[8]
+            );
+        }
+        std::fs::write(
+            &report_path,
+            serde_json::to_string_pretty(&json!({"summary":summary,"rows":outcomes})).unwrap(),
+        )
+        .unwrap();
+        return;
+    }
     let count = |key: &str| outcomes.iter().filter(|row| row[key] == true).count();
     let (alone, among) = (count("alone"), count("among"));
     let recalled: usize = outcomes
@@ -865,6 +1076,45 @@ async fn her_memory_at_its_full_size() {
         .unwrap(),
     )
     .unwrap();
+}
+
+/// One person's memories as they build up over half a year: `own`
+/// scattered among `others` in an order `seed` fixes, each dated at its
+/// place in time.
+#[allow(clippy::type_complexity)]
+fn over_half_a_year(
+    seed: &str,
+    own: &[String],
+    others: &[String],
+) -> (
+    Vec<(String, chrono::DateTime<chrono::FixedOffset>)>,
+    Vec<(String, chrono::DateTime<chrono::FixedOffset>)>,
+) {
+    use std::hash::{Hash, Hasher};
+    let place = |text: &str| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (seed, text).hash(&mut hasher);
+        hasher.finish()
+    };
+    let mut all: Vec<(bool, &String)> = own
+        .iter()
+        .map(|memory| (true, memory))
+        .chain(others.iter().map(|memory| (false, memory)))
+        .collect();
+    all.sort_by_key(|(_, memory)| place(memory));
+    let now = chrono::Utc::now().fixed_offset();
+    let count = all.len().max(1) as i32;
+    let step = chrono::Duration::days(180) / count;
+    let (mut hers, mut theirs) = (Vec::new(), Vec::new());
+    for (position, (own, memory)) in all.into_iter().enumerate() {
+        let at = now - step * (count - position as i32);
+        if own {
+            hers.push((memory.clone(), at));
+        } else {
+            theirs.push((memory.clone(), at));
+        }
+    }
+    (hers, theirs)
 }
 
 /// Before spending on a run: do the site's models answer at all, and if
