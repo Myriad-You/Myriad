@@ -319,3 +319,24 @@ test('reuses its result object and remains time-based at 30 and 60 fps', () => {
   assert.ok(Math.abs(pose30.browAccent - pose60.browAccent) < 0.01)
   assert.ok(Math.abs(pose30.headAccent - pose60.headAccent) < 0.01)
 })
+
+test('a close vowel opens the mouth less than an open one of the same shape', async () => {
+  const peak = async (openness?: number) => {
+    const speech = new AutoSpeechController(
+      () => 0.5,
+      async () => [
+        { viseme: 'round' as const, duration: 0.4, emphasis: false, ...(openness ? { openness } : {}) },
+      ],
+    )
+    speech.sample(0, true)
+    speech.enqueueText('う')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    let most = 0
+    for (let time = 0; time < 2; time += 0.01) most = Math.max(most, speech.sample(time, true).mouthOpen)
+    return most
+  }
+  const o = await peak()
+  const u = await peak(0.65)
+  assert.ok(o > 0.2, `${o}`)
+  assert.ok(u < o * 0.8, `u ${u} o ${o}`)
+})

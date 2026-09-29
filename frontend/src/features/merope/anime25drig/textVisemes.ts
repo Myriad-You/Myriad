@@ -9,7 +9,16 @@ export interface TextVisemeCue {
   viseme: SpeechViseme
   duration: number
   emphasis: boolean
+  /**
+   * How far this vowel opens against its shape's usual opening: a u is a
+   * smaller round than an o, an i a flatter spread than an e. Default 1.
+   */
+  openness?: number
 }
+
+/** A u against an o, an i against an e. */
+const CLOSE_ROUND = 0.65
+const CLOSE_SPREAD = 0.72
 
 const HAN_RUN = /\p{Script=Han}+/gu
 const HAN_CHAR = /\p{Script=Han}/u
@@ -81,22 +90,27 @@ function compileHan(
     if (initial && /^[bpm]$/.test(initial)) {
       push(output, 'closed', 0.05, false)
     } else if (initial === 'w') {
-      push(output, 'round', 0.06, false)
+      // A w glides in from a u.
+      push(output, 'round', 0.06, false, CLOSE_ROUND)
     } else if (initial) {
       push(output, 'narrow', 0.05, false)
     }
     const final = syllable.slice(initial?.length || 0) || syllable
     const apical = final === 'i' && /^(?:[csz]h|[crsz])$/.test(initial || '')
-    const finalViseme = apical ? 'narrow' : chineseFinalViseme(final)
-    push(output, finalViseme, initial ? 0.145 : 0.195, isOpenFinal(final))
+    const vowel = apical ? { viseme: 'narrow' as const, openness: 1 } : chineseFinalVowel(final)
+    push(output, vowel.viseme, initial ? 0.145 : 0.195, isOpenFinal(final), vowel.openness)
   }
 }
 
-function chineseFinalViseme(final: string): SpeechViseme {
-  if (/[ouüv]/.test(final)) return 'round'
-  if (/[ei]/.test(final)) return 'wide'
-  if (final.includes('a')) return 'open'
-  return 'narrow'
+/** The mouth a final is held in: its main vowel, not whichever letter comes first. */
+function chineseFinalVowel(final: string): { viseme: SpeechViseme, openness: number } {
+  // a leads wherever it is (ai, ao, ian, uang): hao is open, not round.
+  if (final.includes('a')) return { viseme: 'open', openness: 1 }
+  if (/o/.test(final)) return { viseme: 'round', openness: 1 }
+  if (/[uüv]/.test(final) && !/e/.test(final)) return { viseme: 'round', openness: CLOSE_ROUND }
+  if (/e/.test(final)) return { viseme: 'wide', openness: 1 }
+  if (/i/.test(final)) return { viseme: 'wide', openness: CLOSE_SPREAD }
+  return { viseme: 'narrow', openness: 1 }
 }
 
 function isOpenFinal(final: string): boolean {
@@ -132,7 +146,7 @@ function compileSymbols(
     ) {
       if (isJapaneseLabial(symbol)) push(output, 'closed', 0.04, false)
       const cue = japaneseCue(symbol, index > 0 ? symbols[index - 1] : '')
-      if (cue) push(output, cue, 0.135, cue === 'open')
+      if (cue) push(output, cue, 0.135, cue === 'open', japaneseOpenness(symbol, index > 0 ? symbols[index - 1] : ''))
       continue
     }
     const pause = visualSpeechPauseSeconds(symbol)
@@ -177,6 +191,14 @@ function japaneseCue(symbol: string, previous: string): SpeechViseme | null {
   return null
 }
 
+/** う and い rows close more than お and え. */
+function japaneseOpenness(symbol: string, previous: string): number {
+  if (symbol === 'ー') return previous ? japaneseOpenness(previous, '') : 1
+  if (/[うくぐすずつづぬふぶぷむゆるウクグスズツヅヌフブプムユル]/u.test(symbol)) return CLOSE_ROUND
+  if (/[いきぎしじちぢにひびぴみりゐイキギシジチヂニヒビピミリヰ]/u.test(symbol)) return CLOSE_SPREAD
+  return 1
+}
+
 function isJapaneseLabial(symbol: string): boolean {
   return /[まみむめもばびぶべぼぱぴぷぺぽマミムメモバビブベボパピプペポ]/u.test(
     symbol,
@@ -199,11 +221,19 @@ function compileLatinWord(word: string, output: TextVisemeCue[]): void {
     } else if (/^[bmp]/.test(rest)) {
       push(output, 'closed', 0.05, false)
       index += 1
-    } else if (/^(?:oo|ou|ow|oa|or)/.test(rest)) {
+    } else if (rest.startsWith('oo')) {
+      push(output, 'round', 0.13, firstVowel, CLOSE_ROUND)
+      firstVowel = false
+      index += 2
+    } else if (/^(?:ou|ow|oa|or)/.test(rest)) {
       push(output, 'round', 0.13, firstVowel)
       firstVowel = false
       index += 2
-    } else if (/^(?:ee|ea|ie|ei|ey)/.test(rest)) {
+    } else if (/^(?:ee|ie)/.test(rest)) {
+      push(output, 'wide', 0.12, firstVowel, CLOSE_SPREAD)
+      firstVowel = false
+      index += 2
+    } else if (/^(?:ea|ei|ey)/.test(rest)) {
       push(output, 'wide', 0.12, firstVowel)
       firstVowel = false
       index += 2
@@ -212,11 +242,11 @@ function compileLatinWord(word: string, output: TextVisemeCue[]): void {
       firstVowel = false
       index += 2
     } else if (/^[ou]/.test(rest)) {
-      push(output, 'round', 0.11, firstVowel)
+      push(output, 'round', 0.11, firstVowel, rest.startsWith('u') ? CLOSE_ROUND : 1)
       firstVowel = false
       index += 1
     } else if (/^[eiy]/.test(rest)) {
-      push(output, 'wide', 0.105, firstVowel)
+      push(output, 'wide', 0.105, firstVowel, rest.startsWith('e') ? 1 : CLOSE_SPREAD)
       firstVowel = false
       index += 1
     } else if (rest.startsWith('a')) {
@@ -227,7 +257,7 @@ function compileLatinWord(word: string, output: TextVisemeCue[]): void {
       push(output, 'narrow', 0.06, false)
       index += 1
     } else if (/^[wq]/.test(rest)) {
-      push(output, 'round', 0.06, false)
+      push(output, 'round', 0.06, false, CLOSE_ROUND)
       index += 1
     } else {
       push(output, 'narrow', 0.05, false)
@@ -242,6 +272,7 @@ function push(
   viseme: SpeechViseme,
   duration: number,
   emphasis: boolean,
+  openness = 1,
 ): void {
   output.push({
     viseme,
@@ -250,6 +281,7 @@ function push(
         ? duration
         : duration * VISUAL_SPEECH_ARTICULATION_SCALE,
     emphasis,
+    ...(openness !== 1 ? { openness } : {}),
   })
 }
 
@@ -260,6 +292,7 @@ function coalesce(input: TextVisemeCue[]): TextVisemeCue[] {
     const limit = cue.viseme === 'rest' ? 0.64 : 0.28
     if (
       previous?.viseme === cue.viseme &&
+      (previous.openness ?? 1) === (cue.openness ?? 1) &&
       previous.duration + cue.duration <= limit
     ) {
       previous.duration += cue.duration

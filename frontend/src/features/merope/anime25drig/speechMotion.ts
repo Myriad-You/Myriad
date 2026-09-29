@@ -101,6 +101,7 @@ export class AutoSpeechController {
   private textLocalPace = 1
   private textPhraseStartPending = true
   private previousViseme: SpeechViseme = 'rest'
+  private previousOpenness = 1
   private activeTextAccentIndex = -1
   private nextTextAccentAt = 0
   private textCompilation: Promise<void> = Promise.resolve()
@@ -148,6 +149,7 @@ export class AutoSpeechController {
       this.speaking = false
       this.nextEventAt = Number.POSITIVE_INFINITY
       this.previousViseme = closestViseme(this.output)
+      this.previousOpenness = 1
     }
     if (this.textCueIndex > 0) {
       this.activeTextAccentIndex =
@@ -353,6 +355,7 @@ export class AutoSpeechController {
         break
       }
       this.previousViseme = cue.viseme
+      this.previousOpenness = cue.openness ?? 1
       this.textCueStartedAt += this.textCueDuration
       this.textCueIndex += 1
       if (cue.viseme === 'rest' && isMajorVisualSpeechPause(cue.duration)) {
@@ -383,9 +386,11 @@ export class AutoSpeechController {
       this.output.browAccent = 0
       this.output.headAccent = 0
       this.previousViseme = 'rest'
+      this.previousOpenness = 1
       return this.output
     }
-    const next = this.textCues[this.textCueIndex + 1]?.viseme || 'rest'
+    const nextCue = this.textCues[this.textCueIndex + 1]
+    const next = nextCue?.viseme || 'rest'
     const progress = clamp(
       (now - this.textCueStartedAt) / this.textCueDuration,
       0,
@@ -395,17 +400,21 @@ export class AutoSpeechController {
     const releaseFraction = next === 'round' ? 0.42 : 0.28
     let from = cue.viseme
     let to = cue.viseme
+    let fromOpenness = cue.openness ?? 1
+    let toOpenness = fromOpenness
     let blend = 1
     if (progress < onsetFraction) {
       from = this.previousViseme
+      fromOpenness = this.previousOpenness
       blend = smootherstep(progress / onsetFraction)
     } else if (progress > 1 - releaseFraction) {
       to = next
+      toOpenness = nextCue?.openness ?? 1
       blend = smootherstep((progress - (1 - releaseFraction)) / releaseFraction)
     }
     this.output.mouthOpen = mix(
-      visemeValue(from, 'open'),
-      visemeValue(to, 'open'),
+      visemeValue(from, 'open') * fromOpenness,
+      visemeValue(to, 'open') * toOpenness,
       blend,
     )
     this.output.mouthWide = mix(
@@ -569,6 +578,7 @@ export class AutoSpeechController {
     this.textLocalPace = 1
     this.textPhraseStartPending = true
     this.previousViseme = 'rest'
+    this.previousOpenness = 1
     this.activeTextAccentIndex = -1
     this.nextTextAccentAt = 0
     this.pendingTextCompilations = 0
