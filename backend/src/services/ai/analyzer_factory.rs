@@ -75,13 +75,24 @@ pub async fn create_ai_analyzer_for_tier_with_timeout(
         Some(resolved.base_url)
     };
 
-    Some(match request_timeout {
+    let analyzer = match request_timeout {
         Some(timeout) => {
             AiAnalyzer::new_with_timeout(provider, api_key, resolved.model, base_url, timeout).await
         }
         None => AiAnalyzer::new(provider, api_key, resolved.model, base_url).await,
+    };
+    Some(if tier == ModelTier::Lite {
+        analyzer.with_output_cap(LITE_OUTPUT_CAP)
+    } else {
+        analyzer
     })
 }
+
+/// Most output a Lite call asks for when it names none, thinking included.
+/// Lite talks and judges in short replies; asking for the model's whole
+/// window instead has the gateway hold credit for all of it, and refuse the
+/// call outright when the balance is below that.
+const LITE_OUTPUT_CAP: u32 = 8192;
 
 /// Creates an analyzer only when an explicit Lite model is configured.
 /// Credentials may still come from the shared provider vault, but the model
@@ -136,10 +147,11 @@ async fn lite_analyzer(
         Some(resolved.base_url)
     };
 
-    Some(match request_timeout {
+    let analyzer = match request_timeout {
         Some(timeout) => {
             AiAnalyzer::new_with_timeout(provider, api_key, resolved.model, base_url, timeout).await
         }
         None => AiAnalyzer::new(provider, api_key, resolved.model, base_url).await,
-    })
+    };
+    Some(analyzer.with_output_cap(LITE_OUTPUT_CAP))
 }

@@ -31,6 +31,9 @@ pub struct AiAnalyzer {
     /// Ask the gateway for as little thinking as it allows; see
     /// [`AiAnalyzer::with_light_thinking`].
     pub(super) light_thinking: bool,
+    /// Most output a request asks for when it names none; see
+    /// [`AiAnalyzer::with_output_cap`].
+    pub(super) output_cap: Option<u32>,
 }
 
 /// 进程内记下 (base_url, model, structured|extras) 曾被 `rejected_request`；重启清空。
@@ -320,7 +323,37 @@ impl AiAnalyzer {
             model,
             base_url,
             light_thinking: false,
+            output_cap: None,
         }
+    }
+
+    /// For calls whose output is short (talk, typed judgments): a request
+    /// that names no output limit asks for at most `tokens`. OpenRouter
+    /// reserves credit for the whole limit a request may use; left unset it
+    /// is the model's own maximum (65536 for Gemini 3.8 Flash), and with
+    /// credit running low every request is refused although each would
+    /// have used a few hundred.
+    pub fn with_output_cap(mut self, tokens: u32) -> Self {
+        self.output_cap = Some(tokens);
+        self
+    }
+
+    /// A request body as sent: within the handler's allowance, and capped
+    /// as [`AiAnalyzer::with_output_cap`] says where it names no limit.
+    fn prepare_body(&self, body: &impl serde::Serialize) -> anyhow::Result<serde_json::Value> {
+        let mut body = super::request_budget::prepare(body, self.provider)?;
+        if let (Some(cap), AiProvider::OpenAI) = (self.output_cap, self.provider)
+            && body
+                .get("max_tokens")
+                .is_none_or(serde_json::Value::is_null)
+            && body
+                .get("max_completion_tokens")
+                .is_none_or(serde_json::Value::is_null)
+            && let Some(object) = body.as_object_mut()
+        {
+            object.insert("max_tokens".into(), serde_json::json!(cap));
+        }
+        Ok(body)
     }
 
     /// For calls where waiting costs more than thinking gains: small typed
@@ -388,7 +421,7 @@ impl AiAnalyzer {
     ) -> Result<reqwest::Response> {
         self.authenticate(self.client.post(url))
             .header("Content-Type", "application/json")
-            .json(&super::request_budget::prepare(body, self.provider)?)
+            .json(&self.prepare_body(body)?)
             .send()
             .await
             .with_context(|| {
@@ -461,10 +494,7 @@ impl AiAnalyzer {
 
         let response = self
             .authenticate(self.client.post(&url))
-            .json(&super::request_budget::prepare(
-                &request_body,
-                self.provider,
-            )?)
+            .json(&self.prepare_body(&request_body)?)
             .send()
             .await
             .context("Failed to send request to Gemini API")?;
@@ -536,10 +566,7 @@ impl AiAnalyzer {
         let response = self
             .authenticate(self.client.post(&url))
             .header("Content-Type", "application/json")
-            .json(&super::request_budget::prepare(
-                &request_body,
-                self.provider,
-            )?)
+            .json(&self.prepare_body(&request_body)?)
             .send()
             .await
             .with_context(|| {
@@ -593,7 +620,7 @@ impl AiAnalyzer {
         }
         let response = request
             .header("Content-Type", "application/json")
-            .json(&super::request_budget::prepare(&body, self.provider)?)
+            .json(&self.prepare_body(&body)?)
             .send()
             .await
             .map_err(|error| ProviderCallFailure::transport(error.into()))?;
@@ -683,7 +710,7 @@ impl AiAnalyzer {
                 let response = self
                     .authenticate(self.client.post(&url))
                     .header("Content-Type", "application/json")
-                    .json(&super::request_budget::prepare(&request_body, self.provider)?)
+                    .json(&self.prepare_body(&request_body)?)
                     .send()
                     .await
                     .with_context(|| {
@@ -970,10 +997,7 @@ impl AiAnalyzer {
         let response = self
             .authenticate(self.client.post(&url))
             .header("Content-Type", "application/json")
-            .json(&super::request_budget::prepare(
-                &request_body,
-                self.provider,
-            )?)
+            .json(&self.prepare_body(&request_body)?)
             .send()
             .await
             .map_err(|e| ProviderCallFailure::transport(e.into()))?;
@@ -1035,7 +1059,7 @@ impl AiAnalyzer {
         }
         let response = request
             .header("Content-Type", "application/json")
-            .json(&super::request_budget::prepare(&body, self.provider)?)
+            .json(&self.prepare_body(&body)?)
             .send()
             .await
             .map_err(|error| ProviderCallFailure::transport(error.into()))?;
@@ -1089,10 +1113,7 @@ impl AiAnalyzer {
                 let url = self.gemini_url(false).await;
                 let response = self
                     .authenticate(self.client.post(&url))
-                    .json(&super::request_budget::prepare(
-                        &request_body,
-                        self.provider,
-                    )?)
+                    .json(&self.prepare_body(&request_body)?)
                     .send()
                     .await
                     .map_err(|e| ProviderCallFailure::transport(e.into()))?;
@@ -1178,10 +1199,7 @@ impl AiAnalyzer {
                 let response = self
                     .authenticate(self.client.post(&url))
                     .header("Content-Type", "application/json")
-                    .json(&super::request_budget::prepare(
-                        &request_body,
-                        self.provider,
-                    )?)
+                    .json(&self.prepare_body(&request_body)?)
                     .send()
                     .await
                     .map_err(|e| ProviderCallFailure::transport(e.into()))?;
@@ -1312,7 +1330,7 @@ impl AiAnalyzer {
             let url = self.gemini_url(true).await;
             let response = self
                 .authenticate(self.client.post(&url))
-                .json(&super::request_budget::prepare(&body, self.provider)?)
+                .json(&self.prepare_body(&body)?)
                 .send()
                 .await
                 .context("Failed to send streaming image request to Gemini API")?;
@@ -1353,10 +1371,7 @@ impl AiAnalyzer {
 
                 let response = self
                     .authenticate(self.client.post(&url))
-                    .json(&super::request_budget::prepare(
-                        &request_body,
-                        self.provider,
-                    )?)
+                    .json(&self.prepare_body(&request_body)?)
                     .send()
                     .await
                     .context("Failed to send streaming request to Gemini API")?;
@@ -1409,10 +1424,7 @@ impl AiAnalyzer {
                 if self.provider == AiProvider::Anthropic {
                     request = request.header("anthropic-version", "2023-06-01");
                 }
-                let response = request
-                    .json(&super::request_budget::prepare(&body, self.provider)?)
-                    .send()
-                    .await?;
+                let response = request.json(&self.prepare_body(&body)?).send().await?;
                 if !response.status().is_success() {
                     let status = response.status();
                     return Err(ProviderCallFailure::http(
@@ -1515,6 +1527,38 @@ mod image_request_tests {
 mod tests {
     use super::{ProviderCallFailure, require_analyze_prompt};
     use serde_json::json;
+
+    /// 只在请求没写上限时补上；写了的不动，也不给别的协议补字段。
+    #[tokio::test]
+    async fn the_output_cap_fills_only_an_unnamed_limit() {
+        use super::{AiAnalyzer, AiProvider};
+        let analyzer = |provider| async move {
+            AiAnalyzer::new(provider, "fixture".into(), "fixture".into(), None)
+                .await
+                .with_output_cap(8192)
+        };
+        let openai = analyzer(AiProvider::OpenAI).await;
+        let unnamed = json!({"model":"fixture","messages":[]});
+        assert_eq!(openai.prepare_body(&unnamed).unwrap()["max_tokens"], 8192);
+        let named = json!({"model":"fixture","messages":[],"max_tokens":300});
+        assert_eq!(openai.prepare_body(&named).unwrap()["max_tokens"], 300);
+        let completion = json!({"model":"fixture","messages":[],"max_completion_tokens":300});
+        assert!(
+            openai
+                .prepare_body(&completion)
+                .unwrap()
+                .get("max_tokens")
+                .is_none()
+        );
+        let gemini = analyzer(AiProvider::Gemini).await;
+        assert!(
+            gemini
+                .prepare_body(&unnamed)
+                .unwrap()
+                .get("max_tokens")
+                .is_none()
+        );
+    }
 
     /// 预算被拒 → 去掉预算重试 → 还被拒 → prompt-only。三级，不能少。
     #[test]
