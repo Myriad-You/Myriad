@@ -49,6 +49,16 @@ const RECALLED: usize = 8;
 const THOROUGH: usize = super::remembering::THOROUGH;
 const AT_ONCE: usize = 6;
 
+/// `MEROPE_MEMORY_BENCH_AT_ONCE` when set: with little credit left, the
+/// gateway refuses calls whose held-back output together exceeds it.
+fn at_once() -> usize {
+    std::env::var("MEROPE_MEMORY_BENCH_AT_ONCE")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|at_once| *at_once > 0)
+        .unwrap_or(AT_ONCE)
+}
+
 fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
     // "2023/04/10 (Mon) 17:50"
     let cleaned: String = text
@@ -563,7 +573,7 @@ async fn her_memory_on_longmemeval() {
                 (question, outcome)
             }
         })
-        .buffer_unordered(AT_ONCE)
+        .buffer_unordered(at_once())
         .collect()
         .await;
     isolated.drop().await;
@@ -1016,7 +1026,7 @@ async fn her_memory_at_its_full_size() {
                     "responseAmong":large.answer})
             }
         })
-        .buffer_unordered(AT_ONCE)
+        .buffer_unordered(at_once())
         .collect()
         .await;
     isolated.drop().await;
