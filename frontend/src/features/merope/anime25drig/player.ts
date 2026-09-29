@@ -20,7 +20,6 @@ import type {
 } from './driverComposition'
 import type { Anime25DExpressionDeformationFrame } from './expressionDeformation'
 import type { Anime25DHairSpringFrame } from './hairPhysics'
-import type { HeadTurn } from './headTurn'
 import type { JellyElement } from './jellyVolume'
 import type { Anime25DGpuLayer } from './layerGpuBinding'
 import type { Anime25DHandPose, Anime25DMotionEnvelopeProfile } from './motionEnvelope'
@@ -115,7 +114,6 @@ import {
 import { stepAnime25DHairLayerSprings } from './hairPhysics'
 import { writeHairRootMotion } from './hairRootMotion'
 import { constrainHairSurface } from './hairSurface'
-import { createHeadTurn, updateHeadTurn } from './headTurn'
 import { idleBreathOffset } from './idleBreath'
 import { Anime25DIrisRebound } from './irisRebound'
 import {
@@ -334,8 +332,6 @@ export class Anime25DPlayer {
 
   private secondaryDeformationFrame!: Anime25DSecondaryDeformationFrame
 
-  private headTurn: HeadTurn = createHeadTurn(null)
-
   private readonly shellRotation: Anime25DShellRotation = {
     active: false,
     yawCosine: 1,
@@ -541,8 +537,6 @@ export class Anime25DPlayer {
     this.atlasTexture = nextTexture
     this.layers = compiled.layers
     this.collarClip = compiled.collarClip
-    this.headTurn = createHeadTurn(compiled.headSilhouette ?? null)
-    this.secondaryDeformationFrame.headTurn = this.headTurn
     this.bindJelly()
     this.touchAtlas = touchAtlas
     this.thinkingSticker.setLinePixels(linePixels)
@@ -1441,7 +1435,6 @@ export class Anime25DPlayer {
       anchors.neckPivot.x, this.shellProfile.torso, this.torsoShellRotation, frame.torsoShellBlend,
     )
     writeAnime25DShellRotation(e.angleX, e.angleY, this.shellRotation)
-    updateHeadTurn(this.headTurn, e.angleX, e.angleY)
     this.renderFrame.bodyPivotX = anchors.bodyPivot.x
     this.renderFrame.bodyPivotY = anchors.bodyPivot.y
     this.renderFrame.bodyBendHeight = frame.bodyBendHeight ?? 0

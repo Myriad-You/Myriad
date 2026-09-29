@@ -8,7 +8,6 @@ import type { EarwearPhysics } from './earwearPhysics'
 import type { Anime25DExpressionDeformationBinding } from './expressionDeformation'
 import type { HairRootMotion } from './hairRootMotion'
 import type { HairSurface } from './hairSurface'
-import type { HeadSilhouette } from './headTurn'
 import type { Anime25DLayerAttachment, Anime25DNeckwearBridge } from './layerAttachment'
 import type { Anime25DLayerBinding, Anime25DLayerSpringBinding } from './layerBinding'
 import type { Anime25DUpstreamFeatureInput } from './layerDeformation'
@@ -36,7 +35,6 @@ import { bindEarwearPhysics } from './earwearPhysics'
 import { resolveAnime25DExpressionDeformation } from './expressionDeformation'
 import { bindHairRootMotion } from './hairRootMotion'
 import { bindHairSurface } from './hairSurface'
-import { headSilhouetteFromFace } from './headTurn'
 import { bindAnime25DLayerAttachment, bindNeckwearBridge } from './layerAttachment'
 import { buildAnime25DLayerBinding } from './layerBinding'
 import { bindAnime25DUpstreamFeature } from './layerDeformation'
@@ -106,8 +104,6 @@ export interface Anime25DCompiledGpuLayers {
   armsLinked?: boolean
   /** A hand rests on the head: the head keeps near its drawn pose. */
   handTouchesHead?: boolean
-  /** The face's drawn outline, which the head turns on. */
-  headSilhouette?: HeadSilhouette | null
 }
 
 export function compileAnime25DGpuLayers(
@@ -143,8 +139,6 @@ export function compileAnime25DGpuLayers(
         .map((layer) => ({ layer, image: readBindingPixels(layer) })),
       playback.anchors.face,
     )
-    const face = playback.layers.find((layer) => layer.role === 'face')
-    const headSilhouette = face ? headSilhouetteFromFace(face, readBindingPixels(face)) : null
     const linkedArmAnchorX = armsLinked && leftArm && rightArm
       ? (Math.min(leftArm.x, rightArm.x) + Math.max(leftArm.x + leftArm.w, rightArm.x + rightArm.w)) / 2
       : undefined
@@ -572,7 +566,7 @@ export function compileAnime25DGpuLayers(
         ;(cropHost.attachmentDependents ??= []).push(layer)
       }
     }
-    return { layers, collarClip, atlasPatches, armsLinked, handTouchesHead, headSilhouette }
+    return { layers, collarClip, atlasPatches, armsLinked, handTouchesHead }
   } catch (error) {
     disposeAnime25DGpuLayers(gl, { layers, collarClip })
     throw error
