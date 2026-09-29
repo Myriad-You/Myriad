@@ -798,6 +798,19 @@ async fn speaking_prompt_from_db(
             sections.push(block);
         }
     }
+    // Asked about what was said in detail, she scrolls back through the chat.
+    if let (false, Turn::Chat(words), Some(cues)) = (group, turn, cues.as_ref())
+        && cues.look_back
+    {
+        let query = std::iter::once(words)
+            .chain(cues.cues.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let found = remembering::look_back(db, user_id, &query, words).await;
+        if let Some(block) = myriad_merope::remembering::looked_back_section(&found) {
+            sections.push(block);
+        }
+    }
     let diary = if group {
         Ok(Vec::new())
     } else {

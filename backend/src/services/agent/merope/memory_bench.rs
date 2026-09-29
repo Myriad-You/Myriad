@@ -146,6 +146,37 @@ async fn run_one(
         .zip(question.haystack_sessions.iter())
         .collect();
     sessions.sort_by_key(|(at, _)| *at);
+    // The chat itself, as the site keeps it, for scrolling back through.
+    for (number, (session_at, turns)) in sessions.iter().enumerate() {
+        let session = format!("lme-{}-{number}", question.question_id);
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO agent_sessions (id, user_id, message_count, archived, created_at, last_active_at) \
+             VALUES ($1, $2, $3, false, $4, $4)",
+            [
+                session.clone().into(),
+                user_id.into(),
+                (turns.len() as i32).into(),
+                (*session_at).into(),
+            ],
+        ))
+        .await
+        .unwrap();
+        for (index, turn) in turns.iter().enumerate() {
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO agent_messages (session_id, role, content, created_at) VALUES ($1, $2, $3, $4)",
+                [
+                    session.clone().into(),
+                    turn.role.clone().into(),
+                    turn.content.clone().into(),
+                    (*session_at + chrono::Duration::minutes(index as i64)).into(),
+                ],
+            ))
+            .await
+            .unwrap();
+        }
+    }
     for (session_at, turns) in sessions {
         for (index, turn) in turns.iter().enumerate() {
             if turn.role != "user" {
@@ -317,9 +348,23 @@ async fn answer_one(
     let retrieved = answering
         .iter()
         .any(|fact| recalled.iter().any(|line| line.contains(fact.as_str())));
+    // Asked about what was said in detail, she scrolls back, as in a chat.
+    let scrolled = match cues.filter(|cues| cues.look_back) {
+        Some(cues) => {
+            let query = std::iter::once(question.question.as_str())
+                .chain(cues.cues.iter().map(String::as_str))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let found =
+                super::remembering::look_back(db, user_id, &query, &question.question).await;
+            myriad_merope::remembering::looked_back_section(&found)
+        }
+        None => None,
+    };
     let input = json!({
         "today": question.question_date,
         "whatYouRemember": recalled,
+        "scrollingBack": scrolled,
         "question": question.question,
     })
     .to_string();
