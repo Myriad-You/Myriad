@@ -24,6 +24,10 @@ pub struct Shape {
     pub end_mark: f64,
     /// Share of messages with an exclamation mark.
     pub bang: f64,
+    /// Share of messages with a laugh tacked onto the end of what they say
+    /// (「少来这套哈哈」); a laugh sent on its own is not one.
+    #[serde(default)]
+    pub laugh_end: f64,
 }
 
 /// Pictures, stickers and empty lines have no typing shape.
@@ -31,6 +35,29 @@ fn typed(message: &str) -> Option<&str> {
     let message = message.trim();
     (!message.is_empty() && !(message.starts_with('[') && message.ends_with(']')))
         .then_some(message)
+}
+
+/// What is said before a laugh tacked onto its end (「少来这套哈哈」 →
+/// 「少来这套」); None when nothing is tacked on, or the laugh is the whole
+/// message.
+pub fn without_tacked_laugh(message: &str) -> Option<&str> {
+    let core = message.trim_end_matches(|c: char| {
+        c.is_whitespace() || matches!(c, '。' | '！' | '？' | '!' | '?' | '.' | '~' | '～' | '…')
+    });
+    let repeated = |run: &[char], at_least: usize| {
+        let rest = core.trim_end_matches(run);
+        (core.chars().count() - rest.chars().count() >= at_least).then_some(rest)
+    };
+    let rest = repeated(&['哈'], 2)
+        .or_else(|| repeated(&['h', 'H'], 3))
+        .or_else(|| repeated(&['3'], 2).and_then(|rest| rest.strip_suffix('2')))
+        .or_else(|| {
+            ["嘿嘿", "呵呵", "笑死", "xswl", "lol", "LOL"]
+                .iter()
+                .find_map(|laugh| core.strip_suffix(laugh))
+        })?;
+    let rest = rest.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, '，' | ',' | '、'));
+    (!rest.trim().is_empty()).then_some(rest)
 }
 
 fn ends_in_mark(message: &str) -> bool {
@@ -54,6 +81,7 @@ pub fn of_turns(turns: &[Turn<'_>]) -> Option<Shape> {
                             message.chars().count(),
                             ends_in_mark(message),
                             message.contains('！') || message.contains('!'),
+                            without_tacked_laugh(message).is_some(),
                         )
                     })
                     .collect()
@@ -63,15 +91,15 @@ pub fn of_turns(turns: &[Turn<'_>]) -> Option<Shape> {
 }
 
 /// Turns of messages, each message (characters, ends in a mark, has an
-/// exclamation mark), as their shape.
-fn measure(turns: Vec<Vec<(usize, bool, bool)>>) -> Option<Shape> {
-    let turns: Vec<Vec<(usize, bool, bool)>> =
+/// exclamation mark, has a laugh tacked on), as their shape.
+fn measure(turns: Vec<Vec<(usize, bool, bool, bool)>>) -> Option<Shape> {
+    let turns: Vec<Vec<(usize, bool, bool, bool)>> =
         turns.into_iter().filter(|turn| !turn.is_empty()).collect();
-    let messages: Vec<(usize, bool, bool)> = turns.iter().flatten().copied().collect();
+    let messages: Vec<(usize, bool, bool, bool)> = turns.iter().flatten().copied().collect();
     if messages.is_empty() {
         return None;
     }
-    let mut chars: Vec<usize> = messages.iter().map(|(chars, _, _)| *chars).collect();
+    let mut chars: Vec<usize> = messages.iter().map(|(chars, _, _, _)| *chars).collect();
     chars.sort_unstable();
     let quantile = |q: f64| chars[((chars.len() as f64 * q) as usize).min(chars.len() - 1)];
     let share = |count: usize, of: usize| count as f64 / of as f64;
@@ -86,11 +114,15 @@ fn measure(turns: Vec<Vec<(usize, bool, bool)>>) -> Option<Shape> {
         chars_median: quantile(0.5),
         chars_p90: quantile(0.9),
         end_mark: share(
-            messages.iter().filter(|(_, mark, _)| *mark).count(),
+            messages.iter().filter(|(_, mark, _, _)| *mark).count(),
             messages.len(),
         ),
         bang: share(
-            messages.iter().filter(|(_, _, bang)| *bang).count(),
+            messages.iter().filter(|(_, _, bang, _)| *bang).count(),
+            messages.len(),
+        ),
+        laugh_end: share(
+            messages.iter().filter(|(_, _, _, laugh)| *laugh).count(),
             messages.len(),
         ),
     })
@@ -106,6 +138,8 @@ pub struct Typed {
     pub chars: u32,
     pub mark: bool,
     pub bang: bool,
+    #[serde(default)]
+    pub laugh: bool,
 }
 
 /// `text` as typed by `by` at `at` (seconds); None for a picture or sticker.
@@ -117,16 +151,22 @@ pub fn typed_by(by: &str, at: i64, text: &str) -> Option<Typed> {
         chars: u32::try_from(text.chars().count()).unwrap_or(u32::MAX),
         mark: ends_in_mark(text),
         bang: text.contains('！') || text.contains('!'),
+        laugh: without_tacked_laugh(text).is_some(),
     })
 }
 
 /// The shape of messages kept as `Typed`, oldest first; a turn is one
 /// speaker's messages no more than 60 s apart, as in `turns_of`.
 pub fn shape_of(messages: &[Typed]) -> Option<Shape> {
-    let mut turns: Vec<Vec<(usize, bool, bool)>> = Vec::new();
+    let mut turns: Vec<Vec<(usize, bool, bool, bool)>> = Vec::new();
     let mut last: Option<(&str, i64)> = None;
     for message in messages {
-        let this = (message.chars as usize, message.mark, message.bang);
+        let this = (
+            message.chars as usize,
+            message.mark,
+            message.bang,
+            message.laugh,
+        );
         match (last, turns.last_mut()) {
             (Some((by, then)), Some(turn)) if by == message.by && message.at - then <= 60 => {
                 turn.push(this);
@@ -216,6 +256,12 @@ pub fn out_of_line(hers: &Shape, people: &Shape) -> Vec<String> {
             hers.end_mark, people.end_mark
         ));
     }
+    if hers.laugh_end > people.laugh_end + 0.1 {
+        off.push(format!(
+            "tacked-on laughs {:.2} vs {:.2}",
+            hers.laugh_end, people.laugh_end
+        ));
+    }
     if hers.bang > people.bang + 0.15 {
         off.push(format!(
             "exclamations {:.2} vs {:.2}",
@@ -271,13 +317,14 @@ fn percent(share: f64) -> u32 {
 /// as it is, under `title`. What she makes of it is hers.
 pub fn describe(room: &Shape, title: &str) -> String {
     format!(
-        "## {title}\nTheir last {} messages: about {} characters a message (long ones {}); one message at a go {}% of the time; {}% end in a punctuation mark, {}% have an exclamation mark.",
+        "## {title}\nTheir last {} messages: about {} characters a message (long ones {}); one message at a go {}% of the time; {}% end in a punctuation mark, {}% have an exclamation mark, {}% have a laugh (哈哈 and the like) tacked onto the end.",
         room.messages,
         room.chars_median,
         room.chars_p90,
         percent(room.single),
         percent(room.end_mark),
         percent(room.bang),
+        percent(room.laugh_end),
     )
 }
 
@@ -335,6 +382,7 @@ mod tests {
             chars_p90: 15,
             end_mark: 0.03,
             bang: 0.0,
+            laugh_end: 0.0,
         }
     }
 
@@ -425,6 +473,38 @@ mod tests {
         assert!((shape.per_turn - 1.25).abs() < 1e-9);
         assert!((shape.single - 0.75).abs() < 1e-9);
         assert_eq!(shape.end_mark, 0.0);
+    }
+
+    #[test]
+    fn a_laugh_tacked_on_the_end_is_not_how_people_type() {
+        assert_eq!(
+            without_tacked_laugh("干嘛突然这么叫 有事直说，少来这套哈哈"),
+            Some("干嘛突然这么叫 有事直说，少来这套")
+        );
+        assert_eq!(
+            without_tacked_laugh("别给我扣盗号帽子！哈哈"),
+            Some("别给我扣盗号帽子！")
+        );
+        assert_eq!(without_tacked_laugh("笑死我了 hhhh"), Some("笑死我了"));
+        assert_eq!(without_tacked_laugh("这也行2333"), Some("这也行"));
+        assert_eq!(without_tacked_laugh("行吧呵呵。"), Some("行吧"));
+        // A laugh on its own is a reply; a lone 哈 or 23 is part of the words.
+        assert_eq!(without_tacked_laugh("哈哈哈哈"), None);
+        assert_eq!(without_tacked_laugh("笑死"), None);
+        assert_eq!(without_tacked_laugh("哈"), None);
+        assert_eq!(without_tacked_laugh("我住在23楼"), None);
+        assert_eq!(without_tacked_laugh("我发的啊，就上面那句"), None);
+        let room = quiet_room();
+        // Measured, told, and held to the room.
+        let hers =
+            of_turns(&[vec!["少来这套哈哈"], vec!["我发的"], vec!["被盗号了？哈哈"]]).unwrap();
+        assert!((hers.laugh_end - 2.0 / 3.0).abs() < 1e-9);
+        assert!(
+            out_of_line(&hers, &room)
+                .iter()
+                .any(|line| line.starts_with("tacked-on laughs"))
+        );
+        assert!(describe(&room, "How people type here").contains("0% have a laugh"));
     }
 
     #[test]

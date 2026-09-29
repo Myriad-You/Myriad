@@ -102,6 +102,10 @@ pub struct RequestContext {
     /// sees it a while later. Server-set only.
     #[serde(skip)]
     pub late: Option<String>,
+    /// How her lines differ from the people's where she is talking (see
+    /// `myriad_merope::contrast`). Server-set only.
+    #[serde(skip)]
+    pub differs: Option<String>,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.

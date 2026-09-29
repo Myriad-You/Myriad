@@ -257,8 +257,7 @@ struct HistoryLine {
 /// How the people in a group case type, from its history, as production
 /// reads a group's lines.
 fn case_room(case: &Case) -> Option<myriad_merope::talk_shape::Shape> {
-    let lines: Vec<(&str, i64, &str)> = case
-        .history
+    let lines: Vec<(&str, i64, &str)> = kept_lines(case)
         .iter()
         .enumerate()
         .filter(|(_, line)| line.role == "user")
@@ -271,6 +270,21 @@ fn case_room(case: &Case) -> Option<myriad_merope::talk_shape::Shape> {
         })
         .collect();
     myriad_merope::talk_shape::room_of(&lines)
+}
+
+/// How her lines differ from the people's in a group case's history, as
+/// production tells it before the ledger has enough.
+fn case_differs(case: &Case) -> Option<String> {
+    use myriad_merope::contrast::{Counts, describe, overused};
+    let kept = |hers: bool| {
+        Counts::of(
+            case.history
+                .iter()
+                .filter(|line| (line.role == "assistant") == hers)
+                .flat_map(|line| line.text.lines()),
+        )
+    };
+    describe(&overused(&kept(true), &kept(false)))
 }
 
 /// What production sends of a reply typed in a chat app: as many messages
@@ -439,9 +453,17 @@ fn is_mind_case(case: &Case) -> bool {
 
 /// A group turn as production builds it: the group's lines, named, as the
 /// transcript; the one speaking to her is 阿明.
+/// Lines of a group she keeps in mind, as production keeps them; a longer
+/// history stands for what her ledger has counted.
+const GROUP_LINES_KEPT: usize = 30;
+
+/// The part of a group case's history she has in mind.
+fn kept_lines(case: &Case) -> &[HistoryLine] {
+    &case.history[case.history.len().saturating_sub(GROUP_LINES_KEPT)..]
+}
+
 fn group_chat_prompt(case: &Case) -> String {
-    let transcript: Vec<super::ConversationMessage> = case
-        .history
+    let transcript: Vec<super::ConversationMessage> = kept_lines(case)
         .iter()
         .map(|line| super::ConversationMessage {
             role: line.role.clone(),
@@ -471,6 +493,7 @@ fn group_chat_prompt(case: &Case) -> String {
         Some(myriad_merope::speaking::chat_app_section().to_string()),
         case_room(case)
             .map(|room| myriad_merope::talk_shape::describe(&room, "How people type here")),
+        case_differs(case),
         super::merope::format_remembered_section(&case.remembered),
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, true),

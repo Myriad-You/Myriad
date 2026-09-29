@@ -9,7 +9,8 @@
       "charsMedian": 7,
       "charsP90": 15,
       "endMark": 0.03,
-      "bang": 0.0
+      "bang": 0.0,
+      "laughEnd": 0.0
     },
     "answerToAt": {
       "source": "Same group and day: how long a member took to answer a line that @'d them, when they answered within 10 minutes (19 answers); she answered after 3 s at the median then.",
@@ -23,6 +24,7 @@
       "medianSeconds": 6,
       "p25Seconds": 3,
       "p75Seconds": 8
-    }
+    },
+    "laughSource": "Same group over 2026-09-26..29: of 287 typed messages from members, none had a laugh (哈哈 and the like) tacked onto the end, and none was a laugh alone. She had it on 4 of her 9 messages on 09-29."
   }
 }

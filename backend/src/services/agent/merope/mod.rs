@@ -400,6 +400,65 @@ async fn acquaintance(
     Some(known)
 }
 
+/// How her lines to this person differ from theirs to her (see
+/// `myriad_merope::contrast`), from their latest messages anywhere and her
+/// latest answers. Looked up at most every few minutes per person.
+async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) -> Option<String> {
+    use myriad_merope::contrast::{Counts, describe, overused};
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
+    static TOLD: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<i32, (std::time::Instant, Option<String>)>>,
+    > = std::sync::LazyLock::new(Default::default);
+    const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+    const PEOPLE_KEPT: usize = 4096;
+    const LATEST: i32 = 400;
+    if let Some((_, told)) = TOLD
+        .lock()
+        .ok()?
+        .get(&user_id)
+        .filter(|(at, _)| at.elapsed() < FRESH_FOR)
+    {
+        return told.clone();
+    }
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.role, m.content FROM agent_messages m \
+             JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE s.user_id = $1 AND m.role IN ('user', 'assistant') \
+             ORDER BY m.created_at DESC LIMIT $2",
+            vec![SeaValue::Int(Some(user_id)), SeaValue::Int(Some(LATEST))],
+        ))
+        .await
+        .ok()?;
+    let (mut theirs, mut hers) = (Counts::default(), Counts::default());
+    for row in &rows {
+        let (Ok(role), Ok(content)) = (
+            row.try_get::<String>("", "role"),
+            row.try_get::<String>("", "content"),
+        ) else {
+            continue;
+        };
+        // Each line of hers went as a message of its own.
+        let counts = if role == "user" {
+            &mut theirs
+        } else {
+            &mut hers
+        };
+        for line in content.lines() {
+            counts.add(line);
+        }
+    }
+    let told = describe(&overused(&hers, &theirs));
+    if let Ok(mut cache) = TOLD.lock() {
+        if cache.len() >= PEOPLE_KEPT {
+            cache.retain(|_, (at, _)| at.elapsed() < FRESH_FOR);
+        }
+        cache.insert(user_id, (std::time::Instant::now(), told.clone()));
+    }
+    told
+}
+
 /// How her last talks with others left her (see
 /// `myriad_merope::speaking::format_carried_section`): each one's last
 /// feeling off even, and how many hours ago, for talks in the last hours.
@@ -668,6 +727,9 @@ async fn speaking_prompt_from_db(
     } else {
         addressee_speaking_section(&addressee)
     }];
+    if !group && let Some(differs) = how_she_differs_with(db, user_id).await {
+        sections.push(differs);
+    }
     if let Some((first, days)) = acquaintance(db, user_id).await {
         sections.push(myriad_merope::speaking::format_acquaintance_section(
             first,

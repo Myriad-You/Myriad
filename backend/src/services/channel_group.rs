@@ -278,7 +278,7 @@ async fn deliver(line: &GroupLine, token: &str, reply: &str, began: Instant) -> 
                         chrono::Utc::now().timestamp(),
                         &chunk,
                     );
-                    note_typed(&venue, typed, waited);
+                    note_said(&venue, typed, waited, Some(&chunk));
                     sent = true;
                 }
                 Err(kind) => {
@@ -447,6 +447,9 @@ struct Group {
     /// Messages and waits not yet written to the group's ledger.
     ledger: Vec<myriad_merope::talk_shape::Typed>,
     ledger_waits: Vec<f64>,
+    /// Pieces of their messages and hers not yet written to it.
+    ledger_theirs: myriad_merope::contrast::Counts,
+    ledger_hers: myriad_merope::contrast::Counts,
 }
 
 enum Turn {
@@ -596,7 +599,7 @@ pub async fn record(message: &GroupLine) {
         chrono::Utc::now().timestamp(),
         &message.text,
     );
-    if note_typed(&venue, typed, None) {
+    if note_said(&venue, typed, None, Some(&message.text)) {
         keep_ledger(&venue).await;
     }
     take_in(&venue);
@@ -936,7 +939,17 @@ const HER: &str = "her";
 struct Ledger {
     messages: Vec<myriad_merope::talk_shape::Typed>,
     her_waits: Vec<f64>,
+    /// Counts of the pieces their messages and hers are made of (see
+    /// `myriad_merope::contrast`), never the messages.
+    #[serde(default)]
+    theirs: myriad_merope::contrast::Counts,
+    #[serde(default)]
+    hers: myriad_merope::contrast::Counts,
 }
+
+/// Messages of each side the piece counts stay within (older ones weigh
+/// less once past it).
+const LEDGER_COUNTED: u32 = 2000;
 
 /// A member as the ledger knows them: the same token for the same person,
 /// never their id.
@@ -947,14 +960,23 @@ fn ledger_who(from: &str) -> String {
     format!("{:012x}", hasher.finish() & 0xffff_ffff_ffff)
 }
 
-/// Note a message typed there, and how long she took if it was her first
-/// answer to someone who called her; whether the ledger is due a write.
-fn note_typed(
+/// Note a message typed there (counted into its pieces for whoever said
+/// it), and how long she took if it was her first answer to someone who
+/// called her; whether the ledger is due a write.
+fn note_said(
     venue: &str,
     typed: Option<myriad_merope::talk_shape::Typed>,
     waited: Option<f64>,
+    said: Option<&str>,
 ) -> bool {
     with_group(venue, |group| {
+        if let (Some(typed), Some(said)) = (&typed, said) {
+            if typed.by == HER {
+                group.ledger_hers.add(said);
+            } else {
+                group.ledger_theirs.add(said);
+            }
+        }
         group.ledger.extend(typed);
         group.ledger_waits.extend(waited);
         group.ledger.len() >= LEDGER_EVERY || !group.ledger_waits.is_empty()
@@ -967,10 +989,12 @@ async fn keep_ledger(venue: &str) {
     let Ok(db) = crate::services::process_db::database() else {
         return;
     };
-    let Some((messages, waits)) = with_group(venue, |group| {
+    let Some((messages, waits, theirs, hers)) = with_group(venue, |group| {
         (
             std::mem::take(&mut group.ledger),
             std::mem::take(&mut group.ledger_waits),
+            std::mem::take(&mut group.ledger_theirs),
+            std::mem::take(&mut group.ledger_hers),
         )
     }) else {
         return;
@@ -989,6 +1013,10 @@ async fn keep_ledger(venue: &str) {
     ledger.her_waits.extend(waits);
     let over = ledger.her_waits.len().saturating_sub(LEDGER_WAITS);
     ledger.her_waits.drain(..over);
+    ledger.theirs.merge(&theirs);
+    ledger.theirs.keep_within(LEDGER_COUNTED);
+    ledger.hers.merge(&hers);
+    ledger.hers.keep_within(LEDGER_COUNTED);
     let keep_until = (chrono::Utc::now() + chrono::Duration::days(LEDGER_DAYS)).timestamp();
     if let Err(error) = crate::services::runtime_registry::put(
         &db,
@@ -1007,6 +1035,38 @@ async fn keep_ledger(venue: &str) {
     {
         warn!(%error, %venue, "[Group] could not keep the talk ledger");
     }
+}
+
+/// How her lines differ from the people's here (see
+/// `myriad_merope::contrast`): from the ledger and what is not yet written
+/// to it; while the ledger has too little of theirs, from the lines kept.
+async fn how_she_differs(venue: &str) -> Option<String> {
+    use myriad_merope::contrast::{Counts, describe, overused};
+    let (mut theirs, mut hers) = with_group(venue, |group| {
+        (group.ledger_theirs.clone(), group.ledger_hers.clone())
+    })?;
+    if let Ok(db) = crate::services::process_db::database()
+        && let Ok(Some(ledger)) =
+            crate::services::runtime_registry::get::<Ledger>(&db, LEDGER_NAMESPACE, venue).await
+    {
+        theirs.merge(&ledger.theirs);
+        hers.merge(&ledger.hers);
+    }
+    if theirs.messages < 20 {
+        (theirs, hers) = with_group(venue, |group| {
+            let kept = |hers: bool| {
+                Counts::of(
+                    group
+                        .lines
+                        .iter()
+                        .filter(|line| line.hers == hers)
+                        .flat_map(|line| line.text.lines()),
+                )
+            };
+            (kept(false), kept(true))
+        })?;
+    }
+    describe(&overused(&hers, &theirs))
 }
 
 /// Take the group's single turn, if it is free and not just replied in.
@@ -1649,6 +1709,7 @@ async fn run_turn(
                 group: Some(crate::services::agent::run::GroupTurn {
                     transcript: transcript(&venue, Some(&message.message_id)),
                     room: room(&venue),
+                    differs: how_she_differs(&venue).await,
                     late: seen_late(message),
                     venue,
                     chime,
@@ -2171,11 +2232,19 @@ mod tests {
         let json = serde_json::to_string(&kept).unwrap();
         assert!(!json.contains("聚餐"));
         // Her first words to someone who called her are due a write at once.
-        assert!(note_typed(
+        assert!(note_said(
             &venue,
             myriad_merope::talk_shape::typed_by(HER, 0, "在"),
-            Some(12.0)
+            Some(12.0),
+            Some("在")
         ));
+        let hers = with_group(&venue, |group| group.ledger_hers.clone()).unwrap();
+        let theirs = with_group(&venue, |group| group.ledger_theirs.clone()).unwrap();
+        assert_eq!(
+            (hers.messages, theirs.messages),
+            (1, LEDGER_EVERY as u32 - 1)
+        );
+        assert!(theirs.pieces.contains_key("end:餐吗"));
     }
 
     /// How she talks in each group against its members, from the ledgers in

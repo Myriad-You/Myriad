@@ -71,6 +71,8 @@ pub struct GroupTurn {
     pub room: Option<myriad_merope::talk_shape::Shape>,
     /// How long ago the line she answers was said, when she sees it late.
     pub late: Option<String>,
+    /// How her lines differ from the people's there, told as counts.
+    pub differs: Option<String>,
 }
 
 /// 对话消息（API 格式）

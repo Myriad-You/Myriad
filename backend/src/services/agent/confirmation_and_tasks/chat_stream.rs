@@ -548,6 +548,13 @@ impl Agent {
                     myriad_merope::joining::seeing_it_late(ago)
                 );
             }
+            if let Some(differs) = request
+                .context
+                .as_ref()
+                .and_then(|context| context.differs.as_deref())
+            {
+                merope_block = format!("{merope_block}\n\n{differs}");
+            }
             // Stickers of her: hers, and this group's own.
             if let Some(stickers) = crate::services::agent::merope::stickers::section(
                 &self.db,

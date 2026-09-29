@@ -370,6 +370,7 @@ pub(crate) async fn start(
         ctx.speaker = group.as_ref().map(|group| group.speaker.clone());
         ctx.room = group.as_ref().and_then(|group| group.room.clone());
         ctx.late = group.as_ref().and_then(|group| group.late.clone());
+        ctx.differs = group.as_ref().and_then(|group| group.differs.clone());
         ctx.channel_chat = channel_chat.clone();
     } else {
         let mut new_ctx = RequestContext {
