@@ -531,29 +531,37 @@ async fn remember_line(venue: &str, line: Line) {
 
 async fn remember_line_on(db: Option<&DatabaseConnection>, venue: &str, line: Line) {
     if let Some(db) = db {
-        if with_group(venue, |group| !group.restored).unwrap_or(false) {
-            let stored =
-                crate::services::runtime_registry::get::<StoredLines>(db, LINES_NAMESPACE, venue)
-                    .await
-                    .ok()
-                    .flatten();
-            with_group(venue, |group| {
-                if !group.restored {
-                    group.restored = true;
-                    if let Some(stored) = stored {
-                        merge_restored(group, stored.lines);
-                    }
-                }
-            });
-        }
+        restore(db, venue).await;
     }
     let lines = with_group(venue, |group| {
         push_line(group, line);
         group.lines.iter().cloned().collect::<Vec<_>>()
     });
-    let (Some(db), Some(lines)) = (db, lines) else {
+    if let (Some(db), Some(lines)) = (db, lines) {
+        keep_lines(db, venue, lines).await;
+    }
+}
+
+/// Bring back the lines kept before a restart, once.
+async fn restore(db: &DatabaseConnection, venue: &str) {
+    if !with_group(venue, |group| !group.restored).unwrap_or(false) {
         return;
-    };
+    }
+    let stored = crate::services::runtime_registry::get::<StoredLines>(db, LINES_NAMESPACE, venue)
+        .await
+        .ok()
+        .flatten();
+    with_group(venue, |group| {
+        if !group.restored {
+            group.restored = true;
+            if let Some(stored) = stored {
+                merge_restored(group, stored.lines);
+            }
+        }
+    });
+}
+
+async fn keep_lines(db: &DatabaseConnection, venue: &str, lines: Vec<Line>) {
     let keep_until = (chrono::Utc::now()
         + chrono::Duration::from_std(TRANSCRIPT_FOR).unwrap_or_default())
     .timestamp();
@@ -574,6 +582,79 @@ async fn remember_line_on(db: Option<&DatabaseConnection>, venue: &str, line: Li
     {
         warn!(%error, %venue, "[Group] could not keep the group's lines");
     }
+}
+
+/// What a group said while she was not connected (see
+/// `onebot::decode::decode_group_history`), read back as a person scrolls up
+/// on opening a chat: each line she does not have yet goes in at its time,
+/// hers as hers. Nothing is answered: it is only read.
+pub async fn catch_up(venue: &str, past: Vec<(GroupLine, chrono::DateTime<chrono::Utc>, bool)>) {
+    let db = crate::services::process_db::database().ok();
+    if let Some(db) = &db {
+        restore(db, venue).await;
+    }
+    let people = people(venue);
+    let fresh: Vec<Line> = with_group(venue, |group| {
+        past.into_iter()
+            .filter(|(message, _, _)| {
+                !group
+                    .lines
+                    .iter()
+                    .any(|line| line.message_id.as_deref() == Some(message.message_id.as_str()))
+            })
+            .map(|(message, at, hers)| Line {
+                at,
+                message_id: Some(message.message_id.clone()),
+                name: if hers {
+                    String::new()
+                } else {
+                    message.display_name.clone()
+                },
+                from: (!hers).then(|| message.from.clone()),
+                text: bounded(&by_name(&message.said(), &people)),
+                hers,
+                images: if hers { Vec::new() } else { message.images },
+                seen: Vec::new(),
+            })
+            .filter(|line| within(line, TRANSCRIPT_FOR))
+            .collect()
+    })
+    .unwrap_or_default();
+    if fresh.is_empty() {
+        return;
+    }
+    info!(%venue, lines = fresh.len(), "[Group] read back what was said while she was away");
+    for line in &fresh {
+        let by = if line.hers {
+            HER.to_string()
+        } else {
+            ledger_who(line.from.as_deref().unwrap_or_default())
+        };
+        let typed = myriad_merope::talk_shape::typed_by(&by, line.at.timestamp(), &line.text);
+        note_said(venue, typed, None, Some(&line.text));
+    }
+    let lines = with_group(venue, |group| {
+        merge_restored(group, fresh);
+        group.lines.iter().cloned().collect::<Vec<_>>()
+    });
+    if let (Some(db), Some(lines)) = (&db, lines) {
+        keep_lines(db, venue, lines).await;
+    }
+    keep_ledger(venue).await;
+}
+
+/// Groups of `platform` she has kept lines of lately.
+pub async fn groups_lately(platform: ChannelPlatform) -> Vec<String> {
+    let Ok(db) = crate::services::process_db::database() else {
+        return Vec::new();
+    };
+    let prefix = format!("{}:", platform.slug());
+    crate::services::runtime_registry::list(&db, LINES_NAMESPACE, None, None)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| row.record_id.strip_prefix(&prefix).map(str::to_string))
+        .collect()
 }
 
 fn bounded(text: &str) -> String {
@@ -2287,6 +2368,44 @@ mod tests {
                 reference["chatApp"]["answerToAt"]
             );
         }
+    }
+
+    #[tokio::test]
+    async fn what_was_said_while_she_was_away_is_read_back_in_its_place() {
+        let chat = -9_008;
+        let venue = venue(chat);
+        record(&line(chat, 5, "瞳", "@bot 宝宝")).await;
+        let now = chrono::Utc::now();
+        let ago = |minutes: i64| now - chrono::Duration::minutes(minutes);
+        catch_up(
+            &venue,
+            vec![
+                (line(chat, 3, "leaphy", "宝宝，晚安喵"), ago(3), false),
+                (line(chat, 4, "", "晚安"), ago(2), true),
+                // Already had, and long gone: neither is taken again.
+                (line(chat, 5, "瞳", "@bot 宝宝"), ago(1), false),
+                (line(chat, 1, "某人", "昨天的事"), ago(60 * 24), false),
+            ],
+        )
+        .await;
+        let lines: Vec<(String, String)> = transcript(&venue, None)
+            .into_iter()
+            .map(|message| (message.role, message.content))
+            .collect();
+        assert_eq!(
+            lines,
+            vec![
+                ("user".into(), "leaphy：宝宝，晚安喵".into()),
+                ("assistant".into(), "晚安".into()),
+                ("user".into(), "瞳：@bot 宝宝".into()),
+            ]
+        );
+        // Read back, not answered: nothing is waiting for her.
+        assert!(
+            with_group(&venue, |group| group.waiting.is_empty()
+                && group.pending.is_none())
+            .unwrap()
+        );
     }
 
     #[tokio::test]

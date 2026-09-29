@@ -78,6 +78,16 @@ pub fn plan_private_delivery(user_id: &str, text: &str, images: &[String]) -> Op
 }
 
 /// `get_msg`。NapCat 群消息里的回复段只有 `id`，被回复的是谁、说了什么要靠它反查。
+/// The latest `count` messages of a group, for catching up on what was said
+/// while she was not connected.
+pub fn encode_get_group_msg_history(group_id: &str, count: u32) -> Option<Value> {
+    let group_id = group_id.trim().parse::<i64>().ok()?;
+    Some(json!({
+        "action": "get_group_msg_history",
+        "params": {"group_id": group_id, "count": count.clamp(1, 50)}
+    }))
+}
+
 pub fn encode_get_msg(message_id: &str) -> Option<Value> {
     let message_id = message_id.trim().parse::<i64>().ok()?;
     Some(json!({

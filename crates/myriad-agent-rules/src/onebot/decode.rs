@@ -121,6 +121,43 @@ pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> 
     })
 }
 
+/// A group message from `get_group_msg_history`: when it was said (unix
+/// seconds), whether it was hers, and the line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PastGroupLine {
+    pub at: i64,
+    pub hers: bool,
+    pub line: OneBotGroupLine,
+}
+
+/// The messages of a `get_group_msg_history` response (`{"messages": [...]}`),
+/// oldest first. Hers are kept too, marked hers; lines without text or
+/// pictures are dropped, as live ones are.
+pub fn decode_group_history(data: &serde_json::Value, self_id: i64) -> Vec<PastGroupLine> {
+    let messages = data
+        .get("messages")
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| data.as_array());
+    let mut past: Vec<PastGroupLine> = messages
+        .into_iter()
+        .flatten()
+        .filter_map(|message| {
+            let mut message = message.clone();
+            let object = message.as_object_mut()?;
+            object.entry("post_type").or_insert("message".into());
+            object.entry("message_type").or_insert("group".into());
+            let at = object.get("time").and_then(serde_json::Value::as_i64)?;
+            let hers = object.get("user_id").and_then(serde_json::Value::as_i64) == Some(self_id);
+            let raw = serde_json::to_string(&message).ok()?;
+            // Hers are read as anyone's: nothing in them addresses her.
+            let line = decode_group_inbound(&raw, if hers { -1 } else { self_id })?;
+            Some(PastGroupLine { at, hers, line })
+        })
+        .collect();
+    past.sort_by_key(|line| line.at);
+    past
+}
+
 /// Images (`image`) and QQ stickers (`mface`) in a group line. An image is
 /// known again by its file name, which QQ derives from its content; its URL
 /// is QQ's own download link.

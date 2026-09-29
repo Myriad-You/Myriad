@@ -228,6 +228,7 @@ async fn run_socket(
     .await;
     publish_status(OneBotPhase::Online, fingerprint).await;
     info!(url = %redacted_url(&fingerprint.ws_url), "OneBot socket connected");
+    read_groups_back();
 
     let mut write = write;
     let outcome = loop {
@@ -354,6 +355,75 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
             });
             None
         }
+    }
+}
+
+/// Start reading groups back; its calls wait on the socket's read loop, so
+/// it runs on its own, once per connection.
+fn read_groups_back() {
+    tokio::spawn(catch_up_groups());
+}
+
+/// Lines of each group read back on connecting.
+const CATCH_UP_LINES: u32 = 30;
+
+/// On connecting, read back what each group said while she was away (a
+/// restart, a re-login): the allowlisted groups, or with no allowlist, the
+/// groups she was in lately. Only read, never answered.
+async fn catch_up_groups() {
+    if !groups_enabled().await {
+        return;
+    }
+    let login = serde_json::json!({"action": "get_login_info", "params": {}});
+    let Some(self_id) = onebot_send::call_action(login)
+        .await
+        .ok()
+        .and_then(|info| info.get("user_id").and_then(serde_json::Value::as_i64))
+    else {
+        warn!("OneBot login info unavailable; not reading groups back");
+        return;
+    };
+    let allowlist = {
+        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        myriad_agent_rules::onebot::rules::normalize_onebot_group_allowlist(
+            &config.onebot_bot_group_ids,
+        )
+        .unwrap_or_default()
+    };
+    let groups: Vec<String> = if allowlist.is_empty() {
+        crate::services::channel_group::groups_lately(
+            crate::services::channel_platform::ChannelPlatform::OneBot,
+        )
+        .await
+    } else {
+        allowlist.split(',').map(str::to_string).collect()
+    };
+    for group in groups {
+        let Some(action) = myriad_agent_rules::onebot::encode::encode_get_group_msg_history(
+            &group,
+            CATCH_UP_LINES,
+        ) else {
+            continue;
+        };
+        let data = match onebot_send::call_action(action).await {
+            Ok(data) => data,
+            Err(error) => {
+                warn!(%error, "OneBot group history unavailable");
+                continue;
+            }
+        };
+        let past: Vec<_> = myriad_agent_rules::onebot::decode::decode_group_history(&data, self_id)
+            .into_iter()
+            .filter_map(|past| {
+                let at = chrono::DateTime::from_timestamp(past.at, 0)?;
+                Some((
+                    crate::services::channel_group::GroupLine::from(past.line),
+                    at,
+                    past.hers,
+                ))
+            })
+            .collect();
+        crate::services::channel_group::catch_up(&format!("onebot:{group}"), past).await;
     }
 }
 

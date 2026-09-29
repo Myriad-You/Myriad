@@ -2845,3 +2845,51 @@ fn someone_else_at_in_a_group_still_reads_as_who() {
     assert_eq!(discord.text, "@小红 你看 @小红");
     assert!(!discord.addressed);
 }
+
+#[test]
+fn what_a_group_said_while_she_was_away_is_read_back_in_order_hers_included() {
+    use myriad_agent_rules::onebot::decode::decode_group_history;
+    use myriad_agent_rules::onebot::encode::encode_get_group_msg_history;
+    let action = encode_get_group_msg_history(" 1076198629 ", 500).unwrap();
+    assert_eq!(action["action"], "get_group_msg_history");
+    assert_eq!(action["params"]["group_id"], 1076198629i64);
+    assert_eq!(action["params"]["count"], 50);
+    assert!(encode_get_group_msg_history("not a group", 30).is_none());
+    // As NapCat answers: newest may come first, post_type may be missing.
+    let data = serde_json::json!({"messages": [
+        {"message_type":"group","group_id":1076198629,"user_id":798494815,"self_id":3264977935i64,
+         "message_id":3,"time":1790606210,"sender":{"nickname":"染川 瞳","card":""},
+         "message":[{"type":"at","data":{"qq":"3264977935"}},{"type":"text","data":{"text":" 宝宝"}}]},
+        {"post_type":"message","message_type":"group","group_id":1076198629,"user_id":3059342645i64,"self_id":3264977935i64,
+         "message_id":1,"time":1790606000,"sender":{"nickname":"leaphy","card":"梦想成为猪侯王的leaphy"},
+         "message":[{"type":"text","data":{"text":"宝宝，晚安喵"}}]},
+        {"message_type":"group","group_id":1076198629,"user_id":3264977935i64,"self_id":3264977935i64,
+         "message_id":2,"time":1790606100,"sender":{"nickname":"絶世の良猫要楽奈"},
+         "message":[{"type":"text","data":{"text":"晚安"}}]},
+        {"message_type":"group","group_id":1076198629,"user_id":1,"self_id":3264977935i64,
+         "message_id":4,"time":1790606300,"message":[]}
+    ]});
+    let past = decode_group_history(&data, 3264977935);
+    let read: Vec<(i64, bool, &str, &str)> = past
+        .iter()
+        .map(|past| {
+            (
+                past.at,
+                past.hers,
+                past.line.display_name.as_str(),
+                past.line.text.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        vec![
+            (1790606000, false, "梦想成为猪侯王的leaphy", "宝宝，晚安喵"),
+            (1790606100, true, "絶世の良猫要楽奈", "晚安"),
+            (1790606210, false, "染川 瞳", "宝宝"),
+        ]
+    );
+    // Hers never address her; theirs do as live lines would.
+    assert!(!past[1].line.addressed);
+    assert!(past[2].line.addressed);
+}
