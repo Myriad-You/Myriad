@@ -1196,24 +1196,25 @@ export class Anime25DPlayer {
       this.responseScale,
     )
     this.irisRebound.step(
-      this.time,
-      this.blinkState.activeSeconds,
-      !this.target.blink ||
-        Math.max(
-          stylizedTargets.maniac,
-          stylizedTargets.silly,
-          stylizedTargets.lovestruck,
-          this.current.maniac,
-          this.current.silly,
-          this.current.lovestruck,
-          tgt.eyeCry,
-          tgt.eyeDizzy,
-          tgt.eyeSqueeze,
-          this.current.eyeCry,
-          this.current.eyeDizzy,
-          this.current.eyeSqueeze,
-        ) > 0.03,
+      dt,
       Math.max(this.current.eyeOpenL, this.current.eyeOpenR),
+      this.current.eyeWide,
+      this.current.eyeX,
+      this.current.eyeY,
+      Math.max(
+        stylizedTargets.maniac,
+        stylizedTargets.silly,
+        stylizedTargets.lovestruck,
+        this.current.maniac,
+        this.current.silly,
+        this.current.lovestruck,
+        tgt.eyeCry,
+        tgt.eyeDizzy,
+        tgt.eyeSqueeze,
+        this.current.eyeCry,
+        this.current.eyeDizzy,
+        this.current.eyeSqueeze,
+      ) > 0.03,
     )
     stepAnime25DTorsoShellRotation(
       this.torsoYaw,

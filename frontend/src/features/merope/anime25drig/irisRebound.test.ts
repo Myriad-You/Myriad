@@ -9,55 +9,49 @@ import { IDENTITY_DRIVER } from './driver'
 import { Anime25DIrisRebound } from './irisRebound'
 import { deformAnime25DUpstreamFeaturePoint } from './layerDeformation'
 
-test('rebound is bounded, frame-rate independent and ends at exact identity', () => {
-  for (const fps of [10, 30, 60, 144]) {
-    const motion = new Anime25DIrisRebound()
-    let peak = 0
-    for (let i = 0; i <= fps * 2; i += 1) {
-      const time = i / fps
-      motion.step(time, time < 0.58 ? time : -1, false, 1)
-      peak = Math.max(peak, Math.abs(motion.x - 1))
-      assert.ok(Math.abs(motion.x - 1) <= 0.045)
-      assert.ok(Math.abs(motion.y - 1) <= 0.045)
-      if (time < 0.42 || time >= 1.1)
-        assert.deepEqual([motion.x, motion.y], [1, 1])
-    }
-    assert.ok(peak > 0.003)
+/** A blink: closed in 0.08 s, held, open again by 0.58 s. */
+function blink(t: number) {
+  return t < 0.08 ? 1 - t / 0.08 : t < 0.42 ? 0 : t < 0.58 ? (t - 0.42) / 0.16 : 1
+}
+
+test('a still eye is a still iris', () => {
+  const iris = new Anime25DIrisRebound()
+  for (let i = 0; i < 120; i++) {
+    iris.step(1 / 60, 1, 0, 0.2, -0.1, false)
+    assert.deepEqual([iris.x, iris.y], [1, 1])
   }
 })
 
-test('special-expression suppression consumes the blink without delayed rebound', () => {
-  const motion = new Anime25DIrisRebound()
-  motion.step(0.45, 0.45, true, 1)
-  motion.step(0.5, 0.5, false, 1)
-  assert.deepEqual([motion.x, motion.y], [1, 1])
-  motion.step(1, -1, false, 1)
-  motion.step(2.45, 0.45, false, 1)
-  motion.step(2.5, 0.5, false, 1)
-  assert.notEqual(motion.x, 1)
-  motion.step(2.51, 0.51, true, 1)
-  assert.deepEqual([motion.x, motion.y], [1, 1])
+test('a reopening lid sets the iris wobbling, gently, keeping its area, and it settles still', () => {
+  for (const fps of [30, 60, 144]) {
+    const iris = new Anime25DIrisRebound()
+    let afterOpening = 0
+    for (let i = 0; i <= fps * 2; i++) {
+      const t = i / fps
+      iris.step(1 / fps, blink(t), 0, 0, 0, false)
+      assert.ok(Math.abs(iris.x * iris.y - 1) < 1e-9)
+      assert.ok(Math.abs(iris.x - 1) < 0.11 && Math.abs(iris.y - 1) < 0.11)
+      if (t > 0.58 && t < 1) afterOpening = Math.max(afterOpening, Math.abs(iris.y - 1))
+    }
+    assert.ok(afterOpening > 0.01, `${fps} fps wobble ${afterOpening}`)
+    assert.deepEqual([iris.x, iris.y], [1, 1])
+  }
 })
 
-test('rebound waits for visible reopening, expires hidden blinks and has continuous endpoints', () => {
-  const motion = new Anime25DIrisRebound()
-  motion.step(0.45, 0.45, false, 0.1)
-  motion.step(0.5, 0.5, false, 0.4)
-  assert.deepEqual([motion.x, motion.y], [1, 1])
-  motion.step(0.6, -1, false, 0.6)
-  assert.deepEqual([motion.x, motion.y], [1, 1])
-  motion.step(0.60001, -1, false, 0.6)
-  assert.ok(Math.abs(motion.x - 1) < 1e-8)
-  motion.step(0.66, -1, false, 0.9)
-  assert.ok(motion.x > 1.01 && motion.x < 1.04, 'reopening stays subtle')
-  motion.step(1.11999, -1, false, 1)
-  assert.ok(Math.abs(motion.x - 1) < 1e-8)
-  motion.step(1.12, -1, false, 1)
-  assert.deepEqual([motion.x, motion.y], [1, 1])
-  motion.step(2, 0.45, false, 0.1)
-  motion.step(2.4, -1, false, 1)
-  motion.step(2.5, -1, false, 1)
-  assert.deepEqual([motion.x, motion.y], [1, 1])
+test('a darting gaze wobbles the iris too, and effects that redraw the eye hold it still', () => {
+  const iris = new Anime25DIrisRebound()
+  let most = 0
+  for (let i = 0; i < 60; i++) {
+    const s = Math.min(1, i / 6)
+    iris.step(1 / 60, 1, 0, 0.6 * s * s * (3 - 2 * s), 0, false)
+    most = Math.max(most, Math.abs(iris.x - 1))
+  }
+  assert.ok(most > 0.005, `gaze wobble ${most}`)
+  const held = new Anime25DIrisRebound()
+  for (let i = 0; i < 60; i++) {
+    held.step(1 / 60, blink(i / 60), 0, Math.sin(i), 0, true)
+    assert.deepEqual([held.x, held.y], [1, 1])
+  }
 })
 
 test('only ordinary iris geometry rebounds and cache sees both activation and reset', () => {
