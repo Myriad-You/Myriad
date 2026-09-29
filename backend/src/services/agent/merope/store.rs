@@ -1081,10 +1081,30 @@ pub(super) async fn apply_chat_memory_updates_on<C: ConnectionTrait>(
     for update in &updates.updates {
         kept |= apply_chat_memory_update_on(db, user_id, input_at, update, present).await?;
     }
-    if updates.said.is_empty() || !chat_memory_input_is_current(db, user_id, input_at).await? {
+    if (updates.said.is_empty() && updates.put_onto.is_empty())
+        || !chat_memory_input_is_current(db, user_id, input_at).await?
+    {
         return Ok(kept);
     }
     use crate::services::agent::memory::unified;
+    // What they put her onto is hers now, as what she heard in a group is:
+    // about the thing, no one named.
+    if !updates.put_onto.is_empty() {
+        let held: Vec<String> = unified::own_rows(db, super::heard::SOURCE, 300)
+            .await?
+            .into_iter()
+            .map(|row| row.content)
+            .collect();
+        for thing in &updates.put_onto {
+            if held.iter().any(|held| held == thing) {
+                continue;
+            }
+            let evidence = serde_json::json!({ "heard": "suggested to her in a chat" }).to_string();
+            kept |= unified::remember_own(db, thing, &evidence, Vec::new(), super::heard::SOURCE)
+                .await?
+                .is_some();
+        }
+    }
     for said in &updates.said {
         let remembered = unified::remember(
             db,

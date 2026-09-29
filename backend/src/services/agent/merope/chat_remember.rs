@@ -69,6 +69,9 @@ pub struct Said {
 pub struct ChatMemoryUpdates {
     pub updates: Vec<ChatMemoryUpdate>,
     pub said: Vec<Said>,
+    /// Public things they suggested she try herself, each about the thing
+    /// with no one named: hers to wonder about (see `merope::heard`).
+    pub put_onto: Vec<String>,
 }
 
 #[cfg(test)]
@@ -152,6 +155,34 @@ pub fn parse_chat_memory_updates(
             said: line,
             evidence: evidence.to_string(),
         });
+    }
+    // Older answers have none; one that does not quote them is dropped.
+    let put_onto = value
+        .get("putOnto")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for item in put_onto
+        .iter()
+        .take(myriad_merope::chat_remember::MAX_PUT_ONTO)
+    {
+        let (Some(thing), Some(evidence)) = (
+            item.get("thing").and_then(serde_json::Value::as_str),
+            item.get("evidence").and_then(serde_json::Value::as_str),
+        ) else {
+            continue;
+        };
+        let thing = compact_summary(thing);
+        let evidence = evidence.trim();
+        if thing.is_empty()
+            || thing.chars().count() > 160
+            || evidence.chars().filter(|ch| ch.is_alphanumeric()).count() < 2
+            || !user_text.contains(evidence)
+            || out.put_onto.contains(&thing)
+        {
+            continue;
+        }
+        out.put_onto.push(thing);
     }
     Some(out)
 }
@@ -322,7 +353,7 @@ pub(super) async fn extract(
         .await?;
     let updates = parse_chat_memory_updates(&raw, user_text, reply, &existing)
         .ok_or(super::call::Failure::InvalidOutput)?;
-    if updates.updates.is_empty() && updates.said.is_empty() {
+    if updates.updates.is_empty() && updates.said.is_empty() && updates.put_onto.is_empty() {
         return Ok(Effect::NoChange);
     }
     Ok(Effect::Chat(updates))
@@ -346,6 +377,41 @@ pub(crate) fn probe_input(user_text: &str, reply: &str, turn: &super::TurnContex
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_they_put_her_onto_is_kept_only_when_they_said_it() {
+        let user = "你可以去玩玩《Outer Wilds》，千万别看攻略";
+        let raw = serde_json::json!({
+            "facts": [], "supersedes": [], "supersedesEvidence": null, "said": [],
+            "putOnto": [
+                {"thing": "有人推荐《Outer Wilds》，说千万别看攻略", "evidence": "你可以去玩玩《Outer Wilds》"},
+                {"thing": "有人推荐《星露谷》", "evidence": "星露谷也不错"}
+            ]
+        })
+        .to_string();
+        let updates = super::parse_chat_memory_updates(&raw, user, "好", &[]).unwrap();
+        assert_eq!(
+            updates.put_onto,
+            vec!["有人推荐《Outer Wilds》，说千万别看攻略".to_string()]
+        );
+        // Answers from before there was putOnto still parse.
+        let older = r#"{"facts":[],"supersedes":[],"supersedesEvidence":null,"said":[]}"#;
+        assert!(
+            super::parse_chat_memory_updates(older, user, "好", &[])
+                .unwrap()
+                .put_onto
+                .is_empty()
+        );
+        let schema = myriad_merope::chat_remember::extract_schema();
+        assert_eq!(
+            schema["properties"]["putOnto"]["maxItems"],
+            myriad_merope::chat_remember::MAX_PUT_ONTO
+        );
+        assert!(
+            myriad_merope::chat_remember::extract_system_prompt(&[])
+                .contains("with no names of people")
+        );
+    }
+
     #[test]
     fn one_message_can_leave_several_facts_and_what_she_said() {
         let user = "上周五把自行车修好了，下周二车要去保养。对了我换工作了";

@@ -12,6 +12,8 @@ pub const MIN_USER_CHARS: usize = 2;
 pub const MAX_FACTS: usize = 6;
 /// Things she said in her reply worth remembering having said, at most.
 pub const MAX_SAID: usize = 2;
+/// Things they suggested she try herself, at most.
+pub const MAX_PUT_ONTO: usize = 2;
 
 fn concepts_schema() -> serde_json::Value {
     json!({
@@ -61,9 +63,22 @@ pub fn extract_schema() -> serde_json::Value {
                     "required": ["said", "evidence"],
                     "additionalProperties": false
                 }
+            },
+            "putOnto": {
+                "type": "array",
+                "maxItems": MAX_PUT_ONTO,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "thing": { "type": "string", "maxLength": 160 },
+                        "evidence": { "type": "string", "maxLength": 240 }
+                    },
+                    "required": ["thing", "evidence"],
+                    "additionalProperties": false
+                }
             }
         },
-        "required": ["facts", "supersedes", "supersedesEvidence", "said"],
+        "required": ["facts", "supersedes", "supersedesEvidence", "said", "putOnto"],
         "additionalProperties": false
     })
 }
@@ -96,7 +111,8 @@ Only withdraw the part that is clearly invalid. If the old entry still has other
 Each fact's evidence, and supersedesEvidence when supersedes is not empty (else null), must be a contiguous verbatim excerpt from userText where they stated it. Do not cite reply. Quotes, translations, hypotheses, and advice must not correct their memory. \
 concepts lists 1-5 things a fact is about (a person, pet, work, place, activity, food), each with its usual name and up to 5 other names people use for it: nicknames, synonyms, the name in Chinese, Japanese or English. They only help find the fact again. \
 said: 0 to {MAX_SAID} things you yourself told them in reply that you would remember having said, because they may come back to it: a recommendation, a promise, an answer or a specific item you gave them. Write each in the first person ('I recommended …'), in the language of the conversation, with evidence a contiguous verbatim excerpt from reply. Small talk and general advice → said is empty. \
-If nothing is worth keeping, return facts=[], supersedes=[], supersedesEvidence=null, said=[]. \
+putOnto: 0 to {MAX_PUT_ONTO} public things they suggested you try yourself (a song, a book, a game, a show, a video), each one plain sentence about the thing itself, in the language of the conversation and with no names of people ('有人推荐《Outer Wilds》，说最好别看攻略'), with evidence a contiguous verbatim excerpt from userText. Something they only mention, or like themselves without suggesting it to you, is not one → putOnto is empty. \
+If nothing is worth keeping, return facts=[], supersedes=[], supersedesEvidence=null, said=[], putOnto=[]. \
 Known:\n{known}"
     )
 }

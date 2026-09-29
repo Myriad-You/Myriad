@@ -53,6 +53,7 @@ fn fact() -> Effect {
                 concepts: vec![],
             }],
             said: vec![],
+            put_onto: vec![],
         },
     )
 }
