@@ -420,10 +420,26 @@ async fn answer_one(
         "question": question.question,
     })
     .to_string();
-    let answer = lite
-        .analyze_with_system(ANSWER_SYSTEM, &input)
-        .await
-        .unwrap_or_default();
+    // A reply the provider dropped is asked again, as production does; one
+    // that never comes is unanswered, not wrong.
+    let mut answer = String::new();
+    for _ in 0..3 {
+        answer = lite
+            .analyze_with_system(ANSWER_SYSTEM, &input)
+            .await
+            .unwrap_or_default();
+        if !answer.trim().is_empty() {
+            break;
+        }
+    }
+    if answer.trim().is_empty() {
+        return Answered {
+            retrieved,
+            correct: None,
+            answer,
+            recalled,
+        };
+    }
     let graded = judge
         .analyze_json(
             &judge_system(question),
@@ -625,5 +641,259 @@ fn the_chinese_memory_set_reads_as_the_bench_needs() {
             "{}",
             question.question_id
         );
+    }
+}
+
+/// What she keeps of one person tops out at a thousand memories (older,
+/// weaker ones fade past it): whether recall still finds what answers a
+/// question when the rest of those thousand are about other things. The
+/// memories come from a finished bench report (`memories` of each row), so
+/// nothing is extracted again: each question is answered twice from the
+/// same memories, once alone and once among others' up to the cap, with
+/// the same cues. `MEROPE_MEMORY_SCALE=<report> MEROPE_MEMORY_BENCH=<its
+/// questions> MEROPE_MEMORY_BENCH_REPORT=<new file>`, optional
+/// `MEROPE_MEMORY_BENCH_PER_TYPE`.
+#[tokio::test]
+#[ignore = "spends on the site's models; see the module docs"]
+async fn her_memory_at_its_full_size() {
+    use crate::services::agent::memory::unified::MemoryKind;
+    const FULL: usize = 1000;
+    let source: Value = serde_json::from_str(
+        &std::fs::read_to_string(std::env::var("MEROPE_MEMORY_SCALE").expect("scale source"))
+            .unwrap(),
+    )
+    .unwrap();
+    let questions: Vec<Question> = serde_json::from_str(
+        &std::fs::read_to_string(std::env::var("MEROPE_MEMORY_BENCH").expect("questions")).unwrap(),
+    )
+    .unwrap();
+    let report_path = std::env::var("MEROPE_MEMORY_BENCH_REPORT").expect("report path");
+    assert!(
+        !std::path::Path::new(&report_path).exists(),
+        "report must not exist"
+    );
+    let per_type: usize = std::env::var("MEROPE_MEMORY_BENCH_PER_TYPE")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(7);
+    let rows = source["rows"].as_array().expect("rows");
+    let mut taken: BTreeMap<String, usize> = BTreeMap::new();
+    let chosen: Vec<(Question, Vec<String>)> = rows
+        .iter()
+        .filter(|row| row["type"] != "single-session-assistant")
+        .filter_map(|row| {
+            let id = row["id"].as_str()?;
+            let question = questions.iter().find(|q| q.question_id == id)?.clone();
+            let count = taken.entry(question.question_type.clone()).or_default();
+            *count += 1;
+            (*count <= per_type).then(|| {
+                let memories = row["memories"]
+                    .as_array()
+                    .map(|all| {
+                        all.iter()
+                            .filter_map(|m| m.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (question, memories)
+            })
+        })
+        .collect();
+    let everyone: Vec<String> = rows
+        .iter()
+        .flat_map(|row| row["memories"].as_array().cloned().unwrap_or_default())
+        .filter_map(|m| m.as_str().map(str::to_string))
+        .collect();
+    let config_db = super::super::semantic_eval::load_configured_lite().await;
+    config_db.close().await.ok();
+    let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
+        Duration::from_secs(60),
+    ))
+    .await
+    .expect("judgment model");
+    let lite = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
+        Duration::from_secs(60),
+    ))
+    .await
+    .expect("Lite model")
+    .with_light_thinking();
+    let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
+    let isolated = crate::db::IsolatedSchema::migrated(&url, "memory_scale").await;
+    let db = isolated.db.clone();
+    // Kept as production keeps a memory, in one insert: remembering them one
+    // by one checks the whole store each time.
+    let keep = |user_id: i32, contents: Vec<String>| {
+        let db = db.clone();
+        async move {
+            use sea_orm::EntityTrait;
+            let now = chrono::Utc::now().fixed_offset();
+            let audience = Audience::private(user_id);
+            let rows: Vec<crate::models::entities::agent_memories::ActiveModel> = contents
+                .into_iter()
+                .enumerate()
+                .map(|(index, content)| {
+                    let at = now - chrono::Duration::seconds(10_000 - index as i64);
+                    crate::models::entities::agent_memories::ActiveModel {
+                        id: Set(format!("mem_{}", uuid::Uuid::new_v4().simple())),
+                        user_id: Set(Some(user_id)),
+                        kind: Set(MemoryKind::Fact.as_str().into()),
+                        content: Set(content),
+                        evidence: Set(None),
+                        speaker: Set("user".into()),
+                        source: Set("chat".into()),
+                        venue: Set(audience.venue()),
+                        audience: Set(json!(audience.members())),
+                        concepts: Set(json!([])),
+                        importance: Set(0.5),
+                        access_count: Set(0),
+                        last_accessed_at: Set(None),
+                        valid_from: Set(at),
+                        invalid_at: Set(None),
+                        invalid_reason: Set(None),
+                        created_at: Set(at),
+                        updated_at: Set(at),
+                    }
+                })
+                .collect();
+            for chunk in rows.chunks(200) {
+                crate::models::entities::agent_memories::Entity::insert_many(chunk.to_vec())
+                    .exec(&db)
+                    .await
+                    .unwrap();
+            }
+        }
+    };
+    let outcomes: Vec<Value> = futures::stream::iter(chosen)
+        .map(|(question, own)| {
+            let (db, judge, lite, everyone) = (db.clone(), &judge, &lite, &everyone);
+            let keep = &keep;
+            async move {
+                let alone = new_user(&db, &format!("alone-{}", question.question_id)).await;
+                let among = new_user(&db, &format!("among-{}", question.question_id)).await;
+                keep(alone, own.clone()).await;
+                // Others' memories first, hers about this last: the newest,
+                // as a question about lately would find them.
+                let others: Vec<String> = everyone
+                    .iter()
+                    .filter(|m| !own.contains(m))
+                    .take(FULL.saturating_sub(own.len()))
+                    .cloned()
+                    .collect();
+                keep(among, others).await;
+                keep(among, own.clone()).await;
+                let cues = judge
+                    .analyze_json(
+                        &myriad_merope::remembering::system(),
+                        &myriad_merope::remembering::input(
+                            &question.question,
+                            None,
+                            &question.question_date,
+                        ),
+                        myriad_merope::remembering::SCHEMA_NAME,
+                        Some(&myriad_merope::remembering::schema()),
+                    )
+                    .await
+                    .ok()
+                    .and_then(|raw| myriad_merope::remembering::parse(&raw));
+                let small = answer_one(
+                    &db,
+                    judge,
+                    lite,
+                    &question,
+                    alone,
+                    &Audience::private(alone),
+                    cues.as_ref(),
+                    THOROUGH,
+                    false,
+                    &[],
+                )
+                .await;
+                let large = answer_one(
+                    &db,
+                    judge,
+                    lite,
+                    &question,
+                    among,
+                    &Audience::private(among),
+                    cues.as_ref(),
+                    THOROUGH,
+                    false,
+                    &[],
+                )
+                .await;
+                let kept = small
+                    .recalled
+                    .iter()
+                    .filter(|line| large.recalled.contains(line))
+                    .count();
+                println!(
+                    "{} {} alone={:?} among={:?} kept {kept}/{}",
+                    question.question_type,
+                    question.question_id,
+                    small.correct,
+                    large.correct,
+                    small.recalled.len()
+                );
+                json!({"id":question.question_id,"type":question.question_type,
+                    "alone":small.correct,"among":large.correct,
+                    "recalledAlone":small.recalled.len(),"stillRecalled":kept,
+                    "responseAmong":large.answer})
+            }
+        })
+        .buffer_unordered(AT_ONCE)
+        .collect()
+        .await;
+    isolated.drop().await;
+    let count = |key: &str| outcomes.iter().filter(|row| row[key] == true).count();
+    let (alone, among) = (count("alone"), count("among"));
+    let recalled: usize = outcomes
+        .iter()
+        .filter_map(|row| row["recalledAlone"].as_u64())
+        .sum::<u64>() as usize;
+    let still: usize = outcomes
+        .iter()
+        .filter_map(|row| row["stillRecalled"].as_u64())
+        .sum::<u64>() as usize;
+    println!(
+        "alone {alone} among {among} of {}; recalled lines kept {still}/{recalled}",
+        outcomes.len()
+    );
+    std::fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&json!({"alone":alone,"among":among,"total":outcomes.len(),
+            "recalledAlone":recalled,"stillRecalled":still,"rows":outcomes}))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+/// Before spending on a run: do the site's models answer at all, and if
+/// not, what do they say. Prints each model's reply or its error chain.
+#[tokio::test]
+#[ignore = "calls the site's models once each"]
+async fn the_models_answer() {
+    let config_db = super::super::semantic_eval::load_configured_lite().await;
+    config_db.close().await.ok();
+    let lite = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
+        Duration::from_secs(30),
+    ))
+    .await
+    .expect("Lite model");
+    let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
+        Duration::from_secs(30),
+    ))
+    .await
+    .expect("judgment model");
+    for (name, analyzer) in [("lite", &lite), ("judge", &judge)] {
+        match analyzer
+            .analyze_with_system("Reply with one word.", "ping")
+            .await
+        {
+            Ok(reply) => println!("{name}: ok {}", reply.chars().take(40).collect::<String>()),
+            Err(error) => {
+                let chain: Vec<String> = error.chain().map(ToString::to_string).collect();
+                println!("{name}: error {}", chain.join(" <- "));
+            }
+        }
     }
 }
