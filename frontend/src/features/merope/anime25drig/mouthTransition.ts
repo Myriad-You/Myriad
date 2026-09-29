@@ -15,6 +15,10 @@ export interface MouthTransitionInput {
 
 export interface MouthTransitionSample {
   material: SpeechMouthMaterial
+  /** The drawing being handed over from, until the handoff completes. */
+  previous: SpeechMouthMaterial
+  /** 0 at a switch, 1 once the new drawing has fully taken over. */
+  handoff: number
   from: SpeechMouthMaterial
   to: SpeechMouthMaterial
   bridge: number
@@ -26,6 +30,11 @@ export interface MouthTransitionSample {
 }
 
 const MATERIALS = ANIME25D_MOUTH_MATERIALS
+/**
+ * Two drawings of the mouth never cut from one to the other: the new one
+ * comes in over the old, then the old goes. At no moment are both see-through.
+ */
+export const MOUTH_HANDOFF_SECONDS = 0.08
 
 export class MouthTransitionController {
   private readonly scores = new Float32Array(MATERIALS.length)
@@ -36,6 +45,8 @@ export class MouthTransitionController {
   private readonly centerOffsetsY = new Float32Array(MATERIALS.length ** 2)
   private readonly output: MouthTransitionSample = {
     material: 'mouthClose',
+    previous: 'mouthClose',
+    handoff: 1,
     from: 'mouthClose',
     to: 'mouthClose',
     bridge: 0,
@@ -47,6 +58,8 @@ export class MouthTransitionController {
   }
 
   private activeIndex = 0
+  private previousIndex = 0
+  private switchedAt = -Infinity
 
   constructor(profile: Readonly<Anime25DMouthProfile>) {
     for (let material = 0; material < MATERIALS.length; material += 1) {
@@ -71,7 +84,11 @@ export class MouthTransitionController {
     }
   }
 
-  sample(input: MouthTransitionInput): Readonly<MouthTransitionSample> {
+  /**
+   * `time` is the player clock in seconds. Without it a switch hands over at
+   * once, as a cut.
+   */
+  sample(input: MouthTransitionInput, time?: number): Readonly<MouthTransitionSample> {
     resolveMouthMaterialScores(input, this.scores)
     let strongest = 0
     let runnerUp = 1
@@ -95,8 +112,17 @@ export class MouthTransitionController {
         this.scores[this.activeIndex] +
           switchMargin(MATERIALS[strongest], MATERIALS[this.activeIndex])
     ) {
+      // A switch during a switch: whichever drawing is still fully shown is the one handed over from.
+      const shown = time !== undefined && (time - this.switchedAt) / MOUTH_HANDOFF_SECONDS < 0.5
+        ? this.previousIndex
+        : this.activeIndex
+      this.previousIndex = shown
       this.activeIndex = strongest
+      this.switchedAt = time ?? -Infinity
     }
+    const handoff = time === undefined
+      ? 1
+      : Math.max(0, Math.min(1, (time - this.switchedAt) / MOUTH_HANDOFF_SECONDS))
 
     const strongestScore = this.scores[strongest]
     const runnerUpScore = this.scores[runnerUp]
@@ -108,6 +134,8 @@ export class MouthTransitionController {
     const bridge = smootherstep((balance - 0.28) / 0.72)
 
     this.output.material = MATERIALS[this.activeIndex]
+    this.output.previous = MATERIALS[handoff < 1 ? this.previousIndex : this.activeIndex]
+    this.output.handoff = handoff
     this.output.from = MATERIALS[runnerUp]
     this.output.to = MATERIALS[strongest]
     this.output.bridge = bridge

@@ -54,6 +54,9 @@ export interface Anime25DOpacityFrame {
   lovestruckHeartR: number
   activeMouthMaterial: SpeechMouthMaterial
   mouthUnderlay: SpeechMouthMaterial
+  /** The open drawing the underlay is taking over from, and how far that handoff is. */
+  mouthPrevious: SpeechMouthMaterial
+  mouthHandoff: number
   /** The closed line still showing over lips that have only just parted. */
   closedLinger: number
   /** How far the parting slit has come in over that line. */
@@ -324,6 +327,8 @@ export function createAnime25DOpacityFrame(): Anime25DOpacityFrame {
     lovestruckHeartR: 0,
     activeMouthMaterial: 'mouthClose',
     mouthUnderlay: 'mouthClose',
+    mouthPrevious: 'mouthClose',
+    mouthHandoff: 1,
     closedLinger: 0,
     partingReveal: 1,
   }
@@ -334,6 +339,7 @@ export function writeAnime25DOpacityFrame(
   driver: Readonly<Anime25DDriver>,
   activeMouthMaterial: SpeechMouthMaterial,
   sillyMouthShare = 1,
+  handoff?: Readonly<{ previous: SpeechMouthMaterial, handoff: number }>,
 ): void {
   const dizzy = smoothstep(driver.eyeDizzy)
   const cry = smoothstep(driver.eyeCry)
@@ -382,6 +388,8 @@ export function writeAnime25DOpacityFrame(
     lovestruck * smoothstep((driver.eyeOpenR - 0.12) / 0.28)
   output.activeMouthMaterial = activeMouthMaterial
   output.mouthUnderlay = regularMouthMaterial(driver, activeMouthMaterial)
+  output.mouthPrevious = handoff?.previous ?? output.mouthUnderlay
+  output.mouthHandoff = handoff?.handoff ?? 1
   output.closedLinger = closedLinger(driver)
   output.partingReveal = partingReveal(driver)
 }
@@ -447,6 +455,8 @@ export function fadeOpacityFromFrame(
         frame.mouthUnderlay,
         frame.closedLinger,
         frame.partingReveal,
+        frame.mouthPrevious,
+        frame.mouthHandoff,
       ) *
       (1 - frame.mouthCry) *
       (1 - frame.sillyMouth)
@@ -469,12 +479,20 @@ function mouthLayerMix(
   underlay: SpeechMouthMaterial,
   linger: number,
   reveal: number,
+  previous: SpeechMouthMaterial = underlay,
+  handoff = 1,
 ): number {
   if (fade === 'mouthManiac') return maniac
+  // One open drawing hands over to another: the new one comes in over the
+  // old, then the old goes. The closed line has its own linger below.
+  const handing = previous !== underlay && previous !== 'mouthClose' && previous !== 'mouthManiac' &&
+    underlay !== 'mouthClose' && handoff < 1
   if (fade === underlay) {
     // A parting slit comes in over the lip line rather than cutting to it.
-    return (fade === 'mouthClose' ? 1 : reveal) * (1 - maniac)
+    const arriving = handing ? smoothstep(handoff * 2) : 1
+    return (fade === 'mouthClose' ? 1 : reveal) * arriving * (1 - maniac)
   }
+  if (handing && fade === previous) return reveal * (1 - smoothstep(handoff * 2 - 1)) * (1 - maniac)
   if (fade === 'mouthClose' && underlay !== 'mouthManiac') {
     return linger * (1 - maniac)
   }

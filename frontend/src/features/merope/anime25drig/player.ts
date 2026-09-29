@@ -1491,7 +1491,7 @@ export class Anime25DPlayer {
     const jawDrop = this.jaw.value * this.jawTravel
     const jawOpen = Math.max(0, this.jaw.value)
     const specialHeadOffset = this.secondaryDeformationFrame.specialHeadOffset
-    const mouthTransition = this.mouthTransition.sample(e)
+    const mouthTransition = this.mouthTransition.sample(e, this.time)
     this.activeMouthMaterial = mouthTransition.material
     resolveMouthMorph(
       this.mouthMorphSources,
@@ -1528,6 +1528,7 @@ export class Anime25DPlayer {
       e,
       this.activeMouthMaterial,
       this.sillyMouthShare,
+      mouthTransition,
     )
     const deformationChanges = captureAnime25DDeformationChanges(
       this.deformationChangeState,
