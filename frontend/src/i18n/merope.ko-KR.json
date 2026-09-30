@@ -281,6 +281,7 @@
   "rigDiagnosticMissingOutfitProfile": "의상 위상, 안전 범위, 캐릭터 비율 앵커가 없어 의상 적응이 제한돼요.",
   "rigDiagnosticMissingSpatialProfile": "캐릭터 로컬 머리·몸통 범위가 없어 상호작용과 변형 안전이 제한돼요.",
   "rigDiagnosticRigidPartDeformation": "모든 정점이 본 하나에만 묶여 있어, 관절을 굽혀도 끊겨 보일 수 있어요.",
+  "rigDiagnosticOffAnglePortrait": "이 입식 그림은 얼굴이 기울었거나 옆을 향하고 있어요. 고개 돌리기, 표정, 입 모양은 정면에 가까운 얼굴을 전제로 하므로 덜 자연스러워 보일 수 있어요. 정면을 보는 그림이 가장 잘 맞아요.",
   "rigReconcileTitle": "원본 대조",
   "rigReconcileAgreement": "보이는 픽셀의 {agreement}%가 원본 일러스트와 일치해요",
   "rigReconcileClean": "원본 일러스트와 일치해요. 레이어 분리 결함이 없어요.",

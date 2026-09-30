@@ -1562,6 +1562,7 @@ function rigDiagnosticMessage(
   if (code === 'rigid-part-deformation') {
     return labels.rigDiagnosticRigidPartDeformation
   }
+  if (code === 'off-angle-portrait') return labels.rigDiagnosticOffAnglePortrait
   return fallback
 }
 

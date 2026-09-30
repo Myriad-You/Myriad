@@ -281,6 +281,7 @@
   "rigDiagnosticMissingOutfitProfile": "衣装トポロジー、安全範囲、または体型アンカーがなく、衣装適応が制限されます。",
   "rigDiagnosticMissingSpatialProfile": "頭部と胴体のローカル範囲がなく、インタラクションと変形の安全制御が制限されます。",
   "rigDiagnosticRigidPartDeformation": "すべての頂点が1本のボーンだけに紐付き、関節を曲げると分割感が出る場合があります。",
+  "rigDiagnosticOffAnglePortrait": "この立ち絵は顔が傾いているか、横を向いています。首振り・表情・口パクは正面に近い顔を前提にしているため、動きが不自然になりやすいです。正面向きの立ち絵がおすすめです。",
   "rigReconcileTitle": "元絵との照合",
   "rigReconcileAgreement": "見えているピクセルの {agreement}% が元の立ち絵と一致",
   "rigReconcileClean": "元の立ち絵と一致しています。レイヤー分割の欠陥は見つかりませんでした。",

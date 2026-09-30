@@ -281,6 +281,7 @@
   "rigDiagnosticMissingOutfitProfile": "Outfit-Topologie, Sicherheitsgrenzen oder Körperproportionsanker fehlen, die Outfit-Anpassung ist eingeschränkt.",
   "rigDiagnosticMissingSpatialProfile": "Charakterlokale Kopf- und Torsogrenzen fehlen, Interaktion und Verformungssicherheit sind eingeschränkt.",
   "rigDiagnosticRigidPartDeformation": "Jeder Vertex ist an einen Knochen gebunden, daher können sich biegende Gelenke weiterhin segmentiert anfühlen.",
+  "rigDiagnosticOffAnglePortrait": "Das Gesicht in diesem Porträt ist geneigt oder zur Seite gedreht. Kopfdrehungen, Ausdrücke und Sprechmünder setzen ein nahezu frontales Gesicht voraus und wirken daher weniger natürlich; ein frontales Porträt eignet sich am besten.",
   "rigReconcileTitle": "Abgleich mit dem Original",
   "rigReconcileAgreement": "{agreement} % der sichtbaren Pixel stimmen mit der Originalillustration überein",
   "rigReconcileClean": "Stimmt mit der Originalillustration überein; keine Fehler bei der Ebenentrennung gefunden.",

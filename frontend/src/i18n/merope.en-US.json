@@ -281,6 +281,7 @@
   "rigDiagnosticMissingOutfitProfile": "Outfit topology, safety bounds, or character proportion anchors are missing, limiting outfit adaptation.",
   "rigDiagnosticMissingSpatialProfile": "Character-local head and torso bounds are missing, limiting interaction and deformation safety.",
   "rigDiagnosticRigidPartDeformation": "Every vertex is bound to one bone, so bending joints may still look segmented.",
+  "rigDiagnosticOffAnglePortrait": "The face in this portrait is tilted or turned to one side. Head turns, expressions and speaking mouths assume a near-frontal face, so they will look less natural; a front-facing portrait works best.",
   "rigReconcileTitle": "Source check",
   "rigReconcileAgreement": "{agreement}% of visible pixels match the source illustration",
   "rigReconcileClean": "Matches the source illustration; no layer-split defects found.",

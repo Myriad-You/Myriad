@@ -281,6 +281,7 @@
   "rigDiagnosticMissingOutfitProfile": "Topologie de tenue, limites de sécurité ou ancres de proportions manquent, ce qui limite l’adaptation de tenue.",
   "rigDiagnosticMissingSpatialProfile": "Les limites locales tête et torse du personnage manquent, ce qui limite la sécurité d’interaction et de déformation.",
   "rigDiagnosticRigidPartDeformation": "Chaque sommet est lié à un seul os : les articulations pliées peuvent encore paraître segmentées.",
+  "rigDiagnosticOffAnglePortrait": "Le visage de ce portrait est incliné ou tourné de côté. Les rotations de tête, les expressions et la bouche qui parle supposent un visage presque de face ; ils paraîtront moins naturels. Un portrait de face donne le meilleur résultat.",
   "rigReconcileTitle": "Comparaison avec l’original",
   "rigReconcileAgreement": "{agreement} % des pixels visibles correspondent à l’illustration d’origine",
   "rigReconcileClean": "Correspond à l’illustration d’origine ; aucun défaut de découpage des calques.",

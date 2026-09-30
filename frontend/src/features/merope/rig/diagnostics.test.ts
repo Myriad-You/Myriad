@@ -1,7 +1,7 @@
 import type { MeropeRigManifest } from './types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { anime25DFacialVariantsComplete, diagnoseRig } from './diagnostics'
+import { anime25DFacialVariantsComplete, diagnoseRig, offAnglePortrait } from './diagnostics'
 
 test('Anime2.5DRig diagnostics do not score retired limb gates', () => {
   const report = diagnoseRig({
@@ -235,4 +235,18 @@ test('recognizes independently rendered iris layers as real visible gaze', () =>
     report.issues.some((item) => item.code === 'missing-gaze'),
     false,
   )
+})
+
+test('a portrait tilted well over or turned aside is flagged, a level frontal one is not', () => {
+  const eye = (icx: number, icy: number, width: number) => ({ x0: icx - width / 2, x1: icx + width / 2, y0: icy - 10, y1: icy + 10, icx, icy, closeY: icy })
+  const portrait = (left: ReturnType<typeof eye>, right: ReturnType<typeof eye>) =>
+    ({ anime25dPlayback: { anchors: { eyeL: left, eyeR: right } } }) as unknown as Parameters<typeof offAnglePortrait>[0]
+  assert.equal(offAnglePortrait(portrait(eye(100, 200, 60), eye(200, 205, 60))), false)
+  // About 7°: an ordinary drawn tilt.
+  assert.equal(offAnglePortrait(portrait(eye(100, 200, 60), eye(200, 212, 60))), false)
+  // About 17°.
+  assert.equal(offAnglePortrait(portrait(eye(100, 200, 60), eye(200, 230, 60))), true)
+  // Level, but the far eye is much narrower: the face is turned.
+  assert.equal(offAnglePortrait(portrait(eye(100, 200, 60), eye(200, 200, 45))), true)
+  assert.equal(offAnglePortrait({ anime25dPlayback: undefined }), false)
 })

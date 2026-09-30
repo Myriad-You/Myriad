@@ -175,6 +175,15 @@ export function diagnoseRig(manifest: MeropeRigManifest): RigDiagnosticReport {
       ),
     )
   }
+  if (anime25d && offAnglePortrait(manifest)) {
+    issues.push(
+      issue(
+        'off-angle-portrait',
+        'warning',
+        'The face is tilted or turned aside; head turns, expressions and speaking mouths assume a near-frontal face',
+      ),
+    )
+  }
   if (!deformableSkinning) {
     issues.push(
       issue(
@@ -207,6 +216,29 @@ export function diagnoseRig(manifest: MeropeRigManifest): RigDiagnosticReport {
       presentationCoverage,
     },
   }
+}
+
+/** Beyond this tilt of the eye line the face is posed, not just drawn a little off level. */
+const OFF_ANGLE_ROLL_DEGREES = 12
+/** A far eye this much narrower than the near one means the face is turned aside. */
+const TURNED_EYE_WIDTH_RATIO = 0.85
+
+/**
+ * The runtime turns, nods and redraws a face that looks nearly straight out.
+ * A portrait tilted well over, or turned to one side, still imports; it just
+ * will not move as well, and the user is told so.
+ */
+export function offAnglePortrait(manifest: Pick<MeropeRigManifest, 'anime25dPlayback'>): boolean {
+  const anchors = manifest.anime25dPlayback?.anchors
+  const left = anchors?.eyeL
+  const right = anchors?.eyeR
+  if (!left || !right) return false
+  const roll = Math.abs(Math.atan2(right.icy - left.icy, right.icx - left.icx)) * 180 / Math.PI
+  const leftWidth = left.x1 - left.x0
+  const rightWidth = right.x1 - right.x0
+  const widest = Math.max(leftWidth, rightWidth)
+  const widthRatio = widest > 0 ? Math.min(leftWidth, rightWidth) / widest : 1
+  return roll > OFF_ANGLE_ROLL_DEGREES || widthRatio < TURNED_EYE_WIDTH_RATIO
 }
 
 function issue(

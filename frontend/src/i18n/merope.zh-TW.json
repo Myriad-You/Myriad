@@ -281,6 +281,7 @@
   "rigDiagnosticMissingOutfitProfile": "缺少服裝拓撲、安全範圍或角色比例錨點，服裝自適應會受限。",
   "rigDiagnosticMissingSpatialProfile": "缺少角色區域性的頭部與軀幹範圍，互動和形變的安全限制會受限。",
   "rigDiagnosticRigidPartDeformation": "所有頂點都只繫結單根骨骼，關節彎曲時可能出現分段感。",
+  "rigDiagnosticOffAnglePortrait": "這張立繪的臉是歪的或偏向側面。轉頭、表情和說話口型都按接近正面的臉設計，效果會打折扣；建議使用正面立繪。",
   "rigReconcileTitle": "原圖對帳",
   "rigReconcileAgreement": "{agreement}% 的可見像素與原立繪一致",
   "rigReconcileClean": "與原立繪對得上，沒有發現拆層缺陷。",
