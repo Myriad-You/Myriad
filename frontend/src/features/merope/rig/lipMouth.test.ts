@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createLipMouthBitmap, detectPaintedLips, lipMouthSize } from './lipMouth'
+import { createLipMouthBitmap, detectPaintedLips, LIP_MOUTH_KINDS, lipMouthSize } from './lipMouth'
 
 function mouth(width: number, height: number, paint: (x: number, y: number) => readonly [number, number, number] | null) {
   const data = new Uint8ClampedArray(width * height * 4)
@@ -54,5 +54,29 @@ test('lip mouths are painted in the portrait\'s lips and teeth, with no dark cel
     assert.ok(nearBlack / opaque < 0.05, `${kind}: ${nearBlack}/${opaque} near-black`)
     assert.ok(lipLike / opaque > 0.4, `${kind}: lips`)
     if (kind !== 'narrow') assert.ok(teethLike > 0, `${kind}: teeth`)
+  }
+})
+
+test('a face with painted lips gets its crying, laughing and tongue-out mouths painted in them too', () => {
+  const painted = { lips: { red: 176, green: 62, blue: 92 }, teeth: { red: 246, green: 240, blue: 238 } }
+  for (const kind of ['cry', 'maniac', 'silly'] as const) {
+    assert.ok(LIP_MOUTH_KINDS.has(kind))
+    const bitmap = createLipMouthBitmap(kind, { width: 90, height: 70 }, painted)
+    let lip = 0
+    let near = 0
+    let white = 0
+    for (let index = 0; index < bitmap.data.length; index += 4) {
+      if (bitmap.data[index + 3] < 200) continue
+      const [red, green, blue] = [bitmap.data[index], bitmap.data[index + 1], bitmap.data[index + 2]]
+      if (red > green * 1.6 && red > 120) lip++
+      if (Math.max(red, green, blue) < 40) near++
+      if (red > 200 && green > 200 && blue > 200) white++
+    }
+    // Lip-coloured, never a near-black cel rim.
+    assert.ok(lip > 60, `${kind} lip ${lip}`)
+    assert.ok(near < lip * 0.05, `${kind} black ${near}`)
+    // A tongue out shows no teeth; a wail and a laugh do.
+    if (kind === 'silly') assert.equal(white, 0)
+    else assert.ok(white > 10, `${kind} teeth ${white}`)
   }
 })
