@@ -253,35 +253,44 @@ function paintDropIntoRect(
   ]
   const cosine = Math.cos(rotation)
   const sine = Math.sin(rotation)
+  // Coverage from a 4×4 grid of samples per pixel: a drop only a few pixels
+  // wide is otherwise a jagged stair.
+  const grid = 4
+  const samples = grid * grid
   for (let localY = 0; localY < height; localY += 1) {
     const y = top + localY
     if (y < 0 || y >= canvasHeight) continue
     for (let localX = 0; localX < width; localX += 1) {
       const x = left + localX
       if (x < 0 || x >= canvasWidth) continue
-      const px = (localX + 0.5) / width - 0.5
-      const py = (localY + 0.5) / height - 0.5
-      const rx = px * cosine - py * sine + 0.5
-      const ry = px * sine + py * cosine + 0.5
-      if (!pointInPolygon(rx, ry, outer)) continue
-      let edgeDistance = Number.POSITIVE_INFINITY
-      for (let index = 0; index < outer.length; index += 1) {
-        edgeDistance = Math.min(
-          edgeDistance,
-          pointToSegmentDistance(
-            rx,
-            ry,
-            outer[index],
-            outer[(index + 1) % outer.length],
-          ),
-        )
+      let drop = 0
+      let fill = 0
+      let light = 0
+      for (let sy = 0; sy < grid; sy += 1) {
+        for (let sx = 0; sx < grid; sx += 1) {
+          const px = (localX + (sx + 0.5) / grid) / width - 0.5
+          const py = (localY + (sy + 0.5) / grid) / height - 0.5
+          const rx = px * cosine - py * sine + 0.5
+          const ry = px * sine + py * cosine + 0.5
+          if (!pointInPolygon(rx, ry, outer)) continue
+          drop += 1
+          let edgeDistance = Number.POSITIVE_INFINITY
+          for (let index = 0; index < outer.length; index += 1) {
+            edgeDistance = Math.min(
+              edgeDistance,
+              pointToSegmentDistance(rx, ry, outer[index], outer[(index + 1) % outer.length]),
+            )
+          }
+          if (edgeDistance > 0.055) fill += 1
+          const highlight = Math.hypot((rx - 0.39) / 0.13, (ry - 0.58) / 0.2)
+          if (highlight < 1) light += 1 - highlight
+        }
       }
+      if (drop === 0) continue
       const offset = (y * canvasWidth + x) * 4
-      paint(data, offset, SWEAT_EDGE, 0.5)
-      if (edgeDistance > 0.055) paint(data, offset, SWEAT_FILL, 0.72)
-      const highlight = Math.hypot((rx - 0.39) / 0.13, (ry - 0.58) / 0.2)
-      if (highlight < 1)
-        paint(data, offset, SWEAT_LIGHT, (1 - highlight) * 0.72)
+      paint(data, offset, SWEAT_EDGE, 0.5 * drop / samples)
+      if (fill > 0) paint(data, offset, SWEAT_FILL, 0.72 * fill / samples)
+      if (light > 0) paint(data, offset, SWEAT_LIGHT, 0.72 * light / samples)
     }
   }
 }
