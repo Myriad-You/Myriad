@@ -9,6 +9,7 @@ import type {
   RasterLayer,
   RigCanvasFrame,
 } from './anime25dImportTypes'
+import type { AuthoredExpressionReference } from './authoredExpression'
 import type { Anime25DPsdReconciliation } from './psdReconciliation'
 import type { MeropeRigImportSource, RigPoint } from './types'
 import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
@@ -39,6 +40,7 @@ import {
   buildAnime25DBonesAndHandles,
   buildAnime25DLayerSources,
 } from './anime25dSkeletonCompiler'
+import { addAuthoredExpressionLayers } from './authoredExpression'
 import { compensateSyntheticClosedEyeAngles } from './closedEyeCompensation'
 import {
   CHARACTER_ASSET_CONTRACT_VERSION,
@@ -114,6 +116,7 @@ export async function prepareAnime25DRigPsd(
   onStage?: (stage: 'validated' | 'packing') => void,
   sourceGenerationFingerprint?: string,
   sourceReference?: Anime25DSourceReference,
+  expressionReferences: readonly AuthoredExpressionReference[] = [],
 ): Promise<PreparedAnime25DRigImport> {
   if (!isAnime25DDocument(psd)) {
     throw new Error(copy.anime25dMissingFace)
@@ -155,6 +158,12 @@ export async function prepareAnime25DRigPsd(
       rig.anchors.mouth = estimateAnime25DMouthAnchor(frame, rig.anchors.face)
     }
   }
+  layers = addAuthoredExpressionLayers(
+    layers,
+    rig.anchors,
+    sourceReference,
+    expressionReferences,
+  )
   layers = compileAnime25DExpressionLayers(layers, rig.anchors)
   layers = splitHighCollarOcclusion(layers, rig.anchors, sourceReference)
   layers.forEach((layer, index) => {

@@ -1,7 +1,9 @@
 import type { PoseCorrection } from './anime25drig/poseCorrections'
+import type { AuthoredExpressionKind } from './rig/authoredExpression'
 import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
+import { AUTHORED_EXPRESSION_KINDS } from './rig/authoredExpression'
 import { isLiveMeropeManifest, isRigManifest } from './rig/types'
 
 const PREFIX = '/merope/rig'
@@ -335,6 +337,48 @@ export async function generateStickerAvatar(): Promise<{
     if (reason instanceof MeropeApiError) throw reason
     throw meropeError(reason, currentCopy().merope.avatarFailed)
   }
+}
+
+export type SiteExpressionUrls = Partial<Record<AuthoredExpressionKind, string>>
+
+/** Expression redraws of the current master portrait, cut into the rig at import. */
+export async function listSiteExpressions(): Promise<SiteExpressionUrls> {
+  try {
+    const data = await apiService.get<{ expressions?: Record<string, unknown> }>(
+      `${PREFIX}/expressions`,
+    )
+    return readExpressionUrls(data.expressions)
+  } catch (reason) {
+    throw meropeError(reason, currentCopy().merope.aiExpressionsFailed)
+  }
+}
+
+export async function generateSiteExpression(
+  kind: AuthoredExpressionKind,
+): Promise<string> {
+  try {
+    const data = await apiService.post<{ url?: unknown }>(
+      `${PREFIX}/expressions/${kind}`,
+      {},
+      { timeout: PORTRAIT_GENERATION_TIMEOUT_MS },
+    )
+    if (typeof data.url !== 'string' || !data.url.trim()) {
+      throw new MeropeApiError(currentCopy().merope.aiExpressionsFailed, 502)
+    }
+    return data.url
+  } catch (reason) {
+    if (reason instanceof MeropeApiError) throw reason
+    throw meropeError(reason, currentCopy().merope.aiExpressionsFailed)
+  }
+}
+
+function readExpressionUrls(value: Record<string, unknown> | undefined): SiteExpressionUrls {
+  const urls: SiteExpressionUrls = {}
+  for (const kind of AUTHORED_EXPRESSION_KINDS) {
+    const url = value?.[kind]
+    if (typeof url === 'string' && url.trim()) urls[kind] = url
+  }
+  return urls
 }
 
 export async function generateSitePortrait(

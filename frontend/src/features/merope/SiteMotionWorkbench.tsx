@@ -6,6 +6,7 @@ import type {
 } from '../../components/agent/onboarding/onboardingTypes'
 import type { AgentPersona } from '../../services/agent/agentApi'
 import type { PoseCorrection } from './anime25drig/poseCorrections'
+import type { SiteExpressionUrls } from './api'
 import type { RigCharacterHandle } from './rig/RigCharacter'
 import type { MeropeRigManifest } from './rig/types'
 import type { MeropeActivity } from './types'
@@ -51,10 +52,12 @@ import Anime25DWorkbench from './anime25drig/Anime25DWorkbench'
 import { isAnime25DPlayback } from './anime25drig/types'
 import {
   decomposeSitePortraitWithSeeThrough,
+  generateSiteExpression,
   generateSitePortrait,
   generateStickerAvatar,
   getSeeThroughStatus,
   getSiteFace,
+  listSiteExpressions,
   saveRigPoseCorrections,
   updateSeeThroughToken,
 } from './api'
@@ -63,6 +66,7 @@ import { notifyFaceUpdated } from './events'
 import { useRigPreviewMotionLifecycle } from './motion/useRigMotionLifecycle'
 import OutfitWardrobe from './OutfitWardrobe'
 import { refreshPersonaStickerAvatar } from './personaAvatar'
+import { AUTHORED_EXPRESSION_KINDS } from './rig/authoredExpression'
 import RigCharacter from './rig/RigCharacter'
 import {
   applyOutfit,
@@ -198,6 +202,47 @@ export default function SiteMotionWorkbench({
     paletteHint: o.visualPalette,
     motif: o.visualMotif,
   }
+
+  const [aiExpressionUrls, setAiExpressionUrls] = useState<SiteExpressionUrls>({})
+  // Preflight reads the latest redraws, even right after generating them.
+  const aiExpressionUrlsRef = useRef<SiteExpressionUrls>({})
+  aiExpressionUrlsRef.current = aiExpressionUrls
+
+  useEffect(() => {
+    let cancelled = false
+    if (!portraitUrl) {
+      setAiExpressionUrls({})
+      return
+    }
+    void listSiteExpressions()
+      .then((urls) => {
+        if (!cancelled) setAiExpressionUrls(urls)
+      })
+      .catch(() => {
+        if (!cancelled) setAiExpressionUrls({})
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [portraitUrl])
+
+  const generateAiExpressions = useCallback(async () => {
+    const results = await Promise.allSettled(
+      AUTHORED_EXPRESSION_KINDS.map(async (kind) => ({
+        kind,
+        url: await generateSiteExpression(kind),
+      })),
+    )
+    const drawn: SiteExpressionUrls = {}
+    for (const result of results) {
+      if (result.status === 'fulfilled') drawn[result.value.kind] = result.value.url
+    }
+    const next = { ...aiExpressionUrlsRef.current, ...drawn }
+    aiExpressionUrlsRef.current = next
+    setAiExpressionUrls(next)
+    const failure = results.find((result) => result.status === 'rejected')
+    if (failure) throw failure.reason
+  }, [])
 
   const loadFace = useCallback(async () => {
     const face = await getSiteFace()
@@ -737,6 +782,10 @@ export default function SiteMotionWorkbench({
         onStage,
         generationFingerprint || undefined,
         signal,
+        AUTHORED_EXPRESSION_KINDS.flatMap((kind) => {
+          const url = aiExpressionUrlsRef.current[kind]
+          return url ? [{ kind, url }] : []
+        }),
       )
     },
     [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait],
@@ -1423,6 +1472,10 @@ export default function SiteMotionWorkbench({
           onDecomposeRigPsd={decomposeRigPsd}
           onPreflightRigPsd={preflightRigPsd}
           onCommitRigPsd={commitRigPsd}
+          aiExpressions={AUTHORED_EXPRESSION_KINDS.filter(
+            (kind) => aiExpressionUrls[kind],
+          )}
+          onGenerateAiExpressions={portraitUrl ? generateAiExpressions : undefined}
           motionEnabled={motionEnabled}
           correctionPlayback={rigManifest?.anime25dPlayback ?? null}
           correctionAssetId={rigAssetId}

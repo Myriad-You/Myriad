@@ -46,6 +46,8 @@ use crate::{
     state::AppState,
 };
 
+mod expressions;
+
 type ApiError = (StatusCode, Json<Value>);
 type ApiResult<T> = Result<T, ApiError>;
 
@@ -68,6 +70,11 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route("/", get(get_site_rig))
         .route("/portrait", post(generate_portrait))
         .route("/avatar", post(generate_sticker_avatar))
+        .route("/expressions", get(expressions::list_expressions))
+        .route(
+            "/expressions/{kind}",
+            post(expressions::generate_expression),
+        )
         .route(
             "/portrait/upload",
             post(upload_portrait).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),

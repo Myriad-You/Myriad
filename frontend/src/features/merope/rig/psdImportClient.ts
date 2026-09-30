@@ -1,11 +1,14 @@
 import type { Anime25DImportCopy } from './anime25dImportCopy'
 import type { PreparedAnime25DRigImport } from './anime25dImporter'
+import type { AuthoredExpressionKind } from './authoredExpression'
 
 export interface RigPsdImportRequest {
   buffer: ArrayBuffer
   sourceMasterAssetId: string
   sourceMasterUrl: string
   sourceGenerationFingerprint?: string
+  /** Image-model redraws of the portrait, cut into authored expression parts. */
+  expressions?: ReadonlyArray<{ kind: AuthoredExpressionKind; url: string }>
   copy: Anime25DImportCopy
 }
 

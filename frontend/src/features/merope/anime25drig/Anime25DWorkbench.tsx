@@ -4,6 +4,7 @@ import type {
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from '../assets/pipeline'
+import type { AuthoredExpressionKind } from '../rig/authoredExpression'
 import type { RigCharacterHandle } from '../rig/RigCharacter'
 import type { Anime25DDriver } from './driver'
 import type { Anime25DMotionEnvelopeProbeId } from './motionEnvelope'
@@ -73,6 +74,9 @@ interface Props {
     preflight: RigAssetPreflight,
     onStage: (event: RigAssetCompileEvent) => void,
   ) => Promise<{ partCount: number; score: number }>
+  /** Expressions the image model has redrawn for the current portrait. */
+  aiExpressions?: readonly AuthoredExpressionKind[]
+  onGenerateAiExpressions?: () => Promise<void>
   wardrobeLead?: ReactNode
   outfitLead?: ReactNode
   outfitRig?: boolean
@@ -228,6 +232,8 @@ export default function Anime25DWorkbench({
   onDecomposeRigPsd,
   onPreflightRigPsd,
   onCommitRigPsd,
+  aiExpressions = [],
+  onGenerateAiExpressions,
   wardrobeLead = null,
   outfitLead = null,
   outfitRig = true,
@@ -310,6 +316,12 @@ export default function Anime25DWorkbench({
     'decompose' | 'manual' | 'commit' | null
   >(null)
   const importingRig = rigImportOperation !== null
+  const [aiExpressionsBusy, setAiExpressionsBusy] = useState(false)
+  const [aiExpressionsError, setAiExpressionsError] = useState<string | null>(
+    null,
+  )
+  // The PSD last preflighted here, so fresh expressions can be tried on it at once.
+  const lastRigPsdRef = useRef<File | null>(null)
   const importAbortRef = useRef<AbortController | null>(null)
   const failRigImport = (message: string) => {
     setRigImportError(message)
@@ -408,6 +420,7 @@ export default function Anime25DWorkbench({
 
   const preflightRigPsd = async (file: File) => {
     if (importingRig || !sourceMasterAssetId) return
+    lastRigPsdRef.current = file
     const controller = new AbortController()
     importAbortRef.current = controller
     setRigImportOperation('manual')
@@ -464,6 +477,7 @@ export default function Anime25DWorkbench({
     try {
       const file = await onDecomposeRigPsd()
       controller.signal.throwIfAborted()
+      lastRigPsdRef.current = file
       const imported = await onPreflightRigPsd(file,
         (event) => {
           if (!controller.signal.aborted) recordRigImportStage(event)
@@ -496,6 +510,21 @@ export default function Anime25DWorkbench({
         setRigImportOperation(null)
     }
   }
+  }
+
+  const generateAiExpressions = async () => {
+    if (aiExpressionsBusy || !onGenerateAiExpressions) return
+    setAiExpressionsBusy(true)
+    setAiExpressionsError(null)
+    try {
+      await onGenerateAiExpressions()
+      const file = lastRigPsdRef.current
+      if (file && !importingRig) void preflightRigPsd(file)
+    } catch (reason) {
+      setAiExpressionsError(userFacingError(reason, labels.aiExpressionsFailed))
+    } finally {
+      setAiExpressionsBusy(false)
+    }
   }
 
   const commitRigPsd = async () => {
@@ -980,6 +1009,46 @@ export default function Anime25DWorkbench({
                   </SettingsButton>
                 </section>
               )}
+              {onGenerateAiExpressions ? (
+                <section className="merope-motion-rig__status">
+                  <strong>{labels.aiExpressionsTitle}</strong>
+                  <p className="merope-motion-rig__hint">
+                    {labels.aiExpressionsHint}
+                  </p>
+                  <p className="merope-motion-rig__hint">
+                    {aiExpressions.length > 0
+                      ? format(labels.aiExpressionsReady, {
+                          kinds: aiExpressions
+                            .map((kind) =>
+                              kind === 'cry'
+                                ? labels.aiExpressionCry
+                                : labels.aiExpressionSqueeze,
+                            )
+                            .join(' / '),
+                        })
+                      : labels.aiExpressionsNone}
+                  </p>
+                  {aiExpressionsError ? (
+                    <p className="merope-motion-rig__hint" role="alert">
+                      {aiExpressionsError}
+                    </p>
+                  ) : null}
+                  <SettingsButton
+                    type="button"
+                    size="sm"
+                    disabled={aiExpressionsBusy || !sourceMasterAssetId}
+                    loading={aiExpressionsBusy}
+                    confirm={labels.aiExpressionsConfirm}
+                    onClick={() => void generateAiExpressions()}
+                  >
+                    {aiExpressionsBusy
+                      ? labels.aiExpressionsGenerating
+                      : aiExpressions.length > 0
+                        ? labels.aiExpressionsRegenerate
+                        : labels.aiExpressionsGenerate}
+                  </SettingsButton>
+                </section>
+              ) : null}
               <input
                 ref={rigPsdInputRef}
                 type="file"
