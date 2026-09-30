@@ -36,6 +36,7 @@ import {
   readLiveAudioProgress,
   resolveMusicPalette,
 } from '../utils/musicPlayerState'
+import { notePlaybackFailure } from '../utils/playbackFailures'
 import { proxyImageUrlOr } from '../utils/proxyImageUrl'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { loadResource } from '../utils/resourceLoader'
@@ -1058,7 +1059,11 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         generation: selectGenerationRef.current,
       })
       flashMusicError(song.isVip ? 'vipPlayFailed' : 'playFailed')
+      notePlaybackFailure(song.id)
       if (failureKeyProbe) {
+        void failureKeyProbe.then((key) => {
+          if (key) notePlaybackFailure(song.id, key)
+        })
         // Only replace the generic flash we just showed, never a newer one.
         const flashSeq = musicErrorSeqRef.current
         void failureKeyProbe.then((key) => {

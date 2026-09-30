@@ -58,7 +58,11 @@ pub fn split_chat_music_directive(raw: &str) -> (String, Option<ChatMusicAction>
 }
 
 pub fn format_chat_player_section(music: Option<&Value>) -> String {
-    let status = player_status_line(music);
+    let mut status = player_status_line(music);
+    if let Some(came_of_it) = music.and_then(last_act_line) {
+        status.push('\n');
+        status.push_str(&came_of_it);
+    }
     format!(
         "## Player\n{status}\n\
          To play, pause, skip next, or skip previous, put [[music:play]], [[music:pause]], \
@@ -165,6 +169,58 @@ fn parse_music_inner(inner: &str) -> Option<ChatMusicAction> {
     }
 }
 
+/// What came of her putting a song of hers on their player lately, as
+/// their player saw it: whether it played, and why not when it knows.
+fn last_act_line(music: &Value) -> Option<String> {
+    let act = music.get("yourLastAct")?;
+    let text = |key: &str| -> String {
+        act.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .chars()
+            .take(80)
+            .collect()
+    };
+    let song = match (text("song"), text("artist")) {
+        (song, _) if song.is_empty() => return None,
+        (song, artist) if artist.is_empty() => format!("「{song}」"),
+        (song, artist) => format!("「{song}」 — {artist}"),
+    };
+    let did = match text("act").as_str() {
+        "join" => format!(
+            "put the song you were listening to, {song}, on their player to listen together"
+        ),
+        _ => format!("put {song} on their player"),
+    };
+    let ago = act
+        .get("secondsAgo")
+        .and_then(Value::as_i64)
+        .map(|seconds| myriad_merope::doing::ago_text(chrono::Duration::seconds(seconds.max(0))))
+        .unwrap_or_else(|| "a moment ago".to_string());
+    let why = match text("reason").as_str() {
+        "songUnavailable" => {
+            " (the song is not available there, often a copyright or region limit)"
+        }
+        "sourceDenied" => " (the music source refused it)",
+        "sourceUnreachable" => " (the music source could not be reached)",
+        _ => "",
+    };
+    let came = match text("outcome").as_str() {
+        "playing" => "it played".to_string(),
+        "failed" => format!(
+            "it would not play on their side{why}. Putting the same song on again will most likely fail the same way"
+        ),
+        "not_available" => {
+            "their player could not play it at all. Putting it on again will not work either"
+                .to_string()
+        }
+        "not_started" => "it had not started playing when their player last looked".to_string(),
+        _ => return None,
+    };
+    Some(format!("You {did} {ago}: {came}."))
+}
+
 fn player_status_line(music: Option<&Value>) -> String {
     let Some(music) = music else {
         return "Nothing is playing.".to_string();
@@ -250,6 +306,35 @@ mod tests {
         );
         assert_eq!(split_chat_music_directive("[[music:share 0]]").1, None);
         assert_eq!(split_chat_music_directive("[[music:share x]]").1, None);
+    }
+
+    #[test]
+    fn she_hears_what_came_of_putting_a_song_on() {
+        let failed = serde_json::json!({
+            "isPlaying": true,
+            "currentSong": { "name": "下一首", "artist": "别人" },
+            "yourLastAct": {
+                "act": "share", "song": "サマータイムレコード", "artist": "じん",
+                "outcome": "failed", "reason": "songUnavailable", "secondsAgo": 40,
+            },
+        });
+        let section = format_chat_player_section(Some(&failed));
+        assert!(
+            section.contains("「サマータイムレコード」 — じん"),
+            "{section}"
+        );
+        assert!(section.contains("would not play on their side"));
+        assert!(section.contains("copyright or region"));
+        assert!(section.contains("fail the same way"));
+        let played = serde_json::json!({
+            "yourLastAct": { "act": "join", "song": "晴天", "outcome": "playing", "secondsAgo": 5 },
+        });
+        let section = format_chat_player_section(Some(&played));
+        assert!(section.contains("to listen together") && section.contains("it played"));
+        // Nothing she did, or nothing that makes sense: nothing said.
+        assert!(!format_chat_player_section(None).contains("You put"));
+        let odd = serde_json::json!({ "yourLastAct": { "song": "晴天", "outcome": "exploded" } });
+        assert!(!format_chat_player_section(Some(&odd)).contains("You put"));
     }
 
     #[test]

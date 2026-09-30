@@ -1,4 +1,5 @@
 import type { Song } from '../utils/musicPlayer'
+import { herLastAct } from '../features/merope/herActs'
 import { pickMusicContextState } from '../utils/musicPlayerState'
 
 const listeners = new Set<() => void>()
@@ -121,6 +122,8 @@ export function agentMusicStatus(
       }
     : null
   const currentLyric = lyricLine(published.lyrics, published.currentLyricIndex)
+  // What came of her putting a song of hers on here lately.
+  const yourLastAct = herLastAct()
   return {
     isPlaying: !!published.isPlaying,
     isEnabled: !!published.isEnabled,
@@ -128,6 +131,7 @@ export function agentMusicStatus(
     currentSongIndex: Number(published.currentSongIndex) || 0,
     playlistLength: Number(published.playlistLength) || 0,
     ...(currentLyric ? { currentLyric } : {}),
+    ...(yourLastAct ? { yourLastAct } : {}),
   }
 }
 

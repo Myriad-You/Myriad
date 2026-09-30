@@ -4,6 +4,7 @@ import { getGlobalState } from '../../hooks/musicPlayer/globalState'
 import { agentService } from '../../services/agent/agentApi'
 import { emitAppEvent } from '../../utils/appEvents'
 import { getNeteaseAudioUrlImmediate } from '../../utils/musicPlayer'
+import { noteNotAvailable, watchHerSong } from './herActs'
 
 /** Too close to the end: joining would only catch the last notes. */
 const NEAR_END_SECONDS = 8
@@ -121,6 +122,7 @@ export async function listenTogether(): Promise<boolean> {
   )
   if (!plan) return false
   startSong(plan)
+  void watchHerSong('join', plan.song)
   if (!(await untilPlaying(plan.song.id))) return true
   const position = plan.offsetSeconds + (Date.now() - planned) / 1000
   if (position > SEEK_AFTER_SECONDS) {
@@ -138,7 +140,11 @@ export function playHerSong(thing: MeropeThing | null | undefined): boolean {
     Array.isArray(playlist) ? playlist : null,
     getNeteaseAudioUrlImmediate,
   )
-  if (!placed) return false
+  if (!placed) {
+    noteNotAvailable('share', thing)
+    return false
+  }
   startSong(placed)
+  void watchHerSong('share', placed.song)
   return true
 }
