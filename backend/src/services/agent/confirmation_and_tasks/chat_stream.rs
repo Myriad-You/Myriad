@@ -931,10 +931,12 @@ mod prompt_size {
             }),
         };
         crate::services::agent::merope::remembering::begin(user_id, "private", &said);
+        let began = std::time::Instant::now();
         let prompt = Agent::new(db.clone())
             .await
             .chat_response_prompt(&request)
             .await;
+        println!("put together in {:?}", began.elapsed());
         let history_chars: usize = history.iter().map(|m| m.content.chars().count()).sum();
         let mut parts: Vec<(usize, String)> = Vec::new();
         let mut title = "(before any heading)".to_string();

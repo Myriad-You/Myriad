@@ -19,8 +19,9 @@ use myriad_merope::remembering::{Cues, SCHEMA_NAME, Who, input, merged, parse, s
 pub const LOOK_BACK: usize = 3;
 pub const LOOK_BACK_THOROUGH: usize = 8;
 
-/// Past this she answers from what their words alone brought back.
-const THINK_WITHIN: Duration = Duration::from_secs(3);
+/// Past this she answers from what their words alone brought back. Only
+/// words that reach back to something before wait for it at all.
+const THINK_WITHIN: Duration = Duration::from_secs(6);
 /// What she goes through when answering needs all of it.
 pub const THOROUGH: usize = 24;
 
@@ -123,13 +124,15 @@ fn opens(owner: i32, venue: &str) -> bool {
 pub struct Attention {
     pub cues: Option<Cues>,
     pub opening: bool,
+    /// Their words ask about her, as they read.
+    pub about_her: bool,
 }
 
 impl Attention {
     /// Whether her own life comes to mind this turn: when the talk is about
     /// her, or they are only now starting to talk again.
     pub fn her_life(&self) -> bool {
-        self.opening || self.cues.as_ref().is_some_and(|cues| cues.about_you)
+        self.opening || self.about_her || self.cues.as_ref().is_some_and(|cues| cues.about_you)
     }
 }
 
@@ -162,7 +165,14 @@ pub fn begin(owner: i32, venue: &str, message: &str) {
 /// What she has in mind before answering `message`: what she tried to
 /// remember (begun when it came, or now if it was not), and whether it
 /// opened a conversation (unknown counts as opening).
+///
+/// Only when their words reach back to something before does she wait to
+/// recall (it takes a couple of seconds); otherwise she answers from what
+/// their words bring back at once, and what she was thinking of is used if
+/// it is already there.
 pub async fn cues(owner: i32, message: &str) -> Attention {
+    let reaching_back = myriad_merope::remembering::reaches_back(message);
+    let about_her = myriad_merope::remembering::about_her(message);
     let begun = THINKING
         .lock()
         .ok()
@@ -170,15 +180,25 @@ pub async fn cues(owner: i32, message: &str) -> Attention {
         .filter(|(said, _, _)| said == message);
     match begun {
         Some((_, thinking, opening)) => Attention {
-            cues: tokio::time::timeout(THINK_WITHIN, thinking)
-                .await
-                .ok()
-                .flatten(),
+            cues: if reaching_back {
+                tokio::time::timeout(THINK_WITHIN, thinking)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                thinking.now_or_never().flatten()
+            },
             opening,
+            about_her,
         },
         None => Attention {
-            cues: think(owner, message.to_string()).await,
+            cues: if reaching_back {
+                think(owner, message.to_string()).await
+            } else {
+                None
+            },
             opening: true,
+            about_her,
         },
     }
 }
@@ -391,16 +411,68 @@ mod tests {
                 about_you,
             }),
             opening,
+            about_her: false,
         };
         assert!(!about(false, false).her_life());
         assert!(about(true, false).her_life());
         assert!(about(false, true).her_life());
-        assert!(
-            !Attention {
-                cues: None,
-                opening: false
+        let words = |about_her| Attention {
+            cues: None,
+            opening: false,
+            about_her,
+        };
+        assert!(!words(false).her_life());
+        // Asked about her, her life comes to mind without waiting on cues.
+        assert!(words(true).her_life());
+    }
+}
+
+#[cfg(test)]
+mod live {
+    /// How long thinking what to remember takes, and what comes of it, by
+    /// voice: read only, MEROPE_RUNS (default 6).
+    #[tokio::test]
+    #[ignore = "asks the site's model"]
+    async fn how_fast_she_thinks_what_to_remember() {
+        let _db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        let runs: usize = std::env::var("MEROPE_RUNS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(6);
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let said = [
+            "你好呀",
+            "上次那个海龟汤的汤底是什么",
+            "我上周说要去面试的那家公司叫什么来着",
+        ];
+        for (label, voice) in [("judge", super::Voice::Judge), ("hers", super::Voice::Hers)] {
+            let mut times = Vec::new();
+            for index in 0..runs {
+                let message = said[index % said.len()];
+                let began = std::time::Instant::now();
+                let raw = super::call::Ask::new(voice, 1, "remembering")
+                    .within(std::time::Duration::from_secs(20))
+                    .json_raw(
+                        &super::system(),
+                        &super::input(message, None, &today),
+                        super::SCHEMA_NAME,
+                        &super::schema(),
+                    )
+                    .await;
+                let took = began.elapsed().as_secs_f64();
+                times.push(took);
+                let cues = raw.ok().and_then(|raw| super::parse(&raw));
+                println!(
+                    "{label} {took:.2}s {message}: {:?}",
+                    cues.map(|cues| (cues.cues, cues.look_back))
+                );
             }
-            .her_life()
-        );
+            times.sort_by(f64::total_cmp);
+            println!(
+                "{label}: median {:.2}s, slowest {:.2}s",
+                times[times.len() / 2],
+                times[times.len() - 1]
+            );
+        }
     }
 }

@@ -830,19 +830,34 @@ async fn speaking_prompt_from_db(
     }
     // Asked about what was said in detail, or for all of it, she scrolls
     // back through the chat.
-    if let (false, Turn::Chat(words), Some(cues)) = (group, turn, cues.as_ref())
-        && (cues.look_back || cues.thorough)
-    {
-        let query = std::iter::once(words)
-            .chain(cues.cues.iter().map(String::as_str))
+    // Asked back to something before, she scrolls back even when she could
+    // not think in time what to look for: their words are the query then.
+    let reaching_back = |words: &str| {
+        cues.as_ref().map_or_else(
+            || myriad_merope::remembering::reaches_back(words),
+            |cues| cues.look_back || cues.thorough,
+        )
+    };
+    let query_of = |words: &str| {
+        std::iter::once(words)
+            .chain(
+                cues.iter()
+                    .flat_map(|cues| cues.cues.iter().map(String::as_str)),
+            )
             .collect::<Vec<_>>()
-            .join(" ");
+            .join(" ")
+    };
+    let thorough = cues.as_ref().is_some_and(|cues| cues.thorough);
+    if let (false, Turn::Chat(words)) = (group, turn)
+        && reaching_back(words)
+    {
+        let query = query_of(words);
         let found = remembering::look_back(
             db,
             user_id,
             &query,
             words,
-            if cues.thorough {
+            if thorough {
                 remembering::LOOK_BACK_THOROUGH
             } else {
                 remembering::LOOK_BACK
@@ -854,13 +869,10 @@ async fn speaking_prompt_from_db(
         }
     }
     // In a group, the group's own days and talk: nothing private.
-    if let (Some(venue), Turn::Chat(words), Some(cues)) = (present.group_id(), turn, cues.as_ref())
-        && (cues.look_back || cues.thorough)
+    if let (Some(venue), Turn::Chat(words)) = (present.group_id(), turn)
+        && reaching_back(words)
     {
-        let query = std::iter::once(words)
-            .chain(cues.cues.iter().map(String::as_str))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let query = query_of(words);
         let found =
             chat_days::turn_back(db, chat_days::Place::In(venue), user_id, &query, words).await;
         if let Some(block) = myriad_merope::remembering::looked_back_in_group_section(&found) {

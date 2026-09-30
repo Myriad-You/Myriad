@@ -221,9 +221,96 @@ fn looked_back(found: &[(String, Who, String)], through: &str, they: &str) -> Op
     ))
 }
 
+/// Words that reach back to something before: asked with them, she stops
+/// to recall before she answers, as anyone does; otherwise she answers from
+/// what their words bring back at once.
+const REACHING_BACK: [&str; 40] = [
+    "上次",
+    "上回",
+    "之前",
+    "以前",
+    "那天",
+    "那次",
+    "那时",
+    "前几天",
+    "昨天",
+    "前天",
+    "上周",
+    "上星期",
+    "上个月",
+    "去年",
+    "记得",
+    "忘了",
+    "说过",
+    "提过",
+    "聊过",
+    "讲过",
+    "来着",
+    "叫什么",
+    "第一次",
+    "几次",
+    "多少次",
+    "一共",
+    "哪天",
+    "什么时候",
+    "当时",
+    "还记",
+    "前回",
+    "この前",
+    "覚えて",
+    "last time",
+    "remember",
+    "earlier",
+    "before",
+    "you said",
+    "did i",
+    "the other day",
+];
+
+/// Whether `message` asks back to something before.
+pub fn reaches_back(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    REACHING_BACK.iter().any(|marker| lower.contains(marker))
+}
+
+/// Things someone asks her about her own days.
+const ABOUT_HER: [&str; 14] = [
+    "你最近",
+    "你今天",
+    "你在干",
+    "你在做",
+    "你在听",
+    "你在看",
+    "你在读",
+    "你喜欢",
+    "你觉得",
+    "你过得",
+    "你心情",
+    "你累",
+    "what are you",
+    "how are you",
+];
+
+/// Whether `message` asks about her, so her own life comes to mind.
+pub fn about_her(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    ABOUT_HER.iter().any(|marker| lower.contains(marker))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn she_stops_to_recall_only_when_asked_back() {
+        assert!(reaches_back("上次那个海龟汤的汤底是什么"));
+        assert!(reaches_back("我上周说要去面试的那家公司叫什么来着"));
+        assert!(reaches_back("Do you remember what I said?"));
+        assert!(!reaches_back("你好呀"));
+        assert!(!reaches_back("想你了"));
+        assert!(about_her("你最近在听什么歌"));
+        assert!(!about_her("吃ガスト了"));
+    }
 
     #[test]
     fn she_thinks_what_to_look_for_and_goes_through_it() {
