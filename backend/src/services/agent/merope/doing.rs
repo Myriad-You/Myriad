@@ -609,12 +609,38 @@ async fn choice_input(db: &DatabaseConnection, hand: &AtHand, pace: &[String]) -
         "yourPace": pace,
         "sameThingLately": myriad_merope::doing::same_run(&kinds),
         "keepsGettingToYou": taste.liked_by(3),
-        "yourViews": super::views::held(db, 5).await,
+        "yourViews": views_for(db, options).await,
         "yourWants": super::wants::lines(&super::wants::open(db).await),
         "whoYouHaveBeen": super::self_story::current(db).await,
         "options": option_views,
     })
     .to_string()
+}
+
+/// Views in mind as she picks: those the things at hand touch (a view of
+/// an artist when their song is there), then her latest, five in all.
+async fn views_for(db: &DatabaseConnection, options: &[Thing]) -> Vec<String> {
+    const SHOWN: usize = 5;
+    const TOUCHED: usize = 4;
+    let words = options
+        .iter()
+        .map(|thing| format!("{} {}", thing.title(), thing.by().unwrap_or_default()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut views: Vec<String> = super::views::touched(db, &words, TOUCHED)
+        .await
+        .into_iter()
+        .map(|(about, view)| format!("{about}: {view}"))
+        .collect();
+    for view in super::views::held(db, SHOWN as u64).await {
+        if views.len() >= SHOWN {
+            break;
+        }
+        if !views.contains(&view) {
+            views.push(view);
+        }
+    }
+    views
 }
 
 /// What she took up at a free moment.
