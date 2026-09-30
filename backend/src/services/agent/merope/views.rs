@@ -16,7 +16,7 @@
 use std::sync::{LazyLock, Mutex};
 
 use chrono::{NaiveDate, Utc};
-use sea_orm::DatabaseConnection;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 
 use crate::models::entities::agent_memories;
@@ -34,6 +34,8 @@ const EXPERIENCES: usize = 60;
 /// Views matched against; the most recent of them go into the prompt.
 const HELD: u64 = 300;
 const HELD_IN_PROMPT: usize = 60;
+/// A view not borne out again for this long fades.
+const VIEW_FADES_AFTER: chrono::Duration = chrono::Duration::days(60);
 /// Her own time older than this fades; the views it grew into stay.
 const FADE_AFTER: chrono::Duration = chrono::Duration::days(30);
 const PURGE_AFTER: chrono::Duration = chrono::Duration::days(90);
@@ -108,6 +110,12 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     if experiences.len() < 2 || !anything_new {
         return;
     }
+    // The views shown, numbered, so she can say which ones hold up.
+    let shown: Vec<(String, String, String)> = held
+        .iter()
+        .take(HELD_IN_PROMPT)
+        .filter_map(|row| view_of(row).map(|(about, view)| (row.id.clone(), about, view)))
+        .collect();
     let input = json!({
         "experiences": experiences
             .iter()
@@ -120,11 +128,10 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
                 }))
             })
             .collect::<Vec<_>>(),
-        "views": held
+        "views": shown
             .iter()
-            .take(HELD_IN_PROMPT)
-            .filter_map(view_of)
-            .map(|(about, view)| json!({ "about": about, "view": view }))
+            .enumerate()
+            .map(|(i, (_, about, view))| json!({ "i": i, "about": about, "view": view }))
             .collect::<Vec<_>>(),
     })
     .to_string();
@@ -139,6 +146,28 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         tracing::info!("[Merope] could not go over her own time");
         return;
     };
+    // Views the experiences bear out again stay fresh; the rest age.
+    let borne_out: Vec<String> = changes
+        .borne_out
+        .iter()
+        .filter(|borne| borne.from.iter().any(|index| *index < experiences.len()))
+        .filter_map(|borne| shown.get(borne.i).map(|(id, _, _)| id.clone()))
+        .collect();
+    if !borne_out.is_empty() {
+        let now = Utc::now().fixed_offset();
+        if let Err(error) = agent_memories::Entity::update_many()
+            .col_expr(
+                agent_memories::Column::UpdatedAt,
+                sea_orm::sea_query::Expr::value(now),
+            )
+            .filter(agent_memories::Column::Id.is_in(borne_out.clone()))
+            .filter(agent_memories::Column::Venue.eq(unified::OWN_VENUE))
+            .exec(db)
+            .await
+        {
+            tracing::warn!(%error, "[Merope] could not keep her borne-out views fresh");
+        }
+    }
     // What she holds, kept current as this pass changes it.
     let mut holding: Vec<(String, String, String)> = held
         .iter()
@@ -205,6 +234,13 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
 /// Her own time older than a month fades once its views are drawn; faded
 /// rows go for good later. Runs each night, apart from going over.
 pub async fn let_fade(db: &DatabaseConnection) {
+    // A view nothing has borne out for this long is a taste no longer acted
+    // on: it fades.
+    match unified::fade_source(db, unified::OWN_VIEW, VIEW_FADES_AFTER).await {
+        Ok(faded) if faded > 0 => tracing::info!(faded, "[Merope] views no longer borne out faded"),
+        Ok(_) => {}
+        Err(error) => tracing::warn!(%error, "[Merope] could not let old views fade"),
+    }
     match unified::fade_own_experiences(db, FADE_AFTER, PURGE_AFTER).await {
         Ok((faded, purged)) if faded + purged > 0 => {
             tracing::info!(faded, purged, "[Merope] older own time faded")
@@ -332,6 +368,11 @@ mod tests {
         assert_eq!(parsed[0].0, "amazarashi");
         assert!(parse_views(r#"{"views":[{"about":"x","view":"y"}]}"#).is_none());
         assert_eq!(parse_views(r#"{"views":[]}"#), Some(Vec::new()));
+        // A view the night's experiences bear out again is said so, by its i.
+        assert!(prompt.contains("a view nothing bears out for a long while fades"));
+        let changes = parse(r#"{"views":[],"borneOut":[{"i":1,"from":[0,3]}]}"#).expect("changes");
+        assert_eq!(changes.borne_out[0].i, 1);
+        assert_eq!(changes.borne_out[0].from, vec![0, 3]);
     }
 
     #[test]
