@@ -196,5 +196,5 @@ test('outfit changes stay on the live player instead of exiting the stage', () =
   assert.doesNotMatch(character, /\[gpuEpoch, onPlaybackError\]/)
   assert.match(player, /async replaceLivePackage/)
   assert.match(player, /await loadImage\(atlasUrl/)
-  assert.match(player, /this\.atlasTexture = nextTexture/)
+  assert.match(player, /this\.atlasTexture = prepared\.texture/)
 })

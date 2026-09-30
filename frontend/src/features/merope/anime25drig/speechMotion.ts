@@ -1,20 +1,11 @@
 import type { SpeechViseme } from '../rig/articulation'
 import type { TextVisemeCue } from '../speech/textVisemes'
-import {
-  isMajorVisualSpeechPause,
-  MAX_VISUAL_SPEECH_TEXT_UNITS,
-  visualSpeechPauseActivity,
-} from '../speech/textTiming'
+import { isMajorVisualSpeechPause, MAX_VISUAL_SPEECH_TEXT_UNITS, visualSpeechPauseActivity } from '../speech/textTiming'
 import { compileTextVisemes } from '../speech/textVisemes'
-import {
-  SPEECH_ACCENT_BROW_ATTACK,
-  SPEECH_ACCENT_BROW_RELEASE,
-  SPEECH_ACCENT_HEAD_ATTACK,
-  SPEECH_ACCENT_HEAD_DELAY,
-  SPEECH_ACCENT_HEAD_RELEASE,
-  SPEECH_TEXT_ACCENT_ATTACK,
-  SPEECH_TEXT_ACCENT_RELEASE,
-} from './speechExpression'
+import { SPEECH_ACCENT_BROW_ATTACK, SPEECH_ACCENT_BROW_RELEASE, SPEECH_ACCENT_HEAD_ATTACK, SPEECH_ACCENT_HEAD_DELAY, SPEECH_ACCENT_HEAD_RELEASE, SPEECH_TEXT_ACCENT_ATTACK, SPEECH_TEXT_ACCENT_RELEASE } from './speechExpression'
+import { attackReleasePulse, clamp, closestViseme, mix, smootherstep, speechPhraseAmplitudeScale, speechPhraseIntervalScale, visemeValue } from './speechMotionCurves'
+
+export { speechPhraseAmplitudeScale, speechPhraseIntervalScale } from './speechMotionCurves'
 
 export interface AutoSpeechPose {
   mouthOpen: number
@@ -49,18 +40,6 @@ const ZERO_SPEECH: AutoSpeechPose = {
   phraseActivity: 0,
   browAccent: 0,
   headAccent: 0,
-}
-
-export function speechPhraseAmplitudeScale(progress: number): number {
-  const bounded = unitInterval(progress)
-  const onset = mix(0.88, 1, smootherstep(bounded / 0.16))
-  const ending = mix(1, 0.82, smootherstep((bounded - 0.72) / 0.28))
-  return onset * ending
-}
-
-export function speechPhraseIntervalScale(progress: number): number {
-  const bounded = unitInterval(progress)
-  return mix(1, 1.18, smootherstep((bounded - 0.72) / 0.28))
 }
 
 export class AutoSpeechController {
@@ -614,77 +593,4 @@ export class AutoSpeechController {
     const value = this.random()
     return Number.isFinite(value) ? clamp(value, 0, 1) : 0.5
   }
-}
-
-function visemeValue(
-  viseme: SpeechViseme,
-  channel: 'open' | 'wide' | 'round' | 'narrow' | 'seal',
-): number {
-  if (channel === 'seal') return viseme === 'closed' ? 1 : 0
-  if (channel === 'open') {
-    if (viseme === 'open') return 0.78
-    if (viseme === 'wide') return 0.54
-    if (viseme === 'round') return 0.64
-    if (viseme === 'narrow') return 0.34
-    return 0
-  }
-  return viseme === channel ? 1 : 0
-}
-
-function closestViseme(pose: Readonly<AutoSpeechPose>): SpeechViseme {
-  const candidates: SpeechViseme[] = [
-    'rest',
-    'closed',
-    'open',
-    'wide',
-    'round',
-    'narrow',
-  ]
-  let closest: SpeechViseme = 'rest'
-  let closestDistance = Number.POSITIVE_INFINITY
-  for (const candidate of candidates) {
-    const distance =
-      Math.abs(pose.mouthOpen - visemeValue(candidate, 'open')) +
-      Math.abs(pose.mouthWide - visemeValue(candidate, 'wide')) +
-      Math.abs(pose.mouthRound - visemeValue(candidate, 'round')) +
-      Math.abs(pose.mouthNarrow - visemeValue(candidate, 'narrow')) +
-      Math.abs(pose.mouthSeal - visemeValue(candidate, 'seal'))
-    if (distance < closestDistance) {
-      closest = candidate
-      closestDistance = distance
-    }
-  }
-  return closest
-}
-
-function smootherstep(value: number): number {
-  const bounded = clamp(value, 0, 1)
-  return bounded * bounded * bounded * (bounded * (bounded * 6 - 15) + 10)
-}
-
-function mix(from: number, to: number, amount: number): number {
-  return from + (to - from) * amount
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
-}
-
-function unitInterval(value: number): number {
-  return Number.isFinite(value) ? clamp(value, 0, 1) : 0
-}
-
-function attackReleasePulse(
-  elapsed: number,
-  delay: number,
-  attack: number,
-  release: number,
-): number {
-  const shifted = elapsed - delay
-  if (!Number.isFinite(shifted) || shifted < 0) return 0
-  if (shifted < attack) return smootherstep(shifted / attack)
-  if (shifted < attack + release) {
-    return 1 - smootherstep((shifted - attack) / release)
-  }
-  return 0
 }

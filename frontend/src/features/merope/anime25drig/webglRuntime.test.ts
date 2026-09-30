@@ -94,10 +94,10 @@ test('accessory alpha patch reaches the same GPU atlas with premultiplied pixels
     [100, 50, 25, 128, 0, 0, 0, 0],
   )
   assert.deepEqual(Iterator.from(pixels).toArray(), [200, 100, 50, 128, 90, 80, 70, 0])
-  const player = readFileSync(new URL('./player.ts', import.meta.url), 'utf8')
+  const livePackage = readFileSync(new URL('./playerPackage.ts', import.meta.url), 'utf8')
   assert.match(
-    player,
-    /createAtlasTexture\(this.gl, image, compiled.atlasPatches\)/,
+    livePackage,
+    /createAtlasTexture\(gl, image, compiled.atlasPatches\)/,
   )
 })
 

@@ -4,11 +4,13 @@ import type { Anime25DIrisRebound } from './irisRebound'
 import type { JellyElement } from './jellyVolume'
 import type { Anime25DGpuLayer } from './layerGpuBinding'
 import type { Anime25DMouthDeformationFrame } from './mouthDeformation'
+import type { Anime25DFrameWork } from './performanceTelemetry'
 import type { Anime25DSecondaryDeformationFrame } from './secondaryDeformation'
 import type { Anime25DPlaybackAnchors } from './types'
 import { BODY_HEAD_FOLLOW } from './collarRuntime'
 import { applyCropBoundary } from './cropBoundary'
 import { cryTearHorizontalOffset, cryTearVerticalOffset } from './cryMotion'
+import { markAnime25DLayerGeometryUpdated, shouldUpdateAnime25DLayerGeometry } from './deformationDependencies'
 import { deformAnime25DExpressionPoint } from './expressionDeformation'
 import { constrainHairSurface } from './hairSurface'
 import { jellyDisplacement } from './jellyVolume'
@@ -306,4 +308,81 @@ export function settleDependentLayers(
     }
   }
   return savedUploadBytes
+}
+
+/**
+ * Every visible layer this frame: its rigid carry, then its vertices when
+ * they can have moved. Counts the work when the frame is sampled.
+ */
+export function deformLayers(
+  layers: readonly Anime25DGpuLayer[],
+  context: LayerDeformationContext,
+  /** What changed since last frame (`captureAnime25DDeformationChanges`). */
+  deformationChanges: number,
+  jellyFor: (layer: Anime25DGpuLayer) => LayerJelly | undefined,
+  work: Anime25DFrameWork | undefined,
+): void {
+  for (const layer of layers) {
+    const visible =
+      shouldDeformLayer(layer.source, layer.frameOpacity) ||
+      Boolean(
+        layer.attachmentDependents?.some((child) =>
+          shouldDeformLayer(child.source, child.frameOpacity),
+        ),
+      )
+    const updateLocalGeometry = layer.deformationPlan.cacheable
+      ? shouldUpdateAnime25DLayerGeometry(
+          layer.deformationPlan,
+          deformationChanges,
+          visible,
+        )
+      : true
+    if (!visible) continue
+    const deformed = layer.surfaceContact?.unconstrained ?? layer.hairSurface?.candidate ?? layer.deformed
+    const vertexCount = layer.rest.length / 2
+    if (!layer.attachment && layer.shaderGlobalTransform) {
+      writeRigidLayerTransform(layer, context)
+    }
+    // Do not deform/mark it dirty and later upload into a null binding.
+    if (!layer.vertexBuffer) {
+      layer.geometryDirty = false
+      continue
+    }
+    if (!layer.localDynamic) {
+      if (work) {
+        work.shaderOnlyLayers += 1
+        work.skippedVertices += vertexCount
+        work.savedUploadBytes += deformed.byteLength
+      }
+      continue
+    }
+    if (!updateLocalGeometry) {
+      if (work) {
+        work.skippedVertices += vertexCount
+        work.savedUploadBytes += deformed.byteLength
+      }
+      continue
+    }
+    if (work) {
+      work.deformedLayers += 1
+      work.deformedVertices += vertexCount
+    }
+    const geometryChanged = deformLayerVertices(
+      layer,
+      context,
+      jellyFor(layer),
+    )
+    if (layer.deformationPlan.cacheable) {
+      markAnime25DLayerGeometryUpdated(layer.deformationPlan)
+    }
+    // Contact layers compare only their final output, never the intermediate
+    // free arm, against the surface retained by attachments and the GPU.
+    if (layer.surfaceContact) continue
+    if (!geometryChanged) {
+      layer.geometryDirty = false
+      if (work) work.savedUploadBytes += deformed.byteLength
+      continue
+    }
+    layer.geometryDirty = true
+  }
 }
