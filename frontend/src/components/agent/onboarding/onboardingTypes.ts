@@ -344,7 +344,8 @@ export function onboardingSeedsFromProfile(value: unknown): {
 
 export function parseList(value: string): string[] {
   return value
-    .split(/[、，;/|]/)
+    // Items are separated by 、 (or ; in English); a comma is inside one.
+    .split(/[、;/|]/)
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 12)

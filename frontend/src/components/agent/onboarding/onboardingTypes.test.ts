@@ -80,6 +80,13 @@ test('upper-body visual identity requires every frozen design field', () => {
   )
 })
 
+test('parseList keeps a Chinese comma inside one item', () => {
+  assert.deepEqual(parseList('嘴上挑剔，其实很容易被打动、雨停以后的空气'), [
+    '嘴上挑剔，其实很容易被打动',
+    '雨停以后的空气',
+  ])
+})
+
 test('parseList keeps commas inside an English item', () => {
   assert.deepEqual(parseList('Blunt mouth, soft heart、Recharges alone'), [
     'Blunt mouth, soft heart',

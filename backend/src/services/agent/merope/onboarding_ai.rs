@@ -1278,8 +1278,9 @@ fn list_value(value: &Value) -> Option<Vec<String>> {
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect::<Vec<_>>(),
+        // Items are separated by 、 (or ; in English); a comma is inside one.
         Value::String(value) => value
-            .split(['、', '，', ';', '/', '|'])
+            .split(['、', ';', '/', '|'])
             .map(str::to_string)
             .collect(),
         _ => return None,
@@ -1724,5 +1725,48 @@ mod tests {
         assert!(input.get("socialStyle").is_none());
         assert!(input.get("speechStyle").is_none());
         assert!(input.get("displayName").is_none());
+    }
+}
+
+#[cfg(test)]
+mod live {
+    /// A write-up imported with the import prompt, on the site's everyday
+    /// model (onboarding itself asks the Pro tier), printed with whether it
+    /// passes the draft gates: MEROPE_IMPORT_SOURCE is a file holding it;
+    /// never kept.
+    #[tokio::test]
+    #[ignore = "asks the site's model"]
+    async fn a_write_up_imported() {
+        let _db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        let source =
+            std::fs::read_to_string(std::env::var("MEROPE_IMPORT_SOURCE").unwrap()).unwrap();
+        let input = serde_json::json!({
+            "pipeline": "onboarding/persona-import",
+            "task": "import_character_persona",
+            "name": "若泉 绮羽",
+            "language": "zh-CN",
+            "genderPresentation": "female",
+            "source": source,
+            "rollId": "i1",
+        })
+        .to_string();
+        let model =
+            super::super::call::Ask::new(super::super::call::Voice::HersAtLength, 1, "onboarding")
+                .within(std::time::Duration::from_secs(120))
+                .model()
+                .await
+                .unwrap();
+        let raw = model
+            .text(super::IMPORT_PERSONA_SYSTEM_PROMPT, &input)
+            .await
+            .unwrap();
+        let parsed = super::parse_json_object(&raw).expect("JSON");
+        println!("{}", serde_json::to_string_pretty(&parsed).unwrap());
+        println!(
+            "full: {}  language: {}  sludge or quoted lines: {}",
+            super::persona_draft_meets_generation_quality(&parsed),
+            super::persona_matches_ui_language(&parsed, "zh-CN"),
+            myriad_merope::persona_has_literary_sludge(&parsed)
+        );
     }
 }

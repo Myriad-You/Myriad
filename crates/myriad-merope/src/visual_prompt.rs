@@ -1371,11 +1371,18 @@ pub fn persona_literary_sludge_in(text: &str) -> bool {
     })
 }
 
+/// A line quoted in a setting is said forever after: the setting says how
+/// someone talks, never what they say.
+const QUOTE_MARKS: &[char] = &['「', '」', '『', '』', '“', '”', '"'];
+
+pub fn persona_quotes_a_line_in(text: &str) -> bool {
+    text.contains(QUOTE_MARKS)
+}
+
 pub fn persona_has_literary_sludge(value: &Value) -> bool {
-    any_string_matches(
-        value.get("persona").unwrap_or(value),
-        persona_literary_sludge_in,
-    )
+    let persona = value.get("persona").unwrap_or(value);
+    any_string_matches(persona, persona_literary_sludge_in)
+        || any_string_matches(persona, persona_quotes_a_line_in)
 }
 
 fn any_string_matches(value: &Value, check: fn(&str) -> bool) -> bool {
@@ -1757,6 +1764,12 @@ mod tests {
         assert!(persona_literary_sludge_in("像把话在心里过完整才肯露面"));
         assert!(persona_literary_sludge_in("色彩取自叠在杯底过夜的纸条"));
         assert!(!persona_literary_sludge_in("先听，熟了才肯把句子拉长"));
+        assert!(persona_has_literary_sludge(&json!({
+            "persona": { "speechStyle": "否决时只丢一句「不是这个」，随即拐回玩笑。" }
+        })));
+        assert!(!persona_has_literary_sludge(&json!({
+            "persona": { "speechStyle": "不喜欢的会直说，说完就换个话题。" }
+        })));
         assert!(persona_has_literary_sludge(&json!({
             "persona": {
                 "likes": ["色彩取自过夜的纸条"]

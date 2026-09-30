@@ -967,3 +967,79 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod live {
+    /// How she takes the same few things with the persona as it is, and as
+    /// kept in MEROPE_SOUL_BEFORE (a JSON file with `personality` and
+    /// `persona_json`), a few times each, printed: read only.
+    #[tokio::test]
+    #[ignore = "reads the site's persona and asks its model"]
+    async fn the_same_things_by_two_personas() {
+        let db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        let now = super::super::store::get_persona(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut souls = vec![(
+            "now",
+            super::super::speaking_prompts::format_persona(&now).unwrap(),
+        )];
+        if let Ok(path) = std::env::var("MEROPE_SOUL_BEFORE") {
+            let kept: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let mut before = now.clone();
+            before.personality = kept["personality"].as_str().unwrap().to_string();
+            before.persona_json = Some(kept["persona_json"].clone());
+            souls.insert(
+                0,
+                (
+                    "before",
+                    super::super::speaking_prompts::format_persona(&before).unwrap(),
+                ),
+            );
+        }
+        let things = [
+            (
+                "listening to the song 「纸飞机」 by 小岛乐队",
+                "把旧车票折成纸飞机\n从六楼往下放\n风把它带过了晾衣绳\n我在窗口数到三\n它没回来 也好\n反正我也没想去哪",
+            ),
+            (
+                "listening to the song 「袜子去哪了」 by 午后猫",
+                "洗衣机吃掉了我的左袜子\n右袜子一个人很寂寞\n我给它画了一张寻人启事\n贴在冰箱上 猫看了一眼\n猫知道 猫不说",
+            ),
+            (
+                "reading part 3 of 「Treasure Island」 by Robert Louis Stevenson",
+                "\"Pieces of eight! pieces of eight!\" cried the parrot. Long John Silver laughed and fed it a crumb. \"She's two hundred years old, Hawkins — they live for ever mostly; and if anybody's seen more wickedness, it must be the devil himself.\"",
+            ),
+        ];
+        let runs: usize = std::env::var("MEROPE_RUNS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(3);
+        for (label, soul) in &souls {
+            for (what, material) in &things {
+                for _ in 0..runs {
+                    let (system, schema) =
+                        super::digest_probe_contract(soul, what, "", Some(material));
+                    let input = super::digest_probe_input(Some(material), &[], &[], None);
+                    let raw = super::call::Ask::new(super::call::Voice::Hers, 1, "doing_digest")
+                        .within(std::time::Duration::from_secs(60))
+                        .json_raw(&system, &input, super::DIGEST_SCHEMA, &schema)
+                        .await
+                        .unwrap_or_default();
+                    let value: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+                    println!(
+                        "{label}\t{}\t{}\t{}",
+                        what.chars().take(24).collect::<String>(),
+                        value["reaction"].as_str().unwrap_or("?"),
+                        value["impression"]
+                            .as_str()
+                            .unwrap_or(&raw)
+                            .replace('\n', " ")
+                    );
+                }
+            }
+        }
+    }
+}

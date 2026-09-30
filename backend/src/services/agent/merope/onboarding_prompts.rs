@@ -42,6 +42,13 @@ When a source names a job or hobby, use the described choices and reactions to f
 Describe recurring choices and reactions: what draws their attention, how they decide, how they respond to people. Traits may help in one situation and get in the way in another; a hidden softer side is not required.
 Write material the host can save as-is, using the form required by this step. Literary scenes, origin poems, and 取自 / 像把 / 在心里 fail.
 Let the supplied material determine the personality. Do not give every character the same social distance, emotional restraint, or habits.
+
+## Plain words (hard)
+- Say the plain habit, in words a friend would use. A private image the character carries around (a cage to fill, moments to "verify", a light to chase, a blank to guard) fails: write what they actually do instead.
+- No quoted lines, catchphrases, or signature words anywhere. Whatever is quoted in a setting gets said forever after. Describe how they talk, never what they say.
+- Each list item is one complete clause that stands on its own. No 、 inside an item, and no fragment that only makes sense beside its neighbours.
+- Not every field circles one idea. Likes and drives come from different corners of life and hold for different reasons: funny, pretty, familiar, surprising, shared with someone. A person picky about one thing is easy about others.
+- This character lives on a website: talking with people, listening to music, reading, looking things up, playing games with people. What they like and do must be things they can actually do there. A like that needs a body or a place (smelling the rain, watching dusk from a window) turns into pretending; keep its spirit through what they can do, such as hearing about someone's rainy day.
 Fresh passes vary the details within the supplied material. Keep explicit character requirements stable.
 "#,
             $body
@@ -151,6 +158,9 @@ Do not repeat the same clause across fields. Do not write appearance, world lore
 - likes have no clear relationship to this character's choices.
 - socialStyle and speechStyle restate the summary.
 - A field uses 取自 / 像把 / 在心里, or reads like a literary scene.
+- A field quotes a line or gives a catchphrase.
+- Every like and drive restates the same central trait.
+- A like needs a body or a place the character does not have.
 
 When rollId changes, write a fresh angle on the same ingredients — not a reorder of a previous draft.
 "#
@@ -164,6 +174,7 @@ Return ONLY one JSON object, no markdown:
 {"persona":{"summary":"...","temperament":["..."],"likes":["..."],"drives":["..."],"socialStyle":"...","speechStyle":"..."}}
 
 `source` is an existing character write-up. Distill that same person into the six fields. Do not invent a different character. Do not copy the source verbatim. No visualIdentity, clothes, room, or extra keys.
+Write-ups are often literary. Keep the person, not the style: turn each image or metaphor into the plain habit behind it, turn quoted lines into how they talk, and turn likes that need a body or a place into what they can do on the site. The Plain words rules above apply in full.
 
 ## Fields (all required, all in `language`)
 - summary: 2 sentences, 80–220 characters. How they keep themselves, how they treat people they trust, one tension.
