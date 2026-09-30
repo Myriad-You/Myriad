@@ -463,6 +463,24 @@ pub fn format_us_section(
     Some(format!("## What they are to you\n{}", lines.join("\n")))
 }
 
+/// What the last days in this group were like, as she remembered each
+/// night: (date, what it was like), oldest first. The group's own, heard
+/// only there.
+pub fn format_group_days_section(days: &[(String, String)]) -> Option<String> {
+    let lines: Vec<String> = days
+        .iter()
+        .filter(|(_, text)| !text.trim().is_empty())
+        .map(|(day, text)| format!("- {day}: {}", text.trim()))
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "## Lately in this group\nWhat the last days here were like, as you remember them, oldest first:\n{}",
+        myriad_agent_rules::untrusted_block("group_days", &lines.join("\n"))
+    ))
+}
+
 /// What only she and this person share: (handle, how it goes).
 pub fn format_bits_section(bits: &[(String, String)], group: bool) -> Option<String> {
     if bits.is_empty() {
@@ -624,6 +642,22 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_group_remembers_its_last_days_oldest_first() {
+        assert_eq!(format_group_days_section(&[]), None);
+        assert_eq!(
+            format_group_days_section(&[("09-28".into(), " ".into())]),
+            None
+        );
+        let section = format_group_days_section(&[
+            ("09-28".into(), "大家在吵海带汤算不算韩国风".into()),
+            ("09-29".into(), "染川出了海龟汤，没人猜中".into()),
+        ])
+        .unwrap();
+        assert!(section.starts_with("## Lately in this group"));
+        assert!(section.find("09-28").unwrap() < section.find("09-29").unwrap());
+    }
 
     #[test]
     fn what_they_are_to_her_is_hers_and_dated() {

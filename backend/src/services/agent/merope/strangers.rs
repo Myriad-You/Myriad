@@ -141,6 +141,10 @@ pub async fn reply(
     {
         sections.push(block);
     }
+    if let Some(block) = super::format_group_days_section(&super::bits::days_in(db, venue, 3).await)
+    {
+        sections.push(block);
+    }
     if let Some(block) = super::format_views_section(&super::views::touched(db, words, 2).await) {
         sections.push(block);
     }

@@ -28,12 +28,14 @@ use serde_json::{Value, json};
 
 use crate::services::agent::memory::unified::{self, Audience, Concept};
 use myriad_merope::bits::{
-    ChangeKind, Changes, MAX_CHANGES, SCHEMA_NAME, US_CHARS, same_handle, schema, system,
+    ChangeKind, Changes, DAY_CHARS, MAX_CHANGES, SCHEMA_NAME, US_CHARS, same_handle, schema, system,
 };
 
 pub const SOURCE: &str = "bit";
 /// What someone is to her, kept with them, heard only in private with them.
 pub const US_SOURCE: &str = "us";
+/// What a day in a group was like, kept in that group, heard only there.
+pub const DAY_SOURCE: &str = "group_day";
 /// People and groups gone over per night, and how much of a day with each.
 const PEOPLE_PER_NIGHT: i64 = 10;
 const GROUPS_PER_NIGHT: i64 = 5;
@@ -294,8 +296,11 @@ pub async fn go_over(
         let Some(changes) = raw.ok().and_then(|raw| parse(&raw)) else {
             continue;
         };
-        if let Circle::Person(user_id) = circle {
-            put_us(db, user_id, &changes.us, now_us.as_ref()).await;
+        match &circle {
+            Circle::Person(user_id) => {
+                put_us(db, *user_id, &changes.us, now_us.as_ref()).await;
+            }
+            Circle::Group { .. } => put_day(db, &circle, &changes.day, start).await,
         }
         for change in changes.bits.into_iter().take(MAX_CHANGES) {
             let handle: String = change.handle.trim().chars().take(30).collect();
@@ -341,6 +346,9 @@ pub async fn go_over(
             }
         }
     }
+    if let Err(error) = unified::fade_source(db, DAY_SOURCE, FADE_AFTER).await {
+        tracing::warn!(%error, "[Merope] could not let old group days fade");
+    }
     match unified::fade_source(db, SOURCE, FADE_AFTER).await {
         Ok(faded) if faded > 0 => tracing::info!(faded, "[Merope] bits faded"),
         Ok(_) => {}
@@ -349,6 +357,56 @@ pub async fn go_over(
     if kept > 0 {
         tracing::info!(kept, "[Merope] bits kept");
     }
+}
+
+/// Keep what the day in a group was like, if anything happened.
+async fn put_day(db: &DatabaseConnection, circle: &Circle, said: &str, day: DateTime<FixedOffset>) {
+    let text: String = said.trim().chars().take(DAY_CHARS).collect();
+    if text.is_empty() {
+        return;
+    }
+    let _ = unified::remember(
+        db,
+        unified::NewMemory {
+            user_id: circle.keeper(),
+            kind: unified::MemoryKind::Fact,
+            content: text,
+            evidence: Some(json!({ "day": day.format("%Y-%m-%d").to_string() }).to_string()),
+            speaker: unified::Speaker::Agent,
+            source: DAY_SOURCE,
+            // Heard only in that group, where it happened.
+            audience: circle.audience(),
+            importance: 0.5,
+            concepts: Vec::new(),
+        },
+    )
+    .await;
+}
+
+/// What the last days in a group (`venue` as sessions keep it) were like,
+/// oldest first: (date, what it was like).
+pub async fn days_in(db: &DatabaseConnection, venue: &str, limit: u64) -> Vec<(String, String)> {
+    let circle = Circle::Group {
+        venue: venue.to_string(),
+        keeper: 0,
+    };
+    let mut days: Vec<(String, String)> =
+        unified::venue_source_rows(db, None, &circle.audience().venue(), DAY_SOURCE, limit)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| {
+                let day = row
+                    .evidence
+                    .as_deref()
+                    .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+                    .and_then(|evidence| evidence.get("day")?.as_str().map(str::to_string))
+                    .unwrap_or_else(|| row.created_at.format("%Y-%m-%d").to_string());
+                (day, row.content)
+            })
+            .collect();
+    days.reverse();
+    days
 }
 
 /// What they are to her as she last put it.
@@ -571,6 +629,18 @@ mod tests {
                 .unwrap();
         assert!(changes.us.contains("担心"));
         assert_eq!(parse(r#"{"bits":[]}"#).unwrap().us, "");
+    }
+
+    #[test]
+    fn a_groups_day_is_remembered_there_and_only_what_happened() {
+        let group = system("你是小灯。", true);
+        assert!(group.contains("day is what today was like in this group"));
+        assert!(group.contains("empty if nothing much happened"));
+        assert!(!system("你是小灯。", false).contains("day is what"));
+        assert_eq!(schema(true)["required"], json!(["bits", "day"]));
+        assert!(schema(false)["properties"].get("day").is_none());
+        let changes = parse(r#"{"bits":[],"day":"大家在吵海带汤算不算韩国风"}"#).unwrap();
+        assert!(changes.day.contains("海带汤"));
     }
 
     #[test]

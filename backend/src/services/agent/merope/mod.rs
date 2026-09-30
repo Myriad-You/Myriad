@@ -498,11 +498,11 @@ async fn carried(db: &sea_orm::DatabaseConnection, user_id: i32) -> Vec<(f64, f6
 pub use speaking_prompts::{
     addressee_speaking_section, format_activity_section, format_bits_section,
     format_brought_to_mind_section, format_curious_section, format_doing_section,
-    format_emotion_section, format_found_out_section, format_inner_moment_ago_section,
-    format_mood_section, format_on_your_mind_section, format_own_days_section, format_persona,
-    format_playing_section, format_recent_section, format_remembered_section,
-    format_self_story_section, format_since_section, format_us_section, format_views_section,
-    group_speaking_section, guest_speaking_section, mood_tone_instruction,
+    format_emotion_section, format_found_out_section, format_group_days_section,
+    format_inner_moment_ago_section, format_mood_section, format_on_your_mind_section,
+    format_own_days_section, format_persona, format_playing_section, format_recent_section,
+    format_remembered_section, format_self_story_section, format_since_section, format_us_section,
+    format_views_section, group_speaking_section, guest_speaking_section, mood_tone_instruction,
 };
 
 /// Prompt sections for whoever this turn is speaking to. Empty when Merope is off.
@@ -625,6 +625,8 @@ const DOING_RELATED: usize = 2;
 const VIEWS_LIMIT: usize = 2;
 /// Bits between her and them, freshest first.
 const BITS_LIMIT: u64 = 3;
+/// Days in a group she has in mind when she talks there.
+const GROUP_DAYS: u64 = 3;
 /// Her own unprompted lines a chat turn should know it said.
 const SAID_UNPROMPTED_LIMIT: u64 = 3;
 const SAID_UNPROMPTED_WITHIN_HOURS: i64 = 6;
@@ -930,6 +932,13 @@ async fn speaking_prompt_from_db(
         };
         if let Some(block) = format_bits_section(&shared, group) {
             sections.push(block);
+        }
+        // What the last days in this group were like: the group's own.
+        if let Some(venue) = present.group_id() {
+            let days = bits::days_in(db, venue, GROUP_DAYS).await;
+            if let Some(block) = format_group_days_section(&days) {
+                sections.push(block);
+            }
         }
         // What they are to her: private, never in a group.
         if !group {
