@@ -454,12 +454,14 @@
       "busiest": "가장 많은 호출",
       "notesLeanOn": "메모 입버릇",
       "repliesLeanOn": "답장 입버릇",
+      "repliesAsking": "질문으로 끝나는 답장",
       "alerts": {
         "unreadable": "그녀 자신의 기록 {count}건을 읽을 수 없음",
         "failedCalls": "호출 {calls}회 중 {failed}회 실패",
         "stopped": "매일 있던 {source}가 이날 없음",
         "notesLeanOn": "메모의 {percent}%에 「{phrase}」",
         "repliesLeanOn": "답장의 {percent}%에 「{phrase}」",
+        "repliesAsking": "답장의 {percent}%가 질문으로 끝남",
         "slowReplies": "느린 10%의 답장이 {seconds}초 초과",
         "manyCalls": "호출 {calls}회, 평소({usual})의 2배 초과"
       }

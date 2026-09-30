@@ -454,12 +454,14 @@
       "busiest": "Most calls",
       "notesLeanOn": "Notes lean on",
       "repliesLeanOn": "Replies lean on",
+      "repliesAsking": "Replies ending in a question",
       "alerts": {
         "unreadable": "{count} of her own records cannot be read back",
         "failedCalls": "{failed} of {calls} calls failed",
         "stopped": "no {source} kept, after every day before",
         "notesLeanOn": "「{phrase}」 in {percent}% of her notes",
         "repliesLeanOn": "「{phrase}」 in {percent}% of her replies",
+        "repliesAsking": "{percent}% of her replies end in a question",
         "slowReplies": "one reply in ten took over {seconds}s",
         "manyCalls": "{calls} calls, over twice the usual {usual}"
       }

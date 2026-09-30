@@ -736,6 +736,7 @@ export type MindAlert =
   | { kind: 'stopped'; source: string }
   | { kind: 'notesLeanOn'; phrase: string; percent: number }
   | { kind: 'repliesLeanOn'; phrase: string; percent: number }
+  | { kind: 'repliesAsking'; percent: number }
   | { kind: 'slowReplies'; seconds: number }
   | { kind: 'manyCalls'; calls: number; usual: number }
 
@@ -757,6 +758,7 @@ export interface MindVitalsDay {
   replyP90?: number | null
   notesLeanOn: [string, number][]
   repliesLeanOn: [string, number][]
+  repliesAsking?: number | null
   alerts: MindAlert[]
 }
 

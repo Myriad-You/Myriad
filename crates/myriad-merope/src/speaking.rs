@@ -298,13 +298,7 @@ pub fn format_habits_section<S: AsRef<str>>(hers: &[S]) -> Option<String> {
     }
     let asking = recent
         .iter()
-        .filter(|reply| {
-            reply
-                .lines()
-                .map(str::trim)
-                .rfind(|line| !line.is_empty() && !line.starts_with("[["))
-                .is_some_and(|last| last.ends_with(['?', '？']))
-        })
+        .filter(|reply| crate::vitals::ends_asking(reply))
         .count();
     let mut lines = Vec::new();
     if asking * 10 >= recent.len() * 6 {

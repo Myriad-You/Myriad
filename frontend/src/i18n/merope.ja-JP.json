@@ -454,12 +454,14 @@
       "busiest": "呼び出し最多",
       "notesLeanOn": "メモの口癖",
       "repliesLeanOn": "返信の口癖",
+      "repliesAsking": "質問で終わる返信",
       "alerts": {
         "unreadable": "彼女自身の記録 {count} 件が読み戻せない",
         "failedCalls": "{calls} 回中 {failed} 回失敗",
         "stopped": "毎日あった {source} がこの日はない",
         "notesLeanOn": "メモの {percent}% に「{phrase}」",
         "repliesLeanOn": "返信の {percent}% に「{phrase}」",
+        "repliesAsking": "返信の {percent}% が質問で終わる",
         "slowReplies": "遅い一割の返信が {seconds} 秒超",
         "manyCalls": "呼び出し {calls} 回、普段（{usual}）の2倍超"
       }

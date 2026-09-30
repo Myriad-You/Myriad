@@ -39,6 +39,10 @@ pub struct Day {
     /// share of them each is in.
     pub notes_lean_on: Vec<(String, f64)>,
     pub replies_lean_on: Vec<(String, f64)>,
+    /// The share of her replies lately that ended by asking them something,
+    /// when there were enough of them to say.
+    #[serde(default)]
+    pub replies_asking: Option<f64>,
     /// What is worth raising.
     pub alerts: Vec<Alert>,
 }
@@ -65,6 +69,10 @@ pub enum Alert {
     },
     RepliesLeanOn {
         phrase: String,
+        percent: u64,
+    },
+    /// Most of her replies ended by asking them something.
+    RepliesAsking {
         percent: u64,
     },
     SlowReplies {
@@ -157,6 +165,19 @@ pub fn quantile(values: &[f64], quantile: f64) -> Option<f64> {
 /// A share of her notes or replies a phrase is in before it is worth raising.
 pub const LEANS_TOO_MUCH: f64 = 0.3;
 
+/// A share of her replies ending by asking before it is worth raising.
+pub const ASKS_TOO_MUCH: f64 = 0.6;
+
+/// Whether a reply ends by asking them something: its last line of words
+/// (not a stage direction) ends with a question mark.
+pub fn ends_asking(reply: &str) -> bool {
+    reply
+        .lines()
+        .map(str::trim)
+        .rfind(|line| !line.is_empty() && !line.starts_with("[["))
+        .is_some_and(|last| last.ends_with(['?', '？']))
+}
+
 /// What in `today` is worth raising, against the days before it (oldest
 /// first): things that stopped, went wrong, or went odd.
 pub fn alerts(today: &Day, before: &[Day]) -> Vec<Alert> {
@@ -206,6 +227,11 @@ pub fn alerts(today: &Day, before: &[Day]) -> Vec<Alert> {
             });
         }
     }
+    if let Some(share) = today.replies_asking.filter(|share| *share >= ASKS_TOO_MUCH) {
+        alerts.push(Alert::RepliesAsking {
+            percent: percent(share),
+        });
+    }
     if let Some(seconds) = today.reply_p90.filter(|seconds| *seconds > 30.0) {
         alerts.push(Alert::SlowReplies {
             seconds: seconds.round() as u64,
@@ -249,6 +275,9 @@ mod tests {
         assert!(leaned_on(&notes[..2], 0.3, 5).is_empty());
         assert_eq!(quantile(&[3.0, 1.0, 2.0], 0.5), Some(2.0));
         assert_eq!(quantile(&[], 0.5), None);
+        assert!(ends_asking("还好吧\n你呢？"));
+        assert!(ends_asking("你呢?\n[[motion:nod]]"));
+        assert!(!ends_asking("是吗？我觉得还行。"));
     }
 
     #[test]
@@ -263,6 +292,7 @@ mod tests {
             unreadable: 3,
             failed_calls: 80,
             reply_p90: Some(42.0),
+            replies_asking: Some(0.72),
             notes_lean_on: vec![("不是这个".into(), 0.36)],
             ..day(500, 0)
         };
@@ -279,6 +309,7 @@ mod tests {
             phrase: "不是这个".into(),
             percent: 36
         }));
+        assert!(raised.contains(&Alert::RepliesAsking { percent: 72 }));
         assert!(raised.contains(&Alert::SlowReplies { seconds: 42 }));
         assert!(raised.contains(&Alert::ManyCalls {
             calls: 500,

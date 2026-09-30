@@ -454,12 +454,14 @@
       "busiest": "呼叫最多",
       "notesLeanOn": "心得常用",
       "repliesLeanOn": "回覆常用",
+      "repliesAsking": "回覆以問句收尾",
       "alerts": {
         "unreadable": "有 {count} 條她自己的經歷讀不出來",
         "failedCalls": "{calls} 次呼叫裡失敗 {failed} 次",
         "stopped": "之前每天都有的「{source}」這天沒有",
         "notesLeanOn": "心得裡 {percent}% 出現「{phrase}」",
         "repliesLeanOn": "回覆裡 {percent}% 出現「{phrase}」",
+        "repliesAsking": "{percent}% 的回覆以問句收尾",
         "slowReplies": "最慢的一成回覆超過 {seconds} 秒",
         "manyCalls": "呼叫 {calls} 次，超過平常（{usual}）兩倍"
       }

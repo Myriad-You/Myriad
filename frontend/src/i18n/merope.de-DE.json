@@ -454,12 +454,14 @@
       "busiest": "Meiste Aufrufe",
       "notesLeanOn": "Notizen-Wendungen",
       "repliesLeanOn": "Antwort-Wendungen",
+      "repliesAsking": "Antworten, die mit einer Frage enden",
       "alerts": {
         "unreadable": "{count} ihrer eigenen Einträge sind nicht lesbar",
         "failedCalls": "{failed} von {calls} Aufrufen fehlgeschlagen",
         "stopped": "kein {source}, nach jedem Tag davor",
         "notesLeanOn": "„{phrase}“ in {percent}% ihrer Notizen",
         "repliesLeanOn": "„{phrase}“ in {percent}% ihrer Antworten",
+        "repliesAsking": "{percent}% ihrer Antworten enden mit einer Frage",
         "slowReplies": "jede zehnte Antwort über {seconds}s",
         "manyCalls": "{calls} Aufrufe, mehr als doppelt so viele wie üblich ({usual})"
       }

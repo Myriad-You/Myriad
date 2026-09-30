@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::services::agent::memory::unified;
 pub use myriad_merope::vitals::Day;
-use myriad_merope::vitals::{alerts, leaned_on, quantile};
+use myriad_merope::vitals::{alerts, ends_asking, leaned_on, quantile};
 
 pub const NAMESPACE: &str = "merope_vitals";
 const KEEP_DAYS: i64 = 400;
@@ -174,6 +174,10 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
         .filter_map(|row| row.try_get::<String>("", "content").ok())
         .collect();
         counted.replies_lean_on = leaned_on(&replies, LISTED_FROM, 5);
+        counted.replies_asking = (replies.len() >= 5).then(|| {
+            let asking = replies.iter().filter(|reply| ends_asking(reply)).count();
+            (asking as f64 / replies.len() as f64 * 100.0).round() / 100.0
+        });
     }
     counted
 }

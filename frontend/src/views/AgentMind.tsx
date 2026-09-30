@@ -256,6 +256,8 @@ export default function AgentMind() {
         return fill(copy.vitals.alerts.notesLeanOn, { phrase: alert.phrase, percent: alert.percent })
       case 'repliesLeanOn':
         return fill(copy.vitals.alerts.repliesLeanOn, { phrase: alert.phrase, percent: alert.percent })
+      case 'repliesAsking':
+        return fill(copy.vitals.alerts.repliesAsking, { percent: alert.percent })
       case 'slowReplies':
         return fill(copy.vitals.alerts.slowReplies, { seconds: alert.seconds })
       case 'manyCalls':
@@ -324,6 +326,9 @@ export default function AgentMind() {
           </div>
           <div>
             {copy.vitals.repliesLeanOn}：{leaning(latest.repliesLeanOn) || '—'}
+          </div>
+          <div>
+            {copy.vitals.repliesAsking}：{latest.repliesAsking != null ? `${Math.round(latest.repliesAsking * 100)}%` : '—'}
           </div>
         </div>
       </>

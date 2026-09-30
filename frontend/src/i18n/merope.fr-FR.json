@@ -454,12 +454,14 @@
       "busiest": "Plus d'appels",
       "notesLeanOn": "Tournures des notes",
       "repliesLeanOn": "Tournures des réponses",
+      "repliesAsking": "Réponses finissant par une question",
       "alerts": {
         "unreadable": "{count} de ses propres entrées sont illisibles",
         "failedCalls": "{failed} appels sur {calls} ont échoué",
         "stopped": "aucun {source}, après chaque jour précédent",
         "notesLeanOn": "« {phrase} » dans {percent}% de ses notes",
         "repliesLeanOn": "« {phrase} » dans {percent}% de ses réponses",
+        "repliesAsking": "{percent}% de ses réponses finissent par une question",
         "slowReplies": "une réponse sur dix a pris plus de {seconds}s",
         "manyCalls": "{calls} appels, plus du double de l'habitude ({usual})"
       }
