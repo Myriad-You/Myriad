@@ -13,16 +13,16 @@ import { JellyVolume } from './jellyVolume'
 const LID_JELLY: Readonly<JellyTuning> = {
   hz: 6,
   damping: 0.24,
-  gain: 0.65,
-  stretchLimit: 0.05,
+  gain: 0.75,
+  stretchLimit: 0.055,
   swayLimit: 0,
 }
 
 const GAZE_JELLY: Readonly<JellyTuning> = {
   hz: 6.5,
   damping: 0.26,
-  gain: 0.16,
-  stretchLimit: 0.035,
+  gain: 0.19,
+  stretchLimit: 0.04,
   swayLimit: 0,
 }
 

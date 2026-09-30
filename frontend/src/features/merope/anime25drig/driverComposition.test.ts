@@ -6,6 +6,7 @@ import {
   applyAnime25DComposedPose,
   applyAnime25DSillyMouthOwnership,
   applyAnime25DStylizedExpression,
+  BLINK_SECONDS,
   prepareAnime25DWorkingTarget,
   resolveAnime25DStylizedTargets,
   stepAnime25DBlink,
@@ -387,55 +388,52 @@ test('silly mouth ownership only attenuates owned speech channels', () => {
   )
 })
 
-test('blink stepping matches the frozen player state machine', () => {
-  const actualState = { activeSeconds: -1, nextAtSeconds: 0.12 }
-  const expectedState = { activeSeconds: -1, nextAtSeconds: 0.12 }
-  const randomValues = [0.4, 0.12, 0.7, 0.6, 0.25, 0.1]
-  let actualRandomIndex = 0
-  let expectedRandomIndex = 0
-  const actualRandom = () =>
-    randomValues[actualRandomIndex++ % randomValues.length]
-  const expectedRandom = () =>
-    randomValues[expectedRandomIndex++ % randomValues.length]
-
-  for (let frame = 0; frame < 240; frame += 1) {
-    const time = frame / 60
-    const dt = frame % 29 === 0 ? 1 / 30 : 1 / 60
-    const enabled = frame % 47 !== 0
-    const suppressed = frame >= 132 && frame < 139
-    const actual = { ...IDENTITY_DRIVER, eyeOpenL: 0.92, eyeOpenR: 0.87 }
-    const expected = { ...actual }
-    stepAnime25DBlink(
-      actual,
-      actualState,
-      time,
-      dt,
-      enabled,
-      suppressed,
-      actualRandom,
-    )
-    legacyStepBlink(
-      expected,
-      expectedState,
-      time,
-      dt,
-      enabled,
-      suppressed,
-      expectedRandom,
-    )
-    assert.deepEqual(actualState, expectedState, `state at frame ${frame}`)
-    assert.equal(
-      actual.eyeOpenL,
-      expected.eyeOpenL,
-      `left eye at frame ${frame}`,
-    )
-    assert.equal(
-      actual.eyeOpenR,
-      expected.eyeOpenR,
-      `right eye at frame ${frame}`,
-    )
+test('a blink shuts fast, stays shut a moment and opens a little slower', () => {
+  const state = { activeSeconds: -1, nextAtSeconds: 0 }
+  const lids: number[] = []
+  for (let frame = 0; frame < 60; frame += 1) {
+    const target = { ...IDENTITY_DRIVER }
+    stepAnime25DBlink(target, state, (frame + 1) / 120, 1 / 120, true, false, () => 0.5)
+    lids.push(target.eyeOpenL)
   }
-  assert.equal(actualRandomIndex, expectedRandomIndex)
+  const shutFrom = lids.findIndex((open) => open === 0)
+  const shutUntil = lids.findLastIndex((open) => open === 0)
+  const openedAt = lids.findIndex((open, index) => index > shutUntil && open === 1)
+  // Closing and holding take a little over a tenth of a second; the whole blink about a quarter.
+  assert.ok(shutFrom >= 7 && shutFrom <= 9, `shut at ${shutFrom}`)
+  assert.ok(shutUntil - shutFrom >= 3 && shutUntil - shutFrom <= 6, `held ${shutUntil - shutFrom}`)
+  assert.ok(Math.abs(openedAt / 120 - BLINK_SECONDS) < 0.02, `opened at ${openedAt / 120}`)
+  // The lid drops gathering speed and lifts quick at first.
+  assert.ok(1 - lids[1] < lids[3] - lids[5], `${lids.slice(0, 8)}`)
+  const lift = lids.slice(shutUntil + 1, openedAt)
+  assert.ok(lift[1] - lift[0] > lift.at(-1)! - lift.at(-2)!, `${lift}`)
+})
+
+test('a double blink leaves the eye open a moment between the two', () => {
+  const state = { activeSeconds: -1, nextAtSeconds: 0 }
+  // The second draw chooses the double blink.
+  const draws = [0.5, 0.1, 0.5, 0.9]
+  let draw = 0
+  const random = () => draws[draw++ % draws.length]
+  const lids: number[] = []
+  for (let frame = 0; frame < 120; frame += 1) {
+    const target = { ...IDENTITY_DRIVER }
+    stepAnime25DBlink(target, state, (frame + 1) / 120, 1 / 120, true, false, random)
+    lids.push(target.eyeOpenL)
+  }
+  let closures = 0
+  let openRun = 0
+  let longestGap = 0
+  for (let index = 1; index < lids.length; index += 1) {
+    if (lids[index] === 0 && lids[index - 1] > 0) closures += 1
+    if (closures === 1 && lids[index] === 1) openRun += 1
+    if (closures === 1 && lids[index] < 1) {
+      longestGap = Math.max(longestGap, openRun)
+      openRun = 0
+    }
+  }
+  assert.equal(closures, 2)
+  assert.ok(longestGap / 120 >= 0.08, `open between blinks ${longestGap / 120}`)
 })
 
 test('new pose response leaves mouth, expression, blink and physics flags unchanged', () => {
@@ -490,37 +488,6 @@ test('new pose response leaves mouth, expression, blink and physics flags unchan
     }
   }
 })
-
-function legacyStepBlink(
-  target: Anime25DDriver,
-  state: { activeSeconds: number; nextAtSeconds: number },
-  time: number,
-  dt: number,
-  enabled: boolean,
-  suppressed: boolean,
-  random: () => number,
-): void {
-  if (suppressed || !enabled) {
-    if (suppressed) state.nextAtSeconds = time + 1.8
-    if (state.activeSeconds < 0) return
-  } else {
-    if (state.activeSeconds < 0 && time > state.nextAtSeconds) {
-      state.activeSeconds = 0
-      state.nextAtSeconds = time + 1.6 + random() * 3.8
-      if (random() < 0.18) state.nextAtSeconds = time + 0.28
-    }
-    if (state.activeSeconds < 0) return
-  }
-  state.activeSeconds += dt
-  const elapsed = state.activeSeconds
-  let open = 1
-  if (elapsed < 0.08) open = 1 - elapsed / 0.08
-  else if (elapsed < 0.42) open = 0
-  else if (elapsed < 0.58) open = (elapsed - 0.42) / 0.16
-  else state.activeSeconds = -1
-  target.eyeOpenL = Math.min(target.eyeOpenL, open)
-  target.eyeOpenR = Math.min(target.eyeOpenR, open)
-}
 
 function legacyStepDriverResponse(
   current: Anime25DDriver,
@@ -608,7 +575,7 @@ test('an interrupted blink finishes instead of springing open', () => {
     }
     let time = 1 / 60
     lid(time, true, false)
-    for (let frame = 0; frame < 8; frame += 1) {
+    for (let frame = 0; frame < 4; frame += 1) {
       time += 1 / 60
       lid(time, true, false)
     }

@@ -463,7 +463,22 @@ export function applyAnime25DSillyMouthOwnership(
   target.mouthSeal *= retained
 }
 
-/** Advances the exact legacy blink curve while reusing its mutable state. */
+/**
+ * A blink as a person makes it: the lid drops fast, gathering speed, stays
+ * shut for a moment only, and lifts a little slower, quick at first. About a
+ * quarter of a second in all; a longer one reads as drowsy.
+ */
+const BLINK_CLOSE_SECONDS = 0.07
+const BLINK_SHUT_SECONDS = 0.04
+const BLINK_OPEN_SECONDS = 0.16
+export const BLINK_SECONDS = BLINK_CLOSE_SECONDS + BLINK_SHUT_SECONDS + BLINK_OPEN_SECONDS
+/** A double blink leaves the eye open this long between the two. */
+const DOUBLE_BLINK_GAP_SECONDS = 0.12
+
+/**
+ * Advances the blink and closes `target`'s eyes by it. Apply it to the eyes as
+ * shown, after any smoothing: smoothed, a quarter-second blink never shuts.
+ */
 export function stepAnime25DBlink(
   target: Anime25DDriver,
   state: Anime25DBlinkState,
@@ -481,19 +496,21 @@ export function stepAnime25DBlink(
     if (state.activeSeconds < 0 && timeSeconds > state.nextAtSeconds) {
       state.activeSeconds = 0
       state.nextAtSeconds = timeSeconds + 1.6 + random() * 3.8
-      if (random() < 0.18) state.nextAtSeconds = timeSeconds + 0.28
+      if (random() < 0.18) state.nextAtSeconds = timeSeconds + BLINK_SECONDS + DOUBLE_BLINK_GAP_SECONDS
     }
     if (state.activeSeconds < 0) return
   }
   state.activeSeconds += elapsedSeconds
   const elapsed = state.activeSeconds
   let open = 1
-  if (elapsed < 0.08) {
-    open = 1 - elapsed / 0.08
-  } else if (elapsed < 0.42) {
+  if (elapsed < BLINK_CLOSE_SECONDS) {
+    const t = elapsed / BLINK_CLOSE_SECONDS
+    open = 1 - t * t
+  } else if (elapsed < BLINK_CLOSE_SECONDS + BLINK_SHUT_SECONDS) {
     open = 0
-  } else if (elapsed < 0.58) {
-    open = (elapsed - 0.42) / 0.16
+  } else if (elapsed < BLINK_SECONDS) {
+    const t = (elapsed - BLINK_CLOSE_SECONDS - BLINK_SHUT_SECONDS) / BLINK_OPEN_SECONDS
+    open = 1 - (1 - t) * (1 - t)
   } else {
     state.activeSeconds = -1
   }

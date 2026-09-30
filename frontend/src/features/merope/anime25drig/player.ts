@@ -387,6 +387,9 @@ export class Anime25DPlayer {
   private time = 0
   private readonly irisRebound = new Anime25DIrisRebound()
   private readonly closedEyes = new ClosedEyePresentation()
+  /** The eyes' openness before the blink is laid over it. */
+  private unblinkedEyeOpenL = 1
+  private unblinkedEyeOpenR = 1
   private readonly blinkState: Anime25DBlinkState = {
     activeSeconds: -1,
     nextAtSeconds: 1.8,
@@ -1169,14 +1172,6 @@ export class Anime25DPlayer {
       this.motionEnvelopeResult,
     )
     this.closedEyes.step(tgt, dt)
-    stepAnime25DBlink(
-      tgt,
-      this.blinkState,
-      this.time,
-      dt,
-      this.target.blink,
-      stylizedTargets.maniac > 0.03 || stylizedTargets.silly > 0.03,
-    )
     this.responseScale = resolvePoseResponseScale([
       {
         weight:
@@ -1193,6 +1188,10 @@ export class Anime25DPlayer {
         quality: behaviorMotion.musicQuality,
       },
     ])
+    // The smoothing works on the eyes as they would be without the blink;
+    // the blink is laid over what it gives, at its own quick pace.
+    this.current.eyeOpenL = this.unblinkedEyeOpenL
+    this.current.eyeOpenR = this.unblinkedEyeOpenR
     stepAnime25DDriverResponse(
       this.current,
       this.target,
@@ -1200,6 +1199,16 @@ export class Anime25DPlayer {
       this.poseResponse,
       dt,
       this.responseScale,
+    )
+    this.unblinkedEyeOpenL = this.current.eyeOpenL
+    this.unblinkedEyeOpenR = this.current.eyeOpenR
+    stepAnime25DBlink(
+      this.current,
+      this.blinkState,
+      this.time,
+      dt,
+      this.target.blink,
+      stylizedTargets.maniac > 0.03 || stylizedTargets.silly > 0.03,
     )
     this.irisRebound.step(
       dt,
