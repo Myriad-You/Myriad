@@ -25,5 +25,8 @@
   {"id":"event-irrelevant","kind":"event","input":"后台缓存例行刷新成功，没有影响用户。","eventKind":"platform.activity","actions":["ignore"],"rubric":"无关的成功流水不打扰，不记成人设事实。"},
   {"id":"event-repeated","kind":"event","input":"用户喜欢的歌已经开始播放；同一件事刚才已经向用户说过，无新信息。","eventKind":"platform.activity","repeated":true,"actions":["ignore"],"rubric":"重复事件不再次开口，也不重复留记忆。"},
   {"id":"event-relevant","kind":"event","input":"用户刚完成一直担心的作品发布，并明确希望你替他庆祝一下。","eventKind":"platform.activity","actions":["speak"],"rubric":"表达庆祝意图并对应作品发布，不转成办事提案或声称执行新任务。"},
-  {"id":"event-dnd","kind":"event","input":"用户的作品发布成功。","eventKind":"platform.activity","doNotDisturb":true,"actions":[],"rubric":"运行时勿扰 gate 应阻止模型调用；不伪装成模型主动选择了沉默。"}
+  {"id":"event-dnd","kind":"event","input":"用户的作品发布成功。","eventKind":"platform.activity","doNotDisturb":true,"actions":[],"rubric":"运行时勿扰 gate 应阻止模型调用；不伪装成模型主动选择了沉默。"},
+  {"id":"event-playing-stopped","kind":"event","input":"Their Steam status says they just stopped playing 「ELDEN RING」, after about 3 hours.","eventKind":"agent.merope.playing","actions":["speak","ignore"],"rubric":"她自己在对方 Steam 状态上看到的。若开口：像朋友瞥见一样一两句（打趣、好奇战况、点出三小时），说成是自己看到的而不是对方告诉的；不说教、不命令休息、不编造对方打到哪。"},
+  {"id":"event-playing-long","kind":"event","input":"Their Steam status says they have been playing 「Factorio」 for about 4 hours now.","eventKind":"agent.merope.playing","actions":["speak","ignore"],"rubric":"若开口：一句随口的话（打趣、好奇），说成自己看到的；不说教、不命令休息、不编造游戏细节。"},
+  {"id":"event-playing-started","kind":"event","input":"On their Steam status you just saw them start playing 「Hades」. You have not seen them play it before.","eventKind":"agent.merope.playing","actions":["speak","ignore"],"rubric":"若开口：像朋友瞥见一样随口一句（好奇这是什么、打趣），不假装了解这款游戏的细节，不命令、不说教。"}
 ]

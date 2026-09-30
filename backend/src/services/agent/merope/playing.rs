@@ -11,6 +11,14 @@
 //! Only the owner's own conversations hear any of it. A group may hold people
 //! from outside the site, and other people are not told what the owner does.
 //! When Steam cannot be reached nothing changes: not knowing is not stopping.
+//!
+//! What she sees change is hers to remark on if they are here to see her,
+//! like a friend glancing over: they just started a game, have been at it
+//! for hours, or just stopped after a proper session. Whether to say
+//! anything is decided like any passing thought (`PLAYING_EVENT` is said in
+//! person or not at all). A game already running when she first looks after
+//! waking is not one they just started, and she does not know how long it
+//! has gone on.
 
 use std::sync::{LazyLock, Mutex};
 
@@ -19,24 +27,43 @@ use sea_orm::DatabaseConnection;
 
 use crate::services::agent::memory::unified::{self, Audience, Concept};
 
+/// What she saw change on their Steam status; said in person or let go.
+pub const PLAYING_EVENT: &str = "agent.merope.playing";
+/// Hours into a session worth her noticing, each once.
+const LONG_AT_HOURS: [i64; 2] = [2, 4];
+
 /// Shorter than this is not a session worth remembering.
 const WORTH_REMEMBERING: chrono::Duration = chrono::Duration::minutes(15);
 /// Seen playing this recently still counts as playing now.
 const STILL_PLAYING: chrono::Duration = chrono::Duration::minutes(5);
 const MAX_GAME_CHARS: usize = 80;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Session {
     game: String,
     started: DateTime<Utc>,
     /// Last time the status showed it.
     seen: DateTime<Utc>,
+    /// She saw it start, rather than find it running when she first looked.
+    saw_start: bool,
+    /// The most hours into it she has noticed.
+    noticed_hours: i64,
 }
 
 #[derive(Default)]
 struct Watch {
     owner: Option<i32>,
     session: Option<Session>,
+    /// She has looked before, since waking.
+    looked: bool,
+}
+
+/// What she saw change on one look.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Noticed {
+    Started { game: String },
+    Long { game: String, hours: i64 },
+    Stopped { game: String, minutes: i64 },
 }
 
 static WATCH: LazyLock<Mutex<Watch>> = LazyLock::new(|| Mutex::new(Watch::default()));
@@ -57,6 +84,8 @@ fn game_of(
 
 /// Move the watch on by one look; the session that just ended, if any.
 fn look(watch: &mut Watch, playing: Option<String>, now: DateTime<Utc>) -> Option<Session> {
+    let saw_start = watch.looked;
+    watch.looked = true;
     match (&mut watch.session, playing) {
         (Some(session), Some(game)) if session.game == game => {
             session.seen = now;
@@ -68,8 +97,72 @@ fn look(watch: &mut Watch, playing: Option<String>, now: DateTime<Utc>) -> Optio
                 game,
                 started: now,
                 seen: now,
+                saw_start,
+                noticed_hours: 0,
             });
             ended
+        }
+    }
+}
+
+/// What she noticed on the look just taken, given the session it ended:
+/// a proper session stopping, a game she saw start, or hours into one she
+/// saw start. At most one thing a look.
+fn notice(watch: &mut Watch, ended: Option<&Session>) -> Option<Noticed> {
+    if let Some(ended) = ended {
+        let length = ended.seen.signed_duration_since(ended.started);
+        if watch.session.is_none() && length >= WORTH_REMEMBERING {
+            return Some(Noticed::Stopped {
+                game: ended.game.clone(),
+                minutes: length.num_minutes(),
+            });
+        }
+    }
+    let session = watch.session.as_mut().filter(|session| session.saw_start)?;
+    if session.started == session.seen {
+        return Some(Noticed::Started {
+            game: session.game.clone(),
+        });
+    }
+    let hours = session
+        .seen
+        .signed_duration_since(session.started)
+        .num_hours();
+    let due = LONG_AT_HOURS
+        .iter()
+        .copied()
+        .filter(|at| hours >= *at && session.noticed_hours < *at)
+        .max()?;
+    session.noticed_hours = due;
+    Some(Noticed::Long {
+        game: session.game.clone(),
+        hours: due,
+    })
+}
+
+/// What she saw, as the event she may speak from. `before` is what she
+/// already knew of them playing it.
+fn noticed_summary(noticed: &Noticed, before: Option<&str>) -> String {
+    match noticed {
+        Noticed::Started { game } => {
+            let before = before.map_or_else(
+                || " You have not seen them play it before.".to_string(),
+                |before| format!(" What you knew of it: {before}."),
+            );
+            format!("On their Steam status you just saw them start playing 「{game}」.{before}")
+        }
+        Noticed::Long { game, hours } => format!(
+            "Their Steam status says they have been playing 「{game}」 for about {hours} hours now."
+        ),
+        Noticed::Stopped { game, minutes } => {
+            let how_long = if *minutes >= 90 {
+                format!("about {} hours", (minutes + 30) / 60)
+            } else {
+                format!("about {minutes} minutes")
+            };
+            format!(
+                "Their Steam status says they just stopped playing 「{game}」, after {how_long}."
+            )
         }
     }
 }
@@ -84,10 +177,31 @@ pub async fn tick(db: DatabaseConnection) {
     let Some(playing) = game_of(crate::services::steam_presence::site_presence(&db).await) else {
         return;
     };
-    let ended = WATCH.lock().ok().and_then(|mut watch| {
+    let Some((ended, noticed)) = WATCH.lock().ok().map(|mut watch| {
         watch.owner = Some(owner);
-        look(&mut watch, playing, Utc::now())
-    });
+        let ended = look(&mut watch, playing, Utc::now());
+        let noticed = notice(&mut watch, ended.as_ref());
+        (ended, noticed)
+    }) else {
+        return;
+    };
+    if let Some(noticed) = noticed {
+        let before = match &noticed {
+            Noticed::Started { game } => {
+                unified::find_active(&db, owner, "presence", &format!("《{game}》"))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|row| row.content)
+            }
+            _ => None,
+        };
+        super::spawn_ingest(
+            owner,
+            PLAYING_EVENT,
+            noticed_summary(&noticed, before.as_deref()),
+        );
+    }
     if let Some(ended) = ended {
         remember_session(&db, owner, ended).await;
     }
@@ -210,11 +324,75 @@ mod tests {
     }
 
     #[test]
+    fn she_notices_a_start_hours_in_and_a_stop_but_not_what_was_running() {
+        let mut watch = Watch::default();
+        let mut step = |playing: Option<&str>, minute: i64| {
+            let ended = look(&mut watch, playing.map(str::to_string), at(minute));
+            notice(&mut watch, ended.as_ref())
+        };
+        // Running when she first looks: not a start, and no hours noticed.
+        assert_eq!(step(Some("Hades"), 0), None);
+        assert_eq!(step(Some("Hades"), 200), None);
+        // Stopping after a proper session is noticed all the same.
+        assert_eq!(
+            step(None, 202),
+            Some(Noticed::Stopped {
+                game: "Hades".into(),
+                minutes: 200
+            })
+        );
+        assert_eq!(
+            step(Some("Elden Ring"), 210),
+            Some(Noticed::Started {
+                game: "Elden Ring".into()
+            })
+        );
+        assert_eq!(step(Some("Elden Ring"), 250), None);
+        assert_eq!(
+            step(Some("Elden Ring"), 335),
+            Some(Noticed::Long {
+                game: "Elden Ring".into(),
+                hours: 2
+            })
+        );
+        assert_eq!(step(Some("Elden Ring"), 340), None, "each once");
+        // Switching games is a start, not a stop.
+        assert_eq!(
+            step(Some("Celeste"), 345),
+            Some(Noticed::Started {
+                game: "Celeste".into()
+            })
+        );
+        // A few minutes is not a session to remark on stopping.
+        assert_eq!(step(None, 350), None);
+        assert!(
+            noticed_summary(
+                &Noticed::Stopped {
+                    game: "Hades".into(),
+                    minutes: 200
+                },
+                None
+            )
+            .ends_with("after about 3 hours.")
+        );
+        assert!(
+            noticed_summary(
+                &Noticed::Started {
+                    game: "Hades".into()
+                },
+                Some("常在 Steam 上玩《Hades》")
+            )
+            .contains("What you knew of it: 常在 Steam 上玩《Hades》.")
+        );
+    }
+
+    #[test]
     fn long_sessions_read_in_hours() {
         let session = Session {
             game: "Factorio".into(),
             started: at(0),
             seen: at(170),
+            ..Session::default()
         };
         assert_eq!(
             session_note(&session, true).as_deref(),
@@ -237,7 +415,9 @@ mod tests {
                     game: "Elden Ring".into(),
                     started: at(0),
                     seen: at(30),
+                    ..Session::default()
                 }),
+                looked: true,
             };
         }
         assert_eq!(

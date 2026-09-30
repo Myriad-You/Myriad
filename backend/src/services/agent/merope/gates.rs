@@ -46,6 +46,7 @@ pub fn said_only_in_person(event_key: &str) -> bool {
     event_key == super::wander::THOUGHT_EVENT
         || event_key == super::curiosity::FOUND_OUT_EVENT
         || event_key == super::doing::DOING_EVENT
+        || event_key == super::playing::PLAYING_EVENT
 }
 
 pub fn worth_notifying(event_key: &str) -> bool {
