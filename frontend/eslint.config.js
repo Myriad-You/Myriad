@@ -64,4 +64,17 @@ export default antfu(
       'unicorn/prefer-structured-clone': 'error',
     },
   },
+  {
+    // Merope grew several 1500-line files before; a warning here asks for a
+    // split while the seams are still obvious. Vendored upstream is exempt.
+    files: ['src/features/merope/**/*.{ts,tsx}'],
+    ignores: [
+      '**/*.test.{ts,tsx}',
+      '**/*.fixture.ts',
+      'src/features/merope/anime25drig/upstream/**',
+    ],
+    rules: {
+      'max-lines': ['warn', { max: 600, skipBlankLines: true, skipComments: true }],
+    },
+  },
 )
