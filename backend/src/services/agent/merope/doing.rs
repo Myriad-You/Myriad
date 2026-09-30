@@ -72,6 +72,10 @@ pub struct Doing {
     /// Why she picked it, in her words. Hers; not shown to anyone.
     #[serde(skip)]
     pub why: String,
+    /// How many times she had it before this one, as far back as her taste
+    /// reads, so what she says of it is what happened.
+    #[serde(default)]
+    pub had_before: usize,
 }
 
 /// Lazing about: which way, since when, until when.
@@ -324,8 +328,13 @@ pub fn now_line(doing: &Doing, at: DateTime<Utc>) -> String {
         format!(" You picked it: {}.", doing.why.trim())
     };
     let seconds_in = at.signed_duration_since(doing.started).num_milliseconds() as f32 / 1000.0;
+    let again = match doing.had_before {
+        0 => String::new(),
+        1 => " You have had it once before.".to_string(),
+        times => format!(" You have had it {times} times before."),
+    };
     format!(
-        "You are {} {}, about {done} of {total} minutes in.{}{why}",
+        "You are {} {}, about {done} of {total} minutes in.{}{again}{why}",
         doing.thing.verb(),
         doing.thing.describe(),
         sources::so_far(&doing.thing, seconds_in)

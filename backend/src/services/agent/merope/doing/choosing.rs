@@ -161,9 +161,13 @@ pub(super) async fn choice_input(
         // What she had before, she knows she had, and how it went.
         if let Some((reaction, days_ago)) = taste.last_time(thing) {
             let ago = ago_text(chrono::Duration::minutes((days_ago * 1440.0) as i64));
-            view["hadBefore"] = json!(match reaction {
+            let last = match reaction {
                 Some(reaction) => format!("{}, {ago}", reaction.felt()),
                 None => format!("nothing of it reached you, {ago}"),
+            };
+            view["hadBefore"] = json!(match taste.times(thing) {
+                0 | 1 => format!("once: {last}"),
+                times => format!("{times} times; the last time {last}"),
             });
         }
         option_views.push(view);
@@ -243,7 +247,7 @@ pub(super) async fn choose(
 ) -> Result<Picked, Option<chrono::Duration>> {
     let input = choice_input(db, &hand, pace).await;
     let soul = soul().await;
-    let AtHand { options, .. } = hand;
+    let AtHand { options, taste, .. } = hand;
     let choice: Option<Choice> = call::Ask::new(Voice::Judge, owner, "doing_choice")
         .within(CALL_TIMEOUT)
         .json(
@@ -292,6 +296,7 @@ pub(super) async fn choose(
         ends: started + length,
         started,
         why: choice.why.unwrap_or_default().chars().take(80).collect(),
+        had_before: taste.times(&thing),
         thing,
     }))
 }

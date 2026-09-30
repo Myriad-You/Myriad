@@ -27,6 +27,8 @@ pub(super) struct KeptDoing {
     pub(super) started: DateTime<Utc>,
     pub(super) ends: DateTime<Utc>,
     pub(super) why: String,
+    #[serde(default)]
+    pub(super) had_before: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -53,6 +55,7 @@ pub(super) async fn keep_now(db: &DatabaseConnection) {
             started: doing.started,
             ends: doing.ends,
             why: doing.why.clone(),
+            had_before: doing.had_before,
         }),
         lazing: life.lazing.as_ref().map(|lazing| KeptLazing {
             kind: lazing.kind.to_string(),
@@ -103,6 +106,7 @@ pub(super) async fn restore_now(db: &DatabaseConnection, owner: i32) {
             started: kept.started,
             ends: kept.ends,
             why: kept.why,
+            had_before: kept.had_before,
         };
         if doing.ends > now {
             tracing::info!(kind = %doing.thing.key(), "[Merope] back to what she was in the middle of");

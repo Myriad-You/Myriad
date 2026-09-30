@@ -128,16 +128,28 @@ pub async fn recalled(
         touched.sort_by(|a, b| b.1.total_cmp(&a.1));
         picked.extend(touched.into_iter().take(related).map(|(index, _)| index));
     }
+    // How often each came up among what is read here, so a song she keeps
+    // going back to reads as one, and one heard once does not.
+    let mut times: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for row in &rows {
+        if let Some(experience) = Experience::of(row) {
+            *times.entry(experience.key).or_default() += 1;
+        }
+    }
     picked
         .into_iter()
         .filter_map(|index| {
             let row = &rows[index];
             let experience = Experience::of(row)?;
+            let again = match times.get(&experience.key).copied().unwrap_or(1) {
+                0 | 1 => String::new(),
+                times => format!(", {times} times lately"),
+            };
             // What she heard in it is in what she wrote, as a listener says
             // it; the measurements it came from are not talk.
             Some((
                 format!(
-                    "{} ({})",
+                    "{} ({}{again})",
                     experience.line_felt(),
                     ago(now, row.created_at.with_timezone(&Utc))
                 ),

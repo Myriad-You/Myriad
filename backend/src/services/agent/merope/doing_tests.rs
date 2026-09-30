@@ -165,10 +165,20 @@ fn where_she_is_in_it_reads_plainly() {
         started,
         ends: started + chrono::Duration::minutes(4),
         why: "想听点旧歌".into(),
+        had_before: 0,
     };
     assert_eq!(
         now_line(&doing, started + chrono::Duration::minutes(2)),
         "You are listening to the song 「晴天」 by 周杰伦, about 2 of 4 minutes in. How it sounds has not reached you. You picked it: 想听点旧歌."
+    );
+    // A song she keeps going back to reads as one.
+    let again = Doing {
+        had_before: 2,
+        ..doing.clone()
+    };
+    assert!(
+        now_line(&again, started + chrono::Duration::minutes(2))
+            .contains("You have had it 2 times before. You picked it")
     );
     assert_eq!(
         ago(started, started - chrono::Duration::minutes(30)),

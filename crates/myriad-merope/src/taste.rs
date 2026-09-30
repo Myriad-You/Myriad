@@ -47,6 +47,8 @@ fn again_after_days(reaction: Option<Reaction>) -> f64 {
 struct Last {
     reaction: Option<Reaction>,
     days_ago: f64,
+    /// How many times she has had it, as far back as her taste reads.
+    times: usize,
 }
 
 #[derive(Default)]
@@ -90,18 +92,23 @@ impl Taste {
         let mut taste = Self::default();
         for one in taken {
             let key = one.thing.key();
+            let times = taste.last.get(&key).map_or(0, |last| last.times) + 1;
             let newer = taste
                 .last
                 .get(&key)
                 .is_none_or(|last| one.days_ago < last.days_ago);
-            if newer {
-                taste.last.insert(
-                    key.clone(),
-                    Last {
-                        reaction: one.reaction,
-                        days_ago: one.days_ago,
-                    },
-                );
+            match taste.last.get_mut(&key) {
+                Some(last) if !newer => last.times = times,
+                _ => {
+                    taste.last.insert(
+                        key.clone(),
+                        Last {
+                            reaction: one.reaction,
+                            days_ago: one.days_ago,
+                            times,
+                        },
+                    );
+                }
             }
             let Some(reaction) = one.reaction else {
                 continue;
@@ -182,6 +189,11 @@ impl Taste {
                 name: name.to_string(),
             })
             .collect()
+    }
+
+    /// How many times she has had `thing`, as far back as her taste reads.
+    pub fn times(&self, thing: &Thing) -> usize {
+        self.last.get(&thing.key()).map_or(0, |last| last.times)
     }
 
     /// How `thing` landed the last time she had it and how many days ago,
@@ -295,6 +307,8 @@ mod tests {
             },
         ];
         assert!(Taste::of(&again).would_again(&skipped));
+        assert_eq!(Taste::of(&again).times(&skipped), 2);
+        assert_eq!(Taste::of(&again).times(&loved), 0);
     }
 
     #[test]
