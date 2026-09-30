@@ -44,9 +44,10 @@ async fn think(owner: i32, message: String) -> Option<Cues> {
 
 type Thinking = Shared<BoxFuture<'static, Option<Cues>>>;
 
-/// Trying to remember that began as a message came, by person: the
-/// message, the thinking, and whether it opened a conversation.
-static THINKING: LazyLock<Mutex<HashMap<i32, (String, Thinking, bool)>>> =
+/// Trying to remember that began as a message came, by person and where
+/// (the same person may be talking to her in private and in a group at
+/// once): the message, the thinking, and whether it opened a conversation.
+static THINKING: LazyLock<Mutex<HashMap<(i32, String), (String, Thinking, bool)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const PEOPLE_KEPT: usize = 4096;
 
@@ -158,7 +159,10 @@ pub fn begin(owner: i32, venue: &str, message: &str) {
         if all.len() >= PEOPLE_KEPT {
             all.clear();
         }
-        all.insert(owner, (message.to_string(), thinking, opening));
+        all.insert(
+            (owner, venue.to_string()),
+            (message.to_string(), thinking, opening),
+        );
     }
 }
 
@@ -170,13 +174,13 @@ pub fn begin(owner: i32, venue: &str, message: &str) {
 /// recall (it takes a couple of seconds); otherwise she answers from what
 /// their words bring back at once, and what she was thinking of is used if
 /// it is already there.
-pub async fn cues(owner: i32, message: &str) -> Attention {
+pub async fn cues(owner: i32, venue: &str, message: &str) -> Attention {
     let reaching_back = myriad_merope::remembering::reaches_back(message);
     let about_her = myriad_merope::remembering::about_her(message);
     let begun = THINKING
         .lock()
         .ok()
-        .and_then(|mut all| all.remove(&owner))
+        .and_then(|mut all| all.remove(&(owner, venue.to_string())))
         .filter(|(said, _, _)| said == message);
     match begun {
         Some((_, thinking, opening)) => Attention {

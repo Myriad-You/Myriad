@@ -96,8 +96,9 @@ pub(super) async fn acquaintance(
 }
 
 /// How her lines to this person differ from theirs to her (see
-/// `myriad_merope::contrast`), from their latest messages anywhere and her
-/// latest answers. Looked up at most every few minutes per person.
+/// `myriad_merope::contrast`), from their latest chat messages anywhere and
+/// her latest answers (not work: a report is not how she talks). Looked up
+/// at most every few minutes per person.
 async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) -> Option<String> {
     use myriad_merope::contrast::{Counts, describe, overused};
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
@@ -120,7 +121,8 @@ async fn how_she_differs_with(db: &sea_orm::DatabaseConnection, user_id: i32) ->
             DatabaseBackend::Postgres,
             "SELECT m.role, m.content FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
-             WHERE s.user_id = $1 AND m.role IN ('user', 'assistant') \
+             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
+               AND m.role IN ('user', 'assistant') \
              ORDER BY m.created_at DESC LIMIT $2",
             vec![SeaValue::Int(Some(user_id)), SeaValue::Int(Some(LATEST))],
         ))
@@ -445,7 +447,7 @@ async fn speaking_prompt_from_db(
     // things she brings, so all of it is at hand.
     let (cues, her_life, opening) = match turn {
         Turn::Chat(words) => {
-            let attention = remembering::cues(user_id, words).await;
+            let attention = remembering::cues(user_id, &present.venue(), words).await;
             let her_life = attention.her_life();
             (attention.cues, her_life, attention.opening)
         }
