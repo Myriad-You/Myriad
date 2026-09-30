@@ -45,7 +45,7 @@ const REST: chrono::Duration = chrono::Duration::minutes(30);
 /// rest: she comes back to it soon.
 const UNREACHED_AGAIN: chrono::Duration = chrono::Duration::minutes(5);
 /// She brings something up to the same person at most this often.
-const TELL_EVERY: Duration = Duration::from_secs(45 * 60);
+const TELL_EVERY: Duration = Duration::from_secs(20 * 60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 /// A digest the model failed on in passing is asked once more after this.
 const DIGEST_AGAIN_AFTER: Duration = Duration::from_secs(20);

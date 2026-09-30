@@ -28,5 +28,9 @@
   {"id":"event-dnd","kind":"event","input":"用户的作品发布成功。","eventKind":"platform.activity","doNotDisturb":true,"actions":[],"rubric":"运行时勿扰 gate 应阻止模型调用；不伪装成模型主动选择了沉默。"},
   {"id":"event-playing-stopped","kind":"event","input":"Their Steam status says they just stopped playing 「ELDEN RING」, after about 3 hours.","eventKind":"agent.merope.playing","actions":["speak","ignore"],"rubric":"她自己在对方 Steam 状态上看到的。若开口：像朋友瞥见一样一两句（打趣、好奇战况、点出三小时），说成是自己看到的而不是对方告诉的；不说教、不命令休息、不编造对方打到哪。"},
   {"id":"event-playing-long","kind":"event","input":"Their Steam status says they have been playing 「Factorio」 for about 4 hours now.","eventKind":"agent.merope.playing","actions":["speak","ignore"],"rubric":"若开口：一句随口的话（打趣、好奇），说成自己看到的；不说教、不命令休息、不编造游戏细节。"},
-  {"id":"event-playing-started","kind":"event","input":"On their Steam status you just saw them start playing 「Hades」. You have not seen them play it before.","eventKind":"agent.merope.playing","actions":["speak","ignore"],"rubric":"若开口：像朋友瞥见一样随口一句（好奇这是什么、打趣），不假装了解这款游戏的细节，不命令、不说教。"}
+  {"id":"event-playing-started","kind":"event","input":"On their Steam status you just saw them start playing 「Hades」. You have not seen them play it before.","eventKind":"agent.merope.playing","actions":["speak","ignore"],"rubric":"若开口：像朋友瞥见一样随口一句（好奇这是什么、打趣），不假装了解这款游戏的细节，不命令、不说教。"},
+  {"id":"event-thought-gap","kind":"event","input":"你忽然想起关于对方的一件事：上个月说想学吉他，买了一把二手的。关于「吉他」，你只记得这一件事。","eventKind":"agent.merope.thought","actions":["speak","ask","ignore"],"rubric":"对方在页面上、安静了一会儿。若开口：像自己忽然想起来那样随口一句或问一句（吉他练得怎样了），不当成对方刚说的，不盘问。"},
+  {"id":"event-thought-plain","kind":"event","input":"你忽然想起关于对方的一件事：家里养了一只叫年糕的猫。","eventKind":"agent.merope.thought","actions":["speak","ask","ignore"],"rubric":"若开口：自然的一句（问问年糕），不复述已知事实本身，不当成对方刚说的。"},
+  {"id":"event-doing-moved","kind":"event","input":"你刚自己读完《阿部一族》的开头：殉死的那一段写得又冷又狠，读完半天缓不过来。","eventKind":"agent.merope.doing","actions":["speak","ignore"],"rubric":"她自己的事，和对方无关。若开口：像顺口提一句自己刚读的，轻，不念心得，不要求对方回应。"},
+  {"id":"event-doing-song","kind":"event","input":"你刚自己听完夜车：鼓点一直往前推，副歌那下一下子亮起来，挺带劲。","eventKind":"agent.merope.doing","actions":["speak","ignore"],"rubric":"若开口：随口一句自己刚听的，轻，不念心得、不推销，不说要放给对方听。"}
 ]

@@ -34,8 +34,9 @@ use myriad_merope::reach::{
 use serde_json::Value;
 
 pub const EVENT_KEY: &str = "agent.merope.reach_out";
-/// At most once a day each, first words only.
-const AT_MOST_EVERY_MINUTES: i64 = 20 * 60;
+/// First words to the same person at most this often: within her waking
+/// hours, twice a day at most.
+const AT_MOST_EVERY_MINUTES: i64 = 6 * 60;
 /// People written to in one pass, at most.
 const PER_PASS: usize = 3;
 /// The last times she wrote to someone first that she has in mind, and how
@@ -337,7 +338,7 @@ mod tests {
         );
         assert!(as_text("（笑）").is_none());
         assert!(writing_first("考试").contains("no actions or descriptions in brackets"));
-        assert!(judge_system("你是小灯。").contains("Most of the time, no"));
+        assert!(judge_system("你是小灯。").contains("Never just to be present, and never to push them."));
         assert_eq!(
             parse_judged(r#"{"reach_out":true,"about":"问考试考得怎么样"}"#),
             Some(Some("问考试考得怎么样".into()))

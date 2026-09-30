@@ -25,11 +25,11 @@ pub const THOUGHT_EVENT: &str = "agent.merope.thought";
 /// Quiet this long before the mind starts to drift.
 const QUIET_SECS: i64 = 3 * 60;
 /// Between two thoughts about the same person.
-const BETWEEN_THOUGHTS_SECS: i64 = 20 * 60;
+const BETWEEN_THOUGHTS_SECS: i64 = 10 * 60;
 /// Chance that an eligible minute actually brings a thought; a curious mind
 /// drifts more readily.
-const DRIFT_CHANCE: f64 = 0.2;
-const CURIOUS_DRIFT_CHANCE: f64 = 0.35;
+const DRIFT_CHANCE: f64 = 0.3;
+const CURIOUS_DRIFT_CHANCE: f64 = 0.5;
 
 fn drift_chance(myself: &super::self_state::SelfState) -> f64 {
     if myself.curious() {
