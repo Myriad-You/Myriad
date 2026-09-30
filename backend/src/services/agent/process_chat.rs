@@ -18,8 +18,16 @@ impl Agent {
         memory_input_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     ) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
-        crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
-            .await;
+        // Their private diary with her: what they say in a group is the
+        // group's, not something they told her in private.
+        if request
+            .context
+            .as_ref()
+            .is_none_or(|context| context.venue.is_none())
+        {
+            crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
+                .await;
+        }
         let reply = match self.strict_lite_chat_response(&request).await {
             Ok(reply) => reply,
             Err(error) => {
@@ -150,8 +158,16 @@ impl Agent {
 
         // Persistence still precedes chat context construction, but must
         // not stand in front of the character's immediate reaction.
-        crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
-            .await;
+        // Their private diary with her: what they say in a group is the
+        // group's, not something they told her in private.
+        if request
+            .context
+            .as_ref()
+            .is_none_or(|context| context.venue.is_none())
+        {
+            crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
+                .await;
+        }
 
         let (reply, handed_off, sticker) = match self
             .stream_strict_lite_chat_response(&request, &progress_tx, speech_delivery)

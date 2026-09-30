@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use chrono::{NaiveDate, Utc};
+use chrono::{NaiveDate, TimeZone, Utc};
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
@@ -231,23 +231,46 @@ struct Today {
 
 static TODAY: LazyLock<Mutex<Today>> = LazyLock::new(|| Mutex::new(Today::default()));
 
-fn went_today() -> u32 {
+/// How often she has gone out today. The count starts, each day and after
+/// a restart, from the trips she wrote down today: kept only in memory, a
+/// restart would let her go out again and again.
+async fn went_today(db: &DatabaseConnection) -> u32 {
     let today = chrono::Local::now().date_naive();
-    TODAY.lock().map_or(PER_DAY, |mut state| {
-        if state.day != Some(today) {
+    let counted = TODAY.lock().is_ok_and(|state| state.day == Some(today));
+    if !counted {
+        let written = match chrono::Local
+            .from_local_datetime(&today.and_hms_opt(0, 0, 0).unwrap_or_default())
+            .earliest()
+        {
+            Some(midnight) => {
+                unified::own_rows_since(db, unified::OWN_EXPERIENCE, midnight.fixed_offset(), 3000)
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|row| {
+                        super::doing::key_of(row)
+                            .is_some_and(|(_, thing)| thing.kind() == "find_out")
+                    })
+                    .count() as u32
+            }
+            None => 0,
+        };
+        if let Ok(mut state) = TODAY.lock()
+            && state.day != Some(today)
+        {
             *state = Today {
                 day: Some(today),
-                went: 0,
+                went: written,
             };
         }
-        state.went
-    })
+    }
+    TODAY.lock().map_or(PER_DAY, |state| state.went)
 }
 
 /// A couple of her open questions to take up, while she has not gone out
 /// too often today and can search.
 pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
-    if went_today() >= PER_DAY || !senses::available().await.search {
+    if went_today(db).await >= PER_DAY || !senses::available().await.search {
         return Vec::new();
     }
     let mut open = open(db).await;
