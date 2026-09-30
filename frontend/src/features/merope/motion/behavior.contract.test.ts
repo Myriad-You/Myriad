@@ -6,6 +6,7 @@ import test from 'node:test'
 import { arbitrateFaceSpeech } from '../faceSpeechArbitration'
 import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
 import { musicSignalAt } from '../singing/musicSignal.test-support'
+import { workbenchSources } from '../workbench/sources.test-support'
 import { applyMotionFrame, createMotionApplyState } from './applyFrame'
 import { applySingingWrite } from './applySnapshot'
 import { RigMotionCoordinator } from './coordinator'
@@ -181,8 +182,8 @@ test('dead motion channels stay removed', () => {
 })
 
 test('workbench preview stays off the production coordinator', () => {
-  const workbench = source('../anime25drig/Anime25DWorkbench.tsx')
-  const studio = source('../SiteMotionWorkbench.tsx')
+  const workbench = workbenchSources(['SiteMotionWorkbench.tsx'])
+  const studio = workbenchSources()
   assert.doesNotMatch(workbench, /useRigMotionLifecycle/)
   assert.doesNotMatch(workbench, /getRigMotionCoordinator/)
   assert.doesNotMatch(workbench, /getProductionMotionRuntime/)

@@ -18,6 +18,7 @@ import {
   withCharacter,
   writeOutfit,
 } from './wardrobe'
+import { workbenchSource, workbenchSources } from './workbench/sources.test-support'
 
 const outfitA = {
   upperBodySilhouette: '窄肩与清晰领口',
@@ -339,10 +340,7 @@ test('wardrobe sets are ordered by clothing family', () => {
 })
 
 test('the wardrobe lives in settings, not in the onboarding wizard', () => {
-  const workbench = readFileSync(
-    new URL('./SiteMotionWorkbench.tsx', import.meta.url),
-    'utf8',
-  )
+  const workbench = workbenchSources()
   const wizard = readFileSync(
     new URL(
       '../../components/agent/onboarding/OnboardingWizard.tsx',
@@ -350,10 +348,7 @@ test('the wardrobe lives in settings, not in the onboarding wizard', () => {
     ),
     'utf8',
   )
-  const tabs = readFileSync(
-    new URL('./anime25drig/Anime25DWorkbench.tsx', import.meta.url),
-    'utf8',
-  )
+  const tabs = workbenchSource('Anime25DWorkbench.tsx')
   const closet = readFileSync(
     new URL('./OutfitWardrobe.tsx', import.meta.url),
     'utf8',
@@ -378,7 +373,7 @@ test('the wardrobe lives in settings, not in the onboarding wizard', () => {
   assert.match(workbench, /wardrobeWear/)
   assert.match(workbench, /wearOutfit\(managingOutfit\)/)
   assert.match(workbench, /generatePortrait\(managingOutfit\)/)
-  assert.match(workbench, /wearingManaged \|\| !outfitPicture/)
+  assert.match(workbench, /showGenerate = wearing \|\| !picture/)
   assert.match(workbench, /portraitAssetId: nextItem.portraitAssetId \?\? null/)
   assert.doesNotMatch(
     workbench,

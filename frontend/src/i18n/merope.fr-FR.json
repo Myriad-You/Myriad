@@ -51,7 +51,6 @@
   "rigImportFailed": "Impossible d’importer ce PSD en calques.",
   "rigCommitFailed": "Impossible d’enregistrer le rig importé.",
   "rigCompileFailed": "Impossible de compiler le rig en calques.",
-  "portraitDownloadFailed": "Impossible de télécharger le portrait principal.",
   "portraitUploadFailed": "Impossible d’envoyer le portrait principal.",
   "seeThroughStatusFailed": "Impossible de charger l’état See-through.",
   "anime25dWebglFailed": "Ce navigateur ne prend pas en charge WebGL2 : le mouvement 2.5D ne peut pas être lu.",

@@ -51,7 +51,6 @@
   "rigImportFailed": "Diese PSD mit Ebenen konnte nicht importiert werden.",
   "rigCommitFailed": "Das importierte Rig konnte nicht gespeichert werden.",
   "rigCompileFailed": "Das Ebenen-Rig konnte nicht kompiliert werden.",
-  "portraitDownloadFailed": "Das Hauptporträt konnte nicht heruntergeladen werden.",
   "portraitUploadFailed": "Das Hauptporträt konnte nicht hochgeladen werden.",
   "seeThroughStatusFailed": "Der See-through-Status konnte nicht geladen werden.",
   "anime25dWebglFailed": "Dieser Browser unterstützt kein WebGL2, daher kann 2.5D-Bewegung nicht abgespielt werden.",

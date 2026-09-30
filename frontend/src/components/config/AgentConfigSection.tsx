@@ -12,7 +12,7 @@ import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
 import {
   FACE_UPDATED_EVENT,
 } from '../../features/merope/events'
-import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
+import SiteMotionWorkbench from '../../features/merope/workbench/SiteMotionWorkbench'
 import { agentService } from '../../services/agent'
 import { emitAppEvent } from '../../utils/appEvents'
 import { invalidatePublicConfigCache } from '../../utils/requestDedup'

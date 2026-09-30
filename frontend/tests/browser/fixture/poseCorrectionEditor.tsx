@@ -4,7 +4,7 @@ import type { RigCharacterHandle } from '../../../src/features/merope/rig/RigCha
 import { createRoot } from 'react-dom/client'
 import { I18nNamespace, I18nProvider } from '../../../src/contexts/I18nContext'
 import { WORKBENCH_DRIVER } from '../../../src/features/merope/anime25drig/driver'
-import { PoseCorrectionEditor } from '../../../src/features/merope/anime25drig/PoseCorrectionEditor'
+import { PoseCorrectionEditor } from '../../../src/features/merope/workbench/PoseCorrectionEditor'
 import { saveLocale } from '../../../src/i18n'
 import { loadLocale } from '../../../src/i18n/loadLocale'
 

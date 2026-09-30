@@ -51,7 +51,6 @@
   "rigImportFailed": "이 레이어 PSD를 가져오지 못했어요.",
   "rigCommitFailed": "가져온 리그를 저장하지 못했어요.",
   "rigCompileFailed": "레이어 리그를 컴파일하지 못했어요.",
-  "portraitDownloadFailed": "메인 스탠딩을 받지 못했어요.",
   "portraitUploadFailed": "메인 스탠딩을 올리지 못했어요.",
   "seeThroughStatusFailed": "See-through 상태를 불러오지 못했어요.",
   "anime25dWebglFailed": "이 브라우저는 WebGL2를 지원하지 않아 2.5D 모션을 재생할 수 없어요.",

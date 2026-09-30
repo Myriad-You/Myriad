@@ -51,7 +51,6 @@
   "rigImportFailed": "Could not import this layered PSD.",
   "rigCommitFailed": "Could not save the imported rig.",
   "rigCompileFailed": "Could not compile the layered rig.",
-  "portraitDownloadFailed": "Could not download the master portrait.",
   "portraitUploadFailed": "Could not upload the master portrait.",
   "seeThroughStatusFailed": "Could not load See-through status.",
   "anime25dWebglFailed": "This browser does not support WebGL2, so 2.5D motion cannot play.",

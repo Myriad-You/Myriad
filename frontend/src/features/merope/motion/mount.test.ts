@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { workbenchSources } from '../workbench/sources.test-support'
 
 /** Absence scans only */
 test('live faces share one motion owner; workbench preview stays isolated', () => {
@@ -15,14 +16,9 @@ test('live faces share one motion owner; workbench preview stays isolated', () =
     new URL('../../../components/widgets/MeropeWidget.tsx', import.meta.url),
     'utf8',
   )
-  const studio = readFileSync(
-    new URL('../SiteMotionWorkbench.tsx', import.meta.url),
-    'utf8',
-  )
-  const workbench = readFileSync(
-    new URL('../anime25drig/Anime25DWorkbench.tsx', import.meta.url),
-    'utf8',
-  )
+  const studio = workbenchSources()
+  // The studio owns the preview lifecycle; the panels under it must not.
+  const workbench = workbenchSources(['SiteMotionWorkbench.tsx'])
   const lifecycle = readFileSync(
     new URL('./useRigMotionLifecycle.ts', import.meta.url),
     'utf8',

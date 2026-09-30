@@ -1,14 +1,14 @@
 import type { RefObject } from 'react'
+import type { Anime25DDriver } from '../anime25drig/driver'
+import type { PoseCorrectionRegion } from '../anime25drig/poseAuthoring'
+import type { PoseCorrection } from '../anime25drig/poseCorrections'
+import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../rig/RigCharacter'
-import type { Anime25DDriver } from './driver'
-import type { PoseCorrectionRegion } from './poseAuthoring'
-import type { PoseCorrection } from './poseCorrections'
-import type { Anime25DPlayback } from './types'
 import { useEffect, useRef, useState } from 'react'
 import { SettingGroup, SettingsButton, SliderItem, SwitchItem } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
 import { showStickyToast } from '../../../utils/toastManager'
-import { appendPoseCorrectionPatch, capturePoseCorrection, POSE_CORRECTION_REGIONS, poseCorrectionPreviewDriver } from './poseAuthoring'
+import { appendPoseCorrectionPatch, capturePoseCorrection, POSE_CORRECTION_REGIONS, poseCorrectionPreviewDriver } from '../anime25drig/poseAuthoring'
 
 interface Props {
   playback: Anime25DPlayback

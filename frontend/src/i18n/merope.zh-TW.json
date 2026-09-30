@@ -51,7 +51,6 @@
   "rigImportFailed": "分層 PSD 匯入失敗",
   "rigCommitFailed": "匯入的骨骼沒能儲存",
   "rigCompileFailed": "分層骨骼沒能編譯。",
-  "portraitDownloadFailed": "主立繪沒能下載。",
   "portraitUploadFailed": "主立繪沒能上傳。",
   "seeThroughStatusFailed": "See-through 狀態沒能載入。",
   "anime25dWebglFailed": "這個瀏覽器不支援 WebGL2，沒法播放 2.5D 動作。",

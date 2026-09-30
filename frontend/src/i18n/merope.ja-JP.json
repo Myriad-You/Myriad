@@ -51,7 +51,6 @@
   "rigImportFailed": "レイヤー PSD を読み込めませんでした。",
   "rigCommitFailed": "読み込んだリグを保存できませんでした。",
   "rigCompileFailed": "レイヤーリグをコンパイルできませんでした。",
-  "portraitDownloadFailed": "メイン立ち絵をダウンロードできませんでした。",
   "portraitUploadFailed": "メイン立ち絵をアップロードできませんでした。",
   "seeThroughStatusFailed": "See-through の状態を読み込めませんでした。",
   "anime25dWebglFailed": "このブラウザは WebGL2 に対応していないため、2.5D モーションを再生できません。",
