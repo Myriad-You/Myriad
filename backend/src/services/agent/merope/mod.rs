@@ -563,11 +563,8 @@ mod tests {
         assert!(prompt.contains("## About this person"));
         assert!(prompt.contains("晚上想打独立游戏"));
         assert!(!prompt.contains(event_line));
-        let recent_src = include_str!("speaking_context.rs")
-            .split("async fn speaking_prompt_from_db")
-            .nth(1)
-            .and_then(|rest| rest.split("pub fn speaking_prompt_plain").next())
-            .unwrap();
+        // Every section of the speaking prompt is built there.
+        let recent_src = include_str!("speaking_context/sections.rs");
         assert!(recent_src.contains("RECENT_SPEAKING_DIARY_SOURCES"));
         assert!(recent_src.contains("format_remembered_section"));
         assert!(!recent_src.contains("DIARY_SOURCE_EVENT"));
