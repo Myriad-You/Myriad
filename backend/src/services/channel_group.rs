@@ -1634,6 +1634,22 @@ async fn judge(message: &GroupLine, token: &str) -> Option<(Why, String)> {
     .await
 }
 
+/// The session someone last talked to her in, in this group.
+async fn last_group_session(db: &DatabaseConnection, user_id: i32, venue: &str) -> Option<String> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT id FROM agent_sessions WHERE user_id = $1 AND context->>'venue' = $2 \
+           AND context->>'mode' = 'chat' ORDER BY last_active_at DESC LIMIT 1",
+        [user_id.into(), venue.into()],
+    ))
+    .await
+    .ok()
+    .flatten()?
+    .try_get::<String>("", "id")
+    .ok()
+}
+
 /// Whether she stopped answering whoever wrote this line (see `LOOP_ROUNDS`).
 fn stopped_answering(message: &GroupLine) -> bool {
     with_group(&message.venue(), |group| {
@@ -2043,10 +2059,15 @@ async fn run_turn(
         .ok()??;
     let venue = message.venue();
     let key = (venue.clone(), user_id);
-    let known = SESSIONS
+    let mut known = SESSIONS
         .lock()
         .ok()
         .and_then(|sessions| sessions.get(&key).cloned());
+    // After a restart: the one they talked to her in here before, not a
+    // new one each time.
+    if known.is_none() {
+        known = last_group_session(db, user_id, &venue).await;
+    }
     // Made as the group's from the start: never read back as a private one.
     let session_id = crate::services::agent::sessions::ensure_session_in(
         db,

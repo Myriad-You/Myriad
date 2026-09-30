@@ -56,6 +56,54 @@ static LAST_HEARD: LazyLock<Mutex<HashMap<(i32, String), std::time::Instant>>> =
 /// up to comes to mind, as it does when friends meet again.
 const OPENS_AFTER: Duration = Duration::from_secs(3 * 3600);
 
+/// When `owner` last wrote at `venue` before this message, when she does not
+/// have it in mind (after a restart): from the conversation kept, so a talk
+/// going on is not taken for one starting anew.
+pub async fn recall_last_heard(db: &DatabaseConnection, owner: i32, venue: &str) {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let known = LAST_HEARD
+        .lock()
+        .is_ok_and(|heard| heard.contains_key(&(owner, venue.to_string())));
+    if known || owner <= 0 {
+        return;
+    }
+    let (clause, value): (&str, sea_orm::Value) = match venue.strip_prefix("group:") {
+        Some(group) => ("s.context->>'venue' = $2", group.into()),
+        None => (
+            "(s.context->>'venue') IS NULL AND $2::text IS NULL",
+            Option::<String>::None.into(),
+        ),
+    };
+    // The message now being answered is already kept: the one before it.
+    let sql = format!(
+        "SELECT m.created_at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+         WHERE s.user_id = $1 AND m.role = 'user' AND s.context->>'mode' = 'chat' AND {clause} \
+         ORDER BY m.created_at DESC OFFSET 1 LIMIT 1"
+    );
+    let Ok(Some(row)) = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            &sql,
+            [owner.into(), value],
+        ))
+        .await
+    else {
+        return;
+    };
+    let Ok(at) = row.try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at") else {
+        return;
+    };
+    let ago = (chrono::Utc::now() - at.with_timezone(&chrono::Utc))
+        .to_std()
+        .unwrap_or_default();
+    if let (Some(then), Ok(mut heard)) = (
+        std::time::Instant::now().checked_sub(ago),
+        LAST_HEARD.lock(),
+    ) {
+        heard.entry((owner, venue.to_string())).or_insert(then);
+    }
+}
+
 /// Whether a message from `owner` at `venue` now starts talking anew, and
 /// note that they wrote.
 fn opens(owner: i32, venue: &str) -> bool {

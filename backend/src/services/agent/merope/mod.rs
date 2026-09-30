@@ -185,7 +185,9 @@ pub async fn note_user_turn(
     }
     // What to try to remember is thought of while the words land.
     if !text.trim().is_empty() {
-        remembering::begin(user_id, &audience_for(request).venue(), text);
+        let venue = audience_for(request).venue();
+        remembering::recall_last_heard(db, user_id, &venue).await;
+        remembering::begin(user_id, &venue, text);
     }
     if !is_extremely_low(previous.mood) && is_extremely_low(after.mood) {
         spawn_ingest(

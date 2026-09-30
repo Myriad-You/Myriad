@@ -598,6 +598,8 @@ where
     super::pace::forget(db).await?;
     // Her vital signs, day by day.
     super::vitals::forget(db).await?;
+    // What she was in the middle of.
+    super::doing::forget_kept(db).await?;
     // Her stickers are pictures of her.
     crate::models::entities::merope_stickers::Entity::delete_many()
         .exec(db)
