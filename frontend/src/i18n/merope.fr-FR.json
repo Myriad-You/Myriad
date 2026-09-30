@@ -346,7 +346,8 @@
       "corrected": "Quand on l'a corrigée",
       "days": "Ses journées",
       "doing": "Ce qu'elle a fait seule cette semaine",
-      "voice": "Sa propre voix"
+      "voice": "Sa propre voix",
+      "pace": "Rythme"
     },
     "reach": {
       "on_your_own": "elle peut s'en charger",
@@ -413,6 +414,20 @@
         "maybe": "simple doute",
         "likely": "probable",
         "very": "presque sûre"
+      }
+    },
+    "longing": "un désir profond",
+    "pace": {
+      "desc": "Heures par jour passées à ses propres choses et à paresser. Avec un but, elle dépasse son habitude ; sans, elle paresse.",
+      "usual": "d'habitude environ {hours} h",
+      "pastDays": "{count} jours de suite au-delà de l'habitude",
+      "day": "Jour",
+      "minutes": "Activités (h)",
+      "lazed": "Paresse (h)",
+      "tone": {
+        "flat": "réveillée sans entrain aujourd'hui",
+        "even": "réveillée comme d'habitude aujourd'hui",
+        "keen": "réveillée pleine d'entrain aujourd'hui"
       }
     }
   }

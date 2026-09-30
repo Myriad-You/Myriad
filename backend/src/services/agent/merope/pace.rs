@@ -156,6 +156,30 @@ pub async fn conversation_section(db: &DatabaseConnection) -> Option<String> {
     section(&pace, spent, lazed)
 }
 
+/// Her pace for looking into her: her usual now, how she woke up, how many
+/// days on end she went past it, and the last week day by day (minutes on
+/// her own things and lazing), oldest first.
+pub async fn week_view(db: &DatabaseConnection) -> serde_json::Value {
+    let pace = today(db).await;
+    let mut days = Vec::new();
+    for back in (0..7).rev() {
+        let Some(day) = pace.day.checked_sub_days(chrono::Days::new(back)) else {
+            continue;
+        };
+        days.push(serde_json::json!({
+            "day": day.to_string(),
+            "minutes": spent_on(db, day).await.unwrap_or(0.0).round(),
+            "lazed": lazed_on(db, day).await.round(),
+        }));
+    }
+    serde_json::json!({
+        "usualMinutes": pace.usual_minutes.round(),
+        "daysPastUsual": pace.days_past_usual,
+        "tone": pace.tone,
+        "days": days,
+    })
+}
+
 /// A new persona has no habit of her own yet.
 pub async fn forget<C: sea_orm::ConnectionTrait>(db: &C) -> Result<u64, sea_orm::DbErr> {
     if let Ok(mut today) = TODAY.lock() {

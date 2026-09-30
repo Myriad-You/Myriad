@@ -179,6 +179,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
                 "want": want.want,
                 "why": want.why,
                 "reach": want.reach.as_str(),
+                "longing": want.longing,
                 "since": want.since.to_rfc3339(),
                 "notes": want.notes.iter().map(|(at, note)| json!({ "at": at.to_rfc3339(), "note": note })).collect::<Vec<_>>(),
             })
@@ -205,6 +206,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
         "days": of("narrative").filter(|row| row.user_id.is_none()).map(entry).collect::<Vec<_>>(),
         "doingThisWeek": doing,
         "voice": voice(db, now).await,
+        "pace": super::pace::week_view(db).await,
     });
 
     // --- each person -------------------------------------------------------------

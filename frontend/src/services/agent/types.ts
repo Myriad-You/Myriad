@@ -717,8 +717,18 @@ export interface MindWant {
   want: string
   why: string
   reach: 'on_your_own' | 'with_others' | 'beyond_you'
+  /** Hoped for underneath rather than something to do. */
+  longing?: boolean
   since: string
   notes: { at: string; note: string }[]
+}
+
+/** How hard she has been going at her own things, day by day. */
+export interface MindPace {
+  usualMinutes: number
+  daysPastUsual: number
+  tone: 'flat' | 'even' | 'keen'
+  days: { day: string; minutes: number; lazed: number }[]
 }
 
 export interface MindSore {
@@ -798,6 +808,7 @@ export interface MindSnapshot {
     doingThisWeek: { at: string; text: string }[]
     /** Her way of typing week by week, against people's (see the page). */
     voice: MindVoiceWeek[]
+    pace?: MindPace
   }
   people: MindPerson[]
   groups: MindGroup[]

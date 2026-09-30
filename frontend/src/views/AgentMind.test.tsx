@@ -18,7 +18,10 @@ const fixture = {
   generatedAt: day(10),
   her: {
     selfStory: [{ text: '这周听了很多慢歌，比以前安静。', at: day(8), current: true }],
-    wants: [{ want: '把一张专辑从头听完', why: '那首歌一直在脑子里', reach: 'on_your_own', since: day(6), notes: [{ at: day(9), note: '听到第三首了' }] }],
+    wants: [
+      { want: '把一张专辑从头听完', why: '那首歌一直在脑子里', reach: 'on_your_own', since: day(6), notes: [{ at: day(9), note: '听到第三首了' }] },
+      { want: '再被什么狠狠打动一次', why: '最近听的都差一口气', reach: 'on_your_own', longing: true, since: day(7), notes: [] },
+    ],
     wantsEnded: [{ text: '想要的「看完一本连载」实现了：昨晚看完了', at: day(7), current: true }],
     views: [
       { text: '以前觉得电子乐太吵', at: day(1), current: false, endedAt: day(5), endedWhy: 'superseded' },
@@ -32,6 +35,12 @@ const fixture = {
       { week: '2026-09-14', lines: 80, peopleLines: 60, drift: null, peopleDrift: null, fromPeople: 0.91 },
       { week: '2026-09-21', lines: 120, peopleLines: 70, drift: 0.58, peopleDrift: 0.54, fromPeople: 0.8 },
     ],
+    pace: {
+      usualMinutes: 260,
+      daysPastUsual: 2,
+      tone: 'flat',
+      days: [{ day: '2026-09-29', minutes: 390, lazed: 120 }, { day: '2026-09-30', minutes: 75, lazed: 480 }],
+    },
   },
   people: [{
     id: 7,
@@ -120,6 +129,10 @@ test('her mind shows herself, each person and each group, with how each changed'
       // Her voice, week by week.
       assert.ok(text().includes(merope.mind.her.voice))
       assert.ok(text().includes('0.58') && text().includes('0.80'))
+      // Her pace, and a longing marked as one.
+      assert.ok(text().includes(merope.mind.her.pace) && text().includes(merope.mind.pace.tone.flat))
+      assert.ok(text().includes('6.5') && text().includes('8.0'))
+      assert.ok(text().includes(merope.mind.longing))
     }
     await tab('people')
     if (snapshot === fixture) {

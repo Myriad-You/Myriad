@@ -37,6 +37,7 @@ export type {
   MeropeStateChangedEvent,
   MindEntry,
   MindGroup,
+  MindPace,
   MindPerson,
   MindSnapshot,
   MindSore,

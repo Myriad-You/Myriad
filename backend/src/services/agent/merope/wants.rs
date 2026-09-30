@@ -58,6 +58,10 @@ fn want_of(row: &crate::models::entities::agent_memories::Model) -> Option<Want>
             .get("reach")
             .and_then(Value::as_str)
             .and_then(Reach::parse)?,
+        longing: evidence
+            .get("longing")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         since: evidence
             .get("since")
             .and_then(at)
@@ -82,6 +86,7 @@ async fn put(db: &DatabaseConnection, want: &Want, grew_from: &[String]) {
     let evidence = json!({
         "why": want.why,
         "reach": want.reach.as_str(),
+        "longing": want.longing,
         "since": want.since.to_rfc3339(),
         "notes": want.notes.iter().map(|(at, note)| json!({ "at": at.to_rfc3339(), "note": note })).collect::<Vec<_>>(),
         "grewFrom": grew_from,
@@ -189,6 +194,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
             want: new.want.clone(),
             why: new.why.clone(),
             reach: new.reach,
+            longing: new.longing,
             since: now,
             notes: Vec::new(),
         };
@@ -213,9 +219,11 @@ pub async fn let_fade(db: &DatabaseConnection) {
 }
 
 /// The wants as a choice of what to do sees them: a line each.
+/// Her wants for choosing what to do: longings are not among them.
 pub fn lines(wants: &[Want]) -> Vec<String> {
     wants
         .iter()
+        .filter(|want| !want.longing)
         .map(|want| match want.notes.last() {
             Some((_, note)) => format!("{} (lately: {note})", want.want),
             None => want.want.clone(),

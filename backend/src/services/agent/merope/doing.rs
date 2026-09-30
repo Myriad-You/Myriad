@@ -299,7 +299,7 @@ async fn at_hand(db: &DatabaseConnection) -> Option<AtHand> {
     let wants: Vec<String> = super::wants::open(db)
         .await
         .into_iter()
-        .filter(|want| want.reach == myriad_merope::wants::Reach::OnYourOwn)
+        .filter(|want| want.reach == myriad_merope::wants::Reach::OnYourOwn && !want.longing)
         .map(|want| want.want)
         .collect();
     let advances = options
@@ -457,12 +457,21 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     };
     let views = own_views_on(db, &done.thing).await;
     let before = notes_before(db, &done.thing).await;
+    // What she has been quietly hoping for is there when something reaches
+    // her, not when she picks: it colours how things land.
+    let mut alongside = intake.alongside.clone();
+    if let Some(longings) = myriad_merope::wants::undercurrent(&super::wants::open(db).await) {
+        alongside.push((
+            "Underneath lately, not something you set out for, you have been hoping".to_string(),
+            longings,
+        ));
+    }
     let input = digest_input(
         intake.material.as_deref(),
         intake.limit,
         &views,
         &before,
-        &intake.alongside,
+        &alongside,
     );
     let soul = soul().await;
     let what = format!("{} {}", done.thing.verb(), done.thing.describe());

@@ -346,7 +346,8 @@
       "corrected": "Times she was shown wrong",
       "days": "Her days",
       "doing": "What she did on her own this week",
-      "voice": "Her own voice"
+      "voice": "Her own voice",
+      "pace": "Pace"
     },
     "reach": {
       "on_your_own": "she can see to it",
@@ -413,6 +414,20 @@
         "maybe": "only wondering",
         "likely": "likely",
         "very": "almost sure"
+      }
+    },
+    "longing": "a longing",
+    "pace": {
+      "desc": "Hours a day she spends on her own things and lazing about. With something she wants she may go past her usual; without, she lazes.",
+      "usual": "usually about {hours}h",
+      "pastDays": "past her usual {count} days running",
+      "day": "Day",
+      "minutes": "Doing (h)",
+      "lazed": "Lazing (h)",
+      "tone": {
+        "flat": "woke up flat today",
+        "even": "woke up as usual today",
+        "keen": "woke up keen today"
       }
     }
   }

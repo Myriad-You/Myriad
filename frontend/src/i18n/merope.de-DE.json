@@ -346,7 +346,8 @@
       "corrected": "Wo sie korrigiert wurde",
       "days": "Ihre Tage",
       "doing": "Was sie diese Woche für sich getan hat",
-      "voice": "Ihre eigene Stimme"
+      "voice": "Ihre eigene Stimme",
+      "pace": "Tempo"
     },
     "reach": {
       "on_your_own": "schafft sie allein",
@@ -413,6 +414,20 @@
         "maybe": "nur eine Ahnung",
         "likely": "wahrscheinlich",
         "very": "fast sicher"
+      }
+    },
+    "longing": "eine Sehnsucht",
+    "pace": {
+      "desc": "Stunden am Tag für eigene Dinge und fürs Faulenzen. Mit einem Ziel geht sie über ihr Übliches hinaus, ohne faulenzt sie.",
+      "usual": "üblich etwa {hours} h",
+      "pastDays": "{count} Tage in Folge über dem Üblichen",
+      "day": "Tag",
+      "minutes": "Tun (h)",
+      "lazed": "Faulenzen (h)",
+      "tone": {
+        "flat": "heute lustlos aufgewacht",
+        "even": "heute wie immer aufgewacht",
+        "keen": "heute voller Lust aufgewacht"
       }
     }
   }

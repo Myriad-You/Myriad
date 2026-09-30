@@ -1,6 +1,7 @@
 import type {
   MindEntry,
   MindGroup,
+  MindPace,
   MindPerson,
   MindSnapshot,
   MindSore,
@@ -121,7 +122,8 @@ export default function AgentMind() {
             <div>
               {want.want}
               <span className="text-secondary ml-2">
-                （{copy.reach[want.reach]} · {date(want.since)}）
+                （{want.longing ? `${copy.longing} · ` : ''}
+                {copy.reach[want.reach]} · {date(want.since)}）
               </span>
             </div>
             <div className="text-secondary">{want.why}</div>
@@ -204,6 +206,40 @@ export default function AgentMind() {
           ))}
         </tbody>
       </table>
+    )
+
+  const hours = (minutes: number) => (minutes / 60).toFixed(1)
+
+  const paceView = (pace?: MindPace) =>
+    !pace ? (
+      empty
+    ) : (
+      <>
+        <p className="text-sm text-secondary mb-2">
+          {fill(copy.pace.usual, { hours: hours(pace.usualMinutes) })} · {copy.pace.tone[pace.tone]}
+          {pace.daysPastUsual > 0
+            ? ` · ${fill(copy.pace.pastDays, { count: pace.daysPastUsual })}`
+            : ''}
+        </p>
+        <table className="w-full text-sm">
+          <thead className="text-secondary text-left">
+            <tr>
+              <th className="font-normal py-1">{copy.pace.day}</th>
+              <th className="font-normal py-1">{copy.pace.minutes}</th>
+              <th className="font-normal py-1">{copy.pace.lazed}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...pace.days].reverse().map((day) => (
+              <tr key={day.day}>
+                <td className="py-1">{date(day.day)}</td>
+                <td className="py-1">{hours(day.minutes)}</td>
+                <td className="py-1">{hours(day.lazed)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </>
     )
 
   const heading = (text: string) => <h4 className="text-sm font-semibold mt-4 mb-2">{text}</h4>
@@ -342,6 +378,9 @@ export default function AgentMind() {
             </SettingGroup>
             <SettingGroup title={copy.her.doing} toc={false}>
               {history(mind.her.doingThisWeek.map((done) => ({ ...done, current: true })))}
+            </SettingGroup>
+            <SettingGroup title={copy.her.pace} description={copy.pace.desc} descriptionVisible toc={false}>
+              {paceView(mind.her.pace)}
             </SettingGroup>
             <SettingGroup title={copy.her.voice} description={copy.voice.desc} descriptionVisible toc={false}>
               {voice(mind.her.voice)}
