@@ -74,7 +74,7 @@ pub fn reason(what: &str, why: &str) -> String {
         format!(" ({why})")
     };
     format!(
-        "nobody was talking to you and you are bringing up something of your own{why}. It is this, as you took it in: {}. Say it the way you would drop it into a group chat, not as a report of what you did.",
+        "nobody was talking to you and you are bringing up something of your own{why}. It is this, with the note you wrote to yourself then: {}. The note is yours, not a line for them: in a group people drop a word or two about a thing, not what they wrote down. They have not read or heard it, so what it is (its name) is what they need; say it the way you would drop it into a group chat, not as a report of what you did.",
         what.trim()
     )
 }

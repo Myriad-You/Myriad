@@ -140,6 +140,10 @@ struct Case {
     /// it in the prompt (see `merope::making_sense`).
     #[serde(default, rename = "madeSense", skip_serializing_if = "Option::is_none")]
     made_sense: Option<String>,
+    /// A group turn of her own: what she brings up (`what`, as she took it
+    /// in) and why (`why`), as production gives it (see `sharing::reason`).
+    #[serde(default)]
+    shares: Option<Value>,
     /// How her last talks with others left her: (feeling off even, hours ago).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     carried: Vec<(f64, f64)>,
@@ -518,6 +522,12 @@ fn group_chat_prompt(case: &Case) -> String {
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, true),
         soup,
+        case.shares.as_ref().map(|shares| {
+            myriad_merope::joining::speaking_up_section(&myriad_merope::sharing::reason(
+                shares["what"].as_str().unwrap_or(""),
+                shares["why"].as_str().unwrap_or(""),
+            ))
+        }),
     ]
     .into_iter()
     .flatten()
@@ -2285,7 +2295,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 120;
+const MIND_CASES: usize = 122;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
