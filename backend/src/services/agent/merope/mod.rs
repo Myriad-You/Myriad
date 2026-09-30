@@ -581,7 +581,7 @@ mod tests {
     /// shared table could actually hurt — so the query cannot express it.
     #[test]
     fn every_diary_read_names_its_source() {
-        let store = include_str!("store.rs");
+        let store = include_str!("store/diary.rs");
         assert!(
             !store.contains("source: Option<&str>"),
             "latest_diary accepts an unscoped read again"

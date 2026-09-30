@@ -655,7 +655,7 @@ mod tests {
         // preferences), never from Work lessons or patterns.
         assert!(!chat_fn.contains("unified::"));
         assert!(!chat_fn.contains("FOR_WORK"));
-        let recall = include_str!("merope/store.rs")
+        let recall = include_str!("merope/store/memory.rs")
             .split("pub async fn recall_remembered_primed")
             .nth(1)
             .and_then(|rest| rest.split("\n}\n").next())

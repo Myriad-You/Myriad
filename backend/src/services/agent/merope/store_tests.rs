@@ -406,7 +406,7 @@ fn changing_the_spoken_persona_keeps_the_sticker_avatar() {
 /// 上面那几条断言管不到它。
 #[test]
 fn completing_a_portrait_generation_drops_the_sticker_avatar_in_the_same_write() {
-    let source = include_str!("store.rs");
+    let source = include_str!("store/generation.rs");
     let at = source
         .find("pub async fn complete_portrait_generation")
         .expect("complete_portrait_generation exists");
