@@ -288,12 +288,16 @@ test('special mouths replace normal speaking and closed artwork without stacking
   assert.equal(fadeOpacity(layer('mouthOpen'), maniac), 0)
   assert.equal(fadeOpacity(layer('mouthClose'), maniac), 0)
 
-  const handingOff = { ...IDENTITY_DRIVER, maniac: 0.5, mouthOpen: 1 }
-  const laugh = fadeOpacity(layer('mouthManiac'), handingOff)
-  const speak = fadeOpacity(layer('mouthOpen'), handingOff)
-  assert.ok(laugh > 0.2 && laugh < 0.8)
-  assert.ok(speak > 0.2 && speak < 0.8)
-  assert.ok(Math.abs(laugh + speak - 1) < 1e-6)
+  // Handing over, the special mouth comes in over the speaking one before it
+  // goes: one of them always covers the mouth fully.
+  for (const [special, fade] of [['maniac', 'mouthManiac'], ['eyeCry', 'mouthCry']] as const) {
+    for (let step = 0; step <= 20; step += 1) {
+      const driver = { ...IDENTITY_DRIVER, [special]: step / 20, mouthOpen: 1 }
+      const incoming = fadeOpacity(layer(fade), driver)
+      const outgoing = fadeOpacity(layer('mouthOpen'), driver)
+      assert.ok(Math.max(incoming, outgoing) > 0.999, `${special} ${step}: ${incoming} ${outgoing}`)
+    }
+  }
 })
 
 test('vacant-stare artwork owns both eyes and the mouth while it is up', () => {

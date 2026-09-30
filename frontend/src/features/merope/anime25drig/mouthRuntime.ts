@@ -271,8 +271,8 @@ export function fadeOpacity(
   if (layer.fade === 'speechlessSweat') {
     return speechless * (1 - anger) * (1 - maniac) * symbolBlocker
   }
-  if (layer.fade === 'mouthCry') return mouthCry
-  if (layer.fade === 'mouthSilly') return sillyMouth * (1 - mouthCry)
+  if (layer.fade === 'mouthCry') return arriving(mouthCry)
+  if (layer.fade === 'mouthSilly') return arriving(sillyMouth) * (1 - mouthCry)
   if (layer.fade === 'eyeSqueeze') {
     return squeeze * (1 - dizzy) * (1 - cry)
   }
@@ -303,8 +303,8 @@ export function fadeOpacity(
         closedLinger(driver),
         partingReveal(driver),
       ) *
-      (1 - mouthCry) *
-      (1 - sillyMouth)
+      covered(mouthCry) *
+      covered(sillyMouth)
     )
   }
   return 1
@@ -430,9 +430,9 @@ export function fadeOpacityFromFrame(
       frame.symbolBlocker
     )
   }
-  if (fade === 'mouthCry') return frame.mouthCry
+  if (fade === 'mouthCry') return arriving(frame.mouthCry)
   if (fade === 'mouthSilly') {
-    return frame.sillyMouth * (1 - frame.mouthCry)
+    return arriving(frame.sillyMouth) * (1 - frame.mouthCry)
   }
   if (fade === 'eyeSqueeze') {
     return frame.squeeze * (1 - frame.dizzy) * (1 - frame.cry)
@@ -465,8 +465,8 @@ export function fadeOpacityFromFrame(
         frame.mouthPrevious,
         frame.mouthHandoff,
       ) *
-      (1 - frame.mouthCry) *
-      (1 - frame.sillyMouth)
+      covered(frame.mouthCry) *
+      covered(frame.sillyMouth)
     )
   }
   return 1
@@ -493,21 +493,35 @@ function mouthLayerMix(
   previous: SpeechMouthMaterial = underlay,
   handoff = 1,
 ): number {
-  if (fade === 'mouthManiac') return maniac
+  if (fade === 'mouthManiac') return arriving(maniac)
+  const under = covered(maniac)
   // One open drawing hands over to another: the new one comes in over the
   // old, then the old goes. The closed line has its own linger below.
   const handing = previous !== underlay && previous !== 'mouthClose' && previous !== 'mouthManiac' &&
     underlay !== 'mouthClose' && handoff < 1
   if (fade === underlay) {
     // A parting slit comes in over the lip line rather than cutting to it.
-    const arriving = handing ? smoothstep(handoff * 2) : 1
-    return (fade === 'mouthClose' ? 1 : reveal) * arriving * (1 - maniac)
+    const incoming = handing ? smoothstep(handoff * 2) : 1
+    return (fade === 'mouthClose' ? 1 : reveal) * incoming * under
   }
-  if (handing && fade === previous) return reveal * (1 - smoothstep(handoff * 2 - 1)) * (1 - maniac)
+  if (handing && fade === previous) return reveal * (1 - smoothstep(handoff * 2 - 1)) * under
   if (fade === 'mouthClose' && underlay !== 'mouthManiac') {
-    return linger * (1 - maniac)
+    return linger * under
   }
   return 0
+}
+
+/**
+ * An expression's own mouth (crying, laughing, tongue out) is drawn over the
+ * speaking one. It comes in over it, and the speaking mouth goes only once
+ * it is covered, so the mouth is never half see-through between the two.
+ */
+function arriving(amount: number): number {
+  return smoothstep(amount * 2)
+}
+
+function covered(amount: number): number {
+  return 1 - smoothstep(amount * 2 - 1)
 }
 
 /** Opening over which the closed line fades out above a parting mouth. */
