@@ -21,6 +21,7 @@ pub mod making_sense;
 pub mod life;
 mod onboarding;
 pub mod others;
+pub mod pace;
 mod outfit_overlay;
 mod performance;
 mod persona;

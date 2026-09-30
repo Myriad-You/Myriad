@@ -198,6 +198,7 @@ async fn write_yesterday(db: &DatabaseConnection, owner: i32, day: NaiveDate) {
     let input = json!({
         "day": day.weekday().to_string(),
         "dayFacts": facts,
+        "yourPace": super::pace::day_line(db, day).await,
         "onYourOwn": on_your_own,
         "earlierEntries": earlier,
     })

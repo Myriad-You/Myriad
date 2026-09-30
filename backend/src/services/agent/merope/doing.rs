@@ -57,9 +57,18 @@ pub struct Doing {
     pub why: String,
 }
 
+/// Lazing about: which way, since when, until when.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lazing {
+    pub kind: &'static str,
+    pub started: DateTime<Utc>,
+    pub ends: DateTime<Utc>,
+}
+
 #[derive(Default)]
 struct Life {
     now: Option<Doing>,
+    lazing: Option<Lazing>,
     /// When she next looks for something to do.
     next_at: Option<DateTime<Utc>>,
     /// The clock hour counted, as hours since the epoch, and how many
@@ -85,6 +94,46 @@ pub fn current() -> Option<Doing> {
     LIFE.lock().ok()?.now.clone()
 }
 
+/// How she is lazing about, if she is.
+pub fn lazing() -> Option<Lazing> {
+    LIFE.lock().ok()?.lazing.clone()
+}
+
+/// What she is up to on her own right now, as a line for a prompt: what she
+/// is doing, or how she is lazing about.
+pub fn now_text(at: DateTime<Utc>) -> Option<String> {
+    if let Some(doing) = current() {
+        return Some(now_line(&doing, at));
+    }
+    let lazing = lazing()?;
+    let done = at
+        .signed_duration_since(lazing.started)
+        .num_minutes()
+        .max(0);
+    let total = lazing
+        .ends
+        .signed_duration_since(lazing.started)
+        .num_minutes()
+        .max(1);
+    Some(format!(
+        "You are {}, about {done} of {total} minutes in.",
+        super::pace::lazing_line(lazing.kind)
+    ))
+}
+
+/// Lazing about when the urge does not come: mostly daydreaming.
+fn idle_kind() -> &'static str {
+    let draw: f64 = rand::random();
+    let index = if draw < 0.5 {
+        0
+    } else if draw < 0.8 {
+        1
+    } else {
+        2
+    };
+    super::pace::LAZING[index].0
+}
+
 pub async fn tick(db: DatabaseConnection) {
     if !super::is_enabled().await {
         return;
@@ -102,6 +151,21 @@ pub async fn tick(db: DatabaseConnection) {
             None
         }
     });
+    // Done lazing: the time goes into the day's.
+    let lazed = LIFE.lock().ok().and_then(|mut life| {
+        life.lazing
+            .as_ref()
+            .is_some_and(|lazing| lazing.ends <= now)
+            .then(|| life.lazing.take())
+            .flatten()
+    });
+    if let Some(lazed) = lazed {
+        let minutes = lazed
+            .ends
+            .signed_duration_since(lazed.started)
+            .num_minutes();
+        super::pace::lazed(&db, minutes.max(0) as f64).await;
+    }
     if let Some(done) = finished {
         if tokio::time::timeout(Duration::from_secs(120), finish(&db, owner, done))
             .await
@@ -131,15 +195,54 @@ pub async fn tick(db: DatabaseConnection) {
         }
         return;
     }
-    let chosen = tokio::time::timeout(Duration::from_secs(120), choose(&db, owner))
-        .await
-        .unwrap_or(Err(None));
+    let Some(hand) = at_hand(&db).await else {
+        if let Ok(mut life) = LIFE.lock() {
+            life.next_at = Some(now + REST);
+        }
+        return;
+    };
+    // Whether she gets up at all is not asked of the model, which says yes
+    // to nearly anything: it is an urge, from how she woke up, how far past
+    // her usual she is, and whether something she wants pulls her.
+    let (pace, spent, lazed) = super::pace::now(&db).await;
+    let load = spent / pace.usual_minutes.max(1.0);
+    let urge = myriad_merope::pace::urge(pace.tone, load, hand.pulls());
+    if rand::random::<f64>() >= urge {
+        let minutes = myriad_merope::pace::laze_minutes(pace.tone, rand::random());
+        let lazing = Lazing {
+            kind: idle_kind(),
+            started: now,
+            ends: now + chrono::Duration::minutes(minutes),
+        };
+        tracing::info!(kind = lazing.kind, minutes, urge, "[Merope] lazing about");
+        if let Ok(mut life) = LIFE.lock() {
+            life.next_at = Some(lazing.ends);
+            life.lazing = Some(lazing);
+        }
+        return;
+    }
+    let facts = myriad_merope::pace::facts(&pace, spent, lazed);
+    let chosen = tokio::time::timeout(
+        Duration::from_secs(120),
+        choose(&db, owner, hand, &facts, pace.tone),
+    )
+    .await
+    .unwrap_or(Err(None));
     if let Ok(mut life) = LIFE.lock() {
         match chosen {
-            Ok(doing) => {
+            Ok(Picked::Doing(doing)) => {
                 life.this_hour += 1;
                 sources::begin(&db, owner, &doing.thing);
                 life.now = Some(doing);
+            }
+            Ok(Picked::Lazing(kind, length)) => {
+                let lazing = Lazing {
+                    kind,
+                    started: now,
+                    ends: now + length,
+                };
+                life.next_at = Some(lazing.ends);
+                life.lazing = Some(lazing);
             }
             // Nothing she wants to do, for as long as she said, or nothing
             // at hand: a while later.
@@ -157,27 +260,71 @@ fn free_to_start(now: DateTime<Utc>) -> bool {
         life.hour = Some(hour);
         life.this_hour = 0;
     }
-    life.now.is_none() && life.this_hour < PER_HOUR && life.next_at.is_none_or(|at| at <= now)
+    life.now.is_none()
+        && life.lazing.is_none()
+        && life.this_hour < PER_HOUR
+        && life.next_at.is_none_or(|at| at <= now)
 }
 
 // --- choosing ---------------------------------------------------------------
 
-/// What she picked, or how long she would rather leave it (none when she
-/// did not say or could not choose).
-async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chrono::Duration>> {
+/// What is at hand for a free moment, and which of it works toward
+/// something she wants on her own.
+struct AtHand {
+    lately: Vec<unified_row::Model>,
+    options: Vec<Thing>,
+    advances: Vec<Option<String>>,
+}
+
+impl AtHand {
+    /// Something she wants pulls her toward what is at hand.
+    fn pulls(&self) -> bool {
+        self.advances.iter().any(Option::is_some)
+    }
+}
+
+async fn at_hand(db: &DatabaseConnection) -> Option<AtHand> {
     let lately = match unified::own_experiences(db, 300).await {
         Ok(lately) => lately,
         Err(error) => {
             tracing::warn!(%error, "[Merope] could not read what she did lately");
-            return Err(None);
+            return None;
         }
     };
     let options = sources::options(db, &lately).await;
     if options.is_empty() {
         tracing::info!("[Merope] nothing at hand for her own time");
-        return Err(None);
+        return None;
     }
-    let soul = soul().await;
+    let wants: Vec<String> = super::wants::open(db)
+        .await
+        .into_iter()
+        .filter(|want| want.reach == myriad_merope::wants::Reach::OnYourOwn)
+        .map(|want| want.want)
+        .collect();
+    let advances = options
+        .iter()
+        .map(|thing| {
+            wants
+                .iter()
+                .find(|want| myriad_merope::pace::advances(want, thing.title(), thing.by()))
+                .cloned()
+        })
+        .collect();
+    Some(AtHand {
+        lately,
+        options,
+        advances,
+    })
+}
+
+/// What she chooses from, as the model reads it.
+async fn choice_input(db: &DatabaseConnection, hand: &AtHand, pace: &[String]) -> String {
+    let AtHand {
+        lately,
+        options,
+        advances,
+    } = hand;
     let myself = super::self_state::current(db).await.facts_view();
     let now = Utc::now();
     let lately_view: Vec<Value> = lately
@@ -193,9 +340,20 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
             )))
         })
         .collect();
-    let mut option_views = Vec::with_capacity(options.len());
+    let mut option_views = Vec::with_capacity(options.len() + super::pace::LAZING.len());
     for (index, thing) in options.iter().enumerate() {
-        option_views.push(sources::view(db, index, thing).await);
+        let mut view = sources::view(db, index, thing).await;
+        if let Some(want) = &advances[index] {
+            view["advances"] = json!(want);
+        }
+        option_views.push(view);
+    }
+    for (offset, (_, what)) in super::pace::LAZING.iter().enumerate() {
+        option_views.push(json!({
+            "index": options.len() + offset,
+            "kind": "lazing",
+            "what": what,
+        }));
     }
     let kinds: Vec<(&str, chrono::Duration)> = lately
         .iter()
@@ -207,23 +365,45 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
             ))
         })
         .collect();
-    let input = json!({
+    json!({
         "myself": myself,
         "lately": lately_view,
+        "yourPace": pace,
         "sameThingLately": myriad_merope::doing::same_run(&kinds),
         "yourViews": super::views::held(db, 5).await,
         "yourWants": super::wants::lines(&super::wants::open(db).await),
         "whoYouHaveBeen": super::self_story::current(db).await,
         "options": option_views,
     })
-    .to_string();
+    .to_string()
+}
+
+/// What she took up at a free moment.
+enum Picked {
+    Doing(Doing),
+    /// A way of lazing about (its kind), for this long.
+    Lazing(&'static str, chrono::Duration),
+}
+
+/// What she picked, or how long she would rather leave it (none when she
+/// did not say or could not choose). `pace` is her pace as she knows it.
+async fn choose(
+    db: &DatabaseConnection,
+    owner: i32,
+    hand: AtHand,
+    pace: &[String],
+    tone: myriad_merope::pace::Tone,
+) -> Result<Picked, Option<chrono::Duration>> {
+    let input = choice_input(db, &hand, pace).await;
+    let soul = soul().await;
+    let AtHand { options, .. } = hand;
     let choice: Option<Choice> = call::Ask::new(Voice::Judge, owner, "doing_choice")
         .within(CALL_TIMEOUT)
         .json(
             &choice_system(&soul),
             &input,
             CHOICE_SCHEMA,
-            &choice_schema(options.len()),
+            &choice_schema(options.len() + super::pace::LAZING.len()),
         )
         .await
         .ok();
@@ -231,6 +411,19 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
         tracing::info!("[Merope] could not decide what to do on her own");
         return Err(None);
     };
+    // A way of lazing about, picked like anything else.
+    if let Some((kind, _)) = choice
+        .choice
+        .and_then(|index| index.checked_sub(options.len()))
+        .and_then(|index| super::pace::LAZING.get(index))
+    {
+        let minutes = choice
+            .rest_minutes
+            .unwrap_or_else(|| myriad_merope::pace::laze_minutes(tone, rand::random()))
+            .clamp(*REST_MINUTES.start(), *REST_MINUTES.end());
+        tracing::info!(kind, minutes, "[Merope] chose to laze about");
+        return Ok(Picked::Lazing(kind, chrono::Duration::minutes(minutes)));
+    }
     let Some(thing) = choice.choice.and_then(|index| options.get(index)).cloned() else {
         let rest = choice.rest_minutes.map(|minutes| {
             chrono::Duration::minutes(minutes.clamp(*REST_MINUTES.start(), *REST_MINUTES.end()))
@@ -248,12 +441,12 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
     let started = Utc::now();
     let length = sources::length(db, &thing).await;
     tracing::info!(kind = %thing.key(), "[Merope] doing something of her own");
-    Ok(Doing {
+    Ok(Picked::Doing(Doing {
         ends: started + length,
         started,
         why: choice.why.unwrap_or_default().chars().take(80).collect(),
         thing,
-    })
+    }))
 }
 
 // --- when she is done -------------------------------------------------------
@@ -810,7 +1003,8 @@ mod tests {
     #[test]
     fn she_chooses_for_herself_and_may_choose_nothing() {
         let system = choice_system("你是瞳。");
-        assert!(system.contains("You do not have to fill it"));
+        assert!(system.contains("a way of lazing about (lazing)"));
+        assert!(system.contains("yourPace is how much of your own time today"));
         assert!(system.contains("rest_minutes is how long you would leave it"));
         assert!(system.contains("Judge from them yourself"));
         let schema = choice_schema(3);
@@ -976,6 +1170,65 @@ mod tests {
 
 #[cfg(test)]
 mod live {
+    /// Offered lazing about beside what is at hand, with her pace fresh and
+    /// worn out, how often she picks it: read only, MEROPE_RUNS (default 8).
+    #[tokio::test]
+    #[ignore = "reads the site's database and asks its model"]
+    async fn does_she_laze_when_she_may() {
+        let db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        crate::services::process_db::set_process_database(db.clone());
+        let hand = super::at_hand(&db).await.expect("things at hand");
+        let options = hand.options.len();
+        let runs: usize = std::env::var("MEROPE_RUNS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(8);
+        let day = chrono::Local::now().date_naive();
+        let fresh = myriad_merope::pace::Pace {
+            day,
+            usual_minutes: 240.0,
+            days_past_usual: 0,
+            tone: myriad_merope::pace::Tone::Even,
+        };
+        let worn = myriad_merope::pace::Pace {
+            days_past_usual: 3,
+            tone: myriad_merope::pace::Tone::Flat,
+            ..fresh.clone()
+        };
+        let soul = super::soul().await;
+        for (label, pace, spent) in [("fresh", &fresh, 120.0), ("worn", &worn, 420.0)] {
+            let facts = myriad_merope::pace::facts(pace, spent, 30.0);
+            let input = super::choice_input(&db, &hand, &facts).await;
+            let (mut doing, mut lazing, mut nothing) = (0, 0, 0);
+            let mut whys = Vec::new();
+            for _ in 0..runs {
+                let choice: Option<super::Choice> =
+                    super::call::Ask::new(super::Voice::Judge, 1, "doing_choice")
+                        .within(std::time::Duration::from_secs(60))
+                        .json(
+                            &super::choice_system(&soul),
+                            &input,
+                            super::CHOICE_SCHEMA,
+                            &super::choice_schema(options + super::super::pace::LAZING.len()),
+                        )
+                        .await
+                        .ok();
+                match choice.as_ref().and_then(|choice| choice.choice) {
+                    Some(index) if index >= options => lazing += 1,
+                    Some(_) => doing += 1,
+                    None => nothing += 1,
+                }
+                if let Some(why) = choice.and_then(|choice| choice.why) {
+                    whys.push(why);
+                }
+            }
+            println!("{label}: doing {doing}, lazing {lazing}, null {nothing}");
+            for why in whys.iter().take(4) {
+                println!("   {why}");
+            }
+        }
+    }
+
     /// How she takes the same few things with the persona as it is, and as
     /// kept in MEROPE_SOUL_BEFORE (a JSON file with `personality` and
     /// `persona_json`), a few times each, printed: read only.

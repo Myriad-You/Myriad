@@ -69,7 +69,7 @@ fn input(conversation: &[String], here: &Here, material: &[Material]) -> String 
         "youLastSpokeHere": here.last_spoke,
         "youAreSeeingItLate": here.late,
         "howItWentHere": here.how_it_went,
-        "yourOwnTime": super::doing::current().map(|doing| super::doing::now_line(&doing, Utc::now())),
+        "yourOwnTime": super::doing::now_text(Utc::now()),
         "whatYouHave": material_view(material),
     })
     .to_string()

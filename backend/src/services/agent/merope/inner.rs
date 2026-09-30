@@ -194,8 +194,8 @@ async fn compile(
         "myself": myself.facts_view(),
         "remembered": remembered.map(|(facts, _)| facts).unwrap_or_default(),
     });
-    if let Some(doing) = super::doing::current() {
-        input["yourOwnTime"] = json!(super::doing::now_line(&doing, chrono::Utc::now()));
+    if let Some(now) = super::doing::now_text(chrono::Utc::now()) {
+        input["yourOwnTime"] = json!(now);
     }
     if let Some(scene) = &turn.scene {
         input["scene"] = json!(scene);

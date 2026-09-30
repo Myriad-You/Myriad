@@ -594,6 +594,8 @@ where
     super::soup::forget_games(db).await?;
     // The serial she followed and the books she finished or let go.
     super::serial::forget(db).await?;
+    // Her usual pace and the days she lazed.
+    super::pace::forget(db).await?;
     // Her stickers are pictures of her.
     crate::models::entities::merope_stickers::Entity::delete_many()
         .exec(db)

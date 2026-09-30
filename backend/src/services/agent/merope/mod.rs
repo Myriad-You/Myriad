@@ -30,6 +30,7 @@ pub mod onboarding_ai;
 pub mod onboarding_prompts;
 pub mod others;
 pub mod outfit_overlay;
+pub mod pace;
 pub mod playing;
 mod priming;
 pub mod reach;
@@ -924,6 +925,12 @@ async fn speaking_prompt_from_db(
     if !matches!(turn, Turn::Plain) && compiled.is_none() {
         sections.push(self_state::format_day_section(&myself.facts));
     }
+    // How hard she has been going at her own things, when it says something.
+    if !matches!(turn, Turn::Plain)
+        && let Some(block) = pace::conversation_section(db).await
+    {
+        sections.push(block);
+    }
     if let Turn::Chat(words) | Turn::Event(words) = turn {
         let found = crate::services::agent::memory::unified::recall(
             db,
@@ -970,7 +977,7 @@ async fn speaking_prompt_from_db(
         } else {
             Vec::new()
         };
-        let now = doing::current().map(|doing| doing::now_line(&doing, chrono::Utc::now()));
+        let now = doing::now_text(chrono::Utc::now());
         if let Some(block) = format_doing_section(now.as_deref(), &lately) {
             sections.push(block);
         }

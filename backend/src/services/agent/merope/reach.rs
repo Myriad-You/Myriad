@@ -265,7 +265,7 @@ async fn would_write(
         "whatTheyAreToYou": super::bits::us(db, user_id).await.map(|us| us.now),
         "yourLastFirstWords": myriad_merope::others::first_words_view(&first_words),
         "yourOwnTime": {
-            "now": super::doing::current().map(|doing| super::doing::now_line(&doing, Utc::now())),
+            "now": super::doing::now_text(Utc::now()),
             "wouldTell": reason.to_tell,
         },
         "recentTalk": talk.iter().rev().take(6).rev()

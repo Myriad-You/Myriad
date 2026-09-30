@@ -135,8 +135,7 @@ pub async fn reply(
     if let Some(block) = super::recognizing::guess_section(db, venue, stranger).await {
         sections.push(block);
     }
-    let now =
-        super::doing::current().map(|doing| super::doing::now_line(&doing, chrono::Utc::now()));
+    let now = super::doing::now_text(chrono::Utc::now());
     if let Some(block) = super::format_doing_section(now.as_deref(), &[]) {
         sections.push(block);
     }
