@@ -212,11 +212,11 @@ fn name_parser_requires_a_meaning_clause() {
 /// 规则，请再随机一次」——那是把系统该做的事写成了给人看的提示。
 #[test]
 fn the_name_call_retries_itself_with_a_fresh_roll() {
-    let source = include_str!("onboarding_ai.rs");
+    let source = include_str!("onboarding_ai/names.rs");
     let body = source
         .split("pub async fn suggest_display_name(")
         .nth(1)
-        .and_then(|rest| rest.split("\npub ").next())
+        .and_then(|rest| rest.split("\n}\n").next())
         .expect("suggest_display_name body");
 
     assert!(body.contains("for attempt in 0..NAME_ATTEMPTS"));
@@ -241,11 +241,11 @@ fn the_name_call_retries_itself_with_a_fresh_roll() {
 /// 走 `create_strict_lite_ai_analyzer_with_timeout`。Lite 开关关着工厂返回 `None`，不回落到 Standard。
 #[test]
 fn name_roll_is_strict_lite_with_a_small_payload() {
-    let source = include_str!("onboarding_ai.rs");
+    let source = include_str!("onboarding_ai/names.rs");
     let body = source
         .split("async fn run_name_call(")
         .nth(1)
-        .and_then(|rest| rest.split("\nasync fn ").next())
+        .and_then(|rest| rest.split("\n}\n").next())
         .expect("run_name_call body");
 
     assert!(body.contains("create_strict_lite_ai_analyzer_with_timeout"));
@@ -263,18 +263,20 @@ fn name_roll_is_strict_lite_with_a_small_payload() {
 #[test]
 fn every_gated_draft_retries_itself() {
     let source = include_str!("onboarding_ai.rs");
-    for (entry, attempts) in [
-        ("pub async fn suggest_persona(", PERSONA_ATTEMPTS),
-        ("pub async fn import_persona(", PERSONA_ATTEMPTS),
+    let vision = include_str!("onboarding_ai/vision.rs");
+    for (file, entry, attempts) in [
+        (source, "pub async fn suggest_persona(", PERSONA_ATTEMPTS),
+        (source, "pub async fn import_persona(", PERSONA_ATTEMPTS),
         (
+            vision,
             "pub async fn suggest_visual_design(",
             VISUAL_DESIGN_ATTEMPTS,
         ),
     ] {
-        let body = source
+        let body = file
             .split(entry)
             .nth(1)
-            .and_then(|rest| rest.split("\nasync fn ").next())
+            .and_then(|rest| rest.split("\n}\n").next())
             .unwrap_or_else(|| panic!("{entry} body"));
         assert!(
             body.contains("retry_unusable("),
@@ -288,7 +290,7 @@ fn every_gated_draft_retries_itself() {
     let shell = source
         .split("async fn retry_unusable")
         .nth(1)
-        .and_then(|rest| rest.split("\npub async fn ").next())
+        .and_then(|rest| rest.split("\n}\n").next())
         .expect("retry shell");
     assert!(shell.contains("OnboardingAiError::AnalyzerUnavailable"));
     assert!(shell.contains("OnboardingAiError::ProviderFailed(_)"));
