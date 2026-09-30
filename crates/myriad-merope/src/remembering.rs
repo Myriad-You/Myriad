@@ -179,19 +179,30 @@ pub fn excerpt(message: &str, query: &str, max_chars: usize) -> String {
     clipped
 }
 
+/// Whose words she found looking back, or what a day she turned to was
+/// about when nothing in it answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Who {
+    You,
+    They,
+    TheDay,
+}
+
 /// What she found scrolling back through the chat: (date, whose words,
 /// the part she read).
-pub fn looked_back_section(found: &[(String, bool, String)]) -> Option<String> {
+pub fn looked_back_section(found: &[(String, Who, String)]) -> Option<String> {
     if found.is_empty() {
         return None;
     }
     let lines: Vec<String> = found
         .iter()
-        .map(|(date, hers, text)| {
-            format!(
-                "- [{date}] {}: {text}",
-                if *hers { "you said" } else { "they said" }
-            )
+        .map(|(date, who, text)| {
+            let who = match who {
+                Who::You => "you said",
+                Who::They => "they said",
+                Who::TheDay => "that day was about",
+            };
+            format!("- [{date}] {who}: {text}")
         })
         .collect();
     Some(format!(
@@ -245,7 +256,7 @@ mod tests {
         assert!(overlap("恐龙绘本 蛇颈龙", "蛇颈龙是蓝色的") >= 2);
         assert_eq!(looked_back_section(&[]), None);
         assert!(
-            looked_back_section(&[("2023-05-21".into(), true, "7. Transcriptionist".into())])
+            looked_back_section(&[("2023-05-21".into(), Who::You, "7. Transcriptionist".into())])
                 .unwrap()
                 .contains("- [2023-05-21] you said: 7. Transcriptionist")
         );

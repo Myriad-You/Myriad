@@ -7,6 +7,7 @@ pub mod affect;
 mod anime25d_contract;
 pub mod answer;
 pub mod bits;
+pub mod chat_days;
 pub mod chat_remember;
 pub mod contrast;
 pub mod curiosity;

@@ -4,6 +4,7 @@ mod appraisal;
 pub(crate) mod background;
 pub mod bits;
 mod call;
+pub mod chat_days;
 pub mod chat_remember;
 pub mod curiosity;
 pub mod doing;

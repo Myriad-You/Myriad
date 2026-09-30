@@ -359,8 +359,9 @@ async fn rows_for<C: ConnectionTrait>(
 /// were like (see `merope::bits`), what still stings with someone (see
 /// `merope::sore`), whom she takes someone in a group for (see
 /// `merope::recognizing`), her speaking up unasked in a group (see
-/// `merope::others`), and how she comes across (see `merope::bits`).
-const KEPT_APART: [&str; 10] = [
+/// `merope::others`), how she comes across (see `merope::bits`), and the
+/// line for each day with someone (see `merope::chat_days`).
+const KEPT_APART: [&str; 11] = [
     "bit",
     "stranger",
     "thread",
@@ -371,6 +372,7 @@ const KEPT_APART: [&str; 10] = [
     "maybe_is",
     "spoke_up",
     "lands",
+    "day_with",
 ];
 
 async fn active_rows<C: ConnectionTrait>(

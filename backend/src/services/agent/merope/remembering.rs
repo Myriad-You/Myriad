@@ -12,7 +12,7 @@ use sea_orm::DatabaseConnection;
 use super::call::{self, Voice};
 use super::store::{self, Recalled};
 use crate::services::agent::memory::unified::{Audience, Priming};
-use myriad_merope::remembering::{Cues, SCHEMA_NAME, input, merged, parse, schema, system};
+use myriad_merope::remembering::{Cues, SCHEMA_NAME, Who, input, merged, parse, schema, system};
 
 /// Messages she reads when scrolling back: for a detail, and when answering
 /// needs all of it (the amounts and names memory may have lost are there).
@@ -146,7 +146,7 @@ pub async fn look_back(
     query: &str,
     asked: &str,
     found: usize,
-) -> Vec<(String, bool, String)> {
+) -> Vec<(String, Who, String)> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
     const LATEST: i32 = 3000;
     const SHOWN_CHARS: usize = 600;
@@ -199,7 +199,7 @@ pub async fn look_back(
         .collect();
     shown.sort_unstable();
     shown.dedup();
-    shown
+    let by_words: Vec<(String, Who, String)> = shown
         .into_iter()
         .map(|index| {
             let (at, hers, content) = &chat[index];
@@ -216,9 +216,33 @@ pub async fn look_back(
             } else {
                 myriad_merope::remembering::excerpt(content, query, SHOWN_CHARS)
             };
-            (at.format("%Y-%m-%d").to_string(), *hers, text)
+            let who = if *hers { Who::You } else { Who::They };
+            (at.format("%Y-%m-%d").to_string(), who, text)
         })
-        .collect()
+        .collect();
+    // And, as a person does, thinking which day it was and reading that day
+    // (see `chat_days`): what the words alone would miss.
+    let by_day = super::chat_days::turn_back(db, user_id, query, asked).await;
+    merge_found(by_words, by_day)
+}
+
+/// What was found by words and by day, once each, oldest first.
+fn merge_found(
+    by_words: Vec<(String, Who, String)>,
+    by_day: Vec<(String, Who, String)>,
+) -> Vec<(String, Who, String)> {
+    let mut found = by_words;
+    for (date, who, text) in by_day {
+        let key: String = text.trim_start_matches("… ").chars().take(30).collect();
+        let known = found.iter().any(|(was_on, _, was)| {
+            *was_on == date && was.trim_start_matches("… ").starts_with(key.as_str())
+        });
+        if !known {
+            found.push((date, who, text));
+        }
+    }
+    found.sort_by(|left, right| left.0.cmp(&right.0));
+    found
 }
 
 /// Recall for `message` as a chat turn does, and for each cue besides,
@@ -284,6 +308,19 @@ pub async fn recall_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_was_found_by_words_and_by_day_is_there_once_in_order() {
+        let found = super::merge_found(
+            vec![("2026-09-25".into(), Who::They, "继续上次的海龟汤吧".into())],
+            vec![
+                ("2026-09-25".into(), Who::They, "继续上次的海龟汤吧".into()),
+                ("2026-09-12".into(), Who::You, "… 那盆兰草又蔫了".into()),
+            ],
+        );
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].0, "2026-09-12");
+    }
 
     #[test]
     fn her_own_life_comes_to_mind_when_the_moment_asks_for_it() {

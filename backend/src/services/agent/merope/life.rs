@@ -94,6 +94,8 @@ pub async fn tick(db: DatabaseConnection) {
                 *done = Some(start.date_naive());
             }
             super::bits::go_over(&db, owner, start, end).await;
+            // A line for each day with each person, to turn back to later.
+            super::chat_days::go_over(&db, owner).await;
             // A group's joke that keeps coming back may become its sticker.
             super::stickers::for_group_jokes(&db, owner).await;
         }
