@@ -44,7 +44,22 @@ static BITS_DONE: std::sync::LazyLock<std::sync::Mutex<Option<NaiveDate>>> =
 /// Days a missed night can still be written for.
 const BACKFILL_DAYS: u64 = 3;
 
+/// Whether records cut short before have been mended since the start.
+static MENDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub async fn tick(db: DatabaseConnection) {
+    // Her own time kept before evidence was kept whole could not be read
+    // back: once, make those records whole again.
+    if !MENDED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        match unified::mend_cut_evidence(&db).await {
+            Ok(0) => {}
+            Ok(mended) => tracing::info!(mended, "[Merope] records cut short made whole"),
+            Err(error) => {
+                MENDED.store(false, std::sync::atomic::Ordering::Relaxed);
+                tracing::warn!(%error, "[Merope] could not mend records cut short");
+            }
+        }
+    }
     let now = chrono::Local::now();
     if !NIGHT.contains(&now.hour()) || !super::is_enabled().await {
         return;

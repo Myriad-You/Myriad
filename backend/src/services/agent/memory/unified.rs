@@ -27,7 +27,10 @@ use crate::models::entities::agent_memories;
 pub const MAX_ACTIVE_PER_USER: u64 = 1000;
 /// Stored text is a single fact, not a transcript.
 pub const MAX_CONTENT_CHARS: usize = 400;
-const MAX_EVIDENCE_CHARS: usize = 400;
+/// Evidence is a quote or a small record of what it was, not the material.
+const MAX_EVIDENCE_CHARS: usize = 4000;
+/// Records exactly this long may be cut mid-way (see `mend_cut_evidence`).
+const EVIDENCE_ONCE_CUT_AT: i32 = 400;
 /// A memory is about a few things, not a topic list.
 pub const MAX_CONCEPTS: usize = 5;
 pub const MAX_ALIASES: usize = 5;
@@ -417,9 +420,7 @@ pub async fn remember<C: ConnectionTrait>(
         user_id: Set(Some(memory.user_id)),
         kind: Set(memory.kind.as_str().into()),
         content: Set(content),
-        evidence: Set(memory
-            .evidence
-            .map(|text| text.chars().take(MAX_EVIDENCE_CHARS).collect())),
+        evidence: Set(memory.evidence.as_deref().map(bounded_evidence)),
         speaker: Set(memory.speaker.as_str().into()),
         source: Set(memory.source.into()),
         venue: Set(venue),
@@ -1147,7 +1148,7 @@ pub async fn remember_own<C: ConnectionTrait>(
         user_id: Set(None),
         kind: Set(MemoryKind::Knowledge.as_str().into()),
         content: Set(content),
-        evidence: Set(Some(evidence.chars().take(MAX_CONTENT_CHARS).collect())),
+        evidence: Set(Some(bounded_evidence(evidence))),
         speaker: Set(Speaker::Agent.as_str().into()),
         source: Set(source.into()),
         venue: Set(OWN_VENUE.into()),
@@ -1188,7 +1189,7 @@ pub async fn remember_in_venue<C: ConnectionTrait>(
         user_id: Set(None),
         kind: Set(MemoryKind::Fact.as_str().into()),
         content: Set(content),
-        evidence: Set(Some(evidence.chars().take(MAX_CONTENT_CHARS).collect())),
+        evidence: Set(Some(bounded_evidence(evidence))),
         speaker: Set(Speaker::Agent.as_str().into()),
         source: Set(source.into()),
         venue: Set(venue.chars().take(MAX_VENUE_CHARS).collect()),
@@ -1304,6 +1305,106 @@ pub async fn adopt_unowned<C: ConnectionTrait>(
         .exec(db)
         .await?;
     Ok(result.rows_affected)
+}
+
+/// Evidence as kept: whole, since a record cut mid-way cannot be read back.
+/// Past the cap, a JSON object loses its largest fields (never `key` or
+/// `thing`, what it is) until it fits; anything else is cut.
+pub fn bounded_evidence(evidence: &str) -> String {
+    if evidence.chars().count() <= MAX_EVIDENCE_CHARS {
+        return evidence.to_string();
+    }
+    if let Ok(serde_json::Value::Object(mut record)) = serde_json::from_str(evidence) {
+        loop {
+            let text = serde_json::Value::Object(record.clone()).to_string();
+            if text.chars().count() <= MAX_EVIDENCE_CHARS {
+                return text;
+            }
+            let largest = record
+                .iter()
+                .filter(|(field, _)| !matches!(field.as_str(), "key" | "thing"))
+                .max_by_key(|(_, value)| value.to_string().len())
+                .map(|(field, _)| field.clone());
+            match largest {
+                Some(field) => {
+                    record.remove(&field);
+                }
+                None => break,
+            }
+        }
+    }
+    evidence.chars().take(MAX_EVIDENCE_CHARS).collect()
+}
+
+/// A JSON object cut short, made whole by leaving off the field it was cut
+/// in: every field before it stays as it was. None if it cannot be.
+pub fn mend_cut_record(cut: &str) -> Option<String> {
+    if !cut.starts_with('{') || serde_json::from_str::<serde_json::Value>(cut).is_ok() {
+        return None;
+    }
+    // Where each top-level field after the first begins.
+    let mut boundaries = Vec::new();
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for (at, ch) in cut.char_indices() {
+        if in_string {
+            match ch {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' | '[' => depth += 1,
+            '}' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 1 => boundaries.push(at),
+            _ => {}
+        }
+    }
+    boundaries.into_iter().rev().find_map(|at| {
+        let whole = format!("{}}}", &cut[..at]);
+        matches!(
+            serde_json::from_str::<serde_json::Value>(&whole),
+            Ok(serde_json::Value::Object(_))
+        )
+        .then_some(whole)
+    })
+}
+
+/// Records cut short mid-way at `EVIDENCE_ONCE_CUT_AT`, mended: how many.
+pub async fn mend_cut_evidence<C: ConnectionTrait>(db: &C) -> Result<u64, DbErr> {
+    let rows = db
+        .query_all_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT id, evidence FROM agent_memories \
+             WHERE char_length(evidence) = $1 AND evidence LIKE '{%'",
+            [EVIDENCE_ONCE_CUT_AT.into()],
+        ))
+        .await?;
+    let mut mended = 0;
+    for row in &rows {
+        let (Ok(id), Ok(evidence)) = (
+            row.try_get::<String>("", "id"),
+            row.try_get::<String>("", "evidence"),
+        ) else {
+            continue;
+        };
+        let Some(whole) = mend_cut_record(&evidence) else {
+            continue;
+        };
+        agent_memories::Entity::update_many()
+            .col_expr(
+                agent_memories::Column::Evidence,
+                sea_orm::sea_query::Expr::value(whole),
+            )
+            .filter(agent_memories::Column::Id.eq(id))
+            .exec(db)
+            .await?;
+        mended += 1;
+    }
+    Ok(mended)
 }
 
 /// People she keeps memories of from private talk, most remembered first.
@@ -1741,6 +1842,46 @@ pub async fn import<C: ConnectionTrait>(db: &C, memory: ImportedMemory) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_record_cut_short_is_made_whole_and_none_is_cut_again() {
+        // As the site kept them, cut at 400 inside the last field.
+        let song = r#"{"key":"song:netease:1","thing":{"kind":"song","id":"1","name":"恋人を射ち堕とした日","artist":"Sound Horizon"},"reaction":"liked","tell":true,"heard":"Length 3:58. About 122 BPM, pulse clarity 0.53, spectral centroid 2162"#;
+        let whole: serde_json::Value =
+            serde_json::from_str(&mend_cut_record(song).unwrap()).unwrap();
+        assert_eq!(whole["reaction"], "liked");
+        assert_eq!(whole["tell"], true);
+        assert_eq!(whole["thing"]["artist"], "Sound Horizon");
+        assert!(whole.get("heard").is_none());
+        // Cut inside a nested record: the whole field goes, not half of it.
+        let inquiry = r#"{"key":"inquiry:q","thing":{"kind":"inquiry","question":"补血草为什么不褪色，\"苞片\"是什么？"},"reaction":"liked","explored":{"expected":"想查清楚","sources":[],"compared":{"surprise":"none","new":"","alr"#;
+        let whole: serde_json::Value =
+            serde_json::from_str(&mend_cut_record(inquiry).unwrap()).unwrap();
+        assert_eq!(whole["reaction"], "liked");
+        assert!(whole.get("explored").is_none());
+        assert!(
+            whole["thing"]["question"]
+                .as_str()
+                .unwrap()
+                .contains("\"苞片\"")
+        );
+        // Whole ones and what is not a record are left alone.
+        assert_eq!(mend_cut_record(r#"{"a":1}"#), None);
+        assert_eq!(mend_cut_record("听他说的"), None);
+
+        // From now on, evidence past the cap loses its largest field whole.
+        let big = serde_json::json!({
+            "key": "song:netease:1",
+            "thing": { "kind": "song" },
+            "reaction": "moved",
+            "heard": "x".repeat(MAX_EVIDENCE_CHARS),
+        })
+        .to_string();
+        let kept: serde_json::Value = serde_json::from_str(&bounded_evidence(&big)).unwrap();
+        assert_eq!(kept["reaction"], "moved");
+        assert!(kept.get("heard").is_none());
+        assert_eq!(bounded_evidence("短的"), "短的");
+    }
 
     #[test]
     fn what_she_noted_in_passing_is_recalled_when_named_not_as_filler() {
