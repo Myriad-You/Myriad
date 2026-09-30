@@ -703,6 +703,9 @@ async fn speaking_prompt_from_db(
                     &us.now,
                     us.since.with_timezone(&chrono::Utc),
                     us.before.as_deref(),
+                    us.first
+                        .as_ref()
+                        .map(|(first, at)| (first.as_str(), at.with_timezone(&chrono::Utc))),
                     chrono::Utc::now(),
                 ) {
                     sections.push(block);

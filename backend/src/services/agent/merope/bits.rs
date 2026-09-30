@@ -317,6 +317,17 @@ pub async fn go_over(
         };
         if let Circle::Person(_) = circle {
             input["us"] = json!(now_us.as_ref().map(|row| row.content.clone()));
+            // Where it started, if it has moved on since.
+            let first = now_us
+                .as_ref()
+                .and_then(|row| row.evidence.as_deref())
+                .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+                .as_ref()
+                .and_then(first_of)
+                .map(|(first, _)| first);
+            if first.is_some() {
+                input["usFirst"] = json!(first);
+            }
         }
         let lands_now = lands_row(db, &circle).await;
         input["lands"] = json!(lands_now.as_ref().map(|row| row.content.clone()));
@@ -482,7 +493,7 @@ async fn put_us(
     if now.is_empty() || was.is_some_and(|row| row.content.trim() == now) {
         return;
     }
-    let before = was.map(|row| json!({ "before": row.content }).to_string());
+    let before = was.map(|row| us_evidence_after(row).to_string());
     if let Some(row) = was {
         let _ = unified::retire(db, user_id, &[row.id.clone()], "superseded").await;
     }
@@ -588,20 +599,49 @@ pub struct Us {
     pub now: String,
     pub since: DateTime<FixedOffset>,
     pub before: Option<String>,
+    /// How she first put it, and when.
+    pub first: Option<(String, DateTime<FixedOffset>)>,
 }
 
 pub async fn us(db: &DatabaseConnection, user_id: i32) -> Option<Us> {
     let row = us_row(db, user_id).await?;
-    let before = row
+    let evidence: Value = row
         .evidence
         .as_deref()
-        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
-        .and_then(|evidence| Some(evidence.get("before")?.as_str()?.to_string()));
+        .and_then(|evidence| serde_json::from_str(evidence).ok())
+        .unwrap_or_default();
+    let before = evidence
+        .get("before")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Some(Us {
         now: row.content,
         since: row.created_at,
         before,
+        first: first_of(&evidence),
     })
+}
+
+/// What a new version of what they are to her keeps of the one it
+/// replaces: that one as before, and where it all started, which the one
+/// it replaces carries, or was.
+fn us_evidence_after(was: &crate::models::entities::agent_memories::Model) -> Value {
+    let first = was
+        .evidence
+        .as_deref()
+        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+        .and_then(|evidence| evidence.get("first").cloned())
+        .unwrap_or_else(|| json!({ "us": was.content, "at": was.created_at.to_rfc3339() }));
+    json!({ "before": was.content, "first": first })
+}
+
+/// How she first put what they are to her, kept with each later version.
+fn first_of(evidence: &Value) -> Option<(String, DateTime<FixedOffset>)> {
+    let first = evidence.get("first")?;
+    Some((
+        first.get("us")?.as_str()?.to_string(),
+        DateTime::parse_from_rfc3339(first.get("at")?.as_str()?).ok()?,
+    ))
 }
 
 /// A picture a group keeps sending is one of its bits, known by the picture
@@ -719,6 +759,52 @@ pub(crate) fn parse_bits(raw: &str) -> Option<Vec<(String, String)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn us_row(
+        content: &str,
+        evidence: Option<Value>,
+        days_ago: i64,
+    ) -> crate::models::entities::agent_memories::Model {
+        let at = (chrono::Utc::now() - chrono::Duration::days(days_ago)).fixed_offset();
+        crate::models::entities::agent_memories::Model {
+            id: content.into(),
+            user_id: Some(1),
+            kind: "fact".into(),
+            content: content.into(),
+            evidence: evidence.map(|evidence| evidence.to_string()),
+            speaker: "agent".into(),
+            source: US_SOURCE.into(),
+            venue: "private".into(),
+            audience: json!([1]),
+            concepts: json!([]),
+            importance: 0.7,
+            access_count: 0,
+            last_accessed_at: None,
+            valid_from: at,
+            invalid_at: None,
+            invalid_reason: None,
+            created_at: at,
+            updated_at: at,
+        }
+    }
+
+    #[test]
+    fn where_it_started_goes_along_with_every_later_version() {
+        let started = us_row("刚认识，话不多。", None, 40);
+        let second = us_row(
+            "总在半夜来吐槽工作的朋友。",
+            Some(us_evidence_after(&started)),
+            20,
+        );
+        let third = us_row("吵过一次又和好了。", Some(us_evidence_after(&second)), 1);
+        let evidence: Value = serde_json::from_str(third.evidence.as_deref().unwrap()).unwrap();
+        assert_eq!(evidence["before"], "总在半夜来吐槽工作的朋友。");
+        let (first, at) = first_of(&evidence).unwrap();
+        assert_eq!(first, "刚认识，话不多。");
+        assert_eq!(at.date_naive(), started.created_at.date_naive());
+        let fourth = us_row("x", Some(us_evidence_after(&third)), 0);
+        let evidence: Value = serde_json::from_str(fourth.evidence.as_deref().unwrap()).unwrap();
+        assert_eq!(first_of(&evidence).unwrap().0, "刚认识，话不多。");
+    }
 
     #[test]
     fn her_lines_say_how_long_until_someone_else_wrote() {

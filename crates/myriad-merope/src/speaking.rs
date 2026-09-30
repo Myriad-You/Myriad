@@ -486,29 +486,43 @@ pub fn format_acquaintance_section(
 }
 
 /// What they are to her, as she put it to herself when she last went over a
-/// day with them, and how she had put it before if it has changed. Hers,
-/// from what passed between them: not a way she is told to be with them.
+/// day with them; how she first put it, if that was something else and
+/// long enough ago to be where things started; and how she had put it just
+/// before, if it has changed. Hers, from what passed between them: not a
+/// way she is told to be with them.
 pub fn format_us_section(
     now: &str,
     since: chrono::DateTime<chrono::Utc>,
     before: Option<&str>,
+    first: Option<(&str, chrono::DateTime<chrono::Utc>)>,
     today: chrono::DateTime<chrono::Utc>,
 ) -> Option<String> {
     let now = now.trim();
     if now.is_empty() {
         return None;
     }
-    let ago = (today - since).num_days();
-    let when = match ago {
+    let nights_ago = |at: chrono::DateTime<chrono::Utc>| match (today - at).num_days() {
         ..=0 => "last night".to_string(),
         1 => "the night before last".to_string(),
-        _ => format!("{} days ago", ago + 1),
+        ago => format!("{} days ago", ago + 1),
     };
+    let when = nights_ago(since);
+    let before = before.map(str::trim).filter(|before| !before.is_empty());
+    let first = first
+        .map(|(first, at)| (first.trim(), at))
+        .filter(|(first, _)| !first.is_empty() && Some(*first) != before);
     let mut lines = vec![format!(
         "What they are to you, as you put it to yourself {when}, going over a day with them:"
     )];
     lines.push(myriad_agent_rules::untrusted_block("us", now));
-    if let Some(before) = before.map(str::trim).filter(|before| !before.is_empty()) {
+    if let Some((first, at)) = first {
+        lines.push(format!(
+            "When you first put it, {}, it was:",
+            nights_ago(at)
+        ));
+        lines.push(myriad_agent_rules::untrusted_block("us_first", first));
+    }
+    if let Some(before) = before {
         lines.push("Before that, you had put it this way:".to_string());
         lines.push(myriad_agent_rules::untrusted_block("us_before", before));
     }
@@ -776,11 +790,12 @@ mod tests {
     #[test]
     fn what_they_are_to_her_is_hers_and_dated() {
         let now = chrono::Utc::now();
-        assert_eq!(format_us_section("  ", now, None, now), None);
+        assert_eq!(format_us_section("  ", now, None, None, now), None);
         let section = format_us_section(
             "总在半夜来吐槽工作的朋友。",
             now - chrono::Duration::days(3),
             Some("刚认识，话不多。"),
+            None,
             now,
         )
         .unwrap();
@@ -788,11 +803,24 @@ mod tests {
         assert!(section.contains("4 days ago"));
         assert!(section.contains("Before that, you had put it this way:"));
         assert!(section.contains("刚认识"));
+        assert!(!section.contains("first put it"));
         assert!(
-            format_us_section("x", now, None, now)
+            format_us_section("x", now, None, None, now)
                 .unwrap()
                 .contains("last night")
         );
+        // Where it started stays in view as it moves on.
+        let section = format_us_section(
+            "吵过一次又和好了，现在什么都敢跟我说。",
+            now - chrono::Duration::days(1),
+            Some("总在半夜来吐槽工作的朋友。"),
+            Some(("刚认识，话不多。", now - chrono::Duration::days(40))),
+            now,
+        )
+        .unwrap();
+        let first = section.find("When you first put it, 41 days ago").unwrap();
+        assert!(first < section.find("Before that").unwrap());
+        assert!(section.contains("刚认识"));
     }
 
     #[test]

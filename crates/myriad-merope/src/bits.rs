@@ -62,7 +62,7 @@ day is what today was like in this group, as you would remember it later: what w
             + crate::sore::AT_NIGHT_GROUP
     } else {
         " \
-us is what they are to you, as you would put it to yourself: who they are to you, how the two of you usually are together, what you like about them and what gets to you, in one to three sentences. It rests only on what has actually passed between you (today's conversation, and what you wrote before, given as us); nothing invented, no compliments for their sake, and it may be mixed. Write it when there is none yet and today shows enough to say, or when today added to it or changed it (then say it as it is now); otherwise us is empty, and it stands as it was."
+us is what they are to you, as you would put it to yourself: who they are to you, how the two of you usually are together, what you like about them and what gets to you, in one to three sentences. It rests only on what has actually passed between you (today's conversation, and what you wrote before, given as us); nothing invented, no compliments for their sake, and it may be mixed. usFirst, if given, is how you first put it; how things have gone since then is part of what they are to you. Write it when there is none yet and today shows enough to say, or when today added to it or changed it (then say it as it is now); otherwise us is empty, and it stands as it was."
         .to_string()
             + DAY_WITH_THEM
             + LANDS_WITH_THEM
