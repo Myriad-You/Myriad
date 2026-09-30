@@ -276,6 +276,58 @@ fn han_pairs(text: &str) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// Her last replies in this talk before a habit of hers is worth her
+/// knowing, and how many are looked at.
+const HABIT_AFTER: usize = 6;
+const HABIT_LOOKED_AT: usize = 12;
+
+/// How she has been talking lately, when a habit shows: most of her last
+/// replies turning a question back on them, or one phrase in many of them.
+/// Facts for her to weigh, as anyone who noticed their own habit would.
+/// `hers` are her replies in this talk, oldest first.
+pub fn format_habits_section<S: AsRef<str>>(hers: &[S]) -> Option<String> {
+    let recent: Vec<&str> = hers
+        .iter()
+        .rev()
+        .take(HABIT_LOOKED_AT)
+        .map(AsRef::as_ref)
+        .filter(|reply| !reply.trim().is_empty())
+        .collect();
+    if recent.len() < HABIT_AFTER {
+        return None;
+    }
+    let asking = recent
+        .iter()
+        .filter(|reply| {
+            reply
+                .lines()
+                .map(str::trim)
+                .rfind(|line| !line.is_empty() && !line.starts_with("[["))
+                .is_some_and(|last| last.ends_with(['?', '？']))
+        })
+        .count();
+    let mut lines = Vec::new();
+    if asking * 10 >= recent.len() * 6 {
+        lines.push(format!(
+            "{asking} of your last {} replies here ended by asking them something.",
+            recent.len()
+        ));
+    }
+    for (phrase, share) in crate::vitals::leaned_on(&recent, 0.4, 2) {
+        lines.push(format!(
+            "「{phrase}」 is in {} of your last {} replies here.",
+            (share * recent.len() as f64).round() as usize,
+            recent.len()
+        ));
+    }
+    (!lines.is_empty()).then(|| {
+        format!(
+            "## How you have been talking here\n{} Only so you know it, as anyone who caught their own habit would.",
+            lines.join(" ")
+        )
+    })
+}
+
 /// Her lines in this conversation that already told them about `about`
 /// (something of her own time): a line naming at least two of its pieces.
 pub fn already_told<'a>(about: &str, hers: &[&'a str]) -> Vec<&'a str> {
@@ -646,6 +698,39 @@ pub fn compose_proactive_system(soul: &str, mind: &str, recent_block: &str) -> S
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn she_knows_her_habit_once_it_shows_and_not_before() {
+        use super::format_habits_section;
+        let asking = [
+            "在呢！\n你呢？",
+            "好呀\n你今天干嘛了？",
+            "哈哈\n然后呢？",
+            "行吧",
+            "是吗？",
+            "那你呢？",
+        ];
+        let section = format_habits_section(&asking).unwrap();
+        assert!(section.contains("5 of your last 6 replies here ended by asking them something"));
+        assert_eq!(format_habits_section(&asking[..4]), None, "too few to say");
+        let plain = ["在呢", "好呀", "哈哈哈", "行吧", "知道了", "去吧"];
+        assert_eq!(format_habits_section(&plain), None);
+        let leaning = [
+            "快说快说！",
+            "快说快说，我听着",
+            "然后快说快说",
+            "嗯",
+            "好",
+            "快说快说",
+        ];
+        assert!(
+            format_habits_section(&leaning)
+                .unwrap()
+                .contains("「快说快说」 is in 4 of your last 6")
+        );
+        // A directive on the last line is not how the reply ended.
+        let marked = ["你呢？\n[[music:share 1]]"; 6];
+        assert!(format_habits_section(&marked).is_some());
+    }
 
     #[test]
     fn songs_to_share_are_numbered_fenced_and_only_what_she_wrote() {

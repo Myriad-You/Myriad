@@ -551,6 +551,19 @@ impl Agent {
                 };
             }
         }
+        // A habit of hers in this talk, when one shows: known, not ordered.
+        let her_replies: Vec<&str> = supplied
+            .iter()
+            .filter(|message| message.role == "assistant")
+            .map(|message| message.content.as_str())
+            .collect();
+        if let Some(section) = myriad_merope::speaking::format_habits_section(&her_replies) {
+            merope_block = if merope_block.is_empty() {
+                section
+            } else {
+                format!("{merope_block}\n\n{section}")
+            };
+        }
         if venue.is_some() {
             // A turtle soup on in this group, with this line judged; or how
             // she would start one for the group.
