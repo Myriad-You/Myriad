@@ -529,12 +529,12 @@ async fn resolve_gemini_speech() -> Result<ResolvedGeminiSpeech, GeminiMediaErro
         })
         .unwrap_or_else(|| "https://generativelanguage.googleapis.com".to_string());
     let stt_model = if config.speech_stt_model.trim().is_empty() {
-        "gemini-3.6-flash".to_string()
+        "gemini-3.8-flash".to_string()
     } else {
         config.speech_stt_model.trim().to_string()
     };
     let tts_model = if config.speech_tts_model.trim().is_empty() {
-        "gemini-2.5-flash-preview-tts".to_string()
+        "gemini-3.8-flash-tts".to_string()
     } else {
         config.speech_tts_model.trim().to_string()
     };
@@ -775,7 +775,7 @@ async fn fallback_gemini_stt() -> Result<ResolvedGeminiSpeech, GeminiMediaError>
     Ok(ResolvedGeminiSpeech {
         api_key,
         base_url,
-        stt_model: "gemini-3.6-flash".to_string(),
+        stt_model: "gemini-3.8-flash".to_string(),
         tts_model: String::new(),
         voice: String::new(),
     })

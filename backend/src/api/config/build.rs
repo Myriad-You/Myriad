@@ -482,9 +482,9 @@ pub(crate) async fn build_config(
                         .map(|c| c.gemini_model.clone())
                         .unwrap_or_else(|| {
                             std::env::var("GEMINI_MODEL")
-                                .unwrap_or_else(|_| "gemini-3.6-flash".to_string())
+                                .unwrap_or_else(|_| "gemini-3.8-flash".to_string())
                         }),
-                    placeholder: "gemini-3.6-flash, gemini-3.1-pro-preview, gemini-2.5-flash, etc."
+                    placeholder: "gemini-3.8-flash, gemini-3.5-flash-lite, gemini-3.1-pro-preview, etc."
                         .to_string(),
                     required: false,
                 },
@@ -580,7 +580,7 @@ pub(crate) async fn build_config(
                             std::env::var("PRO_GEMINI_MODEL")
                                 .unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string())
                         }),
-                    placeholder: "gemini-3.1-pro-preview, gemini-3-flash-preview, etc.".to_string(),
+                    placeholder: "gemini-3.1-pro-preview, gemini-3.8-flash, etc.".to_string(),
                     required: false,
                 },
                 ConfigField {
@@ -606,9 +606,9 @@ pub(crate) async fn build_config(
                         .map(|c| c.pro_openai_model.clone())
                         .unwrap_or_else(|| {
                             std::env::var("PRO_OPENAI_MODEL")
-                                .unwrap_or_else(|_| "anthropic/claude-opus-5".to_string())
+                                .unwrap_or_else(|_| "anthropic/claude-opus-5.5".to_string())
                         }),
-                    placeholder: "anthropic/claude-opus-5, gpt-5.6-sol, etc.".to_string(),
+                    placeholder: "anthropic/claude-opus-5.5, gpt-5.6-sol, etc.".to_string(),
                     required: false,
                 },
                 ConfigField {
@@ -651,9 +651,9 @@ pub(crate) async fn build_config(
                         .map(|c| c.ai_image_model.clone())
                         .unwrap_or_else(|| {
                             std::env::var("AI_IMAGE_MODEL")
-                                .unwrap_or_else(|_| "openai/gpt-image-2".to_string())
+                                .unwrap_or_else(|_| "openai/gpt-image-2.5-sunburst".to_string())
                         }),
-                    placeholder: "openai/gpt-image-2".to_string(),
+                    placeholder: "openai/gpt-image-2.5-sunburst".to_string(),
                     required: false,
                 },
                 ConfigField {
@@ -799,9 +799,9 @@ pub(crate) async fn build_config(
                         .map(|c| c.lite_openai_model.clone())
                         .unwrap_or_else(|| {
                             std::env::var("LITE_OPENAI_MODEL")
-                                .unwrap_or_else(|_| "openai/gpt-oss-20b:free".to_string())
+                                .unwrap_or_else(|_| "google/gemini-3.5-flash-lite".to_string())
                         }),
-                    placeholder: "openai/gpt-oss-20b:free, gpt-5.6-luna, etc.".to_string(),
+                    placeholder: "google/gemini-3.5-flash-lite, gpt-5.6-luna, etc.".to_string(),
                     required: false,
                 },
                 ConfigField {

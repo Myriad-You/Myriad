@@ -824,10 +824,10 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             currentImageProvider === 'openai'
               ? 'gpt-image-2'
               : currentImageProvider === 'volcengine'
-                ? 'doubao-seedream-5-0-260128'
+                ? 'doubao-seedream-5-0-pro-260628'
                 : currentImageProvider === 'gemini'
                   ? 'gemini-3.1-flash-image'
-                  : 'openai/gpt-image-2'
+                  : 'openai/gpt-image-2.5-sunburst'
           }
           inputType="text"
           layout="vertical"
@@ -928,7 +928,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
                     currentSpeechProvider === 'openrouter'
                       ? 'openai/gpt-transcribe'
                       : currentSpeechProvider === 'gemini'
-                        ? 'gemini-3.6-flash'
+                        ? 'gemini-3.8-flash'
                         : 'gpt-transcribe'
                   }
                   inputType="text"
@@ -944,7 +944,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
                     currentSpeechProvider === 'openai'
                       ? 'gpt-4o-mini-tts'
                       : currentSpeechProvider === 'gemini'
-                        ? 'gemini-2.5-flash-preview-tts'
+                        ? 'gemini-3.8-flash-tts'
                         : ''
                   }
                   inputType="text"

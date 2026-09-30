@@ -3,14 +3,14 @@ import type { SettingDefaultChangeNotice } from '../settings/SettingsDefaultsCon
 const STORAGE_KEY = 'myriad_setting_default_notices_v1'
 
 export const SETTING_PRODUCT_DEFAULTS: Readonly<Record<string, string>> = {
-  model: 'gemini-3.6-flash',
-  gemini_model: 'gemini-3.6-flash',
+  model: 'gemini-3.8-flash',
+  gemini_model: 'gemini-3.8-flash',
   lite_gemini_model: 'gemini-3.5-flash-lite',
   pro_gemini_model: 'gemini-3.1-pro-preview',
   openai_model: 'minimax/minimax-m3',
-  lite_openai_model: 'openai/gpt-oss-20b:free',
-  pro_openai_model: 'anthropic/claude-opus-5',
-  ai_image_model: 'openai/gpt-image-2',
+  lite_openai_model: 'google/gemini-3.5-flash-lite',
+  pro_openai_model: 'anthropic/claude-opus-5.5',
+  ai_image_model: 'openai/gpt-image-2.5-sunburst',
   'openai_model@openai': 'gpt-5.6-terra',
   'lite_openai_model@openai': 'gpt-5.6-luna',
   'pro_openai_model@openai': 'gpt-5.6-sol',

@@ -60,28 +60,28 @@ describe('config bag reset ownership', () => {
     assert.deepEqual(lab.ui_config, initial.ui_config)
     const ai = resetConfigBag(initial, 'ai')!
     assert.ok(ai)
-    assert.equal(value(ai, 'ai_config', 'gemini_model'), 'gemini-3.6-flash')
+    assert.equal(value(ai, 'ai_config', 'gemini_model'), 'gemini-3.8-flash')
     assert.equal(value(ai, 'ai_config', 'qq_bot_enabled'), 'custom')
     assert.equal(resetConfigBag(initial, 'agent'), undefined)
   })
   it('restores usable AI defaults and clears credentials and source selections', () => {
     const expected = {
       provider: 'openai',
-      gemini_model: 'gemini-3.6-flash',
+      gemini_model: 'gemini-3.8-flash',
       openai_model: 'minimax/minimax-m3',
       openai_base_url: 'https://openrouter.ai/api/v1',
       pro_enabled: 'false',
       pro_provider: 'openai',
       pro_gemini_model: 'gemini-3.1-pro-preview',
-      pro_openai_model: 'anthropic/claude-opus-5',
+      pro_openai_model: 'anthropic/claude-opus-5.5',
       pro_openai_base_url: 'https://openrouter.ai/api/v1',
       lite_enabled: 'false',
       lite_provider: 'openai',
       lite_gemini_model: 'gemini-3.5-flash-lite',
-      lite_openai_model: 'openai/gpt-oss-20b:free',
+      lite_openai_model: 'google/gemini-3.5-flash-lite',
       lite_openai_base_url: 'https://openrouter.ai/api/v1',
       ai_image_provider: 'openrouter',
-      ai_image_model: 'openai/gpt-image-2',
+      ai_image_model: 'openai/gpt-image-2.5-sunburst',
       ai_image_openai_base_url: 'https://api.openai.com/v1',
       ai_image_volcengine_base_url: 'https://ark.cn-beijing.volces.com/api/v3',
       tencent_region: 'ap-guangzhou',

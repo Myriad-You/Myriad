@@ -771,7 +771,7 @@ impl Default for DynamicConfig {
             // 默认使用 OpenRouter（OpenAI 兼容，provider 记为 openai + OpenRouter base_url）
             ai_provider: "openai".to_string(),
             gemini_api_key: None,
-            gemini_model: "gemini-3.6-flash".to_string(),
+            gemini_model: "gemini-3.8-flash".to_string(),
             openai_api_key: None,
             openai_model: "minimax/minimax-m3".to_string(),
             openai_base_url: "https://openrouter.ai/api/v1".to_string(),
@@ -782,7 +782,7 @@ impl Default for DynamicConfig {
             lite_gemini_api_key: None,
             lite_gemini_model: "gemini-3.5-flash-lite".to_string(),
             lite_openai_api_key: None,
-            lite_openai_model: "openai/gpt-oss-20b:free".to_string(),
+            lite_openai_model: "google/gemini-3.5-flash-lite".to_string(),
             lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
             // 留空：判断也用 Lite 的模型。
             lite_judge_model: String::new(),
@@ -793,7 +793,7 @@ impl Default for DynamicConfig {
             pro_gemini_api_key: None,
             pro_gemini_model: "gemini-3.1-pro-preview".to_string(),
             pro_openai_api_key: None,
-            pro_openai_model: "anthropic/claude-opus-5".to_string(),
+            pro_openai_model: "anthropic/claude-opus-5.5".to_string(),
             pro_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
             topic_style: "balanced".to_string(),
 
@@ -930,7 +930,7 @@ impl Default for DynamicConfig {
 
             // AI 图片生成配置
             ai_image_provider: "openrouter".to_string(),
-            ai_image_model: "openai/gpt-image-2".to_string(),
+            ai_image_model: "openai/gpt-image-2.5-sunburst".to_string(),
             ai_image_openai_api_key: None,
             ai_image_openai_base_url: "https://api.openai.com/v1".to_string(),
             ai_image_openrouter_api_key: None,
@@ -1188,7 +1188,7 @@ impl DynamicConfig {
                 self.pro_gemini_model.as_str(),
             ]);
             if borrowed.is_empty() {
-                "gemini-3.6-flash".to_string()
+                "gemini-3.8-flash".to_string()
             } else {
                 borrowed
             }

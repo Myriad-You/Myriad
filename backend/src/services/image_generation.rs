@@ -766,9 +766,14 @@ fn request_options(
     }
 }
 
+/// GPT Image 2 and its 2.5 successors (Flare, Sunburst) share one request
+/// shape: 16px-multiple custom sizes, the same pixel floor, background and
+/// quality options.
 fn is_gpt_image_2(model: &str) -> bool {
     let model = strip_openai_prefix(model).to_ascii_lowercase();
-    model == "gpt-image-2" || model.starts_with("gpt-image-2-")
+    model == "gpt-image-2"
+        || model.starts_with("gpt-image-2-")
+        || model.starts_with("gpt-image-2.5")
 }
 
 fn is_gpt_image_1(model: &str) -> bool {
@@ -1680,6 +1685,27 @@ mod tests {
             request_parts_with_background(&config, "portrait", 1000, 1000, &[], None).unwrap();
         assert_eq!(body["size"], "1008x1008");
         assert_eq!(body["stream"], false);
+    }
+
+    #[test]
+    fn gpt_image_2_5_uses_the_gpt_image_2_request_shape() {
+        for model in [
+            "openai/gpt-image-2.5-sunburst",
+            "gpt-image-2.5-flare",
+            "gpt-image-2.5-sunburst-2026-09-08",
+        ] {
+            let config = ImageGenerationConfig {
+                provider: "openai".to_string(),
+                model: model.to_string(),
+                api_key: "secret".to_string(),
+                base_url: "https://api.openai.com/v1".to_string(),
+            };
+            let (_, body) =
+                request_parts_with_background(&config, "portrait", 1150, 1535, &[], None).unwrap();
+            assert_eq!(body["size"], "1152x1536", "{model}");
+            assert_eq!(body["background"], "opaque", "{model}");
+            assert_eq!(body["quality"], "high", "{model}");
+        }
     }
 
     #[test]
