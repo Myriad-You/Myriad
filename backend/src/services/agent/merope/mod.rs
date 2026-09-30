@@ -266,6 +266,7 @@ pub fn forget_in_memory() {
     soup::forget();
     inner::forget();
     views::forget();
+    self_story::forget();
     priming::forget();
     wander::forget();
 }

@@ -26,6 +26,7 @@
 //! when she can read it can be told apart from one that holds.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset, Utc};
@@ -39,6 +40,16 @@ use myriad_merope::self_story::{
 };
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The night she last tried to look back, so a night tries once.
+static TRIED_ON: LazyLock<Mutex<Option<chrono::NaiveDate>>> = LazyLock::new(|| Mutex::new(None));
+
+/// A new persona has not tried to look back yet.
+pub(super) fn forget() {
+    if let Ok(mut tried) = TRIED_ON.lock() {
+        *tried = None;
+    }
+}
 /// Her own time read back over a window at most, and how much of it she
 /// reads through, spread over the whole window.
 const WINDOW_ROWS: u64 = 3000;
@@ -225,6 +236,13 @@ pub async fn look_back(db: &DatabaseConnection, owner: i32) {
     let last = last_story(db).await;
     if last.as_ref().is_some_and(|(_, at, _)| now - *at < EVERY) {
         return;
+    }
+    // Once a night: a look back that gives no story that holds is tried
+    // again the next night, not every half hour of this one.
+    let today = chrono::Local::now().date_naive();
+    match TRIED_ON.lock() {
+        Ok(mut tried) if *tried != Some(today) => *tried = Some(today),
+        _ => return,
     }
     let since = last
         .as_ref()

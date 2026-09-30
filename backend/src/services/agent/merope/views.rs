@@ -50,26 +50,38 @@ fn view_of(row: &agent_memories::Model) -> Option<(String, String)> {
     (!about.is_empty()).then(|| (about, row.content.clone()))
 }
 
-/// A view with what it grew out of, as she holds it when it comes up.
+/// A view with what it grew out of, and what she thought before if she
+/// changed her mind, as she holds it when it comes up.
 fn grown_view(row: &agent_memories::Model) -> Option<(String, String)> {
     let (about, view) = view_of(row)?;
-    let grew_from: Vec<String> = row
+    let evidence: Value = row
         .evidence
         .as_deref()
-        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
-        .and_then(|evidence| evidence.get("grewFrom").cloned())
-        .and_then(|from| from.as_array().cloned())
-        .unwrap_or_default()
-        .iter()
+        .and_then(|evidence| serde_json::from_str(evidence).ok())
+        .unwrap_or_default();
+    let grew_from: Vec<String> = evidence
+        .get("grewFrom")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
         .filter_map(|from| from.get("what")?.as_str().map(str::to_string))
         .collect();
-    if grew_from.is_empty() {
+    let mut notes = Vec::new();
+    if let Some(was) = evidence
+        .get("was")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|was| !was.is_empty())
+    {
+        notes.push(format!("you used to think: {was}"));
+    }
+    if !grew_from.is_empty() {
+        notes.push(format!("it grew from: {}", grew_from.join("; ")));
+    }
+    if notes.is_empty() {
         return Some((about, view));
     }
-    Some((
-        about,
-        format!("{view} (it grew from: {})", grew_from.join("; ")),
-    ))
+    Some((about, format!("{view} ({})", notes.join("; "))))
 }
 
 /// A new persona has not gone over anything yet.
@@ -100,14 +112,19 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     let Ok(held) = unified::own_views(db, HELD).await else {
         return;
     };
-    if let Ok(mut done) = DONE_ON.lock() {
-        *done = Some(today);
-    }
+    // Done for the night once gone over, or once there is nothing to go
+    // over; a call that fails is tried again on the next look.
+    let done = || {
+        if let Ok(mut done) = DONE_ON.lock() {
+            *done = Some(today);
+        }
+    };
     let newest_view = held.iter().map(|row| row.created_at).max();
     let anything_new = experiences
         .iter()
         .any(|row| newest_view.is_none_or(|at| row.created_at > at));
     if experiences.len() < 2 || !anything_new {
+        done();
         return;
     }
     // The views shown, numbered, so she can say which ones hold up.
@@ -146,6 +163,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         tracing::info!("[Merope] could not go over her own time");
         return;
     };
+    done();
     // Views the experiences bear out again stay fresh; the rest age.
     let borne_out: Vec<String> = changes
         .borne_out
@@ -186,6 +204,9 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         if about.is_empty() || view.is_empty() || sources.is_empty() {
             continue;
         }
+        // What she thought before she changed her mind stays with the new
+        // view: she knows she used to think otherwise.
+        let mut was = None;
         if let Some(at) = holding
             .iter()
             .position(|(_, subject, _)| same_subject(subject, &about))
@@ -193,8 +214,9 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
             if holding[at].2 == view {
                 continue;
             }
-            let (id, _, _) = holding.remove(at);
+            let (id, _, old) = holding.remove(at);
             let _ = unified::retire_own(db, &id, "changed_mind").await;
+            was = Some(old);
         }
         let mut concepts = vec![Concept {
             name: about.clone(),
@@ -217,8 +239,13 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         if let Ok(Some(id)) = unified::remember_own(
             db,
             &view,
-            &json!({ "about": about, "changed": change.changed, "grewFrom": grew_from })
-                .to_string(),
+            &json!({
+                "about": about,
+                "changed": change.changed,
+                "grewFrom": grew_from,
+                "was": was,
+            })
+            .to_string(),
             concepts,
             unified::OWN_VIEW,
         )
@@ -320,6 +347,44 @@ pub(crate) fn parse_views(raw: &str) -> Option<Vec<(String, String)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn view_row(evidence: Value) -> agent_memories::Model {
+        let now = Utc::now().fixed_offset();
+        agent_memories::Model {
+            id: "v".into(),
+            user_id: None,
+            kind: "knowledge".into(),
+            content: "ヨルシカ的歌越往后越有劲".into(),
+            evidence: Some(evidence.to_string()),
+            speaker: "agent".into(),
+            source: unified::OWN_VIEW.into(),
+            venue: unified::OWN_VENUE.into(),
+            audience: json!([]),
+            concepts: json!([]),
+            importance: 0.5,
+            access_count: 0,
+            last_accessed_at: None,
+            valid_from: now,
+            invalid_at: None,
+            invalid_reason: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn a_changed_mind_remembers_what_it_was() {
+        let changed = view_row(json!({
+            "about": "ヨルシカ",
+            "was": "ヨルシカ的歌都太闷",
+            "grewFrom": [{ "id": "e", "what": "listening to 「花に亡霊」" }],
+        }));
+        assert_eq!(
+            grown_view(&changed).unwrap().1,
+            "ヨルシカ的歌越往后越有劲 (you used to think: ヨルシカ的歌都太闷; it grew from: listening to 「花に亡霊」)"
+        );
+        let first = view_row(json!({ "about": "ヨルシカ", "was": null }));
+        assert_eq!(grown_view(&first).unwrap().1, "ヨルシカ的歌越往后越有劲");
+    }
 
     #[test]
     fn a_going_over_sees_the_whole_window() {
