@@ -1651,6 +1651,8 @@
     "pagination_invalid",
     "setup_required",
     "portrait_generation_in_progress",
+    "expression_generation_in_progress",
+    "unknown_expression",
     "pro_unavailable",
     "lite_unavailable",
     "visual_design_language",
