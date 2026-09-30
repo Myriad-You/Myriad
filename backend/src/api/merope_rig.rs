@@ -28,6 +28,7 @@ mod import;
 mod master;
 mod package;
 mod portrait;
+mod portrait_upload;
 mod pose;
 
 pub(crate) use package::{cleanup_verified_packages, wardrobe_outfit_face};
@@ -47,7 +48,7 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         )
         .route(
             "/portrait/upload",
-            post(portrait::upload_portrait).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
+            post(portrait_upload::upload_portrait).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
         .route(
             "/see-through/status",
