@@ -342,10 +342,12 @@ pub use speaking_prompts::{
 };
 
 pub use speaking_context::{
-    audience_for, format_addressee_label, merge_said_unprompted, resolve_addressee_label,
-    speaking_prompt, speaking_prompt_for_event, speaking_prompt_in_group, speaking_prompt_plain,
-    speaking_prompt_to_reach, speaking_prompt_with_query, their_typing, with_said_unprompted,
+    audience_for, resolve_addressee_label, speaking_prompt, speaking_prompt_for_event,
+    speaking_prompt_in_group, speaking_prompt_plain, speaking_prompt_to_reach,
+    speaking_prompt_with_query, their_typing, with_said_unprompted,
 };
+#[cfg(test)]
+pub use speaking_context::{format_addressee_label, merge_said_unprompted};
 
 pub fn has_custom_persona(persona: &agent_persona::Model) -> bool {
     format_persona(persona).is_some()

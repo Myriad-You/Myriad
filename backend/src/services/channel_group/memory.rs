@@ -1,0 +1,270 @@
+//! Keeping a group's lines across restarts, catching up on missed ones, and recording every line she hears.
+
+use super::*;
+
+/// Keep a line in mind: in memory, and in the runtime registry so a restart
+/// does not wipe the group from her mind. The first line after a restart
+/// brings back what was kept before it.
+pub(super) async fn remember_line(venue: &str, line: Line) {
+    let db = crate::services::process_db::database().ok();
+    remember_line_on(db.as_ref(), venue, line).await;
+}
+
+pub(super) async fn remember_line_on(db: Option<&DatabaseConnection>, venue: &str, line: Line) {
+    if let Some(db) = db {
+        restore(db, venue).await;
+    }
+    let lines = with_group(venue, |group| {
+        push_line(group, line);
+        group.lines.iter().cloned().collect::<Vec<_>>()
+    });
+    if let (Some(db), Some(lines)) = (db, lines) {
+        keep_lines(db, venue, lines).await;
+    }
+}
+
+/// Bring back the lines kept before a restart, once.
+pub(super) async fn restore(db: &DatabaseConnection, venue: &str) {
+    if !with_group(venue, |group| !group.restored).unwrap_or(false) {
+        return;
+    }
+    // Not read is not nothing kept: marking it restored now would let the
+    // lines since overwrite what was kept before.
+    let stored = match crate::services::runtime_registry::get::<StoredLines>(
+        db,
+        LINES_NAMESPACE,
+        venue,
+    )
+    .await
+    {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!(%error, %venue, "[Group] could not read back the lines kept before a restart");
+            return;
+        }
+    };
+    let spoke_up =
+        crate::services::agent::merope::others::spoke_up_lately(db, venue, SPOKE_UP_KEPT as u64)
+            .await;
+    with_group(venue, |group| {
+        if !group.restored {
+            group.restored = true;
+            if let Some(stored) = stored {
+                merge_restored(group, stored.lines);
+            }
+            restore_spoke_up(group, &spoke_up, chrono::Utc::now());
+        }
+    });
+}
+
+/// How her speaking up went there before a restart, oldest first, under
+/// what she has said since.
+pub(super) fn restore_spoke_up(
+    group: &mut Group,
+    kept: &[(chrono::DateTime<chrono::Utc>, bool)],
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    let since: Vec<(Instant, bool)> = group.spoke_up.drain(..).collect();
+    for (at, taken) in kept {
+        let ago = (now - *at).to_std().unwrap_or_default();
+        if let Some(at) = Instant::now().checked_sub(ago) {
+            group.spoke_up.push_back((at, *taken));
+        }
+    }
+    group.spoke_up.extend(since);
+    while group.spoke_up.len() > SPOKE_UP_KEPT {
+        group.spoke_up.pop_front();
+    }
+}
+
+pub(super) async fn keep_lines(db: &DatabaseConnection, venue: &str, lines: Vec<Line>) {
+    let keep_until = (chrono::Utc::now()
+        + chrono::Duration::from_std(TRANSCRIPT_FOR).unwrap_or_default())
+    .timestamp();
+    if let Err(error) = crate::services::runtime_registry::put(
+        db,
+        LINES_NAMESPACE,
+        venue,
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: None,
+            owner_id: None,
+            tapp_id: None,
+            runtime_id: None,
+        },
+        &StoredLines { lines },
+        keep_until,
+    )
+    .await
+    {
+        warn!(%error, %venue, "[Group] could not keep the group's lines");
+    }
+}
+
+/// What a group said while she was not connected (see
+/// `onebot::decode::decode_group_history`), read back as a person scrolls up
+/// on opening a chat: each line she does not have yet goes in at its time,
+/// hers as hers. Nothing is answered: it is only read.
+pub async fn catch_up(venue: &str, past: Vec<(GroupLine, chrono::DateTime<chrono::Utc>, bool)>) {
+    let db = crate::services::process_db::database().ok();
+    if let Some(db) = &db {
+        restore(db, venue).await;
+    }
+    let people = people(venue);
+    let fresh: Vec<Line> = with_group(venue, |group| {
+        past.into_iter()
+            .filter(|(message, _, _)| {
+                !group
+                    .lines
+                    .iter()
+                    .any(|line| line.message_id.as_deref() == Some(message.message_id.as_str()))
+            })
+            .map(|(message, at, hers)| Line {
+                at,
+                message_id: Some(message.message_id.clone()),
+                name: if hers {
+                    String::new()
+                } else {
+                    message.display_name.clone()
+                },
+                from: (!hers).then(|| message.from.clone()),
+                text: bounded(&by_name(&message.said(), &people)),
+                hers,
+                images: if hers { Vec::new() } else { message.images },
+                seen: Vec::new(),
+            })
+            .filter(|line| within(line, TRANSCRIPT_FOR))
+            .collect()
+    })
+    .unwrap_or_default();
+    if fresh.is_empty() {
+        return;
+    }
+    info!(%venue, lines = fresh.len(), "[Group] read back what was said while she was away");
+    for line in &fresh {
+        let by = if line.hers {
+            HER.to_string()
+        } else {
+            ledger_who(line.from.as_deref().unwrap_or_default())
+        };
+        let typed = myriad_merope::talk_shape::typed_by(&by, line.at.timestamp(), &line.text);
+        note_said(venue, typed, None, Some(&line.text));
+    }
+    let lines = with_group(venue, |group| {
+        merge_restored(group, fresh);
+        group.lines.iter().cloned().collect::<Vec<_>>()
+    });
+    if let (Some(db), Some(lines)) = (&db, lines) {
+        keep_lines(db, venue, lines).await;
+    }
+    keep_ledger(venue).await;
+}
+
+/// Groups of `platform` she has kept lines of lately.
+pub async fn groups_lately(platform: ChannelPlatform) -> Vec<String> {
+    let Ok(db) = crate::services::process_db::database() else {
+        return Vec::new();
+    };
+    let prefix = format!("{}:", platform.slug());
+    crate::services::runtime_registry::list(&db, LINES_NAMESPACE, None, None)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| row.record_id.strip_prefix(&prefix).map(str::to_string))
+        .collect()
+}
+
+pub(super) fn bounded(text: &str) -> String {
+    text.chars().take(MAX_LINE_CHARS).collect()
+}
+
+/// Keep a group line in mind, whoever wrote it.
+pub async fn record(message: &GroupLine) {
+    let line = Line {
+        at: chrono::Utc::now(),
+        message_id: Some(message.message_id.clone()),
+        name: message.display_name.clone(),
+        from: Some(message.from.clone()),
+        text: bounded(&by_name(&message.said(), &people(&message.venue()))),
+        hers: false,
+        images: message.images.clone(),
+        seen: Vec::new(),
+    };
+    let venue = message.venue();
+    remember_line(&venue, line).await;
+    let typed = myriad_merope::talk_shape::typed_by(
+        &ledger_who(&message.from),
+        chrono::Utc::now().timestamp(),
+        &message.text,
+    );
+    if note_said(&venue, typed, None, Some(&message.text)) {
+        keep_ledger(&venue).await;
+    }
+    take_in(&venue);
+    with_group(&venue, |group| {
+        if group.pictures.len() > PICTURES_KEPT {
+            group.pictures.clear();
+        }
+        for image in &message.images {
+            *group.pictures.entry(image.key.clone()).or_default() += 1;
+        }
+    });
+}
+
+/// Once enough of the group's talk has gone by, take in what she heard in
+/// it about things, on the site owner's account: she keeps it as her own,
+/// with no name and no group on it.
+pub(super) fn take_in(venue: &str) {
+    let stretch = with_group(venue, |group| {
+        let upto = group.heard_upto;
+        let fresh: Vec<&Line> = group
+            .lines
+            .iter()
+            .filter(|line| upto.is_none_or(|upto| line.at > upto))
+            .collect();
+        let theirs = fresh.iter().filter(|line| !line.hers).count();
+        let waited = fresh
+            .first()
+            .is_some_and(|line| chrono::Utc::now() - line.at >= HEARD_AFTER);
+        if theirs < HEARD_EVERY && !(waited && theirs >= HEARD_AT_LEAST) {
+            return None;
+        }
+        group.heard_upto = fresh.last().map(|line| line.at);
+        Some(
+            fresh
+                .into_iter()
+                .map(|line| myriad_merope::heard::Said {
+                    name: line.name.clone(),
+                    text: line.text.clone(),
+                    hers: line.hers,
+                })
+                .collect::<Vec<_>>(),
+        )
+    })
+    .flatten();
+    let Some(stretch) = stretch else {
+        return;
+    };
+    tokio::spawn(async move {
+        let Ok(db) = crate::services::process_db::database() else {
+            return;
+        };
+        let Ok(owner) = crate::services::site_owner::site_owner_user_id(&db).await else {
+            return;
+        };
+        crate::services::agent::merope::heard::take_in(&db, owner, stretch).await;
+    });
+}
+
+pub(super) async fn record_hers(venue: &str, text: &str) {
+    let line = Line {
+        at: chrono::Utc::now(),
+        message_id: None,
+        name: String::new(),
+        from: None,
+        text: bounded(text),
+        hers: true,
+        images: Vec::new(),
+        seen: Vec::new(),
+    };
+    remember_line(venue, line).await;
+}
