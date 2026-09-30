@@ -28,7 +28,8 @@ use serde_json::{Value, json};
 
 use crate::services::agent::memory::unified::{self, Audience, Concept};
 use myriad_merope::bits::{
-    ChangeKind, Changes, DAY_CHARS, MAX_CHANGES, SCHEMA_NAME, US_CHARS, same_handle, schema, system,
+    ChangeKind, Changes, DAY_CHARS, LANDS_CHARS, MAX_CHANGES, SCHEMA_NAME, US_CHARS, same_handle,
+    schema, system,
 };
 
 pub const SOURCE: &str = "bit";
@@ -36,6 +37,9 @@ pub const SOURCE: &str = "bit";
 pub const US_SOURCE: &str = "us";
 /// What a day in a group was like, kept in that group, heard only there.
 pub const DAY_SOURCE: &str = "group_day";
+/// How she comes across: with one person, kept with them and heard only in
+/// private with them; in a group, kept there and heard only there.
+pub const LANDS_SOURCE: &str = "lands";
 /// People and groups gone over per night, and how much of a day with each.
 const PEOPLE_PER_NIGHT: i64 = 10;
 const GROUPS_PER_NIGHT: i64 = 5;
@@ -152,9 +156,9 @@ async fn day_in(
     start: DateTime<FixedOffset>,
     end: DateTime<FixedOffset>,
 ) -> Vec<Value> {
-    db.query_all_raw(Statement::from_sql_and_values(
+    let lines = db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT m.role, m.content, coalesce(nullif(u.display_name, ''), u.username, '') AS name \
+        "SELECT m.role, m.content, m.created_at, coalesce(nullif(u.display_name, ''), u.username, '') AS name \
          FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
          LEFT JOIN users u ON u.id = s.user_id \
          WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' = $1 \
@@ -184,9 +188,29 @@ async fn day_in(
         } else {
             "you".to_string()
         };
-        (!text.trim().is_empty()).then(|| json!({ "who": who, "text": text }))
+        let at = row.try_get::<DateTime<FixedOffset>>("", "created_at").ok()?;
+        (!text.trim().is_empty()).then(|| (at, json!({ "who": who, "text": text })))
     })
-    .collect()
+    .collect::<Vec<_>>();
+    with_after(lines)
+}
+
+/// On each of her lines, how many seconds until someone else wrote after it
+/// that day (null: nobody did): how it was taken, as far as timing shows.
+fn with_after(lines: Vec<(DateTime<FixedOffset>, Value)>) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::with_capacity(lines.len());
+    for (index, (at, line)) in lines.iter().enumerate() {
+        let mut line = line.clone();
+        if line["who"] == "you" {
+            let next = lines[index + 1..]
+                .iter()
+                .find(|(_, later)| later["who"] != "you")
+                .map(|(later, _)| (*later - *at).num_seconds().max(0));
+            line["after"] = json!(next);
+        }
+        out.push(line);
+    }
+    out
 }
 
 /// Bits already there for a circle, freshest first.
@@ -212,9 +236,9 @@ async fn day_with(
     start: DateTime<FixedOffset>,
     end: DateTime<FixedOffset>,
 ) -> Vec<Value> {
-    db.query_all_raw(Statement::from_sql_and_values(
+    let lines = db.query_all_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT m.role, m.content FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+        "SELECT m.role, m.content, m.created_at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
          WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
            AND m.created_at >= $2 AND m.created_at < $3 AND m.role IN ('user', 'assistant') \
          ORDER BY m.created_at DESC LIMIT $4",
@@ -236,11 +260,16 @@ async fn day_with(
             .chars()
             .take(300)
             .collect();
+        let at = row.try_get::<DateTime<FixedOffset>>("", "created_at").ok()?;
         (!text.trim().is_empty()).then(|| {
-            json!({ "who": if role == "user" { "they" } else { "you" }, "text": text })
+            (
+                at,
+                json!({ "who": if role == "user" { "they" } else { "you" }, "text": text }),
+            )
         })
     })
-    .collect()
+    .collect::<Vec<_>>();
+    with_after(lines)
 }
 
 /// Go over one day with each person she talked with, and let bits grow,
@@ -287,6 +316,8 @@ pub async fn go_over(
         if let Circle::Person(_) = circle {
             input["us"] = json!(now_us.as_ref().map(|row| row.content.clone()));
         }
+        let lands_now = lands_row(db, &circle).await;
+        input["lands"] = json!(lands_now.as_ref().map(|row| row.content.clone()));
         input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
         let input = input.to_string();
         let raw = super::call::Ask::new(super::call::Voice::HersAtLength, owner, SCHEMA_NAME)
@@ -307,6 +338,7 @@ pub async fn go_over(
             }
             Circle::Group { .. } => put_day(db, &circle, &changes.day, start).await,
         }
+        put_lands(db, &circle, &changes.lands, lands_now.as_ref()).await;
         super::sore::let_go(db, &sores, &changes.let_go).await;
         for change in changes.bits.into_iter().take(MAX_CHANGES) {
             let handle: String = change.handle.trim().chars().take(30).collect();
@@ -463,6 +495,82 @@ async fn put_us(
     }
 }
 
+async fn lands_row(
+    db: &DatabaseConnection,
+    circle: &Circle,
+) -> Option<crate::models::entities::agent_memories::Model> {
+    let user_id = match circle {
+        Circle::Person(user_id) => Some(*user_id),
+        Circle::Group { .. } => None,
+    };
+    unified::venue_source_rows(db, user_id, &circle.audience().venue(), LANDS_SOURCE, 1)
+        .await
+        .ok()?
+        .into_iter()
+        .next()
+}
+
+/// Keep how she comes across there now, when she found it anew; the one it
+/// replaces goes, retired as rewritten.
+async fn put_lands(
+    db: &DatabaseConnection,
+    circle: &Circle,
+    said: &str,
+    was: Option<&crate::models::entities::agent_memories::Model>,
+) {
+    let now: String = said.trim().chars().take(LANDS_CHARS).collect();
+    if now.is_empty() || was.is_some_and(|row| row.content.trim() == now) {
+        return;
+    }
+    if let Some(row) = was {
+        let kept_with = row.user_id.unwrap_or_else(|| circle.keeper());
+        let _ = unified::retire(db, kept_with, &[row.id.clone()], "superseded").await;
+    }
+    let _ = unified::remember(
+        db,
+        unified::NewMemory {
+            user_id: circle.keeper(),
+            kind: unified::MemoryKind::Fact,
+            content: now,
+            evidence: None,
+            speaker: unified::Speaker::Agent,
+            source: LANDS_SOURCE,
+            audience: circle.audience(),
+            importance: 0.6,
+            concepts: Vec::new(),
+        },
+    )
+    .await;
+}
+
+/// How she comes across with them in private, as she last found it, and
+/// when.
+pub async fn lands_with(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Option<(String, DateTime<FixedOffset>)> {
+    lands_row(db, &Circle::Person(user_id))
+        .await
+        .map(|row| (row.content, row.created_at))
+}
+
+/// How she comes across in a group (`venue` as sessions keep it), as she
+/// last found it, and when.
+pub async fn lands_in(
+    db: &DatabaseConnection,
+    venue: &str,
+) -> Option<(String, DateTime<FixedOffset>)> {
+    lands_row(
+        db,
+        &Circle::Group {
+            venue: venue.to_string(),
+            keeper: 0,
+        },
+    )
+    .await
+    .map(|row| (row.content, row.created_at))
+}
+
 /// What they are to her as she now puts it, when she put it so, and what it
 /// was before, if she has put it differently.
 pub struct Us {
@@ -600,6 +708,35 @@ pub(crate) fn parse_bits(raw: &str) -> Option<Vec<(String, String)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn her_lines_say_how_long_until_someone_else_wrote() {
+        let at = |seconds: i64| {
+            DateTime::parse_from_rfc3339("2026-09-30T10:00:00+09:00").unwrap()
+                + chrono::Duration::seconds(seconds)
+        };
+        let lines = with_after(vec![
+            (at(0), json!({ "who": "they", "text": "在吗" })),
+            (at(5), json!({ "who": "you", "text": "在！" })),
+            (at(9), json!({ "who": "you", "text": "怎么啦" })),
+            (at(70), json!({ "who": "they", "text": "没事 想你了" })),
+            (at(80), json!({ "who": "you", "text": "哈？" })),
+        ]);
+        assert_eq!(lines[0].get("after"), None, "only her lines");
+        assert_eq!(lines[1]["after"], json!(65));
+        assert_eq!(lines[2]["after"], json!(61));
+        assert_eq!(lines[4]["after"], Value::Null, "nobody wrote after it");
+        // Asked for, and parsed.
+        assert!(system("你是小灯。", false).contains("lands is how you come across with them"));
+        assert!(system("你是小灯。", true).contains("lands is how you come across in this group"));
+        assert_eq!(
+            schema(true)["required"],
+            json!(["bits", "day", "lands", "letGo"])
+        );
+        let changes = parse(r#"{"bits":[],"us":"","lands":"一逗他就接着闹","letGo":[]}"#).unwrap();
+        assert_eq!(changes.lands, "一逗他就接着闹");
+    }
+
     #[test]
     fn a_bit_has_to_come_back_and_stay_light() {
         let prompt = system("你是小灯。", false);
@@ -628,7 +765,10 @@ mod tests {
         assert!(private.contains("nothing invented, no compliments for their sake"));
         assert!(private.contains("otherwise us is empty"));
         assert!(!system("你是小灯。", true).contains("us is"));
-        assert_eq!(schema(false)["required"], json!(["bits", "us", "letGo"]));
+        assert_eq!(
+            schema(false)["required"],
+            json!(["bits", "us", "lands", "letGo"])
+        );
         assert!(schema(true)["properties"].get("us").is_none());
         let changes = parse(
             r#"{"bits":[],"us":"总在半夜来吐槽工作的朋友，嘴上嫌他烦，其实挺担心他。","letGo":[0]}"#,
@@ -646,7 +786,10 @@ mod tests {
         assert!(group.contains("day is what today was like in this group"));
         assert!(group.contains("empty if nothing much happened"));
         assert!(!system("你是小灯。", false).contains("day is what"));
-        assert_eq!(schema(true)["required"], json!(["bits", "day", "letGo"]));
+        assert_eq!(
+            schema(true)["required"],
+            json!(["bits", "day", "lands", "letGo"])
+        );
         assert!(group.contains("who did it is given"));
         assert!(schema(false)["properties"].get("day").is_none());
         let changes = parse(r#"{"bits":[],"day":"大家在吵海带汤算不算韩国风"}"#).unwrap();
@@ -662,5 +805,69 @@ mod tests {
         };
         assert_eq!(group.audience().venue(), "group:telegram:-100123");
         assert_eq!(group.keeper(), 7);
+    }
+}
+
+#[cfg(test)]
+mod live {
+    use super::*;
+
+    /// One night's going over, on a real day from the site's database, read
+    /// only, printed and never kept: MEROPE_NIGHT_USER (default 1) for a
+    /// private day, or MEROPE_NIGHT_VENUE for a group's; MEROPE_NIGHT_DAY
+    /// (YYYY-MM-DD, local, default yesterday).
+    #[tokio::test]
+    #[ignore = "reads the site's database and asks its model"]
+    async fn a_night_on_the_site() {
+        let db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        let day = std::env::var("MEROPE_NIGHT_DAY")
+            .ok()
+            .and_then(|day| chrono::NaiveDate::parse_from_str(&day, "%Y-%m-%d").ok())
+            .unwrap_or_else(|| chrono::Local::now().date_naive() - chrono::Duration::days(1));
+        let start = day
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .unwrap()
+            .fixed_offset();
+        let end = start + chrono::Duration::days(1);
+        let circle = match std::env::var("MEROPE_NIGHT_VENUE") {
+            Ok(venue) => Circle::Group { venue, keeper: 0 },
+            Err(_) => Circle::Person(
+                std::env::var("MEROPE_NIGHT_USER")
+                    .ok()
+                    .and_then(|id| id.parse().ok())
+                    .unwrap_or(1),
+            ),
+        };
+        let group = matches!(circle, Circle::Group { .. });
+        let lines = match &circle {
+            Circle::Person(user_id) => day_with(&db, *user_id, start, end).await,
+            Circle::Group { venue, .. } => day_in(&db, venue, start, end).await,
+        };
+        println!("{} lines on {day}", lines.len());
+        let mut input = json!({ "bits": [], "conversation": lines, "soreSpots": [] });
+        if let Circle::Person(user_id) = circle {
+            input["us"] = json!(us_row(&db, user_id).await.map(|row| row.content));
+        }
+        input["lands"] = json!(lands_row(&db, &circle).await.map(|row| row.content));
+        let soul = crate::services::agent::identity::get_speaking_soul()
+            .await
+            .unwrap_or_default();
+        let raw =
+            super::super::call::Ask::new(super::super::call::Voice::HersAtLength, 1, SCHEMA_NAME)
+                .within(std::time::Duration::from_secs(90))
+                .json_raw(
+                    &system(&soul, group),
+                    &input.to_string(),
+                    SCHEMA_NAME,
+                    &schema(group),
+                )
+                .await
+                .unwrap();
+        let changes = parse(&raw).expect("an answer in shape");
+        println!("lands: {}", changes.lands);
+        println!("us: {}", changes.us);
+        println!("day: {}", changes.day);
     }
 }

@@ -878,3 +878,80 @@ impl Agent {
         }
     }
 }
+
+#[cfg(test)]
+mod prompt_size {
+    use super::*;
+
+    /// How long one private chat turn's prompt is on the site, part by part,
+    /// read only: MEROPE_PROBE_USER (default 1), MEROPE_PROBE_SAID (default a
+    /// greeting), MEROPE_PROBE_DUMP=<file> to keep the prompt. Recall cannot
+    /// mark what it brought up as used on a read-only connection, so what it
+    /// would bring is missing here and counted apart.
+    #[tokio::test]
+    #[ignore = "reads the site's database and asks its model"]
+    async fn one_chat_turn_on_the_site() {
+        let db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        crate::services::process_db::set_process_database(db.clone());
+        let user_id: i32 = std::env::var("MEROPE_PROBE_USER")
+            .ok()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(1);
+        let said = std::env::var("MEROPE_PROBE_SAID").unwrap_or_else(|_| "你好呀".to_string());
+        let (session, _) = crate::services::agent::merope::store::latest_open_session(&db, user_id)
+            .await
+            .unwrap()
+            .expect("a conversation");
+        let history =
+            crate::services::agent::sessions::load_session_history(&db, &session, 20, true)
+                .await
+                .unwrap();
+        let request = UserRequest {
+            raw_input: said.clone(),
+            timestamp: chrono::Utc::now(),
+            user_id,
+            context: Some(RequestContext {
+                interaction_mode: AgentInteractionMode::Chat,
+                session_id: Some(session),
+                conversation_history: Some(history.clone()),
+                custom_data: Some(serde_json::json!({
+                    "musicStatus": {
+                        "isPlaying": true,
+                        "currentSong": { "name": "晴天", "artist": "周杰伦" },
+                    }
+                })),
+                ..Default::default()
+            }),
+        };
+        crate::services::agent::merope::remembering::begin(user_id, "private", &said);
+        let prompt = Agent::new(db.clone())
+            .await
+            .chat_response_prompt(&request)
+            .await;
+        let history_chars: usize = history.iter().map(|m| m.content.chars().count()).sum();
+        let mut parts: Vec<(usize, String)> = Vec::new();
+        let mut title = "(before any heading)".to_string();
+        let mut chars = 0;
+        for line in prompt.lines() {
+            if line.starts_with("## ") || line.starts_with("# ") {
+                parts.push((chars, title));
+                title = line.chars().take(70).collect();
+                chars = 0;
+            }
+            chars += line.chars().count() + 1;
+        }
+        parts.push((chars, title));
+        for (chars, title) in &parts {
+            println!("{chars:>6}  {title}");
+        }
+        println!(
+            "{:>6}  total ({} parts; history {} messages, {history_chars} chars)",
+            prompt.chars().count(),
+            parts.len(),
+            history.len()
+        );
+        if let Ok(path) = std::env::var("MEROPE_PROBE_DUMP") {
+            std::fs::write(path, &prompt).unwrap();
+        }
+    }
+}

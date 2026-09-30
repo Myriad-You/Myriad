@@ -738,6 +738,8 @@ export interface MindPerson {
   firstTalked?: string | null
   daysTalked: number
   us: MindEntry[]
+  /** How they take her, as she found it night by night. */
+  lands?: MindEntry[]
   sore: MindSore[]
   threads: {
     about?: string | null
@@ -752,6 +754,8 @@ export interface MindPerson {
 
 export interface MindGroup {
   venue: string
+  /** How this group takes her, as she found it night by night. */
+  lands?: MindEntry[]
   /** Whom she takes someone from outside for: a guess, nothing more. */
   guesses?: {
     stranger?: string | null

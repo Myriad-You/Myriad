@@ -359,13 +359,15 @@
       "us": "Ce qu'ils sont pour elle",
       "sore": "Rancœurs",
       "threads": "Ce qui lui trotte en tête",
-      "bits": "Private jokes"
+      "bits": "Private jokes",
+      "lands": "Comment cette personne la prend"
     },
     "group": {
       "days": "Ces derniers jours dans ce groupe",
       "bits": "Blagues du groupe",
       "sore": "Rancœurs ici",
-      "guesses": "Ses suppositions"
+      "guesses": "Ses suppositions",
+      "lands": "Comment ce groupe la prend"
     },
     "weight": {
       "petty": "petite rancune",

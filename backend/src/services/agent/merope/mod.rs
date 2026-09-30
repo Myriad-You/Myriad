@@ -973,6 +973,22 @@ async fn speaking_prompt_from_db(
                 sections.push(block);
             }
         }
+        // How she comes across: with them, or in this group, each heard only
+        // where it was found.
+        let lands = match present.group_id() {
+            Some(venue) => bits::lands_in(db, venue).await,
+            None => bits::lands_with(db, user_id).await,
+        };
+        if let Some((lands, since)) = lands
+            && let Some(block) = myriad_merope::speaking::format_lands_section(
+                &lands,
+                since.with_timezone(&chrono::Utc),
+                chrono::Utc::now(),
+                group,
+            )
+        {
+            sections.push(block);
+        }
         // What they are to her: private, never in a group.
         if !group {
             if let Some(us) = bits::us(db, user_id).await {

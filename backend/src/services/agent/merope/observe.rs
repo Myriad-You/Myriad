@@ -156,6 +156,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
             super::threads::SOURCE,
             super::bits::SOURCE,
             super::bits::DAY_SOURCE,
+            super::bits::LANDS_SOURCE,
             super::recognizing::SOURCE,
         ],
         HISTORY,
@@ -271,6 +272,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
                 "firstTalked": first.map(|at| at.to_rfc3339()),
                 "daysTalked": days,
                 "us": of(super::bits::US_SOURCE).filter(theirs).map(entry).collect::<Vec<_>>(),
+                "lands": of(super::bits::LANDS_SOURCE).filter(theirs).filter(|row| row.venue == "private").map(entry).collect::<Vec<_>>(),
                 "sore": of(super::sore::SOURCE).filter(theirs).filter(|row| !replaced(row)).map(|row| sore_entry(row, None)).collect::<Vec<_>>(),
                 "threads": threads,
                 "bits": bits,
@@ -286,6 +288,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
             [
                 super::bits::DAY_SOURCE,
                 super::bits::SOURCE,
+                super::bits::LANDS_SOURCE,
                 super::sore::SOURCE,
                 super::recognizing::SOURCE,
             ]
@@ -344,6 +347,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
             json!({
                 "venue": venue,
                 "guesses": guesses,
+                "lands": of(super::bits::LANDS_SOURCE).filter(in_it).map(entry).collect::<Vec<_>>(),
                 "days": of(super::bits::DAY_SOURCE).filter(in_it).map(|row| {
                     json!({ "day": evidence(row).get("day"), "text": row.content, "current": row.invalid_at.is_none() })
                 }).collect::<Vec<_>>(),

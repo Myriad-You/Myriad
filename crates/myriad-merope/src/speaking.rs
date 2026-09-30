@@ -463,6 +463,35 @@ pub fn format_us_section(
     Some(format!("## What they are to you\n{}", lines.join("\n")))
 }
 
+/// How she comes across with them, or in this group, as she last found it
+/// going over a day there: hers to lean on, ease off, or ignore.
+pub fn format_lands_section(
+    lands: &str,
+    since: chrono::DateTime<chrono::Utc>,
+    today: chrono::DateTime<chrono::Utc>,
+    group: bool,
+) -> Option<String> {
+    let lands = lands.trim();
+    if lands.is_empty() {
+        return None;
+    }
+    let ago = (today - since).num_days();
+    let when = match ago {
+        ..=0 => "last night".to_string(),
+        1 => "the night before last".to_string(),
+        _ => format!("{} days ago", ago + 1),
+    };
+    let (title, whom) = if group {
+        ("How this group takes you", "people here")
+    } else {
+        ("How they take you", "they")
+    };
+    Some(format!(
+        "## {title}\nWhat of yours {whom} take up and what goes past them, as you found it {when}. It is how you come across, not a rule: lean on it, ease off, or keep on anyway, as you are.\n{}",
+        myriad_agent_rules::untrusted_block("lands", lands)
+    ))
+}
+
 /// What the last days in this group were like, as she remembered each
 /// night: (date, what it was like), oldest first. The group's own, heard
 /// only there.

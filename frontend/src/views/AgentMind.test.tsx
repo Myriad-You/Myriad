@@ -42,6 +42,7 @@ const fixture = {
       { text: '刚认识，话不多。', at: day(0), current: false, endedAt: day(6), endedWhy: 'superseded' },
       { text: '总在半夜来吐槽工作的朋友，嘴上嫌他烦，其实挺担心他。', at: day(6), current: true },
     ],
+    lands: [{ text: '一逗他就接着闹；讲长了他只回「嗯」。', at: day(7), current: true }],
     sore: [
       { what: '他说我的歌单全是垃圾', weight: 'deep', since: day(3), mended: day(4), where: 'private', status: 'let_go', endedAt: day(5) },
       { what: '他说我暴躁', weight: 'petty', since: day(8), where: 'group', status: 'open' },
@@ -51,6 +52,7 @@ const fixture = {
   }],
   groups: [{
     venue: 'onebot:123',
+    lands: [{ text: '接梗很快，但刷屏时插话没人理。', at: day(8), current: true }],
     guesses: [{ stranger: '路人甲', candidate: '阿明', sure: 'likely', why: '他提到了年糕和星穹互娱。', at: day(9) }],
     days: [{ day: '2026-09-28', text: '大家在吵海带汤算不算韩国风', current: true }],
     bits: [],
@@ -124,6 +126,7 @@ test('her mind shows herself, each person and each group, with how each changed'
       assert.ok(text().includes(merope.mind.person.us))
       assert.ok(text().includes('总在半夜来吐槽工作的朋友'))
       assert.ok(text().includes('刚认识，话不多。'))
+      assert.ok(text().includes(merope.mind.person.lands) && text().includes('讲长了他只回'))
       assert.ok(text().includes(merope.mind.weight.deep))
       assert.ok(text().includes(merope.mind.status.let_go))
       assert.ok(text().includes(merope.mind.mended))
@@ -134,6 +137,7 @@ test('her mind shows herself, each person and each group, with how each changed'
       assert.ok(text().includes('onebot:123'))
       assert.ok(text().includes('大家在吵海带汤算不算韩国风'))
       assert.ok(text().includes('路人甲 可能是 阿明'))
+      assert.ok(text().includes(merope.mind.group.lands) && text().includes('刷屏时插话没人理'))
       assert.ok(text().includes(merope.mind.guess.sure.likely))
       assert.ok(text().includes('阿明：'))
       assert.ok(text().includes(merope.mind.status.open))

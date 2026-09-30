@@ -223,6 +223,8 @@ export default function AgentMind() {
     >
       {heading(copy.person.us)}
       {history(who.us)}
+      {heading(copy.person.lands)}
+      {history(who.lands ?? [])}
       {heading(copy.person.sore)}
       {sores(who.sore)}
       {heading(copy.person.threads)}
@@ -270,6 +272,8 @@ export default function AgentMind() {
           current: day.current,
         })),
       )}
+      {heading(copy.group.lands)}
+      {history(it.lands ?? [])}
       {heading(copy.group.bits)}
       {bits(it.bits)}
       {heading(copy.group.sore)}

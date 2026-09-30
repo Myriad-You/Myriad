@@ -359,13 +359,15 @@
       "us": "Was sie für sie sind",
       "sore": "Wunde Punkte",
       "threads": "Was sie beschäftigt",
-      "bits": "Insider"
+      "bits": "Insider",
+      "lands": "Wie die Person sie aufnimmt"
     },
     "group": {
       "days": "Zuletzt in dieser Gruppe",
       "bits": "Gruppen-Insider",
       "sore": "Wunde Punkte hier",
-      "guesses": "Ihre Vermutungen"
+      "guesses": "Ihre Vermutungen",
+      "lands": "Wie diese Gruppe sie aufnimmt"
     },
     "weight": {
       "petty": "kleiner Groll",

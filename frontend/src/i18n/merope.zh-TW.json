@@ -359,13 +359,15 @@
       "us": "我們之間",
       "sore": "心結",
       "threads": "心裡掛著的事",
-      "bits": "梗"
+      "bits": "梗",
+      "lands": "對方怎麼接她"
     },
     "group": {
       "days": "群的這幾天",
       "bits": "群梗",
       "sore": "群裡的心結",
-      "guesses": "她猜的"
+      "guesses": "她猜的",
+      "lands": "這個群怎麼接她"
     },
     "weight": {
       "petty": "小事記仇",
