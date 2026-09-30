@@ -72,8 +72,24 @@ pub async fn tick(db: DatabaseConnection) {
     }
 }
 
+/// Whom she wrote to first and when, in this run: what keeps her from
+/// writing again even if keeping the line failed.
+static WROTE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<i32, DateTime<Utc>>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn wrote_lately(user_id: i32, now: DateTime<Utc>) -> bool {
+    WROTE.lock().is_ok_and(|wrote| {
+        wrote
+            .get(&user_id)
+            .is_some_and(|at| now - *at < chrono::Duration::minutes(AT_MOST_EVERY_MINUTES))
+    })
+}
+
 /// They have not asked her not to, and she has not written first lately.
 async fn quiet_enough(db: &DatabaseConnection, user_id: i32) -> bool {
+    if wrote_lately(user_id, Utc::now()) {
+        return false;
+    }
     let Ok(state) = super::get_or_create_state(db, user_id).await else {
         return false;
     };
@@ -161,7 +177,14 @@ async fn reach_out(db: &DatabaseConnection, user_id: i32, here: Route) -> bool {
     let Some(went) = went else {
         return false;
     };
-    let _ = super::store::insert_proactive(db, user_id, &line, Some(EVENT_KEY), true).await;
+    if let Ok(mut wrote) = WROTE.lock() {
+        wrote.insert(user_id, Utc::now());
+    }
+    if let Err(error) =
+        super::store::insert_proactive(db, user_id, &line, Some(EVENT_KEY), true).await
+    {
+        tracing::warn!(%error, user_id, "[Merope] wrote to someone first but could not keep the line");
+    }
     let taken: Vec<String> = reason.due.iter().map(|thread| thread.id.clone()).collect();
     threads::close(db, user_id, &taken, "reached_out").await;
     tracing::info!(user_id, went, "[Merope] wrote to someone first");

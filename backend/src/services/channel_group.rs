@@ -557,10 +557,21 @@ async fn restore(db: &DatabaseConnection, venue: &str) {
     if !with_group(venue, |group| !group.restored).unwrap_or(false) {
         return;
     }
-    let stored = crate::services::runtime_registry::get::<StoredLines>(db, LINES_NAMESPACE, venue)
-        .await
-        .ok()
-        .flatten();
+    // Not read is not nothing kept: marking it restored now would let the
+    // lines since overwrite what was kept before.
+    let stored = match crate::services::runtime_registry::get::<StoredLines>(
+        db,
+        LINES_NAMESPACE,
+        venue,
+    )
+    .await
+    {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!(%error, %venue, "[Group] could not read back the lines kept before a restart");
+            return;
+        }
+    };
     let spoke_up =
         crate::services::agent::merope::others::spoke_up_lately(db, venue, SPOKE_UP_KEPT as u64)
             .await;
@@ -2085,13 +2096,17 @@ async fn run_turn(
     tokio::pin!(deadline);
     loop {
         tokio::select! {
-            _ = &mut deadline => return None,
+            _ = &mut deadline => {
+                warn!(venue = %message.venue(), "[Group] no reply in time; she says nothing");
+                return None;
+            }
             _ = typing.tick() => send_typing(message, token).await,
             envelope = events.next() => {
                 match envelope?.event {
                     AgentProgressEvent::TaskCompleted { success, response, .. } => {
                         // A superseded or failed turn says nothing in the group.
                         if !success {
+                            info!(venue = %message.venue(), "[Group] turn superseded or failed; she says nothing");
                             return None;
                         }
                         let text = response
@@ -2103,7 +2118,10 @@ async fn run_turn(
                         let sticker = response.pointer("/data/sticker").cloned();
                         return (!text.is_empty() || sticker.is_some()).then_some((text, sticker));
                     }
-                    AgentProgressEvent::Error { .. } => return None,
+                    AgentProgressEvent::Error { .. } => {
+                        warn!(venue = %message.venue(), "[Group] her turn failed; she says nothing");
+                        return None;
+                    }
                     _ => {}
                 }
             }

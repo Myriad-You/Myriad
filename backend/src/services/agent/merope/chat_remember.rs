@@ -332,23 +332,24 @@ pub(super) async fn extract(
     )
     .await
     .map_err(|_| Failure::Storage)?;
-    // What they told her last, too: "forget what I just said" names nothing
-    // that recall by their words would find.
-    let mut existing = existing;
+    // What they told her last, first: "forget what I just said" names
+    // nothing that recall by their words would find. In the same plain form
+    // as recalled facts, since a correction quotes one to replace it.
     let latest = crate::services::agent::memory::unified::latest_of(db, user_id, "chat", 3)
         .await
         .map_err(|_| Failure::Storage)?;
-    for row in latest
+    let mut known: Vec<String> = latest
         .into_iter()
         .filter(|row| row.venue == present.venue())
-    {
-        let known = super::store::as_known(
-            &crate::services::agent::memory::unified::MemoryRecord::from(row),
-        );
-        if !known.is_empty() && !existing.contains(&known) {
-            existing.push(known);
+        .map(|row| super::ingest::compact_summary(&row.content))
+        .filter(|fact| !fact.is_empty())
+        .collect();
+    for fact in existing {
+        if !known.contains(&fact) {
+            known.push(fact);
         }
     }
+    let existing = known;
     if !should_extract_chat_remember_against(user_text, &existing) {
         return Ok(Effect::NoChange);
     }

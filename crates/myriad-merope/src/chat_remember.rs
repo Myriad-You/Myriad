@@ -83,13 +83,17 @@ pub fn extract_schema() -> serde_json::Value {
     })
 }
 
+/// Facts she already has that she sees: what their words recalled, and
+/// what they told her last.
+pub const KNOWN_SHOWN: usize = 11;
+
 pub fn extract_system_prompt(existing: &[String]) -> String {
     let known = if existing.is_empty() {
         "(no facts yet)".to_string()
     } else {
         existing
             .iter()
-            .take(8)
+            .take(KNOWN_SHOWN)
             .map(|fact| format!("- {fact}"))
             .collect::<Vec<_>>()
             .join("\n")

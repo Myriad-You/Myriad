@@ -207,12 +207,23 @@ async fn write_day(
         )
         .await
     else {
+        tracing::warn!(user_id, %date, "[Merope] could not write a day's line; tried again another night");
         return;
     };
-    let Some(line) = parse_day(&raw) else {
+    // A day she had nothing to say about keeps what they said first, so the
+    // night does not come back to it again and again.
+    let line = parse_day(&raw).unwrap_or_else(|| {
+        let theirs: Vec<&str> = said
+            .iter()
+            .filter(|(_, hers, _)| !hers)
+            .map(|(_, _, text)| text.as_str())
+            .collect();
+        stand_in(&theirs)
+    });
+    if line.trim().is_empty() {
         return;
-    };
-    let _ = unified::remember(
+    }
+    let kept = unified::remember(
         db,
         unified::NewMemory {
             user_id,
@@ -227,6 +238,9 @@ async fn write_day(
         },
     )
     .await;
+    if let Err(error) = kept {
+        tracing::warn!(%error, user_id, %date, "[Merope] could not keep a day's line");
+    }
 }
 
 /// People she talked with in private lately.

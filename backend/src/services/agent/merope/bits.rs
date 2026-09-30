@@ -273,13 +273,15 @@ async fn day_with(
 }
 
 /// Go over one day with each person she talked with, and let bits grow,
-/// come back, change, or fade.
+/// come back, change, or fade. Whether the night got through: false only
+/// when there was a day to go over and the model answered none of it.
 pub async fn go_over(
     db: &DatabaseConnection,
     owner: i32,
     start: DateTime<FixedOffset>,
     end: DateTime<FixedOffset>,
-) {
+) -> bool {
+    let (mut asked, mut answered) = (0, 0);
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
@@ -320,6 +322,7 @@ pub async fn go_over(
         input["lands"] = json!(lands_now.as_ref().map(|row| row.content.clone()));
         input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
         let input = input.to_string();
+        asked += 1;
         let raw = super::call::Ask::new(super::call::Voice::HersAtLength, owner, SCHEMA_NAME)
             .within(std::time::Duration::from_secs(60))
             .json_raw(
@@ -329,7 +332,12 @@ pub async fn go_over(
                 &schema(matches!(circle, Circle::Group { .. })),
             )
             .await;
-        let Some(changes) = raw.ok().and_then(|raw| parse(&raw)) else {
+        let Ok(raw) = raw else {
+            continue;
+        };
+        answered += 1;
+        let Some(changes) = parse(&raw) else {
+            tracing::warn!("[Merope] a night's going over came back unreadable");
             continue;
         };
         match &circle {
@@ -395,6 +403,7 @@ pub async fn go_over(
     if kept > 0 {
         tracing::info!(kept, "[Merope] bits kept");
     }
+    asked == 0 || answered > 0
 }
 
 /// Keep what the day in a group was like, if anything happened.

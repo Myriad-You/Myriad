@@ -316,7 +316,9 @@ async fn closeness_within<C: ConnectionTrait>(
             for (row, vector) in missing.iter().zip(embedded) {
                 let vector = Arc::new(vector);
                 keep(&KNOWN, model, &digest(&row.content), vector.clone());
-                let _ = store(db, model, row, &vector).await;
+                if let Err(error) = store(db, model, row, &vector).await {
+                    tracing::warn!(%error, "a memory's meaning could not be kept; it is worked out again next time");
+                }
                 vectors.insert(row.id.clone(), vector);
             }
         }

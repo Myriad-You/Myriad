@@ -39,6 +39,9 @@ use myriad_merope::inner::{
 
 /// Generous: nothing waits for it.
 const CALL_TIMEOUT: Duration = Duration::from_secs(25);
+/// The whole reflection, reading included: past the call's own limit, so
+/// the call gives up first and says so, rather than being cut off mid-write.
+const REFLECTION_TIMEOUT: Duration = Duration::from_secs(45);
 /// How long a state still counts as how she is.
 const MOMENT: Duration = Duration::from_secs(5 * 60);
 
@@ -132,13 +135,18 @@ pub fn spawn_after(db: DatabaseConnection, request: &UserRequest, reply: &str) {
         if !super::is_enabled().await {
             return;
         }
-        let inner = tokio::time::timeout(
-            CALL_TIMEOUT,
+        let inner = match tokio::time::timeout(
+            REFLECTION_TIMEOUT,
             compile(&db, user_id, &user_text, &reply, history, &present, &turn),
         )
         .await
-        .ok()
-        .flatten();
+        {
+            Ok(inner) => inner,
+            Err(_) => {
+                tracing::warn!(user_id, "[Merope] reflecting on the exchange took too long");
+                None
+            }
+        };
         if let (Some(inner), Ok(mut after)) = (inner, AFTER.lock()) {
             after.retain(|_, (_, at)| at.elapsed() < MOMENT);
             after.insert(key, (inner, Instant::now()));

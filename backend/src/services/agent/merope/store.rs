@@ -530,7 +530,7 @@ pub fn portrait_generation_is_pending(value: Option<&Value>) -> bool {
 }
 
 /// Memory sources that belong to the persona, not to Work.
-pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 14] = [
+pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 23] = [
     "chat",
     "event",
     "narrative",
@@ -545,6 +545,17 @@ pub(crate) const PERSONA_MEMORY_SOURCES: [&str; 14] = [
     super::self_story::SOURCE,
     super::self_story::CORRECTED,
     super::explore::QUESTION,
+    // What she is to each person and each group, and what passed between
+    // them: hers, not the next persona's.
+    SAID_SOURCE,
+    super::making_sense::SOURCE,
+    super::sore::SOURCE,
+    super::bits::US_SOURCE,
+    super::bits::LANDS_SOURCE,
+    super::bits::DAY_SOURCE,
+    super::chat_days::SOURCE,
+    super::others::SPOKE_UP,
+    super::recognizing::SOURCE,
 ];
 
 pub async fn clear_persona_on<C>(db: &C) -> Result<(), anyhow::Error>
@@ -2180,6 +2191,13 @@ mod persona_sources_tests {
             !PERSONA_MEMORY_SOURCES.contains(&"work"),
             "Work lessons stay"
         );
+        // Whatever is kept apart from ordinary memory is hers alone.
+        for source in crate::services::agent::memory::unified::KEPT_APART {
+            assert!(
+                PERSONA_MEMORY_SOURCES.contains(&source),
+                "kept-apart source {source:?} would survive deleting her"
+            );
+        }
     }
 }
 

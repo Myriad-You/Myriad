@@ -40,6 +40,21 @@ const FILL_PEOPLE: u64 = 10;
 /// The day whose bits were last gone over, so a night does it once.
 static BITS_DONE: std::sync::LazyLock<std::sync::Mutex<Option<NaiveDate>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+/// The night she last wondered and went over what she wants: the night's
+/// ticks come every half hour, and each would otherwise do it again.
+static THOUGHT_ON: std::sync::LazyLock<std::sync::Mutex<Option<NaiveDate>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+/// Whether `done` has not been done on `day` yet; marks it done.
+fn first_time_on(done: &std::sync::Mutex<Option<NaiveDate>>, day: NaiveDate) -> bool {
+    match done.lock() {
+        Ok(mut done) if *done != Some(day) => {
+            *done = Some(day);
+            true
+        }
+        _ => false,
+    }
+}
 
 /// Days a missed night can still be written for.
 const BACKFILL_DAYS: u64 = 3;
@@ -82,8 +97,10 @@ pub async fn tick(db: DatabaseConnection) {
     }
     super::views::go_over(&db, owner).await;
     super::self_story::look_back(&db, owner).await;
-    super::explore::wonder(&db, owner).await;
-    super::wants::go_over(&db, owner).await;
+    if first_time_on(&THOUGHT_ON, now.date_naive()) {
+        super::explore::wonder(&db, owner).await;
+        super::wants::go_over(&db, owner).await;
+    }
     // Yesterday with each person, once a night.
     if let Some((start, end)) = now.date_naive().pred_opt().and_then(day_bounds) {
         if BITS_DONE
@@ -93,7 +110,14 @@ pub async fn tick(db: DatabaseConnection) {
             if let Ok(mut done) = BITS_DONE.lock() {
                 *done = Some(start.date_naive());
             }
-            super::bits::go_over(&db, owner, start, end).await;
+            if !super::bits::go_over(&db, owner, start, end).await {
+                // The model answered none of it: the next tick tries again.
+                if let Ok(mut done) = BITS_DONE.lock() {
+                    *done = None;
+                }
+                tracing::warn!("[Merope] could not go over yesterday; trying again later tonight");
+                return;
+            }
             // A line for each day with each person, to turn back to later.
             super::chat_days::go_over(&db, owner).await;
             // A group's joke that keeps coming back may become its sticker.
@@ -193,13 +217,29 @@ async fn write_yesterday(db: &DatabaseConnection, owner: i32, day: NaiveDate) {
     }
 }
 
+/// Memories already asked about in this run that got no concepts: not
+/// asked about again, so the ones after them get their turn.
+static CONCEPTS_TRIED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
 async fn fill_old_concepts(db: &DatabaseConnection, owner: i32) {
     let Ok(people) = unified::people_without_concepts(db, FILL_PEOPLE).await else {
         return;
     };
     for user_id in people {
-        let Ok(memories) = unified::without_concepts(db, user_id, FILL_PER_PERSON).await else {
+        let Ok(memories) = unified::without_concepts(db, user_id, FILL_PER_PERSON * 4).await else {
             continue;
+        };
+        let memories: Vec<_> = {
+            let tried = CONCEPTS_TRIED
+                .lock()
+                .map(|tried| tried.clone())
+                .unwrap_or_default();
+            memories
+                .into_iter()
+                .filter(|memory| !tried.contains(&memory.id))
+                .take(FILL_PER_PERSON as usize)
+                .collect()
         };
         if memories.is_empty() {
             continue;
@@ -222,7 +262,14 @@ async fn fill_old_concepts(db: &DatabaseConnection, owner: i32) {
         let raw = model
             .json(CONCEPTS_SYSTEM, &input, CONCEPTS_SCHEMA, &schema)
             .await;
+        if let Ok(mut tried) = CONCEPTS_TRIED.lock() {
+            tried.extend(memories.iter().map(|memory| memory.id.clone()));
+        }
         let Some(filled) = raw.ok().and_then(|raw| super::call::parse::<Filled>(&raw)) else {
+            tracing::warn!(
+                user_id,
+                "[Merope] concepts for old memories came back unreadable"
+            );
             continue;
         };
         let asked: std::collections::HashSet<&str> =
@@ -269,6 +316,15 @@ pub async fn recent_days(db: &DatabaseConnection, limit: u64) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_night_thinks_once_however_often_it_ticks() {
+        let done = std::sync::Mutex::new(None);
+        let night = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        assert!(first_time_on(&done, night));
+        assert!(!first_time_on(&done, night));
+        assert!(first_time_on(&done, night.succ_opt().unwrap()));
+    }
     #[test]
     fn a_day_runs_midnight_to_midnight() {
         let day = NaiveDate::from_ymd_opt(2026, 9, 24).unwrap();

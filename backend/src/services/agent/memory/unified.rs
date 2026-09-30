@@ -361,7 +361,7 @@ async fn rows_for<C: ConnectionTrait>(
 /// `merope::recognizing`), her speaking up unasked in a group (see
 /// `merope::others`), how she comes across (see `merope::bits`), and the
 /// line for each day with someone (see `merope::chat_days`).
-const KEPT_APART: [&str; 11] = [
+pub(crate) const KEPT_APART: [&str; 11] = [
     "bit",
     "stranger",
     "thread",
@@ -1524,6 +1524,27 @@ pub async fn own_views<C: ConnectionTrait>(
     own_rows(db, OWN_VIEW, limit).await
 }
 
+/// Her own rows of one source since `since`, most recent first, at most
+/// `limit`.
+pub async fn own_rows_since<C: ConnectionTrait>(
+    db: &C,
+    source: &str,
+    since: chrono::DateTime<chrono::FixedOffset>,
+    limit: u64,
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.is_null())
+        .filter(agent_memories::Column::Kind.eq(MemoryKind::Knowledge.as_str()))
+        .filter(agent_memories::Column::Venue.eq(OWN_VENUE))
+        .filter(agent_memories::Column::Source.eq(source))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .filter(agent_memories::Column::CreatedAt.gte(since))
+        .order_by_desc(agent_memories::Column::CreatedAt)
+        .limit(limit)
+        .all(db)
+        .await
+}
+
 /// Her own rows of one source, most recent first.
 pub async fn own_rows<C: ConnectionTrait>(
     db: &C,
@@ -1738,6 +1759,8 @@ pub async fn without_concepts<C: ConnectionTrait>(
         .filter(agent_memories::Column::UserId.eq(user_id))
         .filter(agent_memories::Column::InvalidAt.is_null())
         .filter(sea_orm::sea_query::Expr::cust("concepts = '[]'::jsonb"))
+        // Kept apart, never recalled by association: written without concepts.
+        .filter(agent_memories::Column::Source.is_not_in(KEPT_APART))
         .order_by_asc(agent_memories::Column::CreatedAt)
         .limit(limit)
         .all(db)
@@ -1759,6 +1782,7 @@ pub async fn people_without_concepts<C: ConnectionTrait>(
         .filter(agent_memories::Column::UserId.is_not_null())
         .filter(agent_memories::Column::InvalidAt.is_null())
         .filter(sea_orm::sea_query::Expr::cust("concepts = '[]'::jsonb"))
+        .filter(agent_memories::Column::Source.is_not_in(KEPT_APART))
         .limit(limit)
         .into_tuple()
         .all(db)

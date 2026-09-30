@@ -30,6 +30,9 @@ pub const MAX_CLAIM_CHARS: usize = 160;
 
 pub const MAX_RECORD_CHARS: usize = 300;
 
+/// Rows a claim rests on at most, this week's first.
+pub const MAX_RESTS_ON: usize = 24;
+
 pub const SCHEMA_NAME: &str = "merope_self_story";
 
 /// How she took being shown wrong.
@@ -215,6 +218,9 @@ pub fn checked(
         }
         let mut seen = HashSet::new();
         rests_on.retain(|row| seen.insert(row.clone()));
+        // A claim carried on for months would gather rows without end: the
+        // newest grounds are what it rests on now.
+        rests_on.truncate(MAX_RESTS_ON);
         kept.push(Claim { text, rests_on });
     }
     let any_miss = records.iter().any(|record| record.missed);

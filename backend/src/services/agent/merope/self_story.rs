@@ -39,6 +39,10 @@ use myriad_merope::self_story::{
 };
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
+/// Her own time read back over a window at most, and how much of it she
+/// reads through, spread over the whole window.
+const WINDOW_ROWS: u64 = 3000;
+const EXPERIENCES_READ: usize = 120;
 
 /// Keep a time she was shown wrong about a public matter as her own.
 pub async fn remember_corrected(db: &DatabaseConnection, wrong: &Corrected) {
@@ -71,10 +75,13 @@ pub(super) async fn records(
         HashMap::<String, u32>::new(),
         HashMap::<String, u32>::new(),
     );
-    for row in unified::own_experiences(db, 300).await.unwrap_or_default() {
-        if row.created_at < since {
-            continue;
-        }
+    // All of the window is counted; what she reads is spread over all of it,
+    // not only its last days (she does dozens of things a day).
+    let rows = unified::own_rows_since(db, unified::OWN_EXPERIENCE, since, WINDOW_ROWS)
+        .await
+        .unwrap_or_default();
+    let mut read: Vec<(DateTime<FixedOffset>, String, String, bool)> = Vec::new();
+    for row in rows {
         let Some((line, missed)) = super::doing::experience_record(&row) else {
             continue;
         };
@@ -90,8 +97,9 @@ pub(super) async fn records(
             &mut notes
         };
         *tally.entry(felt.to_string()).or_default() += 1;
-        found.push((row.created_at, row.id.clone(), clip(&line), missed));
+        read.push((row.created_at, row.id.clone(), clip(&line), missed));
     }
+    found.extend(myriad_merope::views::spread(read, EXPERIENCES_READ));
     let mut wrong = 0;
     for row in unified::own_rows(db, CORRECTED, 50)
         .await

@@ -89,6 +89,26 @@ pub async fn following(db: &DatabaseConnection) -> Vec<Following> {
         .collect()
 }
 
+/// What she is following, or None when it could not be read: before
+/// writing it back, not read is not following nothing.
+async fn following_to_change(db: &DatabaseConnection) -> Option<Vec<Following>> {
+    match crate::services::runtime_registry::get::<Vec<Following>>(db, NAMESPACE, READING).await {
+        Ok(Some(all)) => return Some(all),
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(%error, "[Merope] could not read what she is following");
+            return None;
+        }
+    }
+    match crate::services::runtime_registry::get::<Following>(db, NAMESPACE, FOLLOWING).await {
+        Ok(one) => Some(one.into_iter().collect()),
+        Err(error) => {
+            tracing::warn!(%error, "[Merope] could not read what she is following");
+            None
+        }
+    }
+}
+
 async fn keep_following(db: &DatabaseConnection, all: &[Following]) {
     put(db, READING, &all).await;
     let _ = crate::services::runtime_registry::delete(db, NAMESPACE, FOLLOWING).await;
@@ -447,7 +467,7 @@ pub async fn read(
     go_on: bool,
     knew_it: bool,
 ) -> Option<Ended> {
-    let mut all = following(db).await;
+    let mut all = following_to_change(db).await?;
     let ended = myriad_merope::serial::advance(
         &mut all,
         myriad_merope::serial::Read {
@@ -461,7 +481,15 @@ pub async fn read(
         Utc::now(),
     );
     if let Some(ended) = ended {
-        let mut past = past(db).await;
+        let mut past = match crate::services::runtime_registry::get::<Past>(db, NAMESPACE, PAST)
+            .await
+        {
+            Ok(past) => past.unwrap_or_default(),
+            Err(error) => {
+                tracing::warn!(%error, "[Merope] could not read the books she finished or let go");
+                return None;
+            }
+        };
         match ended {
             Ended::Finished => past.finished.push(id.to_string()),
             Ended::LetGo => past.dropped.push(id.to_string()),

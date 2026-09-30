@@ -286,6 +286,7 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         return;
     };
     let Some((digest, wrote)) = read_digest(&raw, &intake.asks) else {
+        tracing::warn!(kind = %done.thing.key(), "[Merope] what stayed with her came back unreadable; not kept");
         return;
     };
     let impression = super::ingest::compact_summary(&digest.impression);
@@ -302,7 +303,7 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         tell: digest.tell,
         kept,
     };
-    let Ok(Some(_)) = unified::remember_own(
+    match unified::remember_own(
         db,
         &impression,
         &serde_json::to_string(&evidence).unwrap_or_default(),
@@ -310,9 +311,14 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         unified::OWN_EXPERIENCE,
     )
     .await
-    else {
-        return;
-    };
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => return,
+        Err(error) => {
+            tracing::warn!(%error, kind = %done.thing.key(), "[Merope] could not keep what she did");
+            return;
+        }
+    }
     if digest.tell {
         tell_whoever_is_here(&done.thing, &impression);
         // The groups she is in may hear it too, if one is where she would
