@@ -3,7 +3,8 @@
 type Proceed = () => void
 
 let handler: ((proceed: Proceed) => void) | null = null
-let pending = false
+// 退场中再点导航只换目标，退完走最后一次（#599）。
+let queued: Proceed | null = null
 
 export function setStageLeaveHandler(
   next: ((proceed: Proceed) => void) | null,
@@ -13,12 +14,16 @@ export function setStageLeaveHandler(
 
 // true：导航已接管，调用方不要自己 navigate。
 export function navigateAfterStageLeave(proceed: Proceed): boolean {
-  if (pending) return true
+  if (queued) {
+    queued = proceed
+    return true
+  }
   if (!handler) return false
-  pending = true
+  queued = proceed
   handler(() => {
-    pending = false
-    proceed()
+    const latest = queued
+    queued = null
+    latest?.()
   })
   return true
 }

@@ -1,6 +1,10 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
-let globalFM: { motion: any; AnimatePresence: any } | null = null
+let globalFM: {
+  motion: any
+  AnimatePresence: any
+  PresenceContext: any
+} | null = null
 let isLoading = false
 let loadPromise: Promise<void> | null = null
 const listeners = new Set<() => void>()
@@ -25,7 +29,11 @@ function loadFramerMotion() {
   isLoading = true
   loadPromise = import('motion/react')
     .then((mod) => {
-      globalFM = { motion: mod.motion, AnimatePresence: mod.AnimatePresence }
+      globalFM = {
+        motion: mod.motion,
+        AnimatePresence: mod.AnimatePresence,
+        PresenceContext: mod.PresenceContext,
+      }
       isLoading = false
       notifyListeners()
     })
@@ -61,6 +69,7 @@ export function useLazyMotion(shouldAnimate: boolean) {
   return {
     motion: FM?.motion,
     AnimatePresence: FM?.AnimatePresence,
+    PresenceContext: FM?.PresenceContext,
     MDiv,
     MSpan,
   } as const

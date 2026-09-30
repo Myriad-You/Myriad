@@ -371,8 +371,11 @@ function RouteErrorBoundary({ children }: { children: React.ReactNode }) {
  * 因此已提交的路由保持静态终态，下一次路由切换才接入 motion。
  */
 function useRouteMotion(animationKey: string) {
-  const { motion, AnimatePresence } = useLazyMotion(true)
-  const ready = motion && AnimatePresence ? { motion, AnimatePresence } : null
+  const { motion, AnimatePresence, PresenceContext } = useLazyMotion(true)
+  const ready =
+    motion && AnimatePresence
+      ? { motion, AnimatePresence, PresenceContext }
+      : null
   const pin = useRef<{ key: string, isStatic: boolean } | null>(null)
   const firstKey = useRef(animationKey)
   if (pin.current?.key !== animationKey) {
@@ -439,7 +442,7 @@ function AnimatedPage({
     )
   }
 
-  const { AnimatePresence, motion } = fm
+  const { AnimatePresence, motion, PresenceContext } = fm
   return (
     <AnimatePresence mode={presenceMode} initial={presenceInitial}>
       <motion.div
@@ -453,7 +456,10 @@ function AnimatedPage({
         exit={animationsEnabled ? 'exit' : undefined}
         style={wrapperStyle}
       >
-        {children}
+        {/* 退场只等这一层。懒页面可能在退场开始后才挂上，页内 motion 此时登记的退场永远不会完成，mode="wait" 会卡在旧页（#599）。 */}
+        <PresenceContext.Provider value={null}>
+          {children}
+        </PresenceContext.Provider>
       </motion.div>
     </AnimatePresence>
   )
