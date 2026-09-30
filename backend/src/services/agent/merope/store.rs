@@ -1252,8 +1252,15 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
     }
     // When she came to know it: what happened "last week" is placed in time.
     let when = note.created_at.format("%Y-%m-%d");
+    let evidence = note.evidence.as_deref().unwrap_or("");
     let how = match (note.source.as_str(), note.speaker.as_str()) {
         ("chat", "user") => return format!("[{when}] {content}"),
+        // A sore she let go stays among what she knows of them.
+        ("chat", "agent") if evidence.contains("\"letGo\"") => "it happened between you",
+        // Noted in a group before they were someone she knew by name.
+        ("chat", "agent") if evidence.contains("\"who\"") => {
+            "you noted this in a group, before you knew them here"
+        }
         (SAID_SOURCE, _) => return format!("[{when}] {content} (what you told them)"),
         ("event", _) => "you gathered this from their activity on the site, not from them",
         ("work", _) => "you noted this while doing a task for them",

@@ -25,6 +25,16 @@ fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
     assert!(super::as_known(&note("event", "agent")).ends_with("not from them)"));
     assert!(super::as_known(&note("work", "agent")).contains("doing a task for them"));
     assert!(super::as_known(&note("chat", "import")).contains("kept from before"));
+    // What she let go, and what she noted of them in a group, say so.
+    let with = |evidence: &str| crate::services::agent::memory::unified::MemoryRecord {
+        evidence: Some(evidence.into()),
+        ..note("chat", "agent")
+    };
+    assert!(
+        super::as_known(&with(r#"{"since":"x","letGo":"y"}"#))
+            .ends_with("(it happened between you)")
+    );
+    assert!(super::as_known(&with(r#"{"who":"telegram:42"}"#)).contains("in a group"));
 }
 
 #[test]
