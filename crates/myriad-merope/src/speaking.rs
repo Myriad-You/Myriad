@@ -246,7 +246,7 @@ pub fn format_doing_section(now: Option<&str>, lately: &[(String, String)]) -> O
         return None;
     }
     Some(format!(
-        "## Your own time\nWhat you do on your own, apart from them. It is part of your day: bring it up only when it fits, and do not report on it. What you heard in a song is what you know of how it sounds: speak of it as a listener would, and never beyond it.\n{}",
+        "## Your own time\nWhat you do on your own, apart from them. It is part of your day: bring it up only when it fits, and do not report on it. What you wrote about a song is what you know of how it sounds: speak of it as a listener would, and never beyond it.\n{}",
         myriad_agent_rules::untrusted_block("own_time", &lines.join("\n"))
     ))
 }

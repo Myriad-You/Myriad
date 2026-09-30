@@ -919,15 +919,11 @@ pub async fn recalled(
         .filter_map(|index| {
             let row = &rows[index];
             let experience = Experience::of(row)?;
-            let heard = experience
-                .kept
-                .heard
-                .as_deref()
-                .map(|heard| format!("; what you heard in it: {heard}"))
-                .unwrap_or_default();
+            // What she heard in it is in what she wrote, as a listener says
+            // it; the measurements it came from are not talk.
             Some((
                 format!(
-                    "{} ({}){heard}",
+                    "{} ({})",
                     experience.line_felt(),
                     ago(now, row.created_at.with_timezone(&Utc))
                 ),
@@ -1025,11 +1021,22 @@ pub async fn songs_to_share(db: &DatabaseConnection) -> Vec<(Thing, String)> {
                     .map(|reaction| format!("({})", reaction.felt()))
                     .unwrap_or_default(),
                 ago_text(now.signed_duration_since(row.created_at.with_timezone(&Utc))),
-                row.content
+                gist(&row.content)
             );
             (experience.thing, line)
         })
         .collect()
+}
+
+/// The start of what she wrote, enough to know which song it was to her:
+/// the whole of it is in her own time when that comes to mind.
+fn gist(note: &str) -> String {
+    const GIST_CHARS: usize = 40;
+    let mut gist: String = note.chars().take(GIST_CHARS).collect();
+    if note.chars().count() > GIST_CHARS {
+        gist.push('…');
+    }
+    gist
 }
 
 /// The songs last offered in each conversation, so the number she picks
