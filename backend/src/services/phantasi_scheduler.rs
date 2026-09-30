@@ -41,7 +41,9 @@ pub(crate) async fn insert_feed_items(
     }
     let origins = crate::services::media::upgrade::configured_origins().await;
     let txn = db.begin().await?;
-    let inserted = match phantasi_items::Entity::insert_many(items)
+    // A multi-row RETURNING yields only the rows actually inserted; an
+    // all-conflict batch comes back as an empty Vec, not an error.
+    let inserted = phantasi_items::Entity::insert_many(items)
         .on_conflict(
             OnConflict::columns([
                 phantasi_items::Column::SourceId,
@@ -51,12 +53,7 @@ pub(crate) async fn insert_feed_items(
             .to_owned(),
         )
         .exec_with_returning(&txn)
-        .await
-    {
-        Ok(rows) => rows,
-        Err(sea_orm::DbErr::RecordNotInserted) => Vec::new(),
-        Err(error) => return Err(error),
-    };
+        .await?;
     for row in &inserted {
         let payload = serde_json::to_value(row)
             .map_err(|_| sea_orm::DbErr::Custom("Failed to serialize feed item".into()))?;
@@ -171,22 +168,17 @@ pub(crate) async fn store_feed_items(
     let candidate_len = new_items.len();
     let inserted = match insert_feed_items(db, new_items).await {
         Ok(models) => models,
-        // SeaORM may surface zero RETURNING rows as RecordNotInserted; for our
-        // DO NOTHING path that means concurrent/idempotent skips — count 0.
-        Err(sea_orm::DbErr::RecordNotInserted) => {
-            tracing::debug!(
-                source_id = source.id,
-                candidates = candidate_len,
-                "[PhantasiScheduler] insert skipped all candidates (concurrent ON CONFLICT DO NOTHING)"
-            );
-            Vec::new()
-        }
         Err(e) => {
             tracing::error!(%e, source_id = source.id, "failed to batch insert phantasi items");
             return Err("Failed to batch insert items".to_string());
         }
     };
     if inserted.is_empty() {
+        tracing::debug!(
+            source_id = source.id,
+            candidates = candidate_len,
+            "[PhantasiScheduler] insert skipped all candidates (concurrent ON CONFLICT DO NOTHING)"
+        );
         return Ok(inserted);
     }
 

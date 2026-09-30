@@ -1930,7 +1930,9 @@ impl TappSchedulerEngine {
                 );
                 task
             }
-            Err(sea_orm::DbErr::RecordNotInserted) => {
+            // With RETURNING (PostgreSQL), sea-orm reports the DO NOTHING conflict
+            // as RecordNotFound, not RecordNotInserted.
+            Err(sea_orm::DbErr::RecordNotInserted | sea_orm::DbErr::RecordNotFound(_)) => {
                 tracing::debug!(
                     "[TappScheduler] Task {} already registered for tapp {} (user {}) — idempotent reuse",
                     task_id,
@@ -2494,5 +2496,48 @@ mod frontend_recipient_db_tests {
                 .is_err()
         );
         drop_schema(&admin, &schema_name).await;
+    }
+}
+
+#[cfg(test)]
+mod register_tests {
+    use super::*;
+
+    /// 同参重复注册是幂等复用：第二次拿回第一次那一行，而不是 500。
+    #[tokio::test]
+    async fn re_registering_an_existing_task_returns_the_existing_row() {
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+            return;
+        };
+        fixture
+            .db
+            .execute_unprepared("INSERT INTO users (id, username) VALUES (1, 'alice')")
+            .await
+            .unwrap();
+        let engine = TappSchedulerEngine::new(fixture.db.clone());
+        let register = || {
+            engine.register_task(
+                1,
+                "myriad.core.platform-sync",
+                "platform-sync:steam",
+                "Steam sync",
+                ScheduleType::Interval,
+                json!({ "interval": 60_000 }),
+                None,
+                ExecutionTarget::Backend,
+                None,
+                MissedPolicy::Skip,
+                TaskScope::User,
+                None,
+            )
+        };
+
+        let first = register().await.expect("first registration");
+        let second = register()
+            .await
+            .expect("re-registration must reuse the existing task");
+        assert_eq!(second.id, first.id);
+
+        fixture.close().await;
     }
 }
