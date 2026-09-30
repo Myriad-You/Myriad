@@ -102,23 +102,21 @@ pub(super) fn without_reply_mark(reply: &str) -> String {
 /// Her reply, chunk by chunk; whether any of it reached the group.
 pub(super) async fn deliver(line: &GroupLine, token: &str, reply: &str, began: Instant) -> bool {
     use crate::services::agent::merope::timing::typing;
-    use myriad_agent_rules::channel::{as_messages, as_messages_at_most, split_channel_text};
+    use myriad_agent_rules::channel::{as_messages, split_channel_text};
     let venue = line.venue();
     let people = people(&venue);
     let room = room(&venue);
     let mut sent = false;
     // Most turns go as one message, and a few in a row when something grabs
-    // her: typing each before it goes, typed the way people there type, and
-    // only the first quoting the line she answers.
-    let most = myriad_merope::talk_shape::messages_this_turn(
-        as_messages(reply).len(),
-        rand::random::<f64>(),
-    );
-    for (index, message) in as_messages_at_most(reply, most).into_iter().enumerate() {
-        let message = match &room {
-            Some(room) => myriad_merope::talk_shape::typed_like(&message, room),
-            None => message,
-        };
+    // her: typing each before it goes, typed the way people there type (or
+    // chat apps usually do, until the group has said enough), and only the
+    // first quoting the line she answers.
+    let lines = as_messages(reply);
+    let most = myriad_merope::talk_shape::messages_this_turn(lines.len(), rand::random::<f64>());
+    for (index, message) in myriad_merope::talk_shape::goes_out_as(&lines, most, room.as_ref())
+        .into_iter()
+        .enumerate()
+    {
         // Typing it takes as long as it takes; the first she was already
         // at while she thought.
         let left = if index == 0 {

@@ -2804,22 +2804,6 @@ fn her_reply_goes_out_a_line_at_a_time_like_typing() {
 }
 
 #[test]
-fn what_she_says_at_once_can_go_as_fewer_messages() {
-    use myriad_agent_rules::channel::as_messages_at_most;
-    assert_eq!(
-        as_messages_at_most("？\n干嘛突然这么叫\n吓我一跳", 1),
-        ["？ 干嘛突然这么叫 吓我一跳"]
-    );
-    assert_eq!(
-        as_messages_at_most("？\n干嘛突然这么叫\n吓我一跳", 2),
-        ["？", "干嘛突然这么叫 吓我一跳"]
-    );
-    assert_eq!(as_messages_at_most("哈哈\n笑死", 5), ["哈哈", "笑死"]);
-    assert_eq!(as_messages_at_most("哈哈\n笑死", 0), ["哈哈 笑死"]);
-    assert!(as_messages_at_most("  ", 1).is_empty());
-}
-
-#[test]
 fn someone_else_at_in_a_group_still_reads_as_who() {
     let raw = r#"{"post_type":"message","message_type":"group","group_id":123,"user_id":456,"self_id":789,"message_id":1,
         "sender":{"nickname":"阿明"},

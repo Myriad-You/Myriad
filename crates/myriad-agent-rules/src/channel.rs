@@ -2510,19 +2510,6 @@ pub fn as_messages(text: &str) -> Vec<String> {
     lines
 }
 
-/// Her reply as at most `most` messages: lines past the last one she sends
-/// on its own go with it, in one message, the way a person types two
-/// things before hitting send.
-pub fn as_messages_at_most(text: &str, most: usize) -> Vec<String> {
-    let mut lines = as_messages(text);
-    let most = most.max(1);
-    if lines.len() > most {
-        let rest = lines.split_off(most - 1);
-        lines.push(rest.join(" "));
-    }
-    lines
-}
-
 /// Split on paragraph / line / word boundaries so a long result is complete.
 pub fn split_channel_text(text: &str, limit: usize) -> Vec<String> {
     if limit == 0 {
