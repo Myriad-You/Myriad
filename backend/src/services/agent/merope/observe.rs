@@ -239,7 +239,9 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
             .map(|row| row.updated_at)
             .max()
             .unwrap_or_default();
-        let (first, days) = super::acquaintance(db, *user_id).await.unwrap_or((None, 0));
+        let (first, days) = super::speaking_context::acquaintance(db, *user_id)
+            .await
+            .unwrap_or((None, 0));
         let threads: Vec<Value> = of(super::threads::SOURCE)
             .filter(theirs)
             .filter(|row| !replaced(row))
