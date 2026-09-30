@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { compileTextVisemes } from '../anime25drig/textVisemes'
+import { compileTextVisemes } from './textVisemes'
 import { alignVisemeTimeline, visemeAmount, visemeAt } from './visemeTimeline'
 
 test('stretches the compiled shapes onto the audio that says them', async () => {

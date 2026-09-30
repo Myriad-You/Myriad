@@ -5,9 +5,9 @@ import type {
   Anime25DEyeAnchor,
   Anime25DPlaybackLayer,
 } from './types'
-import { cryEyeDisplayScale } from '../rig/cryEye'
-import { dizzyEyeDisplayScale } from '../rig/dizzyEye'
-import { squeezeEyeDisplayScale } from '../rig/squeezeEye'
+import { cryEyeDisplayScale } from '../expressionShapes/cryEye'
+import { dizzyEyeDisplayScale } from '../expressionShapes/dizzyEye'
+import { squeezeEyeDisplayScale } from '../expressionShapes/squeezeEye'
 
 type ExpressionGeometryDriver = Pick<
   Anime25DDriver,

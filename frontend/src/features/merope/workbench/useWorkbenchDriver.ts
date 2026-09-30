@@ -1,7 +1,7 @@
 import type { RefObject } from 'react'
 import type { Anime25DDriver } from '../anime25drig/driver'
 import type { Anime25DDebugSnapshot } from '../anime25drig/player'
-import type { RigCharacterHandle } from '../rig/RigCharacter'
+import type { RigCharacterHandle } from '../character/RigCharacter'
 import { useEffect, useRef, useState } from 'react'
 import { WORKBENCH_DRIVER } from '../anime25drig/driver'
 import { PreviewMotionScope } from '../motion/previewScope'

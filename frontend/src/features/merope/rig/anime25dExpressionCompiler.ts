@@ -1,27 +1,26 @@
 import type { Anime25DRiggerAnchors } from '../anime25drig/playback'
 import type { Anime25DEyeAnchor } from '../anime25drig/types'
+import type { Anime25DFaceFrame } from '../expressionShapes/faceFrame'
+import type { MouthExpressionKind } from '../expressionShapes/mouthExpression'
 import type { RasterLayer } from './anime25dImportTypes'
-import type { Anime25DFaceFrame } from './faceFrame'
-import type { MouthExpressionKind } from './mouthExpression'
-import { uniquePartId } from './anime25dRaster'
-import { createCryEyeBitmap, cryEyeGeneratedSize } from './cryEye'
+import { createCryEyeBitmap, cryEyeGeneratedSize } from '../expressionShapes/cryEye'
 import {
   createDizzyEyeBitmap,
   dizzyEyeGeneratedSize,
   sampleDizzyEyeTint,
-} from './dizzyEye'
+} from '../expressionShapes/dizzyEye'
 import {
   createAngerMarkBitmap,
   createSpeechlessSweatBitmap,
   expressionSymbolGeneratedSizes,
-} from './expressionSymbols'
+} from '../expressionShapes/expressionSymbols'
 import {
   faceContourAlongEyeLine,
   faceFramePoint,
   placeFaceBitmap,
   resolveAnime25DFaceFrame,
-} from './faceFrame'
-import { createLipMouthBitmap, detectPaintedLips, LIP_MOUTH_KINDS, lipMouthSize } from './lipMouth'
+} from '../expressionShapes/faceFrame'
+import { createLipMouthBitmap, detectPaintedLips, LIP_MOUTH_KINDS, lipMouthSize } from '../expressionShapes/lipMouth'
 import {
   createLovestruckDroolBitmap,
   createLovestruckFaceEffectBitmap,
@@ -30,17 +29,17 @@ import {
   lovestruckDroolGeneratedSize,
   lovestruckFaceEffectGeneratedSize,
   lovestruckHeartGeneratedSize,
-} from './lovestruckExpression'
+} from '../expressionShapes/lovestruckExpression'
 import {
   createManiacEyeShadowBitmap,
   maniacEyeShadowGeneratedSize,
-} from './maniacEyeShadow'
+} from '../expressionShapes/maniacEyeShadow'
 import {
   createManiacMouthShadowBitmap,
   createMouthExpressionBitmap,
   mouthExpressionGeneratedSizes,
   sampleMouthExpressionPalette,
-} from './mouthExpression'
+} from '../expressionShapes/mouthExpression'
 import {
   createSillyEyeWhiteBitmap,
   createSillyIrisBitmap,
@@ -49,8 +48,9 @@ import {
   SILLY_IRIS_REST_SHARE,
   sillyEyeGeneratedSize,
   sillyIrisTravelRoom,
-} from './sillyEye'
-import { createSqueezeEyeBitmap, squeezeEyeGeneratedSize } from './squeezeEye'
+} from '../expressionShapes/sillyEye'
+import { createSqueezeEyeBitmap, squeezeEyeGeneratedSize } from '../expressionShapes/squeezeEye'
+import { uniquePartId } from './anime25dRaster'
 
 export function compileAnime25DExpressionLayers(
   layers: RasterLayer[],

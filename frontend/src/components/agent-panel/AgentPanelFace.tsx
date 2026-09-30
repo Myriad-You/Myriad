@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { RigCharacterHandle } from '../../features/merope/rig/RigCharacter'
+import type { RigCharacterHandle } from '../../features/merope/character/RigCharacter'
 import type { MeropeRigManifest } from '../../features/merope/rig/types'
 import {
   useCallback,
@@ -14,6 +14,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { agentStatusActivity } from '../../features/merope/activity'
 import { isAnime25DPlayback } from '../../features/merope/anime25drig/types'
 import { getSiteFace, getWardrobeFace } from '../../features/merope/api'
+import RigCharacter from '../../features/merope/character/RigCharacter'
 import { useChatOutfitOverlay } from '../../features/merope/chatOutfitOverlay'
 import {
   FACE_UPDATED_EVENT,
@@ -38,7 +39,6 @@ import {
   PERSONA_OFF_NAME,
   publicPersonaName,
 } from '../../features/merope/publicName'
-import RigCharacter from '../../features/merope/rig/RigCharacter'
 import { sameLiveFaceRuntime } from '../../features/merope/rig/types'
 import { agentService } from '../../services/agent'
 import { ADDRESSEE_UPDATED_EVENT } from '../agent/meropeVitals'

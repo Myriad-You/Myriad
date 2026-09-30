@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode, Ref } from 'react'
-import type { RigCharacterHandle } from '../../features/merope/rig/RigCharacter'
+import type { RigCharacterHandle } from '../../features/merope/character/RigCharacter'
 import type { MoodBand } from '../agent/meropeVitals'
 import type { WidgetComponentProps } from '../widgetGridTypes'
 import {
@@ -16,6 +16,7 @@ import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
 import { agentStatusActivity } from '../../features/merope/activity'
 import { isAnime25DPlayback } from '../../features/merope/anime25drig/types'
 import { getSiteFace } from '../../features/merope/api'
+import RigCharacter from '../../features/merope/character/RigCharacter'
 import {
   FACE_UPDATED_EVENT,
   PERSONA_UPDATED_EVENT,
@@ -39,7 +40,6 @@ import {
   PERSONA_OFF_NAME,
   publicPersonaName,
 } from '../../features/merope/publicName'
-import RigCharacter from '../../features/merope/rig/RigCharacter'
 import { sameLiveFaceRuntime } from '../../features/merope/rig/types'
 import { useMeropeWidgetFaceSlot } from '../../features/merope/widgetFaceSlot'
 import { agentService } from '../../services/agent'

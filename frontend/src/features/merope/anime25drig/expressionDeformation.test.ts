@@ -10,9 +10,9 @@ import type {
 } from './types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { cryEyeDisplayScale } from '../rig/cryEye'
-import { dizzyEyeDisplayScale } from '../rig/dizzyEye'
-import { squeezeEyeDisplayScale } from '../rig/squeezeEye'
+import { cryEyeDisplayScale } from '../expressionShapes/cryEye'
+import { dizzyEyeDisplayScale } from '../expressionShapes/dizzyEye'
+import { squeezeEyeDisplayScale } from '../expressionShapes/squeezeEye'
 import { IDENTITY_DRIVER } from './driver'
 import {
   deformAnime25DExpressionPoint,

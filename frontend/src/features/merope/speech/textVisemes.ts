@@ -3,7 +3,7 @@ import {
   MAX_VISUAL_SPEECH_TEXT_UNITS,
   VISUAL_SPEECH_ARTICULATION_SCALE,
   visualSpeechPauseSeconds,
-} from '../speech/textTiming'
+} from './textTiming'
 
 export interface TextVisemeCue {
   viseme: SpeechViseme

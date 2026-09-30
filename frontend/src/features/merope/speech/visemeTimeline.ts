@@ -1,5 +1,5 @@
-import type { TextVisemeCue } from '../anime25drig/textVisemes'
 import type { SpeechViseme } from '../rig/articulation'
+import type { TextVisemeCue } from './textVisemes'
 
 /** Loudness is not a mouth shape. */
 export interface VisemeSpan {

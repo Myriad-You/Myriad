@@ -20,6 +20,10 @@ import {
 } from '../anime25drig/playback'
 import { genericParts as GenericParts } from '../anime25drig/upstream/genericParts'
 import { rigger as Rigger } from '../anime25drig/upstream/rigger'
+import {
+  estimateAnime25DMouthAnchor,
+  resolveAnime25DFaceFrame,
+} from '../expressionShapes/faceFrame'
 import { validateAnime25DCharacterLayers } from './anime25dAssetValidation'
 import {
   packAnime25DAtlas,
@@ -49,10 +53,6 @@ import {
   PORTRAIT_CANVAS,
   RIG_IR_VERSION,
 } from './contract'
-import {
-  estimateAnime25DMouthAnchor,
-  resolveAnime25DFaceFrame,
-} from './faceFrame'
 import { formatTemplate } from './formatTemplate'
 import { addHiddenArmFragments, anime25DShoulderSeeds, splitLinkedHandwear } from './linkedHandwear'
 import { findMotionExposure } from './motionExposure'

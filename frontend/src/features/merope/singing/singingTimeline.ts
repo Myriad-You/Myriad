@@ -1,7 +1,7 @@
 import type { LyricLine, WordLyricLine } from '../../../utils/musicPlayer'
-import type { TextVisemeCue } from '../anime25drig/textVisemes'
 import type { SpeechViseme } from '../rig/articulation'
-import { compileTextVisemes } from '../anime25drig/textVisemes'
+import type { TextVisemeCue } from '../speech/textVisemes'
+import { compileTextVisemes } from '../speech/textVisemes'
 
 export interface SingingCue {
   start: number

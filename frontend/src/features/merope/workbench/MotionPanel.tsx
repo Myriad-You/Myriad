@@ -1,7 +1,7 @@
 import type { RefObject } from 'react'
 import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { Anime25DPlayback } from '../anime25drig/types'
-import type { RigCharacterHandle } from '../rig/RigCharacter'
+import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { DriverSliderKey } from './motionControls'
 import type { WorkbenchDriver } from './useWorkbenchDriver'
 import {

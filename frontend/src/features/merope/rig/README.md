@@ -144,7 +144,7 @@ runtime facial deformation remains the primary expression signal and stages
 the accents after the brows, gaze, lids, and mouth have begun moving.
 
 Every generated drawing is placed in the portrait's own face frame
-(`faceFrame.ts`): the iris-to-iris line gives the roll, its midpoint the
+(`../expressionShapes/faceFrame.ts`): the iris-to-iris line gives the roll, its midpoint the
 origin. Eye, mouth, and heart glyphs are drawn upright and then rotated about
 their own pivot by that roll, so a tilted head gets tilted glyphs. The
 lovestruck blush sits under the drawn lower lids, and the anger mark and sweat
@@ -248,7 +248,7 @@ continuous higher-gain, lower-damping inertia range.
 
 ```text
 active layered package
-  -> RigCharacter.tsx
+  -> ../character/RigCharacter.tsx
   -> Anime25DCharacter / Anime2.5DRig player
 ```
 
@@ -305,6 +305,9 @@ network trace or second renderer is needed for this path.
 | Asset transaction                                  | `../assets/pipeline.ts`, `../assets/compiler.ts`                                                                                                                                                                                                                                                |
 | Runtime orchestration and performance registry     | `../anime25drig/player.ts`, `../anime25drig/driver.ts`, `../anime25drig/expressionRegistry.ts`, `../performanceContract.ts`                                                                                                                                                                     |
 | Runtime WebGL, deformation and fallback policy     | `../anime25drig/webglRuntime.ts`, `../anime25drig/mouthRuntime.ts`, `../anime25drig/collarRuntime.ts`, `../anime25drig/atlasUv.ts`, `../anime25drig/layerTransform.ts`, `../anime25drig/layerDeformationPolicy.ts`, `../anime25drig/runtimePolicy.ts`, `../anime25drig/performanceTelemetry.ts` |
+| Procedural expression shapes (import and runtime)  | `../expressionShapes/` (eyes, mouths, symbols, face frame)                                                                                                                                                                                                                                      |
+| Presentation                                       | `../character/RigCharacter.tsx` (live rig or still portrait)                                                                                                                                                                                                                                    |
+| Owner authoring UI                                 | `../workbench/` (settings workbench; depends on all of the above)                                                                                                                                                                                                                               |
 
 ## Verification
 

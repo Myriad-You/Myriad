@@ -1,4 +1,4 @@
-import type { RasterLayer } from './anime25dImportTypes'
+import type { RasterLayer } from '../rig/anime25dImportTypes'
 import type { MouthExpressionKind, MouthExpressionSize } from './mouthExpression'
 import { mouthExpressionOuterPath } from './mouthExpression'
 

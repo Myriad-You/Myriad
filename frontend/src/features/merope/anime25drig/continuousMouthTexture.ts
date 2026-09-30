@@ -1,12 +1,12 @@
-import type { PaintedLips } from '../rig/lipMouth'
-import type { MouthExpressionPalette } from '../rig/mouthExpression'
+import type { PaintedLips } from '../expressionShapes/lipMouth'
+import type { MouthExpressionPalette } from '../expressionShapes/mouthExpression'
 import type { ContinuousMouthShape } from './continuousMouth'
 import type { Anime25DOwnTexture } from './renderer'
 import type { Anime25DPlaybackAnchors, Anime25DPlaybackLayer } from './types'
 import type { CroppedLayerPixels } from './webglRuntime'
-import { resolveAnime25DFaceFrame } from '../rig/faceFrame'
-import { detectPaintedLips } from '../rig/lipMouth'
-import { sampleMouthExpressionPalette } from '../rig/mouthExpression'
+import { resolveAnime25DFaceFrame } from '../expressionShapes/faceFrame'
+import { detectPaintedLips } from '../expressionShapes/lipMouth'
+import { sampleMouthExpressionPalette } from '../expressionShapes/mouthExpression'
 import { paintContinuousLipMouth, paintContinuousMouth } from './continuousMouth'
 
 /**

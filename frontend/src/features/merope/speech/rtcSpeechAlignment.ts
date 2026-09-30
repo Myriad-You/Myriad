@@ -1,6 +1,6 @@
-import type { TextVisemeCue } from '../anime25drig/textVisemes'
 import type { SpeechArticulation } from '../rig/articulation'
-import { compileTextVisemes } from '../anime25drig/textVisemes'
+import type { TextVisemeCue } from './textVisemes'
+import { compileTextVisemes } from './textVisemes'
 import {
   alignVisemeTimeline,
   VISEME_SILENCE_ENERGY,

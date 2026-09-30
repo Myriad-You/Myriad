@@ -1,9 +1,9 @@
 import type { Anime25DRiggerAnchors } from '../anime25drig/playback'
-import type { RasterLayer } from './anime25dImportTypes'
+import type { RasterLayer } from '../rig/anime25dImportTypes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { compileAnime25DExpressionLayers } from './anime25dExpressionCompiler'
-import { rgbaPrincipalAngleDegrees } from './closedEyeCompensation'
+import { compileAnime25DExpressionLayers } from '../rig/anime25dExpressionCompiler'
+import { rgbaPrincipalAngleDegrees } from '../rig/closedEyeCompensation'
 import {
   estimateAnime25DMouthAnchor,
   faceContourAlongEyeLine,

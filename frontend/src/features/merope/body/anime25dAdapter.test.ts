@@ -195,7 +195,7 @@ test('live faces only show the master portrait when there is no playable rig', (
 
 test('static fallback cannot accumulate or report Anime2.5D motion', () => {
   const source = readFileSync(
-    new URL('../rig/RigCharacter.tsx', import.meta.url),
+    new URL('../character/RigCharacter.tsx', import.meta.url),
     'utf8',
   )
   assert.match(source, /else if \(useAnimeRuntime\)/)

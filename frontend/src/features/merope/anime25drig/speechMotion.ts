@@ -1,10 +1,11 @@
 import type { SpeechViseme } from '../rig/articulation'
-import type { TextVisemeCue } from './textVisemes'
+import type { TextVisemeCue } from '../speech/textVisemes'
 import {
   isMajorVisualSpeechPause,
   MAX_VISUAL_SPEECH_TEXT_UNITS,
   visualSpeechPauseActivity,
 } from '../speech/textTiming'
+import { compileTextVisemes } from '../speech/textVisemes'
 import {
   SPEECH_ACCENT_BROW_ATTACK,
   SPEECH_ACCENT_BROW_RELEASE,
@@ -14,7 +15,6 @@ import {
   SPEECH_TEXT_ACCENT_ATTACK,
   SPEECH_TEXT_ACCENT_RELEASE,
 } from './speechExpression'
-import { compileTextVisemes } from './textVisemes'
 
 export interface AutoSpeechPose {
   mouthOpen: number

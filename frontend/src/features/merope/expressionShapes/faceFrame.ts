@@ -1,5 +1,5 @@
 import type { Anime25DRiggerAnchors } from '../anime25drig/playback'
-import type { RasterLayer } from './anime25dImportTypes'
+import type { RasterLayer } from '../rig/anime25dImportTypes'
 
 /** Beyond this the eye line is more likely a detection error than a head tilt. */
 const MAX_FACE_ROLL = (20 * Math.PI) / 180

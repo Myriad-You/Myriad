@@ -1,7 +1,7 @@
-import type { PaintedLips } from '../rig/lipMouth'
-import type { MouthExpressionPalette } from '../rig/mouthExpression'
-import { LIP_CUT_OFFSET, lipCut, paintLipMouth, soften } from '../rig/lipMouth'
-import { mouthExpressionOuterPath } from '../rig/mouthExpression'
+import type { PaintedLips } from '../expressionShapes/lipMouth'
+import type { MouthExpressionPalette } from '../expressionShapes/mouthExpression'
+import { LIP_CUT_OFFSET, lipCut, paintLipMouth, soften } from '../expressionShapes/lipMouth'
+import { mouthExpressionOuterPath } from '../expressionShapes/mouthExpression'
 
 /**
  * One speaking mouth whose shape moves continuously between the open, wide

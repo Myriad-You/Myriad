@@ -1,4 +1,4 @@
-import { sampleDizzyEyeTint } from '../rig/dizzyEye'
+import { sampleDizzyEyeTint } from '../expressionShapes/dizzyEye'
 
 /** A procedural sticker: no atlas migration or remote image is required. */
 export class ThinkingSticker {

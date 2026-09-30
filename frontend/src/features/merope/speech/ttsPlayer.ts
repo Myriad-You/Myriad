@@ -2,9 +2,9 @@ import type { SpeechArticulation, SpeechViseme } from '../rig/articulation'
 import type { SpeechProsodyTimeline } from './prosody'
 import type { SpeechSegment } from './speechSegmenter'
 import type { VisemeSpan } from './visemeTimeline'
-import { compileTextVisemes } from '../anime25drig/textVisemes'
 import { speechProsodyTimeline } from './prosody'
 import { alignTextProsody } from './textProsody'
+import { compileTextVisemes } from './textVisemes'
 import {
   alignVisemeTimeline,
   VISEME_SILENCE_ENERGY,

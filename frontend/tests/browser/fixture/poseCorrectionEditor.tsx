@@ -1,6 +1,6 @@
 import type { PoseCorrection } from '../../../src/features/merope/anime25drig/poseCorrections'
 import type { Anime25DPlayback } from '../../../src/features/merope/anime25drig/types'
-import type { RigCharacterHandle } from '../../../src/features/merope/rig/RigCharacter'
+import type { RigCharacterHandle } from '../../../src/features/merope/character/RigCharacter'
 import { createRoot } from 'react-dom/client'
 import { I18nNamespace, I18nProvider } from '../../../src/contexts/I18nContext'
 import { WORKBENCH_DRIVER } from '../../../src/features/merope/anime25drig/driver'

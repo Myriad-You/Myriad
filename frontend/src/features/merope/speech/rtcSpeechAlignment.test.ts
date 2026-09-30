@@ -1,4 +1,4 @@
-import type { TextVisemeCue } from '../anime25drig/textVisemes'
+import type { TextVisemeCue } from './textVisemes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {

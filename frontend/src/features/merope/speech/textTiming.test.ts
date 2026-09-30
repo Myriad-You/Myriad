@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { compileTextVisemes } from '../anime25drig/textVisemes'
 import {
   estimateVisualSpeechDurationMs,
   estimateVisualSpeechTailMs,
   visualSpeechPrefixMs,
 } from './textTiming'
+import { compileTextVisemes } from './textVisemes'
 
 const MAX_REALIZED_PACE = 1.32
 

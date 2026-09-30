@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { sampleDizzyEyeTint } from '../rig/dizzyEye'
+import { sampleDizzyEyeTint } from '../expressionShapes/dizzyEye'
 import { ThinkingSticker } from './thinkingSticker'
 
 test('thinking sticker fades, rotates, reuses GPU resources and releases them', () => {

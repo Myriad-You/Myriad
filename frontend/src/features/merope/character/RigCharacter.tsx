@@ -3,12 +3,12 @@ import type { Anime25DWorkbenchPort } from '../anime25drig/workbenchPort'
 import type { RigBearing } from '../motion/bearing'
 import type { BehaviorPlan } from '../motion/behavior'
 import type { MotionChannelPolicy } from '../motion/policy'
+import type { SpeechArticulation } from '../rig/articulation'
+import type { RigMotionPort } from '../rig/motionPort'
+import type { MeropeRigManifest } from '../rig/types'
 import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
-import type { SpeechArticulation } from './articulation'
-import type { RigMotionPort } from './motionPort'
-import type { MeropeRigManifest } from './types'
 import {
   forwardRef,
   useCallback,
