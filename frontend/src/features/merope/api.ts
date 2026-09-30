@@ -4,7 +4,7 @@ import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
 import { AUTHORED_EXPRESSION_KINDS } from './rig/authoredExpression'
-import { isLiveMeropeManifest, isRigManifest } from './rig/types'
+import { isLiveMeropeManifest, isRigManifest } from './rig/manifestValidation'
 
 const PREFIX = '/merope/rig'
 const RIG_MUTATION_TIMEOUT_MS = 6 * 60 * 1000

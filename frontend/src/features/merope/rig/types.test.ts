@@ -10,7 +10,7 @@ import {
   isLiveMeropeManifest,
   isRigManifest,
   sameLiveFaceRuntime,
-} from './types'
+} from './manifestValidation'
 
 const manifest: MeropeRigManifest = {
   schemaVersion: 1,

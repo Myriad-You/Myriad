@@ -39,7 +39,7 @@ import {
   notifyLiveFaceUnmounted,
   useLiveFacePlayback,
 } from '../../features/merope/presence/liveFacePlayback'
-import { sameLiveFaceRuntime } from '../../features/merope/rig/types'
+import { sameLiveFaceRuntime } from '../../features/merope/rig/manifestValidation'
 import { agentService } from '../../services/agent'
 import { ADDRESSEE_UPDATED_EVENT } from '../agent/meropeVitals'
 import { useAgentPanelMode } from './agentPanelMode'

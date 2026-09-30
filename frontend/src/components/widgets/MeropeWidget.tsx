@@ -41,7 +41,7 @@ import {
   useLiveFacePlayback,
 } from '../../features/merope/presence/liveFacePlayback'
 import { useMeropeWidgetFaceSlot } from '../../features/merope/presence/widgetFaceSlot'
-import { sameLiveFaceRuntime } from '../../features/merope/rig/types'
+import { sameLiveFaceRuntime } from '../../features/merope/rig/manifestValidation'
 import { agentService } from '../../services/agent'
 import { useAgentStatus } from '../agent-panel/agentStatusStore'
 import { ADDRESSEE_UPDATED_EVENT, moodBand } from '../agent/meropeVitals'
