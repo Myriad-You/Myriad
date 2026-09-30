@@ -38,6 +38,10 @@ pub const EVENT_KEY: &str = "agent.merope.reach_out";
 const AT_MOST_EVERY_MINUTES: i64 = 20 * 60;
 /// People written to in one pass, at most.
 const PER_PASS: usize = 3;
+/// The last times she wrote to someone first that she has in mind, and how
+/// far back.
+const FIRST_WORDS_SHOWN: i64 = 4;
+const FIRST_WORDS_WITHIN_DAYS: i64 = 30;
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// One pass over everyone she could write to first: whoever she has
@@ -215,6 +219,20 @@ async fn would_write(
     let remembered = super::store::recall_remembered(db, user_id, None, 5)
         .await
         .unwrap_or_default();
+    let now = Utc::now();
+    let first_words: Vec<(String, Option<bool>)> = super::store::first_words(
+        db,
+        EVENT_KEY,
+        Some(user_id),
+        now - chrono::Duration::days(FIRST_WORDS_WITHIN_DAYS),
+        myriad_merope::others::ANSWERED_WITHIN_HOURS,
+        FIRST_WORDS_SHOWN,
+    )
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(_, at, answered)| (myriad_merope::doing::ago_text(now - at), answered))
+    .collect();
     let input = json!({
         "name": super::resolve_addressee_label(db, user_id).await,
         "localTime": chrono::Local::now().format("%A %H:%M").to_string(),
@@ -222,6 +240,7 @@ async fn would_write(
         "dueNow": reason.due.iter().map(|thread| json!({"about": thread.about, "then": thread.then})).collect::<Vec<_>>(),
         "remembered": remembered,
         "whatTheyAreToYou": super::bits::us(db, user_id).await.map(|us| us.now),
+        "yourLastFirstWords": myriad_merope::others::first_words_view(&first_words),
         "yourOwnTime": {
             "now": super::doing::current().map(|doing| super::doing::now_line(&doing, Utc::now())),
             "wouldTell": reason.to_tell,

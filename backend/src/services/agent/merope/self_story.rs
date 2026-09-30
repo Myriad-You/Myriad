@@ -131,6 +131,9 @@ pub(super) async fn records(
             found.push((day.created_at, day.id.clone(), clip(&line), false));
         }
     }
+    // How others took her.
+    let (taken, by_others) = super::others::records(db, since).await;
+    found.extend(taken);
     found.sort_by_key(|(at, ..)| *at);
     let records = found
         .into_iter()
@@ -147,6 +150,7 @@ pub(super) async fn records(
         "notes": notes,
         "findingOut": inquiries,
         "shownWrong": wrong,
+        "howOthersTookYou": by_others,
     });
     (records, tally)
 }

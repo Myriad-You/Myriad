@@ -27,6 +27,7 @@ pub mod motion_preview;
 pub mod observe;
 pub mod onboarding_ai;
 pub mod onboarding_prompts;
+pub mod others;
 pub mod outfit_overlay;
 pub mod playing;
 mod priming;

@@ -1368,6 +1368,57 @@ pub async fn recent_proactive(
         .await?)
 }
 
+/// The times she wrote to someone first (`event_key`) since `since`, to one
+/// person or to anyone, newest first: who, when, and whether they said
+/// anything to her in private within `within_hours` after; `None` while
+/// that long has not passed and they have not.
+pub async fn first_words(
+    db: &DatabaseConnection,
+    event_key: &str,
+    user_id: Option<i32>,
+    since: chrono::DateTime<Utc>,
+    within_hours: i64,
+    limit: i64,
+) -> Result<Vec<(i32, chrono::DateTime<Utc>, Option<bool>)>, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT p.user_id, p.created_at, \
+               p.created_at < NOW() - make_interval(hours => $3) AS settled, \
+               EXISTS (SELECT 1 FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+                 WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
+                   AND s.context->>'venue' IS NULL AND m.role = 'user' \
+                   AND m.created_at > p.created_at \
+                   AND m.created_at <= p.created_at + make_interval(hours => $3)) AS answered \
+             FROM agent_proactive_messages p \
+             WHERE p.role = 'assistant' AND p.event_key = $5 AND p.created_at >= $1 \
+               AND ($2::int IS NULL OR p.user_id = $2) \
+             ORDER BY p.created_at DESC LIMIT $4",
+            [
+                since.fixed_offset().into(),
+                user_id.into(),
+                (within_hours as i32).into(),
+                limit.into(),
+                event_key.into(),
+            ],
+        ))
+        .await?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let user_id = row.try_get::<i32>("", "user_id").ok()?;
+            let at = row
+                .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
+                .ok()?
+                .with_timezone(&Utc);
+            let settled = row.try_get::<bool>("", "settled").ok()?;
+            let answered = row.try_get::<bool>("", "answered").ok()?;
+            Some((user_id, at, (answered || settled).then_some(answered)))
+        })
+        .collect())
+}
+
 pub async fn recently_spoke_event(
     db: &DatabaseConnection,
     user_id: i32,

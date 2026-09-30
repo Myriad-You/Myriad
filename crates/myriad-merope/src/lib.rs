@@ -19,6 +19,7 @@ pub mod library;
 pub mod making_sense;
 pub mod life;
 mod onboarding;
+pub mod others;
 mod outfit_overlay;
 mod performance;
 mod persona;

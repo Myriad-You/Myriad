@@ -89,6 +89,7 @@ pub async fn tick(db: DatabaseConnection) {
     super::sore::let_fade(&db).await;
     super::wants::let_fade(&db).await;
     super::making_sense::let_fade(&db).await;
+    super::others::let_fade(&db).await;
     fill_old_concepts(&db, owner).await;
 }
 

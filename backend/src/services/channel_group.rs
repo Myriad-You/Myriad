@@ -561,14 +561,38 @@ async fn restore(db: &DatabaseConnection, venue: &str) {
         .await
         .ok()
         .flatten();
+    let spoke_up =
+        crate::services::agent::merope::others::spoke_up_lately(db, venue, SPOKE_UP_KEPT as u64)
+            .await;
     with_group(venue, |group| {
         if !group.restored {
             group.restored = true;
             if let Some(stored) = stored {
                 merge_restored(group, stored.lines);
             }
+            restore_spoke_up(group, &spoke_up, chrono::Utc::now());
         }
     });
+}
+
+/// How her speaking up went there before a restart, oldest first, under
+/// what she has said since.
+fn restore_spoke_up(
+    group: &mut Group,
+    kept: &[(chrono::DateTime<chrono::Utc>, bool)],
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    let since: Vec<(Instant, bool)> = group.spoke_up.drain(..).collect();
+    for (at, taken) in kept {
+        let ago = (now - *at).to_std().unwrap_or_default();
+        if let Some(at) = Instant::now().checked_sub(ago) {
+            group.spoke_up.push_back((at, *taken));
+        }
+    }
+    group.spoke_up.extend(since);
+    while group.spoke_up.len() > SPOKE_UP_KEPT {
+        group.spoke_up.pop_front();
+    }
 }
 
 async fn keep_lines(db: &DatabaseConnection, venue: &str, lines: Vec<Line>) {
@@ -1458,12 +1482,7 @@ async fn look(venue: String, mut id: String, token: String) {
             let replied = answer(&message, &token, Some(reason)).await;
             if replied && why != Why::Answer {
                 info!(%venue, "[Group] she spoke up");
-                with_group(&venue, |group| {
-                    group.spoke_up.push_back((Instant::now(), false));
-                    while group.spoke_up.len() > SPOKE_UP_KEPT {
-                        group.spoke_up.pop_front();
-                    }
-                });
+                spoke_up_now(&venue);
             }
             let mut next = finish_turn(&venue, replied).await;
             while let Some(message) = next {
@@ -1485,6 +1504,46 @@ async fn look(venue: String, mut id: String, token: String) {
 /// Whether she says something about the talk this line ends, and why. Her
 /// judgment is billed to the one who said it if they are of the community,
 /// else to the site's owner, who hosts her there.
+/// She spoke up unasked there: in mind now, and once it is known whether
+/// anyone took it up, kept (see `merope::others`) so a restart does not
+/// wipe how it has been going there.
+fn spoke_up_now(venue: &str) {
+    let at = Instant::now();
+    let line = with_group(venue, |group| {
+        group.spoke_up.push_back((at, false));
+        while group.spoke_up.len() > SPOKE_UP_KEPT {
+            group.spoke_up.pop_front();
+        }
+        group
+            .lines
+            .iter()
+            .rev()
+            .find(|line| line.hers)
+            .map(|line| line.text.clone())
+    })
+    .flatten();
+    let Some(line) = line else {
+        return;
+    };
+    let venue = venue.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(TAKEN_UP_WITHIN).await;
+        let taken = with_group(&venue, |group| {
+            group
+                .spoke_up
+                .iter()
+                .find(|(when, _)| *when == at)
+                .map(|(_, taken)| *taken)
+        })
+        .flatten()
+        .unwrap_or(false);
+        let Ok(db) = crate::services::process_db::database() else {
+            return;
+        };
+        crate::services::agent::merope::others::spoke_up(&db, &venue, &line, taken).await;
+    });
+}
+
 /// Someone turned to her: her latest speaking up there, if recent, was
 /// taken up.
 fn taken_up(group: &mut Group) {
@@ -1827,12 +1886,7 @@ pub async fn share_first(owner: i32, what: String) {
     let spoke = share_turn(&db, &venue, &what, &why).await;
     if spoke {
         info!(%venue, "[Group] she brought something of hers up");
-        with_group(&venue, |group| {
-            group.spoke_up.push_back((Instant::now(), false));
-            while group.spoke_up.len() > SPOKE_UP_KEPT {
-                group.spoke_up.pop_front();
-            }
-        });
+        spoke_up_now(&venue);
     }
     let mut next = finish_turn(&venue, spoke).await;
     while let Some(message) = next {
@@ -2310,6 +2364,27 @@ mod tests {
                 .collect::<Vec<_>>(),
             [false, true]
         );
+    }
+
+    #[test]
+    fn how_speaking_up_went_comes_back_after_a_restart_under_what_came_since() {
+        let now = chrono::Utc::now();
+        let mut group = Group::default();
+        group.spoke_up.push_back((Instant::now(), false));
+        let kept: Vec<_> = (0..SPOKE_UP_KEPT)
+            .map(|index| {
+                (
+                    now - chrono::Duration::minutes(10 - index as i64),
+                    index % 2 == 0,
+                )
+            })
+            .collect();
+        restore_spoke_up(&mut group, &kept, now);
+        assert_eq!(group.spoke_up.len(), SPOKE_UP_KEPT);
+        // The newest, said since the restart, is still last and not yet taken up.
+        assert_eq!(group.spoke_up.back().map(|(_, taken)| *taken), Some(false));
+        let order: Vec<Instant> = group.spoke_up.iter().map(|(at, _)| *at).collect();
+        assert!(order.windows(2).all(|pair| pair[0] <= pair[1]));
     }
 
     #[test]
