@@ -22,7 +22,7 @@ toldYou: only if in this exchange they told you something about yourself (how wh
 pub fn system_for(soul: &str, private: bool) -> String {
     let base = system(soul);
     if private {
-        format!("{base}{THREADS}")
+        format!("{base}{THREADS}{}", crate::sore::IN_REFLECTION)
     } else {
         base
     }
@@ -62,9 +62,11 @@ pub fn schema_for(private: bool) -> Value {
                 "required": ["about", "note", "public", "took"],
                 "additionalProperties": false
             },
-            "toldYou": { "type": ["string", "null"], "maxLength": 160 }
+            "toldYou": { "type": ["string", "null"], "maxLength": 160 },
+            "hurt": crate::sore::hurt_schema(),
+            "mended": crate::sore::indexes_schema()
         },
-        "required": ["inner", "keep", "done", "wrong", "toldYou"],
+        "required": ["inner", "keep", "done", "wrong", "toldYou", "hurt", "mended"],
         "additionalProperties": false
     })
 }

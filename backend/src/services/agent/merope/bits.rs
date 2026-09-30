@@ -280,8 +280,13 @@ pub async fn go_over(
                 .collect::<Vec<_>>(),
             "conversation": lines,
         });
+        let sores = match &circle {
+            Circle::Person(user_id) => super::sore::open(db, *user_id).await,
+            Circle::Group { .. } => Vec::new(),
+        };
         if let Circle::Person(_) = circle {
             input["us"] = json!(now_us.as_ref().map(|row| row.content.clone()));
+            input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
         }
         let input = input.to_string();
         let raw = super::call::Ask::new(super::call::Voice::HersAtLength, owner, SCHEMA_NAME)
@@ -299,6 +304,7 @@ pub async fn go_over(
         match &circle {
             Circle::Person(user_id) => {
                 put_us(db, *user_id, &changes.us, now_us.as_ref()).await;
+                super::sore::let_go(db, *user_id, &sores, &changes.let_go).await;
             }
             Circle::Group { .. } => put_day(db, &circle, &changes.day, start).await,
         }
@@ -622,12 +628,15 @@ mod tests {
         assert!(private.contains("nothing invented, no compliments for their sake"));
         assert!(private.contains("otherwise us is empty"));
         assert!(!system("你是小灯。", true).contains("us is"));
-        assert_eq!(schema(false)["required"], json!(["bits", "us"]));
+        assert_eq!(schema(false)["required"], json!(["bits", "us", "letGo"]));
         assert!(schema(true)["properties"].get("us").is_none());
-        let changes =
-            parse(r#"{"bits":[],"us":"总在半夜来吐槽工作的朋友，嘴上嫌他烦，其实挺担心他。"}"#)
-                .unwrap();
+        let changes = parse(
+            r#"{"bits":[],"us":"总在半夜来吐槽工作的朋友，嘴上嫌他烦，其实挺担心他。","letGo":[0]}"#,
+        )
+        .unwrap();
         assert!(changes.us.contains("担心"));
+        assert_eq!(changes.let_go, vec![0]);
+        assert!(private.contains("Letting go is not forgetting"));
         assert_eq!(parse(r#"{"bits":[]}"#).unwrap().us, "");
     }
 

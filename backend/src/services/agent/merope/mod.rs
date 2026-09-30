@@ -37,6 +37,7 @@ pub mod self_story;
 pub mod senses;
 pub mod serial;
 pub mod sharing;
+pub mod sore;
 pub mod soup;
 pub mod sources;
 pub mod speaking_prompts;
@@ -951,6 +952,12 @@ async fn speaking_prompt_from_db(
                 ) {
                     sections.push(block);
                 }
+            }
+        }
+        // What still stings with them: private, never in a group.
+        if !group {
+            if let Some(block) = sore::section(&sore::open(db, user_id).await, chrono::Utc::now()) {
+                sections.push(block);
             }
         }
         // What she meant to come back to with them: private, never in a group.

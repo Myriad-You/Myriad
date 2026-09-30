@@ -77,6 +77,20 @@ struct Inner {
     /// In private: what they told her about herself.
     #[serde(default, rename = "toldYou")]
     told_you: Option<String>,
+    /// In private: something they did that got to her.
+    #[serde(default)]
+    hurt: Option<Hurt>,
+    /// In private: sore spots they apologized for or made right (indexes
+    /// into soreSpots).
+    #[serde(default)]
+    mended: Vec<usize>,
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct Hurt {
+    what: String,
+    petty: bool,
 }
 
 fn history_of(request: &UserRequest) -> Vec<Value> {
@@ -189,8 +203,14 @@ async fn compile(
     } else {
         Vec::new()
     };
+    let sores = if private {
+        super::sore::open(db, user_id).await
+    } else {
+        Vec::new()
+    };
     if private {
         input["openThreads"] = json!(super::threads::as_input(&threads));
+        input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
     }
     let input = input.to_string();
     // Her own voice, thinking little.
@@ -225,6 +245,11 @@ async fn compile(
         if let Some(told) = reflected.told_you.as_deref() {
             super::making_sense::remember_told_by(db, user_id, told).await;
         }
+        // Made right first, then what got to her this time.
+        super::sore::mend(db, user_id, &sores, &reflected.mended).await;
+        if let Some(hurt) = &reflected.hurt {
+            super::sore::keep(db, user_id, &hurt.what, hurt.petty).await;
+        }
     }
     Some(reflected.inner)
 }
@@ -237,6 +262,8 @@ struct Reflection {
     done: Vec<usize>,
     wrong: Option<super::self_story::Corrected>,
     told_you: Option<String>,
+    hurt: Option<Hurt>,
+    mended: Vec<usize>,
 }
 
 fn parse_reflection(raw: &str) -> Option<Reflection> {
@@ -259,6 +286,8 @@ fn parse_reflection(raw: &str) -> Option<Reflection> {
             .told_you
             .map(|told| told.split_whitespace().collect::<Vec<_>>().join(" "))
             .filter(|told| !told.is_empty() && told != "null"),
+        hurt: parsed.hurt.filter(|hurt| !hurt.what.trim().is_empty()),
+        mended: parsed.mended,
     })
 }
 
@@ -330,6 +359,36 @@ pub fn current(user_id: i32, present: &Audience) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_got_to_her_and_what_they_made_right_come_back_from_her_reflection() {
+        let reflected = parse_reflection(
+            r#"{"inner":"还是有点不舒服","keep":[],"done":[],"wrong":null,"toldYou":null,"hurt":{"what":"他说我的歌单全是垃圾，挺伤人","petty":false},"mended":[1]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            reflected.hurt,
+            Some(Hurt {
+                what: "他说我的歌单全是垃圾，挺伤人".into(),
+                petty: false
+            })
+        );
+        assert_eq!(reflected.mended, vec![1]);
+        let calm = parse_reflection(r#"{"inner":"还行","keep":[],"done":[],"wrong":null,"toldYou":null,"hurt":null,"mended":[]}"#).unwrap();
+        assert_eq!(calm.hurt, None);
+        let blank =
+            parse_reflection(r#"{"inner":"还行","hurt":{"what":"  ","petty":true}}"#).unwrap();
+        assert_eq!(blank.hurt, None);
+        let system = system_for("你是小灯。", true);
+        assert!(system.contains("soreSpots") && system.contains("not teasing you both enjoy"));
+        assert!(!system_for("你是小灯。", false).contains("soreSpots"));
+        assert!(
+            schema_for(true)["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("hurt"))
+        );
+    }
 
     /// In private, what they told her about herself comes out of her
     /// reflection, and nothing when they did not.

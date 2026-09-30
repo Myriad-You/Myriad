@@ -332,6 +332,23 @@ pub(super) async fn extract(
     )
     .await
     .map_err(|_| Failure::Storage)?;
+    // What they told her last, too: "forget what I just said" names nothing
+    // that recall by their words would find.
+    let mut existing = existing;
+    let latest = crate::services::agent::memory::unified::latest_of(db, user_id, "chat", 3)
+        .await
+        .map_err(|_| Failure::Storage)?;
+    for row in latest
+        .into_iter()
+        .filter(|row| row.venue == present.venue())
+    {
+        let known = super::store::as_known(
+            &crate::services::agent::memory::unified::MemoryRecord::from(row),
+        );
+        if !known.is_empty() && !existing.contains(&known) {
+            existing.push(known);
+        }
+    }
     if !should_extract_chat_remember_against(user_text, &existing) {
         return Ok(Effect::NoChange);
     }
@@ -410,6 +427,7 @@ mod tests {
             myriad_merope::chat_remember::extract_system_prompt(&[])
                 .contains("with no names of people")
         );
+        assert!(myriad_merope::chat_remember::extract_system_prompt(&[]).contains("当我没说"));
     }
 
     #[test]
