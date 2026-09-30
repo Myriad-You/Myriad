@@ -14,15 +14,14 @@ import type {
 import type { CollarClipMesh, CollarMotionPose } from './collarRuntime'
 import type { Anime25DDeformationChangeState } from './deformationDependencies'
 import type { Anime25DDriver } from './driver'
-import type {
-  Anime25DBlinkState,
-  Anime25DStylizedTargets,
-} from './driverComposition'
+
 import type { Anime25DExpressionDeformationFrame } from './expressionDeformation'
 import type { Anime25DHairSpringFrame } from './hairPhysics'
 import type { HeadTurn } from './headTurn'
 import type { JellyElement } from './jellyVolume'
+import type { LayerDeformationContext } from './layerFrameDeformation'
 import type { Anime25DGpuLayer } from './layerGpuBinding'
+import type { MotionComposerInput } from './motionComposer'
 import type { Anime25DHandPose, Anime25DMotionEnvelopeProfile } from './motionEnvelope'
 import type { Anime25DMouthDeformationFrame } from './mouthDeformation'
 import type {
@@ -39,7 +38,6 @@ import type { PoseCorrection } from './poseCorrections'
 import type { Anime25DRendererBindings, Anime25DRenderFrame } from './renderer'
 import type { Anime25DSecondaryDeformationFrame } from './secondaryDeformation'
 import type { Anime25DShellRotation } from './shellDeformation'
-import type { StylizedExpressionMotion } from './stylizedExpressionMotion'
 import type {
   Anime25DTorsoShellRotation,
   Anime25DTorsoYawState,
@@ -49,16 +47,13 @@ import type {
   TouchPaintLayer,
   VisibleTouchHit,
 } from './touchVisibility'
-import type { Anime25DPlayback, Anime25DShellProfile } from './types'
+import type { Anime25DFade, Anime25DPlayback, Anime25DShellProfile } from './types'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { noteTurnTraceFrame } from '../events/turnTrace'
 import { resolveAnime25DFaceFrame } from '../expressionShapes/faceFrame'
-import { allowsPointerGaze, IDLE_MOTION_POLICY } from '../motion/policy'
+import { IDLE_MOTION_POLICY } from '../motion/policy'
 import { resolveAnime25DLayerSemantics } from '../rig/anime25dLayerSemantics'
-import { SingingGrooveController } from '../singing/singingGroove'
-import { AmbientMotionController } from './ambientMotion'
 import { ArmDrape, ArmPendulum } from './armPendulum'
-import { Anime25DBehaviorMotionController } from './behaviorMotion'
 import { applyBodyLift, BodyLiftResponse } from './bodyLift'
 import {
   buildChestWeightField,
@@ -78,14 +73,11 @@ import {
 } from './chestPhysics'
 import { ClosedEyePresentation } from './closedEyePresentation'
 import {
-  BODY_HEAD_FOLLOW,
   deformCollarClipMesh,
   disposeCollarClipMesh,
   uploadCollarClipMesh,
 } from './collarRuntime'
 import { ContinuousMouthTexture, prepareContinuousMouth } from './continuousMouthTexture'
-import { applyCropBoundary } from './cropBoundary'
-import { cryTearHorizontalOffset, cryTearVerticalOffset } from './cryMotion'
 import {
   captureAnime25DDeformationChanges,
   createAnime25DDeformationChangeState,
@@ -93,21 +85,8 @@ import {
   shouldUpdateAnime25DLayerGeometry,
 } from './deformationDependencies'
 import { IDENTITY_DRIVER, sanitizeDriverPatch } from './driver'
-import {
-  applyAnime25DComposedPose,
-  applyAnime25DCryMouth,
-  applyAnime25DSillyMouthOwnership,
-  applyAnime25DSpeechExtras,
-  applyAnime25DStylizedExpression,
-  prepareAnime25DWorkingTarget,
-  resolveAnime25DStylizedTargets,
-  smoothAnime25DUnit,
-  stepAnime25DBlink,
-  stepAnime25DDriverResponse,
-} from './driverComposition'
-import { deformAnime25DExpressionPoint } from './expressionDeformation'
+
 import { ThinkingExpressionOwnership } from './expressionPresets'
-import { expressiveEyeOpenOffset } from './expressiveMotionEnvelope'
 import {
   animationCatchupSeconds,
   animationElapsedSeconds,
@@ -115,9 +94,7 @@ import {
 } from './frameClock'
 import { stepAnime25DHairLayerSprings } from './hairPhysics'
 import { writeHairRootMotion } from './hairRootMotion'
-import { constrainHairSurface } from './hairSurface'
 import { createHeadTurn, updateHeadTurn } from './headTurn'
-import { idleBreathOffset } from './idleBreath'
 import { Anime25DIrisRebound } from './irisRebound'
 import {
   createJawMotionState,
@@ -128,24 +105,22 @@ import {
 import {
   chestVolumeStretch,
   HEAD_JELLY,
-  jellyDisplacement,
 
   JellyVolume,
   SLEEVE_JELLY,
 } from './jellyVolume'
-import { deformNeckwearBridge, writeAnime25DAttachmentTransform } from './layerAttachment'
-import { deformAnime25DUpstreamFeaturePoint } from './layerDeformation'
+import {
+  deformLayerVertices,
+  settleDependentLayers,
+  writeRigidLayerTransform,
+} from './layerFrameDeformation'
 import { compileAnime25DGpuLayers } from './layerGpuBinding'
 import { writeAnime25DLayerGlobalTransform } from './layerTransform'
+import { Anime25DMotionComposer } from './motionComposer'
 import {
   deriveAnime25DMotionEnvelopeProfile,
-  projectAnime25DMotionEnvelope,
 } from './motionEnvelope'
-import { monotonicControlTime } from './motionPrediction'
-import {
-  deformAnime25DFaceJawPoint,
-  deformAnime25DMouthPoint,
-} from './mouthDeformation'
+
 import {
   applyMouthTransitionBridge,
   compileAnime25DMouthMorphSources,
@@ -158,30 +133,17 @@ import {
 import { MouthTransitionController } from './mouthTransition'
 import {
   bearingDriverPatch,
-  PerformanceExpressionController,
 } from './performanceExpression'
 import { baselineDriverPatch, restEnergyDriverPatch } from './performanceMotion'
 import {
   Anime25DPerformanceTelemetry,
   createAnime25DFrameWork,
 } from './performanceTelemetry'
-import {
-  applyBehaviorMotionGate,
-  PoseGateController,
-  resolvePoseGate,
-} from './poseArbitration'
-import { zeroOccupancyOffset } from './poseCompositor'
+
 import { bindPoseCorrections, isPoseCorrections, writePoseCorrectionWeights } from './poseCorrections'
-import { PoseOccupancyController } from './poseOccupancy'
-import {
-  PoseResponseController,
-  resolvePoseResponseScale,
-} from './poseResponse'
-import { BODY_ROLL_RADIANS, bodyLeanShare, HEAD_ROLL_RADIANS } from './poseScale'
-import {
-  DIRECTED_BODY_BLOCK_LEVEL,
-  RandomActionController,
-} from './randomAction'
+
+import { BODY_ROLL_RADIANS, HEAD_ROLL_RADIANS } from './poseScale'
+
 import {
   createAnime25DRendererBindings,
   disposeAnime25DRendererBindings,
@@ -192,15 +154,9 @@ import {
   shouldApplyAnime25DResize,
 } from './runtimePolicy'
 import {
-  deformAnime25DHairPoint,
   deformAnime25DSecondaryPoint,
 } from './secondaryDeformation'
 import { writeAnime25DShellRotation } from './shellDeformation'
-import { CoSpeechExpressionController } from './speechExpression'
-import { AutoSpeechController } from './speechMotion'
-import { StylizedExpressionMotionController } from './stylizedExpressionMotion'
-import { applySurfaceContact } from './surfaceContact'
-import { ThinkingMotionController } from './thinkingMotion'
 import { ThinkingSticker } from './thinkingSticker'
 import {
   anime25DTorsoShellOffsetX,
@@ -211,9 +167,6 @@ import {
 import { touchPointInView } from './touchHitTest'
 import { hitTestVisibleTouch, readTouchAtlas } from './touchVisibility'
 import { compileProgram, createAtlasTexture, loadImage, readLayerPixels } from './webglRuntime'
-
-const POINTER_ATTACK_RATE = 16
-const POINTER_RELEASE_RATE = 5.5
 
 export interface Anime25DDebugSnapshot {
   layerCount: number
@@ -278,6 +231,30 @@ interface JellyPart {
   side: 'L' | 'R'
 }
 
+/** Snapshot keys that count the layers fading in for one expression. */
+const DEBUG_FADE_COUNTS = {
+  eyeOpenLayers: 'eyeOpen',
+  eyeCloseLayers: 'eyeClose',
+  eyeDizzyLayers: 'eyeDizzy',
+  eyeSqueezeLayers: 'eyeSqueeze',
+  eyeCryLayers: 'eyeCry',
+  eyeSillyLayers: 'eyeSilly',
+  lovestruckHeartLayers: 'lovestruckHeart',
+  lovestruckFaceLayers: 'lovestruckFace',
+  lovestruckDroolLayers: 'lovestruckDrool',
+  maniacEyeShadowLayers: 'maniacEyeShadow',
+  angerMarkLayers: 'angerMark',
+  speechlessSweatLayers: 'speechlessSweat',
+  mouthOpenLayers: 'mouthOpen',
+  mouthWideLayers: 'mouthWide',
+  mouthRoundLayers: 'mouthRound',
+  mouthNarrowLayers: 'mouthNarrow',
+  mouthCloseLayers: 'mouthClose',
+  mouthCryLayers: 'mouthCry',
+  mouthManiacLayers: 'mouthManiac',
+  mouthSillyLayers: 'mouthSilly',
+} as const satisfies Record<string, Anime25DFade>
+
 export class Anime25DPlayer {
   private readonly thinkingSticker = new ThinkingSticker()
   private readonly gl: WebGL2RenderingContext
@@ -305,10 +282,6 @@ export class Anime25DPlayer {
   private readonly performanceTelemetry = new Anime25DPerformanceTelemetry()
   private readonly current: Anime25DDriver = { ...IDENTITY_DRIVER }
   private readonly target: Anime25DDriver = { ...IDENTITY_DRIVER }
-  private readonly workingTarget: Anime25DDriver = { ...IDENTITY_DRIVER }
-
-  private readonly poseResponse = new PoseResponseController()
-
   private readonly mouthMorph: MouthMorphState = {
     centerX: 0,
     centerY: 0,
@@ -382,58 +355,23 @@ export class Anime25DPlayer {
 
   private mouthTransition!: MouthTransitionController
   private activeMouthMaterial: SpeechMouthMaterial = 'mouthClose'
-  private sillyMouthShare = 1
 
   private time = 0
   private readonly irisRebound = new Anime25DIrisRebound()
   private readonly closedEyes = new ClosedEyePresentation()
+  private readonly motion = new Anime25DMotionComposer(
+    this.current,
+    this.closedEyes,
+    this.irisRebound,
+  )
+
   /** The eyes' openness before the blink is laid over it. */
-  private unblinkedEyeOpenL = 1
-  private unblinkedEyeOpenR = 1
-  private readonly blinkState: Anime25DBlinkState = {
-    activeSeconds: -1,
-    nextAtSeconds: 1.8,
-  }
-
-  private readonly ambientMotion = new AmbientMotionController()
   private readonly thinkingExpression = new ThinkingExpressionOwnership()
-  private readonly behaviorMotion = new Anime25DBehaviorMotionController()
-  private responseScale = 1
-  private controlTime = 0
-  private readonly occupancy = new PoseOccupancyController()
-  private readonly poseGate = new PoseGateController()
-  private readonly randomAction = new RandomActionController()
-  private readonly singingGroove = new SingingGrooveController()
   private musicSignal: MusicMotionSignal | null = null
-  private readonly thinkingMotion = new ThinkingMotionController()
-  private readonly stylizedExpression = new StylizedExpressionMotionController()
-  private readonly stylizedTargets: Anime25DStylizedTargets = {
-    anger: 0,
-    speechless: 0,
-    maniac: 0,
-    silly: 0,
-    lovestruck: 0,
-  }
-
-  private stylizedMotion: Readonly<StylizedExpressionMotion> | null = null
-  private stylizedHeadShare = 1
-  private readonly performanceExpression = new PerformanceExpressionController()
   private presentedTouch: PresentedTouchReaction | null = null
 
   getPresentedTouch(): PresentedTouchReaction | null {
     return this.presentedTouch
-  }
-
-  /** Reused so the per-frame pose composition never allocates. */
-  private readonly composedPose = zeroOccupancyOffset()
-  private readonly breathPose = { angleX: 0, angleY: 0, angleZ: 0, body: 0 }
-  private readonly speechMotion = new AutoSpeechController()
-  private readonly speechExpression = new CoSpeechExpressionController()
-  private readonly cryMouth = {
-    mouthOpen: 0,
-    mouthForm: 0,
-    mouthCY: 0,
-    mouthScale: 0,
   }
 
   private speechActive = false
@@ -448,19 +386,35 @@ export class Anime25DPlayer {
   private readonly jaw = createJawMotionState()
   private jawTravel = 0
   private motionEnvelopeProfile!: Anime25DMotionEnvelopeProfile
-  private readonly motionEnvelopeResult = {
-    clippedEnergy: 0,
-    transferredEnergy: 0,
-  }
-
   private neckDepth = 0
   private collarClip: CollarClipMesh | null = null
-  private jawEmphasis = 0
   private readonly mouse = { x: 0, y: 0, inside: false }
-  private pointerAuthority = 0
   private policy: MotionChannelPolicy = { ...IDLE_MOTION_POLICY }
   private disposed = false
   private atlasAbort: AbortController | null = null
+  /** Per-frame inputs every layer's deformation reads; refilled, never reallocated. */
+  private readonly layerContext: LayerDeformationContext = {
+    anchors: undefined!,
+    current: this.current,
+    time: 0,
+    deformationFrame: undefined!,
+    secondaryDeformationFrame: undefined!,
+    irisRebound: this.irisRebound,
+    headJellyElement: null,
+    headStretch: 0,
+    deformationPoint: this.deformationPoint,
+    jellyShift: this.jellyShift,
+  }
+
+  private readonly motionInput: MotionComposerInput = {
+    time: 0,
+    target: this.target,
+    policy: this.policy,
+    mouse: this.mouse,
+    speechActive: false,
+    musicSignal: null,
+    motionEnvelopeProfile: undefined!,
+  }
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -631,7 +585,7 @@ export class Anime25DPlayer {
       rigManifest,
       hands,
     )
-    this.singingGroove.setArmMotion(
+    this.motion.singingGroove.setArmMotion(
       this.motionEnvelopeProfile.armMotion && this.motionEnvelopeProfile.rigidArm.limit > 0,
     )
     this.neckDepth =
@@ -773,8 +727,7 @@ export class Anime25DPlayer {
   }
 
   blinkNow(): void {
-    this.blinkState.activeSeconds = 0
-    this.blinkState.nextAtSeconds = this.time + 1.6 + Math.random() * 3.8
+    this.motion.blinkNow(this.time)
   }
 
   setMouse(x: number, y: number, inside: boolean): void {
@@ -802,7 +755,7 @@ export class Anime25DPlayer {
   }
 
   setSingingTrack(trackId: string | null): void {
-    this.singingGroove.setTrack(trackId)
+    this.motion.singingGroove.setTrack(trackId)
   }
 
   setMusicSignal(drive: MusicMotionSignal | null): void {
@@ -810,32 +763,32 @@ export class Anime25DPlayer {
   }
 
   setSpeechProsody(plan: SpeechProsodyPlan | null): void {
-    this.speechExpression.setProsody(plan, this.time)
+    this.motion.speechExpression.setProsody(plan, this.time)
   }
 
   enqueueSpeechText(text: string, locale?: string): void {
-    this.speechMotion.enqueueText(text, locale)
+    this.motion.speechMotion.enqueueText(text, locale)
   }
 
   clearSpeechText(): void {
-    this.speechMotion.clear(this.time)
+    this.motion.speechMotion.clear(this.time)
   }
 
   setBehaviorMotionUnits(
     units: readonly Anime25DMotionUnit[],
     nowMs: number,
   ): void {
-    this.behaviorMotion.replace(units, nowMs, this.time)
-    this.performanceExpression.playBehaviorUnits(units, this.time, nowMs)
+    this.motion.behaviorMotion.replace(units, nowMs, this.time)
+    this.motion.performanceExpression.playBehaviorUnits(units, this.time, nowMs)
   }
 
   clearBehaviorMotionUnits(): void {
-    this.behaviorMotion.clear(this.time)
-    this.performanceExpression.stopBehaviors(this.time)
+    this.motion.behaviorMotion.clear(this.time)
+    this.motion.performanceExpression.stopBehaviors(this.time)
   }
 
   setBearing(bearing: PerformanceBaseline | null): void {
-    this.performanceExpression.setBearingAttention(bearing?.attention ?? null)
+    this.motion.performanceExpression.setBearingAttention(bearing?.attention ?? null)
     this.setTarget({
       ...(bearing ? baselineDriverPatch(bearing) : restEnergyDriverPatch()),
       ...bearingDriverPatch(bearing),
@@ -844,53 +797,17 @@ export class Anime25DPlayer {
 
   debugSnapshot(): Anime25DDebugSnapshot {
     const layers = this.playback.layers
+    const fadeCounts = Object.fromEntries(
+      Object.entries(DEBUG_FADE_COUNTS).map(([key, fade]) => [
+        key,
+        layers.filter((layer) => layer.fade === fade).length,
+      ]),
+    ) as Record<keyof typeof DEBUG_FADE_COUNTS, number>
     return {
       layerCount: layers.length,
       hairLayerCount: layers.filter((layer) => layer.phys === 'hair').length,
       strandCount: layers.reduce((sum, layer) => sum + layer.strands.length, 0),
-      eyeOpenLayers: layers.filter((layer) => layer.fade === 'eyeOpen').length,
-      eyeCloseLayers: layers.filter((layer) => layer.fade === 'eyeClose')
-        .length,
-      eyeDizzyLayers: layers.filter((layer) => layer.fade === 'eyeDizzy')
-        .length,
-      eyeSqueezeLayers: layers.filter((layer) => layer.fade === 'eyeSqueeze')
-        .length,
-      eyeCryLayers: layers.filter((layer) => layer.fade === 'eyeCry').length,
-      eyeSillyLayers: layers.filter((layer) => layer.fade === 'eyeSilly')
-        .length,
-      lovestruckHeartLayers: layers.filter(
-        (layer) => layer.fade === 'lovestruckHeart',
-      ).length,
-      lovestruckFaceLayers: layers.filter(
-        (layer) => layer.fade === 'lovestruckFace',
-      ).length,
-      lovestruckDroolLayers: layers.filter(
-        (layer) => layer.fade === 'lovestruckDrool',
-      ).length,
-      maniacEyeShadowLayers: layers.filter(
-        (layer) => layer.fade === 'maniacEyeShadow',
-      ).length,
-      angerMarkLayers: layers.filter((layer) => layer.fade === 'angerMark')
-        .length,
-      speechlessSweatLayers: layers.filter(
-        (layer) => layer.fade === 'speechlessSweat',
-      ).length,
-      mouthOpenLayers: layers.filter((layer) => layer.fade === 'mouthOpen')
-        .length,
-      mouthWideLayers: layers.filter((layer) => layer.fade === 'mouthWide')
-        .length,
-      mouthRoundLayers: layers.filter((layer) => layer.fade === 'mouthRound')
-        .length,
-      mouthNarrowLayers: layers.filter((layer) => layer.fade === 'mouthNarrow')
-        .length,
-      mouthCloseLayers: layers.filter((layer) => layer.fade === 'mouthClose')
-        .length,
-      mouthCryLayers: layers.filter((layer) => layer.fade === 'mouthCry')
-        .length,
-      mouthManiacLayers: layers.filter((layer) => layer.fade === 'mouthManiac')
-        .length,
-      mouthSillyLayers: layers.filter((layer) => layer.fade === 'mouthSilly')
-        .length,
+      ...fadeCounts,
       canvas: { ...this.playback.pixelCanvas },
       motionEnvelope: {
         highCollar: this.motionEnvelopeProfile.highCollar,
@@ -898,7 +815,7 @@ export class Anime25DPlayer {
         pitchLimit: this.motionEnvelopeProfile.pitch.limit,
         torsoLimit: this.motionEnvelopeProfile.torso.limit,
         armLimit: this.motionEnvelopeProfile.rigidArm.limit,
-        transferredEnergy: this.motionEnvelopeResult.transferredEnergy,
+        transferredEnergy: this.motion.motionEnvelopeResult.transferredEnergy,
       },
       performance: this.performanceTelemetry.observe(),
       current: this.getCurrent(),
@@ -1013,224 +930,15 @@ export class Anime25DPlayer {
 
   private smoothDriver(dt: number): void {
     this.thinkingSticker.update(this.time,
-      this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.performanceExpression.getThinkingLevel())
+      this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.motion.performanceExpression.getThinkingLevel())
     this.shellActivation = Math.min(1, this.shellActivation + dt * 8)
-    const t = this.time
-    const pointer =
-      this.target.mouse && allowsPointerGaze(this.policy.gaze)
-        ? this.mouse
-        : { x: 0, y: 0, inside: false }
-    const pointerWanted = pointer.inside ? 1 : 0
-    this.pointerAuthority +=
-      (pointerWanted - this.pointerAuthority) *
-      (1 -
-        Math.exp(
-          -(pointerWanted > this.pointerAuthority
-            ? POINTER_ATTACK_RATE
-            : POINTER_RELEASE_RATE) * dt,
-        ))
-    const tgt = prepareAnime25DWorkingTarget(
-      this.workingTarget,
-      this.target,
-      pointer,
-      this.pointerAuthority,
-    )
-    const controlTime = monotonicControlTime(
-      this.controlTime,
-      t,
-      this.responseScale,
-    )
-    this.controlTime = controlTime
-    const behaviorMotion = this.behaviorMotion.sample(controlTime)
-    const semanticExpression = this.performanceExpression.sample(
-      controlTime,
-      tgt,
-      this.speechActive || this.target.talk,
-    )
-    const stylizedTargets = resolveAnime25DStylizedTargets(
-      this.stylizedTargets,
-      tgt,
-      semanticExpression,
-    )
-    const stylized = this.stylizedExpression.sample(
-      controlTime,
-      stylizedTargets.anger,
-      stylizedTargets.speechless,
-      stylizedTargets.maniac,
-      stylizedTargets.silly,
-      stylizedTargets.lovestruck,
-    )
-    this.stylizedMotion = stylized
-    const performanceMotionScale =
-      this.performanceExpression.getAmbientMotionScale()
-    const pointerDriven = this.target.mouse && pointer.inside
-    const speech = this.speechMotion.sample(controlTime, this.target.talk)
-    this.jawEmphasis = speech.browAccent
-    const speaking = this.speechActive || this.target.talk
-    const speechExpression = this.speechExpression.sample(
-      controlTime,
-      speaking,
-      this.speechActive && !this.target.talk ? tgt.mouthOpen : null,
-      speech.phraseActivity,
-      speech.browAccent,
-      speech.headAccent,
-      behaviorMotion.coSpeechQuality,
-      behaviorMotion.coSpeechGesture,
-    )
-    const singing = this.target.singing
-    const vocalizing =
-      speaking ||
-      (singing &&
-        (behaviorMotion.musicMode === 'sing' ||
-          behaviorMotion.musicMode === 'hum'))
-    const groove = this.singingGroove.sample(
-      t,
-      singing,
-      this.musicSignal,
-      behaviorMotion.musicQuality,
-      behaviorMotion.musicMode,
-    )
-    // A sticker face only takes the mouth once the character has stopped talking
-    this.sillyMouthShare +=
-      ((vocalizing ? 0 : 1) - this.sillyMouthShare) * (1 - Math.exp(-7 * dt))
-    const sticker = Math.max(
-      stylizedTargets.anger,
-      stylizedTargets.speechless,
-      stylizedTargets.maniac,
-      stylizedTargets.silly,
-      stylizedTargets.lovestruck,
-    )
-    const occupancy = this.occupancy.sample(dt, {
-      speaking,
-      singing,
-      thinking: this.target.thinking,
-      pointerDriven,
-      automation: this.target.rand,
-      sticker,
-    })
-    const randomAction = this.randomAction.sample(
-      t,
-      this.target.rand,
-      this.performanceExpression.getActiveLevel() >= DIRECTED_BODY_BLOCK_LEVEL,
-    )
-    const ambient = this.ambientMotion.sample(t, this.target.rand)
-    const thinking = this.thinkingMotion.sample(t, this.target.thinking && !speaking, tgt)
-    const breath = idleBreathOffset(t, this.breathPose)
-    const gate = this.poseGate.sample(
-      dt,
-      applyBehaviorMotionGate(
-        resolvePoseGate(this.policy, occupancy, {
-          performance: performanceMotionScale,
-          stylized: stylized.ambientScale,
-          randomAmbient: randomAction.ambientScale,
-          touch: this.performanceExpression.getTouchShare(),
-        }),
-        behaviorMotion,
-      ),
-    )
-    this.stylizedHeadShare = gate.stylized.headBody
-    applyAnime25DComposedPose(
-      tgt,
-      gate,
-      {
-        ambient,
-        randomAction,
-        groove,
-        thinking,
-        breath,
-        performance: semanticExpression,
-        stylized,
-        coSpeech: speechExpression,
-      },
-      this.composedPose,
-    )
-    applyAnime25DStylizedExpression(
-      tgt,
-      semanticExpression,
-      stylized,
-      this.sillyMouthShare,
-      gate.performance.expression,
-      gate.stylized.expression,
-    )
-    applyAnime25DCryMouth(tgt, this.current.eyeCry, t, dt, this.cryMouth)
-    const gatedSpeechExpression = {
-      brow: speechExpression.brow * gate.coSpeech.expression,
-      eyeOpen: speechExpression.eyeOpen * gate.coSpeech.expression,
-      angleY: speechExpression.angleY * gate.coSpeech.headBody,
-    }
-    gatedSpeechExpression.eyeOpen += expressiveEyeOpenOffset(
-      gatedSpeechExpression,
-    )
-    applyAnime25DSpeechExtras(tgt, speech, gatedSpeechExpression)
-    applyAnime25DSillyMouthOwnership(
-      tgt,
-      smoothAnime25DUnit(stylizedTargets.silly) * this.sillyMouthShare,
-    )
-    projectAnime25DMotionEnvelope(
-      tgt,
-      this.motionEnvelopeProfile,
-      this.motionEnvelopeResult,
-    )
-    this.closedEyes.step(tgt, dt)
-    this.responseScale = resolvePoseResponseScale([
-      {
-        weight:
-          this.performanceExpression.getActiveLevel() *
-          gate.performance.headBody,
-        quality: this.performanceExpression.getActiveQuality(),
-      },
-      {
-        weight: behaviorMotion.coSpeech * gate.coSpeech.headBody,
-        quality: behaviorMotion.coSpeechQuality,
-      },
-      {
-        weight: behaviorMotion.music * gate.groove.headBody,
-        quality: behaviorMotion.musicQuality,
-      },
-    ])
-    // The smoothing works on the eyes as they would be without the blink;
-    // the blink is laid over what it gives, at its own quick pace.
-    this.current.eyeOpenL = this.unblinkedEyeOpenL
-    this.current.eyeOpenR = this.unblinkedEyeOpenR
-    stepAnime25DDriverResponse(
-      this.current,
-      this.target,
-      tgt,
-      this.poseResponse,
-      dt,
-      this.responseScale,
-    )
-    this.unblinkedEyeOpenL = this.current.eyeOpenL
-    this.unblinkedEyeOpenR = this.current.eyeOpenR
-    stepAnime25DBlink(
-      this.current,
-      this.blinkState,
-      this.time,
-      dt,
-      this.target.blink,
-      stylizedTargets.maniac > 0.03 || stylizedTargets.silly > 0.03,
-    )
-    this.irisRebound.step(
-      dt,
-      Math.max(this.current.eyeOpenL, this.current.eyeOpenR),
-      this.current.eyeWide,
-      this.current.eyeX,
-      this.current.eyeY,
-      Math.max(
-        stylizedTargets.maniac,
-        stylizedTargets.silly,
-        stylizedTargets.lovestruck,
-        this.current.maniac,
-        this.current.silly,
-        this.current.lovestruck,
-        tgt.eyeCry,
-        tgt.eyeDizzy,
-        tgt.eyeSqueeze,
-        this.current.eyeCry,
-        this.current.eyeDizzy,
-        this.current.eyeSqueeze,
-      ) > 0.03,
-    )
+    const input = this.motionInput
+    input.time = this.time
+    input.policy = this.policy
+    input.speechActive = this.speechActive
+    input.musicSignal = this.musicSignal
+    input.motionEnvelopeProfile = this.motionEnvelopeProfile
+    this.motion.step(dt, input)
     stepAnime25DTorsoShellRotation(
       this.torsoYaw,
       this.current.angleX,
@@ -1243,7 +951,7 @@ export class Anime25DPlayer {
     // recruit the upper body, without adding an unrelated periodic oscillator.
     this.bodyLiftResponse.step(Math.max(-1, Math.min(1,
       this.target.bodyLift + this.current.angleY * 0.45 + this.current.armY * 0.2 +
-      (this.current.idle || this.current.talk || this.current.singing ? chestBreathResidual(t) * 0.7 : 0),
+      (this.current.idle || this.current.talk || this.current.singing ? chestBreathResidual(this.time) * 0.7 : 0),
     )), dt)
     this.bodyPitchResponse.step(Math.max(-1, Math.min(1,
       this.target.bodyPitch + this.current.angleY * 0.35,
@@ -1254,7 +962,7 @@ export class Anime25DPlayer {
     const { anchors } = this.playback
     const faceScale = anchors.faceScale
     const e = this.current
-    stepJawMotion(this.jaw, jawMotionTarget(e, this.jawEmphasis), dt)
+    stepJawMotion(this.jaw, jawMotionTarget(e, this.motion.jawEmphasis), dt)
     const chestProfile = this.playback.chestProfile
     if (chestProfile.enabled) {
       const chestTarget = chestMotionTarget(e, faceScale, this.chestTarget)
@@ -1463,10 +1171,10 @@ export class Anime25DPlayer {
     frame.headRotationSine = Math.sin(frame.headRoll)
     frame.bodyBreathOffset = breath * 2
     frame.headBreathOffset = breathHead * 1.6
-    frame.specialHeadOffset = this.stylizedMotion
-      ? (this.stylizedMotion.maniacHeadPulse * 80 +
-          this.stylizedMotion.sillyHeadPulse * 8 +
-          this.stylizedMotion.lovestruckHeadPulse * 5) * this.stylizedHeadShare * anchors.faceScale
+    frame.specialHeadOffset = this.motion.stylizedMotion
+      ? (this.motion.stylizedMotion.maniacHeadPulse * 80 +
+          this.motion.stylizedMotion.sillyHeadPulse * 8 +
+          this.motion.stylizedMotion.lovestruckHeadPulse * 5) * this.motion.stylizedHeadShare * anchors.faceScale
       : 0
     frame.breath = breath
     frame.shellBlend = this.shellProfile.blend * this.shellActivation
@@ -1487,19 +1195,17 @@ export class Anime25DPlayer {
     frame.bodyRotationSine = this.renderFrame.bodyRotationSine
   }
 
-  private deform(work?: Anime25DFrameWork): void {
+  /**
+   * Write this frame's shared deformation inputs: chest, jaw and mouth frames,
+   * layer opacity, and the collar clip. Returns what changed since last frame.
+   */
+  private prepareDeformationFrames(work?: Anime25DFrameWork) {
     this.prepareHeadDeformationFrame()
     const A = this.playback.anchors
     const e = this.current
-    const headJellyElement = e.phys ? this.headJellyElement : null
-    const headStretch = this.headJelly.stretch
     const fs = A.faceScale
     const t = this.time
     const breathResidual = chestBreathResidual(t)
-    const npx = A.neckPivot.x
-    const npy = A.neckPivot.y
-    // Music extent is authored before composition/envelope/response, never after them.
-    const ay = e.angleY
     const cz = this.secondaryDeformationFrame.headRotationCosine
     const sz = this.secondaryDeformationFrame.headRotationSine
     const chestCy = this.chestRegion.centerY
@@ -1521,7 +1227,6 @@ export class Anime25DPlayer {
     const inverseChestRy = 1 / chestRy
     const jawDrop = this.jaw.value * this.jawTravel
     const jawOpen = Math.max(0, this.jaw.value)
-    const specialHeadOffset = this.secondaryDeformationFrame.specialHeadOffset
     const mouthTransition = this.mouthTransition.sample(e, this.time)
     this.activeMouthMaterial = mouthTransition.material
     resolveMouthMorph(
@@ -1538,8 +1243,7 @@ export class Anime25DPlayer {
     deformationFrame.jawDrop = jawDrop
     deformationFrame.jawOpen = jawOpen
     deformationFrame.time = t
-    deformationFrame.stylizedMotion = this.stylizedMotion
-    const deformationPoint = this.deformationPoint
+    deformationFrame.stylizedMotion = this.motion.stylizedMotion
     const secondaryDeformationFrame = this.secondaryDeformationFrame
     secondaryDeformationFrame.chestMotionCenterY = chestCenterY
     if (secondaryDeformationFrame.torsoChestShape) {
@@ -1559,7 +1263,7 @@ export class Anime25DPlayer {
       this.opacityFrame,
       e,
       this.activeMouthMaterial,
-      this.sillyMouthShare,
+      this.motion.sillyMouthShare,
       mouthTransition,
       this.continuousMouth !== null,
     )
@@ -1569,7 +1273,7 @@ export class Anime25DPlayer {
       this.mouthMorph,
       jawDrop,
       jawOpen,
-      this.stylizedMotion,
+      this.motion.stylizedMotion,
       this.irisRebound,
     )
     for (const layer of this.layers) {
@@ -1593,6 +1297,22 @@ export class Anime25DPlayer {
         work.deformedVertices += this.collarClip.rest.length / 2
       }
     }
+    return deformationChanges
+  }
+
+  private deform(work?: Anime25DFrameWork): void {
+    const deformationChanges = this.prepareDeformationFrames(work)
+    const e = this.current
+    const t = this.time
+    const secondaryDeformationFrame = this.secondaryDeformationFrame
+    const context = this.layerContext
+    context.anchors = this.playback.anchors
+    context.current = e
+    context.time = t
+    context.deformationFrame = this.deformationFrame
+    context.secondaryDeformationFrame = secondaryDeformationFrame
+    context.headJellyElement = e.phys ? this.headJellyElement : null
+    context.headStretch = this.headJelly.stretch
     for (const layer of this.layers) {
       const visible =
         shouldDeformLayer(layer.source, layer.frameOpacity) ||
@@ -1609,49 +1329,10 @@ export class Anime25DPlayer {
           )
         : true
       if (!visible) continue
-      const rest = layer.rest
       const deformed = layer.surfaceContact?.unconstrained ?? layer.hairSurface?.candidate ?? layer.deformed
-      const vertexCount = rest.length / 2
-      const source = layer.source
-      const bn = layer.baseRole
-      const isHead = source.group === 'head'
+      const vertexCount = layer.rest.length / 2
       if (!layer.attachment && layer.shaderGlobalTransform) {
-        // A rigid body part takes the head tilt its centre would under the bend.
-        const carriedRoll = isHead ? 1 : bodyLeanShare(source.y + source.h / 2,
-          A.bodyPivot.y, secondaryDeformationFrame.bodyBendHeight ?? 0)
-        const roll = (secondaryDeformationFrame.headRoll ?? 0) * carriedRoll
-        writeAnime25DLayerGlobalTransform(
-          {
-            headFollow: isHead
-              ? 1
-              : source.group === 'body'
-                ? BODY_HEAD_FOLLOW
-                : 0,
-            headRotationCosine: carriedRoll === 1 ? cz : Math.cos(roll),
-            headRotationSine: carriedRoll === 1 ? sz : Math.sin(roll),
-            neckPivotX: npx,
-            neckPivotY: npy,
-            faceScale: fs,
-            angleX: e.angleX,
-            angleY: ay,
-            depthOffset: source.depth - 1,
-            faceCenterY: A.face.cy,
-            specialOffsetY: isHead ? specialHeadOffset : 0,
-            breathOffset: isHead
-              ? secondaryDeformationFrame.headBreathOffset
-              : secondaryDeformationFrame.bodyBreathOffset,
-          },
-          layer.layerTransform,
-        )
-        if (isHead) layer.layerTransform[6] += secondaryDeformationFrame.torsoNeckOffsetX
-        if (isHead && headJellyElement && headStretch !== 0) {
-          // A small rigid feature rides the squashed head at its own centre.
-          const m = layer.layerTransform
-          const shift = jellyDisplacement(source.x + source.w / 2, source.y + source.h / 2,
-            headJellyElement, headStretch, 0, this.jellyShift)
-          m[6] += m[0] * shift.x + m[3] * shift.y
-          m[7] += m[1] * shift.x + m[4] * shift.y
-        }
+        writeRigidLayerTransform(layer, context)
       }
       // Do not deform/mark it dirty and later upload into a null binding.
       if (!layer.vertexBuffer) {
@@ -1677,128 +1358,11 @@ export class Anime25DPlayer {
         work.deformedLayers += 1
         work.deformedVertices += vertexCount
       }
-      const upstreamFeature = layer.upstreamFeature
-      const cryLayer = source.fade === 'eyeCry'
-      const tearVertical = cryLayer
-        ? cryTearVerticalOffset(t, source.side, e.eyeCry, fs)
-        : 0
-      const tearHorizontal = cryLayer
-        ? cryTearHorizontalOffset(t, source.side, e.eyeCry, fs)
-        : 0
-      const mouthDeformation = layer.mouthDeformation
-      const jellyPart = e.phys ? this.jellyParts.get(layer) : undefined
-      if (layer.secondaryDeformation.poseCorrections) {
-        writePoseCorrectionWeights(layer.secondaryDeformation.poseCorrections, e)
-      }
-      let geometryChanged = false
-      for (let vertex = 0; vertex < vertexCount; vertex += 1) {
-        const index = vertex * 2
-        const previousX = deformed[index]
-        const previousY = deformed[index + 1]
-        let x = rest[index]
-        let y = rest[index + 1]
-        if (upstreamFeature) {
-          deformationPoint.x = x
-          deformationPoint.y = y
-          deformAnime25DUpstreamFeaturePoint(
-            deformationPoint,
-            upstreamFeature,
-            this.irisRebound,
-          )
-          x = deformationPoint.x
-          y = deformationPoint.y
-        }
-        if (layer.expressionDeformation) {
-          deformationPoint.x = x
-          deformationPoint.y = y
-          deformAnime25DExpressionPoint(
-            deformationPoint,
-            rest[index + 1],
-            layer.expressionDeformation,
-            tearHorizontal,
-            tearVertical,
-            deformationFrame,
-          )
-          x = deformationPoint.x
-          y = deformationPoint.y
-        }
-        if (mouthDeformation) {
-          deformationPoint.x = x
-          deformationPoint.y = y
-          deformAnime25DMouthPoint(
-            deformationPoint,
-            rest[index],
-            rest[index + 1],
-            source,
-            deformationFrame,
-            mouthDeformation,
-          )
-          x = deformationPoint.x
-          y = deformationPoint.y
-        }
-        if (bn === 'face') {
-          deformationPoint.x = x
-          deformationPoint.y = y
-          deformAnime25DFaceJawPoint(
-            deformationPoint,
-            rest[index + 1],
-            deformationFrame,
-          )
-          x = deformationPoint.x
-          y = deformationPoint.y
-        }
-        if (isHead && headJellyElement && headStretch !== 0) {
-          const shift = jellyDisplacement(rest[index], rest[index + 1], headJellyElement, headStretch, 0, this.jellyShift)
-          x += shift.x
-          y += shift.y
-        }
-        if (jellyPart) {
-          const shift = jellyDisplacement(rest[index], rest[index + 1], jellyPart.element,
-            jellyPart.volume.stretch, jellyPart.volume.sway, this.jellyShift)
-          x += shift.x
-          y += shift.y
-        }
-        deformationPoint.x = x
-        deformationPoint.y = y
-        deformAnime25DSecondaryPoint(
-          deformationPoint,
-          rest[index],
-          rest[index + 1],
-          vertex,
-          layer.secondaryDeformation,
-          secondaryDeformationFrame,
-        )
-        if (layer.hairSurface) {
-          layer.hairSurface.base[index] = deformationPoint.x
-          layer.hairSurface.base[index + 1] = deformationPoint.y
-        }
-        deformAnime25DHairPoint(
-          deformationPoint,
-          vertex,
-          layer.secondaryDeformation,
-          secondaryDeformationFrame,
-          rest[index],
-        )
-        // Compare in the GPU buffer's precision. Comparing a double to last
-        // frame's float marks an identical pose dirty forever.
-        x = Math.fround(deformationPoint.x)
-        y = Math.fround(deformationPoint.y)
-        if (x !== previousX || y !== previousY) {
-          geometryChanged = true
-          deformed[index] = x
-          deformed[index + 1] = y
-        }
-      }
-      if (layer.hairSurface) {
-        constrainHairSurface(layer.hairSurface)
-        geometryChanged = false
-        for (let i = 0; i < deformed.length; i++) {
-          if (layer.deformed[i] !== deformed[i]) {
-            layer.deformed[i] = deformed[i]
-            geometryChanged = true
-          }
-        }
-      }
+      const geometryChanged = deformLayerVertices(
+        layer,
+        context,
+        e.phys ? this.jellyParts.get(layer) : undefined,
+      )
       if (layer.deformationPlan.cacheable) {
         markAnime25DLayerGeometryUpdated(layer.deformationPlan)
       }
@@ -1812,53 +1376,13 @@ export class Anime25DPlayer {
       }
       layer.geometryDirty = true
     }
-    for (const layer of this.layers) {
-      if (
-        !layer.surfaceContact ||
-        !shouldDeformLayer(layer.source, layer.frameOpacity)
-      ) {
-        continue
-      }
-      layer.geometryDirty = applySurfaceContact(
-        layer.surfaceContact,
-        layer.surfaceContact.unconstrained,
-        layer.deformed,
-      )
-      if (work && !layer.geometryDirty)
-        work.savedUploadBytes += layer.deformed.byteLength
-    }
-    for (const layer of this.layers) {
-      if (layer.cropBoundary && shouldDeformLayer(layer.source, layer.frameOpacity)) {
-        layer.geometryDirty = applyCropBoundary(layer.cropBoundary, layer.deformed) || layer.geometryDirty
-      }
-    }
-    // Hosts may be later in draw order. Resolve attachments only after all host
-    // vertices include this frame's shell, breathing and hair physics.
-    for (const layer of this.layers) {
-      if (
-        layer.neckwearBridge &&
-        shouldDeformLayer(layer.source, layer.frameOpacity)
-      ) {
-        layer.geometryDirty = deformNeckwearBridge(
-          layer.neckwearBridge,
-          secondaryDeformationFrame,
-          layer.rest,
-          layer.deformed,
-        )
-        layer.layerTransform.fill(0)
-        layer.layerTransform[0] =
-          layer.layerTransform[4] =
-          layer.layerTransform[8] =
-            1
-      } else if (layer.attachment) {
-        writeAnime25DAttachmentTransform(
-          layer.attachment,
-          secondaryDeformationFrame,
-          layer.layerTransform,
-        )
-        layer.earwearPhysics?.apply(layer.attachment, layer.layerTransform, t, e.angleX, e.angleY, e.phys)
-}
-    }
+    const settledBytes = settleDependentLayers(
+      this.layers,
+      secondaryDeformationFrame,
+      t,
+      e,
+    )
+    if (work) work.savedUploadBytes += settledBytes
   }
 
   private uploadGeometry(work?: Anime25DFrameWork): void {
@@ -1897,7 +1421,7 @@ export class Anime25DPlayer {
       this.renderFrame,
       work,
     )
-    const sampled = this.performanceExpression.getSampledTouch()
+    const sampled = this.motion.performanceExpression.getSampledTouch()
     if (this.atlasTexture) {
       const a = this.playback.anchors
       this.writeHeadWorldTransform(this.headWorldTransform)
@@ -1906,7 +1430,7 @@ export class Anime25DPlayer {
       this.headWorldPoint(a.face.x1 - faceWidth * 0.04, a.face.y0 + (a.face.y1 - a.face.y0) * 0.08, point)
       const frame = this.renderFrame
       this.thinkingSticker.draw(this.gl, this.time,
-        this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.performanceExpression.getThinkingLevel(),
+        this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.motion.performanceExpression.getThinkingLevel(),
         point.x, point.y, faceWidth * 0.155, frame.viewWidth, frame.viewHeight)
     }
     this.presentedTouch = sampled
