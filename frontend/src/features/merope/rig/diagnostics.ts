@@ -1,3 +1,4 @@
+import type { MotionExposureFinding } from './motionExposure'
 import type { MeropeRigManifest } from './types'
 import {
   ANIME25D_FACIAL_CAPABILITIES,
@@ -41,7 +42,16 @@ export function anime25DFacialVariantsComplete(
   )
 }
 
-export function diagnoseRig(manifest: MeropeRigManifest): RigDiagnosticReport {
+/** Holes the moving parts of a freshly imported PSD would uncover. */
+const MOTION_EXPOSURE_CODES = {
+  'face-under-eyes': 'hole-under-eyes',
+  'face-under-mouth': 'hole-under-mouth',
+} as const satisfies Record<MotionExposureFinding['check'], string>
+
+export function diagnoseRig(
+  manifest: MeropeRigManifest,
+  motionExposure: readonly MotionExposureFinding[] = [],
+): RigDiagnosticReport {
   const issues: RigDiagnostic[] = []
   const semantics = resolveRigSemantics(manifest)
   const facial = Boolean(
@@ -181,6 +191,17 @@ export function diagnoseRig(manifest: MeropeRigManifest): RigDiagnosticReport {
         'off-angle-portrait',
         'warning',
         'The face is tilted or turned aside; head turns, expressions and speaking mouths assume a near-frontal face',
+      ),
+    )
+  }
+  for (const code of new Set(
+    motionExposure.map((finding) => MOTION_EXPOSURE_CODES[finding.check]),
+  )) {
+    issues.push(
+      issue(
+        code,
+        'warning',
+        'A part that moves covers layers left unpainted beneath it; a hole opens when it moves',
       ),
     )
   }

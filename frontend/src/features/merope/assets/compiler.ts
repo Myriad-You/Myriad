@@ -89,7 +89,7 @@ export async function preflightRigAsset(
     copyPreviewPlaybackProfiles(prepared.source, manifest)
     emit(onStage, 'compile-preview', 'completed')
     emit(onStage, 'analyze-capabilities', 'started')
-    const report = diagnoseRig(manifest)
+    const report = diagnoseRig(manifest, prepared.motionExposure)
     emit(onStage, 'analyze-capabilities', 'completed')
     return { manifest, partCount: prepared.partCount, prepared, report }
   } catch (error) {

@@ -282,6 +282,8 @@
   "rigDiagnosticMissingSpatialProfile": "缺少角色區域性的頭部與軀幹範圍，互動和形變的安全限制會受限。",
   "rigDiagnosticRigidPartDeformation": "所有頂點都只繫結單根骨骼，關節彎曲時可能出現分段感。",
   "rigDiagnosticOffAnglePortrait": "這張立繪的臉是歪的或偏向側面。轉頭、表情和說話口型都按接近正面的臉設計，效果會打折扣；建議使用正面立繪。",
+  "rigDiagnosticHoleUnderEyes": "眼睛圖層下面的臉沒有畫完整：眨眼時會露出空洞。請在臉圖層補上眼睛位置的皮膚。",
+  "rigDiagnosticHoleUnderMouth": "嘴圖層下面的臉沒有畫完整：說話換口型時會露出空洞。請在臉圖層補上嘴的位置。",
   "rigReconcileTitle": "原圖對帳",
   "rigReconcileAgreement": "{agreement}% 的可見像素與原立繪一致",
   "rigReconcileClean": "與原立繪對得上，沒有發現拆層缺陷。",

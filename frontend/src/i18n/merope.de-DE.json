@@ -282,6 +282,8 @@
   "rigDiagnosticMissingSpatialProfile": "Charakterlokale Kopf- und Torsogrenzen fehlen, Interaktion und Verformungssicherheit sind eingeschränkt.",
   "rigDiagnosticRigidPartDeformation": "Jeder Vertex ist an einen Knochen gebunden, daher können sich biegende Gelenke weiterhin segmentiert anfühlen.",
   "rigDiagnosticOffAnglePortrait": "Das Gesicht in diesem Porträt ist geneigt oder zur Seite gedreht. Kopfdrehungen, Ausdrücke und Sprechmünder setzen ein nahezu frontales Gesicht voraus und wirken daher weniger natürlich; ein frontales Porträt eignet sich am besten.",
+  "rigDiagnosticHoleUnderEyes": "Das Gesicht unter den Augenebenen ist nicht ausgemalt, daher zeigt sich beim Blinzeln ein Loch. Male die Haut unter den Augen auf der Gesichtsebene aus.",
+  "rigDiagnosticHoleUnderMouth": "Das Gesicht unter der Mundebene ist nicht ausgemalt, daher zeigt sich ein Loch, wenn der Mund beim Sprechen die Form wechselt. Male die Stelle auf der Gesichtsebene aus.",
   "rigReconcileTitle": "Abgleich mit dem Original",
   "rigReconcileAgreement": "{agreement} % der sichtbaren Pixel stimmen mit der Originalillustration überein",
   "rigReconcileClean": "Stimmt mit der Originalillustration überein; keine Fehler bei der Ebenentrennung gefunden.",

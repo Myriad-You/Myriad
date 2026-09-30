@@ -1632,6 +1632,8 @@ function rigDiagnosticMessage(
     return labels.rigDiagnosticRigidPartDeformation
   }
   if (code === 'off-angle-portrait') return labels.rigDiagnosticOffAnglePortrait
+  if (code === 'hole-under-eyes') return labels.rigDiagnosticHoleUnderEyes
+  if (code === 'hole-under-mouth') return labels.rigDiagnosticHoleUnderMouth
   return fallback
 }
 

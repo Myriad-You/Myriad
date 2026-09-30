@@ -10,6 +10,7 @@ import type {
   RigCanvasFrame,
 } from './anime25dImportTypes'
 import type { AuthoredExpressionReference } from './authoredExpression'
+import type { MotionExposureFinding } from './motionExposure'
 import type { Anime25DPsdReconciliation } from './psdReconciliation'
 import type { MeropeRigImportSource, RigPoint } from './types'
 import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
@@ -54,6 +55,7 @@ import {
 } from './faceFrame'
 import { formatTemplate } from './formatTemplate'
 import { addHiddenArmFragments, anime25DShoulderSeeds, splitLinkedHandwear } from './linkedHandwear'
+import { findMotionExposure } from './motionExposure'
 import { inferOutfitProfileFromPartIds } from './outfit'
 import { repairAnime25DPsd } from './psdRepair'
 
@@ -78,6 +80,8 @@ export interface PreparedAnime25DRigImport {
   partCount: number
   /** Diagnosis against the source illustration; absent without one. */
   reconciliation: Anime25DPsdReconciliation | null
+  /** Holes a blink or a spoken vowel would open in the face. */
+  motionExposure: MotionExposureFinding[]
 }
 
 const UPPER_BODY_IGNORED_LAYERS = new Set(['footwear'])
@@ -185,6 +189,7 @@ export async function prepareAnime25DRigPsd(
       layer.order = index
     })
   }
+  const motionExposure = findMotionExposure(layers)
   const faceCenter = {
     x: rig.anchors.face.cx,
     y: rig.anchors.face.cy,
@@ -246,6 +251,7 @@ export async function prepareAnime25DRigPsd(
     analysisReference,
     partCount: prepared.length,
     reconciliation,
+    motionExposure,
     source: {
       rigIrVersion: RIG_IR_VERSION,
       characterAssetContractVersion: CHARACTER_ASSET_CONTRACT_VERSION,

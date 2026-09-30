@@ -282,6 +282,8 @@
   "rigDiagnosticMissingSpatialProfile": "Character-local head and torso bounds are missing, limiting interaction and deformation safety.",
   "rigDiagnosticRigidPartDeformation": "Every vertex is bound to one bone, so bending joints may still look segmented.",
   "rigDiagnosticOffAnglePortrait": "The face in this portrait is tilted or turned to one side. Head turns, expressions and speaking mouths assume a near-frontal face, so they will look less natural; a front-facing portrait works best.",
+  "rigDiagnosticHoleUnderEyes": "The face under the eye layers is not painted in, so a hole shows when she blinks. Fill the skin under the eyes on the face layer.",
+  "rigDiagnosticHoleUnderMouth": "The face under the mouth layer is not painted in, so a hole shows as her mouth changes shape while speaking. Fill the skin under the mouth on the face layer.",
   "rigReconcileTitle": "Source check",
   "rigReconcileAgreement": "{agreement}% of visible pixels match the source illustration",
   "rigReconcileClean": "Matches the source illustration; no layer-split defects found.",

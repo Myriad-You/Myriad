@@ -282,6 +282,8 @@
   "rigDiagnosticMissingSpatialProfile": "Les limites locales tête et torse du personnage manquent, ce qui limite la sécurité d’interaction et de déformation.",
   "rigDiagnosticRigidPartDeformation": "Chaque sommet est lié à un seul os : les articulations pliées peuvent encore paraître segmentées.",
   "rigDiagnosticOffAnglePortrait": "Le visage de ce portrait est incliné ou tourné de côté. Les rotations de tête, les expressions et la bouche qui parle supposent un visage presque de face ; ils paraîtront moins naturels. Un portrait de face donne le meilleur résultat.",
+  "rigDiagnosticHoleUnderEyes": "Le visage sous les calques des yeux n’est pas peint : un trou apparaît quand elle cligne des yeux. Peignez la peau sous les yeux sur le calque du visage.",
+  "rigDiagnosticHoleUnderMouth": "Le visage sous le calque de la bouche n’est pas peint : un trou apparaît quand la bouche change de forme en parlant. Peignez cet endroit sur le calque du visage.",
   "rigReconcileTitle": "Comparaison avec l’original",
   "rigReconcileAgreement": "{agreement} % des pixels visibles correspondent à l’illustration d’origine",
   "rigReconcileClean": "Correspond à l’illustration d’origine ; aucun défaut de découpage des calques.",
