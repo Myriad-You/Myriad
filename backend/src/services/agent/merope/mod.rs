@@ -31,6 +31,7 @@ pub mod outfit_overlay;
 pub mod playing;
 mod priming;
 pub mod reach;
+pub mod recognizing;
 pub mod remembering;
 pub mod report_dna;
 pub mod seeing;

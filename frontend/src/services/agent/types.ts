@@ -752,6 +752,14 @@ export interface MindPerson {
 
 export interface MindGroup {
   venue: string
+  /** Whom she takes someone from outside for: a guess, nothing more. */
+  guesses?: {
+    stranger?: string | null
+    candidate: string
+    sure?: 'maybe' | 'likely' | 'very' | null
+    why: string
+    at: string
+  }[]
   days: { day?: string | null; text: string; current: boolean }[]
   bits: { handle?: string | null; how: string; at: string; current: boolean }[]
   sore: MindSore[]

@@ -127,7 +127,7 @@ const FUSED_AT: f64 = 6.0;
 
 /// Pieces a search looks for: words of three letters or more, and the
 /// two-character pieces of Chinese, Japanese and the like.
-fn pieces(text: &str) -> std::collections::HashSet<String> {
+pub fn pieces(text: &str) -> std::collections::HashSet<String> {
     let lower = text.to_lowercase();
     let mut out: std::collections::HashSet<String> = lower
         .split(|c: char| !c.is_alphanumeric())

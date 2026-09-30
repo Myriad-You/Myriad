@@ -364,7 +364,8 @@
     "group": {
       "days": "Zuletzt in dieser Gruppe",
       "bits": "Gruppen-Insider",
-      "sore": "Wunde Punkte hier"
+      "sore": "Wunde Punkte hier",
+      "guesses": "Ihre Vermutungen"
     },
     "weight": {
       "petty": "kleiner Groll",
@@ -402,6 +403,14 @@
       "drift": "Veränderung",
       "peopleDrift": "Veränderung der Leute",
       "fromPeople": "Abstand zu den Leuten"
+    },
+    "guess": {
+      "mightBe": "{stranger} könnte {candidate} sein",
+      "sure": {
+        "maybe": "nur eine Ahnung",
+        "likely": "wahrscheinlich",
+        "very": "fast sicher"
+      }
     }
   }
 }

@@ -51,6 +51,7 @@ const fixture = {
   }],
   groups: [{
     venue: 'onebot:123',
+    guesses: [{ stranger: '路人甲', candidate: '阿明', sure: 'likely', why: '他提到了年糕和星穹互娱。', at: day(9) }],
     days: [{ day: '2026-09-28', text: '大家在吵海带汤算不算韩国风', current: true }],
     bits: [],
     sore: [{ what: '当众笑我', weight: 'hurt', since: day(7), where: 'group', who: '阿明', status: 'open' }],
@@ -132,6 +133,8 @@ test('her mind shows herself, each person and each group, with how each changed'
     if (snapshot === fixture) {
       assert.ok(text().includes('onebot:123'))
       assert.ok(text().includes('大家在吵海带汤算不算韩国风'))
+      assert.ok(text().includes('路人甲 可能是 阿明'))
+      assert.ok(text().includes(merope.mind.guess.sure.likely))
       assert.ok(text().includes('阿明：'))
       assert.ok(text().includes(merope.mind.status.open))
     } else {

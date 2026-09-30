@@ -364,7 +364,8 @@
     "group": {
       "days": "이 그룹의 요즘",
       "bits": "그룹 밈",
-      "sore": "그룹에서의 응어리"
+      "sore": "그룹에서의 응어리",
+      "guesses": "그녀의 추측"
     },
     "weight": {
       "petty": "사소한 뒤끝",
@@ -402,6 +403,14 @@
       "drift": "지난주 대비 변화",
       "peopleDrift": "사람들의 변화",
       "fromPeople": "사람들과의 차이"
+    },
+    "guess": {
+      "mightBe": "{stranger}은(는) {candidate}일지도",
+      "sure": {
+        "maybe": "그냥 의심",
+        "likely": "꽤 닮음",
+        "very": "거의 확신"
+      }
     }
   }
 }

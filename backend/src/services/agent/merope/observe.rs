@@ -156,6 +156,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
             super::threads::SOURCE,
             super::bits::SOURCE,
             super::bits::DAY_SOURCE,
+            super::recognizing::SOURCE,
         ],
         HISTORY,
     )
@@ -286,6 +287,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
                 super::bits::DAY_SOURCE,
                 super::bits::SOURCE,
                 super::sore::SOURCE,
+                super::recognizing::SOURCE,
             ]
             .contains(&row.source.as_str())
         })
@@ -315,10 +317,33 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
             };
             sores.push(sore_entry(row, Some(&who)));
         }
+        let mut guesses = Vec::new();
+        for row in of(super::recognizing::SOURCE)
+            .filter(in_it)
+            .filter(|row| row.invalid_at.is_none())
+        {
+            let evidence = evidence(row);
+            let candidate = match evidence
+                .get("userId")
+                .and_then(Value::as_i64)
+                .and_then(|id| i32::try_from(id).ok())
+            {
+                Some(user_id) => super::resolve_addressee_label(db, user_id).await,
+                None => String::new(),
+            };
+            guesses.push(json!({
+                "stranger": evidence.get("name"),
+                "candidate": candidate,
+                "sure": evidence.get("sure"),
+                "why": row.content,
+                "at": when(&row.created_at),
+            }));
+        }
         groups.push((
             latest,
             json!({
                 "venue": venue,
+                "guesses": guesses,
                 "days": of(super::bits::DAY_SOURCE).filter(in_it).map(|row| {
                     json!({ "day": evidence(row).get("day"), "text": row.content, "current": row.invalid_at.is_none() })
                 }).collect::<Vec<_>>(),

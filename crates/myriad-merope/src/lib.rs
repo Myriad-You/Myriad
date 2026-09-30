@@ -25,6 +25,7 @@ mod persona;
 pub mod reach;
 pub mod remembering;
 pub mod reading;
+pub mod recognizing;
 mod rig;
 mod rig_contract;
 mod rig_outfit;

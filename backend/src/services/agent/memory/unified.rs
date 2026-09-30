@@ -353,9 +353,10 @@ async fn rows_for<C: ConnectionTrait>(
 /// `merope::strangers`), what she meant to come back to with someone (see
 /// `merope::threads`), what a group told her about herself (see
 /// `merope::making_sense`), what someone is to her, what days in a group
-/// were like (see `merope::bits`), and what still stings with someone (see
-/// `merope::sore`).
-const KEPT_APART: [&str; 7] = [
+/// were like (see `merope::bits`), what still stings with someone (see
+/// `merope::sore`), and whom she takes someone in a group for (see
+/// `merope::recognizing`).
+const KEPT_APART: [&str; 8] = [
     "bit",
     "stranger",
     "thread",
@@ -363,6 +364,7 @@ const KEPT_APART: [&str; 7] = [
     "us",
     "group_day",
     "sore",
+    "maybe_is",
 ];
 
 async fn active_rows<C: ConnectionTrait>(
@@ -1299,6 +1301,24 @@ pub async fn adopt_unowned<C: ConnectionTrait>(
         .exec(db)
         .await?;
     Ok(result.rows_affected)
+}
+
+/// People she keeps memories of from private talk, most remembered first.
+pub async fn people_remembered<C: ConnectionTrait>(db: &C, limit: i64) -> Result<Vec<i32>, DbErr> {
+    let rows = db
+        .query_all_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT user_id FROM agent_memories \
+             WHERE user_id IS NOT NULL AND venue = 'private' AND source = 'chat' \
+               AND invalid_at IS NULL \
+             GROUP BY user_id ORDER BY count(*) DESC LIMIT $1",
+            [limit.into()],
+        ))
+        .await?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| row.try_get::<i32>("", "user_id").ok())
+        .collect())
 }
 
 /// Rows of these sources, retired ones too (with why they were), oldest

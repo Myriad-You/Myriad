@@ -364,7 +364,8 @@
     "group": {
       "days": "このグループの最近",
       "bits": "グループのネタ",
-      "sore": "グループでのわだかまり"
+      "sore": "グループでのわだかまり",
+      "guesses": "彼女の推測"
     },
     "weight": {
       "petty": "ちょっとした根に持ち",
@@ -402,6 +403,14 @@
       "drift": "先週からの変化",
       "peopleDrift": "みんなの変化",
       "fromPeople": "みんなとの違い"
+    },
+    "guess": {
+      "mightBe": "{stranger} は {candidate} かもしれない",
+      "sure": {
+        "maybe": "なんとなく",
+        "likely": "たぶん",
+        "very": "ほぼ確信"
+      }
     }
   }
 }

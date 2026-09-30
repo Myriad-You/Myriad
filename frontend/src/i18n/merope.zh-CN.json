@@ -364,7 +364,8 @@
     "group": {
       "days": "群的这几天",
       "bits": "群梗",
-      "sore": "群里的心结"
+      "sore": "群里的心结",
+      "guesses": "她猜的"
     },
     "weight": {
       "petty": "小事记仇",
@@ -402,6 +403,14 @@
       "drift": "比上周变化",
       "peopleDrift": "大家的变化",
       "fromPeople": "和大家的差别"
+    },
+    "guess": {
+      "mightBe": "{stranger} 可能是 {candidate}",
+      "sure": {
+        "maybe": "只是怀疑",
+        "likely": "挺像",
+        "very": "几乎确定"
+      }
     }
   }
 }

@@ -364,7 +364,8 @@
     "group": {
       "days": "Lately in this group",
       "bits": "Group bits",
-      "sore": "Sore spots here"
+      "sore": "Sore spots here",
+      "guesses": "Her guesses"
     },
     "weight": {
       "petty": "petty grudge",
@@ -402,6 +403,14 @@
       "drift": "Moved",
       "peopleDrift": "People moved",
       "fromPeople": "From people"
+    },
+    "guess": {
+      "mightBe": "{stranger} might be {candidate}",
+      "sure": {
+        "maybe": "only wondering",
+        "likely": "likely",
+        "very": "almost sure"
+      }
     }
   }
 }

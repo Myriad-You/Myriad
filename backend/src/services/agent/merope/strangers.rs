@@ -131,6 +131,10 @@ pub async fn reply(
         section(&stranger.name, note.as_deref()),
         super::speaking_prompts::format_now_section(chrono::Local::now()),
     ];
+    // Whom she takes them for, if anyone: a guess, nothing more.
+    if let Some(block) = super::recognizing::guess_section(db, venue, stranger).await {
+        sections.push(block);
+    }
     let now =
         super::doing::current().map(|doing| super::doing::now_line(&doing, chrono::Utc::now()));
     if let Some(block) = super::format_doing_section(now.as_deref(), &[]) {
@@ -273,6 +277,13 @@ pub(super) async fn prepare_note(
         .json_raw(&note_system(&soul), &input, NOTE_SCHEMA, &note_schema())
         .await?;
     let note = parse_note(&raw).ok_or(super::call::Failure::InvalidOutput)?;
+    // Having talked with them a while, whether they might be someone she
+    // knows from elsewhere.
+    let said: Vec<String> = exchanges
+        .iter()
+        .map(|exchange| exchange.they.clone())
+        .collect();
+    super::recognizing::consider(db, owner, venue, stranger, &said).await;
     Ok(Effect::Stranger {
         previous: kept.map(|row| row.id),
         note,

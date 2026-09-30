@@ -241,6 +241,27 @@ export default function AgentMind() {
 
   const group = (it: MindGroup) => (
     <SettingGroup key={it.venue} title={it.venue} toc={false}>
+      {it.guesses && it.guesses.length > 0 && (
+        <>
+          {heading(copy.group.guesses)}
+          <ul className="space-y-2">
+            {it.guesses.map((guess, index) => (
+              <li key={`${guess.at}-${index}`} className="text-sm leading-relaxed">
+                <strong>
+                  {fill(copy.guess.mightBe, {
+                    stranger: guess.stranger ?? '?',
+                    candidate: guess.candidate,
+                  })}
+                </strong>
+                {guess.sure && (
+                  <span className="text-secondary ml-2">（{copy.guess.sure[guess.sure]}）</span>
+                )}
+                <div className="text-secondary">{guess.why}</div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {heading(copy.group.days)}
       {history(
         it.days.map((day) => ({

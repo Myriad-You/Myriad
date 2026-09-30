@@ -364,7 +364,8 @@
     "group": {
       "days": "Ces derniers jours dans ce groupe",
       "bits": "Blagues du groupe",
-      "sore": "Rancœurs ici"
+      "sore": "Rancœurs ici",
+      "guesses": "Ses suppositions"
     },
     "weight": {
       "petty": "petite rancune",
@@ -402,6 +403,14 @@
       "drift": "Changement",
       "peopleDrift": "Changement des gens",
       "fromPeople": "Écart avec les gens"
+    },
+    "guess": {
+      "mightBe": "{stranger} pourrait être {candidate}",
+      "sure": {
+        "maybe": "simple doute",
+        "likely": "probable",
+        "very": "presque sûre"
+      }
     }
   }
 }
