@@ -148,24 +148,38 @@ impl Taste {
     /// Who keeps getting to her (a leaning of at least `LIKES_BY`), best
     /// first, as a line each ("songs by ヨルシカ").
     pub fn liked_by(&self, most: usize) -> Vec<String> {
-        let mut liked: Vec<(&str, &str, f64)> = self
+        self.liked(most).iter().map(By::line).collect()
+    }
+
+    /// Who keeps getting to her, best first.
+    pub fn liked(&self, most: usize) -> Vec<By> {
+        self.leaning_by(most, |leaning| leaning >= LIKES_BY)
+    }
+
+    /// Whose things keep not being for her, the least liked first.
+    pub fn not_for_her(&self, most: usize) -> Vec<By> {
+        self.leaning_by(most, |leaning| leaning <= -LIKES_BY)
+    }
+
+    fn leaning_by(&self, most: usize, keep: impl Fn(f64) -> bool) -> Vec<By> {
+        let mut found: Vec<(&str, &str, f64)> = self
             .by
             .iter()
             .filter(|(_, (_, sum))| sum.weight >= KEPT_AT)
             .map(|(by, (name, sum))| (by.as_str(), name.as_str(), sum.leaning()))
-            .filter(|(_, _, leaning)| *leaning >= LIKES_BY)
+            .filter(|(_, _, leaning)| keep(*leaning))
             .collect();
-        liked.sort_by(|a, b| b.2.total_cmp(&a.2).then(a.0.cmp(b.0)));
-        liked
+        found.sort_by(|a, b| b.2.abs().total_cmp(&a.2.abs()).then(a.0.cmp(b.0)));
+        found
             .into_iter()
             .take(most)
-            .map(|(by, name, _)| {
-                let kind = if by.starts_with("song:") {
-                    "songs"
+            .map(|(by, name, _)| By {
+                kind: if by.starts_with("song:") {
+                    "song"
                 } else {
-                    "books"
-                };
-                format!("{kind} by {name}")
+                    "book"
+                },
+                name: name.to_string(),
             })
             .collect()
     }
@@ -176,6 +190,20 @@ impl Taste {
         self.last
             .get(&thing.key())
             .map(|last| (last.reaction, last.days_ago))
+    }
+}
+
+/// Whose things they are: `kind` is "song" or "book".
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct By {
+    pub kind: &'static str,
+    pub name: String,
+}
+
+impl By {
+    /// "songs by ヨルシカ".
+    pub fn line(&self) -> String {
+        format!("{}s by {}", self.kind, self.name)
     }
 }
 
@@ -292,6 +320,34 @@ mod tests {
         assert!(taste.pull(&song("10", "Dull")) < 1.0);
         assert_eq!(taste.pull(&song("11", "Stranger")), 1.0);
         assert_eq!(taste.liked_by(3), ["songs by ヨルシカ"]);
+        // One skip is not yet a dislike either.
+        assert!(taste.not_for_her(3).is_empty());
+        let skipped_twice = [
+            Taken {
+                thing: &dull,
+                reaction: Some(Reaction::NotForMe),
+                days_ago: 1.0,
+            },
+            Taken {
+                thing: &songs[0],
+                reaction: Some(Reaction::Moved),
+                days_ago: 1.0,
+            },
+        ];
+        let other_dull = song("12", "Dull");
+        let mut twice: Vec<Taken> = skipped_twice.into_iter().collect();
+        twice.push(Taken {
+            thing: &other_dull,
+            reaction: Some(Reaction::NotForMe),
+            days_ago: 1.0,
+        });
+        assert_eq!(
+            Taste::of(&twice).not_for_her(3),
+            [By {
+                kind: "song",
+                name: "Dull".into()
+            }]
+        );
         assert_eq!(
             taste.last_time(&songs[0]),
             Some((Some(Reaction::Moved), 2.0))

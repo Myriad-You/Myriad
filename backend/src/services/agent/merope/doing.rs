@@ -483,6 +483,13 @@ pub async fn keeps_getting_to_her(db: &DatabaseConnection, most: usize) -> Vec<S
     taste(db).await.liked_by(most)
 }
 
+/// Her taste as the site's owner looks into her: whose things keep getting
+/// to her and whose keep not being for her.
+pub(super) async fn taste_view(db: &DatabaseConnection) -> Value {
+    let taste = taste(db).await;
+    json!({ "likedBy": taste.liked(5), "notForHer": taste.not_for_her(3) })
+}
+
 /// How far back her reactions make up her taste: faded experiences still
 /// count until they are purged.
 const TASTE_DAYS: i64 = 120;

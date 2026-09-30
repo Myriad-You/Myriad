@@ -3,6 +3,7 @@ import type {
   MindEntry,
   MindGroup,
   MindPace,
+  MindTaste,
   MindPerson,
   MindSnapshot,
   MindSore,
@@ -244,6 +245,22 @@ export default function AgentMind() {
       </>
     )
 
+  const tasteView = (taste?: MindTaste) => {
+    if (!taste || (taste.likedBy.length === 0 && taste.notForHer.length === 0)) return empty
+    const names = (list: MindTaste['likedBy']) =>
+      list.map((by) => fill(copy.taste.by[by.kind], { name: by.name })).join(' · ') || '—'
+    return (
+      <div className="text-sm space-y-1">
+        <div>
+          {copy.taste.likedBy}：{names(taste.likedBy)}
+        </div>
+        <div className="text-secondary">
+          {copy.taste.notForHer}：{names(taste.notForHer)}
+        </div>
+      </div>
+    )
+  }
+
   const alertText = (alert: MindAlert) => {
     switch (alert.kind) {
       case 'unreadable':
@@ -477,6 +494,9 @@ export default function AgentMind() {
             </SettingGroup>
             <SettingGroup title={copy.her.pace} description={copy.pace.desc} descriptionVisible toc={false}>
               {paceView(mind.her.pace)}
+            </SettingGroup>
+            <SettingGroup title={copy.her.taste} description={copy.taste.desc} descriptionVisible toc={false}>
+              {tasteView(mind.her.taste)}
             </SettingGroup>
             <SettingGroup title={copy.her.voice} description={copy.voice.desc} descriptionVisible toc={false}>
               {voice(mind.her.voice)}

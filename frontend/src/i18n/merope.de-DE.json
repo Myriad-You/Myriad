@@ -361,6 +361,7 @@
       "doing": "Was sie diese Woche für sich getan hat",
       "voice": "Ihre eigene Stimme",
       "pace": "Tempo",
+      "taste": "Geschmack",
       "vitals": "Vitalwerte"
     },
     "reach": {
@@ -442,6 +443,15 @@
         "flat": "heute lustlos aufgewacht",
         "even": "heute wie immer aufgewacht",
         "keen": "heute voller Lust aufgewacht"
+      }
+    },
+    "taste": {
+      "desc": "Aus dem gewachsen, wie Gehörtes und Gelesenes bei ihr ankam; er prägt, was ihr als Nächstes begegnet. Nicht in die Persona geschrieben.",
+      "likedBy": "Trifft sie immer wieder",
+      "notForHer": "Eher nichts für sie",
+      "by": {
+        "song": "Songs von {name}",
+        "book": "Bücher von {name}"
       }
     },
     "vitals": {

@@ -361,6 +361,7 @@
       "doing": "Ce qu'elle a fait seule cette semaine",
       "voice": "Sa propre voix",
       "pace": "Rythme",
+      "taste": "Goûts",
       "vitals": "Signes vitaux"
     },
     "reach": {
@@ -442,6 +443,15 @@
         "flat": "réveillée sans entrain aujourd'hui",
         "even": "réveillée comme d'habitude aujourd'hui",
         "keen": "réveillée pleine d'entrain aujourd'hui"
+      }
+    },
+    "taste": {
+      "desc": "Nés de ce que lui ont fait ses écoutes et lectures ; ils orientent ce qui lui tombe sous la main ensuite. Rien d’écrit dans le persona.",
+      "likedBy": "La touche à chaque fois",
+      "notForHer": "Pas vraiment pour elle",
+      "by": {
+        "song": "chansons de {name}",
+        "book": "livres de {name}"
       }
     },
     "vitals": {

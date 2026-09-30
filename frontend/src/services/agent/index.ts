@@ -39,6 +39,7 @@ export type {
   MindEntry,
   MindGroup,
   MindPace,
+  MindTaste,
   MindPerson,
   MindSnapshot,
   MindSore,

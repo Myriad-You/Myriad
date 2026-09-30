@@ -361,6 +361,7 @@
       "doing": "What she did on her own this week",
       "voice": "Her own voice",
       "pace": "Pace",
+      "taste": "Taste",
       "vitals": "Vital signs"
     },
     "reach": {
@@ -442,6 +443,15 @@
         "flat": "woke up flat today",
         "even": "woke up as usual today",
         "keen": "woke up keen today"
+      }
+    },
+    "taste": {
+      "desc": "Built up from how what she listened to and read landed with her; it shapes what comes her way next. Not written into the persona.",
+      "likedBy": "Keeps getting to her",
+      "notForHer": "Not really for her",
+      "by": {
+        "song": "songs by {name}",
+        "book": "books by {name}"
       }
     },
     "vitals": {

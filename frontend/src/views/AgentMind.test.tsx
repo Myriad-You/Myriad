@@ -41,6 +41,7 @@ const fixture = {
       notesLeanOn: [['不是这个', 0.36]], repliesLeanOn: [], repliesAsking: 0.72,
       alerts: [{ kind: 'unreadable', count: 2 }, { kind: 'notesLeanOn', phrase: '不是这个', percent: 36 }, { kind: 'repliesAsking', percent: 72 }],
     }],
+    taste: { likedBy: [{ kind: 'song', name: 'ヨルシカ' }], notForHer: [] },
     pace: {
       usualMinutes: 260,
       daysPastUsual: 2,
@@ -139,6 +140,7 @@ test('her mind shows herself, each person and each group, with how each changed'
       assert.ok(text().includes(merope.mind.her.pace) && text().includes(merope.mind.pace.tone.flat))
       assert.ok(text().includes('6.5') && text().includes('8.0'))
       assert.ok(text().includes(merope.mind.longing))
+      assert.ok(text().includes(merope.mind.her.taste) && text().includes('ヨルシカ 的歌'))
       // Her vital signs, with what is worth raising.
       assert.ok(text().includes(merope.mind.her.vitals) && text().includes('doing_choice 81'))
       assert.ok(text().includes('有 2 条她自己的经历读不出来') && text().includes('心得里 36% 出现「不是这个」'))

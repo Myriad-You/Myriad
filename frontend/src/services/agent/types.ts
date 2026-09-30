@@ -762,6 +762,12 @@ export interface MindVitalsDay {
   alerts: MindAlert[]
 }
 
+/** Whose things her reactions say keep getting to her, and keep not. */
+export interface MindTaste {
+  likedBy: { kind: 'song' | 'book'; name: string }[]
+  notForHer: { kind: 'song' | 'book'; name: string }[]
+}
+
 /** How hard she has been going at her own things, day by day. */
 export interface MindPace {
   usualMinutes: number
@@ -848,6 +854,7 @@ export interface MindSnapshot {
     /** Her way of typing week by week, against people's (see the page). */
     voice: MindVoiceWeek[]
     pace?: MindPace
+    taste?: MindTaste
     vitals?: MindVitalsDay[]
   }
   people: MindPerson[]
