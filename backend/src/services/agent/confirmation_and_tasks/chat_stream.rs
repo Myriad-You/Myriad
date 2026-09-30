@@ -407,6 +407,21 @@ impl Agent {
             )
             .await
         };
+        // How she is this moment goes last, nearest their words: what she
+        // answers from, not one more thing among the rest.
+        let (moment, sections): (Vec<String>, Vec<String>) = sections
+            .into_iter()
+            .partition(|section| myriad_merope::speaking::is_her_moment(section));
+        let moment = moment.join("\n\n");
+        let with_moment = |block: String| {
+            if moment.is_empty() {
+                block
+            } else if block.is_empty() {
+                moment.clone()
+            } else {
+                format!("{block}\n\n{moment}")
+            }
+        };
         let mut merope_block = crate::services::agent::merope::speaking_prompt_plain(&sections);
         // A group has no wardrobe of hers to change and no player of theirs to
         // run, and neither has a chat app: those sections are for a private
@@ -614,7 +629,7 @@ impl Agent {
             // people's words included, and nothing she said in private.
             return crate::services::agent::chat_prompt::build_group_chat_prompt(
                 &soul,
-                &merope_block,
+                &with_moment(merope_block),
                 supplied,
                 &request.raw_input,
             );
@@ -686,7 +701,7 @@ impl Agent {
         }
         crate::services::agent::chat_prompt::build_chat_lite_prompt_with_perception(
             &soul,
-            &merope_block,
+            &with_moment(merope_block),
             &history,
             &request.raw_input,
             &perception,

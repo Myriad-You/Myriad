@@ -194,6 +194,13 @@ pub fn format_curious_section(gap: &str, known: usize) -> Option<String> {
 /// is hers, written in the first person; she speaks from it. It was written by
 /// reading their words, so nothing in it may shape the prompt. A state lasts a
 /// while, but it has not heard their latest words.
+/// Whether a section is how she is this moment (her state a moment ago, or
+/// how their words just landed): what she answers from, put nearest their
+/// words, after everything else she has in mind.
+pub fn is_her_moment(section: &str) -> bool {
+    section.starts_with("## Inside you a moment ago") || section.starts_with("## Just now")
+}
+
 pub fn format_inner_moment_ago_section(inner: &str) -> Option<String> {
     inner_section(
         inner,
