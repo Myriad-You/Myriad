@@ -14,8 +14,6 @@ use crate::services::music_player_view::{PlayerMusicSource, PlayerPlaylistError,
 
 /// Songs offered at a time.
 pub const OFFERED: usize = 6;
-/// A song she heard lately is not picked again for a while.
-pub const AGAIN_AFTER: chrono::Duration = chrono::Duration::days(3);
 /// A heard song carries its timeline and lyrics.
 const HEARD_CHARS: usize = 12_000;
 const WORDS_CHARS: usize = 2_500;

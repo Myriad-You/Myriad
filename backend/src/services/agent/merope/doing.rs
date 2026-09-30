@@ -431,6 +431,7 @@ struct AtHand {
     lately: Vec<unified_row::Model>,
     options: Vec<Thing>,
     advances: Vec<Option<String>>,
+    taste: myriad_merope::taste::Taste,
 }
 
 impl AtHand {
@@ -448,7 +449,8 @@ async fn at_hand(db: &DatabaseConnection) -> Option<AtHand> {
             return None;
         }
     };
-    let options = sources::options(db, &lately).await;
+    let taste = taste(db).await;
+    let options = sources::options(db, &taste).await;
     if options.is_empty() {
         tracing::info!("[Merope] nothing at hand for her own time");
         return None;
@@ -472,7 +474,65 @@ async fn at_hand(db: &DatabaseConnection) -> Option<AtHand> {
         lately,
         options,
         advances,
+        taste,
     })
+}
+
+/// How far back her reactions make up her taste: faded experiences still
+/// count until they are purged.
+const TASTE_DAYS: i64 = 120;
+const TASTE_ROWS: u64 = 4000;
+
+/// Her taste, from how what she did landed with her (see
+/// `myriad_merope::taste`). Empty when it cannot be read.
+async fn taste(db: &DatabaseConnection) -> myriad_merope::taste::Taste {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    #[derive(Deserialize)]
+    struct Row {
+        thing: Thing,
+        #[serde(default)]
+        reaction: Option<Reaction>,
+    }
+    let since = Utc::now() - chrono::Duration::days(TASTE_DAYS);
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT created_at, jsonb_build_object('thing', e->'thing', 'reaction', e->'reaction')::text AS taken \
+             FROM (SELECT created_at, evidence::jsonb AS e FROM agent_memories \
+               WHERE user_id IS NULL AND venue = $1 AND source = $2 AND created_at >= $3 \
+                 AND evidence IS JSON) own \
+             ORDER BY created_at DESC LIMIT $4",
+            [
+                unified::OWN_VENUE.into(),
+                unified::OWN_EXPERIENCE.into(),
+                since.fixed_offset().into(),
+                (TASTE_ROWS as i64).into(),
+            ],
+        ))
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "[Merope] could not read her taste");
+            Vec::new()
+        });
+    let now = Utc::now();
+    let read: Vec<(Row, f64)> = rows
+        .iter()
+        .filter_map(|row| {
+            let at: DateTime<chrono::FixedOffset> = row.try_get("", "created_at").ok()?;
+            let taken: String = row.try_get("", "taken").ok()?;
+            let days = now.signed_duration_since(at).num_minutes() as f64 / 1440.0;
+            Some((serde_json::from_str::<Row>(&taken).ok()?, days))
+        })
+        .collect();
+    let taken: Vec<myriad_merope::taste::Taken> = read
+        .iter()
+        .map(|(row, days_ago)| myriad_merope::taste::Taken {
+            thing: &row.thing,
+            reaction: row.reaction,
+            days_ago: *days_ago,
+        })
+        .collect();
+    myriad_merope::taste::Taste::of(&taken)
 }
 
 /// What she chooses from, as the model reads it.
@@ -481,6 +541,7 @@ async fn choice_input(db: &DatabaseConnection, hand: &AtHand, pace: &[String]) -
         lately,
         options,
         advances,
+        taste,
     } = hand;
     let myself = super::self_state::current(db).await.facts_view();
     let now = Utc::now();
@@ -502,6 +563,14 @@ async fn choice_input(db: &DatabaseConnection, hand: &AtHand, pace: &[String]) -
         let mut view = sources::view(db, index, thing).await;
         if let Some(want) = &advances[index] {
             view["advances"] = json!(want);
+        }
+        // What she had before, she knows she had, and how it went.
+        if let Some((reaction, days_ago)) = taste.last_time(thing) {
+            let ago = ago_text(chrono::Duration::minutes((days_ago * 1440.0) as i64));
+            view["hadBefore"] = json!(match reaction {
+                Some(reaction) => format!("{}, {ago}", reaction.felt()),
+                None => format!("nothing of it reached you, {ago}"),
+            });
         }
         option_views.push(view);
     }
@@ -527,6 +596,7 @@ async fn choice_input(db: &DatabaseConnection, hand: &AtHand, pace: &[String]) -
         "lately": lately_view,
         "yourPace": pace,
         "sameThingLately": myriad_merope::doing::same_run(&kinds),
+        "keepsGettingToYou": taste.liked_by(3),
         "yourViews": super::views::held(db, 5).await,
         "yourWants": super::wants::lines(&super::wants::open(db).await),
         "whoYouHaveBeen": super::self_story::current(db).await,

@@ -20,16 +20,14 @@
 pub mod note;
 pub mod song;
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
-use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use serde_json::{Map, Value, json};
 
 use super::{explore, serial};
-use crate::models::entities::agent_memories as unified_row;
 pub use myriad_merope::sources::{Kept, Thing};
+use myriad_merope::taste::Taste;
 
 /// What she takes in, as its kind hands it to her.
 pub struct Intake {
@@ -79,30 +77,25 @@ fn shuffle<T>(items: &mut [T]) {
     }
 }
 
-/// A few things at hand she has not just done: songs she has not heard in a
-/// while, notes she has never read, the next part of her serial or a book
-/// to start, questions of her own.
-pub async fn options(db: &DatabaseConnection, lately: &[unified_row::Model]) -> Vec<Thing> {
-    let now = Utc::now();
-    let done: HashSet<String> = lately
-        .iter()
-        .filter_map(|row| {
-            let (key, _) = super::doing::key_of(row)?;
-            let recent = now.signed_duration_since(row.created_at) < song::AGAIN_AFTER;
-            (key.starts_with("note:") || recent).then_some(key)
-        })
+/// A few things at hand: songs she would hear again by now (soon if they
+/// moved her, not for a long while if they were not for her), likelier by
+/// whoever keeps getting to her; notes she has never read; the next part of
+/// her serial or a book to start; questions of her own.
+pub async fn options(db: &DatabaseConnection, taste: &Taste) -> Vec<Thing> {
+    let songs: Vec<Thing> = song::options(db)
+        .await
+        .into_iter()
+        .filter(|thing| taste.would_again(thing))
         .collect();
-    let fresh = |things: Vec<Thing>| -> Vec<Thing> {
-        things
-            .into_iter()
-            .filter(|thing| !done.contains(&thing.key()))
-            .collect()
-    };
-    let mut songs = fresh(song::options(db).await);
-    let mut notes = fresh(note::options(db).await);
-    shuffle(&mut songs);
+    let pulls: Vec<f64> = songs.iter().map(|thing| taste.pull(thing)).collect();
+    let rolls: Vec<f64> = songs.iter().map(|_| rand::random::<f64>()).collect();
+    let songs = myriad_merope::taste::draw(songs, &pulls, &rolls, song::OFFERED);
+    let mut notes: Vec<Thing> = note::options(db)
+        .await
+        .into_iter()
+        .filter(|thing| taste.last_time(thing).is_none())
+        .collect();
     shuffle(&mut notes);
-    songs.truncate(song::OFFERED);
     notes.truncate(note::OFFERED);
     let mut options = songs;
     options.extend(notes);

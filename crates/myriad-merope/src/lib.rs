@@ -49,6 +49,7 @@ pub mod stickers;
 pub mod style;
 pub mod strangers;
 pub mod talk_shape;
+pub mod taste;
 pub mod threads;
 pub mod timing;
 pub mod views;
