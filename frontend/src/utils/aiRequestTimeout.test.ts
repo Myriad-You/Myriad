@@ -29,6 +29,10 @@ describe('aiRequestTimeoutMs', () => {
       aiRequestTimeoutMs('/api/agent/persona/draft'),
       AI_IMAGE_REQUEST_TIMEOUT_MS,
     )
+    assert.equal(
+      aiRequestTimeoutMs('/api/media/12/edit-preview'),
+      AI_IMAGE_REQUEST_TIMEOUT_MS,
+    )
   })
 
   it('gives other AI paths at least 5 minutes', () => {
@@ -59,6 +63,7 @@ describe('aiRequestTimeoutMs', () => {
     assert.equal(aiRequestTimeoutMs('/api/auth/me'), undefined)
     assert.equal(aiRequestTimeoutMs('/api/agent/health'), undefined)
     assert.equal(aiRequestTimeoutMs('/api/agent/persona'), undefined)
+    assert.equal(aiRequestTimeoutMs('/api/media/12/edits'), undefined)
   })
 
   it('keeps the floor at 5 minutes', () => {

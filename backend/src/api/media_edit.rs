@@ -225,14 +225,18 @@ pub async fn preview_edit(
         Some(&reference),
     )
     .await
-    .map_err(|_| {
+    .map_err(|error| {
+        tracing::warn!(%error, asset_id = id, "image edit preview failed");
         HttpError(AppError::bad_gateway(
             "Image editing failed; please try again",
         ))
     })?;
     let (bytes, mime) = image_generation::load_generated_bytes(generated)
         .await
-        .map_err(|_| HttpError(AppError::bad_gateway("Unable to load generated image")))?;
+        .map_err(|error| {
+            tracing::warn!(%error, asset_id = id, "image edit preview download failed");
+            HttpError(AppError::bad_gateway("Unable to load generated image"))
+        })?;
     validate_candidate(&bytes, &mime)?;
     // No storage or catalog call on this path. Closing the browser discards the candidate.
     Ok(Json(

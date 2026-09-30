@@ -44,7 +44,10 @@ function matchesPrefix(path, prefix) {
 
 export function aiRequestTimeoutMs(url) {
   const path = requestPathname(url)
-  if (IMAGE_AI_PREFIXES.some((prefix) => matchesPrefix(path, prefix))) {
+  if (
+    IMAGE_AI_PREFIXES.some((prefix) => matchesPrefix(path, prefix)) ||
+    /^\/api\/media\/\d+\/edit-preview$/.test(path)
+  ) {
     return AI_IMAGE_REQUEST_TIMEOUT_MS
   }
   if (/^\/api\/agent\/tasks\/[^/]+\/answer/.test(path)) {

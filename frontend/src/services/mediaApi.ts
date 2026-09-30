@@ -115,7 +115,7 @@ export async function uploadMedia(
 }
 
 export async function previewMediaEdit(id: number, prompt: string, width: number, height: number, signal?: AbortSignal): Promise<string> {
-  const data = await apiService.post<{ image: string }>(`/media/${id}/edit-preview`, { prompt, width, height }, { signal, timeout: 240_000 })
+  const data = await apiService.post<{ image: string }>(`/media/${id}/edit-preview`, { prompt, width, height }, { signal })
   return data.image
 }
 
