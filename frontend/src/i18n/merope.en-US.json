@@ -323,5 +323,76 @@
   "personaLabelLikes": "Likes",
   "personaLabelDrives": "Drive",
   "personaLabelSocial": "Social",
-  "personaLabelSpeech": "Voice"
+  "personaLabelSpeech": "Voice",
+  "mind": {
+    "title": "Her mind",
+    "desc": "Who she has been lately, what she wants, how she sees each person and group, and how all of it changed. Read only.",
+    "open": "Look into her mind",
+    "loading": "Loading…",
+    "error": "Could not load",
+    "refresh": "Refresh",
+    "updated": "Updated {time}",
+    "tabs": {
+      "her": "Herself",
+      "people": "People",
+      "groups": "Groups"
+    },
+    "her": {
+      "selfStory": "Who she has been lately",
+      "wants": "What she wants",
+      "wantsEnded": "Wants that came true or she let go",
+      "views": "Her views",
+      "questions": "What she wants to find out",
+      "corrected": "Times she was shown wrong",
+      "days": "Her days",
+      "doing": "What she did on her own this week"
+    },
+    "reach": {
+      "on_your_own": "she can see to it",
+      "with_others": "needs others",
+      "beyond_you": "beyond her for now"
+    },
+    "person": {
+      "firstTalked": "First talked: {date}",
+      "daysTalked": "Talked on {count} days",
+      "us": "What they are to her",
+      "sore": "Sore spots",
+      "threads": "On her mind",
+      "bits": "Bits"
+    },
+    "group": {
+      "days": "Lately in this group",
+      "bits": "Group bits",
+      "sore": "Sore spots here"
+    },
+    "weight": {
+      "petty": "petty grudge",
+      "hurt": "it got to her",
+      "deep": "it really hurt"
+    },
+    "where": {
+      "private": "private",
+      "group": "in the group"
+    },
+    "status": {
+      "open": "still stings",
+      "let_go": "let go",
+      "faded": "faded"
+    },
+    "mended": "they apologized",
+    "current": "now",
+    "ended": {
+      "superseded": "rewritten later",
+      "faded": "faded",
+      "came_true": "came true",
+      "let_go": "let go",
+      "forgiven": "let go",
+      "taken_up": "talked about",
+      "deleted": "deleted",
+      "other": "ended"
+    },
+    "empty": "Nothing yet",
+    "noPeople": "Nothing about anyone yet",
+    "noGroups": "Nothing from groups yet"
+  }
 }

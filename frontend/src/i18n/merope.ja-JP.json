@@ -323,5 +323,76 @@
   "personaLabelLikes": "好み",
   "personaLabelDrives": "原動力",
   "personaLabelSocial": "社交",
-  "personaLabelSpeech": "話し方"
+  "personaLabelSpeech": "話し方",
+  "mind": {
+    "title": "彼女の心",
+    "desc": "この頃の彼女、欲しいもの、一人ひとりと各グループへの思い、そしてそれがどう変わってきたか。閲覧のみ。",
+    "open": "彼女の心をのぞく",
+    "loading": "読み込み中…",
+    "error": "読み込めませんでした",
+    "refresh": "更新",
+    "updated": "{time} 更新",
+    "tabs": {
+      "her": "彼女自身",
+      "people": "一人ひとり",
+      "groups": "グループ"
+    },
+    "her": {
+      "selfStory": "この頃の彼女",
+      "wants": "彼女の欲しいもの",
+      "wantsEnded": "叶った・手放した望み",
+      "views": "彼女の考え",
+      "questions": "知りたいこと",
+      "corrected": "間違いを指摘されたこと",
+      "days": "彼女の毎日",
+      "doing": "今週ひとりでしたこと"
+    },
+    "reach": {
+      "on_your_own": "自分でできる",
+      "with_others": "人の手が要る",
+      "beyond_you": "今の彼女には無理"
+    },
+    "person": {
+      "firstTalked": "初めて話した日：{date}",
+      "daysTalked": "{count} 日話した",
+      "us": "ふたりの間",
+      "sore": "わだかまり",
+      "threads": "気にかけていること",
+      "bits": "ネタ"
+    },
+    "group": {
+      "days": "このグループの最近",
+      "bits": "グループのネタ",
+      "sore": "グループでのわだかまり"
+    },
+    "weight": {
+      "petty": "ちょっとした根に持ち",
+      "hurt": "傷ついた",
+      "deep": "深く傷ついた"
+    },
+    "where": {
+      "private": "個別",
+      "group": "グループ"
+    },
+    "status": {
+      "open": "まだ引っかかっている",
+      "let_go": "水に流した",
+      "faded": "薄れた"
+    },
+    "mended": "謝ってもらった",
+    "current": "いま",
+    "ended": {
+      "superseded": "のちに書き直した",
+      "faded": "薄れた",
+      "came_true": "叶った",
+      "let_go": "手放した",
+      "forgiven": "水に流した",
+      "taken_up": "話した",
+      "deleted": "削除",
+      "other": "終わった"
+    },
+    "empty": "まだない",
+    "noPeople": "まだ誰についてもない",
+    "noGroups": "グループの記録はまだない"
+  }
 }

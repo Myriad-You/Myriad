@@ -414,6 +414,20 @@ pub(crate) async fn list_skills() -> Result<Json<Value>, HttpError> {
     Ok(Json(json!({ "skills": skills_json })))
 }
 
+/// Looking into her, for the site admin: who she is lately, what she wants
+/// and thinks, and what she holds about each person and group, with how
+/// each changed (see `merope::observe`). Read only.
+/// GET /api/agent/mind
+pub(crate) async fn get_mind(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, HttpError> {
+    require_current_admin(&claims, &db).await?;
+    Ok(Json(
+        crate::services::agent::merope::observe::snapshot(&db).await,
+    ))
+}
+
 /// All of her memory, for the site admin: each row with whose it is (hers,
 /// a person's, a group's), where it came from, and who or which group.
 /// GET /api/agent/memory/all

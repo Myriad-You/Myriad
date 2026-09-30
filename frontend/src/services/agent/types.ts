@@ -701,6 +701,79 @@ export interface ExecutionTrace {
   }
 }
 
+/**
+ * One line in the history of something of hers: what it said, when, and
+ * whether it still holds (and if not, when and why it stopped).
+ */
+export interface MindEntry {
+  text: string
+  at: string
+  current: boolean
+  endedAt?: string | null
+  endedWhy?: string | null
+}
+
+export interface MindWant {
+  want: string
+  why: string
+  reach: 'on_your_own' | 'with_others' | 'beyond_you'
+  since: string
+  notes: { at: string; note: string }[]
+}
+
+export interface MindSore {
+  what: string
+  weight: 'petty' | 'hurt' | 'deep'
+  since: string
+  mended?: string | null
+  where: 'private' | 'group'
+  who?: string | null
+  status: string
+  endedAt?: string | null
+}
+
+export interface MindPerson {
+  id: number
+  name?: string | null
+  firstTalked?: string | null
+  daysTalked: number
+  us: MindEntry[]
+  sore: MindSore[]
+  threads: {
+    about?: string | null
+    then: string
+    due?: string | null
+    at: string
+    current: boolean
+    endedWhy?: string | null
+  }[]
+  bits: { handle?: string | null; how: string; at: string; current: boolean }[]
+}
+
+export interface MindGroup {
+  venue: string
+  days: { day?: string | null; text: string; current: boolean }[]
+  bits: { handle?: string | null; how: string; at: string; current: boolean }[]
+  sore: MindSore[]
+}
+
+/** Looking into her: herself, each person, each group, with how each changed. */
+export interface MindSnapshot {
+  generatedAt: string
+  her: {
+    selfStory: MindEntry[]
+    wants: MindWant[]
+    wantsEnded: MindEntry[]
+    views: MindEntry[]
+    questions: MindEntry[]
+    corrected: MindEntry[]
+    days: MindEntry[]
+    doingThisWeek: { at: string; text: string }[]
+  }
+  people: MindPerson[]
+  groups: MindGroup[]
+}
+
 /** A memory as the site admin sees it: whose it is and where it came from. */
 export interface ManagedMemory {
   id: string

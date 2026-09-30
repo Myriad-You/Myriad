@@ -1301,6 +1301,23 @@ pub async fn adopt_unowned<C: ConnectionTrait>(
     Ok(result.rows_affected)
 }
 
+/// Rows of these sources, retired ones too (with why they were), oldest
+/// first: for looking at how things changed, never for recall.
+pub async fn with_history<C: ConnectionTrait>(
+    db: &C,
+    sources: &[&str],
+    limit: u64,
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    let mut rows = agent_memories::Entity::find()
+        .filter(agent_memories::Column::Source.is_in(sources.iter().copied()))
+        .order_by_desc(agent_memories::Column::CreatedAt)
+        .limit(limit)
+        .all(db)
+        .await?;
+    rows.reverse();
+    Ok(rows)
+}
+
 /// The latest active rows of `source` about `user_id`, newest first.
 pub async fn latest_of<C: ConnectionTrait>(
     db: &C,

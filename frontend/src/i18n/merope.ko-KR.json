@@ -323,5 +323,76 @@
   "personaLabelLikes": "좋아하는 것",
   "personaLabelDrives": "동기",
   "personaLabelSocial": "사교",
-  "personaLabelSpeech": "목소리"
+  "personaLabelSpeech": "목소리",
+  "mind": {
+    "title": "그녀의 마음",
+    "desc": "요즘의 그녀, 원하는 것, 한 사람 한 사람과 각 그룹을 어떻게 보는지, 그리고 그것이 어떻게 변해 왔는지. 읽기 전용.",
+    "open": "그녀의 마음 들여다보기",
+    "loading": "불러오는 중…",
+    "error": "불러오지 못했습니다",
+    "refresh": "새로고침",
+    "updated": "{time}에 업데이트",
+    "tabs": {
+      "her": "그녀 자신",
+      "people": "사람들",
+      "groups": "그룹"
+    },
+    "her": {
+      "selfStory": "요즘의 그녀",
+      "wants": "그녀가 원하는 것",
+      "wantsEnded": "이뤄졌거나 내려놓은 바람",
+      "views": "그녀의 생각",
+      "questions": "알고 싶은 것",
+      "corrected": "지적받았던 것",
+      "days": "그녀의 하루",
+      "doing": "이번 주 혼자 한 일"
+    },
+    "reach": {
+      "on_your_own": "혼자 할 수 있음",
+      "with_others": "다른 사람이 필요함",
+      "beyond_you": "지금은 할 수 없음"
+    },
+    "person": {
+      "firstTalked": "처음 대화: {date}",
+      "daysTalked": "{count}일 대화함",
+      "us": "우리 사이",
+      "sore": "마음의 응어리",
+      "threads": "마음에 걸린 일",
+      "bits": "밈"
+    },
+    "group": {
+      "days": "이 그룹의 요즘",
+      "bits": "그룹 밈",
+      "sore": "그룹에서의 응어리"
+    },
+    "weight": {
+      "petty": "사소한 뒤끝",
+      "hurt": "상처받음",
+      "deep": "깊이 상처받음"
+    },
+    "where": {
+      "private": "개인",
+      "group": "그룹"
+    },
+    "status": {
+      "open": "아직 걸림",
+      "let_go": "내려놓음",
+      "faded": "희미해짐"
+    },
+    "mended": "사과받음",
+    "current": "지금",
+    "ended": {
+      "superseded": "나중에 고쳐 씀",
+      "faded": "희미해짐",
+      "came_true": "이뤄짐",
+      "let_go": "내려놓음",
+      "forgiven": "내려놓음",
+      "taken_up": "이야기함",
+      "deleted": "삭제됨",
+      "other": "끝남"
+    },
+    "empty": "아직 없음",
+    "noPeople": "아직 누구에 대해서도 없음",
+    "noGroups": "그룹 기록이 아직 없음"
+  }
 }

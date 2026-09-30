@@ -323,5 +323,76 @@
   "personaLabelLikes": "喜好",
   "personaLabelDrives": "驅動力",
   "personaLabelSocial": "社交",
-  "personaLabelSpeech": "表達"
+  "personaLabelSpeech": "表達",
+  "mind": {
+    "title": "她心裡",
+    "desc": "她這陣子是什麼樣、想要什麼、怎麼看每個人和每個群，以及這些是怎麼變過來的。唯讀。",
+    "open": "看看她心裡",
+    "loading": "讀取中…",
+    "error": "讀取失敗",
+    "refresh": "重新整理",
+    "updated": "更新於 {time}",
+    "tabs": {
+      "her": "她自己",
+      "people": "每個人",
+      "groups": "每個群"
+    },
+    "her": {
+      "selfStory": "這陣子的她",
+      "wants": "她想要的",
+      "wantsEnded": "實現了或放下的想要",
+      "views": "她的看法",
+      "questions": "想弄明白的事",
+      "corrected": "被糾正過的",
+      "days": "她的日子",
+      "doing": "這週她自己做了什麼"
+    },
+    "reach": {
+      "on_your_own": "自己做得到",
+      "with_others": "需要別人",
+      "beyond_you": "她現在做不到"
+    },
+    "person": {
+      "firstTalked": "第一次聊：{date}",
+      "daysTalked": "聊過 {count} 天",
+      "us": "我們之間",
+      "sore": "心結",
+      "threads": "心裡掛著的事",
+      "bits": "梗"
+    },
+    "group": {
+      "days": "群的這幾天",
+      "bits": "群梗",
+      "sore": "群裡的心結"
+    },
+    "weight": {
+      "petty": "小事記仇",
+      "hurt": "傷到了",
+      "deep": "傷得很深"
+    },
+    "where": {
+      "private": "私聊",
+      "group": "群裡"
+    },
+    "status": {
+      "open": "還刺著",
+      "let_go": "放下了",
+      "faded": "淡去了"
+    },
+    "mended": "道過歉",
+    "current": "現在",
+    "ended": {
+      "superseded": "後來改寫了",
+      "faded": "淡去了",
+      "came_true": "實現了",
+      "let_go": "放下了",
+      "forgiven": "放下了",
+      "taken_up": "聊過了",
+      "deleted": "刪除了",
+      "other": "結束了"
+    },
+    "empty": "還沒有",
+    "noPeople": "還沒有和誰有這些",
+    "noGroups": "還沒有群裡的紀錄"
+  }
 }

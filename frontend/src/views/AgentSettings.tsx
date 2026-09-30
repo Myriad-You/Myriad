@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { AGENT_MIND_PATH } from '../components/agent/settings/agentMindPath'
 import AgentSettingsForm from '../components/agent/settings/AgentSettingsForm'
 import { AGENT_SETTINGS_PATH } from '../components/agent/settings/agentSettingsPath'
 import AnimatedView from '../components/AnimatedView'
+import { SettingsButton } from '../components/settings'
 import { useAuth } from '../contexts/AuthContext'
-import { useConfigI18n as useI18n } from '../contexts/I18nContext'
+import { useConfigI18n as useI18n, useI18n as useShellI18n } from '../contexts/I18nContext'
 import { usePageSeo } from '../hooks/usePageSeo'
 import { buildPrivatePageSeo } from '../utils/modulePageSeo'
 
 export default function AgentSettings() {
   const navigate = useNavigate()
   const { t } = useI18n()
+  const { t: shell } = useShellI18n()
   const { isAdmin: authIsAdmin, isAuthenticated, hasChecked } = useAuth()
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -47,6 +50,11 @@ export default function AgentSettings() {
 
   return (
     <AnimatedView className="min-h-screen px-4 sm:px-6 pt-20 pb-24 md:pb-12">
+      <div className="flex justify-end mb-4">
+        <SettingsButton size="sm" onClick={() => navigate(AGENT_MIND_PATH)}>
+          {shell.merope.mind.open}
+        </SettingsButton>
+      </div>
       <AgentSettingsForm />
     </AnimatedView>
   )

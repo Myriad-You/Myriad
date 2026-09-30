@@ -323,5 +323,76 @@
   "personaLabelLikes": "Vorlieben",
   "personaLabelDrives": "Antrieb",
   "personaLabelSocial": "Sozial",
-  "personaLabelSpeech": "Stimme"
+  "personaLabelSpeech": "Stimme",
+  "mind": {
+    "title": "Ihr Inneres",
+    "desc": "Wie sie in letzter Zeit ist, was sie sich wünscht, wie sie jede Person und jede Gruppe sieht und wie sich das verändert hat. Nur lesen.",
+    "open": "In ihr Inneres schauen",
+    "loading": "Wird geladen…",
+    "error": "Konnte nicht geladen werden",
+    "refresh": "Aktualisieren",
+    "updated": "Aktualisiert {time}",
+    "tabs": {
+      "her": "Sie selbst",
+      "people": "Personen",
+      "groups": "Gruppen"
+    },
+    "her": {
+      "selfStory": "Wie sie in letzter Zeit ist",
+      "wants": "Was sie sich wünscht",
+      "wantsEnded": "Erfüllte oder aufgegebene Wünsche",
+      "views": "Ihre Ansichten",
+      "questions": "Was sie herausfinden will",
+      "corrected": "Wo sie korrigiert wurde",
+      "days": "Ihre Tage",
+      "doing": "Was sie diese Woche für sich getan hat"
+    },
+    "reach": {
+      "on_your_own": "schafft sie allein",
+      "with_others": "braucht andere",
+      "beyond_you": "für sie jetzt unerreichbar"
+    },
+    "person": {
+      "firstTalked": "Zuerst gesprochen: {date}",
+      "daysTalked": "An {count} Tagen gesprochen",
+      "us": "Was sie für sie sind",
+      "sore": "Wunde Punkte",
+      "threads": "Was sie beschäftigt",
+      "bits": "Insider"
+    },
+    "group": {
+      "days": "Zuletzt in dieser Gruppe",
+      "bits": "Gruppen-Insider",
+      "sore": "Wunde Punkte hier"
+    },
+    "weight": {
+      "petty": "kleiner Groll",
+      "hurt": "hat sie getroffen",
+      "deep": "hat sehr wehgetan"
+    },
+    "where": {
+      "private": "privat",
+      "group": "in der Gruppe"
+    },
+    "status": {
+      "open": "schmerzt noch",
+      "let_go": "losgelassen",
+      "faded": "verblasst"
+    },
+    "mended": "hat sich entschuldigt",
+    "current": "jetzt",
+    "ended": {
+      "superseded": "später neu gefasst",
+      "faded": "verblasst",
+      "came_true": "erfüllt",
+      "let_go": "losgelassen",
+      "forgiven": "losgelassen",
+      "taken_up": "besprochen",
+      "deleted": "gelöscht",
+      "other": "beendet"
+    },
+    "empty": "Noch nichts",
+    "noPeople": "Noch nichts über jemanden",
+    "noGroups": "Noch nichts aus Gruppen"
+  }
 }

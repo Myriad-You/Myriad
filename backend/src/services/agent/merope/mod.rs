@@ -23,6 +23,7 @@ pub(crate) mod memory_jobs;
 pub mod motion;
 pub mod motion_local;
 pub mod motion_preview;
+pub mod observe;
 pub mod onboarding_ai;
 pub mod onboarding_prompts;
 pub mod outfit_overlay;

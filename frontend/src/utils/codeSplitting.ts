@@ -94,6 +94,8 @@ export const routeComponents = {
 
   agentSettings: lazyWithPreload(() => import('../views/AgentSettings')),
 
+  agentMind: lazyWithPreload(() => import('../views/AgentMind')),
+
   setup: lazyWithPreload(() => import('../views/Setup')),
 
   login: lazyWithPreload(() => import('../views/Login')),

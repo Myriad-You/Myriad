@@ -323,5 +323,76 @@
   "personaLabelLikes": "Goûts",
   "personaLabelDrives": "Motivation",
   "personaLabelSocial": "Social",
-  "personaLabelSpeech": "Voix"
+  "personaLabelSpeech": "Voix",
+  "mind": {
+    "title": "Son intérieur",
+    "desc": "Qui elle est ces temps-ci, ce qu'elle veut, comment elle voit chaque personne et chaque groupe, et comment cela a évolué. Lecture seule.",
+    "open": "Regarder dans son intérieur",
+    "loading": "Chargement…",
+    "error": "Chargement impossible",
+    "refresh": "Actualiser",
+    "updated": "Mis à jour {time}",
+    "tabs": {
+      "her": "Elle-même",
+      "people": "Personnes",
+      "groups": "Groupes"
+    },
+    "her": {
+      "selfStory": "Qui elle est ces temps-ci",
+      "wants": "Ce qu'elle veut",
+      "wantsEnded": "Envies réalisées ou abandonnées",
+      "views": "Ses avis",
+      "questions": "Ce qu'elle veut découvrir",
+      "corrected": "Quand on l'a corrigée",
+      "days": "Ses journées",
+      "doing": "Ce qu'elle a fait seule cette semaine"
+    },
+    "reach": {
+      "on_your_own": "elle peut s'en charger",
+      "with_others": "il faut d'autres",
+      "beyond_you": "hors de sa portée pour l'instant"
+    },
+    "person": {
+      "firstTalked": "Premier échange : {date}",
+      "daysTalked": "Échanges sur {count} jours",
+      "us": "Ce qu'ils sont pour elle",
+      "sore": "Rancœurs",
+      "threads": "Ce qui lui trotte en tête",
+      "bits": "Private jokes"
+    },
+    "group": {
+      "days": "Ces derniers jours dans ce groupe",
+      "bits": "Blagues du groupe",
+      "sore": "Rancœurs ici"
+    },
+    "weight": {
+      "petty": "petite rancune",
+      "hurt": "ça l'a touchée",
+      "deep": "ça l'a vraiment blessée"
+    },
+    "where": {
+      "private": "en privé",
+      "group": "dans le groupe"
+    },
+    "status": {
+      "open": "pique encore",
+      "let_go": "pardonné",
+      "faded": "estompé"
+    },
+    "mended": "a présenté des excuses",
+    "current": "maintenant",
+    "ended": {
+      "superseded": "réécrit plus tard",
+      "faded": "estompé",
+      "came_true": "réalisé",
+      "let_go": "abandonné",
+      "forgiven": "pardonné",
+      "taken_up": "abordé",
+      "deleted": "supprimé",
+      "other": "terminé"
+    },
+    "empty": "Rien pour l'instant",
+    "noPeople": "Rien sur personne pour l'instant",
+    "noGroups": "Rien des groupes pour l'instant"
+  }
 }

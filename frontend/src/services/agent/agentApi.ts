@@ -7,6 +7,7 @@ import type {
   HeartbeatTask,
   ManagedMemory,
   MeropeDoingResponse,
+  MindSnapshot,
   MoodTransition,
   ProcessContext,
   ProcessRequest,
@@ -938,6 +939,11 @@ class AgentService {
   }
 
   /** All of her memory, sorted by whose it is (site admin). */
+  /** Looking into her (admin): herself, each person, each group. */
+  async getMind(): Promise<MindSnapshot> {
+    return apiService.get<MindSnapshot>(`${this.baseUrl}/mind`)
+  }
+
   async getAllMemories(): Promise<ManagedMemory[]> {
     const response = await apiService.get<{ memories: ManagedMemory[] }>(
       `${this.baseUrl}/memory/all`,

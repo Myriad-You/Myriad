@@ -451,6 +451,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 她心里：这阵子的她、想要的、对每个人每个群的，以及怎么变的（站长）
+        .route(
+            "/mind",
+            get(get_mind).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 全部记忆：她自己的、每个人的、每个群的（站长）
         .route(
             "/memory/all",
