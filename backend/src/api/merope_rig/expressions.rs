@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// 与前端 `AuthoredExpressionKind` 一一对应。
-const KINDS: [&str; 2] = ["cry", "squeeze"];
+const KINDS: [&str; 3] = ["cry", "squeeze", "close"];
 
 const KEEP_EVERYTHING_ELSE: &str = "Keep everything else exactly identical: same art style, \
 line weight, colours, hair, clothing, pose, framing, background and image size. Do not move \
@@ -40,6 +40,12 @@ lids, mouth a small wavering frown."
             "Edit only the facial expression: a gentle happy closed-eye smile — both eyes \
 closed into soft upward-curved arcs with the lashes along the arc, eyebrows relaxed, mouth \
 unchanged."
+        }
+        // 眨眼时的闭眼：替换拆层工具附带的通用闭眼，须是平静的下弯，不能带笑。
+        "close" => {
+            "Edit only the eyes: close both eyes gently as in a relaxed, neutral blink — \
+the upper lids come all the way down so each closed eye is a soft lash line curving gently \
+downward, lashes along the lid line, no smile in the eyes. Eyebrows and mouth unchanged."
         }
         _ => return None,
     };
@@ -216,7 +222,7 @@ mod tests {
     fn every_kind_has_a_prompt_that_protects_the_rest_of_the_portrait() {
         for kind in KINDS {
             let prompt = expression_prompt(kind).expect(kind);
-            assert!(prompt.contains("Edit only the facial expression"));
+            assert!(prompt.starts_with("Edit only the "));
             assert!(prompt.ends_with(KEEP_EVERYTHING_ELSE));
         }
         assert!(expression_prompt("laugh").is_none());

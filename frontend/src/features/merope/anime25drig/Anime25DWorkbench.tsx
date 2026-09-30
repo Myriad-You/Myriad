@@ -1019,11 +1019,7 @@ export default function Anime25DWorkbench({
                     {aiExpressions.length > 0
                       ? format(labels.aiExpressionsReady, {
                           kinds: aiExpressions
-                            .map((kind) =>
-                              kind === 'cry'
-                                ? labels.aiExpressionCry
-                                : labels.aiExpressionSqueeze,
-                            )
+                            .map((kind) => aiExpressionLabel(labels, kind))
                             .join(' / '),
                         })
                       : labels.aiExpressionsNone}
@@ -1635,6 +1631,15 @@ function rigDiagnosticMessage(
   if (code === 'hole-under-eyes') return labels.rigDiagnosticHoleUnderEyes
   if (code === 'hole-under-mouth') return labels.rigDiagnosticHoleUnderMouth
   return fallback
+}
+
+function aiExpressionLabel(
+  labels: TranslationKeys['merope'],
+  kind: AuthoredExpressionKind,
+): string {
+  if (kind === 'cry') return labels.aiExpressionCry
+  if (kind === 'squeeze') return labels.aiExpressionSqueeze
+  return labels.aiExpressionClose
 }
 
 function presetLabel(labels: TranslationKeys['merope'], id: string): string {

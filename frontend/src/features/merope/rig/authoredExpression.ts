@@ -7,10 +7,11 @@ import { trimRaster, uniquePartId } from './anime25dRaster'
 /**
  * Expression variants of the portrait redrawn by an image model: the same
  * picture with only the face changed. Each one is cut against the face layer
- * into the replacement parts the rig already fades between, so authored
- * artwork wins over the procedural glyphs the expression compiler would draw.
+ * into the replacement parts the rig already fades between. A redraw replaces
+ * procedural glyphs and the generic closed eyes the rigger ships; only parts
+ * the artist drew in the PSD win over it.
  */
-export const AUTHORED_EXPRESSION_KINDS = ['cry', 'squeeze'] as const
+export const AUTHORED_EXPRESSION_KINDS = ['cry', 'squeeze', 'close'] as const
 export type AuthoredExpressionKind = (typeof AUTHORED_EXPRESSION_KINDS)[number]
 
 export interface AuthoredExpressionReference extends Anime25DSourceReference {
@@ -20,6 +21,7 @@ export interface AuthoredExpressionReference extends Anime25DSourceReference {
 const EYE_ROLES = {
   cry: 'eye-cry',
   squeeze: 'eye-squeeze',
+  close: 'eye-close',
 } as const satisfies Record<AuthoredExpressionKind, RasterLayer['role']>
 
 // Channel difference from the skin below: noise of the redraw stays clear,
@@ -85,12 +87,14 @@ export function addAuthoredExpressionLayers(
     const eyes: RasterLayer[] = []
     for (const side of ['left', 'right'] as const) {
       const role = EYE_ROLES[reference.kind]
-      if (output.some((layer) => layer.role === role && layer.side === side)) continue
+      const replaced = output.filter((layer) => layer.role === role && layer.side === side)
+      if (replaced.some((layer) => !layer.synthetic)) continue
       const eye = side === 'left' ? anchors.eyeL : anchors.eyeR
       if (!eye) continue
       const hidden = eyeLayers(output, side)
       const part = cut(role, eyeRegion(eye, hidden), hidden)
       if (!part) continue
+      output = output.filter((layer) => !replaced.includes(layer))
       eyes.push({
         id: uniquePartId(`${role}-${side}`, usedIds),
         role,
@@ -107,14 +111,17 @@ export function addAuthoredExpressionLayers(
       layer.role === 'eye-squeeze' ||
       layer.role === 'eye-cry' ||
       layer.role === 'eyelash')
-    if (reference.kind === 'cry' && !output.some((layer) => layer.role === 'mouth-cry')) {
+    if (
+      reference.kind === 'cry' &&
+      !output.some((layer) => layer.role === 'mouth-cry' && !layer.synthetic)
+    ) {
       const part = cut(
         'mouth-cry',
         mouthRegion(anchors, output),
         output.filter((layer) => layer.role === 'mouth-close'),
       )
       if (part) {
-        output = insertAfter(output, [{
+        output = insertAfter(output.filter((layer) => layer.role !== 'mouth-cry'), [{
           id: uniquePartId('mouth-cry', usedIds),
           role: 'mouth-cry',
           sourceName: 'mouth-cry',

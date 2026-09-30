@@ -118,3 +118,21 @@ test('keeps procedural parts when the redraw cannot be trusted', () => {
     'artist-drawn parts win',
   )
 })
+
+test('a redrawn blink replaces the generic closed eye but never an authored one', () => {
+  const generic = { ...layer('eye-close', closedEye, 'left'), synthetic: true }
+  const replaced = addAuthoredExpressionLayers([...rig, generic], anchors, neutral, [
+    { kind: 'close', ...squeezed },
+  ])
+  const closed = replaced.filter((candidate) => candidate.role === 'eye-close')
+  assert.equal(closed.length, 1)
+  assert.notEqual(closed[0], generic)
+  assert.equal(closed[0].synthetic, undefined)
+
+  const authored = layer('eye-close', closedEye, 'left')
+  const kept = [...rig, authored]
+  assert.equal(
+    addAuthoredExpressionLayers(kept, anchors, neutral, [{ kind: 'close', ...squeezed }]),
+    kept,
+  )
+})
