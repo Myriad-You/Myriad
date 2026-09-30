@@ -44,14 +44,51 @@ async fn think(owner: i32, message: String) -> Option<Cues> {
 type Thinking = Shared<BoxFuture<'static, Option<Cues>>>;
 
 /// Trying to remember that began as a message came, by person: the
-/// message, and the thinking.
-static THINKING: LazyLock<Mutex<HashMap<i32, (String, Thinking)>>> =
+/// message, the thinking, and whether it opened a conversation.
+static THINKING: LazyLock<Mutex<HashMap<i32, (String, Thinking, bool)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const PEOPLE_KEPT: usize = 4096;
 
+/// When each person last wrote to her, by where.
+static LAST_HEARD: LazyLock<Mutex<HashMap<(i32, String), std::time::Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Coming back after this long, they start talking anew: what each has been
+/// up to comes to mind, as it does when friends meet again.
+const OPENS_AFTER: Duration = Duration::from_secs(3 * 3600);
+
+/// Whether a message from `owner` at `venue` now starts talking anew, and
+/// note that they wrote.
+fn opens(owner: i32, venue: &str) -> bool {
+    let Ok(mut heard) = LAST_HEARD.lock() else {
+        return true;
+    };
+    if heard.len() >= PEOPLE_KEPT {
+        heard.clear();
+    }
+    let now = std::time::Instant::now();
+    let last = heard.insert((owner, venue.to_string()), now);
+    last.is_none_or(|last| now.duration_since(last) >= OPENS_AFTER)
+}
+
+/// What she has in mind as she answers: what she tried to remember, and
+/// whether they are only now starting to talk again.
+pub struct Attention {
+    pub cues: Option<Cues>,
+    pub opening: bool,
+}
+
+impl Attention {
+    /// Whether her own life comes to mind this turn: when the talk is about
+    /// her, or they are only now starting to talk again.
+    pub fn her_life(&self) -> bool {
+        self.opening || self.cues.as_ref().is_some_and(|cues| cues.about_you)
+    }
+}
+
 /// Start trying to remember as soon as their message comes, alongside how
 /// it lands with her, so the reply does not wait for it after.
-pub fn begin(owner: i32, message: &str) {
+pub fn begin(owner: i32, venue: &str, message: &str) {
+    let opening = opens(owner, venue);
     let thinking: Thinking = think(owner, message.to_string()).boxed().shared();
     let running = thinking.clone();
     let said = [message.to_string()];
@@ -70,24 +107,31 @@ pub fn begin(owner: i32, message: &str) {
         if all.len() >= PEOPLE_KEPT {
             all.clear();
         }
-        all.insert(owner, (message.to_string(), thinking));
+        all.insert(owner, (message.to_string(), thinking, opening));
     }
 }
 
-/// What she tried to remember before answering `message`: begun when it
-/// came, or now if it was not.
-pub async fn cues(owner: i32, message: &str) -> Option<Cues> {
+/// What she has in mind before answering `message`: what she tried to
+/// remember (begun when it came, or now if it was not), and whether it
+/// opened a conversation (unknown counts as opening).
+pub async fn cues(owner: i32, message: &str) -> Attention {
     let begun = THINKING
         .lock()
         .ok()
         .and_then(|mut all| all.remove(&owner))
-        .filter(|(said, _)| said == message);
+        .filter(|(said, _, _)| said == message);
     match begun {
-        Some((_, thinking)) => tokio::time::timeout(THINK_WITHIN, thinking)
-            .await
-            .ok()
-            .flatten(),
-        None => think(owner, message.to_string()).await,
+        Some((_, thinking, opening)) => Attention {
+            cues: tokio::time::timeout(THINK_WITHIN, thinking)
+                .await
+                .ok()
+                .flatten(),
+            opening,
+        },
+        None => Attention {
+            cues: think(owner, message.to_string()).await,
+            opening: true,
+        },
     }
 }
 
@@ -235,4 +279,36 @@ pub async fn recall_with(
         },
         next,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn her_own_life_comes_to_mind_when_the_moment_asks_for_it() {
+        let owner = -9_001;
+        assert!(opens(owner, "private"), "first words open a conversation");
+        assert!(!opens(owner, "private"), "the next line goes on with it");
+        assert!(opens(owner, "group:onebot:1"), "elsewhere is its own talk");
+        let about = |about_you, opening| Attention {
+            cues: Some(Cues {
+                cues: Vec::new(),
+                thorough: false,
+                look_back: false,
+                about_you,
+            }),
+            opening,
+        };
+        assert!(!about(false, false).her_life());
+        assert!(about(true, false).her_life());
+        assert!(about(false, true).her_life());
+        assert!(
+            !Attention {
+                cues: None,
+                opening: false
+            }
+            .her_life()
+        );
+    }
 }

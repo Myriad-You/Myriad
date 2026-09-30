@@ -179,7 +179,7 @@ pub async fn note_user_turn(
     }
     // What to try to remember is thought of while the words land.
     if !text.trim().is_empty() {
-        remembering::begin(user_id, text);
+        remembering::begin(user_id, &audience_for(request).venue(), text);
     }
     if !is_extremely_low(previous.mood) && is_extremely_low(after.mood) {
         spawn_ingest(
@@ -759,9 +759,17 @@ async fn speaking_prompt_from_db(
     };
     let myself = self_state::current(db).await;
     // Before answering what they said, she thinks what to try to remember.
-    let cues = match turn {
-        Turn::Chat(words) => remembering::cues(user_id, words).await,
-        _ => None,
+    // And, as anyone does, keeps in mind what the moment asks for: her own
+    // life when the talk is about her or they are only now starting to talk
+    // again, not at every line. Speaking up on her own, it is her own
+    // things she brings, so all of it is at hand.
+    let (cues, her_life, opening) = match turn {
+        Turn::Chat(words) => {
+            let attention = remembering::cues(user_id, words).await;
+            let her_life = attention.her_life();
+            (attention.cues, her_life, attention.opening)
+        }
+        _ => (None, true, true),
     };
     // Only a chat turn (it has the person's words) carries its train of
     // thought to the next turn; other readers see memory without moving it.
@@ -909,24 +917,33 @@ async fn speaking_prompt_from_db(
         }
     }
     if !matches!(turn, Turn::Plain) {
-        if let Some(block) = format_own_days_section(&life::recent_days(db, OWN_DAYS_LIMIT).await) {
-            sections.push(block);
-        }
-        // Who she has been lately, told from what she did: hers, heard
-        // wherever she is.
-        if let Some(block) = format_self_story_section(&self_story::current(db).await) {
-            sections.push(block);
-        }
-        // What she wants lately: hers, heard wherever she is.
-        if let Some(block) = wants::section(&wants::open(db).await, chrono::Utc::now()) {
-            sections.push(block);
+        // Her own life: hers, heard wherever she is, in mind when the moment
+        // asks for it.
+        if her_life {
+            if let Some(block) =
+                format_own_days_section(&life::recent_days(db, OWN_DAYS_LIMIT).await)
+            {
+                sections.push(block);
+            }
+            if let Some(block) = format_self_story_section(&self_story::current(db).await) {
+                sections.push(block);
+            }
+            if let Some(block) = wants::section(&wants::open(db).await, chrono::Utc::now()) {
+                sections.push(block);
+            }
         }
         // Her own time is about public things, so any audience may hear it.
+        // What she is doing right now is part of any moment; what she did
+        // lately, of one about her.
         let words = match turn {
             Turn::Chat(words) | Turn::Event(words) => Some(words),
             Turn::Plain => None,
         };
-        let lately = doing::recalled(db, words, DOING_RECENT, DOING_RELATED).await;
+        let lately = if her_life {
+            doing::recalled(db, words, DOING_RECENT, DOING_RELATED).await
+        } else {
+            Vec::new()
+        };
         let now = doing::current().map(|doing| doing::now_line(&doing, chrono::Utc::now()));
         if let Some(block) = format_doing_section(now.as_deref(), &lately) {
             sections.push(block);
@@ -982,12 +999,23 @@ async fn speaking_prompt_from_db(
                 }
             }
         }
-        // What she meant to come back to with them: private, never in a group.
+        // What she meant to come back to with them: private, never in a group;
+        // in mind as they start talking again, or when their words touch it.
         if !group {
-            if let Some(block) =
-                threads::section(&threads::open(db, user_id).await, chrono::Utc::now())
-            {
-                sections.push(block);
+            let open = threads::open(db, user_id).await;
+            let touched = words.is_some_and(|words| {
+                open.iter().any(|thread| {
+                    myriad_merope::remembering::overlap(
+                        words,
+                        &format!("{} {}", thread.about, thread.then),
+                    ) >= 2
+                        || words.contains(thread.about.as_str())
+                })
+            });
+            if opening || touched {
+                if let Some(block) = threads::section(&open, chrono::Utc::now()) {
+                    sections.push(block);
+                }
             }
         }
         // What she thinks of what their words touch: hers, the same whoever asks.
