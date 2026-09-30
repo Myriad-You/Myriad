@@ -152,8 +152,13 @@ async fn send_reply(
     use myriad_agent_rules::mentions;
     match line.platform {
         ChannelPlatform::Telegram => {
-            let (Ok(chat), Ok(message_id)) = (line.chat.parse(), line.message_id.parse()) else {
+            let Ok(chat) = line.chat.parse() else {
                 return Err(ConnectFailureKind::Permanent);
+            };
+            let quoted = match quoting.then(|| line.message_id.parse()) {
+                Some(Ok(message_id)) => Some(message_id),
+                Some(Err(_)) => return Err(ConnectFailureKind::Permanent),
+                None => None,
             };
             let (text, entities) = mentions::telegram_text_and_entities(pieces);
             crate::services::telegram_bot::send_group_reply(
@@ -161,7 +166,7 @@ async fn send_reply(
                 chat,
                 &text,
                 &entities,
-                quoting.then_some(message_id),
+                quoted,
                 line.thread,
             )
             .await
@@ -266,7 +271,9 @@ async fn deliver(line: &GroupLine, token: &str, reply: &str, began: Instant) -> 
         }
         for chunk in split_channel_text(&message, text_limit(line.platform)) {
             let pieces = myriad_agent_rules::mentions::split_mentions(&chunk, &people);
-            match send_reply(line, token, &pieces, !sent).await {
+            // A line with no message behind it (her saying something first)
+            // quotes nothing.
+            match send_reply(line, token, &pieces, !sent && !line.message_id.is_empty()).await {
                 Ok(()) => {
                     // How long whoever called her waited for her first words.
                     let waited = (!sent && line.addressed)
@@ -444,6 +451,9 @@ struct Group {
     /// How often each picture was sent there lately (by its key): one sent
     /// again is the group's (see `bits::picture_again`).
     pictures: HashMap<String, u32>,
+    /// The latest line seen there and the token it came with: where she
+    /// would say something first (see `share_first`).
+    reach: Option<(GroupLine, String)>,
     /// Messages and waits not yet written to the group's ledger.
     ledger: Vec<myriad_merope::talk_shape::Typed>,
     ledger_waits: Vec<f64>,
@@ -1241,6 +1251,7 @@ pub async fn handle(message: GroupLine, token: String) {
     let venue = message.venue();
     let talking = with_group(&venue, |group| {
         taken_up(group);
+        group.reach = Some((message.clone(), token.clone()));
         in_talk(group)
     })
     .unwrap_or(false);
@@ -1324,6 +1335,7 @@ pub fn notice(message: GroupLine, token: String) {
     let id = message.message_id.clone();
     let wake = with_group(&venue, |group| {
         group.unjudged_since.get_or_insert_with(Instant::now);
+        group.reach = Some((message.clone(), token.clone()));
         group.pending = Some(message);
         if in_talk(group) {
             Some(SETTLE)
@@ -1609,7 +1621,7 @@ async fn answer(message: &GroupLine, token: &str, chime: Option<String>) -> bool
         return false;
     };
     let began = Instant::now();
-    let Some((reply, sticker)) = run_turn(&db, message, user_id, token, chime).await else {
+    let Some((reply, sticker)) = run_turn(&db, message, user_id, token, chime, false).await else {
         return false;
     };
     // Unpaired or switched off while she was thinking: say nothing.
@@ -1721,6 +1733,156 @@ async fn send_sticker(message: &GroupLine, token: &str, chosen: &serde_json::Val
     }
 }
 
+/// How long a group counts as one she is in, since she last saw a line
+/// there.
+const SEEN_WITHIN: Duration = Duration::from_secs(3 * 24 * 3600);
+/// Lines of each group she looks over when deciding.
+const SHARE_LINES: usize = 12;
+
+/// Something of her own she would want to tell someone (`what`, as she took
+/// it in): she looks over the groups she is in and, as herself, may bring
+/// it up in one of them (see `merope::sharing`). Asleep she does not; a
+/// group she is already talking in hears it in the talk. Billed to `owner`.
+pub async fn share_first(owner: i32, what: String) {
+    use crate::services::agent::merope::{bits, sharing, timing};
+    if timing::asleep_now().is_some() {
+        return;
+    }
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    let now = chrono::Utc::now();
+    let seen: Vec<(String, Vec<String>, String, Vec<serde_json::Value>)> = {
+        let Ok(groups) = GROUPS.lock() else {
+            return;
+        };
+        groups
+            .iter()
+            .filter(|(_, group)| !group.busy && !in_talk(group))
+            .filter_map(|(venue, group)| {
+                group.reach.as_ref()?;
+                let last = group.lines.back();
+                let quiet = last.map(|line| now - line.at);
+                if quiet.is_some_and(|quiet| quiet.to_std().is_ok_and(|quiet| quiet > SEEN_WITHIN))
+                {
+                    return None;
+                }
+                let lines: Vec<String> = group
+                    .lines
+                    .iter()
+                    .rev()
+                    .take(SHARE_LINES)
+                    .rev()
+                    .map(|line| {
+                        if line.hers {
+                            format!("you：{}", line.text)
+                        } else {
+                            format!("{}：{}", line.name, line.said())
+                        }
+                    })
+                    .collect();
+                let quiet_for = match quiet {
+                    Some(quiet) => myriad_merope::doing::ago_text(quiet),
+                    None => "a good while (nothing said there lately)".to_string(),
+                };
+                let spoke_up = group
+                    .spoke_up
+                    .iter()
+                    .map(|(at, taken)| {
+                        let ago = chrono::Duration::from_std(at.elapsed()).unwrap_or_default();
+                        serde_json::json!({
+                            "ago": myriad_merope::doing::ago_text(ago),
+                            "takenUp": taken,
+                        })
+                    })
+                    .collect();
+                Some((venue.clone(), lines, quiet_for, spoke_up))
+            })
+            .collect()
+    };
+    if seen.is_empty() {
+        return;
+    }
+    let mut offered = Vec::with_capacity(seen.len());
+    for (venue, lines, quiet_for, spoke_up_lately) in seen {
+        let shared = bits::in_group(&db, &venue, 5)
+            .await
+            .into_iter()
+            .map(|(handle, how)| format!("{handle}: {how}"))
+            .collect();
+        offered.push(sharing::Offered {
+            id: venue,
+            lines,
+            quiet_for,
+            bits: shared,
+            spoke_up_lately,
+        });
+    }
+    let Some((venue, why)) = sharing::choose(owner, &what, &offered).await else {
+        return;
+    };
+    if !matches!(begin_turn(&venue), Turn::Began) {
+        return;
+    }
+    let spoke = share_turn(&db, &venue, &what, &why).await;
+    if spoke {
+        info!(%venue, "[Group] she brought something of hers up");
+        with_group(&venue, |group| {
+            group.spoke_up.push_back((Instant::now(), false));
+            while group.spoke_up.len() > SPOKE_UP_KEPT {
+                group.spoke_up.pop_front();
+            }
+        });
+    }
+    let mut next = finish_turn(&venue, spoke).await;
+    while let Some(message) = next {
+        let token = with_group(&venue, |group| {
+            group.reach.as_ref().map(|(_, token)| token.clone())
+        })
+        .flatten()
+        .unwrap_or_default();
+        let replied = answer(&message, &token, None).await;
+        next = finish_turn(&venue, replied).await;
+    }
+}
+
+/// Say it in the group, as a turn of her own on the site owner's budget: no
+/// one's line behind it, so nothing quoted and nothing to answer.
+async fn share_turn(db: &DatabaseConnection, venue: &str, what: &str, why: &str) -> bool {
+    let Some((seen, token)) = with_group(venue, |group| group.reach.clone()).flatten() else {
+        return false;
+    };
+    let Ok(owner) = crate::services::site_owner::site_owner_user_id(db).await else {
+        return false;
+    };
+    let inbound_id = format!(
+        "group:{}:first:{}",
+        seen.chat,
+        chrono::Utc::now().timestamp_millis()
+    );
+    if !crate::services::channel_work::claim_inbound(db, seen.platform, None, &inbound_id).await {
+        return false;
+    }
+    let line = GroupLine {
+        message_id: String::new(),
+        from: String::new(),
+        display_name: String::new(),
+        text: myriad_merope::sharing::NOBODY_SAID.to_string(),
+        addressed: false,
+        reply_to: None,
+        images: Vec::new(),
+        ..seen
+    };
+    let began = Instant::now();
+    let reason = myriad_merope::sharing::reason(what, why);
+    let Some((reply, sticker)) = run_turn(db, &line, owner, &token, Some(reason), true).await
+    else {
+        return false;
+    };
+    let reply = without_reply_mark(&reply);
+    say_and_send(&line, &token, &reply, sticker, began).await
+}
+
 /// Answer someone from outside the community, with little context, on the
 /// site owner's budget. `why` is why she speaks when they did not call her.
 async fn answer_stranger(
@@ -1809,6 +1971,7 @@ async fn run_turn(
     user_id: i32,
     token: &str,
     chime: Option<String>,
+    first: bool,
 ) -> Option<(String, Option<serde_json::Value>)> {
     crate::services::principal::current_roles(db, user_id)
         .await
@@ -1841,11 +2004,17 @@ async fn run_turn(
                 mode: Some(AgentInteractionMode::Chat),
                 session_id: Some(session_id),
                 group: Some(crate::services::agent::run::GroupTurn {
-                    transcript: transcript(&venue, Some(&message.message_id)),
+                    transcript: transcript(&venue, (!first).then_some(message.message_id.as_str())),
                     room: room(&venue),
                     differs: how_she_differs(&venue).await,
-                    making_sense: make_sense(db, message).await,
-                    late: seen_late(message),
+                    // Saying something first, there is no line of theirs
+                    // to make sense of or to be late for.
+                    making_sense: if first {
+                        None
+                    } else {
+                        make_sense(db, message).await
+                    },
+                    late: if first { None } else { seen_late(message) },
                     venue,
                     chime,
                     speaker: message.display_name.clone(),

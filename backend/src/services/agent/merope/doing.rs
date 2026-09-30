@@ -314,6 +314,15 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     };
     if digest.tell {
         tell_whoever_is_here(&done.thing, &impression);
+        // The groups she is in may hear it too, if one is where she would
+        // say it.
+        let what = evidence
+            .noted(&impression)
+            .trim_start_matches("- ")
+            .to_string();
+        super::background::spawn("share_first", async move {
+            crate::services::channel_group::share_first(owner, what).await;
+        });
     }
 }
 

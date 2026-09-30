@@ -34,6 +34,7 @@ mod rig_state;
 pub mod seeing;
 pub mod self_story;
 pub mod serial;
+pub mod sharing;
 pub mod soup;
 pub mod sources;
 pub mod speaking;

@@ -36,6 +36,7 @@ pub mod self_state;
 pub mod self_story;
 pub mod senses;
 pub mod serial;
+pub mod sharing;
 pub mod soup;
 pub mod sources;
 pub mod speaking_prompts;
