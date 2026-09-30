@@ -23,12 +23,12 @@ test('old Chat generation cannot keep applying after a newer Chat send', () => {
   assert.match(engine, /isCurrentChatGeneration\(generation/)
   assert.match(engine, /setTurnGeneration\(chatGeneration\)/)
   // Motion and face must advance together.
-  const facade = source('../../features/merope/engineFace.ts')
+  const facade = source('../../features/merope/presence/engineFace.ts')
   assert.match(
     facade,
     /setTurnGeneration[^}]*setLiveMotionGeneration\(generation\)[^}]*agentFace\.setGeneration\(generation\)/,
   )
-  const lifecycle = source('../../features/merope/performanceLifecycle.ts')
+  const lifecycle = source('../../features/merope/motion/performanceLifecycle.ts')
   assert.match(lifecycle, /acceptLiveMotionGeneration\(event\.generation\)/)
 })
 
@@ -39,7 +39,7 @@ test('duplicate run sequences are dropped so speech and motion are not replayed'
   const transport = source('./sseTransport.ts')
   assert.match(transport, /seenSequences/)
   assert.match(transport, /acceptRunSequence/)
-  const performance = source('../../features/merope/performanceLifecycle.ts')
+  const performance = source('../../features/merope/motion/performanceLifecycle.ts')
   assert.match(performance, /activePlanKey/)
 })
 
@@ -54,7 +54,7 @@ test('Chat abort does not take the Work SSE lane', () => {
 })
 
 test('Work completion cannot take an active Chat mouth', () => {
-  const gate = source('../../features/merope/faceSpeechArbitration.ts')
+  const gate = source('../../features/merope/presence/faceSpeechArbitration.ts')
   assert.match(gate, /incomingMode === 'work' && input\.chatUtteranceActive/)
   assert.match(gate, /record-without-speech/)
 })
@@ -95,7 +95,7 @@ test('replace and cancel stay idempotent and do not look like faults', () => {
     isStreamSupersededError(new Error(STREAM_SUPERSEDED_MESSAGE)),
     true,
   )
-  const speech = source('../../features/merope/agentFaceChannel.ts')
+  const speech = source('../../features/merope/presence/agentFaceChannel.ts')
   assert.match(speech, /close\('cancel'\)/)
   const lease = source('../../features/merope/motion/speechLease.ts')
   assert.match(lease, /release/)

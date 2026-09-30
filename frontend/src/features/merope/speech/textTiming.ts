@@ -135,3 +135,14 @@ function estimateSymbols(text: string, language: string): number {
   }
   return seconds
 }
+
+/** How long a reply shown without audio keeps her mouth moving. */
+export function estimateAutoSpeechDurationMs(
+  text: string,
+  locale?: string,
+): number {
+  return estimateVisualSpeechTailMs(
+    text.slice(0, MAX_VISUAL_SPEECH_TEXT_UNITS),
+    locale,
+  )
+}

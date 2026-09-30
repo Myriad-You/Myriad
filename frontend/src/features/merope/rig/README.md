@@ -252,7 +252,7 @@ active layered package
   -> Anime25DCharacter / Anime2.5DRig player
 ```
 
-Agent reply speech enters through `speechEvents.ts`. The lifecycle controller
+Agent reply speech enters through `../events/speechEvents.ts`. The lifecycle controller
 handles streamed chunks, complete replies, interruption, and proactive lines,
 then publishes into `../motion/speechSource.ts`, not directly into a player.
 Real audio energy or phoneme events own
@@ -303,7 +303,7 @@ network trace or second renderer is needed for this path.
 | Expression, collar, atlas and skeleton compilation | `anime25dExpressionCompiler.ts`, `anime25dCollarCompiler.ts`, `anime25dAtlasCompiler.ts`, `anime25dSkeletonCompiler.ts`                                                                                                                                                                         |
 | Raster, capability and asset validation            | `anime25dRaster.ts`, `anime25dCapabilities.ts`, `anime25dAssetValidation.ts`, `diagnostics.ts`                                                                                                                                                                                                  |
 | Asset transaction                                  | `../assets/pipeline.ts`, `../assets/compiler.ts`                                                                                                                                                                                                                                                |
-| Runtime orchestration and performance registry     | `../anime25drig/player.ts`, `../anime25drig/driver.ts`, `../anime25drig/expressionRegistry.ts`, `../performanceContract.ts`                                                                                                                                                                     |
+| Runtime orchestration and performance registry     | `../anime25drig/player.ts`, `../anime25drig/driver.ts`, `../anime25drig/expressionRegistry.ts`, `../events/performanceContract.ts`                                                                                                                                                                     |
 | Runtime WebGL, deformation and fallback policy     | `../anime25drig/webglRuntime.ts`, `../anime25drig/mouthRuntime.ts`, `../anime25drig/collarRuntime.ts`, `../anime25drig/atlasUv.ts`, `../anime25drig/layerTransform.ts`, `../anime25drig/layerDeformationPolicy.ts`, `../anime25drig/runtimePolicy.ts`, `../anime25drig/performanceTelemetry.ts` |
 | Procedural expression shapes (import and runtime)  | `../expressionShapes/` (eyes, mouths, symbols, face frame)                                                                                                                                                                                                                                      |
 | Presentation                                       | `../character/RigCharacter.tsx` (live rig or still portrait)                                                                                                                                                                                                                                    |

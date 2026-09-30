@@ -1,7 +1,7 @@
 import type { ConfigEffect } from './configDomain'
 import type { Config } from './types'
 import { API_URL } from '../../../config'
-import { notifyPersonaUpdated } from '../../../features/merope/events'
+import { notifyPersonaUpdated } from '../../../features/merope/events/updates'
 import { reloadSystemConfig } from '../../../services/configApi'
 import { invalidateSpeechStatusCache } from '../../../services/speechApi'
 import { deepEqual } from '../../../utils/deepEqual'

@@ -159,8 +159,8 @@ export function useControlPanelNotifications({
       merope_state?: unknown
     }) => {
       void Promise.all([
-        import('../../features/merope/faceSpeechArbitration'),
-        import('../../features/merope/agentFaceChannel'),
+        import('../../features/merope/presence/faceSpeechArbitration'),
+        import('../../features/merope/presence/agentFaceChannel'),
       ]).then(([{ deliverProactiveFace, faceSpeechGate }, { agentFace }]) => {
         deliverProactiveFace(agentFace, faceSpeechGate, {
           id: speech.id,
@@ -180,14 +180,14 @@ export function useControlPanelNotifications({
     onNew: handleNewNotification,
     onLiveSpeech: handleLiveSpeech,
     onLiveSpeechMotion: (id, performance) => {
-      void import('../../features/merope/faceSpeechArbitration').then(
+      void import('../../features/merope/presence/faceSpeechArbitration').then(
         ({ refineProactiveFace, faceSpeechGate }) => {
           refineProactiveFace(faceSpeechGate, id, performance)
         },
       )
     },
     onMeropeState: (state) => {
-      void import('../../features/merope/agentFaceChannel').then(({ agentFace }) => {
+      void import('../../features/merope/presence/agentFaceChannel').then(({ agentFace }) => {
         agentFace.updateState(state)
       })
     },

@@ -3,12 +3,12 @@ import type { RigMotionPort } from '../rig/motionPort'
 import type { MeropeActivity } from '../types'
 import type { LiveFaceConsumer, MotionRuntime } from './runtime'
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { setLiveFaceVisible } from '../faceVisible'
-import { markTurnTrace, noteTurnTraceDrop } from '../turnTrace'
-import { useRigSingingLifecycle } from '../useRigSingingLifecycle'
+import { setLiveFaceVisible } from '../events/faceVisible'
+import { markTurnTrace, noteTurnTraceDrop } from '../events/turnTrace'
 import { applyMotionFrame, createMotionApplyState } from './applyFrame'
 import { createPreviewMotionRuntime } from './runtime'
 import { getProductionMotionRuntime } from './runtimeHost'
+import { useRigSingingLifecycle } from './useRigSingingLifecycle'
 
 export interface RigMotionLifecycleOptions {
   mood?: number

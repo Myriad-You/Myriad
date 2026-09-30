@@ -6,9 +6,9 @@ import { setAgentContextConsent } from '../../../components/agent-panel/agentCon
 import { currentPagePublisher, setCurrentPageContent } from '../../../contexts/currentPage'
 import { setKnownAuthState } from '../../../utils/authState'
 import { authSubject } from '../../../utils/authSubject'
-import { PERSONA_UPDATED_EVENT } from '../events'
-import { livePresenceFacts } from '../livePresence'
+import { PERSONA_UPDATED_EVENT } from '../events/updates'
 import { getProductionMotionRuntime } from '../motion/runtimeHost'
+import { livePresenceFacts } from '../presence/livePresence'
 import {
   presenceInboundArmingForTest,
   reportPresence,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { setAgentContextConsent } from '../../../components/agent-panel/agentContextConsent'
 import { setCurrentPageContent } from '../../../contexts/currentPage'
-import { livePresenceFacts } from '../livePresence'
+import { livePresenceFacts } from '../presence/livePresence'
 import { capturePerceptionSnapshots } from './capture'
 import {
   reportPresence, resetPresenceInboundForTest, setPresenceArmedForTest,

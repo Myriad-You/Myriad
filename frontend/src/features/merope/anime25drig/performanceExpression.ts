@@ -4,8 +4,8 @@ import type { BehaviorQuality } from '../motion/behavior'
 import type { Anime25DMotionUnit } from './behaviorMotion'
 import type { Anime25DDriver } from './driver'
 import type { CueIntent } from './performanceCueDefinitions'
+import { PERFORMANCE_CUE_INTENTS } from '../events/performanceContract'
 import { TOUCH_REACTIONS } from '../interaction/touchReaction'
-import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
 import { IDENTITY_DRIVER } from './driver'
 import {
   cueIsSticker,

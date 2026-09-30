@@ -41,9 +41,16 @@ import { agentMusicStatus } from '../../contexts/currentSong'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
 import {
+  beginTurnTrace,
+  markTurnTrace,
+  markTurnTraceOnce,
+  noteTurnTraceDrop,
+} from '../../features/merope/events/turnTrace'
+import { listenTogether, playHerSong } from '../../features/merope/music/listenTogether'
+import {
   clearChatOutfitOverlay,
   setChatOutfitOverlay,
-} from '../../features/merope/chatOutfitOverlay'
+} from '../../features/merope/presence/chatOutfitOverlay'
 import {
   attachLiveBody,
   captureTurnBody,
@@ -54,18 +61,11 @@ import {
   setTurnGeneration,
   stopTurnSpeech,
   turnSpeechAlreadyFed,
-} from '../../features/merope/engineFace'
-import { listenTogether, playHerSong } from '../../features/merope/listenTogether'
-import { playbackDirection, startPlaybackDirection } from '../../features/merope/motion/playbackDirectionHost'
+} from '../../features/merope/presence/engineFace'
+import { playbackDirection, startPlaybackDirection } from '../../features/merope/presence/playbackDirectionHost'
+import { sampleTurnTraceLeaks } from '../../features/merope/presence/turnTraceSample'
 import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/speech/agoraConversation'
 import { bindRealtimeChat } from '../../features/merope/speech/realtimeChat'
-import {
-  beginTurnTrace,
-  markTurnTrace,
-  markTurnTraceOnce,
-  noteTurnTraceDrop,
-} from '../../features/merope/turnTrace'
-import { sampleTurnTraceLeaks } from '../../features/merope/turnTraceSample'
 import {
   agentService,
   executeFrontendAction,

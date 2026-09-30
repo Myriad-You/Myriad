@@ -2,7 +2,7 @@ import type { PerformanceDirective } from '../../../services/agent/types'
 import type { MusicMotionSource, SingingFrame } from './musicSource'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resetMeropeState, resolveLoadedMeropeAffect } from '../performanceEvents'
+import { resetMeropeState, resolveLoadedMeropeAffect } from '../events/performanceEvents'
 import { RigMotionCoordinator } from './coordinator'
 import {
   createLiveMotionRuntime,

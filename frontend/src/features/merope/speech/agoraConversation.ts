@@ -5,11 +5,11 @@ import {
   stopConvoSession,
   subscribeConvoRuns,
 } from '../../../services/speechApi'
-import { faceSpeechGate } from '../faceSpeechArbitration'
-import { dispatchMeropeSpeech } from '../speechEvents'
-import { markTurnTraceOnce } from '../turnTrace'
+import { markTurnTraceOnce } from '../events/turnTrace'
+import { faceSpeechGate } from '../presence/faceSpeechArbitration'
 import { adoptRealtimeChatRun, realtimeChatSessionId } from './realtimeChat'
 import { RtcSpeechAlignment } from './rtcSpeechAlignment'
+import { dispatchMeropeSpeech } from './speechEvents'
 import { getSpeechPipeline } from './speechPipelineHost'
 import { getVoicePresence, patchVoicePresence } from './voicePresence'
 

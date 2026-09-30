@@ -5,7 +5,7 @@ import type {
   BodyIntent,
   BodyState,
 } from './types'
-import { liveFaceVisible } from '../faceVisible'
+import { liveFaceVisible } from '../events/faceVisible'
 import {
   liveMotionGeneration,
   newMotionIntentId,

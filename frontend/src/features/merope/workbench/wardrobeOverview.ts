@@ -1,7 +1,7 @@
 import type { ClothingStyle } from '../../../components/agent/onboarding/onboardingTypes'
 import type { TranslationKeys } from '../../../i18n'
-import type { WardrobeItem } from '../wardrobe'
-import { wardrobeItemLabel } from '../wardrobe'
+import type { WardrobeItem } from '../persona/wardrobe'
+import { wardrobeItemLabel } from '../persona/wardrobe'
 
 type Format = (template: string, vars: Record<string, string | number>) => string
 

@@ -4,7 +4,7 @@ import {
   noteTurnTraceDelay,
   noteTurnTraceDrop,
   noteTurnTraceQueue,
-} from '../turnTrace'
+} from '../events/turnTrace'
 
 export interface TtsAudioHandle {
   stop: () => void

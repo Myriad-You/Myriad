@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { SpeechLifecycleController } from '../speechLifecycle'
 import { RigMotionCoordinator } from './coordinator'
 import { SpeechMotionLease } from './speechLease'
+import { SpeechLifecycleController } from './speechLifecycle'
 
 test('two speech producers: disposing one does not mute the other', () => {
   const coordinator = new RigMotionCoordinator()

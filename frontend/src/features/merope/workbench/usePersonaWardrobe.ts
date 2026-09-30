@@ -4,7 +4,7 @@ import type {
   UpperBodyVisualIdentity,
 } from '../../../components/agent/onboarding/onboardingTypes'
 import type { AgentPersona } from '../../../services/agent/agentApi'
-import type { WardrobeItem } from '../wardrobe'
+import type { WardrobeItem } from '../persona/wardrobe'
 import type { SiteFace } from './useSiteFace'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
@@ -20,7 +20,7 @@ import { agentService } from '../../../services/agent'
 import { emitAppEvent } from '../../../utils/appEvents'
 import { userFacingError } from '../../../utils/userFacingError'
 import { generateSitePortrait } from '../api'
-import { notifyFaceUpdated } from '../events'
+import { notifyFaceUpdated } from '../events/updates'
 import {
   applyOutfit,
   bindPortrait,
@@ -33,7 +33,7 @@ import {
   stampPortrait,
   withCharacter,
   writeOutfit,
-} from '../wardrobe'
+} from '../persona/wardrobe'
 import { reportMeropeError, structuredFromSnapshot } from './workbenchShared'
 
 interface Options {

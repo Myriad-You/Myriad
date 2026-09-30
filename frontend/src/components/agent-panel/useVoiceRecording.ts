@@ -1,5 +1,9 @@
-import type { VoiceInputTiming } from '../../features/merope/turnTrace'
+import type { VoiceInputTiming } from '../../features/merope/events/turnTrace'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  dropPendingTurnTrace,
+  stageVoiceInputTrace,
+} from '../../features/merope/events/turnTrace'
 import {
   agoraConversationActive,
   startAgoraConversation,
@@ -17,10 +21,6 @@ import {
   getVoicePresence,
   patchVoicePresence,
 } from '../../features/merope/speech/voicePresence'
-import {
-  dropPendingTurnTrace,
-  stageVoiceInputTrace,
-} from '../../features/merope/turnTrace'
 import { getDefaultLocale } from '../../i18n/locales'
 import {
   audioToBase64,

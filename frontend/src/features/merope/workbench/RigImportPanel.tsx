@@ -13,13 +13,13 @@ import {
   ANIME25D_PROJECT_URL,
   PERSONA_UPSTREAM_THANKS,
 } from '../anime25drig/credit'
-import {
-  SEE_THROUGH_PROJECT_NAME,
-  SEE_THROUGH_PROJECT_URL,
-} from '../seeThroughProject'
 import { FaceTabs } from './FaceTabs'
 import { aiExpressionLabel } from './rigImportCopy'
 import { RigImportProgress } from './RigImportProgress'
+import {
+  SEE_THROUGH_PROJECT_NAME,
+  SEE_THROUGH_PROJECT_URL,
+} from './seeThroughProject'
 
 export type RigPath = 'upload' | 'seeThrough'
 

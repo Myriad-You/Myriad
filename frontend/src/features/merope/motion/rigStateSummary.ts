@@ -15,7 +15,7 @@ import type { MotionRuntime } from './runtime'
 import {
   PERFORMANCE_BASELINE_EXPRESSIONS,
   PERFORMANCE_POSTURES,
-} from '../performanceContract'
+} from '../events/performanceContract'
 import { hasAnime25DCapability } from '../rig/anime25dCapabilities'
 import { MOTION_SOURCES } from './channels'
 

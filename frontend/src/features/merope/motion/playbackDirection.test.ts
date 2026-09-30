@@ -1,7 +1,7 @@
 import type { PlaybackDirectionSnapshot } from './playbackDirection'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { sanitizePerformanceDirective } from '../performanceEvents'
+import { sanitizePerformanceDirective } from '../events/performanceEvents'
 import { TtsPipeline } from '../speech/ttsPipeline'
 import { RigMotionCoordinator } from './coordinator'
 import {

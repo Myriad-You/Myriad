@@ -7,6 +7,7 @@ import {
   speechArticulationDriverPatch,
   speechEnergyDriverPatch,
 } from '../../../src/features/merope/anime25drig/speechDriver'
+import { dispatchMeropePerformance } from '../../../src/features/merope/events/performanceEvents'
 import { bindCharacterTouch } from '../../../src/features/merope/interaction/bindTouch'
 import { TouchAppraisal } from '../../../src/features/merope/interaction/touchAppraisal'
 import { TouchGestureTracker } from '../../../src/features/merope/interaction/touchGesture'
@@ -21,13 +22,12 @@ import {
 } from '../../../src/features/merope/motion/liveGeneration'
 import { MusicMotionSource } from '../../../src/features/merope/motion/musicSource'
 import { MotionRuntime } from '../../../src/features/merope/motion/runtime'
-import { dispatchMeropePerformance } from '../../../src/features/merope/performanceEvents'
 import { anime25DImportCopy } from '../../../src/features/merope/rig/anime25dImportCopy'
 import { prepareAnime25DRigPsd } from '../../../src/features/merope/rig/anime25dImporter'
 import { syntheticSeeThroughPsd } from '../../../src/features/merope/rig/anime25dImporter.fixture'
 import { decodeRigPsd } from '../../../src/features/merope/rig/psdDecode'
 import { prepareRigPsdImport } from '../../../src/features/merope/rig/psdImporter'
-import { dispatchMeropeSpeech } from '../../../src/features/merope/speechEvents'
+import { dispatchMeropeSpeech } from '../../../src/features/merope/speech/speechEvents'
 import { loadLocale } from '../../../src/i18n/loadLocale'
 import { currentCopy } from '../../../src/i18n/localeCopy'
 

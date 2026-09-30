@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { Anime25DBehaviorMotionController } from '../anime25drig/behaviorMotion'
 import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
-import { meropePerformanceEventDetail } from '../performanceEvents'
+import { meropePerformanceEventDetail } from '../events/performanceEvents'
 import { RigMotionCoordinator } from './coordinator'
 import { MotionRuntime } from './runtime'
 

@@ -34,7 +34,7 @@ test('Work interrupt cannot abort Chat SSE, and session ids stay per mode', () =
   assert.doesNotMatch(engine, /SpeechSegmenter/)
   assert.doesNotMatch(engine, /turnSpeechPipeline/)
   const face = readFileSync(
-    new URL('../../features/merope/engineFace.ts', import.meta.url),
+    new URL('../../features/merope/presence/engineFace.ts', import.meta.url),
     'utf8',
   )
   assert.match(face, /setLiveMotionGeneration/)

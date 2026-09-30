@@ -5,15 +5,15 @@ import { RigMotionCoordinator } from '../../../src/features/merope/motion/coordi
 import { setLiveMotionGeneration } from '../../../src/features/merope/motion/liveGeneration'
 import { SpeechMotionSource } from '../../../src/features/merope/motion/speechSource'
 import { bindRealtimeChat } from '../../../src/features/merope/speech/realtimeChat'
+import {
+  MEROPE_SPEECH_EVENT,
+  meropeSpeechEventDetail,
+} from '../../../src/features/merope/speech/speechEvents'
 import { getSpeechPipeline } from '../../../src/features/merope/speech/speechPipelineHost'
 import {
   getVoicePresence,
   subscribeVoicePresence,
 } from '../../../src/features/merope/speech/voicePresence'
-import {
-  MEROPE_SPEECH_EVENT,
-  meropeSpeechEventDetail,
-} from '../../../src/features/merope/speechEvents'
 
 declare global {
   interface Window {

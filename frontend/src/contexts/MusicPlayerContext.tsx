@@ -11,7 +11,7 @@ import {
   useMemo,
   useSyncExternalStore,
 } from 'react'
-import { bindMusicMoodListening } from '../features/merope/musicMood'
+import { bindMusicMoodListening } from '../features/merope/music/musicMood'
 import { emitAppEvent } from '../utils/appEvents'
 import {
   mergeMusicContextState,

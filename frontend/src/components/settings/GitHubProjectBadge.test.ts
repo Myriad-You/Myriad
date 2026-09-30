@@ -6,7 +6,7 @@ describe('GitHubProjectBadge wiring', () => {
   it('puts both repo badges under the layered-rig tabs, and on Ollama docs', () => {
     const workbench = readFileSync(
       new URL(
-        '../../features/merope/anime25drig/Anime25DWorkbench.tsx',
+        '../../features/merope/workbench/RigImportPanel.tsx',
         import.meta.url,
       ),
       'utf8',

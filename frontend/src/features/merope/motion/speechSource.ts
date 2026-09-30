@@ -2,27 +2,27 @@ import type {
   PerformanceDirective,
   SpeechPhrase,
 } from '../../../services/agent/types'
-import type { MeropePerformanceEventDetail } from '../performanceEvents'
+import type { MeropePerformanceEventDetail } from '../events/performanceEvents'
 import type { SpeechArticulation } from '../rig/articulation'
-import type { PhraseCoverage } from '../speech/phrasePlan'
 import type { SpeechProsodyPlan } from '../speech/prosody'
-import type { SpeechLifecycleScheduler } from '../speechLifecycle'
 import type { BehaviorPlan, BehaviorSnapshot } from './behavior'
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
 import type { SpeechIntent, SpeechTextChunk } from './intents'
+import type { PhraseCoverage } from './phrasePlan'
+import type { SpeechLifecycleScheduler } from './speechLifecycle'
+import { markTurnTrace } from '../events/turnTrace'
+import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speech/speechEvents'
+import { continueTextProsody, predictTextProsody } from '../speech/textProsody'
+import { MAX_VISUAL_SPEECH_TEXT_UNITS } from '../speech/textTiming'
 import {
   directorPhraseCoverage,
   mergeSpeechPhrases,
   refineSpeechPhrases,
   upcomingSpeechText,
-} from '../speech/phrasePlan'
-import { continueTextProsody, predictTextProsody } from '../speech/textProsody'
-import { MAX_VISUAL_SPEECH_TEXT_UNITS } from '../speech/textTiming'
-import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speechEvents'
-import { SpeechLifecycleController } from '../speechLifecycle'
-import { markTurnTrace } from '../turnTrace'
+} from './phrasePlan'
 import { compileSpeechBehaviorPlan } from './speechBehaviorPlan'
 import { SpeechMotionLease } from './speechLease'
+import { SpeechLifecycleController } from './speechLifecycle'
 
 const REST: SpeechArticulation = { energy: 0, viseme: 'rest', amount: 0 }
 const MAX_QUEUED_TEXT = 32

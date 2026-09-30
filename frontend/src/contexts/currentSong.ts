@@ -1,5 +1,5 @@
 import type { Song } from '../utils/musicPlayer'
-import { herLastAct } from '../features/merope/herActs'
+import { herLastAct } from '../features/merope/music/herActs'
 import { pickMusicContextState } from '../utils/musicPlayerState'
 
 const listeners = new Set<() => void>()

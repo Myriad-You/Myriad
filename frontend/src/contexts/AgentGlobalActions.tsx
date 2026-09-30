@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   isJournalAppPath,
 } from '../components/phantasi/logic/journalRoutes'
-import { playHerSong } from '../features/merope/listenTogether'
+import { playHerSong } from '../features/merope/music/listenTogether'
 import { currentCopy } from '../i18n/localeCopy'
 import {
   registerActionHandler,

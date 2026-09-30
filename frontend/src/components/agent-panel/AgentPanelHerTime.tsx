@@ -1,7 +1,7 @@
 import type { HerDoing, HerLazing } from './herTime'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { listenTogether } from '../../features/merope/listenTogether'
+import { listenTogether } from '../../features/merope/music/listenTogether'
 import { getGlobalState } from '../../hooks/musicPlayer/globalState'
 import { agentService } from '../../services/agent/agentApi'
 import {

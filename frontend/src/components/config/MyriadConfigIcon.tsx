@@ -3,7 +3,7 @@ import {
   onPersonaStickerAvatar,
   PERSONA_STICKER_FALLBACK,
   resolvedPersonaStickerAvatar,
-} from '../../features/merope/personaAvatar'
+} from '../../features/merope/persona/personaAvatar'
 
 export type MyriadConfigIconKind =
   | 'platforms'

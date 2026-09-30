@@ -1,4 +1,4 @@
-import type { MeropeStateEventDetail } from '../features/merope/performanceEvents'
+import type { MeropeStateEventDetail } from '../features/merope/events/performanceEvents'
 import { API_URL } from '../config'
 import apiService from './api'
 

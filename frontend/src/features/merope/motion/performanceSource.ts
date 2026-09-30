@@ -1,6 +1,6 @@
 import type { PerformanceDirective } from '../../../services/agent/types'
-import type { MeropePerformanceEventDetail } from '../performanceEvents'
-import type { MeropeSpeechEventDetail } from '../speechEvents'
+import type { MeropePerformanceEventDetail } from '../events/performanceEvents'
+import type { MeropeSpeechEventDetail } from '../speech/speechEvents'
 import type { RigBearing } from './bearing'
 import type { BehaviorPlan, BehaviorSnapshot } from './behavior'
 import type { RigMotionCoordinator } from './coordinator'
@@ -11,10 +11,9 @@ import {
   MEROPE_STATE_EVENT,
   meropePerformanceEventDetail,
   meropeStateEventDetail,
-} from '../performanceEvents'
-import { PerformanceLifecycleController } from '../performanceLifecycle'
-import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speechEvents'
-import { markTurnTrace } from '../turnTrace'
+} from '../events/performanceEvents'
+import { markTurnTrace } from '../events/turnTrace'
+import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speech/speechEvents'
 import { bearingFromDirective } from './bearing'
 import { newMotionIntentId } from './liveGeneration'
 import {
@@ -22,6 +21,7 @@ import {
   PERFORMANCE_BEHAVIOR_PLAN_ID,
 } from './performanceBehaviorPlan'
 import { PerformanceMotionLeases } from './performanceLeases'
+import { PerformanceLifecycleController } from './performanceLifecycle'
 import { HumanReactionPolicy } from './reactionPolicy'
 
 export class PerformanceMotionSource {

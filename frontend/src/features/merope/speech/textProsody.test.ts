@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { meropeSpeechEventDetail } from '../speechEvents'
+import { meropeSpeechEventDetail } from './speechEvents'
 import {
   alignTextProsody,
   continueTextProsody,

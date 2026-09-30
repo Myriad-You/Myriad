@@ -3,7 +3,7 @@ import type {
   PerformanceCue,
 } from '../../../services/agent/types'
 import type { Anime25DDriver } from './driver'
-import { performanceCuePriority } from '../performanceContract'
+import { performanceCuePriority } from '../events/performanceContract'
 import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
 import { cueIsSticker } from './performanceCueDefinitions'
 

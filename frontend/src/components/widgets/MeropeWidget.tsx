@@ -13,35 +13,35 @@ import {
 } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
-import { agentStatusActivity } from '../../features/merope/activity'
 import { isAnime25DPlayback } from '../../features/merope/anime25drig/types'
 import { getSiteFace } from '../../features/merope/api'
 import RigCharacter from '../../features/merope/character/RigCharacter'
 import {
-  FACE_UPDATED_EVENT,
-  PERSONA_UPDATED_EVENT,
-} from '../../features/merope/events'
-import { FacePresence } from '../../features/merope/FacePresence'
-import {
-  LIVE_FACE_PLAYBACK_PRIORITY,
-  notifyLiveFaceUnmounted,
-  useLiveFacePlayback,
-} from '../../features/merope/liveFacePlayback'
-import { semanticRigCapabilities } from '../../features/merope/motion/rigStateSummary'
-import { useRigMotionLifecycle } from '../../features/merope/motion/useRigMotionLifecycle'
-import {
   MEROPE_STATE_EVENT,
   meropeStateEventDetail,
   resolveLoadedMeropeAffect,
-} from '../../features/merope/performanceEvents'
+} from '../../features/merope/events/performanceEvents'
+import {
+  FACE_UPDATED_EVENT,
+  PERSONA_UPDATED_EVENT,
+} from '../../features/merope/events/updates'
+import { semanticRigCapabilities } from '../../features/merope/motion/rigStateSummary'
+import { useRigMotionLifecycle } from '../../features/merope/motion/useRigMotionLifecycle'
+import { agentStatusActivity } from '../../features/merope/persona/activity'
 import {
   loadPublicPersonaName,
   PERSONA_DEFAULT_NAME,
   PERSONA_OFF_NAME,
   publicPersonaName,
-} from '../../features/merope/publicName'
+} from '../../features/merope/persona/publicName'
+import { FacePresence } from '../../features/merope/presence/FacePresence'
+import {
+  LIVE_FACE_PLAYBACK_PRIORITY,
+  notifyLiveFaceUnmounted,
+  useLiveFacePlayback,
+} from '../../features/merope/presence/liveFacePlayback'
+import { useMeropeWidgetFaceSlot } from '../../features/merope/presence/widgetFaceSlot'
 import { sameLiveFaceRuntime } from '../../features/merope/rig/types'
-import { useMeropeWidgetFaceSlot } from '../../features/merope/widgetFaceSlot'
 import { agentService } from '../../services/agent'
 import { useAgentStatus } from '../agent-panel/agentStatusStore'
 import { ADDRESSEE_UPDATED_EVENT, moodBand } from '../agent/meropeVitals'

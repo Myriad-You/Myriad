@@ -39,7 +39,7 @@ describe('merope widget presence', () => {
 describe('merope widget CSS contract', () => {
   const css = readFileSync(new URL('./MeropeWidget.css', import.meta.url), 'utf8')
   const presence = readFileSync(
-    new URL('../../features/merope/facePresence.css', import.meta.url),
+    new URL('../../features/merope/presence/facePresence.css', import.meta.url),
     'utf8',
   )
 

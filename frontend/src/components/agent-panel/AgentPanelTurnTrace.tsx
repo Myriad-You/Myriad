@@ -4,7 +4,7 @@ import {
   serializeTurnTrace,
   snapshotTurnTrace,
   subscribeTurnTrace,
-} from '../../features/merope/turnTrace'
+} from '../../features/merope/events/turnTrace'
 
 export function downloadTurnTrace(): void {
   const blob = new Blob([serializeTurnTrace()], { type: 'application/json' })

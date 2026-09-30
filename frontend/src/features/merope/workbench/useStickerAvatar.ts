@@ -3,7 +3,7 @@ import { notifyAvatarChanged } from '../../../services/avatarSourceApi'
 import { invalidatePublicConfigCache } from '../../../utils/requestDedup'
 import { userFacingError } from '../../../utils/userFacingError'
 import { generateStickerAvatar } from '../api'
-import { refreshPersonaStickerAvatar } from '../personaAvatar'
+import { refreshPersonaStickerAvatar } from '../persona/personaAvatar'
 import { reportMeropeError } from './workbenchShared'
 
 /** Tell every avatar slot the sticker changed. */

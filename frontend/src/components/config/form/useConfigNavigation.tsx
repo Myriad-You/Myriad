@@ -3,8 +3,8 @@ import type { ConfigSectionCopy } from './configSections'
 import type { QuickAccessItem } from './types'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { settingsAgentLabel } from '../../../features/merope/publicName'
-import { usePersonaPublicName } from '../../../features/merope/usePersonaPublicName'
+import { settingsAgentLabel } from '../../../features/merope/persona/publicName'
+import { usePersonaPublicName } from '../../../features/merope/persona/usePersonaPublicName'
 import { agentSettingsPath } from '../../agent/settings/agentSettingsPath'
 import {
   scheduleScrollToSettingGuide,

@@ -77,7 +77,7 @@ the semantic report deliberately leaves `visibleImprovement` null.
 From `frontend`, run the existing suites together:
 
 ```sh
-pnpm exec tsx --test src/features/merope/interaction/*.test.ts src/features/merope/motion/touchSource.test.ts src/features/merope/body/*.test.ts src/features/merope/faceSpeechArbitration.test.ts src/features/merope/anime25drig/touchCoordination.test.ts src/features/merope/speechLifecycle.test.ts
+pnpm exec tsx --test src/features/merope/interaction/*.test.ts src/features/merope/motion/touchSource.test.ts src/features/merope/body/*.test.ts src/features/merope/presence/faceSpeechArbitration.test.ts src/features/merope/anime25drig/touchCoordination.test.ts src/features/merope/motion/speechLifecycle.test.ts
 ```
 
 The sequence tests sample accept/hesitate/withdraw at 30/60/120 FPS through

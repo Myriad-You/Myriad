@@ -1,4 +1,4 @@
-import { noteTurnTraceDrop } from '../turnTrace'
+import { noteTurnTraceDrop } from '../events/turnTrace'
 
 let liveGeneration = 0
 

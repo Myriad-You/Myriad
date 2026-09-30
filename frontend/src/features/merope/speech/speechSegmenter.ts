@@ -1,4 +1,4 @@
-import type { MeropeSpeechSource } from '../speechEvents'
+import type { MeropeSpeechSource } from './speechEvents'
 import { getDefaultLocale } from '../../../i18n'
 import { speakableText } from './speakableText'
 

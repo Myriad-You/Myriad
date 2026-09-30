@@ -6,7 +6,7 @@ import {
   generateSitePortrait,
   getSiteFace,
 } from '../../../../features/merope/api'
-import { notifyFaceUpdated } from '../../../../features/merope/events'
+import { notifyFaceUpdated } from '../../../../features/merope/events/updates'
 import { siteMediaUrl } from '../../../../utils/siteMediaUrl'
 import { userFacingError } from '../../../../utils/userFacingError'
 import {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test, { mock } from 'node:test'
 import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
-import { setLiveFaceVisible } from '../faceVisible'
+import { setLiveFaceVisible } from '../events/faceVisible'
 import { RigMotionCoordinator } from '../motion/coordinator'
 import { setLiveMotionGeneration } from '../motion/liveGeneration'
 import { MotionRuntime } from '../motion/runtime'
@@ -215,7 +215,7 @@ test('production chat and perception go through the body adapters', () => {
     'utf8',
   )
   const arbitration = readFileSync(
-    new URL('../faceSpeechArbitration.ts', import.meta.url),
+    new URL('../presence/faceSpeechArbitration.ts', import.meta.url),
     'utf8',
   )
   const captureCallers = [

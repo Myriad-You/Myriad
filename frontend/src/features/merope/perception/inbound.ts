@@ -21,7 +21,7 @@ import {
 } from '../../../contexts/currentSong'
 import { isKnownGuest } from '../../../utils/authState'
 import { authSubject } from '../../../utils/authSubject'
-import { PERSONA_UPDATED_EVENT } from '../events'
+import { PERSONA_UPDATED_EVENT } from '../events/updates'
 import {
   getVoicePresence,
   subscribeVoicePresence,
@@ -88,7 +88,7 @@ async function defaultCapture(
 }
 
 async function defaultFacts(): Promise<unknown> {
-  const { livePresenceFacts } = await import('../livePresence')
+  const { livePresenceFacts } = await import('../presence/livePresence')
   return livePresenceFacts()
 }
 

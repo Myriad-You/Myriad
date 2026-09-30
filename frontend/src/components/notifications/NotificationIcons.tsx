@@ -4,7 +4,7 @@ import {
   onPersonaStickerAvatar,
   PERSONA_STICKER_FALLBACK,
   resolvedPersonaStickerAvatar,
-} from '../../features/merope/personaAvatar'
+} from '../../features/merope/persona/personaAvatar'
 
 const NOTIFICATION_SOURCE_ICON_ASSETS = {
   agent: PERSONA_STICKER_FALLBACK,

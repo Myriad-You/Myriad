@@ -1,6 +1,6 @@
 import type { TappBridge } from '../../TappBridge'
 import { getSiteFace } from '../../../../features/merope/api'
-import { publicPersonaNameFromConfig } from '../../../../features/merope/publicName'
+import { publicPersonaNameFromConfig } from '../../../../features/merope/persona/publicName'
 import { agentService } from '../../../../services/agent'
 import { isKnownGuest } from '../../../../utils/authState'
 import { getPublicConfigDeduped } from '../../../../utils/requestDedup'

@@ -3,8 +3,8 @@ import type { MotionFrame } from './intents'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { arbitrateFaceSpeech } from '../faceSpeechArbitration'
-import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
+import { PERFORMANCE_CUE_INTENTS } from '../events/performanceContract'
+import { arbitrateFaceSpeech } from '../presence/faceSpeechArbitration'
 import { musicSignalAt } from '../singing/musicSignal.test-support'
 import { workbenchSources } from '../workbench/sources.test-support'
 import { applyMotionFrame, createMotionApplyState } from './applyFrame'
@@ -163,10 +163,10 @@ test('production faces consume the snapshot; sources do not take a rig', () => {
   assert.doesNotMatch(source('./speechSource.ts'), /rigRef/)
   assert.doesNotMatch(source('./performanceSource.ts'), /rigRef/)
   assert.doesNotMatch(
-    source('../useRigSingingLifecycle.ts'),
+    source('./useRigSingingLifecycle.ts'),
     /applySingingWrite/,
   )
-  assert.doesNotMatch(source('../useRigSingingLifecycle.ts'), /rigRef/)
+  assert.doesNotMatch(source('./useRigSingingLifecycle.ts'), /rigRef/)
 })
 
 test('the production rig port stays renderer-neutral', () => {

@@ -12,7 +12,7 @@ import { HumanPerformanceRuntime } from '../../../src/features/merope/motion/hum
 import { MusicMotionSource } from '../../../src/features/merope/motion/musicSource'
 import { MotionRuntime } from '../../../src/features/merope/motion/runtime'
 import { TouchMotionSource } from '../../../src/features/merope/motion/touchSource'
-import { dispatchMeropeSpeech, dispatchMeropeSpeechUtterance } from '../../../src/features/merope/speechEvents'
+import { dispatchMeropeSpeech, dispatchMeropeSpeechUtterance } from '../../../src/features/merope/speech/speechEvents'
 
 /** Exercise the real component port and renderer; only input/time are synthetic. */
 export async function replayCharacterScene(manifest: MeropeRigManifest, scene: 'touch-speech' | 'touch-thinking' | 'default') {

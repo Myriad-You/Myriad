@@ -1,7 +1,7 @@
 import type { PageContent } from '../../../contexts/PageContentContext'
 import type { PerformanceDirective } from '../../../services/agent/types'
+import type { MeropePerformanceEventDetail } from '../events/performanceEvents'
 import type { PerceptionSnapshot } from '../perception/registry'
-import type { MeropePerformanceEventDetail } from '../performanceEvents'
 
 /** Semantic only — no drivers. */
 

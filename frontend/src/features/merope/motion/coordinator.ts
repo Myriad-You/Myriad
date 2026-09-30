@@ -1,5 +1,5 @@
 import type { MotionChannel, MotionSourceId } from './channels'
-import { noteTurnTraceLeaseExpiry } from '../turnTrace'
+import { noteTurnTraceLeaseExpiry } from '../events/turnTrace'
 import { channelPriority } from './channels'
 
 export interface MotionLeaseHandle {

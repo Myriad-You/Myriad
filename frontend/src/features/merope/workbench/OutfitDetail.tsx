@@ -2,7 +2,7 @@ import type {
   UpperBodyVisualIdentity,
   UpperBodyVisualIdentityKey,
 } from '../../../components/agent/onboarding/onboardingTypes'
-import type { WardrobeItem } from '../wardrobe'
+import type { WardrobeItem } from '../persona/wardrobe'
 import { LuChevronLeft } from 'react-icons/lu'
 import { Field, TextInput } from '../../../components/agent/onboarding/ui/Field'
 import PortraitImportButton from '../../../components/agent/onboarding/ui/PortraitImportButton'
@@ -16,7 +16,7 @@ import {
   MAX_WARDROBE_NAME_CHARS,
   parseWardrobeName,
   wardrobeItemLabel,
-} from '../wardrobe'
+} from '../persona/wardrobe'
 import { reportMeropeError } from './workbenchShared'
 
 interface Props {

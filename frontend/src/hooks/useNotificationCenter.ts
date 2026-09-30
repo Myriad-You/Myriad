@@ -1,4 +1,4 @@
-import type { MeropeStateEventDetail } from '../features/merope/performanceEvents'
+import type { MeropeStateEventDetail } from '../features/merope/events/performanceEvents'
 import type {
   AppNotification,
   LiveSpeechEvent,

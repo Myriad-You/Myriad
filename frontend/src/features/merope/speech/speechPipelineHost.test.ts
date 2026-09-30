@@ -1,4 +1,4 @@
-import type { MeropeSpeechEventDetail } from '../speechEvents'
+import type { MeropeSpeechEventDetail } from './speechEvents'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
@@ -11,7 +11,7 @@ import {
   liveMotionGeneration,
   setLiveMotionGeneration,
 } from '../motion/liveGeneration'
-import { MEROPE_SPEECH_EVENT } from '../speechEvents'
+import { MEROPE_SPEECH_EVENT } from './speechEvents'
 import { personaSpeechFlags, SpeechPipelineHost } from './speechPipelineHost'
 import { SpeechSegmenter } from './speechSegmenter'
 import { getVoicePresence, patchVoicePresence } from './voicePresence'

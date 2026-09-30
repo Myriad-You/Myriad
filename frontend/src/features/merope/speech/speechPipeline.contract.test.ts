@@ -13,7 +13,7 @@ test('speech never reaches the run hub and never persists visemes', () => {
   const host = source('./speechPipelineHost.ts')
   assert.match(host, /persona_speech_enabled/)
   assert.doesNotMatch(host, /run_hub|AgentProgressEvent/)
-  const trace = source('../turnTrace.ts')
+  const trace = source('../events/turnTrace.ts')
   assert.doesNotMatch(trace, /run_hub/)
   assert.doesNotMatch(trace, /phase: 'articulation'/)
 })

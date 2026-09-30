@@ -11,7 +11,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
 import {
   FACE_UPDATED_EVENT,
-} from '../../features/merope/events'
+} from '../../features/merope/events/updates'
 import SiteMotionWorkbench from '../../features/merope/workbench/SiteMotionWorkbench'
 import { agentService } from '../../services/agent'
 import { emitAppEvent } from '../../utils/appEvents'
