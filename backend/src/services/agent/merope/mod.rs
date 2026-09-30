@@ -16,6 +16,7 @@ pub(crate) mod inner;
 pub mod joining;
 mod library;
 pub mod life;
+pub mod likeness;
 pub mod making_sense;
 #[cfg(test)]
 mod memory_bench;
@@ -753,6 +754,12 @@ async fn speaking_prompt_from_db(
             days,
             chrono::Utc::now(),
         ));
+    }
+    // Whether it reads like them typing.
+    if matches!(turn, Turn::Chat(_))
+        && let Some(block) = likeness::section(db, user_id).await
+    {
+        sections.push(block);
     }
     let Ok(state) = get_or_create_state(db, user_id).await else {
         return sections;

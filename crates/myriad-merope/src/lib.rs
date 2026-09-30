@@ -42,6 +42,7 @@ pub mod speaking;
 mod speech_plan;
 mod sticker_avatar;
 pub mod stickers;
+pub mod style;
 pub mod strangers;
 pub mod talk_shape;
 pub mod threads;

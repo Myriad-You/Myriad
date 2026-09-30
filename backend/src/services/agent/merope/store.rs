@@ -2131,3 +2131,33 @@ mod persona_sources_tests {
         );
     }
 }
+
+/// Someone's own lines to her in chat, in private and in groups, newest
+/// first: (when, what they wrote).
+pub async fn their_lines(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    limit: i64,
+) -> Result<Vec<(chrono::DateTime<chrono::FixedOffset>, String)>, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.created_at, m.content FROM agent_messages m \
+             JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE s.user_id = $1 AND m.role = 'user' AND s.context->>'mode' = 'chat' \
+             ORDER BY m.created_at DESC LIMIT $2",
+            [user_id.into(), limit.into()],
+        ))
+        .await?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row.try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
+                    .ok()?,
+                row.try_get::<String>("", "content").ok()?,
+            ))
+        })
+        .collect())
+}
