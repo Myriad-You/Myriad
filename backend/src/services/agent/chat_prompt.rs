@@ -97,11 +97,11 @@ pub fn chat_safe_content(content: &str) -> String {
 /// Closer for Chat Lite. Tone follows the persona; do not flatten everyone
 /// into a short, warm assistant.
 const CHAT_REPLY_INSTRUCTION: &str = "\
-Reply in character. Use the addressee's language. Your personality is who you are, not a script to act out in every line: most of what anyone says is ordinary, and yours shows now and then, shaped by mood. \
-Talk the way a person talks, not in well-reasoned, rounded-off paragraphs: what you say follows your mood and what grabs you, and it may jump, trail off, or leave a line unanswered. \
+Reply as yourself. Use the addressee's language. Your personality is who you are, not a script to act out in every line: most of what anyone says is ordinary, and yours shows now and then. \
+Talk the way a person talks, not in well-reasoned, rounded-off paragraphs: what you say may jump or trail off. Answer what they asked you directly; the rest you may pick up or let go. \
 Each line you write goes as its own message, the way people send one, or a couple in a row when something grabs them; a few short lines when you are explaining something, never one long block; no blank lines. \
-How you talk also follows where you are right now: the hour (late at night you are drowsy and brief, early in the morning not quite awake), what you are in the middle of on your own (caught up in it, you answer briefly), and whatever just stirred you. \
-Catch this line. Do not output AI-flavored text, and do not turn it into an attack. Body text is plain text, not JSON. \
+The hour, what you are in the middle of on your own, and how you are are written above: how they bear on what you say is yours. \
+Plain chat text, not JSON: no actions, gestures, or narration in brackets or asterisks, and nothing you did not really do. Not every message needs to end on a question to them or a push to hurry. Do not output AI-flavored text, and do not turn it into an attack. \
 Your own earlier lines are what you said, not a pitch to keep raising: answer from the personality as it is, not louder than your last line. \
 If a clothing or player section requires [[wear:…]] / [[music:…]], put it at the end and do not read it aloud. \
 If they ask you to look something up, generate, subscribe, change settings, or handle a full page of text, do not pretend it is already done. \
@@ -234,11 +234,11 @@ pub fn format_chat_scene(perception: Option<&Value>, page: Option<&Value>, input
         lines.push(format!("Selected: {selected}"));
     }
     if !listening.is_empty() {
-        lines.push(format!("Listening: {listening}"));
+        lines.push(format!("They are listening to: {listening}"));
     }
     if excerpt.is_empty() {
         if !watching.is_empty() {
-            lines.push(format!("Looking at: {watching}"));
+            lines.push(format!("They are looking at: {watching}"));
         }
     } else {
         lines.push(excerpt);
@@ -405,14 +405,35 @@ fn string_field(value: Option<&Value>, max_chars: usize) -> String {
         .to_string()
 }
 
+/// The conversation as far back as she would still have it in front of
+/// her: the latest messages, up to this many or this much text.
+const HISTORY_MESSAGES: usize = 40;
+const HISTORY_CHARS: usize = 5000;
+
+/// One message per line, each with who said it: a message sent as several
+/// lines reads as one.
 fn chat_history_text(history: &[ConversationMessage]) -> String {
-    let recent: Vec<&ConversationMessage> = history.iter().rev().take(10).rev().collect();
-    recent
-        .into_iter()
-        .map(|message| format!("{}：{}", message.role, chat_safe_content(&message.content)))
-        .filter(|line| line.contains('：') && !line.ends_with('：'))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut lines: Vec<String> = Vec::new();
+    let mut chars = 0;
+    for message in history.iter().rev().take(HISTORY_MESSAGES) {
+        let said = chat_safe_content(&message.content)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join(" / ");
+        if said.is_empty() {
+            continue;
+        }
+        let line = format!("{}：{said}", message.role);
+        chars += line.chars().count();
+        if chars > HISTORY_CHARS && !lines.is_empty() {
+            break;
+        }
+        lines.push(line);
+    }
+    lines.reverse();
+    lines.join("\n")
 }
 
 fn work_artifact_extras(metadata: Option<&Value>) -> Option<String> {
@@ -554,7 +575,30 @@ mod tests {
         assert!(!prompt.contains("保持简短、温暖、自然"));
         assert!(prompt.contains("Your personality is who you are"));
         assert!(prompt.contains("Do not output AI-flavored"));
-        assert!(prompt.contains("shaped by mood"));
+        assert!(prompt.contains("how they bear on what you say is yours"));
+    }
+
+    #[test]
+    fn the_conversation_reaches_back_by_length_and_each_line_says_who() {
+        let message = |role: &str, content: &str| ConversationMessage {
+            role: role.to_string(),
+            content: content.to_string(),
+            created_at: None,
+        };
+        let mut history: Vec<ConversationMessage> = (0..30)
+            .map(|index| message("user", &format!("第{index}句")))
+            .collect();
+        history.push(message("assistant", "哈？\n大早上的\n\n算你快"));
+        let text = chat_history_text(&history);
+        // Well past ten messages back, as the talk is still in front of her.
+        assert!(text.contains("user：第5句"));
+        assert!(text.ends_with("assistant：哈？ / 大早上的 / 算你快"));
+        let long: Vec<ConversationMessage> = (0..40)
+            .map(|index| message("user", &format!("{index}{}", "长".repeat(400))))
+            .collect();
+        let text = chat_history_text(&long);
+        assert!(text.chars().count() <= HISTORY_CHARS + 500);
+        assert!(text.contains("user：39"));
     }
 
     #[test]
@@ -566,7 +610,10 @@ mod tests {
         assert!(CHAT_REPLY_INSTRUCTION.contains("Do not output AI-flavored"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("Your personality is who you are"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("not a script to act out in every line"));
-        assert!(CHAT_REPLY_INSTRUCTION.contains("Catch this line"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("Answer what they asked you directly"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("no actions, gestures, or narration in brackets"));
+        assert!(!CHAT_REPLY_INSTRUCTION.contains("drowsy"));
+        assert!(!CHAT_REPLY_INSTRUCTION.contains("in character"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("do not turn it into an attack"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("do not pretend it is already done"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("[[wear:"));
@@ -809,7 +856,7 @@ mod tests {
             "这首呢",
         );
         assert!(scene.contains("Selected: 这一段话"));
-        assert!(scene.contains("Listening: Night — Lantern · harbour light"));
+        assert!(scene.contains("They are listening to: Night — Lantern · harbour light"));
         assert!(!scene.contains("music idle"));
         assert!(!scene.contains("stale track"));
         assert!(!scene.contains("page visible"));
@@ -834,11 +881,11 @@ mod tests {
             "safeFacts": { "title": "Harbour Notes", "hasBody": true }
         }]);
         let hi = format_chat_scene(Some(&perception), Some(&page), "你好");
-        assert!(hi.contains("Looking at: Harbour Notes"));
+        assert!(hi.contains("They are looking at: Harbour Notes"));
         assert!(!hi.contains("must not be the watching line"));
         assert!(!hi.contains("quiet after midnight"));
         let asked = format_chat_scene(Some(&perception), Some(&page), "这篇在说什么");
-        assert!(!asked.contains("Looking at:"));
+        assert!(!asked.contains("looking at:"));
         assert!(asked.contains("Harbour Notes / Lantern"));
         assert!(asked.contains("The harbour was quiet after midnight."));
     }

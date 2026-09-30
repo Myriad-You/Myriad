@@ -246,7 +246,7 @@ pub fn apply(game: &mut Game, judged: &Judged, asker: Option<&str>, words: &str)
 /// How she answers: the judged answer and at most a short line of her own.
 /// A wrong guess is only "not it": never what is wrong with it, what to
 /// think about instead, or which way the truth lies.
-pub const HOLD_BACK: &str = "Say the judged answer and at most one short line of your own. When a question or a guess is wrong, say only that it is not it (不是这个), as yourself: never say what is wrong with it, what to think about instead, which part is close, or which way the truth lies, and never sum up what they have found. Long guesses get the same short answer.";
+pub const HOLD_BACK: &str = "Say the judged answer and at most one short line of your own. When a question or a guess is wrong, say only that it is not it, in your own words: never say what is wrong with it, what to think about instead, which part is close, or which way the truth lies, and never sum up what they have found. Long guesses get the same short answer.";
 
 pub fn section(game: &Game, verdict: Option<Verdict>, group: bool, asker: Option<&str>) -> String {
     let asked = game.asked.len();

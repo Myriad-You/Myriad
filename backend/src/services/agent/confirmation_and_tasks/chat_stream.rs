@@ -399,53 +399,60 @@ impl Agent {
         };
         let mut merope_block = crate::services::agent::merope::speaking_prompt_plain(&sections);
         // A group has no wardrobe of hers to change and no player of theirs to
-        // run: those sections are for a private chat.
+        // run, and neither has a chat app: those sections are for a private
+        // chat on the site, where they are really there.
         if venue.is_none()
             && request.context.as_ref().is_some_and(|context| {
                 context.interaction_mode == crate::services::agent::AgentInteractionMode::Chat
             })
         {
+            let in_app = request
+                .context
+                .as_ref()
+                .is_some_and(|context| context.channel_chat.is_some());
             let session_id = request
                 .context
                 .as_ref()
                 .and_then(|context| context.session_id.as_deref())
                 .unwrap_or("");
-            if let Some(wardrobe) = crate::services::agent::merope::chat_wardrobe_section(
-                &self.db,
-                request.user_id,
-                session_id,
-            )
-            .await
-            {
-                if merope_block.is_empty() {
-                    merope_block = wardrobe;
-                } else {
-                    merope_block = format!("{merope_block}\n\n{wardrobe}");
-                }
-            }
-            let music = request
-                .context
-                .as_ref()
-                .and_then(|context| context.custom_data.as_ref())
-                .and_then(|data| data.get("musicStatus"));
-            let mut player = crate::services::agent::chat_music::format_chat_player_section(music);
-            if let Some(line) = crate::services::agent::merope::doing::current()
-                .and_then(|doing| crate::services::agent::merope::doing::player_line(&doing, music))
-            {
-                player.push('\n');
-                player.push_str(line);
-            }
-            // Songs she could put on for them, where there is a player.
-            if music.is_some() {
-                if let Some(section) = crate::services::agent::chat_music::offer_songs(
+            let mut blocks: Vec<String> = Vec::new();
+            if !in_app {
+                if let Some(wardrobe) = crate::services::agent::merope::chat_wardrobe_section(
                     &self.db,
                     request.user_id,
                     session_id,
                 )
                 .await
                 {
-                    player.push_str("\n\n");
-                    player.push_str(&section);
+                    blocks.push(wardrobe);
+                }
+                let music = request
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.custom_data.as_ref())
+                    .and_then(|data| data.get("musicStatus"));
+                let mut player =
+                    crate::services::agent::chat_music::format_chat_player_section(music);
+                if let Some(line) =
+                    crate::services::agent::merope::doing::current().and_then(|doing| {
+                        crate::services::agent::merope::doing::player_line(&doing, music)
+                    })
+                {
+                    player.push('\n');
+                    player.push_str(line);
+                }
+                blocks.push(player);
+                // Songs she could put on for them, where there is a player.
+                if music.is_some() {
+                    if let Some(section) = crate::services::agent::chat_music::offer_songs(
+                        &self.db,
+                        request.user_id,
+                        session_id,
+                    )
+                    .await
+                    {
+                        blocks.push(section);
+                    }
                 }
             }
             // A turtle soup on in this conversation, with their message
@@ -456,20 +463,15 @@ impl Agent {
                     crate::services::agent::merope::soup::offer_line(request).map(str::to_string)
                 }
             };
-            if let Some(game) = game {
-                player.push_str("\n\n");
-                player.push_str(&game);
-            }
+            blocks.extend(game);
             // A private IM chat: she can hand work off.
             if let Some(chat) = request
                 .context
                 .as_ref()
                 .and_then(|context| context.channel_chat.as_ref())
             {
-                player.push_str("\n\n");
-                player.push_str(&crate::services::agent::delegate::section(chat));
-                player.push_str("\n\n");
-                player.push_str(myriad_merope::speaking::chat_app_section());
+                blocks.push(crate::services::agent::delegate::section(chat));
+                blocks.push(myriad_merope::speaking::chat_app_section().to_string());
                 // How they type to her, once there is enough of it.
                 if let Some(room) = request
                     .context
@@ -477,15 +479,13 @@ impl Agent {
                     .and_then(|context| context.conversation_history.as_deref())
                     .and_then(crate::services::agent::merope::their_typing)
                 {
-                    player.push_str("\n\n");
-                    player.push_str(&myriad_merope::talk_shape::describe(&room, "How they type"));
+                    blocks.push(myriad_merope::talk_shape::describe(&room, "How they type"));
                 }
                 // No player there: a song goes as its link.
                 if let Some(songs) =
                     crate::services::agent::chat_music::offer_song_links(&self.db).await
                 {
-                    player.push_str("\n\n");
-                    player.push_str(&songs);
+                    blocks.push(songs);
                 }
                 // Stickers of her, to send there.
                 if let Some(stickers) = crate::services::agent::merope::stickers::section(
@@ -496,15 +496,13 @@ impl Agent {
                 )
                 .await
                 {
-                    player.push_str("\n\n");
-                    player.push_str(&stickers);
+                    blocks.push(stickers);
                 }
             }
-            if merope_block.is_empty() {
-                merope_block = player;
-            } else {
-                merope_block = format!("{merope_block}\n\n{player}");
+            if !merope_block.is_empty() {
+                blocks.insert(0, merope_block);
             }
+            merope_block = blocks.join("\n\n");
         }
         let supplied = request
             .context

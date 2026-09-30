@@ -751,7 +751,8 @@ async fn speaking_prompt_from_db(
     if !group && let Some(told) = making_sense::told_by_section(db, user_id).await {
         sections.push(told);
     }
-    if let Some((first, days)) = acquaintance(db, user_id).await {
+    // How long the two of them have known each other is between them.
+    if !group && let Some((first, days)) = acquaintance(db, user_id).await {
         sections.push(myriad_merope::speaking::format_acquaintance_section(
             first,
             days,
@@ -883,7 +884,8 @@ async fn speaking_prompt_from_db(
             sections.push(block);
         }
     }
-    if let Some(block) = format_activity_section(current_activity(&state)) {
+    // What they are doing on the site is theirs: not for a group to hear.
+    if !group && let Some(block) = format_activity_section(current_activity(&state)) {
         sections.push(block);
     }
     // What the site's owner is playing, to the owner alone.
