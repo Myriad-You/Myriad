@@ -41,9 +41,14 @@ const PAUSE_MINUTES: std::ops::Range<i64> = 3..12;
 /// When she would rather do nothing, how long before she thinks about it
 /// again is hers to say, within these; otherwise `REST`.
 const REST: chrono::Duration = chrono::Duration::minutes(30);
+/// When the model could not be reached to choose, she did not choose to
+/// rest: she comes back to it soon.
+const UNREACHED_AGAIN: chrono::Duration = chrono::Duration::minutes(5);
 /// She brings something up to the same person at most this often.
 const TELL_EVERY: Duration = Duration::from_secs(45 * 60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
+/// A digest the model failed on in passing is asked once more after this.
+const DIGEST_AGAIN_AFTER: Duration = Duration::from_secs(20);
 
 /// What she is doing now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -378,7 +383,7 @@ pub async fn tick(db: DatabaseConnection) {
         choose(&db, owner, hand, &facts, pace.tone),
     )
     .await
-    .unwrap_or(Err(None));
+    .unwrap_or(Err(Some(UNREACHED_AGAIN)));
     if let Ok(mut life) = LIFE.lock() {
         match chosen {
             Ok(Picked::Doing(doing)) => {
@@ -561,7 +566,7 @@ async fn choose(
         .ok();
     let Some(choice) = choice else {
         tracing::info!("[Merope] could not decide what to do on her own");
-        return Err(None);
+        return Err(Some(UNREACHED_AGAIN));
     };
     // A way of lazing about, picked like anything else.
     if let Some((kind, _)) = choice
@@ -627,16 +632,22 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     );
     let soul = soul().await;
     let what = format!("{} {}", done.thing.verb(), done.thing.describe());
-    let Ok(raw) = call::Ask::new(Voice::Hers, owner, "doing_digest")
-        .within(CALL_TIMEOUT)
-        .json_raw(
-            &digest_system(&soul, &what, &done.why, &intake.how),
-            &input,
-            DIGEST_SCHEMA,
-            &digest_schema(&intake.asks),
-        )
-        .await
-    else {
+    let system = digest_system(&soul, &what, &done.why, &intake.how);
+    let schema = digest_schema(&intake.asks);
+    let ask = || {
+        call::Ask::new(Voice::Hers, owner, "doing_digest")
+            .within(CALL_TIMEOUT)
+            .json_raw(&system, &input, DIGEST_SCHEMA, &schema)
+    };
+    // What she spent the while on is not lost to one bad call.
+    let raw = match ask().await {
+        Err(failure) if failure.retryable() => {
+            tokio::time::sleep(DIGEST_AGAIN_AFTER).await;
+            ask().await
+        }
+        raw => raw,
+    };
+    let Ok(raw) = raw else {
         return;
     };
     let Some((digest, wrote)) = read_digest(&raw, &intake.asks) else {
