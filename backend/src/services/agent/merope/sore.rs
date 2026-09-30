@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use crate::services::agent::memory::unified::{self, Audience};
 use myriad_merope::sore::{MAX_OPEN, WHAT_CHARS};
-pub use myriad_merope::sore::{Sore, as_input, section};
+pub use myriad_merope::sore::{Sore, Weight, as_input, carried_section, section};
 
 pub const SOURCE: &str = "sore";
 /// Untouched this long, a sore spot fades.
@@ -36,10 +36,18 @@ fn sore_of(row: &crate::models::entities::agent_memories::Model) -> Option<Sore>
         id: row.id.clone(),
         user_id: row.user_id?,
         what: row.content.clone(),
-        petty: evidence
-            .get("petty")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        // Kept before there were weights: petty or not.
+        weight: evidence
+            .get("weight")
+            .and_then(Value::as_str)
+            .and_then(Weight::parse)
+            .unwrap_or(
+                if evidence.get("petty").and_then(Value::as_bool) == Some(true) {
+                    Weight::Petty
+                } else {
+                    Weight::Hurt
+                },
+            ),
         since: at("since").unwrap_or_else(|| row.created_at.with_timezone(&Utc)),
         mended: at("mended"),
         venue: row.venue.clone(),
@@ -101,7 +109,7 @@ async fn put(
     user_id: i32,
     audience: Audience,
     what: &str,
-    petty: bool,
+    weight: Weight,
     since: DateTime<Utc>,
     mended: Option<DateTime<Utc>>,
 ) {
@@ -113,7 +121,7 @@ async fn put(
             content: what.to_string(),
             evidence: Some(
                 json!({
-                    "petty": petty,
+                    "weight": weight.as_str(),
                     "since": since.to_rfc3339(),
                     "mended": mended.map(|at| at.to_rfc3339()),
                 })
@@ -122,7 +130,11 @@ async fn put(
             speaker: unified::Speaker::Agent,
             source: SOURCE,
             audience,
-            importance: if petty { 0.4 } else { 0.7 },
+            importance: match weight {
+                Weight::Petty => 0.4,
+                Weight::Hurt => 0.7,
+                Weight::Deep => 0.9,
+            },
             concepts: Vec::new(),
         },
     )
@@ -136,7 +148,7 @@ pub async fn keep(
     user_id: i32,
     audience: Audience,
     what: &str,
-    petty: bool,
+    weight: Weight,
 ) {
     let what: String = what.trim().chars().take(WHAT_CHARS).collect();
     if what.is_empty() {
@@ -151,7 +163,7 @@ pub async fn keep(
             .collect();
         let _ = unified::retire(db, user_id, &oldest, "faded").await;
     }
-    put(db, user_id, audience, &what, petty, Utc::now(), None).await;
+    put(db, user_id, audience, &what, weight, Utc::now(), None).await;
 }
 
 /// They apologized or made it right: it may still sting, and she knows.
@@ -170,7 +182,7 @@ pub async fn mend(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) {
                 sore.user_id,
                 audience_of(sore.user_id, &sore.venue),
                 &sore.what,
-                sore.petty,
+                sore.weight,
                 sore.since,
                 Some(Utc::now()),
             )

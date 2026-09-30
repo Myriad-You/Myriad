@@ -91,7 +91,7 @@ struct Inner {
 #[serde(deny_unknown_fields)]
 struct Hurt {
     what: String,
-    petty: bool,
+    weight: super::sore::Weight,
 }
 
 fn history_of(request: &UserRequest) -> Vec<Value> {
@@ -259,7 +259,7 @@ async fn compile(
             None => Audience::private(user_id),
             Some(venue) => Audience::group(venue, user_id),
         };
-        super::sore::keep(db, user_id, at, &hurt.what, hurt.petty).await;
+        super::sore::keep(db, user_id, at, &hurt.what, hurt.weight).await;
     }
     Some(reflected.inner)
 }
@@ -373,21 +373,21 @@ mod tests {
     #[test]
     fn what_got_to_her_and_what_they_made_right_come_back_from_her_reflection() {
         let reflected = parse_reflection(
-            r#"{"inner":"还是有点不舒服","keep":[],"done":[],"wrong":null,"toldYou":null,"hurt":{"what":"他说我的歌单全是垃圾，挺伤人","petty":false},"mended":[1]}"#,
+            r#"{"inner":"还是有点不舒服","keep":[],"done":[],"wrong":null,"toldYou":null,"hurt":{"what":"他说我的歌单全是垃圾，挺伤人","weight":"hurt"},"mended":[1]}"#,
         )
         .unwrap();
         assert_eq!(
             reflected.hurt,
             Some(Hurt {
                 what: "他说我的歌单全是垃圾，挺伤人".into(),
-                petty: false
+                weight: super::super::sore::Weight::Hurt
             })
         );
         assert_eq!(reflected.mended, vec![1]);
         let calm = parse_reflection(r#"{"inner":"还行","keep":[],"done":[],"wrong":null,"toldYou":null,"hurt":null,"mended":[]}"#).unwrap();
         assert_eq!(calm.hurt, None);
         let blank =
-            parse_reflection(r#"{"inner":"还行","hurt":{"what":"  ","petty":true}}"#).unwrap();
+            parse_reflection(r#"{"inner":"还行","hurt":{"what":"  ","weight":"petty"}}"#).unwrap();
         assert_eq!(blank.hurt, None);
         let system = system_for("你是小灯。", true);
         assert!(system.contains("soreSpots") && system.contains("not teasing you both enjoy"));
