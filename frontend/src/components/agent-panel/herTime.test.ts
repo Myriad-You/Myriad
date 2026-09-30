@@ -22,6 +22,15 @@ const song: HerDoing = {
 describe('her time in the panel', () => {
   it('looks again just after her thing ends, and at least every minute', () => {
     assert.equal(nextLookMs({ doing: null, now }), 60_000)
+    // Lazing about ends too: she is asked again then.
+    assert.equal(
+      nextLookMs({
+        doing: null,
+        lazing: { kind: 'daydream', started: now, ends: '2026-09-25T10:00:10Z' },
+        now,
+      }),
+      15_000,
+    )
     assert.equal(
       nextLookMs({ doing: { ...song, ends: '2026-09-25T10:00:20Z' }, now }),
       25_000,

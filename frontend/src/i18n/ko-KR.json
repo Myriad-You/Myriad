@@ -892,7 +892,10 @@
       "listening": "{title} 듣는 중",
       "reading": "{title} 읽는 중",
       "join": "같이 듣기",
-      "together": "같이 듣는 중"
+      "together": "같이 듣는 중",
+      "daydream": "멍 때리는 중",
+      "wander_the_site": "사이트를 어슬렁",
+      "reread_old_chats": "예전 대화 다시 보는 중"
     }
   },
   "agentPersona": {

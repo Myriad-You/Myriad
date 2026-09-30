@@ -892,7 +892,10 @@
       "listening": "Listening to {title}",
       "reading": "Reading {title}",
       "join": "Listen together",
-      "together": "Listening together"
+      "together": "Listening together",
+      "daydream": "Daydreaming",
+      "wander_the_site": "Wandering around the site",
+      "reread_old_chats": "Rereading old chats"
     }
   },
   "agentPersona": {

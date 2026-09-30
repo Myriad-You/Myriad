@@ -892,7 +892,10 @@
       "listening": "Hört „{title}“",
       "reading": "Liest „{title}“",
       "join": "Mithören",
-      "together": "Ihr hört gemeinsam"
+      "together": "Ihr hört gemeinsam",
+      "daydream": "Tagträumt",
+      "wander_the_site": "Streift durch die Seite",
+      "reread_old_chats": "Liest alte Chats"
     }
   },
   "agentPersona": {

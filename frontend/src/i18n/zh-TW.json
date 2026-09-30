@@ -892,7 +892,10 @@
       "listening": "在聽《{title}》",
       "reading": "在讀《{title}》",
       "join": "一起聽",
-      "together": "一起在聽"
+      "together": "一起在聽",
+      "daydream": "在發呆",
+      "wander_the_site": "在站裡閒逛",
+      "reread_old_chats": "在翻以前的聊天"
     }
   },
   "agentPersona": {

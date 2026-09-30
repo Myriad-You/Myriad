@@ -892,7 +892,10 @@
       "listening": "「{title}」を聴いてる",
       "reading": "「{title}」を読んでる",
       "join": "一緒に聴く",
-      "together": "一緒に聴いてる"
+      "together": "一緒に聴いてる",
+      "daydream": "ぼーっとしている",
+      "wander_the_site": "サイトをぶらぶら",
+      "reread_old_chats": "昔の会話を読み返し中"
     }
   },
   "agentPersona": {

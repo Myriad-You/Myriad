@@ -1,6 +1,7 @@
 import type { MeropeDoingResponse } from '../../services/agent/types'
 
 export type HerDoing = NonNullable<MeropeDoingResponse['doing']>
+export type HerLazing = NonNullable<MeropeDoingResponse['lazing']>
 
 /** Look again this long after her current thing ends, or this often at most. */
 const AFTER_END_MS = 5_000
@@ -10,9 +11,10 @@ export const UNAVAILABLE_RETRY_MS = 5 * 60_000
 
 /** When to ask again what she is doing. */
 export function nextLookMs(response: MeropeDoingResponse): number {
-  if (!response.doing) return AT_MOST_MS
+  const current = response.doing ?? response.lazing
+  if (!current) return AT_MOST_MS
   const left =
-    Date.parse(response.doing.ends) - Date.parse(response.now) + AFTER_END_MS
+    Date.parse(current.ends) - Date.parse(response.now) + AFTER_END_MS
   if (!Number.isFinite(left)) return AT_MOST_MS
   return Math.min(AT_MOST_MS, Math.max(AFTER_END_MS, left))
 }

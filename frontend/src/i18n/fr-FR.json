@@ -892,7 +892,10 @@
       "listening": "Écoute « {title} »",
       "reading": "Lit « {title} »",
       "join": "Écouter ensemble",
-      "together": "Vous écoutez ensemble"
+      "together": "Vous écoutez ensemble",
+      "daydream": "Rêvasse",
+      "wander_the_site": "Flâne sur le site",
+      "reread_old_chats": "Relit de vieilles conversations"
     }
   },
   "agentPersona": {

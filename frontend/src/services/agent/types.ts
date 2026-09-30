@@ -369,6 +369,12 @@ export type MeropeThing =
 
 export interface MeropeDoingResponse {
   doing: { thing: MeropeThing; started: string; ends: string } | null
+  /** Lazing about instead, and which way. */
+  lazing?: {
+    kind: 'daydream' | 'wander_the_site' | 'reread_old_chats'
+    started: string
+    ends: string
+  } | null
   /** Server clock, so where she is in it does not depend on this device's clock. */
   now: string
 }

@@ -581,6 +581,12 @@ pub async fn get_doing(
     parse_user_id_with_agent_access(&claims, &db).await?;
     Ok(Json(json!({
         "doing": merope::doing::current(),
+        // Lazing about is something she is doing too.
+        "lazing": merope::doing::lazing().map(|lazing| json!({
+            "kind": lazing.kind,
+            "started": lazing.started,
+            "ends": lazing.ends,
+        })),
         "now": chrono::Utc::now(),
     })))
 }

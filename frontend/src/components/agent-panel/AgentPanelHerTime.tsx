@@ -1,4 +1,4 @@
-import type { HerDoing } from './herTime'
+import type { HerDoing, HerLazing } from './herTime'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { listenTogether } from '../../features/merope/listenTogether'
@@ -13,8 +13,9 @@ import {
 import { AgentPresence } from './useAgentPresence'
 
 /** What she is doing on her own, asked while the panel is open. */
-function useHerDoing(open: boolean): HerDoing | null {
+function useHerDoing(open: boolean): { doing: HerDoing | null; lazing: HerLazing | null } {
   const [doing, setDoing] = useState<HerDoing | null>(null)
+  const [lazing, setLazing] = useState<HerLazing | null>(null)
   useEffect(() => {
     if (!open) return
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -23,6 +24,7 @@ function useHerDoing(open: boolean): HerDoing | null {
       const response = await agentService.getDoing().catch(() => null)
       if (!alive) return
       setDoing(response?.doing ?? null)
+      setLazing(response?.lazing ?? null)
       timer = setTimeout(
         look,
         response ? nextLookMs(response) : UNAVAILABLE_RETRY_MS,
@@ -34,7 +36,7 @@ function useHerDoing(open: boolean): HerDoing | null {
       clearTimeout(timer)
     }
   }, [open])
-  return open ? doing : null
+  return open ? { doing, lazing } : { doing: null, lazing: null }
 }
 
 /** Whether this player is on her song, kept up as the player changes. */
@@ -54,7 +56,7 @@ function useListeningAlong(doing: HerDoing | null): boolean {
 /** "Listening to X · Listen together", beside the composer. */
 export const AgentPanelHerTime: React.FC<{ open: boolean }> = ({ open }) => {
   const { t, format } = useI18n()
-  const doing = useHerDoing(open)
+  const { doing, lazing } = useHerDoing(open)
   const along = useListeningAlong(doing)
   const [joining, setJoining] = useState(false)
   const join = useCallback(() => {
@@ -72,6 +74,15 @@ export const AgentPanelHerTime: React.FC<{ open: boolean }> = ({ open }) => {
   const song = doing?.thing.kind === 'song'
   return (
     <>
+      <AgentPresence open={!doing && !!lazing} kind="chip" from="self">
+        {!doing && lazing ? (
+          <span className="agent-panel-tag">
+            <span className="agent-panel-tag-text">
+              {t.agentPanel.herTime[lazing.kind]}
+            </span>
+          </span>
+        ) : null}
+      </AgentPresence>
       <AgentPresence open={!!doing} kind="chip" from="self">
         {doing ? (
           <span className="agent-panel-tag" data-tone="primary">
