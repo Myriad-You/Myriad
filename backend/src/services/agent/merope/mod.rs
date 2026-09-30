@@ -338,8 +338,9 @@ pub use speaking_prompts::{
     format_emotion_section, format_found_out_section, format_group_days_section,
     format_inner_moment_ago_section, format_mood_section, format_on_your_mind_section,
     format_own_days_section, format_persona, format_playing_section, format_recent_section,
-    format_remembered_section, format_self_story_section, format_since_section, format_us_section,
-    format_views_section, group_speaking_section, guest_speaking_section, mood_tone_instruction,
+    format_remembered_section, format_self_story_section, format_since_section,
+    format_taste_section, format_us_section, format_views_section, group_speaking_section,
+    guest_speaking_section, mood_tone_instruction,
 };
 
 pub use speaking_context::{

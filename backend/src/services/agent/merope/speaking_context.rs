@@ -296,6 +296,8 @@ pub(super) const RECENT_SPEAKING_DIARY_SOURCES: &[&str] = &[store::DIARY_SOURCE_
 const FOUND_OUT_LIMIT: usize = 2;
 /// Her own days a conversation carries, most recent last.
 const OWN_DAYS_LIMIT: u64 = 3;
+/// Whose things keep getting to her, when her life comes to mind.
+const TASTE_SHOWN: usize = 3;
 /// What she did on her own in the last day, and older things their words touch.
 const DOING_RECENT: usize = 3;
 const DOING_RELATED: usize = 2;
@@ -647,6 +649,11 @@ async fn speaking_prompt_from_db(
                 sections.push(block);
             }
             if let Some(block) = wants::section(&wants::open(db).await, chrono::Utc::now()) {
+                sections.push(block);
+            }
+            if let Some(block) =
+                format_taste_section(&doing::keeps_getting_to_her(db, TASTE_SHOWN).await)
+            {
                 sections.push(block);
             }
         }

@@ -478,6 +478,11 @@ async fn at_hand(db: &DatabaseConnection) -> Option<AtHand> {
     })
 }
 
+/// Whose things keep getting to her lately, a line each, at most `most`.
+pub async fn keeps_getting_to_her(db: &DatabaseConnection, most: usize) -> Vec<String> {
+    taste(db).await.liked_by(most)
+}
+
 /// How far back her reactions make up her taste: faded experiences still
 /// count until they are purged.
 const TASTE_DAYS: i64 = 120;

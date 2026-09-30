@@ -609,6 +609,17 @@ pub fn format_own_days_section(days: &[String]) -> Option<String> {
     ))
 }
 
+/// Whose things have kept getting to her lately, as her reactions add up
+/// (see `taste`): known, not a line to bring up.
+pub fn format_taste_section(liked_by: &[String]) -> Option<String> {
+    (!liked_by.is_empty()).then(|| {
+        format!(
+            "## Whose things keep getting to you\nFrom how what you listened to and read has landed with you lately: {}.",
+            liked_by.join("; ")
+        )
+    })
+}
+
 /// Who she has been lately, as she last wrote it looking back on what she
 /// did. It grew out of outside text (songs, notes), so it is fenced.
 pub fn format_self_story_section(claims: &[String]) -> Option<String> {
@@ -785,6 +796,16 @@ mod tests {
         .unwrap();
         assert!(section.starts_with("## Lately in this group"));
         assert!(section.find("09-28").unwrap() < section.find("09-29").unwrap());
+    }
+
+    #[test]
+    fn whose_things_get_to_her_is_known_when_there_are_any() {
+        assert_eq!(format_taste_section(&[]), None);
+        assert_eq!(
+            format_taste_section(&["songs by ヨルシカ".into(), "books by 夏目漱石".into()])
+                .unwrap(),
+            "## Whose things keep getting to you\nFrom how what you listened to and read has landed with you lately: songs by ヨルシカ; books by 夏目漱石."
+        );
     }
 
     #[test]
