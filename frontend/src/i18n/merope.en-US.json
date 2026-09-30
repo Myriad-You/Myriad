@@ -345,7 +345,8 @@
       "questions": "What she wants to find out",
       "corrected": "Times she was shown wrong",
       "days": "Her days",
-      "doing": "What she did on her own this week"
+      "doing": "What she did on her own this week",
+      "voice": "Her own voice"
     },
     "reach": {
       "on_your_own": "she can see to it",
@@ -393,6 +394,14 @@
     },
     "empty": "Nothing yet",
     "noPeople": "Nothing about anyone yet",
-    "noGroups": "Nothing from groups yet"
+    "noGroups": "Nothing from groups yet",
+    "voice": {
+      "desc": "Her way of typing week by week: how much it moved from the week before (read against how much people's own moved), and how far it was from everyone's that week. Watch the trend: moving about as much as people do, and closer to them over time, means a steady, human voice of her own.",
+      "week": "Week",
+      "lines": "Her lines",
+      "drift": "Moved",
+      "peopleDrift": "People moved",
+      "fromPeople": "From people"
+    }
   }
 }

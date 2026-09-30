@@ -345,7 +345,8 @@
       "questions": "Ce qu'elle veut découvrir",
       "corrected": "Quand on l'a corrigée",
       "days": "Ses journées",
-      "doing": "Ce qu'elle a fait seule cette semaine"
+      "doing": "Ce qu'elle a fait seule cette semaine",
+      "voice": "Sa propre voix"
     },
     "reach": {
       "on_your_own": "elle peut s'en charger",
@@ -393,6 +394,14 @@
     },
     "empty": "Rien pour l'instant",
     "noPeople": "Rien sur personne pour l'instant",
-    "noGroups": "Rien des groupes pour l'instant"
+    "noGroups": "Rien des groupes pour l'instant",
+    "voice": {
+      "desc": "Sa façon d'écrire semaine après semaine : combien elle a changé depuis la semaine précédente (au regard de ce que changent les gens eux-mêmes), et à quelle distance elle était de tout le monde cette semaine-là. Regardez la tendance : changer à peu près autant que les gens, et s'en rapprocher avec le temps, c'est une voix à elle, stable et humaine.",
+      "week": "Semaine",
+      "lines": "Ses lignes",
+      "drift": "Changement",
+      "peopleDrift": "Changement des gens",
+      "fromPeople": "Écart avec les gens"
+    }
   }
 }

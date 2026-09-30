@@ -757,6 +757,19 @@ export interface MindGroup {
   sore: MindSore[]
 }
 
+/**
+ * One week of her voice: how far her typing moved from the week before,
+ * how far people's own did, and how far hers was from theirs.
+ */
+export interface MindVoiceWeek {
+  week: string
+  lines: number
+  peopleLines: number
+  drift?: number | null
+  peopleDrift?: number | null
+  fromPeople?: number | null
+}
+
 /** Looking into her: herself, each person, each group, with how each changed. */
 export interface MindSnapshot {
   generatedAt: string
@@ -769,6 +782,8 @@ export interface MindSnapshot {
     corrected: MindEntry[]
     days: MindEntry[]
     doingThisWeek: { at: string; text: string }[]
+    /** Her way of typing week by week, against people's (see the page). */
+    voice: MindVoiceWeek[]
   }
   people: MindPerson[]
   groups: MindGroup[]

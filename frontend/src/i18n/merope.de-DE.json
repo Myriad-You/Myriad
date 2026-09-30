@@ -345,7 +345,8 @@
       "questions": "Was sie herausfinden will",
       "corrected": "Wo sie korrigiert wurde",
       "days": "Ihre Tage",
-      "doing": "Was sie diese Woche für sich getan hat"
+      "doing": "Was sie diese Woche für sich getan hat",
+      "voice": "Ihre eigene Stimme"
     },
     "reach": {
       "on_your_own": "schafft sie allein",
@@ -393,6 +394,14 @@
     },
     "empty": "Noch nichts",
     "noPeople": "Noch nichts über jemanden",
-    "noGroups": "Noch nichts aus Gruppen"
+    "noGroups": "Noch nichts aus Gruppen",
+    "voice": {
+      "desc": "Wie sie Woche für Woche schreibt: wie stark es sich zur Vorwoche verändert hat (gemessen daran, wie stark sich die Leute selbst verändern) und wie weit es von allen in dieser Woche entfernt war. Auf den Trend achten: etwa so viel Veränderung wie bei den Leuten und mit der Zeit näher dran heißt eine beständige, menschliche eigene Stimme.",
+      "week": "Woche",
+      "lines": "Ihre Zeilen",
+      "drift": "Veränderung",
+      "peopleDrift": "Veränderung der Leute",
+      "fromPeople": "Abstand zu den Leuten"
+    }
   }
 }

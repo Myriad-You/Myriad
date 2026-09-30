@@ -4,6 +4,7 @@ import type {
   MindPerson,
   MindSnapshot,
   MindSore,
+  MindVoiceWeek,
   MindWant,
 } from '../services/agent'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -175,6 +176,36 @@ export default function AgentMind() {
       </ul>
     )
 
+  const number = (value?: number | null) => (value == null ? '—' : value.toFixed(2))
+
+  const voice = (weeks: MindVoiceWeek[]) =>
+    weeks.length === 0 ? (
+      empty
+    ) : (
+      <table className="w-full text-sm">
+        <thead className="text-secondary text-left">
+          <tr>
+            <th className="font-normal py-1">{copy.voice.week}</th>
+            <th className="font-normal py-1">{copy.voice.lines}</th>
+            <th className="font-normal py-1">{copy.voice.drift}</th>
+            <th className="font-normal py-1">{copy.voice.peopleDrift}</th>
+            <th className="font-normal py-1">{copy.voice.fromPeople}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...weeks].reverse().map((week) => (
+            <tr key={week.week}>
+              <td className="py-1">{date(week.week)}</td>
+              <td className="py-1">{week.lines}</td>
+              <td className="py-1">{number(week.drift)}</td>
+              <td className="py-1">{number(week.peopleDrift)}</td>
+              <td className="py-1">{number(week.fromPeople)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+
   const heading = (text: string) => <h4 className="text-sm font-semibold mt-4 mb-2">{text}</h4>
 
   const person = (who: MindPerson) => (
@@ -278,6 +309,9 @@ export default function AgentMind() {
             </SettingGroup>
             <SettingGroup title={copy.her.doing} toc={false}>
               {history(mind.her.doingThisWeek.map((done) => ({ ...done, current: true })))}
+            </SettingGroup>
+            <SettingGroup title={copy.her.voice} description={copy.voice.desc} descriptionVisible toc={false}>
+              {voice(mind.her.voice)}
             </SettingGroup>
             <SettingGroup title={copy.her.days} toc={false}>
               {history(mind.her.days)}

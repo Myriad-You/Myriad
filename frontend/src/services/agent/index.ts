@@ -40,6 +40,7 @@ export type {
   MindPerson,
   MindSnapshot,
   MindSore,
+  MindVoiceWeek,
   MindWant,
   MusicControlEvent,
   OutfitOverlayEvent,

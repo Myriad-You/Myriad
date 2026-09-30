@@ -28,6 +28,10 @@ const fixture = {
     corrected: [],
     days: [{ text: '今天和两个人聊了天。', at: day(9), current: true }],
     doingThisWeek: [{ at: day(9), text: 'listening 「夜航」 (moved you)' }],
+    voice: [
+      { week: '2026-09-14', lines: 80, peopleLines: 60, drift: null, peopleDrift: null, fromPeople: 0.91 },
+      { week: '2026-09-21', lines: 120, peopleLines: 70, drift: 0.58, peopleDrift: 0.54, fromPeople: 0.8 },
+    ],
   },
   people: [{
     id: 7,
@@ -109,6 +113,9 @@ test('her mind shows herself, each person and each group, with how each changed'
       // A view she changed her mind about stays, marked as rewritten.
       assert.ok(text().includes('以前觉得电子乐太吵'))
       assert.ok(text().includes(merope.mind.ended.superseded))
+      // Her voice, week by week.
+      assert.ok(text().includes(merope.mind.her.voice))
+      assert.ok(text().includes('0.58') && text().includes('0.80'))
     }
     await tab('people')
     if (snapshot === fixture) {

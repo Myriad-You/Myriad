@@ -2161,3 +2161,43 @@ pub async fn their_lines(
         })
         .collect())
 }
+
+/// Chat lines since `since`, oldest first: (when, the line, whether hers).
+/// Each line of a message is one line, as it went out.
+pub async fn chat_lines_since(
+    db: &sea_orm::DatabaseConnection,
+    since: chrono::DateTime<chrono::FixedOffset>,
+    limit: i64,
+) -> Result<Vec<(chrono::DateTime<chrono::FixedOffset>, String, bool)>, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.created_at, m.content, m.role FROM agent_messages m \
+             JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE m.role IN ('user', 'assistant') AND s.context->>'mode' = 'chat' \
+               AND m.created_at >= $1 \
+             ORDER BY m.created_at ASC LIMIT $2",
+            [since.into(), limit.into()],
+        ))
+        .await?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let at = row
+                .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
+                .ok()?;
+            let content = row.try_get::<String>("", "content").ok()?;
+            let hers = row.try_get::<String>("", "role").ok()? == "assistant";
+            Some(
+                content
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(|line| (at, line.to_string(), hers))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .flatten()
+        .collect())
+}

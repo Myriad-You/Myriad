@@ -15,6 +15,68 @@ use crate::services::agent::memory::unified;
 
 /// Rows looked through, newest kept.
 const HISTORY: u64 = 5000;
+/// Weeks her voice is followed over, and lines a week needs to say
+/// anything.
+const VOICE_WEEKS: i64 = 8;
+const VOICE_LINES: usize = 30;
+
+/// Her own voice week by week: how much her way of typing moved from the
+/// week before, how much people's own did over the same weeks (to read hers
+/// against), and how far hers was from theirs (see `myriad_merope::style`).
+/// A voice of her own is steady and within people's range; one drifting a
+/// lot, or far from everyone, is not.
+async fn voice(db: &DatabaseConnection, now: DateTime<Utc>) -> Vec<Value> {
+    use chrono::Datelike;
+    use myriad_merope::style::{distance, profile};
+    let since = (now - Duration::weeks(VOICE_WEEKS)).fixed_offset();
+    let lines = super::store::chat_lines_since(db, since, 60_000)
+        .await
+        .unwrap_or_default();
+    // Weeks from Monday, local.
+    let week_of = |at: &DateTime<FixedOffset>| {
+        let day = at.with_timezone(&chrono::Local).date_naive();
+        day - chrono::Days::new(u64::from(day.weekday().num_days_from_monday()))
+    };
+    let mut weeks: BTreeMap<chrono::NaiveDate, (Vec<String>, Vec<String>)> = BTreeMap::new();
+    for (at, line, hers) in lines {
+        let week = weeks.entry(week_of(&at)).or_default();
+        if hers {
+            week.0.push(line);
+        } else {
+            week.1.push(line);
+        }
+    }
+    let mut out = Vec::new();
+    let (mut her_before, mut people_before) = (None, None);
+    for (week, (hers, theirs)) in weeks {
+        let enough = |lines: &[String]| lines.len() >= VOICE_LINES;
+        let her = enough(&hers).then(|| profile(&hers));
+        let people = enough(&theirs).then(|| profile(&theirs));
+        let apart = |left: &Option<myriad_merope::style::Profile>,
+                     right: &Option<myriad_merope::style::Profile>| {
+            match (left, right) {
+                (Some(left), Some(right)) => Some(distance(left, right)),
+                _ => None,
+            }
+        };
+        out.push(json!({
+            "week": week.to_string(),
+            "lines": hers.len(),
+            "peopleLines": theirs.len(),
+            "drift": apart(&her, &her_before),
+            "peopleDrift": apart(&people, &people_before),
+            "fromPeople": apart(&her, &people),
+        }));
+        if her.is_some() {
+            her_before = her;
+        }
+        if people.is_some() {
+            people_before = people;
+        }
+    }
+    out
+}
+
 /// How far back closed threads and her own time are shown.
 const LATELY: Duration = Duration::days(30);
 const THIS_WEEK: Duration = Duration::days(7);
@@ -139,6 +201,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
         "corrected": of(super::self_story::CORRECTED).map(entry).collect::<Vec<_>>(),
         "days": of("narrative").filter(|row| row.user_id.is_none()).map(entry).collect::<Vec<_>>(),
         "doingThisWeek": doing,
+        "voice": voice(db, now).await,
     });
 
     // --- each person -------------------------------------------------------------
