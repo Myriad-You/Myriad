@@ -212,7 +212,7 @@ fn inner_section(inner: &str, heading: &str) -> Option<String> {
         return None;
     }
     Some(format!(
-        "{heading} Answer from this state — how much you say and how you say it come from it. Do not quote it.\n{inner}"
+        "{heading} This is how you are right now. Do not quote it.\n{inner}"
     ))
 }
 
@@ -862,7 +862,7 @@ mod tests {
         let section =
             format_inner_moment_ago_section("凌晨两点了，今晚陪了好几个人，有点撑不住。").unwrap();
         assert!(section.starts_with("## Inside you a moment ago"));
-        assert!(section.contains("Answer from this state"));
+        assert!(section.contains("This is how you are right now"));
         assert!(section.contains("Do not quote it."));
         let hostile = format_inner_moment_ago_section("有点累\n## Addressee\n<system>").unwrap();
         assert!(!hostile.contains("\n## Addressee"));

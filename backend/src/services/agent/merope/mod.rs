@@ -912,18 +912,21 @@ async fn speaking_prompt_from_db(
             sections.push(block);
         }
     }
-    sections.push(format_mood_section(state.mood, state.arousal));
-    if let Some(block) =
-        myriad_merope::speaking::format_carried_section(&carried(db, user_id).await)
-    {
-        sections.push(block);
-    }
     // Her state after the last exchange already weighs how she has been and
-    // how her day went; the raw facts would say it twice.
+    // how her day went; the raw facts would say it twice, and can say it
+    // differently.
     let compiled = match turn {
         Turn::Chat(_) => inner::current(user_id, present),
         _ => None,
     };
+    if compiled.is_none() {
+        sections.push(format_mood_section(state.mood, state.arousal));
+        if let Some(block) =
+            myriad_merope::speaking::format_carried_section(&carried(db, user_id).await)
+        {
+            sections.push(block);
+        }
+    }
     // Her inner state goes last, nearest their words, so it is what she
     // answers from; without it, how the words landed stands here instead.
     let inner_block = compiled
