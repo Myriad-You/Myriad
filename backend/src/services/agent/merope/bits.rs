@@ -281,13 +281,13 @@ pub async fn go_over(
             "conversation": lines,
         });
         let sores = match &circle {
-            Circle::Person(user_id) => super::sore::open(db, *user_id).await,
-            Circle::Group { .. } => Vec::new(),
+            Circle::Person(user_id) => super::sore::open_all(db, *user_id).await,
+            Circle::Group { venue, .. } => super::sore::open_in_group(db, venue, None).await,
         };
         if let Circle::Person(_) = circle {
             input["us"] = json!(now_us.as_ref().map(|row| row.content.clone()));
-            input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
         }
+        input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
         let input = input.to_string();
         let raw = super::call::Ask::new(super::call::Voice::HersAtLength, owner, SCHEMA_NAME)
             .within(std::time::Duration::from_secs(60))
@@ -304,10 +304,10 @@ pub async fn go_over(
         match &circle {
             Circle::Person(user_id) => {
                 put_us(db, *user_id, &changes.us, now_us.as_ref()).await;
-                super::sore::let_go(db, *user_id, &sores, &changes.let_go).await;
             }
             Circle::Group { .. } => put_day(db, &circle, &changes.day, start).await,
         }
+        super::sore::let_go(db, &sores, &changes.let_go).await;
         for change in changes.bits.into_iter().take(MAX_CHANGES) {
             let handle: String = change.handle.trim().chars().take(30).collect();
             let how = super::ingest::compact_summary(&change.how);
@@ -646,7 +646,8 @@ mod tests {
         assert!(group.contains("day is what today was like in this group"));
         assert!(group.contains("empty if nothing much happened"));
         assert!(!system("你是小灯。", false).contains("day is what"));
-        assert_eq!(schema(true)["required"], json!(["bits", "day"]));
+        assert_eq!(schema(true)["required"], json!(["bits", "day", "letGo"]));
+        assert!(group.contains("who did it is given"));
         assert!(schema(false)["properties"].get("day").is_none());
         let changes = parse(r#"{"bits":[],"day":"大家在吵海带汤算不算韩国风"}"#).unwrap();
         assert!(changes.day.contains("海带汤"));

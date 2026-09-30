@@ -28,6 +28,25 @@ pub fn system_for(soul: &str, private: bool) -> String {
     }
 }
 
+/// After answering a member of the community in a group: how she is now,
+/// and what the one she answered did there that got to her or made up for.
+pub fn system_for_group(soul: &str) -> String {
+    format!("{}{}", system(soul), crate::sore::IN_GROUP_REFLECTION)
+}
+
+pub fn schema_for_group() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "inner": { "type": "string", "maxLength": MAX_INNER_CHARS },
+            "hurt": crate::sore::hurt_schema(),
+            "mended": crate::sore::indexes_schema()
+        },
+        "required": ["inner", "hurt", "mended"],
+        "additionalProperties": false
+    })
+}
+
 pub fn schema_for(private: bool) -> Value {
     if !private {
         return schema();

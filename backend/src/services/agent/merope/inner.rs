@@ -32,9 +32,10 @@ use serde_json::{Value, json};
 
 use crate::services::agent::UserRequest;
 use crate::services::agent::memory::unified::Audience;
-use myriad_merope::inner::{MAX_INNER_CHARS, MAX_KEPT, SCHEMA_NAME, schema_for, system_for};
-#[cfg(test)]
-use myriad_merope::inner::{schema, system};
+use myriad_merope::inner::{
+    MAX_INNER_CHARS, MAX_KEPT, SCHEMA_NAME, schema, schema_for, schema_for_group, system,
+    system_for, system_for_group,
+};
 
 /// Generous: nothing waits for it.
 const CALL_TIMEOUT: Duration = Duration::from_secs(25);
@@ -203,25 +204,29 @@ async fn compile(
     } else {
         Vec::new()
     };
-    let sores = if private {
-        super::sore::open(db, user_id).await
-    } else {
-        Vec::new()
+    // In a group, what the one she answered did there (never what they did
+    // in private); in private, all of it.
+    let in_group = present.group_id().map(str::to_string);
+    let sores = match &in_group {
+        None => super::sore::open_all(db, user_id).await,
+        Some(venue) => super::sore::open_in_group(db, venue, Some(user_id)).await,
     };
     if private {
         input["openThreads"] = json!(super::threads::as_input(&threads));
-        input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
     }
+    input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
     let input = input.to_string();
+    let (system_prompt, answer_schema) = if private {
+        (system_for(&soul, true), schema_for(true))
+    } else if in_group.is_some() {
+        (system_for_group(&soul), schema_for_group())
+    } else {
+        (system(&soul), schema())
+    };
     // Her own voice, thinking little.
     let raw = super::call::Ask::new(super::call::Voice::Hers, user_id, "inner")
         .within(CALL_TIMEOUT)
-        .json_raw(
-            &system_for(&soul, private),
-            &input,
-            SCHEMA_NAME,
-            &schema_for(private),
-        )
+        .json_raw(&system_prompt, &input, SCHEMA_NAME, &answer_schema)
         .await
         .ok()?;
     let reflected = parse_reflection(&raw)?;
@@ -245,11 +250,16 @@ async fn compile(
         if let Some(told) = reflected.told_you.as_deref() {
             super::making_sense::remember_told_by(db, user_id, told).await;
         }
-        // Made right first, then what got to her this time.
-        super::sore::mend(db, user_id, &sores, &reflected.mended).await;
-        if let Some(hurt) = &reflected.hurt {
-            super::sore::keep(db, user_id, &hurt.what, hurt.petty).await;
-        }
+    }
+    // Made right first, then what got to her this time, kept where it
+    // happened.
+    super::sore::mend(db, &sores, &reflected.mended).await;
+    if let Some(hurt) = &reflected.hurt {
+        let at = match &in_group {
+            None => Audience::private(user_id),
+            Some(venue) => Audience::group(venue, user_id),
+        };
+        super::sore::keep(db, user_id, at, &hurt.what, hurt.petty).await;
     }
     Some(reflected.inner)
 }
@@ -382,6 +392,15 @@ mod tests {
         let system = system_for("你是小灯。", true);
         assert!(system.contains("soreSpots") && system.contains("not teasing you both enjoy"));
         assert!(!system_for("你是小灯。", false).contains("soreSpots"));
+        // In a group: only what the one she answered did there.
+        let in_group = system_for_group("你是小灯。");
+        assert!(
+            in_group.contains("the one you just answered") && !in_group.contains("openThreads")
+        );
+        assert_eq!(
+            schema_for_group()["required"],
+            json!(["inner", "hurt", "mended"])
+        );
         assert!(
             schema_for(true)["required"]
                 .as_array()

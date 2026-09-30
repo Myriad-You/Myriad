@@ -6,8 +6,10 @@
 //! it stays among what she remembers of them, as something that happened
 //! and is behind them; left untouched for two months, it fades on its own.
 //!
-//! Hers about them, kept with that person, heard only in private with them,
-//! and apart from ordinary memory while it stings.
+//! Hers about them, kept with that person and apart from ordinary memory
+//! while it stings. One born in private is heard only in private with them;
+//! one born in a group happened in front of others, and is heard in that
+//! group when she answers them there, and in private with them.
 
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
@@ -32,6 +34,7 @@ fn sore_of(row: &crate::models::entities::agent_memories::Model) -> Option<Sore>
     };
     Some(Sore {
         id: row.id.clone(),
+        user_id: row.user_id?,
         what: row.content.clone(),
         petty: evidence
             .get("petty")
@@ -39,30 +42,64 @@ fn sore_of(row: &crate::models::entities::agent_memories::Model) -> Option<Sore>
             .unwrap_or(false),
         since: at("since").unwrap_or_else(|| row.created_at.with_timezone(&Utc)),
         mended: at("mended"),
+        venue: row.venue.clone(),
+        who: None,
     })
 }
 
-/// What still stings with this person, oldest first.
-pub async fn open(db: &DatabaseConnection, user_id: i32) -> Vec<Sore> {
+/// Where a sore spot of `user_id`'s born at `venue` is kept.
+fn audience_of(user_id: i32, venue: &str) -> Audience {
+    match venue.strip_prefix("group:") {
+        Some(group) => Audience::group(group, user_id),
+        None => Audience::private(user_id),
+    }
+}
+
+/// All of this person's sore spots, wherever they were born, oldest first.
+pub async fn open_all(db: &DatabaseConnection, user_id: i32) -> Vec<Sore> {
+    let mut sores: Vec<Sore> = unified::latest_of(db, user_id, SOURCE, MAX_OPEN as u64 * 3)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(sore_of)
+        .collect();
+    sores.sort_by_key(|sore| sore.since);
+    sores
+}
+
+/// Sore spots born in a group (`venue` as sessions keep it), oldest first:
+/// one person's, or everyone's there, each with who did it.
+pub async fn open_in_group(
+    db: &DatabaseConnection,
+    venue: &str,
+    user_id: Option<i32>,
+) -> Vec<Sore> {
     let mut sores: Vec<Sore> = unified::venue_source_rows(
         db,
-        Some(user_id),
-        &Audience::private(user_id).venue(),
+        user_id,
+        &format!("group:{venue}"),
         SOURCE,
-        MAX_OPEN as u64 * 2,
+        MAX_OPEN as u64 * 3,
     )
     .await
     .unwrap_or_default()
     .iter()
     .filter_map(sore_of)
     .collect();
+    if user_id.is_none() {
+        for sore in &mut sores {
+            sore.who = Some(super::resolve_addressee_label(db, sore.user_id).await);
+        }
+    }
     sores.sort_by_key(|sore| sore.since);
     sores
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn put(
     db: &DatabaseConnection,
     user_id: i32,
+    audience: Audience,
     what: &str,
     petty: bool,
     since: DateTime<Utc>,
@@ -84,7 +121,7 @@ async fn put(
             ),
             speaker: unified::Speaker::Agent,
             source: SOURCE,
-            audience: Audience::private(user_id),
+            audience,
             importance: if petty { 0.4 } else { 0.7 },
             concepts: Vec::new(),
         },
@@ -92,13 +129,20 @@ async fn put(
     .await;
 }
 
-/// Something they did got to her. Past the limit, the oldest goes.
-pub async fn keep(db: &DatabaseConnection, user_id: i32, what: &str, petty: bool) {
+/// Something they did got to her, where it happened (`audience`). Past the
+/// limit, the oldest of theirs goes.
+pub async fn keep(
+    db: &DatabaseConnection,
+    user_id: i32,
+    audience: Audience,
+    what: &str,
+    petty: bool,
+) {
     let what: String = what.trim().chars().take(WHAT_CHARS).collect();
     if what.is_empty() {
         return;
     }
-    let held = open(db, user_id).await;
+    let held = open_all(db, user_id).await;
     if held.len() >= MAX_OPEN {
         let oldest: Vec<String> = held
             .iter()
@@ -107,23 +151,24 @@ pub async fn keep(db: &DatabaseConnection, user_id: i32, what: &str, petty: bool
             .collect();
         let _ = unified::retire(db, user_id, &oldest, "faded").await;
     }
-    put(db, user_id, &what, petty, Utc::now(), None).await;
+    put(db, user_id, audience, &what, petty, Utc::now(), None).await;
 }
 
 /// They apologized or made it right: it may still sting, and she knows.
-pub async fn mend(db: &DatabaseConnection, user_id: i32, sores: &[Sore], indexes: &[usize]) {
+pub async fn mend(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) {
     for sore in indexes.iter().filter_map(|index| sores.get(*index)) {
         if sore.mended.is_some() {
             continue;
         }
-        if unified::retire(db, user_id, &[sore.id.clone()], "superseded")
+        if unified::retire(db, sore.user_id, &[sore.id.clone()], "superseded")
             .await
             .unwrap_or(0)
             > 0
         {
             put(
                 db,
-                user_id,
+                sore.user_id,
+                audience_of(sore.user_id, &sore.venue),
                 &sore.what,
                 sore.petty,
                 sore.since,
@@ -136,8 +181,9 @@ pub async fn mend(db: &DatabaseConnection, user_id: i32, sores: &[Sore], indexes
 
 /// She has let these go. What happened stays among what she remembers of
 /// them, as behind them now.
-pub async fn let_go(db: &DatabaseConnection, user_id: i32, sores: &[Sore], indexes: &[usize]) {
+pub async fn let_go(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) {
     for sore in indexes.iter().filter_map(|index| sores.get(*index)) {
+        let user_id = sore.user_id;
         if unified::retire(db, user_id, &[sore.id.clone()], "forgiven")
             .await
             .unwrap_or(0)
@@ -157,7 +203,7 @@ pub async fn let_go(db: &DatabaseConnection, user_id: i32, sores: &[Sore], index
                 ),
                 speaker: unified::Speaker::Agent,
                 source: "chat",
-                audience: Audience::private(user_id),
+                audience: audience_of(user_id, &sore.venue),
                 importance: 0.3,
                 concepts: Vec::new(),
             },
@@ -173,5 +219,19 @@ pub async fn let_fade(db: &DatabaseConnection) {
         Ok(faded) if faded > 0 => tracing::info!(faded, "[Merope] sore spots faded"),
         Ok(_) => {}
         Err(error) => tracing::warn!(%error, "[Merope] could not let old sore spots fade"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_sore_spot_is_kept_where_it_happened() {
+        assert_eq!(audience_of(7, "private").venue(), "private");
+        assert_eq!(
+            audience_of(7, "group:onebot:123").venue(),
+            "group:onebot:123"
+        );
     }
 }

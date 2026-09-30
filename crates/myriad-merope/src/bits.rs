@@ -24,8 +24,8 @@ pub struct Changes {
     /// when nothing much happened. Only in a group.
     #[serde(default)]
     pub day: String,
-    /// Sore spots she has let go of by now (indexes into soreSpots). Only
-    /// with one person.
+    /// Sore spots she has let go of by now (indexes into soreSpots): with
+    /// one person, theirs; in a group, those born there.
     #[serde(default, rename = "letGo")]
     pub let_go: Vec<usize>,
 }
@@ -51,6 +51,7 @@ pub fn system(soul: &str, group: bool) -> String {
         " \
 day is what today was like in this group, as you would remember it later: what went on, who was in it, anything that happened with you, in one or two sentences in the language of the chat; only what the conversation shows, and empty if nothing much happened."
             .to_string()
+            + crate::sore::AT_NIGHT_GROUP
     } else {
         " \
 us is what they are to you, as you would put it to yourself: who they are to you, how the two of you usually are together, what you like about them and what gets to you, in one to three sentences. It rests only on what has actually passed between you (today's conversation, and what you wrote before, given as us); nothing invented, no compliments for their sake, and it may be mixed. Write it when there is none yet and today shows enough to say, or when today added to it or changed it (then say it as it is now); otherwise us is empty, and it stands as it was."
@@ -84,7 +85,8 @@ pub fn schema(group: bool) -> Value {
     let mut schema = bits_schema();
     if group {
         schema["properties"]["day"] = json!({ "type": "string", "maxLength": DAY_CHARS });
-        schema["required"] = json!(["bits", "day"]);
+        schema["properties"]["letGo"] = crate::sore::indexes_schema();
+        schema["required"] = json!(["bits", "day", "letGo"]);
     } else {
         schema["properties"]["us"] = json!({ "type": "string", "maxLength": US_CHARS });
         schema["properties"]["letGo"] = crate::sore::indexes_schema();

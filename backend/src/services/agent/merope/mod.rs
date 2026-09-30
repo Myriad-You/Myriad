@@ -954,11 +954,14 @@ async fn speaking_prompt_from_db(
                 }
             }
         }
-        // What still stings with them: private, never in a group.
-        if !group {
-            if let Some(block) = sore::section(&sore::open(db, user_id).await, chrono::Utc::now()) {
-                sections.push(block);
-            }
+        // What still stings with them: in private all of it; in a group,
+        // only what they did there.
+        let sores = match present.group_id() {
+            None => sore::open_all(db, user_id).await,
+            Some(venue) => sore::open_in_group(db, venue, Some(user_id)).await,
+        };
+        if let Some(block) = sore::section(&sores, chrono::Utc::now()) {
+            sections.push(block);
         }
         // What she meant to come back to with them: private, never in a group.
         if !group {
