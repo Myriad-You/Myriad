@@ -191,6 +191,16 @@ pub enum Who {
 /// What she found scrolling back through the chat: (date, whose words,
 /// the part she read).
 pub fn looked_back_section(found: &[(String, Who, String)]) -> Option<String> {
+    looked_back(found, "your chat with them", "they said")
+}
+
+/// What she found scrolling back through this group's chat: others' words
+/// come with who said them.
+pub fn looked_back_in_group_section(found: &[(String, Who, String)]) -> Option<String> {
+    looked_back(found, "this group's chat", "someone said")
+}
+
+fn looked_back(found: &[(String, Who, String)], through: &str, they: &str) -> Option<String> {
     if found.is_empty() {
         return None;
     }
@@ -199,14 +209,14 @@ pub fn looked_back_section(found: &[(String, Who, String)]) -> Option<String> {
         .map(|(date, who, text)| {
             let who = match who {
                 Who::You => "you said",
-                Who::They => "they said",
+                Who::They => they,
                 Who::TheDay => "that day was about",
             };
             format!("- [{date}] {who}: {text}")
         })
         .collect();
     Some(format!(
-        "## Scrolling back through your chat with them\nYou looked back and found:\n{}",
+        "## Scrolling back through {through}\nYou looked back and found:\n{}",
         lines.join("\n")
     ))
 }
@@ -259,6 +269,11 @@ mod tests {
             looked_back_section(&[("2023-05-21".into(), Who::You, "7. Transcriptionist".into())])
                 .unwrap()
                 .contains("- [2023-05-21] you said: 7. Transcriptionist")
+        );
+        assert!(
+            looked_back_in_group_section(&[("2026-09-25".into(), Who::They, "阿明：是星轨吗".into())])
+                .unwrap()
+                .contains("this group's chat\nYou looked back and found:\n- [2026-09-25] someone said: 阿明：是星轨吗")
         );
         assert_eq!(schema()["properties"]["cues"]["maxItems"], MAX_CUES);
         // The talk turning to her brings her own life to mind.

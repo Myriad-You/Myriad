@@ -225,6 +225,14 @@ export default function AgentMind() {
       {history(who.us)}
       {heading(copy.person.lands)}
       {history(who.lands ?? [])}
+      {heading(copy.person.chatDays)}
+      {history(
+        (who.chatDays ?? []).map((day) => ({
+          text: day.text,
+          at: day.day ?? '',
+          current: day.current,
+        })),
+      )}
       {heading(copy.person.sore)}
       {sores(who.sore)}
       {heading(copy.person.threads)}

@@ -43,6 +43,7 @@ const fixture = {
       { text: '总在半夜来吐槽工作的朋友，嘴上嫌他烦，其实挺担心他。', at: day(6), current: true },
     ],
     lands: [{ text: '一逗他就接着闹；讲长了他只回「嗯」。', at: day(7), current: true }],
+    chatDays: [{ day: '2026-09-25', text: '玩了海龟汤：天台男人拍星轨那道。', current: true }],
     sore: [
       { what: '他说我的歌单全是垃圾', weight: 'deep', since: day(3), mended: day(4), where: 'private', status: 'let_go', endedAt: day(5) },
       { what: '他说我暴躁', weight: 'petty', since: day(8), where: 'group', status: 'open' },
@@ -127,6 +128,7 @@ test('her mind shows herself, each person and each group, with how each changed'
       assert.ok(text().includes('总在半夜来吐槽工作的朋友'))
       assert.ok(text().includes('刚认识，话不多。'))
       assert.ok(text().includes(merope.mind.person.lands) && text().includes('讲长了他只回'))
+      assert.ok(text().includes(merope.mind.person.chatDays) && text().includes('天台男人拍星轨'))
       assert.ok(text().includes(merope.mind.weight.deep))
       assert.ok(text().includes(merope.mind.status.let_go))
       assert.ok(text().includes(merope.mind.mended))

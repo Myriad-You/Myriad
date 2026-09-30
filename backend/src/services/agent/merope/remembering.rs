@@ -222,7 +222,14 @@ pub async fn look_back(
         .collect();
     // And, as a person does, thinking which day it was and reading that day
     // (see `chat_days`): what the words alone would miss.
-    let by_day = super::chat_days::turn_back(db, user_id, query, asked).await;
+    let by_day = super::chat_days::turn_back(
+        db,
+        super::chat_days::Place::With(user_id),
+        user_id,
+        query,
+        asked,
+    )
+    .await;
     merge_found(by_words, by_day)
 }
 

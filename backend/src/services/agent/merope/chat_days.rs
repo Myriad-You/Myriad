@@ -1,11 +1,13 @@
-//! Her days with each person (see `myriad_merope::chat_days`): a line for
-//! each day they talked in private, written at night, and looking back
+//! Her days with each person and in each group (see
+//! `myriad_merope::chat_days`): a line for each day, and looking back
 //! through them to the right days before reading what was said.
 //!
-//! The lines are kept with the person, heard only in private with them, and
-//! apart from ordinary memory: they are the table of days, not things she
-//! recalls on her own. A night writes yesterday's, and fills in a few older
-//! days that have none yet.
+//! With one person the lines are written here at night, kept with them,
+//! heard only in private with them, and apart from ordinary memory: they are
+//! the table of days, not things she recalls on her own. A night writes
+//! yesterday's and fills in a few older days that have none yet. In a group
+//! the table is the group's own days (see `bits`), and looking back reads
+//! only that group's talk.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -17,8 +19,8 @@ use serde_json::{Value, json};
 use super::call::{self, Voice};
 use crate::services::agent::memory::unified::{self, Audience};
 use myriad_merope::chat_days::{
-    DAY_SCHEMA_NAME, DAYS_PICKED, DayLine, PICK_SCHEMA_NAME, day_schema, day_system, lines_to_read,
-    parse_day, parse_pick, pick_input, pick_schema, pick_system, stand_in,
+    DAY_SCHEMA_NAME, DayLine, PICK_SCHEMA_NAME, day_schema, day_system, lines_to_read, parse_day,
+    parse_pick, pick_input, pick_schema, pick_system, stand_in,
 };
 use myriad_merope::remembering::Who;
 
@@ -35,22 +37,47 @@ const PEOPLE: i64 = 20;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(40);
 /// Turning back is done while she answers: past this, she goes by words.
 const PICK_TIMEOUT: Duration = Duration::from_secs(6);
-const SHOWN_CHARS: usize = 400;
+const SHOWN_CHARS: usize = 240;
 
-/// One message: when, whether hers, what.
+/// One message: when, whether hers, what (in a group, others' with who
+/// said it).
 type Said = (DateTime<FixedOffset>, bool, String);
 
-/// Their private chat, by the day it was on the host clock, oldest first.
-async fn by_day(db: &DatabaseConnection, user_id: i32) -> BTreeMap<NaiveDate, Vec<Said>> {
-    let rows = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT m.role, m.content, m.created_at FROM agent_messages m \
+/// Where the talk was: in private with one person, or in one group (its
+/// venue as sessions keep it).
+#[derive(Debug, Clone, Copy)]
+pub enum Place<'a> {
+    With(i32),
+    In(&'a str),
+}
+
+/// The talk there, by the day it was on the host clock, oldest first.
+async fn by_day(db: &DatabaseConnection, place: Place<'_>) -> BTreeMap<NaiveDate, Vec<Said>> {
+    let (sql, value): (&str, sea_orm::Value) = match place {
+        Place::With(user_id) => (
+            "SELECT m.role, m.content, m.created_at, '' AS name FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' \
                AND (s.context->>'venue') IS NULL AND m.role IN ('user', 'assistant') \
              ORDER BY m.created_at DESC LIMIT $2",
-            [user_id.into(), LATEST.into()],
+            user_id.into(),
+        ),
+        Place::In(venue) => (
+            "SELECT m.role, m.content, m.created_at, \
+               coalesce(nullif(u.display_name, ''), u.username, '') AS name \
+             FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+             LEFT JOIN users u ON u.id = s.user_id \
+             WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' = $1 \
+               AND m.role IN ('user', 'assistant') \
+             ORDER BY m.created_at DESC LIMIT $2",
+            venue.into(),
+        ),
+    };
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            [value, LATEST.into()],
         ))
         .await
         .unwrap_or_default();
@@ -67,6 +94,17 @@ async fn by_day(db: &DatabaseConnection, user_id: i32) -> BTreeMap<NaiveDate, Ve
         if text.trim().is_empty() {
             continue;
         }
+        let name: String = row
+            .try_get::<String>("", "name")
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .take(24)
+            .collect();
+        let text = match (&place, role == "assistant") {
+            (Place::In(_), false) if !name.is_empty() => format!("{name}：{text}"),
+            _ => text,
+        };
         days.entry(at.with_timezone(&Local).date_naive())
             .or_default()
             .push((at, role == "assistant", text));
@@ -96,29 +134,44 @@ async fn written(
         .collect()
 }
 
-/// Every day they talked, as she sees it turning back.
+/// The line for each day there that has one.
+async fn day_lines(db: &DatabaseConnection, place: Place<'_>) -> BTreeMap<NaiveDate, String> {
+    match place {
+        Place::With(user_id) => written(db, user_id)
+            .await
+            .into_iter()
+            .map(|(day, row)| (day, row.content))
+            .collect(),
+        Place::In(venue) => super::bits::days_in(db, venue, 1000)
+            .await
+            .into_iter()
+            .filter_map(|(day, text)| {
+                Some((NaiveDate::parse_from_str(&day, "%Y-%m-%d").ok()?, text))
+            })
+            .collect(),
+    }
+}
+
+/// Every day of talk there, as she sees it turning back.
 async fn table(
     db: &DatabaseConnection,
-    user_id: i32,
+    place: Place<'_>,
 ) -> (Vec<DayLine>, BTreeMap<NaiveDate, Vec<Said>>) {
-    let days = by_day(db, user_id).await;
-    let lines = written(db, user_id).await;
+    let days = by_day(db, place).await;
+    let lines = day_lines(db, place).await;
     let table = days
         .iter()
         .map(|(date, said)| DayLine {
             date: *date,
             messages: said.len(),
-            about: lines
-                .get(date)
-                .map(|row| row.content.clone())
-                .unwrap_or_else(|| {
-                    let theirs: Vec<&str> = said
-                        .iter()
-                        .filter(|(_, hers, _)| !hers)
-                        .map(|(_, _, text)| text.as_str())
-                        .collect();
-                    stand_in(&theirs)
-                }),
+            about: lines.get(date).cloned().unwrap_or_else(|| {
+                let theirs: Vec<&str> = said
+                    .iter()
+                    .filter(|(_, hers, _)| !hers)
+                    .map(|(_, _, text)| text.as_str())
+                    .collect();
+                stand_in(&theirs)
+            }),
         })
         .collect();
     (table, days)
@@ -199,7 +252,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     let today = Local::now().date_naive();
     let oldest = today - chrono::Duration::days(FILL_BACK_DAYS);
     for user_id in people(db).await {
-        let days = by_day(db, user_id).await;
+        let days = by_day(db, Place::With(user_id)).await;
         let lines = written(db, user_id).await;
         let unwritten: Vec<(&NaiveDate, &Vec<Said>)> = days
             .iter()
@@ -215,40 +268,38 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     }
 }
 
-/// Looking back through their days for what `looking_for` names (they just
-/// said `asked`): turn to the days worth reading, then read them; a day
-/// with nothing in it that answers gives what it was about. What was found,
-/// oldest first: (date, whose, text).
+/// Looking back through the days there for what `looking_for` names (they
+/// just said `asked`): turn to the days worth reading, then read them; a
+/// day with nothing in it that answers gives what it was about. Choosing is
+/// billed to `payer`. What was found, oldest first: (date, whose, text).
 pub async fn turn_back(
     db: &DatabaseConnection,
-    user_id: i32,
+    place: Place<'_>,
+    payer: i32,
     looking_for: &str,
     asked: &str,
 ) -> Vec<(String, Who, String)> {
-    let (table, days) = table(db, user_id).await;
+    let (table, days) = table(db, place).await;
     let today = Local::now().date_naive();
     // Today's talk is in front of her already.
     let table: Vec<DayLine> = table.into_iter().filter(|day| day.date < today).collect();
     if table.is_empty() {
         return Vec::new();
     }
-    let picked: Vec<NaiveDate> = if table.len() <= DAYS_PICKED {
-        table.iter().map(|day| day.date).collect()
-    } else {
-        let Ok(raw) = call::Ask::new(Voice::Judge, user_id, PICK_SCHEMA_NAME)
-            .within(PICK_TIMEOUT)
-            .json_raw(
-                &pick_system(),
-                &pick_input(asked, looking_for, today, &table),
-                PICK_SCHEMA_NAME,
-                &pick_schema(),
-            )
-            .await
-        else {
-            return Vec::new();
-        };
-        parse_pick(&raw, &table).unwrap_or_default()
+    // Even among a few days, she turns only to those it could be.
+    let Ok(raw) = call::Ask::new(Voice::Judge, payer, PICK_SCHEMA_NAME)
+        .within(PICK_TIMEOUT)
+        .json_raw(
+            &pick_system(),
+            &pick_input(asked, looking_for, today, &table),
+            PICK_SCHEMA_NAME,
+            &pick_schema(),
+        )
+        .await
+    else {
+        return Vec::new();
     };
+    let picked = parse_pick(&raw, &table).unwrap_or_default();
     let mut found = Vec::new();
     for date in picked {
         let Some(said) = days.get(&date) else {
@@ -298,7 +349,12 @@ mod live {
             .ok()
             .and_then(|id| id.parse().ok())
             .unwrap_or(1);
-        let (table, days) = table(&db, user_id).await;
+        let venue = std::env::var("MEROPE_LOOK_VENUE").ok();
+        let place = match venue.as_deref() {
+            Some(venue) => Place::In(venue),
+            None => Place::With(user_id),
+        };
+        let (table, days) = table(&db, place).await;
         for day in &table {
             println!("{} {:>3}  {}", day.date, day.messages, day.about);
         }
@@ -330,7 +386,7 @@ mod live {
         let asked = std::env::var("MEROPE_LOOK_FOR").unwrap_or_default();
         for question in asked.split(';').filter(|q| !q.trim().is_empty()) {
             println!("== {question}");
-            for (date, hers, text) in turn_back(&db, user_id, question, question).await {
+            for (date, hers, text) in turn_back(&db, place, user_id, question, question).await {
                 println!("  by day   [{date}] {:?}: {text}", hers);
             }
             for (date, hers, text) in

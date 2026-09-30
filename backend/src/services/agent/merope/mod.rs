@@ -848,6 +848,20 @@ async fn speaking_prompt_from_db(
             sections.push(block);
         }
     }
+    // In a group, the group's own days and talk: nothing private.
+    if let (Some(venue), Turn::Chat(words), Some(cues)) = (present.group_id(), turn, cues.as_ref())
+        && (cues.look_back || cues.thorough)
+    {
+        let query = std::iter::once(words)
+            .chain(cues.cues.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let found =
+            chat_days::turn_back(db, chat_days::Place::In(venue), user_id, &query, words).await;
+        if let Some(block) = myriad_merope::remembering::looked_back_in_group_section(&found) {
+            sections.push(block);
+        }
+    }
     let diary = if group {
         Ok(Vec::new())
     } else {

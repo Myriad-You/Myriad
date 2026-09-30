@@ -740,6 +740,8 @@ export interface MindPerson {
   us: MindEntry[]
   /** How they take her, as she found it night by night. */
   lands?: MindEntry[]
+  /** A line for each day they talked, oldest first. */
+  chatDays?: { day?: string | null; text: string; current: boolean }[]
   sore: MindSore[]
   threads: {
     about?: string | null
