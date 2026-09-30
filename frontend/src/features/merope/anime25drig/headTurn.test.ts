@@ -185,3 +185,17 @@ test('a feature keeps its drawn shape as it rides the ball', () => {
   moveHeadFeature(turn, bottom, far, 0)
   assert.ok(Math.abs(top.x - bottom.x) < 1e-9)
 })
+
+test('a raised face foreshortens: the mouth rises at least as far as the eyes, never left behind', () => {
+  const silhouette = headSilhouetteFromFace(face, ellipseFace(100, 120))!
+  const turn = createHeadTurn(silhouette)
+  const eyeY = silhouette.widestY + 10
+  const mouthY = silhouette.chinY - 30
+  for (const angle of [1, -1]) {
+    updateHeadTurn(turn, 0, angle)
+    const eye = headTurnOffset(turn, 200, eyeY, 'skin', 0, 0, { x: 0, y: 0 }).y
+    const mouth = headTurnOffset(turn, 200, mouthY, 'skin', 0, 0, { x: 0, y: 0 }).y
+    // Raised, both rise and the gap between them closes; lowered, it closes too.
+    assert.ok(angle > 0 ? mouth <= eye && eye < 0 : mouth >= 0, `angle ${angle}: eye ${eye} mouth ${mouth}`)
+  }
+})

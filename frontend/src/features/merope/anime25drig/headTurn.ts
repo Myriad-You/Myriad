@@ -52,6 +52,9 @@ const NOD_SLIDE = 0.17
 const SLIDE_PEAK = -0.1
 /** The near rim comes in by this share of the peak slide, opening the side of the head. */
 const NEAR_RIM_SLIDE = 0.2
+/** A nod's slide levels off toward the chin and keeps growing a little to it. */
+const NOD_SLIDE_PEAK = -0.3
+const NOD_NEAR_RIM_SLIDE = 1.1
 /** A feature narrows on the far side at most to this, and widens on the near side at most to that. */
 const FEATURE_SCALE_MIN = 0.86
 const FEATURE_SCALE_MAX = 1.08
@@ -179,17 +182,36 @@ export function headSilhouetteRow(
  * rim everything comes in with it.
  */
 export function headTurnSlideShape(u: number): number {
+  return slideShape(u, SLIDE_PEAK, NEAR_RIM_SLIDE)
+}
+
+/**
+ * The same for a nod. A face tipping back is a plane swinging up about the
+ * crown, not a band sliding round a globe: the lower on the face, the further
+ * it travels, so the mouth rises a little more than the eyes and the chin more
+ * again, and the face foreshortens instead of the mouth being left behind.
+ */
+export function headNodSlideShape(v: number): number {
+  return slideShape(v, NOD_SLIDE_PEAK, NOD_NEAR_RIM_SLIDE)
+}
+
+function slideShape(u: number, peak: number, nearRim: number): number {
   if (u >= 1) return 0
-  if (u <= -1) return NEAR_RIM_SLIDE
-  // Level at the peak, falling away faster toward each rim as a ball's does.
-  if (u >= SLIDE_PEAK) return 1 - ((u - SLIDE_PEAK) / (1 - SLIDE_PEAK)) ** 1.5
-  return 1 - (1 - NEAR_RIM_SLIDE) * ((SLIDE_PEAK - u) / (1 + SLIDE_PEAK)) ** 1.5
+  if (u <= -1) return nearRim
+  // Level at the peak, falling away faster toward the far rim as a ball's does.
+  if (u >= peak) return 1 - ((u - peak) / (1 - peak)) ** 1.5
+  return 1 - (1 - nearRim) * ((peak - u) / (1 + peak)) ** 1.5
 }
 
 /** Slide at position `u` for a signed slide amount; a turn the other way is the mirror image. */
 function slideAt(amount: number, u: number): number {
   if (amount === 0) return 0
   return amount * headTurnSlideShape(amount > 0 ? u : -u)
+}
+
+function nodAt(amount: number, v: number): number {
+  if (amount === 0) return 0
+  return amount * headNodSlideShape(amount > 0 ? v : -v)
 }
 
 export interface HeadTurn {
@@ -262,11 +284,11 @@ export function headTurnOffset(
   // Raising the face slides it toward the crown, so the crown is the far rim.
   const v = (middleY - y) / column
   const facingUp = Math.sqrt(Math.max(0, 1 - v * v))
-  let dy = -(column * slideAt(turn.nodSlide, v) + lift * turn.nodSine * facingUp)
+  let dy = -(column * nodAt(turn.nodSlide, v) + lift * turn.nodSine * facingUp)
   if (surface === 'back-hair') {
     // The back of the head is the same ball seen from behind: it slides the other way.
     const rearX = radius * slideAt(-turn.slide, u)
-    const rearY = -column * slideAt(-turn.nodSlide, v)
+    const rearY = -column * nodAt(-turn.nodSlide, v)
     dx = rearX + (dx - rearX) * crown
     dy = rearY + (dy - rearY) * crown
   }
