@@ -293,7 +293,7 @@ fn case_differs(case: &Case) -> Option<String> {
 
 /// What production sends of a reply typed in a chat app: as many messages
 /// as it rolls for (the roll made from the row id, so a replay sends the
-/// same), each typed the way the room types.
+/// same), typed the way the room types, or chat apps usually do.
 fn as_sent(id: &str, reply: &str, room: Option<&myriad_merope::talk_shape::Shape>) -> Vec<String> {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -301,13 +301,7 @@ fn as_sent(id: &str, reply: &str, room: Option<&myriad_merope::talk_shape::Shape
     let roll = (hasher.finish() % 1_000_000) as f64 / 1_000_000.0;
     let lines = myriad_agent_rules::channel::as_messages(reply);
     let most = myriad_merope::talk_shape::messages_this_turn(lines.len(), roll);
-    myriad_agent_rules::channel::as_messages_at_most(reply, most)
-        .into_iter()
-        .map(|message| match room {
-            Some(room) => myriad_merope::talk_shape::typed_like(&message, room),
-            None => message,
-        })
-        .collect()
+    myriad_merope::talk_shape::goes_out_as(&lines, most, room)
 }
 
 /// Mind cases wear the production persona contract (no body, own words).
@@ -2098,6 +2092,15 @@ fn a_replayed_group_reply_goes_out_as_production_sends_it() {
             .iter()
             .all(|message| !message.ends_with('。') && !message.contains('！'))
     );
+    // A place not measured yet is typed as chat apps usually are, which is
+    // what the reference measured.
+    let reference: Value =
+        serde_json::from_str(include_str!("../../../../tests/merope/talk-reference.json")).unwrap();
+    assert_eq!(
+        serde_json::to_value(myriad_merope::talk_shape::CHAT_APP_USUAL).unwrap(),
+        reference["chatApp"]["shape"]
+    );
+    assert_eq!(as_sent("x-sample-2", "好啊！", None), ["好啊"]);
 }
 
 #[test]

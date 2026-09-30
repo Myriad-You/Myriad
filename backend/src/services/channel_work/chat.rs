@@ -192,6 +192,7 @@ async fn answer(
         }
     };
     let busy = is_active(session_key).await;
+    let room = their_typing(&db, &chat_session_id).await;
     let input_text = if input.trim().is_empty() && cached.is_some() {
         "（发来了图片）".to_string()
     } else {
@@ -239,12 +240,10 @@ async fn answer(
         .map(str::trim)
         .unwrap_or("");
     // Most turns go as one message, and a few in a row when something grabs
-    // her, typing each first.
-    let most = myriad_merope::talk_shape::messages_this_turn(
-        myriad_agent_rules::channel::as_messages(message).len(),
-        rand::random::<f64>(),
-    );
-    for (index, line) in myriad_agent_rules::channel::as_messages_at_most(message, most)
+    // her, typed the way they type to her, typing each first.
+    let lines = myriad_agent_rules::channel::as_messages(message);
+    let most = myriad_merope::talk_shape::messages_this_turn(lines.len(), rand::random::<f64>());
+    for (index, line) in myriad_merope::talk_shape::goes_out_as(&lines, most, room.as_ref())
         .into_iter()
         .enumerate()
     {
@@ -380,6 +379,42 @@ async fn handed_off(db: &DatabaseConnection, work_session_id: &str, busy: bool) 
         }
         (false, Some(answered)) => format!("You handed off: {asked}\nIt came back: {answered}"),
     })
+}
+
+/// Their lines in this chat lately, as many as are looked at for how they
+/// type to her.
+const THEIR_LINES_LOOKED_AT: u64 = 40;
+
+/// How they type to her in this chat, once they have said enough of it:
+/// what each of their turns went in as, a line a message.
+async fn their_typing(
+    db: &DatabaseConnection,
+    chat_session_id: &str,
+) -> Option<myriad_merope::talk_shape::Shape> {
+    let history = crate::services::agent::sessions::load_session_history(
+        db,
+        chat_session_id,
+        THEIR_LINES_LOOKED_AT,
+        false,
+    )
+    .await
+    .ok()?;
+    let at = |message: &crate::services::agent::ConversationMessage| {
+        message
+            .created_at
+            .as_deref()
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+            .map_or(0, |at| at.timestamp())
+    };
+    let lines: Vec<(&str, i64, &str)> = history
+        .iter()
+        .filter(|message| message.role == "user")
+        .flat_map(|message| {
+            let at = at(message);
+            message.content.lines().map(move |line| ("them", at, line))
+        })
+        .collect();
+    myriad_merope::talk_shape::room_of(&lines)
 }
 
 /// The cached attachments, with a small copy of each image the model can

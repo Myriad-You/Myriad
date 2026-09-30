@@ -303,6 +303,41 @@ pub fn messages_this_turn(written: usize, roll: f64) -> usize {
 /// Typed messages of a place it takes to say how people type there.
 pub const ROOM_AT_LEAST: usize = 8;
 
+/// How people type in a chat app, until a place or a person has said enough
+/// to go by: one active QQ group, measured
+/// (tests/merope/talk-reference.json, `chatApp.shape`).
+pub const CHAT_APP_USUAL: Shape = Shape {
+    turns: 127,
+    messages: 165,
+    per_turn: 1.3,
+    single: 0.77,
+    chars_median: 7,
+    chars_p90: 15,
+    end_mark: 0.03,
+    bang: 0.0,
+    laugh_end: 0.0,
+};
+
+/// What goes out of the lines she wrote (a line a message) when her hands
+/// send `most` messages: each line typed the way people there type (`room`,
+/// or how people in a chat app usually do), and those past the last
+/// message run on in it, as a thumb runs on, a space between.
+pub fn goes_out_as<S: AsRef<str>>(lines: &[S], most: usize, room: Option<&Shape>) -> Vec<String> {
+    let room = room.unwrap_or(&CHAT_APP_USUAL);
+    let mut typed: Vec<String> = lines
+        .iter()
+        .map(|line| line.as_ref().trim())
+        .filter(|line| !line.is_empty())
+        .map(|line| typed_like(line, room))
+        .collect();
+    let most = most.max(1);
+    if typed.len() > most {
+        let rest = typed.split_off(most - 1);
+        typed.push(rest.join(" "));
+    }
+    typed
+}
+
 /// How the people of a place type, from their lines there (speaker,
 /// seconds, text; oldest first, hers left out); None while too few.
 pub fn room_of(lines: &[(&str, i64, &str)]) -> Option<Shape> {
@@ -384,6 +419,28 @@ mod tests {
             bang: 0.0,
             laugh_end: 0.0,
         }
+    }
+
+    #[test]
+    fn what_runs_on_is_typed_first_and_an_unknown_place_types_as_usual() {
+        let lines = ["哈哈哈真的假的！", "我昨天也遇到了。", "气死了！"];
+        // A place not measured yet types the way chat apps usually do.
+        assert_eq!(
+            goes_out_as(&lines, 1, None),
+            ["哈哈哈真的假的 我昨天也遇到了 气死了"]
+        );
+        assert_eq!(
+            goes_out_as(&lines, 2, None),
+            ["哈哈哈真的假的", "我昨天也遇到了 气死了"]
+        );
+        // Where people punctuate, so does she; nothing is lost either way.
+        let loud = Shape {
+            end_mark: 0.6,
+            bang: 0.4,
+            ..quiet_room()
+        };
+        assert_eq!(goes_out_as(&lines, 5, Some(&loud)), lines);
+        assert_eq!(goes_out_as(&["  ", "嗯"], 3, None), ["嗯"]);
     }
 
     #[test]
