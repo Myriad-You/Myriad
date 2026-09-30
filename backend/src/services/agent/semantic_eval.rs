@@ -293,13 +293,16 @@ fn case_differs(case: &Case) -> Option<String> {
 
 /// What production sends of a reply typed in a chat app: as many messages
 /// as it rolls for (the roll made from the row id, so a replay sends the
-/// same), typed the way the room types, or chat apps usually do.
+/// same), typed the way the room types, or chat apps usually do. Stickers,
+/// games and the like go apart from her words, so their markers are no
+/// message.
 fn as_sent(id: &str, reply: &str, room: Option<&myriad_merope::talk_shape::Shape>) -> Vec<String> {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     id.hash(&mut hasher);
     let roll = (hasher.finish() % 1_000_000) as f64 / 1_000_000.0;
-    let lines = myriad_agent_rules::channel::as_messages(reply);
+    let said = myriad_merope::strangers::without_directives(reply);
+    let lines = myriad_agent_rules::channel::as_messages(&said);
     let most = myriad_merope::talk_shape::messages_this_turn(lines.len(), roll);
     myriad_merope::talk_shape::goes_out_as(&lines, most, room)
 }
@@ -1653,7 +1656,11 @@ fn talk_shape(rows: &[Value]) -> Value {
         typed
             .iter()
             .filter_map(|row| row["output"].as_str())
-            .map(myriad_agent_rules::channel::as_messages)
+            .map(|output| {
+                myriad_agent_rules::channel::as_messages(
+                    &myriad_merope::strangers::without_directives(output),
+                )
+            })
             .collect(),
     );
     let sent = shape_of(
@@ -2101,6 +2108,10 @@ fn a_replayed_group_reply_goes_out_as_production_sends_it() {
         reference["chatApp"]["shape"]
     );
     assert_eq!(as_sent("x-sample-2", "好啊！", None), ["好啊"]);
+    assert_eq!(
+        as_sent("x-sample-3", "这就来\n[[sticker:1]]", None),
+        ["这就来"]
+    );
 }
 
 #[test]
