@@ -129,6 +129,36 @@ fn checked_questions(
     kept
 }
 
+/// What she did since `since`, and what she heard people bring up, as
+/// records to go over at night.
+///
+/// What people brought up where she was (a game someone recommended, a
+/// piece of news) is hers to wonder about and to want too: what others put
+/// her onto is much of how anyone comes to new things. Heard is about
+/// things, with no one named.
+pub(super) async fn lately(
+    db: &DatabaseConnection,
+    since: chrono::DateTime<chrono::FixedOffset>,
+) -> Vec<super::self_story::Record> {
+    let (mut records, _) = super::self_story::records(db, since).await;
+    for row in unified::own_rows(db, super::heard::SOURCE, HEARD_WONDERED)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| row.created_at >= since)
+        .rev()
+    {
+        let id = format!("r{}", records.len() + 1);
+        records.push(super::self_story::Record {
+            id,
+            row: row.id,
+            line: format!("you heard: {}", row.content),
+            missed: false,
+        });
+    }
+    records
+}
+
 /// At night: from what she did this past week, the questions she has.
 pub async fn wonder(db: &DatabaseConnection, owner: i32) {
     let now = Utc::now().fixed_offset();
@@ -149,27 +179,7 @@ pub async fn wonder(db: &DatabaseConnection, owner: i32) {
     if !senses::available().await.search {
         return;
     }
-    let week_ago = now - chrono::Duration::days(7);
-    let (mut records, _) = super::self_story::records(db, week_ago).await;
-    // What people brought up where she was (a game someone recommended, a
-    // piece of news) is hers to wonder about too: what others put her onto
-    // is much of how anyone comes to new things. Heard is about things, with
-    // no one named.
-    for row in unified::own_rows(db, super::heard::SOURCE, HEARD_WONDERED)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|row| row.created_at >= week_ago)
-        .rev()
-    {
-        let id = format!("r{}", records.len() + 1);
-        records.push(super::self_story::Record {
-            id,
-            row: row.id,
-            line: format!("you heard: {}", row.content),
-            missed: false,
-        });
-    }
+    let records = lately(db, now - chrono::Duration::days(7)).await;
     if records.is_empty() {
         return;
     }

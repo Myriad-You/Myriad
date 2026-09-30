@@ -50,6 +50,7 @@ pub mod timing;
 pub mod touch;
 pub mod views;
 pub mod wander;
+pub mod wants;
 
 pub use chat_remember::enqueue_chat_remember;
 pub use curiosity::spawn_curiosity;
@@ -913,6 +914,10 @@ async fn speaking_prompt_from_db(
         // Who she has been lately, told from what she did: hers, heard
         // wherever she is.
         if let Some(block) = format_self_story_section(&self_story::current(db).await) {
+            sections.push(block);
+        }
+        // What she wants lately: hers, heard wherever she is.
+        if let Some(block) = wants::section(&wants::open(db).await, chrono::Utc::now()) {
             sections.push(block);
         }
         // Her own time is about public things, so any audience may hear it.

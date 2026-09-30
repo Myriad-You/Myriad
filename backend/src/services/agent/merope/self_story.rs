@@ -111,6 +111,16 @@ pub(super) async fn records(
             found.push((row.created_at, row.id.clone(), clip(&line), false));
         }
     }
+    // What she wanted that came true, or that she let go of.
+    for row in unified::own_rows(db, super::wants::ENDED, 20)
+        .await
+        .unwrap_or_default()
+    {
+        if row.created_at >= since {
+            let line = format!("a want of yours ended: {}", row.content);
+            found.push((row.created_at, row.id.clone(), clip(&line), false));
+        }
+    }
     for day in unified::own_days(db, 14).await.unwrap_or_default() {
         if day.created_at >= since {
             let line = format!(

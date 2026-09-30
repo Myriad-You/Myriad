@@ -47,6 +47,7 @@ pub mod talk_shape;
 pub mod threads;
 pub mod timing;
 pub mod views;
+pub mod wants;
 mod visual_contract;
 mod visual_design;
 mod visual_prompt;

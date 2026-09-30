@@ -10,6 +10,9 @@
 //!   views of her own grow or change (see `views`).
 //! - **What she wonders.** From what she did this past week, the questions
 //!   she would like to go and find out (see `explore`).
+//! - **What she wants.** From what she did and heard this past week, what
+//!   she would like to have happen, and what moved, came true or she let
+//!   go of (see `wants`).
 //! - **Who she has been.** Once a week she looks back over what she did and
 //!   writes who she has been lately, from those records alone (see
 //!   `self_story`).
@@ -65,6 +68,7 @@ pub async fn tick(db: DatabaseConnection) {
     super::views::go_over(&db, owner).await;
     super::self_story::look_back(&db, owner).await;
     super::explore::wonder(&db, owner).await;
+    super::wants::go_over(&db, owner).await;
     // Yesterday with each person, once a night.
     if let Some((start, end)) = now.date_naive().pred_opt().and_then(day_bounds) {
         if BITS_DONE
@@ -83,6 +87,7 @@ pub async fn tick(db: DatabaseConnection) {
     super::strangers::let_fade(&db).await;
     super::threads::let_fade(&db).await;
     super::sore::let_fade(&db).await;
+    super::wants::let_fade(&db).await;
     super::making_sense::let_fade(&db).await;
     fill_old_concepts(&db, owner).await;
 }

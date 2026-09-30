@@ -212,6 +212,7 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
         "lately": lately_view,
         "sameThingLately": myriad_merope::doing::same_run(&kinds),
         "yourViews": super::views::held(db, 5).await,
+        "yourWants": super::wants::lines(&super::wants::open(db).await),
         "whoYouHaveBeen": super::self_story::current(db).await,
         "options": option_views,
     })
