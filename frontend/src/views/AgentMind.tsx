@@ -1,10 +1,12 @@
 import type {
+  MindAlert,
   MindEntry,
   MindGroup,
   MindPace,
   MindPerson,
   MindSnapshot,
   MindSore,
+  MindVitalsDay,
   MindVoiceWeek,
   MindWant,
 } from '../services/agent'
@@ -242,6 +244,92 @@ export default function AgentMind() {
       </>
     )
 
+  const alertText = (alert: MindAlert) => {
+    switch (alert.kind) {
+      case 'unreadable':
+        return fill(copy.vitals.alerts.unreadable, { count: alert.count })
+      case 'failedCalls':
+        return fill(copy.vitals.alerts.failedCalls, { failed: alert.failed, calls: alert.calls })
+      case 'stopped':
+        return fill(copy.vitals.alerts.stopped, { source: alert.source })
+      case 'notesLeanOn':
+        return fill(copy.vitals.alerts.notesLeanOn, { phrase: alert.phrase, percent: alert.percent })
+      case 'repliesLeanOn':
+        return fill(copy.vitals.alerts.repliesLeanOn, { phrase: alert.phrase, percent: alert.percent })
+      case 'slowReplies':
+        return fill(copy.vitals.alerts.slowReplies, { seconds: alert.seconds })
+      case 'manyCalls':
+        return fill(copy.vitals.alerts.manyCalls, { calls: alert.calls, usual: alert.usual })
+    }
+  }
+
+  const leaning = (list: [string, number][]) =>
+    list.map(([phrase, share]) => `「${phrase}」${Math.round(share * 100)}%`).join('、')
+
+  const vitalsView = (days?: MindVitalsDay[]) => {
+    if (!days || days.length === 0) return empty
+    const latest = days[days.length - 1]
+    const raised = [...days].reverse().flatMap((day) =>
+      day.alerts.map((alert) => `${date(day.day)} ${alertText(alert)}`),
+    )
+    return (
+      <>
+        {raised.length > 0 && (
+          <ul className="text-sm space-y-1 mb-3" style={{ color: 'var(--color-danger, #d9534f)' }}>
+            {raised.map((line, index) => (
+              <li key={index}>{line}</li>
+            ))}
+          </ul>
+        )}
+        <table className="w-full text-sm">
+          <thead className="text-secondary text-left">
+            <tr>
+              <th className="font-normal py-1">{copy.pace.day}</th>
+              <th className="font-normal py-1">{copy.vitals.calls}</th>
+              <th className="font-normal py-1">{copy.vitals.tokens}</th>
+              <th className="font-normal py-1">{copy.vitals.things}</th>
+              <th className="font-normal py-1">{copy.vitals.replies}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...days].reverse().map((day) => (
+              <tr key={day.day}>
+                <td className="py-1">{date(day.day)}</td>
+                <td className="py-1">
+                  {day.calls}
+                  {day.failedCalls > 0 ? ` (${day.failedCalls})` : ''}
+                </td>
+                <td className="py-1">{(day.inputTokens / 10000).toFixed(1)}</td>
+                <td className="py-1">{day.things}</td>
+                <td className="py-1">
+                  {day.replies}
+                  {day.replyP50 != null ? ` · ${day.replyP50}s` : ''}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="text-sm text-secondary mt-3 space-y-1">
+          <div>
+            {copy.vitals.landed}：
+            {Object.entries(latest.landed)
+              .map(([reaction, count]) => `${reaction} ${count}`)
+              .join(' · ') || '—'}
+          </div>
+          <div>
+            {copy.vitals.busiest}：{latest.busiest.map(([operation, calls]) => `${operation} ${calls}`).join(' · ') || '—'}
+          </div>
+          <div>
+            {copy.vitals.notesLeanOn}：{leaning(latest.notesLeanOn) || '—'}
+          </div>
+          <div>
+            {copy.vitals.repliesLeanOn}：{leaning(latest.repliesLeanOn) || '—'}
+          </div>
+        </div>
+      </>
+    )
+  }
+
   const heading = (text: string) => <h4 className="text-sm font-semibold mt-4 mb-2">{text}</h4>
 
   const person = (who: MindPerson) => (
@@ -378,6 +466,9 @@ export default function AgentMind() {
             </SettingGroup>
             <SettingGroup title={copy.her.doing} toc={false}>
               {history(mind.her.doingThisWeek.map((done) => ({ ...done, current: true })))}
+            </SettingGroup>
+            <SettingGroup title={copy.her.vitals} description={copy.vitals.desc} descriptionVisible toc={false}>
+              {vitalsView(mind.her.vitals)}
             </SettingGroup>
             <SettingGroup title={copy.her.pace} description={copy.pace.desc} descriptionVisible toc={false}>
               {paceView(mind.her.pace)}

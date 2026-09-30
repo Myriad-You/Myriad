@@ -318,9 +318,13 @@ impl Agent {
         speech_delivery: Option<ChatDelivery>,
     ) -> Result<String, String> {
         let analyzer = chat_analyzer().await?;
+        // Put together once: asking again is the same turn, and putting it
+        // together judges soups and reads everything a second time.
+        let prompt = self.chat_response_prompt(request).await;
         let first = self
             .stream_chat_response_with_analyzer(
                 request,
+                &prompt,
                 progress_tx,
                 analyzer,
                 speech_delivery.clone(),
@@ -338,8 +342,14 @@ impl Agent {
             "[Chat] no whole reply; asking once more"
         );
         let analyzer = chat_analyzer().await?;
-        self.stream_chat_response_with_analyzer(request, progress_tx, analyzer, speech_delivery)
-            .await
+        self.stream_chat_response_with_analyzer(
+            request,
+            &prompt,
+            progress_tx,
+            analyzer,
+            speech_delivery,
+        )
+        .await
     }
 
     pub(crate) async fn strict_lite_chat_response(
@@ -686,12 +696,11 @@ impl Agent {
     async fn stream_chat_response_with_analyzer(
         &self,
         request: &UserRequest,
+        prompt: &str,
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
         analyzer: crate::services::analyzer::AiAnalyzer,
         speech_delivery: Option<ChatDelivery>,
     ) -> Result<String, String> {
-        let prompt = self.chat_response_prompt(request).await;
-
         let tx = progress_tx.clone();
         let wear = std::sync::Arc::new(std::sync::Mutex::new(WearStreamFilter::new(
             request.raw_input.clone(),

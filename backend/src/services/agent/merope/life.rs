@@ -131,6 +131,8 @@ pub async fn tick(db: DatabaseConnection) {
     super::wants::let_fade(&db).await;
     super::making_sense::let_fade(&db).await;
     super::others::let_fade(&db).await;
+    // Yesterday in numbers, once: kept to see how she is changing.
+    super::vitals::go_over(&db).await;
     fill_old_concepts(&db, owner).await;
 }
 

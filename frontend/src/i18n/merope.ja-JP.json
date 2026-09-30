@@ -316,16 +316,17 @@
   "motionSeeThroughUpstream": "See-through が無効または利用できない結果を返しました。",
   "motionSeeThroughGenerate": "分解して事前検証",
   "aiExpressionsTitle": "AI 表情",
-  "aiExpressionsHint": "画像生成モデルが立ち絵の顔だけを描き直し、泣き顔と目を閉じた笑顔を作ります。リグの取り込み時にプログラム描画の表情と置き換えます。2 種類をまとめて約 2 分で描き、画像生成の料金がかかります。",
+  "aiExpressionsHint": "画像生成モデルが立ち絵の顔だけを描き直し、泣き顔、目を閉じた笑顔、まばたきの閉じ目を作ります。リグの取り込み時にプログラム描画の表情と汎用の閉じ目を置き換えます。3 種類をまとめて約 2 分で描き、画像生成の料金がかかります。",
   "aiExpressionsGenerate": "AI 表情を生成",
   "aiExpressionsRegenerate": "再生成",
   "aiExpressionsGenerating": "描き直し中…",
-  "aiExpressionsConfirm": "画像生成モデルで表情を 2 枚描き直します。約 2 分かかり、料金が発生します。続けますか？",
+  "aiExpressionsConfirm": "画像生成モデルで表情を 3 枚描き直します。約 2 分かかり、料金が発生します。続けますか？",
   "aiExpressionsReady": "生成済み：{kinds}。リグの事前チェック時に自動で使います。",
   "aiExpressionsNone": "AI 表情はまだありません。取り込み時はプログラム描画の表情を使います。",
   "aiExpressionsFailed": "AI 表情を生成できませんでした。しばらくしてからお試しください",
   "aiExpressionCry": "泣き顔",
   "aiExpressionSqueeze": "目を閉じた笑顔",
+  "aiExpressionClose": "まばたきの閉じ目",
   "motionSeeThroughGenerating": "リモート分解を実行中です。完了後にローカル PSD 事前検証を自動で開始します…",
   "motionNeedsRig": "先にレイヤーリグを完成させてください。そのあとで立ち絵を操作できます。",
   "motionPsdCommit": "検証済みリグを確定",
@@ -360,7 +361,8 @@
       "days": "彼女の毎日",
       "doing": "今週ひとりでしたこと",
       "voice": "彼女自身の声",
-      "pace": "ペース"
+      "pace": "ペース",
+      "vitals": "バイタル"
     },
     "reach": {
       "on_your_own": "自分でできる",
@@ -441,6 +443,26 @@
         "flat": "今日は気乗りしない朝",
         "even": "今日はいつも通りの朝",
         "keen": "今日はやる気のある朝"
+      }
+    },
+    "vitals": {
+      "desc": "毎日コードで数えたもの（モデルは使わない）：コスト、したこと、話した量、口癖。異常は赤で表示。今日の行は現時点まで。",
+      "calls": "呼び出し（失敗）",
+      "tokens": "入力トークン（万）",
+      "things": "したこと",
+      "replies": "返信 · 中央値",
+      "landed": "今日の受け止め",
+      "busiest": "呼び出し最多",
+      "notesLeanOn": "メモの口癖",
+      "repliesLeanOn": "返信の口癖",
+      "alerts": {
+        "unreadable": "彼女自身の記録 {count} 件が読み戻せない",
+        "failedCalls": "{calls} 回中 {failed} 回失敗",
+        "stopped": "毎日あった {source} がこの日はない",
+        "notesLeanOn": "メモの {percent}% に「{phrase}」",
+        "repliesLeanOn": "返信の {percent}% に「{phrase}」",
+        "slowReplies": "遅い一割の返信が {seconds} 秒超",
+        "manyCalls": "呼び出し {calls} 回、普段（{usual}）の2倍超"
       }
     }
   }

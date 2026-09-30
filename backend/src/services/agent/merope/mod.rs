@@ -55,6 +55,7 @@ pub mod threads;
 pub mod timing;
 pub mod touch;
 pub mod views;
+pub mod vitals;
 pub mod wander;
 pub mod wants;
 

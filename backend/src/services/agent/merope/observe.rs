@@ -207,6 +207,7 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
         "doingThisWeek": doing,
         "voice": voice(db, now).await,
         "pace": super::pace::week_view(db).await,
+        "vitals": super::vitals::week(db).await,
     });
 
     // --- each person -------------------------------------------------------------

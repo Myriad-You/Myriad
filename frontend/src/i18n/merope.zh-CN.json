@@ -316,16 +316,17 @@
   "motionSeeThroughUpstream": "See-through 返回了无效或不可用的结果。",
   "motionSeeThroughGenerate": "拆分并预检",
   "aiExpressionsTitle": "AI 表情",
-  "aiExpressionsHint": "让生图模型照着立绘只重画脸，得到哭和闭眼笑，导入装配时替换程序画的表情。两种一起画，约需 2 分钟，会产生生图费用。",
+  "aiExpressionsHint": "让生图模型照着立绘只重画脸，得到哭、闭眼笑和眨眼时的闭眼，导入装配时替换程序画的表情和通用闭眼。三种一起画，约需 2 分钟，会产生生图费用。",
   "aiExpressionsGenerate": "生成 AI 表情",
   "aiExpressionsRegenerate": "重新生成",
   "aiExpressionsGenerating": "正在重画…",
-  "aiExpressionsConfirm": "将调用生图模型重画 2 张表情，约需 2 分钟，会产生费用。继续吗？",
+  "aiExpressionsConfirm": "将调用生图模型重画 3 张表情，约需 2 分钟，会产生费用。继续吗？",
   "aiExpressionsReady": "已生成：{kinds}。预检装配时自动使用。",
   "aiExpressionsNone": "还没有 AI 表情，导入时使用程序画的表情。",
   "aiExpressionsFailed": "AI 表情生成失败，请稍后再试",
   "aiExpressionCry": "哭",
   "aiExpressionSqueeze": "闭眼笑",
+  "aiExpressionClose": "眨眼闭眼",
   "motionSeeThroughGenerating": "远端正在拆分，完成后会自动进入本地 PSD 预检…",
   "motionNeedsRig": "先完成分层骨骼，这些选项才能驱动立绘。",
   "motionPsdCommit": "激活预检通过的 Rig",
@@ -360,7 +361,8 @@
       "days": "她的日子",
       "doing": "这周她自己做了什么",
       "voice": "她自己的声音",
-      "pace": "节奏"
+      "pace": "节奏",
+      "vitals": "生命体征"
     },
     "reach": {
       "on_your_own": "自己做得到",
@@ -441,6 +443,26 @@
         "flat": "今天醒来没劲",
         "even": "今天醒来一般",
         "keen": "今天醒来很有劲"
+      }
+    },
+    "vitals": {
+      "desc": "每天在代码里数出来的（不调模型）：花了多少、做了什么、说了多少、常用哪些说法，出异常会标红。今天这一行是当前为止。",
+      "calls": "调用（失败）",
+      "tokens": "输入 token（万）",
+      "things": "做了几件",
+      "replies": "回复 · 中位",
+      "landed": "今天评价",
+      "busiest": "调用最多",
+      "notesLeanOn": "心得常用",
+      "repliesLeanOn": "回复常用",
+      "alerts": {
+        "unreadable": "有 {count} 条她自己的经历读不出来",
+        "failedCalls": "{calls} 次调用里失败 {failed} 次",
+        "stopped": "之前每天都有的「{source}」这天没有",
+        "notesLeanOn": "心得里 {percent}% 出现「{phrase}」",
+        "repliesLeanOn": "回复里 {percent}% 出现「{phrase}」",
+        "slowReplies": "最慢的一成回复超过 {seconds} 秒",
+        "manyCalls": "调用 {calls} 次，超过平常（{usual}）两倍"
       }
     }
   }

@@ -316,16 +316,17 @@
   "motionSeeThroughUpstream": "See-through가 잘못됐거나 쓸 수 없는 결과를 돌려줬어요.",
   "motionSeeThroughGenerate": "분리하고 프리플라이트",
   "aiExpressionsTitle": "AI 표정",
-  "aiExpressionsHint": "이미지 생성 모델이 입식의 얼굴만 다시 그려 우는 얼굴과 눈을 감은 웃음을 만듭니다. 리그를 가져올 때 코드로 그린 표정을 대신합니다. 두 가지를 함께 약 2분 동안 그리며 이미지 생성 비용이 듭니다.",
+  "aiExpressionsHint": "이미지 생성 모델이 입식의 얼굴만 다시 그려 우는 얼굴, 눈을 감은 웃음, 깜빡일 때 감은 눈을 만듭니다. 리그를 가져올 때 코드로 그린 표정과 범용 감은 눈을 대신합니다. 세 가지를 함께 약 2분 동안 그리며 이미지 생성 비용이 듭니다.",
   "aiExpressionsGenerate": "AI 표정 생성",
   "aiExpressionsRegenerate": "다시 생성",
   "aiExpressionsGenerating": "다시 그리는 중…",
-  "aiExpressionsConfirm": "이미지 생성 모델로 표정 2장을 다시 그립니다. 약 2분이 걸리고 비용이 발생합니다. 계속할까요?",
+  "aiExpressionsConfirm": "이미지 생성 모델로 표정 3장을 다시 그립니다. 약 2분이 걸리고 비용이 발생합니다. 계속할까요?",
   "aiExpressionsReady": "생성됨: {kinds}. 리그 사전 점검 때 자동으로 사용합니다.",
   "aiExpressionsNone": "아직 AI 표정이 없어 가져올 때 코드로 그린 표정을 사용합니다.",
   "aiExpressionsFailed": "AI 표정을 생성하지 못했습니다. 잠시 후 다시 시도하세요",
   "aiExpressionCry": "우는 얼굴",
   "aiExpressionSqueeze": "눈 감은 웃음",
+  "aiExpressionClose": "깜빡일 때 감은 눈",
   "motionSeeThroughGenerating": "원격 분해가 진행 중이에요. 끝나면 로컬 PSD 프리플라이트가 자동으로 시작돼요…",
   "motionNeedsRig": "먼저 레이어 리그를 마치세요. 그다음에야 이 컨트롤이 스탠딩을 움직일 수 있어요.",
   "motionPsdCommit": "프리플라이트된 리그 확정",
@@ -360,7 +361,8 @@
       "days": "그녀의 하루",
       "doing": "이번 주 혼자 한 일",
       "voice": "그녀 자신의 목소리",
-      "pace": "페이스"
+      "pace": "페이스",
+      "vitals": "바이탈"
     },
     "reach": {
       "on_your_own": "혼자 할 수 있음",
@@ -441,6 +443,26 @@
         "flat": "오늘은 기운 없이 깼다",
         "even": "오늘은 평소처럼 깼다",
         "keen": "오늘은 의욕 있게 깼다"
+      }
+    },
+    "vitals": {
+      "desc": "매일 코드로 센 것(모델 호출 없음): 비용, 한 일, 말한 양, 자주 쓰는 말. 이상은 빨간색으로 표시. 오늘 행은 현재까지.",
+      "calls": "호출(실패)",
+      "tokens": "입력 토큰(만)",
+      "things": "한 일",
+      "replies": "답장 · 중앙값",
+      "landed": "오늘의 반응",
+      "busiest": "가장 많은 호출",
+      "notesLeanOn": "메모 입버릇",
+      "repliesLeanOn": "답장 입버릇",
+      "alerts": {
+        "unreadable": "그녀 자신의 기록 {count}건을 읽을 수 없음",
+        "failedCalls": "호출 {calls}회 중 {failed}회 실패",
+        "stopped": "매일 있던 {source}가 이날 없음",
+        "notesLeanOn": "메모의 {percent}%에 「{phrase}」",
+        "repliesLeanOn": "답장의 {percent}%에 「{phrase}」",
+        "slowReplies": "느린 10%의 답장이 {seconds}초 초과",
+        "manyCalls": "호출 {calls}회, 평소({usual})의 2배 초과"
       }
     }
   }

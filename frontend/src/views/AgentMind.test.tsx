@@ -35,6 +35,11 @@ const fixture = {
       { week: '2026-09-14', lines: 80, peopleLines: 60, drift: null, peopleDrift: null, fromPeople: 0.91 },
       { week: '2026-09-21', lines: 120, peopleLines: 70, drift: 0.58, peopleDrift: 0.54, fromPeople: 0.8 },
     ],
+    vitals: [{
+      day: '2026-09-30', calls: 226, failedCalls: 3, inputTokens: 509856, busiest: [['doing_choice', 81]], kept: { doing: 67 },
+      unreadable: 2, things: 67, ownMinutes: 399, lazedMinutes: 0, landed: { liked: 20, moved: 20 }, replies: 8, replyP50: 7.6, replyP90: 10.3,
+      notesLeanOn: [['不是这个', 0.36]], repliesLeanOn: [], alerts: [{ kind: 'unreadable', count: 2 }, { kind: 'notesLeanOn', phrase: '不是这个', percent: 36 }],
+    }],
     pace: {
       usualMinutes: 260,
       daysPastUsual: 2,
@@ -133,6 +138,9 @@ test('her mind shows herself, each person and each group, with how each changed'
       assert.ok(text().includes(merope.mind.her.pace) && text().includes(merope.mind.pace.tone.flat))
       assert.ok(text().includes('6.5') && text().includes('8.0'))
       assert.ok(text().includes(merope.mind.longing))
+      // Her vital signs, with what is worth raising.
+      assert.ok(text().includes(merope.mind.her.vitals) && text().includes('doing_choice 81'))
+      assert.ok(text().includes('有 2 条她自己的经历读不出来') && text().includes('心得里 36% 出现「不是这个」'))
     }
     await tab('people')
     if (snapshot === fixture) {

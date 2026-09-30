@@ -343,6 +343,8 @@ pub async fn go_over(
         match &circle {
             Circle::Person(user_id) => {
                 put_us(db, *user_id, &changes.us, now_us.as_ref()).await;
+                // The day's line to find it again, from this same reading.
+                super::chat_days::keep_line(db, *user_id, start.date_naive(), &changes.day).await;
             }
             Circle::Group { .. } => put_day(db, &circle, &changes.day, start).await,
         }
@@ -776,7 +778,7 @@ mod tests {
         assert!(!system("你是小灯。", true).contains("us is"));
         assert_eq!(
             schema(false)["required"],
-            json!(["bits", "us", "lands", "letGo"])
+            json!(["bits", "us", "day", "lands", "letGo"])
         );
         assert!(schema(true)["properties"].get("us").is_none());
         let changes = parse(
@@ -794,13 +796,16 @@ mod tests {
         let group = system("你是小灯。", true);
         assert!(group.contains("day is what today was like in this group"));
         assert!(group.contains("empty if nothing much happened"));
-        assert!(!system("你是小灯。", false).contains("day is what"));
+        assert!(
+            system("你是小灯。", false)
+                .contains("day is what today's conversation with them was about")
+        );
         assert_eq!(
             schema(true)["required"],
             json!(["bits", "day", "lands", "letGo"])
         );
         assert!(group.contains("who did it is given"));
-        assert!(schema(false)["properties"].get("day").is_none());
+        assert!(schema(false)["properties"].get("day").is_some());
         let changes = parse(r#"{"bits":[],"day":"大家在吵海带汤算不算韩国风"}"#).unwrap();
         assert!(changes.day.contains("海带汤"));
     }

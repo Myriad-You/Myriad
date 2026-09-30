@@ -316,16 +316,17 @@
   "motionSeeThroughUpstream": "See-through a renvoyé un résultat invalide ou indisponible.",
   "motionSeeThroughGenerate": "Séparer et prévoler",
   "aiExpressionsTitle": "Expressions IA",
-  "aiExpressionsHint": "Un modèle d’image redessine seulement le visage du portrait : en pleurs et souriant les yeux fermés. À l’import du rig, elles remplacent les expressions dessinées par le code. Les deux sont dessinées ensemble en 2 minutes environ, facturées comme génération d’image.",
+  "aiExpressionsHint": "Un modèle d’image redessine seulement le visage du portrait : en pleurs, souriant les yeux fermés, et les yeux fermés d’un clignement. À l’import du rig, elles remplacent les expressions dessinées par le code et les yeux fermés génériques. Les trois sont dessinées ensemble en 2 minutes environ, facturées comme génération d’image.",
   "aiExpressionsGenerate": "Générer les expressions IA",
   "aiExpressionsRegenerate": "Régénérer",
   "aiExpressionsGenerating": "Redessin en cours…",
-  "aiExpressionsConfirm": "Le modèle d’image va redessiner 2 expressions. Cela prend environ 2 minutes et sera facturé. Continuer ?",
+  "aiExpressionsConfirm": "Le modèle d’image va redessiner 3 expressions. Cela prend environ 2 minutes et sera facturé. Continuer ?",
   "aiExpressionsReady": "Prêtes : {kinds}. Utilisées automatiquement lors de la vérification du rig.",
   "aiExpressionsNone": "Pas encore d’expressions IA ; l’import utilise les expressions dessinées par le code.",
   "aiExpressionsFailed": "Impossible de générer les expressions IA ; réessayez plus tard",
   "aiExpressionCry": "en pleurs",
   "aiExpressionSqueeze": "sourire les yeux fermés",
+  "aiExpressionClose": "yeux fermés du clignement",
   "motionSeeThroughGenerating": "La décomposition distante est en cours. Le prévol PSD local démarre automatiquement à la fin…",
   "motionNeedsRig": "Terminez d’abord le rig en calques. Ces commandes ne peuvent animer le portrait qu’après.",
   "motionPsdCommit": "Valider le rig prévolé",
@@ -360,7 +361,8 @@
       "days": "Ses journées",
       "doing": "Ce qu'elle a fait seule cette semaine",
       "voice": "Sa propre voix",
-      "pace": "Rythme"
+      "pace": "Rythme",
+      "vitals": "Signes vitaux"
     },
     "reach": {
       "on_your_own": "elle peut s'en charger",
@@ -441,6 +443,26 @@
         "flat": "réveillée sans entrain aujourd'hui",
         "even": "réveillée comme d'habitude aujourd'hui",
         "keen": "réveillée pleine d'entrain aujourd'hui"
+      }
+    },
+    "vitals": {
+      "desc": "Comptés chaque jour dans le code, sans modèle : coût, activités, paroles, tournures favorites ; l'anormal apparaît en rouge. La ligne du jour est provisoire.",
+      "calls": "Appels (échecs)",
+      "tokens": "Tokens d'entrée (10k)",
+      "things": "Activités",
+      "replies": "Réponses · médiane",
+      "landed": "Ressenti du jour",
+      "busiest": "Plus d'appels",
+      "notesLeanOn": "Tournures des notes",
+      "repliesLeanOn": "Tournures des réponses",
+      "alerts": {
+        "unreadable": "{count} de ses propres entrées sont illisibles",
+        "failedCalls": "{failed} appels sur {calls} ont échoué",
+        "stopped": "aucun {source}, après chaque jour précédent",
+        "notesLeanOn": "« {phrase} » dans {percent}% de ses notes",
+        "repliesLeanOn": "« {phrase} » dans {percent}% de ses réponses",
+        "slowReplies": "une réponse sur dix a pris plus de {seconds}s",
+        "manyCalls": "{calls} appels, plus du double de l'habitude ({usual})"
       }
     }
   }

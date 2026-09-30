@@ -316,16 +316,17 @@
   "motionSeeThroughUpstream": "See-through lieferte ein ungültiges oder nicht verfügbares Ergebnis.",
   "motionSeeThroughGenerate": "Teilen und vorprüfen",
   "aiExpressionsTitle": "KI-Mimik",
-  "aiExpressionsHint": "Ein Bildmodell zeichnet nur das Gesicht des Porträts neu: weinend und mit geschlossenen Augen lächelnd. Beim Import des Rigs ersetzen diese die per Code gezeichneten Ausdrücke. Beide entstehen zusammen in etwa 2 Minuten, abgerechnet als Bildgenerierung.",
+  "aiExpressionsHint": "Ein Bildmodell zeichnet nur das Gesicht des Porträts neu: weinend, mit geschlossenen Augen lächelnd und mit den geschlossenen Augen eines Blinzelns. Beim Import des Rigs ersetzen diese die per Code gezeichneten Ausdrücke und die allgemeinen geschlossenen Augen. Alle drei entstehen zusammen in etwa 2 Minuten, abgerechnet als Bildgenerierung.",
   "aiExpressionsGenerate": "KI-Mimik erzeugen",
   "aiExpressionsRegenerate": "Neu erzeugen",
   "aiExpressionsGenerating": "Wird neu gezeichnet…",
-  "aiExpressionsConfirm": "Das Bildmodell zeichnet 2 Ausdrücke neu. Das dauert etwa 2 Minuten und wird abgerechnet. Fortfahren?",
+  "aiExpressionsConfirm": "Das Bildmodell zeichnet 3 Ausdrücke neu. Das dauert etwa 2 Minuten und wird abgerechnet. Fortfahren?",
   "aiExpressionsReady": "Fertig: {kinds}. Wird bei der Rig-Vorprüfung automatisch verwendet.",
   "aiExpressionsNone": "Noch keine KI-Mimik; Importe nutzen die per Code gezeichneten Ausdrücke.",
   "aiExpressionsFailed": "KI-Mimik konnte nicht erzeugt werden; bitte später erneut versuchen",
   "aiExpressionCry": "weinend",
   "aiExpressionSqueeze": "Lächeln mit geschlossenen Augen",
+  "aiExpressionClose": "geschlossene Augen beim Blinzeln",
   "motionSeeThroughGenerating": "Die entfernte Zerlegung läuft. Die lokale PSD-Vorprüfung startet automatisch, wenn sie fertig ist…",
   "motionNeedsRig": "Zuerst das Ebenen-Rig abschließen. Diese Steuerungen können das Porträt erst danach bewegen.",
   "motionPsdCommit": "Vorgeprüftes Rig übernehmen",
@@ -360,7 +361,8 @@
       "days": "Ihre Tage",
       "doing": "Was sie diese Woche für sich getan hat",
       "voice": "Ihre eigene Stimme",
-      "pace": "Tempo"
+      "pace": "Tempo",
+      "vitals": "Vitalwerte"
     },
     "reach": {
       "on_your_own": "schafft sie allein",
@@ -441,6 +443,26 @@
         "flat": "heute lustlos aufgewacht",
         "even": "heute wie immer aufgewacht",
         "keen": "heute voller Lust aufgewacht"
+      }
+    },
+    "vitals": {
+      "desc": "Täglich im Code gezählt, ohne Modell: Kosten, Tun, Reden und Lieblingswendungen; Auffälliges rot markiert. Die heutige Zeile ist bis jetzt.",
+      "calls": "Aufrufe (fehlgeschl.)",
+      "tokens": "Input-Tokens (10k)",
+      "things": "Getan",
+      "replies": "Antworten · Median",
+      "landed": "Wie es heute ankam",
+      "busiest": "Meiste Aufrufe",
+      "notesLeanOn": "Notizen-Wendungen",
+      "repliesLeanOn": "Antwort-Wendungen",
+      "alerts": {
+        "unreadable": "{count} ihrer eigenen Einträge sind nicht lesbar",
+        "failedCalls": "{failed} von {calls} Aufrufen fehlgeschlagen",
+        "stopped": "kein {source}, nach jedem Tag davor",
+        "notesLeanOn": "„{phrase}“ in {percent}% ihrer Notizen",
+        "repliesLeanOn": "„{phrase}“ in {percent}% ihrer Antworten",
+        "slowReplies": "jede zehnte Antwort über {seconds}s",
+        "manyCalls": "{calls} Aufrufe, mehr als doppelt so viele wie üblich ({usual})"
       }
     }
   }

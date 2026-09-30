@@ -316,16 +316,17 @@
   "motionSeeThroughUpstream": "See-through returned an invalid or unavailable result.",
   "motionSeeThroughGenerate": "Split and preflight",
   "aiExpressionsTitle": "AI expressions",
-  "aiExpressionsHint": "An image model redraws only the face of the portrait, crying and smiling with eyes closed. Importing the rig swaps these in for the drawn-by-code expressions. Both are drawn together in about 2 minutes, billed as image generation.",
+  "aiExpressionsHint": "An image model redraws only the face of the portrait, crying, smiling with eyes closed, and the closed eyes of a blink. Importing the rig swaps these in for the drawn-by-code expressions and the generic closed eyes. All three are drawn together in about 2 minutes, billed as image generation.",
   "aiExpressionsGenerate": "Generate AI expressions",
   "aiExpressionsRegenerate": "Regenerate",
   "aiExpressionsGenerating": "Redrawing…",
-  "aiExpressionsConfirm": "This calls the image model to redraw 2 expressions. It takes about 2 minutes and is billed. Continue?",
+  "aiExpressionsConfirm": "This calls the image model to redraw 3 expressions. It takes about 2 minutes and is billed. Continue?",
   "aiExpressionsReady": "Ready: {kinds}. Used automatically when the rig is preflighted.",
   "aiExpressionsNone": "No AI expressions yet; imports use the drawn-by-code expressions.",
   "aiExpressionsFailed": "Could not generate AI expressions; try again later",
   "aiExpressionCry": "crying",
   "aiExpressionSqueeze": "eyes-closed smile",
+  "aiExpressionClose": "closed eyes for blinking",
   "motionSeeThroughGenerating": "Remote decomposition is running. Local PSD preflight starts automatically when it finishes…",
   "motionNeedsRig": "Finish the layered rig first. These controls can drive the portrait only after that.",
   "motionPsdCommit": "Commit preflighted rig",
@@ -360,7 +361,8 @@
       "days": "Her days",
       "doing": "What she did on her own this week",
       "voice": "Her own voice",
-      "pace": "Pace"
+      "pace": "Pace",
+      "vitals": "Vital signs"
     },
     "reach": {
       "on_your_own": "she can see to it",
@@ -441,6 +443,26 @@
         "flat": "woke up flat today",
         "even": "woke up as usual today",
         "keen": "woke up keen today"
+      }
+    },
+    "vitals": {
+      "desc": "Counted in code each day, without any model: what she cost, did and said, and what she keeps saying; anything odd is raised in red. Today's row is so far.",
+      "calls": "Calls (failed)",
+      "tokens": "Input tokens (10k)",
+      "things": "Things done",
+      "replies": "Replies · median",
+      "landed": "How things landed today",
+      "busiest": "Most calls",
+      "notesLeanOn": "Notes lean on",
+      "repliesLeanOn": "Replies lean on",
+      "alerts": {
+        "unreadable": "{count} of her own records cannot be read back",
+        "failedCalls": "{failed} of {calls} calls failed",
+        "stopped": "no {source} kept, after every day before",
+        "notesLeanOn": "「{phrase}」 in {percent}% of her notes",
+        "repliesLeanOn": "「{phrase}」 in {percent}% of her replies",
+        "slowReplies": "one reply in ten took over {seconds}s",
+        "manyCalls": "{calls} calls, over twice the usual {usual}"
       }
     }
   }

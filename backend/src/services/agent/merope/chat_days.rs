@@ -177,6 +177,41 @@ async fn table(
     (table, days)
 }
 
+/// Keep `line` as the line for `day` with them, written going over that
+/// day at night (see `bits`); nothing when there is none or one is kept.
+pub async fn keep_line(db: &DatabaseConnection, user_id: i32, day: NaiveDate, line: &str) {
+    let line: String = line
+        .trim()
+        .chars()
+        .take(myriad_merope::chat_days::DAY_CHARS)
+        .collect();
+    if line.is_empty() || written(db, user_id).await.contains_key(&day) {
+        return;
+    }
+    keep(db, user_id, day, line).await;
+}
+
+async fn keep(db: &DatabaseConnection, user_id: i32, date: NaiveDate, line: String) {
+    let kept = unified::remember(
+        db,
+        unified::NewMemory {
+            user_id,
+            kind: unified::MemoryKind::Fact,
+            content: line,
+            evidence: Some(json!({ "day": date.to_string() }).to_string()),
+            speaker: unified::Speaker::Agent,
+            source: SOURCE,
+            audience: Audience::private(user_id),
+            importance: 0.3,
+            concepts: Vec::new(),
+        },
+    )
+    .await;
+    if let Err(error) = kept {
+        tracing::warn!(%error, user_id, %date, "[Merope] could not keep a day's line");
+    }
+}
+
 /// Write the line for one day with them.
 async fn write_day(
     db: &DatabaseConnection,
@@ -223,24 +258,7 @@ async fn write_day(
     if line.trim().is_empty() {
         return;
     }
-    let kept = unified::remember(
-        db,
-        unified::NewMemory {
-            user_id,
-            kind: unified::MemoryKind::Fact,
-            content: line,
-            evidence: Some(json!({ "day": date.to_string() }).to_string()),
-            speaker: unified::Speaker::Agent,
-            source: SOURCE,
-            audience: Audience::private(user_id),
-            importance: 0.3,
-            concepts: Vec::new(),
-        },
-    )
-    .await;
-    if let Err(error) = kept {
-        tracing::warn!(%error, user_id, %date, "[Merope] could not keep a day's line");
-    }
+    keep(db, user_id, date, line).await;
 }
 
 /// People she talked with in private lately.

@@ -723,6 +723,37 @@ export interface MindWant {
   notes: { at: string; note: string }[]
 }
 
+/** Something in a day of hers worth raising. */
+export type MindAlert =
+  | { kind: 'unreadable'; count: number }
+  | { kind: 'failedCalls'; failed: number; calls: number }
+  | { kind: 'stopped'; source: string }
+  | { kind: 'notesLeanOn'; phrase: string; percent: number }
+  | { kind: 'repliesLeanOn'; phrase: string; percent: number }
+  | { kind: 'slowReplies'; seconds: number }
+  | { kind: 'manyCalls'; calls: number; usual: number }
+
+/** A day of her, counted without any model. */
+export interface MindVitalsDay {
+  day: string
+  calls: number
+  failedCalls: number
+  inputTokens: number
+  busiest: [string, number][]
+  kept: Record<string, number>
+  unreadable: number
+  things: number
+  ownMinutes: number
+  lazedMinutes: number
+  landed: Record<string, number>
+  replies: number
+  replyP50?: number | null
+  replyP90?: number | null
+  notesLeanOn: [string, number][]
+  repliesLeanOn: [string, number][]
+  alerts: MindAlert[]
+}
+
 /** How hard she has been going at her own things, day by day. */
 export interface MindPace {
   usualMinutes: number
@@ -809,6 +840,7 @@ export interface MindSnapshot {
     /** Her way of typing week by week, against people's (see the page). */
     voice: MindVoiceWeek[]
     pace?: MindPace
+    vitals?: MindVitalsDay[]
   }
   people: MindPerson[]
   groups: MindGroup[]
