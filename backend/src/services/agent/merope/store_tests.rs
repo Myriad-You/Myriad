@@ -590,3 +590,11 @@ async fn portrait_generation_lease_preserves_concurrent_persona_and_rejects_visu
     );
     transaction.rollback().await.unwrap();
 }
+
+#[test]
+fn in_a_group_what_is_about_someone_else_says_whose_it_is() {
+    assert_eq!(
+        super::about_someone_else("[2026-09-28] 周五要加班", "老周"),
+        "[2026-09-28] 周五要加班 (this is about 老周, not the one talking to you)"
+    );
+}

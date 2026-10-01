@@ -234,6 +234,11 @@ pub const SAID_SOURCE: &str = "said";
 
 /// What a turn recalls, split: what they named (or recent context), and what
 /// that brought to mind by association.
+/// A kept fact about another member of the group, said as theirs.
+pub(crate) fn about_someone_else(content: &str, name: &str) -> String {
+    format!("{content} (this is about {name}, not the one talking to you)")
+}
+
 pub struct Recalled {
     pub named: Vec<String>,
     pub brought_to_mind: Vec<String>,
@@ -267,10 +272,22 @@ pub async fn recall_remembered_split(
         named: Vec::new(),
         brought_to_mind: Vec::new(),
     };
+    // In a group she remembers what everyone there said; what is about
+    // someone else says whose it is, so it is never taken for the speaker's.
+    let mut names: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
     for note in recalled {
-        let content = as_known(&note);
+        let mut content = as_known(&note);
         if content.is_empty() {
             continue;
+        }
+        if present.is_group()
+            && let Some(other) = note.user_id.filter(|other| *other != user_id)
+        {
+            if !names.contains_key(&other) {
+                let name = super::super::resolve_addressee_label(db, other).await;
+                names.insert(other, name);
+            }
+            content = about_someone_else(&content, &names[&other]);
         }
         if note.brought_to_mind {
             split.brought_to_mind.push(content);
