@@ -3,7 +3,6 @@
 //! her own row, the truth only in what is kept with it; tried on people as
 //! they play it (see `soup`), and how it went stays with it.
 
-use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -12,8 +11,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use crate::models::entities::agent_memories;
 use crate::services::agent::memory::unified;
 use myriad_merope::making::{
-    MAKE_SCHEMA, Made, SOURCE, Tried, kept_line, make_input, make_schema, make_system, may_make,
-    parse_idea,
+    MAKE_SCHEMA, Made, SOURCE, Tried, kept_line, make_input, make_schema, make_system, parse_idea,
 };
 use myriad_merope::soup::{Ending, Game};
 
@@ -21,28 +19,6 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// Puzzles of hers read back, newest first.
 const READ_BACK: u64 = 40;
 const MATERIAL_CHARS: usize = 2000;
-/// Times a day she is asked whether something gave her an idea: most of the
-/// time nothing does, and that is not worth asking all day.
-const ASKED_A_DAY: usize = 4;
-static ASKED: LazyLock<Mutex<Option<(chrono::NaiveDate, usize)>>> =
-    LazyLock::new(|| Mutex::new(None));
-
-/// Whether she may be asked again today, counting this time.
-fn ask_today(today: chrono::NaiveDate) -> bool {
-    let Ok(mut asked) = ASKED.lock() else {
-        return false;
-    };
-    let times = match *asked {
-        Some((day, times)) if day == today => times,
-        _ => 0,
-    };
-    if times >= ASKED_A_DAY {
-        return false;
-    }
-    *asked = Some((today, times + 1));
-    true
-}
-
 fn made_of(row: &agent_memories::Model) -> Option<Made> {
     let mut made: Made = serde_json::from_str(row.evidence.as_deref()?).ok()?;
     made.id = row.id.clone();
@@ -67,7 +43,8 @@ pub(super) async fn untried_at(db: &DatabaseConnection, table: &str) -> Option<M
 }
 
 /// After she took something in that she liked: maybe it gives her an idea
-/// for a puzzle of her own, and she makes it.
+/// for a puzzle of her own, and she makes it. How many she made today and
+/// how many no one has played are hers to weigh, not a cap.
 pub(super) async fn maybe_make(
     db: &DatabaseConnection,
     owner: i32,
@@ -83,9 +60,7 @@ pub(super) async fn maybe_make(
         .iter()
         .filter(|row| row.created_at.with_timezone(&chrono::Local).date_naive() == today)
         .count();
-    if !may_make(&made, made_today) || !ask_today(today) {
-        return;
-    }
+    let unplayed = made.iter().filter(|made| made.tried.is_empty()).count();
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
@@ -99,7 +74,7 @@ pub(super) async fn maybe_make(
         .within(CALL_TIMEOUT)
         .json_raw(
             &make_system(&soul, what),
-            &make_input(took_in, &material, &recent),
+            &make_input(took_in, &material, &recent, made_today, unplayed),
             MAKE_SCHEMA,
             &make_schema(),
         )
