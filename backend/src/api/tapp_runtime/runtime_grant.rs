@@ -26,7 +26,10 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::common::{current_tapp_user_role, parse_runtime_subject_id, resolve_accessible_tapp};
+use super::common::{
+    check_anonymous_rate_limit, current_tapp_user_role, parse_runtime_subject_id,
+    resolve_accessible_tapp,
+};
 
 pub use crate::services::tapp_runtime_grant::RUNTIME_GRANT_HEADER;
 
@@ -214,10 +217,22 @@ pub async fn issue_runtime_grant(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<Arc<RwLock<DynamicConfig>>>,
     Extension(claims): Extension<Claims>,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Path(tapp_id): Path<String>,
     Json(request): Json<IssueRuntimeGrantRequest>,
 ) -> Result<Json<RuntimeGrantResponse>, HttpError> {
     let subject_id = parse_runtime_subject_id(&claims)?;
+    // 游客换一次签名会话就是新主体，每次签发都落一条注册表记录；按来源地址封顶。
+    if subject_id < 0 {
+        let client_ip = crate::middleware::client_ip::client_ip_from_parts(
+            &headers,
+            Some(addr.ip()),
+            crate::middleware::client_ip::trusted_proxy_headers_enabled(),
+        )
+        .map(|ip| ip.to_string());
+        check_anonymous_rate_limit(&db, client_ip.as_deref(), &tapp_id, "grant.anonymous").await?;
+    }
     let tapp = resolve_accessible_tapp(&db, subject_id, &tapp_id).await?;
     // Refuse to issue grants while the install needs re-authorization.
     // Shared pure decision lives in services::tapp_runtime_grant so issue and

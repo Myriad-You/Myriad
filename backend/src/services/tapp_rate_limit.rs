@@ -81,6 +81,7 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
         // Per client address across all guest sessions of one Tapp.
         "network.anonymous" => (120, 60),
         "event.anonymous" => (240, 60),
+        "grant.anonymous" => (60, 60),
         operation if operation.starts_with("network.fetch:") => (90, 60),
         "route.anonymous" => (60, 60),
         "route.verify" => (60, 60),
@@ -564,6 +565,7 @@ mod tests {
         assert_eq!(get_rate_limit_config("ai.anonymous"), (15, 60));
         assert_eq!(get_rate_limit_config("network.anonymous"), (120, 60));
         assert_eq!(get_rate_limit_config("event.anonymous"), (240, 60));
+        assert_eq!(get_rate_limit_config("grant.anonymous"), (60, 60));
         assert_eq!(get_rate_limit_config("route.anonymous"), (60, 60));
         assert_eq!(get_rate_limit_config("route.verify"), (60, 60));
         assert_eq!(get_rate_limit_config("route.verify.hour"), (180, 3600));
