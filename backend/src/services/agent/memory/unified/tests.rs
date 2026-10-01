@@ -62,6 +62,30 @@ fn what_she_noted_in_passing_is_recalled_when_named_not_as_filler() {
 }
 
 #[test]
+fn what_she_looked_up_comes_back_when_the_talk_comes_to_it_not_every_turn() {
+    // One failed search, put before her every turn, became a story she
+    // kept retelling to whatever they said.
+    let mut looked = row(
+        "looked",
+        "搜出来的净是些乱七八糟的鱼名和乐队八卦，根本没查到这首歌听起来到底什么样",
+        0.4,
+        10,
+    );
+    looked.source = "lookup".into();
+    let rows = vec![looked, row("cat", "养了一只猫叫年糕", 0.6, 1_000)];
+    let filler: Vec<String> = rank(rows.clone(), Some("说说开心的事吧"), 8)
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    assert!(!filler.contains(&"looked".to_string()));
+    let named: Vec<String> = rank(rows, Some("你后来查到那首歌了吗"), 8)
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    assert!(named.contains(&"looked".to_string()));
+}
+
+#[test]
 fn what_stands_out_by_meaning_is_named_even_with_no_word_shared() {
     // Asked for cultural events; the memory is about language exchanges.
     let rows = vec![

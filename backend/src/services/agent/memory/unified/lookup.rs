@@ -24,6 +24,11 @@ pub async fn last_learned_at<C: ConnectionTrait>(
 /// from them: what they played, games she played with them.
 pub const NOTED_IN_PASSING: [&str; 2] = ["presence", "game"];
 
+/// Sources recalled only when the talk comes to them, never as the recent
+/// context: what she noted in passing, and what she looked up (one search,
+/// put before her every turn, became a story she kept retelling).
+pub const RECALLED_WHEN_NAMED: [&str; 3] = ["presence", "game", "lookup"];
+
 /// People she keeps memories of from private talk, most remembered first.
 pub async fn people_remembered<C: ConnectionTrait>(db: &C, limit: i64) -> Result<Vec<i32>, DbErr> {
     let rows = db

@@ -294,10 +294,11 @@ pub(super) fn rank_marked(
         .iter()
         .enumerate()
         .map(|(index, score)| (score.value, index))
-        // Noted in passing (a game they played): recalled when it comes up,
-        // not as the recent context.
-        .filter(|(value, index)| {
-            *value > 0.0 || !NOTED_IN_PASSING.contains(&rows[*index].source.as_str())
+        // Noted in passing (a game they played) or looked up: recalled when
+        // the talk really comes to it (named, by words or by meaning), not
+        // as the recent context or on a word or two in common.
+        .filter(|(_, index)| {
+            named[*index] > 0.0 || !RECALLED_WHEN_NAMED.contains(&rows[*index].source.as_str())
         })
         .collect();
     let step = |index: usize| (ready[index] / READINESS_STEP).floor();

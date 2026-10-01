@@ -127,11 +127,78 @@ async fn history_before(
         .collect()
 }
 
+/// The headed sections of her prompt whose own content her reply drew on,
+/// as the judgment model reads it: a fact, memory, state or thing of hers
+/// that shows in what she said. How-to-talk rules do not count, nor what the
+/// conversation or their words already hold.
+async fn drew_on(prompt: &str, said: &str, reply: &str) -> Vec<String> {
+    let head = prompt
+        .find("\nConversation:\n")
+        .or_else(|| prompt.find("\nThey said:"))
+        .map_or(prompt, |end| &prompt[..end]);
+    let tail = prompt
+        .find("\nConversation:\n")
+        .map(|start| &prompt[start..])
+        .and_then(|rest| rest.find("\nLatest message:").map(|end| &rest[..end]))
+        .unwrap_or_default();
+    let conversation: String = tail
+        .lines()
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let sections: Vec<(String, String)> = head
+        .split("\n## ")
+        .skip(1)
+        .map(|part| {
+            let heading = part.lines().next().unwrap_or_default().trim().to_string();
+            (heading, part.chars().take(1500).collect())
+        })
+        .collect();
+    let input = json!({
+        "sections": sections.iter().enumerate()
+            .map(|(i, (_, text))| json!({ "i": i, "section": text }))
+            .collect::<Vec<_>>(),
+        "conversation": conversation,
+        "theirLatestMessage": said,
+        "reply": reply,
+    })
+    .to_string();
+    let system = "You check which parts of a briefing a chat reply actually drew on. The briefing is given as numbered sections. List i for each section whose own specific content (a fact, a memory, a name, a state of hers, an event, a thing she did or has) shows in the reply: said outright, alluded to, or plainly shaping what it says. Rules about how to talk never count. Content that is also in the conversation or their latest message does not count for a section. Most replies draw on few sections or none.";
+    let schema = json!({
+        "type": "object",
+        "properties": { "used": { "type": "array", "items": { "type": "integer" } } },
+        "required": ["used"],
+        "additionalProperties": false
+    });
+    let Some(judge) = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(None).await
+    else {
+        return Vec::new();
+    };
+    let Ok(raw) = judge
+        .analyze_json(system, &input, "replay_drew_on", Some(&schema))
+        .await
+    else {
+        return Vec::new();
+    };
+    let used: Vec<usize> = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim())
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
+        .and_then(|value| serde_json::from_value(value["used"].clone()).ok())
+        .unwrap_or_default();
+    used.into_iter()
+        .filter_map(|i| sections.get(i).map(|(heading, _)| heading.clone()))
+        .collect()
+}
+
 /// MEROPE_REPLAY_N real turns (default 16), the latest, answered again;
 /// MEROPE_REPLAY_REPORT=<file> keeps each turn's words, then and now.
 /// MEROPE_REPLAY_SWAP=<old>|||<new>[&&&…] tries the prompt with passages
 /// rewritten, to see what a wording would change before it ships.
-/// MEROPE_REPLAY_PROMPTS=1 keeps each turn's whole prompt in the report.
+/// MEROPE_REPLAY_PROMPTS=1 keeps each turn's whole prompt in the report;
+/// MEROPE_REPLAY_ATTRIBUTE=1 asks which of its sections each reply drew on.
 #[tokio::test]
 #[ignore = "reads the site's database and asks its model"]
 async fn her_real_talk_answered_again() {
@@ -224,6 +291,9 @@ async fn her_real_talk_answered_again() {
         // The whole prompt too, to see which parts of it her reply drew on.
         if std::env::var("MEROPE_REPLAY_PROMPTS").is_ok() {
             kept["prompt"] = json!(prompt);
+        }
+        if std::env::var("MEROPE_REPLAY_ATTRIBUTE").is_ok() {
+            kept["drewOn"] = json!(drew_on(&prompt, &said, &again).await);
         }
         report.push(kept);
     }
