@@ -84,7 +84,7 @@ use transcript::*;
 use turns::*;
 
 pub use line::GroupLine;
-pub use memory::{catch_up, groups_lately, record};
+pub use memory::{catch_up, groups_lately, record, take_back_kept};
 pub use muting::muted;
 pub use reaching_out::{come_back, share_first};
 pub use speaking_up::notice;

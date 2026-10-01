@@ -537,6 +537,11 @@ where
                         publish_phase(DiscordBotPhase::Online).await;
                     }
                 }
+                // A new session: what called her in a group before a
+                // restart is not sent again; taken up from what was kept.
+                tokio::spawn(crate::services::channel_group::take_back_kept(
+                    crate::services::channel_platform::ChannelPlatform::Discord,
+                ));
             }
             if event == "RESUMED" {
                 publish_phase(DiscordBotPhase::Online).await;

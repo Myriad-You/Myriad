@@ -52,6 +52,11 @@ pub(super) fn end_turn(venue: &str, replied: bool) {
 pub async fn handle(message: GroupLine, token: String) {
     use crate::services::agent::merope::group::timing;
     let venue = message.venue();
+    // A line taken back up after a restart may also come in again (Telegram
+    // hands back what it was not told was read): answered once.
+    if !first_time(&venue, &message.message_id) {
+        return;
+    }
     let talking = with_group(&venue, |group| {
         taken_up(group);
         group.reach = Some((message.clone(), token.clone()));
@@ -136,6 +141,23 @@ pub(super) static UP_SINCE: LazyLock<chrono::DateTime<chrono::Utc>> =
 static TAKEN_BACK: LazyLock<Mutex<std::collections::HashSet<String>>> =
     LazyLock::new(Default::default);
 
+/// Lines that called her this process has taken up, by group and id.
+static HANDLED: LazyLock<Mutex<std::collections::HashSet<String>>> =
+    LazyLock::new(Default::default);
+
+pub(super) fn first_time(venue: &str, message_id: &str) -> bool {
+    if message_id.is_empty() {
+        return true;
+    }
+    let Ok(mut handled) = HANDLED.lock() else {
+        return true;
+    };
+    if handled.len() > MAX_GROUPS * WAITING_LINES * 4 {
+        handled.clear();
+    }
+    handled.insert(format!("{venue}#{message_id}"))
+}
+
 /// Mark when this process first heard a group.
 pub(super) fn heard_since_up() {
     LazyLock::force(&UP_SINCE);
@@ -175,10 +197,11 @@ pub(super) fn left_waiting(
     Some(line.clone())
 }
 
-/// Take up a line [`left_waiting`] found, as if it had just come in.
-pub(super) fn take_back(venue: &str, line: Option<GroupLine>) {
+/// Take up a line [`left_waiting`] found, as if it had just come in, sent
+/// with `token` (OneBot needs none).
+pub(super) fn take_back(venue: &str, line: Option<GroupLine>, token: String) {
     if let Some(line) = line {
         info!(%venue, "[Group] a line left waiting before the restart; taking it up");
-        tokio::spawn(handle(line, String::new()));
+        tokio::spawn(handle(line, token));
     }
 }

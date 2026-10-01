@@ -185,6 +185,7 @@ async fn run_session(
     let identity = get_me(token).await?;
     publish_identity(&identity).await;
     publish_phase(TelegramBotPhase::Online).await;
+    take_back_waiting();
 
     let mut offset: Option<i64> = None;
     loop {
@@ -284,6 +285,14 @@ async fn run_session(
 enum GetUpdatesError {
     RetryAfter(u64),
     Failure(ConnectFailureKind),
+}
+
+/// What called her in a group before a restart and was already read off
+/// Telegram is not handed back: taken up from what was kept, once.
+fn take_back_waiting() {
+    tokio::spawn(crate::services::channel_group::take_back_kept(
+        crate::services::channel_platform::ChannelPlatform::Telegram,
+    ));
 }
 
 async fn get_me(token: &str) -> Result<TelegramBotIdentity, ConnectFailureKind> {

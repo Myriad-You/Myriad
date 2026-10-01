@@ -49,6 +49,7 @@ pub async fn muted(venue: &str, by: &str, muted: Muted, everyone: bool) {
             from: (!by.is_empty()).then(|| by.to_string()),
             text: told(muted, everyone),
             hers: false,
+            addressed: false,
             images: Vec::new(),
             seen: Vec::new(),
         },

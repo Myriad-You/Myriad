@@ -12,6 +12,10 @@ pub(super) struct Line {
     pub(super) from: Option<String>,
     pub(super) text: String,
     pub(super) hers: bool,
+    /// Whether it called her: kept, so a line that called her before a
+    /// restart can be taken up after it (see `take_back_kept`).
+    #[serde(default)]
+    pub(super) addressed: bool,
     /// Pictures in it, and what she saw of each once she looked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) images: Vec<GroupImage>,

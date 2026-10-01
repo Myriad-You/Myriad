@@ -387,6 +387,7 @@ async fn a_restart_keeps_what_the_group_said() {
         from: Some("1".into()),
         text: text.into(),
         hers: false,
+        addressed: false,
         images: Vec::new(),
         seen: Vec::new(),
     };
@@ -420,6 +421,7 @@ fn lines_kept_before_a_restart_come_back_under_newer_ones() {
         from: Some("1".into()),
         text: text.into(),
         hers: false,
+        addressed: false,
         images: Vec::new(),
         seen: Vec::new(),
     };
@@ -436,6 +438,7 @@ fn lines_kept_before_a_restart_come_back_under_newer_ones() {
                 from: None,
                 text: "放就放，听完要是".into(),
                 hers: true,
+                addressed: false,
                 images: Vec::new(),
                 seen: Vec::new(),
             },
@@ -762,4 +765,46 @@ fn after_a_restart_she_says_something_only_where_she_still_may() {
     assert!(kept.get("token").is_none());
     let back: StoredReach = serde_json::from_value(kept).unwrap();
     assert_eq!(back.thread, Some(7));
+}
+
+/// Telegram and Discord cannot read a group back: after a restart, the line
+/// that called her and that she never got to is found in the lines kept.
+#[test]
+fn a_line_that_called_her_before_a_restart_is_found_in_what_was_kept() {
+    heard_since_up();
+    let at = |minutes: i64| chrono::Utc::now() - chrono::Duration::minutes(minutes);
+    let line = |id: &str, minutes: i64, text: &str, hers: bool, addressed: bool| Line {
+        at: at(minutes),
+        message_id: (!hers).then(|| id.to_string()),
+        name: if hers { String::new() } else { "阿明".into() },
+        from: (!hers).then(|| "1".to_string()),
+        text: text.into(),
+        hers,
+        addressed,
+        images: Vec::new(),
+        seen: Vec::new(),
+    };
+    let kept = vec![
+        line("1", 40, "绮羽在吗", false, true),
+        line("", 35, "在", true, false),
+        line("3", 20, "绮羽你看这个", false, true),
+        line("4", 10, "没人理我", false, false),
+    ];
+    // Kept before the flag was: read back as not calling her.
+    let mut old = serde_json::to_value(&kept[0]).unwrap();
+    old.as_object_mut().unwrap().remove("addressed");
+    assert!(!serde_json::from_value::<Line>(old).unwrap().addressed);
+    let venue = "telegram:-100777";
+    let past = kept_as_heard(ChannelPlatform::Telegram, "-100777", Some(9), kept);
+    let waiting = left_waiting(venue, &past).expect("the line she never got to");
+    assert_eq!(waiting.message_id, "3");
+    assert_eq!(waiting.thread, Some(9));
+    assert!(waiting.addressed);
+    // Once.
+    assert!(left_waiting(venue, &past).is_none());
+    // And a line taken up is answered once, however often it comes in.
+    assert!(super::turns::first_time(venue, "3"));
+    assert!(!super::turns::first_time(venue, "3"));
+    assert!(super::turns::first_time(venue, ""));
+    assert!(super::turns::first_time(venue, ""));
 }

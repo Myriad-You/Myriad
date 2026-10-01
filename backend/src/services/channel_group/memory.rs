@@ -137,6 +137,7 @@ pub async fn catch_up(venue: &str, past: Vec<(GroupLine, chrono::DateTime<chrono
                 from: (!hers).then(|| message.from.clone()),
                 text: bounded(&by_name(&message.said(), &people)),
                 hers,
+                addressed: message.addressed,
                 images: if hers { Vec::new() } else { message.images },
                 seen: Vec::new(),
             })
@@ -145,7 +146,7 @@ pub async fn catch_up(venue: &str, past: Vec<(GroupLine, chrono::DateTime<chrono
     })
     .unwrap_or_default();
     if fresh.is_empty() {
-        take_back(venue, waiting);
+        take_back(venue, waiting, String::new());
         return;
     }
     info!(%venue, lines = fresh.len(), "[Group] read back what was said while she was away");
@@ -166,7 +167,75 @@ pub async fn catch_up(venue: &str, past: Vec<(GroupLine, chrono::DateTime<chrono
         keep_lines(db, venue, lines).await;
     }
     keep_ledger(venue).await;
-    take_back(venue, waiting);
+    take_back(venue, waiting, String::new());
+}
+
+/// After a restart, on a platform that cannot read a group back (Telegram,
+/// Discord): in each group kept lately, the line that called her before it
+/// and that she never got to, read from the lines kept (see `left_waiting`),
+/// taken up now with the configured token.
+pub async fn take_back_kept(platform: ChannelPlatform) {
+    heard_since_up();
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    let prefix = format!("{}:", platform.slug());
+    let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
+    let kept = crate::services::runtime_registry::list(&db, LINES_NAMESPACE, None, None)
+        .await
+        .unwrap_or_default();
+    for row in kept {
+        let Some(chat) = row.record_id.strip_prefix(&prefix).map(str::to_string) else {
+            continue;
+        };
+        let venue = row.record_id.clone();
+        let Some(token) = super::reaching_out::token_for(platform, &chat, &config) else {
+            continue;
+        };
+        let Ok(stored) = serde_json::from_value::<StoredLines>(row.payload) else {
+            continue;
+        };
+        let thread =
+            crate::services::runtime_registry::get::<StoredReach>(&db, REACH_NAMESPACE, &venue)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|reach| reach.thread);
+        let past = kept_as_heard(platform, &chat, thread, stored.lines);
+        restore(&db, &venue).await;
+        take_back(&venue, left_waiting(&venue, &past), token);
+    }
+}
+
+/// Lines kept of a group, as the group's talk read back (oldest first, hers
+/// marked): what `left_waiting` looks over.
+pub(super) fn kept_as_heard(
+    platform: ChannelPlatform,
+    chat: &str,
+    thread: Option<i64>,
+    lines: Vec<Line>,
+) -> Vec<(GroupLine, chrono::DateTime<chrono::Utc>, bool)> {
+    lines
+        .into_iter()
+        .map(|line| {
+            (
+                GroupLine {
+                    platform,
+                    chat: chat.to_string(),
+                    message_id: line.message_id.unwrap_or_default(),
+                    thread,
+                    from: line.from.unwrap_or_default(),
+                    display_name: line.name,
+                    text: line.text,
+                    addressed: line.addressed,
+                    reply_to: None,
+                    images: line.images,
+                },
+                line.at,
+                line.hers,
+            )
+        })
+        .collect()
 }
 
 /// Groups of `platform` she has kept lines of lately.
@@ -243,6 +312,7 @@ pub async fn record(message: &GroupLine) {
         from: Some(message.from.clone()),
         text: bounded(&by_name(&message.said(), &people(&message.venue()))),
         hers: false,
+        addressed: message.addressed,
         images: message.images.clone(),
         seen: Vec::new(),
     };
@@ -336,6 +406,7 @@ pub(super) async fn record_hers(venue: &str, text: &str) {
         from: None,
         text: bounded(text),
         hers: true,
+        addressed: false,
         images: Vec::new(),
         seen: Vec::new(),
     };
