@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use super::call::{self, Voice};
 use crate::services::agent::memory::unified;
-use myriad_merope::wants::{MAX_OPEN, Reach, SCHEMA_NAME, parse, schema, system};
+use myriad_merope::wants::{READ_BACK, Reach, SCHEMA_NAME, parse, schema, system};
 pub use myriad_merope::wants::{Want, as_input, section};
 
 pub const SOURCE: &str = "want";
@@ -72,7 +72,7 @@ fn want_of(row: &crate::models::entities::agent_memories::Model) -> Option<Want>
 
 /// What she wants now, oldest first.
 pub async fn open(db: &DatabaseConnection) -> Vec<Want> {
-    let mut wants: Vec<Want> = unified::own_rows(db, SOURCE, MAX_OPEN as u64 * 2)
+    let mut wants: Vec<Want> = unified::own_rows(db, SOURCE, READ_BACK as u64)
         .await
         .unwrap_or_default()
         .iter()
@@ -169,18 +169,6 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         want.notes.push((now, moved.note.clone()));
         put(db, &want, &[]).await;
         done.push(moved.i);
-    }
-    // Past the limit, the oldest she still holds goes to make room.
-    let still = held.len() - done.len().min(held.len());
-    let over = (still + night.new.len()).saturating_sub(MAX_OPEN);
-    for want in held
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| !done.contains(index))
-        .map(|(_, want)| want)
-        .take(over)
-    {
-        let _ = unified::retire_own(db, &want.id, "faded").await;
     }
     for new in &night.new {
         let grew_from: Vec<String> = new

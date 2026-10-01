@@ -21,22 +21,19 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::json;
 
 use super::threads;
 use myriad_merope::reach::{
-    JUDGE_SCHEMA, MISSED_UNTIL_DAYS, Reason, Route, as_text, awake, judge_schema, judge_system,
+    JUDGE_SCHEMA, Reason, Route, THINKS_BACK_DAYS, as_text, judge_schema, judge_system,
     parse_judged, reason, route, writing_first,
 };
 #[cfg(test)]
 use serde_json::Value;
 
 pub const EVENT_KEY: &str = "agent.merope.reach_out";
-/// First words to the same person at most this often: within her waking
-/// hours (9 to 22), twice a day at most.
-const AT_MOST_EVERY_MINUTES: i64 = 7 * 60;
 /// People written to in one pass, at most.
 const PER_PASS: usize = 3;
 /// The last times she wrote to someone first that she has in mind, and how
@@ -45,10 +42,11 @@ const FIRST_WORDS_SHOWN: i64 = 4;
 const FIRST_WORDS_WITHIN_DAYS: i64 = 30;
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// One pass over everyone she could write to first: whoever she has
-/// talked with in private lately, and whoever is paired in a chat app.
+/// One pass over everyone she could write to first, while she is awake:
+/// whoever she has talked with in private lately, and whoever is paired in
+/// a chat app.
 pub async fn tick(db: DatabaseConnection) {
-    if !super::is_enabled().await || !awake(chrono::Local::now().hour()) {
+    if !super::is_enabled().await || super::timing::asleep_now().is_some() {
         return;
     }
     let mut people = crate::services::channel_work::reachable_people(&db).await;
@@ -73,51 +71,34 @@ pub async fn tick(db: DatabaseConnection) {
     }
 }
 
-/// Whom she wrote to first and when, in this run: what keeps her from
-/// writing again even if keeping the line failed.
-static WROTE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<i32, DateTime<Utc>>>> =
+/// The reason she was last asked about, by person, in this run: the same
+/// reason is not asked about again until something in it changes.
+static ASKED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<i32, String>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
-fn wrote_lately(user_id: i32, now: DateTime<Utc>) -> bool {
-    WROTE.lock().is_ok_and(|wrote| {
-        wrote
-            .get(&user_id)
-            .is_some_and(|at| now - *at < chrono::Duration::minutes(AT_MOST_EVERY_MINUTES))
-    })
+/// Whether she has been asked about this already; marks it asked.
+fn asked_already(user_id: i32, reason: &Reason) -> bool {
+    let key = reason.key();
+    let Ok(mut asked) = ASKED.lock() else {
+        return true;
+    };
+    if asked.get(&user_id) == Some(&key) {
+        return true;
+    }
+    if asked.len() >= 4096 {
+        asked.clear();
+    }
+    asked.insert(user_id, key);
+    false
 }
 
-/// They have not asked her not to, and she has not written first lately.
+/// They have not asked her not to be disturbed. When she last wrote first
+/// and whether they answered are hers to weigh (`yourLastFirstWords`).
 async fn quiet_enough(db: &DatabaseConnection, user_id: i32) -> bool {
-    if wrote_lately(user_id, Utc::now()) {
-        return false;
-    }
     let Ok(state) = super::get_or_create_state(db, user_id).await else {
         return false;
     };
-    if super::effective_do_not_disturb(&state) {
-        return false;
-    }
-    if super::store::recently_spoke_event(db, user_id, EVENT_KEY, AT_MOST_EVERY_MINUTES)
-        .await
-        .unwrap_or(true)
-    {
-        return false;
-    }
-    // Twice unanswered: she waits for them to say something.
-    let answered: Vec<Option<bool>> = super::store::first_words(
-        db,
-        EVENT_KEY,
-        Some(user_id),
-        Utc::now() - chrono::Duration::days(FIRST_WORDS_WITHIN_DAYS),
-        myriad_merope::others::ANSWERED_WITHIN_HOURS,
-        2,
-    )
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|(_, _, answered)| answered)
-    .collect();
-    !myriad_merope::reach::writing_into_silence(&answered)
+    !super::effective_do_not_disturb(&state)
 }
 
 /// People who have talked with her in private lately.
@@ -127,7 +108,7 @@ async fn talked_lately(db: &DatabaseConnection) -> Vec<i32> {
         "SELECT DISTINCT s.user_id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
          WHERE s.user_id > 0 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
            AND m.role = 'user' AND m.created_at > NOW() - make_interval(days => $1)",
-        [(MISSED_UNTIL_DAYS as i32).into()],
+        [(THINKS_BACK_DAYS as i32).into()],
     ))
     .await
     .unwrap_or_default()
@@ -186,6 +167,9 @@ async fn first_words(db: &DatabaseConnection, user_id: i32) -> Option<(Reason, S
         .as_ref()
         .map(|made| format!("{} ({})", made.surface, made.how_it_went()));
     let reason = reason(&threads, last, to_tell, to_try, now)?;
+    if asked_already(user_id, &reason) {
+        return None;
+    }
     let talk = recent_talk(db, user_id).await;
     let about = would_write(db, user_id, &reason, &talk).await?;
     let own = puzzle.as_ref().map(|made| made.surface.as_str());
@@ -216,9 +200,6 @@ async fn reach_out(db: &DatabaseConnection, user_id: i32, here: Route) -> bool {
     let Some(went) = went else {
         return false;
     };
-    if let Ok(mut wrote) = WROTE.lock() {
-        wrote.insert(user_id, Utc::now());
-    }
     if let Err(error) =
         super::store::insert_proactive(db, user_id, &line, Some(EVENT_KEY), true).await
     {

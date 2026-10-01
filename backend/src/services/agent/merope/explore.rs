@@ -39,14 +39,16 @@ pub use myriad_merope::explore::{
     Compared, Explored, FOUND_CHARS, Go, Looked, Question, Step, Trip, go_for,
 };
 use myriad_merope::explore::{
-    NEW_A_NIGHT, Thinking, Wondered, compare_schema, compare_system, step_input, step_schema_for,
-    step_system, think_schema, think_system, wonder_schema, wonder_system,
+    Thinking, Wondered, compare_schema, compare_system, step_input, step_schema_for, step_system,
+    think_schema, think_system, wonder_schema, wonder_system,
 };
 
 /// A question of her own, not yet looked into.
 pub const QUESTION: &str = "question";
 /// Open questions she keeps, at most; the oldest go.
-const OPEN_MAX: usize = 8;
+/// Her open questions read back: they fade on their own when she never
+/// takes them up, so this is only how far back to read.
+const READ_BACK: u64 = 30;
 /// Questions left unasked this long fade.
 const QUESTION_FADES: chrono::Duration = chrono::Duration::days(21);
 /// Times a day she goes out to find something out.
@@ -66,7 +68,7 @@ Write what you make of it now, in your own words, as a thought of your own, not 
 const HEARD_WONDERED: u64 = 12;
 
 pub async fn open(db: &DatabaseConnection) -> Vec<Question> {
-    unified::own_rows(db, QUESTION, OPEN_MAX as u64 * 2)
+    unified::own_rows(db, QUESTION, READ_BACK)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -109,7 +111,7 @@ fn checked_questions(
         .map(|record| (record.id.as_str(), record))
         .collect();
     let mut kept: Vec<(String, String, Vec<String>)> = Vec::new();
-    for question in wondered.questions.into_iter().take(NEW_A_NIGHT) {
+    for question in wondered.questions {
         let text: String = question.question.trim().chars().take(120).collect();
         let rows: Vec<String> = question
             .cites
@@ -162,9 +164,9 @@ pub(super) async fn lately(
 /// At night: from what she did this past week, the questions she has.
 pub async fn wonder(db: &DatabaseConnection, owner: i32) {
     let now = Utc::now().fixed_offset();
-    // Old questions she never took up fade; past the limit, the oldest go.
+    // Old questions she never took up fade.
     let mut open = open(db).await;
-    let rows = unified::own_rows(db, QUESTION, OPEN_MAX as u64 * 2)
+    let rows = unified::own_rows(db, QUESTION, READ_BACK)
         .await
         .unwrap_or_default();
     for row in &rows {
@@ -208,10 +210,6 @@ pub async fn wonder(db: &DatabaseConnection, owner: i32) {
             QUESTION,
         )
         .await;
-    }
-    let over = (open.len() + fresh.len()).saturating_sub(OPEN_MAX);
-    for question in open.iter().rev().take(over) {
-        let _ = unified::retire_own(db, &question.id, "superseded").await;
     }
     if !fresh.is_empty() {
         tracing::info!(

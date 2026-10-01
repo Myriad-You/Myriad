@@ -1,5 +1,9 @@
-//! Writing to someone first, the rules of it: when she is awake to, where her
-//! words go, when there is a reason, what she is asked, and her text as sent.
+//! Writing to someone first, the rules of it: where her words go, when there
+//! is a reason, what she is asked, and her text as sent. Whether to write is
+//! hers to judge from the facts (how long since they talked, when she last
+//! wrote first and whether they answered, what they are to her); the code
+//! only keeps her from being asked the same thing twice. She writes while
+//! she is awake, by her own night (see `timing`).
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -7,18 +11,11 @@ use serde_json::{Value, json};
 
 use crate::threads::Thread;
 
-/// The site's waking hours.
-/// Not while they are talking with her.
+/// Not while they are talking with her: that is not writing first.
 pub const NOT_MID_TALK: chrono::Duration = chrono::Duration::hours(2);
 
-/// Missing them is a reason after this long, and no longer past the second.
-pub const MISSED_AFTER_DAYS: i64 = 3;
-
-pub const MISSED_UNTIL_DAYS: i64 = 30;
-
-pub const AWAKE_FROM: u32 = 9;
-
-pub const AWAKE_UNTIL: u32 = 22;
+/// How far back she thinks of people who talked with her in private.
+pub const THINKS_BACK_DAYS: i64 = 90;
 
 pub const JUDGE_SCHEMA: &str = "merope_reach_out";
 
@@ -45,24 +42,13 @@ pub fn route(panel_open: bool, on_site: bool) -> Route {
     }
 }
 
-/// Whether her last first words to them went unanswered twice running
-/// (newest first; `None` is one still waiting): then she does not write
-/// again until they say something. Whatever the judgment says, someone
-/// who never answers does not keep getting messages.
-pub fn writing_into_silence(answered: &[Option<bool>]) -> bool {
-    matches!(answered, [Some(false), Some(false), ..])
-}
-
-pub fn awake(hour: u32) -> bool {
-    (AWAKE_FROM..AWAKE_UNTIL).contains(&hour)
-}
-
 /// Why she might write, if there is a reason at all: what has come due, how
 /// long it has been, what of her own she would tell them, and a puzzle she
 /// made that she has not tried on them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Reason {
     pub due: Vec<Thread>,
+    /// Whole days since they last talked, if they have.
     pub days_since: Option<i64>,
     /// Things she did on her own since they last talked that she would
     /// want to tell someone.
@@ -70,6 +56,22 @@ pub struct Reason {
     /// A turtle soup she made up herself and has not tried on them: its
     /// surface and how it went with others.
     pub to_try: Option<String>,
+}
+
+impl Reason {
+    /// What the reason is made of: asked about once, she is not asked about
+    /// the same again until something in it changes (another day apart,
+    /// something new to tell, something come due).
+    pub fn key(&self) -> String {
+        let due: Vec<&str> = self.due.iter().map(|thread| thread.id.as_str()).collect();
+        format!(
+            "{}|{:?}|{}|{}",
+            due.join(","),
+            self.days_since,
+            self.to_tell.join("\u{1f}"),
+            self.to_try.as_deref().unwrap_or_default()
+        )
+    }
 }
 
 pub fn reason(
@@ -88,8 +90,8 @@ pub fn reason(
         .cloned()
         .collect();
     let days_since = last.map(|last| (now - last).num_days());
-    let missed =
-        days_since.is_some_and(|days| (MISSED_AFTER_DAYS..=MISSED_UNTIL_DAYS).contains(&days));
+    // Days apart: whether she misses them is hers to say.
+    let missed = days_since.is_some_and(|days| days >= 1);
     // Something of hers to tell or to try, to someone she has talked with
     // before.
     let to_tell = if last.is_some() { to_tell } else { Vec::new() };
@@ -188,21 +190,6 @@ pub fn as_text(raw: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn twice_unanswered_she_waits_for_them() {
-        assert!(writing_into_silence(&[Some(false), Some(false)]));
-        assert!(writing_into_silence(&[
-            Some(false),
-            Some(false),
-            Some(true)
-        ]));
-        // One answered, or one still waiting: the judgment weighs it.
-        assert!(!writing_into_silence(&[Some(false), Some(true)]));
-        assert!(!writing_into_silence(&[None, Some(false)]));
-        assert!(!writing_into_silence(&[Some(false)]));
-        assert!(!writing_into_silence(&[]));
-    }
-
     fn thread(about: &str, due: Option<DateTime<Utc>>) -> Thread {
         Thread {
             id: about.into(),
@@ -228,11 +215,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(why.due, vec![exam.clone()]);
-        // Nothing due, talked yesterday: no reason.
+        // Nothing due, talked a few hours ago: no reason.
         assert!(
             reason(
                 std::slice::from_ref(&later),
-                Some(hours(30)),
+                Some(hours(5)),
                 vec![],
                 None,
                 now
@@ -254,8 +241,9 @@ mod tests {
                 .to_tell,
             book
         );
-        // Too long ago to still be missing them out of the blue, or never talked.
-        assert!(reason(&[], Some(hours(24 * 40)), vec![], None, now).is_none());
+        // However long ago: whether she still misses them is hers. Never
+        // talked: nothing to miss.
+        assert!(reason(&[], Some(hours(24 * 40)), vec![], None, now).is_some());
         assert!(reason(&[], None, vec![], None, now).is_none());
         assert!(reason(&[], None, book.clone(), None, now).is_none());
         // In the middle of talking with her: never.
@@ -269,7 +257,12 @@ mod tests {
         );
         assert!(reason(&[], None, vec![], puzzle.clone(), now).is_none());
         assert!(reason(&[], Some(hours(1)), vec![], puzzle, now).is_none());
-        assert!(awake(9) && awake(21) && !awake(22) && !awake(3));
+        // The same reason is the same question; a day more apart is not.
+        let today = reason(&[], Some(hours(24 * 4)), vec![], None, now).unwrap();
+        let again = reason(&[], Some(hours(24 * 4 + 3)), vec![], None, now).unwrap();
+        let tomorrow = reason(&[], Some(hours(24 * 5)), vec![], None, now).unwrap();
+        assert_eq!(today.key(), again.key());
+        assert_ne!(today.key(), tomorrow.key());
         // Her panel open: she is right there. On the site elsewhere: the
         // site. Away: a chat app, else the site.
         assert_eq!(route(true, true), Route::Stay);
