@@ -129,31 +129,71 @@ pub fn spawn_after(db: DatabaseConnection, request: &UserRequest, reply: &str) {
     }
     let history = history_of(request);
     let present = super::audience_for(request);
-    let key = key(user_id, &present);
     let turn = super::turn_context(request);
+    let at = request.timestamp;
     crate::services::agent::merope::background::spawn("inner state", async move {
-        if !super::is_enabled().await {
-            return;
-        }
-        let inner = match tokio::time::timeout(
-            REFLECTION_TIMEOUT,
-            compile(&db, user_id, &user_text, &reply, history, &present, &turn),
+        reflect(
+            &db, user_id, &user_text, &reply, history, &present, &turn, at,
         )
-        .await
-        {
-            Ok(inner) => inner,
-            Err(_) => {
-                tracing::warn!(user_id, "[Merope] reflecting on the exchange took too long");
-                None
-            }
-        };
-        if let (Some(inner), Ok(mut after)) = (inner, AFTER.lock()) {
-            after.retain(|_, (_, at)| at.elapsed() < MOMENT);
-            after.insert(key, (inner, Instant::now()));
-        }
+        .await;
     });
 }
 
+/// [`spawn_after`], waited on: a simulated day goes turn by turn.
+#[cfg(test)]
+pub(crate) async fn reflect_now(db: &DatabaseConnection, request: &UserRequest, reply: &str) {
+    let user_text: String = request.raw_input.chars().take(1_500).collect();
+    let reply: String = reply.chars().take(1_500).collect();
+    let present = super::audience_for(request);
+    let turn = super::turn_context(request);
+    reflect(
+        db,
+        request.user_id,
+        &user_text,
+        &reply,
+        history_of(request),
+        &present,
+        &turn,
+        request.timestamp,
+    )
+    .await;
+}
+
+/// `at` is when the exchange happened: what to come back to is due from
+/// then, not from when the reflection got round to it.
+#[allow(clippy::too_many_arguments)]
+async fn reflect(
+    db: &DatabaseConnection,
+    user_id: i32,
+    user_text: &str,
+    reply: &str,
+    history: Vec<Value>,
+    present: &Audience,
+    turn: &super::TurnContext,
+    at: chrono::DateTime<chrono::Utc>,
+) {
+    if !super::is_enabled().await {
+        return;
+    }
+    let inner = match tokio::time::timeout(
+        REFLECTION_TIMEOUT,
+        compile(db, user_id, user_text, reply, history, present, turn, at),
+    )
+    .await
+    {
+        Ok(inner) => inner,
+        Err(_) => {
+            tracing::warn!(user_id, "[Merope] reflecting on the exchange took too long");
+            None
+        }
+    };
+    if let (Some(inner), Ok(mut after)) = (inner, AFTER.lock()) {
+        after.retain(|_, (_, at)| at.elapsed() < MOMENT);
+        after.insert(key(user_id, present), (inner, Instant::now()));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn compile(
     db: &DatabaseConnection,
     user_id: i32,
@@ -162,6 +202,7 @@ async fn compile(
     history: Vec<Value>,
     present: &Audience,
     turn: &super::TurnContext,
+    at: chrono::DateTime<chrono::Utc>,
 ) -> Option<String> {
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -239,9 +280,8 @@ async fn compile(
         .ok()?;
     let reflected = parse_reflection(&raw)?;
     if private {
-        let now = chrono::Utc::now();
         for kept in reflected.keep.iter().take(MAX_KEPT) {
-            super::threads::keep(db, user_id, kept, now).await;
+            super::threads::keep(db, user_id, kept, at).await;
         }
         let done: Vec<String> = reflected
             .done
