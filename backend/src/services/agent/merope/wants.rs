@@ -70,6 +70,40 @@ fn want_of(row: &crate::models::entities::agent_memories::Model) -> Option<Want>
     })
 }
 
+/// What a want grew out of and what moved it since, as the records were.
+fn grew_from_of(row: &crate::models::entities::agent_memories::Model) -> Vec<String> {
+    row.evidence
+        .as_deref()
+        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+        .and_then(|evidence| {
+            evidence
+                .get("grewFrom")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+        })
+        .unwrap_or_default()
+}
+
+/// Kept with a want, at most: the oldest roots go first.
+const ROOTS_KEPT: usize = 8;
+
+/// What she wants now, oldest first, each with what it grew from.
+async fn open_with_roots(db: &DatabaseConnection) -> Vec<(Want, Vec<String>)> {
+    let mut wants: Vec<(Want, Vec<String>)> = unified::own_rows(db, SOURCE, READ_BACK as u64)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| Some((want_of(row)?, grew_from_of(row))))
+        .collect();
+    wants.sort_by_key(|(want, _)| want.since);
+    wants
+}
+
 /// What she wants now, oldest first.
 pub async fn open(db: &DatabaseConnection) -> Vec<Want> {
     let mut wants: Vec<Want> = unified::own_rows(db, SOURCE, READ_BACK as u64)
@@ -118,16 +152,21 @@ async fn ended(db: &DatabaseConnection, want: &Want, how: &str, came_true: bool)
 pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     let now = Utc::now();
     let records = super::explore::lately(db, now.fixed_offset() - chrono::Duration::days(7)).await;
-    let held = open(db).await;
+    let (held, roots): (Vec<Want>, Vec<Vec<String>>) =
+        open_with_roots(db).await.into_iter().unzip();
     if records.is_empty() && held.is_empty() {
         return;
+    }
+    let mut wants = as_input(&held, now);
+    for (want, grew_from) in wants.iter_mut().zip(&roots) {
+        want["grewFrom"] = json!(grew_from);
     }
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
     let input = json!({
         "records": records.iter().map(|record| json!({ "id": record.id, "what": record.line })).collect::<Vec<_>>(),
-        "wants": as_input(&held, now),
+        "wants": wants,
         "whoYouHaveBeen": super::self_story::current(db).await,
     })
     .to_string();
@@ -167,7 +206,19 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         }
         let mut want = want.clone();
         want.notes.push((now, moved.note.clone()));
-        put(db, &want, &[]).await;
+        // What moved it is among what it grew from now.
+        let mut grew_from = roots.get(moved.i).cloned().unwrap_or_default();
+        grew_from.extend(
+            moved
+                .cites
+                .iter()
+                .filter_map(|cite| records.iter().find(|record| &record.id == cite))
+                .map(|record| record.row.clone()),
+        );
+        grew_from.dedup();
+        let over = grew_from.len().saturating_sub(ROOTS_KEPT);
+        grew_from.drain(..over);
+        put(db, &want, &grew_from).await;
         done.push(moved.i);
     }
     for new in &night.new {

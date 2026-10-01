@@ -142,6 +142,52 @@ fn plain_lyrics(lrc: &str) -> String {
         .join("\n")
 }
 
+/// Shown with a song she hears: the songs that moved her lately, measured
+/// the same way, so she can hold this one up against them if she cares to.
+const MOVED_LATELY: &str = "Songs that moved you lately, measured the same way";
+/// How many, and how far back.
+const MOVED_SHOWN: usize = 3;
+const MOVED_DAYS: i64 = 60;
+
+/// The songs that moved her lately, as they sounded (what she kept of
+/// hearing each), the latest few, each once, not `this` one.
+async fn moved_by_lately(db: &DatabaseConnection, this: &str) -> Vec<String> {
+    use crate::services::agent::memory::unified;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let since = chrono::Utc::now() - chrono::Duration::days(MOVED_DAYS);
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT e->'thing' AS thing, e->>'heard' AS heard \
+             FROM (SELECT created_at, evidence::jsonb AS e FROM agent_memories \
+               WHERE user_id IS NULL AND venue = $1 AND source = $2 AND created_at >= $3 \
+                 AND evidence IS JSON) own \
+             WHERE e->'thing'->>'kind' = 'song' AND e->>'reaction' = 'moved' \
+               AND e->>'heard' IS NOT NULL \
+             ORDER BY created_at DESC LIMIT 20",
+            [
+                unified::OWN_VENUE.into(),
+                unified::OWN_EXPERIENCE.into(),
+                since.fixed_offset().into(),
+            ],
+        ))
+        .await
+        .unwrap_or_default();
+    let mut seen = std::collections::HashSet::from([this.to_string()]);
+    rows.iter()
+        .filter_map(|row| {
+            let thing: Thing = serde_json::from_value(row.try_get("", "thing").ok()?).ok()?;
+            let heard: String = row.try_get("", "heard").ok()?;
+            let Thing::Song { name, artist, .. } = &thing else {
+                return None;
+            };
+            seen.insert(thing.key())
+                .then(|| format!("「{name}」 by {artist}: {heard}"))
+        })
+        .take(MOVED_SHOWN)
+        .collect()
+}
+
 /// The song as it reached her: heard from its recording, or only its
 /// words, or nothing.
 pub async fn intake(db: &DatabaseConnection, thing: &Thing) -> Intake {
@@ -149,6 +195,12 @@ pub async fn intake(db: &DatabaseConnection, thing: &Thing) -> Intake {
     if let Some(sheet) = hearing {
         let mut intake = Intake::plain(Some(sheet.describe()), HEARD_CHARS, HEARD);
         intake.carry = Carry::Heard(sheet);
+        let moved = moved_by_lately(db, &thing.key()).await;
+        if !moved.is_empty() {
+            intake
+                .alongside
+                .push((MOVED_LATELY.to_string(), moved.join("\n")));
+        }
         return intake;
     }
     match lyrics(db, thing)
