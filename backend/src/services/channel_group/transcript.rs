@@ -126,3 +126,26 @@ pub(super) fn transcript(venue: &str, message_id: Option<&str>) -> Vec<Conversat
     })
     .unwrap_or_default()
 }
+
+/// The group's people lately who are paired site users, each by the name
+/// the group knows them by: what she calls them there, never their name on
+/// the site, which the group may not know.
+pub async fn names_here(db: &DatabaseConnection, venue: &str) -> HashMap<i32, String> {
+    let Some(platform) = venue.split_once(':').and_then(|(slug, _)| {
+        ChannelPlatform::ALL
+            .into_iter()
+            .find(|platform| platform.slug() == slug)
+    }) else {
+        return HashMap::new();
+    };
+    let mut names = HashMap::new();
+    for (name, from) in people(venue) {
+        if let Ok(PairingLookup::Paired { user_id }) =
+            crate::services::channel_pairing::lookup_openid(db, PairingChannel::of(platform), &from)
+                .await
+        {
+            names.entry(user_id).or_insert(name);
+        }
+    }
+    names
+}

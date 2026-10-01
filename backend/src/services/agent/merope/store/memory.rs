@@ -234,6 +234,10 @@ pub const SAID_SOURCE: &str = "said";
 
 /// What a turn recalls, split: what they named (or recent context), and what
 /// that brought to mind by association.
+/// Who a kept fact is about, in a group, when they have not been in the
+/// talk there lately.
+const SOMEONE_ELSE_HERE: &str = "someone else in this group";
+
 /// A kept fact about another member of the group, said as theirs.
 pub(crate) fn about_someone_else(content: &str, name: &str) -> String {
     format!("{content} (this is about {name}, not the one talking to you)")
@@ -273,21 +277,25 @@ pub async fn recall_remembered_split(
         brought_to_mind: Vec::new(),
     };
     // In a group she remembers what everyone there said; what is about
-    // someone else says whose it is, so it is never taken for the speaker's.
-    let mut names: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+    // someone else says whose it is, so it is never taken for the speaker's:
+    // by the name the group knows them by, never their name on the site.
+    let mut names: Option<std::collections::HashMap<i32, String>> = None;
     for note in recalled {
         let mut content = as_known(&note);
         if content.is_empty() {
             continue;
         }
-        if present.is_group()
+        if let Some(venue) = present.group_id()
             && let Some(other) = note.user_id.filter(|other| *other != user_id)
         {
-            if !names.contains_key(&other) {
-                let name = super::super::resolve_addressee_label(db, other).await;
-                names.insert(other, name);
+            if names.is_none() {
+                names = Some(crate::services::channel_group::names_here(db, venue).await);
             }
-            content = about_someone_else(&content, &names[&other]);
+            let name = names
+                .as_ref()
+                .and_then(|names| names.get(&other))
+                .map_or(SOMEONE_ELSE_HERE, String::as_str);
+            content = about_someone_else(&content, name);
         }
         if note.brought_to_mind {
             split.brought_to_mind.push(content);

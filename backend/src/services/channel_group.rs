@@ -84,6 +84,7 @@ pub use memory::{catch_up, groups_lately, record};
 pub use reaching_out::share_first;
 pub use speaking_up::notice;
 pub use turns::handle;
+pub use transcript::names_here;
 
 /// Lines of a group she keeps in mind, and for how long.
 const TRANSCRIPT_LINES: usize = 30;

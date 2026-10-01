@@ -106,9 +106,16 @@ pub async fn open_in_group(
     .iter()
     .filter_map(sore_of)
     .collect();
-    if user_id.is_none() {
+    // Who did it, by the name the group's talk shows them by.
+    if user_id.is_none() && !sores.is_empty() {
+        let names = crate::services::channel_group::names_here(db, venue).await;
         for sore in &mut sores {
-            sore.who = Some(super::resolve_addressee_label(db, sore.user_id).await);
+            sore.who = Some(
+                names
+                    .get(&sore.user_id)
+                    .cloned()
+                    .unwrap_or_else(|| "someone in the group".to_string()),
+            );
         }
     }
     sores.sort_by_key(|sore| sore.since);
