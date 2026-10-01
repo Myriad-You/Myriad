@@ -410,10 +410,42 @@ fn string_field(value: Option<&Value>, max_chars: usize) -> String {
 const HISTORY_MESSAGES: usize = 40;
 const HISTORY_CHARS: usize = 5000;
 
+/// A pause in a conversation this long is marked, so what was said days
+/// ago does not read as if just said.
+const MARKED_PAUSE_SECS: i64 = 3 * 3600;
+
+/// How long a pause was, plainly: "13 hours", "3 days".
+fn pause_text(seconds: i64) -> String {
+    let hours = seconds / 3600;
+    match hours {
+        ..=23 => format!("{} hours", hours.max(1)),
+        _ => match hours / 24 {
+            1 => "1 day".to_string(),
+            days => format!("{days} days"),
+        },
+    }
+}
+
+fn sent_at(message: &ConversationMessage) -> Option<chrono::DateTime<chrono::Utc>> {
+    message
+        .created_at
+        .as_deref()
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        .map(|at| at.with_timezone(&chrono::Utc))
+}
+
 /// One message per line, each with who said it: a message sent as several
-/// lines reads as one.
+/// lines reads as one. Long pauses between them are marked, and where the
+/// first shown was said long ago, so does that.
 fn chat_history_text(history: &[ConversationMessage]) -> String {
-    let mut lines: Vec<String> = Vec::new();
+    chat_history_text_at(history, chrono::Utc::now())
+}
+
+fn chat_history_text_at(
+    history: &[ConversationMessage],
+    now: chrono::DateTime<chrono::Utc>,
+) -> String {
+    let mut kept: Vec<(String, Option<chrono::DateTime<chrono::Utc>>)> = Vec::new();
     let mut chars = 0;
     for message in history.iter().rev().take(HISTORY_MESSAGES) {
         let said = chat_safe_content(&message.content)
@@ -427,12 +459,35 @@ fn chat_history_text(history: &[ConversationMessage]) -> String {
         }
         let line = format!("{}：{said}", message.role);
         chars += line.chars().count();
-        if chars > HISTORY_CHARS && !lines.is_empty() {
+        if chars > HISTORY_CHARS && !kept.is_empty() {
             break;
+        }
+        kept.push((line, sent_at(message)));
+    }
+    kept.reverse();
+    let mut lines = Vec::with_capacity(kept.len() + 2);
+    let mut previous: Option<chrono::DateTime<chrono::Utc>> = None;
+    for (index, (line, at)) in kept.into_iter().enumerate() {
+        match (index, previous, at) {
+            (0, _, Some(at)) if (now - at).num_seconds() >= MARKED_PAUSE_SECS => {
+                lines.push(format!(
+                    "（from {} ago）",
+                    pause_text((now - at).num_seconds())
+                ));
+            }
+            (_, Some(before), Some(at)) if (at - before).num_seconds() >= MARKED_PAUSE_SECS => {
+                lines.push(format!(
+                    "（{} later）",
+                    pause_text((at - before).num_seconds())
+                ));
+            }
+            _ => {}
+        }
+        if at.is_some() {
+            previous = at;
         }
         lines.push(line);
     }
-    lines.reverse();
     lines.join("\n")
 }
 
@@ -489,6 +544,39 @@ mod tests {
             "frontendAction": { "action": "navigate", "path": "/reports" },
             "confirmation": { "confirmationId": "cnf_1" }
         })
+    }
+
+    #[test]
+    fn long_pauses_in_a_conversation_are_marked() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-01T09:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let at = |hours_ago: i64| Some((now - chrono::Duration::hours(hours_ago)).to_rfc3339());
+        let message = |role: &str, content: &str, created_at: Option<String>| ConversationMessage {
+            role: role.into(),
+            content: content.into(),
+            created_at,
+        };
+        let history = [
+            message("user", "你好呀", at(62)),
+            message("assistant", "来啦", at(62)),
+            message("user", "我去上课了", at(13)),
+            message("assistant", "难怪见不着人", at(13)),
+            message("user", "早", at(0)),
+        ];
+        assert_eq!(
+            chat_history_text_at(&history, now),
+            "（from 2 days ago）\nuser：你好呀\nassistant：来啦\n（2 days later）\nuser：我去上课了\nassistant：难怪见不着人\n（13 hours later）\nuser：早"
+        );
+        // Without times, nothing is made up.
+        let plain = [
+            message("user", "在吗", None),
+            message("assistant", "在", None),
+        ];
+        assert_eq!(
+            chat_history_text_at(&plain, now),
+            "user：在吗\nassistant：在"
+        );
     }
 
     #[test]
