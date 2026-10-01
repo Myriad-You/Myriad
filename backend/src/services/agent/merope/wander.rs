@@ -107,7 +107,8 @@ fn thought_summary(wandered: &unified::Wandered) -> String {
 
 /// One minute of her idle mind across everyone present.
 pub async fn tick(db: DatabaseConnection) {
-    if !super::is_enabled().await {
+    // Asleep, her mind does not wander out loud.
+    if !super::is_enabled().await || super::timing::asleep_now().is_some() {
         return;
     }
     let myself = super::self_state::current(&db).await;

@@ -81,16 +81,17 @@ pub async fn lazed_on(db: &DatabaseConnection, day: NaiveDate) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// She lazed about for `minutes` today.
+/// She lazed about for `minutes` today (her day, from when she got up).
 pub async fn lazed(db: &DatabaseConnection, minutes: f64) {
-    let day = Local::now().date_naive();
+    let day = super::timing::her_date();
     let so_far = lazed_on(db, day).await;
     put(db, &lazed_key(day), &(so_far + minutes)).await;
 }
 
-/// Her pace today: kept, or, on a new day, moved on from yesterday.
+/// Her pace today: kept, or, on a new day, moved on from yesterday. Her
+/// day turns when she gets up, not at midnight while she is still up.
 pub async fn today(db: &DatabaseConnection) -> Pace {
-    let day = Local::now().date_naive();
+    let day = super::timing::her_date();
     if let Some(pace) = TODAY
         .lock()
         .ok()

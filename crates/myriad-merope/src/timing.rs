@@ -97,9 +97,86 @@ pub fn asleep_for(night: u64, minute: u32) -> Option<f64> {
     })
 }
 
+/// Where she is in her own day at `minute` after local midnight on calendar
+/// day `day` (any day count, the same one `sleep` is given its nights in):
+/// asleep or not, minutes since she last got up, and until she next goes to
+/// bed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DayAt {
+    pub asleep: bool,
+    pub since_up: u32,
+    pub until_bed: u32,
+}
+
+pub fn day_at(day: u64, minute: u32) -> DayAt {
+    let now = day as i64 * 1440 + i64::from(minute);
+    let mut at = DayAt {
+        asleep: false,
+        since_up: 0,
+        until_bed: 0,
+    };
+    let mut bed_found = false;
+    // The night before yesterday's, last night and tonight: a night is
+    // the date she went to bed, and she goes to bed after midnight.
+    for night in [day.saturating_sub(2), day.saturating_sub(1), day] {
+        let (bed, up) = sleep(night);
+        let bed_at = (night as i64 + 1) * 1440 + i64::from(bed);
+        let up_at = (night as i64 + 1) * 1440 + i64::from(up);
+        if bed_at <= now && now < up_at {
+            at.asleep = true;
+        }
+        if up_at <= now {
+            at.since_up = (now - up_at) as u32;
+        }
+        if bed_at > now && !bed_found {
+            at.until_bed = (bed_at - now) as u32;
+            bed_found = true;
+        }
+    }
+    at
+}
+
+/// Told to her when she would be asleep by her own hours: she may have
+/// been woken, or stayed up talking. When she would get up, `HH:MM`.
+pub fn past_bedtime(gets_up: &str) -> String {
+    format!(
+        "## Your hours\nBy your usual hours you would be asleep now; you get up about {gets_up}."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn her_day_runs_from_getting_up_to_going_to_bed() {
+        let day = 739_525;
+        let (bed_tonight, _) = sleep(day);
+        let (_, up_today) = sleep(day - 1);
+        // Mid-afternoon: up since this morning, bed after midnight tonight.
+        let afternoon = day_at(day, 15 * 60);
+        assert!(!afternoon.asleep);
+        assert_eq!(afternoon.since_up, 15 * 60 - up_today);
+        assert_eq!(afternoon.until_bed, 9 * 60 + bed_tonight);
+        // Just after midnight she is still up, from yesterday morning.
+        let (bed_last_night, up_this_morning) = sleep(day - 1);
+        let (_, up_yesterday) = sleep(day - 2);
+        let late = day_at(day, 10);
+        assert!(!late.asleep && bed_last_night > 10);
+        assert_eq!(late.since_up, 1440 + 10 - up_yesterday);
+        assert_eq!(late.until_bed, bed_last_night - 10);
+        // Asleep agrees with `asleep_for` all day long.
+        for minute in (0..1440).step_by(7) {
+            let night = if minute < 12 * 60 { day - 1 } else { day };
+            assert_eq!(
+                day_at(day, minute).asleep,
+                asleep_for(night, minute).is_some(),
+                "minute {minute}"
+            );
+        }
+        assert!(day_at(day, up_this_morning - 1).asleep);
+        assert!(past_bedtime("08:20").contains("about 08:20"));
+    }
 
     /// A fixed stream of rolls, so a run is the same every time.
     struct Rolls(u64);

@@ -169,10 +169,19 @@ pub async fn tick(db: DatabaseConnection) {
     };
     restore_now(&db, owner).await;
     let now = Utc::now();
+    // Bedtime ends whatever she was at: she falls asleep over it.
+    let asleep = super::timing::asleep_now().is_some();
     let finished = LIFE.lock().ok().and_then(|mut life| {
-        if life.now.as_ref().is_some_and(|doing| doing.ends <= now) {
+        if life
+            .now
+            .as_ref()
+            .is_some_and(|doing| doing.ends <= now || asleep)
+        {
             life.next_at = Some(now + chrono::Duration::minutes(rand::random_range(PAUSE_MINUTES)));
-            life.now.take()
+            life.now.take().map(|mut doing| {
+                doing.ends = doing.ends.min(now);
+                doing
+            })
         } else {
             None
         }
@@ -181,9 +190,13 @@ pub async fn tick(db: DatabaseConnection) {
     let lazed = LIFE.lock().ok().and_then(|mut life| {
         life.lazing
             .as_ref()
-            .is_some_and(|lazing| lazing.ends <= now)
+            .is_some_and(|lazing| lazing.ends <= now || asleep)
             .then(|| life.lazing.take())
             .flatten()
+            .map(|mut lazing| {
+                lazing.ends = lazing.ends.min(now);
+                lazing
+            })
     });
     let changed = lazed.is_some() || finished.is_some();
     if let Some(lazed) = lazed {

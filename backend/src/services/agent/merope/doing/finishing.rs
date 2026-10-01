@@ -101,7 +101,8 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
                 .await;
         });
     }
-    if digest.tell {
+    // Fallen asleep over it, she tells no one now.
+    if digest.tell && super::super::timing::asleep_now().is_none() {
         tell_whoever_is_here(&done.thing, &impression);
         // The groups she is in may hear it too, if one is where she would
         // say it.

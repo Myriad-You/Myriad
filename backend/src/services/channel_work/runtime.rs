@@ -301,11 +301,17 @@ async fn start_outbox_delivery(db: DatabaseConnection, key: String, sink: Channe
 pub(crate) async fn run_recovery_worker() {
     let mut tick = tokio::time::interval(Duration::from_secs(10));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut waiting_taken_back = false;
     loop {
         tick.tick().await;
         let Ok(db) = crate::services::process_db::database() else {
             continue;
         };
+        // Once a process: what came in private chats while she slept.
+        if !waiting_taken_back {
+            waiting_taken_back = true;
+            super::chat::take_back_waiting(&db).await;
+        }
         for platform in ChannelPlatform::ALL {
             let Ok(rows) = shared_registry::list(&db, platform.session_ns(), None, None).await
             else {

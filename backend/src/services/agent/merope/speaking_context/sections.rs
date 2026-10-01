@@ -251,6 +251,10 @@ pub(super) async fn her_state(
         sections.push(speaking_prompts::format_now_section(
             super::super::clock::local_now(),
         ));
+        // Woken, or still up talking: by her hours she would be asleep.
+        if let Some(block) = super::super::timing::past_bedtime() {
+            sections.push(block);
+        }
     }
     if !matches!(turn, Turn::Plain) && compiled.is_none() {
         sections.push(self_state::format_day_section(&myself.facts));

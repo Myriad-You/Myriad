@@ -6,7 +6,8 @@
 //! something — so it cannot drift from what actually happened, survives
 //! restarts, and needs no reset.
 //!
-//! - **Energy** follows the day (low at night) and drops with how many
+//! - **Energy** follows her own day (low near her bedtime and when woken,
+//!   slow just after she gets up) and drops with how many
 //!   different people she has been talking to lately. Five people wear her out
 //!   more than five turns with one.
 //! - **How long since she learned something new** (a fact about someone,
@@ -107,27 +108,50 @@ impl SelfState {
     }
 }
 
-/// Energy at this hour of her day, before anyone has tired her.
-fn day_energy(hour: u32) -> f64 {
-    match hour {
-        0..=5 => 25.0,
-        6 => 40.0,
-        7..=8 => 55.0,
-        9..=17 => 75.0,
-        18..=21 => 65.0,
-        22 => 50.0,
-        _ => 35.0,
+/// Energy at this point of her own day, before anyone has tired her: by
+/// how long until she goes to bed and since she got up, not the clock, so
+/// it moves with her hours.
+fn day_energy(at: myriad_merope::timing::DayAt) -> f64 {
+    if at.asleep {
+        return 25.0;
+    }
+    if at.since_up < 60 {
+        return 55.0;
+    }
+    match at.until_bed {
+        0..=90 => 25.0,
+        91..=150 => 35.0,
+        151..=210 => 50.0,
+        211..=450 => 65.0,
+        _ => 75.0,
     }
 }
 
-/// `contacts` are, for each person, hours since they last talked to her.
+/// [`derive_at`] on a day of her usual hours (to bed 01:30, up 08:30).
+#[cfg(test)]
 pub fn derive(hour: u32, contacts: &[f64]) -> SelfState {
+    let minute = hour * 60;
+    let at = myriad_merope::timing::DayAt {
+        asleep: (90..510).contains(&minute),
+        since_up: (minute + 1440 - 510) % 1440,
+        until_bed: (90 + 1440 - minute) % 1440,
+    };
+    derive_at(at, hour, contacts)
+}
+
+/// `at` is where she is in her own day, `hour` the clock's; `contacts`
+/// are, for each person, hours since they last talked to her.
+pub fn derive_at(
+    at: myriad_merope::timing::DayAt,
+    hour: u32,
+    contacts: &[f64],
+) -> SelfState {
     let load: f64 = contacts
         .iter()
         .filter(|hours| hours.is_finite() && **hours >= 0.0)
         .map(|hours| (-hours / FATIGUE_TAU_H).exp())
         .sum();
-    let energy = (day_energy(hour) - FATIGUE_PER_PERSON * load).clamp(5.0, 100.0);
+    let energy = (day_energy(at) - FATIGUE_PER_PERSON * load).clamp(5.0, 100.0);
     let valid: Vec<f64> = contacts
         .iter()
         .copied()
@@ -173,8 +197,9 @@ pub async fn current(db: &DatabaseConnection) -> SelfState {
         .flatten()
         .map(|at| (now - at.with_timezone(&Utc)).num_seconds().max(0) as f64 / 3600.0);
     // Her day runs on the host clock, as the do-not-disturb window does.
-    let local = chrono::Local::now();
-    let mut state = derive(local.hour(), &contacts).with_last_learned(learned);
+    let local = super::clock::local_now();
+    let mut state =
+        derive_at(super::timing::her_day(), local.hour(), &contacts).with_last_learned(learned);
     state.facts.local_minute = local.minute();
     if let Ok(mut cached) = CACHE.lock() {
         *cached = Some((Instant::now(), state));
@@ -237,6 +262,27 @@ mod tests {
     fn the_night_and_many_people_tire_her() {
         assert!(derive(14, &[]).energy >= 65.0);
         assert!(derive(3, &[]).tired(), "night");
+        // Her own hours, not the clock's: still up at 00:30 an hour before
+        // bed is tired; at 09:00, two hours after getting up, she is not.
+        use myriad_merope::timing::DayAt;
+        let up_late = DayAt {
+            asleep: false,
+            since_up: 16 * 60,
+            until_bed: 60,
+        };
+        assert!(derive_at(up_late, 0, &[]).tired());
+        let morning = DayAt {
+            asleep: false,
+            since_up: 120,
+            until_bed: 16 * 60,
+        };
+        assert_eq!(derive_at(morning, 9, &[]).energy, 75.0);
+        let woken = DayAt {
+            asleep: true,
+            since_up: 20 * 60,
+            until_bed: 22 * 60,
+        };
+        assert!(derive_at(woken, 9, &[]).tired(), "woken before she gets up");
         let one = derive(14, &[0.1]);
         assert!(!one.tired());
         let crowd = derive(14, &[0.1, 0.2, 0.2, 0.3, 0.5]);
