@@ -6,6 +6,7 @@ pub(in crate::services::agent) mod background;
 pub(in crate::services::agent) mod bits;
 mod call;
 pub(in crate::services::agent) mod chat_days;
+pub(in crate::services::agent) mod clock;
 pub(in crate::services::agent) mod chat_remember;
 pub(in crate::services::agent) mod curiosity;
 pub(in crate::services::agent) mod doing;

@@ -181,10 +181,12 @@ async fn her_real_talk_answered_again() {
             }),
         };
         crate::services::agent::merope::remembering::begin(user_id, "private", &said);
-        let prompt = Agent::new(db.clone())
-            .await
-            .chat_response_prompt(&request)
-            .await;
+        let agent = Agent::new(db.clone()).await;
+        let prompt = crate::services::agent::merope::clock::as_of(
+            at.with_timezone(&chrono::Utc),
+            agent.chat_response_prompt(&request),
+        )
+        .await;
         let again = analyzer
             .analyze_stream(&prompt, |_| true)
             .await

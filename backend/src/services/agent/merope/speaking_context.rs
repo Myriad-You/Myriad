@@ -324,7 +324,7 @@ pub async fn with_said_unprompted(
     if user_id <= 0 || !is_logged_in_addressee(user_id) || !is_enabled().await {
         return history.to_vec();
     }
-    let since = chrono::Utc::now() - chrono::Duration::hours(SAID_UNPROMPTED_WITHIN_HOURS);
+    let since = super::clock::now() - chrono::Duration::hours(SAID_UNPROMPTED_WITHIN_HOURS);
     let said: Vec<(chrono::DateTime<chrono::Utc>, String)> =
         store::recent_proactive(db, user_id, SAID_UNPROMPTED_LIMIT)
             .await

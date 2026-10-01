@@ -23,7 +23,7 @@ pub(super) async fn who_they_are(
         sections.push(myriad_merope::speaking::format_acquaintance_section(
             first,
             days,
-            chrono::Utc::now(),
+            super::super::clock::now(),
         ));
     }
     // Whether it reads like them typing.
@@ -192,7 +192,7 @@ pub(super) async fn their_recent(
     }
     // What the site's owner is playing, to the owner alone.
     if !group {
-        if let Some(block) = playing::now_for(user_id, chrono::Utc::now())
+        if let Some(block) = playing::now_for(user_id, super::super::clock::now())
             .and_then(|line| format_playing_section(&line))
         {
             sections.push(block);
@@ -248,7 +248,9 @@ pub(super) async fn her_state(
         }
     }
     if !matches!(turn, Turn::Plain) {
-        sections.push(speaking_prompts::format_now_section(chrono::Local::now()));
+        sections.push(speaking_prompts::format_now_section(
+            super::super::clock::local_now(),
+        ));
     }
     if !matches!(turn, Turn::Plain) && compiled.is_none() {
         sections.push(self_state::format_day_section(&myself.facts));
@@ -308,7 +310,7 @@ pub(super) async fn her_own(
         if let Some(block) = format_self_story_section(&self_story::current(db).await) {
             sections.push(block);
         }
-        if let Some(block) = wants::section(&wants::open(db).await, chrono::Utc::now()) {
+        if let Some(block) = wants::section(&wants::open(db).await, super::super::clock::now()) {
             sections.push(block);
         }
         if let Some(block) =
@@ -329,7 +331,7 @@ pub(super) async fn her_own(
     } else {
         Vec::new()
     };
-    let now = doing::now_text(chrono::Utc::now());
+    let now = doing::now_text(super::super::clock::now());
     if let Some(block) = format_doing_section(now.as_deref(), &lately) {
         sections.push(block);
     }
@@ -377,7 +379,7 @@ pub(super) async fn between_them(
         && let Some(block) = myriad_merope::speaking::format_lands_section(
             &lands,
             since.with_timezone(&chrono::Utc),
-            chrono::Utc::now(),
+            super::super::clock::now(),
             group,
         )
     {
@@ -393,7 +395,7 @@ pub(super) async fn between_them(
                 us.first
                     .as_ref()
                     .map(|(first, at)| (first.as_str(), at.with_timezone(&chrono::Utc))),
-                chrono::Utc::now(),
+                super::super::clock::now(),
             ) {
                 sections.push(block);
             }
@@ -402,7 +404,7 @@ pub(super) async fn between_them(
     // What still stings with them: in private all of it; in a group,
     // what they did there, and what they did in private only by how
     // much it weighs, never what it was.
-    let now = chrono::Utc::now();
+    let now = super::super::clock::now();
     match present.group_id() {
         None => {
             if let Some(block) = sore::section(&sore::open_all(db, user_id).await, now) {
@@ -434,7 +436,7 @@ pub(super) async fn between_them(
             })
         });
         if opening || touched {
-            if let Some(block) = threads::section(&open, chrono::Utc::now()) {
+            if let Some(block) = threads::section(&open, super::super::clock::now()) {
                 sections.push(block);
             }
         }
