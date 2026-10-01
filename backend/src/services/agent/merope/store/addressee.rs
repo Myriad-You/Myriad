@@ -66,6 +66,21 @@ pub(super) fn overlay_settled(
     state
 }
 
+/// Where her mood toward this person settles: her usual, lowered by what
+/// still stings with them, so a hurt does not fade from her face in days
+/// while it still stings in her words.
+async fn baseline_toward<C>(db: &C, user_id: i32) -> Result<AffectBaseline, anyhow::Error>
+where
+    C: ConnectionTrait,
+{
+    let base = load_affect_baseline(db).await?;
+    let weighs = super::super::sore::weighs_on(db, user_id).await;
+    Ok(AffectBaseline {
+        mood: (base.mood - weighs).max(0.0),
+        ..base
+    })
+}
+
 pub async fn get_or_create_state<C>(
     db: &C,
     user_id: i32,
@@ -73,7 +88,7 @@ pub async fn get_or_create_state<C>(
 where
     C: ConnectionTrait,
 {
-    let base = load_affect_baseline(db).await?;
+    let base = baseline_toward(db, user_id).await?;
     if let Some(existing) = agent_addressee_state::Entity::find_by_id(user_id)
         .one(db)
         .await?
@@ -199,7 +214,7 @@ where
     if !appraisal_is_current(state.last_user_message_at, input_at, Utc::now()) {
         return Ok(None);
     }
-    let base = load_affect_baseline(&transaction).await?;
+    let base = baseline_toward(&transaction, user_id).await?;
     let state = overlay_settled(state, base);
     let before = affect_from_state(&state);
     let mut after = before;
