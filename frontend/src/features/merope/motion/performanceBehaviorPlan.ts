@@ -10,12 +10,12 @@ import type {
 } from './behavior'
 import {
   performanceCueChannels,
-  performanceCueDefinition,
-} from '../anime25drig/performanceCueDefinitions'
+  performanceCueFootprint,
+} from './performanceCues'
 import {
   authoredCueEnvelope,
   scheduleBodyCues,
-} from '../anime25drig/performanceMotion'
+} from './performanceCueTiming'
 
 export const PERFORMANCE_BEHAVIOR_PLAN_ID = 'performance'
 
@@ -62,7 +62,7 @@ export function compilePerformanceBehaviorPlan(
       function: cueFunction(item.cue.intent),
       kind: 'oneShot',
       source: 'performance',
-      resources: performanceCueDefinition(item.cue.intent).resources,
+      resources: performanceCueFootprint(item.cue.intent).resources,
       channels: performanceCueChannels(item.cue.intent),
       timing: {
         start: `${prefix}:start`,

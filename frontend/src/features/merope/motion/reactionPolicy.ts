@@ -5,13 +5,13 @@ import type {
 import type { BehaviorSnapshot } from './behavior'
 import type { BehaviorResource } from './behaviorResources'
 import type { MotionChannel } from './channels'
-import {
-  performanceCueChannels,
-  performanceCueDefinition,
-} from '../anime25drig/performanceCueDefinitions'
-import { cueDurationMs } from '../anime25drig/performanceMotion'
 import { resourcesConflict } from './behaviorResources'
 import { channelPriority } from './channels'
+import {
+  performanceCueChannels,
+  performanceCueFootprint,
+} from './performanceCues'
+import { cueDurationMs } from './performanceCueTiming'
 
 export type ReactionDecisionReason =
   'selected' | 'habituated' | 'resource-busy' | 'retimed'
@@ -52,7 +52,7 @@ export class HumanReactionPolicy {
     for (const original of directive.plan.cues) {
       const cue = { ...original }
       let retimed = false
-      const definition = performanceCueDefinition(cue.intent)
+      const definition = performanceCueFootprint(cue.intent)
       const resources = definition.resources
       const blocking = active.filter(
         (behavior) =>
@@ -191,7 +191,7 @@ function acceptsPerformanceHandoff(
 }
 
 function refractoryMs(cue: PerformanceCue): number {
-  const definition = performanceCueDefinition(cue.intent)
+  const definition = performanceCueFootprint(cue.intent)
   const body = definition.resources.some((resource) =>
     resource.startsWith('body.'),
   )

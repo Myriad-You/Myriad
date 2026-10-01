@@ -46,8 +46,12 @@ test('coarse channel names remain a loss-aware compatibility projection', () => 
 })
 
 test('coarse channels stay derived, never a second authored list', () => {
-  const registry = source('../anime25drig/performanceCueDefinitions.ts')
-  assert.doesNotMatch(registry, /^\s*channels: /m)
+  for (const registry of [
+    source('../anime25drig/performanceCueDefinitions.ts'),
+    source('./performanceCues.ts'),
+  ]) {
+    assert.doesNotMatch(registry, /^\s*channels: /m)
+  }
   for (const [intent, definition] of Object.entries(
     PERFORMANCE_CUE_DEFINITIONS,
   )) {

@@ -1,16 +1,14 @@
-import type { PerformanceCue } from '../../../services/agent/types'
-import type { BehaviorResource } from '../motion/behaviorResources'
-import type { MotionChannel } from '../motion/channels'
+import type { CueIntent, PerformanceCueFootprint } from '../motion/performanceCues'
 import type { Anime25DDriver } from './driver'
 import type { PerformanceExpressionOffset } from './performanceExpression'
-import { rigChannelsForResources } from '../motion/behaviorResources'
+import { PERFORMANCE_CUE_FOOTPRINTS } from '../motion/performanceCues'
 import { IDENTITY_DRIVER } from './driver'
 
-export type CueIntent = PerformanceCue['intent']
+export { cueIsSticker, performanceCueChannels } from '../motion/performanceCues'
+export type { CueIntent } from '../motion/performanceCues'
 
-export interface PerformanceCueDefinition {
-  resources: readonly BehaviorResource[]
-  sticker?: true
+/** How a cue moves her; what it occupies is planning's (`PerformanceCueFootprint`). */
+interface PerformanceCueMotion {
   driver: (amount: number) => Partial<Anime25DDriver>
   expression: (
     amount: number,
@@ -18,27 +16,8 @@ export interface PerformanceCueDefinition {
   ) => Partial<PerformanceExpressionOffset>
 }
 
-const FACE = ['face.expression'] as const
-const FACE_GAZE_HEAD = ['face.expression', 'face.gaze', 'body.head'] as const
-const FACE_TORSO = ['face.expression', 'body.head', 'body.torso'] as const
-const FACE_TORSO_ARMS = [
-  'face.expression',
-  'body.head',
-  'body.torso',
-  'body.arm.left',
-  'body.arm.right',
-] as const
-const FACE_GAZE_TORSO = [
-  'face.expression',
-  'face.gaze',
-  'body.head',
-  'body.torso',
-] as const
-const FACE_TORSO_ARMS_BUST = [...FACE_TORSO_ARMS, 'secondary.bust'] as const
-
-export const PERFORMANCE_CUE_DEFINITIONS = {
+const PERFORMANCE_CUE_MOTION = {
   greet: {
-    resources: FACE_TORSO_ARMS,
     driver: (poseAmount) => ({
       body: 0.22 * poseAmount * bodyParticipation(poseAmount),
       armY: 0.3 * poseAmount * bodyParticipation(poseAmount),
@@ -49,7 +28,6 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   respond: {
-    resources: FACE_TORSO,
     driver: (poseAmount) => ({ body: 0.2 * poseAmount }),
     expression: (amount, poseAmount) => ({
       angleY: -0.12 * poseAmount,
@@ -58,7 +36,6 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   question: {
-    resources: FACE_TORSO,
     driver: (poseAmount) => ({ body: 0.18 * poseAmount }),
     expression: (amount, poseAmount) => ({
       angleZ: 0.15 * poseAmount,
@@ -68,7 +45,6 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   delight: {
-    resources: FACE_TORSO_ARMS_BUST,
     driver: (poseAmount) => ({
       body: 0.16 * poseAmount * bodyParticipation(poseAmount),
       armY: 0.4 * poseAmount * bodyParticipation(poseAmount),
@@ -85,7 +61,6 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   emphasize: {
-    resources: FACE_TORSO,
     driver: (poseAmount) => ({
       body: 0.4 * poseAmount * bodyParticipation(poseAmount),
     }),
@@ -95,7 +70,6 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   listen: {
-    resources: FACE_TORSO,
     driver: (poseAmount) => ({ body: 0.12 * poseAmount }),
     expression: (amount, poseAmount) => ({
       angleY: 0.09 * poseAmount,
@@ -103,7 +77,6 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   notify: {
-    resources: FACE_TORSO,
     driver: (poseAmount) => ({ body: 0.32 * poseAmount }),
     expression: (amount, poseAmount) => ({
       angleZ: -0.11 * poseAmount,
@@ -113,7 +86,6 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   think: {
-    resources: FACE_GAZE_HEAD,
     driver: () => ({}),
     expression: (amount, poseAmount) => ({
       angleZ: -0.2 * poseAmount,
@@ -127,14 +99,10 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   dizzy: {
-    resources: FACE,
-    sticker: true,
     driver: () => ({}),
     expression: () => ({ eyeDizzy: 1 }),
   },
   cry: {
-    resources: FACE,
-    sticker: true,
     driver: () => ({}),
     expression: (amount) => ({
       brow: 0.2 * amount,
@@ -144,55 +112,43 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     }),
   },
   angry: {
-    resources: FACE_TORSO,
-    sticker: true,
     driver: (poseAmount) => ({ body: 0.22 * poseAmount }),
     expression: (amount) => ({ anger: amount }),
   },
   speechless: {
-    resources: FACE_GAZE_TORSO,
-    sticker: true,
     driver: (poseAmount) => ({ body: -0.18 * poseAmount }),
     expression: (amount) => ({ speechless: amount }),
   },
   maniac: {
-    resources: FACE_GAZE_TORSO,
-    sticker: true,
     driver: (poseAmount) => ({ body: 0.17 * poseAmount }),
     expression: (amount) => ({ maniac: amount }),
   },
   silly: {
-    resources: FACE_TORSO,
-    sticker: true,
     driver: (poseAmount) => ({ body: -0.15 * poseAmount }),
     expression: (amount) => ({ silly: amount }),
   },
   lovestruck: {
-    resources: FACE_GAZE_TORSO,
-    sticker: true,
     driver: (poseAmount) => ({ body: -0.14 * poseAmount }),
     expression: (amount) => ({ lovestruck: amount }),
   },
-} satisfies Record<CueIntent, PerformanceCueDefinition>
+} satisfies Record<CueIntent, PerformanceCueMotion>
 
-/** Coarse channels are derived, never authored */
-const CUE_CHANNELS = Object.fromEntries(
-  Object.entries(PERFORMANCE_CUE_DEFINITIONS).map(([intent, definition]) => [
-    intent,
-    Object.freeze(rigChannelsForResources(definition.resources)),
-  ]),
-) as Record<CueIntent, readonly MotionChannel[]>
+export type PerformanceCueDefinition = PerformanceCueFootprint & PerformanceCueMotion
+
+/** Each cue whole: its footprint and its motion, joined once. */
+export const PERFORMANCE_CUE_DEFINITIONS = Object.fromEntries(
+  (Object.keys(PERFORMANCE_CUE_MOTION) as CueIntent[]).map(
+    (intent): [CueIntent, PerformanceCueDefinition] => [
+      intent,
+      { ...PERFORMANCE_CUE_FOOTPRINTS[intent], ...PERFORMANCE_CUE_MOTION[intent] },
+    ],
+  ),
+) as Record<CueIntent, PerformanceCueDefinition>
 
 export function performanceCueDefinition(
   intent: CueIntent,
 ): PerformanceCueDefinition {
   return PERFORMANCE_CUE_DEFINITIONS[intent]
-}
-
-export function performanceCueChannels(
-  intent: CueIntent,
-): readonly MotionChannel[] {
-  return CUE_CHANNELS[intent]
 }
 
 export function intentExpressionPatch(
@@ -212,10 +168,6 @@ export function intentExpressionPatch(
       ? { bust: driver.bust - IDENTITY_DRIVER.bust }
       : {}),
   }
-}
-
-export function cueIsSticker(intent: CueIntent): boolean {
-  return performanceCueDefinition(intent).sticker === true
 }
 
 function intentAmount(intensity: number): number {

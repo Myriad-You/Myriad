@@ -1,8 +1,8 @@
 import type { PerformanceDirective } from '../../../services/agent/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { cueDurationMs } from '../anime25drig/performanceMotion'
 import { RigMotionCoordinator } from './coordinator'
+import { cueDurationMs } from './performanceCueTiming'
 import {
   performanceLeaseWindows,
   PerformanceMotionLeases,
