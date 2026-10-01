@@ -275,6 +275,10 @@ export default function AgentMind() {
         return fill(copy.vitals.alerts.repliesLeanOn, { phrase: alert.phrase, percent: alert.percent })
       case 'repliesAsking':
         return fill(copy.vitals.alerts.repliesAsking, { percent: alert.percent })
+      case 'openersLeanOn':
+        return fill(copy.vitals.alerts.openersLeanOn, { phrase: alert.phrase, percent: alert.percent })
+      case 'proactiveUnanswered':
+        return fill(copy.vitals.alerts.proactiveUnanswered, { sent: alert.sent, answered: alert.answered })
       case 'slowReplies':
         return fill(copy.vitals.alerts.slowReplies, { seconds: alert.seconds })
       case 'manyCalls':
@@ -346,6 +350,13 @@ export default function AgentMind() {
           </div>
           <div>
             {copy.vitals.repliesAsking}：{latest.repliesAsking != null ? `${Math.round(latest.repliesAsking * 100)}%` : '—'}
+          </div>
+          <div>
+            {copy.vitals.openersLeanOn}：{leaning(latest.openersLeanOn ?? []) || '—'}
+          </div>
+          <div>
+            {copy.vitals.proactive}：
+            {fill(copy.vitals.proactiveCount, { sent: latest.proactive ?? 0, answered: latest.proactiveAnswered ?? 0 })}
           </div>
         </div>
       </>

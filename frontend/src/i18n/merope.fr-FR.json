@@ -465,6 +465,9 @@
       "notesLeanOn": "Tournures des notes",
       "repliesLeanOn": "Tournures des réponses",
       "repliesAsking": "Réponses finissant par une question",
+      "openersLeanOn": "Ouvertures récurrentes",
+      "proactive": "Écrit en premier",
+      "proactiveCount": "{sent}, {answered} avec réponse",
       "alerts": {
         "unreadable": "{count} de ses propres entrées sont illisibles",
         "failedCalls": "{failed} appels sur {calls} ont échoué",
@@ -472,6 +475,8 @@
         "notesLeanOn": "« {phrase} » dans {percent}% de ses notes",
         "repliesLeanOn": "« {phrase} » dans {percent}% de ses réponses",
         "repliesAsking": "{percent}% de ses réponses finissent par une question",
+        "openersLeanOn": "« {phrase} » dans {percent}% de ses ouvertures",
+        "proactiveUnanswered": "{sent} messages écrits en premier cette semaine, {answered} seulement ont eu une réponse",
         "slowReplies": "une réponse sur dix a pris plus de {seconds}s",
         "manyCalls": "{calls} appels, plus du double de l'habitude ({usual})"
       }

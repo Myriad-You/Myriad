@@ -465,6 +465,9 @@
       "notesLeanOn": "Notes lean on",
       "repliesLeanOn": "Replies lean on",
       "repliesAsking": "Replies ending in a question",
+      "openersLeanOn": "Openers lean on",
+      "proactive": "Written first",
+      "proactiveCount": "{sent}, {answered} answered",
       "alerts": {
         "unreadable": "{count} of her own records cannot be read back",
         "failedCalls": "{failed} of {calls} calls failed",
@@ -472,6 +475,8 @@
         "notesLeanOn": "「{phrase}」 in {percent}% of her notes",
         "repliesLeanOn": "「{phrase}」 in {percent}% of her replies",
         "repliesAsking": "{percent}% of her replies end in a question",
+        "openersLeanOn": "「{phrase}」 in {percent}% of her openers",
+        "proactiveUnanswered": "{sent} written first this week, only {answered} answered",
         "slowReplies": "one reply in ten took over {seconds}s",
         "manyCalls": "{calls} calls, over twice the usual {usual}"
       }

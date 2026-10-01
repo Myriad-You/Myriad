@@ -465,6 +465,9 @@
       "notesLeanOn": "Notizen-Wendungen",
       "repliesLeanOn": "Antwort-Wendungen",
       "repliesAsking": "Antworten, die mit einer Frage enden",
+      "openersLeanOn": "Begrüßungs-Wendungen",
+      "proactive": "Zuerst geschrieben",
+      "proactiveCount": "{sent}, {answered} beantwortet",
       "alerts": {
         "unreadable": "{count} ihrer eigenen Einträge sind nicht lesbar",
         "failedCalls": "{failed} von {calls} Aufrufen fehlgeschlagen",
@@ -472,6 +475,8 @@
         "notesLeanOn": "„{phrase}“ in {percent}% ihrer Notizen",
         "repliesLeanOn": "„{phrase}“ in {percent}% ihrer Antworten",
         "repliesAsking": "{percent}% ihrer Antworten enden mit einer Frage",
+        "openersLeanOn": "„{phrase}“ in {percent}% ihrer Begrüßungen",
+        "proactiveUnanswered": "{sent} zuerst geschrieben diese Woche, nur {answered} beantwortet",
         "slowReplies": "jede zehnte Antwort über {seconds}s",
         "manyCalls": "{calls} Aufrufe, mehr als doppelt so viele wie üblich ({usual})"
       }

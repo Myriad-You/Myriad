@@ -465,6 +465,9 @@
       "notesLeanOn": "心得常用",
       "repliesLeanOn": "回复常用",
       "repliesAsking": "回复以问句收尾",
+      "openersLeanOn": "开场常用",
+      "proactive": "主动发的",
+      "proactiveCount": "{sent} 条，{answered} 条有回应",
       "alerts": {
         "unreadable": "有 {count} 条她自己的经历读不出来",
         "failedCalls": "{calls} 次调用里失败 {failed} 次",
@@ -472,6 +475,8 @@
         "notesLeanOn": "心得里 {percent}% 出现「{phrase}」",
         "repliesLeanOn": "回复里 {percent}% 出现「{phrase}」",
         "repliesAsking": "{percent}% 的回复以问句收尾",
+        "openersLeanOn": "回来时的开场 {percent}% 带着「{phrase}」",
+        "proactiveUnanswered": "这一周主动发了 {sent} 条，只有 {answered} 条有回应",
         "slowReplies": "最慢的一成回复超过 {seconds} 秒",
         "manyCalls": "调用 {calls} 次，超过平常（{usual}）两倍"
       }

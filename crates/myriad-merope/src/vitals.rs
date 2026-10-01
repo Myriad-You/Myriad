@@ -43,6 +43,16 @@ pub struct Day {
     /// when there were enough of them to say.
     #[serde(default)]
     pub replies_asking: Option<f64>,
+    /// What she opens with when someone comes back after hours apart,
+    /// phrases she keeps opening with lately.
+    #[serde(default)]
+    pub openers_lean_on: Vec<(String, f64)>,
+    /// Messages she wrote first that day, and how many of them the person
+    /// answered within `ANSWERED_WITHIN_HOURS`.
+    #[serde(default)]
+    pub proactive: u64,
+    #[serde(default)]
+    pub proactive_answered: u64,
     /// What is worth raising.
     pub alerts: Vec<Alert>,
 }
@@ -74,6 +84,16 @@ pub enum Alert {
     /// Most of her replies ended by asking them something.
     RepliesAsking {
         percent: u64,
+    },
+    /// She keeps opening with the same words when someone comes back.
+    OpenersLeanOn {
+        phrase: String,
+        percent: u64,
+    },
+    /// What she wrote first this past week mostly went unanswered.
+    ProactiveUnanswered {
+        sent: u64,
+        answered: u64,
     },
     SlowReplies {
         seconds: u64,
@@ -168,6 +188,13 @@ pub const LEANS_TOO_MUCH: f64 = 0.3;
 /// A share of her replies ending by asking before it is worth raising.
 pub const ASKS_TOO_MUCH: f64 = 0.6;
 
+/// A message she wrote first counts as answered if they said anything to
+/// her within this long.
+pub const ANSWERED_WITHIN_HOURS: i64 = 12;
+/// Over a week, this many first messages and fewer than a fifth answered is
+/// worth raising: she is writing into silence.
+const PROACTIVE_AT_LEAST: u64 = 5;
+
 /// Whether a reply ends by asking them something: its last line of words
 /// (not a stage direction) ends with a question mark.
 pub fn ends_asking(reply: &str) -> bool {
@@ -226,6 +253,22 @@ pub fn alerts(today: &Day, before: &[Day]) -> Vec<Alert> {
                 percent: percent(*share),
             });
         }
+    }
+    for (phrase, share) in &today.openers_lean_on {
+        if *share >= LEANS_TOO_MUCH {
+            alerts.push(Alert::OpenersLeanOn {
+                phrase: phrase.clone(),
+                percent: percent(*share),
+            });
+        }
+    }
+    // The past week, today with the six days before it.
+    let week = before.iter().rev().take(6).chain(std::iter::once(today));
+    let (sent, answered) = week.fold((0, 0), |(sent, answered), day| {
+        (sent + day.proactive, answered + day.proactive_answered)
+    });
+    if sent >= PROACTIVE_AT_LEAST && answered * 5 < sent {
+        alerts.push(Alert::ProactiveUnanswered { sent, answered });
     }
     if let Some(share) = today.replies_asking.filter(|share| *share >= ASKS_TOO_MUCH) {
         alerts.push(Alert::RepliesAsking {
@@ -287,12 +330,22 @@ mod tests {
             kept: [("doing".to_string(), doing)].into_iter().collect(),
             ..Day::default()
         };
-        let before = vec![day(200, 50), day(220, 60), day(210, 55)];
+        let before = vec![
+            day(200, 50),
+            day(220, 60),
+            Day {
+                proactive: 2,
+                ..day(210, 55)
+            },
+        ];
         let today = Day {
             unreadable: 3,
             failed_calls: 80,
             reply_p90: Some(42.0),
             replies_asking: Some(0.72),
+            openers_lean_on: vec![("怎么这个点".into(), 0.6)],
+            proactive: 4,
+            proactive_answered: 0,
             notes_lean_on: vec![("不是这个".into(), 0.36)],
             ..day(500, 0)
         };
@@ -310,6 +363,15 @@ mod tests {
             percent: 36
         }));
         assert!(raised.contains(&Alert::RepliesAsking { percent: 72 }));
+        assert!(raised.contains(&Alert::OpenersLeanOn {
+            phrase: "怎么这个点".into(),
+            percent: 60
+        }));
+        // Four unanswered today and two the day before: six into silence.
+        assert!(raised.contains(&Alert::ProactiveUnanswered {
+            sent: 6,
+            answered: 0
+        }));
         assert!(raised.contains(&Alert::SlowReplies { seconds: 42 }));
         assert!(raised.contains(&Alert::ManyCalls {
             calls: 500,

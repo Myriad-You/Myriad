@@ -465,6 +465,9 @@
       "notesLeanOn": "メモの口癖",
       "repliesLeanOn": "返信の口癖",
       "repliesAsking": "質問で終わる返信",
+      "openersLeanOn": "話しかけの口癖",
+      "proactive": "自分から",
+      "proactiveCount": "{sent} 件、返事 {answered} 件",
       "alerts": {
         "unreadable": "彼女自身の記録 {count} 件が読み戻せない",
         "failedCalls": "{calls} 回中 {failed} 回失敗",
@@ -472,6 +475,8 @@
         "notesLeanOn": "メモの {percent}% に「{phrase}」",
         "repliesLeanOn": "返信の {percent}% に「{phrase}」",
         "repliesAsking": "返信の {percent}% が質問で終わる",
+        "openersLeanOn": "再会の第一声の {percent}% に「{phrase}」",
+        "proactiveUnanswered": "今週自分から {sent} 件、返事は {answered} 件だけ",
         "slowReplies": "遅い一割の返信が {seconds} 秒超",
         "manyCalls": "呼び出し {calls} 回、普段（{usual}）の2倍超"
       }

@@ -8,12 +8,14 @@ use serde_json::Value;
 
 use crate::services::agent::memory::unified;
 pub use myriad_merope::vitals::Day;
-use myriad_merope::vitals::{alerts, ends_asking, leaned_on, quantile};
+use myriad_merope::vitals::{ANSWERED_WITHIN_HOURS, alerts, ends_asking, leaned_on, quantile};
 
 pub const NAMESPACE: &str = "merope_vitals";
 const KEEP_DAYS: i64 = 400;
 /// Days looked back on for what she leans on, and for what is usual.
 const LEANING_DAYS: i64 = 3;
+/// Openings are fewer than replies: what she opens with is read over a week.
+const OPENERS_DAYS: i64 = 7;
 const USUAL_DAYS: u64 = 7;
 /// A phrase is listed from this share of her notes or replies.
 const LISTED_FROM: f64 = 0.15;
@@ -179,6 +181,48 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
             (asking as f64 / replies.len() as f64 * 100.0).round() / 100.0
         });
     }
+    // What she opens with when someone comes back after hours apart: her
+    // first reply after a message of theirs that followed a pause, in
+    // private, whichever window it was in.
+    if let Some((from, to)) = bounds(day - chrono::Duration::days(OPENERS_DAYS - 1), day) {
+        let openers: Vec<String> = rows(
+            db,
+            "WITH t AS (SELECT m.role, m.content, m.created_at, lag(m.role) OVER w AS r1, \
+               lag(m.created_at) OVER w AS a1, lag(m.created_at, 2) OVER w AS a2 \
+               FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+               WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL AND m.created_at < $2 \
+               WINDOW w AS (PARTITION BY s.user_id ORDER BY m.created_at)) \
+             SELECT content FROM t WHERE role = 'assistant' AND r1 = 'user' \
+               AND (a2 IS NULL OR a1 - a2 >= interval '3 hours') AND created_at >= $1",
+            from,
+            to,
+        )
+        .await
+        .iter()
+        .filter_map(|row| row.try_get::<String>("", "content").ok())
+        .collect();
+        counted.openers_lean_on = leaned_on(&openers, LISTED_FROM, 5);
+    }
+    // What she wrote first, and whether they answered it (anywhere).
+    let first: Vec<bool> = rows(
+        db,
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+               WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' AND m.role = 'user' \
+                 AND m.created_at > p.created_at \
+                 AND m.created_at < p.created_at + interval '{ANSWERED_WITHIN_HOURS} hours') AS answered \
+             FROM agent_proactive_messages p \
+             WHERE p.role = 'assistant' AND p.created_at >= $1 AND p.created_at < $2"
+        ),
+        start,
+        end,
+    )
+    .await
+    .iter()
+    .filter_map(|row| row.try_get::<bool>("", "answered").ok())
+    .collect();
+    counted.proactive = first.len() as u64;
+    counted.proactive_answered = first.iter().filter(|answered| **answered).count() as u64;
     counted
 }
 
