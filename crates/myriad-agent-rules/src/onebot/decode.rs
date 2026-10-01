@@ -42,7 +42,8 @@ pub fn private_message_is_cq_string(raw: &str) -> bool {
         && matches!(event.message, Some(WireMessage::Cq(_)))
 }
 
-/// 群里的一行。`addressed` 为真表示 @ 了她，或回复了她的消息。
+/// 群里的一行。`addressed` 为真表示 @ 了她。回复她的消息不算：那可能是在跟别人说，
+/// 由她和别的话一起读、自己判断（`reply_to.hers` 说明被回复的是她）。
 ///
 /// NapCat 的回复段只有 `{id}`，解码时认不出被回复的是不是她。这时 `reply_to` 为空、
 /// `reply_id` 带着那条消息的 id，由工人用 `get_msg` 反查后交给 [`decode_replied_message`]。
@@ -58,6 +59,58 @@ pub struct OneBotGroupLine {
     pub reply_id: Option<String>,
     /// Pictures in it: images and QQ stickers.
     pub images: Vec<crate::channel::GroupImage>,
+}
+
+/// 她在一个群里被禁言或解禁（`notice_type: group_ban`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OneBotGroupBan {
+    pub group_id: String,
+    /// 谁动的手；拿不到就是空串。
+    pub operator_id: String,
+    pub muted: Muted,
+    /// 全员禁言，不只是她。
+    pub everyone: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Muted {
+    /// 禁言这么多秒。
+    For(u64),
+    /// 没说多久：直到解禁（全员禁言就是这样）。
+    UntilLifted,
+    Lifted,
+}
+
+/// 群禁言通知里和她有关的：禁她、解她，或全员禁言与解除（`user_id` 为 0）。别人被禁言不算。
+pub fn decode_group_ban(raw: &str, self_id: i64) -> Option<OneBotGroupBan> {
+    let event: RawEventJson = serde_json::from_str(raw).ok()?;
+    if event.post_type.as_deref() != Some("notice")
+        || event.notice_type.as_deref() != Some("group_ban")
+    {
+        return None;
+    }
+    let group_id = event.group_id?;
+    let user_id = event.user_id.unwrap_or(0);
+    if user_id != self_id && user_id != 0 {
+        return None;
+    }
+    let duration = event.duration.unwrap_or(0);
+    let muted = match event.sub_type.as_deref() {
+        Some("lift_ban") => Muted::Lifted,
+        Some("ban") if duration > 0 => Muted::For(duration as u64),
+        Some("ban") => Muted::UntilLifted,
+        _ => return None,
+    };
+    Some(OneBotGroupBan {
+        group_id: group_id.to_string(),
+        operator_id: event
+            .operator_id
+            .filter(|id| *id != 0)
+            .map(|id| id.to_string())
+            .unwrap_or_default(),
+        muted,
+        everyone: user_id == 0,
+    })
 }
 
 /// 群消息。频道、`message_sent`、没有文字的行丢掉。`self_id` 用来判断 @ 和回复是不是她。
@@ -95,7 +148,6 @@ pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> 
         })
         .flatten()
         .filter(|id| !id.trim().is_empty());
-    let addressed = addressed || reply_to.as_ref().is_some_and(|line| line.hers);
     let name = event
         .sender
         .as_ref()

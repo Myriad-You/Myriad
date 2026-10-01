@@ -1996,9 +1996,10 @@ fn telegram_name(from: &serde_json::Value) -> String {
 }
 
 /// One human line in a Telegram group or supergroup, as the persona sees it.
-/// `addressed` is whether it speaks to her: an @mention of the bot, a
-/// `text_mention` of the bot, a command aimed at the bot, or a reply to one of
-/// her messages. Only addressed lines are answered; the rest is context.
+/// `addressed` is whether it calls her by name: an @mention of the bot, a
+/// `text_mention` of the bot, or a command aimed at the bot. A reply to one of
+/// her messages is not: it may be meant for someone else, so she reads it with
+/// the rest of the talk (its `reply_to` says it was hers) and judges.
 /// Pictures kept of a group line, at most.
 pub const GROUP_IMAGES: usize = 3;
 
@@ -2263,7 +2264,6 @@ fn telegram_group_message(
         .and_then(|from| from.get("id"))
         .and_then(json_i64)
         == Some(bot.id);
-    addressed |= replies_to_her;
     let reply_to = replied.and_then(|reply| {
         let text = reply
             .get("text")
@@ -3104,8 +3104,8 @@ pub fn discord_private_text_from_create(
 }
 
 /// One human line in a Discord server channel (or its thread), as the
-/// persona sees it. `addressed` is whether it speaks to her: it mentions the
-/// bot, or replies to one of her messages.
+/// persona sees it. `addressed` is whether it calls her by name: it mentions
+/// the bot. A reply to one of her messages is not (see the Telegram line).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscordGroupMessage {
     pub message_id: String,
@@ -3216,7 +3216,7 @@ pub fn discord_group_message_from_create(
         author_id,
         display_name,
         text,
-        addressed: mentions_her || replies_to_her,
+        addressed: mentions_her,
         reply_to,
         images,
     })

@@ -210,7 +210,7 @@ pub(super) fn taken_up(group: &mut Group) {
 
 pub(super) async fn judge(message: &GroupLine, token: &str) -> Option<(Why, String)> {
     let db = crate::services::process_db::database().ok()?;
-    if stopped_answering(message) {
+    if stopped_answering(message) || is_muted(&message.venue()) {
         return None;
     }
     let owner = match lookup(&db, message).await {

@@ -102,6 +102,10 @@ pub(super) async fn answer(message: &GroupLine, token: &str, chime: Option<Strin
     if stopped_answering(message) {
         return false;
     }
+    if is_muted(&message.venue()) {
+        info!(venue = %message.venue(), "[Group] muted there; she says nothing");
+        return false;
+    }
     let inbound_id = format!("group:{}:{}", message.chat, message.message_id);
     if !crate::services::channel_work::claim_inbound(&db, message.platform, None, &inbound_id).await
     {

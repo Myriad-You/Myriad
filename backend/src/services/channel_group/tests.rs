@@ -652,3 +652,24 @@ fn a_line_left_waiting_by_a_restart_is_taken_back_up_once() {
     let stale = vec![(calling(9, "@bot 在吗"), ago(60 * 7), false)];
     assert!(turns::left_waiting(&venue, &stale).is_none());
 }
+
+#[test]
+fn a_mute_is_told_as_it_happened_and_holds_until_it_ends() {
+    use myriad_agent_rules::onebot::decode::Muted;
+    assert_eq!(muting::told(Muted::For(600), false), "（把你禁言了 10 分钟）");
+    assert_eq!(muting::told(Muted::For(3 * 3600), false), "（把你禁言了 3 小时）");
+    assert_eq!(muting::told(Muted::For(2 * 86400), true), "（全员禁言 2 天）");
+    assert_eq!(muting::told(Muted::UntilLifted, true), "（开了全员禁言）");
+    assert_eq!(muting::told(Muted::Lifted, false), "（解除了你的禁言）");
+
+    let now = chrono::Utc::now();
+    let mut group = Group::default();
+    assert!(!muting::muted_now(&group, now));
+    group.muted_until = Some(now + chrono::Duration::minutes(10));
+    assert!(muting::muted_now(&group, now));
+    assert!(!muting::muted_now(&group, now + chrono::Duration::minutes(11)));
+    // Everyone's mute lifted does not lift hers, and the other way round.
+    group.everyone_muted_until = Some(now + chrono::Duration::days(1));
+    group.muted_until = None;
+    assert!(muting::muted_now(&group, now));
+}

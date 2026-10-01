@@ -27,7 +27,7 @@ pub async fn share_first(owner: i32, what: String) {
         };
         groups
             .iter()
-            .filter(|(_, group)| !group.busy && !in_talk(group))
+            .filter(|(_, group)| !group.busy && !in_talk(group) && !muted_now(group, now))
             .filter_map(|(venue, group)| {
                 group.reach.as_ref()?;
                 let last = group.lines.back();

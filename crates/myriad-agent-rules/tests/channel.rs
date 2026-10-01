@@ -1726,7 +1726,7 @@ mod telegram_groups {
     }
 
     #[test]
-    fn a_group_line_is_addressed_by_mention_text_mention_command_or_reply() {
+    fn a_group_line_is_addressed_by_mention_text_mention_or_command_not_a_reply() {
         let body = body(&[
             // @mention of the bot, after an emoji (UTF-16 offsets).
             r#"{"message_id": 1, "from": {"id": 11, "first_name": "阿明"}, "chat": {"id": -100, "type": "supergroup"},
@@ -1759,7 +1759,8 @@ mod telegram_groups {
             vec![
                 (1, true, "阿明", "🎉 周五去哪"),
                 (2, true, "小红", "小灯 你觉得呢"),
-                (3, true, "zhou", "对，就这家"),
+                // A reply to her is read with the talk: it may be for someone else.
+                (3, false, "zhou", "对，就这家"),
                 (4, false, "路人", "@other_bot 天气"),
                 (5, false, "阿明", "我先下了"),
             ]
@@ -1834,7 +1835,10 @@ fn discord_server_lines_are_heard_and_those_to_her_are_marked() {
         "content": "说到一半怎么没了"
     });
     let line = discord_group_message_from_create(&reply, "99").unwrap();
-    assert!(line.addressed, "a reply to her speaks to her");
+    assert!(
+        !line.addressed,
+        "a reply to her is read with the talk, not taken as calling her"
+    );
     assert_eq!(line.display_name, "hong");
     let quoted = line.reply_to.expect("the line it replies to");
     assert!(quoted.hers);
@@ -2137,7 +2141,7 @@ mod onebot_decode {
     }
 
     #[test]
-    fn group_reply_to_her_is_addressed() {
+    fn group_reply_to_her_is_read_with_the_talk() {
         use myriad_agent_rules::onebot::decode::decode_group_inbound;
         let raw = json!({
             "post_type": "message",
@@ -2151,11 +2155,41 @@ mod onebot_decode {
             ]
         });
         let line = decode_group_inbound(&raw.to_string(), 10001).expect("reply");
-        assert!(line.addressed);
+        assert!(!line.addressed, "a reply to her is read with the talk");
         let quoted = line.reply_to.expect("quote");
         assert!(quoted.hers);
         assert_eq!(quoted.text, "上一句");
         assert!(line.reply_id.is_none());
+    }
+
+    #[test]
+    fn group_ban_notices_that_concern_her() {
+        use myriad_agent_rules::onebot::decode::{Muted, decode_group_ban};
+        let notice = |sub: &str, user: i64, duration: i64| {
+            json!({
+                "post_type": "notice", "notice_type": "group_ban", "sub_type": sub,
+                "group_id": 555, "operator_id": 30003, "user_id": user, "duration": duration,
+                "self_id": 10001, "time": 1
+            })
+            .to_string()
+        };
+        let banned = decode_group_ban(&notice("ban", 10001, 600), 10001).expect("her");
+        assert_eq!(banned.group_id, "555");
+        assert_eq!(banned.operator_id, "30003");
+        assert_eq!(banned.muted, Muted::For(600));
+        assert!(!banned.everyone);
+        let lifted = decode_group_ban(&notice("lift_ban", 10001, 0), 10001).expect("lifted");
+        assert_eq!(lifted.muted, Muted::Lifted);
+        let all = decode_group_ban(&notice("ban", 0, -1), 10001).expect("everyone");
+        assert_eq!(all.muted, Muted::UntilLifted);
+        assert!(all.everyone);
+        assert!(
+            decode_group_ban(&notice("ban", 20002, 600), 10001).is_none(),
+            "someone else muted is not about her"
+        );
+        let message = json!({"post_type": "message", "message_type": "group", "group_id": 555,
+            "user_id": 20002, "message_id": 1, "message": [{"type": "text", "data": {"text": "禁言"}}]});
+        assert!(decode_group_ban(&message.to_string(), 10001).is_none());
     }
 
     /// NapCat 的回复段只有 `id`（`api/msg.ts` 只写 `data: { id }`）。解码认不出是不是她，

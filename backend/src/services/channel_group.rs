@@ -5,9 +5,11 @@
 //! group is its venue, `<platform>:<chat id>` (`telegram:-100123`,
 //! `discord:123456`).
 //!
-//! She answers a group line when it speaks to her (an @mention, a mention of
-//! her, a command aimed at her, or a reply to her message). Groups get no
-//! pairing prompts.
+//! She answers a group line when it calls her (an @mention, a mention of
+//! her, a command aimed at her). A reply to her message she reads with the
+//! rest of the talk, the way a line that does not call her is read: it is
+//! often meant for her and she answers it then, but it may be meant for
+//! someone else. Groups get no pairing prompts.
 //!
 //! For a member of the community (a paired site user) the turn is a Chat
 //! turn under their own account (their quota), in a group venue: people
@@ -60,6 +62,7 @@ mod group;
 mod ledger;
 mod line;
 mod memory;
+mod muting;
 mod pictures;
 mod platform;
 mod reaching_out;
@@ -72,6 +75,7 @@ use answer::*;
 use group::*;
 use ledger::*;
 use memory::*;
+use muting::*;
 use pictures::*;
 use platform::*;
 use run::*;
@@ -81,6 +85,7 @@ use turns::*;
 
 pub use line::GroupLine;
 pub use memory::{catch_up, groups_lately, record};
+pub use muting::muted;
 pub use reaching_out::share_first;
 pub use speaking_up::notice;
 pub use transcript::names_here;

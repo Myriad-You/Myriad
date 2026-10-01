@@ -11,8 +11,8 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use myriad_agent_rules::channel::{ConnectFailureKind, WorkerIntent};
 use myriad_agent_rules::onebot::decode::{
-    OneBotGroupLine, decode_group_inbound, decode_private_inbound, decode_replied_message,
-    private_message_is_cq_string,
+    OneBotGroupLine, decode_group_ban, decode_group_inbound, decode_private_inbound,
+    decode_replied_message, private_message_is_cq_string,
 };
 use myriad_agent_rules::onebot::encode::encode_get_msg;
 use myriad_agent_rules::onebot::rules::{
@@ -312,6 +312,16 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 // Groups stay off until the deployer turns them on. A personal
                 // QQ number is already in many groups; recording all of them
                 // is not the private-chat default.
+            } else if let Some(ban) = decode_group_ban(&raw, event.self_id) {
+                if group_allowed(&ban.group_id).await {
+                    crate::services::channel_group::muted(
+                        &format!("onebot:{}", ban.group_id),
+                        &ban.operator_id,
+                        ban.muted,
+                        ban.everyone,
+                    )
+                    .await;
+                }
             } else if let Some(group) = decode_group_inbound(&raw, event.self_id) {
                 if !group_allowed(&group.group_id).await {
                     return None;
@@ -427,9 +437,9 @@ async fn catch_up_groups() {
     }
 }
 
-/// NapCat's reply segment names only a message id. Look it up so a reply to
-/// her counts as addressed and the quoted line reaches the group context.
-/// A failed lookup leaves the line as it was: an `@` still addresses her.
+/// NapCat's reply segment names only a message id. Look it up so the quoted
+/// line, and whether it was hers, reaches the group context. A failed lookup
+/// leaves the line as it was.
 async fn resolve_reply(mut group: OneBotGroupLine, self_id: i64) -> OneBotGroupLine {
     let Some(action) = group.reply_id.as_deref().and_then(encode_get_msg) else {
         return group;
@@ -437,7 +447,6 @@ async fn resolve_reply(mut group: OneBotGroupLine, self_id: i64) -> OneBotGroupL
     match onebot_send::call_action(action).await {
         Ok(data) => {
             if let Some(quoted) = decode_replied_message(&data, self_id) {
-                group.addressed |= quoted.hers;
                 group.reply_to = Some(quoted);
             }
         }

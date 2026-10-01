@@ -80,6 +80,10 @@ pub(super) struct Group {
     pub(super) paused: HashMap<String, Instant>,
     /// Lines that spoke to her while she was busy, oldest first.
     pub(super) waiting: VecDeque<GroupLine>,
+    /// Until when she is muted there, herself or with everyone (see
+    /// `muting`).
+    pub(super) muted_until: Option<chrono::DateTime<chrono::Utc>>,
+    pub(super) everyone_muted_until: Option<chrono::DateTime<chrono::Utc>>,
     /// Replies today to people outside the community: the day, and how many.
     pub(super) stranger_replies: Option<(chrono::NaiveDate, u32)>,
     /// The last line she took in for what she heard (see `take_in`).
