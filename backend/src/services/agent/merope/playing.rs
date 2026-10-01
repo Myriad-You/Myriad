@@ -18,7 +18,8 @@
 //! anything is decided like any passing thought (`PLAYING_EVENT` is said in
 //! person or not at all). A game already running when she first looks after
 //! waking is not one they just started, and she does not know how long it
-//! has gone on.
+//! has gone on: when it stops, she knows only that it was at least as long
+//! as she saw.
 
 use std::sync::{LazyLock, Mutex};
 
@@ -61,9 +62,19 @@ struct Watch {
 /// What she saw change on one look.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Noticed {
-    Started { game: String },
-    Long { game: String, hours: i64 },
-    Stopped { game: String, minutes: i64 },
+    Started {
+        game: String,
+    },
+    Long {
+        game: String,
+        hours: i64,
+    },
+    /// `at_least`: it was already running when she first looked.
+    Stopped {
+        game: String,
+        minutes: i64,
+        at_least: bool,
+    },
 }
 
 static WATCH: LazyLock<Mutex<Watch>> = LazyLock::new(|| Mutex::new(Watch::default()));
@@ -115,6 +126,7 @@ fn notice(watch: &mut Watch, ended: Option<&Session>) -> Option<Noticed> {
             return Some(Noticed::Stopped {
                 game: ended.game.clone(),
                 minutes: length.num_minutes(),
+                at_least: !ended.saw_start,
             });
         }
     }
@@ -154,11 +166,16 @@ fn noticed_summary(noticed: &Noticed, before: Option<&str>) -> String {
         Noticed::Long { game, hours } => format!(
             "Their Steam status says they have been playing 「{game}」 for about {hours} hours now."
         ),
-        Noticed::Stopped { game, minutes } => {
+        Noticed::Stopped {
+            game,
+            minutes,
+            at_least,
+        } => {
+            let about = if *at_least { "at least" } else { "about" };
             let how_long = if *minutes >= 90 {
-                format!("about {} hours", (minutes + 30) / 60)
+                format!("{about} {} hours", (minutes + 30) / 60)
             } else {
-                format!("about {minutes} minutes")
+                format!("{about} {minutes} minutes")
             };
             format!(
                 "Their Steam status says they just stopped playing 「{game}」, after {how_long}."
@@ -215,10 +232,15 @@ fn session_note(session: &Session, before: bool) -> Option<String> {
         return None;
     }
     let minutes = length.num_minutes();
-    let how_long = if minutes >= 90 {
-        format!("大约{}小时", (minutes + 30) / 60)
+    let about = if session.saw_start {
+        "大约"
     } else {
-        format!("大约{minutes}分钟")
+        "至少"
+    };
+    let how_long = if minutes >= 90 {
+        format!("{about}{}小时", (minutes + 30) / 60)
+    } else {
+        format!("{about}{minutes}分钟")
     };
     let when = session.started.format("%m-%d");
     Some(if before {
@@ -285,8 +307,13 @@ pub fn now_for(user_id: i32, at: DateTime<Utc>) -> Option<String> {
         .signed_duration_since(session.started)
         .num_minutes()
         .max(0);
+    let about = if session.saw_start {
+        "about"
+    } else {
+        "at least"
+    };
     Some(format!(
-        "They are playing 「{}」 right now, about {minutes} minutes in.",
+        "They are playing 「{}」 right now, {about} {minutes} minutes in.",
         session.game
     ))
 }
@@ -311,7 +338,8 @@ mod tests {
         assert_eq!((ended.started, ended.seen), (at(0), at(40)));
         assert_eq!(
             session_note(&ended, false).as_deref(),
-            Some("在 Steam 上玩过《Elden Ring》，那次是 09-25，玩了大约40分钟")
+            Some("在 Steam 上玩过《Elden Ring》，那次是 09-25，玩了至少40分钟"),
+            "already running when she first looked"
         );
         // Switching games ends one session and starts the next.
         look(&mut watch, Some("Hades".into()), at(50));
@@ -333,12 +361,14 @@ mod tests {
         // Running when she first looks: not a start, and no hours noticed.
         assert_eq!(step(Some("Hades"), 0), None);
         assert_eq!(step(Some("Hades"), 200), None);
-        // Stopping after a proper session is noticed all the same.
+        // Stopping after a proper session is noticed all the same, as at
+        // least as long as she saw.
         assert_eq!(
             step(None, 202),
             Some(Noticed::Stopped {
                 game: "Hades".into(),
-                minutes: 200
+                minutes: 200,
+                at_least: true
             })
         );
         assert_eq!(
@@ -369,11 +399,23 @@ mod tests {
             noticed_summary(
                 &Noticed::Stopped {
                     game: "Hades".into(),
-                    minutes: 200
+                    minutes: 200,
+                    at_least: false
                 },
                 None
             )
             .ends_with("after about 3 hours.")
+        );
+        assert!(
+            noticed_summary(
+                &Noticed::Stopped {
+                    game: "Hades".into(),
+                    minutes: 200,
+                    at_least: true
+                },
+                None
+            )
+            .ends_with("after at least 3 hours.")
         );
         assert!(
             noticed_summary(
@@ -392,6 +434,7 @@ mod tests {
             game: "Factorio".into(),
             started: at(0),
             seen: at(170),
+            saw_start: true,
             ..Session::default()
         };
         assert_eq!(
@@ -415,6 +458,7 @@ mod tests {
                     game: "Elden Ring".into(),
                     started: at(0),
                     seen: at(30),
+                    saw_start: true,
                     ..Session::default()
                 }),
                 looked: true,

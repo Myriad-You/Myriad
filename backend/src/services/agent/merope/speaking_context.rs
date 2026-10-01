@@ -192,15 +192,21 @@ pub async fn speaking_prompt(user_id: i32) -> Vec<String> {
 
 pub async fn speaking_prompt_with_query(user_id: i32, query: Option<&str>) -> Vec<String> {
     let present = crate::services::agent::memory::unified::Audience::private(user_id);
-    speaking_prompt_for_turn(user_id, query, &present).await
+    speaking_prompt_for_turn(user_id, query, &present, None).await
 }
 
 /// A turn in a group chat (`venue` such as `telegram:-100123`), answering
-/// `user_id`. Others outside the community may be reading: only what this
-/// group heard is said, never anyone's private matters.
-pub async fn speaking_prompt_in_group(user_id: i32, query: &str, venue: &str) -> Vec<String> {
+/// `user_id`, whom the group knows as `known_as`. Others outside the
+/// community may be reading: only what this group heard is said, never
+/// anyone's private matters, their name on the site included.
+pub async fn speaking_prompt_in_group(
+    user_id: i32,
+    query: &str,
+    venue: &str,
+    known_as: Option<&str>,
+) -> Vec<String> {
     let present = crate::services::agent::memory::unified::Audience::group(venue, user_id);
-    speaking_prompt_for_turn(user_id, Some(query), &present).await
+    speaking_prompt_for_turn(user_id, Some(query), &present, known_as).await
 }
 
 /// Who is present for this request: a group when the server placed the turn
@@ -226,6 +232,7 @@ async fn speaking_prompt_for_turn(
     user_id: i32,
     query: Option<&str>,
     present: &crate::services::agent::memory::unified::Audience,
+    known_as: Option<&str>,
 ) -> Vec<String> {
     if !is_enabled().await {
         return Vec::new();
@@ -245,7 +252,7 @@ async fn speaking_prompt_for_turn(
         Some(words) => Turn::Chat(words),
         None => Turn::Plain,
     };
-    speaking_prompt_from_db(&db, user_id, turn, present).await
+    speaking_prompt_from_db(&db, user_id, turn, present, known_as).await
 }
 
 /// Sections for speaking up unprompted about `summary`. The same mind as a
@@ -261,7 +268,7 @@ pub async fn speaking_prompt_for_event(
         return Vec::new();
     }
     let present = crate::services::agent::memory::unified::Audience::private(user_id);
-    speaking_prompt_from_db(db, user_id, Turn::Event(summary), &present).await
+    speaking_prompt_from_db(db, user_id, Turn::Event(summary), &present, None).await
 }
 
 /// Sections for writing to them first while they are away (see `reach`):
@@ -275,7 +282,7 @@ pub async fn speaking_prompt_to_reach(
         return Vec::new();
     }
     let present = crate::services::agent::memory::unified::Audience::private(user_id);
-    speaking_prompt_from_db(db, user_id, Turn::Event(about), &present).await
+    speaking_prompt_from_db(db, user_id, Turn::Event(about), &present, None).await
 }
 
 /// Why she is about to speak.
@@ -409,12 +416,18 @@ async fn speaking_prompt_from_db(
     user_id: i32,
     turn: Turn<'_>,
     present: &crate::services::agent::memory::unified::Audience,
+    known_as: Option<&str>,
 ) -> Vec<String> {
     // In a group, people outside the community may be reading: nothing
     // private to anyone — the person's diary, her unprompted lines to them,
     // what was on her mind — is brought in, and memory is what the group heard.
+    // They are who the group knows them as, the name the conversation shows
+    // and her @ reaches, not their name on the site.
     let group = present.is_group();
-    let addressee = resolve_addressee_label(db, user_id).await;
+    let addressee = match known_as.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) if group => name.to_string(),
+        _ => resolve_addressee_label(db, user_id).await,
+    };
     let mut sections = vec![if group {
         group_speaking_section(&addressee)
     } else {

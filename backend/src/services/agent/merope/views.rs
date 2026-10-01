@@ -40,8 +40,11 @@ const VIEW_FADES_AFTER: chrono::Duration = chrono::Duration::days(60);
 const FADE_AFTER: chrono::Duration = chrono::Duration::days(30);
 const PURGE_AFTER: chrono::Duration = chrono::Duration::days(90);
 
-/// The night her views were last gone over, so a night does it once.
-static DONE_ON: LazyLock<Mutex<Option<NaiveDate>>> = LazyLock::new(|| Mutex::new(None));
+/// The night her views were last gone over or tried, and how many tries it
+/// took, so a night does it once and gives up on output it cannot read.
+static DONE_ON: LazyLock<Mutex<Option<(NaiveDate, u32)>>> = LazyLock::new(|| Mutex::new(None));
+/// Tries in a night before she leaves it for the next.
+const TRIES_A_NIGHT: u32 = 3;
 
 /// A view she holds: what it is about, and what she thinks.
 fn view_of(row: &agent_memories::Model) -> Option<(String, String)> {
@@ -95,8 +98,13 @@ pub(super) fn forget() {
 /// when she has done something since she last did.
 pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     let today = chrono::Local::now().date_naive();
-    if DONE_ON.lock().is_ok_and(|done| *done == Some(today)) {
-        return;
+    match DONE_ON.lock() {
+        Ok(mut done) => match *done {
+            Some((day, tries)) if day == today && tries >= TRIES_A_NIGHT => return,
+            Some((day, tries)) if day == today => *done = Some((today, tries + 1)),
+            _ => *done = Some((today, 1)),
+        },
+        Err(_) => return,
     }
     let now = Utc::now();
     let Ok(experiences) = unified::own_experiences(db, WINDOW_ROWS).await else {
@@ -113,10 +121,10 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         return;
     };
     // Done for the night once gone over, or once there is nothing to go
-    // over; a call that fails is tried again on the next look.
+    // over; a call that fails is tried again on the next look, a few times.
     let done = || {
         if let Ok(mut done) = DONE_ON.lock() {
-            *done = Some(today);
+            *done = Some((today, TRIES_A_NIGHT));
         }
     };
     let newest_view = held.iter().map(|row| row.created_at).max();

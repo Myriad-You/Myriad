@@ -398,6 +398,10 @@ impl Agent {
                 request.user_id,
                 request.raw_input.as_str(),
                 venue,
+                request
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.speaker.as_deref()),
             )
             .await
         } else {

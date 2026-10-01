@@ -22,6 +22,31 @@ pub(super) const WANDER_STEPS: usize = 3;
 /// about: curiosity peaks between knowing nothing and knowing plenty.
 pub(super) const THINLY_KNOWN: usize = 2;
 
+#[cfg(test)]
+tokio::task_local! {
+    static JUST_LOOKING: ();
+}
+
+/// Run `work` without what comes to mind counting as recalled: a real turn
+/// answered again to look at, which must not leave the site's memories
+/// fresher than they were.
+#[cfg(test)]
+pub(crate) async fn just_looking<F: std::future::Future>(work: F) -> F::Output {
+    JUST_LOOKING.scope((), work).await
+}
+
+/// Whether what comes to mind now counts as recalled.
+fn counts_as_recalled() -> bool {
+    #[cfg(test)]
+    {
+        JUST_LOOKING.try_with(|_| ()).is_err()
+    }
+    #[cfg(not(test))]
+    {
+        true
+    }
+}
+
 /// How readily a memory comes to mind now (see `strength`).
 pub(super) fn readiness(
     row: &agent_memories::Model,
@@ -112,7 +137,7 @@ pub async fn recall_primed<C: ConnectionTrait>(
         None => std::collections::HashMap::new(),
     };
     let (chosen, next) = rank_marked(rows, query, limit, priming, breadth, &by_meaning);
-    if !chosen.is_empty() {
+    if !chosen.is_empty() && counts_as_recalled() {
         let now = Utc::now().fixed_offset();
         agent_memories::Entity::update_many()
             .col_expr(

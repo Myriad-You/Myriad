@@ -183,14 +183,16 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
     }
     // What she opens with when someone comes back after hours apart: her
     // first reply after a message of theirs that followed a pause, in
-    // private, whichever window it was in.
+    // private, whichever window it was in. Read from a day before the
+    // window: what came before that is a pause either way.
     if let Some((from, to)) = bounds(day - chrono::Duration::days(OPENERS_DAYS - 1), day) {
         let openers: Vec<String> = rows(
             db,
             "WITH t AS (SELECT m.role, m.content, m.created_at, lag(m.role) OVER w AS r1, \
                lag(m.created_at) OVER w AS a1, lag(m.created_at, 2) OVER w AS a2 \
                FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-               WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL AND m.created_at < $2 \
+               WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+                 AND m.created_at >= $1 - interval '1 day' AND m.created_at < $2 \
                WINDOW w AS (PARTITION BY s.user_id ORDER BY m.created_at)) \
              SELECT content FROM t WHERE role = 'assistant' AND r1 = 'user' \
                AND (a2 IS NULL OR a1 - a2 >= interval '3 hours') AND created_at >= $1",
