@@ -193,12 +193,121 @@ async fn drew_on(prompt: &str, said: &str, reply: &str) -> Vec<String> {
         .collect()
 }
 
+/// The prompt without the sections headed `headings`: each runs to the next
+/// heading, or to the conversation.
+fn without_sections(prompt: &str, headings: &[&str]) -> String {
+    let mut prompt = prompt.to_string();
+    for heading in headings {
+        let marker = format!("\n## {heading}\n");
+        let Some(start) = prompt.find(&marker) else {
+            continue;
+        };
+        let rest = &prompt[start + 1..];
+        let end = ["\n## ", "\nConversation:", "\nLatest message:"]
+            .iter()
+            .filter_map(|next| rest.find(next))
+            .min()
+            .map_or(prompt.len(), |end| start + 1 + end);
+        prompt.replace_range(start..end, "");
+    }
+    prompt
+}
+
+/// The last lines of the conversation in a prompt, for a reader of a reply.
+fn conversation_tail(prompt: &str) -> String {
+    let tail = prompt
+        .find("\nConversation:\n")
+        .map(|start| &prompt[start..])
+        .and_then(|rest| rest.find("\nLatest message:").map(|end| &rest[..end]))
+        .unwrap_or_default();
+    let lines: Vec<&str> = tail.lines().rev().take(8).collect();
+    lines.into_iter().rev().collect::<Vec<_>>().join("\n")
+}
+
+/// Two replies to the same words, read blind (in either order): whether
+/// they read as the same person talking the same way, and which answers the
+/// moment better, as someone who knows them would. (same voice, preferred:
+/// 0 for `a`, 1 for `b`, none for neither).
+async fn compare(prompt: &str, said: &str, a: &str, b: &str) -> Option<(bool, Option<usize>)> {
+    let flip: bool = rand::random();
+    let (x, y) = if flip { (b, a) } else { (a, b) };
+    let input = json!({
+        "conversation": conversation_tail(prompt),
+        "theirLatestMessage": said,
+        "x": x,
+        "y": y,
+    })
+    .to_string();
+    let system = "Two replies, x and y, to the same message from someone she knows well. sameVoice: would someone who knows her take both as her, the same person talking the same way (tone, warmth, how much she says, how she treats them), allowing that a person never says the same thing twice? better: which answers this moment better, as one who knows them and what is going on between them: x, y, or same when neither does clearly. Judge only what is in the replies and the conversation.";
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "sameVoice": { "type": "boolean" },
+            "better": { "type": "string", "enum": ["x", "y", "same"] }
+        },
+        "required": ["sameVoice", "better"],
+        "additionalProperties": false
+    });
+    let judge = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(None).await?;
+    let raw = judge
+        .analyze_json(system, &input, "replay_compare", Some(&schema))
+        .await
+        .ok()?;
+    let value: Value = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim())
+        .and_then(|json| serde_json::from_str(&json).ok())?;
+    let same = value["sameVoice"].as_bool()?;
+    let better = match (value["better"].as_str()?, flip) {
+        ("x", false) | ("y", true) => Some(0),
+        ("y", false) | ("x", true) => Some(1),
+        _ => None,
+    };
+    Some((same, better))
+}
+
+#[derive(Default)]
+struct Comparisons {
+    judged: usize,
+    same_voice: usize,
+    first: usize,
+    second: usize,
+}
+
+impl Comparisons {
+    fn add(&mut self, judged: Option<(bool, Option<usize>)>) {
+        let Some((same, better)) = judged else {
+            return;
+        };
+        self.judged += 1;
+        self.same_voice += usize::from(same);
+        match better {
+            Some(0) => self.first += 1,
+            Some(_) => self.second += 1,
+            None => {}
+        }
+    }
+
+    fn line(&self, first: &str, second: &str) -> String {
+        let n = self.judged.max(1) as f64;
+        format!(
+            "judged {}  same voice {:.0}%  better: {first} {}  {second} {}  neither {}",
+            self.judged,
+            self.same_voice as f64 / n * 100.0,
+            self.first,
+            self.second,
+            self.judged - self.first - self.second,
+        )
+    }
+}
+
 /// MEROPE_REPLAY_N real turns (default 16), the latest, answered again;
 /// MEROPE_REPLAY_REPORT=<file> keeps each turn's words, then and now.
 /// MEROPE_REPLAY_SWAP=<old>|||<new>[&&&…] tries the prompt with passages
 /// rewritten, to see what a wording would change before it ships.
 /// MEROPE_REPLAY_PROMPTS=1 keeps each turn's whole prompt in the report;
 /// MEROPE_REPLAY_ATTRIBUTE=1 asks which of its sections each reply drew on.
+/// MEROPE_REPLAY_AB_DROP=<heading>[&&&…] also answers each turn again with
+/// the prompt as is and without those sections, and reads both pairs blind:
+/// the same prompt twice is how much replies differ anyway.
 #[tokio::test]
 #[ignore = "reads the site's database and asks its model"]
 async fn her_real_talk_answered_again() {
@@ -226,6 +335,12 @@ async fn her_real_talk_answered_again() {
     let (mut then, mut now) = (Shape::default(), Shape::default());
     let (mut openers_then, mut openers_now) = (Vec::new(), Vec::new());
     let mut report = Vec::new();
+    let drop: Vec<String> = std::env::var("MEROPE_REPLAY_AB_DROP")
+        .map(|headings| headings.split("&&&").map(str::to_string).collect())
+        .unwrap_or_default();
+    let (mut again_shape, mut without_shape) = (Shape::default(), Shape::default());
+    let (mut control, mut treatment) = (Comparisons::default(), Comparisons::default());
+    let mut chars_saved = Vec::new();
     for turn in turns.iter().rev() {
         let user_id: i32 = turn.try_get("", "user_id").unwrap();
         let session: String = turn.try_get("", "session_id").unwrap();
@@ -295,10 +410,53 @@ async fn her_real_talk_answered_again() {
         if std::env::var("MEROPE_REPLAY_ATTRIBUTE").is_ok() {
             kept["drewOn"] = json!(drew_on(&prompt, &said, &again).await);
         }
+        if !drop.is_empty() {
+            let headings: Vec<&str> = drop.iter().map(String::as_str).collect();
+            let lighter = without_sections(&prompt, &headings);
+            chars_saved.push(prompt.chars().count() - lighter.chars().count());
+            let twice = analyzer
+                .analyze_stream(&prompt, |_| true)
+                .await
+                .unwrap_or_default();
+            let without = analyzer
+                .analyze_stream(&lighter, |_| true)
+                .await
+                .unwrap_or_default();
+            again_shape.add(&twice);
+            without_shape.add(&without);
+            let same_prompt = compare(&prompt, &said, &again, &twice).await;
+            let lighter_prompt = compare(&prompt, &said, &again, &without).await;
+            control.add(same_prompt);
+            treatment.add(lighter_prompt);
+            println!(
+                "  again: {}\n  without: {}",
+                twice.replace('\n', " / "),
+                without.replace('\n', " / ")
+            );
+            kept["again"] = json!(twice);
+            kept["without"] = json!(without);
+            kept["sameVsAgain"] = json!(same_prompt);
+            kept["sameVsWithout"] = json!(lighter_prompt);
+        }
         report.push(kept);
     }
     println!("\nthen  {}", then.line());
     println!("now   {}", now.line());
+    if !drop.is_empty() {
+        println!("again {}", again_shape.line());
+        println!("without {}", without_shape.line());
+        chars_saved.sort_unstable();
+        println!(
+            "without {:?}: chars saved median {}",
+            drop,
+            chars_saved.get(chars_saved.len() / 2).copied().unwrap_or(0)
+        );
+        println!("as is vs as is again:  {}", control.line("first", "again"));
+        println!(
+            "as is vs without:      {}",
+            treatment.line("as is", "without")
+        );
+    }
     let leaning = |openers: &[String]| myriad_merope::vitals::leaned_on(openers, 0.3, 3);
     println!(
         "openers {}: then {:?}  now {:?}",
@@ -309,4 +467,15 @@ async fn her_real_talk_answered_again() {
     if let Ok(path) = std::env::var("MEROPE_REPLAY_REPORT") {
         std::fs::write(path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
     }
+}
+
+#[test]
+fn a_section_left_out_runs_to_the_next_one_or_to_the_conversation() {
+    let prompt = "Intro\n## About this person\nlikes cats\n\n## Now\nIt is 3pm.\n## Games\nZelda\n\nConversation:\nthem: hi\nLatest message: hi";
+    let lighter = without_sections(prompt, &["About this person", "Games", "Not here"]);
+    assert_eq!(
+        lighter,
+        "Intro\n## Now\nIt is 3pm.\nConversation:\nthem: hi\nLatest message: hi"
+    );
+    assert_eq!(conversation_tail(prompt), "\nConversation:\nthem: hi");
 }
