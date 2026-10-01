@@ -56,7 +56,7 @@ pub enum ChangeKind {
 pub fn system(soul: &str, group: bool) -> String {
     let besides: String = if group {
         " \
-day is what today was like in this group, as you would remember it later: what went on, who was in it, anything that happened with you, in one or two sentences in the language of the chat; only what the conversation shows, and empty if nothing much happened."
+day is what today was like in this group, as you would remember it later: what went on, who was in it, anything that happened with you, in one or two sentences in the language of the chat; only what the conversation shows, and empty if nothing much happened. dayBefore, if given, is what you already wrote about today here from earlier talk: day is then today as it is now, earlier and this together."
             .to_string()
             + LANDS_IN_GROUP
             + crate::sore::AT_NIGHT_GROUP
@@ -81,7 +81,7 @@ us is what they are to you, as you would put it to yourself: who they are to you
     };
     format!(
         "{soul}\n\n\
-It is night and you are thinking back over today's conversation {whom}. bits are {between}. \
+You are thinking back over today's conversation {whom}. bits are {between}. \
 Look for what today added: a new bit (something that came back more than once today or was picked up and played along with; a thing said once is not a bit), a bit that came up again (again: they brought it back or played along with it today; you using it again on your own is not it coming back), or one that took a new turn (changed). \
 handle is a short name for it; how is one sentence on what it is and how it goes between you, in your own words. \
 Only light things: never anything hurtful, and never a private matter they would not want brought up. Only what the conversation shows; if nothing, bits is empty.{besides} \

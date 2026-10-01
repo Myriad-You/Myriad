@@ -5,7 +5,9 @@
 //! named here first.
 
 pub mod bits {
-    pub(crate) use crate::services::agent::merope::bits::{in_group, picture_again};
+    pub(crate) use crate::services::agent::merope::bits::{
+        go_over_stretch, in_group, picture_again,
+    };
 }
 
 pub mod doing {

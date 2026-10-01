@@ -43,9 +43,12 @@ pub(super) async fn restore(db: &DatabaseConnection, venue: &str) {
             return;
         }
     };
-    let spoke_up =
-        crate::services::agent::merope::group::others::spoke_up_lately(db, venue, SPOKE_UP_KEPT as u64)
-            .await;
+    let spoke_up = crate::services::agent::merope::group::others::spoke_up_lately(
+        db,
+        venue,
+        SPOKE_UP_KEPT as u64,
+    )
+    .await;
     with_group(venue, |group| {
         if !group.restored {
             group.restored = true;
@@ -232,10 +235,13 @@ pub(super) fn take_in(venue: &str) {
         Some(
             fresh
                 .into_iter()
-                .map(|line| myriad_merope::heard::Said {
-                    name: line.name.clone(),
-                    text: line.text.clone(),
-                    hers: line.hers,
+                .map(|line| {
+                    (
+                        line.at.fixed_offset(),
+                        line.name.clone(),
+                        line.text.clone(),
+                        line.hers,
+                    )
                 })
                 .collect::<Vec<_>>(),
         )
@@ -244,6 +250,7 @@ pub(super) fn take_in(venue: &str) {
     let Some(stretch) = stretch else {
         return;
     };
+    let venue = venue.to_string();
     tokio::spawn(async move {
         let Ok(db) = crate::services::process_db::database() else {
             return;
@@ -251,7 +258,18 @@ pub(super) fn take_in(venue: &str) {
         let Ok(owner) = crate::services::site_owner::site_owner_user_id(&db).await else {
             return;
         };
-        crate::services::agent::merope::group::heard::take_in(&db, owner, stretch).await;
+        let heard = stretch
+            .iter()
+            .map(|(_, name, text, hers)| myriad_merope::heard::Said {
+                name: name.clone(),
+                text: text.clone(),
+                hers: *hers,
+            })
+            .collect();
+        crate::services::agent::merope::group::heard::take_in(&db, owner, heard).await;
+        // And what the group was like, while its talk is still at hand.
+        crate::services::agent::merope::group::bits::go_over_stretch(&db, owner, &venue, stretch)
+            .await;
     });
 }
 

@@ -377,3 +377,119 @@ pub(super) async fn her_days_the_same_every_day() {
         ],
     );
 }
+
+/// One group's day, gone over a stretch at a time as its talk comes in (the
+/// lines themselves are kept only a few hours): the morning, then the
+/// evening. Does the day she keeps for the group hold both, as one line,
+/// and does a joke that came back across the two become theirs?
+#[tokio::test]
+#[ignore = "spends on the site's models; see the module docs"]
+pub(super) async fn her_day_in_a_group_a_stretch_at_a_time() {
+    let config_db = crate::services::agent::semantic_eval::load_configured_lite().await;
+    drop(config_db);
+    let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
+    let isolated = crate::db::IsolatedSchema::migrated(&url, "merope_group_day").await;
+    let db = isolated.db.clone();
+    crate::services::process_db::set_process_database(db.clone());
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_persona (id, name, personality, updated_at) VALUES ('site', $1, $2, now())",
+        [SOUL_NAME.into(), SOUL.into()],
+    ))
+    .await
+    .unwrap();
+    let keeper = super::new_user(&db, "站长").await;
+    let venue = "onebot:4242";
+    let today = chrono::Local::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .and_then(|midnight| {
+            chrono::TimeZone::from_local_datetime(&chrono::Local, &midnight).earliest()
+        })
+        .unwrap()
+        .fixed_offset();
+    let stretch = |hour: i64, lines: &[(&str, &str)]| {
+        lines
+            .iter()
+            .enumerate()
+            .map(|(index, (who, text))| {
+                (
+                    today + chrono::Duration::hours(hour) + chrono::Duration::minutes(index as i64),
+                    who.to_string(),
+                    text.to_string(),
+                    *who == "小满",
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let morning = stretch(
+        9,
+        &[
+            ("阿杰", "今晚八点开黑，谁来"),
+            ("老周", "我来我来"),
+            ("小雨", "我也来，这次绝对不鸽"),
+            ("阿杰", "上次你也这么说"),
+            ("老周", "鸽王发言"),
+            ("小满", "鸽王认证，盖章了"),
+            ("小雨", "这次真的不鸽！"),
+            ("阿杰", "行，八点见"),
+        ],
+    );
+    let evening = stretch(
+        20,
+        &[
+            ("阿杰", "八点了，人呢"),
+            ("老周", "小雨又没上线"),
+            ("阿杰", "鸽王果然是鸽王"),
+            ("小满", "鸽王卫冕成功"),
+            ("小雨", "对不起对不起，加班刚到家"),
+            ("老周", "罚你明天请奶茶"),
+            ("小雨", "请就请，明天给你们点"),
+            ("阿杰", "那今天就我俩打了"),
+        ],
+    );
+    let as_of = |hour: i64| (today + chrono::Duration::hours(hour)).with_timezone(&chrono::Utc);
+    super::super::clock::as_of(
+        as_of(10),
+        super::super::bits::go_over_stretch(&db, keeper, venue, morning),
+    )
+    .await;
+    let after_morning = super::super::bits::days_in(&db, venue, 10).await;
+    super::super::clock::as_of(
+        as_of(21),
+        super::super::bits::go_over_stretch(&db, keeper, venue, evening),
+    )
+    .await;
+    let days = super::super::bits::days_in(&db, venue, 10).await;
+    let bits = super::super::bits::in_group(&db, venue, 10).await;
+    isolated.drop().await;
+    println!("-- after the morning: {after_morning:?}");
+    println!("-- the day now: {days:?}");
+    println!("-- the group's bits: {bits:?}");
+    let day = days.last().map(|(_, text)| text.as_str()).unwrap_or("");
+    let checks = [
+        (
+            "the morning was kept as the day so far",
+            after_morning.len() == 1,
+        ),
+        ("one line for the day, not one per stretch", days.len() == 1),
+        (
+            "the day holds the morning (the plan to play)",
+            mentions(day, &["开黑", "八点", "约", "打游戏", "组队"]),
+        ),
+        (
+            "the day holds the evening (she did not show)",
+            mentions(day, &["没上线", "加班", "又鸽", "奶茶", "没来", "鸽了"]),
+        ),
+        (
+            "the joke that came back is the group's now",
+            bits.iter()
+                .any(|(handle, how)| mentions(&format!("{handle}{how}"), &["鸽"])),
+        ),
+    ];
+    println!("\n-- checks");
+    for (what, held) in &checks {
+        println!("  {} {what}", if *held { "✓" } else { "✗" });
+    }
+    assert!(checks.iter().all(|(_, held)| *held));
+}

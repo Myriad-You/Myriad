@@ -2,51 +2,81 @@
 
 use super::*;
 
-/// One group's conversation that day, oldest first, each line by name or
-/// "you".
-pub(super) async fn day_in(
+/// What she makes of a stretch of a group's talk while it is still at hand
+/// (the lines themselves are kept only a few hours): what today there is like
+/// so far, the group's bits, how she comes across there, stings let go.
+/// `said` is (when, who, what, hers), oldest first; `keeper` is who the
+/// group's rows are kept with (the site's owner, who brought her there).
+pub async fn go_over_stretch(
     db: &DatabaseConnection,
+    keeper: i32,
     venue: &str,
-    start: DateTime<FixedOffset>,
-    end: DateTime<FixedOffset>,
-) -> Vec<Value> {
-    let lines = db.query_all_raw(Statement::from_sql_and_values(
+    said: Vec<(DateTime<FixedOffset>, String, String, bool)>,
+) {
+    let lines: Vec<(DateTime<FixedOffset>, Value)> = said
+        .into_iter()
+        .filter(|(_, _, text, _)| !text.trim().is_empty())
+        .map(|(at, name, text, hers)| {
+            let who = if hers {
+                "you".to_string()
+            } else {
+                let name: String = name.trim().chars().take(24).collect();
+                if name.is_empty() {
+                    "someone".to_string()
+                } else {
+                    name
+                }
+            };
+            let text: String = text.chars().take(300).collect();
+            (at, json!({ "who": who, "text": text }))
+        })
+        .collect();
+    if (lines.len() as i64) < MIN_LINES {
+        return;
+    }
+    let circle = Circle::Group {
+        venue: venue.to_string(),
+        keeper,
+    };
+    let today = super::super::clock::local_now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .and_then(|midnight| {
+            chrono::TimeZone::from_local_datetime(&chrono::Local, &midnight).earliest()
+        })
+        .map(|midnight| midnight.fixed_offset());
+    let Some(today) = today else {
+        return;
+    };
+    let before = day_line(db, &circle, today).await;
+    let soul: String = crate::services::agent::identity::get_speaking_soul()
+        .await
+        .unwrap_or_default();
+    review(db, keeper, &soul, &circle, with_after(lines), today, before).await;
+}
+
+/// What she already wrote about `day` in this group, if anything.
+async fn day_line(
+    db: &DatabaseConnection,
+    circle: &Circle,
+    day: DateTime<FixedOffset>,
+) -> Option<String> {
+    let marker = format!("\"day\":\"{}\"", day.format("%Y-%m-%d"));
+    db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT m.role, m.content, m.created_at, coalesce(nullif(u.display_name, ''), u.username, '') AS name \
-         FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-         LEFT JOIN users u ON u.id = s.user_id \
-         WHERE s.context->>'mode' = 'chat' AND s.context->>'venue' = $1 \
-           AND m.created_at >= $2 AND m.created_at < $3 AND m.role IN ('user', 'assistant') \
-         ORDER BY m.created_at DESC LIMIT $4",
-        [venue.into(), start.into(), end.into(), MAX_LINES.into()],
+        "SELECT content FROM agent_memories WHERE source = $1 AND venue = $2 \
+           AND invalid_at IS NULL AND evidence LIKE '%' || $3 || '%' \
+         ORDER BY created_at DESC LIMIT 1",
+        [
+            DAY_SOURCE.into(),
+            circle.audience().venue().into(),
+            marker.into(),
+        ],
     ))
     .await
-    .unwrap_or_default()
-    .iter()
-    .rev()
-    .filter_map(|row| {
-        let role: String = row.try_get("", "role").ok()?;
-        let content: String = row.try_get("", "content").ok()?;
-        let name: String = row.try_get("", "name").unwrap_or_default();
-        let text: String = crate::services::agent::chat_prompt::chat_safe_content(&content)
-            .chars()
-            .take(300)
-            .collect();
-        let who = if role == "user" {
-            let name: String = name.trim().chars().take(24).collect();
-            if name.is_empty() {
-                "someone".to_string()
-            } else {
-                name
-            }
-        } else {
-            "you".to_string()
-        };
-        let at = row.try_get::<DateTime<FixedOffset>>("", "created_at").ok()?;
-        (!text.trim().is_empty()).then(|| (at, json!({ "who": who, "text": text })))
-    })
-    .collect::<Vec<_>>();
-    with_after(lines)
+    .ok()
+    .flatten()
+    .and_then(|row| row.try_get::<String>("", "content").ok())
 }
 
 /// On each of her lines, how many seconds until someone else wrote after it
@@ -137,6 +167,22 @@ pub(super) async fn put_day(
     if text.is_empty() {
         return;
     }
+    // One line a day: what she writes of a day later replaces what she wrote
+    // of it earlier.
+    let marker = format!("\"day\":\"{}\"", day.format("%Y-%m-%d"));
+    let _ = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'superseded' \
+             WHERE source = $1 AND venue = $2 AND invalid_at IS NULL \
+               AND evidence LIKE '%' || $3 || '%'",
+            [
+                DAY_SOURCE.into(),
+                circle.audience().venue().into(),
+                marker.into(),
+            ],
+        ))
+        .await;
     let _ = unified::remember(
         db,
         unified::NewMemory {
