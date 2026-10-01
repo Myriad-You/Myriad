@@ -50,19 +50,88 @@ pub(super) fn motion_context(
     }
 }
 
+/// How many times they spoke before in this sitting: the history is their
+/// whole talk with her, whichever window, so only what came since a pause of
+/// hours counts (praise said again in one sitting lands less; a new visit
+/// starts afresh).
 pub(super) fn utterance_index_in_session(request: &UserRequest) -> u32 {
     request
         .context
         .as_ref()
         .and_then(|ctx| ctx.conversation_history.as_ref())
         .map(|history| {
-            history
-                .iter()
-                .filter(|message| message.role == "user")
-                .count()
-                .saturating_sub(1) as u32
+            user_turns_this_sitting(history, request.timestamp).saturating_sub(1) as u32
         })
         .unwrap_or(0)
+}
+
+/// A pause this long ends a sitting.
+const SITTING_ENDS_AFTER: chrono::Duration = chrono::Duration::hours(3);
+
+/// Their messages in `history` since the last pause of hours, up to `now`.
+fn user_turns_this_sitting(
+    history: &[ConversationMessage],
+    now: chrono::DateTime<chrono::Utc>,
+) -> usize {
+    let at = |message: &ConversationMessage| {
+        message
+            .created_at
+            .as_deref()
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+            .map(|at| at.with_timezone(&chrono::Utc))
+    };
+    let mut later = now;
+    let mut count = 0;
+    for message in history.iter().rev() {
+        if let Some(at) = at(message) {
+            if later - at >= SITTING_ENDS_AFTER {
+                break;
+            }
+            later = at;
+        }
+        if message.role == "user" {
+            count += 1;
+        }
+    }
+    count
+}
+
+#[cfg(test)]
+mod sitting_tests {
+    use super::*;
+
+    #[test]
+    fn only_this_sitting_counts_toward_how_often_they_said_it() {
+        let now = chrono::Utc::now();
+        let said = |role: &str, hours_ago: i64| ConversationMessage {
+            role: role.into(),
+            content: "你真好".into(),
+            created_at: Some((now - chrono::Duration::hours(hours_ago)).to_rfc3339()),
+        };
+        // Yesterday's talk, then two of theirs just now.
+        let history = [
+            said("user", 26),
+            said("assistant", 26),
+            said("user", 25),
+            said("assistant", 25),
+            said("user", 0),
+            said("assistant", 0),
+            said("user", 0),
+        ];
+        assert_eq!(user_turns_this_sitting(&history, now), 2);
+        // Coming back after hours: a fresh sitting.
+        assert_eq!(user_turns_this_sitting(&history[..4], now), 0);
+        // Without times, all of it, as before.
+        let untimed: Vec<ConversationMessage> = history
+            .iter()
+            .cloned()
+            .map(|message| ConversationMessage {
+                created_at: None,
+                ..message
+            })
+            .collect();
+        assert_eq!(user_turns_this_sitting(&untimed, now), 4);
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
