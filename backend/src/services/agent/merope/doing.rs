@@ -61,6 +61,8 @@ const TELL_EVERY: Duration = Duration::from_secs(20 * 60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 /// A digest the model failed on in passing is asked once more after this.
 const DIGEST_AGAIN_AFTER: Duration = Duration::from_secs(20);
+/// Writing down what she did, all of it.
+const FINISHING_WITHIN: Duration = Duration::from_secs(180);
 
 /// What she is doing now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -192,7 +194,9 @@ pub async fn tick(db: DatabaseConnection) {
         super::pace::lazed(&db, minutes.max(0) as f64).await;
     }
     if let Some(done) = finished {
-        if tokio::time::timeout(Duration::from_secs(120), finish(&db, owner, done))
+        // Room for a digest that is asked twice (45 s, 20 s apart, 45 s)
+        // and what comes before and after it.
+        if tokio::time::timeout(FINISHING_WITHIN, finish(&db, owner, done))
             .await
             .is_err()
         {
