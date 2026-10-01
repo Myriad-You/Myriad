@@ -90,6 +90,25 @@ pub struct Game {
     /// In a group, who solved it.
     pub solver: Option<String>,
     pub started: chrono::DateTime<chrono::Utc>,
+    /// When a question was last asked in it, if one has been.
+    #[serde(default)]
+    pub last: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Left this long without a question, a game is put away unfinished: what
+/// it was and the truth stay with her, and a new one can start.
+pub const PUT_AWAY_AFTER: chrono::Duration = chrono::Duration::hours(3);
+
+impl Game {
+    /// When it was last played: the last question, or its start.
+    pub fn last_played(&self) -> chrono::DateTime<chrono::Utc> {
+        self.last.unwrap_or(self.started)
+    }
+
+    /// Whether it has been left long enough, unfinished, to put away.
+    pub fn left(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.ending.is_none() && now - self.last_played() >= PUT_AWAY_AFTER
+    }
 }
 
 /// Take her start marker out of a reply: the text without it, and whether
@@ -320,7 +339,30 @@ mod tests {
             ending: None,
             solver: None,
             started: chrono::Utc::now(),
+            last: None,
         }
+    }
+
+    #[test]
+    fn a_game_is_on_while_they_play_and_put_away_once_left() {
+        let now = chrono::Utc::now();
+        let mut game = game();
+        // Started long ago but played a minute ago: still on.
+        game.started = now - chrono::Duration::hours(5);
+        game.last = Some(now - chrono::Duration::minutes(1));
+        assert!(!game.left(now));
+        // Left for hours unfinished: put away.
+        game.last = Some(now - PUT_AWAY_AFTER);
+        assert!(game.left(now));
+        // Never asked: from when it started.
+        game.last = None;
+        assert!(game.left(now));
+        game.started = now - chrono::Duration::minutes(10);
+        assert!(!game.left(now));
+        // One that ended is over, not left.
+        game.started = now - chrono::Duration::hours(5);
+        game.ending = Some(Ending::Solved);
+        assert!(!game.left(now));
     }
 
     #[test]

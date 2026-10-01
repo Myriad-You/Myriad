@@ -16,8 +16,11 @@
 //! question is judged and kept with who asked it, and whoever gets it is
 //! the one who solved it. The group remembers the game, not any one person.
 //!
-//! Games are kept in the runtime registry for a few hours, so a restart does
-//! not lose the truth halfway through.
+//! Games are kept in the runtime registry, so a restart does not lose the
+//! truth halfway through. A game is on for as long as they keep playing; left
+//! for a few hours unfinished, it is put away the next time they talk: she
+//! remembers the game, how far they got, and the truth, so a "what was the
+//! answer to that one" later is hers to answer, and a new one can start.
 
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
@@ -39,7 +42,9 @@ use myriad_merope::soup::{
 };
 pub use myriad_merope::soup::{GROUP_OFFER, OFFER, Table, split_start};
 
-const KEEP_FOR: Duration = Duration::from_secs(3 * 3600);
+/// Kept past its last question at most this long, for it to be put away
+/// when they are next here.
+const KEEP_FOR: Duration = Duration::from_secs(3 * 24 * 3600);
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Runtime-registry namespace of the games on now.
@@ -66,6 +71,14 @@ async fn load(table: &Table) -> Option<Game> {
             .await
             .ok()
             .flatten();
+    // Left unfinished long enough: put away, not still on.
+    if let Some(game) = game.as_ref().filter(|game| game.left(super::clock::now())) {
+        if let Some(game) = take(table).await {
+            put_away(&db, table, &game).await;
+        }
+        tracing::info!(table = %table.record_id(), "[Merope] a turtle soup left unfinished is put away");
+        return None;
+    }
     mark(table, game.is_some());
     game
 }
@@ -76,7 +89,7 @@ async fn save(table: &Table, game: &Game) {
         return;
     };
     let keep_until =
-        (game.started + chrono::Duration::from_std(KEEP_FOR).unwrap_or_default()).timestamp();
+        (game.last_played() + chrono::Duration::from_std(KEEP_FOR).unwrap_or_default()).timestamp();
     if let Err(error) = crate::services::runtime_registry::put(
         &db,
         GAMES_NAMESPACE,
@@ -247,6 +260,7 @@ async fn make_up(table: &Table, words: &str, billing: i32) -> Option<String> {
             ending: None,
             solver: None,
             started: chrono::Utc::now(),
+            last: None,
         },
     )
     .await;
@@ -294,6 +308,7 @@ pub async fn this_turn_at(
         return Some(section(&game, None, table.is_group(), asker));
     };
     apply(&mut game, &judged, asker, words);
+    game.last = Some(super::clock::now());
     save(table, &game).await;
     Some(section(
         &game,
@@ -317,16 +332,25 @@ pub async fn after_turn_at(db: &DatabaseConnection, table: &Table) {
         return;
     };
     take(table).await;
+    put_away(db, table, &game).await;
+}
+
+/// What she keeps of a game once it is over: with them, or with the group.
+/// One left unfinished keeps the truth too, which she knows and they do not.
+async fn put_away(db: &DatabaseConnection, table: &Table, game: &Game) {
     let surface: String = game.surface.chars().take(60).collect();
+    let truth: String = game.truth.chars().take(200).collect();
     let concepts = vec![unified::Concept {
         name: "海龟汤".into(),
         aliases: vec!["turtle soup".into(), "情境猜谜".into()],
     }];
+    let asked = game.asked.len();
     match table {
         Table::Private { user_id, .. } => {
             let how = match game.ending {
-                Some(Ending::Solved) => format!("问了{}个问题猜中了", game.asked.len()),
-                _ => format!("问了{}个问题后放弃了", game.asked.len()),
+                Some(Ending::Solved) => format!("问了{asked}个问题猜中了"),
+                Some(Ending::GaveUp) => format!("问了{asked}个问题后放弃了"),
+                None => format!("问了{asked}个问题，没玩完就搁下了；汤底是：{truth}"),
             };
             let _ = unified::remember(
                 db,
@@ -347,10 +371,11 @@ pub async fn after_turn_at(db: &DatabaseConnection, table: &Table) {
         Table::Group(venue) => {
             let how = match (game.ending, game.solver.as_deref()) {
                 (Some(Ending::Solved), Some(solver)) => {
-                    format!("大家问了{}个问题，{solver}猜中了", game.asked.len())
+                    format!("大家问了{asked}个问题，{solver}猜中了")
                 }
-                (Some(Ending::Solved), None) => format!("大家问了{}个问题猜中了", game.asked.len()),
-                _ => format!("大家问了{}个问题后放弃了", game.asked.len()),
+                (Some(Ending::Solved), None) => format!("大家问了{asked}个问题猜中了"),
+                (Some(Ending::GaveUp), _) => format!("大家问了{asked}个问题后放弃了"),
+                (None, _) => format!("大家问了{asked}个问题，没玩完就搁下了；汤底是：{truth}"),
             };
             let _ = unified::remember_in_venue(
                 db,
@@ -395,6 +420,7 @@ pub(crate) fn judge_probe(
         ending: None,
         solver: None,
         started: chrono::Utc::now(),
+        last: None,
     };
     (
         JUDGE_SYSTEM.to_string(),
@@ -436,6 +462,7 @@ pub(crate) fn section_for_eval(
         ending: None,
         solver: None,
         started: chrono::Utc::now(),
+        last: None,
     };
     section(&game, Some(verdict), group, asker)
 }
@@ -454,6 +481,7 @@ mod tests {
             ending: None,
             solver: None,
             started: chrono::Utc::now(),
+            last: None,
         }
     }
     #[test]
