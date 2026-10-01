@@ -231,3 +231,84 @@ pub(super) async fn her_own_puzzle() {
     }
     assert!(checks.iter().all(|(_, held)| *held));
 }
+
+/// Whether her puzzles are hers or a retelling of what she read: the same
+/// readings, each made from a few times with the material beside her
+/// impression and with her impression alone, and how much of each puzzle's
+/// words came straight from the material.
+#[tokio::test]
+#[ignore = "spends on the site's models; see the module docs"]
+pub(super) async fn her_puzzles_are_hers() {
+    let config_db = crate::services::agent::semantic_eval::load_configured_lite().await;
+    drop(config_db);
+    let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
+    let isolated = crate::db::IsolatedSchema::migrated(&url, "merope_making_own").await;
+    let db = isolated.db.clone();
+    crate::services::process_db::set_process_database(db.clone());
+    let owner = super::new_user(&db, "站长").await;
+    // What stayed with her, as a digest would put it.
+    let took_in = [
+        "老周来回走动挡住灯光，被远处的船当成信号——平常的小事被别人读成了意思，这个反差挺妙的。",
+        "那个男人每天凌晨站在面包店门口闻味道，原来是母亲开过面包店，闻到就知道天快亮了。有点难受。",
+        "拍星轨原来要在天亮前盖住镜头，不然一晚上白拍。以前一直以为是后期合成的。",
+    ];
+    let grams = |text: &str| -> std::collections::HashSet<String> {
+        let chars: Vec<char> = text
+            .chars()
+            .filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation())
+            .collect();
+        chars
+            .windows(4)
+            .map(|window| window.iter().collect())
+            .collect()
+    };
+    for (with_material, label) in [(true, "with the material"), (false, "her impression alone")] {
+        let mut overlaps = Vec::new();
+        let mut nothing = 0;
+        for ((what, material), took) in READ.iter().zip(took_in) {
+            for _ in 0..2 {
+                let raw = super::super::call::Ask::new(
+                    super::super::call::Voice::HersAtLength,
+                    owner,
+                    "make_soup",
+                )
+                .within(std::time::Duration::from_secs(60))
+                .json_raw(
+                    &myriad_merope::making::make_system(SOUL, what),
+                    &myriad_merope::making::make_input(
+                        took,
+                        if with_material { material } else { "" },
+                        &[],
+                        0,
+                        0,
+                    ),
+                    myriad_merope::making::MAKE_SCHEMA,
+                    &myriad_merope::making::make_schema(),
+                )
+                .await;
+                match raw
+                    .ok()
+                    .and_then(|raw| myriad_merope::making::parse_idea(&raw))
+                {
+                    Some(Some(made)) => {
+                        let puzzle = grams(&format!("{}{}", made.surface, made.truth));
+                        let source = grams(material);
+                        let shared = puzzle.intersection(&source).count() as f64
+                            / puzzle.len().max(1) as f64;
+                        println!("   [{label}] {:.0}%  {}", shared * 100.0, made.surface);
+                        overlaps.push(shared);
+                    }
+                    _ => nothing += 1,
+                }
+            }
+        }
+        overlaps.sort_by(f64::total_cmp);
+        println!(
+            "-- {label}: made {} (no idea {nothing}); words from the material: median {:.0}%, most {:.0}%",
+            overlaps.len(),
+            overlaps.get(overlaps.len() / 2).copied().unwrap_or(0.0) * 100.0,
+            overlaps.last().copied().unwrap_or(0.0) * 100.0
+        );
+    }
+    isolated.drop().await;
+}

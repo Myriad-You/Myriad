@@ -38,6 +38,9 @@ const dir = join(root, 'target', 'merope-reports')
 mkdirSync(dir, { recursive: true })
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 const report = join(dir, `lives-${stamp}.json`)
+// Each life's whole output beside the report, to see why a check failed.
+const logs = join(dir, `lives-${stamp}`)
+mkdirSync(logs, { recursive: true })
 
 function run(name) {
   console.log(`\n[${name}]`)
@@ -52,6 +55,7 @@ function run(name) {
     timeout: 30 * 60 * 1000,
   })
   const out = `${result.stdout ?? ''}${result.stderr ?? ''}`
+  writeFileSync(join(logs, `${name}.log`), out)
   // Checks print as "  ✓ what" / "  ✗ what"; the replay prints how she talks.
   const checks = [...out.matchAll(/^\s+([✓✗]) (.+)$/gmu)].map(([, mark, what]) => ({ what, held: mark === '✓' }))
   const shape = out.match(/^now\s+(.+)$/m)?.[1] ?? null
@@ -59,7 +63,7 @@ function run(name) {
   for (const check of checks) console.log(`  ${check.held ? '✓' : '✗'} ${check.what}`)
   if (shape) console.log(`  now: ${shape}`)
   console.log(`  ${passed ? 'passed' : `FAILED (exit ${result.status ?? result.signal})`}`)
-  return { name, passed, checks, shape }
+  return { name, passed, checks, shape, log: join(logs, `${name}.log`) }
 }
 
 const lives = LIVES.map(run)
