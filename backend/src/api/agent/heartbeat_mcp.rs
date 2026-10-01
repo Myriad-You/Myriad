@@ -424,7 +424,7 @@ pub(crate) async fn get_mind(
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
     Ok(Json(
-        crate::services::agent::merope::observe::snapshot(&db).await,
+        crate::services::agent::merope::api::observe::snapshot(&db).await,
     ))
 }
 
@@ -462,7 +462,7 @@ pub(crate) async fn list_all_memories(
             let stranger = row
                 .evidence
                 .as_deref()
-                .filter(|_| row.source == crate::services::agent::merope::strangers::SOURCE)
+                .filter(|_| row.source == crate::services::agent::merope::api::strangers::SOURCE)
                 .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
                 .and_then(|evidence| evidence["name"].as_str().map(str::to_string));
             json!({

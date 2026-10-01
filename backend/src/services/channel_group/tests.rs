@@ -122,7 +122,7 @@ async fn she_follows_talk_she_is_in_and_glances_at_the_rest_now_and_then() {
     notice(line(chat, 1, "阿明", "周五聚餐吗"), String::new());
     let planned = with_group(&venue(chat), |group| group.glance_at).flatten();
     // Busy at most so long first, or asleep until she is up.
-    let first = match crate::services::agent::merope::timing::where_she_is(false, true) {
+    let first = match crate::services::agent::merope::group::timing::where_she_is(false, true) {
         myriad_merope::timing::Where::Asleep { wakes_in } => {
             Duration::from_secs_f64(wakes_in + 60.0)
         }

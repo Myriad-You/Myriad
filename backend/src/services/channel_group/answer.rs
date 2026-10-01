@@ -7,7 +7,7 @@ use super::*;
 /// `merope::making_sense`). With what the group told her before, as the
 /// sections her reply starts from.
 pub(super) async fn make_sense(db: &DatabaseConnection, message: &GroupLine) -> Option<String> {
-    use crate::services::agent::merope::making_sense;
+    use crate::services::agent::merope::group::making_sense;
     let venue = message.venue();
     let stored = unified_venue(&venue);
     let owner = crate::services::site_owner::site_owner_user_id(db)
@@ -162,7 +162,7 @@ pub(super) async fn say_and_send(
 
 /// Send the sticker she chose into the group, making it first if it is new.
 pub(super) async fn send_sticker(message: &GroupLine, token: &str, chosen: &serde_json::Value) {
-    use crate::services::agent::merope::stickers;
+    use crate::services::agent::merope::group::stickers;
     let Ok(db) = crate::services::process_db::database() else {
         return;
     };

@@ -13,7 +13,7 @@ pub(super) const SHARE_LINES: usize = 12;
 /// it up in one of them (see `merope::sharing`). Asleep she does not; a
 /// group she is already talking in hears it in the talk. Billed to `owner`.
 pub async fn share_first(owner: i32, what: String) {
-    use crate::services::agent::merope::{bits, sharing, timing};
+    use crate::services::agent::merope::group::{bits, sharing, timing};
     if timing::asleep_now().is_some() {
         return;
     }

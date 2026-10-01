@@ -68,12 +68,12 @@ pub(super) fn in_talk(group: &Group) -> bool {
 pub(super) fn glance_after() -> Duration {
     // Asleep, she looks once she is up.
     if let myriad_merope::timing::Where::Asleep { wakes_in } =
-        crate::services::agent::merope::timing::where_she_is(false, true)
+        crate::services::agent::merope::group::timing::where_she_is(false, true)
     {
         return Duration::from_secs_f64(wakes_in)
             + Duration::from_secs(rand::random_range(GLANCE_AFTER_SECONDS));
     }
-    let free_in = crate::services::agent::merope::doing::current()
+    let free_in = crate::services::agent::merope::group::doing::current()
         .and_then(|doing| (doing.ends - chrono::Utc::now()).to_std().ok())
         .unwrap_or_default()
         .min(LONGEST_BUSY);
@@ -194,7 +194,7 @@ pub(super) fn spoke_up_now(venue: &str) {
         let Ok(db) = crate::services::process_db::database() else {
             return;
         };
-        crate::services::agent::merope::others::spoke_up(&db, &venue, &line, taken).await;
+        crate::services::agent::merope::group::others::spoke_up(&db, &venue, &line, taken).await;
     });
 }
 
@@ -264,11 +264,11 @@ pub(super) async fn judge(message: &GroupLine, token: &str) -> Option<(Why, Stri
         )
     })
     .flatten();
-    crate::services::agent::merope::joining::decide(
+    crate::services::agent::merope::group::joining::decide(
         &db,
         owner,
         &conversation,
-        &crate::services::agent::merope::joining::Here {
+        &crate::services::agent::merope::group::joining::Here {
             last_spoke: last_spoke.as_deref(),
             late: late.as_deref(),
             how_it_went: how_it_went.as_deref(),

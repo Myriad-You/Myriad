@@ -72,11 +72,11 @@ pub(super) async fn see(venue: &str, token: &str) {
     let db = &db;
     let looked = futures::future::join_all(unseen.into_iter().map(
         |(message_id, index, image)| async move {
-            let seen = match crate::services::agent::merope::seeing::known(db, &image.key).await {
+            let seen = match crate::services::agent::merope::group::seeing::known(db, &image.key).await {
                 Some(seen) => Some(seen),
                 None => match fetch_picture(token, &image).await {
                     Some(bytes) => {
-                        crate::services::agent::merope::seeing::look(
+                        crate::services::agent::merope::group::seeing::look(
                             db,
                             owner,
                             &image.key,
@@ -122,6 +122,6 @@ pub(super) async fn see(venue: &str, token: &str) {
         }
     });
     for (key, seen) in again {
-        crate::services::agent::merope::bits::picture_again(db, owner, venue, &key, &seen).await;
+        crate::services::agent::merope::group::bits::picture_again(db, owner, venue, &key, &seen).await;
     }
 }

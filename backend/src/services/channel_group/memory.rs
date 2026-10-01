@@ -44,7 +44,7 @@ pub(super) async fn restore(db: &DatabaseConnection, venue: &str) {
         }
     };
     let spoke_up =
-        crate::services::agent::merope::others::spoke_up_lately(db, venue, SPOKE_UP_KEPT as u64)
+        crate::services::agent::merope::group::others::spoke_up_lately(db, venue, SPOKE_UP_KEPT as u64)
             .await;
     with_group(venue, |group| {
         if !group.restored {
@@ -251,7 +251,7 @@ pub(super) fn take_in(venue: &str) {
         let Ok(owner) = crate::services::site_owner::site_owner_user_id(&db).await else {
             return;
         };
-        crate::services::agent::merope::heard::take_in(&db, owner, stretch).await;
+        crate::services::agent::merope::group::heard::take_in(&db, owner, stretch).await;
     });
 }
 

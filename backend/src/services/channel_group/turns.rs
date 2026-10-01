@@ -50,7 +50,7 @@ pub(super) fn end_turn(venue: &str, replied: bool) {
 /// looks, and after she wakes if she is asleep; then now, or when she is
 /// done with the one on hand. A long wait does not hold the caller.
 pub async fn handle(message: GroupLine, token: String) {
-    use crate::services::agent::merope::timing;
+    use crate::services::agent::merope::group::timing;
     let venue = message.venue();
     let talking = with_group(&venue, |group| {
         taken_up(group);

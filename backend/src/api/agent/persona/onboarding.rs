@@ -84,7 +84,7 @@ pub(super) async fn report_platform_count(
     db: &DatabaseConnection,
     user_id: i32,
 ) -> Result<usize, HttpError> {
-    merope::report_dna::count_report_platforms(db, user_id)
+    merope::api::report_dna::count_report_platforms(db, user_id)
         .await
         .map_err(|error| persona_store_http("count persona reports", error))
 }
@@ -94,14 +94,14 @@ pub(super) async fn require_persona_reports(
     user_id: i32,
 ) -> Result<usize, HttpError> {
     let count = report_platform_count(db, user_id).await?;
-    if count < merope::report_dna::MIN_PERSONA_REPORTS {
+    if count < merope::api::report_dna::MIN_PERSONA_REPORTS {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": "Need at least 3 platform reports",
                 "code": "persona_reports_required",
                 "reportCount": count,
-                "required": merope::report_dna::MIN_PERSONA_REPORTS,
+                "required": merope::api::report_dna::MIN_PERSONA_REPORTS,
             })),
         )));
     }
@@ -129,7 +129,7 @@ pub async fn report_signals(
     }
     let language = normalize_signals_language(&request.language);
     let distilled =
-        merope::report_dna::distill_report_dna(&db, user_id, language, request.regenerate)
+        merope::api::report_dna::distill_report_dna(&db, user_id, language, request.regenerate)
             .await
             .map_err(distill_error)?;
     Ok(Json(json!({
@@ -139,9 +139,9 @@ pub async fn report_signals(
     })))
 }
 
-pub(super) fn distill_error(error: merope::report_dna::DistillReportDnaError) -> HttpError {
+pub(super) fn distill_error(error: merope::api::report_dna::DistillReportDnaError) -> HttpError {
     match error {
-        merope::report_dna::DistillReportDnaError::Db(error) => {
+        merope::api::report_dna::DistillReportDnaError::Db(error) => {
             persona_store_http("load persona reports", error)
         }
     }
@@ -158,7 +158,7 @@ pub async fn suggest_name(
     let user_id = require_site_owner(&claims, &db).await?;
     require_persona_reports(&db, user_id).await?;
     let language = normalize_signals_language(&body.language);
-    match merope::onboarding_ai::suggest_display_name(
+    match merope::api::onboarding_ai::suggest_display_name(
         &body.gender,
         body.avoid_name.as_deref(),
         language,
@@ -188,10 +188,10 @@ pub async fn draft_persona(
     let user_id = require_site_owner(&claims, &db).await?;
     require_persona_reports(&db, user_id).await?;
     let language = normalize_signals_language(&body.language);
-    let tags = merope::report_dna::sanitize_onboarding_tags_for_language(&body.tags, language);
+    let tags = merope::api::report_dna::sanitize_onboarding_tags_for_language(&body.tags, language);
     let name = body.name.trim();
     let display = if name.is_empty() { "Arael" } else { name };
-    let persona = match merope::onboarding_ai::suggest_persona(
+    let persona = match merope::api::onboarding_ai::suggest_persona(
         display,
         language,
         &tags,
@@ -236,7 +236,7 @@ pub async fn import_persona(
     }
     let name = body.name.trim();
     let display = if name.is_empty() { "Arael" } else { name };
-    let persona = match merope::onboarding_ai::import_persona(
+    let persona = match merope::api::onboarding_ai::import_persona(
         display,
         language,
         &body.gender,
@@ -364,7 +364,7 @@ pub async fn suggest_visual_design(
             })),
         )));
     }
-    let identity = match merope::onboarding_ai::suggest_visual_design(
+    let identity = match merope::api::onboarding_ai::suggest_visual_design(
         persona.name.trim(),
         language,
         structured,
@@ -465,7 +465,7 @@ pub async fn observe_visual_from_portrait(
             ))
         })?;
     let observed =
-        match merope::onboarding_ai::observe_visual_from_portrait(language, gender, &image).await {
+        match merope::api::onboarding_ai::observe_visual_from_portrait(language, gender, &image).await {
             Ok(value) => value,
             Err(error) => {
                 return Err(onboarding_generation_error(
@@ -498,9 +498,9 @@ pub(super) fn onboarding_error_body(
 pub(super) fn onboarding_generation_error(
     kind: &str,
     failed_message: &str,
-    error: merope::onboarding_ai::OnboardingAiError,
+    error: merope::api::onboarding_ai::OnboardingAiError,
 ) -> HttpError {
-    use merope::onboarding_ai::OnboardingAiError;
+    use merope::api::onboarding_ai::OnboardingAiError;
     tracing::error!(%error, kind, "onboarding generation failed");
     let detail = error.public_detail().map(str::to_string);
     match error {

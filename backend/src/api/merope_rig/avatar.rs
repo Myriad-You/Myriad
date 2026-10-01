@@ -95,7 +95,7 @@ pub async fn generate_sticker_avatar(
                 })),
             )
         })?;
-    let style = crate::services::agent::merope::stickers::style_reference()
+    let style = crate::services::agent::merope::api::stickers::style_reference()
         .map_err(portrait_generation_config_error)?;
 
     let contract = build_sticker_avatar_contract(name, &visual_profile, &portrait_asset_id);

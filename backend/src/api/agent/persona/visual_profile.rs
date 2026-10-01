@@ -140,7 +140,7 @@ pub(super) fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError>
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect::<Vec<_>>();
-        let tags = merope::report_dna::sanitize_onboarding_tags(&tags);
+        let tags = merope::api::report_dna::sanitize_onboarding_tags(&tags);
         profile.insert("sourceTags".into(), json!(tags));
     }
     if let Some(wardrobe) = source.get("wardrobe") {

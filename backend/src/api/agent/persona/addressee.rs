@@ -110,9 +110,9 @@ pub async fn get_doing(
     require_merope_enabled().await?;
     parse_user_id_with_agent_access(&claims, &db).await?;
     Ok(Json(json!({
-        "doing": merope::doing::current(),
+        "doing": merope::api::doing::current(),
         // Lazing about is something she is doing too.
-        "lazing": merope::doing::lazing().map(|lazing| json!({
+        "lazing": merope::api::doing::lazing().map(|lazing| json!({
             "kind": lazing.kind,
             "started": lazing.started,
             "ends": lazing.ends,
@@ -151,7 +151,7 @@ pub async fn post_music_listening(
     let credit = merope::credit_music_listening(&db, user_id, body.listened_seconds)
         .await
         .map_err(|error| persona_store_http("credit music listening", error))?;
-    let after = merope::store::affect_from_state(&credit.state);
+    let after = merope::api::store::affect_from_state(&credit.state);
     let mood = merope::MoodTransition::from_affect(
         &credit.before,
         &after,

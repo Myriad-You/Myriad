@@ -314,7 +314,7 @@ fn visual_design_requires_an_explicit_supported_language() {
 
 #[test]
 fn draft_tags_use_onboarding_sanitize() {
-    let tags = merope::report_dna::sanitize_onboarding_tags(&[
+    let tags = merope::api::report_dna::sanitize_onboarding_tags(&[
         "  夜战  ".into(),
         "夜战".into(),
         "喜欢独立游戏".into(),

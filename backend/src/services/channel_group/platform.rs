@@ -101,7 +101,7 @@ pub(super) fn without_reply_mark(reply: &str) -> String {
 
 /// Her reply, chunk by chunk; whether any of it reached the group.
 pub(super) async fn deliver(line: &GroupLine, token: &str, reply: &str, began: Instant) -> bool {
-    use crate::services::agent::merope::timing::typing;
+    use crate::services::agent::merope::group::timing::typing;
     use myriad_agent_rules::channel::{as_messages, split_channel_text};
     let venue = line.venue();
     let people = people(&venue);

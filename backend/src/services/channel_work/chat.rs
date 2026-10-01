@@ -101,7 +101,7 @@ pub(super) async fn start_chat_turn(
     sink: ChannelSink,
     session_key: &str,
 ) {
-    use crate::services::agent::merope::timing;
+    use crate::services::agent::merope::group::timing;
     if !take_in(session_key, input, images) {
         return;
     }
@@ -155,7 +155,7 @@ pub(super) async fn start_chat_turn(
 
 /// Whether this person wrote to her anywhere in the last few minutes.
 async fn wrote_lately(db: &DatabaseConnection, user_id: i32) -> bool {
-    crate::services::agent::merope::store::get_or_create_state(db, user_id)
+    crate::services::agent::merope::get_or_create_state(db, user_id)
         .await
         .ok()
         .and_then(|state| state.last_user_message_at)
@@ -249,7 +249,7 @@ async fn answer(
     {
         // Typing takes as long as it takes; the first she was already at
         // while she thought.
-        let typing = crate::services::agent::merope::timing::typing(&line);
+        let typing = crate::services::agent::merope::group::timing::typing(&line);
         let left = if index == 0 {
             typing.saturating_sub(began.elapsed())
         } else {
@@ -296,7 +296,7 @@ async fn answer(
 
 /// Send the sticker she chose, making it first if it is a new one.
 async fn send_sticker(db: &DatabaseConnection, sink: &ChannelSink, chosen: &Value) {
-    use crate::services::agent::merope::stickers;
+    use crate::services::agent::merope::group::stickers;
     if chosen.get("make").is_some() {
         sink.send_typing().await;
     }

@@ -22,7 +22,7 @@ pub(super) async fn answer_stranger(
     let Ok(owner) = crate::services::site_owner::site_owner_user_id(db).await else {
         return false;
     };
-    let stranger = crate::services::agent::merope::strangers::Stranger {
+    let stranger = crate::services::agent::merope::group::strangers::Stranger {
         who: format!("{}:{}", message.platform.slug(), message.from),
         name: message.display_name.chars().take(40).collect(),
     };
@@ -39,7 +39,7 @@ pub(super) async fn answer_stranger(
     let transcript = transcript(&venue, Some(&message.message_id));
     let Ok(Some((reply, sticker))) = tokio::time::timeout(
         TURN_DEADLINE,
-        crate::services::agent::merope::strangers::reply(
+        crate::services::agent::merope::group::strangers::reply(
             db,
             owner,
             &venue,
@@ -58,7 +58,7 @@ pub(super) async fn answer_stranger(
     let sent = say_and_send(message, token, &reply, sticker, began).await;
     if sent {
         answered(message);
-        crate::services::agent::merope::strangers::enqueue_after(
+        crate::services::agent::merope::group::strangers::enqueue_after(
             db,
             owner,
             venue,

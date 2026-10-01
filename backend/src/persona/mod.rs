@@ -90,7 +90,7 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
         "memory jobs",
         Duration::from_secs(5),
         Duration::ZERO,
-        move || agent::merope::memory_jobs::tick(memory_db.clone()),
+        move || agent::merope::lifecycle::memory_jobs::tick(memory_db.clone()),
     );
     let speak_db = db.clone();
     drivers.periodic(
@@ -104,35 +104,35 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
         "mind wandering",
         Duration::from_secs(60),
         Duration::from_secs(60),
-        move || agent::merope::wander::tick(wander_db.clone()),
+        move || agent::merope::lifecycle::wander::tick(wander_db.clone()),
     );
     let doing_db = db.clone();
     drivers.periodic(
         "her own time",
         Duration::from_secs(60),
         Duration::from_secs(90),
-        move || agent::merope::doing::tick(doing_db.clone()),
+        move || agent::merope::lifecycle::doing::tick(doing_db.clone()),
     );
     let playing_db = db.clone();
     drivers.periodic(
         "what they play",
         Duration::from_secs(120),
         Duration::from_secs(60),
-        move || agent::merope::playing::tick(playing_db.clone()),
+        move || agent::merope::lifecycle::playing::tick(playing_db.clone()),
     );
     let reach_db = db.clone();
     drivers.periodic(
         "writing first",
         Duration::from_secs(10 * 60),
         Duration::from_secs(5 * 60),
-        move || agent::merope::reach::tick(reach_db.clone()),
+        move || agent::merope::lifecycle::reach::tick(reach_db.clone()),
     );
     let life_db = db.clone();
     drivers.periodic(
         "persona nights",
         Duration::from_secs(30 * 60),
         Duration::from_secs(5 * 60),
-        move || agent::merope::life::tick(life_db.clone()),
+        move || agent::merope::lifecycle::life::tick(life_db.clone()),
     );
     let expiry_db = db.clone();
     drivers.periodic("TAPP interactions", Duration::from_secs(5), Duration::ZERO, move || {
@@ -188,7 +188,7 @@ pub fn background_status() -> &'static str {
 }
 
 pub(crate) async fn request_stop() {
-    agent::merope::background::stop_admission();
+    agent::merope::lifecycle::background::stop_admission();
     STARTED.store(false, std::sync::atomic::Ordering::Release);
     if let Some(runtime) = RUNTIME.lock().await.as_ref() {
         runtime.request_stop();
@@ -204,7 +204,7 @@ pub async fn shutdown() {
                 runtime.shutdown().await;
             }
         },
-        agent::merope::background::shutdown(),
+        agent::merope::lifecycle::background::shutdown(),
     );
     if let Some(evolution) = agent::skill_evolution::get_skill_evolution() {
         evolution.flush().await;

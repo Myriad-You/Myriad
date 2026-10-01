@@ -636,7 +636,7 @@ mod venue_tests {
             .collect();
         assert!(listed.contains(&private) && listed.contains(&from_web));
         assert!(!listed.contains(&group) && !listed.contains(&other_group));
-        let (latest, _) = crate::services::agent::merope::store::latest_open_session(db, 21)
+        let (latest, _) = crate::services::agent::merope::api::store::latest_open_session(db, 21)
             .await
             .unwrap()
             .unwrap();

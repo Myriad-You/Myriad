@@ -1,7 +1,7 @@
 //! Touch on her avatar over HTTP: who may, how often, and the bounds of a
 //! summary. What the touch is and how she reacts is `merope::touch`.
 use super::*;
-use crate::services::agent::merope::touch::{TouchSummary, completion_summary};
+use crate::services::agent::merope::api::touch::{TouchSummary, completion_summary};
 use crate::{error::HttpError, services::agent::merope};
 use std::{collections::HashMap, sync::Mutex, time::Instant};
 
@@ -88,7 +88,7 @@ pub async fn appraise(
     // Bound the entire operation, including provider resolution and state reads.
     let decision = tokio::time::timeout(
         Duration::from_secs(3),
-        merope::touch::appraise(&db, user_id, &body),
+        merope::api::touch::appraise(&db, user_id, &body),
     )
     .await
     .ok()

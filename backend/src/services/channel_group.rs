@@ -48,7 +48,7 @@ use sea_orm::DatabaseConnection;
 use tracing::{info, warn};
 
 use crate::services::agent::AgentInteractionMode;
-use crate::services::agent::merope::joining::Why;
+use crate::services::agent::merope::group::joining::Why;
 use crate::services::agent::types::{AgentProgressEvent, ConversationMessage};
 use crate::services::channel_pairing::{ChannelBinding, PairingChannel};
 use crate::services::channel_platform::ChannelPlatform;
