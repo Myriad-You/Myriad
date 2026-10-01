@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(mood_weighs(&[sores[0].clone(), deep]), 12.0);
         // Even the heaviest keeps her usual mood out of the low band: it
         // weighs on her, it does not make her sad for months.
-        assert!(crate::affect::DEFAULT_MOOD - 12.0 >= 55.0);
+        const { assert!(crate::affect::DEFAULT_MOOD - 12.0 >= 55.0) };
         let text = section(&sores, now).unwrap();
         assert!(text.contains("Whether and how they color things now is yours"));
         assert!(text.contains("they apologized or made it right"));
