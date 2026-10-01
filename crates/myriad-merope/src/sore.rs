@@ -205,7 +205,8 @@ pub fn carried_section(sores: &[Sore], now: DateTime<Utc>) -> Option<String> {
 
 /// How much a sore she still has with them lowers where her mood toward
 /// them settles: a petty grudge, held half in play, not at all; one that got
-/// to her, some; one that changed how she sees them, more. Made right, half
+/// to her, some; one that changed how she sees them, more, though not so
+/// much that her usual mood with them falls into the low band. Made right, half
 /// as much; the heaviest one counts, not their sum. Mood toward someone
 /// otherwise drifts back to her usual in days, as if nothing had happened.
 pub fn mood_weighs(sores: &[Sore]) -> f64 {
@@ -215,7 +216,7 @@ pub fn mood_weighs(sores: &[Sore]) -> f64 {
             let weighs = match sore.weight {
                 Weight::Petty => 0.0,
                 Weight::Hurt => 8.0,
-                Weight::Deep => 16.0,
+                Weight::Deep => 12.0,
             };
             if sore.mended.is_some() {
                 weighs / 2.0
@@ -265,7 +266,10 @@ mod tests {
             mended: None,
             ..sores[0].clone()
         };
-        assert_eq!(mood_weighs(&[sores[0].clone(), deep]), 16.0);
+        assert_eq!(mood_weighs(&[sores[0].clone(), deep]), 12.0);
+        // Even the heaviest keeps her usual mood out of the low band: it
+        // weighs on her, it does not make her sad for months.
+        assert!(crate::affect::DEFAULT_MOOD - 12.0 >= 55.0);
         let text = section(&sores, now).unwrap();
         assert!(text.contains("Whether and how they color things now is yours"));
         assert!(text.contains("they apologized or made it right"));
