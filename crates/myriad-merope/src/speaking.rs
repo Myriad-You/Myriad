@@ -135,7 +135,7 @@ pub fn format_remembered_section(contents: &[String]) -> Option<String> {
         return None;
     }
     Some(format!(
-        "## About this person\nThese are facts you kept, and all you know of their life outside this conversation. What they told you is plain; anything else says how you came by it and may be out of date or wrong, so hold it loosely and do not state it as certain. Bring them up only when the talk needs them. Do not recite a log or a list.\n{}",
+        "## About this person\nFacts you kept: all you know of their life outside this talk. What they told you is plain; anything else says how you came by it ((older): kept from before, you no longer know how) and may be out of date or wrong, so hold it loosely. Bring one up only when the talk needs it; never recite them.\n{}",
         myriad_agent_rules::untrusted_block("about_them", &lines.join("\n"))
     ))
 }
@@ -590,7 +590,7 @@ pub fn format_lands_section(
         ("How they take you", "they")
     };
     Some(format!(
-        "## {title}\nWhat of yours {whom} take up and what goes past them, as you found it {when}. It is how you come across, not a rule: lean on it, ease off, or keep on anyway, as you are.\n{}",
+        "## {title}\nHow you come across with {whom}, as you found it {when}: not a rule.\n{}",
         myriad_agent_rules::untrusted_block("lands", lands)
     ))
 }
@@ -1075,7 +1075,8 @@ mod tests {
         assert!(format_remembered_section(&[]).is_none());
         let block = format_remembered_section(&["晚上想打独立游戏".into()]).unwrap();
         assert!(block.contains("## About this person"));
-        assert!(block.contains("facts you kept"));
+        assert!(block.contains("Facts you kept"));
+        assert!(block.contains("(older): kept from before"));
         assert!(block.contains("hold it loosely"));
         assert!(block.contains("- 晚上想打独立游戏"));
         assert!(block.contains("about_them"), "fenced as data");

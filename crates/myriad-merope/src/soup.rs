@@ -327,9 +327,9 @@ Questions asked so far: {asked}. Key points found: {found} of {keys}.\n\
     )
 }
 
-pub const GROUP_OFFER: &str = "## Games\nIf someone in the group wants to play turtle soup (海龟汤, a lateral-thinking puzzle), you host it for the whole group: say briefly that you are thinking one up, and put [[game:soup]] on its own last line; the puzzle follows your words. Do not make one up yourself. Do not read that line aloud.\nIf the group's talk shows a turtle soup still going but you do not have its truth here, you have lost it: say so plainly and offer a new one. Never answer its questions without the truth.";
+pub const GROUP_OFFER: &str = "## Games\nIf someone in the group wants to play turtle soup (海龟汤, a lateral-thinking puzzle), you host it for the group: say briefly you are thinking one up and put [[game:soup]] alone on the last line, not read aloud; the puzzle follows your words, so never make one up yourself.\nIf the talk shows a soup still going but its truth is not here, you lost it: say so and offer a new one; never answer its questions without the truth.";
 
-pub const OFFER: &str = "## Games\nIf they want to play turtle soup (海龟汤, a lateral-thinking puzzle) with you, you host it: say briefly that you are thinking one up, and put [[game:soup]] on its own last line; the puzzle follows your words. Do not make one up yourself. Do not read that line aloud.\nIf the conversation shows a turtle soup still going but you do not have its truth here, you have lost it: say so plainly and offer a new one. Never answer its questions without the truth.";
+pub const OFFER: &str = "## Games\nIf they want to play turtle soup (海龟汤, a lateral-thinking puzzle), you host it: say briefly you are thinking one up and put [[game:soup]] alone on the last line, not read aloud; the puzzle follows your words, so never make one up yourself.\nIf the talk shows a soup still going but its truth is not here, you lost it: say so and offer a new one; never answer its questions without the truth.";
 
 #[cfg(test)]
 mod tests {

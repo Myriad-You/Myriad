@@ -301,13 +301,9 @@ pub fn format_chat_wardrobe_section(
         .join("\n");
     Some(format!(
         "## Clothes\n{wearing}\n{lines}\n\
-         You decide whether to change this round. If they name a set or want to see one, change when it matches. \
-         Short name, also-called names, or a recognizable part of the outfit all count as that set. \
-         Even if the current set is the same style, change to the one they named if the short name is different. \
-         To change, write a last line that is only [[wear:short-name]]; the short name is the name after each \"-\" up to the colon or period. \
-         To change back, write [[wear:back]]. Also-called names help you recognize a set — do not put them in [[wear:]]. \
-         That line is executed live; do not speak it. If you say you'll change but omit the line, live still switches to the named set. \
-         If they clearly don't want a change, omit the line."
+         Changing is yours. When they name a set or want to see one (by short name, also-called name or a part of it, even one like what you have on), \
+         put [[wear:short-name]] alone on the last line, the short name being what follows \"-\" up to the colon or period, never an also-called name; \
+         [[wear:back]] changes back. It runs live, unspoken. Leave it out if they clearly do not want a change."
     ))
 }
 
@@ -335,7 +331,7 @@ fn catalog_line(look: &WardrobeLook, showing_id: &str, all: &[WardrobeLook]) -> 
         && !look.label.contains(construction)
     {
         line.push('：');
-        line.push_str(construction);
+        line.push_str(&first_clause(construction));
     }
     let aliases = catalog_aliases(look, showing_id, all, construction.as_deref());
     if !aliases.is_empty() {
@@ -346,6 +342,22 @@ fn catalog_line(look: &WardrobeLook, showing_id: &str, all: &[WardrobeLook]) -> 
         line.push_str(". Wearing this round");
     }
     line
+}
+
+/// The start of a look's description, enough to say what it is: up to the
+/// first stop, or a few dozen characters.
+fn first_clause(text: &str) -> String {
+    const CLAUSE_CHARS: usize = 36;
+    let clause = text
+        .split(['，', '；', '。', ',', ';'])
+        .next()
+        .unwrap_or(text)
+        .trim();
+    let mut clause: String = clause.chars().take(CLAUSE_CHARS).collect();
+    if clause.chars().count() < text.trim().trim_end_matches('。').chars().count() {
+        clause.push('…');
+    }
+    clause
 }
 
 fn catalog_aliases<'a>(
@@ -1133,7 +1145,7 @@ mod tests {
         assert!(!section.contains("JSON"));
         assert!(!section.contains("portraitAssetId"));
         assert!(section.contains("[[wear:"));
-        assert!(section.contains("You decide"));
+        assert!(section.contains("Changing is yours"));
     }
 
     #[test]
@@ -1183,7 +1195,7 @@ mod tests {
         assert!(!default_line.contains("Also called 舞台"));
         assert!(other_line.contains("舞台服"));
         assert!(other_line.contains("Also called "));
-        assert!(section.contains("if the short name is different"));
+        assert!(section.contains("even one like what you have on"));
         assert_eq!(
             resolve_wear_directive(
                 &WearDirective::Label("舞台装".into()),

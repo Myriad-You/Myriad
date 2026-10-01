@@ -515,7 +515,7 @@ mod tests {
         assert!(super::format_recent_section(&[]).is_none());
         let block = super::format_remembered_section(&["今天晚上想打独立游戏".into()]).unwrap();
         assert!(block.contains("## About this person"));
-        assert!(block.contains("facts you kept"));
+        assert!(block.contains("Facts you kept"));
         assert!(block.contains("- 今天晚上想打独立游戏"));
         assert!(
             super::format_recent_section(&["Steam 解锁了成就".into()])

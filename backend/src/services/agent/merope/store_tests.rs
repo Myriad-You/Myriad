@@ -16,7 +16,8 @@ fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
             created_at: chrono::Utc::now().fixed_offset(),
             brought_to_mind: false,
         };
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // This year's are without the year.
+    let today = chrono::Utc::now().format("%m-%d").to_string();
     assert_eq!(
         super::as_known(&note("chat", "user")),
         format!("[{today}] 养了一只猫叫年糕")
@@ -24,7 +25,7 @@ fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
     assert!(super::as_known(&note("said", "agent")).ends_with("(what you told them)"));
     assert!(super::as_known(&note("event", "agent")).ends_with("not from them)"));
     assert!(super::as_known(&note("work", "agent")).contains("doing a task for them"));
-    assert!(super::as_known(&note("chat", "import")).contains("kept from before"));
+    assert!(super::as_known(&note("chat", "import")).ends_with("(older)"));
     // What she let go, and what she noted of them in a group, say so.
     let with = |evidence: &str| crate::services::agent::memory::unified::MemoryRecord {
         evidence: Some(evidence.into()),

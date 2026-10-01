@@ -1,6 +1,7 @@
 //! What chat teaches her about someone, and recalling it.
 
 use super::*;
+use chrono::Datelike;
 
 /// Commit a validated extraction atomically. The input anchor is captured when
 /// the utterance is persisted, before reply generation and model extraction.
@@ -207,8 +208,13 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
     if content.is_empty() {
         return content;
     }
-    // When she came to know it: what happened "last week" is placed in time.
-    let when = note.created_at.format("%Y-%m-%d");
+    // When she came to know it: what happened "last week" is placed in time;
+    // the year only when it is not this one.
+    let when = if note.created_at.year() == chrono::Utc::now().year() {
+        note.created_at.format("%m-%d")
+    } else {
+        note.created_at.format("%Y-%m-%d")
+    };
     let evidence = note.evidence.as_deref().unwrap_or("");
     let how = match (note.source.as_str(), note.speaker.as_str()) {
         ("chat", "user") => return format!("[{when}] {content}"),
@@ -223,7 +229,8 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
         ("work", _) => "you noted this while doing a task for them",
         ("presence", _) => "you saw this in what they were playing",
         ("game", _) => "from a game with them",
-        _ => "kept from before; you no longer know how you came by it",
+        // Said once, in the section's heading.
+        _ => return format!("[{when}] {content} (older)"),
     };
     format!("[{when}] {content} ({how})")
 }

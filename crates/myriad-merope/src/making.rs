@@ -225,7 +225,7 @@ pub fn record_line(made: &Made) -> String {
 /// played, to bring out if they want to play.
 pub fn offer_own(made: &Made) -> String {
     format!(
-        "You made up a turtle soup yourself lately and have not tried it on them: {} ({}). Whether you bring it up is yours. If they want to play, this is the one you bring out: say so briefly and put [[game:soup]] on its own last line as usual; the puzzle follows your words, so do not tell it yourself.",
+        "A turtle soup you made up yourself lately, not yet tried on them: {} ({}). Bringing it up is yours; if they want to play, it is the one you bring out, with [[game:soup]] as usual, not told by you.",
         made.surface,
         made.how_it_went()
     )
