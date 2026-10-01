@@ -116,13 +116,14 @@ pub fn format_emotion_section(emotion: f64, emotion_arousal: f64) -> Option<Stri
     Some(format!("## Just now\n{}", lines.join(" ")))
 }
 
+/// What is going on for them on this side, from where the run is: only a
+/// task of theirs still running is worth saying. `thinking` is this very
+/// turn of hers being put together, so it says nothing about them.
 pub fn format_activity_section(activity: &str) -> Option<String> {
     let line = match activity {
         "working" => {
-            "They are in the middle of a task. You cannot see its progress, so do not pretend to."
+            "A task you are doing for them is still running. You cannot see its progress, so do not pretend to."
         }
-        "thinking" => "They are thinking something over.",
-        "talking" => "They are talking with you right now.",
         _ => return None,
     };
     Some(format!("## On this side\n{line}"))
@@ -1026,8 +1027,10 @@ mod tests {
     #[test]
     fn activity_section_skips_idle() {
         assert!(format_activity_section("idle").is_none());
+        // Her own turn being put together is not something they are doing.
+        assert!(format_activity_section("thinking").is_none());
         let working = format_activity_section("working").unwrap();
-        assert!(working.contains("middle of a task"));
+        assert!(working.contains("A task you are doing for them is still running"));
         assert!(working.contains("cannot see its progress"));
     }
 
