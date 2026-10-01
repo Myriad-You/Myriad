@@ -311,8 +311,19 @@ pub(crate) async fn start(
 
     // 从数据库加载最近 20 条会话历史（替代前端传入的 conversation_history）。
     // A group turn answers in the group: its history is the group transcript.
+    // A private chat is one talk with the person, whichever window it is in.
     let conversation_history = if let Some(group) = &group {
         Some(group.transcript.clone())
+    } else if has_session && interaction_mode == crate::services::agent::AgentInteractionMode::Chat
+    {
+        Some(
+            crate::services::agent::sessions::load_private_chat_history(&db, user_id, 20)
+                .await
+                .map_err(|error| {
+                    tracing::error!(%error, "[Agent API] Failed to load private chat history");
+                    AppError::internal("Could not load Agent session")
+                })?,
+        )
     } else if has_session {
         let history = load_session_history(
             &db,

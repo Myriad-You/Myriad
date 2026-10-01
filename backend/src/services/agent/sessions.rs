@@ -45,6 +45,45 @@ pub(crate) async fn load_session_history(
         .collect())
 }
 
+/// A person's last `max_messages` with her in private chat, oldest first,
+/// whichever of their private conversations they were in (the site's panel,
+/// a chat app): one talk going on between them, not one per window. Groups
+/// and Work are not part of it.
+pub(crate) async fn load_private_chat_history(
+    db: &DatabaseConnection,
+    user_id: i32,
+    max_messages: u64,
+) -> Result<Vec<crate::services::agent::ConversationMessage>, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.role, m.content, m.metadata, m.created_at FROM agent_messages m \
+             JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+             ORDER BY m.created_at DESC LIMIT $2",
+            [user_id.into(), (max_messages as i64).into()],
+        ))
+        .await?;
+    let mut history = Vec::with_capacity(rows.len());
+    for row in rows.iter().rev() {
+        let role: String = row.try_get("", "role")?;
+        let content: String = row.try_get("", "content")?;
+        let metadata: Option<Value> = row.try_get("", "metadata")?;
+        let created_at: chrono::DateTime<chrono::FixedOffset> = row.try_get("", "created_at")?;
+        history.push(
+            crate::services::agent::chat_prompt::reconstruct_conversation_message(
+                role,
+                content,
+                Some(created_at.to_rfc3339()),
+                metadata.as_ref(),
+                true,
+            ),
+        );
+    }
+    Ok(history)
+}
+
 pub(crate) fn session_store_failed(context: &'static str, error: impl std::fmt::Display) -> String {
     tracing::error!(%error, context, "agent session store failed");
     format!("Failed to {context}")
