@@ -308,6 +308,10 @@ impl Comparisons {
 /// MEROPE_REPLAY_AB_DROP=<heading>[&&&…] also answers each turn again with
 /// the prompt as is and without those sections, and reads both pairs blind:
 /// the same prompt twice is how much replies differ anyway.
+/// MEROPE_REPLAY_AB_MODEL=<model> answers each turn twice with the Lite
+/// model as configured and twice with this one instead, on the same prompt,
+/// and reads the pairs blind: each model against itself, and against the
+/// other.
 #[tokio::test]
 #[ignore = "reads the site's database and asks its model"]
 async fn her_real_talk_answered_again() {
@@ -332,6 +336,26 @@ async fn her_real_talk_answered_again() {
         .await
         .unwrap();
     let analyzer = chat_analyzer().await.expect("chat model");
+    // The other model, put in Lite's place only while it is made.
+    let other_model = std::env::var("MEROPE_REPLAY_AB_MODEL").ok();
+    let other = match &other_model {
+        Some(model) => {
+            let kept = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
+            let mut swapped = kept.clone();
+            swapped.lite_openai_model = model.clone();
+            *crate::GLOBAL_DYNAMIC_CONFIG.write().await = swapped;
+            let other = chat_analyzer().await.expect("the other model");
+            *crate::GLOBAL_DYNAMIC_CONFIG.write().await = kept;
+            Some(other)
+        }
+        None => None,
+    };
+    let (mut ours_again, mut theirs_shape, mut theirs_again) = (
+        Comparisons::default(),
+        Shape::default(),
+        Comparisons::default(),
+    );
+    let mut across = Comparisons::default();
     let (mut then, mut now) = (Shape::default(), Shape::default());
     let (mut openers_then, mut openers_now) = (Vec::new(), Vec::new());
     let mut report = Vec::new();
@@ -410,6 +434,34 @@ async fn her_real_talk_answered_again() {
         if std::env::var("MEROPE_REPLAY_ATTRIBUTE").is_ok() {
             kept["drewOn"] = json!(drew_on(&prompt, &said, &again).await);
         }
+        if let Some(other) = &other {
+            let twice = analyzer
+                .analyze_stream(&prompt, |_| true)
+                .await
+                .unwrap_or_default();
+            let theirs = other
+                .analyze_stream(&prompt, |_| true)
+                .await
+                .unwrap_or_default();
+            let theirs_twice = other
+                .analyze_stream(&prompt, |_| true)
+                .await
+                .unwrap_or_default();
+            theirs_shape.add(&theirs);
+            let ours = compare(&prompt, &said, &again, &twice).await;
+            let theirs_self = compare(&prompt, &said, &theirs, &theirs_twice).await;
+            let between = compare(&prompt, &said, &again, &theirs).await;
+            ours_again.add(ours);
+            theirs_again.add(theirs_self);
+            across.add(between);
+            println!("  other: {}", theirs.replace('\n', " / "));
+            kept["again"] = json!(twice);
+            kept["other"] = json!(theirs);
+            kept["otherAgain"] = json!(theirs_twice);
+            kept["oursVsAgain"] = json!(ours);
+            kept["otherVsAgain"] = json!(theirs_self);
+            kept["oursVsOther"] = json!(between);
+        }
         if !drop.is_empty() {
             let headings: Vec<&str> = drop.iter().map(String::as_str).collect();
             let lighter = without_sections(&prompt, &headings);
@@ -442,6 +494,21 @@ async fn her_real_talk_answered_again() {
     }
     println!("\nthen  {}", then.line());
     println!("now   {}", now.line());
+    if let Some(model) = &other_model {
+        println!("{model}  {}", theirs_shape.line());
+        println!(
+            "configured vs itself:   {}",
+            ours_again.line("first", "again")
+        );
+        println!(
+            "{model} vs itself:   {}",
+            theirs_again.line("first", "again")
+        );
+        println!(
+            "configured vs {model}:   {}",
+            across.line("configured", "other")
+        );
+    }
     if !drop.is_empty() {
         println!("again {}", again_shape.line());
         println!("without {}", without_shape.line());
