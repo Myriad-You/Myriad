@@ -118,12 +118,14 @@ async fn talked_lately(db: &DatabaseConnection) -> Vec<i32> {
     .collect()
 }
 
-/// When they last said anything to her in private, anywhere.
+/// When they last said anything to her, anywhere: in private or in a group
+/// they are in with her (yesterday in the group is not "days without a
+/// word").
 async fn last_talk(db: &DatabaseConnection, user_id: i32) -> Option<DateTime<Utc>> {
     db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "SELECT max(m.created_at) AS at FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
-         WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL AND m.role = 'user'",
+         WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND m.role = 'user'",
         [user_id.into()],
     ))
     .await
