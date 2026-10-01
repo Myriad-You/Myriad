@@ -135,6 +135,26 @@ fn flush_run(run: &mut Vec<char>, out: &mut Vec<Term>) {
     run.clear();
 }
 
+/// How much of the shorter of two texts the other says too: the share of
+/// its full-weight terms (words, CJK bigrams, a one-character word) that both
+/// have. 0 when either has none. "他的猫叫豆豆" in "他养了一只叫豆豆的猫" is
+/// 0.6; "周五考试" and "周六考试" share only 考试, 0.33.
+pub fn overlap(a: &str, b: &str) -> f64 {
+    let strong = |text: &str| -> HashSet<String> {
+        terms(text)
+            .into_iter()
+            .filter(|term| term.weight >= 1.0)
+            .map(|term| term.text)
+            .collect()
+    };
+    let (a, b) = (strong(a), strong(b));
+    let shorter = a.len().min(b.len());
+    if shorter == 0 {
+        return 0.0;
+    }
+    a.intersection(&b).count() as f64 / shorter as f64
+}
+
 /// One memory as recall sees it.
 pub struct Document<'a> {
     pub text: &'a str,
@@ -286,6 +306,17 @@ mod tests {
             .into_iter()
             .map(|term| (term.text, term.weight))
             .collect()
+    }
+
+    #[test]
+    fn overlap_is_how_much_of_the_shorter_both_say() {
+        let same = super::overlap("他的猫叫豆豆", "他养了一只叫豆豆的猫");
+        assert!((same - 0.6).abs() < 1e-9, "{same}");
+        let changed = super::overlap("周五考试", "周六考试");
+        assert!((changed - 1.0 / 3.0).abs() < 1e-9, "{changed}");
+        assert_eq!(super::overlap("喜欢咖啡", "在学吉他"), 0.0);
+        assert_eq!(super::overlap("", "喜欢咖啡"), 0.0);
+        assert_eq!(super::overlap("Likes cycling", "likes to cycle"), 1.0);
     }
 
     #[test]

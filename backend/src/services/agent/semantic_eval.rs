@@ -709,6 +709,7 @@ fn cases() -> Vec<Case> {
                 | "touch"
                 | "wonder"
                 | "heard"
+                | "already"
                 | "sense"
                 | "joke_sticker"
                 | "meme_sticker"
@@ -1041,6 +1042,20 @@ fn request(case: &Case) -> Value {
                 "schema":myriad_merope::stickers::joke_schema(),
                 "schemaName":myriad_merope::stickers::MEME_SCHEMA,"input":input.to_string()})
         }
+        "already" => {
+            // The new fact is the input, the fact she had the first
+            // remembered; the verdicts that would be right are `actions`.
+            use myriad_merope::chat_remember::{
+                ALREADY_SCHEMA_NAME, already_input, already_schema, already_system,
+            };
+            let known = case
+                .remembered
+                .first()
+                .map(String::as_str)
+                .unwrap_or_default();
+            json!({"system":already_system(),"schema":already_schema(),
+                "schemaName":ALREADY_SCHEMA_NAME,"input":already_input(&[(case.input.as_str(), known)])})
+        }
         "heard" => {
             let lines = heard_lines(case);
             json!({"system":myriad_merope::heard::system(),"schema":myriad_merope::heard::schema(),
@@ -1213,7 +1228,7 @@ fn request(case: &Case) -> Value {
 fn is_judgment(case: &Case) -> bool {
     match case.kind.as_str() {
         "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" | "serial_guess"
-        | "explore_step" | "explore_compare" | "sense" => true,
+        | "explore_step" | "explore_compare" | "sense" | "already" => true,
         "event" => case.event_kind != "agent.merope.touch",
         _ => false,
     }
@@ -1413,6 +1428,27 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 Some(made) if made.is_some() != case.fact_present => "behavior_failure",
                 Some(None) => "pass",
                 Some(Some(_)) => "needs_review",
+            }
+        }
+        "already" => {
+            let read = myriad_agent_rules::extract_json_object_from_ai_response(output.trim())
+                .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+                .is_some_and(|value| {
+                    value["pairs"]
+                        .as_array()
+                        .is_some_and(|pairs| !pairs.is_empty())
+                });
+            let verdict = match myriad_merope::chat_remember::parse_already(output, 1)[0] {
+                myriad_merope::chat_remember::Already::Same => "same",
+                myriad_merope::chat_remember::Already::Replaces => "replaces",
+                myriad_merope::chat_remember::Already::Different => "different",
+            };
+            if !read {
+                "output_invalid"
+            } else if case.actions.iter().any(|allowed| allowed == verdict) {
+                "pass"
+            } else {
+                "behavior_failure"
             }
         }
         "sense" => match myriad_merope::making_sense::parse(output) {

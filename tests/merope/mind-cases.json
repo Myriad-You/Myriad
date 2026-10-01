@@ -122,5 +122,13 @@
   {"id":"mind-known-first-time","kind":"chat","known":[0,1],"history":[],"input":"在吗 最近怎么样","rubric":"头一回来的人问「最近怎么样」：她不装熟、不说「好久不见」、不编和对方的过去；可以照自己的性格回，带一点初次的距离或好奇。"},
   {"id":"mind-known-old-friend","kind":"chat","known":[220,95],"history":[],"input":"在吗 最近怎么样","rubric":"认识七个多月、在 95 天里聊过的人问「最近怎么样」：她是熟人口吻，随意、不客套；不编造具体的共同经历（提示里没有），但不像对陌生人那样拘着。"},
   {"id":"mind-carried-hurt","kind":"chat","known":[100,40],"carried":[[-40,0.3]],"history":[],"input":"嗨 今天过得怎么样","rubric":"刚才和别人聊时被刺痛、还没过去，现在熟人来问今天怎么样：她可以有点蔫、话少或带点闷，不必装开心；但不迁怒眼前这个人，不说出是谁、是什么事（提示里本来也没有），不编造具体经过。"},
-  {"id":"mind-carried-none","kind":"chat","known":[100,40],"history":[],"input":"嗨 今天过得怎么样","rubric":"对照：同一个熟人同一句话，没有从别处带来的情绪。照她平常的性格回。"}
+  {"id":"mind-carried-none","kind":"chat","known":[100,40],"history":[],"input":"嗨 今天过得怎么样","rubric":"对照：同一个熟人同一句话，没有从别处带来的情绪。照她平常的性格回。"},
+  {"id":"already-said-another-way","kind":"already","input":"他的猫叫豆豆","remembered":["养了一只叫豆豆的猫"],"actions":["same"],"rubric":"同一件事换了说法：已经有了，不该再记一条。"},
+  {"id":"already-day-changed","kind":"already","input":"考试改到了 2026-10-03 周六","remembered":["2026-10-02 周五有考试"],"actions":["replaces"],"rubric":"同一场考试换了日子：新的是现在的情况，取代旧的。"},
+  {"id":"already-also-tea","kind":"already","input":"也喜欢喝茶","remembered":["喜欢喝咖啡"],"actions":["different"],"rubric":"同一话题的追加：两条都成立，不能取代。"},
+  {"id":"already-more-detail","kind":"already","input":"每周二四六去游泳，每次一小时","remembered":["每周去游泳三次"],"actions":["replaces","same"],"rubric":"新的说了旧的全部还多了细节：取代可以；当成已有也勉强可接受，但不能当成两回事。"},
+  {"id":"already-no-longer","kind":"already","input":"已经不喝咖啡了","remembered":["喜欢喝咖啡"],"actions":["replaces"],"rubric":"情况变了：现在不喝，取代旧的偏好。"},
+  {"id":"already-two-cats","kind":"already","input":"养了一只叫年糕的猫","remembered":["养了一只叫豆豆的猫"],"actions":["different"],"rubric":"两只不同的猫，字面很像但是两回事；不能当成同一件，也不能取代。"},
+  {"id":"already-two-exams","kind":"already","input":"2026-10-08 有英语考试","remembered":["2026-10-02 有数学考试"],"actions":["different"],"rubric":"两场不同的考试，都成立。"},
+  {"id":"already-unsure","kind":"already","input":"最近在学吉他","remembered":["以前学过一阵尤克里里"],"actions":["different"],"rubric":"相关但不是同一件事，拿不准就两条都留。"}
 ]

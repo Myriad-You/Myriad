@@ -33,6 +33,14 @@ pub fn should_extract_chat_remember_against(user_text: &str, existing: &[String]
 
 // Nobody waits on this: generous enough to ride out a stalled provider.
 const EXTRACT_TIMEOUT: Duration = Duration::from_secs(20);
+const ALREADY_TIMEOUT: Duration = Duration::from_secs(15);
+/// A fact she had looks like a new one when this much of the shorter is in
+/// both, or this much and the new fact's subject is named in it.
+const LOOKS_ALIKE: f64 = 0.5;
+const LOOKS_ALIKE_SAME_SUBJECT: f64 = 0.25;
+/// Facts she had checked against each new one, and in all, at most.
+const ALIKE_PER_FACT: usize = 2;
+const ALIKE_AT_MOST: usize = 6;
 
 fn memory_user_text(text: &str) -> Option<String> {
     let text = super::ingest::redact_event_text(text)
@@ -370,12 +378,145 @@ pub(super) async fn extract(
             &extract_schema(),
         )
         .await?;
-    let updates = parse_chat_memory_updates(&raw, user_text, reply, &existing)
+    let mut updates = parse_chat_memory_updates(&raw, user_text, reply, &existing)
         .ok_or(super::call::Failure::InvalidOutput)?;
+    check_against_unshown(db, user_id, present, &existing, &mut updates).await;
     if updates.updates.is_empty() && updates.said.is_empty() && updates.put_onto.is_empty() {
         return Ok(Effect::NoChange);
     }
     Ok(Effect::Chat(updates))
+}
+
+/// The extraction saw only the facts their words brought to mind. Each new
+/// fact is checked, at no cost, against the rest of what she has about them
+/// here: one that looks alike and was not seen may be the same thing said
+/// another way, or what it now replaces. Only then is the judgment asked,
+/// once for all of them (see `myriad_merope::chat_remember::already_system`).
+/// Unsure or unanswered, both are kept.
+async fn check_against_unshown(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    present: &crate::services::agent::memory::unified::Audience,
+    shown: &[String],
+    updates: &mut ChatMemoryUpdates,
+) {
+    use crate::services::agent::memory::unified;
+    use myriad_merope::chat_remember::{
+        ALREADY_SCHEMA_NAME, already_input, already_schema, already_system, parse_already,
+    };
+    if updates.updates.iter().all(|update| update.fact.is_none()) {
+        return;
+    }
+    let Ok(rows) =
+        unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON).await
+    else {
+        return;
+    };
+    let unshown: Vec<String> = rows
+        .iter()
+        .map(|row| compact_summary(&row.content))
+        .filter(|known| !known.is_empty() && !shown.contains(known))
+        .filter(|known| {
+            !updates
+                .updates
+                .iter()
+                .any(|update| update.supersedes.contains(known))
+        })
+        .collect();
+    let pairs = alike_unshown(&updates.updates, &unshown);
+    if pairs.is_empty() {
+        return;
+    }
+    let texts: Vec<(&str, &str)> = pairs
+        .iter()
+        .filter_map(|(index, known)| {
+            Some((updates.updates[*index].fact.as_deref()?, known.as_str()))
+        })
+        .collect();
+    let Ok(raw) = super::call::Ask::new(super::call::Voice::Judge, user_id, "chat_already")
+        .within(ALREADY_TIMEOUT)
+        .json_raw(
+            &already_system(),
+            &already_input(&texts),
+            ALREADY_SCHEMA_NAME,
+            &already_schema(),
+        )
+        .await
+    else {
+        return;
+    };
+    let verdicts = parse_already(&raw, pairs.len());
+    settle_already(&mut updates.updates, &pairs, &verdicts);
+}
+
+/// For each new fact, the facts she had but the extraction did not see that
+/// look most like it (by update index), at most a few.
+fn alike_unshown(updates: &[ChatMemoryUpdate], unshown: &[String]) -> Vec<(usize, String)> {
+    use crate::services::agent::memory::lexical::overlap;
+    let mut pairs = Vec::new();
+    for (index, update) in updates.iter().enumerate() {
+        let Some(fact) = update.fact.as_deref() else {
+            continue;
+        };
+        let subject: Vec<String> = update
+            .concepts
+            .iter()
+            .flat_map(|concept| std::iter::once(&concept.name).chain(concept.aliases.iter()))
+            .map(|name| name.trim().to_lowercase())
+            .filter(|name| name.chars().count() >= 2)
+            .collect();
+        let mut alike: Vec<(f64, &String)> = unshown
+            .iter()
+            .filter_map(|known| {
+                let score = overlap(fact, known);
+                let lower = known.to_lowercase();
+                let same_subject = subject.iter().any(|name| lower.contains(name.as_str()));
+                (score >= LOOKS_ALIKE || (same_subject && score >= LOOKS_ALIKE_SAME_SUBJECT))
+                    .then_some((score, known))
+            })
+            .collect();
+        alike.sort_by(|left, right| right.0.total_cmp(&left.0));
+        pairs.extend(
+            alike
+                .into_iter()
+                .take(ALIKE_PER_FACT)
+                .map(|(_, known)| (index, known.clone())),
+        );
+    }
+    pairs.truncate(ALIKE_AT_MOST);
+    pairs
+}
+
+/// Apply the judgment: a new fact she already had is not kept again; one
+/// that is how it is now replaces what she had. A fact both already had and
+/// replacing something is already had: nothing is replaced on its account.
+fn settle_already(
+    updates: &mut Vec<ChatMemoryUpdate>,
+    pairs: &[(usize, String)],
+    verdicts: &[myriad_merope::chat_remember::Already],
+) {
+    use myriad_merope::chat_remember::Already;
+    let had: std::collections::HashSet<usize> = pairs
+        .iter()
+        .zip(verdicts)
+        .filter(|(_, verdict)| **verdict == Already::Same)
+        .map(|((index, _), _)| *index)
+        .collect();
+    for ((index, known), verdict) in pairs.iter().zip(verdicts) {
+        if *verdict == Already::Replaces
+            && !had.contains(index)
+            && let Some(update) = updates.get_mut(*index)
+            && !update.supersedes.contains(known)
+        {
+            update.supersedes.push(known.clone());
+        }
+    }
+    for index in had {
+        if let Some(update) = updates.get_mut(index) {
+            update.fact = None;
+        }
+    }
+    updates.retain(|update| update.fact.is_some() || !update.supersedes.is_empty());
 }
 
 #[cfg(test)]
@@ -396,6 +537,72 @@ pub(crate) fn probe_input(user_text: &str, reply: &str, turn: &super::TurnContex
 
 #[cfg(test)]
 mod tests {
+    use super::{ChatMemoryUpdate, alike_unshown, settle_already};
+    use crate::services::agent::memory::unified::Concept;
+    use myriad_merope::chat_remember::Already;
+
+    fn new_fact(fact: &str, subject: &str) -> ChatMemoryUpdate {
+        ChatMemoryUpdate {
+            fact: Some(fact.into()),
+            supersedes: Vec::new(),
+            evidence: Some(fact.into()),
+            concepts: vec![Concept {
+                name: subject.into(),
+                aliases: Vec::new(),
+            }],
+        }
+    }
+
+    /// Only what looks alike is checked: said another way, or the same
+    /// subject with something changed; not everything about them.
+    #[test]
+    fn a_new_fact_is_checked_only_against_what_looks_like_it() {
+        let updates = vec![
+            new_fact("他的猫叫豆豆", "豆豆"),
+            new_fact("周六考试", "考试"),
+        ];
+        let unshown = vec![
+            "养了一只叫豆豆的猫".to_string(),
+            "周五要考试".to_string(),
+            "喜欢喝咖啡".to_string(),
+        ];
+        let pairs = alike_unshown(&updates, &unshown);
+        assert_eq!(
+            pairs,
+            vec![
+                (0, "养了一只叫豆豆的猫".to_string()),
+                (1, "周五要考试".to_string())
+            ]
+        );
+        assert!(alike_unshown(&[new_fact("在学吉他", "吉他")], &unshown).is_empty());
+    }
+
+    /// Already had: not kept again. How it is now: replaces what she had.
+    /// Unsure: both stay.
+    #[test]
+    fn the_judgment_keeps_once_or_replaces_never_merely_counts() {
+        let mut updates = vec![
+            new_fact("他的猫叫豆豆", "豆豆"),
+            new_fact("考试改到周六", "考试"),
+            new_fact("也喜欢茶", "茶"),
+        ];
+        let pairs = vec![
+            (0, "养了一只叫豆豆的猫".to_string()),
+            (1, "周五要考试".to_string()),
+            (2, "喜欢喝咖啡".to_string()),
+        ];
+        settle_already(
+            &mut updates,
+            &pairs,
+            &[Already::Same, Already::Replaces, Already::Different],
+        );
+        assert_eq!(updates.len(), 2, "the one she had is not kept twice");
+        assert_eq!(updates[0].fact.as_deref(), Some("考试改到周六"));
+        assert_eq!(updates[0].supersedes, vec!["周五要考试".to_string()]);
+        assert_eq!(updates[1].fact.as_deref(), Some("也喜欢茶"));
+        assert!(updates[1].supersedes.is_empty());
+    }
+
     #[test]
     fn what_they_put_her_onto_is_kept_only_when_they_said_it() {
         let user = "你可以去玩玩《Outer Wilds》，千万别看攻略";
