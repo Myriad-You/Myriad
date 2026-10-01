@@ -63,7 +63,7 @@
     "what": "Allows Tripo to generate, rig, or retarget 3D models (image/multiview → GLB).",
     "chain": "1) App uploads a reference image or model.\n2) Host calls Tripo; the API key never enters the sandbox.\n3) Persisted GLB returns an asset_id; Tapp.model3d.getUrl loads it in-sandbox.",
     "frontend": "In-app 3D generation/preview; site “Laboratory” settings.",
-    "notes": "Spends site Tripo credits; not delegated by default. Reading existing GLBs does not need this permission."
+    "notes": "Spends site Tripo credits; not delegated by default, and never delegated to guests. Reading existing GLBs does not need this permission."
   },
   "report:read": {
     "what": "Allows reading existing generated reports.",

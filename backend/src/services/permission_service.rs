@@ -96,7 +96,8 @@ pub const DELEGATIONS: &[Delegation] = delegations! {
     AiChat: user_perm_ai_chat, guest_perm_ai_chat;
     AiImage: user_perm_ai_image, guest_perm_ai_image;
     AiSearch: user_perm_ai_search, guest_perm_ai_search;
-    ThreeDGenerate: user_perm_3d_generate, guest_perm_3d_generate;
+    // 3D 生成花站点 Tripo 额度，游客可随时换会话，不下放给游客。
+    ThreeDGenerate: user_perm_3d_generate;
     NetworkFetch: user_perm_network_fetch, guest_perm_network_fetch;
     ComponentTheme: user_perm_component_theme;
     ShortcutRegister: user_perm_shortcut_register;
@@ -600,14 +601,15 @@ mod tests {
             UserRole::User,
             TappPermission::ThreeDGenerate
         ));
-        assert!(TappPermissionService::check(
+        // 游客列已删：即使库里残留 guest_perm_3d_generate=true 也不授予。
+        assert!(!TappPermissionService::check(
             &delegated,
             UserRole::Guest,
             TappPermission::ThreeDGenerate
         ));
         let effective = TappPermissionService::get_permission_config(&delegated);
         assert!(effective.user.three_d_generate);
-        assert!(effective.guest.three_d_generate);
+        assert!(!effective.guest.three_d_generate);
     }
 
     #[test]

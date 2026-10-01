@@ -63,7 +63,7 @@
     "what": "Permet à Tripo de générer, monter le rig ou réappliquer l’animation de modèles 3D (image/multivue → GLB).",
     "chain": "1) L’application envoie une image ou un modèle de référence.\n2) L’hôte appelle Tripo ; la clé API n’entre jamais dans le bac à sable.\n3) Le GLB persisté renvoie un asset_id ; Tapp.model3d.getUrl le charge dans le bac à sable.",
     "frontend": "Génération/aperçu 3D dans l’application ; paramètres du site « Laboratoire ».",
-    "notes": "Consomme les crédits Tripo du site ; non déléguée par défaut. Lire des GLB existants ne nécessite pas cette autorisation."
+    "notes": "Consomme les crédits Tripo du site ; non déléguée par défaut, et jamais aux invités. Lire des GLB existants ne nécessite pas cette autorisation."
   },
   "report:read": {
     "what": "Permet de lire les rapports déjà générés.",

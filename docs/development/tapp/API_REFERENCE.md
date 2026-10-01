@@ -548,7 +548,7 @@ Manifest 示例：
 
 ## 3D API
 
-**权限**: `3d:generate`（elevated，默认不下放）
+**权限**: `3d:generate`（elevated，默认不下放；游客不可下放）
 
 生成、绑定、重定向走宿主代调 Tripo；密钥不出沙箱。已持久化的 GLB 仍是公开
 content-addressed 资源，`Tapp.model3d.getUrl` / `getMetadata` 不需要本权限（沙箱

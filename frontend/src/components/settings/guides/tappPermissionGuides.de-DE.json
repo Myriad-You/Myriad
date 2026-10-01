@@ -63,7 +63,7 @@
     "what": "Ermöglicht Tripo, 3D-Modelle zu erzeugen, zu riggen oder umzubinden (Bild/Multiview → GLB).",
     "chain": "1) Die App lädt ein Referenzbild oder Modell hoch.\n2) Der Host ruft Tripo auf; der API-Schlüssel gelangt nie in die Sandbox.\n3) Ein gespeichertes GLB liefert eine asset_id; Tapp.model3d.getUrl lädt es in der Sandbox.",
     "frontend": "3D-Erzeugung/Vorschau in der App; Site-Einstellungen „Labor“.",
-    "notes": "Verbraucht Site-Tripo-Guthaben; standardmäßig nicht delegiert. Vorhandene GLBs lesen braucht diese Berechtigung nicht."
+    "notes": "Verbraucht Site-Tripo-Guthaben; standardmäßig nicht delegiert und nie an Gäste delegierbar. Vorhandene GLBs lesen braucht diese Berechtigung nicht."
   },
   "report:read": {
     "what": "Ermöglicht das Lesen vorhandener erzeugter Berichte.",

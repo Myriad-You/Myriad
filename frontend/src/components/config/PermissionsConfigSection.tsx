@@ -43,6 +43,8 @@ const GUEST_AUTHENTICATED_PERMISSION_KEYS = new Set([
   'federation_channel',
   'federation_room',
   'phantasi_comment_write',
+  // spends site Tripo credits; guests can rotate sessions, so never delegated
+  '3d_generate',
 ])
 export type AgentPermissionPreset = 'none' | 'chat' | 'standard' | 'elevated'
 

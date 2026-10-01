@@ -1071,7 +1071,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `ai:chat`            | AI 对话           |
 | `ai:image`           | AI 图片生成       |
 | `ai:search`          | AI 联网搜索（`Tapp.ai.tasks` `operation: "search"`；默认不下放） |
-| `3d:generate`        | 3D 模型生成（Tripo；默认不下放） |
+| `3d:generate`        | 3D 模型生成（Tripo；默认不下放，游客不可下放） |
 | `network:fetch`      | 服务端声明式 HTTP API 出站（不含远端图片，见 `media:remote`） |
 | `component:theme`    | 注册自定义主题    |
 | `shortcut:register`  | 注册键盘快捷键    |

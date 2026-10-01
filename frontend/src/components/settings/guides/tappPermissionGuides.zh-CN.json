@@ -63,7 +63,7 @@
     "what": "允许调用 Tripo 生成、绑定或重定向 3D 模型（图/多视图 → GLB）。",
     "chain": "① 应用上传参考图或已有模型。\n② 宿主代调 Tripo，密钥不出沙箱。\n③ 持久化 GLB 后返回 asset_id，可用 Tapp.model3d.getUrl 在沙箱内加载。",
     "frontend": "应用内的 3D 生成与预览；设置「实验室」为上游配置。",
-    "notes": "花费站点 Tripo 额度；默认不下放。读取已有 GLB 不需要本权限。"
+    "notes": "花费站点 Tripo 额度；默认不下放，且从不下放给游客。读取已有 GLB 不需要本权限。"
   },
   "report:read": {
     "what": "允许读取本站已生成的报告数据。",

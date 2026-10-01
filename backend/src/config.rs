@@ -689,7 +689,7 @@ pub struct DynamicConfig {
     pub guest_perm_ai_image: bool,
     /// ai:search - 联网搜索（游客）
     pub guest_perm_ai_search: bool,
-    /// 3d:generate - Tripo 3D 模型生成（游客）
+    /// 3d:generate - 游客授予路径恒 false（花站点额度）；字段保留供 DB/API 兼容
     pub guest_perm_3d_generate: bool,
     /// report:write - privileged，始终只限管理员；字段保留供 DB/API 兼容（游客）
     pub guest_perm_report_write: bool,
