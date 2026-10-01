@@ -27,6 +27,7 @@ use crate::models::entities::agent_addressee_state;
 use crate::services::agent::memory::unified::{Audience, Priming};
 
 mod chinese;
+mod days;
 mod full_size;
 mod longmemeval;
 mod probes;
@@ -146,6 +147,77 @@ async fn said_at(
     state.update(db).await.unwrap();
 }
 
+/// One turn of theirs written down as production writes it: what she
+/// already knows, whether it is worth writing, the extraction on the judgment
+/// model, then the same transaction, dated as the turn was. The updates
+/// applied, if any.
+pub(super) async fn remember_turn(
+    db: &sea_orm::DatabaseConnection,
+    judge: &crate::services::analyzer::AiAnalyzer,
+    user_id: i32,
+    present: &Audience,
+    text: &str,
+    reply: &str,
+    at: chrono::DateTime<chrono::FixedOffset>,
+) -> Option<super::chat_remember::ChatMemoryUpdates> {
+    let (existing, _) = super::store::recall_remembered_primed(
+        db,
+        user_id,
+        present,
+        Some(text),
+        8,
+        &Priming::default(),
+        1.0,
+    )
+    .await
+    .ok()?;
+    if !super::chat_remember::should_extract_chat_remember_against(text, &existing) {
+        return None;
+    }
+    let input = super::chat_remember::extract_input(
+        text,
+        reply,
+        &super::TurnContext::default(),
+        at.with_timezone(&chrono::Local),
+    );
+    let raw = judge
+        .analyze_json(
+            &myriad_merope::chat_remember::extract_system_prompt(&existing),
+            &input,
+            myriad_merope::chat_remember::EXTRACT_SCHEMA_NAME,
+            Some(&myriad_merope::chat_remember::extract_schema()),
+        )
+        .await
+        .ok()?;
+    let updates = super::chat_remember::parse_chat_memory_updates(&raw, text, reply, &existing)?;
+    said_at(db, user_id, at).await;
+    let before = chrono::Utc::now().fixed_offset();
+    let transaction = sea_orm::TransactionTrait::begin(db).await.ok()?;
+    let applied = super::store::apply_chat_memory_updates_on(
+        &transaction,
+        user_id,
+        at,
+        &updates,
+        present,
+    )
+    .await
+    .unwrap_or(false);
+    transaction.commit().await.ok()?;
+    if !applied {
+        return None;
+    }
+    // Dated as the turn was, not as the bench ran.
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET created_at = $1, valid_from = $1, updated_at = $1 \
+         WHERE user_id = $2 AND created_at >= $3",
+        [at.into(), user_id.into(), before.into()],
+    ))
+    .await
+    .ok()?;
+    Some(updates)
+}
+
 struct Outcome {
     written: bool,
     plain: Answered,
@@ -224,79 +296,24 @@ async fn run_one(
             if text.chars().count() > 2_000 {
                 continue;
             }
-            let (existing, _) = super::store::recall_remembered_primed(
-                db,
-                user_id,
-                &present,
-                Some(&text),
-                8,
-                &Priming::default(),
-                1.0,
-            )
-            .await
-            .unwrap();
-            if !super::chat_remember::should_extract_chat_remember_against(&text, &existing) {
-                continue;
-            }
-            let input = super::chat_remember::extract_input(
-                &text,
-                reply,
-                &super::TurnContext::default(),
-                at.with_timezone(&chrono::Local),
-            );
-            let Ok(raw) = judge
-                .analyze_json(
-                    &myriad_merope::chat_remember::extract_system_prompt(&existing),
-                    &input,
-                    myriad_merope::chat_remember::EXTRACT_SCHEMA_NAME,
-                    Some(&myriad_merope::chat_remember::extract_schema()),
-                )
-                .await
-            else {
-                continue;
-            };
             let Some(updates) =
-                super::chat_remember::parse_chat_memory_updates(&raw, &text, reply, &existing)
+                remember_turn(db, judge, user_id, &present, &text, reply, at).await
             else {
                 continue;
             };
-            said_at(db, user_id, at).await;
-            let before = chrono::Utc::now().fixed_offset();
-            let transaction = sea_orm::TransactionTrait::begin(db).await.unwrap();
-            let applied = super::store::apply_chat_memory_updates_on(
-                &transaction,
-                user_id,
-                at,
-                &updates,
-                &present,
-            )
-            .await
-            .unwrap_or(false);
-            transaction.commit().await.unwrap();
-            if applied {
-                // Dated as the session was, not as the bench ran.
-                db.execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "UPDATE agent_memories SET created_at = $1, valid_from = $1, updated_at = $1 \
-                     WHERE user_id = $2 AND created_at >= $3",
-                    [at.into(), user_id.into(), before.into()],
-                ))
-                .await
-                .unwrap();
-                kept += 1;
-                // What answers the question may be in their words or hers.
-                let answer_here =
-                    turn.has_answer || turns.get(index + 1).is_some_and(|next| next.has_answer);
-                if answer_here {
-                    answering.extend(
-                        updates
-                            .updates
-                            .iter()
-                            .filter_map(|update| update.fact.as_deref())
-                            .chain(updates.said.iter().map(|said| said.said.as_str()))
-                            .map(super::ingest::compact_summary),
-                    );
-                }
+            kept += 1;
+            // What answers the question may be in their words or hers.
+            let answer_here =
+                turn.has_answer || turns.get(index + 1).is_some_and(|next| next.has_answer);
+            if answer_here {
+                answering.extend(
+                    updates
+                        .updates
+                        .iter()
+                        .filter_map(|update| update.fact.as_deref())
+                        .chain(updates.said.iter().map(|said| said.said.as_str()))
+                        .map(super::ingest::compact_summary),
+                );
             }
         }
     }

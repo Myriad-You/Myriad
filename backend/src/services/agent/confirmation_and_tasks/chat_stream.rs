@@ -385,7 +385,7 @@ impl Agent {
         }
     }
 
-    async fn chat_response_prompt(&self, request: &UserRequest) -> String {
+    pub(crate) async fn chat_response_prompt(&self, request: &UserRequest) -> String {
         let soul = crate::services::agent::identity::get_speaking_soul()
             .await
             .unwrap_or_default();

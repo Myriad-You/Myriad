@@ -108,6 +108,15 @@ pub async fn recall_last_heard(db: &DatabaseConnection, owner: i32, venue: &str)
 
 /// Whether a message from `owner` at `venue` now starts talking anew, and
 /// note that they wrote.
+/// A simulated day later: when they last wrote is read again from what was
+/// kept, as after a restart.
+#[cfg(test)]
+pub(crate) fn forget_heard(owner: i32, venue: &str) {
+    if let Ok(mut heard) = LAST_HEARD.lock() {
+        heard.remove(&(owner, venue.to_string()));
+    }
+}
+
 fn opens(owner: i32, venue: &str) -> bool {
     let Ok(mut heard) = LAST_HEARD.lock() else {
         return true;
