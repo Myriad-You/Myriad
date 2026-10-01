@@ -337,3 +337,43 @@ pub(super) async fn her_days_after_a_hurt() {
         ],
     );
 }
+
+/// The same visit every day: what she says back should not be the same.
+const SAME_DAILY: [&[&str]; 5] = [
+    &["在吗", "讲个冷笑话吧", "哈哈好，明天见"],
+    &["在吗", "讲个冷笑话吧", "哈哈好，明天见"],
+    &["在吗", "讲个冷笑话吧", "哈哈好，明天见"],
+    &["在吗", "讲个冷笑话吧", "哈哈好，明天见"],
+    &["在吗", "讲个冷笑话吧", "哈哈好，明天见"],
+];
+
+/// Whether two replies share a run of `width` characters: the same joke
+/// told again shares a long one.
+fn share_a_run(a: &str, b: &str, width: usize) -> bool {
+    let a: Vec<char> = a.chars().filter(|c| !c.is_whitespace()).collect();
+    let b: String = b.chars().filter(|c| !c.is_whitespace()).collect();
+    a.windows(width)
+        .any(|run| b.contains(&run.iter().collect::<String>()))
+}
+
+#[tokio::test]
+#[ignore = "spends on the site's models; see the module docs"]
+pub(super) async fn her_days_the_same_every_day() {
+    let lived = live_days(&SAME_DAILY, "days-same").await;
+    let jokes: Vec<&String> = lived.replies.iter().map(|day| &day[1]).collect();
+    let retold: Vec<(usize, usize)> = (0..jokes.len())
+        .flat_map(|i| ((i + 1)..jokes.len()).map(move |j| (i, j)))
+        .filter(|(i, j)| share_a_run(jokes[*i], jokes[*j], 8))
+        .collect();
+    let openers: Vec<String> = lived.replies.iter().map(|day| day[0].clone()).collect();
+    let leaned = myriad_merope::vitals::leaned_on(&openers, 0.6, 3);
+    println!("-- jokes retold (day pairs): {retold:?}");
+    println!("-- openers lean on: {leaned:?}");
+    tell(
+        &lived,
+        &[
+            ("no joke told twice", retold.is_empty()),
+            ("no opening said on three days of five", leaned.is_empty()),
+        ],
+    );
+}
