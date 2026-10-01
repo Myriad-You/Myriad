@@ -323,7 +323,7 @@ pub use speaking_prompts::{
 };
 
 pub use speaking_context::{
-    audience_for, resolve_addressee_label, speaking_prompt, speaking_prompt_for_event,
+    audience_for, her_openers, resolve_addressee_label, speaking_prompt, speaking_prompt_for_event,
     speaking_prompt_in_group, speaking_prompt_plain, speaking_prompt_to_reach,
     speaking_prompt_with_query, their_typing, with_said_unprompted,
 };

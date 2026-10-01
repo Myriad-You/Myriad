@@ -44,6 +44,45 @@ pub async fn resolve_addressee_label(db: &sea_orm::DatabaseConnection, user_id: 
     format_addressee_label(user_id, display_name.as_deref(), username.as_deref())
 }
 
+/// Her first words the last few times this person came back to her in
+/// private after a while (their message following three hours apart),
+/// oldest first: (how long ago, what she said). As of now as this turn is
+/// put together.
+pub async fn her_openers(db: &sea_orm::DatabaseConnection, user_id: i32) -> Vec<(String, String)> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    const SHOWN: i64 = 4;
+    let now = super::clock::now();
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "WITH t AS (SELECT m.role, m.content, m.created_at, lag(m.role) OVER w AS r1, \
+               lag(m.created_at) OVER w AS a1, lag(m.created_at, 2) OVER w AS a2 \
+               FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+               WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+                 AND NOT s.archived AND m.created_at < $2 \
+               WINDOW w AS (ORDER BY m.created_at)) \
+             SELECT content, created_at FROM t WHERE role = 'assistant' AND r1 = 'user' \
+               AND a2 IS NOT NULL AND a1 - a2 >= interval '3 hours' \
+             ORDER BY created_at DESC LIMIT $3",
+            [user_id.into(), now.fixed_offset().into(), SHOWN.into()],
+        ))
+        .await
+        .unwrap_or_default();
+    let mut openers: Vec<(String, String)> = rows
+        .iter()
+        .filter_map(|row| {
+            let content: String = row.try_get("", "content").ok()?;
+            let at: chrono::DateTime<chrono::FixedOffset> = row.try_get("", "created_at").ok()?;
+            Some((
+                myriad_merope::doing::ago_text(now - at.with_timezone(&chrono::Utc)),
+                content,
+            ))
+        })
+        .collect();
+    openers.reverse();
+    openers
+}
+
 /// When this person first wrote to her and on how many different days they
 /// have written, from everything they sent her anywhere. Looked up at most
 /// every few minutes per person.

@@ -566,6 +566,27 @@ impl Agent {
                 format!("{merope_block}\n\n{section}")
             };
         }
+        // Coming back after a while: how she greeted them the last times
+        // they did, so a greeting of hers she says every time is known to her.
+        let came_back = supplied
+            .last()
+            .and_then(|message| message.created_at.as_deref())
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+            .is_some_and(|at| {
+                crate::services::agent::merope::clock::now() - at.with_timezone(&chrono::Utc)
+                    >= chrono::Duration::hours(3)
+            });
+        if venue.is_none() && came_back {
+            let openers =
+                crate::services::agent::merope::her_openers(&self.db, request.user_id).await;
+            if let Some(section) = myriad_merope::speaking::format_openers_section(&openers) {
+                merope_block = if merope_block.is_empty() {
+                    section
+                } else {
+                    format!("{merope_block}\n\n{section}")
+                };
+            }
+        }
         if venue.is_some() {
             // A turtle soup on in this group, with this line judged; or how
             // she would start one for the group.

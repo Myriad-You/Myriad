@@ -323,6 +323,42 @@ pub fn format_habits_section<S: AsRef<str>>(hers: &[S]) -> Option<String> {
     })
 }
 
+/// How she greeted them the last few times they came back after a while:
+/// (how long ago, her first line), oldest first. With a phrase in most of
+/// them, that too. Facts for her to weigh, as anyone who noticed they say
+/// the same thing every time would; nothing when there are too few to tell.
+pub fn format_openers_section(openers: &[(String, String)]) -> Option<String> {
+    const SHOWN_CHARS: usize = 40;
+    if openers.len() < 2 {
+        return None;
+    }
+    let mut lines: Vec<String> = openers
+        .iter()
+        .map(|(ago, line)| {
+            let first: String = line
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .unwrap_or_default()
+                .chars()
+                .take(SHOWN_CHARS)
+                .collect();
+            format!("- {ago}: {first}")
+        })
+        .collect();
+    let said: Vec<&str> = openers.iter().map(|(_, line)| line.as_str()).collect();
+    for (phrase, share) in crate::vitals::leaned_on(&said, 0.5, 2) {
+        lines.push(format!(
+            "「{phrase}」 is in {} of these.",
+            (share * said.len() as f64).round() as usize
+        ));
+    }
+    Some(format!(
+        "## How you greeted them when they came back\nYour own first words the last few times they came back after a while, as you said them. Only so you know it, as anyone who caught their own habit would.\n{}",
+        lines.join("\n")
+    ))
+}
+
 /// Her lines in this conversation that already told them about `about`
 /// (something of her own time): a line naming at least two of its pieces.
 pub fn already_told<'a>(about: &str, hers: &[&'a str]) -> Vec<&'a str> {
@@ -1044,6 +1080,17 @@ mod tests {
         assert!(block.contains("- 晚上想打独立游戏"));
         assert!(block.contains("about_them"), "fenced as data");
         assert!(!block.contains("diary"));
+        let greeted = |line: &str| ("2 days ago".to_string(), line.to_string());
+        assert!(format_openers_section(&[greeted("你可算冒头了！")]).is_none());
+        let openers = format_openers_section(&[
+            greeted("哟，你可算冒头了！\n今天干嘛去了"),
+            greeted("你可算冒头了，大半夜的"),
+            greeted("你可算冒头了！"),
+        ])
+        .unwrap();
+        assert!(openers.contains("- 2 days ago: 哟，你可算冒头了！"));
+        assert!(openers.contains("of these."), "{openers}");
+        assert!(!openers.contains("Do not") && !openers.contains("never"));
         let recent = format_recent_section(&["Steam 解锁了成就".into()]).unwrap();
         assert!(recent.contains("## Recently"));
         assert!(recent.contains("scene you are performing"));
