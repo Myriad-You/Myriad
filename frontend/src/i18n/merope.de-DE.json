@@ -468,6 +468,7 @@
       "openersLeanOn": "Begrüßungs-Wendungen",
       "proactive": "Zuerst geschrieben",
       "proactiveCount": "{sent}, {answered} beantwortet",
+      "learned": "Neu gelernt",
       "alerts": {
         "unreadable": "{count} ihrer eigenen Einträge sind nicht lesbar",
         "failedCalls": "{failed} von {calls} Aufrufen fehlgeschlagen",
@@ -478,7 +479,8 @@
         "openersLeanOn": "„{phrase}“ in {percent}% ihrer Begrüßungen",
         "proactiveUnanswered": "{sent} zuerst geschrieben diese Woche, nur {answered} beantwortet",
         "slowReplies": "jede zehnte Antwort über {seconds}s",
-        "manyCalls": "{calls} Aufrufe, mehr als doppelt so viele wie üblich ({usual})"
+        "manyCalls": "{calls} Aufrufe, mehr als doppelt so viele wie üblich ({usual})",
+        "nothingLearned": "Seit {days} Tagen nichts Neues gelernt"
       }
     }
   }

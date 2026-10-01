@@ -2,31 +2,65 @@
 
 use super::*;
 
-/// When she last learned anything, about anyone or from something she did on
-/// her own, if ever. Her days are not learning.
+/// When she last learned something new, if ever: a fact about someone they
+/// told her (or that came up about them), something she looked up, a
+/// question of her own she went into, or something heard from others or
+/// put to her to try. Not her everyday doings: a song or a note read is not
+/// learning, and counting them made the answer "minutes ago" all day.
 pub async fn last_learned_at<C: ConnectionTrait>(
     db: &C,
 ) -> Result<Option<chrono::DateTime<chrono::FixedOffset>>, DbErr> {
     Ok(agent_memories::Entity::find()
-        .filter(
-            sea_orm::Condition::any()
-                .add(agent_memories::Column::UserId.is_not_null())
-                .add(agent_memories::Column::Kind.eq(MemoryKind::Knowledge.as_str())),
-        )
-        .filter(agent_memories::Column::Source.is_not_in(NOTED_IN_PASSING))
+        .filter(learned())
         .order_by_desc(agent_memories::Column::CreatedAt)
         .one(db)
         .await?
         .map(|row| row.created_at))
 }
 
-/// Sources of what she noted about someone in passing rather than learned
-/// from them: what they played, games she played with them.
-pub const NOTED_IN_PASSING: [&str; 2] = ["presence", "game"];
+/// How many new things she learned between `start` and `end` (see
+/// [`last_learned_at`]).
+pub async fn learned_between<C: ConnectionTrait>(
+    db: &C,
+    start: chrono::DateTime<chrono::FixedOffset>,
+    end: chrono::DateTime<chrono::FixedOffset>,
+) -> Result<u64, DbErr> {
+    use sea_orm::PaginatorTrait;
+    agent_memories::Entity::find()
+        .filter(learned())
+        .filter(agent_memories::Column::CreatedAt.gte(start))
+        .filter(agent_memories::Column::CreatedAt.lt(end))
+        .count(db)
+        .await
+}
+
+/// Rows that are something newly learned.
+fn learned() -> sea_orm::Condition {
+    use sea_orm::Condition;
+    Condition::any()
+        .add(
+            Condition::all()
+                .add(agent_memories::Column::UserId.is_not_null())
+                .add(agent_memories::Column::Source.is_in(LEARNED_ABOUT_SOMEONE)),
+        )
+        .add(agent_memories::Column::Source.eq(LEARNED_HEARD))
+        .add(
+            Condition::all()
+                .add(agent_memories::Column::Source.eq(OWN_EXPERIENCE))
+                .add(agent_memories::Column::Evidence.like("%\"kind\":\"inquiry\"%")),
+        )
+}
+
+/// Sources of what she learns about someone or looks up: what they told
+/// her, what came up about them, what she searched for.
+const LEARNED_ABOUT_SOMEONE: [&str; 3] = ["chat", "event", "lookup"];
+/// What she heard from others, or was put on to (see `merope::heard`).
+const LEARNED_HEARD: &str = "heard";
 
 /// Sources recalled only when the talk comes to them, never as the recent
-/// context: what she noted in passing, and what she looked up (one search,
-/// put before her every turn, became a story she kept retelling).
+/// context: what she noted about someone in passing (what they played,
+/// games she played with them), and what she looked up (one search, put
+/// before her every turn, became a story she kept retelling).
 pub const RECALLED_WHEN_NAMED: [&str; 3] = ["presence", "game", "lookup"];
 
 /// People she keeps memories of from private talk, most remembered first.

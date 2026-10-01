@@ -468,6 +468,7 @@
       "openersLeanOn": "Openers lean on",
       "proactive": "Written first",
       "proactiveCount": "{sent}, {answered} answered",
+      "learned": "Learned something new",
       "alerts": {
         "unreadable": "{count} of her own records cannot be read back",
         "failedCalls": "{failed} of {calls} calls failed",
@@ -478,7 +479,8 @@
         "openersLeanOn": "「{phrase}」 in {percent}% of her openers",
         "proactiveUnanswered": "{sent} written first this week, only {answered} answered",
         "slowReplies": "one reply in ten took over {seconds}s",
-        "manyCalls": "{calls} calls, over twice the usual {usual}"
+        "manyCalls": "{calls} calls, over twice the usual {usual}",
+        "nothingLearned": "Nothing new learned for {days} days running"
       }
     }
   }

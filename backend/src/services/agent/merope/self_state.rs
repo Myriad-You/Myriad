@@ -9,8 +9,9 @@
 //! - **Energy** follows the day (low at night) and drops with how many
 //!   different people she has been talking to lately. Five people wear her out
 //!   more than five turns with one.
-//! - **Curiosity** grows with the time since she last learned anything new
-//!   about anyone, and learning eases it.
+//! - **How long since she learned something new** (a fact about someone,
+//!   something looked up or found out, something heard): a fact, not a
+//!   score. Her everyday doings are not learning.
 //!
 //! Two different uses, kept apart:
 //! - **Mechanical knobs** the system turns from these numbers: how long she
@@ -19,8 +20,8 @@
 //! - **What the model is told** is only the facts underneath ([`SelfFacts`]):
 //!   the time, how many people talked with her lately, how long since anyone
 //!   came, how long since she learned something new. How tired or curious she
-//!   is, and what that does to how she talks, is the model's judgment, never
-//!   an instruction. Scores never reach a prompt.
+//!   is, what she does about it and how she talks, is the model's judgment,
+//!   never an instruction. Scores never reach a prompt.
 
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -34,8 +35,6 @@ const FATIGUE_PER_PERSON: f64 = 12.0;
 const FATIGUE_TAU_H: f64 = 1.5;
 /// Only this far back counts toward either.
 const LOOKBACK_H: i64 = 24;
-/// The want to know builds over most of a day without anything new.
-const CURIOSITY_TAU_H: f64 = 6.0;
 const CACHE_FOR: Duration = Duration::from_secs(30);
 /// The shortest wait between unprompted words; tiredness only lengthens it.
 pub const BASE_PROACTIVE_COOLDOWN_SECS: i64 = 180;
@@ -60,8 +59,6 @@ const RECENT_PEOPLE_H: f64 = 6.0;
 pub struct SelfState {
     /// 0–100.
     pub energy: f64,
-    /// 0–100: 0 just learned something, 100 nothing new for long.
-    pub curiosity: f64,
     pub facts: SelfFacts,
 }
 
@@ -70,14 +67,13 @@ impl SelfState {
         self.energy < 40.0
     }
 
-    /// The same state, with curiosity from how long ago she last learned
-    /// something new (`None`: never).
+    /// The same state, knowing how long ago she last learned something new
+    /// (`None`: never).
     pub fn with_last_learned(self, hours_ago: Option<f64>) -> Self {
         let hours = hours_ago
             .filter(|hours| hours.is_finite() && *hours >= 0.0)
             .unwrap_or(f64::INFINITY);
         Self {
-            curiosity: 100.0 * (1.0 - (-hours / CURIOSITY_TAU_H).exp()),
             facts: SelfFacts {
                 hours_since_learned: hours.is_finite().then_some(hours),
                 ..self.facts
@@ -139,7 +135,6 @@ pub fn derive(hour: u32, contacts: &[f64]) -> SelfState {
         .collect();
     SelfState {
         energy,
-        curiosity: 0.0,
         facts: SelfFacts {
             local_hour: hour,
             local_minute: 0,
@@ -281,14 +276,9 @@ mod tests {
     }
 
     #[test]
-    fn nothing_new_for_long_makes_her_curious_and_learning_eases_it() {
+    fn how_long_since_she_learned_something_is_a_fact_not_a_score() {
         let base = derive(14, &[]);
-        assert!(
-            base.with_last_learned(None).curiosity >= 60.0,
-            "never learned anything"
-        );
-        assert!(base.with_last_learned(Some(10.0)).curiosity >= 60.0);
-        assert!(base.with_last_learned(Some(0.5)).curiosity < 60.0);
+        assert_eq!(base.with_last_learned(None).facts.hours_since_learned, None);
         assert_eq!(
             base.with_last_learned(Some(12.04))
                 .facts_view()

@@ -764,6 +764,7 @@ export type MindAlert =
   | { kind: 'proactiveUnanswered'; sent: number; answered: number }
   | { kind: 'slowReplies'; seconds: number }
   | { kind: 'manyCalls'; calls: number; usual: number }
+  | { kind: 'nothingLearned'; days: number }
 
 /** A day of her, counted without any model. */
 export interface MindVitalsDay {
@@ -787,6 +788,8 @@ export interface MindVitalsDay {
   openersLeanOn?: [string, number][]
   proactive?: number
   proactiveAnswered?: number
+  /** New things she learned that day; null on days counted before this was. */
+  learned?: number | null
   alerts: MindAlert[]
 }
 

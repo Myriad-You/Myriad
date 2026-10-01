@@ -468,6 +468,7 @@
       "openersLeanOn": "開場常用",
       "proactive": "主動發的",
       "proactiveCount": "{sent} 則，{answered} 則有回應",
+      "learned": "學到新東西",
       "alerts": {
         "unreadable": "有 {count} 條她自己的經歷讀不出來",
         "failedCalls": "{calls} 次呼叫裡失敗 {failed} 次",
@@ -478,7 +479,8 @@
         "openersLeanOn": "回來時的開場 {percent}% 帶著「{phrase}」",
         "proactiveUnanswered": "這一週主動發了 {sent} 則，只有 {answered} 則有回應",
         "slowReplies": "最慢的一成回覆超過 {seconds} 秒",
-        "manyCalls": "呼叫 {calls} 次，超過平常（{usual}）兩倍"
+        "manyCalls": "呼叫 {calls} 次，超過平常（{usual}）兩倍",
+        "nothingLearned": "連著 {days} 天沒學到任何新東西"
       }
     }
   }

@@ -53,6 +53,11 @@ pub struct Day {
     pub proactive: u64,
     #[serde(default)]
     pub proactive_answered: u64,
+    /// New things she learned that day: facts about someone, things looked
+    /// up, questions she went into, things heard or put to her. None on days
+    /// counted before this was.
+    #[serde(default)]
+    pub learned: Option<u64>,
     /// What is worth raising.
     pub alerts: Vec<Alert>,
 }
@@ -97,6 +102,11 @@ pub enum Alert {
     },
     SlowReplies {
         seconds: u64,
+    },
+    /// Days on end she learned nothing new: her wanting to know has had
+    /// nothing to go on, or nowhere to go.
+    NothingLearned {
+        days: u64,
     },
     ManyCalls {
         calls: u64,
@@ -281,6 +291,14 @@ pub fn alerts(today: &Day, before: &[Day]) -> Vec<Alert> {
             seconds: seconds.round() as u64,
         });
     }
+    // Nothing new learned today and the day before (both counted).
+    let unlearned = std::iter::once(today)
+        .chain(before.iter().rev())
+        .take_while(|day| day.learned == Some(0))
+        .count() as u64;
+    if unlearned >= NOTHING_LEARNED_DAYS {
+        alerts.push(Alert::NothingLearned { days: unlearned });
+    }
     let usual_calls = quantile(
         &before
             .iter()
@@ -299,9 +317,25 @@ pub fn alerts(today: &Day, before: &[Day]) -> Vec<Alert> {
     alerts
 }
 
+/// Days in a row of learning nothing new before it is raised.
+pub const NOTHING_LEARNED_DAYS: u64 = 2;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn days_of_learning_nothing_new_are_raised() {
+        let learned = |learned: Option<u64>| Day {
+            learned,
+            ..Day::default()
+        };
+        let quiet = alerts(&learned(Some(0)), &[learned(Some(3)), learned(Some(0))]);
+        assert!(quiet.contains(&Alert::NothingLearned { days: 2 }));
+        // One quiet day, or days counted before this was: nothing raised.
+        assert!(alerts(&learned(Some(0)), &[learned(Some(4))]).is_empty());
+        assert!(alerts(&learned(Some(0)), &[learned(None)]).is_empty());
+    }
 
     #[test]
     fn what_she_leans_on_is_found_and_only_that() {

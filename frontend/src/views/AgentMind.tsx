@@ -283,6 +283,8 @@ export default function AgentMind() {
         return fill(copy.vitals.alerts.slowReplies, { seconds: alert.seconds })
       case 'manyCalls':
         return fill(copy.vitals.alerts.manyCalls, { calls: alert.calls, usual: alert.usual })
+      case 'nothingLearned':
+        return fill(copy.vitals.alerts.nothingLearned, { days: alert.days })
     }
   }
 
@@ -357,6 +359,9 @@ export default function AgentMind() {
           <div>
             {copy.vitals.proactive}：
             {fill(copy.vitals.proactiveCount, { sent: latest.proactive ?? 0, answered: latest.proactiveAnswered ?? 0 })}
+          </div>
+          <div>
+            {copy.vitals.learned}：{latest.learned ?? '—'}
           </div>
         </div>
       </>

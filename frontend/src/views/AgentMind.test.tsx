@@ -39,7 +39,8 @@ const fixture = {
       day: '2026-09-30', calls: 226, failedCalls: 3, inputTokens: 509856, busiest: [['doing_choice', 81]], kept: { doing: 67 },
       unreadable: 2, things: 67, ownMinutes: 399, lazedMinutes: 0, landed: { liked: 20, moved: 20 }, replies: 8, replyP50: 7.6, replyP90: 10.3,
       notesLeanOn: [['不是这个', 0.36]], repliesLeanOn: [], repliesAsking: 0.72, openersLeanOn: [['怎么这个点', 0.6]], proactive: 3, proactiveAnswered: 1,
-      alerts: [{ kind: 'unreadable', count: 2 }, { kind: 'notesLeanOn', phrase: '不是这个', percent: 36 }, { kind: 'repliesAsking', percent: 72 }, { kind: 'proactiveUnanswered', sent: 6, answered: 1 }],
+      learned: 0,
+      alerts: [{ kind: 'unreadable', count: 2 }, { kind: 'notesLeanOn', phrase: '不是这个', percent: 36 }, { kind: 'repliesAsking', percent: 72 }, { kind: 'proactiveUnanswered', sent: 6, answered: 1 }, { kind: 'nothingLearned', days: 2 }],
     }],
     taste: { likedBy: [{ kind: 'song', name: 'ヨルシカ' }], notForHer: [] },
     pace: {
@@ -146,6 +147,7 @@ test('her mind shows herself, each person and each group, with how each changed'
       assert.ok(text().includes('有 2 条她自己的经历读不出来') && text().includes('心得里 36% 出现「不是这个」'))
       assert.ok(text().includes('72% 的回复以问句收尾'))
       assert.ok(text().includes('这一周主动发了 6 条，只有 1 条有回应') && text().includes('3 条，1 条有回应'))
+      assert.ok(text().includes('学到新东西：0') && text().includes('连着 2 天没学到任何新东西'))
     }
     await tab('people')
     if (snapshot === fixture) {

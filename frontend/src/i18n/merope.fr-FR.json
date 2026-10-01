@@ -468,6 +468,7 @@
       "openersLeanOn": "Ouvertures récurrentes",
       "proactive": "Écrit en premier",
       "proactiveCount": "{sent}, {answered} avec réponse",
+      "learned": "Appris de nouveau",
       "alerts": {
         "unreadable": "{count} de ses propres entrées sont illisibles",
         "failedCalls": "{failed} appels sur {calls} ont échoué",
@@ -478,7 +479,8 @@
         "openersLeanOn": "« {phrase} » dans {percent}% de ses ouvertures",
         "proactiveUnanswered": "{sent} messages écrits en premier cette semaine, {answered} seulement ont eu une réponse",
         "slowReplies": "une réponse sur dix a pris plus de {seconds}s",
-        "manyCalls": "{calls} appels, plus du double de l'habitude ({usual})"
+        "manyCalls": "{calls} appels, plus du double de l'habitude ({usual})",
+        "nothingLearned": "Rien appris de nouveau depuis {days} jours"
       }
     }
   }
