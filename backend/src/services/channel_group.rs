@@ -148,6 +148,12 @@ const TYPING_EVERY: Duration = Duration::from_secs(4);
 /// Runtime-registry namespace of each group's recent lines: what she keeps
 /// in mind of a group outlives a restart, for as long as she would keep it.
 const LINES_NAMESPACE: &str = "group_lines";
+/// Runtime-registry namespace of the groups she is in (see `StoredReach`):
+/// after a restart she can still say something first in one that has gone
+/// quiet, for as long as it counts as one she is in.
+const REACH_NAMESPACE: &str = "group_reach";
+/// How often a group she is in is written down again, at most.
+const REACH_KEPT_EVERY: Duration = Duration::from_secs(10 * 60);
 
 #[cfg(test)]
 mod tests;

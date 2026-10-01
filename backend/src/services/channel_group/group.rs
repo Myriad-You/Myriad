@@ -47,6 +47,16 @@ pub(super) struct StoredLines {
     pub(super) lines: Vec<Line>,
 }
 
+/// A group she is in, as kept across a restart: where in it she would say
+/// something (a Telegram forum topic), and when she last saw a line there.
+/// Never the token: that is read from the configuration when she sends.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(super) struct StoredReach {
+    #[serde(default)]
+    pub(super) thread: Option<i64>,
+    pub(super) seen_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// Whether a line is still one she keeps in mind of the group.
 pub(super) fn within(line: &Line, window: Duration) -> bool {
     (chrono::Utc::now() - line.at)
@@ -97,6 +107,11 @@ pub(super) struct Group {
     /// The latest line seen there and the token it came with: where she
     /// would say something first (see `share_first`).
     pub(super) reach: Option<(GroupLine, String)>,
+    /// When the group was last written down as one she is in.
+    pub(super) reach_kept: Option<Instant>,
+    /// When she last saw a line there, as kept before a restart: for a
+    /// group whose lines were not kept that long.
+    pub(super) seen_before: Option<chrono::DateTime<chrono::Utc>>,
     /// Messages and waits not yet written to the group's ledger.
     pub(super) ledger: Vec<myriad_merope::talk_shape::Typed>,
     pub(super) ledger_waits: Vec<f64>,

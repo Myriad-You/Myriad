@@ -183,6 +183,52 @@ pub async fn groups_lately(platform: ChannelPlatform) -> Vec<String> {
         .collect()
 }
 
+/// Write the group down as one she is in, now and then: kept as long as it
+/// counts as one (see `reaching_out::SEEN_WITHIN`).
+async fn keep_reach(message: &GroupLine) {
+    let venue = message.venue();
+    let due = with_group(&venue, |group| {
+        let due = group
+            .reach_kept
+            .is_none_or(|kept| kept.elapsed() >= REACH_KEPT_EVERY);
+        if due {
+            group.reach_kept = Some(Instant::now());
+        }
+        due
+    })
+    .unwrap_or(false);
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    if !due {
+        return;
+    }
+    let now = chrono::Utc::now();
+    let keep_until = (now
+        + chrono::Duration::from_std(super::reaching_out::SEEN_WITHIN).unwrap_or_default())
+    .timestamp();
+    if let Err(error) = crate::services::runtime_registry::put(
+        &db,
+        REACH_NAMESPACE,
+        &venue,
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: None,
+            owner_id: None,
+            tapp_id: None,
+            runtime_id: None,
+        },
+        &StoredReach {
+            thread: message.thread,
+            seen_at: now,
+        },
+        keep_until,
+    )
+    .await
+    {
+        warn!(%error, %venue, "[Group] could not keep that she is in the group");
+    }
+}
+
 pub(super) fn bounded(text: &str) -> String {
     text.chars().take(MAX_LINE_CHARS).collect()
 }
@@ -202,6 +248,7 @@ pub async fn record(message: &GroupLine) {
     };
     let venue = message.venue();
     remember_line(&venue, line).await;
+    keep_reach(message).await;
     let typed = myriad_merope::talk_shape::typed_by(
         &ledger_who(&message.from),
         chrono::Utc::now().timestamp(),

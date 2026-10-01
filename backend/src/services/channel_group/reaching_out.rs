@@ -73,6 +73,8 @@ async fn offered(
     only: Option<&str>,
 ) -> Vec<crate::services::agent::merope::group::sharing::Offered> {
     use crate::services::agent::merope::group::{bits, sharing};
+    bring_back(db).await;
+    let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
     let now = chrono::Utc::now();
     let seen: Vec<(String, Vec<String>, String, Vec<serde_json::Value>)> = {
         let Ok(groups) = GROUPS.lock() else {
@@ -83,9 +85,14 @@ async fn offered(
             .filter(|(venue, _)| only.is_none_or(|only| only == venue.as_str()))
             .filter(|(_, group)| !group.busy && !in_talk(group) && !muted_now(group, now))
             .filter_map(|(venue, group)| {
-                group.reach.as_ref()?;
-                let last = group.lines.back();
-                let quiet = last.map(|line| now - line.at);
+                let (reach, _) = group.reach.as_ref()?;
+                token_for(reach.platform, &reach.chat, &config)?;
+                let quiet = group
+                    .lines
+                    .back()
+                    .map(|line| line.at)
+                    .or(group.seen_before)
+                    .map(|at| now - at);
                 if quiet.is_some_and(|quiet| quiet.to_std().is_ok_and(|quiet| quiet > SEEN_WITHIN))
                 {
                     return None;
@@ -139,6 +146,91 @@ async fn offered(
         });
     }
     offered
+}
+
+/// The groups she is in that are not in mind since a restart, brought back
+/// from what was kept (see `memory::keep_reach`): their lines, if kept, and
+/// where she would say something. The token is read from the configuration.
+async fn bring_back(db: &DatabaseConnection) {
+    let kept = crate::services::runtime_registry::list(db, REACH_NAMESPACE, None, None)
+        .await
+        .unwrap_or_default();
+    if kept.is_empty() {
+        return;
+    }
+    let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
+    for row in kept {
+        let venue = row.record_id;
+        let in_mind = GROUPS.lock().ok().is_some_and(|groups| {
+            groups
+                .get(&venue)
+                .is_some_and(|group| group.reach.is_some())
+        });
+        if in_mind {
+            continue;
+        }
+        let Ok(stored) = serde_json::from_value::<StoredReach>(row.payload) else {
+            continue;
+        };
+        let Some((platform, chat)) = venue.split_once(':').and_then(|(slug, chat)| {
+            ChannelPlatform::ALL
+                .into_iter()
+                .find(|platform| platform.slug() == slug)
+                .map(|platform| (platform, chat.to_string()))
+        }) else {
+            continue;
+        };
+        let Some(token) = token_for(platform, &chat, &config) else {
+            continue;
+        };
+        restore(db, &venue).await;
+        let seen = GroupLine {
+            platform,
+            chat,
+            message_id: String::new(),
+            thread: stored.thread,
+            from: String::new(),
+            display_name: String::new(),
+            text: String::new(),
+            addressed: false,
+            reply_to: None,
+            images: Vec::new(),
+        };
+        with_group(&venue, |group| {
+            if group.reach.is_none() {
+                group.reach = Some((seen, token));
+                group.seen_before = Some(stored.seen_at);
+            }
+        });
+        info!(%venue, "[Group] a group she is in, brought back after a restart");
+    }
+}
+
+/// What she sends into a group with, while she still may: the bot is on,
+/// the group is let in (OneBot's allowlist), and it has a token (OneBot
+/// needs none). None for a platform she does not send to groups on.
+pub(super) fn token_for(
+    platform: ChannelPlatform,
+    chat: &str,
+    config: &crate::config::DynamicConfig,
+) -> Option<String> {
+    if !platform.enabled(config) {
+        return None;
+    }
+    match platform {
+        ChannelPlatform::OneBot => myriad_agent_rules::onebot::rules::onebot_group_allowed(
+            &config.onebot_bot_group_ids,
+            chat,
+        )
+        .then(String::new),
+        ChannelPlatform::Telegram | ChannelPlatform::Discord => platform
+            .credentials(config)
+            .1
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string),
+        ChannelPlatform::Qq | ChannelPlatform::Feishu => None,
+    }
 }
 
 /// Take the group's turn and say it, then answer whoever waited meanwhile.

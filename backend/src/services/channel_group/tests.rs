@@ -728,3 +728,38 @@ async fn she_answers_what_was_said_up_to_when_she_gets_to_it() {
     assert!(read_already(&added));
     assert!(!read_already(&called));
 }
+
+#[test]
+fn after_a_restart_she_says_something_only_where_she_still_may() {
+    use super::reaching_out::token_for;
+    let mut config = crate::config::DynamicConfig::default();
+    // A platform that is off: nothing.
+    assert_eq!(token_for(ChannelPlatform::OneBot, "123", &config), None);
+    config.onebot_bot_enabled = true;
+    assert_eq!(
+        token_for(ChannelPlatform::OneBot, "123", &config).as_deref(),
+        Some("")
+    );
+    // A group taken off the allowlist since: nothing.
+    config.onebot_bot_group_ids = "456".into();
+    assert_eq!(token_for(ChannelPlatform::OneBot, "123", &config), None);
+    assert!(token_for(ChannelPlatform::OneBot, "456", &config).is_some());
+    // Telegram sends with the configured token, never with none.
+    config.telegram_bot_enabled = true;
+    assert_eq!(token_for(ChannelPlatform::Telegram, "-100", &config), None);
+    config.telegram_bot_token = Some(" tg-token ".into());
+    assert_eq!(
+        token_for(ChannelPlatform::Telegram, "-100", &config).as_deref(),
+        Some("tg-token")
+    );
+    config.qq_bot_enabled = true;
+    assert_eq!(token_for(ChannelPlatform::Qq, "1", &config), None);
+    let kept = serde_json::to_value(StoredReach {
+        thread: Some(7),
+        seen_at: chrono::Utc::now(),
+    })
+    .unwrap();
+    assert!(kept.get("token").is_none());
+    let back: StoredReach = serde_json::from_value(kept).unwrap();
+    assert_eq!(back.thread, Some(7));
+}
