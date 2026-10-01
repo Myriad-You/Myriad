@@ -160,7 +160,7 @@ pub fn format_recent_section(contents: &[String]) -> Option<String> {
         return None;
     }
     Some(format!(
-        "## Recently\nThings that already happened. Do not repeat them, and do not treat them as a scene you are performing.\n{}",
+        "## Recently\nWhat they had you do for them lately (requests, apart from your chats), as they asked it. These already happened: do not repeat them, and do not treat them as a scene you are performing.\n{}",
         lines.join("\n")
     ))
 }

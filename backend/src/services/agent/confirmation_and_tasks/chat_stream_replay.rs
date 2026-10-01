@@ -131,6 +131,7 @@ async fn history_before(
 /// MEROPE_REPLAY_REPORT=<file> keeps each turn's words, then and now.
 /// MEROPE_REPLAY_SWAP=<old>|||<new>[&&&…] tries the prompt with passages
 /// rewritten, to see what a wording would change before it ships.
+/// MEROPE_REPLAY_PROMPTS=1 keeps each turn's whole prompt in the report.
 #[tokio::test]
 #[ignore = "reads the site's database and asks its model"]
 async fn her_real_talk_answered_again() {
@@ -219,7 +220,12 @@ async fn her_real_talk_answered_again() {
             original.replace('\n', " / "),
             again.replace('\n', " / ")
         );
-        report.push(json!({ "said": said, "at": at.to_rfc3339(), "opening": opening, "then": original, "now": again }));
+        let mut kept = json!({ "said": said, "at": at.to_rfc3339(), "opening": opening, "then": original, "now": again });
+        // The whole prompt too, to see which parts of it her reply drew on.
+        if std::env::var("MEROPE_REPLAY_PROMPTS").is_ok() {
+            kept["prompt"] = json!(prompt);
+        }
+        report.push(kept);
     }
     println!("\nthen  {}", then.line());
     println!("now   {}", now.line());

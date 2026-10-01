@@ -355,12 +355,13 @@ fn immediate_reaction_precedes_text_and_landing_cannot_delay_stream_close() {
     let floor = src.find("local_directive(&reaction_context)").unwrap();
     let delivery = src.find("local_directive(&delivery_context)").unwrap();
     assert!(floor < delivery);
-    let diary = src[floor..].find("note_chat_diary").unwrap() + floor;
     let chat = src[floor..]
         .find("stream_strict_lite_chat_response")
         .unwrap()
         + floor;
-    assert!(floor < diary && diary < chat);
+    // What they say in chat is already in the conversation she reads: no
+    // second copy of it is kept as something that happened.
+    assert!(!src.contains("note_chat_diary"));
     assert!(chat < delivery);
     let finish = src
         .find("response_agent::finish_stream(&progress_tx)")

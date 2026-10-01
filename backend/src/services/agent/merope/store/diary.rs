@@ -54,9 +54,12 @@ pub async fn list_diary_from_sources(
     if sources.is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
+    // As of now as this turn is put together: a turn answered again later
+    // does not see what came after it.
     Ok(agent_diary::Entity::find()
         .filter(agent_diary::Column::UserId.eq(user_id))
         .filter(agent_diary::Column::Source.is_in(sources.iter().copied()))
+        .filter(agent_diary::Column::CreatedAt.lte(super::super::clock::now().fixed_offset()))
         .order_by_desc(agent_diary::Column::CreatedAt)
         .limit(limit)
         .all(db)
