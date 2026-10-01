@@ -51,7 +51,10 @@ pub const LANDS_SOURCE: &str = "lands";
 /// People and groups gone over per night, and how much of a day with each.
 const PEOPLE_PER_NIGHT: i64 = 10;
 const GROUPS_PER_NIGHT: i64 = 5;
-const MIN_LINES: i64 = 6;
+/// Two exchanges are enough for a day to be gone over: the days that
+/// matter most (a hurt, an apology) are often the shortest. Whether anything
+/// changed is hers to say.
+const MIN_LINES: i64 = 4;
 const MAX_LINES: i64 = 120;
 /// A bit that has not come back this long fades.
 const FADE_AFTER: chrono::Duration = chrono::Duration::days(30);
