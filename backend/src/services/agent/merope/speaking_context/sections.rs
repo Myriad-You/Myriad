@@ -104,12 +104,13 @@ pub(super) async fn recollection(
     // Asked about what was said in detail, or for all of it, she scrolls
     // back through the chat.
     // Asked back to something before, she scrolls back even when she could
-    // not think in time what to look for: their words are the query then.
+    // not think in time what to look for (their words are the query then),
+    // and when their words plainly reach back though her cues did not say so.
     let reaching_back = |words: &str| {
-        cues.as_ref().map_or_else(
-            || myriad_merope::remembering::reaches_back(words),
-            |cues| cues.look_back || cues.thorough,
-        )
+        myriad_merope::remembering::reaches_back(words)
+            || cues
+                .as_ref()
+                .is_some_and(|cues| cues.look_back || cues.thorough)
     };
     let query_of = |words: &str| {
         std::iter::once(words)
