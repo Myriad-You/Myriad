@@ -129,6 +129,8 @@ async fn history_before(
 
 /// MEROPE_REPLAY_N real turns (default 16), the latest, answered again;
 /// MEROPE_REPLAY_REPORT=<file> keeps each turn's words, then and now.
+/// MEROPE_REPLAY_SWAP=<old>|||<new>[&&&…] tries the prompt with passages
+/// rewritten, to see what a wording would change before it ships.
 #[tokio::test]
 #[ignore = "reads the site's database and asks its model"]
 async fn her_real_talk_answered_again() {
@@ -190,6 +192,18 @@ async fn her_real_talk_answered_again() {
             ),
         )
         .await;
+        let mut prompt = prompt;
+        for swap in std::env::var("MEROPE_REPLAY_SWAP")
+            .iter()
+            .flat_map(|swaps| swaps.split("&&&"))
+        {
+            let (old, new) = swap.split_once("|||").expect("<old>|||<new>");
+            assert!(
+                prompt.contains(old),
+                "the passage to rewrite is not in the prompt"
+            );
+            prompt = prompt.replace(old, new);
+        }
         let again = analyzer
             .analyze_stream(&prompt, |_| true)
             .await
