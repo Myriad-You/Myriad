@@ -41,6 +41,13 @@ pub async fn material(db: &DatabaseConnection, talk: &str) -> Vec<Material> {
             text: heard,
         });
     }
+    // Words and memes in the talk that she looked up before: she knows them.
+    for meme in super::memes::lines_for(db, talk).await {
+        material.push(Material {
+            kind: "meme",
+            text: meme,
+        });
+    }
     for told in super::doing::would_tell(db, None).await {
         if !material.iter().any(|item| told.contains(&item.text)) {
             material.push(Material {
@@ -88,7 +95,9 @@ pub async fn decide(
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let raw = call::Ask::new(Voice::Judge, owner, "group_chime")
+    // Her own judgment, thinking a little: answered without thinking, she
+    // took a line for someone it was not meant for.
+    let raw = call::Ask::new(Voice::Hers, owner, "group_chime")
         .within(CALL_TIMEOUT)
         .json_raw(
             &system(&soul),
@@ -98,6 +107,13 @@ pub async fn decide(
         )
         .await
         .ok()?;
+    // Words or memes in the talk she is not sure of: hers to look up,
+    // whether or not she speaks.
+    let unsure = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim())
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
+        .map(|value| myriad_merope::memes::unsure_terms(&value))
+        .unwrap_or_default();
+    super::memes::learn(owner, unsure, conversation);
     let decision = parse(&raw, material.len()).flatten()?;
     let reason = reason(&decision, &material);
     Some((

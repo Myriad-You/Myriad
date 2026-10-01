@@ -14,6 +14,10 @@ use crate::services::runtime_registry::{self as registry, RegistryIdentity};
 const NAMESPACE: &str = "merope_curiosity_budget";
 const PER_PERSON_PER_DAY: usize = 3;
 const PER_SITE_PER_DAY: usize = 40;
+/// Words and memes she looks up from group talk are the site's, not any
+/// one person's: their own share, still within the site's.
+pub(in crate::services::agent::merope) const WORDS: i32 = 0;
+const WORDS_PER_DAY: usize = 20;
 
 #[derive(Default, Serialize, Deserialize)]
 struct Budget {
@@ -23,8 +27,13 @@ struct Budget {
 
 impl Budget {
     fn available(&self, user_id: i32) -> bool {
+        let own = if user_id == WORDS {
+            WORDS_PER_DAY
+        } else {
+            PER_PERSON_PER_DAY
+        };
         self.asked.values().map(Vec::len).sum::<usize>() < PER_SITE_PER_DAY
-            && self.asked.get(&user_id).map_or(0, Vec::len) < PER_PERSON_PER_DAY
+            && self.asked.get(&user_id).map_or(0, Vec::len) < own
     }
 
     fn claim(&mut self, user_id: i32, query: &str) -> bool {

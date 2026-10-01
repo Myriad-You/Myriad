@@ -26,7 +26,7 @@ pub(super) async fn answer_stranger(
         who: format!("{}:{}", message.platform.slug(), message.from),
         name: message.display_name.chars().take(40).collect(),
     };
-    let reading: Vec<String> = [
+    let mut reading: Vec<String> = [
         room(&venue).map(|room| myriad_merope::talk_shape::describe(&room, "How people type here")),
         how_she_differs(&venue).await,
         make_sense(db, message).await,
@@ -37,6 +37,16 @@ pub(super) async fn answer_stranger(
     send_typing(message, token).await;
     let began = Instant::now();
     let transcript = transcript(&venue, Some(&message.message_id));
+    // Words and memes in the talk that she looked up before.
+    let talk: String = transcript
+        .iter()
+        .rev()
+        .take(12)
+        .map(|line| line.content.clone())
+        .chain(std::iter::once(said_now(message)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    reading.extend(crate::services::agent::merope::group::memes::section_for(db, &talk).await);
     let Ok(Some((reply, sticker))) = tokio::time::timeout(
         TURN_DEADLINE,
         crate::services::agent::merope::group::strangers::reply(

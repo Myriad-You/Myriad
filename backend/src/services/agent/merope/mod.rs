@@ -24,6 +24,7 @@ pub mod lifecycle;
 mod likeness;
 mod making;
 pub(in crate::services::agent) mod making_sense;
+pub(in crate::services::agent) mod memes;
 #[cfg(test)]
 mod memory_bench;
 #[cfg(test)]

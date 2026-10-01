@@ -587,6 +587,25 @@ impl Agent {
                 };
             }
         }
+        // Words and memes in the talk that she looked up before: she knows
+        // them, here as anywhere.
+        let talk: String = supplied
+            .iter()
+            .rev()
+            .take(12)
+            .map(|message| message.content.as_str())
+            .chain(std::iter::once(request.raw_input.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some(section) =
+            crate::services::agent::merope::memes::section_for(&self.db, &talk).await
+        {
+            merope_block = if merope_block.is_empty() {
+                section
+            } else {
+                format!("{merope_block}\n\n{section}")
+            };
+        }
         if venue.is_some() {
             // A turtle soup on in this group, with this line judged; or how
             // she would start one for the group.

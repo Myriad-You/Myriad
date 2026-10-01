@@ -31,6 +31,7 @@ mod days;
 mod full_size;
 mod longmemeval;
 mod making;
+mod memes;
 mod wishing;
 mod probes;
 

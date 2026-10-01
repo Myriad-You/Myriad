@@ -20,6 +20,14 @@ const FADE_AFTER: chrono::Duration = chrono::Duration::days(60);
 const TOLD_ONCE_WITHIN: chrono::Duration = chrono::Duration::minutes(30);
 const TOLD_SHOWN: u64 = 3;
 
+/// The words a judgment's answer says she is not sure of.
+fn unsure_in(raw: &str) -> Vec<String> {
+    myriad_agent_rules::extract_json_object_from_ai_response(raw.trim())
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
+        .map(|value| myriad_merope::memes::unsure_terms(&value))
+        .unwrap_or_default()
+}
+
 /// What she makes of a group's talk: `conversation` is its recent lines,
 /// hers as `you：…`, the one she answers last. Billed to `owner`.
 pub async fn read(owner: i32, conversation: &[String]) -> Option<Sense> {
@@ -31,6 +39,8 @@ pub async fn read(owner: i32, conversation: &[String]) -> Option<Sense> {
         .json_raw(&system(&soul), &input(conversation), SCHEMA_NAME, &schema())
         .await
         .ok()?;
+    // Words or memes in the talk she is not sure of: hers to look up.
+    super::memes::learn(owner, unsure_in(&raw), conversation);
     parse(&raw)
 }
 

@@ -59,7 +59,7 @@ pub fn spawn_curiosity(
 /// What her senses turn up for it, and where: the slang dictionaries for a
 /// term, else a search and its first result read with the question in mind
 /// (the results alone when the page will not load).
-async fn look_up(query: &str, slang: bool) -> Option<(String, String)> {
+pub(super) async fn look_up(query: &str, slang: bool) -> Option<(String, String)> {
     if slang && let Ok(entry) = super::senses::define(query).await {
         let text = format!("{}\n{}", entry.title, entry.text);
         return Some((clip(&text), entry.url));
