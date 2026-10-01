@@ -1,7 +1,8 @@
-//! Merope's backend modules stay small enough to read. A file past the limit
-//! asks for a split while its seams are still obvious. Same limit as the
-//! frontend's `max-lines` rule for `features/merope`: code lines only, so
-//! blank lines, comments and test modules do not count.
+//! Merope's backend modules, and the memory and persona API beside them, stay
+//! small enough to read. A file past the limit asks for a split while its
+//! seams are still obvious. Same limit as the frontend's `max-lines` rule for
+//! `features/merope`: code lines only, so blank lines, comments and test
+//! modules do not count.
 
 use std::path::{Path, PathBuf};
 
@@ -12,10 +13,13 @@ const DIRS: &[&str] = &[
     "src/services/agent/merope",
     "src/api/merope_rig",
     "src/services/channel_group",
+    "src/services/agent/memory",
+    "src/api/agent/persona",
 ];
 
 /// Module roots that sit beside their directories.
 const FILES: &[&str] = &[
+    "src/api/agent/persona.rs",
     "src/api/merope_rig.rs",
     "src/services/channel_group.rs",
     "src/services/merope_rig.rs",
