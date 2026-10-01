@@ -30,6 +30,7 @@ mod chinese;
 mod days;
 mod full_size;
 mod longmemeval;
+mod making;
 mod probes;
 
 use probes::*;

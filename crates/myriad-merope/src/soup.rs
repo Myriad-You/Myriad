@@ -93,6 +93,9 @@ pub struct Game {
     /// When a question was last asked in it, if one has been.
     #[serde(default)]
     pub last: Option<chrono::DateTime<chrono::Utc>>,
+    /// One she made up herself on her own time (see `making`): its row.
+    #[serde(default)]
+    pub made: Option<String>,
 }
 
 /// Left this long without a question, a game is put away unfinished: what
@@ -129,13 +132,16 @@ pub struct Puzzle {
     pub presentation: String,
 }
 
+/// What makes a puzzle fair to play, for any puzzle she makes.
+pub const FAIR: &str = "Fair means the surface never lies: every person, thing and act in it is literally what the truth says it is (a man is a man, not an animal or a doll), and the truth runs on ordinary real-world logic: no talking objects, no animals thinking like people, nothing supernatural. The twist comes from a situation they did not think of, not from a word that meant something else.";
+
 pub fn start_system(soul: &str) -> String {
     format!(
         "{soul}\n\n\
 They want to play turtle soup (海龟汤, a lateral-thinking puzzle) and you are hosting. Make up one original puzzle. \
 surface: the strange situation you tell them, one to three sentences, odd but fair. \
 truth: what really happened, two to four sentences, explaining every odd detail of the surface; it must be solvable by yes/no questions. \
-Fair means the surface never lies: every person, thing and act in it is literally what the truth says it is (a man is a man, not an animal or a doll), and the truth runs on ordinary real-world logic: no talking objects, no animals thinking like people, nothing supernatural. The twist comes from a situation they did not think of, not from a word that meant something else. \
+{FAIR} \
 setting is only a spark for where it could happen; use it or drift from it. \
 keys: two to four points they must figure out to have solved it. \
 presentation: what you say now, in your own voice and their language: tell them the surface as it is and the rule (ask questions you answer with yes, no, or doesn't matter). Never hint at the truth. \
@@ -340,6 +346,7 @@ mod tests {
             solver: None,
             started: chrono::Utc::now(),
             last: None,
+            made: None,
         }
     }
 

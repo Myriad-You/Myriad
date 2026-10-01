@@ -72,7 +72,10 @@ async fn load(table: &Table) -> Option<Game> {
             .ok()
             .flatten();
     // Left unfinished long enough: put away, not still on.
-    if let Some(game) = game.as_ref().filter(|game| game.left(super::clock::now())) {
+    if game
+        .as_ref()
+        .is_some_and(|game| game.left(super::clock::now()))
+    {
         if let Some(game) = take(table).await {
             put_away(&db, table, &game).await;
         }
@@ -180,12 +183,42 @@ pub async fn start(request: &UserRequest) -> Option<String> {
     Some(start_at(&table, &request.raw_input, request.user_id).await)
 }
 
-/// [`start`] at a table, for whoever asked (`words`), billed to `billing`.
+/// [`start`] at a table, for whoever asked (`words`), billed to `billing`:
+/// a puzzle she made herself that this table has not played, if she has
+/// one, else one made up now.
 pub async fn start_at(table: &Table, words: &str, billing: i32) -> String {
+    if let Some(opening) = bring_out_her_own(table).await {
+        return opening;
+    }
     match make_up(table, words, billing).await {
         Some(opening) => opening,
         None => NOT_THIS_TIME.to_string(),
     }
+}
+
+/// A puzzle of hers this table has not played: set up as the game, and how
+/// she tells it.
+async fn bring_out_her_own(table: &Table) -> Option<String> {
+    let db = crate::services::process_db::database().ok()?;
+    let made = super::making::untried_at(&db, &table.record_id()).await?;
+    save(
+        table,
+        &Game {
+            surface: made.surface.clone(),
+            truth: made.truth.clone(),
+            keys: made.keys.clone(),
+            asked: Vec::new(),
+            found: Vec::new(),
+            ending: None,
+            solver: None,
+            started: chrono::Utc::now(),
+            last: None,
+            made: Some(made.id.clone()),
+        },
+    )
+    .await;
+    tracing::info!(table = %table.record_id(), "[Merope] she brought out a turtle soup of her own");
+    Some(made.presentation)
 }
 
 /// A first try that thinks freely, then one more that thinks little. Both
@@ -261,6 +294,7 @@ async fn make_up(table: &Table, words: &str, billing: i32) -> Option<String> {
             solver: None,
             started: chrono::Utc::now(),
             last: None,
+            made: None,
         },
     )
     .await;
@@ -338,8 +372,15 @@ pub async fn after_turn_at(db: &DatabaseConnection, table: &Table) {
 /// What she keeps of a game once it is over: with them, or with the group.
 /// One left unfinished keeps the truth too, which she knows and they do not.
 async fn put_away(db: &DatabaseConnection, table: &Table, game: &Game) {
+    // One of hers: how it went stays with the puzzle too.
+    super::making::tried(db, &table.record_id(), game).await;
     let surface: String = game.surface.chars().take(60).collect();
     let truth: String = game.truth.chars().take(200).collect();
+    let whose = if game.made.is_some() {
+        "我自己出的"
+    } else {
+        ""
+    };
     let concepts = vec![unified::Concept {
         name: "海龟汤".into(),
         aliases: vec!["turtle soup".into(), "情境猜谜".into()],
@@ -357,7 +398,7 @@ async fn put_away(db: &DatabaseConnection, table: &Table, game: &Game) {
                 unified::NewMemory {
                     user_id: *user_id,
                     kind: unified::MemoryKind::Fact,
-                    content: format!("和我玩过一局海龟汤（{surface}），{how}"),
+                    content: format!("和我玩过一局{whose}海龟汤（{surface}），{how}"),
                     evidence: None,
                     speaker: unified::Speaker::Agent,
                     source: "game",
@@ -380,13 +421,31 @@ async fn put_away(db: &DatabaseConnection, table: &Table, game: &Game) {
             let _ = unified::remember_in_venue(
                 db,
                 &Audience::group(venue.as_str(), 0).venue(),
-                &format!("群里玩过一局海龟汤（{surface}），{how}"),
+                &format!("群里玩过一局{whose}海龟汤（{surface}），{how}"),
                 &json!({ "game": "soup" }).to_string(),
                 "game",
             )
             .await;
         }
     }
+}
+
+/// How to start a game, when none is on (see [`this_turn`]), and in private
+/// a puzzle of her own they have not played, if she has one.
+pub async fn offer(request: &UserRequest) -> Option<String> {
+    let line = offer_line(request)?;
+    let Some(table @ Table::Private { .. }) = table_of(request) else {
+        return Some(line.to_string());
+    };
+    let Ok(db) = crate::services::process_db::database() else {
+        return Some(line.to_string());
+    };
+    Some(
+        match super::making::untried_at(&db, &table.record_id()).await {
+            Some(made) => format!("{line}\n{}", myriad_merope::making::offer_own(&made)),
+            None => line.to_string(),
+        },
+    )
 }
 
 /// How to start a game, when none is on (see [`this_turn`]).
@@ -421,6 +480,7 @@ pub(crate) fn judge_probe(
         solver: None,
         started: chrono::Utc::now(),
         last: None,
+        made: None,
     };
     (
         JUDGE_SYSTEM.to_string(),
@@ -463,6 +523,7 @@ pub(crate) fn section_for_eval(
         solver: None,
         started: chrono::Utc::now(),
         last: None,
+        made: None,
     };
     section(&game, Some(verdict), group, asker)
 }
@@ -482,6 +543,7 @@ mod tests {
             solver: None,
             started: chrono::Utc::now(),
             last: None,
+            made: None,
         }
     }
     #[test]

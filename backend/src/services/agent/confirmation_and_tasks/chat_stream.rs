@@ -488,9 +488,7 @@ impl Agent {
             // judged; or how she would start one.
             let game = match crate::services::agent::merope::soup::this_turn(request).await {
                 Some(section) => Some(section),
-                None => {
-                    crate::services::agent::merope::soup::offer_line(request).map(str::to_string)
-                }
+                None => crate::services::agent::merope::soup::offer(request).await,
             };
             blocks.extend(game);
             // A private IM chat: she can hand work off.
@@ -573,9 +571,7 @@ impl Agent {
             // she would start one for the group.
             let game = match crate::services::agent::merope::soup::this_turn(request).await {
                 Some(section) => Some(section),
-                None => {
-                    crate::services::agent::merope::soup::offer_line(request).map(str::to_string)
-                }
+                None => crate::services::agent::merope::soup::offer(request).await,
             };
             if let Some(game) = game {
                 merope_block = format!("{merope_block}\n\n{game}");

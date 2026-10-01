@@ -172,19 +172,37 @@ async fn recent_talk(
         .unwrap_or_default()
 }
 
-async fn reach_out(db: &DatabaseConnection, user_id: i32, here: Route) -> bool {
-    let now = Utc::now();
+/// Whether she would write to them first now, and if so why, about what,
+/// and her line.
+async fn first_words(db: &DatabaseConnection, user_id: i32) -> Option<(Reason, String, String)> {
+    let now = super::clock::now();
     let threads = threads::open(db, user_id).await;
     let last = last_talk(db, user_id).await;
     let to_tell = super::doing::would_tell(db, last).await;
-    let Some(reason) = reason(&threads, last, to_tell, now) else {
-        return false;
-    };
+    // A puzzle she made that they have not played.
+    let table = myriad_merope::soup::Table::Private { user_id }.record_id();
+    let puzzle = super::making::untried_at(db, &table).await;
+    let to_try = puzzle
+        .as_ref()
+        .map(|made| format!("{} ({})", made.surface, made.how_it_went()));
+    let reason = reason(&threads, last, to_tell, to_try, now)?;
     let talk = recent_talk(db, user_id).await;
-    let Some(about) = would_write(db, user_id, &reason, &talk).await else {
-        return false;
-    };
-    let Some(line) = compose(db, user_id, &about, &talk).await else {
+    let about = would_write(db, user_id, &reason, &talk).await?;
+    let own = puzzle.as_ref().map(|made| made.surface.as_str());
+    let line = compose(db, user_id, &about, own, &talk).await?;
+    Some((reason, about, line))
+}
+
+#[cfg(test)]
+pub(super) async fn first_words_now(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Option<(Reason, String, String)> {
+    first_words(db, user_id).await
+}
+
+async fn reach_out(db: &DatabaseConnection, user_id: i32, here: Route) -> bool {
+    let Some((reason, _, line)) = first_words(db, user_id).await else {
         return false;
     };
     let went = match here {
@@ -277,6 +295,10 @@ async fn would_write(
     .into_iter()
     .map(|(_, at, answered)| (myriad_merope::doing::ago_text(now - at), answered))
     .collect();
+    let soup_games = match reason.to_try {
+        Some(_) => soup_games_with(db, user_id).await,
+        None => 0,
+    };
     let input = json!({
         "name": super::resolve_addressee_label(db, user_id).await,
         "localTime": chrono::Local::now().format("%A %H:%M").to_string(),
@@ -288,6 +310,10 @@ async fn would_write(
         "yourOwnTime": {
             "now": super::doing::now_text(Utc::now()),
             "wouldTell": reason.to_tell,
+            "yourPuzzle": reason.to_try.as_ref().map(|puzzle| json!({
+                "puzzle": puzzle,
+                "gamesOfTurtleSoupWithYou": soup_games,
+            })),
         },
         "recentTalk": talk.iter().rev().take(6).rev()
             .map(|message| format!("{}: {}", if message.role == "user" { "they" } else { "you" }, message.content.chars().take(200).collect::<String>()))
@@ -302,16 +328,35 @@ async fn would_write(
     parse_judged(&raw).flatten()
 }
 
+/// How many games of turtle soup they have played with her, as she
+/// remembers them.
+async fn soup_games_with(db: &DatabaseConnection, user_id: i32) -> i64 {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT count(*) AS games FROM agent_memories \
+         WHERE user_id = $1 AND source = 'game' AND invalid_at IS NULL",
+        [user_id.into()],
+    ))
+    .await
+    .ok()
+    .flatten()
+    .and_then(|row| row.try_get::<i64>("", "games").ok())
+    .unwrap_or(0)
+}
+
+/// Her first words: `own` is a puzzle of hers she might offer them.
 async fn compose(
     db: &DatabaseConnection,
     user_id: i32,
     about: &str,
+    own: Option<&str>,
     talk: &[crate::services::agent::ConversationMessage],
 ) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
     let mut sections = super::speaking_prompt_to_reach(db, user_id, about).await;
+    sections.extend(own.map(myriad_merope::making::writing_about_own));
     sections.push(writing_first(about));
     let prompt = crate::services::agent::chat_prompt::build_chat_lite_prompt_with_perception(
         &soul,

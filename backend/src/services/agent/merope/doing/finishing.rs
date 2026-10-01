@@ -79,6 +79,28 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
             return;
         }
     }
+    // Something she read or found out that got to her may give her an idea
+    // for a puzzle of her own.
+    let sparks = matches!(
+        done.thing,
+        Thing::Note { .. } | Thing::Chapter { .. } | Thing::Inquiry { .. }
+    ) && reached
+        && matches!(
+            digest.reaction,
+            myriad_merope::doing::Reaction::Moved | myriad_merope::doing::Reaction::Liked
+        );
+    if sparks {
+        let (db, what, took_in, material) = (
+            db.clone(),
+            what.clone(),
+            impression.clone(),
+            intake.material.clone(),
+        );
+        super::super::background::spawn("make_soup", async move {
+            super::super::making::maybe_make(&db, owner, &what, &took_in, material.as_deref())
+                .await;
+        });
+    }
     if digest.tell {
         tell_whoever_is_here(&done.thing, &impression);
         // The groups she is in may hear it too, if one is where she would

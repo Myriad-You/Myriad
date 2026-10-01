@@ -17,6 +17,7 @@ pub mod heard;
 pub mod inner;
 pub mod joining;
 pub mod library;
+pub mod making;
 pub mod making_sense;
 pub mod life;
 mod onboarding;

@@ -150,6 +150,22 @@ pub(super) async fn records(
             found.push((day.created_at, day.id.clone(), clip(&line), false));
         }
     }
+    // What she made, and how it went with whoever played it.
+    for row in unified::own_rows(db, myriad_merope::making::SOURCE, 20)
+        .await
+        .unwrap_or_default()
+    {
+        if row.updated_at < since {
+            continue;
+        }
+        let Some(made) = row.evidence.as_deref().and_then(|evidence| {
+            serde_json::from_str::<myriad_merope::making::Made>(evidence).ok()
+        }) else {
+            continue;
+        };
+        let line = myriad_merope::making::record_line(&made);
+        found.push((row.updated_at, row.id.clone(), clip(&line), false));
+    }
     // How others took her.
     let (taken, by_others) = super::others::records(db, since).await;
     found.extend(taken);
