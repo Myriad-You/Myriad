@@ -35,6 +35,14 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["ai:generate".to_string()],
         requires_ai: true,
         estimated_duration_ms: Some(10000),
+        // It installs what it generates, with the permissions its manifest
+        // declares: as gated as `tapp.install`.
+        requires_confirmation: true,
+        confirmation_message: Some(
+            "This will generate an app and install it with the permissions it asks for."
+                .to_string(),
+        ),
+        risk_level: RiskLevel::Medium,
         ..Default::default()
     });
 
@@ -652,4 +660,29 @@ pub fn register(registry: &mut CapabilityRegistry) {
         estimated_duration_ms: Some(20),
         ..Default::default()
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Generating an app installs it, with every permission its manifest
+    /// declares: it asks first, like installing one, and the unattended
+    /// heartbeat never runs either.
+    #[test]
+    fn generating_an_app_is_gated_like_installing_one() {
+        let registry = CapabilityRegistry::new();
+        for id in ["tapp.generate", "tapp.install"] {
+            let capability = registry.get(id).expect(id);
+            assert!(capability.requires_confirmation, "{id}");
+            assert_eq!(capability.risk_level, RiskLevel::Medium, "{id}");
+            assert!(
+                !crate::services::agent::executor_resolve_pure::unattended_may_auto_run(
+                    id,
+                    capability.risk_level
+                ),
+                "{id}"
+            );
+        }
+    }
 }
