@@ -71,7 +71,7 @@ pub async fn get_context_user(
 ) -> Result<Json<Value>, HttpError> {
     tracing::debug!("[TAPP] get_context_user - User: {}", claims.username);
 
-    let user_id = super::common::parse_user_id(&claims)?;
+    let user_id = super::common::parse_runtime_subject_id(&claims)?;
 
     let connected_platforms = get_available_platforms().await;
     let is_current_admin = claims.is_admin

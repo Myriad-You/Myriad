@@ -25,12 +25,15 @@ use serde_json::{Value, json};
 use crate::error::HttpError;
 use crate::{
     middleware::auth::Claims,
-    services::permission_service::TappPermission,
+    services::permission_service::{TappPermission, UserRole},
     services::tapp_events::{self, EventError, EventRuntime, PublishEventRequest},
 };
 
 use super::{
-    common::{check_rate_limit, parse_user_id, resolve_accessible_tapp},
+    common::{
+        check_anonymous_rate_limit, check_rate_limit, parse_runtime_subject_id,
+        resolve_accessible_tapp,
+    },
     runtime_grant::RuntimeGrantContext,
 };
 
@@ -89,10 +92,12 @@ pub async fn publish_event(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     runtime: RuntimeGrantContext,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(request): Json<PublishEventRequest>,
 ) -> Result<Json<Value>, ApiError> {
     runtime.require(TappPermission::EventPublish)?;
-    let user_id = parse_user_id(&claims)?;
+    let user_id = parse_runtime_subject_id(&claims)?;
 
     let tapp = resolve_accessible_tapp(&db, user_id, runtime.tapp_id()).await?;
     let declaration =
@@ -100,6 +105,21 @@ pub async fn publish_event(
     let allowed: HashSet<String> = declaration.publish.into_iter().collect();
 
     check_rate_limit(&db, user_id, runtime.tapp_id(), "event.publish").await?;
+    if runtime.role() == UserRole::Guest {
+        let client_ip = crate::middleware::client_ip::client_ip_from_parts(
+            &headers,
+            Some(addr.ip()),
+            crate::middleware::client_ip::trusted_proxy_headers_enabled(),
+        )
+        .map(|ip| ip.to_string());
+        check_anonymous_rate_limit(
+            &db,
+            client_ip.as_deref(),
+            runtime.tapp_id(),
+            "event.anonymous",
+        )
+        .await?;
+    }
 
     let result = tapp_events::publish_event(&db, &runtime_from_grant(&runtime), request, &allowed)
         .await
@@ -121,7 +141,7 @@ pub async fn stream_events(
     runtime: RuntimeGrantContext,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     runtime.require(TappPermission::EventSubscribe)?;
-    let user_id = parse_user_id(&claims)?;
+    let user_id = parse_runtime_subject_id(&claims)?;
     let tapp = resolve_accessible_tapp(&db, user_id, runtime.tapp_id()).await?;
     let declaration =
         tapp_events::parse_event_manifest(&tapp.manifest).map_err(event_http_error)?;

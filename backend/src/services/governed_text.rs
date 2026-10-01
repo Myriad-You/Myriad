@@ -79,7 +79,7 @@ pub async fn execute_governed_text(
         .await
         .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
     if role == UserRole::Guest {
-        check_anonymous_rate_limit(db, client_ip.as_deref(), &tapp_id)
+        check_anonymous_rate_limit(db, client_ip.as_deref(), &tapp_id, "ai.anonymous")
             .await
             .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
     }

@@ -73,8 +73,9 @@ pub async fn check_anonymous_rate_limit(
     db: &sea_orm::DatabaseConnection,
     client_ip: Option<&str>,
     tapp_id: &str,
+    operation: &str,
 ) -> Result<(), HttpError> {
-    tapp_rate_limit::check_anonymous_rate_limit(db, client_ip, tapp_id)
+    tapp_rate_limit::check_anonymous_rate_limit(db, client_ip, tapp_id, operation)
         .await
         .map_err(rate_limit_http_error)
 }
@@ -220,6 +221,17 @@ pub fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
     })
 }
 
+/// Runtime Grant 的主体：持久用户与签名游客（负 id）都算，只排除 `0`。
+/// 签发、校验、撤销必须用同一规则，否则游客拿不到 grant，整个沙箱 API 全断。
+pub fn parse_runtime_subject_id(claims: &Claims) -> Result<i32, HttpError> {
+    claims.subject_id().filter(|id| *id != 0).ok_or_else(|| {
+        HttpError::from((
+            StatusCode::UNAUTHORIZED,
+            Json(AppError::public_json("Invalid user ID")),
+        ))
+    })
+}
+
 /// Resolve the current role used by Tapp capability filtering.
 ///
 /// Claims that never passed the auth boundary, guests and id 0 are guests. An
@@ -264,6 +276,11 @@ mod tests {
         let mut unbound = claims(7);
         unbound.subject = None;
         assert!(super::parse_user_id(&unbound).is_err(), "sub is never re-parsed");
+        // 游客也要能签发 Runtime Grant：公开 Tapp 的存储与声明 API 都挂在它上面。
+        assert_eq!(super::parse_runtime_subject_id(&claims(7)).unwrap(), 7);
+        assert_eq!(super::parse_runtime_subject_id(&claims(-3)).unwrap(), -3);
+        assert!(super::parse_runtime_subject_id(&claims(0)).is_err());
+        assert!(super::parse_runtime_subject_id(&unbound).is_err());
 
         let db = sea_orm::DatabaseConnection::default();
         let db = &db;
@@ -293,8 +310,8 @@ mod tests {
                 _ => include_str!("components.rs"),
             };
             assert!(
-                src.contains("parse_user_id("),
-                "{path} should use parse_user_id"
+                src.contains("parse_user_id(") || src.contains("parse_runtime_subject_id("),
+                "{path} should use the shared subject parser"
             );
             assert!(
                 !src.contains("claims.sub.parse"),

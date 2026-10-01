@@ -78,6 +78,9 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
         // AI still cost-bounded; 30/min leaves room for retry/UI double-submit.
         "ai.task" => (30, 60),
         "ai.anonymous" => (15, 60),
+        // Per client address across all guest sessions of one Tapp.
+        "network.anonymous" => (120, 60),
+        "event.anonymous" => (240, 60),
         operation if operation.starts_with("network.fetch:") => (90, 60),
         "route.anonymous" => (60, 60),
         "route.verify" => (60, 60),
@@ -256,18 +259,21 @@ pub async fn check_inbound_anonymous_rate_limit(
 
 /// Coarse anonymous limiter keyed by a one-way client-address fingerprint.
 /// The source address itself is never persisted in the runtime registry.
+/// Guests rotate their signed session at will, so every guest path whose
+/// per-subject bucket guards a real cost also takes this per-address bucket.
 pub async fn check_anonymous_rate_limit(
     db: &DatabaseConnection,
     client_ip: Option<&str>,
     tapp_id: &str,
+    operation: &str,
 ) -> Result<(), RateLimitError> {
     let fingerprint = anonymous_subject_fingerprint(client_ip.unwrap_or("unresolved"));
     check_rate_limit_key(
         db,
         0,
-        format!("anonymous:{fingerprint}:{tapp_id}:ai.anonymous"),
+        format!("anonymous:{fingerprint}:{tapp_id}:{operation}"),
         tapp_id,
-        "ai.anonymous",
+        operation,
     )
     .await
     .map(|_| ())
@@ -556,6 +562,8 @@ mod tests {
     fn network_fetch_prefix_uses_dedicated_cap() {
         assert_eq!(get_rate_limit_config("network.fetch:weather"), (90, 60));
         assert_eq!(get_rate_limit_config("ai.anonymous"), (15, 60));
+        assert_eq!(get_rate_limit_config("network.anonymous"), (120, 60));
+        assert_eq!(get_rate_limit_config("event.anonymous"), (240, 60));
         assert_eq!(get_rate_limit_config("route.anonymous"), (60, 60));
         assert_eq!(get_rate_limit_config("route.verify"), (60, 60));
         assert_eq!(get_rate_limit_config("route.verify.hour"), (180, 3600));

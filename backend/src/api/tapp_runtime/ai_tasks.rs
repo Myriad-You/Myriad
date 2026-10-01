@@ -301,7 +301,8 @@ pub async fn create_ai_task(
     )
     .map(|ip| ip.to_string());
     if role == UserRole::Guest {
-        check_anonymous_rate_limit(&db, client_ip.as_deref(), runtime.tapp_id()).await?;
+        check_anonymous_rate_limit(&db, client_ip.as_deref(), runtime.tapp_id(), "ai.anonymous")
+            .await?;
     }
     let estimated_tokens = if matches!(
         request.operation,

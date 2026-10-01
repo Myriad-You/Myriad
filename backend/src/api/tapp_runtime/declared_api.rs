@@ -21,7 +21,7 @@ use crate::services::tapp_api_service::{ApiExecutionContext, TappApiService};
 use crate::services::tapp_credentials::{self, TappCredentialError};
 use crate::services::tapp_declared_api::{self, DeclaredApiError};
 
-use super::common::check_rate_limit;
+use super::common::{check_anonymous_rate_limit, check_rate_limit};
 use super::runtime_grant::RuntimeGrantContext;
 
 fn declared_http_error(err: DeclaredApiError) -> (StatusCode, Json<Value>) {
@@ -118,6 +118,11 @@ pub async fn execute_tapp_api(
         crate::middleware::client_ip::trusted_proxy_headers_enabled(),
     )
     .map(|ip| ip.to_string());
+    // 游客可随时换签名会话，按主体的桶挡不住出站放大；再按来源地址限一次。
+    if api_def.api_type == "http" && runtime_grant.role() == UserRole::Guest {
+        check_anonymous_rate_limit(&db, client_ip.as_deref(), &tapp_id, "network.anonymous")
+            .await?;
+    }
 
     // 5. 角色与授予权限沿用本请求 Grant rebind 的结果：授予权限是签发上限与
     //    当前角色/配置/批准集的交集，不从批准集重新推导，只会更窄或相同。

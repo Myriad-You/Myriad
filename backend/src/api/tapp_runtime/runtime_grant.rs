@@ -26,7 +26,7 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::common::{current_tapp_user_role, parse_user_id, resolve_accessible_tapp};
+use super::common::{current_tapp_user_role, parse_runtime_subject_id, resolve_accessible_tapp};
 
 pub use crate::services::tapp_runtime_grant::RUNTIME_GRANT_HEADER;
 
@@ -151,7 +151,7 @@ pub(crate) async fn validate_runtime_grant(
     token: &str,
     claims: &Claims,
 ) -> Result<RuntimeGrantContext, HttpError> {
-    let subject_id = parse_user_id(claims)?;
+    let subject_id = parse_runtime_subject_id(claims)?;
     let admin_live = if claims.is_admin {
         match crate::middleware::auth::ensure_current_admin_on(claims, db).await {
             Ok(()) => true,
@@ -217,7 +217,7 @@ pub async fn issue_runtime_grant(
     Path(tapp_id): Path<String>,
     Json(request): Json<IssueRuntimeGrantRequest>,
 ) -> Result<Json<RuntimeGrantResponse>, HttpError> {
-    let subject_id = parse_user_id(&claims)?;
+    let subject_id = parse_runtime_subject_id(&claims)?;
     let tapp = resolve_accessible_tapp(&db, subject_id, &tapp_id).await?;
     // Refuse to issue grants while the install needs re-authorization.
     // Shared pure decision lives in services::tapp_runtime_grant so issue and
@@ -301,7 +301,7 @@ pub async fn revoke_runtime_grant(
     Extension(claims): Extension<Claims>,
     Path((tapp_id, runtime_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, HttpError> {
-    let subject_id = parse_user_id(&claims)?;
+    let subject_id = parse_runtime_subject_id(&claims)?;
     let revoked = tapp_runtime_grant::delete_matching_grants(
         &db,
         Some(subject_id),

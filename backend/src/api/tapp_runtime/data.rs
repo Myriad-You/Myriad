@@ -23,7 +23,7 @@ use crate::services::tapp_storage::{
     validate_storage_value_size, write_storage_value,
 };
 
-use super::common::parse_user_id;
+use super::common::parse_runtime_subject_id;
 use super::runtime_grant::RuntimeGrantContext;
 
 #[derive(Debug, Deserialize)]
@@ -106,7 +106,7 @@ fn storage_subject_id(
     claims: &Claims,
     runtime_grant: &RuntimeGrantContext,
 ) -> Result<i32, HttpError> {
-    let subject_id = parse_user_id(claims)?;
+    let subject_id = parse_runtime_subject_id(claims)?;
     if runtime_grant.subject_id() != subject_id {
         return Err(HttpError::from((
             StatusCode::FORBIDDEN,

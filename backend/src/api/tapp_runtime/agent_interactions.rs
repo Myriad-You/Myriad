@@ -26,7 +26,7 @@ use crate::{
 
 use super::{
     RuntimeGrantContext,
-    common::{parse_user_id, resolve_accessible_tapp},
+    common::{parse_runtime_subject_id, resolve_accessible_tapp},
 };
 
 type ApiError = HttpError;
@@ -198,7 +198,7 @@ pub async fn stream_agent_interactions(
     Extension(claims): Extension<Claims>,
     runtime: RuntimeGrantContext,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let subject_id = parse_user_id(&claims)?;
+    let subject_id = parse_runtime_subject_id(&claims)?;
     let tapp = resolve_accessible_tapp(&db, subject_id, runtime.tapp_id()).await?;
     let manifest = tapp_agent_interaction::parse_agent_manifest(&tapp.manifest)
         .map_err(interaction_http_error)?;
