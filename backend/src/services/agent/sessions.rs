@@ -48,7 +48,7 @@ pub(crate) async fn load_session_history(
 /// A person's last `max_messages` with her in private chat, oldest first,
 /// whichever of their private conversations they were in (the site's panel,
 /// a chat app): one talk going on between them, not one per window. Groups
-/// and Work are not part of it.
+/// and Work are not part of it, nor a conversation they deleted.
 pub(crate) async fn load_private_chat_history(
     db: &DatabaseConnection,
     user_id: i32,
@@ -61,6 +61,7 @@ pub(crate) async fn load_private_chat_history(
             "SELECT m.role, m.content, m.metadata, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+               AND NOT s.archived \
              ORDER BY m.created_at DESC LIMIT $2",
             [user_id.into(), (max_messages as i64).into()],
         ))
