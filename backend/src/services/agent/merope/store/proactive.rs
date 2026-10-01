@@ -85,6 +85,28 @@ pub async fn first_words(
         .collect())
 }
 
+/// Her last lines to `user_id` under `event_key`, newest first: (when, what
+/// she wrote).
+pub async fn first_words_said(
+    db: &DatabaseConnection,
+    event_key: &str,
+    user_id: i32,
+    limit: u64,
+) -> Result<Vec<(chrono::DateTime<Utc>, String)>, sea_orm::DbErr> {
+    use sea_orm::QuerySelect;
+    Ok(agent_proactive_messages::Entity::find()
+        .filter(agent_proactive_messages::Column::UserId.eq(user_id))
+        .filter(agent_proactive_messages::Column::EventKey.eq(event_key))
+        .filter(agent_proactive_messages::Column::Role.eq("assistant"))
+        .order_by_desc(agent_proactive_messages::Column::CreatedAt)
+        .limit(limit)
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|row| (row.created_at.with_timezone(&Utc), row.content))
+        .collect())
+}
+
 pub async fn recently_spoke_event(
     db: &DatabaseConnection,
     user_id: i32,

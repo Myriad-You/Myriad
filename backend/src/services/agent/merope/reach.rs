@@ -44,6 +44,8 @@ const PER_PASS: usize = 3;
 /// far back.
 const FIRST_WORDS_SHOWN: i64 = 4;
 const FIRST_WORDS_WITHIN_DAYS: i64 = 30;
+/// Her last messages to them when she wrote first, shown as she writes.
+const WROTE_BEFORE_SHOWN: u64 = 3;
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// One pass over everyone she could write to first, while she is awake:
@@ -345,6 +347,17 @@ async fn compose(
         .unwrap_or_default();
     let mut sections = super::speaking_prompt_to_reach(db, user_id, about).await;
     sections.extend(own.map(myriad_merope::making::writing_about_own));
+    // What she wrote them first the last times, as she would glance up the
+    // chat before texting again.
+    let now = super::clock::now();
+    let before: Vec<(String, String)> =
+        super::store::first_words_said(db, EVENT_KEY, user_id, WROTE_BEFORE_SHOWN)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(at, line)| (myriad_merope::doing::ago_text(now - at), line))
+            .collect();
+    sections.extend(myriad_merope::reach::wrote_before(&before));
     sections.push(writing_first(about));
     let prompt = crate::services::agent::chat_prompt::build_chat_lite_prompt_with_perception(
         &soul,

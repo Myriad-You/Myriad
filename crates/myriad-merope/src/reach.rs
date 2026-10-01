@@ -169,6 +169,31 @@ pub fn parse_judged(raw: &str) -> Option<Option<String>> {
     )
 }
 
+/// What she wrote to them the last times she wrote first, (how long ago,
+/// what), newest first: known to her as she writes again, the way anyone
+/// glances up their chat before texting, so she does not say the same thing
+/// the same way. Facts, not a rule; nothing when she never has.
+pub fn wrote_before(lines: &[(String, String)]) -> Option<String> {
+    const SHOWN_CHARS: usize = 80;
+    if lines.is_empty() {
+        return None;
+    }
+    let shown: Vec<String> = lines
+        .iter()
+        .map(|(ago, line)| {
+            let line: String = line.split_whitespace().collect::<Vec<_>>().join(" ");
+            format!(
+                "- {ago}: {}",
+                line.chars().take(SHOWN_CHARS).collect::<String>()
+            )
+        })
+        .collect();
+    Some(format!(
+        "## What you wrote them first before\nYour last messages to them when you wrote first, as you wrote them.\n{}",
+        shown.join("\n")
+    ))
+}
+
 /// How she writes first: a text, not a speech.
 pub fn writing_first(about: &str) -> String {
     format!(
@@ -289,6 +314,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!((why.due.len(), why.wished.len()), (0, 1));
+        assert_eq!(wrote_before(&[]), None);
+        let before =
+            wrote_before(&[("2 days ago".into(), "新汤编好了。\n敢来猜猜看没？".into())]).unwrap();
+        assert!(before.contains("- 2 days ago: 新汤编好了。 敢来猜猜看没？"));
+        assert!(!before.contains("Do not") && !before.contains("never"));
         // The same reason is the same question; a day more apart is not.
         let today = reason(&[], Some(hours(24 * 4)), vec![], None, now).unwrap();
         let again = reason(&[], Some(hours(24 * 4 + 3)), vec![], None, now).unwrap();
