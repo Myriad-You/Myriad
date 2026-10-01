@@ -19,7 +19,7 @@ const KINDS = [
   'wonder', 'found_out', 'inner', 'own_day', 'doing_choice', 'doing_digest',
   'views', 'soup_start', 'soup_judge', 'bits', 'chime', 'stranger_note', 'threads', 'reach_judge',
   'self_story', 'serial_guess', 'wonder_own', 'explore_think', 'explore_step', 'explore_compare',
-  'heard', 'joke_sticker', 'sense',
+  'heard', 'joke_sticker', 'meme_sticker', 'sense',
 ]
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i]

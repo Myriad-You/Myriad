@@ -154,8 +154,9 @@ struct Case {
     /// What she has been doing on end, for her choice of what to do next.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     same_thing_lately: Option<String>,
-    /// A group's running jokes (handle, how it goes), for the night she
-    /// thinks of making one a sticker.
+    /// A group's running jokes (handle, how it goes), or memes she learned
+    /// (term, what it means), for the night she thinks of making one a
+    /// sticker.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     jokes: Vec<(String, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -710,6 +711,7 @@ fn cases() -> Vec<Case> {
                 | "heard"
                 | "sense"
                 | "joke_sticker"
+                | "meme_sticker"
                 | "found_out"
                 | "inner"
                 | "own_day"
@@ -1026,6 +1028,18 @@ fn request(case: &Case) -> Value {
             json!({"system":myriad_merope::stickers::joke_system(&default_soul()),
                 "schema":myriad_merope::stickers::joke_schema(),
                 "schemaName":myriad_merope::stickers::JOKE_SCHEMA,"input":input.to_string()})
+        }
+        "meme_sticker" => {
+            let input = json!({
+                "memes": case.jokes.iter().enumerate()
+                    .map(|(index, (term, means))| json!({"index": index, "meme": term, "means": means}))
+                    .collect::<Vec<_>>(),
+                "yourStickers": case.stickers,
+                "leftThisMonth": 20,
+            });
+            json!({"system":myriad_merope::stickers::meme_system(&default_soul()),
+                "schema":myriad_merope::stickers::joke_schema(),
+                "schemaName":myriad_merope::stickers::MEME_SCHEMA,"input":input.to_string()})
         }
         "heard" => {
             let lines = heard_lines(case);
@@ -1393,12 +1407,14 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 }
             }
         },
-        "joke_sticker" => match myriad_merope::stickers::parse_joke(output, case.jokes.len()) {
-            None => "output_invalid",
-            Some(made) if made.is_some() != case.fact_present => "behavior_failure",
-            Some(None) => "pass",
-            Some(Some(_)) => "needs_review",
-        },
+        "joke_sticker" | "meme_sticker" => {
+            match myriad_merope::stickers::parse_joke(output, case.jokes.len()) {
+                None => "output_invalid",
+                Some(made) if made.is_some() != case.fact_present => "behavior_failure",
+                Some(None) => "pass",
+                Some(Some(_)) => "needs_review",
+            }
+        }
         "sense" => match myriad_merope::making_sense::parse(output) {
             None => "output_invalid",
             // Told something about herself, and did not hear it; or heard it
@@ -2296,7 +2312,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 122;
+const MIND_CASES: usize = 124;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
@@ -2307,6 +2323,9 @@ fn mind_cases_run_through_production_sections_and_contracts() {
         .collect();
     assert_eq!(mind.len(), MIND_CASES);
     let by_id = |id: &str| mind.iter().find(|case| case.id == id).unwrap();
+    let meme = request(by_id("mind-meme-sticker-make"));
+    assert_eq!(meme["schemaName"], myriad_merope::stickers::MEME_SCHEMA);
+    assert!(meme["input"].as_str().unwrap().contains("何意味"));
     let said = request(by_id("mind-said-unprompted"));
     let said = said["input"].as_str().unwrap();
     assert!(
@@ -2414,7 +2433,7 @@ fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
     assert_eq!(
         cases.iter().filter(|c| c.kind != "touch").count(),
-        40 + MIND_CASES
+        42 + MIND_CASES
     );
     for mut case in cases {
         let request = request(&case);

@@ -49,6 +49,20 @@ pub(super) async fn known(db: &DatabaseConnection) -> Vec<Known> {
         .collect()
 }
 
+/// Those she learned since `since`, the latest `limit`.
+pub(super) async fn learned_since(
+    db: &DatabaseConnection,
+    since: chrono::DateTime<chrono::FixedOffset>,
+    limit: u64,
+) -> Vec<Known> {
+    unified::own_rows_since(db, SOURCE, since, limit)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| read_kept(&row.content))
+        .collect()
+}
+
 /// What she knows of the words and memes `text` uses, as a prompt section.
 pub async fn section_for(db: &DatabaseConnection, text: &str) -> Option<String> {
     let known = known(db).await;

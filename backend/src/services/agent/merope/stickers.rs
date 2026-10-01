@@ -106,9 +106,18 @@ pub async fn section(
     current_identity(db).await?;
     let stickers = offered(db, venue, talk).await;
     offer(key, &stickers);
+    let now = Utc::now();
     let meanings: Vec<String> = stickers
         .iter()
-        .map(|sticker| sticker.meaning.clone())
+        .map(|sticker| {
+            myriad_merope::stickers::offered_line(
+                &sticker.meaning,
+                sticker.sent,
+                sticker
+                    .last_sent_at
+                    .map(|at| now.signed_duration_since(at.with_timezone(&Utc))),
+            )
+        })
         .collect();
     myriad_merope::stickers::format_sticker_section(&meanings, left_this_month(db).await)
 }
@@ -269,6 +278,69 @@ pub async fn for_group_jokes(db: &DatabaseConnection, owner: i32) {
         {
             tracing::info!(%venue, "[Merope] made a sticker of a group's joke");
         }
+    }
+}
+
+/// Memes learned this long ago at most are thought over at night, and this
+/// many of them at most.
+const MEMES_LATELY: chrono::Duration = chrono::Duration::days(7);
+const MEMES: u64 = 10;
+
+/// At night, whether she makes a sticker of a meme she learned lately, her
+/// own version of it, to send anywhere it fits. One a night at most; billed
+/// to `owner`.
+pub async fn for_memes(db: &DatabaseConnection, owner: i32) {
+    let Some(identity) = current_identity(db).await else {
+        return;
+    };
+    if left_this_month(db).await == 0 {
+        return;
+    }
+    let since = (Utc::now() - MEMES_LATELY).fixed_offset();
+    let memes = super::memes::learned_since(db, since, MEMES).await;
+    if memes.is_empty() {
+        return;
+    }
+    let soul = crate::services::agent::identity::get_speaking_soul()
+        .await
+        .unwrap_or_default();
+    let hers: Vec<String> = Entity::find()
+        .filter(Column::Identity.eq(identity))
+        .filter(Column::Venue.is_null())
+        .all(db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|sticker| sticker.meaning)
+        .collect();
+    let input = serde_json::json!({
+        "memes": memes.iter().enumerate()
+            .map(|(index, known)| serde_json::json!({"index": index, "meme": known.term, "means": known.meaning}))
+            .collect::<Vec<_>>(),
+        "yourStickers": hers,
+        "leftThisMonth": left_this_month(db).await,
+    })
+    .to_string();
+    let Ok(raw) = super::call::Ask::new(super::call::Voice::Hers, owner, "meme_sticker")
+        .within(std::time::Duration::from_secs(45))
+        .json_raw(
+            &myriad_merope::stickers::meme_system(&soul),
+            &input,
+            myriad_merope::stickers::MEME_SCHEMA,
+            &myriad_merope::stickers::joke_schema(),
+        )
+        .await
+    else {
+        return;
+    };
+    let Some(Some((shows, means))) = myriad_merope::stickers::parse_joke(&raw, memes.len()) else {
+        return;
+    };
+    if make_sticker(db, owner, &shows, &means, None)
+        .await
+        .is_some()
+    {
+        tracing::info!("[Merope] made a sticker of a meme she learned");
     }
 }
 

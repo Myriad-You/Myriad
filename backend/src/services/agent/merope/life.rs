@@ -122,6 +122,8 @@ pub async fn tick(db: DatabaseConnection) {
             super::chat_days::go_over(&db, owner).await;
             // A group's joke that keeps coming back may become its sticker.
             super::stickers::for_group_jokes(&db, owner).await;
+            // And a meme she learned lately, her own version of it.
+            super::stickers::for_memes(&db, owner).await;
         }
     }
     super::views::let_fade(&db).await;
