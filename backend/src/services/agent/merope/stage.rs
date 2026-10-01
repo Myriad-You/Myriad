@@ -76,6 +76,44 @@ async fn puzzles(db: &DatabaseConnection, user_id: i32) -> Vec<Value> {
         .collect()
 }
 
+/// Her own life lately as she has it in mind when she thinks of someone:
+/// what got to her (moved or liked), and puzzles of hers they have not
+/// played. Lines in her words, newest first.
+pub(super) async fn in_mind_for(db: &DatabaseConnection, user_id: i32) -> Vec<String> {
+    use myriad_merope::doing::Reaction;
+    let mut lines: Vec<String> = unified::own_experiences(db, LATELY)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| {
+            let (thing, reaction) = super::doing::thing_and_reaction(row)?;
+            matches!(reaction, Some(Reaction::Moved | Reaction::Liked)).then(|| {
+                format!(
+                    "{} {} ({}): {}",
+                    thing.verb(),
+                    thing.describe(),
+                    reaction.map(Reaction::felt).unwrap_or_default(),
+                    row.content
+                )
+            })
+        })
+        .collect();
+    let table = Table::Private { user_id }.record_id();
+    lines.extend(
+        super::making::all(db)
+            .await
+            .iter()
+            .filter(|made| !made.tried_at(&table))
+            .map(|made| {
+                format!(
+                    "a turtle soup you made up, not yet played with them: {}",
+                    made.surface
+                )
+            }),
+    );
+    lines
+}
+
 /// Her life as `user_id` sees it.
 pub async fn view(db: &DatabaseConnection, user_id: i32) -> Value {
     json!({

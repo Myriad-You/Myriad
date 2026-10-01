@@ -35,6 +35,20 @@ pub struct Changes {
     /// one person, theirs; in a group, those born there.
     #[serde(default, rename = "letGo")]
     pub let_go: Vec<usize>,
+    /// Something she would like to do with them, tell or show them, or ask
+    /// them in the coming days, if anything: hers, toward them. Only with
+    /// one person.
+    #[serde(default)]
+    pub wish: Option<Wish>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Wish {
+    /// A few words: what it is about.
+    pub about: String,
+    /// What she would do or say, in her words.
+    pub then: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +80,7 @@ us is what they are to you, as you would put it to yourself: who they are to you
         .to_string()
             + DAY_WITH_THEM
             + LANDS_WITH_THEM
+            + WISH_WITH_THEM
             + crate::sore::AT_NIGHT
     };
     let (whom, between) = if group {
@@ -97,6 +112,10 @@ day is what today's conversation with them was about, so that later you can find
 const LANDS_WITH_THEM: &str = " \
 lands is how you come across with them, as you have found it: what of yours they take up, laugh at, or play along with, and what goes past them, falls flat, or gets to them. On your lines, after is how many seconds until they wrote again (null: not again that day); a quick answer is not always a good one and a slow one not always a bad one: read what they wrote. It rests on today and on what you found before (given as lands), in one to three sentences in your own words. It is how they take you, not a rule for you: knowing it, you may lean in, ease off, or keep on anyway, as you are. Write it when there is none yet and today shows enough, or when today added to it or changed it (then say it as it is now); otherwise lands is empty, and it stands as it was.";
 
+/// Something of her own toward them, from today with them and her own life.
+const WISH_WITH_THEM: &str = " \
+wish is something you would like to do with them, tell or show them, or ask them in the coming days, if there is one now: it may grow from today with them, or from your own life lately (yourLately: what got to you, puzzles you made) meeting what you know of them, the way a friend thinks \"they would love this\" or \"I want to ask them about that\". about is a few words; then is what you would do or say, in your own words. Yours, toward them, not something they asked of you; already onYourMind, or nothing now, then wish is null.";
+
 const LANDS_IN_GROUP: &str = " \
 lands is how you come across in this group, as you have found it: what of yours people there take up, laugh at, or play along with, and what goes past them, falls flat, or gets to someone. On your lines, after is how many seconds until someone else wrote (null: nobody did that day); read what they wrote. It rests on today and on what you found before (given as lands), in one to three sentences, never naming anyone for what they are like. It is how the group takes you, not a rule for you. Write it when there is none yet and today shows enough, or when today added to it or changed it; otherwise lands is empty, and it stands as it was.";
 
@@ -115,7 +134,16 @@ pub fn schema(group: bool) -> Value {
             json!({ "type": "string", "maxLength": crate::chat_days::DAY_CHARS });
         schema["properties"]["lands"] = json!({ "type": "string", "maxLength": LANDS_CHARS });
         schema["properties"]["letGo"] = crate::sore::indexes_schema();
-        schema["required"] = json!(["bits", "us", "day", "lands", "letGo"]);
+        schema["properties"]["wish"] = json!({
+            "type": ["object", "null"],
+            "properties": {
+                "about": { "type": "string", "maxLength": crate::threads::MAX_ABOUT_CHARS },
+                "then": { "type": "string", "maxLength": crate::threads::MAX_THEN_CHARS }
+            },
+            "required": ["about", "then"],
+            "additionalProperties": false
+        });
+        schema["required"] = json!(["bits", "us", "day", "lands", "letGo", "wish"]);
     }
     schema
 }

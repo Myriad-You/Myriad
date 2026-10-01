@@ -35,11 +35,16 @@ fn thread_of(row: &crate::models::entities::agent_memories::Model) -> Option<Thr
         .and_then(Value::as_str)
         .and_then(|due| DateTime::parse_from_rfc3339(due).ok())
         .map(|due| due.with_timezone(&Utc));
+    let hers = evidence
+        .get("hers")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     (!about.is_empty()).then(|| Thread {
         id: row.id.clone(),
         about,
         then: row.content.clone(),
         due,
+        hers,
     })
 }
 
@@ -61,9 +66,24 @@ pub async fn open(db: &DatabaseConnection, user_id: i32) -> Vec<Thread> {
     threads
 }
 
+/// Something of hers toward them (from going over a day with them at night):
+/// kept like any thread, whenever it fits.
+pub async fn wish(db: &DatabaseConnection, user_id: i32, about: &str, then: &str) {
+    let kept = Kept {
+        about: about.to_string(),
+        then: then.to_string(),
+        due_in_hours: None,
+    };
+    put(db, user_id, &kept, Utc::now(), true).await;
+}
+
 /// Something to come back to with them. The same subject again replaces
 /// the earlier one; past the limit, the oldest goes.
 pub async fn keep(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<Utc>) {
+    put(db, user_id, kept, now, false).await;
+}
+
+async fn put(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<Utc>, hers: bool) {
     let about: String = kept.about.trim().chars().take(MAX_ABOUT_CHARS).collect();
     let then: String = kept.then.trim().chars().take(MAX_THEN_CHARS).collect();
     if about.is_empty() || then.is_empty() {
@@ -98,7 +118,8 @@ pub async fn keep(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateT
             kind: unified::MemoryKind::Fact,
             content: then,
             evidence: Some(
-                json!({ "about": about, "due": due.map(|due| due.to_rfc3339()) }).to_string(),
+                json!({ "about": about, "due": due.map(|due| due.to_rfc3339()), "hers": hers })
+                    .to_string(),
             ),
             speaker: unified::Speaker::Agent,
             source: SOURCE,

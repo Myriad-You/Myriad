@@ -285,6 +285,7 @@ async fn would_write(
         "localTime": chrono::Local::now().format("%A %H:%M").to_string(),
         "daysSinceYouTalked": reason.days_since,
         "dueNow": reason.due.iter().map(|thread| json!({"about": thread.about, "then": thread.then})).collect::<Vec<_>>(),
+        "youWantedTo": reason.wished.iter().map(|thread| json!({"about": thread.about, "then": thread.then})).collect::<Vec<_>>(),
         "remembered": remembered,
         "whatTheyAreToYou": super::bits::us(db, user_id).await.map(|us| us.now),
         "yourLastFirstWords": myriad_merope::others::first_words_view(&first_words),

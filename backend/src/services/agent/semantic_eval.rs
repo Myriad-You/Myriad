@@ -322,6 +322,7 @@ fn eval_threads(case: &Case) -> Vec<super::merope::threads::Thread> {
             about: about.clone(),
             then: then.clone(),
             due: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+            hers: false,
         })
         .collect()
 }

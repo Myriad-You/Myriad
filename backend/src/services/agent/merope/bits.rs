@@ -198,8 +198,18 @@ async fn review(
         Circle::Person(user_id) => super::sore::open_all(db, *user_id).await,
         Circle::Group { venue, .. } => super::sore::open_in_group(db, venue, None).await,
     };
-    if let Circle::Person(_) = circle {
+    if let Circle::Person(user_id) = circle {
         input["us"] = json!(now_us.as_ref().map(|row| row.content.clone()));
+        // Her own life lately, which may meet what she knows of them; and
+        // what is already on her mind about them.
+        input["yourLately"] = json!(super::stage::in_mind_for(db, *user_id).await);
+        input["onYourMind"] = json!(
+            super::threads::open(db, *user_id)
+                .await
+                .iter()
+                .map(|thread| json!({ "about": thread.about, "then": thread.then }))
+                .collect::<Vec<_>>()
+        );
         // Where it started, if it has moved on since.
         let first = now_us
             .as_ref()
@@ -238,6 +248,9 @@ async fn review(
     match circle {
         Circle::Person(user_id) => {
             put_us(db, *user_id, &changes.us, now_us.as_ref()).await;
+            if let Some(wish) = &changes.wish {
+                super::threads::wish(db, *user_id, &wish.about, &wish.then).await;
+            }
             // The day's line to find it again, from this same reading.
             super::chat_days::keep_line(db, *user_id, start.date_naive(), &changes.day).await;
         }
@@ -511,9 +524,12 @@ mod tests {
         assert!(!system("你是小灯。", true).contains("us is"));
         assert_eq!(
             schema(false)["required"],
-            json!(["bits", "us", "day", "lands", "letGo"])
+            json!(["bits", "us", "day", "lands", "letGo", "wish"])
         );
         assert!(schema(true)["properties"].get("us").is_none());
+        // Something of hers toward them, only with one person.
+        assert!(schema(true)["properties"].get("wish").is_none());
+        assert!(private.contains("Yours, toward them, not something they asked of you"));
         let changes = parse(
             r#"{"bits":[],"us":"总在半夜来吐槽工作的朋友，嘴上嫌他烦，其实挺担心他。","letGo":[0]}"#,
         )

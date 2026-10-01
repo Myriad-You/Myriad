@@ -1,5 +1,7 @@
 //! What she has on her mind about someone, the rules of it: a thread, when it
-//! is due, and how it is put before her.
+//! is due, and how it is put before her. A thread is something of theirs to
+//! come back to (an exam, a move), or something of hers toward them (a song
+//! she wants them to hear, something she wants to ask them).
 
 use chrono::{DateTime, Utc};
 /// Open threads kept per person; the oldest go first.
@@ -18,6 +20,9 @@ pub struct Thread {
     pub then: String,
     /// When it would be natural to bring it up; none for "whenever".
     pub due: Option<DateTime<Utc>>,
+    /// Hers toward them (something she wants to do with them, show or ask
+    /// them), not something of theirs to come back to.
+    pub hers: bool,
 }
 
 impl Thread {
@@ -42,7 +47,12 @@ pub fn section(threads: &[Thread], now: DateTime<Utc>) -> Option<String> {
                 ),
                 None => "whenever it fits".to_string(),
             };
-            format!("- {}: {} ({when})", thread.about, thread.then)
+            let whose = if thread.hers {
+                "something you wanted to do with them; "
+            } else {
+                ""
+            };
+            format!("- {}: {} ({whose}{when})", thread.about, thread.then)
         })
         .collect();
     Some(format!(
@@ -63,6 +73,7 @@ mod tests {
             about: "考试".into(),
             then: "问他考得怎么样".into(),
             due: Some(now - chrono::Duration::hours(1)),
+            hers: false,
         };
         let later = Thread {
             due: Some(now + chrono::Duration::hours(20)),
@@ -72,13 +83,15 @@ mod tests {
         let whenever = Thread {
             due: None,
             about: "那首歌".into(),
+            then: "想让他听听 Reol".into(),
+            hers: true,
             ..due.clone()
         };
         assert!(due.is_due(now) && !later.is_due(now) && !whenever.is_due(now));
         let section = section(&[due, later, whenever], now).unwrap();
         assert!(section.contains("考试: 问他考得怎么样 (now)"));
         assert!(section.contains("搬家") && section.contains("later, around"));
-        assert!(section.contains("(whenever it fits)"));
+        assert!(section.contains("(something you wanted to do with them; whenever it fits)"));
         assert!(section.contains("never as a list"));
         assert!(super::section(&[], now).is_none());
     }

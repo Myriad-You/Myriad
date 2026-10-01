@@ -31,6 +31,7 @@ mod days;
 mod full_size;
 mod longmemeval;
 mod making;
+mod wishing;
 mod probes;
 
 use probes::*;
