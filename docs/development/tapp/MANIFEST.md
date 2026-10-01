@@ -35,6 +35,7 @@ Manifest 是 Tapp 的核心配置文件，定义了应用的元数据、权限�
 | `category`               | string   | ✅   | 应用用途分类（稳定 ID）            |
 | `assets`                 | string[] | ❌   | 包内静态资源路径（须在 `assets/` 下） |
 | `openUrls`               | object[] | ❌   | 宿主代开的外链 allowlist（配合 `ui:openUrl`） |
+| `remoteMedia`            | string[] | ❌   | 远端图片/音视频域名（配合 `media:remote`，安装时逐个批准） |
 
 `author` 整体可选；**若提供**则 `author.name` 必填（1–255 字符），`email` / `url` 可选且须合法。
 作者名称会显示在商店卡片和 Tapp 详情页，详情页还会显示邮箱，并为通过 HTTP(S) 校验的作者主页生成外部链接。
@@ -118,6 +119,35 @@ await Tapp.ui.openUrl({ id: "docs", path: "../evil" }); // reject
 
 约束摘要：最多 32 条；`ui:openUrl` 与 `openUrls` 必须同时出现；headless core **无**此 API；
 宿主有打开速率限制；实现细节见 [API 参考 · openUrl](API_REFERENCE.md#打开声明链接-openurl)。
+
+### 远端图片与音视频（remoteMedia）
+
+沙箱 CSP 默认只放行 `data:` / `blob:` / 宿主同源的图片和音视频。要显示外部 CDN 上的头像、封面：
+
+1. 在 Manifest 声明 `permissions: ["media:remote"]` 与非空 `remoteMedia`；
+2. 安装者在安装或更新时**逐个批准**这些域名，没批准的域名不会生效；
+3. 沙箱 CSP 的 `img-src` / `media-src` 只追加已批准的 `https://<域名>`，其余外链照旧被拦。
+
+```json
+{
+  "permissions": ["media:remote"],
+  "remoteMedia": ["act-webstatic.mihoyo.com", "*.miyoushe.com"]
+}
+```
+
+写法与限制：
+
+- 只写主机名，小写；国际化域名用 punycode。不带 scheme、端口、路径。只走 HTTPS。
+- `*.example.com` 按 CSP 语义只匹配子域，**不**含 `example.com` 本身；两者都要就各写一条。
+- 拒绝 IP、单段名、`localhost` 及 `.local` / `.internal` / `.test` 等非公网后缀；`*.com` 这类只有一段的通配也拒绝。
+- 共享托管后缀（如 `github.io`、`pages.dev`、`vercel.app`、`amazonaws.com`）不能通配，只能写确切主机名。
+- 最多 16 条；`media:remote` 与 `remoteMedia` 必须同时出现。
+- `media:remote` 是基础权限，游客、普通用户、管理员都能看到这些图。
+
+**安全提示**：Tapp 能把它读到的访客信息拼进图片 URL 发给这些域名。安装者应只批准第三方 CDN，
+不要批准作者自己控制的服务器。Tapp 更新时新增的域名需要重新批准，删掉的域名立即失效。
+
+`network:fetch` 只管服务端声明式 HTTP API，**不再**放行远端图片。
 
 Manifest 采用严格字段校验：未声明字段、拼写错误以及已经移除的字段都会让安装失败，
 不会再被静默忽略。需要授权的运行能力都必须直接写入 `permissions`；宿主只会在真正调用时
@@ -1023,6 +1053,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `media:read`         | 读取媒体状态     |
 | `media:control`      | 控制媒体播放     |
 | `media:audio`        | 播放包内/blob/data 音频 |
+| `media:remote`       | 从安装时批准的 `remoteMedia` 域名加载远端图片/音视频 |
 | `event:subscribe`    | 订阅声明的 topic |
 | `federation:read`    | 读取联邦数据     |
 | `federation:interact` | 关注/取关、点赞、收藏、转发（announce）（需持久登录主体） |
@@ -1041,7 +1072,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `ai:image`           | AI 图片生成       |
 | `ai:search`          | AI 联网搜索（`Tapp.ai.tasks` `operation: "search"`；默认不下放） |
 | `3d:generate`        | 3D 模型生成（Tripo；默认不下放） |
-| `network:fetch`      | 发送 HTTP 请求    |
+| `network:fetch`      | 服务端声明式 HTTP API 出站（不含远端图片，见 `media:remote`） |
 | `component:theme`    | 注册自定义主题    |
 | `shortcut:register`  | 注册键盘快捷键    |
 | `event:publish`      | 发布本 Tapp topic |

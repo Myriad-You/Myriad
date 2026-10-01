@@ -77,6 +77,8 @@ pub(super) struct InstallTappRequest {
     // 通用字段
     /// 要批准的权限列表（可选；缺省则批准全部声明权限）
     permissions: Option<Vec<String>>,
+    /// 要批准的 `remoteMedia` 域名（可选；缺省一个都不批准）
+    remote_media: Option<Vec<String>>,
 }
 
 /// 安装 Tapp（统一接口）
@@ -114,6 +116,7 @@ pub(super) async fn install_tapp(
         store_source,
         tapp_id,
         permissions,
+        remote_media,
     } = req;
 
     let (package, from_store) = match parse_install_source(&source).map_err(|err| {
@@ -184,6 +187,7 @@ pub(super) async fn install_tapp(
         is_current_admin,
         package,
         permissions,
+        remote_media,
         false,
         Some(install_permit),
     )
@@ -228,6 +232,7 @@ pub(super) async fn install_tapp_file(
     // 读取上传的文件
     let mut file_data: Option<Vec<u8>> = None;
     let mut permissions: Option<Vec<String>> = None;
+    let mut remote_media: Option<Vec<String>> = None;
 
     while let Some(mut field) = multipart
         .next_field()
@@ -265,6 +270,14 @@ pub(super) async fn install_tapp_file(
                     permissions = Some(parsed);
                 }
             }
+            InstallMultipartField::RemoteMedia => {
+                let text = field.text().await.map_err(|_| {
+                    api_http_error(StatusCode::BAD_REQUEST, "Failed to read remoteMedia")
+                })?;
+                if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&text) {
+                    remote_media = Some(parsed);
+                }
+            }
             InstallMultipartField::Ignore => {}
         }
     }
@@ -281,6 +294,7 @@ pub(super) async fn install_tapp_file(
         is_current_admin,
         package,
         permissions,
+        remote_media,
         options.overwrite,
         Some(install_permit),
     )
@@ -323,6 +337,8 @@ pub(super) struct UpdateTappRequest {
     store_source: Option<String>,
     /// 要批准的权限列表（可选；缺省保留仍在声明中的原批准集）
     permissions: Option<Vec<String>>,
+    /// 要批准的 `remoteMedia` 域名（可选；缺省保留仍在声明中的原批准集，不含新增域名）
+    remote_media: Option<Vec<String>>,
 }
 
 /// 更新 Tapp（从远程商店或内置代码获取最新版本）
@@ -359,6 +375,7 @@ pub(super) async fn update_tapp(
         assets: req_assets,
         store_source,
         permissions,
+        remote_media,
     } = req;
 
     let (package, from_store) = match parse_install_source(&source).map_err(|err| {
@@ -421,6 +438,7 @@ pub(super) async fn update_tapp(
         tapp_id.clone(),
         package,
         permissions,
+        remote_media,
     )
     .await?;
     // List projection: services::tapp_catalog (preserves live status/last_run_at).
@@ -432,6 +450,37 @@ pub(super) async fn update_tapp(
         );
     }
     Ok(Json(ApiResponse::success(result)))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SetRemoteMediaRequest {
+    /// Hosts to approve; intersected with the installed manifest's `remoteMedia`.
+    hosts: Vec<String>,
+}
+
+/// Approve `remoteMedia` hosts on an existing install (`PUT /api/tapps/{id}/remote-media`).
+///
+/// Same owner as an update: admins approve the public install, users their own
+/// private one. Returns the approved hosts.
+pub(super) async fn set_tapp_remote_media(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+    Json(req): Json<SetRemoteMediaRequest>,
+) -> Result<impl IntoResponse, HttpError> {
+    let user_id: i32 = claims
+        .subject_id()
+        .ok_or_else(|| api_http_error(StatusCode::UNAUTHORIZED, "Invalid user"))?;
+    let role = current_user_role(&claims, &db).await?;
+    let approved = crate::services::tapp_packages::set_approved_remote_media(
+        &db, user_id, role, &tapp_id, &req.hosts,
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "id": tapp_id,
+        "approvedRemoteMedia": approved,
+    }))))
 }
 
 #[cfg(test)]

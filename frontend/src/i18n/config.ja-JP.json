@@ -1442,7 +1442,7 @@
   "permAiChat": "AIチャット",
   "permAiChatHint": "TappにAIチャット機能の使用を許可",
   "permNetworkFetch": "ネットワークリクエスト",
-  "permNetworkFetchHint": "宣言型の送信リクエストとリモート画像/メディアの読み込みを許可",
+  "permNetworkFetchHint": "サーバー経由の宣言型送信リクエストを許可（リモート画像は対象外）",
   "permMediaControl": "メディア制御",
   "permComponentTheme": "テーマ登録",
   "permComponentThemeHint": "Tappにカスタムテーマの登録を許可",

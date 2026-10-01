@@ -52,6 +52,7 @@
     "openUrlQueryKeys": 16,
     "openUrlQueryValueLength": 512,
     "openUrls": 32,
+    "remoteMediaHosts": 16,
     "resourceBytes": 67108864,
     "resourcePathLength": 256,
     "routeMaxBodyBytes": 1048576,
@@ -112,6 +113,7 @@
     "media:audio": "basic",
     "media:control": "basic",
     "media:read": "basic",
+    "media:remote": "basic",
     "network:fetch": "elevated",
     "phantasi:commentWrite": "elevated",
     "phantasi:manage": "privileged",
@@ -352,6 +354,46 @@
     },
     "pageLayerDirectory": "page",
     "protocolVersion": 2,
+    "remoteMediaPermission": "media:remote",
+    "remoteMediaReservedSuffixes": [
+      "localhost",
+      "local",
+      "internal",
+      "lan",
+      "home.arpa",
+      "test",
+      "example",
+      "invalid",
+      "onion"
+    ],
+    "remoteMediaWildcardDeniedSuffixes": [
+      "github.io",
+      "gitlab.io",
+      "pages.dev",
+      "workers.dev",
+      "vercel.app",
+      "netlify.app",
+      "herokuapp.com",
+      "appspot.com",
+      "web.app",
+      "firebaseapp.com",
+      "cloudfront.net",
+      "azurewebsites.net",
+      "blob.core.windows.net",
+      "s3.amazonaws.com",
+      "amazonaws.com",
+      "blogspot.com",
+      "glitch.me",
+      "repl.co",
+      "replit.app",
+      "ngrok.io",
+      "ngrok-free.app",
+      "trycloudflare.com",
+      "onrender.com",
+      "fly.dev",
+      "deno.dev",
+      "r2.dev"
+    ],
     "requiredManifestFields": [
       "category"
     ],
@@ -1647,6 +1689,16 @@
         },
         "type": "array"
       },
+      "remoteMedia": {
+        "description": "Hosts (`cdn.example.com` or `*.example.com`) the sandbox may load remote\nimages/media from. Paired with `media:remote`; the installer approves each host.",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
       "repository": {
         "type": [
           "string",
@@ -1725,6 +1777,7 @@
       "media:audio": "basic",
       "media:control": "basic",
       "media:read": "basic",
+      "media:remote": "basic",
       "network:fetch": "elevated",
       "phantasi:commentWrite": "elevated",
       "phantasi:manage": "privileged",

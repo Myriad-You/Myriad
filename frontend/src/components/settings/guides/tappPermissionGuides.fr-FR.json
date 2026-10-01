@@ -120,10 +120,10 @@
     "notes": "Seuls les liens déclarés fonctionnent ; window.open du bac à sable reste désactivé. Vérifiez les hôtes déclarés à l’installation."
   },
   "network:fetch": {
-    "what": "Permet du HTTP déclaratif et le chargement de médias/images distants.",
-    "chain": "1) L’application déclare des points d’accès ou des ressources distantes.\n2) L’hôte proxifie/valide l’accès réseau.\n3) La réponse revient au bac à sable.",
-    "frontend": "Données externes, pochettes, médias dans l’application.",
-    "notes": "Soumis à la politique proxy/CORS/sécurité ; risque sortant."
+    "what": "Permet les API HTTP déclarées côté serveur. Les images et médias distants passent désormais par media:remote.",
+    "chain": "1) L’app déclare des API HTTP dans le manifeste.\n2) Le serveur vérifie et envoie la requête.\n3) La réponse revient au bac à sable.",
+    "frontend": "Données externes que l’app récupère via l’hôte.",
+    "notes": "Requêtes sortantes du serveur pour la personne qui regarde ; n’ouvre pas la CSP du bac à sable aux images."
   },
   "media:control": {
     "what": "Permet de contrôler la lecture (lecture, pause, piste suivante, etc.).",
@@ -142,6 +142,12 @@
     "chain": "1) L’application démarre l’audio.\n2) Seules les sources autorisées sont lues.\n3) Pas un contrôle distant arbitraire.",
     "frontend": "Effets / extraits audio dans l’application.",
     "notes": "Différent de media:control — se concentre sur les sources du bac à sable."
+  },
+  "media:remote": {
+    "what": "Permet au bac à sable de charger des images, de l’audio et de la vidéo distants, uniquement depuis les hôtes listés dans remoteMedia du manifeste et approuvés à l’installation.",
+    "chain": "1) La Tapp déclare des hôtes dans remoteMedia.\n2) La personne qui installe approuve chaque hôte.\n3) La CSP du bac à sable n’autorise que ces hôtes ; le reste reste bloqué.",
+    "frontend": "Avatars de jeu, pochettes et autres images CDN dans la Tapp, visibles aussi par les invités et les membres.",
+    "notes": "Une Tapp peut envoyer à ces hôtes, via les URL d’images, ce qu’elle lit sur la personne qui regarde. N’approuvez que des CDN de confiance, jamais le serveur de l’auteur. Niveau basic, accordé à tous les rôles ; network:fetch n’autorise plus les images distantes."
   },
   "component:theme": {
     "what": "Permet d’enregistrer des styles de thème personnalisés pour le site.",

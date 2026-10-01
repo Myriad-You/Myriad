@@ -126,10 +126,11 @@ interface TappResources {
 | 方法   | 路径                                 | 说明                                    |
 | ------ | ------------------------------------ | --------------------------------------- |
 | POST   | `/api/tapps/install`                 | direct/store 统一安装                   |
-| POST   | `/api/tapps/install-file`            | multipart 上传 `.tapp`，字段名 `file`   |
+| POST   | `/api/tapps/install-file`            | multipart 上传 `.tapp`，字段名 `file`；可选 `permissions` / `remoteMedia`（JSON 数组字符串） |
 | POST   | `/api/tapps/cleanup-temporary`       | 私有安装清理（见下「私有安装清理」）    |
 | PUT    | `/api/tapps/list-card-sizes`         | 写入**当前登录用户**个人列表布局        |
 | POST   | `/api/tapps/{tappId}/update`         | direct/store 更新，保留用户数据         |
+| PUT    | `/api/tapps/{tappId}/remote-media`   | 批准 `remoteMedia` 域名（见下）         |
 | POST   | `/api/tapps/{tappId}/start`          | 持久化 owner 自己的 running 状态        |
 | POST   | `/api/tapps/{tappId}/stop`           | 停止 owner 安装并撤销对应 Runtime Grant |
 | DELETE | `/api/tapps/{tappId}?keep_data=true` | 卸载；可选保留存储/设置/共享数据        |
@@ -233,6 +234,18 @@ PUT body 只写调用者个人行：`{ "sizes": { "<tappId>": "1x1"|"2x1" }, "or
 `permissions` 是用户同意的申请子集（批准权限的来源），不是当前授予权限；后端先与
 Manifest 声明权限求交集并保存为 `approved_permissions`，再按当前实时角色和动态下放
 配置生成**授予权限**。
+
+`remoteMedia`（可选，字符串数组）是安装者同意的远端图片域名，与 Manifest `remoteMedia` 求交集后
+保存为 `approved_remote_media`。和 `permissions` 不同，**缺省一个都不批准**：域名能收到 Tapp
+读到的访客数据，必须由人点名。更新时缺省保留仍在声明里的原批准，新增域名不生效；覆盖安装时
+传入的是本次同意的新增域名。409 冲突详情里的 `newRemoteMedia` 列出尚未批准的声明域名。
+
+`PUT /api/tapps/{tappId}/remote-media`，body `{ "hosts": ["cdn.example.com"] }`：把批准集替换为
+声明 ∩ `hosts`，返回 `{ "id", "approvedRemoteMedia" }`。身份与更新相同：管理员批公开安装，
+普通用户批自己的私有安装。
+
+`GET /api/tapps/{tappId}` 返回 `granted_remote_media`（声明 ∩ 批准，且授予集里有
+`media:remote` 时才非空），沙箱 CSP 只读它；`approved_remote_media` 只下发给管理员和私有安装本人。
 
 安装/更新资源先进入 staging，校验后原子替换在线目录；数据库失败恢复旧目录。卸载把文件
 移入隔离目录后，在一个事务中清理安装记录、Manifest/动态 Widget、调度任务及执行历史；

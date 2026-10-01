@@ -768,6 +768,7 @@ pub(super) const PREVIEW_PERMISSIONS: &[&str] = &[
     "ui:confirm",
     "ui:fullscreen",
     "ui:openUrl",
+    "media:remote",
 ];
 
 pub(super) fn preview_warnings(permissions: &[String]) -> Vec<String> {

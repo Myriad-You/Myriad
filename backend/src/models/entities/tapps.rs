@@ -72,6 +72,11 @@ pub struct Model {
     /// 安装/更新/重新授权路径可清回 false；普通读取、启动、schema heal 不得清。
     pub needs_reauthorization: bool,
 
+    /// 安装者逐个批准的 `remoteMedia` 域名快照。运行时与当前 manifest 求交集，
+    /// 更新新增的域名在重新批准前不生效。
+    #[sea_orm(column_type = "JsonBinary")]
+    pub approved_remote_media: serde_json::Value,
+
     /// .tapp 文件路径
     #[sea_orm(column_type = "Text")]
     pub file_path: String,

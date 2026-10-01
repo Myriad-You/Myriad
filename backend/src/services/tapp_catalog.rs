@@ -69,6 +69,13 @@ pub struct TappDetail {
     /// reused as an approval.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_permissions: Option<Vec<String>>,
+    /// Hosts the sandbox CSP may load remote images/media from: approved hosts
+    /// still declared by the manifest, only while `media:remote` is granted.
+    pub granted_remote_media: Vec<String>,
+    /// Approved `remoteMedia` hosts, for whoever approves them: admins, and the
+    /// owner of a private install.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_remote_media: Option<Vec<String>>,
     #[serde(default)]
     pub needs_reauthorization: bool,
     pub installed_at: String,
@@ -208,6 +215,32 @@ pub fn update_response_list_item(tapp: tapps::Model, is_site_owner_install: bool
     tapp_list_item_from_model(tapp, is_temporary, is_admin_tapp)
 }
 
+/// Granted `remoteMedia` hosts: declared ∩ approved, empty unless `media:remote`
+/// is in the granted set. Behaviour reads only this, never the raw manifest.
+pub fn granted_remote_media(
+    manifest: &serde_json::Value,
+    approved_remote_media: &[String],
+    granted_permissions: &[String],
+) -> Vec<String> {
+    let remote_media = crate::services::permission_service::TappPermission::MediaRemote.as_str();
+    if !granted_permissions.iter().any(|p| p == remote_media) {
+        return Vec::new();
+    }
+    let declared: Vec<String> = manifest
+        .get("remoteMedia")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    declared
+        .into_iter()
+        .filter(|host| {
+            approved_remote_media
+                .iter()
+                .any(|approved| approved == host)
+        })
+        .collect()
+}
+
 /// Project a DB install row into a role-filtered detail DTO.
 ///
 /// `granted_permissions` is the intersection of approved install permissions
@@ -243,6 +276,13 @@ pub fn tapp_detail_from_model(
     let visibility =
         crate::services::tapp_ownership::normalize_tapp_visibility(&tapp.visibility).to_string();
     let approved_for_admin = (role == UserRole::Admin).then(|| approved_permissions.clone());
+    let approved_remote_media: Vec<String> =
+        serde_json::from_value(tapp.approved_remote_media.clone()).unwrap_or_default();
+    let granted_remote_media =
+        granted_remote_media(&tapp.manifest, &approved_remote_media, &granted_permissions);
+    // A private install is only visible to its owner, who approves its hosts.
+    let approved_remote_media_for_approver =
+        (role == UserRole::Admin || is_temporary).then_some(approved_remote_media);
     TappDetail {
         id: tapp.tapp_id,
         name: tapp.name,
@@ -256,6 +296,8 @@ pub fn tapp_detail_from_model(
         manifest: tapp.manifest,
         granted_permissions,
         approved_permissions: approved_for_admin,
+        granted_remote_media,
+        approved_remote_media: approved_remote_media_for_approver,
         needs_reauthorization,
         installed_at: tapp.installed_at.to_rfc3339(),
         last_run_at: tapp.last_run_at.map(|date| date.to_rfc3339()),
@@ -303,6 +345,7 @@ mod tests {
             error_message: None,
             visibility: "all".to_string(),
             needs_reauthorization: false,
+            approved_remote_media: serde_json::json!([]),
         }
     }
 
@@ -527,6 +570,69 @@ mod tests {
         );
         assert!(!detail.is_temporary);
         assert!(detail.is_admin_tapp);
+    }
+
+    #[test]
+    fn granted_remote_media_needs_permission_declaration_and_approval() {
+        let mut model = sample_model(json!(["storage:read", "media:remote"]));
+        model.manifest["permissions"] = json!(["storage:read", "media:remote"]);
+        model.manifest["remoteMedia"] =
+            json!(["a.example.com", "*.b.example.com", "new.example.com"]);
+        // `gone.example.com` was approved earlier but the manifest dropped it.
+        model.approved_remote_media =
+            json!(["a.example.com", "*.b.example.com", "gone.example.com"]);
+
+        // Basic level: guests get the approved hosts too; unapproved new hosts never do.
+        let guest = tapp_detail_from_model(
+            model.clone(),
+            UserRole::Guest,
+            false,
+            true,
+            &DynamicConfig::default(),
+        );
+        assert_eq!(
+            guest.granted_remote_media,
+            vec!["a.example.com", "*.b.example.com"]
+        );
+        assert!(guest.approved_remote_media.is_none());
+
+        let admin = tapp_detail_from_model(
+            model.clone(),
+            UserRole::Admin,
+            false,
+            true,
+            &DynamicConfig::default(),
+        );
+        assert_eq!(
+            admin.approved_remote_media,
+            Some(vec![
+                "a.example.com".to_string(),
+                "*.b.example.com".to_string(),
+                "gone.example.com".to_string()
+            ])
+        );
+
+        // Without the granted permission, approved hosts do nothing.
+        model.approved_permissions = json!(["storage:read"]);
+        let detail = tapp_detail_from_model(
+            model.clone(),
+            UserRole::Admin,
+            false,
+            true,
+            &DynamicConfig::default(),
+        );
+        assert!(detail.granted_remote_media.is_empty());
+
+        // network:fetch never stands in for media:remote.
+        model.approved_permissions = json!(["network:fetch"]);
+        let detail = tapp_detail_from_model(
+            model,
+            UserRole::Admin,
+            false,
+            true,
+            &DynamicConfig::default(),
+        );
+        assert!(detail.granted_remote_media.is_empty());
     }
 
     #[test]

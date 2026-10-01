@@ -1442,7 +1442,7 @@
   "permAiChat": "Chat IA",
   "permAiChatHint": "Autoriser Tapp à utiliser le chat IA",
   "permNetworkFetch": "Requêtes réseau",
-  "permNetworkFetchHint": "Autoriser les requêtes sortantes déclarées et le chargement d'images/médias distants",
+  "permNetworkFetchHint": "Autoriser les requêtes sortantes déclarées faites par le serveur (hors images distantes)",
   "permMediaControl": "Contrôle média",
   "permComponentTheme": "Enregistrer un thème",
   "permComponentThemeHint": "Autoriser Tapp à enregistrer des thèmes personnalisés",

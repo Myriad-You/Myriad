@@ -270,6 +270,8 @@ Tapp.widgets['my-widget'] = {
   或 `/api/phantasi/image-cache/...`，最多 4 张、解码后合计 10 MiB。不要放到 `context`，
   不要直接传 `blob:` / 外部 URL。文件选择后可用 `FileReader.readAsDataURL` 转换。
   完整字段见 [AI API](./API_REFERENCE.md#ai-api)。
+- 外链图片/音视频（`<img src="https://...">`）要声明 `media:remote` 和 `remoteMedia` 域名列表
+  （`cdn.example.com` 或 `*.example.com`），安装者批准后才生效；`network:fetch` 不放行外链图。
 - 声明式 HTTP API 必须申请 `network:fetch`。请求体默认使用 `bodyMode: "json"`；纯文本、XML
   使用 UTF-8 `raw`，表单使用 `form`。第三方密钥用 Manifest `credentials` +
   `apis.*.credential`（`in`: `header` / `query` / `form` / `sign`）；密钥不进

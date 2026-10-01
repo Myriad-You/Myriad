@@ -89,6 +89,9 @@ pub(crate) async fn install_generated(
         is_current_admin,
         package,
         None,
+        // Generated code may be steered by prompt injection; hosts that can
+        // receive viewer data are left for the user to approve explicitly.
+        None,
         false,
         None,
     )
@@ -96,8 +99,13 @@ pub(crate) async fn install_generated(
     .map(|_| ())
 }
 
+fn declared_remote_media(manifest: &TappManifest) -> &[String] {
+    manifest.remote_media.as_deref().unwrap_or(&[])
+}
+
 /// 409 body for an existing install. Carries the metadata the overwrite prompt
-/// needs (both versions plus which declared permissions are new) — no secrets.
+/// needs (both versions plus which declared permissions and remote media hosts
+/// are new) — no secrets.
 fn install_conflict_error(manifest: &TappManifest, existing: &tapps::Model) -> AppError {
     let previous: Vec<String> =
         serde_json::from_value(existing.approved_permissions.clone()).unwrap_or_default();
@@ -107,12 +115,20 @@ fn install_conflict_error(manifest: &TappManifest, existing: &tapps::Model) -> A
         .filter(|permission| !previous.iter().any(|approved| approved == *permission))
         .cloned()
         .collect();
+    let previous_hosts: Vec<String> =
+        serde_json::from_value(existing.approved_remote_media.clone()).unwrap_or_default();
+    let new_remote_media: Vec<String> = declared_remote_media(manifest)
+        .iter()
+        .filter(|host| !previous_hosts.iter().any(|approved| approved == *host))
+        .cloned()
+        .collect();
     myriad_error::AppError::conflict("Tapp already installed").with_details(serde_json::json!({
         "tappId": manifest.id.clone(),
         "name": manifest.name.clone(),
         "installedVersion": existing.version.clone(),
         "incomingVersion": manifest.version.clone(),
         "newPermissions": new_permissions,
+        "newRemoteMedia": new_remote_media,
     }))
 }
 
@@ -124,6 +140,7 @@ pub(crate) async fn install_prepared_package(
     is_current_admin: bool,
     package: PreparedTappPackage,
     permissions: Option<Vec<String>>,
+    remote_media: Option<Vec<String>>,
     overwrite: bool,
     install_permit: Option<OwnedSemaphorePermit>,
 ) -> Result<TappListItem, AppError> {
@@ -241,15 +258,32 @@ pub(crate) async fn install_prepared_package(
     // Approved = pure domain selection; granted = role-config filter (async).
     // Overwrite keeps the previous approvals and only adds accepted new ones;
     // a fresh install defaults to the full declared set when unspecified.
+    // Remote media hosts are never approved by default (see tapp_install).
     let requested = permissions.as_deref().unwrap_or(&[]);
-    let approved = match &existing_tx {
+    let (approved, approved_remote_media) = match &existing_tx {
         Some(existing_tx) => {
             let previous: Vec<String> =
                 serde_json::from_value(existing_tx.approved_permissions.clone())
                     .unwrap_or_default();
-            select_overwrite_approved_permissions(&manifest.permissions, requested, &previous)
+            let previous_hosts: Vec<String> =
+                serde_json::from_value(existing_tx.approved_remote_media.clone())
+                    .unwrap_or_default();
+            (
+                select_overwrite_approved_permissions(&manifest.permissions, requested, &previous),
+                select_overwrite_approved_remote_media(
+                    declared_remote_media(&manifest),
+                    remote_media.as_deref().unwrap_or(&[]),
+                    &previous_hosts,
+                ),
+            )
         }
-        None => select_install_approved_permissions(&manifest.permissions, requested),
+        None => (
+            select_install_approved_permissions(&manifest.permissions, requested),
+            select_install_approved_remote_media(
+                declared_remote_media(&manifest),
+                remote_media.as_deref(),
+            ),
+        ),
     };
     if let Err(error) = filter_install_permissions(dynamic_config, role, approved.clone()).await {
         txn.rollback().await.ok();
@@ -292,8 +326,14 @@ pub(crate) async fn install_prepared_package(
     // Overwrite of an existing install: update in place, preserving live status
     // and user data (storage is keyed by user+tapp and is never touched here).
     if let Some(existing_tx) = existing_tx {
-        let persist = build_update_install_persist(&manifest, &approved, &final_tapp_dir, now)
-            .map_err(|error| AppError::from_status_u16(500, error))?;
+        let persist = build_update_install_persist(
+            &manifest,
+            &approved,
+            &approved_remote_media,
+            &final_tapp_dir,
+            now,
+        )
+        .map_err(|error| AppError::from_status_u16(500, error))?;
         let mut active: tapps::ActiveModel = existing_tx.clone().into();
         active.name = Set(persist.name);
         active.version = Set(persist.version);
@@ -303,6 +343,7 @@ pub(crate) async fn install_prepared_package(
         active.theme_color = Set(persist.theme_color);
         active.manifest = Set(persist.manifest);
         active.approved_permissions = Set(persist.approved_permissions);
+        active.approved_remote_media = Set(persist.approved_remote_media);
         // A successful overwrite is explicit re-authorization.
         active.needs_reauthorization = Set(persist.needs_reauthorization);
         active.code_path = Set(persist.code_path);
@@ -372,6 +413,7 @@ pub(crate) async fn install_prepared_package(
         &manifest,
         installation_owner_id,
         &approved,
+        &approved_remote_media,
         &final_tapp_dir,
         now,
     )
@@ -394,6 +436,7 @@ pub(crate) async fn install_prepared_package(
             tapps::TappStatus::Installed
         }),
         approved_permissions: Set(persist.approved_permissions),
+        approved_remote_media: Set(persist.approved_remote_media),
         needs_reauthorization: Set(persist.needs_reauthorization),
         file_path: Set(persist.file_path),
         code_path: Set(persist.code_path),
@@ -472,6 +515,7 @@ pub(crate) async fn update_prepared_package(
     tapp_id: String,
     package: PreparedTappPackage,
     permissions: Option<Vec<String>>,
+    remote_media: Option<Vec<String>>,
 ) -> Result<TappListItem, AppError> {
     let UpdateTarget {
         existing: existing_tapp,
@@ -533,6 +577,13 @@ pub(crate) async fn update_prepared_package(
         permissions.as_deref(),
         &previous_approved,
     );
+    let previous_hosts: Vec<String> =
+        serde_json::from_value(existing_tapp.approved_remote_media.clone()).unwrap_or_default();
+    let approved_remote_media = select_update_approved_remote_media(
+        declared_remote_media(&manifest),
+        remote_media.as_deref(),
+        &previous_hosts,
+    );
     filter_install_permissions(dynamic_config, role, approved.clone()).await?;
 
     let activated = match stage.activate(&final_tapp_dir).await {
@@ -557,8 +608,14 @@ pub(crate) async fn update_prepared_package(
         }
     };
     // Column projection is pure domain; ActiveModel mapping stays here.
-    let persist = build_update_install_persist(&manifest, &approved, &final_tapp_dir, now)
-        .map_err(|error| AppError::from_status_u16(500, error))?;
+    let persist = build_update_install_persist(
+        &manifest,
+        &approved,
+        &approved_remote_media,
+        &final_tapp_dir,
+        now,
+    )
+    .map_err(|error| AppError::from_status_u16(500, error))?;
     let mut active: tapps::ActiveModel = existing_tapp.clone().into();
     active.name = Set(persist.name);
     active.version = Set(persist.version);
@@ -568,6 +625,7 @@ pub(crate) async fn update_prepared_package(
     active.theme_color = Set(persist.theme_color);
     active.manifest = Set(persist.manifest);
     active.approved_permissions = Set(persist.approved_permissions);
+    active.approved_remote_media = Set(persist.approved_remote_media);
     // Successful update is explicit re-authorization; persist always clears the flag.
     active.needs_reauthorization = Set(persist.needs_reauthorization);
     active.code_path = Set(persist.code_path);
@@ -622,6 +680,53 @@ pub(crate) async fn update_prepared_package(
         result,
         is_site_owner,
     ))
+}
+
+/// Replace the approved `remoteMedia` hosts of an existing install without a
+/// package change. Approved = declared ∩ `hosts`; the CSP follows the next detail
+/// load. Same owner resolution and install gate as an update.
+pub(crate) async fn set_approved_remote_media(
+    db: &DatabaseConnection,
+    user_id: i32,
+    role: UserRole,
+    tapp_id: &str,
+    hosts: &[String],
+) -> Result<Vec<String>, AppError> {
+    ensure_tapp_install_allowed(db, user_id).await?;
+    let target = resolve_update_target(db, user_id, role, tapp_id).await?;
+    let txn = db
+        .begin()
+        .await
+        .map_err(|_| AppError::internal("Database error"))?;
+    lock_tapp_lifecycle(&txn, tapp_id)
+        .await
+        .map_err(|_| AppError::internal("Database error"))?;
+    let existing = tapps::Entity::find_by_id(target.existing.id)
+        .filter(tapps::Column::UserId.eq(target.owner_id))
+        .filter(tapps::Column::TappId.eq(tapp_id))
+        .one(&txn)
+        .await
+        .map_err(|_| AppError::internal("Database error"))?
+        .ok_or_else(|| AppError::not_found("Tapp not installed"))?;
+    let declared: Vec<String> = existing
+        .manifest
+        .get("remoteMedia")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    let approved = select_install_approved_remote_media(&declared, Some(hosts));
+    let mut active: tapps::ActiveModel = existing.into();
+    active.approved_remote_media =
+        Set(serde_json::to_value(&approved).unwrap_or_else(|_| serde_json::json!([])));
+    active.updated_at = Set(Utc::now().fixed_offset());
+    active
+        .update(&txn)
+        .await
+        .map_err(|_| AppError::internal("Database error"))?;
+    txn.commit()
+        .await
+        .map_err(|_| AppError::internal("Database error"))?;
+    Ok(approved)
 }
 
 pub(crate) struct UpdateTarget {
@@ -694,12 +799,15 @@ mod tests {
             error_message: None,
             visibility: "all".to_string(),
             needs_reauthorization: false,
+            approved_remote_media: json!(["a.example.com"]),
         }
     }
 
     #[test]
     fn conflict_error_reports_versions_and_only_new_permissions() {
-        let manifest = manifest_with_permissions(&["storage:read", "ai:generate"]);
+        let mut manifest =
+            manifest_with_permissions(&["storage:read", "ai:generate", "media:remote"]);
+        manifest.remote_media = Some(vec!["a.example.com".into(), "b.example.com".into()]);
         let existing = existing_model("1.0.0", json!(["storage:read", "legacy"]));
         let body = install_conflict_error(&manifest, &existing).to_json();
         assert_eq!(body["error"], "Tapp already installed");
@@ -707,7 +815,11 @@ mod tests {
         assert_eq!(body["details"]["tappId"], "com.example.overwrite");
         assert_eq!(body["details"]["installedVersion"], "1.0.0");
         assert_eq!(body["details"]["incomingVersion"], "2.0.0");
-        assert_eq!(body["details"]["newPermissions"], json!(["ai:generate"]));
+        assert_eq!(
+            body["details"]["newPermissions"],
+            json!(["ai:generate", "media:remote"])
+        );
+        assert_eq!(body["details"]["newRemoteMedia"], json!(["b.example.com"]));
     }
 }
 
@@ -754,6 +866,7 @@ mod database_tests {
             true,
             package(&id, "1.0.0"),
             None,
+            None,
             false,
             None,
         )
@@ -769,6 +882,7 @@ mod database_tests {
             true,
             package(&id, "2.0.0"),
             None,
+            None,
             false,
             None,
         )
@@ -783,6 +897,7 @@ mod database_tests {
             UserRole::Admin,
             true,
             package(&id, "2.0.0"),
+            None,
             None,
             true,
             None,
@@ -802,6 +917,7 @@ mod database_tests {
             id.clone(),
             package(&id, "3.0.0"),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -819,6 +935,7 @@ mod database_tests {
             true,
             package(&id, "4.0.0"),
             None,
+            None,
             true,
             None,
         )
@@ -835,6 +952,150 @@ mod database_tests {
         assert_eq!(row.version, "3.0.0");
         assert_eq!(row.approved_permissions, json!(["storage:read"]));
         tokio::fs::remove_dir_all(live).await.unwrap();
+        crate::services::principal::invalidate_site_owner_cache();
+        isolated.drop().await;
+    }
+
+    fn media_package(id: &str, version: &str, hosts: &[&str]) -> PreparedTappPackage {
+        PreparedTappPackage::from_resources(
+            serde_json::from_value(json!({
+                "id": id, "name": "Remote media", "version": version,
+                "core": {"entry": "main.js"}, "category": "utility",
+                "permissions": ["storage:read", "media:remote"],
+                "remoteMedia": hosts,
+            }))
+            .unwrap(),
+            PreparedTappResources {
+                modules: std::collections::HashMap::from([(
+                    "main.js".into(),
+                    format!("// {version}\nmodule.exports = {{}};"),
+                )]),
+                ..Default::default()
+            },
+        )
+    }
+
+    async fn approved_hosts(db: &DatabaseConnection, id: &str) -> serde_json::Value {
+        tapps::Entity::find()
+            .filter(tapps::Column::TappId.eq(id))
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap()
+            .approved_remote_media
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable TAPP_TEST_DATABASE_URL and DATA_DIR"]
+    async fn remote_media_hosts_need_explicit_approval_on_every_path() {
+        let url = std::env::var("TAPP_TEST_DATABASE_URL").expect("disposable database");
+        std::env::var("DATA_DIR").expect("explicit disposable filesystem root");
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "remote_media").await;
+        let db = &isolated.db;
+        db.execute_unprepared("INSERT INTO users (id, username, is_admin, is_owner) VALUES (910002, 'media-owner', true, true)").await.unwrap();
+        crate::services::principal::invalidate_site_owner_cache();
+        let id = format!("com.example.media{}", uuid::Uuid::new_v4().simple());
+        let config = RwLock::new(DynamicConfig::default());
+        let install = |version: &'static str,
+                       hosts: &'static [&'static str],
+                       remote_media: Option<Vec<String>>,
+                       overwrite: bool| {
+            let id = id.clone();
+            let config = &config;
+            async move {
+                install_prepared_package(
+                    db,
+                    config,
+                    910002,
+                    UserRole::Admin,
+                    true,
+                    media_package(&id, version, hosts),
+                    None,
+                    remote_media,
+                    overwrite,
+                    None,
+                )
+                .await
+            }
+        };
+
+        // Fresh install without a host list approves the permission but no host.
+        install("1.0.0", &["a.example.com", "b.example.com"], None, false)
+            .await
+            .unwrap();
+        assert_eq!(approved_hosts(db, &id).await, json!([]));
+
+        // The approval endpoint keeps only declared hosts.
+        let approved = set_approved_remote_media(
+            db,
+            910002,
+            UserRole::Admin,
+            &id,
+            &["a.example.com".into(), "evil.example.net".into()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(approved, vec!["a.example.com".to_string()]);
+
+        // Overwrite: 409 names only the unapproved host; accepting it adds it.
+        let conflict = install("2.0.0", &["a.example.com", "b.example.com"], None, false)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            conflict.to_json()["details"]["newRemoteMedia"],
+            json!(["b.example.com"])
+        );
+        install(
+            "2.0.0",
+            &["a.example.com", "b.example.com"],
+            Some(vec!["b.example.com".into()]),
+            true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            approved_hosts(db, &id).await,
+            json!(["a.example.com", "b.example.com"])
+        );
+
+        // Update without a list: dropped hosts leave, new hosts wait for approval.
+        let target = resolve_update_target(db, 910002, UserRole::Admin, &id)
+            .await
+            .unwrap();
+        update_prepared_package(
+            db,
+            &config,
+            910002,
+            UserRole::Admin,
+            target,
+            id.clone(),
+            media_package(&id, "3.0.0", &["b.example.com", "c.example.com"]),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(approved_hosts(db, &id).await, json!(["b.example.com"]));
+
+        // The detail view grants only declared ∩ approved, guests included.
+        let row = tapps::Entity::find()
+            .filter(tapps::Column::TappId.eq(&id))
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
+        let detail = crate::services::tapp_catalog::tapp_detail_from_model(
+            row,
+            UserRole::Guest,
+            false,
+            true,
+            &DynamicConfig::default(),
+        );
+        assert_eq!(detail.granted_remote_media, vec!["b.example.com"]);
+
+        tokio::fs::remove_dir_all(tapp_dir_for(910002, &id).unwrap())
+            .await
+            .unwrap();
         crate::services::principal::invalidate_site_owner_cache();
         isolated.drop().await;
     }

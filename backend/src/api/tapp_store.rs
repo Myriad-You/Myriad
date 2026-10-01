@@ -47,7 +47,7 @@ use inbound_guard::{
     block_inbound_fingerprint, get_inbound_guard, pause_inbound_guard, resume_inbound_guard,
     unblock_inbound_fingerprint,
 };
-use installation::{install_tapp, install_tapp_file, update_tapp};
+use installation::{install_tapp, install_tapp_file, set_tapp_remote_media, update_tapp};
 use lifecycle::{get_recent_tapps, start_tapp, stop_tapp};
 use list_card_sizes::{get_list_card_sizes, put_list_card_sizes};
 pub use myriad_tapp_contract::manifest::*;
@@ -158,6 +158,7 @@ pub fn create_tapp_routes(app_state: crate::state::AppState) -> Router<crate::st
             delete(unblock_inbound_fingerprint),
         )
         .route("/{tapp_id}/visibility", post(set_tapp_visibility))
+        .route("/{tapp_id}/remote-media", put(set_tapp_remote_media))
         // 商店源管理（需要认证，API 内部检查管理员权限）
         .route("/store/sources", post(add_store_source))
         .route("/store/sources/{source_id}", post(update_store_source))

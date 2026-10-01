@@ -41,6 +41,10 @@ export interface TappDetail {
   granted_permissions: string[]
   /** Approved install permissions; returned to admins only. */
   approved_permissions?: string[]
+  /** Hosts the sandbox may load remote media from (declared ∩ approved, needs media:remote). */
+  granted_remote_media?: string[]
+  /** Approved remoteMedia hosts; returned to admins only. */
+  approved_remote_media?: string[]
   needs_reauthorization?: boolean
   installed_at: string
   last_run_at?: string
@@ -104,6 +108,20 @@ export async function stopTapp(tappId: string, signal?: AbortSignal): Promise<vo
     method: 'POST',
     signal,
   })
+}
+
+/** 批准 remoteMedia 域名（与已装 manifest 声明求交集）。管理员批公开安装，用户批自己的私装。 */
+export async function setTappRemoteMedia(
+  tappId: string,
+  hosts: string[],
+): Promise<{ id: string; approvedRemoteMedia: string[] }> {
+  return apiRequest(
+    `/api/tapps/${encodeURIComponent(tappId)}/remote-media`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ hosts }),
+    },
+  )
 }
 
 export async function setTappVisibility(

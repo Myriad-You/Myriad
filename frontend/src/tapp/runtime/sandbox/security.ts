@@ -1,4 +1,5 @@
 import { SANDBOXED_FETCH_INSTALL_SOURCE } from './assetUrlRewriter'
+import { REMOTE_MEDIA_MATCH_SOURCE, sanitizeRemoteMediaHosts } from './remoteMedia'
 
 export function generateNonce(): string {
   const array = new Uint8Array(16)
@@ -37,8 +38,8 @@ export interface GenerateCSPOptions {
   /** 仅 blob:/data: 媒体。授予 media:audio 时放行。 */
   allowMediaBlob?: boolean
   allowWasm?: boolean
-  /** 远端 https/http 图/媒体须授予 network:fetch。connect-src 仍只有 blob:/data:。 */
-  allowRemoteMedia?: boolean
+  /** media:remote 授予的域名；只追加这些 `https://<host>`。connect-src 仍只有 blob:/data:。 */
+  remoteMediaHosts?: readonly string[]
 }
 
 /** srcdoc 继承宿主 base URL；相对路径解析到宿主源。 */
@@ -52,7 +53,7 @@ export function generateCSP(
 ): string {
   const allowMediaBlob = options.allowMediaBlob === true
   const allowWasm = options.allowWasm !== false
-  const allowRemoteMedia = options.allowRemoteMedia === true
+  const remoteMediaHosts = sanitizeRemoteMediaHosts(options.remoteMediaHosts)
 
   // script-src 仅 nonce。不放行外部脚本 host（query 外泄）。
   const wasmPart = allowWasm ? " 'wasm-unsafe-eval'" : ''
@@ -60,10 +61,10 @@ export function generateCSP(
     ? `script-src 'nonce-${nonce}'${wasmPart}`
     : `script-src 'unsafe-inline'${wasmPart}`
 
-  // 默认只放行 data:/blob:/同源。裸 http(s) 挂 network:fetch。
+  // 默认只放行 data:/blob:/同源。远端只放安装时批准的域名，从不放整个 https:。
   const origin = hostOrigin()
   const originPart = origin ? ` ${origin}` : ''
-  const remotePart = allowRemoteMedia ? ' https: http:' : ''
+  const remotePart = remoteMediaHosts.map((host) => ` https://${host}`).join('')
 
   const imgSrc = `img-src data: blob:${remotePart}${originPart}`
   // blob/data 音视频仅在授予 media:audio 时放行。
@@ -92,22 +93,25 @@ export function generateCSP(
 
 export function cspOptionsFromPermissions(
   grantedPermissions: readonly string[] | undefined,
+  grantedRemoteMedia?: readonly string[],
 ): GenerateCSPOptions {
   return {
     allowMediaBlob: grantedPermissions?.includes('media:audio') === true,
     allowWasm: true,
-    // 远端 https/http 图/媒体均须授予 network:fetch。
-    allowRemoteMedia: grantedPermissions?.includes('network:fetch') === true,
+    // 远端图/媒体只认 media:remote 的授予域名；network:fetch 只管服务端出站。
+    remoteMediaHosts: grantedPermissions?.includes('media:remote')
+      ? sanitizeRemoteMediaHosts(grantedRemoteMedia)
+      : [],
   }
 }
 
 /** 同 realm 拦截只是深度防御。真正边界是 iframe sandbox、CSP、TappBridge。 */
 export function generateSecurityWrapper(
   sessionToken: string,
-  allowRemoteMedia = false,
+  remoteMediaHosts: readonly string[] = [],
 ): string {
   const origin = hostOrigin()
-  const allowRemote = allowRemoteMedia === true
+  const remoteHosts = JSON.stringify(sanitizeRemoteMediaHosts(remoteMediaHosts))
   return `
 (() => {
   'use strict';
@@ -291,23 +295,17 @@ export function generateSecurityWrapper(
   window.SharedWorker = class { constructor() { throw new Error('SharedWorker is disabled in Tapp sandbox'); } };
   
   // 图片 URL 白名单：与 CSP img-src 对齐。
-  // 默认 data:/blob:/宿主同源；裸 http(s) 仅在已授予 network:fetch 时放行。
+  // 默认 data:/blob:/宿主同源；远端只放 media:remote 授予的域名。
   const _HOST_ORIGIN = '${origin}';
-  const _ALLOW_REMOTE_MEDIA = ${allowRemote};
+  const _REMOTE_MEDIA_HOSTS = ${remoteHosts};
+  ${REMOTE_MEDIA_MATCH_SOURCE}
   const _isAllowedImageUrl = (value) => {
     if (typeof value !== 'string') return true;
     const v = value.trim();
     if (!v) return true;
     const lower = v.toLowerCase();
     if (lower.startsWith('data:') || lower.startsWith('blob:')) return true;
-    if (
-      _ALLOW_REMOTE_MEDIA &&
-      (lower.startsWith('https://') ||
-        lower.startsWith('http://') ||
-        lower.startsWith('//'))
-    ) {
-      return true;
-    }
+    if (isRemoteMediaUrlAllowed(v, _REMOTE_MEDIA_HOSTS)) return true;
     if (_HOST_ORIGIN) {
       const host = _HOST_ORIGIN.toLowerCase();
       if (
@@ -332,7 +330,7 @@ export function generateSecurityWrapper(
       Object.defineProperty(this, 'src', {
         set(value) {
           if (!_isAllowedImageUrl(value)) {
-            console.warn('[Security] Image URL is blocked by the Tapp CSP:', String(value).slice(0, 50));
+            console.warn('[Security] Image URL is blocked by the Tapp CSP (remote hosts need media:remote + manifest remoteMedia):', String(value).slice(0, 50));
             return;
           }
           if (originalSrcDescriptor && typeof originalSrcDescriptor.set === 'function') {
@@ -371,7 +369,7 @@ export function generateSecurityWrapper(
       const originalSetAttribute = element.setAttribute.bind(element);
       element.setAttribute = function(name, value) {
         if (name.toLowerCase() === 'src' && !_isAllowedImageUrl(String(value))) {
-          console.warn('[Security] Image src is blocked by the Tapp CSP');
+          console.warn('[Security] Image src is blocked by the Tapp CSP (remote hosts need media:remote + manifest remoteMedia)');
           return;
         }
         return originalSetAttribute(name, value);

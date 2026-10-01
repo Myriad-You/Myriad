@@ -56,12 +56,12 @@ Dashboard 上的 Widget 沙箱在 **iframe 发出 ready（`tapp.ready` / lifecyc
 script-src 'nonce-<random>' 'wasm-unsafe-eval';
 default-src 'none';
 style-src 'unsafe-inline' https://fonts.googleapis.com;
-img-src data: blob: <host-origin>;   /* + https: http: 当授予 network:fetch */
+img-src data: blob: <host-origin>;   /* + 每个授予的 https://<remoteMedia 域名>（media:remote） */
 font-src data: https://fonts.gstatic.com;
 connect-src blob: data:;
 frame-src 'none';
 object-src 'none';
-media-src 'none';   /* media:audio → blob: data:；远程音视频/图需 network:fetch */
+media-src 'none';   /* media:audio → blob: data:；远程音视频同 img-src，只放授予的 remoteMedia 域名 */
 worker-src 'none';
 form-action 'none';
 base-uri 'none';
@@ -71,11 +71,14 @@ manifest-src 'none'
 - `script-src` 仅 nonce（+ 可选 `'wasm-unsafe-eval'`），不放行任何外部脚本 host（含
   Tailwind CDN）。Tailwind 在安装时预编译为 CSS，经 `sandbox/styles.ts` 的
   `TAILWIND_MAP` 注入。
-- `img-src` 默认仅 `data:` / `blob:` / 宿主同源。需要外链封面、CDN 图时，在
-  `manifest.permissions` 声明 **`network:fetch`**（安装时由用户授权）；CSP 会
-  追加 `https:` / `http:`。不要用 `/api/proxy/image` 折中绕过声明。
+- `img-src` 默认仅 `data:` / `blob:` / 宿主同源。需要外链封面、CDN 图时，在 Manifest 声明
+  **`media:remote`** 和 `remoteMedia` 域名列表；安装者逐个批准后，CSP 只追加这些
+  `https://<域名>`，从不放行整个 `https:`。没批准的域名、更新时新增还没批准的域名都不生效。
+  `network:fetch` 只管服务端声明式 HTTP API，不影响 CSP。写法与限制见
+  [Manifest · remoteMedia](MANIFEST.md#远端图片与音视频remotemedia)。
+  沙箱包装器拦截 `new Image()` / `img.setAttribute('src')` 时用同一份域名、同一套 CSP 匹配规则。
   `Tapp.persona.get()` 的 `portraitUrl` 已是宿主同源路径，直接 `<img src>` 即可，不要
-  再申请 `network:fetch` 去拉立绘。
+  再申请 `media:remote` 去拉立绘。
 - `connect-src` 仅 `blob:` / `data:`：包内 Loader（Three `FileLoader`、`.glb`）
   可以读沙箱自己创建的 blob。即使有 `network:fetch`，也不能直接 `fetch` `https:` /
   XHR/WS，出站仍走 Manifest `apis` + Bridge。包装器同样拒绝非 blob/data 的 `fetch`。
@@ -84,8 +87,8 @@ manifest-src 'none'
   绑定的类型，体积按房间 `maxMessageBytes`（默认 64 KiB）。普通聊天和 Note 仍走
   内容过滤。`body` 是不透明 JSON，关键词看不到里面的文本。
 - `'wasm-unsafe-eval'` 仅用于 WebAssembly 编译，不等于开放 `eval`。
-- `media:audio` 仅把 `media-src` 放宽到 `blob: data:`；任意远程音视频同样要
-  `network:fetch`。
+- `media:audio` 仅把 `media-src` 放宽到 `blob: data:`；远程音视频同样只能来自批准的
+  `remoteMedia` 域名。
 - Manifest 不能覆盖这份 CSP；如果确实需要新的资源能力，应修改并审计宿主策略，而不是让
   单个 Tapp 放宽隔离。
 - 不要在沙箱 HTML 里追加浏览器未实现或已废弃的指令（如 `navigate-to`、`prefetch-src`）：
