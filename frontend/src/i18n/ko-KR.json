@@ -896,6 +896,31 @@
       "daydream": "멍 때리는 중",
       "wander_the_site": "사이트를 어슬렁",
       "reread_old_chats": "예전 대화 다시 보는 중"
+    },
+    "her": {
+      "title": "그녀의 요즘",
+      "lately": "요즘 하는 일",
+      "wants": "그녀가 원하는 것",
+      "puzzles": "그녀가 만든 바다거북 수프",
+      "play": "한 판 하기",
+      "playedByYou": "이미 해 봤어요",
+      "playedCount": "{played}명이 해 봤고, {solved}명이 맞혔어요",
+      "unplayed": "아직 아무도 안 해 봤어요",
+      "empty": "요즘 아직 한 게 없어요",
+      "loadFailed": "그녀의 요즘을 불러오지 못했어요",
+      "askToPlay": "네가 만든 이 바다거북 수프 하자: {surface}",
+      "foundOut": "찾아봄: {title}",
+      "kinds": {
+        "song": "{title} 들음",
+        "note": "{title} 읽음",
+        "chapter": "{title} 읽음"
+      },
+      "reactions": {
+        "moved": "마음이 움직였어요",
+        "liked": "좋았어요",
+        "fine": "그럭저럭",
+        "not_for_me": "취향이 아니었어요"
+      }
     }
   },
   "agentPersona": {

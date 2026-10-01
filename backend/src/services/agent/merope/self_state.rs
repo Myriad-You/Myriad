@@ -70,10 +70,6 @@ impl SelfState {
         self.energy < 40.0
     }
 
-    pub fn curious(&self) -> bool {
-        self.curiosity >= 60.0
-    }
-
     /// The same state, with curiosity from how long ago she last learned
     /// something new (`None`: never).
     pub fn with_last_learned(self, hours_ago: Option<f64>) -> Self {
@@ -288,11 +284,11 @@ mod tests {
     fn nothing_new_for_long_makes_her_curious_and_learning_eases_it() {
         let base = derive(14, &[]);
         assert!(
-            base.with_last_learned(None).curious(),
+            base.with_last_learned(None).curiosity >= 60.0,
             "never learned anything"
         );
-        assert!(base.with_last_learned(Some(10.0)).curious());
-        assert!(!base.with_last_learned(Some(0.5)).curious());
+        assert!(base.with_last_learned(Some(10.0)).curiosity >= 60.0);
+        assert!(base.with_last_learned(Some(0.5)).curiosity < 60.0);
         assert_eq!(
             base.with_last_learned(Some(12.04))
                 .facts_view()

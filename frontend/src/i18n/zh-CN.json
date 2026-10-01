@@ -896,6 +896,31 @@
       "daydream": "在发呆",
       "wander_the_site": "在站里闲逛",
       "reread_old_chats": "在翻以前的聊天"
+    },
+    "her": {
+      "title": "她最近",
+      "lately": "最近在做的",
+      "wants": "她想要的",
+      "puzzles": "她出的汤",
+      "play": "来一局",
+      "playedByYou": "你玩过了",
+      "playedCount": "{played} 人玩过，{solved} 人猜中",
+      "unplayed": "还没人玩过",
+      "empty": "她最近还没做什么",
+      "loadFailed": "没能看到她最近在做什么",
+      "askToPlay": "来玩你出的这道汤：{surface}",
+      "foundOut": "查了：{title}",
+      "kinds": {
+        "song": "听了 {title}",
+        "note": "读了 {title}",
+        "chapter": "读了 {title}"
+      },
+      "reactions": {
+        "moved": "被打动了",
+        "liked": "喜欢",
+        "fine": "还行",
+        "not_for_me": "不合口味"
+      }
     }
   },
   "agentPersona": {

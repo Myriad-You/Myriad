@@ -1,6 +1,7 @@
 //! What the site's HTTP handlers (`crate::api`) use of her beyond the
 //! persona functions at `merope`'s root: onboarding, touch, the owner's look
-//! into her, and the few store details a handler locks or reads itself.
+//! into her, her life as the community sees it, and the few store details a
+//! handler locks or reads itself.
 
 pub mod doing {
     pub(crate) use crate::services::agent::merope::doing::{current, lazing};
@@ -22,6 +23,10 @@ pub mod report_dna {
         DistillReportDnaError, MIN_PERSONA_REPORTS, count_report_platforms, distill_report_dna,
         sanitize_onboarding_tags, sanitize_onboarding_tags_for_language,
     };
+}
+
+pub mod stage {
+    pub(crate) use crate::services::agent::merope::stage::view;
 }
 
 pub mod stickers {

@@ -896,6 +896,31 @@
       "daydream": "Daydreaming",
       "wander_the_site": "Wandering around the site",
       "reread_old_chats": "Rereading old chats"
+    },
+    "her": {
+      "title": "Her lately",
+      "lately": "What she's been up to",
+      "wants": "What she wants",
+      "puzzles": "Her turtle soups",
+      "play": "Play",
+      "playedByYou": "You've played it",
+      "playedCount": "{played} played, {solved} solved",
+      "unplayed": "No one has played it yet",
+      "empty": "She hasn't done much lately",
+      "loadFailed": "Couldn't see what she's been up to",
+      "askToPlay": "Let's play the turtle soup you made: {surface}",
+      "foundOut": "Looked into: {title}",
+      "kinds": {
+        "song": "Listened to {title}",
+        "note": "Read {title}",
+        "chapter": "Read {title}"
+      },
+      "reactions": {
+        "moved": "moved her",
+        "liked": "liked it",
+        "fine": "it was fine",
+        "not_for_me": "not for her"
+      }
     }
   },
   "agentPersona": {

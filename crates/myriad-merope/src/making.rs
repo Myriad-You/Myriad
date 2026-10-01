@@ -82,6 +82,17 @@ impl Made {
     }
 }
 
+/// How much of a surface it takes to name the puzzle.
+const NAMED_BY_CHARS: usize = 12;
+
+/// The puzzle of hers that `words` name, by the start of its surface.
+pub fn named_in<'a>(made: &'a [Made], words: &str) -> Option<&'a Made> {
+    made.iter().find(|made| {
+        let start: String = made.surface.chars().take(NAMED_BY_CHARS).collect();
+        !start.trim().is_empty() && words.contains(start.trim())
+    })
+}
+
 /// The oldest of hers not yet tried at `table`.
 pub fn untried_at<'a>(made: &'a [Made], table: &str) -> Option<&'a Made> {
     made.iter().find(|made| !made.tried_at(table))
@@ -257,6 +268,11 @@ mod tests {
         let made = vec![made("灯塔", &[("p:7", "solved", 9)]), made("面包店", &[])];
         assert_eq!(untried_at(&made, "p:7").unwrap().surface, "面包店");
         assert_eq!(untried_at(&made, "p:8").unwrap().surface, "灯塔");
+        assert_eq!(
+            named_in(&made, "来玩你出的这道：面包店").map(|made| made.surface.as_str()),
+            Some("面包店")
+        );
+        assert!(named_in(&made, "来一局").is_none());
         assert_eq!(made[0].how_it_went(), "someone solved it after 9 questions");
         assert_eq!(made[1].how_it_went(), "not tried on anyone yet");
         // Kept as hers to say: the surface, never the truth.

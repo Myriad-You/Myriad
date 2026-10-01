@@ -121,6 +121,27 @@ pub async fn get_doing(
     })))
 }
 
+/// Her life as anyone in the community can see it: what she took in lately
+/// and how it landed, what she wants, and the turtle soups she made (never
+/// their truth), with whether this person has played each.
+pub async fn get_her(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, HttpError> {
+    require_merope_enabled().await?;
+    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
+    if !merope::is_logged_in_addressee(user_id) {
+        return Err(HttpError::from((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Her life is for the community",
+                "code": "login_required"
+            })),
+        )));
+    }
+    Ok(Json(merope::api::stage::view(&db, user_id).await))
+}
+
 pub async fn post_music_listening(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,

@@ -2252,6 +2252,78 @@ html .agent-panel-session.glass {
   }
 }
 
+/* 她最近：读了听了什么、想要的、她出的汤。 */
+
+.agent-panel-her {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.agent-panel-her-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-panel-her-heading {
+  margin: 0;
+  color: var(--text-secondary, #6b7280);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.agent-panel-her-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  box-shadow: var(--surface-shadow);
+}
+
+.agent-panel-her-text {
+  margin: 0;
+  color: var(--text-primary, #111827);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.agent-panel-her-said {
+  margin: 0;
+  color: var(--text-secondary, #6b7280);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-panel-her-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+}
+
+.agent-panel-her-what {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary, #111827);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-her-note {
+  margin: 0;
+  color: var(--text-muted, #9ca3af);
+  font-size: 13px;
+}
+
 /* 思考在答案胶囊里面。正文一出来就卸掉，不必另做一颗气泡。 */
 
 .agent-panel-thinking {

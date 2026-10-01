@@ -187,7 +187,7 @@ pub async fn start(request: &UserRequest) -> Option<String> {
 /// a puzzle she made herself that this table has not played, if she has
 /// one, else one made up now.
 pub async fn start_at(table: &Table, words: &str, billing: i32) -> String {
-    if let Some(opening) = bring_out_her_own(table).await {
+    if let Some(opening) = bring_out_her_own(table, words).await {
         return opening;
     }
     match make_up(table, words, billing).await {
@@ -196,11 +196,11 @@ pub async fn start_at(table: &Table, words: &str, billing: i32) -> String {
     }
 }
 
-/// A puzzle of hers this table has not played: set up as the game, and how
-/// she tells it.
-async fn bring_out_her_own(table: &Table) -> Option<String> {
+/// A puzzle of hers this table has not played (the one they named, if they
+/// asked for one by its surface): set up as the game, and how she tells it.
+async fn bring_out_her_own(table: &Table, words: &str) -> Option<String> {
     let db = crate::services::process_db::database().ok()?;
-    let made = super::making::untried_at(&db, &table.record_id()).await?;
+    let made = super::making::untried_at_naming(&db, &table.record_id(), words).await?;
     save(
         table,
         &Game {

@@ -33,6 +33,14 @@ pub(in crate::services::agent::merope) fn experience_line(
     Experience::of(row).map(|experience| experience.line_felt())
 }
 
+/// What a row of her own experience was and how it landed with her, as
+/// anyone may see it.
+pub(in crate::services::agent::merope) fn thing_and_reaction(
+    row: &unified_row::Model,
+) -> Option<(Thing, Option<Reaction>)> {
+    Experience::of(row).map(|experience| (experience.thing, experience.reaction))
+}
+
 /// A row of her own experience for looking back: the line with how it
 /// landed and what she wrote, and whether it did not go well (only fine,
 /// not for her, a guess that did not hold, a question left unanswered).

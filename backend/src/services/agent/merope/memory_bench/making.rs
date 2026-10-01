@@ -192,6 +192,10 @@ pub(super) async fn her_own_puzzle() {
         .filter_map(|row| row.try_get::<String>("", "content").ok())
         .collect();
     println!("-- with them: {theirs:?}");
+    // What anyone in the community sees of her: the puzzle, never its truth.
+    let shown = super::super::stage::view(&db, user_id).await;
+    println!("-- shown: {shown}");
+    let shown_text = shown.to_string();
     isolated.drop().await;
 
     let checks = [
@@ -215,6 +219,10 @@ pub(super) async fn her_own_puzzle() {
         (
             "they remember it was hers",
             theirs.iter().any(|line| line.contains("我自己出的")),
+        ),
+        (
+            "shown to the community: the puzzle, played by them, never its truth",
+            shown["puzzles"][0]["yours"] == true && !shown_text.contains(&puzzle.truth),
         ),
     ];
     println!("\n-- checks");

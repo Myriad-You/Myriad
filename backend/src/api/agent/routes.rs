@@ -147,6 +147,14 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        // 她最近：读了听了什么、想要的、她出的汤（社区成员）
+        .route(
+            "/her",
+            get(super::persona::get_her).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         .route(
             "/addressee/music-listening",
             post(super::persona::post_music_listening).route_layer(from_fn_with_state(

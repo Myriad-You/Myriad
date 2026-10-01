@@ -42,6 +42,20 @@ pub(super) async fn untried_at(db: &DatabaseConnection, table: &str) -> Option<M
     myriad_merope::making::untried_at(&all(db).await, table).cloned()
 }
 
+/// Hers not yet tried at `table`: the one `words` name by its surface (as
+/// asking for it from where her puzzles are shown does), else the oldest.
+pub(super) async fn untried_at_naming(
+    db: &DatabaseConnection,
+    table: &str,
+    words: &str,
+) -> Option<Made> {
+    let made = all(db).await;
+    myriad_merope::making::named_in(&made, words)
+        .filter(|made| !made.tried_at(table))
+        .or_else(|| myriad_merope::making::untried_at(&made, table))
+        .cloned()
+}
+
 /// After she took something in that she liked: maybe it gives her an idea
 /// for a puzzle of her own, and she makes it. How many she made today and
 /// how many no one has played are hers to weigh, not a cap.

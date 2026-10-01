@@ -896,6 +896,31 @@
       "daydream": "Rêvasse",
       "wander_the_site": "Flâne sur le site",
       "reread_old_chats": "Relit de vieilles conversations"
+    },
+    "her": {
+      "title": "Ce qu'elle fait",
+      "lately": "Ce qu'elle a fait récemment",
+      "wants": "Ce qu'elle aimerait",
+      "puzzles": "Ses énigmes de soupe de tortue",
+      "play": "Jouer",
+      "playedByYou": "Déjà joué",
+      "playedCount": "{played} joué, {solved} résolu",
+      "unplayed": "Personne n'y a encore joué",
+      "empty": "Elle n'a pas encore fait grand-chose ces derniers temps",
+      "loadFailed": "Impossible de voir ce qu'elle a fait récemment",
+      "askToPlay": "Jouons à ta soupe de tortue : {surface}",
+      "foundOut": "A cherché : {title}",
+      "kinds": {
+        "song": "A écouté {title}",
+        "note": "A lu {title}",
+        "chapter": "A lu {title}"
+      },
+      "reactions": {
+        "moved": "l'a touchée",
+        "liked": "a aimé",
+        "fine": "correct",
+        "not_for_me": "pas pour elle"
+      }
     }
   },
   "agentPersona": {

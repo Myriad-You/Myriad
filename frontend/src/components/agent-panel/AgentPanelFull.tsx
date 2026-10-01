@@ -13,6 +13,7 @@ import {
   dispatchAgentPanelCommand,
   dispatchAgentPanelOpenSession,
 } from './agentPanelEvents'
+import { AgentPanelHer } from './AgentPanelHer'
 import { AgentPanelManage } from './AgentPanelManage'
 import { AgentPanelMessage } from './AgentPanelMessage'
 import { useAgentPanelMode } from './agentPanelMode'
@@ -42,7 +43,12 @@ function useHeldView(
       setExiting(false)
       return
     }
-    if (held === 'manage' || view === 'manage') {
+    if (
+      held === 'manage' ||
+      view === 'manage' ||
+      held === 'her' ||
+      view === 'her'
+    ) {
       setHeld(view)
       setExiting(false)
       return
@@ -59,13 +65,15 @@ function useHeldView(
   return { held, exiting }
 }
 
-export type AgentPanelFullView = 'messages' | 'sessions' | 'manage'
+export type AgentPanelFullView = 'messages' | 'sessions' | 'manage' | 'her'
 
 export interface AgentPanelFullProps {
   view: AgentPanelFullView
   onView: (view: AgentPanelFullView) => void
   onSubmit: (text: string) => void
   onWorkOffer: (input: string) => void
+  /** Ask her to play one of her puzzles: always a chat with her. */
+  onPlay: (text: string) => void
   showChrome?: boolean
 }
 
@@ -75,6 +83,7 @@ export const AgentPanelSessionChrome: React.FC<{
 }> = ({ view, onView }) => {
   const { t } = useI18n()
   const showsSessions = view === 'sessions'
+  const showsHer = view === 'her'
   const viewLabel = view === 'manage' ? t.agentPanel.manage.title : null
 
   return (
@@ -131,6 +140,29 @@ export const AgentPanelSessionChrome: React.FC<{
           <path d="M12 7v5l3 2" />
         </svg>
       </button>
+      <button
+        type="button"
+        className="agent-panel-tag"
+        data-icon="true"
+        data-tone={showsHer ? 'primary' : 'neutral'}
+        onClick={() => onView(showsHer ? 'messages' : 'her')}
+        title={t.agentPanel.her.title}
+        aria-label={t.agentPanel.her.title}
+        aria-pressed={showsHer}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3z" />
+          <path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z" />
+        </svg>
+      </button>
     </>
   )
 }
@@ -170,6 +202,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
   onView,
   onSubmit,
   onWorkOffer,
+  onPlay,
   showChrome = false,
 }) => {
   const { t } = useI18n()
@@ -249,6 +282,15 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
     ) : held === 'manage' ? (
       <div className="agent-panel-overlay agent-panel-full glass">
         <AgentPanelManage />
+      </div>
+    ) : held === 'her' ? (
+      <div className="agent-panel-overlay agent-panel-full glass">
+        <AgentPanelHer
+          onPlay={(text) => {
+            onPlay(text)
+            onView('messages')
+          }}
+        />
       </div>
     ) : (
       <div

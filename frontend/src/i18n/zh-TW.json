@@ -896,6 +896,31 @@
       "daydream": "在發呆",
       "wander_the_site": "在站裡閒逛",
       "reread_old_chats": "在翻以前的聊天"
+    },
+    "her": {
+      "title": "她最近",
+      "lately": "最近在做的",
+      "wants": "她想要的",
+      "puzzles": "她出的湯",
+      "play": "來一局",
+      "playedByYou": "你玩過了",
+      "playedCount": "{played} 人玩過，{solved} 人猜中",
+      "unplayed": "還沒人玩過",
+      "empty": "她最近還沒做什麼",
+      "loadFailed": "沒能看到她最近在做什麼",
+      "askToPlay": "來玩你出的這道湯：{surface}",
+      "foundOut": "查了：{title}",
+      "kinds": {
+        "song": "聽了 {title}",
+        "note": "讀了 {title}",
+        "chapter": "讀了 {title}"
+      },
+      "reactions": {
+        "moved": "被打動了",
+        "liked": "喜歡",
+        "fine": "還行",
+        "not_for_me": "不合口味"
+      }
     }
   },
   "agentPersona": {

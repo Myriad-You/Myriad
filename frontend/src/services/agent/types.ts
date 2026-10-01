@@ -379,6 +379,29 @@ export interface MeropeDoingResponse {
   now: string
 }
 
+/** Her life as anyone in the community can see it (`GET /agent/her`). */
+export interface MeropeHerResponse {
+  /** What she took in lately, newest first, and what she made of it. */
+  lately: {
+    at: string
+    kind: 'song' | 'note' | 'chapter' | 'inquiry'
+    title: string
+    by: string | null
+    reaction: 'moved' | 'liked' | 'fine' | 'not_for_me' | null
+    said: string
+  }[]
+  /** What she wants now, in her words. */
+  wants: { want: string; why: string; since: string }[]
+  /** Turtle soups she made herself, newest first; only the surface. */
+  puzzles: {
+    surface: string
+    played: number
+    solved: number
+    /** Whether this person has played it. */
+    yours: boolean
+  }[]
+}
+
 export interface TaskAssignedEvent {
   type: 'task_assigned'
   taskId: string

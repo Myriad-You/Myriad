@@ -896,6 +896,31 @@
       "daydream": "ぼーっとしている",
       "wander_the_site": "サイトをぶらぶら",
       "reread_old_chats": "昔の会話を読み返し中"
+    },
+    "her": {
+      "title": "彼女の近況",
+      "lately": "最近していること",
+      "wants": "彼女がしたいこと",
+      "puzzles": "彼女が作ったウミガメのスープ",
+      "play": "遊ぶ",
+      "playedByYou": "遊んだことがある",
+      "playedCount": "{played} 人が遊び、{solved} 人が正解",
+      "unplayed": "まだ誰も遊んでいない",
+      "empty": "最近はまだ何もしていない",
+      "loadFailed": "彼女の近況を読み込めませんでした",
+      "askToPlay": "きみが作ったこのウミガメのスープで遊ぼう：{surface}",
+      "foundOut": "調べた：{title}",
+      "kinds": {
+        "song": "{title} を聴いた",
+        "note": "{title} を読んだ",
+        "chapter": "{title} を読んだ"
+      },
+      "reactions": {
+        "moved": "心に響いた",
+        "liked": "気に入った",
+        "fine": "まあまあ",
+        "not_for_me": "好みじゃない"
+      }
     }
   },
   "agentPersona": {

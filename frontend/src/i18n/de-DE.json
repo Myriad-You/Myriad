@@ -896,6 +896,31 @@
       "daydream": "Tagträumt",
       "wander_the_site": "Streift durch die Seite",
       "reread_old_chats": "Liest alte Chats"
+    },
+    "her": {
+      "title": "Was sie gerade macht",
+      "lately": "Was sie zuletzt gemacht hat",
+      "wants": "Was sie sich wünscht",
+      "puzzles": "Ihre Turtle-Soup-Rätsel",
+      "play": "Spielen",
+      "playedByYou": "Schon gespielt",
+      "playedCount": "{played} gespielt, {solved} gelöst",
+      "unplayed": "Noch niemand hat es gespielt",
+      "empty": "Sie hat in letzter Zeit noch nicht viel gemacht",
+      "loadFailed": "Konnte nicht laden, was sie zuletzt gemacht hat",
+      "askToPlay": "Lass uns dein Turtle-Soup-Rätsel spielen: {surface}",
+      "foundOut": "Nachgeforscht: {title}",
+      "kinds": {
+        "song": "{title} gehört",
+        "note": "{title} gelesen",
+        "chapter": "{title} gelesen"
+      },
+      "reactions": {
+        "moved": "hat sie berührt",
+        "liked": "gefiel ihr",
+        "fine": "war okay",
+        "not_for_me": "nicht ihr Ding"
+      }
     }
   },
   "agentPersona": {

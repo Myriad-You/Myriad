@@ -297,6 +297,7 @@ export const AgentPanel: React.FC = () => {
                 onView={setFullView}
                 onSubmit={submit}
                 onWorkOffer={(input) => submit(input, undefined, 'work')}
+                onPlay={(text) => submit(text, undefined, 'chat')}
                 showChrome={fullView === 'manage'}
               />
             ) : null}
