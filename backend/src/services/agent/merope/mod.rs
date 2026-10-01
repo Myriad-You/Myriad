@@ -21,6 +21,8 @@ mod likeness;
 pub mod making_sense;
 #[cfg(test)]
 mod memory_bench;
+#[cfg(test)]
+mod size_guard_tests;
 pub(crate) mod memory_jobs;
 pub mod motion;
 mod motion_local;
