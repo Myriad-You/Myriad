@@ -35,8 +35,8 @@ use serde_json::Value;
 
 pub const EVENT_KEY: &str = "agent.merope.reach_out";
 /// First words to the same person at most this often: within her waking
-/// hours, twice a day at most.
-const AT_MOST_EVERY_MINUTES: i64 = 6 * 60;
+/// hours (9 to 22), twice a day at most.
+const AT_MOST_EVERY_MINUTES: i64 = 7 * 60;
 /// People written to in one pass, at most.
 const PER_PASS: usize = 3;
 /// The last times she wrote to someone first that she has in mind, and how
@@ -97,9 +97,27 @@ async fn quiet_enough(db: &DatabaseConnection, user_id: i32) -> bool {
     if super::effective_do_not_disturb(&state) {
         return false;
     }
-    !super::store::recently_spoke_event(db, user_id, EVENT_KEY, AT_MOST_EVERY_MINUTES)
+    if super::store::recently_spoke_event(db, user_id, EVENT_KEY, AT_MOST_EVERY_MINUTES)
         .await
         .unwrap_or(true)
+    {
+        return false;
+    }
+    // Twice unanswered: she waits for them to say something.
+    let answered: Vec<Option<bool>> = super::store::first_words(
+        db,
+        EVENT_KEY,
+        Some(user_id),
+        Utc::now() - chrono::Duration::days(FIRST_WORDS_WITHIN_DAYS),
+        myriad_merope::others::ANSWERED_WITHIN_HOURS,
+        2,
+    )
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(_, _, answered)| answered)
+    .collect();
+    !myriad_merope::reach::writing_into_silence(&answered)
 }
 
 /// People who have talked with her in private lately.
@@ -340,7 +358,10 @@ mod tests {
         );
         assert!(as_text("（笑）").is_none());
         assert!(writing_first("考试").contains("no actions or descriptions in brackets"));
-        assert!(judge_system("你是小灯。").contains("Never just to be present, and never to push them."));
+        assert!(
+            judge_system("你是小灯。")
+                .contains("Never just to be present, and never to push them.")
+        );
         assert_eq!(
             parse_judged(r#"{"reach_out":true,"about":"问考试考得怎么样"}"#),
             Some(Some("问考试考得怎么样".into()))

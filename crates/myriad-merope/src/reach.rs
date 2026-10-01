@@ -45,6 +45,14 @@ pub fn route(panel_open: bool, on_site: bool) -> Route {
     }
 }
 
+/// Whether her last first words to them went unanswered twice running
+/// (newest first; `None` is one still waiting): then she does not write
+/// again until they say something. Whatever the judgment says, someone
+/// who never answers does not keep getting messages.
+pub fn writing_into_silence(answered: &[Option<bool>]) -> bool {
+    matches!(answered, [Some(false), Some(false), ..])
+}
+
 pub fn awake(hour: u32) -> bool {
     (AWAKE_FROM..AWAKE_UNTIL).contains(&hour)
 }
@@ -171,6 +179,21 @@ pub fn as_text(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn twice_unanswered_she_waits_for_them() {
+        assert!(writing_into_silence(&[Some(false), Some(false)]));
+        assert!(writing_into_silence(&[
+            Some(false),
+            Some(false),
+            Some(true)
+        ]));
+        // One answered, or one still waiting: the judgment weighs it.
+        assert!(!writing_into_silence(&[Some(false), Some(true)]));
+        assert!(!writing_into_silence(&[None, Some(false)]));
+        assert!(!writing_into_silence(&[Some(false)]));
+        assert!(!writing_into_silence(&[]));
+    }
 
     fn thread(about: &str, due: Option<DateTime<Utc>>) -> Thread {
         Thread {
