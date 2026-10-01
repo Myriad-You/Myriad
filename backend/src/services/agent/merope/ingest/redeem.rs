@@ -372,13 +372,19 @@ fn sanitize_speech(raw: &str) -> String {
         .trim()
         .trim_matches(|c| c == '"' || c == '“' || c == '”')
         .trim();
-    let first = text
-        .split_once('\n')
-        .map(|(head, _)| head)
-        .unwrap_or(text)
-        .trim();
-    first.chars().take(160).collect()
+    // All she said, a line a sentence as she wrote it: she is asked for one
+    // or two, and what she says is hers to keep whole.
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    lines.join("\n").chars().take(SPEECH_CHARS).collect()
 }
+
+/// Bounds what is kept of a line she says unprompted, against a runaway
+/// answer; far past the one or two sentences she is asked for.
+const SPEECH_CHARS: usize = 600;
 
 fn emit_live_speech(
     user_id: i32,
@@ -505,6 +511,15 @@ fn within_proactive_cooldown(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_she_says_unprompted_is_kept_whole() {
+        assert_eq!(
+            super::sanitize_speech("\"刚听完那首。\n\n副歌那段还在脑子里转。\""),
+            "刚听完那首。\n副歌那段还在脑子里转。"
+        );
+        assert_eq!(super::sanitize_speech("```\n就一句\n```"), "就一句");
+    }
+
     #[test]
     fn proactive_speech_waits_between_events_but_not_for_touch_or_outcomes() {
         let now = chrono::Utc::now();

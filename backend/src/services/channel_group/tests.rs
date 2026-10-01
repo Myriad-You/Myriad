@@ -317,13 +317,26 @@ fn a_line_that_comes_while_she_is_busy_waits_for_her() {
     });
     end_turn(&venue(chat), true);
     assert!(matches!(begin_turn(&venue(chat)), Turn::Resting(_)));
-    // Questions that came while she was busy are answered in order; past
-    // a few, the oldest go.
+    // Questions that came while she was busy are answered in order, all of
+    // them; only past what she could still read the conversation of do the
+    // oldest go.
     let waiting: Vec<String> = with_group(&venue(chat), |group| {
         group.waiting.iter().map(|line| line.text.clone()).collect()
     })
     .unwrap();
-    assert_eq!(waiting, ["第3问", "第4问", "第5问", "第6问", "第7问"]);
+    assert_eq!(waiting.len(), 7);
+    assert_eq!(waiting.first().map(String::as_str), Some("第1问"));
+    with_group(&venue(chat), |group| {
+        for id in 8..=(WAITING_LINES as i64 + 3) {
+            park(group, line(chat, id, "阿明", &format!("第{id}问")));
+        }
+    });
+    let waiting: Vec<String> = with_group(&venue(chat), |group| {
+        group.waiting.iter().map(|line| line.text.clone()).collect()
+    })
+    .unwrap();
+    assert_eq!(waiting.len(), WAITING_LINES);
+    assert_eq!(waiting.first().map(String::as_str), Some("第4问"));
     let mut today = None;
     for _ in 0..3 {
         assert!(count_today(&mut today, 3));

@@ -189,8 +189,9 @@ pub const LEANS_TOO_MUCH: f64 = 0.3;
 pub const ASKS_TOO_MUCH: f64 = 0.6;
 
 /// A message she wrote first counts as answered if they said anything to
-/// her within this long.
-pub const ANSWERED_WITHIN_HOURS: i64 = 12;
+/// her within this long: the same as she herself goes by when she thinks of
+/// writing to them again (see `others`).
+pub const ANSWERED_WITHIN_HOURS: i64 = crate::others::ANSWERED_WITHIN_HOURS;
 /// Over a week, this many first messages and fewer than a fifth answered is
 /// worth raising: she is writing into silence.
 const PROACTIVE_AT_LEAST: u64 = 5;

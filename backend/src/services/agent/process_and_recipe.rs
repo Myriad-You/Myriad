@@ -54,7 +54,6 @@ impl Agent {
         )
         .await
         .unzip();
-        let mood_before = mood_transition.as_ref().map(|transition| transition.before);
         let round_motion_style = round_motion_style(&request, mood_transition.as_ref()).await;
 
         // Chat does not consume Pro and must not emit Recipe/tool calls.
@@ -71,7 +70,7 @@ impl Agent {
                 .await;
         }
 
-        self.process_work(request, mood_transition, mood_before, round_motion_style)
+        self.process_work(request, mood_transition, round_motion_style)
             .await
     }
 
@@ -125,7 +124,6 @@ impl Agent {
         )
         .await
         .unzip();
-        let mood_before = mood_transition.as_ref().map(|transition| transition.before);
         let round_motion_style = round_motion_style(&request, mood_transition.as_ref()).await;
 
         if let Some(mood) = mood_transition.clone() {
@@ -154,14 +152,8 @@ impl Agent {
                 .await;
         }
 
-        self.process_work_with_progress(
-            request,
-            progress_tx,
-            mood_transition,
-            mood_before,
-            round_motion_style,
-        )
-        .await
+        self.process_work_with_progress(request, progress_tx, mood_transition, round_motion_style)
+            .await
     }
 
     /// 运行已保存的预设（`POST /presets/{id}/execute`）。

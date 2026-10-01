@@ -21,8 +21,8 @@
 //!
 //! A group gets one turn at a time and a short pause between replies, so a
 //! busy group cannot crowd out everyone else. A line that speaks to her while
-//! she is busy waits: when she is done she answers those waiting in order, a
-//! few at most (a turtle soup's questions come fast).
+//! she is busy waits: when she is done she answers those waiting in order (a
+//! turtle soup's questions come fast).
 //! Delivery is best effort: a restart mid-turn loses that reply, which is
 //! acceptable for chat. A line that called her and was still waiting for her
 //! (she was asleep or busy) is taken back up after a restart, where the
@@ -83,16 +83,18 @@ pub use line::GroupLine;
 pub use memory::{catch_up, groups_lately, record};
 pub use reaching_out::share_first;
 pub use speaking_up::notice;
-pub use turns::handle;
 pub use transcript::names_here;
+pub use turns::handle;
 
 /// Lines of a group she keeps in mind, and for how long.
 const TRANSCRIPT_LINES: usize = 30;
 const TRANSCRIPT_FOR: Duration = Duration::from_secs(6 * 3600);
 const MAX_GROUPS: usize = 256;
 const MAX_LINE_CHARS: usize = 500;
-/// Lines that spoke to her while she was busy, answered in order after.
-const WAITING_LINES: usize = 5;
+/// Lines that spoke to her while she was busy, answered in order after: as
+/// many as the conversation she reads holds, so none goes unanswered while
+/// she can still see what it was about.
+const WAITING_LINES: usize = TRANSCRIPT_LINES;
 /// Between two of her replies in the same group.
 const GROUP_PAUSE: Duration = Duration::from_secs(5);
 /// Lines that did not call her by name, in talk she is in: she looks once

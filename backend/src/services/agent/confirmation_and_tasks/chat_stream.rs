@@ -863,55 +863,6 @@ impl Agent {
             Err(error) => Err(error.to_string()),
         }
     }
-
-    /// 将已有文本分块推送为 SummaryToken 事件，模拟流式输出
-    ///
-    /// 将文本按句/标点拆分为自然片段，逐个发送给前端，
-    /// 让用户看到"AI 在打字"的效果而非一次性出现全部内容。
-    pub(crate) async fn stream_text_as_tokens(
-        tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
-        text: &str,
-    ) {
-        Self::stream_text_as_tokens_with_finish(tx, text, true).await;
-    }
-
-    async fn stream_text_as_tokens_with_finish(
-        tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
-        text: &str,
-        finish_stream: bool,
-    ) {
-        // 按自然断点切分（标点、换行）
-        let mut chunks = Vec::new();
-        let mut current = String::new();
-        for ch in text.chars() {
-            current.push(ch);
-            // 在句号、逗号、换行、感叹号、问号等处断开
-            if matches!(
-                ch,
-                '。' | '，' | '！' | '？' | '\n' | '；' | '：' | '.' | ',' | '!' | '?' | ';' | ':'
-            ) || current.len() > 40
-            {
-                chunks.push(std::mem::take(&mut current));
-            }
-        }
-        if !current.is_empty() {
-            chunks.push(current);
-        }
-
-        for chunk in &chunks {
-            let _ = tx
-                .send(AgentProgressEvent::SummaryToken {
-                    token: chunk.clone(),
-                    done: false,
-                })
-                .await;
-            // 极短延迟让前端有时间渲染，避免所有 token 在同一帧到达
-            tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
-        }
-        if finish_stream {
-            response_agent::finish_stream(tx).await;
-        }
-    }
 }
 
 #[cfg(test)]

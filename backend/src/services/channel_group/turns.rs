@@ -28,7 +28,7 @@ pub(super) fn begin(group: &mut Group) -> Turn {
 }
 
 /// A line that spoke to her while she was busy: answered after, in order;
-/// past a few, the oldest goes.
+/// past what she could still read the conversation of, the oldest goes.
 pub(super) fn park(group: &mut Group, message: GroupLine) {
     group.waiting.push_back(message);
     while group.waiting.len() > WAITING_LINES {
@@ -129,7 +129,8 @@ pub(super) async fn finish_turn(venue: &str, replied: bool) -> Option<GroupLine>
 
 /// When this process first heard a group: lines before it reached the one
 /// before, and whatever it was holding for her then went with it.
-pub(super) static UP_SINCE: LazyLock<chrono::DateTime<chrono::Utc>> = LazyLock::new(chrono::Utc::now);
+pub(super) static UP_SINCE: LazyLock<chrono::DateTime<chrono::Utc>> =
+    LazyLock::new(chrono::Utc::now);
 /// Lines taken back up after a restart, so a reconnect does not take one up
 /// twice.
 static TAKEN_BACK: LazyLock<Mutex<std::collections::HashSet<String>>> =

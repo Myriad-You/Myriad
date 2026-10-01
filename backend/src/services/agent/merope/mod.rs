@@ -134,35 +134,6 @@ pub async fn resolve_speaking_soul() -> Option<String> {
         .and_then(|id| id.soul)
 }
 
-pub fn refuse_new_task_message(mood_before: Option<f64>) -> Option<String> {
-    if mood_before.is_some_and(is_extremely_low) {
-        Some(
-            "I'm in a very low mood and don't want to take on anything new. Let's just talk."
-                .to_string(),
-        )
-    } else {
-        None
-    }
-}
-
-pub async fn maybe_refuse_new_task(
-    db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-) -> Option<String> {
-    if !is_logged_in_addressee(user_id) {
-        return None;
-    }
-    if !crate::GLOBAL_DYNAMIC_CONFIG
-        .read()
-        .await
-        .merope_enabled_resolved()
-    {
-        return None;
-    }
-    let state = get_or_create_state(db, user_id).await.ok()?;
-    refuse_new_task_message(Some(state.mood))
-}
-
 /// Returns the persisted mood transition for this utterance, if Merope applied.
 pub async fn note_user_turn(
     db: &sea_orm::DatabaseConnection,
@@ -524,9 +495,6 @@ mod tests {
 
     #[test]
     fn mood_tone_stays_quiet_about_the_number() {
-        assert!(super::refuse_new_task_message(Some(10.0)).is_some());
-        assert!(super::refuse_new_task_message(Some(10.1)).is_none());
-        assert!(super::refuse_new_task_message(None).is_none());
         assert!(
             super::speaking_prompts::PERSONA_SPEAKING_CONTRACT.contains("Do not name the mood")
         );

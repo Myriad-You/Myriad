@@ -128,14 +128,6 @@ impl Agent {
         preset_id: i32,
         tx: Option<Sender<AgentProgressEvent>>,
     ) -> Result<AgentResponse, String> {
-        // A saved preset is an execution shortcut, not a way around her mood.
-        let refusal = super::merope::maybe_refuse_new_task(&self.db, request.user_id).await;
-        if let Some(response) = self
-            .mood_refuse_response(request.user_id, refusal, tx.as_ref())
-            .await
-        {
-            return Ok(response);
-        }
         let mut state = self.new_work_checkpoint(&request).await;
         let call = ToolCall {
             id: format!("preset_{}", uuid::Uuid::new_v4().simple()),

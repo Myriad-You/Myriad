@@ -8,10 +8,11 @@
 //! and is usually let go. It is only ever spoken live: it never becomes a
 //! notification or a diary entry.
 //!
-//! Wandering needs someone present so the thought has somewhere to go, and
-//! her own energy: a tired mind does not drift outward. What she thought of
-//! lately is not thought of again for a few days. That record is attention,
-//! not memory, and lives in process memory only.
+//! Wandering needs someone present so the thought has somewhere to go.
+//! Whether she is up to saying it, tired or not, is the event decision's,
+//! which sees her energy. What she thought of lately is not thought of again
+//! for a few days. That record is attention, not memory, and lives in
+//! process memory only.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
@@ -26,18 +27,6 @@ pub const THOUGHT_EVENT: &str = "agent.merope.thought";
 const QUIET_SECS: i64 = 3 * 60;
 /// Between two thoughts about the same person.
 const BETWEEN_THOUGHTS_SECS: i64 = 10 * 60;
-/// Chance that an eligible minute actually brings a thought; a curious mind
-/// drifts more readily.
-const DRIFT_CHANCE: f64 = 0.3;
-const CURIOUS_DRIFT_CHANCE: f64 = 0.5;
-
-fn drift_chance(myself: &super::self_state::SelfState) -> f64 {
-    if myself.curious() {
-        CURIOUS_DRIFT_CHANCE
-    } else {
-        DRIFT_CHANCE
-    }
-}
 /// A thought is not had again about the same memory for this long.
 const NOT_AGAIN_SECS: i64 = 3 * 24 * 3600;
 const THOUGHTS_KEPT: usize = 64;
@@ -122,9 +111,6 @@ pub async fn tick(db: DatabaseConnection) {
         return;
     }
     let myself = super::self_state::current(&db).await;
-    if myself.tired() {
-        return;
-    }
     let now = Utc::now();
     for user_id in crate::services::agent::consciousness::present_users() {
         if user_id <= 0 || !super::is_logged_in_addressee(user_id) {
@@ -149,8 +135,7 @@ pub async fn tick(db: DatabaseConnection) {
             last_thought,
             myself.proactive_cooldown_secs(),
             now,
-        ) || rand::random::<f64>() >= drift_chance(&myself)
-        {
+        ) {
             continue;
         }
         let mut roll = rand::random::<f64>;
