@@ -64,11 +64,15 @@ describe('generateCSP media directives', () => {
     )
     for (const name of ['img-src', 'media-src']) {
       const value = directive(csp, name)
-      const sources = value.split(' ')
-      assert.ok(sources.includes('https://act-webstatic.mihoyo.com'), value)
-      assert.ok(sources.includes('https://*.miyoushe.com'), value)
+      const remoteSources = value
+        .split(' ')
+        .filter((source) => /^https?:/.test(source))
+      assert.deepEqual(
+        remoteSources,
+        ['https://act-webstatic.mihoyo.com', 'https://*.miyoushe.com'],
+        value,
+      )
       assert.ok(!/(^|\s)https?:(\s|$)/.test(value), `no bare scheme: "${value}"`)
-      assert.ok(!value.includes('http://'), `no http hosts: "${value}"`)
     }
     // Granted hosts without the permission do nothing.
     const withoutPermission = generateCSP(
