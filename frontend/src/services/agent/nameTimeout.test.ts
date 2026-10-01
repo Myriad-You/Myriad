@@ -34,7 +34,7 @@ function tsMs(ts: string, name: string): number {
 
 test('the browser waits longer for a name than the backend waits upstream', () => {
   const backend = rustSeconds(
-    source('../../../../backend/src/services/agent/merope/onboarding_ai.rs'),
+    source('../../../../backend/src/services/agent/merope/onboarding_ai/names.rs'),
     'NAME_CALL_TIMEOUT',
   )
   const frontend = tsMs(source('./agentApi.ts'), 'NAME_SUGGEST_TIMEOUT_MS')

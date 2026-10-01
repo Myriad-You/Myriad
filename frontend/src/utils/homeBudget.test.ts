@@ -18,7 +18,7 @@ describe('home first-paint budget', () => {
       'utf8',
     )
     const agora = readFileSync(
-      new URL('../features/merope/speech/agoraConversation.ts', import.meta.url),
+      new URL('../features/merope/presence/agoraConversation.ts', import.meta.url),
       'utf8',
     )
     assert.equal(home.includes('agora-rtc-sdk-ng'), false)

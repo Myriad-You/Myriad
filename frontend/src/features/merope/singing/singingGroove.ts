@@ -1,6 +1,6 @@
 import type { BehaviorQuality } from '../motion/behavior'
 import type { MusicMode, MusicMotionSignal } from './musicSignal'
-import { MinimumJerkMotion } from '../anime25drig/minimumJerk'
+import { MinimumJerkMotion } from '../math/minimumJerk'
 import { MIN_BEAT_PERIOD } from './beatClock'
 import {
   MUSIC_PHRASE_PREPARATION_SECONDS,

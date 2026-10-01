@@ -1,4 +1,4 @@
-import type { TouchObservation } from './touchGesture'
+import type { TouchObservation } from '../interaction/touchGesture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RigMotionCoordinator } from '../motion/coordinator'

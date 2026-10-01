@@ -436,7 +436,7 @@ test('a live-conversation energy frame still opens an idle mouth', () => {
 
 test('live-conversation frames carry their adopted run generation', () => {
   const source = readFileSync(
-    new URL('../speech/agoraConversation.ts', import.meta.url),
+    new URL('../presence/agoraConversation.ts', import.meta.url),
     'utf8',
   )
   assert.match(source, /generation: identity\.generation/)

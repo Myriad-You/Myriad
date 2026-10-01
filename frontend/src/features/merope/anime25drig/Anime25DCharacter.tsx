@@ -17,8 +17,8 @@ import {
   useState,
 } from 'react'
 import { bindCharacterTouch } from '../interaction/bindTouch'
-import { createTouchAppraisal } from '../interaction/touchAppraisalHost'
 import { getProductionMotionRuntime } from '../motion/runtimeHost'
+import { createTouchAppraisal } from '../presence/touchAppraisalHost'
 import { realizeAnime25DBehaviorPlan } from './behaviorRealizer'
 import { activityExpressionDriverPatch } from './expressionPresets'
 import { idleSpeechDriverPatch } from './performanceMotion'

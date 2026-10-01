@@ -47,6 +47,7 @@ import {
   noteTurnTraceDrop,
 } from '../../features/merope/events/turnTrace'
 import { listenTogether, playHerSong } from '../../features/merope/music/listenTogether'
+import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/presence/agoraConversation'
 import {
   clearChatOutfitOverlay,
   setChatOutfitOverlay,
@@ -64,7 +65,6 @@ import {
 } from '../../features/merope/presence/engineFace'
 import { playbackDirection, startPlaybackDirection } from '../../features/merope/presence/playbackDirectionHost'
 import { sampleTurnTraceLeaks } from '../../features/merope/presence/turnTraceSample'
-import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/speech/agoraConversation'
 import { bindRealtimeChat } from '../../features/merope/speech/realtimeChat'
 import {
   agentService,

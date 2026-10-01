@@ -1,11 +1,11 @@
 import type { TouchMotionSource } from '../motion/touchSource'
 import { apiService } from '../../../services/api'
 import { getCSRFToken } from '../../../utils/csrf'
+import { TouchAppraisal } from '../interaction/touchAppraisal'
+import { TouchEncounter } from '../interaction/touchEncounter'
 import { liveMotionGeneration } from '../motion/liveGeneration'
 import { reportPresence } from '../perception/inbound'
 import { perceptionRegistry } from '../perception/registry'
-import { TouchAppraisal } from './touchAppraisal'
-import { TouchEncounter } from './touchEncounter'
 
 export function createTouchAppraisal(owner: string, source: TouchMotionSource) {
   let generation = liveMotionGeneration()

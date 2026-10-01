@@ -9,7 +9,7 @@ import {
   startAgoraConversation,
   stopAgoraConversation,
   subscribeAgoraStopped,
-} from '../../features/merope/speech/agoraConversation'
+} from '../../features/merope/presence/agoraConversation'
 import {
   isSubmittableTranscript,
   pcmToWav,

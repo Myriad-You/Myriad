@@ -1,4 +1,4 @@
-import { MinimumJerkMotion } from './minimumJerk'
+import { MinimumJerkMotion } from '../math/minimumJerk'
 
 export interface AmbientPose {
   angleX: number

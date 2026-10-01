@@ -1,4 +1,4 @@
-import type { VoiceRunIdentity } from './realtimeChat'
+import type { VoiceRunIdentity } from '../speech/realtimeChat'
 import {
   interruptConvoSession,
   startConvoSession,
@@ -6,12 +6,12 @@ import {
   subscribeConvoRuns,
 } from '../../../services/speechApi'
 import { markTurnTraceOnce } from '../events/turnTrace'
-import { faceSpeechGate } from '../presence/faceSpeechArbitration'
-import { adoptRealtimeChatRun, realtimeChatSessionId } from './realtimeChat'
-import { RtcSpeechAlignment } from './rtcSpeechAlignment'
-import { dispatchMeropeSpeech } from './speechEvents'
-import { getSpeechPipeline } from './speechPipelineHost'
-import { getVoicePresence, patchVoicePresence } from './voicePresence'
+import { adoptRealtimeChatRun, realtimeChatSessionId } from '../speech/realtimeChat'
+import { RtcSpeechAlignment } from '../speech/rtcSpeechAlignment'
+import { dispatchMeropeSpeech } from '../speech/speechEvents'
+import { getSpeechPipeline } from '../speech/speechPipelineHost'
+import { getVoicePresence, patchVoicePresence } from '../speech/voicePresence'
+import { faceSpeechGate } from './faceSpeechArbitration'
 
 const BARGE_OPEN = 0.14
 const BARGE_START_FRAMES = 4
