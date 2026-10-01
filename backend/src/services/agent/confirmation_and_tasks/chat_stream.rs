@@ -915,6 +915,10 @@ impl Agent {
 }
 
 #[cfg(test)]
+#[path = "chat_stream_replay.rs"]
+mod replay;
+
+#[cfg(test)]
 mod prompt_size {
     use super::*;
 
