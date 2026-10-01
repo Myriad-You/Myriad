@@ -406,6 +406,31 @@ pub async fn send_group_reply(
     parse_telegram_ok_payload(status, &body).map(|_| ())
 }
 
+/// Her reaction on a group message (`setMessageReaction`): one emoji from
+/// the set Telegram allows, replacing any she put there before.
+pub async fn set_reaction(
+    token: &str,
+    chat_id: i64,
+    message_id: i64,
+    emoji: &str,
+) -> Result<(), ConnectFailureKind> {
+    let enabled = {
+        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        config.telegram_bot_enabled
+    };
+    if !enabled {
+        return Ok(());
+    }
+    let payload = serde_json::json!({
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "reaction": [{"type": "emoji", "emoji": emoji}],
+    });
+    let (status, body) =
+        telegram_request(token, "setMessageReaction", Some(payload), HTTP_TIMEOUT).await?;
+    parse_telegram_ok_payload(status, &body).map(|_| ())
+}
+
 /// `sendPhoto` multipart. Caption stays empty so the Work text is not duplicated.
 pub async fn send_photo(
     token: &str,

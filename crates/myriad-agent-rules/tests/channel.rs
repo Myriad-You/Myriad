@@ -2414,6 +2414,21 @@ mod onebot_encode {
     use serde_json::json;
 
     #[test]
+    fn a_reaction_goes_as_the_emoji_code_point() {
+        use myriad_agent_rules::onebot::encode::encode_set_msg_emoji_like;
+        let action = encode_set_msg_emoji_like("42", "👍").unwrap();
+        assert_eq!(action["action"], "set_msg_emoji_like");
+        assert_eq!(action["params"]["message_id"], 42);
+        assert_eq!(action["params"]["emoji_id"], "128077");
+        assert_eq!(
+            encode_set_msg_emoji_like("42", "❤️").unwrap()["params"]["emoji_id"],
+            "10084"
+        );
+        assert!(encode_set_msg_emoji_like("x", "👍").is_none());
+        assert!(encode_set_msg_emoji_like("42", "ok").is_none());
+    }
+
+    #[test]
     fn text_segment_has_the_exact_wire_shape() {
         assert_eq!(
             encode_text_segment("hi"),

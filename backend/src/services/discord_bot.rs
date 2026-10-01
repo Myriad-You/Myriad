@@ -893,6 +893,29 @@ fn group_reply_payload(content: &str, mentioned: &[String], reply_to: Option<&st
     payload
 }
 
+/// Her reaction on a message in a server channel.
+pub async fn add_reaction(
+    token: &str,
+    channel_id: &str,
+    message_id: &str,
+    emoji: &str,
+) -> Result<(), ConnectFailureKind> {
+    if channel_id.is_empty() || message_id.is_empty() || !bot_enabled().await {
+        return Ok(());
+    }
+    // Discord knows the heart with its variation selector.
+    let emoji = if emoji == "❤" { "❤️" } else { emoji };
+    let path = format!(
+        "/channels/{channel_id}/messages/{message_id}/reactions/{}/@me",
+        urlencoding::encode(emoji)
+    );
+    let (status, body) = discord_request(token, reqwest::Method::PUT, &path, None).await?;
+    if !(200..300).contains(&status) {
+        return Err(classify_discord_rest(status, &body));
+    }
+    Ok(())
+}
+
 pub async fn send_typing(token: &str, channel_id: &str) -> Result<(), ConnectFailureKind> {
     if channel_id.is_empty() || !bot_enabled().await {
         return Ok(());

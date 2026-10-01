@@ -83,7 +83,8 @@ fn input(conversation: &[String], here: &Here, material: &[Material]) -> String 
 }
 
 /// Whether she speaks up: why, and the reason as the turn that speaks is
-/// told it; the judgment is billed to `owner`. `conversation` is the group's
+/// told it (for a reaction, only the emoji); the judgment is billed to
+/// `owner`. `conversation` is the group's
 /// recent lines, hers as `you：…`.
 pub async fn decide(
     db: &DatabaseConnection,
@@ -115,6 +116,10 @@ pub async fn decide(
         .unwrap_or_default();
     super::memes::learn(owner, unsure, conversation);
     let decision = parse(&raw, material.len()).flatten()?;
+    // A reaction is only the emoji: nothing is said.
+    if decision.why == Why::React {
+        return Some((Why::React, decision.about));
+    }
     let reason = reason(&decision, &material);
     Some((
         decision.why,

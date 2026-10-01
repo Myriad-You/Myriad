@@ -130,6 +130,22 @@ pub(super) async fn look(venue: String, mut id: String, token: String) {
                 taken_up(group);
             }
         });
+        // No words, only a reaction on the line: lighter than speaking, and
+        // no turn of the group's. She and the group see she put it there.
+        let decided = match decided {
+            Some((Why::React, emoji)) => {
+                if react(&message, &token, &emoji).await {
+                    info!(%venue, "[Group] she put a reaction on a line");
+                    record_hers(
+                        &venue,
+                        &format!("（给 {} 那句贴了 {emoji}）", message.display_name),
+                    )
+                    .await;
+                }
+                None
+            }
+            decided => decided,
+        };
         if let Some((why, reason)) = decided
             && matches!(begin_turn(&venue), Turn::Began)
         {

@@ -95,3 +95,19 @@ pub fn encode_get_msg(message_id: &str) -> Option<Value> {
         "params": {"message_id": message_id}
     }))
 }
+
+/// A reaction on a group message (NapCat `set_msg_emoji_like`). An emoji is
+/// sent as its code point, which NapCat passes on as an emoji reaction
+/// rather than a QQ face id; whether QQ takes a given emoji is QQ's.
+pub fn encode_set_msg_emoji_like(message_id: &str, emoji: &str) -> Option<Value> {
+    let message_id = message_id.trim().parse::<i64>().ok()?;
+    let mut chars = emoji.trim().trim_end_matches('\u{fe0f}').chars();
+    let point = chars.next()?;
+    if chars.next().is_some() || point.is_ascii() {
+        return None;
+    }
+    Some(json!({
+        "action": "set_msg_emoji_like",
+        "params": {"message_id": message_id, "emoji_id": (point as u32).to_string(), "set": true}
+    }))
+}

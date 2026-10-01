@@ -77,6 +77,41 @@ pub(super) async fn send_typing(line: &GroupLine, token: &str) {
     }
 }
 
+/// Put her reaction (one of `joining::REACTIONS`) on `line`. Whether the
+/// platform took it.
+pub(super) async fn react(line: &GroupLine, token: &str, emoji: &str) -> bool {
+    let done = match line.platform {
+        ChannelPlatform::Telegram => match (line.chat.parse(), line.message_id.parse()) {
+            (Ok(chat), Ok(message_id)) => {
+                crate::services::telegram_bot::set_reaction(token, chat, message_id, emoji).await
+            }
+            _ => Err(ConnectFailureKind::Permanent),
+        },
+        ChannelPlatform::Discord => {
+            crate::services::discord_bot::add_reaction(token, &line.chat, &line.message_id, emoji)
+                .await
+        }
+        ChannelPlatform::OneBot => {
+            match myriad_agent_rules::onebot::encode::encode_set_msg_emoji_like(
+                &line.message_id,
+                emoji,
+            ) {
+                Some(action) => match crate::services::onebot_send::send_action(action).await {
+                    Ok(None) => Ok(()),
+                    Ok(Some(kind)) => Err(kind),
+                    Err(_) => Err(ConnectFailureKind::Transient),
+                },
+                None => Err(ConnectFailureKind::Permanent),
+            }
+        }
+        ChannelPlatform::Qq | ChannelPlatform::Feishu => Err(ConnectFailureKind::Permanent),
+    };
+    if let Err(kind) = &done {
+        warn!(venue = %line.venue(), ?kind, "[Group] her reaction did not go");
+    }
+    done.is_ok()
+}
+
 pub(super) fn text_limit(platform: ChannelPlatform) -> usize {
     match platform {
         ChannelPlatform::Discord => myriad_agent_rules::channel::DISCORD_TEXT_LIMIT,
