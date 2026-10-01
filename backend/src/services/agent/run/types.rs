@@ -76,6 +76,9 @@ pub struct GroupTurn {
     /// What she made of the talk before answering, and what the group told
     /// her about herself.
     pub making_sense: Option<String>,
+    /// She is saying something first: nobody said anything to her, so there
+    /// is no line of theirs to keep.
+    pub first: bool,
 }
 
 /// 对话消息（API 格式）

@@ -348,7 +348,10 @@ pub(crate) async fn start(
         None
     };
 
-    if has_session {
+    // Saying something first in a group, the words that stand in for
+    // theirs were never said by anyone: they are not kept as theirs.
+    let nobody_said = group.as_ref().is_some_and(|group| group.first);
+    if has_session && !nobody_said {
         if let Err(e) =
             require_user_message_persisted(persist_user_message(&db, &session_id, &req.input).await)
         {

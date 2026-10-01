@@ -142,6 +142,7 @@ pub(super) async fn run_turn(
                     venue,
                     chime,
                     speaker: message.display_name.clone(),
+                    first,
                 }),
                 ..Default::default()
             }),
