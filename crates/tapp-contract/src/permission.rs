@@ -152,6 +152,9 @@ pub enum TappPermission {
     /// Play package audio via blob/data URLs inside the sandbox.
     #[serde(rename = "media:audio")]
     MediaAudio,
+    /// Load remote images/media in the sandbox from install-approved `remoteMedia` hosts only.
+    #[serde(rename = "media:remote")]
+    MediaRemote,
     /// Control media playback (play/pause/skip). Basic — always available.
     #[serde(rename = "media:control")]
     MediaControl,
@@ -258,6 +261,7 @@ impl TappPermission {
         TappPermission::UiOpenUrl,
         TappPermission::MediaRead,
         TappPermission::MediaAudio,
+        TappPermission::MediaRemote,
         TappPermission::MediaControl,
         TappPermission::EventSubscribe,
         TappPermission::FederationRead,
@@ -357,6 +361,7 @@ impl TappPermission {
             | TappPermission::UiOpenUrl
             | TappPermission::MediaRead
             | TappPermission::MediaAudio
+            | TappPermission::MediaRemote
             | TappPermission::MediaControl
             | TappPermission::EventSubscribe
             | TappPermission::FederationRead
@@ -452,6 +457,7 @@ impl TappPermission {
             "media:control" => Some(TappPermission::MediaControl),
             "media:read" => Some(TappPermission::MediaRead),
             "media:audio" => Some(TappPermission::MediaAudio),
+            "media:remote" => Some(TappPermission::MediaRemote),
             "component:theme" => Some(TappPermission::ComponentTheme),
             "component:agent" => Some(TappPermission::ComponentAgent),
             "tappList:manage" => Some(TappPermission::TappListManage),
@@ -509,6 +515,7 @@ impl TappPermission {
             TappPermission::MediaControl => "media:control",
             TappPermission::MediaRead => "media:read",
             TappPermission::MediaAudio => "media:audio",
+            TappPermission::MediaRemote => "media:remote",
             TappPermission::ComponentTheme => "component:theme",
             TappPermission::ComponentAgent => "component:agent",
             TappPermission::TappListManage => "tappList:manage",
@@ -589,6 +596,7 @@ mod tests {
             | TappPermission::UiOpenUrl
             | TappPermission::MediaRead
             | TappPermission::MediaAudio
+            | TappPermission::MediaRemote
             | TappPermission::MediaControl
             | TappPermission::EventSubscribe
             | TappPermission::FederationRead

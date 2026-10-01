@@ -1442,7 +1442,7 @@
   "permAiChat": "AI Chat",
   "permAiChatHint": "Allow Tapp to use AI chat features",
   "permNetworkFetch": "Network Requests",
-  "permNetworkFetchHint": "Allow declared outbound requests and loading remote images/media",
+  "permNetworkFetchHint": "Allow declared outbound requests made by the server (does not cover remote images)",
   "permMediaControl": "Media Control",
   "permComponentTheme": "Register Theme",
   "permComponentThemeHint": "Allow Tapp to register custom themes",

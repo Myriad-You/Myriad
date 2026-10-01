@@ -9,7 +9,7 @@ export interface TappPersonaCard {
   portraitUrl: string | null
 }
 
-/** 头像用同源路径。远端 https 需要 network:fetch，故丢弃不改写。 */
+/** 头像用同源路径。远端 https 要 media:remote 且域名经安装批准，宿主人设头像不走这条路，故丢弃不改写。 */
 export function sameOriginPortraitUrl(
   raw: string | null | undefined,
 ): string | null {

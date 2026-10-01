@@ -585,6 +585,7 @@ mod tests {
             agent: None,
             assets: None,
             open_urls: None,
+            remote_media: None,
         };
 
         // Permission without openUrls → fail

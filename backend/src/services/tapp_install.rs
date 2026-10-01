@@ -111,6 +111,57 @@ pub fn select_overwrite_approved_permissions(
         .collect()
 }
 
+fn declared_and_listed(declared: &[String], listed: &[String]) -> Vec<String> {
+    declared
+        .iter()
+        .filter(|host| listed.iter().any(|r| r == *host))
+        .cloned()
+        .collect()
+}
+
+/// Select approved `remoteMedia` hosts for a **new** install.
+///
+/// Unlike permission names, hosts are never approved by default: a host can
+/// receive whatever the Tapp reads about a viewer, so the installer has to name
+/// it. `None` approves nothing; `Some(list)` keeps the declared hosts listed.
+pub fn select_install_approved_remote_media(
+    declared: &[String],
+    requested: Option<&[String]>,
+) -> Vec<String> {
+    requested
+        .map(|listed| declared_and_listed(declared, listed))
+        .unwrap_or_default()
+}
+
+/// Select approved `remoteMedia` hosts for an **update**.
+///
+/// - `None` → keep previous approvals the new manifest still declares; newly
+/// declared hosts stay unapproved until the installer accepts them.
+/// - `Some(list)` → declared hosts in `list` (an empty list approves nothing).
+pub fn select_update_approved_remote_media(
+    declared: &[String],
+    requested: Option<&[String]>,
+    previous_approved: &[String],
+) -> Vec<String> {
+    declared_and_listed(declared, requested.unwrap_or(previous_approved))
+}
+
+/// Select approved `remoteMedia` hosts for an **overwrite**: previous approvals
+/// still declared, plus newly declared hosts the operator explicitly accepted.
+pub fn select_overwrite_approved_remote_media(
+    declared: &[String],
+    accepted_new: &[String],
+    previous_approved: &[String],
+) -> Vec<String> {
+    declared
+        .iter()
+        .filter(|host| {
+            previous_approved.iter().any(|r| r == *host) || accepted_new.iter().any(|r| r == *host)
+        })
+        .cloned()
+        .collect()
+}
+
 /// Whether the installation owner namespace is the public site-owner row.
 pub fn is_public_installation_namespace(installation_owner_id: i32, site_owner_id: i32) -> bool {
     installation_owner_id == site_owner_id
@@ -173,6 +224,7 @@ pub struct NewInstallPersist {
     pub manifest: serde_json::Value,
     pub start_running: bool,
     pub approved_permissions: serde_json::Value,
+    pub approved_remote_media: serde_json::Value,
     /// Re-authorization marker. Always `false` here: only the upgrade
     /// migration sets `true`, and every successful install/update is an
     /// explicit re-authorization that clears it.
@@ -189,6 +241,7 @@ pub fn build_new_install_persist(
     manifest: &TappManifest,
     installation_owner_id: i32,
     approved: &[String],
+    approved_remote_media: &[String],
     final_tapp_dir: &Path,
     now: DateTime<FixedOffset>,
 ) -> Result<NewInstallPersist, String> {
@@ -209,6 +262,7 @@ pub fn build_new_install_persist(
         manifest: manifest_json,
         start_running: true,
         approved_permissions: serde_json::to_value(approved).unwrap_or_default(),
+        approved_remote_media: serde_json::to_value(approved_remote_media).unwrap_or_default(),
         needs_reauthorization: false,
         file_path: paths.file_path,
         code_path: paths.code_path,
@@ -229,6 +283,7 @@ pub struct UpdateInstallPersist {
     pub theme_color: Option<String>,
     pub manifest: serde_json::Value,
     pub approved_permissions: serde_json::Value,
+    pub approved_remote_media: serde_json::Value,
     /// Re-authorization marker. Always `false` here: only the upgrade
     /// migration sets `true`, and every successful install/update is an
     /// explicit re-authorization that clears it.
@@ -241,6 +296,7 @@ pub struct UpdateInstallPersist {
 pub fn build_update_install_persist(
     manifest: &TappManifest,
     approved: &[String],
+    approved_remote_media: &[String],
     final_tapp_dir: &Path,
     now: DateTime<FixedOffset>,
 ) -> Result<UpdateInstallPersist, String> {
@@ -258,6 +314,7 @@ pub fn build_update_install_persist(
         theme_color: manifest.theme_color.clone(),
         manifest: manifest_json,
         approved_permissions: serde_json::to_value(approved).unwrap_or_default(),
+        approved_remote_media: serde_json::to_value(approved_remote_media).unwrap_or_default(),
         needs_reauthorization: false,
         code_path: paths.code_path,
         updated_at: now,
@@ -271,6 +328,7 @@ pub fn build_update_install_persist(
 pub enum InstallMultipartField {
     File,
     Permissions,
+    RemoteMedia,
     Ignore,
 }
 
@@ -279,6 +337,7 @@ pub fn classify_install_multipart_field(name: &str) -> InstallMultipartField {
     match name {
         "file" => InstallMultipartField::File,
         "permissions" => InstallMultipartField::Permissions,
+        "remoteMedia" => InstallMultipartField::RemoteMedia,
         _ => InstallMultipartField::Ignore,
     }
 }
@@ -435,6 +494,52 @@ mod tests {
     }
 
     #[test]
+    fn remote_media_hosts_are_never_approved_by_default() {
+        let declared = vec!["a.example.com".to_string(), "*.cdn.example.com".to_string()];
+
+        // Install: omitted approves nothing; a list keeps only declared hosts.
+        assert!(select_install_approved_remote_media(&declared, None).is_empty());
+        assert!(select_install_approved_remote_media(&declared, Some(&[])).is_empty());
+        assert_eq!(
+            select_install_approved_remote_media(
+                &declared,
+                Some(&["a.example.com".into(), "evil.example.net".into()])
+            ),
+            vec!["a.example.com".to_string()]
+        );
+
+        // Update: omitted keeps still-declared approvals, never adds new hosts.
+        let previous = vec!["a.example.com".to_string(), "gone.example.com".to_string()];
+        assert_eq!(
+            select_update_approved_remote_media(&declared, None, &previous),
+            vec!["a.example.com".to_string()]
+        );
+        assert!(select_update_approved_remote_media(&declared, Some(&[]), &previous).is_empty());
+        assert_eq!(
+            select_update_approved_remote_media(
+                &declared,
+                Some(&["*.cdn.example.com".into()]),
+                &previous
+            ),
+            vec!["*.cdn.example.com".to_string()]
+        );
+
+        // Overwrite: keep old overlap, add only explicitly accepted new hosts.
+        assert_eq!(
+            select_overwrite_approved_remote_media(&declared, &[], &previous),
+            vec!["a.example.com".to_string()]
+        );
+        assert_eq!(
+            select_overwrite_approved_remote_media(
+                &declared,
+                &["*.cdn.example.com".into(), "evil.example.net".into()],
+                &previous
+            ),
+            declared
+        );
+    }
+
+    #[test]
     fn public_namespace_matches_site_owner() {
         assert!(is_public_installation_namespace(1, 1));
         assert!(!is_public_installation_namespace(42, 1));
@@ -479,6 +584,7 @@ mod tests {
             &sample_manifest(),
             7,
             &["storage:read".into()],
+            &["cdn.example.com".into()],
             Path::new("/data/tapps/7/com.example.app"),
             now,
         )
@@ -493,6 +599,7 @@ mod tests {
         assert_eq!(snap.installed_at, now);
         assert_eq!(snap.last_run_at, now);
         assert_eq!(snap.approved_permissions, json!(["storage:read"]));
+        assert_eq!(snap.approved_remote_media, json!(["cdn.example.com"]));
         assert!(
             !snap.needs_reauthorization,
             "new installs are never pre-flagged"
@@ -506,6 +613,7 @@ mod tests {
         let snap = build_update_install_persist(
             &sample_manifest(),
             &["storage:read".into()],
+            &[],
             Path::new("/data/tapps/1/com.example.app"),
             now,
         )
@@ -534,6 +642,10 @@ mod tests {
         assert_eq!(
             classify_install_multipart_field("permissions"),
             InstallMultipartField::Permissions
+        );
+        assert_eq!(
+            classify_install_multipart_field("remoteMedia"),
+            InstallMultipartField::RemoteMedia
         );
         assert_eq!(
             classify_install_multipart_field("other"),

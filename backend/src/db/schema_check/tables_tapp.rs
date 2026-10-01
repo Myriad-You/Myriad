@@ -85,6 +85,12 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     not_null: false,
                 },
                 ColumnDef {
+                    name: "approved_remote_media".into(),
+                    data_type: "jsonb".into(),
+                    default_value: Some("'[]'".into()),
+                    not_null: false,
+                },
+                ColumnDef {
                     name: "file_path".into(),
                     data_type: "text".into(),
                     default_value: None,

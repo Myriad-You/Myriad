@@ -449,6 +449,7 @@ mod tests {
             error_message: None,
             visibility: TAPP_VISIBILITY_ADMIN.into(),
             needs_reauthorization: false,
+            approved_remote_media: serde_json::json!([]),
         };
         // Non-admin cannot see admin-only public install
         assert!(!install_visible_to_viewer(&public, 42, 1, false));

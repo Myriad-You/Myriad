@@ -132,6 +132,9 @@ export interface TappManifest {
 
   /** 只开声明 id；未声明 URL 拒绝。需要 ui:openUrl。 */
   openUrls?: TappOpenUrlDef[]
+
+  /** 远端图片/音视频域名（`cdn.example.com` 或 `*.example.com`）。需要 media:remote，逐个经安装者批准。 */
+  remoteMedia?: string[]
 }
 
 export interface TappOpenUrlDef {
@@ -354,6 +357,8 @@ export type TappPermission =
   | 'media:read'
   /** 沙箱内播放包内/blob/data 音频。 */
   | 'media:audio'
+  /** 只从安装时批准的 remoteMedia 域名加载远端图片/音视频。 */
+  | 'media:remote'
   | 'component:theme'
   | 'component:agent'
   | 'shortcut:register'
@@ -402,6 +407,12 @@ export interface TappInstance {
 
   /** 授予权限。 */
   grantedPermissions: TappPermission[]
+
+  /** media:remote 授予的域名（声明 ∩ 安装批准）。CSP 只放这些，不读 manifest.remoteMedia。 */
+  grantedRemoteMedia?: string[]
+
+  /** 已批准的 remoteMedia 域名。只下发给能批准的人（管理员、私装本人），用于管理界面。 */
+  approvedRemoteMedia?: string[]
 
   /** 升级清掉退役权限或批准列仍有未知名时置位；完成重新授权前不能运行。 */
   needsReauthorization?: boolean

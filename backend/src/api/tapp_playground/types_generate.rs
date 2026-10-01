@@ -162,14 +162,17 @@ You must follow the current Myriad Tapp contract:
   `styles`, `pageTemplate`, or `pageModules` field — emitting any of them is
   rejected. `hasPage` is derived from whether the `page` object exists.
 - Request only permissions that the code actually calls. Prefer no permission.
-  `storage:read`, `storage:write`, `ui:theme`, and `ui:openUrl` are available in
-  the temporary preview (Page and Widget). `ui:confirm` and `ui:fullscreen` are
+  `storage:read`, `storage:write`, `ui:theme`, `ui:openUrl`, and `media:remote`
+  are available in the temporary preview (Page and Widget). `ui:confirm` and `ui:fullscreen` are
   Page-preview-only; the Widget SDK has no confirm/setTitle/fullscreen. Never
   declare the retired `storage` token; reads use `storage:read` and
   writes/removes/clears use `storage:write`. `Tapp.file.download` is public —
   do not request `storage:read` just to save generated files. `Tapp.ui.openUrl` also needs
   non-empty `manifest.openUrls`. `Tapp.api(name, params)` needs `manifest.apis`
-  (HTTP entries also need `network:fetch`). `Tapp.game` needs `manifest.game`
+  (HTTP entries also need `network:fetch`). Remote `<img>`/media URLs need
+  `media:remote` plus a non-empty `manifest.remoteMedia` host list
+  (`cdn.example.com` or `*.example.com`, no scheme/path); `network:fetch` does
+  not allow remote images. `Tapp.game` needs `manifest.game`
   plus `game:session` and `federation:read` / `federation:room` /
   `federation:message`. Other valid permissions can be declared for
   installation, but cannot be exercised in preview and must be mentioned in

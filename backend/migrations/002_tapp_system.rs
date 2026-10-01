@@ -52,6 +52,12 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
+                    .col(
+                        ColumnDef::new(Tapps::ApprovedRemoteMedia)
+                            .json_binary()
+                            .not_null()
+                            .default("[]"),
+                    )
                     .col(ColumnDef::new(Tapps::FilePath).text().not_null())
                     .col(ColumnDef::new(Tapps::CodePath).text().not_null())
                     .col(
@@ -879,6 +885,7 @@ enum Tapps {
     Status,
     ApprovedPermissions,
     NeedsReauthorization,
+    ApprovedRemoteMedia,
     FilePath,
     CodePath,
     InstalledAt,

@@ -1442,7 +1442,7 @@
   "permAiChat": "AI 채팅",
   "permAiChatHint": "Tapp이 AI 채팅을 쓸 수 있게 합니다",
   "permNetworkFetch": "네트워크 요청",
-  "permNetworkFetchHint": "선언된 아웃바운드 요청과 원격 이미지/미디어 로드를 허용",
+  "permNetworkFetchHint": "서버가 보내는 선언된 아웃바운드 요청을 허용(원격 이미지는 해당 없음)",
   "permMediaControl": "미디어 제어",
   "permComponentTheme": "테마 등록",
   "permComponentThemeHint": "Tapp이 사용자 테마를 등록할 수 있게 합니다",

@@ -120,10 +120,10 @@
     "notes": "Nur deklarierte Links funktionieren; sandbox window.open bleibt deaktiviert. Deklarierte Hosts bei der Installation prüfen."
   },
   "network:fetch": {
-    "what": "Ermöglicht deklaratives HTTP und das Laden entfernter Medien/Bilder.",
-    "chain": "1) Die App deklariert Endpunkte oder Remote-Assets.\n2) Der Host prüft/proxied den Netzzugriff.\n3) Die Antwort kehrt in die Sandbox zurück.",
-    "frontend": "Externe Daten, Cover, Medien in der App.",
-    "notes": "Unterliegt Proxy-/CORS-/Sicherheitsrichtlinie; ausgehendes Risiko."
+    "what": "Erlaubt deklarierte serverseitige HTTP-APIs. Entfernte Bilder und Medien brauchen stattdessen media:remote.",
+    "chain": "1) Die App deklariert HTTP-APIs im Manifest.\n2) Der Server prüft und sendet die Anfrage.\n3) Die Antwort geht an die Sandbox zurück.",
+    "frontend": "Externe Daten, die die App über den Host abruft.",
+    "notes": "Ausgehende Anfragen des Servers im Namen der betrachtenden Person; öffnet die Sandbox-CSP nicht für Bilder."
   },
   "media:control": {
     "what": "Ermöglicht die Steuerung der Wiedergabe (Play, Pause, Skip usw.).",
@@ -142,6 +142,12 @@
     "chain": "1) Die App startet Audio.\n2) Nur erlaubte Quellen spielen.\n3) Keine beliebige Remote-Steuerung.",
     "frontend": "SFX / Audioclips in der App.",
     "notes": "Anders als media:control — fokussiert auf Quellen in der Sandbox."
+  },
+  "media:remote": {
+    "what": "Erlaubt der Sandbox, entfernte Bilder, Audio und Video zu laden – aber nur von den Hosts, die in remoteMedia des Manifests stehen und bei der Installation genehmigt wurden.",
+    "chain": "1) Die Tapp deklariert Hosts in remoteMedia.\n2) Wer installiert, genehmigt jeden Host.\n3) Die Sandbox-CSP lässt nur diese Hosts zu; alles andere bleibt blockiert.",
+    "frontend": "Spiel-Avatare, Cover und andere CDN-Bilder in der Tapp, auch für Gäste und Mitglieder sichtbar.",
+    "notes": "Eine Tapp kann über Bild-URLs an diese Hosts senden, was sie über die betrachtende Person liest. Genehmige nur vertrauenswürdige CDNs, nie den eigenen Server des Autors. Basic-Stufe, gilt für alle Rollen; network:fetch erlaubt keine entfernten Bilder mehr."
   },
   "component:theme": {
     "what": "Ermöglicht das Registrieren eigener Designstile für die Site.",

@@ -11,6 +11,7 @@ import {
   FaCog,
   FaDownload,
   FaExclamationTriangle,
+  FaImages,
   FaKey,
   FaLock,
   FaPause,
@@ -72,6 +73,7 @@ import {
   uniqueNonEmpty,
 } from '../utils/credentialBindingDisplay'
 import { resolveManifestText } from '../utils/manifestLocale'
+import { declaredRemoteMedia } from '../utils/remoteMediaApproval'
 import { getTappIconStyle } from '../utils/tappColors'
 import { buildTappDetailPageSeo } from '../utils/tappPageSeo'
 import { TAPP_LIST_PATH, tappRunPath } from '../utils/tappPaths'
@@ -151,6 +153,7 @@ export function TappDetailPage() {
   )
   const [appVisibility, setAppVisibility] = useState<TappVisibility>('all')
   const [visibilitySaving, setVisibilitySaving] = useState(false)
+  const [remoteMediaSaving, setRemoteMediaSaving] = useState(false)
   useTappSubject()
   const runtime = getTappRuntime()
 
@@ -549,6 +552,37 @@ export function TappDetailPage() {
     ],
   )
 
+  const handleRemoteMediaToggle = useCallback(
+    async (host: string, approve: boolean) => {
+      if (!tapp || remoteMediaSaving) return
+      const approved = new Set(tapp.approvedRemoteMedia ?? [])
+      if (approve) approved.add(host)
+      else approved.delete(host)
+      const next = declaredRemoteMedia(tapp).filter((h) => approved.has(h))
+      setRemoteMediaSaving(true)
+      try {
+        const result = await TappApiService.setTappRemoteMedia(tappId, next)
+        setTapp((prev) =>
+          prev
+            ? { ...prev, approvedRemoteMedia: result.approvedRemoteMedia }
+            : prev,
+        )
+        showToastMessage(t.tapp.remoteMediaSaved, 'success')
+        // 授予域名变了，沙箱要按新 CSP 重建。
+        void runtime.syncFromBackend(true)
+      } catch (err) {
+        console.error('Failed to update remote media hosts:', err)
+        showToastMessage(
+          userFacingError(err, t.tapp.remoteMediaSaveFailed),
+          'error',
+        )
+      } finally {
+        setRemoteMediaSaving(false)
+      }
+    },
+    [tapp, remoteMediaSaving, tappId, t, showToastMessage, runtime],
+  )
+
   const pageShell = (body: ReactNode) => (
     <AnimatedView
       className="relative min-h-screen px-4 sm:px-6 pt-20 pb-24 md:pb-12"
@@ -630,6 +664,8 @@ export function TappDetailPage() {
     (tapp.userRole === 'user' && tapp.isTemporary === true)
   const canManageVisibility =
     tapp.userRole === 'admin' && tapp.isAdminTapp === true
+  const remoteMediaHosts = declaredRemoteMedia(tapp)
+  const approvedRemoteMedia = new Set(tapp.approvedRemoteMedia ?? [])
   const isUnusable =
     tapp.installationStatus === 'error' || tapp.status === 'error'
   const unusableReason = isUnusable
@@ -1391,6 +1427,37 @@ export function TappDetailPage() {
           )}
         </SettingGroup>
         </div>
+
+        {canManageSettings && remoteMediaHosts.length > 0 && (
+          <SettingGroup
+            id="tapp-remote-media"
+            title={t.tapp.remoteMediaTitle}
+            description={t.tapp.remoteMediaDesc}
+            icon={<FaImages />}
+          >
+            {remoteMediaHosts.map((host) => (
+              <SwitchItem
+                key={host}
+                itemKey={`remote-media-${host}`}
+                label={host}
+                description={
+                  host.startsWith('*.')
+                    ? format(t.tapp.remoteMediaWildcardHint, {
+                        host: host.slice(2),
+                      })
+                    : undefined
+                }
+                value={approvedRemoteMedia.has(host)}
+                onChange={(checked) =>
+                  void handleRemoteMediaToggle(host, checked)
+                }
+                disabled={remoteMediaSaving}
+                loading={remoteMediaSaving}
+                layout="horizontal"
+              />
+            ))}
+          </SettingGroup>
+        )}
       </SettingSection>
 
       <UninstallConfirmDialog

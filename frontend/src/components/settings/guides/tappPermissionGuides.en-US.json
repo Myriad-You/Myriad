@@ -120,10 +120,10 @@
     "notes": "Only declared links work; sandbox window.open stays disabled. Review declared hosts at install time."
   },
   "network:fetch": {
-    "what": "Allows declarative HTTP and loading remote media/images.",
-    "chain": "1) App declares endpoints or remote assets.\n2) Host proxies/validates network access.\n3) Response returns to the sandbox.",
-    "frontend": "External data, covers, media in the app.",
-    "notes": "Subject to proxy/CORS/security policy; outbound risk."
+    "what": "Allows declared server-side HTTP APIs. Remote images and media need media:remote instead.",
+    "chain": "1) App declares HTTP APIs in the manifest.\n2) The server validates and sends the request.\n3) Response returns to the sandbox.",
+    "frontend": "External data the app fetches through the host.",
+    "notes": "Server-side egress on behalf of the viewer; does not open the sandbox CSP for images."
   },
   "media:control": {
     "what": "Allows controlling playback (play, pause, skip, etc.).",
@@ -142,6 +142,12 @@
     "chain": "1) App starts audio.\n2) Only allowed sources play.\n3) Not full arbitrary remote control.",
     "frontend": "In-app SFX / audio clips.",
     "notes": "Different from media:control — focuses on sandboxed sources."
+  },
+  "media:remote": {
+    "what": "Lets the sandbox load remote images, audio and video, but only from the hosts listed in the manifest's remoteMedia and approved at install.",
+    "chain": "1) The Tapp declares hosts in remoteMedia.\n2) The installer approves each host.\n3) The sandbox CSP allows only those hosts; everything else stays blocked.",
+    "frontend": "Game avatars, cover art and other CDN images inside the Tapp, visible to guests and members too.",
+    "notes": "A Tapp can send what it reads about the viewer to these hosts inside image URLs. Only approve CDNs you trust, never the author's own server. Basic level, so every role gets it; network:fetch no longer allows remote images."
   },
   "component:theme": {
     "what": "Allows registering custom theme styles for the site.",

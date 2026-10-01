@@ -7,6 +7,7 @@ import {
   PREVIEW_UNAVAILABLE_CODE,
   previewUnavailableMessage,
   selectPreviewGrantedPermissions,
+  selectPreviewGrantedRemoteMedia,
 } from './previewGrants.ts'
 
 describe('previewGrants (MYR-024)', () => {
@@ -43,6 +44,18 @@ describe('previewGrants (MYR-024)', () => {
     assert.deepEqual(selectPreviewGrantedPermissions(null), [])
   })
 
+  it('grants declared remoteMedia hosts only when media:remote is declared', () => {
+    assert.deepEqual(
+      selectPreviewGrantedRemoteMedia(['media:remote'], ['cdn.example.com']),
+      ['cdn.example.com'],
+    )
+    assert.deepEqual(
+      selectPreviewGrantedRemoteMedia(['network:fetch'], ['cdn.example.com']),
+      [],
+    )
+    assert.deepEqual(selectPreviewGrantedRemoteMedia(['media:remote'], undefined), [])
+  })
+
   it('does not auto-grant preview allowlist entries that were not declared', () => {
     assert.deepEqual(selectPreviewGrantedPermissions(['ui:theme']), ['ui:theme'])
     assert.deepEqual(selectPreviewGrantedPermissions(['network:fetch']), [])
@@ -56,6 +69,7 @@ describe('previewGrants (MYR-024)', () => {
       'ui:confirm',
       'ui:fullscreen',
       'ui:openUrl',
+      'media:remote',
     ])
     for (const permission of PREVIEW_PERMISSIONS) {
       assert.equal(isPreviewPermission(permission), true)

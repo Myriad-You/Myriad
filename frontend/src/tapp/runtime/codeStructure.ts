@@ -113,6 +113,7 @@ export function getTappRuntimeFingerprint(instance: TappInstance): string {
   return hashParts([
     JSON.stringify(instance.manifest),
     JSON.stringify(instance.grantedPermissions.toSorted()),
+    JSON.stringify((instance.grantedRemoteMedia ?? []).toSorted()),
     instance.userRole,
     String(instance.isTemporary ?? false),
     String(instance.isAdminTapp ?? false),

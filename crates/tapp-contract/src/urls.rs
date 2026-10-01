@@ -1,6 +1,9 @@
 //! HTTP(S) URL rules for manifest fields. Parsed with `url::Url`.
 
-use crate::contract_rules::{HTTP_URL_SCHEMES, MAX_HTTP_URL_LEN};
+use crate::contract_rules::{
+    HTTP_URL_SCHEMES, MAX_HTTP_URL_LEN, REMOTE_MEDIA_RESERVED_SUFFIXES,
+    REMOTE_MEDIA_WILDCARD_DENIED_SUFFIXES,
+};
 
 pub fn validate_http_url(value: &str, field: &str) -> Result<(), String> {
     if value.len() > MAX_HTTP_URL_LEN {
@@ -52,6 +55,70 @@ pub fn validate_open_url_target(value: &str, field: &str) -> Result<url::Url, St
     Ok(parsed)
 }
 
+fn is_under_suffix(host: &str, suffix: &str) -> bool {
+    host == suffix || host.ends_with(&format!(".{suffix}"))
+}
+
+/// `remoteMedia` entry: `cdn.example.com` or `*.example.com`, written lowercase.
+///
+/// The value is emitted verbatim into the sandbox CSP as `https://<entry>`, so the
+/// charset stays strict (no scheme, port, path, quotes, spaces or semicolons).
+/// `*.example.com` follows CSP semantics: subdomains only, not `example.com` itself.
+pub fn validate_remote_media_host(value: &str, field: &str) -> Result<(), String> {
+    let (wildcard, host) = match value.strip_prefix("*.") {
+        Some(rest) => (true, rest),
+        None => (false, value),
+    };
+    if host.is_empty() || host.len() > 253 {
+        return Err(format!(
+            "Tapp {field} must be a hostname of at most 253 characters"
+        ));
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    let label_ok = |label: &&str| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    };
+    if !labels.iter().all(label_ok) {
+        return Err(format!(
+            "Tapp {field} must be a lowercase hostname (cdn.example.com) or *.example.com, without scheme, port or path; use punycode for IDN"
+        ));
+    }
+    if labels.len() < 2 {
+        return Err(format!(
+            "Tapp {field} must be a public multi-label hostname"
+        ));
+    }
+    // A numeric last label means an IPv4 literal (or a shorthand form of one).
+    if labels
+        .last()
+        .is_some_and(|label| label.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return Err(format!("Tapp {field} must not be an IP address"));
+    }
+    if REMOTE_MEDIA_RESERVED_SUFFIXES
+        .iter()
+        .any(|suffix| is_under_suffix(host, suffix))
+    {
+        return Err(format!("Tapp {field} must be a public hostname"));
+    }
+    if wildcard
+        && REMOTE_MEDIA_WILDCARD_DENIED_SUFFIXES
+            .iter()
+            .any(|suffix| host == *suffix || suffix.ends_with(&format!(".{host}")))
+    {
+        return Err(format!(
+            "Tapp {field} must not wildcard a shared hosting domain; list the exact host instead"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,6 +142,62 @@ mod tests {
             validate_open_url_target("https://user:pass@example.com/", "openUrls[0].url").is_err()
         );
         assert!(validate_open_url_target("https://example.com/a b", "openUrls[0].url").is_err());
+    }
+
+    #[test]
+    fn remote_media_host_accepts_exact_and_wildcard_public_hosts() {
+        for ok in [
+            "act-webstatic.mihoyo.com",
+            "*.mihoyo.com",
+            "*.miyoushe.com",
+            "i0.hdslb.com",
+            "xn--fiqs8s.example.org",
+            "someone.github.io",
+        ] {
+            assert!(
+                validate_remote_media_host(ok, "remoteMedia[0]").is_ok(),
+                "{ok}"
+            );
+        }
+    }
+
+    #[test]
+    fn remote_media_host_rejects_csp_injection_and_non_public_targets() {
+        for bad in [
+            "",
+            "*.",
+            "*",
+            "*.com",
+            "com",
+            "https://cdn.example.com",
+            "cdn.example.com/path",
+            "cdn.example.com:443",
+            "CDN.example.com",
+            "cdn.example.com;",
+            "cdn.example.com 'unsafe-inline'",
+            "a.*.example.com",
+            "**.example.com",
+            "-cdn.example.com",
+            "cdn..example.com",
+            "127.0.0.1",
+            "10.0.0.1",
+            "[::1]",
+            "localhost",
+            "img.localhost",
+            "nas.local",
+            "svc.internal",
+            "router.home.arpa",
+            "*.github.io",
+            "*.amazonaws.com",
+            "*.s3.amazonaws.com",
+            "*.workers.dev",
+            "中文.example.com",
+        ] {
+            assert!(
+                validate_remote_media_host(bad, "remoteMedia[0]").is_err(),
+                "{bad:?} should be rejected"
+            );
+        }
     }
 
     #[test]

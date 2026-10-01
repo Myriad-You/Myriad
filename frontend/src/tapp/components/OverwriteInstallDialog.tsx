@@ -17,9 +17,11 @@ export interface OverwriteInstallDialogProps {
   incomingVersion: string
   /** Permissions the new package declares that the install has not approved yet. */
   newPermissions: string[]
+  /** remoteMedia hosts the new package declares that the install has not approved yet. */
+  newRemoteMedia?: string[]
   busy?: boolean
   onCancel: () => void
-  onConfirm: (acceptedPermissions: string[]) => void
+  onConfirm: (acceptedPermissions: string[], acceptedRemoteMedia: string[]) => void
 }
 
 function permissionLabel(
@@ -39,6 +41,7 @@ export function OverwriteInstallDialog({
   installedVersion,
   incomingVersion,
   newPermissions,
+  newRemoteMedia = [],
   busy = false,
   onCancel,
   onConfirm,
@@ -48,14 +51,22 @@ export function OverwriteInstallDialog({
 
   const newPermissionsRef = useRef(newPermissions)
   newPermissionsRef.current = newPermissions
+  const newRemoteMediaRef = useRef(newRemoteMedia)
+  newRemoteMediaRef.current = newRemoteMedia
   const onConfirmRef = useRef(onConfirm)
   onConfirmRef.current = onConfirm
 
   const [accepted, setAccepted] = useState<Record<string, boolean>>({})
+  const [acceptedHosts, setAcceptedHosts] = useState<Record<string, boolean>>(
+    {},
+  )
 
   const resetForm = useCallback(() => {
     setAccepted(
       Object.fromEntries(newPermissionsRef.current.map((name) => [name, true])),
+    )
+    setAcceptedHosts(
+      Object.fromEntries(newRemoteMediaRef.current.map((host) => [host, true])),
     )
   }, [])
 
@@ -84,8 +95,11 @@ export function OverwriteInstallDialog({
     const acceptedList = newPermissionsRef.current.filter(
       (name) => accepted[name] !== false,
     )
-    onConfirmRef.current(acceptedList)
-  }, [accepted, busy])
+    const acceptedHostList = newRemoteMediaRef.current.filter(
+      (host) => acceptedHosts[host] !== false,
+    )
+    onConfirmRef.current(acceptedList, acceptedHostList)
+  }, [accepted, acceptedHosts, busy])
 
   if (!isMounted || typeof document === 'undefined') return null
 
@@ -147,6 +161,35 @@ export function OverwriteInstallDialog({
                       t.tapp.unknownPermission,
                     )}
                   </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {newRemoteMedia.length > 0 && (
+        <div className="overwrite-install-tip-perms">
+          <span className="overwrite-install-tip-perms-label">
+            {t.tapp.newRemoteMediaLabel}
+          </span>
+          <p className="overwrite-install-tip-desc">{t.tapp.remoteMediaDesc}</p>
+          <ul className="overwrite-install-tip-perms-list">
+            {newRemoteMedia.map((host) => (
+              <li key={host}>
+                <label className="overwrite-install-tip-perm">
+                  <input
+                    type="checkbox"
+                    checked={acceptedHosts[host] !== false}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setAcceptedHosts((prev) => ({
+                        ...prev,
+                        [host]: e.target.checked,
+                      }))
+                    }
+                  />
+                  <code>{host}</code>
                 </label>
               </li>
             ))}

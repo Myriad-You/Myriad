@@ -37,8 +37,8 @@ function runtimeError(message: string, code: string): Error {
 }
 
 function samePermissions(
-  left: TappPermission[],
-  right: TappPermission[],
+  left: readonly string[],
+  right: readonly string[],
 ): boolean {
   return (
     left.length === right.length &&
@@ -226,6 +226,8 @@ export class TappRuntime {
             installedAt: detail.installed_at,
             lastRunAt: detail.last_run_at,
             grantedPermissions: detail.granted_permissions as TappPermission[],
+            grantedRemoteMedia: detail.granted_remote_media ?? [],
+            approvedRemoteMedia: detail.approved_remote_media,
             needsReauthorization,
             userRole,
             isTemporary: detail.is_temporary ?? false,
@@ -237,10 +239,14 @@ export class TappRuntime {
           this.installedTapps.set(detail.id, instance)
           if (
             previous &&
-            !samePermissions(
+            (!samePermissions(
               previous.grantedPermissions,
               instance.grantedPermissions,
-            )
+            ) ||
+              !samePermissions(
+                previous.grantedRemoteMedia ?? [],
+                instance.grantedRemoteMedia ?? [],
+              ))
           ) {
             permissionChanges.push(instance)
           }
@@ -351,6 +357,8 @@ export class TappRuntime {
       installedAt: detail.installed_at,
       lastRunAt: detail.last_run_at,
       grantedPermissions: backendPerms,
+      grantedRemoteMedia: detail.granted_remote_media ?? [],
+      approvedRemoteMedia: detail.approved_remote_media,
       needsReauthorization: detail.needs_reauthorization ?? false,
       userRole,
       isTemporary: detail.is_temporary ?? result.isTemporary ?? false,

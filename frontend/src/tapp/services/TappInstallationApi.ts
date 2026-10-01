@@ -71,9 +71,14 @@ export interface InstallTappRequest {
   storeSource?: string
   tappId?: string
   permissions?: string[]
+  /** 批准的 remoteMedia 域名；缺省一个都不批准（更新时保留原批准）。只由人在界面上确认后传。 */
+  remoteMedia?: string[]
 }
 
-export type DirectInstallPackage = Omit<InstallTappRequest, 'source' | 'storeSource' | 'tappId'> & {
+export type DirectInstallPackage = Omit<
+  InstallTappRequest,
+  'source' | 'storeSource' | 'tappId' | 'remoteMedia'
+> & {
   manifest: TappManifest
   modules: Record<string, string>
 }
@@ -161,6 +166,7 @@ export async function installFromCode(
   ].join('\n')
   const pageCss = generateOnDemandTailwindCSS(pageSources)
 
+  // 不带 remoteMedia：Playground 代码可能是 AI 生成的，域名留给人在详情页逐个批准。
   return installTapp(manifest, code, manifest.permissions, {
     widgetCss,
     pageCss,
@@ -206,11 +212,15 @@ export async function installTappFile(
   file: File,
   permissions?: string[],
   overwrite?: boolean,
+  remoteMedia?: string[],
 ): Promise<TappListItem> {
   const formData = new FormData()
   formData.append('file', file)
   if (permissions) {
     formData.append('permissions', JSON.stringify(permissions))
+  }
+  if (remoteMedia) {
+    formData.append('remoteMedia', JSON.stringify(remoteMedia))
   }
 
   const query = overwrite ? '?overwrite=true' : ''
