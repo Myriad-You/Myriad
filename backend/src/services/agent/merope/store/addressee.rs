@@ -44,7 +44,7 @@ pub fn affect_from_state(state: &agent_addressee_state::Model) -> Affect {
 }
 
 pub(super) fn hours_since(at: chrono::DateTime<chrono::FixedOffset>) -> f64 {
-    let secs = (Utc::now() - at.with_timezone(&Utc)).num_seconds();
+    let secs = (super::super::clock::now() - at.with_timezone(&Utc)).num_seconds();
     (secs.max(0) as f64) / 3600.0
 }
 
@@ -96,7 +96,7 @@ where
         return Ok(overlay_settled(existing, base));
     }
     let rest = Affect::at_rest(base);
-    let now = Utc::now().into();
+    let now = super::super::clock::now().into();
     let active = agent_addressee_state::ActiveModel {
         user_id: Set(user_id),
         mood: Set(rest.mood),
@@ -141,7 +141,7 @@ where
 {
     // Revisions travel as milliseconds. Consecutive writes must remain ordered
     // even within one clock tick (and across replicas under the same DB lock).
-    let now = Utc::now()
+    let now = super::super::clock::now()
         .max(
             state
                 .updated_at
@@ -211,7 +211,7 @@ where
     else {
         return Ok(None);
     };
-    if !appraisal_is_current(state.last_user_message_at, input_at, Utc::now()) {
+    if !appraisal_is_current(state.last_user_message_at, input_at, super::super::clock::now()) {
         return Ok(None);
     }
     let base = baseline_toward(&transaction, user_id).await?;
@@ -246,7 +246,7 @@ pub async fn credit_music_listening(
     lock_addressee(&transaction, user_id).await?;
     let state = get_or_create_state(&transaction, user_id).await?;
     let before = affect_from_state(&state);
-    let now = Utc::now();
+    let now = super::super::clock::now();
 
     if let Some(last) = state.music_mood_credited_at {
         let elapsed = (now - last.with_timezone(&Utc)).num_seconds().max(0);
@@ -297,7 +297,7 @@ pub async fn set_do_not_disturb(
     }
     let mut active: agent_addressee_state::ActiveModel = state.into();
     active.do_not_disturb = Set(do_not_disturb);
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(super::super::clock::now().into());
     Ok(active.update(db).await?)
 }
 
@@ -314,7 +314,7 @@ pub async fn set_dnd_schedule(
     let mut active: agent_addressee_state::ActiveModel = state.into();
     active.dnd_start_minute = Set(start_minute);
     active.dnd_end_minute = Set(end_minute);
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(super::super::clock::now().into());
     Ok(active.update(db).await?)
 }
 
@@ -331,7 +331,7 @@ pub async fn set_activity(
         return Ok(state);
     }
     let mut active: agent_addressee_state::ActiveModel = state.into();
-    let now = Utc::now().into();
+    let now = super::super::clock::now().into();
     active.activity = Set(activity.to_string());
     active.activity_updated_at = Set(now);
     active.updated_at = Set(now);
@@ -355,7 +355,7 @@ pub async fn promote_activity(
         return Ok(state);
     }
     let mut active: agent_addressee_state::ActiveModel = state.into();
-    let now = Utc::now().into();
+    let now = super::super::clock::now().into();
     active.activity = Set(activity.to_string());
     active.activity_updated_at = Set(now);
     active.updated_at = Set(now);

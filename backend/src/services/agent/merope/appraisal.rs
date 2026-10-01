@@ -253,54 +253,76 @@ pub fn spawn(db: DatabaseConnection, request: &UserRequest, state: &agent_addres
     let user_id = request.user_id;
     let input = AppraisalInput::from_request(request, state.mood, state.arousal);
     crate::services::agent::merope::background::spawn("appraisal", async move {
-        // Includes context reads and analyzer setup, not just HTTP response time.
-        let result =
-            tokio::time::timeout(TOTAL_TIMEOUT, evaluate(&db, user_id, input_at, input)).await;
-        if result.is_err() {
-            tracing::info!("[Merope] appraisal total deadline exceeded");
-        }
-        let Ok(Some((hint, persona_revision))) = result else {
-            return;
-        };
-        if hint.is_neutral() || !super::is_enabled().await {
-            return;
-        }
-        // A changed/deleted persona invalidates the interpretation we asked for.
-        let Ok(persona) = get_persona(&db).await else {
-            return;
-        };
-        if persona.as_ref().map(|row| row.updated_at) != persona_revision {
-            return;
-        }
-        let saved = update_utterance_appraisal(&db, user_id, input_at, |affect| {
-            apply_appraisal(affect, lite_appraisal(hint.valence, hint.arousal), 1.0);
-        })
-        .await;
-        let Ok(Some((before, saved))) = saved else {
-            return;
-        };
-        super::inner::landed(user_id);
-        let after = affect_from_state(&saved);
-        let mood = MoodTransition::from_affect(
-            &before,
-            &after,
-            "user_appraisal",
-            saved.updated_at.timestamp_millis(),
-        );
-        if let Some(manager) = crate::services::agent::notifications::get_notification_manager() {
-            // State only: no toast, transcript, speech, gesture or run sender.
-            // The reply can already be over; this is still the current input's
-            // persisted state, delivered through the existing user SSE stream.
-            manager.emit_merope_state(user_id, mood, super::current_activity(&saved).into());
-        }
-        if !super::is_extremely_low(before.mood) && super::is_extremely_low(after.mood) {
-            super::spawn_ingest(
-                user_id,
-                "agent.merope.mood_floor",
-                "跟这个人的心情掉到了极低",
-            );
-        }
+        appraise(&db, user_id, input_at, input).await;
     });
+}
+
+/// [`spawn`], waited on: a simulated day goes turn by turn.
+#[cfg(test)]
+pub(crate) async fn appraise_now(
+    db: &DatabaseConnection,
+    request: &UserRequest,
+    state: &agent_addressee_state::Model,
+) {
+    let Some(input_at) = state.last_user_message_at else {
+        return;
+    };
+    let input = AppraisalInput::from_request(request, state.mood, state.arousal);
+    appraise(db, request.user_id, input_at, input).await;
+}
+
+async fn appraise(
+    db: &DatabaseConnection,
+    user_id: i32,
+    input_at: DateTime<FixedOffset>,
+    input: AppraisalInput,
+) {
+    // Includes context reads and analyzer setup, not just HTTP response time.
+    let result = tokio::time::timeout(TOTAL_TIMEOUT, evaluate(db, user_id, input_at, input)).await;
+    if result.is_err() {
+        tracing::info!("[Merope] appraisal total deadline exceeded");
+    }
+    let Ok(Some((hint, persona_revision))) = result else {
+        return;
+    };
+    if hint.is_neutral() || !super::is_enabled().await {
+        return;
+    }
+    // A changed/deleted persona invalidates the interpretation we asked for.
+    let Ok(persona) = get_persona(db).await else {
+        return;
+    };
+    if persona.as_ref().map(|row| row.updated_at) != persona_revision {
+        return;
+    }
+    let saved = update_utterance_appraisal(db, user_id, input_at, |affect| {
+        apply_appraisal(affect, lite_appraisal(hint.valence, hint.arousal), 1.0);
+    })
+    .await;
+    let Ok(Some((before, saved))) = saved else {
+        return;
+    };
+    super::inner::landed(user_id);
+    let after = affect_from_state(&saved);
+    let mood = MoodTransition::from_affect(
+        &before,
+        &after,
+        "user_appraisal",
+        saved.updated_at.timestamp_millis(),
+    );
+    if let Some(manager) = crate::services::agent::notifications::get_notification_manager() {
+        // State only: no toast, transcript, speech, gesture or run sender.
+        // The reply can already be over; this is still the current input's
+        // persisted state, delivered through the existing user SSE stream.
+        manager.emit_merope_state(user_id, mood, super::current_activity(&saved).into());
+    }
+    if !super::is_extremely_low(before.mood) && super::is_extremely_low(after.mood) {
+        super::spawn_ingest(
+            user_id,
+            "agent.merope.mood_floor",
+            "跟这个人的心情掉到了极低",
+        );
+    }
 }
 
 async fn evaluate(
@@ -314,8 +336,11 @@ async fn evaluate(
         return None;
     }
     let state = super::get_or_create_state(db, user_id).await.ok()?;
-    if !super::store::appraisal_is_current(state.last_user_message_at, input_at, chrono::Utc::now())
-    {
+    if !super::store::appraisal_is_current(
+        state.last_user_message_at,
+        input_at,
+        super::clock::now(),
+    ) {
         return None;
     }
     // Independent reads can overlap. Both retain the same bounds and ownership
