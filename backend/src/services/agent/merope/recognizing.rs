@@ -163,6 +163,12 @@ pub async fn consider(
         let _ = unified::retire_unowned(db, &group, &row.id, "superseded").await;
     }
     if let Some((sure, why)) = judged {
+        // Kept in the group and read back there: never a word of what she
+        // knows of the candidate privately, whatever the judgment wrote.
+        if myriad_merope::recognizing::gives_away(&why, &touched, said) {
+            tracing::warn!(%venue, "[Merope] a guess about who someone is cited what she knows privately; not kept");
+            return;
+        }
         let evidence = json!({
             "who": stranger.who,
             "name": stranger.name,

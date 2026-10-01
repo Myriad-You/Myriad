@@ -1,8 +1,10 @@
 //! Writing to someone first, the way a friend would.
 //!
 //! Now and then she thinks of someone who is not with her: something they
-//! told her was coming up has come (see `threads`), or it has been a while
-//! since they talked. Where her words go depends on where they are:
+//! told her was coming up has come (see `threads`), something of hers she
+//! wanted to do with them, show or ask them, something of her own she would
+//! tell them, a turtle soup she made they have not tried, or days apart.
+//! Where her words go depends on where they are:
 //! - on the site with her panel open: nothing; she is right there, and what
 //!   is on her mind comes up when they talk;
 //! - on the site elsewhere: a notification with her line, opening her panel;
@@ -10,14 +12,16 @@
 //!   and their answer carries on in the same chat;
 //! - away otherwise: the same notification, waiting on the site.
 //!
-//! Cheap gates come first, and they are what keep her from being a nuisance:
-//! they have not asked her not to (「别主动找我」, with its hours), it is not
-//! night on the site's clock, she has not written to them first in the last
-//! day, they are not in the middle of talking with her, and there is a
-//! reason. Then the judgment model decides, as her, whether she
-//! would; most of the time she would not. If she would, she writes it in her
-//! own voice with their recent talk in front of her, and a thread she wrote
-//! about is taken up.
+//! Only a few things are gates: they have not asked her not to (「别主动找
+//!我」, with its hours), she is awake by her own night (see `timing`), they
+//! are not in the middle of talking with her, and there is a reason. How
+//! often she writes is not capped: the judgment model decides, as her, with
+//! the facts a friend would weigh (how long since they talked, what they
+//! are to her, when she last wrote first and whether they answered); most of
+//! the time she would not. The same reason is put to her once, in this run:
+//! after a restart it may be put again, with her last first words in front
+//! of her. If she would, she writes it in her own voice with their recent
+//! talk in front of her, and a thread of theirs she wrote about is taken up.
 
 use std::time::Duration;
 

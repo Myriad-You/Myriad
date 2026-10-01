@@ -120,6 +120,32 @@ pub fn parse(raw: &str) -> Option<Option<(String, String)>> {
     })
 }
 
+/// Whether her reason for wondering gives away what she knows of the
+/// candidate privately. A pair of characters is private when it is in what
+/// she remembers of them (`touched`) and holds a character the person never
+/// typed in the group (`said`): 「医院」 for someone who never mentioned a
+/// hospital, but not 「七星」 for someone who did say 七星山. Two or more in
+/// the reason give it away. The reason is kept in the group and read back
+/// there, so the prompt's word that it cites only the group is checked, not
+/// trusted.
+pub fn gives_away(why: &str, touched: &[String], said: &[String]) -> bool {
+    fn pairs(text: &str) -> HashSet<String> {
+        let chars: Vec<char> = text.chars().filter(|c| c.is_alphanumeric()).collect();
+        chars.windows(2).map(|pair| pair.iter().collect()).collect()
+    }
+    let typed: HashSet<char> = said.iter().flat_map(|line| line.chars()).collect();
+    let private: HashSet<String> = touched
+        .iter()
+        .flat_map(|memory| pairs(memory))
+        .filter(|pair| pair.chars().any(|c| !typed.contains(&c)))
+        .collect();
+    pairs(why)
+        .iter()
+        .filter(|pair| private.contains(*pair))
+        .count()
+        >= 2
+}
+
 /// What she wonders about someone from outside, as she answers them.
 pub fn section(stranger: &str, candidate: &str, sure: &str, why: &str) -> String {
     let how = match sure {
@@ -136,6 +162,19 @@ pub fn section(stranger: &str, candidate: &str, sure: &str, why: &str) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reason_that_quotes_what_she_knows_privately_is_not_kept() {
+        let said = vec!["周末又去爬了一次七星山，膝盖快废了".to_string()];
+        let touched = vec![
+            "他每个周末都去爬七星山".to_string(),
+            "他在医院做夜班护士".to_string(),
+        ];
+        // From what they said in the group: fine.
+        assert!(!gives_away("他也说周末去爬七星山", &touched, &said));
+        // Something only she knows of the candidate: not kept.
+        assert!(gives_away("他也提到在医院做夜班", &touched, &said));
+    }
 
     #[test]
     fn what_only_one_friend_would_say_points_at_them() {
