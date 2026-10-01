@@ -75,6 +75,8 @@ pub async fn tick(db: DatabaseConnection) {
             written += 1;
         }
     }
+    // What she meant to come back to in a group, once it is due.
+    threads::come_back_in_groups(&db).await;
 }
 
 /// The reason she was last asked about, by person, in this run: the same

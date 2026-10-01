@@ -422,10 +422,15 @@ pub(super) async fn between_them(
             }
         }
     }
-    // What she meant to come back to with them: private, never in a group;
-    // in mind as they start talking again, or when their words touch it.
-    if !group {
-        let open = threads::open(db, user_id).await;
+    // What she meant to come back to: with them in private, in mind as they
+    // start talking again; in a group, the group's own, once one is due.
+    // Either, when their words touch it. Never one place's in the other.
+    {
+        let now = super::super::clock::now();
+        let open = match present.group_id() {
+            None => threads::open(db, user_id).await,
+            Some(venue) => threads::open_in_group(db, venue).await,
+        };
         let touched = words.is_some_and(|words| {
             open.iter().any(|thread| {
                 myriad_merope::remembering::overlap(
@@ -435,11 +440,17 @@ pub(super) async fn between_them(
                     || words.contains(thread.about.as_str())
             })
         });
-        if opening || touched {
-            if let Some(block) = threads::section(&open, super::super::clock::now()) {
-                sections.push(block);
-            }
-        }
+        let due = open.iter().any(|thread| thread.is_due(now));
+        let block = if group {
+            (due || touched)
+                .then(|| myriad_merope::threads::group_section(&open, now))
+                .flatten()
+        } else {
+            (opening || touched)
+                .then(|| threads::section(&open, now))
+                .flatten()
+        };
+        sections.extend(block);
     }
     // What she thinks of what their words touch: hers, the same whoever asks.
     if let Some(words) = words {

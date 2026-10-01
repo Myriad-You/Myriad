@@ -17,10 +17,10 @@
 //! spell have none; she answers from the facts of her day.
 //! It lives in process memory only: attention, not memory.
 //!
-//! In private the same reflection notes what she would want to come back to
-//! with them later, and which earlier ones her reply took up (see
-//! `threads`): what is on her mind about a person is part of how an
-//! exchange left her. A group's reflection keeps none.
+//! The same reflection notes what she would want to come back to later, and
+//! which earlier ones her reply took up (see `threads`): in private, with
+//! them; in a group, there. What is on her mind about people is part of how
+//! an exchange left her.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -68,11 +68,11 @@ static AFTER: LazyLock<Mutex<HashMap<Key, (String, Instant)>>> =
 #[serde(deny_unknown_fields)]
 struct Inner {
     inner: String,
-    /// In private: what to come back to with them later.
+    /// What to come back to later: with them in private, there in a group.
     #[serde(default)]
     keep: Vec<super::threads::Kept>,
-    /// In private: which open threads her reply took up or that no longer
-    /// matter (indexes into openThreads).
+    /// Which open threads her reply took up or that no longer matter
+    /// (indexes into openThreads).
     #[serde(default)]
     done: Vec<usize>,
     /// In private: they showed her something she said was wrong.
@@ -248,19 +248,18 @@ async fn compile(
         input["playingTurtleSoup"] = json!(true);
     }
     let private = !present.is_group();
-    let threads = if private {
-        super::threads::open(db, user_id).await
-    } else {
-        Vec::new()
-    };
     // In a group, what the one she answered did there (never what they did
     // in private); in private, all of it.
     let in_group = present.group_id().map(str::to_string);
+    let threads = match &in_group {
+        None => super::threads::open(db, user_id).await,
+        Some(venue) => super::threads::open_in_group(db, venue).await,
+    };
     let sores = match &in_group {
         None => super::sore::open_all(db, user_id).await,
         Some(venue) => super::sore::open_in_group(db, venue, Some(user_id)).await,
     };
-    if private {
+    if private || in_group.is_some() {
         input["openThreads"] = json!(super::threads::as_input(&threads));
     }
     input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
@@ -279,15 +278,21 @@ async fn compile(
         .await
         .ok()?;
     let reflected = parse_reflection(&raw)?;
+    let done: Vec<String> = reflected
+        .done
+        .iter()
+        .filter_map(|index| threads.get(*index).map(|thread| thread.id.clone()))
+        .collect();
+    if let Some(venue) = &in_group {
+        for kept in reflected.keep.iter().take(MAX_KEPT) {
+            super::threads::keep_in_group(db, venue, kept, at).await;
+        }
+        super::threads::close_in_group(db, venue, &done, "taken_up").await;
+    }
     if private {
         for kept in reflected.keep.iter().take(MAX_KEPT) {
             super::threads::keep(db, user_id, kept, at).await;
         }
-        let done: Vec<String> = reflected
-            .done
-            .iter()
-            .filter_map(|index| threads.get(*index).map(|thread| thread.id.clone()))
-            .collect();
         super::threads::close(db, user_id, &done, "taken_up").await;
         // Being wrong about a public matter is part of her own story; about
         // them or their life, it stays out of it.
@@ -495,14 +500,14 @@ mod tests {
         let system = system_for("你是小灯。", true);
         assert!(system.contains("soreSpots") && system.contains("not teasing you both enjoy"));
         assert!(!system_for("你是小灯。", false).contains("soreSpots"));
-        // In a group: only what the one she answered did there.
+        // In a group: only what the one she answered did there, and what to
+        // come back to in that group; nothing that is only for private.
         let in_group = system_for_group("你是小灯。");
-        assert!(
-            in_group.contains("the one you just answered") && !in_group.contains("openThreads")
-        );
+        assert!(in_group.contains("the one you just answered"));
+        assert!(in_group.contains("come back to in this group") && !in_group.contains("toldYou"));
         assert_eq!(
             schema_for_group()["required"],
-            json!(["inner", "hurt", "mended"])
+            json!(["inner", "keep", "done", "hurt", "mended"])
         );
         assert!(
             schema_for(true)["required"]

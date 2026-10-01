@@ -33,6 +33,24 @@ impl Thread {
 
 /// What is on her mind about them, for a conversation with them.
 pub fn section(threads: &[Thread], now: DateTime<Utc>) -> Option<String> {
+    listed(
+        threads,
+        now,
+        "## On your mind about them\nThings you meant to come back to with them.",
+    )
+}
+
+/// What is on her mind in a group, for its talk: things someone there was
+/// about to do or face, or left unfinished there.
+pub fn group_section(threads: &[Thread], now: DateTime<Utc>) -> Option<String> {
+    listed(
+        threads,
+        now,
+        "## On your mind in this group\nThings from this group you meant to come back to here.",
+    )
+}
+
+fn listed(threads: &[Thread], now: DateTime<Utc>, heading: &str) -> Option<String> {
     if threads.is_empty() {
         return None;
     }
@@ -56,7 +74,7 @@ pub fn section(threads: &[Thread], now: DateTime<Utc>) -> Option<String> {
         })
         .collect();
     Some(format!(
-        "## On your mind about them\nThings you meant to come back to with them. Bring one up when it fits, as yourself; one at a time, and never as a list.\n{}",
+        "{heading} Bring one up when it fits, as yourself; one at a time, and never as a list.\n{}",
         myriad_agent_rules::untrusted_block("on_your_mind", &lines.join("\n"))
     ))
 }
@@ -88,11 +106,14 @@ mod tests {
             ..due.clone()
         };
         assert!(due.is_due(now) && !later.is_due(now) && !whenever.is_due(now));
-        let section = section(&[due, later, whenever], now).unwrap();
+        let section = section(&[due, later.clone(), whenever], now).unwrap();
         assert!(section.contains("考试: 问他考得怎么样 (now)"));
         assert!(section.contains("搬家") && section.contains("later, around"));
         assert!(section.contains("(something you wanted to do with them; whenever it fits)"));
         assert!(section.contains("never as a list"));
         assert!(super::section(&[], now).is_none());
+        let group = group_section(&[later], now).unwrap();
+        assert!(group.starts_with("## On your mind in this group"));
+        assert!(group.contains("搬家") && group.contains("never as a list"));
     }
 }

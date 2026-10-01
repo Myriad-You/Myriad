@@ -13,20 +13,74 @@ pub(super) const SHARE_LINES: usize = 12;
 /// it up in one of them (see `merope::sharing`). Asleep she does not; a
 /// group she is already talking in hears it in the talk. Billed to `owner`.
 pub async fn share_first(owner: i32, what: String) {
-    use crate::services::agent::merope::group::{bits, sharing, timing};
+    use crate::services::agent::merope::group::{sharing, timing};
     if timing::asleep_now().is_some() {
         return;
     }
     let Ok(db) = crate::services::process_db::database() else {
         return;
     };
+    let offered = offered(&db, None).await;
+    if offered.is_empty() {
+        return;
+    }
+    let Some((venue, why)) = sharing::choose(owner, &what, &offered).await else {
+        return;
+    };
+    let reason = myriad_merope::sharing::reason(&what, &why);
+    speak_first(
+        &db,
+        &venue,
+        &reason,
+        "[Group] she brought something of hers up",
+    )
+    .await;
+}
+
+/// Something from a group she meant to come back to there (see
+/// `merope::threads`), now about due: she decides, as herself, whether to
+/// come back to it there now. Not while she is asleep, nor in a group she
+/// is already talking in (it is in her mind as she talks there). Billed to
+/// `owner`. Whether she said it.
+pub async fn come_back(owner: i32, venue: &str, what: &str) -> bool {
+    use crate::services::agent::merope::group::{sharing, timing};
+    if timing::asleep_now().is_some() {
+        return false;
+    }
+    let Ok(db) = crate::services::process_db::database() else {
+        return false;
+    };
+    let Some(group) = offered(&db, Some(venue)).await.into_iter().next() else {
+        return false;
+    };
+    let Some(why) = sharing::come_back(owner, what, &group).await else {
+        return false;
+    };
+    let reason = myriad_merope::sharing::come_back_reason(what, &why);
+    speak_first(
+        &db,
+        venue,
+        &reason,
+        "[Group] she came back to something there",
+    )
+    .await
+}
+
+/// The groups she is in, as she weighs saying something first: all of
+/// them, or only `only`. Not one she is busy in, talking in, or muted in.
+async fn offered(
+    db: &DatabaseConnection,
+    only: Option<&str>,
+) -> Vec<crate::services::agent::merope::group::sharing::Offered> {
+    use crate::services::agent::merope::group::{bits, sharing};
     let now = chrono::Utc::now();
     let seen: Vec<(String, Vec<String>, String, Vec<serde_json::Value>)> = {
         let Ok(groups) = GROUPS.lock() else {
-            return;
+            return Vec::new();
         };
         groups
             .iter()
+            .filter(|(venue, _)| only.is_none_or(|only| only == venue.as_str()))
             .filter(|(_, group)| !group.busy && !in_talk(group) && !muted_now(group, now))
             .filter_map(|(venue, group)| {
                 group.reach.as_ref()?;
@@ -69,12 +123,9 @@ pub async fn share_first(owner: i32, what: String) {
             })
             .collect()
     };
-    if seen.is_empty() {
-        return;
-    }
     let mut offered = Vec::with_capacity(seen.len());
     for (venue, lines, quiet_for, spoke_up_lately) in seen {
-        let shared = bits::in_group(&db, &venue, 5)
+        let shared = bits::in_group(db, &venue, 5)
             .await
             .into_iter()
             .map(|(handle, how)| format!("{handle}: {how}"))
@@ -87,37 +138,35 @@ pub async fn share_first(owner: i32, what: String) {
             spoke_up_lately,
         });
     }
-    let Some((venue, why)) = sharing::choose(owner, &what, &offered).await else {
-        return;
-    };
-    if !matches!(begin_turn(&venue), Turn::Began) {
-        return;
+    offered
+}
+
+/// Take the group's turn and say it, then answer whoever waited meanwhile.
+async fn speak_first(db: &DatabaseConnection, venue: &str, reason: &str, said: &str) -> bool {
+    if !matches!(begin_turn(venue), Turn::Began) {
+        return false;
     }
-    let spoke = share_turn(&db, &venue, &what, &why).await;
+    let spoke = share_turn(db, venue, reason).await;
     if spoke {
-        info!(%venue, "[Group] she brought something of hers up");
-        spoke_up_now(&venue);
+        info!(%venue, "{said}");
+        spoke_up_now(venue);
     }
-    let mut next = finish_turn(&venue, spoke).await;
+    let mut next = finish_turn(venue, spoke).await;
     while let Some(message) = next {
-        let token = with_group(&venue, |group| {
+        let token = with_group(venue, |group| {
             group.reach.as_ref().map(|(_, token)| token.clone())
         })
         .flatten()
         .unwrap_or_default();
         let replied = answer(&message, &token, None).await;
-        next = finish_turn(&venue, replied).await;
+        next = finish_turn(venue, replied).await;
     }
+    spoke
 }
 
 /// Say it in the group, as a turn of her own on the site owner's budget: no
 /// one's line behind it, so nothing quoted and nothing to answer.
-pub(super) async fn share_turn(
-    db: &DatabaseConnection,
-    venue: &str,
-    what: &str,
-    why: &str,
-) -> bool {
+pub(super) async fn share_turn(db: &DatabaseConnection, venue: &str, reason: &str) -> bool {
     let Some((seen, token)) = with_group(venue, |group| group.reach.clone()).flatten() else {
         return false;
     };
@@ -143,8 +192,8 @@ pub(super) async fn share_turn(
         ..seen
     };
     let began = Instant::now();
-    let reason = myriad_merope::sharing::reason(what, why);
-    let Some((reply, sticker)) = run_turn(db, &line, owner, &token, Some(reason), true).await
+    let Some((reply, sticker)) =
+        run_turn(db, &line, owner, &token, Some(reason.to_string()), true).await
     else {
         return false;
     };

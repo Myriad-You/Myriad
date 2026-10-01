@@ -28,10 +28,22 @@ pub fn system_for(soul: &str, private: bool) -> String {
     }
 }
 
+/// What she would come back to in a group, asked after a group exchange:
+/// the group's, kept and heard only there.
+pub const GROUP_THREADS: &str = "\n\n\
+openThreads are things from this group you already meant to come back to here. \
+keep: from this exchange, anything you would want to come back to in this group later, in your own words (then: what you would ask or say, naming whom it is about as the conversation shows them): something someone here is about to do or face (dueInHours: hours from now until it would be natural to ask, for example the evening after an exam; null for whenever), or something left unfinished in the group's talk. Only what was said here, never a guess; most exchanges keep nothing. \
+done: the i of each open thread your reply already took up, or that no longer matters.";
+
 /// After answering a member of the community in a group: how she is now,
-/// and what the one she answered did there that got to her or made up for.
+/// what to come back to there, and what the one she answered did there that
+/// got to her or made up for.
 pub fn system_for_group(soul: &str) -> String {
-    format!("{}{}", system(soul), crate::sore::IN_GROUP_REFLECTION)
+    format!(
+        "{}{GROUP_THREADS}{}",
+        system(soul),
+        crate::sore::IN_GROUP_REFLECTION
+    )
 }
 
 pub fn schema_for_group() -> Value {
@@ -39,11 +51,30 @@ pub fn schema_for_group() -> Value {
         "type": "object",
         "properties": {
             "inner": { "type": "string", "maxLength": MAX_INNER_CHARS },
+            "keep": keep_schema(),
+            "done": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
             "hurt": crate::sore::hurt_schema(),
             "mended": crate::sore::indexes_schema()
         },
-        "required": ["inner", "hurt", "mended"],
+        "required": ["inner", "keep", "done", "hurt", "mended"],
         "additionalProperties": false
+    })
+}
+
+fn keep_schema() -> Value {
+    json!({
+        "type": "array",
+        "maxItems": MAX_KEPT,
+        "items": {
+            "type": "object",
+            "properties": {
+                "about": { "type": "string", "maxLength": 40 },
+                "then": { "type": "string", "maxLength": 120 },
+                "dueInHours": { "type": ["integer", "null"], "minimum": 0, "maximum": 1440 }
+            },
+            "required": ["about", "then", "dueInHours"],
+            "additionalProperties": false
+        }
     })
 }
 
@@ -55,20 +86,7 @@ pub fn schema_for(private: bool) -> Value {
         "type": "object",
         "properties": {
             "inner": { "type": "string", "maxLength": MAX_INNER_CHARS },
-            "keep": {
-                "type": "array",
-                "maxItems": MAX_KEPT,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "about": { "type": "string", "maxLength": 40 },
-                        "then": { "type": "string", "maxLength": 120 },
-                        "dueInHours": { "type": ["integer", "null"], "minimum": 0, "maximum": 1440 }
-                    },
-                    "required": ["about", "then", "dueInHours"],
-                    "additionalProperties": false
-                }
-            },
+            "keep": keep_schema(),
             "done": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
             "wrong": {
                 "type": ["object", "null"],

@@ -41,7 +41,7 @@ pub mod seeing {
 }
 
 pub mod sharing {
-    pub(crate) use crate::services::agent::merope::sharing::{Offered, choose};
+    pub(crate) use crate::services::agent::merope::sharing::{Offered, choose, come_back};
 }
 
 pub mod stickers {

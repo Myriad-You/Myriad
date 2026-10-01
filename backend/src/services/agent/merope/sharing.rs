@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::call::{self, Voice};
-use myriad_merope::sharing::{SCHEMA_NAME, parse, schema, system};
+use myriad_merope::sharing::{SCHEMA_NAME, come_back_system, parse, schema, system};
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -24,6 +24,30 @@ pub struct Offered {
 
 /// The group she would say `what` in, and why; billed to `owner`.
 pub async fn choose(owner: i32, what: &str, groups: &[Offered]) -> Option<(String, String)> {
+    judge(owner, what, groups, system, "share_first").await
+}
+
+/// Whether she would come back to `what` in this group now, and why; billed
+/// to `owner`.
+pub async fn come_back(owner: i32, what: &str, group: &Offered) -> Option<String> {
+    judge(
+        owner,
+        what,
+        std::slice::from_ref(group),
+        come_back_system,
+        "come_back",
+    )
+    .await
+    .map(|(_, why)| why)
+}
+
+async fn judge(
+    owner: i32,
+    what: &str,
+    groups: &[Offered],
+    system: fn(&str) -> String,
+    purpose: &'static str,
+) -> Option<(String, String)> {
     if groups.is_empty() || !super::is_enabled().await {
         return None;
     }
@@ -41,7 +65,7 @@ pub async fn choose(owner: i32, what: &str, groups: &[Offered]) -> Option<(Strin
         })).collect::<Vec<_>>(),
     })
     .to_string();
-    let raw = call::Ask::new(Voice::Judge, owner, "share_first")
+    let raw = call::Ask::new(Voice::Judge, owner, purpose)
         .within(CALL_TIMEOUT)
         .json_raw(&system(&soul), &input, SCHEMA_NAME, &schema())
         .await
