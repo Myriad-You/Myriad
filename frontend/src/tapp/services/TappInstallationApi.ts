@@ -89,14 +89,12 @@ export async function installTapp(
   permissions?: string[],
   compiledCss?: CompiledCssPayload,
   signal?: AbortSignal,
-  remoteMedia?: string[],
 ): Promise<TappListItem> {
   const requestBody = buildDirectTappRequest(
     manifest,
     code,
     permissions,
     compiledCss,
-    remoteMedia,
   )
 
   return apiRequest('/api/tapps/install', {
@@ -111,7 +109,6 @@ function buildDirectTappRequest(
   code: TappPlaygroundCode,
   permissions?: string[],
   compiledCss?: CompiledCssPayload,
-  remoteMedia?: string[],
 ): InstallTappRequest {
   const pkg = buildPlaygroundPackageFiles(manifest, code)
   const mapped = packageFilesToDirectInstallBody(pkg, code.assets)
@@ -121,9 +118,6 @@ function buildDirectTappRequest(
     manifest: mapped.manifest,
     modules: mapped.modules,
     permissions,
-  }
-  if (remoteMedia !== undefined) {
-    requestBody.remoteMedia = remoteMedia
   }
 
   if (mapped.coreStyles !== undefined) {
@@ -172,11 +166,11 @@ export async function installFromCode(
   ].join('\n')
   const pageCss = generateOnDemandTailwindCSS(pageSources)
 
-  // Playground：安装者就是作者本人，声明的域名即本人确认过的域名。
+  // 不带 remoteMedia：Playground 代码可能是 AI 生成的，域名留给人在详情页逐个批准。
   return installTapp(manifest, code, manifest.permissions, {
     widgetCss,
     pageCss,
-  }, signal, manifest.remoteMedia ?? [])
+  }, signal)
 }
 
 export async function updateTappFromCode(
@@ -204,7 +198,6 @@ export async function updateTappFromCode(
     code,
     manifest.permissions,
     { widgetCss, pageCss },
-    manifest.remoteMedia ?? [],
   )
   return apiRequest<TappListItem>(
     `/api/tapps/${encodeURIComponent(manifest.id)}/update`,
