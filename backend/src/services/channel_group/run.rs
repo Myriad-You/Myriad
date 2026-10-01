@@ -26,27 +26,28 @@ pub(super) async fn answer_stranger(
         who: format!("{}:{}", message.platform.slug(), message.from),
         name: message.display_name.chars().take(40).collect(),
     };
-    let mut reading: Vec<String> = [
+    let read = reading(message);
+    let mut sections: Vec<String> = [
         room(&venue).map(|room| myriad_merope::talk_shape::describe(&room, "How people type here")),
         how_she_differs(&venue).await,
-        make_sense(db, message).await,
+        make_sense(db, message, &read).await,
     ]
     .into_iter()
     .flatten()
     .collect();
     send_typing(message, token).await;
     let began = Instant::now();
-    let transcript = transcript(&venue, Some(&message.message_id));
     // Words and memes in the talk that she looked up before.
-    let talk: String = transcript
+    let talk: String = read
+        .transcript
         .iter()
         .rev()
         .take(12)
         .map(|line| line.content.clone())
-        .chain(std::iter::once(said_now(message)))
+        .chain(std::iter::once(read.said.clone()))
         .collect::<Vec<_>>()
         .join("\n");
-    reading.extend(crate::services::agent::merope::group::memes::section_for(db, &talk).await);
+    sections.extend(crate::services::agent::merope::group::memes::section_for(db, &talk).await);
     let Ok(Some((reply, sticker))) = tokio::time::timeout(
         TURN_DEADLINE,
         crate::services::agent::merope::group::strangers::reply(
@@ -54,10 +55,10 @@ pub(super) async fn answer_stranger(
             owner,
             &venue,
             &stranger,
-            &transcript,
-            &said_now(message),
+            &read.transcript,
+            &read.said,
             why,
-            &reading,
+            &sections,
         ),
     )
     .await
@@ -73,7 +74,7 @@ pub(super) async fn answer_stranger(
             owner,
             venue,
             stranger,
-            said_now(message),
+            read.said,
             reply,
             &message.message_id,
         )
@@ -129,25 +130,30 @@ pub(super) async fn run_turn(
     if let Ok(mut sessions) = SESSIONS.lock() {
         sessions.insert(key, session_id.clone());
     }
+    // Saying something first, there is no line of theirs to read up to, to
+    // make sense of, or to be late for.
+    let read = (!first).then(|| reading(message));
+    let making_sense = match &read {
+        Some(read) => make_sense(db, message, read).await,
+        None => None,
+    };
+    let (transcript, input) = match read {
+        Some(read) => (read.transcript, read.said),
+        None => (transcript(&venue, None), said_now(message)),
+    };
     let run = crate::services::agent::run::start_for_user(
         db.clone(),
         user_id,
         crate::services::agent::run::ProcessRequest {
-            input: said_now(message),
+            input,
             context: Some(crate::services::agent::run::ProcessContext {
                 mode: Some(AgentInteractionMode::Chat),
                 session_id: Some(session_id),
                 group: Some(crate::services::agent::run::GroupTurn {
-                    transcript: transcript(&venue, (!first).then_some(message.message_id.as_str())),
+                    transcript,
                     room: room(&venue),
                     differs: how_she_differs(&venue).await,
-                    // Saying something first, there is no line of theirs
-                    // to make sense of or to be late for.
-                    making_sense: if first {
-                        None
-                    } else {
-                        make_sense(db, message).await
-                    },
+                    making_sense,
                     late: if first { None } else { seen_late(message) },
                     venue,
                     chime,

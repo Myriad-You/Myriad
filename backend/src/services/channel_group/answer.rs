@@ -6,16 +6,21 @@ use super::*;
 /// it means, what people are telling her about herself (kept, see
 /// `merope::making_sense`). With what the group told her before, as the
 /// sections her reply starts from.
-pub(super) async fn make_sense(db: &DatabaseConnection, message: &GroupLine) -> Option<String> {
+pub(super) async fn make_sense(
+    db: &DatabaseConnection,
+    message: &GroupLine,
+    reading: &Reading,
+) -> Option<String> {
     use crate::services::agent::merope::group::making_sense;
     let venue = message.venue();
     let stored = unified_venue(&venue);
     let owner = crate::services::site_owner::site_owner_user_id(db)
         .await
         .ok()?;
-    let lines = transcript(&venue, Some(&message.message_id));
-    let said = said_now(message);
-    let mut conversation: Vec<String> = lines
+    // The line is in the talk in its place, with what came after it.
+    let lines = &reading.transcript;
+    let said = &reading.said;
+    let conversation: Vec<String> = lines
         .iter()
         .skip(lines.len().saturating_sub(CONVERSATION_LINES))
         .map(|line| {
@@ -26,10 +31,9 @@ pub(super) async fn make_sense(db: &DatabaseConnection, message: &GroupLine) -> 
             }
         })
         .collect();
-    conversation.push(format!("{}：{said}", message.display_name));
     let sense = making_sense::read(owner, &conversation).await;
     if let Some(told) = sense.as_ref().and_then(|sense| sense.about_you.as_deref()) {
-        making_sense::remember_told(db, &stored, told, &said).await;
+        making_sense::remember_told(db, &stored, told, said).await;
     }
     let sections: Vec<String> = [
         making_sense::told_section(db, &stored).await,
@@ -99,7 +103,7 @@ pub(super) async fn answer(message: &GroupLine, token: &str, chime: Option<Strin
     let Ok(db) = crate::services::process_db::database() else {
         return false;
     };
-    if stopped_answering(message) {
+    if stopped_answering(message) || read_already(message) {
         return false;
     }
     if is_muted(&message.venue()) {

@@ -113,18 +113,94 @@ pub(super) fn transcript(venue: &str, message_id: Option<&str>) -> Vec<Conversat
             .iter()
             .filter(|line| within(line, TRANSCRIPT_FOR))
             .take_while(|line| message_id.is_none() || line.message_id.as_deref() != message_id)
-            .map(|line| ConversationMessage {
-                role: if line.hers { "assistant" } else { "user" }.into(),
-                content: if line.hers {
-                    line.text.clone()
-                } else {
-                    format!("{}：{}", line.name, line.said())
-                },
-                created_at: None,
-            })
+            .map(as_message)
             .collect()
     })
     .unwrap_or_default()
+}
+
+fn as_message(line: &Line) -> ConversationMessage {
+    ConversationMessage {
+        role: if line.hers { "assistant" } else { "user" }.into(),
+        content: if line.hers {
+            line.text.clone()
+        } else {
+            format!("{}：{}", line.name, line.said())
+        },
+        created_at: None,
+    }
+}
+
+/// What she reads when she gets to a line that calls her.
+pub(super) struct Reading {
+    /// The group's lines as of now, oldest first: the line in its place, and
+    /// whatever came after it while she was getting to it.
+    pub(super) transcript: Vec<ConversationMessage>,
+    /// What they said to her: the line, with whatever more the same person
+    /// added after it before she answered, as one turn.
+    pub(super) said: String,
+}
+
+/// Whether `message` was already answered with a line before it (see
+/// [`reading`]).
+pub(super) fn read_already(message: &GroupLine) -> bool {
+    with_group(&message.venue(), |group| {
+        group.read_with.contains(&message.message_id)
+    })
+    .unwrap_or(false)
+}
+
+/// Read the group as it is when she gets to `message`: a person reading a
+/// line that calls them sees what came after it too, so "你听过这首吗" the
+/// same person added a moment later is part of what she answers, not a
+/// line for another turn. Their added lines that were waiting for her are
+/// answered with it; anyone else's still are, after.
+pub(super) fn reading(message: &GroupLine) -> Reading {
+    let venue = message.venue();
+    let fallback = || Reading {
+        transcript: transcript(&venue, Some(&message.message_id)),
+        said: said_now(message),
+    };
+    with_group(&venue, |group| {
+        let lines: Vec<&Line> = group
+            .lines
+            .iter()
+            .filter(|line| within(line, TRANSCRIPT_FOR))
+            .collect();
+        let at = lines.iter().position(|line| {
+            !line.hers && line.message_id.as_deref() == Some(message.message_id.as_str())
+        })?;
+        let added: Vec<(String, String)> = lines[at + 1..]
+            .iter()
+            .take_while(|line| !line.hers)
+            .filter(|line| line.from.as_deref() == Some(message.from.as_str()))
+            .filter_map(|line| Some((line.message_id.clone()?, line.said())))
+            .collect();
+        let said = std::iter::once(lines[at].said())
+            .chain(added.iter().map(|(_, said)| said.clone()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let transcript = lines.iter().map(|line| as_message(line)).collect();
+        let added: Vec<String> = added.into_iter().map(|(id, _)| id).collect();
+        group
+            .waiting
+            .retain(|line| !(line.from == message.from && added.contains(&line.message_id)));
+        group.read_with.extend(added.iter().cloned());
+        while group.read_with.len() > WAITING_LINES {
+            group.read_with.pop_front();
+        }
+        if group
+            .pending
+            .as_ref()
+            .is_some_and(|line| added.contains(&line.message_id))
+        {
+            group.pending = None;
+            group.unjudged_since = None;
+        }
+        Some(Reading { transcript, said })
+    })
+    .flatten()
+    .unwrap_or_else(fallback)
 }
 
 /// The group's people lately who are paired site users, each by the name

@@ -656,9 +656,18 @@ fn a_line_left_waiting_by_a_restart_is_taken_back_up_once() {
 #[test]
 fn a_mute_is_told_as_it_happened_and_holds_until_it_ends() {
     use myriad_agent_rules::onebot::decode::Muted;
-    assert_eq!(muting::told(Muted::For(600), false), "（把你禁言了 10 分钟）");
-    assert_eq!(muting::told(Muted::For(3 * 3600), false), "（把你禁言了 3 小时）");
-    assert_eq!(muting::told(Muted::For(2 * 86400), true), "（全员禁言 2 天）");
+    assert_eq!(
+        muting::told(Muted::For(600), false),
+        "（把你禁言了 10 分钟）"
+    );
+    assert_eq!(
+        muting::told(Muted::For(3 * 3600), false),
+        "（把你禁言了 3 小时）"
+    );
+    assert_eq!(
+        muting::told(Muted::For(2 * 86400), true),
+        "（全员禁言 2 天）"
+    );
     assert_eq!(muting::told(Muted::UntilLifted, true), "（开了全员禁言）");
     assert_eq!(muting::told(Muted::Lifted, false), "（解除了你的禁言）");
 
@@ -667,9 +676,55 @@ fn a_mute_is_told_as_it_happened_and_holds_until_it_ends() {
     assert!(!muting::muted_now(&group, now));
     group.muted_until = Some(now + chrono::Duration::minutes(10));
     assert!(muting::muted_now(&group, now));
-    assert!(!muting::muted_now(&group, now + chrono::Duration::minutes(11)));
+    assert!(!muting::muted_now(
+        &group,
+        now + chrono::Duration::minutes(11)
+    ));
     // Everyone's mute lifted does not lift hers, and the other way round.
     group.everyone_muted_until = Some(now + chrono::Duration::days(1));
     group.muted_until = None;
     assert!(muting::muted_now(&group, now));
+}
+
+/// When she gets to a line that calls her, she reads the group as it is
+/// then: what came after it is in the talk, and what the same person added
+/// is part of what she answers, not a line for another turn.
+#[tokio::test]
+async fn she_answers_what_was_said_up_to_when_she_gets_to_it() {
+    let chat = -9_031;
+    let from = |id: i64, from_id: i64, name: &str, text: &str| {
+        let mut line = line(chat, id, name, text);
+        line.from = from_id.to_string();
+        line
+    };
+    record(&from(1, 11, "阿明", "周五聚餐吗")).await;
+    let mut called = from(2, 11, "阿明", "你推荐哪家");
+    called.addressed = true;
+    record(&called).await;
+    record(&from(3, 12, "小红", "我想吃火锅")).await;
+    let mut added = from(4, 11, "阿明", "最好便宜点");
+    added.addressed = true;
+    record(&added).await;
+    with_group(&venue(chat), |group| park(group, added.clone()));
+
+    let read = reading(&called);
+    assert_eq!(read.said, "你推荐哪家\n最好便宜点");
+    let lines: Vec<String> = read
+        .transcript
+        .into_iter()
+        .map(|line| line.content)
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "阿明：周五聚餐吗",
+            "阿明：你推荐哪家",
+            "小红：我想吃火锅",
+            "阿明：最好便宜点"
+        ]
+    );
+    // Answered with the line before it: not again on its own.
+    assert!(with_group(&venue(chat), |group| group.waiting.is_empty()).unwrap());
+    assert!(read_already(&added));
+    assert!(!read_already(&called));
 }
