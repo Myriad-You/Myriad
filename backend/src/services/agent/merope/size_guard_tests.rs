@@ -13,6 +13,7 @@ const DIRS: &[&str] = &[
     "src/services/agent/merope",
     "src/api/merope_rig",
     "src/services/channel_group",
+    "src/services/channel_work",
     "src/services/agent/memory",
     "src/api/agent/persona",
 ];
@@ -22,6 +23,8 @@ const FILES: &[&str] = &[
     "src/api/agent/persona.rs",
     "src/api/merope_rig.rs",
     "src/services/channel_group.rs",
+    "src/services/channel_work.rs",
+    "src/services/agent/motion_overlay.rs",
     "src/services/merope_rig.rs",
 ];
 
@@ -46,9 +49,10 @@ fn code_lines(source: &str) -> usize {
     let mut lines = source.lines().peekable();
     while let Some(line) = lines.next() {
         if line == "#[cfg(test)]"
-            && lines
-                .peek()
-                .is_some_and(|next| next.starts_with("mod ") && next.ends_with(" {"))
+            && lines.peek().is_some_and(|next| {
+                let item = next.strip_prefix("pub(super) ").unwrap_or(next);
+                item.starts_with("mod ") && item.ends_with(" {")
+            })
         {
             break;
         }
@@ -67,6 +71,11 @@ fn counts_code_not_comments_or_trailing_tests() {
     assert_eq!(code_lines(source), 2);
     // A test-only item that is not the trailing module still counts.
     assert_eq!(code_lines("#[cfg(test)]\nfn probe() {}\n"), 2);
+    // Test modules other files reach into count as tests too.
+    assert_eq!(
+        code_lines("fn a() {}\n#[cfg(test)]\npub(super) mod probes {\n}\n"),
+        1
+    );
 }
 
 #[test]
