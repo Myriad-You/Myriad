@@ -70,6 +70,7 @@ import {
 import {
   isPlaygroundPreviewExpectedError,
   selectPreviewGrantedPermissions,
+  selectPreviewGrantedRemoteMedia,
 } from '../utils/previewGrants'
 import { TAPP_LIST_PATH, tappDetailPath } from '../utils/tappPaths'
 import {
@@ -919,6 +920,10 @@ export function TappPlaygroundPage() {
       installedAt: new Date().toISOString(),
       grantedPermissions: selectPreviewGrantedPermissions(
         project.manifest.permissions,
+      ),
+      grantedRemoteMedia: selectPreviewGrantedRemoteMedia(
+        project.manifest.permissions,
+        project.manifest.remoteMedia,
       ),
       userRole: 'admin',
       isTemporary: true,

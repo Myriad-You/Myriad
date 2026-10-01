@@ -41,12 +41,18 @@ import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { ensureMotionReady, isMotionReady } from '../../lib/lazyMotion'
 import { hasSessionHint } from '../../utils/sessionDetection'
 import { useTappSubject } from '../../utils/tappSubject'
-import { showError, showInfo, showSuccess } from '../../utils/toastManager'
+import {
+  showError,
+  showInfo,
+  showSuccess,
+  showToast,
+} from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
 import { EXAMPLE_TAPPS } from '../examples'
 import { getTappRuntime } from '../runtime/TappRuntime'
 import { RemoteStoreService } from '../services/RemoteStoreService'
 import { resolveManifestText } from '../utils/manifestLocale'
+import { pendingRemoteMedia } from '../utils/remoteMediaApproval'
 import { selectFeaturedStoreApps } from '../utils/storeCatalogState'
 import { resolveStoreMerchandising } from '../utils/storeLocale'
 import { isStoreAppAvailable } from '../utils/storePolicy'
@@ -55,7 +61,7 @@ import {
   TAPP_CATEGORIES,
   TAPP_CATEGORY_I18N_KEYS,
 } from '../utils/tappCategories'
-import { tappRunPath } from '../utils/tappPaths'
+import { tappDetailPath, tappRunPath } from '../utils/tappPaths'
 import {
   compareVersions,
   findStoreSource,
@@ -85,6 +91,7 @@ export function TappStore({
 }: TappStoreProps) {
   const { t, locale, format } = useI18n()
   const navigate = useNavigate()
+
   const { isAuthenticated, isAdmin, hasChecked, checkAuth } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<StoreSelection>(null)
@@ -146,6 +153,26 @@ export function TappStore({
 
   useTappSubject()
   const runtime = getTappRuntime()
+
+  // 商店装/更新不弹勾选框：新声明的域名留在详情页由人批准，这里只提醒。
+  const remindPendingRemoteMedia = useCallback(
+    (tappId: string, name: string) => {
+      const instance = runtime.getTapp(tappId)
+      const hosts = instance ? pendingRemoteMedia(instance) : []
+      if (hosts.length === 0) return
+      showToast({
+        message: format(t.tapp.remoteMediaPendingToast, {
+          name,
+          count: hosts.length,
+        }),
+        type: 'info',
+        sticky: true,
+        replaceKey: `tapp-remote-media:${tappId}`,
+        onClick: () => navigate(`${tappDetailPath(tappId)}#tapp-remote-media`),
+      })
+    },
+    [runtime, format, t.tapp.remoteMediaPendingToast, navigate],
+  )
   const notifyInstalled = useCallback(() => {
     onInstalled?.()
   }, [onInstalled])
@@ -636,6 +663,7 @@ export function TappStore({
         )
         notifyInstalled()
         showSuccess(format(t.tapp.installSuccess, { name: app.name }))
+        remindPendingRemoteMedia(app.id, app.name)
       } catch (error) {
         console.error('Failed to install Tapp:', error)
         showError(
@@ -650,6 +678,7 @@ export function TappStore({
     [
       runtime,
       notifyInstalled,
+      remindPendingRemoteMedia,
       sources,
       t,
       isAuthenticated,
@@ -748,6 +777,7 @@ export function TappStore({
         })
         notifyInstalled()
         showSuccess(t.tapp.updateSuccess)
+        remindPendingRemoteMedia(app.id, app.name)
       } catch (error) {
         console.error('Failed to update Tapp:', error)
         showError(
@@ -762,6 +792,7 @@ export function TappStore({
     [
       runtime,
       notifyInstalled,
+      remindPendingRemoteMedia,
       sources,
       t,
       isAuthenticated,

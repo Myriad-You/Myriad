@@ -4,11 +4,11 @@ use crate::contract_rules::{
     API_INJECT_RESERVED_PREFIXES, FORBIDDEN_OUTBOUND_HEADERS, HTTP_BODY_METHODS, HTTP_METHODS,
     MAX_AI_OPERATIONS, MAX_CREDENTIAL_HEADER_PREFIX_LEN, MAX_CREDENTIAL_KEY_LEN,
     MAX_DATA_EXCHANGE_DECLARATIONS, MAX_DATA_EXCHANGE_RESPONSE_BYTES, MAX_OPEN_URL_ID_LEN,
-    MAX_OPEN_URLS, MAX_TAPP_ASSETS, MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ASSETS,
-    MAX_TAPP_GAME_MESSAGE_BYTES, MAX_TAPP_GAME_PLAYERS, MAX_TAPP_GAME_PROTOCOL_LEN,
-    MAX_TAPP_RUNTIME_MODULES, MAX_WIDGETS_PER_TAPP, MIN_TAPP_GAME_PLAYERS, OPEN_URL_PERMISSION,
-    ROUTE_MAX_MAX_SKEW_SECS, ROUTE_MAX_PREFIX_LEN, ROUTE_METHODS, ROUTE_MIN_MAX_SKEW_SECS,
-    TAPP_RUNTIME_MODULES,
+    MAX_OPEN_URLS, MAX_REMOTE_MEDIA_HOSTS, MAX_TAPP_ASSETS, MAX_TAPP_CREDENTIALS,
+    MAX_TAPP_GAME_ASSETS, MAX_TAPP_GAME_MESSAGE_BYTES, MAX_TAPP_GAME_PLAYERS,
+    MAX_TAPP_GAME_PROTOCOL_LEN, MAX_TAPP_RUNTIME_MODULES, MAX_WIDGETS_PER_TAPP,
+    MIN_TAPP_GAME_PLAYERS, OPEN_URL_PERMISSION, REMOTE_MEDIA_PERMISSION, ROUTE_MAX_MAX_SKEW_SECS,
+    ROUTE_MAX_PREFIX_LEN, ROUTE_METHODS, ROUTE_MIN_MAX_SKEW_SECS, TAPP_RUNTIME_MODULES,
 };
 use crate::manifest::{
     TappAiContextSource, TappAiOperation, TappAiOutputFormat, TappApiAccess, TappCredentialIn,
@@ -22,7 +22,7 @@ use crate::paths::{
     validate_widget_refresh_policy,
 };
 use crate::permission::{TappPermission, tapp_permission_replacement_hint};
-use crate::urls::{validate_http_url, validate_open_url_target};
+use crate::urls::{validate_http_url, validate_open_url_target, validate_remote_media_host};
 
 fn validate_open_urls(manifest: &TappManifest) -> Result<(), String> {
     let has_permission = manifest
@@ -79,6 +79,40 @@ fn validate_open_urls(manifest: &TappManifest) -> Result<(), String> {
             return Err(format!("Tapp {field}.url must not include a #fragment"));
         }
         let _ = entry.match_mode; // exhaustively known via serde enum
+    }
+    Ok(())
+}
+
+fn validate_remote_media(manifest: &TappManifest) -> Result<(), String> {
+    let has_permission = manifest
+        .permissions
+        .iter()
+        .any(|value| value == REMOTE_MEDIA_PERMISSION);
+    let hosts = manifest.remote_media.as_deref().unwrap_or(&[]);
+
+    if hosts.is_empty() {
+        if has_permission {
+            return Err(
+                "Tapp permission media:remote requires a non-empty remoteMedia host list"
+                    .to_string(),
+            );
+        }
+        return Ok(());
+    }
+    if !has_permission {
+        return Err("Tapp remoteMedia requires manifest permission media:remote".to_string());
+    }
+    if hosts.len() > MAX_REMOTE_MEDIA_HOSTS {
+        return Err(format!(
+            "Tapp remoteMedia accepts at most {MAX_REMOTE_MEDIA_HOSTS} hosts"
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for (index, host) in hosts.iter().enumerate() {
+        validate_remote_media_host(host, &format!("remoteMedia[{index}]"))?;
+        if !seen.insert(host.as_str()) {
+            return Err(format!("Duplicate Tapp remoteMedia host: {host}"));
+        }
     }
     Ok(())
 }
@@ -1126,6 +1160,7 @@ pub fn validate_tapp_manifest(
     }
 
     validate_open_urls(manifest)?;
+    validate_remote_media(manifest)?;
     Ok(())
 }
 
@@ -1169,6 +1204,43 @@ mod tests {
         assert!(err.contains("storage:read"), "{err}");
         assert!(TappPermission::from_str("storage").is_none());
         assert!(validate_tapp_manifest(&manifest(&["storage:read"]), &current()).is_ok());
+    }
+
+    #[test]
+    fn remote_media_pairs_with_its_permission() {
+        let with_hosts = |permissions: &[&str], hosts: serde_json::Value| -> TappManifest {
+            let mut value = serde_json::to_value(manifest(permissions)).unwrap();
+            value["remoteMedia"] = hosts;
+            serde_json::from_value(value).unwrap()
+        };
+
+        let ok = with_hosts(
+            &["media:remote"],
+            json!(["*.mihoyo.com", "bbs-static.miyoushe.com"]),
+        );
+        assert!(validate_tapp_manifest(&ok, &current()).is_ok());
+
+        let err = validate_tapp_manifest(&manifest(&["media:remote"]), &current()).unwrap_err();
+        assert!(err.contains("remoteMedia"), "{err}");
+
+        let err = validate_tapp_manifest(&with_hosts(&[], json!(["cdn.example.com"])), &current())
+            .unwrap_err();
+        assert!(err.contains("media:remote"), "{err}");
+
+        let dup = with_hosts(
+            &["media:remote"],
+            json!(["cdn.example.com", "cdn.example.com"]),
+        );
+        assert!(validate_tapp_manifest(&dup, &current()).is_err());
+
+        let bad = with_hosts(&["media:remote"], json!(["cdn.example.com; script-src *"]));
+        assert!(validate_tapp_manifest(&bad, &current()).is_err());
+
+        let too_many: Vec<String> = (0..=MAX_REMOTE_MEDIA_HOSTS)
+            .map(|i| format!("cdn{i}.example.com"))
+            .collect();
+        let many = with_hosts(&["media:remote"], json!(too_many));
+        assert!(validate_tapp_manifest(&many, &current()).is_err());
     }
 
     #[test]

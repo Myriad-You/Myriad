@@ -73,6 +73,8 @@ pub const MAX_OPEN_URLS: usize = 32;
 pub const MAX_OPEN_URL_ID_LEN: usize = 64;
 pub const MAX_OPEN_URL_QUERY_KEYS: usize = 16;
 pub const MAX_OPEN_URL_QUERY_VALUE_LEN: usize = 512;
+/// Install-approved host patterns the sandbox CSP may load remote media from.
+pub const MAX_REMOTE_MEDIA_HOSTS: usize = 16;
 pub const MIN_WIDGET_REFRESH_INTERVAL_SECONDS: u32 = 15;
 pub const MAX_WIDGET_REFRESH_INTERVAL_SECONDS: u32 = 86_400;
 pub const TAPP_PROTOCOL_VERSION: u8 = 2;
@@ -187,6 +189,51 @@ pub const WIDGET_MANIFEST_PERMISSION: &str = "widget:register";
 pub const HTTP_API_PERMISSION: &str = "network:fetch";
 /// Host opens a browser tab for a manifest-declared link only.
 pub const OPEN_URL_PERMISSION: &str = "ui:openUrl";
+/// Sandbox loads remote images/media only from install-approved `remoteMedia` hosts.
+pub const REMOTE_MEDIA_PERMISSION: &str = "media:remote";
+/// Non-public name spaces a `remoteMedia` host may not live under.
+pub const REMOTE_MEDIA_RESERVED_SUFFIXES: &[&str] = &[
+    "localhost",
+    "local",
+    "internal",
+    "lan",
+    "home.arpa",
+    "test",
+    "example",
+    "invalid",
+    "onion",
+];
+/// Multi-tenant hosting suffixes: anyone can own a subdomain, so `*.` over them
+/// would allow the author's own server. Exact hosts under them stay allowed.
+/// Best-effort list; the installer still sees every host before approving.
+pub const REMOTE_MEDIA_WILDCARD_DENIED_SUFFIXES: &[&str] = &[
+    "github.io",
+    "gitlab.io",
+    "pages.dev",
+    "workers.dev",
+    "vercel.app",
+    "netlify.app",
+    "herokuapp.com",
+    "appspot.com",
+    "web.app",
+    "firebaseapp.com",
+    "cloudfront.net",
+    "azurewebsites.net",
+    "blob.core.windows.net",
+    "s3.amazonaws.com",
+    "amazonaws.com",
+    "blogspot.com",
+    "glitch.me",
+    "repl.co",
+    "replit.app",
+    "ngrok.io",
+    "ngrok-free.app",
+    "trycloudflare.com",
+    "onrender.com",
+    "fly.dev",
+    "deno.dev",
+    "r2.dev",
+];
 /// Allowed `openUrls[].match` values (exact path, path prefix, or whole origin).
 pub const OPEN_URL_MATCH_MODES: &[&str] = &["exact", "prefix", "origin"];
 pub const EVENT_PERMISSION_RULES: &[(&str, &str)] = &[

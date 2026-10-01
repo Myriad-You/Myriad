@@ -109,11 +109,14 @@ function generateHeadlessCoreHTML(
 ): string {
   const { manifest } = tappInstance
   const nonce = generateNonce()
-  const cspOptions = cspOptionsFromPermissions(tappInstance.grantedPermissions)
+  const cspOptions = cspOptionsFromPermissions(
+    tappInstance.grantedPermissions,
+    tappInstance.grantedRemoteMedia,
+  )
   const csp = generateCSP(nonce, cspOptions)
   const securityWrapper = escapeSandboxScriptSource(
     // 包装层图片 URL 判断必须与 CSP 同一份选项。
-    generateSecurityWrapper(sessionToken, cspOptions.allowRemoteMedia),
+    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts),
   )
   const sdkCode = escapeSandboxScriptSource(
     generateFullSDK(tappInstance, sessionToken, 'headless'),
@@ -178,11 +181,14 @@ function generatePageHTML(
       .trim() || '#94a3b8'
 
   const nonce = generateNonce()
-  const cspOptions = cspOptionsFromPermissions(tappInstance.grantedPermissions)
+  const cspOptions = cspOptionsFromPermissions(
+    tappInstance.grantedPermissions,
+    tappInstance.grantedRemoteMedia,
+  )
   const csp = generateCSP(nonce, cspOptions)
   const securityWrapper = escapeSandboxScriptSource(
     // 包装层图片 URL 判断必须与 CSP 同一份选项。
-    generateSecurityWrapper(sessionToken, cspOptions.allowRemoteMedia),
+    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts),
   )
   const sdkCode = escapeSandboxScriptSource(
     generateFullSDK(tappInstance, sessionToken),

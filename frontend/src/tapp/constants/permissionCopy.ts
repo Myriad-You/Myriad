@@ -102,6 +102,10 @@ export const PERMISSION_COPY: Record<
     labelKey: 'permMediaAudio',
     descriptionKey: 'permMediaAudioDesc',
   },
+  'media:remote': {
+    labelKey: 'permMediaRemote',
+    descriptionKey: 'permMediaRemoteDesc',
+  },
   'component:theme': {
     labelKey: 'permRegisterTheme',
     descriptionKey: 'permRegisterThemeDesc',

@@ -10,6 +10,8 @@ export const PREVIEW_PERMISSIONS = [
   'ui:fullscreen',
   /** 仅声明的 openUrls；宿主仍强制 allowlist。 */
   'ui:openUrl',
+  /** 预览无 Runtime Grant，读不到站内数据；放声明的 remoteMedia 让作者看到图。 */
+  'media:remote',
 ] as const satisfies readonly TappPermission[]
 
 const PREVIEW_PERMISSION_SET = new Set<string>(PREVIEW_PERMISSIONS)
@@ -45,6 +47,15 @@ export function isPlaygroundPreviewExpectedError(message: string): boolean {
     return true
   }
   return false
+}
+
+/** 预览没有安装批准这一步：声明了 media:remote 就放声明的域名（CSP 侧仍会再过滤字符集）。 */
+export function selectPreviewGrantedRemoteMedia(
+  declaredPermissions: readonly string[] | null | undefined,
+  declaredRemoteMedia: readonly string[] | null | undefined,
+): string[] {
+  if (!declaredPermissions?.includes('media:remote')) return []
+  return [...(declaredRemoteMedia ?? [])]
 }
 
 /** 声明 ∩ 预览 allowlist。未声明的 allowlist 项不自动授予。 */

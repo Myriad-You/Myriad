@@ -103,10 +103,13 @@ function generateWidgetHTML(
   const primaryColor = widgetProps.primaryColor || '#8b5cf6'
 
   const nonce = generateNonce()
-  const cspOptions = cspOptionsFromPermissions(tappInstance.grantedPermissions)
+  const cspOptions = cspOptionsFromPermissions(
+    tappInstance.grantedPermissions,
+    tappInstance.grantedRemoteMedia,
+  )
   const csp = generateCSP(nonce, cspOptions)
   const securityWrapper = escapeSandboxScriptSource(
-    generateSecurityWrapper(sessionToken, cspOptions.allowRemoteMedia),
+    generateSecurityWrapper(sessionToken, cspOptions.remoteMediaHosts),
   )
   const sdkCode = escapeSandboxScriptSource(
     generateWidgetSDK(tappInstance, sessionToken),

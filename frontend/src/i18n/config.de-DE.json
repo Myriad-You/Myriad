@@ -1442,7 +1442,7 @@
   "permAiChat": "KI-Chat",
   "permAiChatHint": "Tapp darf KI-Chat nutzen",
   "permNetworkFetch": "Netzwerkanfragen",
-  "permNetworkFetchHint": "Erlaubt deklarierte ausgehende Anfragen und das Laden entfernter Bilder/Medien",
+  "permNetworkFetchHint": "Erlaubt deklarierte ausgehende Anfragen über den Server (nicht für entfernte Bilder)",
   "permMediaControl": "Mediensteuerung",
   "permComponentTheme": "Thema registrieren",
   "permComponentThemeHint": "Tapp darf eigene Themen registrieren",

@@ -71,9 +71,14 @@ export interface InstallTappRequest {
   storeSource?: string
   tappId?: string
   permissions?: string[]
+  /** 批准的 remoteMedia 域名；缺省一个都不批准（更新时保留原批准）。只由人在界面上确认后传。 */
+  remoteMedia?: string[]
 }
 
-export type DirectInstallPackage = Omit<InstallTappRequest, 'source' | 'storeSource' | 'tappId'> & {
+export type DirectInstallPackage = Omit<
+  InstallTappRequest,
+  'source' | 'storeSource' | 'tappId' | 'remoteMedia'
+> & {
   manifest: TappManifest
   modules: Record<string, string>
 }
@@ -84,12 +89,14 @@ export async function installTapp(
   permissions?: string[],
   compiledCss?: CompiledCssPayload,
   signal?: AbortSignal,
+  remoteMedia?: string[],
 ): Promise<TappListItem> {
   const requestBody = buildDirectTappRequest(
     manifest,
     code,
     permissions,
     compiledCss,
+    remoteMedia,
   )
 
   return apiRequest('/api/tapps/install', {
@@ -104,6 +111,7 @@ function buildDirectTappRequest(
   code: TappPlaygroundCode,
   permissions?: string[],
   compiledCss?: CompiledCssPayload,
+  remoteMedia?: string[],
 ): InstallTappRequest {
   const pkg = buildPlaygroundPackageFiles(manifest, code)
   const mapped = packageFilesToDirectInstallBody(pkg, code.assets)
@@ -113,6 +121,9 @@ function buildDirectTappRequest(
     manifest: mapped.manifest,
     modules: mapped.modules,
     permissions,
+  }
+  if (remoteMedia !== undefined) {
+    requestBody.remoteMedia = remoteMedia
   }
 
   if (mapped.coreStyles !== undefined) {
@@ -161,10 +172,11 @@ export async function installFromCode(
   ].join('\n')
   const pageCss = generateOnDemandTailwindCSS(pageSources)
 
+  // Playground：安装者就是作者本人，声明的域名即本人确认过的域名。
   return installTapp(manifest, code, manifest.permissions, {
     widgetCss,
     pageCss,
-  }, signal)
+  }, signal, manifest.remoteMedia ?? [])
 }
 
 export async function updateTappFromCode(
@@ -192,6 +204,7 @@ export async function updateTappFromCode(
     code,
     manifest.permissions,
     { widgetCss, pageCss },
+    manifest.remoteMedia ?? [],
   )
   return apiRequest<TappListItem>(
     `/api/tapps/${encodeURIComponent(manifest.id)}/update`,
@@ -206,11 +219,15 @@ export async function installTappFile(
   file: File,
   permissions?: string[],
   overwrite?: boolean,
+  remoteMedia?: string[],
 ): Promise<TappListItem> {
   const formData = new FormData()
   formData.append('file', file)
   if (permissions) {
     formData.append('permissions', JSON.stringify(permissions))
+  }
+  if (remoteMedia) {
+    formData.append('remoteMedia', JSON.stringify(remoteMedia))
   }
 
   const query = overwrite ? '?overwrite=true' : ''

@@ -96,6 +96,10 @@ pub struct TappManifest {
     /// Runtime opens only by declared `id` (+ optional path/query under match rules).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_urls: Option<Vec<TappOpenUrlDef>>,
+    /// Hosts (`cdn.example.com` or `*.example.com`) the sandbox may load remote
+    /// images/media from. Paired with `media:remote`; the installer approves each host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_media: Option<Vec<String>>,
 }
 
 /// 共享层：所有沙箱模式执行的第一段代码，也是 headless 后台唯一执行的代码。

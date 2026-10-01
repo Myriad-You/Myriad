@@ -176,6 +176,8 @@ export function TappListPage() {
           lastRunAt: detail.last_run_at,
           grantedPermissions: (detail.granted_permissions ||
             []) as TappPermission[],
+          grantedRemoteMedia: detail.granted_remote_media ?? [],
+          approvedRemoteMedia: detail.approved_remote_media,
           needsReauthorization,
           userRole: existing?.userRole ?? (isAdmin ? 'admin' : 'user'),
           isTemporary: false,

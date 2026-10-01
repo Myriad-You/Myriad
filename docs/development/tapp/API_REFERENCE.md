@@ -1097,7 +1097,7 @@ if (card.portraitUrl) {
 - `enabled`：人设是否开启。关掉时 `name` 为 `Agent`。
 - `name`：对外显示名。开启但未写名字时为 `Arael`。
 - `moodBand` / `activity`：当前说话对象的心情带与活动。游客没有说话对象状态，得到基线（`calm` / `idle`）。不返回心情数字。
-- `portraitUrl`：宿主同源路径，可直接作为 `<img src>`。没有立绘、或路径不是同源相对路径时为 `null`。不要用 `network:fetch` 去拉这张图；不要假定能拿到性格正文或 live Rig。
+- `portraitUrl`：宿主同源路径，可直接作为 `<img src>`。没有立绘、或路径不是同源相对路径时为 `null`。不要为这张图申请 `media:remote`；不要假定能拿到性格正文或 live Rig。
 
 Playground 预览返回固定样例，不打真实 API。
 

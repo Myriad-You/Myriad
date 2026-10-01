@@ -1910,6 +1910,7 @@ fn batch_detail_mapping_applies_current_role_and_phantasi_capability_rules() {
         error_message: None,
         visibility: "all".to_string(),
         needs_reauthorization: false,
+        approved_remote_media: serde_json::json!([]),
     };
 
     let config = crate::config::DynamicConfig {
@@ -2354,6 +2355,7 @@ async fn recovery_waits_for_activation_commit_and_rereads_generation() {
         status: tapps::TappStatus::Installed,
         approved_permissions: json!([]),
         needs_reauthorization: false,
+        approved_remote_media: serde_json::json!([]),
         file_path: "manifest.json".into(),
         code_path: "main.js".into(),
         installed_at: old,

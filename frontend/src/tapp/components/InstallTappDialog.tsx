@@ -16,7 +16,9 @@ import { userFacingError } from '../../utils/userFacingError'
 import { useAnchoredFloatTip } from '../hooks/useAnchoredFloatTip'
 import * as TappApiService from '../services/TappApiService'
 import { TappHttpError } from '../services/TappHttpClient'
+import { pendingRemoteMedia } from '../utils/remoteMediaApproval'
 import { OverwriteInstallDialog } from './OverwriteInstallDialog'
+import { RemoteMediaApprovalDialog } from './RemoteMediaApprovalDialog'
 import '../../components/ConfigForm.css'
 import './InstallTappDialog.css'
 
@@ -27,6 +29,7 @@ interface OverwriteConflictDetails {
   installedVersion?: string
   incomingVersion?: string
   newPermissions?: string[]
+  newRemoteMedia?: string[]
 }
 
 function overwriteConflictDetails(err: unknown): OverwriteConflictDetails | null {
@@ -62,6 +65,12 @@ export function InstallTappDialog({
     details: OverwriteConflictDetails
   } | null>(null)
   const [overwriting, setOverwriting] = useState(false)
+  const [approvalPrompt, setApprovalPrompt] = useState<{
+    tappId: string
+    name: string
+    hosts: string[]
+  } | null>(null)
+  const [approving, setApproving] = useState(false)
 
   const onInstallRef = useRef(onInstall)
   const onSuccessRef = useRef(onSuccess)
@@ -75,6 +84,8 @@ export function InstallTappDialog({
     setDragOver(false)
     setOverwritePrompt(null)
     setOverwriting(false)
+    setApprovalPrompt(null)
+    setApproving(false)
   }, [])
 
   const {
@@ -93,7 +104,7 @@ export function InstallTappDialog({
     onEnter: resetForm,
     // The overwrite prompt is a second panel; keep this tip mounted while it
     // is open so a press inside that panel does not dismiss both.
-    canDismiss: !loading && overwritePrompt === null,
+    canDismiss: !loading && overwritePrompt === null && approvalPrompt === null,
   })
 
   const handleCancel = useCallback(() => {
@@ -102,7 +113,12 @@ export function InstallTappDialog({
   }, [close, loading])
 
   const runInstall = useCallback(
-    async (file: File, permissions?: string[], overwrite?: boolean) => {
+    async (
+      file: File,
+      permissions?: string[],
+      overwrite?: boolean,
+      remoteMedia?: string[],
+    ) => {
       const startedSession = session
       setLoading(true)
 
@@ -111,13 +127,30 @@ export function InstallTappDialog({
           file,
           permissions,
           overwrite,
+          remoteMedia,
         )
         onInstallRef.current()
-        onSuccessRef.current?.(
-          result.name || file.name.replaceAll(/\.tapp$/gi, ''),
-        )
+        const name = result.name || file.name.replaceAll(/\.tapp$/gi, '')
+        onSuccessRef.current?.(name)
         // 仅当前会话仍 open 时收起 UI。
         if (!isCurrentSession(startedSession)) return
+        // 新装的 remoteMedia 域名不会默认批准：逐个摆出来让安装者确认。
+        if (!overwrite) {
+          const hosts = await TappApiService.getTapp(result.id)
+            .then((detail) =>
+              pendingRemoteMedia({
+                manifest: detail.manifest,
+                approvedRemoteMedia: detail.approved_remote_media,
+              }),
+            )
+            .catch(() => [] as string[])
+          if (!isCurrentSession(startedSession)) return
+          if (hosts.length > 0) {
+            setLoading(false)
+            setApprovalPrompt({ tappId: result.id, name, hosts })
+            return
+          }
+        }
         // 先让父级 isOpen=false，再本地 close（不 notify）。
         onCancelRef.current()
         close({ notifyParent: false })
@@ -157,12 +190,45 @@ export function InstallTappDialog({
   )
 
   const handleConfirmOverwrite = useCallback(
-    (acceptedPermissions: string[]) => {
+    (acceptedPermissions: string[], acceptedRemoteMedia: string[]) => {
       if (!overwritePrompt || overwriting) return
       setOverwriting(true)
-      void runInstall(overwritePrompt.file, acceptedPermissions, true)
+      void runInstall(
+        overwritePrompt.file,
+        acceptedPermissions,
+        true,
+        acceptedRemoteMedia,
+      )
     },
     [overwritePrompt, overwriting, runInstall],
+  )
+
+  const finishApproval = useCallback(() => {
+    setApprovalPrompt(null)
+    setApproving(false)
+    onCancelRef.current()
+    close({ notifyParent: false })
+  }, [close])
+
+  const handleApproveRemoteMedia = useCallback(
+    (hosts: string[]) => {
+      if (!approvalPrompt || approving) return
+      if (hosts.length === 0) {
+        finishApproval()
+        return
+      }
+      setApproving(true)
+      void TappApiService.setTappRemoteMedia(approvalPrompt.tappId, hosts)
+        .then(() => {
+          onInstallRef.current()
+          finishApproval()
+        })
+        .catch((err: unknown) => {
+          setApproving(false)
+          showError(userFacingError(err, t.tapp.remoteMediaSaveFailed))
+        })
+    },
+    [approvalPrompt, approving, finishApproval, t.tapp.remoteMediaSaveFailed],
   )
 
   const handleCancelOverwrite = useCallback(() => {
@@ -283,9 +349,19 @@ export function InstallTappDialog({
         installedVersion={overwritePrompt?.details.installedVersion ?? ''}
         incomingVersion={overwritePrompt?.details.incomingVersion ?? ''}
         newPermissions={overwritePrompt?.details.newPermissions ?? []}
+        newRemoteMedia={overwritePrompt?.details.newRemoteMedia ?? []}
         busy={overwriting}
         onCancel={handleCancelOverwrite}
         onConfirm={handleConfirmOverwrite}
+      />
+      <RemoteMediaApprovalDialog
+        isOpen={approvalPrompt !== null}
+        anchorEl={anchorEl}
+        appName={approvalPrompt?.name ?? ''}
+        hosts={approvalPrompt?.hosts ?? []}
+        busy={approving}
+        onSkip={finishApproval}
+        onApprove={handleApproveRemoteMedia}
       />
     </>
   )

@@ -8,5 +8,5 @@ pub(crate) mod widgets;
 pub(crate) use access::{ensure_permissions_allowed, ensure_tapp_install_allowed};
 pub(crate) use installation::{
     acquire_install_permit, install_generated, install_prepared_package, resolve_update_target,
-    update_prepared_package,
+    set_approved_remote_media, update_prepared_package,
 };

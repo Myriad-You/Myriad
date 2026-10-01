@@ -1442,7 +1442,7 @@
   "permAiChat": "AI 對話",
   "permAiChatHint": "允許 Tapp 使用 AI 對話功能",
   "permNetworkFetch": "網路請求",
-  "permNetworkFetchHint": "允許宣告式出站請求，以及載入遠端圖片/音影片資源",
+  "permNetworkFetchHint": "允許由伺服器端發出的宣告式出站請求（不含遠端圖片）",
   "permMediaControl": "媒體控制",
   "permComponentTheme": "註冊主題",
   "permComponentThemeHint": "允許 Tapp 註冊自定義主題",
