@@ -170,7 +170,8 @@ async fn her_real_talk_answered_again() {
             .is_none_or(|last| (at - last).num_hours() >= 3);
         let request = UserRequest {
             raw_input: said.clone(),
-            timestamp: chrono::Utc::now(),
+            // As it came then: how long since they last wrote is as it was.
+            timestamp: at.with_timezone(&chrono::Utc),
             user_id,
             context: Some(RequestContext {
                 interaction_mode: AgentInteractionMode::Chat,

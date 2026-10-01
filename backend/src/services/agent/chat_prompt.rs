@@ -435,16 +435,10 @@ fn sent_at(message: &ConversationMessage) -> Option<chrono::DateTime<chrono::Utc
 }
 
 /// One message per line, each with who said it: a message sent as several
-/// lines reads as one. Long pauses between them are marked, and where the
-/// first shown was said long ago, so does that.
+/// lines reads as one. Long pauses between them are marked; how long since
+/// the last of them is told apart (see `format_since_section`), so the whole
+/// stands against now.
 fn chat_history_text(history: &[ConversationMessage]) -> String {
-    chat_history_text_at(history, chrono::Utc::now())
-}
-
-fn chat_history_text_at(
-    history: &[ConversationMessage],
-    now: chrono::DateTime<chrono::Utc>,
-) -> String {
     let mut kept: Vec<(String, Option<chrono::DateTime<chrono::Utc>>)> = Vec::new();
     let mut chars = 0;
     for message in history.iter().rev().take(HISTORY_MESSAGES) {
@@ -467,21 +461,14 @@ fn chat_history_text_at(
     kept.reverse();
     let mut lines = Vec::with_capacity(kept.len() + 2);
     let mut previous: Option<chrono::DateTime<chrono::Utc>> = None;
-    for (index, (line, at)) in kept.into_iter().enumerate() {
-        match (index, previous, at) {
-            (0, _, Some(at)) if (now - at).num_seconds() >= MARKED_PAUSE_SECS => {
-                lines.push(format!(
-                    "（from {} ago）",
-                    pause_text((now - at).num_seconds())
-                ));
-            }
-            (_, Some(before), Some(at)) if (at - before).num_seconds() >= MARKED_PAUSE_SECS => {
-                lines.push(format!(
-                    "（{} later）",
-                    pause_text((at - before).num_seconds())
-                ));
-            }
-            _ => {}
+    for (line, at) in kept {
+        if let (Some(before), Some(at)) = (previous, at)
+            && (at - before).num_seconds() >= MARKED_PAUSE_SECS
+        {
+            lines.push(format!(
+                "（{} later）",
+                pause_text((at - before).num_seconds())
+            ));
         }
         if at.is_some() {
             previous = at;
@@ -565,18 +552,15 @@ mod tests {
             message("user", "早", at(0)),
         ];
         assert_eq!(
-            chat_history_text_at(&history, now),
-            "（from 2 days ago）\nuser：你好呀\nassistant：来啦\n（2 days later）\nuser：我去上课了\nassistant：难怪见不着人\n（13 hours later）\nuser：早"
+            chat_history_text(&history),
+            "user：你好呀\nassistant：来啦\n（2 days later）\nuser：我去上课了\nassistant：难怪见不着人\n（13 hours later）\nuser：早"
         );
         // Without times, nothing is made up.
         let plain = [
             message("user", "在吗", None),
             message("assistant", "在", None),
         ];
-        assert_eq!(
-            chat_history_text_at(&plain, now),
-            "user：在吗\nassistant：在"
-        );
+        assert_eq!(chat_history_text(&plain), "user：在吗\nassistant：在");
     }
 
     #[test]
