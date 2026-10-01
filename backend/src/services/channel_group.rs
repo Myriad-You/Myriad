@@ -24,7 +24,9 @@
 //! she is busy waits: when she is done she answers those waiting in order, a
 //! few at most (a turtle soup's questions come fast).
 //! Delivery is best effort: a restart mid-turn loses that reply, which is
-//! acceptable for chat.
+//! acceptable for chat. A line that called her and was still waiting for her
+//! (she was asleep or busy) is taken back up after a restart, where the
+//! group is read back on reconnecting (OneBot).
 //!
 //! A line that does not call her by name she reads as a person in the group
 //! does: when the talk pauses she looks, and decides as herself whether to

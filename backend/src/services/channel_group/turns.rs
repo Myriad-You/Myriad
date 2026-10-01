@@ -126,3 +126,58 @@ pub(super) async fn finish_turn(venue: &str, replied: bool) -> Option<GroupLine>
     }
     next
 }
+
+/// When this process first heard a group: lines before it reached the one
+/// before, and whatever it was holding for her then went with it.
+pub(super) static UP_SINCE: LazyLock<chrono::DateTime<chrono::Utc>> = LazyLock::new(chrono::Utc::now);
+/// Lines taken back up after a restart, so a reconnect does not take one up
+/// twice.
+static TAKEN_BACK: LazyLock<Mutex<std::collections::HashSet<String>>> =
+    LazyLock::new(Default::default);
+
+/// Mark when this process first heard a group.
+pub(super) fn heard_since_up() {
+    LazyLock::force(&UP_SINCE);
+}
+
+/// After a restart, the line that called her before it and that she never
+/// answered (she was asleep or busy, and the wait went with the process),
+/// out of what the group said meanwhile (oldest first, hers marked): the
+/// latest such line, if she has not spoken there since and it is recent
+/// enough to still be talk. Each line once.
+pub(super) fn left_waiting(
+    venue: &str,
+    past: &[(GroupLine, chrono::DateTime<chrono::Utc>, bool)],
+) -> Option<GroupLine> {
+    let before = *UP_SINCE - chrono::Duration::seconds(5);
+    let mut past: Vec<_> = past.iter().collect();
+    past.sort_by_key(|(_, at, _)| *at);
+    let after_her = past
+        .iter()
+        .rposition(|(_, _, hers)| *hers)
+        .map_or(0, |at| at + 1);
+    let (line, _, _) = past[after_her..].iter().rev().find(|(line, at, hers)| {
+        !hers
+            && line.addressed
+            && *at < before
+            && chrono::Utc::now() - *at
+                < chrono::Duration::from_std(TRANSCRIPT_FOR).unwrap_or_default()
+    })?;
+    let key = format!("{venue}#{}", line.message_id);
+    let mut taken = TAKEN_BACK.lock().ok()?;
+    if !taken.insert(key) {
+        return None;
+    }
+    if taken.len() > MAX_GROUPS * WAITING_LINES {
+        taken.clear();
+    }
+    Some(line.clone())
+}
+
+/// Take up a line [`left_waiting`] found, as if it had just come in.
+pub(super) fn take_back(venue: &str, line: Option<GroupLine>) {
+    if let Some(line) = line {
+        info!(%venue, "[Group] a line left waiting before the restart; taking it up");
+        tokio::spawn(handle(line, String::new()));
+    }
+}

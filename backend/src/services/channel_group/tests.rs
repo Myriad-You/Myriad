@@ -602,3 +602,40 @@ async fn a_group_keeps_only_its_recent_lines() {
     assert_eq!(lines.len(), TRANSCRIPT_LINES);
     assert_eq!(lines[0].content, "某人：第5句");
 }
+
+#[test]
+fn a_line_left_waiting_by_a_restart_is_taken_back_up_once() {
+    let venue = venue(-9_777);
+    let calling = |message_id: i64, text: &str| GroupLine {
+        addressed: true,
+        ..line(-9_777, message_id, "阿明", text)
+    };
+    let up = *turns::UP_SINCE;
+    let ago = |minutes: i64| up - chrono::Duration::minutes(minutes);
+    // She answered the first call; the second came while she slept.
+    let past = vec![
+        (calling(1, "@bot 早"), ago(90), false),
+        (line(-9_777, 2, "", "早呀"), ago(89), true),
+        (line(-9_777, 3, "小红", "她起了没"), ago(40), false),
+        (calling(4, "@bot 晚上打游戏吗"), ago(30), false),
+        (line(-9_777, 5, "小红", "没回，睡着了吧"), ago(20), false),
+    ];
+    let taken = turns::left_waiting(&venue, &past).expect("the call she never got to");
+    assert_eq!(taken.message_id, "4");
+    assert!(turns::left_waiting(&venue, &past).is_none(), "once");
+    // Answered since, or only heard after this process was up: not hers to
+    // take back.
+    let answered = vec![
+        (calling(6, "@bot 在吗"), ago(30), false),
+        (line(-9_777, 7, "", "在"), ago(29), true),
+    ];
+    assert!(turns::left_waiting(&venue, &answered).is_none());
+    let live = vec![(
+        calling(8, "@bot 在吗"),
+        up + chrono::Duration::seconds(30),
+        false,
+    )];
+    assert!(turns::left_waiting(&venue, &live).is_none());
+    let stale = vec![(calling(9, "@bot 在吗"), ago(60 * 7), false)];
+    assert!(turns::left_waiting(&venue, &stale).is_none());
+}

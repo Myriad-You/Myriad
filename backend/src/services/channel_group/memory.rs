@@ -108,10 +108,15 @@ pub(super) async fn keep_lines(db: &DatabaseConnection, venue: &str, lines: Vec<
 /// on opening a chat: each line she does not have yet goes in at its time,
 /// hers as hers. Nothing is answered: it is only read.
 pub async fn catch_up(venue: &str, past: Vec<(GroupLine, chrono::DateTime<chrono::Utc>, bool)>) {
+    heard_since_up();
     let db = crate::services::process_db::database().ok();
     if let Some(db) = &db {
         restore(db, venue).await;
     }
+    // A line that called her before a restart, which she never got to:
+    // taken up now, late, once what was said meanwhile is read. Only OneBot
+    // reads a group back, and its sends need no token.
+    let waiting = left_waiting(venue, &past);
     let people = people(venue);
     let fresh: Vec<Line> = with_group(venue, |group| {
         past.into_iter()
@@ -140,6 +145,7 @@ pub async fn catch_up(venue: &str, past: Vec<(GroupLine, chrono::DateTime<chrono
     })
     .unwrap_or_default();
     if fresh.is_empty() {
+        take_back(venue, waiting);
         return;
     }
     info!(%venue, lines = fresh.len(), "[Group] read back what was said while she was away");
@@ -160,6 +166,7 @@ pub async fn catch_up(venue: &str, past: Vec<(GroupLine, chrono::DateTime<chrono
         keep_lines(db, venue, lines).await;
     }
     keep_ledger(venue).await;
+    take_back(venue, waiting);
 }
 
 /// Groups of `platform` she has kept lines of lately.
@@ -182,6 +189,7 @@ pub(super) fn bounded(text: &str) -> String {
 
 /// Keep a group line in mind, whoever wrote it.
 pub async fn record(message: &GroupLine) {
+    heard_since_up();
     let line = Line {
         at: chrono::Utc::now(),
         message_id: Some(message.message_id.clone()),
