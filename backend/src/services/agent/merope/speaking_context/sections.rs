@@ -229,10 +229,20 @@ pub(super) async fn her_state(
     }
     // Her inner state goes last, nearest their words, so it is what she
     // answers from; without it, how the words landed stands here instead.
+    // It was written before their latest words: when those words clearly
+    // landed (praise or a scolding, or her appraisal of them since), how
+    // they landed is newer than it and stands beside it.
     let inner_block = compiled
         .as_deref()
         .and_then(format_inner_moment_ago_section);
-    if inner_block.is_none() {
+    let landed_since = match turn {
+        Turn::Chat(words) => {
+            let (praised, scolded) = myriad_merope::affect::detect_mood_cue(words);
+            praised || scolded || inner::landed_since_reflection(user_id, present)
+        }
+        _ => false,
+    };
+    if inner_block.is_none() || landed_since {
         if let Some(block) = format_emotion_section(state.emotion, state.emotion_arousal) {
             sections.push(block);
         }

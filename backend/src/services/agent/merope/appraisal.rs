@@ -279,6 +279,7 @@ pub fn spawn(db: DatabaseConnection, request: &UserRequest, state: &agent_addres
         let Ok(Some((before, saved))) = saved else {
             return;
         };
+        super::inner::landed(user_id);
         let after = affect_from_state(&saved);
         let mood = MoodTransition::from_affect(
             &before,

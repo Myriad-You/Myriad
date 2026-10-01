@@ -374,9 +374,64 @@ pub fn current(user_id: i32, present: &Audience) -> Option<String> {
         .map(|(inner, _)| inner.clone())
 }
 
+/// When something they said last clearly landed with her (her appraisal of
+/// it moved how she feels), by person.
+static LANDED: LazyLock<Mutex<HashMap<i32, Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+const LANDED_KEPT: usize = 4096;
+
+/// Something they said just landed with her.
+pub fn landed(user_id: i32) {
+    if let Ok(mut landed) = LANDED.lock() {
+        if landed.len() >= LANDED_KEPT {
+            landed.retain(|_, at| at.elapsed() < MOMENT);
+        }
+        landed.insert(user_id, Instant::now());
+    }
+}
+
+/// Whether their words landed with her after her state here was last
+/// written, so how they landed is newer than it.
+pub fn landed_since_reflection(user_id: i32, present: &Audience) -> bool {
+    let Some(reflected) = AFTER
+        .lock()
+        .ok()
+        .and_then(|after| after.get(&key(user_id, present)).map(|(_, at)| *at))
+    else {
+        return false;
+    };
+    LANDED
+        .lock()
+        .ok()
+        .and_then(|landed| landed.get(&user_id).copied())
+        .is_some_and(|landed| landed > reflected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_they_said_after_her_state_was_written_is_newer_than_it() {
+        let present = Audience::private(-77);
+        // No state of hers here: nothing to be newer than.
+        assert!(!landed_since_reflection(-77, &present));
+        AFTER
+            .lock()
+            .unwrap()
+            .insert(key(-77, &present), ("还挺开心".into(), Instant::now()));
+        assert!(!landed_since_reflection(-77, &present));
+        landed(-77);
+        assert!(landed_since_reflection(-77, &present));
+        // A new state of hers takes it in.
+        AFTER.lock().unwrap().insert(
+            key(-77, &present),
+            ("被说了一句，有点闷".into(), Instant::now()),
+        );
+        assert!(!landed_since_reflection(-77, &present));
+        AFTER.lock().unwrap().remove(&key(-77, &present));
+        LANDED.lock().unwrap().remove(&-77);
+    }
 
     #[test]
     fn what_got_to_her_and_what_they_made_right_come_back_from_her_reflection() {
