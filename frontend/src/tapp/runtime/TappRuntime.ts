@@ -517,9 +517,14 @@ export class TappRuntime {
   private getEffectiveBackgroundRequirements(
     tappId: string,
   ): Set<BackgroundRequirement> {
-    return new Set(
+    const requirements = new Set(
       this.manifestBackgroundRequirements.get(tappId) ?? [],
     ).union(new Set(this.backgroundRequirements.get(tappId) ?? []))
+    // 游客没有通知中心，Tapp 通知无处投递；只为通知常驻是空转。
+    if (this.installedTapps.get(tappId)?.userRole === 'guest') {
+      requirements.delete('notification')
+    }
+    return requirements
   }
 
   async stopTapp(tappId: string): Promise<void> {

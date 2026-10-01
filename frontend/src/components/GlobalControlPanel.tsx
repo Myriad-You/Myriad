@@ -769,7 +769,7 @@ const GlobalControlPanel: React.FC = () => {
                         onNavigate={handleNavigateFromPanel}
                         onOpenAgentManage={handleOpenAgentManage}
                         browserNotificationsEnabled={
-                          notificationPreferences.delivery.browser
+                          !!user && notificationPreferences.delivery.browser
                         }
                       />
                     </Suspense>
