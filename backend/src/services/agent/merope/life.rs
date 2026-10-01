@@ -126,6 +126,7 @@ pub async fn tick(db: DatabaseConnection) {
     }
     super::views::let_fade(&db).await;
     super::strangers::let_fade(&db).await;
+    super::recognizing::let_fade(&db).await;
     super::threads::let_fade(&db).await;
     super::sore::let_fade(&db).await;
     super::wants::let_fade(&db).await;

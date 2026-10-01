@@ -20,6 +20,9 @@ use myriad_merope::recognizing::{
 use myriad_merope::strangers::evidence_marker;
 
 pub const SOURCE: &str = "maybe_is";
+/// A guess not looked at again for this long fades, as the note it was a
+/// guess about does (see `strangers`).
+const FADE_AFTER: chrono::Duration = chrono::Duration::days(60);
 /// People she knows that a stranger is held against, and memories of each.
 const PEOPLE: i64 = 50;
 const MEMORIES: usize = 300;
@@ -169,5 +172,14 @@ pub async fn consider(
         .to_string();
         let _ = unified::remember_in_venue(db, &group, &why, &evidence, SOURCE).await;
         tracing::info!(%venue, sure, "[Merope] she wonders who someone in a group is");
+    }
+}
+
+/// Guesses about who an outsider is, untouched for long, fade.
+pub async fn let_fade(db: &DatabaseConnection) {
+    match unified::fade_source(db, SOURCE, FADE_AFTER).await {
+        Ok(faded) if faded > 0 => tracing::info!(faded, "[Merope] guesses about outsiders faded"),
+        Ok(_) => {}
+        Err(error) => tracing::warn!(%error, "[Merope] could not let guesses about outsiders fade"),
     }
 }

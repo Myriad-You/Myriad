@@ -22,29 +22,25 @@ pub(super) const WANDER_STEPS: usize = 3;
 /// about: curiosity peaks between knowing nothing and knowing plenty.
 pub(super) const THINLY_KNOWN: usize = 2;
 
-#[cfg(test)]
 tokio::task_local! {
-    static JUST_LOOKING: ();
+    static QUIETLY: ();
 }
 
-/// Run `work` without what comes to mind counting as recalled: a real turn
-/// answered again to look at, which must not leave the site's memories
-/// fresher than they were.
-#[cfg(test)]
-pub(crate) async fn just_looking<F: std::future::Future>(work: F) -> F::Output {
-    JUST_LOOKING.scope((), work).await
+/// Run `work` without what it reads counting as recalled. A memory grows
+/// readier each time it comes to mind (see `strength`): when she speaks,
+/// when she wanders, when she is asked to remember. A turn also reads them
+/// behind the scenes, several times (to keep facts, to reflect, to weigh
+/// how words landed, to decide whether to speak or write first); those
+/// reads are not her remembering, and counting them made what she reads
+/// most in the background the readiest, whatever she actually thought of.
+/// A real turn answered again to look at is read quietly too.
+pub(crate) async fn quietly<F: std::future::Future>(work: F) -> F::Output {
+    QUIETLY.scope((), work).await
 }
 
 /// Whether what comes to mind now counts as recalled.
 fn counts_as_recalled() -> bool {
-    #[cfg(test)]
-    {
-        JUST_LOOKING.try_with(|_| ()).is_err()
-    }
-    #[cfg(not(test))]
-    {
-        true
-    }
+    QUIETLY.try_with(|_| ()).is_err()
 }
 
 /// How readily a memory comes to mind now (see `strength`).

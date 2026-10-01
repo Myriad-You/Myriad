@@ -438,7 +438,8 @@ mod tests {
         assert!(!gate.contains("ConsciousnessDecision"));
         assert!(!gate.contains("memory: Some"));
         let ingest = include_str!("../merope/ingest/produce.rs");
-        assert!(ingest.contains("insert_diary(db, user_id, &summary, DIARY_SOURCE_EVENT)"));
+        // What she let pass is not written to a diary nobody reads.
+        assert!(!ingest.contains("DIARY_SOURCE_EVENT"));
     }
 
     #[test]

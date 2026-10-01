@@ -6,8 +6,7 @@ use std::collections::BTreeMap;
 
 use super::super::gates::{decide_ingest, is_valuable_event};
 use super::super::store::{
-    DIARY_SOURCE_EVENT, affect_from_state, get_or_create_state, insert_diary, recently_spoke_event,
-    update_affect,
+    affect_from_state, get_or_create_state, recently_spoke_event, update_affect,
 };
 use super::super::{apply_task_outcome, is_extremely_low, is_logged_in_addressee};
 use super::{
@@ -52,24 +51,6 @@ pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &st
         (Utc::now().timestamp() / (SAME_EVENT_MINUTES * 60)).to_string()
     };
     format!("evt_{user_id}_{key}_{distinguisher}")
-}
-
-pub fn spawn_diary(user_id: i32, summary: impl Into<String>) {
-    let summary = compact_summary(&summary.into());
-    if summary.is_empty() {
-        return;
-    }
-    crate::services::agent::merope::background::spawn("diary", async move {
-        if !is_logged_in_addressee(user_id) || !is_enabled().await {
-            return;
-        }
-        let Ok(db) = crate::services::process_db::database() else {
-            return;
-        };
-        if let Err(error) = insert_diary(&db, user_id, &summary, DIARY_SOURCE_EVENT).await {
-            tracing::debug!(%error, user_id, "[Merope] diary write failed");
-        }
-    });
 }
 
 pub fn spawn_presence(user_id: i32) {
@@ -201,7 +182,6 @@ pub async fn ingest(
 
     if !decision.allow_model {
         log_skip(user_id, event_key, decision.reason);
-        let _ = insert_diary(db, user_id, &summary, DIARY_SOURCE_EVENT).await;
         return Ok(());
     }
 
@@ -305,9 +285,6 @@ pub async fn ingest(
         });
     }
 
-    if !touch && !thought {
-        let _ = insert_diary(db, user_id, &summary, DIARY_SOURCE_EVENT).await;
-    }
     Ok(())
 }
 

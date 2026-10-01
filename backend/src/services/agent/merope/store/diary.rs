@@ -12,6 +12,10 @@ use super::*;
 /// `chat` are summaries the platform generated about them. Reads are therefore
 /// always source-scoped — there is no "latest row of any kind" — so a stated
 /// fact can never arrive somewhere expecting a generated summary.
+/// Events she let pass were once written here too; nothing read them, so no
+/// more are. Rows from then remain, and must never leak into what she
+/// recalls (the store tests seed some).
+#[cfg(test)]
 pub const DIARY_SOURCE_EVENT: &str = "event";
 
 pub const DIARY_SOURCE_CHAT: &str = "chat";

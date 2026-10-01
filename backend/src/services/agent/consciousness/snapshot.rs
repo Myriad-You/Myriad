@@ -25,9 +25,11 @@ pub async fn capture_self_snapshot(
         .collect::<Vec<_>>();
     granted_permissions.sort_unstable();
 
-    let remembered = merope::store::recall_remembered(db, user_id, Some(memory_query), 8)
-        .await
-        .unwrap_or_default();
+    let remembered = crate::services::agent::memory::unified::quietly(
+        merope::store::recall_remembered(db, user_id, Some(memory_query), 8),
+    )
+    .await
+    .unwrap_or_default();
 
     Ok(SelfSnapshot {
         persona_name: merope::public_persona_name(

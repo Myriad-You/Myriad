@@ -253,7 +253,7 @@ async fn her_real_talk_answered_again() {
         crate::services::agent::merope::remembering::begin(user_id, "private", &said);
         let agent = Agent::new(db.clone()).await;
         // As of then, and only looking: what comes to mind is not recalled.
-        let prompt = crate::services::agent::memory::unified::just_looking(
+        let prompt = crate::services::agent::memory::unified::quietly(
             crate::services::agent::merope::clock::as_of(
                 at.with_timezone(&chrono::Utc),
                 agent.chat_response_prompt(&request),

@@ -259,9 +259,11 @@ async fn would_write(
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let remembered = super::store::recall_remembered(db, user_id, None, 5)
-        .await
-        .unwrap_or_default();
+    let remembered = crate::services::agent::memory::unified::quietly(
+        super::store::recall_remembered(db, user_id, None, 5),
+    )
+    .await
+    .unwrap_or_default();
     let now = Utc::now();
     let first_words: Vec<(String, Option<bool>)> = super::store::first_words(
         db,

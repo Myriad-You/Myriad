@@ -321,17 +321,18 @@ pub(super) async fn extract(
     turn: &super::TurnContext,
 ) -> Result<super::memory_jobs::Effect, super::memory_jobs::Failure> {
     use super::memory_jobs::{Effect, Failure};
-    let (existing, _) = super::store::recall_remembered_primed(
-        db,
-        user_id,
-        present,
-        Some(user_text),
-        8,
-        &crate::services::agent::memory::unified::Priming::default(),
-        1.0,
-    )
-    .await
-    .map_err(|_| Failure::Storage)?;
+    let (existing, _) =
+        crate::services::agent::memory::unified::quietly(super::store::recall_remembered_primed(
+            db,
+            user_id,
+            present,
+            Some(user_text),
+            8,
+            &crate::services::agent::memory::unified::Priming::default(),
+            1.0,
+        ))
+        .await
+        .map_err(|_| Failure::Storage)?;
     // What they told her last, first: "forget what I just said" names
     // nothing that recall by their words would find. In the same plain form
     // as recalled facts, since a correction quotes one to replace it.

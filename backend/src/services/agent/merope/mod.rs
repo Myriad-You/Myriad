@@ -71,7 +71,7 @@ mod wants;
 pub use chat_remember::enqueue_chat_remember;
 pub use curiosity::spawn_curiosity;
 pub use ingest::{
-    allow_existing_notify, is_enabled, spawn as spawn_ingest, spawn_diary, spawn_presence,
+    allow_existing_notify, is_enabled, spawn as spawn_ingest, spawn_presence,
     tick_speak_intents,
 };
 pub use motion::{

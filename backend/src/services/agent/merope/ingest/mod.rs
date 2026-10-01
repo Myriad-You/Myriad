@@ -24,7 +24,7 @@ use crate::models::entities::agent_addressee_state;
 use crate::services::agent::consciousness::last_live_presence;
 use crate::services::agent::run_hub;
 
-pub use produce::{spawn, spawn_diary, spawn_presence};
+pub use produce::{spawn, spawn_presence};
 pub use redeem::tick_speak_intents;
 
 const SAME_EVENT_MINUTES: i64 = 15;

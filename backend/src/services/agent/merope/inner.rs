@@ -212,7 +212,7 @@ async fn compile(
         super::get_or_create_state(db, user_id),
         // In a group, only what the group heard: this state is read back
         // into a reply everyone there can see.
-        super::store::recall_remembered_primed(
+        crate::services::agent::memory::unified::quietly(super::store::recall_remembered_primed(
             db,
             user_id,
             present,
@@ -220,7 +220,7 @@ async fn compile(
             4,
             &no_priming,
             1.0,
-        ),
+        )),
         super::self_state::current(db),
     );
     let feeling = state

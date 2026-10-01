@@ -240,3 +240,30 @@ async fn importing_the_same_legacy_row_twice_writes_it_once() {
     assert_eq!(rows[0].access_count, 2);
     assert_eq!(rows[0].source, "import");
 }
+
+#[tokio::test]
+async fn only_what_comes_to_her_mind_counts_as_recalled_not_what_is_read_behind_it() {
+    let Some(db) = temp_db().await else {
+        return;
+    };
+    let id = remember(&db, fact(7, "has a cat called Niangao"))
+        .await
+        .unwrap()
+        .unwrap();
+    let uses = |db: DatabaseConnection, id: String| async move {
+        agent_memories::Entity::find_by_id(id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap()
+            .access_count
+    };
+    let present = Audience::private(7);
+    let ask = || recall(&db, 7, &present, Some("cat"), &MemoryKind::ABOUT_PERSON, 8);
+    assert_eq!(ask().await.unwrap().len(), 1);
+    assert_eq!(uses(db.clone(), id.clone()).await, 1);
+    // Read behind the scenes (keeping facts, reflecting, deciding): found,
+    // and not made any readier for it.
+    assert_eq!(quietly(ask()).await.unwrap().len(), 1);
+    assert_eq!(uses(db.clone(), id).await, 1);
+}

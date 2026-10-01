@@ -124,10 +124,9 @@ impl MetadataService {
             }
         };
         txn.commit().await?;
-        if let Some(ingest) = ingest {
-            if ingest.imported {
-                crate::services::agent::merope::spawn_diary(user_id, ingest.summary);
-            } else if ingest.high_value {
+        // Imported in bulk is nothing for her to notice.
+        if let Some(ingest) = ingest.filter(|ingest| !ingest.imported) {
+            if ingest.high_value {
                 crate::services::agent::merope::spawn_ingest(
                     user_id,
                     "agent.merope.platform_activity",
@@ -750,8 +749,8 @@ mod tests {
         assert!(save.contains("ROLLBACK TO SAVEPOINT metadata_insert"));
         assert!(save.contains("txn.commit()"));
         assert!(
-            save.find("txn.commit()").unwrap() < save.find("spawn_diary").unwrap(),
-            "diary side effects must wait until snapshot+history commit"
+            save.find("txn.commit()").unwrap() < save.find("spawn_ingest").unwrap(),
+            "what she notices must wait until snapshot+history commit"
         );
     }
 }

@@ -347,7 +347,12 @@ async fn evaluate(
     // checks; no stale cache of persona or relationship memory is introduced.
     let (persona, remembered) = tokio::join!(
         get_persona(db),
-        recall_remembered(db, user_id, Some(&input.user_text), 4)
+        crate::services::agent::memory::unified::quietly(recall_remembered(
+            db,
+            user_id,
+            Some(&input.user_text),
+            4
+        ))
     );
     let persona = persona.ok()?;
     input.persona = persona_context(persona.as_ref());
