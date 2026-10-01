@@ -31,6 +31,8 @@ export interface HeadSilhouette {
   /** Row where the face is widest; above it the skull takes over. */
   widestY: number
   chinY: number
+  /** Row where the jaw begins, at the bottom of the nose; below it the jaw swings out with a turn. */
+  jawStartY: number
   crownY: number
   radius: number
   centerAtWidest: number
@@ -67,11 +69,22 @@ export const HEAD_TURN_SHARE = 0.75
 export const HAIR_TURN_SCALE = 1.12
 /** Below the chin the turn fades out over this share of the head's height. */
 const BELOW_CHIN_FADE = 0.4
+/**
+ * Experiment knobs, read on every turn so a probe can try values live.
+ * `jawSwing`: how far, in head radii, the far jaw swings toward the turn at a
+ * full turn beyond the rest of the face; the near jaw stays with the neck.
+ * `farExponent`: how fast the slide falls away toward the far rim.
+ */
+export const HEAD_TURN_TUNING = { jawSwing: 0, turnSlide: TURN_SLIDE, farExponent: 1.5, featureScaleMin: FEATURE_SCALE_MIN, featureScaleMax: FEATURE_SCALE_MAX, featureLift: 1, farRim: 0, nearRim: NEAR_RIM_SLIDE,
+  // Probe-only: full-turn displacement of a head point by its layer and rest position.
+  keyform: null as null | ((layer: { role: string; side?: string | null }, x: number, y: number, out: HeadTurnOffset) => void),
+}
 
 /** The face drawing's outline row by row, or null when it has none to read. */
 export function headSilhouetteFromFace(
   layer: { x: number; y: number; w: number; h: number },
   image: CroppedLayerPixels | null,
+  noseBottom?: number,
 ): HeadSilhouette | null {
   if (!image || image.width < 4 || image.height < 8) return null
   const { width, height, pixels } = image
@@ -127,12 +140,16 @@ export function headSilhouetteFromFace(
   if (!(radius > 2)) return null
   const topY = top + firstRow
   const widestY = topY + widest
+  const chinY = topY + count - 1
   return {
     top: topY,
     centerX: smoothCenter,
     halfWidth: smoothHalf,
     widestY,
-    chinY: topY + count - 1,
+    chinY,
+    jawStartY: noseBottom !== undefined && noseBottom > widestY && noseBottom < chinY
+      ? noseBottom
+      : widestY + (chinY - widestY) * 0.5,
     crownY: Math.min(topY, widestY - radius * 1.25),
     radius,
     centerAtWidest: smoothCenter[widest],
@@ -182,7 +199,7 @@ export function headSilhouetteRow(
  * rim everything comes in with it.
  */
 export function headTurnSlideShape(u: number): number {
-  return slideShape(u, SLIDE_PEAK, NEAR_RIM_SLIDE)
+  return slideShape(u, SLIDE_PEAK, HEAD_TURN_TUNING.nearRim, HEAD_TURN_TUNING.farRim)
 }
 
 /**
@@ -195,11 +212,11 @@ export function headNodSlideShape(v: number): number {
   return slideShape(v, NOD_SLIDE_PEAK, NOD_NEAR_RIM_SLIDE)
 }
 
-function slideShape(u: number, peak: number, nearRim: number): number {
-  if (u >= 1) return 0
+function slideShape(u: number, peak: number, nearRim: number, farRim = 0): number {
+  if (u >= 1) return farRim
   if (u <= -1) return nearRim
   // Level at the peak, falling away faster toward the far rim as a ball's does.
-  if (u >= peak) return 1 - ((u - peak) / (1 - peak)) ** 1.5
+  if (u >= peak) return farRim + (1 - farRim) * (1 - ((u - peak) / (1 - peak)) ** HEAD_TURN_TUNING.farExponent)
   return 1 - (1 - nearRim) * ((peak - u) / (1 + peak)) ** 1.5
 }
 
@@ -218,6 +235,8 @@ export interface HeadTurn {
   active: boolean
   /** Signed slide of the face's middle across a slice, in half widths. */
   slide: number
+  /** Signed swing of the far jaw, in head radii. */
+  jaw: number
   sine: number
   nodSlide: number
   nodSine: number
@@ -227,7 +246,7 @@ export interface HeadTurn {
 }
 
 export function createHeadTurn(silhouette: HeadSilhouette | null): HeadTurn {
-  return { active: false, slide: 0, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0 }
+  return { active: false, slide: 0, jaw: 0, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0 }
 }
 
 /** `angleX` turns toward +x; `angleY` raises the face. */
@@ -235,7 +254,8 @@ export function updateHeadTurn(turn: HeadTurn, angleX: number, angleY: number): 
   const x = turn.silhouette && Number.isFinite(angleX) ? Math.max(-1, Math.min(1, angleX)) : 0
   const y = turn.silhouette && Number.isFinite(angleY) ? Math.max(-1, Math.min(1, angleY)) : 0
   turn.active = x !== 0 || y !== 0
-  turn.slide = x * TURN_SLIDE
+  turn.slide = x * HEAD_TURN_TUNING.turnSlide
+  turn.jaw = x * HEAD_TURN_TUNING.jawSwing
   turn.sine = Math.sin(x * HEAD_TURN_RADIANS)
   turn.nodSlide = y * NOD_SLIDE
   turn.nodSine = Math.sin(y * HEAD_NOD_RADIANS)
@@ -276,6 +296,13 @@ export function headTurnOffset(
   const u = (x - row.centerX) / radius
   const facing = Math.sqrt(Math.max(0, 1 - u * u))
   let dx = radius * slideAt(turn.slide, u) + lift * turn.sine * facing
+  if (surface === 'skin' && turn.jaw !== 0 && y > silhouette.jawStartY) {
+    // The jaw hangs below the skull: turning, it swings further on the far
+    // side, and on the near side stays with the neck it meets.
+    const down = smoothstep((y - silhouette.jawStartY) / Math.max(1, silhouette.chinY - silhouette.jawStartY))
+    const far = smoothstep((Math.max(-1, Math.min(1, Math.sign(turn.jaw) * u)) + 1) / 2)
+    dx += turn.jaw * silhouette.radius * down * far
+  }
   // The nod turns each column of the ball, narrower toward its sides.
   const halfHeight = ((silhouette.chinY - silhouette.crownY) / 2) * scale
   const middleY = (silhouette.chinY + silhouette.crownY) / 2
@@ -375,10 +402,10 @@ export function moveHeadFeature(
     headTurnOffset(turn, centerX, centerY, 'skin', lift, 0, featureCenter)
     headTurnOffset(turn, centerX + halfWidth, centerY, 'skin', lift, 0, featureSide)
     headTurnOffset(turn, centerX - halfWidth, centerY, 'skin', lift, 0, featureOtherSide)
-    move.scaleX = clamp(1 + (featureSide.x - featureOtherSide.x) / (2 * halfWidth), FEATURE_SCALE_MIN, FEATURE_SCALE_MAX)
+    move.scaleX = clamp(1 + (featureSide.x - featureOtherSide.x) / (2 * halfWidth), HEAD_TURN_TUNING.featureScaleMin, HEAD_TURN_TUNING.featureScaleMax)
     headTurnOffset(turn, centerX, centerY + halfHeight, 'skin', lift, 0, featureSide)
     headTurnOffset(turn, centerX, centerY - halfHeight, 'skin', lift, 0, featureOtherSide)
-    move.scaleY = clamp(1 + (featureSide.y - featureOtherSide.y) / (2 * halfHeight), FEATURE_SCALE_MIN, FEATURE_SCALE_MAX)
+    move.scaleY = clamp(1 + (featureSide.y - featureOtherSide.y) / (2 * halfHeight), HEAD_TURN_TUNING.featureScaleMin, HEAD_TURN_TUNING.featureScaleMax)
     move.x = featureCenter.x
     move.y = featureCenter.y
     move.turn = turn

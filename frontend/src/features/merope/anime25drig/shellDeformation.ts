@@ -5,7 +5,7 @@ import type {
   Anime25DShellEllipsoid,
   Anime25DShellProfile,
 } from './types'
-import { headTurnOffset, moveHeadFeature } from './headTurn'
+import { HEAD_TURN_TUNING, headTurnOffset, moveHeadFeature } from './headTurn'
 
 export type Anime25DShellMode = 'head' | 'front-hair' | 'back-hair'
 
@@ -212,7 +212,7 @@ export function deformAnime25DShellPoint(
         turn,
         point,
         feature,
-        faceRelief(feature.centerX, feature.centerY, profile, depthOffset) * ellipsoid.radiusZ,
+        faceRelief(feature.centerX, feature.centerY, profile, depthOffset) * ellipsoid.radiusZ * HEAD_TURN_TUNING.featureLift,
       )
       return
     }
