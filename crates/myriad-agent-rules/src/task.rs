@@ -39,15 +39,6 @@ pub fn session_id_from_lane_key(lane_key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Reconstruct lane id from user + session (legacy rows without `lane_id`).
-pub fn lane_id_from_user_session(user_id: i32, session_id: &str) -> Option<String> {
-    let sid = session_id.trim();
-    if sid.is_empty() {
-        return None;
-    }
-    Some(format!("user:{user_id}:session:{sid}"))
-}
-
 /// Completed/failed/cancelled tasks older than this (hours) are removed.
 pub const TERMINAL_RETENTION_HOURS: i64 = 24;
 /// WaitingForInput tasks older than this (hours) become failed terminal.
@@ -187,12 +178,6 @@ mod tests {
             session_id_from_lane_id(Some("user:1:session:s1")),
             Some("s1".into())
         );
-        assert_eq!(
-            lane_id_from_user_session(7, "ses_x"),
-            Some("user:7:session:ses_x".into())
-        );
-        assert_eq!(lane_id_from_user_session(7, "  "), None);
-        assert_eq!(lane_id_from_user_session(7, ""), None);
     }
 
     #[test]

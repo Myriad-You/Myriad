@@ -4,7 +4,7 @@
 
 use crate::models::entities::agent_tasks;
 use crate::services::agent::task_store_pure::{
-    self, is_terminal_past_retention, is_waiting_input_timed_out, lane_id_from_user_session,
+    self, is_terminal_past_retention, is_waiting_input_timed_out,
     status_counts_from_iter, task_status_from_db_str, task_status_to_db_str,
     waiting_input_timeout_error,
 };
@@ -410,13 +410,7 @@ fn task_model_to_state(model: &agent_tasks::Model) -> Result<TaskState, String> 
         .as_ref()
         .and_then(|value| serde_json::from_value(value.clone()).ok());
 
-    // 优先用存着的 `lane_id`；没有则从 `session_id` 重建。
-    let lane_id = model.lane_id.clone().or_else(|| {
-        model
-            .session_id
-            .as_ref()
-            .and_then(|sid| lane_id_from_user_session(model.user_id, sid))
-    });
+    let lane_id = model.lane_id.clone();
 
     Ok(TaskState {
         task_id: model.id.clone(),

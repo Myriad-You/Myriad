@@ -275,6 +275,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     }
 
     // Ongoing heals. Structure older than the support floor came with 0.6.1.
+    super::old_rows::rewrite_old_rows(db).await?;
     ensure_agent_tasks_status_check(db).await?;
     unlink_note_docs_without_article(db).await?;
     ensure_user_lifecycle(db).await?;

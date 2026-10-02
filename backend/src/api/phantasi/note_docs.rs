@@ -29,7 +29,7 @@ use crate::services::note_authors::{
     remove_note_author, sync_published_author_line,
 };
 use crate::services::note_publish::{
-    datetime_to_millis, millis_to_datetime, publish_doc_on, upsert_doc_for_published_item,
+    datetime_to_millis, millis_to_datetime, publish_doc_on,
 };
 
 #[derive(Debug, Deserialize)]
@@ -305,13 +305,13 @@ pub(crate) async fn get_note_doc(
     ))
 }
 
-/// `GET /notes/docs/for-item/{item_id}` — 给已发布笔记找或建对应文档。
+/// `GET /notes/docs/for-item/{item_id}` — 已发布笔记对应的文档。
 pub(crate) async fn get_note_doc_for_item(
     State(db): State<DatabaseConnection>,
     admin: AdminClaims,
     Path(item_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = admin_user_id(&admin)?;
+    admin_user_id(&admin)?;
     let source_id = crate::models::entities::phantasi_items::Entity::find_by_id(item_id)
         .select_only()
         .column(crate::models::entities::phantasi_items::Column::SourceId)
@@ -339,31 +339,7 @@ pub(crate) async fn get_note_doc_for_item(
             json!({ "success": true, "doc": respond_doc(&db, doc).await? }),
         ));
     }
-    // Only legacy published notes without a cloud document need this backfill.
-    let item = crate::models::entities::phantasi_items::Entity::find_by_id(item_id)
-        .one(&db)
-        .await
-        .map_err(|e| phantasi_store_http("find note", e))?
-        .ok_or_else(|| phantasi_http_err(StatusCode::NOT_FOUND, "Note not found"))?;
-    let published = crate::services::note_publish::PublishedNote {
-        id: item.id,
-        link: item.link.clone(),
-    };
-    let doc = upsert_doc_for_published_item(
-        &db,
-        user_id,
-        &published,
-        &item.title,
-        item.content_md.as_deref().unwrap_or(""),
-        item.topic,
-        item.image,
-        Some(datetime_to_millis(item.published_at)),
-    )
-    .await?;
-    Ok(Json(json!({
-        "success": true,
-        "doc": credit_and_respond(&db, doc, user_id).await?,
-    })))
+    Err(phantasi_http_err(StatusCode::NOT_FOUND, "Note not found"))
 }
 
 /// `PUT /notes/docs/{id}` — 存草稿。带 revision，对不上 409。

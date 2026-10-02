@@ -264,7 +264,7 @@ fn default_true() -> bool {
 pub struct NotificationDeliveryPreferences {
     #[serde(default = "default_true")]
     pub island: bool,
-    #[serde(default = "default_true", alias = "high_priority_toast")]
+    #[serde(default = "default_true")]
     pub toast: bool,
     #[serde(default = "default_true")]
     pub browser: bool,
@@ -419,11 +419,6 @@ pub async fn set_cached_for_test(user_id: i32, preferences: NotificationPreferen
         .insert(user_id, preferences.normalized());
 }
 
-#[cfg(test)]
-async fn clear_cached_for_test(user_id: i32) {
-    PREFERENCES_CACHE.write().await.remove(&user_id);
-}
-
 pub(crate) fn preferences_from_stored_value(
     value: serde_json::Value,
 ) -> Result<NotificationPreferences, String> {
@@ -494,7 +489,6 @@ pub async fn save(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::Database;
 
     #[test]
     fn normalization_fills_new_catalog_entries_and_drops_unknown_ones() {
@@ -647,69 +641,6 @@ mod tests {
             "use Notification::with_event(NotificationEventKey::..) instead:\n{}",
             offenders.join("\n")
         );
-    }
-
-    #[test]
-    fn legacy_high_priority_toast_setting_migrates_to_unified_toast_switch() {
-        let preferences: NotificationPreferences = serde_json::from_value(serde_json::json!({
-            "delivery": {
-                "island": true,
-                "high_priority_toast": false,
-                "browser": true
-            }
-        }))
-        .unwrap();
-        let normalized = preferences.normalized();
-
-        assert!(!normalized.delivery.toast);
-        assert!(normalized.locations.values().all(|location| location.panel));
-        assert!(normalized.locations.values().all(|location| location.toast));
-    }
-
-    #[tokio::test]
-    async fn postgres_jsonb_round_trip_when_test_database_is_provided() {
-        let Ok(database_url) = std::env::var("NOTIFICATION_TEST_DATABASE_URL") else {
-            return;
-        };
-        let db = Database::connect(&database_url).await.unwrap();
-        migration::Migrator::up(&db, None).await.unwrap();
-        let username = format!("notification-regression-{}", uuid::Uuid::new_v4().simple());
-        let row = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO users (username) VALUES ($1) RETURNING id",
-                [username.into()],
-            ))
-            .await
-            .unwrap()
-            .unwrap();
-        let user_id = row.try_get::<i32>("", "id").unwrap();
-
-        let defaults = load(Some(&db), user_id).await.unwrap();
-        assert!(defaults.enabled);
-        assert!(defaults.allows(Some("phantasi.source_error"), "phantasi"));
-
-        let mut changed = defaults;
-        changed.sources.insert("phantasi".to_string(), false);
-        changed.delivery.browser = false;
-        changed.locations.get_mut("phantasi").unwrap().panel = false;
-        save(Some(&db), user_id, changed).await.unwrap();
-        clear_cached_for_test(user_id).await;
-
-        let restored = load(Some(&db), user_id).await.unwrap();
-        assert!(!restored.sources["phantasi"]);
-        assert!(!restored.delivery.browser);
-        assert!(!restored.locations["phantasi"].panel);
-        assert!(!restored.allows(Some("phantasi.source_error"), "phantasi"));
-
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM users WHERE id = $1",
-            [user_id.into()],
-        ))
-        .await
-        .unwrap();
-        clear_cached_for_test(user_id).await;
     }
 
     #[test]

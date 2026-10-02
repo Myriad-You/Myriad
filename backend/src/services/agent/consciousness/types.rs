@@ -260,13 +260,8 @@ pub struct IntentRecord {
     pub updated_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<Utc>>,
-    /// Who accepted this proposal: `user` or `autonomy`. Missing/legacy is user.
-    #[serde(default = "default_accept_source")]
+    /// Who accepted this proposal: `user` or `autonomy`.
     pub accept_source: AcceptSource,
-}
-
-fn default_accept_source() -> AcceptSource {
-    AcceptSource::User
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
