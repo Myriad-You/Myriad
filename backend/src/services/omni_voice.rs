@@ -150,12 +150,14 @@ pub enum OmniDelta {
     Audio(String),
 }
 
-/// What is in her text but must never be heard: a link (it cannot be said
-/// aloud) and her actions (`[[wear:…]]`, `[[game:soup]]` and the like).
-/// The sound follows the text and never comes before it, so once the text
-/// reaches either, no more of the sound goes out this turn; the end of what
-/// she said just before may be cut, a link is never read. She is told to
-/// keep both to her last line (see [`SAID_ALOUD`]).
+/// What is in her text but must never be heard: a link (she gives none when
+/// she is heard, see [`SAID_ALOUD`]; this is the last guard if one slips
+/// in) and her actions (`[[wear:…]]`, `[[game:soup]]` and the like, kept to
+/// her last line). The sound follows the text and never comes before it,
+/// so once the text reaches either, no more of the sound goes out this
+/// turn: what she said just before may be cut, a link is never read. How
+/// far the sound trails the text is not known yet (not measured live); if
+/// it trails far, a turn with an action loses most of its sound.
 #[derive(Default)]
 pub struct Unsaid {
     written: String,
@@ -206,7 +208,7 @@ fn unsayable(text: &str) -> bool {
 }
 
 /// Told to her on a turn said in her own voice, beside the rest.
-pub const SAID_ALOUD: &str = "## Said aloud\nThis reply is heard in your own voice as you write it. A link cannot be said aloud: any link goes alone on your last line, after all you say, and nothing after it is heard. Lines of [[...]] go last too.";
+pub const SAID_ALOUD: &str = "## Said aloud\nThis reply is heard in your own voice as you write it, so it has no links in it: a link cannot be heard. Lines of [[...]] go last.";
 
 /// `prompt` for a turn said in her own voice: [`SAID_ALOUD`] beside her
 /// other facts, before the conversation.
@@ -653,7 +655,7 @@ mod tests {
             unsaid.written(text);
             assert!(unsaid.lets_through(), "{text}");
         }
-        assert!(SAID_ALOUD.contains("cannot be said aloud"));
+        assert!(SAID_ALOUD.contains("no links in it"));
         let prompt = said_aloud("## Now\nIt is 3pm.\nConversation:\nthem: hi");
         assert!(prompt.starts_with("## Now\nIt is 3pm.\n\n## Said aloud"));
         assert!(prompt.ends_with("\nConversation:\nthem: hi"));
