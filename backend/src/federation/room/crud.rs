@@ -597,10 +597,10 @@ pub async fn list_rooms(
                       r.governance_type, r.invite_policy, r.max_members, r.is_public,
                       r.created_at,
                       rm.role AS my_role,
-                      COALESCE(rm.membership_status, 'active') AS my_membership_status,
+                      rm.membership_status AS my_membership_status,
                       (SELECT COUNT(*) FROM federation_room_members
                        WHERE room_id = r.room_id
-                         AND COALESCE(membership_status, 'active') = 'active') AS member_count,
+                         AND membership_status = 'active') AS member_count,
                       (SELECT MAX(created_at) FROM federation_room_messages WHERE room_id = r.room_id) AS last_message_at,
                       -- Unread = messages from others after this member's last_read_at.
                       -- (Previously used "last message I sent", so opening a group never cleared the badge.)
@@ -676,10 +676,10 @@ pub async fn get_room(
                       r.distribution_strategy, r.max_members, r.is_public,
                       r.enabled_tapps, r.shared_data_config, r.created_at,
                       rm.role AS my_role,
-                      COALESCE(rm.membership_status, 'active') AS my_membership_status,
+                      rm.membership_status AS my_membership_status,
                       (SELECT COUNT(*) FROM federation_room_members
                        WHERE room_id = r.room_id
-                         AND COALESCE(membership_status, 'active') = 'active') AS member_count
+                         AND membership_status = 'active') AS member_count
                FROM federation_rooms r
                LEFT JOIN federation_room_members rm ON rm.room_id = r.room_id AND rm.actor_url = $3
                WHERE r.room_id = $1
@@ -768,7 +768,7 @@ pub async fn get_members(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(r#"SELECT rm.actor_url, rm.is_local, rm.role, rm.joined_at, rm.invited_by,
-                      COALESCE(rm.membership_status, 'active') AS membership_status,
+                      rm.membership_status,
                       COALESCE(
                           NULLIF(ra.display_name, ''),
                           ra.username,
@@ -784,7 +784,7 @@ pub async fn get_members(
                LEFT JOIN users u ON rm.local_user_id = u.id
                WHERE rm.room_id = $1
                ORDER BY
-                 CASE COALESCE(rm.membership_status, 'active') WHEN 'active' THEN 0 ELSE 1 END,
+                 CASE rm.membership_status WHEN 'active' THEN 0 ELSE 1 END,
                  CASE rm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'member' THEN 2 ELSE 3 END,
                  rm.joined_at"#, avatar = crate::services::avatar::avatar_snapshot_expr("u")),
             [room_id.into()],
@@ -807,7 +807,7 @@ pub async fn get_members(
             role: r.try_get("", "role").unwrap_or_default(),
             membership_status: r
                 .try_get::<String>("", "membership_status")
-                .unwrap_or_else(|_| "active".into()),
+                .unwrap_or_default(),
             joined_at: r
                 .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "joined_at")
                 .map(|t| t.to_rfc3339())

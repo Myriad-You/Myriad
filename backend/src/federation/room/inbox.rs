@@ -895,7 +895,7 @@ pub(crate) async fn backfill_roster_for_new_member(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT actor_url, role FROM federation_room_members
-               WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
+               WHERE room_id = $1 AND membership_status = 'active'"#,
             [room_id.into()],
         ))
         .await
@@ -1036,7 +1036,7 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
             DatabaseBackend::Postgres,
             r#"SELECT actor_url, local_user_id FROM federation_room_members
                WHERE room_id = $1 AND is_local = true
-                 AND COALESCE(membership_status, 'active') = 'active'
+                 AND membership_status = 'active'
                  AND local_user_id IS NOT NULL"#,
             [room_id.into()],
         ))
@@ -1189,7 +1189,7 @@ pub(crate) async fn notify_local_members_of_join(
                    WHERE room_id = $1 AND is_local = true
                      AND local_user_id IS NOT NULL
                      AND role IN ('owner', 'admin')
-                     AND COALESCE(membership_status, 'active') = 'active'
+                     AND membership_status = 'active'
                    LIMIT 5"#,
                 [room_id.into()],
             ))
@@ -1240,7 +1240,7 @@ pub async fn handle_room_invite_reject(
             DatabaseBackend::Postgres,
             r#"DELETE FROM federation_room_members
                WHERE room_id = $1 AND actor_url = $2
-                 AND COALESCE(membership_status, 'active') = 'pending'"#,
+                 AND membership_status = 'pending'"#,
             [room_id.into(), actor_url_str.into()],
         ))
         .await
@@ -1252,7 +1252,7 @@ pub async fn handle_room_invite_reject(
             .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT actor_url FROM federation_room_members
-                   WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'pending'"#,
+                   WHERE room_id = $1 AND membership_status = 'pending'"#,
                 [room_id.into()],
             ))
             .await
@@ -1317,7 +1317,7 @@ pub async fn handle_room_governance(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT m.role, r.owner_actor,
-                      COALESCE(m.membership_status, 'active') AS membership_status
+                      m.membership_status
                FROM federation_room_members m
                JOIN federation_rooms r ON r.room_id = m.room_id
                WHERE m.room_id = $1 AND m.actor_url = $2
@@ -1337,7 +1337,7 @@ pub async fn handle_room_governance(
     let owner: String = sender_row.try_get("", "owner_actor").unwrap_or_default();
     let membership_status: String = sender_row
         .try_get("", "membership_status")
-        .unwrap_or_else(|_| "active".to_string());
+        .map_err(|e| e.to_string())?;
     let is_owner = owner == actor_url_str || same_actor_url(&owner, actor_url_str);
     let is_admin = is_admin_role(&role) || is_owner;
     let stickers_only = changes.contains_key("stickers") && changes.keys().all(|k| k == "stickers");
@@ -1445,7 +1445,7 @@ pub async fn handle_room_governance(
             r#"UPDATE federation_room_members
                SET role = $3
                WHERE room_id = $1 AND actor_url = $2
-                 AND COALESCE(membership_status, 'active') = 'active'"#,
+                 AND membership_status = 'active'"#,
             [room_id.into(), target_stored.clone().into(), role.into()],
         ))
         .await

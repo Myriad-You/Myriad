@@ -18,7 +18,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 /// 从 actor URL 取 authority 段的 Postgres 表达式（`ra.domain` 缺失时的兜底）。
 ///
 /// LEFT JOIN fallback when `ra.domain` is NULL: take `actor_url` authority.
-/// Only `COALESCE(membership_status,'active')='active'` (pending invites are out).
+/// Only `membership_status = 'active'` (pending invites are out).
 const ACTOR_URL_DOMAIN: &str = "substring({col} from '^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)')";
 
 fn actor_url_domain(col: &str) -> String {
@@ -31,7 +31,7 @@ fn actor_url_domain(col: &str) -> String {
 /// 普通用户加入的群聊都把对方实例拉进群邻集合。
 const JOINED_ROOMS: &str = r#"SELECT room_id FROM federation_room_members
                               WHERE is_local = true
-                                AND COALESCE(membership_status, 'active') = 'active'"#;
+                                AND membership_status = 'active'"#;
 
 /// 群邻 domain 集合的子查询，产出单列 `domain`（小写、非空）。
 ///
@@ -45,7 +45,7 @@ pub(crate) fn room_peer_domains_sql(local_domain_param: &str) -> String {
                SELECT DISTINCT lower(COALESCE(NULLIF(ra.domain, ''), {member_domain}))
                FROM federation_room_members m
                LEFT JOIN federation_remote_actors ra ON ra.actor_url = m.actor_url
-               WHERE COALESCE(m.membership_status, 'active') = 'active'
+               WHERE m.membership_status = 'active'
                  AND m.room_id IN ({joined_rooms})
            ) d
            WHERE d.domain IS NOT NULL AND d.domain <> ''"#,
@@ -103,7 +103,7 @@ pub(crate) fn room_peer_inboxes_sql() -> String {
                FROM federation_room_members m
                JOIN federation_remote_actors ra ON ra.actor_url = m.actor_url
                WHERE m.is_local = false
-                 AND COALESCE(m.membership_status, 'active') = 'active'
+                 AND m.membership_status = 'active'
                  AND m.room_id IN ({joined_rooms})
            ),
            shared AS (
@@ -160,7 +160,7 @@ mod tests {
         assert!(sql.contains("lower($1::text)"));
         // 群邻范围必须由「有本地活跃成员的房间」界定，不是全部已知房间。
         assert!(sql.contains("is_local = true"));
-        assert!(sql.contains("COALESCE(membership_status, 'active') = 'active'"));
+        assert!(sql.contains("membership_status = 'active'"));
     }
 
     #[test]

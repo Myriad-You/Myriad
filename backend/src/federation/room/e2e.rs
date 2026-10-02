@@ -26,7 +26,7 @@ pub(crate) async fn decrypt_room_payload_for_local_ws(
             DatabaseBackend::Postgres,
             r#"SELECT actor_url FROM federation_room_members
                WHERE room_id = $1 AND is_local = true
-                 AND COALESCE(membership_status, 'active') = 'active'"#,
+                 AND membership_status = 'active'"#,
             [room_id.into()],
         ))
         .await

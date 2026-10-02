@@ -2,6 +2,9 @@
 //! the current shape at startup so nothing has to read the old ones. Every
 //! statement is idempotent and touches nothing already current.
 //!
+//! Columns whose old rows are settled here are then held to the shape new
+//! databases get, so the database itself keeps them current.
+//!
 //! The read-compat these replaced is gone in the same release; this file
 //! goes when the support floor moves past it.
 
@@ -108,6 +111,16 @@ WHERE namespace = 'agent_work_checkpoint'
 "#,
     ),
     (
+        // Activities written without an arrival time; the column default
+        // covers every writer from here on.
+        "federation activities without an arrival time",
+        r#"UPDATE federation_activities SET received_at = COALESCE(published_at, NOW()) WHERE received_at IS NULL"#,
+    ),
+    (
+        "room members without a membership status",
+        r#"UPDATE federation_room_members SET membership_status = 'active' WHERE membership_status IS NULL"#,
+    ),
+    (
         "intentions without a known accept source",
         r#"
 UPDATE agent_intentions SET accept_source = 'user'
@@ -116,7 +129,15 @@ WHERE accept_source IS DISTINCT FROM 'user' AND accept_source IS DISTINCT FROM '
     ),
 ];
 
-/// Rewrite every old-shape row; logs what it changed.
+/// Constraints new databases are created with, applied to columns that a
+/// heal added without them once their old rows are settled above.
+const SETTLED_COLUMNS: &[&str] = &[
+    "ALTER TABLE federation_activities ALTER COLUMN received_at SET DEFAULT NOW(), ALTER COLUMN received_at SET NOT NULL",
+    "ALTER TABLE federation_room_members ALTER COLUMN membership_status SET DEFAULT 'active', ALTER COLUMN membership_status SET NOT NULL",
+];
+
+/// Rewrite every old-shape row, then hold the settled columns to their
+/// current shape; logs what it changed.
 pub(crate) async fn rewrite_old_rows(db: &DatabaseConnection) -> Result<u64, DbErr> {
     let mut total = 0;
     for (what, sql) in OLD_ROWS {
@@ -129,6 +150,11 @@ pub(crate) async fn rewrite_old_rows(db: &DatabaseConnection) -> Result<u64, DbE
             tracing::info!(changed, what, "Rewrote rows stored in an old shape");
         }
         total += changed;
+    }
+    for sql in SETTLED_COLUMNS {
+        db.execute_unprepared(sql)
+            .await
+            .map_err(|error| DbErr::Custom(format!("settle column ({sql}): {error}")))?;
     }
     Ok(total)
 }

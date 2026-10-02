@@ -25,7 +25,7 @@ pub struct Model {
     pub object_json: Json,
     pub is_local: bool,
     pub published_at: DateTimeWithTimeZone,
-    pub received_at: Option<DateTimeWithTimeZone>,
+    pub received_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

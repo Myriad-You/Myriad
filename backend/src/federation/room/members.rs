@@ -172,7 +172,7 @@ pub async fn invite_member(
             .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"SELECT actor_url, role FROM federation_room_members
-                   WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
+                   WHERE room_id = $1 AND membership_status = 'active'"#,
                 [room_id.into()],
             ))
             .await
@@ -449,7 +449,7 @@ pub async fn get_public_room(
                       invite_policy, max_members, is_public, shared_data_config,
                       (SELECT COUNT(*) FROM federation_room_members
                        WHERE room_id = federation_rooms.room_id
-                         AND COALESCE(membership_status, 'active') = 'active') AS member_count
+                         AND membership_status = 'active') AS member_count
                FROM federation_rooms
                WHERE room_id = $1 AND is_public = true"#,
             [room_id.into()],
@@ -1182,7 +1182,7 @@ pub async fn reject_room_invite(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT role, invited_by, COALESCE(membership_status, 'active') AS membership_status
+            r#"SELECT role, invited_by, membership_status
                FROM federation_room_members
                WHERE room_id = $1 AND actor_url = $2 AND is_local = true AND local_user_id = $3"#,
             [room_id.into(), local_actor.clone().into(), user_id.into()],
@@ -1196,9 +1196,7 @@ pub async fn reject_room_invite(
             )
         })?;
 
-    let status: String = row
-        .try_get("", "membership_status")
-        .unwrap_or_else(|_| "active".into());
+    let status: String = row.try_get("", "membership_status").map_err(db_err)?;
     if status != "pending" {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1235,7 +1233,7 @@ pub async fn reject_room_invite(
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"DELETE FROM federation_room_members
-               WHERE room_id = $1 AND actor_url = $2 AND COALESCE(membership_status, 'active') = 'pending'"#,
+               WHERE room_id = $1 AND actor_url = $2 AND membership_status = 'pending'"#,
             [room_id.into(), local_actor.clone().into()],
         ))
         .await
@@ -1368,7 +1366,7 @@ pub async fn set_member_role(
             r#"UPDATE federation_room_members
                SET role = $3
                WHERE room_id = $1 AND actor_url = $2
-                 AND COALESCE(membership_status, 'active') = 'active'"#,
+                 AND membership_status = 'active'"#,
             [
                 room_id.into(),
                 target_stored.clone().into(),

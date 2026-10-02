@@ -347,7 +347,10 @@ impl MigrationTrait for Migration {
                             .extra("DEFAULT NOW()".to_owned()),
                     )
                     .col(
-                        ColumnDef::new(FederationActivities::ReceivedAt).timestamp_with_time_zone(),
+                        ColumnDef::new(FederationActivities::ReceivedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .extra("DEFAULT NOW()".to_owned()),
                     )
                     .to_owned(),
             )
