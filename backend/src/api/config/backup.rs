@@ -14,12 +14,10 @@ use myriad_module_visibility::{MODULE_VISIBILITY_PREFERENCES_KEY, ModuleVisibili
 
 pub(crate) const SETTINGS_BACKUP_FORMAT: &str = "myriad-settings-backup";
 pub(crate) const SETTINGS_BACKUP_VERSION: u32 = 2;
-pub(crate) const MIN_SETTINGS_BACKUP_VERSION: u32 = 1;
+/// v2 since 0.2.2. Backups carry the product that wrote them from 0.6.1 on
+/// (`product_version`), so a later floor can be a product release.
+pub(crate) const MIN_SETTINGS_BACKUP_VERSION: u32 = 2;
 pub(crate) const MAX_SETTINGS_BACKUP_ENTRIES: usize = 10_000;
-
-pub(crate) fn default_setting_schema_version() -> u32 {
-    1
-}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SettingDescriptor {
@@ -41,7 +39,6 @@ fn live_setting_descriptor(key: &str) -> Option<SettingDescriptor> {
 pub struct SettingsBackupEntry {
     pub key: String,
     pub value: Value,
-    #[serde(default = "default_setting_schema_version")]
     pub schema_version: u32,
     pub description: Option<String>,
     pub category: Option<String>,
@@ -80,6 +77,9 @@ async fn load_user_locale(db: &DatabaseConnection, user_id: i32) -> Option<Strin
 pub struct SettingsBackup {
     pub format: String,
     pub version: u32,
+    /// The product release that wrote it; absent before 0.6.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product_version: Option<String>,
     pub exported_at: String,
     pub contains_secrets: bool,
     pub configurations: Vec<SettingsBackupEntry>,
@@ -497,6 +497,7 @@ pub async fn export_settings(
     let backup = SettingsBackup {
         format: SETTINGS_BACKUP_FORMAT.to_string(),
         version: SETTINGS_BACKUP_VERSION,
+        product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         exported_at: chrono::Utc::now().to_rfc3339(),
         contains_secrets: true,
         configurations,
@@ -845,6 +846,7 @@ mod settings_backup_tests {
         SettingsBackup {
             format: SETTINGS_BACKUP_FORMAT.to_string(),
             version: SETTINGS_BACKUP_VERSION,
+            product_version: None,
             exported_at: "2026-01-01T00:00:00Z".to_string(),
             contains_secrets: true,
             configurations,
@@ -892,24 +894,12 @@ mod settings_backup_tests {
         backup.version = MIN_SETTINGS_BACKUP_VERSION;
         assert!(validate_settings_backup(&backup).is_ok());
 
+        // v1 (before 0.2.2) is below the floor.
+        backup.version = 1;
+        assert!(validate_settings_backup(&backup).is_err());
+
         backup.version = SETTINGS_BACKUP_VERSION + 1;
         assert!(validate_settings_backup(&backup).is_err());
-    }
-
-    #[test]
-    fn deserializes_v1_entries_without_per_setting_schema_version() {
-        let mut value = serde_json::to_value(backup_with_entries(vec![entry("github_enabled")]))
-            .expect("backup should serialize");
-        value["version"] = json!(MIN_SETTINGS_BACKUP_VERSION);
-        value["configurations"][0]
-            .as_object_mut()
-            .expect("entry should be an object")
-            .remove("schema_version");
-
-        let backup: SettingsBackup =
-            serde_json::from_value(value).expect("v1 backup should deserialize");
-        assert_eq!(backup.configurations[0].schema_version, 1);
-        assert!(validate_settings_backup(&backup).is_ok());
     }
 
     #[test]

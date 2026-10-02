@@ -2004,6 +2004,7 @@ async fn settings_restore_rebinds_wallpaper_and_stickers_in_the_config_transacti
         let plan = build_settings_restore_plan(&SettingsBackup {
             format: SETTINGS_BACKUP_FORMAT.into(),
             version: SETTINGS_BACKUP_VERSION,
+            product_version: None,
             exported_at: "2026-01-01T00:00:00Z".into(),
             contains_secrets: true,
             configurations: vec![
