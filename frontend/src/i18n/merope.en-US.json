@@ -502,6 +502,9 @@
     "saved": "This outfit's full-body figure is saved.",
     "preview": "Preview",
     "portrait": "Full-body portrait",
-    "failed": "The full-body portrait could not be drawn. Try again."
+    "failed": "The full-body portrait could not be drawn. Try again.",
+    "stage": "Previewed figure",
+    "stageBust": "Bust",
+    "stageFullBody": "Full body"
   }
 }

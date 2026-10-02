@@ -502,6 +502,9 @@
     "saved": "Die Ganzkörperfigur dieses Outfits ist gespeichert.",
     "preview": "Vorschau",
     "portrait": "Ganzkörperbild",
-    "failed": "Das Ganzkörperbild konnte nicht gezeichnet werden. Bitte erneut versuchen."
+    "failed": "Das Ganzkörperbild konnte nicht gezeichnet werden. Bitte erneut versuchen.",
+    "stage": "Vorschaufigur",
+    "stageBust": "Brustbild",
+    "stageFullBody": "Ganzkörper"
   }
 }

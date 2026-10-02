@@ -1,6 +1,8 @@
 import type { UpperBodyVisualIdentityKey } from '../../../components/agent/onboarding/onboardingTypes'
 import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { RigCharacterHandle } from '../character/RigCharacter'
+import type { CharacterAssetProfile } from '../rig/contract'
+import type { MeropeRigManifest } from '../rig/types'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { activityKey, moodBand } from '../../../components/agent/meropeVitals'
@@ -18,6 +20,7 @@ import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { isAnime25DPlayback } from '../anime25drig/types'
 import {
   decomposeSitePortraitWithSeeThrough,
+  getSiteFace,
   saveRigPoseCorrections,
 } from '../api'
 import { commitRigPsdAsset, preflightRigPsdAsset } from '../assets/pipeline'
@@ -89,6 +92,24 @@ export default function SiteMotionWorkbench({
   )
   const seeThrough = useSeeThroughToken(t.merope.seeThroughStatusFailed)
   const aiExpressions = useAiExpressions(portraitUrl)
+  // The worn outfit's optional full figure, which the motion tab can stage instead.
+  const [stageProfile, setStageProfile] = useState<CharacterAssetProfile>('bust')
+  const [fullBody, setFullBody] = useState<{
+    manifest: MeropeRigManifest | null
+    portraitUrl: string | null
+  }>({ manifest: null, portraitUrl: null })
+  const loadFullBody = useCallback(async () => {
+    try {
+      const loaded = await getSiteFace('fullBody')
+      setFullBody({ manifest: loaded.manifest, portraitUrl: loaded.portraitUrl })
+    } catch {
+      setFullBody({ manifest: null, portraitUrl: null })
+    }
+  }, [])
+  useEffect(() => {
+    void loadFullBody()
+  }, [loadFullBody, portraitUrl, generationFingerprint])
+  const stagingFullBody = stageProfile === 'fullBody' && fullBody.manifest !== null
   const managingId = personaTouring ? null : managingOutfitId
   const [studioHost, setStudioHost] = useState<HTMLDivElement | null>(null)
   const rigCharacterRef = useRef<RigCharacterHandle>(null)
@@ -219,7 +240,9 @@ export default function SiteMotionWorkbench({
   )
 
   const portraitStage = (
-    <div className="merope-motion-asset__preview">
+    <div
+      className={`merope-motion-asset__preview${stagingFullBody ? ' merope-motion-asset__preview--full-body' : ''}`}
+    >
       {portraitUrl ? (
         <img
           className={`merope-motion-asset__still${motionEnabled ? ' is-behind' : ''}`}
@@ -385,8 +408,8 @@ export default function SiteMotionWorkbench({
           <RigCharacter
             ref={rigCharacterRef}
             activity={toMeropeActivity(activity)}
-            fallbackUrl={portraitUrl}
-            manifest={rigManifest}
+            fallbackUrl={stagingFullBody ? fullBody.portraitUrl : portraitUrl}
+            manifest={stagingFullBody ? fullBody.manifest : rigManifest}
             mood={mood}
             manualControl
           />
@@ -422,8 +445,13 @@ export default function SiteMotionWorkbench({
           aiExpressions={aiExpressions.ready}
           onGenerateAiExpressions={portraitUrl ? aiExpressions.generate : undefined}
           motionEnabled={motionEnabled}
-          correctionPlayback={rigManifest?.anime25dPlayback ?? null}
-          correctionAssetId={rigAssetId}
+          stageProfile={stagingFullBody ? 'fullBody' : 'bust'}
+          fullBodyReady={fullBody.manifest !== null}
+          onStageProfileChange={setStageProfile}
+          onFullBodyChanged={() => void loadFullBody()}
+          // Pose corrections are the bust rig's.
+          correctionPlayback={stagingFullBody ? null : (rigManifest?.anime25dPlayback ?? null)}
+          correctionAssetId={stagingFullBody ? null : rigAssetId}
           onSavePoseCorrections={savePoseCorrections}
         />
       </div>

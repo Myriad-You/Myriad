@@ -3,6 +3,7 @@ import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { AuthoredExpressionKind } from '../rig/authoredExpression'
+import type { CharacterAssetProfile } from '../rig/contract'
 import type { RigPath } from './RigImportPanel'
 import type { RigImportSource } from './useRigImport'
 import { useState, useSyncExternalStore } from 'react'
@@ -30,6 +31,12 @@ interface Props extends RigImportSource {
   personaLead?: ReactNode
   overviewLead?: ReactNode
   motionEnabled?: boolean
+  /** Which of the worn outfit's figures the stage plays. */
+  stageProfile?: CharacterAssetProfile
+  /** The worn outfit has a playable full figure to stage. */
+  fullBodyReady?: boolean
+  onStageProfileChange?: (profile: CharacterAssetProfile) => void
+  onFullBodyChanged?: () => void
   correctionPlayback?: Anime25DPlayback | null
   correctionAssetId?: string | null
   onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
@@ -46,6 +53,10 @@ export default function Anime25DWorkbench({
   personaLead = null,
   overviewLead = null,
   motionEnabled = false,
+  stageProfile = 'bust',
+  fullBodyReady = false,
+  onStageProfileChange,
+  onFullBodyChanged,
   correctionPlayback,
   correctionAssetId,
   onSavePoseCorrections,
@@ -75,7 +86,7 @@ export default function Anime25DWorkbench({
   const motion = useWorkbenchDriver(
     characterRef,
     panel === 'motion' && motionEnabled,
-    `${source.sourceMasterAssetId}\n${source.sourceGenerationFingerprint ?? ''}`,
+    `${source.sourceMasterAssetId}\n${source.sourceGenerationFingerprint ?? ''}\n${stageProfile}`,
   )
 
   return (
@@ -155,6 +166,7 @@ export default function Anime25DWorkbench({
           <FullBodyPanel
             outfitKey={`${source.sourceMasterAssetId}\n${source.sourceGenerationFingerprint ?? ''}`}
             seeThroughTokenConfigured={source.seeThroughTokenConfigured}
+            onChanged={onFullBodyChanged}
           />
         </SettingGroup>
       ) : null}
@@ -165,6 +177,9 @@ export default function Anime25DWorkbench({
           characterRef={characterRef}
           motion={motion}
           motionEnabled={motionEnabled}
+          stageProfile={stageProfile}
+          fullBodyReady={fullBodyReady}
+          onStageProfileChange={onStageProfileChange}
           correctionPlayback={correctionPlayback}
           correctionAssetId={correctionAssetId}
           onSavePoseCorrections={onSavePoseCorrections}

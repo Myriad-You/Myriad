@@ -502,6 +502,9 @@
     "saved": "這套衣服的全身形象已儲存。",
     "preview": "預覽",
     "portrait": "全身立繪",
-    "failed": "全身立繪沒畫成，請重試。"
+    "failed": "全身立繪沒畫成，請重試。",
+    "stage": "預覽形象",
+    "stageBust": "半身",
+    "stageFullBody": "全身"
   }
 }

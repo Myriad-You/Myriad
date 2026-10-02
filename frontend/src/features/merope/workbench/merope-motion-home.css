@@ -155,6 +155,15 @@ html.dark .merope-motion-page {
     color-mix(in srgb, rgb(var(--merope-surface-rgb, 255 255 255) / 72%), white 8%);
 }
 
+/* A standing figure: taller, and never taller than the screen. */
+.merope-motion-asset__preview--full-body {
+  aspect-ratio: 9 / 16;
+}
+
+.merope-motion-page__stage .merope-motion-asset__preview--full-body {
+  max-width: min(460px, calc((100vh - 7rem) * 9 / 16));
+}
+
 .merope-motion-asset__still,
 .merope-motion-asset__live {
   position: absolute;

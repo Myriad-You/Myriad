@@ -502,6 +502,9 @@
     "saved": "La silhouette en pied de cette tenue est enregistrée.",
     "preview": "Aperçu",
     "portrait": "Portrait en pied",
-    "failed": "Le portrait en pied n’a pas pu être dessiné. Réessayez."
+    "failed": "Le portrait en pied n’a pas pu être dessiné. Réessayez.",
+    "stage": "Silhouette prévisualisée",
+    "stageBust": "Buste",
+    "stageFullBody": "En pied"
   }
 }

@@ -20,6 +20,8 @@ interface Props {
   /** Changes with the worn outfit and its bust portrait, which the figure is drawn from. */
   outfitKey: string
   seeThroughTokenConfigured: boolean
+  /** The outfit's full figure was redrawn, replaced or saved. */
+  onChanged?: () => void
 }
 
 type Operation = 'generate' | 'upload' | 'decompose' | 'save'
@@ -29,7 +31,11 @@ type Operation = 'generate' | 'upload' | 'decompose' | 'save'
  * by See-through, previewed, then saved beside the bust. The panel keeps
  * playing the bust.
  */
-export function FullBodyPanel({ outfitKey, seeThroughTokenConfigured }: Props) {
+export function FullBodyPanel({
+  outfitKey,
+  seeThroughTokenConfigured,
+  onChanged,
+}: Props) {
   const { t } = useI18n()
   const labels = t.merope
   const copy = labels.fullBody
@@ -113,6 +119,7 @@ export function FullBodyPanel({ outfitKey, seeThroughTokenConfigured }: Props) {
         await generateFullBodyPortrait()
         setPreflight(null)
         await reload()
+        onChanged?.()
       },
       copy.failed,
     )
@@ -124,6 +131,7 @@ export function FullBodyPanel({ outfitKey, seeThroughTokenConfigured }: Props) {
         await uploadFullBodyPortrait(file)
         setPreflight(null)
         await reload()
+        onChanged?.()
       },
       labels.portraitUploadFailed,
     )
@@ -164,6 +172,7 @@ export function FullBodyPanel({ outfitKey, seeThroughTokenConfigured }: Props) {
         setPreflight(null)
         setSaved(true)
         await reload()
+        onChanged?.()
       },
       labels.motionSeeThroughUpstream,
     )
