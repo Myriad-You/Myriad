@@ -151,18 +151,7 @@ fn verify_directory_writable(directory: &Path) -> io::Result<()> {
     fs::remove_file(&probe).map_err(|error| storage_error("remove storage probe", &probe, error))
 }
 
-/// One-shot `data/brew` → `data/phantasi`. Temporary with the DB rename.
-pub fn migrate_legacy_brew_dir(root: &Path) -> io::Result<()> {
-    let old = root.join("brew");
-    let new = root.join("phantasi");
-    if old.exists() && !new.exists() {
-        fs::rename(&old, &new).map_err(|error| storage_error("rename data/brew", &old, error))?;
-    }
-    Ok(())
-}
-
 fn verify_storage_layout_writable(data_paths: &DataPaths) -> io::Result<()> {
-    migrate_legacy_brew_dir(&data_paths.root)?;
     verify_directory_writable(&data_paths.root)?;
     verify_directory_writable(&data_paths.cache)?;
     verify_directory_writable(&data_paths.tapps)?;

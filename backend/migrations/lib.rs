@@ -20,16 +20,6 @@ mod federation;
 #[path = "006_oauth_identities.rs"]
 mod oauth_identities;
 
-mod ai_cost_ledger_rename;
-mod ai_quota_usage_rename;
-mod phantasi_legacy_rename;
-mod runtime_registry_rename;
-
-pub use ai_cost_ledger_rename::rename_ai_cost_ledger_if_needed;
-pub use ai_quota_usage_rename::rename_ai_quota_usage_if_needed;
-pub use phantasi_legacy_rename::rename_brew_to_phantasi_if_needed;
-pub use runtime_registry_rename::rename_runtime_registry_if_needed;
-
 /// Channel on which every change to a room membership row is announced, so
 /// live room sockets can re-check whether their member still belongs.
 pub const ROOM_MEMBERSHIP_CHANNEL: &str = "myriad_room_membership";
@@ -54,8 +44,9 @@ pub const SOURCE_RECENT_INDEX_SQL: &str = "CREATE INDEX IF NOT EXISTS idx_phanta
 pub struct Migrator;
 
 impl Migrator {
-    /// Drop leftover `digital_life_*` experiment tables, keep only versions
-    /// that still have files in `seaql_migrations`, then apply 001–006.
+    /// Keep only versions that still have files in `seaql_migrations`, then
+    /// apply 001–006. Upgrades start from 0.6.1 or later (the support floor),
+    /// so no table renames run first.
     ///
     /// SeaORM rejects applied versions that have no file *before* any `up()`
     /// body runs, so this wrapper is the only `Migrator::up` call path.
@@ -64,10 +55,6 @@ impl Migrator {
         C: IntoSchemaManagerConnection<'c>,
     {
         let executor = db.into_database_executor();
-        rename_brew_to_phantasi_if_needed(&executor).await?;
-        rename_runtime_registry_if_needed(&executor).await?;
-        rename_ai_cost_ledger_if_needed(&executor).await?;
-        rename_ai_quota_usage_if_needed(&executor).await?;
         discard_unknown_migration_history(&executor).await?;
         <Self as MigratorTrait>::up(executor, steps).await
     }
@@ -87,40 +74,6 @@ impl MigratorTrait for Migrator {
     }
 }
 
-/// Prefix-scan drop for local/dev `digital_life_*` leftovers. No table catalog.
-const DROP_DIGITAL_LIFE_SQL: &str = r#"
-DO $$
-DECLARE
-    r RECORD;
-BEGIN
-    FOR r IN
-        SELECT tablename
-          FROM pg_tables
-         WHERE schemaname = 'public'
-           AND tablename LIKE 'digital_life!_%' ESCAPE '!'
-    LOOP
-        EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', r.tablename);
-    END LOOP;
-
-    FOR r IN
-        SELECT t.typname
-          FROM pg_type t
-          JOIN pg_namespace n ON n.oid = t.typnamespace
-         WHERE n.nspname = 'public'
-           AND t.typname LIKE 'digital_life!_%' ESCAPE '!'
-           AND t.typtype IN ('e', 'd', 'c')
-    LOOP
-        EXECUTE format('DROP TYPE IF EXISTS public.%I CASCADE', r.typname);
-    END LOOP;
-
-    IF to_regclass('public._schema_versions') IS NOT NULL THEN
-        DELETE FROM _schema_versions
-         WHERE version LIKE 'digital_life%'
-            OR version LIKE '%digital_life%';
-    END IF;
-END $$;
-"#;
-
 fn keep_migration_versions() -> Vec<String> {
     Migrator::migrations()
         .iter()
@@ -136,11 +89,10 @@ fn discard_unknown_history_sql(keep_count: usize) -> String {
     format!("DELETE FROM seaql_migrations WHERE version NOT IN ({placeholders})")
 }
 
-/// `digital_life_*` tables must not remain. `seaql_migrations` may only
-/// record versions that still have files — otherwise SeaORM demands a no-op.
+/// `seaql_migrations` may only record versions that still have files —
+/// otherwise SeaORM demands a no-op. Structure folded into 001–006 leaves
+/// such rows behind on older databases.
 async fn discard_unknown_migration_history(db: &impl ConnectionTrait) -> Result<(), DbErr> {
-    db.execute_unprepared(DROP_DIGITAL_LIFE_SQL).await?;
-
     let present = db
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
@@ -215,15 +167,5 @@ mod tests {
             assert!(sql.contains(&format!("${index}")));
         }
         assert!(!sql.contains(&format!("${}", keep.len() + 1)));
-        assert!(!keep.iter().any(|name| name.contains("digital_life")));
-    }
-
-    #[test]
-    fn digital_life_drop_sql_is_prefix_only() {
-        assert!(DROP_DIGITAL_LIFE_SQL.contains("LIKE 'digital_life!_%' ESCAPE '!'"));
-        assert!(DROP_DIGITAL_LIFE_SQL.contains("DROP TABLE IF EXISTS public.%I CASCADE"));
-        assert!(DROP_DIGITAL_LIFE_SQL.contains("DROP TYPE IF EXISTS public.%I CASCADE"));
-        assert!(!DROP_DIGITAL_LIFE_SQL.contains("agent_persona"));
-        assert!(!DROP_DIGITAL_LIFE_SQL.contains("digital_life_characters"));
     }
 }

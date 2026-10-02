@@ -26,11 +26,13 @@ sea-orm-cli migrate generate create_new_table
 6. `006_oauth_identities` - OAuth/OIDC identity bindings, plus the user lifecycle (`user_lifecycle.sql`)
 
 Base CREATE tables (001–006) include the current column set for greenfield installs.
-The migrator has no 007+ files. Before SeaORM validates history, leftover
-`digital_life_*` experiment tables (and matching enum / domain / composite
-types, plus `_schema_versions` marks) are dropped by prefix, and any
+The migrator has no 007+ files. Before SeaORM validates history, any
 `seaql_migrations` row without a file is deleted. Fold new structure into
 001–006.
+
+**Support floor:** upgrades start from 0.6.1 or later. An older instance
+upgrades to 0.6.1 first, then to the current release; the renames and heals
+for anything older are gone.
 
 Whole tables are created by Migrator (001–006) — the numbered series is the
 **complete greenfield source of truth**. Runtime `schema_check` only heals

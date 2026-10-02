@@ -119,7 +119,6 @@ DO $$
 DECLARE
     guard record;
 BEGIN
-    DROP TRIGGER IF EXISTS trg_users_delete_subject_rows ON users;
     IF NOT EXISTS (
         SELECT 1 FROM pg_trigger
         WHERE tgname = 'trg_users_after_delete_subject_rows' AND tgrelid = to_regclass('users')

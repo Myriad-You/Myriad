@@ -43,7 +43,6 @@ BEGIN
 
     IF to_regclass('users') IS NOT NULL THEN
         DROP TRIGGER IF EXISTS trg_users_after_delete_subject_rows ON users;
-        DROP TRIGGER IF EXISTS trg_users_delete_subject_rows ON users;
     END IF;
 END $$;
 

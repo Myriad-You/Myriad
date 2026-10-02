@@ -1,10 +1,9 @@
 //! Pure Phantasi domain rules.
 //!
-//! Path constants and the one-shot brew→phantasi rename catalog.
+//! Path constants.
 //! No database, HTTP, or Axum.
 
 pub mod feed_topic_cards;
-pub mod legacy;
 
 pub use feed_topic_cards::{
     FEED_TOPIC_CARDS_KEY, feed_topic_cards_from_value, sanitize_feed_topic_cards,
