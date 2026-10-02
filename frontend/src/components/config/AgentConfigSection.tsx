@@ -45,6 +45,7 @@ import {
 import AgentOptionsPanel, {
   AgentNestedSection,
 } from './AgentOptionsPanel'
+import { liteInUse } from './form/liteTier'
 import { useAddedSlug } from './useAddedCard'
 import { useAiSubpage } from './usePersonaPage'
 
@@ -110,10 +111,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
     [configFields],
   )
 
-  const liteEnabled = useMemo(() => {
-    const val = getFieldValue('lite_enabled', 'false')
-    return val === 'true' || val === '1'
-  }, [getFieldValue])
+  const liteEnabled = useMemo(() => liteInUse(getFieldValue), [getFieldValue])
 
   const agentPersonaEnabled = useMemo(
     () =>

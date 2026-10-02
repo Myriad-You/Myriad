@@ -256,7 +256,6 @@ standard_fields! {
         proxy_enabled,
     ],
     flag_or_text: [
-        lite_enabled,
         pro_enabled,
         site_noindex,
     ],
@@ -382,6 +381,17 @@ impl ConfigService {
     fn parse_config(map: HashMap<String, JsonValue>) -> DynamicConfig {
         let mut config = DynamicConfig::default();
         read_standard_fields(&mut config, &map);
+
+        // Lite used to have a switch. Left off, Lite stays unused: its models
+        // read as blank. Saving Lite's models writes it on (`save.rs`), and
+        // from then on only the model decides.
+        let lite_switched_on = map
+            .get("lite_enabled")
+            .is_some_and(|v| v.as_bool() == Some(true) || matches!(v.as_str(), Some("true" | "1")));
+        if !lite_switched_on {
+            config.lite_gemini_model.clear();
+            config.lite_openai_model.clear();
+        }
 
         if let Some(v) = map.get("discord_token_expires_at") {
             config.discord_token_expires_at = v.as_str().map(|s| s.to_string()).or_else(|| {
@@ -1619,12 +1629,32 @@ mod tests {
     }
 
     #[test]
+    fn lite_switched_off_before_reads_as_unused() {
+        let stored = |switch: Option<serde_json::Value>| {
+            let mut map = HashMap::from([("lite_openai_model".to_string(), json!("lite/model"))]);
+            if let Some(switch) = switch {
+                map.insert("lite_enabled".to_string(), switch);
+            }
+            ConfigService::parse_config(map)
+        };
+        assert!(!stored(Some(json!(false))).lite_on());
+        assert!(!stored(Some(json!("false"))).lite_on());
+        assert!(
+            !stored(None).lite_on(),
+            "never switched: off, as the default was"
+        );
+        let on = stored(Some(json!(true)));
+        assert!(on.lite_on());
+        assert_eq!(on.lite_openai_model, "lite/model");
+        assert!(stored(Some(json!("true"))).lite_on());
+    }
+
+    #[test]
     fn merope_stays_off_without_required_models() {
         // Pro is required for onboarding. Lite is optional: without it,
         // Merope still runs, but Lite jobs must not fall back to Standard.
         let no_lite = DynamicConfig {
             merope_enabled: true,
-            lite_enabled: false,
             pro_enabled: true,
             ..DynamicConfig::default()
         };
@@ -1637,7 +1667,7 @@ mod tests {
 
         let no_pro = DynamicConfig {
             merope_enabled: true,
-            lite_enabled: true,
+            lite_openai_model: "lite-model".into(),
             pro_enabled: false,
             ..DynamicConfig::default()
         };
@@ -1647,7 +1677,7 @@ mod tests {
 
         let with_tiers = DynamicConfig {
             merope_enabled: true,
-            lite_enabled: true,
+            lite_openai_model: "lite-model".into(),
             pro_enabled: true,
             ..DynamicConfig::default()
         };
@@ -1700,7 +1730,6 @@ mod tests {
             merope_enabled: true,
             merope_speech_enabled: true,
             pro_enabled: true,
-            lite_enabled: true,
             lite_ai_provider: "openai".into(),
             lite_openai_model: "qwen3.8-omni-flash".into(),
             lite_ai_source: "dashscope".into(),

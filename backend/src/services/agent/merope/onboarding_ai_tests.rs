@@ -238,7 +238,7 @@ fn the_name_call_retries_itself_with_a_fresh_roll() {
 
 /// 起名必须是严格 Lite，不能借 Standard 的模型或思考延迟。
 ///
-/// 走 `create_strict_lite_ai_analyzer_with_timeout`。Lite 开关关着工厂返回 `None`，不回落到 Standard。
+/// 走 `create_strict_lite_ai_analyzer_with_timeout`。Lite 没填模型时工厂返回 `None`，不回落到 Standard。
 #[test]
 fn name_roll_is_strict_lite_with_a_small_payload() {
     let source = include_str!("onboarding_ai/names.rs");

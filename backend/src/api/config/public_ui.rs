@@ -508,7 +508,6 @@ mod ai_availability_tests {
     #[test]
     fn chat_and_naming_require_explicit_lite_without_pro_or_merope() {
         let mut config = crate::config::DynamicConfig {
-            lite_enabled: true,
             lite_openai_model: "test-lite".into(),
             provider_openrouter_api_key: Some("test-key".into()),
             ..Default::default()

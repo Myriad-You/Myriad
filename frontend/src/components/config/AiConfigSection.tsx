@@ -38,6 +38,7 @@ import {
   AiVendorSources,
   VendorKindIcon,
 } from './AiVendorSources'
+import { liteInUse } from './form/liteTier'
 import { TencentCloudMark, VolcengineMark } from './vendorIcons'
 
 interface ConfigField {
@@ -338,10 +339,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     return resolveProvider(raw, getFieldValue('openai_base_url'))
   }, [getFieldValue])
 
-  const liteEnabled = useMemo(() => {
-    const val = getFieldValue('lite_enabled', 'false')
-    return val === 'true' || val === '1'
-  }, [getFieldValue])
+  const liteEnabled = useMemo(() => liteInUse(getFieldValue), [getFieldValue])
 
   const currentLiteProvider = useMemo(() => {
     const raw = getFieldValue('lite_provider')
@@ -728,8 +726,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           title={t.config.aiLiteModelTitle}
           description={t.config.aiLiteModelDesc}
           {...bindGuide('ai.lite', g.ai.lite)}
-          enableGuide={bindGuide('ai.liteEnable', g.ai.liteEnable).guide}
-          enableGuidePath="ai.liteEnable"
           providerGuide={providerGuideBinding.guide}
           providerGuidePath={providerGuideBinding.guidePath}
           fieldGuideFor={fieldGuideFor}
@@ -739,14 +735,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           providerOptions={textSourceOptions ?? aiProviderOptions}
           providerHint={t.config.aiLiteProviderHint}
           fields={liteProviderFields}
-          enabled={liteEnabled}
-          toggle={{
-            checked: liteEnabled,
-            onChange: (value) =>
-              updateValue('lite_enabled', value ? 'true' : 'false'),
-            ariaLabel: t.config.aiLiteEnable,
-            title: t.config.aiLiteEnableDesc,
-          }}
           onProviderChange={(provider) =>
             applyTextSource(
               'lite_ai_source',

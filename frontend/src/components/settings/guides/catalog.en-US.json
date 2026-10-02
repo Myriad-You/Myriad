@@ -448,7 +448,7 @@
   "ai": {
     "llm": {
       "what": "The three text-model tiers: Standard for daily work, Lite to save, Pro for hard jobs.",
-      "chain": "1) Keys live in Providers above; here you only pick a source and model name.\n2) Standard is the default. Pro falls back to Standard when off. Lite jobs stop when Lite is off — they do not fall back.\n3) Agent persona needs Pro. Lite selects motion and writes proactive lines and mood hints.\n4) Permissions and quota still apply.",
+      "chain": "1) Keys live in Providers above; here you only pick a source and model name.\n2) Standard is the default. Pro falls back to Standard when off. Lite jobs stop when Lite has no model — they do not fall back.\n3) Agent persona needs Pro. Lite selects motion and writes proactive lines and mood hints.\n4) Permissions and quota still apply.",
       "frontend": "Assistant chat, reports, and background text jobs use these tiers. Send one line in the assistant to test Standard first.",
       "notes": "Get Standard working before turning on the other two."
     },
@@ -460,15 +460,9 @@
     },
     "lite": {
       "what": "A cheaper setup for simple, repetitive tasks (optional).",
-      "chain": "1) Turn Lite on and configure it (if the secret key is empty it borrows Standard’s).\n2) Tasks marked “lite” prefer this setup.\n3) Off → still uses Standard.\n4) Same permission and quota limits apply.",
+      "chain": "1) Fill in a model and Lite is in use; there is no separate switch (if the secret key is empty it borrows Standard’s).\n2) Tasks marked “lite” prefer this setup.\n3) Model left blank → Lite is not used: those tasks stop rather than falling back to Standard. The Agent persona still works, but proactive lines stay short and mood hints stay off.\n4) Same permission and quota limits apply.",
       "frontend": "Users usually don’t see a separate page — mainly which setup simple background tasks use.",
       "notes": "Can use a different provider than Standard; safer to make sure Standard works first."
-    },
-    "liteEnable": {
-      "what": "Whether to enable the Lite tier.",
-      "chain": "1) Off = Lite jobs stop. They do not fall back to Standard.\n2) On = motion selection and other lite tasks use the Lite setup.\n3) Turning off does not delete what you already filled in.\n4) Agent persona can turn on without Lite; only local ambient physics remain, proactive lines stay short, and mood hints stay off.",
-      "frontend": "Indirectly affects which model is used; simple tasks can show cost/speed differences.",
-      "notes": "If Standard still doesn’t work, don’t rush to enable Lite."
     },
     "pro": {
       "what": "A stronger, usually costlier tier for harder tasks.",
@@ -478,7 +472,7 @@
     },
     "aux": {
       "what": "Which provider her small judgments (feelings, whether to speak, what to remember) and recall's embeddings run on.",
-      "chain": "1) Never chosen: it is Lite's provider of now, working as before; once saved it stays.\n2) A provider source chosen: the judgment and embedding models run on it, with its address and key, and stay put when Lite moves (to DashScope's Omni, say).\n3) A blank judgment model is Lite's own model; a blank embedding model means recall by words only.\n4) Independent of Lite: with Lite off they still run on this source; only a blank judge model (meaning Lite's own) stops judgments.",
+      "chain": "1) Never chosen: it is Lite's provider of now, working as before; once saved it stays.\n2) A provider source chosen: the judgment and embedding models run on it, with its address and key, and stay put when Lite moves (to DashScope's Omni, say).\n3) A blank judgment model is Lite's own model; a blank embedding model means recall by words only.\n4) Independent of Lite: with no Lite model they still run on this source; only a blank judge model (meaning Lite's own) stops judgments.",
       "frontend": "Settings → AI → Models → Judgment & embedding.",
       "notes": "Model names must be ones the source knows, e.g. openai/gpt-6-luna through OpenRouter."
     },
@@ -564,7 +558,7 @@
   "agent": {
     "agentPersona": {
       "what": "Let Agent speak with the site persona, keep per-person mood and diary, and speak after named events.",
-      "chain": "1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) The switch needs Pro. Chat only injects the persona as system text; it uses the planner/reply tiers.\n3) Lite selects semantic motion and writes proactive lines and mood hints. Without Lite, semantic motion stops and only local blink, breath, hair, and other ambient physics remain; there is no Standard fallback.\n4) On: write the persona on this item’s secondary page. Tags, name, and persona run through Pro.\n5) MEROPE_ENABLED can override the saved switch, but still needs Pro.\n6) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.",
+      "chain": "1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) The switch needs Pro. Chat only injects the persona as system text; it uses the planner/reply tiers.\n3) Lite selects semantic motion and writes proactive lines and mood hints. Without a Lite model, semantic motion stops and only local blink, breath, hair, and other ambient physics remain; there is no Standard fallback.\n4) On: write the persona on this item’s secondary page. Tags, name, and persona run through Pro.\n5) MEROPE_ENABLED can override the saved switch, but still needs Pro.\n6) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.",
       "frontend": "Chat uses this persona. Write it on this item’s secondary settings page. The first-level row shows your mood band and current activity. Guests do not see mood.",
       "notes": "Only the site owner can write the persona. Deleting the persona also clears mood and diary. Heartbeat is never blocked by mood. Speaking aloud is a separate switch on this card, off by default."
     },

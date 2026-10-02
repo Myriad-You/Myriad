@@ -46,8 +46,8 @@ pub async fn create_ai_analyzer_for_tier_with_timeout(
     request_timeout: Option<std::time::Duration>,
 ) -> Option<AiAnalyzer> {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    // Lite jobs must not silently spend Standard when the Lite tier is off.
-    if tier == ModelTier::Lite && !config.lite_enabled {
+    // Lite jobs must not silently spend Standard when Lite has no model.
+    if tier == ModelTier::Lite && !config.lite_on() {
         return None;
     }
     if config.tier_falls_back_to_standard(tier) {

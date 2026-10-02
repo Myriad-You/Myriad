@@ -92,7 +92,6 @@ export interface SettingGuidesCatalog {
     llm: SettingGuideEntry
     standard: SettingGuideEntry
     lite: SettingGuideEntry
-    liteEnable: SettingGuideEntry
     pro: SettingGuideEntry
     proEnable: SettingGuideEntry
     aux: SettingGuideEntry

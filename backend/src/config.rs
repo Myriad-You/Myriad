@@ -338,8 +338,7 @@ pub struct DynamicConfig {
     pub openai_model: String,
     pub openai_base_url: String,
     pub openai_max_tokens: i32,
-    // AI 配置（Lite 模型）
-    pub lite_enabled: bool,
+    // AI 配置（Lite 模型）：模型留空就不用 Lite，没有单独的开关。
     pub lite_ai_provider: String,
     pub lite_gemini_api_key: Option<String>,
     pub lite_gemini_model: String,
@@ -800,13 +799,12 @@ impl Default for DynamicConfig {
             openai_model: "minimax/minimax-m3".to_string(),
             openai_base_url: "https://openrouter.ai/api/v1".to_string(),
             openai_max_tokens: 2000,
-            // Lite 默认关。
-            lite_enabled: false,
+            // Lite 默认不用：模型留空。
             lite_ai_provider: "openai".to_string(),
             lite_gemini_api_key: None,
-            lite_gemini_model: "gemini-3.5-flash-lite".to_string(),
+            lite_gemini_model: String::new(),
             lite_openai_api_key: None,
-            lite_openai_model: "google/gemini-3.5-flash-lite".to_string(),
+            lite_openai_model: String::new(),
             lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
             // 留空：判断也用 Lite 的模型。
             lite_judge_model: String::new(),
@@ -1096,7 +1094,7 @@ impl DynamicConfig {
 
     /// 开关开着却缺 Lite。主动开口会走短句兜底，心情微调不会跑。
     pub fn merope_needs_lite(&self) -> bool {
-        self.merope_switch_on() && self.pro_enabled && !self.lite_enabled
+        self.merope_switch_on() && self.pro_enabled && !self.lite_on()
     }
 
     /// 开关开着却缺 Pro。设定引导和开关生效都要这一档。
@@ -1656,21 +1654,21 @@ impl DynamicConfig {
         }
     }
 
-    /// Resolve Lite only when its own model is explicit. Shared provider
+    /// Lite is in use when its own model is filled in; there is no switch.
+    pub fn lite_on(&self) -> bool {
+        let model = if self.lite_ai_provider == "gemini" {
+            &self.lite_gemini_model
+        } else {
+            &self.lite_openai_model
+        };
+        !model.trim().is_empty()
+    }
+
+    /// Resolve Lite only when its own model is filled in. Shared provider
     /// credentials remain valid, but Standard's model is never inherited.
     pub fn resolve_strict_lite_ai_config(&self) -> Option<ResolvedAiConfig> {
-        if !self.lite_enabled {
-            return None;
-        }
-        let configured_model = if self.lite_ai_provider == "gemini" {
-            self.lite_gemini_model.trim()
-        } else {
-            self.lite_openai_model.trim()
-        };
-        if configured_model.is_empty() {
-            return None;
-        }
-        Some(self.resolve_ai_config(ModelTier::Lite))
+        self.lite_on()
+            .then(|| self.resolve_ai_config(ModelTier::Lite))
     }
 
     /// Small typed judgments: `lite_judge_model` on the judgment and
@@ -1748,18 +1746,14 @@ impl DynamicConfig {
     /// 这一档要的模型没配、实际会落到 Standard 上吗？
     ///
     /// 开关打开但模型字段留空时，`resolve_tier` 会取 Standard 的模型。配置上
-    /// 看是「Lite 已启用」，跑的却是 Standard——账单和延迟都按 Standard 走，
-    /// 而日志里记的是 Lite。这个函数只负责认出这件事，喊出来是调用方的事。
+    /// 看是「Pro 已启用」，跑的却是 Standard——账单和延迟都按 Standard 走，
+    /// 而日志里记的是 Pro。这个函数只负责认出这件事，喊出来是调用方的事。
     ///
-    /// 关掉的档不算回退：那是明确的选择，不是没说清楚。
+    /// 关掉的档不算回退：那是明确的选择，不是没说清楚。Lite 没有开关，
+    /// 模型留空就是不用，所以从不回退。
     pub fn tier_falls_back_to_standard(&self, tier: ModelTier) -> bool {
         let (enabled, provider, gemini_model, openai_model) = match tier {
-            ModelTier::Lite => (
-                self.lite_enabled,
-                &self.lite_ai_provider,
-                &self.lite_gemini_model,
-                &self.lite_openai_model,
-            ),
+            ModelTier::Lite => return false,
             ModelTier::Pro => (
                 self.pro_enabled,
                 &self.pro_ai_provider,
@@ -1784,7 +1778,7 @@ impl DynamicConfig {
     ///
     /// [`Self::tier_falls_back_to_standard`] 只认出「开着但模型留空」。关掉的档它返回 false。
     pub fn resolve_ai_config(&self, tier: ModelTier) -> ResolvedAiConfig {
-        if tier == ModelTier::Lite && self.lite_enabled {
+        if tier == ModelTier::Lite && self.lite_on() {
             return self.resolve_tier(
                 &self.lite_ai_source,
                 &self.lite_ai_provider,
@@ -2136,32 +2130,26 @@ mod tests {
     fn an_enabled_tier_with_no_model_of_its_own_is_a_fallback() {
         let mut config = DynamicConfig::default();
         config.openai_model = "standard-model".into();
-        // 出厂默认给 Lite / Pro 各配了自己的模型，回退只在字段被清空后发生。
-        config.lite_openai_model = String::new();
+        // 出厂默认给 Pro 配了自己的模型，回退只在字段被清空后发生。
         config.pro_openai_model = String::new();
 
         // 关着不算回退：那是明确的选择。
-        assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
         assert!(!config.tier_falls_back_to_standard(ModelTier::Pro));
 
-        // 开着但模型留空 —— 配置上写着 Lite，跑的是 Standard。
-        config.lite_enabled = true;
-        assert!(config.tier_falls_back_to_standard(ModelTier::Lite));
-        assert_eq!(
-            config.resolve_ai_config(ModelTier::Lite).model,
-            "standard-model",
-            "这正是那句警告要说的事实"
-        );
+        // Lite 没有开关：模型留空就是不用，不算回退。
+        assert!(!config.lite_on());
+        assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
 
-        // 填上自己的模型就不再是回退。
+        // 填上自己的模型就用上了。
         config.lite_openai_model = "lite-model".into();
+        assert!(config.lite_on());
         assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
         assert_eq!(
             config.resolve_ai_config(ModelTier::Lite).model,
             "lite-model"
         );
 
-        // Pro 同一套形状。
+        // Pro 开着但模型留空 —— 配置上写着 Pro，跑的是 Standard。
         config.pro_enabled = true;
         assert!(config.tier_falls_back_to_standard(ModelTier::Pro));
         config.pro_openai_model = "pro-model".into();
@@ -2171,18 +2159,21 @@ mod tests {
         assert!(!config.tier_falls_back_to_standard(ModelTier::Standard));
     }
 
-    /// 严格 Lite 拒绝的，正好就是会静默回退的那一档。
+    /// Lite 没有开关：默认不用，填了模型才用，按提供方看对应的那一格。
     #[test]
-    fn strict_lite_refuses_exactly_what_would_have_fallen_back() {
+    fn lite_is_on_exactly_when_its_own_model_is_filled() {
         let mut config = DynamicConfig::default();
-        config.lite_enabled = true;
-        config.lite_openai_model = String::new();
-        assert!(config.tier_falls_back_to_standard(ModelTier::Lite));
+        assert!(!config.lite_on());
         assert!(config.resolve_strict_lite_ai_config().is_none());
 
-        config.lite_openai_model = "lite-model".into();
-        assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
+        config.lite_openai_model = " lite-model ".into();
+        assert!(config.lite_on());
         assert!(config.resolve_strict_lite_ai_config().is_some());
+
+        config.lite_ai_provider = "gemini".into();
+        assert!(!config.lite_on(), "Gemini 看的是 Gemini 那一格");
+        config.lite_gemini_model = "gemini-lite".into();
+        assert!(config.lite_on());
     }
 
     #[test]
@@ -2224,7 +2215,6 @@ mod tests {
     #[test]
     fn resolves_lite_with_the_same_provider_contract_as_pro() {
         let config = DynamicConfig {
-            lite_enabled: true,
             lite_ai_provider: "openai".to_string(),
             lite_openai_api_key: Some("lite-key".to_string()),
             lite_openai_model: "cheap/model".to_string(),
@@ -2238,11 +2228,10 @@ mod tests {
     }
 
     #[test]
-    fn lite_falls_back_to_standard_when_disabled() {
+    fn lite_falls_back_to_standard_when_its_model_is_blank() {
         let config = DynamicConfig {
-            lite_enabled: false,
             lite_openai_api_key: Some("lite-key".to_string()),
-            lite_openai_model: "cheap/model".to_string(),
+            lite_openai_model: " ".to_string(),
             openai_api_key: Some("std-key".to_string()),
             openai_model: "std/model".to_string(),
             ..DynamicConfig::default()
@@ -2253,12 +2242,11 @@ mod tests {
     }
 
     #[test]
-    fn lite_reuses_standard_credentials_when_enabled_and_empty() {
+    fn lite_reuses_standard_credentials_when_its_own_are_empty() {
         let config = DynamicConfig {
-            lite_enabled: true,
             lite_ai_provider: "openai".to_string(),
             lite_openai_api_key: None,
-            lite_openai_model: String::new(),
+            lite_openai_model: "lite/model".to_string(),
             lite_openai_base_url: String::new(),
             openai_api_key: Some("std-key".to_string()),
             openai_model: "std/model".to_string(),
@@ -2267,21 +2255,13 @@ mod tests {
         };
         let resolved = config.resolve_ai_config(ModelTier::Lite);
         assert_eq!(resolved.api_key.as_deref(), Some("std-key"));
-        assert_eq!(resolved.model, "std/model");
+        assert_eq!(resolved.model, "lite/model");
         assert_eq!(resolved.base_url, "https://api.openai.com/v1");
     }
 
     #[test]
     fn strict_lite_resolution_never_inherits_the_standard_model() {
-        let disabled = DynamicConfig {
-            lite_enabled: false,
-            openai_model: "std/model".to_string(),
-            ..DynamicConfig::default()
-        };
-        assert!(disabled.resolve_strict_lite_ai_config().is_none());
-
         let empty = DynamicConfig {
-            lite_enabled: true,
             lite_ai_provider: "openai".to_string(),
             lite_openai_model: String::new(),
             openai_model: "std/model".to_string(),
@@ -2290,7 +2270,6 @@ mod tests {
         assert!(empty.resolve_strict_lite_ai_config().is_none());
 
         let configured = DynamicConfig {
-            lite_enabled: true,
             lite_ai_provider: "openai".to_string(),
             lite_openai_model: "lite/model".to_string(),
             ..DynamicConfig::default()
@@ -2306,7 +2285,6 @@ mod tests {
     #[test]
     fn judgments_use_the_judge_model_on_the_same_lite_credentials() {
         let lite = DynamicConfig {
-            lite_enabled: true,
             lite_ai_provider: "openai".to_string(),
             lite_openai_model: "google/gemini-3.8-flash".to_string(),
             lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
@@ -2328,7 +2306,7 @@ mod tests {
         assert_eq!(judge.base_url, speak.base_url, "same provider");
         assert_eq!(judge.api_format, speak.api_format);
         let off = DynamicConfig {
-            lite_enabled: false,
+            lite_openai_model: String::new(),
             ..split
         };
         assert!(
@@ -2340,7 +2318,6 @@ mod tests {
     #[test]
     fn embeddings_are_off_until_a_model_is_named_on_lite() {
         let lite = DynamicConfig {
-            lite_enabled: true,
             lite_ai_provider: "openai".to_string(),
             lite_openai_model: "google/gemini-3.8-flash".to_string(),
             lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
@@ -2358,7 +2335,7 @@ mod tests {
             on.resolve_strict_lite_ai_config().unwrap().base_url
         );
         let off = DynamicConfig {
-            lite_enabled: false,
+            lite_openai_model: String::new(),
             ..on
         };
         assert!(off.resolve_lite_embedding_ai_config().is_none());
@@ -2385,7 +2362,6 @@ mod tests {
             ..AiVendorSource::default()
         };
         let moved = DynamicConfig {
-            lite_enabled: true,
             lite_ai_provider: "openai".to_string(),
             lite_openai_model: "qwen3.8-omni-flash".to_string(),
             lite_ai_source: "dashscope".to_string(),
@@ -2443,7 +2419,7 @@ mod tests {
         // Their own option, not Lite's: with Lite off they still run on
         // their source; only a judge model left blank (Lite's own) stops.
         let off = DynamicConfig {
-            lite_enabled: false,
+            lite_openai_model: String::new(),
             ..own
         };
         let judge = off.resolve_lite_judge_ai_config().unwrap();

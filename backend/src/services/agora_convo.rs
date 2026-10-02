@@ -922,7 +922,6 @@ mod tests {
                 ..crate::config::AiVendorSource::default()
             },
         ];
-        config.lite_enabled = true;
         config.lite_ai_provider = "openai".to_string();
         config.lite_openai_model = "lite-model".to_string();
         config.lite_openai_api_key = Some("lite-key".to_string());

@@ -448,7 +448,7 @@
   "ai": {
     "llm": {
       "what": "Die drei Textmodellstufen: Standard für den Alltag, Lite zum Sparen, Pro für schwere Aufgaben.",
-      "chain": "1) Schlüssel liegen oben bei Anbietern; hier wählen Sie nur Quelle und Modellname.\n2) Standard ist der Vorgabe. Pro fällt auf Standard zurück, wenn aus. Lite-Jobs stoppen, wenn Lite aus ist — sie fallen nicht zurück.\n3) Agent-Persona braucht Pro. Lite wählt Bewegung und schreibt proaktive Zeilen und Stimmungshinweise.\n4) Berechtigungen und Kontingent gelten weiter.",
+      "chain": "1) Schlüssel liegen oben bei Anbietern; hier wählen Sie nur Quelle und Modellname.\n2) Standard ist der Vorgabe. Pro fällt auf Standard zurück, wenn aus. Lite-Jobs stoppen, wenn Lite kein Modell hat — sie fallen nicht zurück.\n3) Agent-Persona braucht Pro. Lite wählt Bewegung und schreibt proaktive Zeilen und Stimmungshinweise.\n4) Berechtigungen und Kontingent gelten weiter.",
       "frontend": "Assistenten-Chat, Berichte und Hintergrund-Textaufträge nutzen diese Stufen. Zuerst eine Zeile im Assistenten senden, um Standard zu testen.",
       "notes": "Standard zum Laufen bringen, bevor Sie die anderen beiden einschalten."
     },
@@ -460,15 +460,9 @@
     },
     "lite": {
       "what": "Eine günstigere Einrichtung für einfache, wiederholte Aufgaben (optional).",
-      "chain": "1) Lite einschalten und konfigurieren (ist der Geheimschlüssel leer, leiht es den von Standard).\n2) Als „lite“ markierte Aufgaben bevorzugen diese Einrichtung.\n3) Aus → nutzt weiter Standard.\n4) Dieselben Berechtigungs- und Kontingentgrenzen gelten.",
+      "chain": "1) Modell eintragen, dann ist Lite in Gebrauch; einen eigenen Schalter gibt es nicht (ist der Geheimschlüssel leer, leiht es den von Standard).\n2) Als „lite“ markierte Aufgaben bevorzugen diese Einrichtung.\n3) Modell leer → Lite wird nicht genutzt: diese Aufgaben laufen nicht, statt auf Standard auszuweichen. Die Agent-Persona geht trotzdem, aber proaktive Zeilen bleiben kurz, Stimmungshinweise aus.\n4) Dieselben Berechtigungs- und Kontingentgrenzen gelten.",
       "frontend": "Nutzer sehen meist keine eigene Seite — vor allem, welche Einrichtung einfache Hintergrundaufgaben nutzen.",
       "notes": "Kann einen anderen Anbieter als Standard nutzen; sicherer, zuerst Standard zum Laufen zu bringen."
-    },
-    "liteEnable": {
-      "what": "Ob die Lite-Stufe aktiviert wird.",
-      "chain": "1) Aus = Lite-Jobs stoppen. Sie fallen nicht auf Standard zurück.\n2) An = Bewegungsauswahl und andere Lite-Aufgaben nutzen die Lite-Einrichtung.\n3) Ausschalten löscht nicht, was Sie bereits ausgefüllt haben.\n4) Agent-Persona kann ohne Lite an; es bleibt nur lokale Umgebungsphysik, proaktive Zeilen bleiben kurz, Stimmungshinweise bleiben aus.",
-      "frontend": "Wirkt indirekt darauf, welches Modell genutzt wird; einfache Aufgaben können Kosten-/Geschwindigkeitsunterschiede zeigen.",
-      "notes": "Wenn Standard noch nicht funktioniert, Lite nicht überstürzen."
     },
     "pro": {
       "what": "Eine stärkere, meist teurere Stufe für schwerere Aufgaben.",
@@ -478,7 +472,7 @@
     },
     "aux": {
       "what": "Auf welchem Anbieter ihre kleinen Urteile (Gefühle, ob sie spricht, was sie behält) und die Einbettungen fürs Erinnern laufen.",
-      "chain": "1) Nie gewählt: Lites aktueller Anbieter, wie bisher; einmal gespeichert bleibt er.\n2) Eine Anbieterquelle gewählt: Urteils- und Einbettungsmodell laufen dort, mit deren Adresse und Schlüssel, und bleiben, wenn Lite woanders hinzieht (etwa zu DashScopes Omni).\n3) Leeres Urteilsmodell: Lites eigenes Modell; leeres Einbettungsmodell: Erinnern nur nach Wörtern.\n4) Unabhängig von Lite: Ist Lite aus, laufen sie weiter auf dieser Quelle; nur ein leeres Urteilsmodell (also Lites eigenes) stoppt die Urteile.",
+      "chain": "1) Nie gewählt: Lites aktueller Anbieter, wie bisher; einmal gespeichert bleibt er.\n2) Eine Anbieterquelle gewählt: Urteils- und Einbettungsmodell laufen dort, mit deren Adresse und Schlüssel, und bleiben, wenn Lite woanders hinzieht (etwa zu DashScopes Omni).\n3) Leeres Urteilsmodell: Lites eigenes Modell; leeres Einbettungsmodell: Erinnern nur nach Wörtern.\n4) Unabhängig von Lite: Hat Lite kein Modell, laufen sie weiter auf dieser Quelle; nur ein leeres Urteilsmodell (also Lites eigenes) stoppt die Urteile.",
       "frontend": "Einstellungen → KI → Modelle → Urteil & Einbettung.",
       "notes": "Modellnamen müssen der Quelle bekannt sein, z. B. openai/gpt-6-luna über OpenRouter."
     },
@@ -564,7 +558,7 @@
   "agent": {
     "agentPersona": {
       "what": "Den Agent mit der Site-Persona sprechen lassen, Stimmung und Tagebuch je Person halten und nach benannten Ereignissen sprechen.",
-      "chain": "1) Standardmäßig aus. Aus bedeutet nur Chat und Aufgaben — kein Ereignishören, keine versteckte Sprache, Persona ungenutzt.\n2) Der Schalter braucht Pro. Chat injiziert die Persona nur als Systemtext; er nutzt die Planer-/Antwortstufen.\n3) Lite wählt semantische Bewegung und schreibt proaktive Zeilen und Stimmungshinweise. Ohne Lite stoppt semantische Bewegung und es bleiben nur lokales Blinzeln, Atem, Haar und andere Umgebungsphysik; es gibt keinen Standard-Rückfall.\n4) An: Persona auf der Unterseite dieses Punkts schreiben. Tags, Name und Persona laufen über Pro.\n5) MEROPE_ENABLED kann den gespeicherten Schalter überschreiben, braucht aber weiter Pro.\n6) Autonome Sprache bleibt versteckt; wertvolle Ereignisse benachrichtigen auch, wenn die Person nicht chattet.",
+      "chain": "1) Standardmäßig aus. Aus bedeutet nur Chat und Aufgaben — kein Ereignishören, keine versteckte Sprache, Persona ungenutzt.\n2) Der Schalter braucht Pro. Chat injiziert die Persona nur als Systemtext; er nutzt die Planer-/Antwortstufen.\n3) Lite wählt semantische Bewegung und schreibt proaktive Zeilen und Stimmungshinweise. Ohne Lite-Modell stoppt semantische Bewegung und es bleiben nur lokales Blinzeln, Atem, Haar und andere Umgebungsphysik; es gibt keinen Standard-Rückfall.\n4) An: Persona auf der Unterseite dieses Punkts schreiben. Tags, Name und Persona laufen über Pro.\n5) MEROPE_ENABLED kann den gespeicherten Schalter überschreiben, braucht aber weiter Pro.\n6) Autonome Sprache bleibt versteckt; wertvolle Ereignisse benachrichtigen auch, wenn die Person nicht chattet.",
       "frontend": "Chat nutzt diese Persona. Schreiben Sie sie auf der Unterseite dieses Punkts. Die erste Zeile zeigt Ihr Stimmungsband und die aktuelle Aktivität. Gäste sehen keine Stimmung.",
       "notes": "Nur der Site-Inhaber kann die Persona schreiben. Persona löschen leert auch Stimmung und Tagebuch. Heartbeat wird nie durch Stimmung blockiert. Laut sprechen ist ein eigener Schalter auf dieser Karte, standardmäßig aus."
     },

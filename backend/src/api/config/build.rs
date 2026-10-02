@@ -724,18 +724,7 @@ pub(crate) async fn build_config(
                     placeholder: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
                     required: false,
                 },
-                // Lite 独立 lite_* 字段。resolve_ai_config(Lite) 模型空时回退 Standard；resolve_strict_lite 才是 None。
-                ConfigField {
-                    key: "lite_enabled".to_string(),
-                    label: "Enable Lite Model".to_string(),
-                    field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
-                    placeholder: "false".to_string(),
-                    required: false,
-                },
+                // Lite 独立 lite_* 字段，没有开关：模型留空就不用 Lite（resolve_strict_lite 是 None）。
                 ConfigField {
                     key: "lite_provider".to_string(),
                     label: "【Lite Model】AI Provider".to_string(),
@@ -770,10 +759,7 @@ pub(crate) async fn build_config(
                     value: db_config
                         .as_ref()
                         .map(|c| c.lite_gemini_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("LITE_GEMINI_MODEL")
-                                .unwrap_or_else(|_| "gemini-3.5-flash-lite".to_string())
-                        }),
+                        .unwrap_or_else(|| std::env::var("LITE_GEMINI_MODEL").unwrap_or_default()),
                     placeholder: "gemini-3.5-flash-lite".to_string(),
                     required: false,
                 },
@@ -797,10 +783,7 @@ pub(crate) async fn build_config(
                     value: db_config
                         .as_ref()
                         .map(|c| c.lite_openai_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("LITE_OPENAI_MODEL")
-                                .unwrap_or_else(|_| "google/gemini-3.5-flash-lite".to_string())
-                        }),
+                        .unwrap_or_else(|| std::env::var("LITE_OPENAI_MODEL").unwrap_or_default()),
                     placeholder: "google/gemini-3.5-flash-lite, gpt-5.6-luna, etc.".to_string(),
                     required: false,
                 },

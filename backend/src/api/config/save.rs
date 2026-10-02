@@ -461,7 +461,6 @@ pub(crate) fn collect_database_updates_with_vendor(
                 JsonValue::String(field.value.clone()),
             ),
             // AI Lite 模型配置
-            "lite_enabled" => ("lite_enabled", JsonValue::Bool(field.value == "true")),
             "lite_provider" => ("lite_ai_provider", JsonValue::String(field.value.clone())),
             "lite_gemini_api_key" => (
                 "lite_gemini_api_key",
@@ -643,6 +642,9 @@ pub(crate) fn collect_database_updates_with_vendor(
                 | "provider_volcengine_base_url"
                 | "ai_source"
                 | "lite_ai_source"
+                // Cleared: Lite is not used (there is no switch).
+                | "lite_gemini_model"
+                | "lite_openai_model"
                 // Cleared: judgments go back to Lite's own model.
                 | "lite_judge_model"
                 // Cleared: recall goes back to words alone.
@@ -680,6 +682,20 @@ pub(crate) fn collect_database_updates_with_vendor(
             continue;
         }
         updates.insert(key.to_string(), json_value);
+    }
+    // Lite's old switch, read back by `parse_config`: written on, so from
+    // the first save of Lite's models only the model decides. A form or
+    // backup from before still saying off keeps Lite unused: blank models.
+    if updates.contains_key("lite_gemini_model") || updates.contains_key("lite_openai_model") {
+        let switched_off = config.ai_config.config_fields.iter().any(|field| {
+            field.key == "lite_enabled" && !matches!(field.value.trim(), "true" | "1")
+        });
+        if switched_off {
+            for key in ["lite_gemini_model", "lite_openai_model"] {
+                updates.insert(key.to_string(), JsonValue::String(String::new()));
+            }
+        }
+        updates.insert("lite_enabled".to_string(), JsonValue::Bool(true));
     }
 
     if updates.contains_key("ai_vendor_sources") {
@@ -1226,6 +1242,50 @@ mod tests {
             .expect("save_to_database");
         assert!(persist.contains("ConfigPersistError::Invalid"));
         assert!(!persist.contains("ErrorKind::InvalidInput"));
+    }
+
+    fn ai_fields(fields: &[(&str, &str)]) -> ConfigResponse {
+        ConfigResponse {
+            ai_config: AiConfig {
+                config_fields: fields
+                    .iter()
+                    .map(|(key, value)| ConfigField {
+                        key: key.to_string(),
+                        value: value.to_string(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn lite_has_no_switch_its_model_decides() {
+        // Cleared: saved blank, so Lite is not used.
+        let cleared = collect_database_updates(&ai_fields(&[
+            ("lite_openai_model", ""),
+            ("lite_gemini_model", ""),
+        ]))
+        .unwrap();
+        assert_eq!(cleared.get("lite_openai_model"), Some(&json!("")));
+        assert_eq!(cleared.get("lite_enabled"), Some(&json!(true)));
+        let filled =
+            collect_database_updates(&ai_fields(&[("lite_openai_model", "lite/model")])).unwrap();
+        assert_eq!(filled.get("lite_openai_model"), Some(&json!("lite/model")));
+        assert_eq!(filled.get("lite_enabled"), Some(&json!(true)));
+        // An old form or backup that had Lite switched off keeps it unused.
+        let old_off = collect_database_updates(&ai_fields(&[
+            ("lite_enabled", "false"),
+            ("lite_openai_model", "lite/model"),
+        ]))
+        .unwrap();
+        assert_eq!(old_off.get("lite_openai_model"), Some(&json!("")));
+        assert_eq!(old_off.get("lite_enabled"), Some(&json!(true)));
+        // Not saving Lite at all leaves the old switch alone.
+        let other = collect_database_updates(&ai_fields(&[("openai_model", "std")])).unwrap();
+        assert!(!other.contains_key("lite_enabled"));
     }
 
     #[test]

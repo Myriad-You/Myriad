@@ -448,7 +448,7 @@
   "ai": {
     "llm": {
       "what": "Les trois paliers de modèles texte : Standard pour le quotidien, Lite pour économiser, Pro pour les tâches difficiles.",
-      "chain": "1) Les clés vivent dans Fournisseurs ci-dessus ; ici vous ne choisissez qu’une source et un nom de modèle.\n2) Standard est le défaut. Pro se rabat sur Standard s’il est coupé. Les tâches Lite s’arrêtent si Lite est coupé — elles ne se rabattent pas.\n3) La persona Agent a besoin de Pro. Lite choisit le mouvement et écrit les phrases proactives et indices d’humeur.\n4) Autorisations et quota s’appliquent encore.",
+      "chain": "1) Les clés vivent dans Fournisseurs ci-dessus ; ici vous ne choisissez qu’une source et un nom de modèle.\n2) Standard est le défaut. Pro se rabat sur Standard s’il est coupé. Les tâches Lite s’arrêtent si Lite n’a pas de modèle — elles ne se rabattent pas.\n3) La persona Agent a besoin de Pro. Lite choisit le mouvement et écrit les phrases proactives et indices d’humeur.\n4) Autorisations et quota s’appliquent encore.",
       "frontend": "Chat de l’assistant, rapports et tâches texte d’arrière-plan utilisent ces paliers. Envoyez une ligne dans l’assistant pour tester d’abord Standard.",
       "notes": "Faites d’abord marcher Standard avant d’activer les deux autres."
     },
@@ -460,15 +460,9 @@
     },
     "lite": {
       "what": "Un réglage moins cher pour des tâches simples et répétitives (facultatif).",
-      "chain": "1) Activez Lite et configurez-le (si la clé secrète est vide, il emprunte celle de Standard).\n2) Les tâches marquées « lite » préfèrent ce réglage.\n3) Coupé → utilise encore Standard.\n4) Les mêmes limites d’autorisation et de quota s’appliquent.",
+      "chain": "1) Renseignez un modèle et Lite est utilisé ; il n’y a pas d’interrupteur à part (si la clé secrète est vide, il emprunte celle de Standard).\n2) Les tâches marquées « lite » préfèrent ce réglage.\n3) Modèle vide → Lite n’est pas utilisé : ces tâches s’arrêtent au lieu de retomber sur Standard. La persona Agent fonctionne quand même, mais les phrases proactives restent courtes et les indices d’humeur restent off.\n4) Les mêmes limites d’autorisation et de quota s’appliquent.",
       "frontend": "Les utilisateurs ne voient en général pas de page séparée — surtout quel réglage utilisent les tâches d’arrière-plan simples.",
       "notes": "Peut utiliser un autre fournisseur que Standard ; plus sûr de s’assurer d’abord que Standard marche."
-    },
-    "liteEnable": {
-      "what": "Activer ou non le palier Lite.",
-      "chain": "1) Coupé = les tâches Lite s’arrêtent. Elles ne se rabattent pas sur Standard.\n2) Activé = le choix de mouvement et d’autres tâches lite utilisent le réglage Lite.\n3) Couper ne supprime pas ce que vous avez déjà rempli.\n4) La persona Agent peut s’activer sans Lite ; seuls les physiques ambiants locaux restent, les phrases proactives restent courtes, et les indices d’humeur restent coupés.",
-      "frontend": "Affecte indirectement quel modèle est utilisé ; les tâches simples peuvent montrer des différences de coût/vitesse.",
-      "notes": "Si Standard ne marche toujours pas, ne vous précipitez pas à activer Lite."
     },
     "pro": {
       "what": "Un palier plus fort, en général plus coûteux, pour les tâches plus difficiles.",
@@ -478,7 +472,7 @@
     },
     "aux": {
       "what": "Sur quel fournisseur tournent ses petits jugements (émotions, parler ou non, quoi retenir) et les vecteurs du rappel.",
-      "chain": "1) Jamais choisi : le fournisseur actuel de Lite, comme avant ; une fois enregistré, il reste.\n2) Une source choisie : les modèles de jugement et de vectorisation y tournent, avec son adresse et sa clé, et restent en place quand Lite change (vers l’Omni de DashScope, par exemple).\n3) Modèle de jugement vide : celui de Lite ; modèle de vectorisation vide : rappel par les mots seulement.\n4) Indépendant de Lite : Lite désactivé, ils tournent toujours sur cette source ; seul un modèle de jugement vide (celui de Lite) arrête les jugements.",
+      "chain": "1) Jamais choisi : le fournisseur actuel de Lite, comme avant ; une fois enregistré, il reste.\n2) Une source choisie : les modèles de jugement et de vectorisation y tournent, avec son adresse et sa clé, et restent en place quand Lite change (vers l’Omni de DashScope, par exemple).\n3) Modèle de jugement vide : celui de Lite ; modèle de vectorisation vide : rappel par les mots seulement.\n4) Indépendant de Lite : sans modèle Lite, ils tournent toujours sur cette source ; seul un modèle de jugement vide (celui de Lite) arrête les jugements.",
       "frontend": "Réglages → IA → Modèles → Jugement et vectorisation.",
       "notes": "Les noms de modèle doivent être connus de la source, p. ex. openai/gpt-6-luna via OpenRouter."
     },
@@ -564,7 +558,7 @@
   "agent": {
     "agentPersona": {
       "what": "Laisser l’Agent parler avec la persona du site, garder humeur et journal par personne, et parler après des événements nommés.",
-      "chain": "1) Coupé par défaut. Coupé = chat et tâches seulement — pas d’écoute d’événements, pas de parole cachée, persona inutilisée.\n2) L’interrupteur a besoin de Pro. Le chat n’injecte la persona que comme texte système ; il utilise les paliers planificateur/réponse.\n3) Lite choisit le mouvement sémantique et écrit phrases proactives et indices d’humeur. Sans Lite, le mouvement sémantique s’arrête et seuls clignement, respiration, cheveux et autres physiques ambiants locaux restent ; pas de repli Standard.\n4) Activé : rédigez la persona sur la page secondaire de cet élément. Tags, nom et persona passent par Pro.\n5) MEROPE_ENABLED peut forcer l’interrupteur enregistré, mais Pro reste nécessaire.\n6) La parole autonome reste cachée ; les événements de valeur notifient aussi si la personne ne discute pas.",
+      "chain": "1) Coupé par défaut. Coupé = chat et tâches seulement — pas d’écoute d’événements, pas de parole cachée, persona inutilisée.\n2) L’interrupteur a besoin de Pro. Le chat n’injecte la persona que comme texte système ; il utilise les paliers planificateur/réponse.\n3) Lite choisit le mouvement sémantique et écrit phrases proactives et indices d’humeur. Sans modèle Lite, le mouvement sémantique s’arrête et seuls clignement, respiration, cheveux et autres physiques ambiants locaux restent ; pas de repli Standard.\n4) Activé : rédigez la persona sur la page secondaire de cet élément. Tags, nom et persona passent par Pro.\n5) MEROPE_ENABLED peut forcer l’interrupteur enregistré, mais Pro reste nécessaire.\n6) La parole autonome reste cachée ; les événements de valeur notifient aussi si la personne ne discute pas.",
       "frontend": "Le chat utilise cette persona. Rédigez-la sur la page de paramètres secondaire de cet élément. La ligne de premier niveau montre votre bande d’humeur et l’activité actuelle. Les invités ne voient pas l’humeur.",
       "notes": "Seul le propriétaire du site peut rédiger la persona. Supprimer la persona efface aussi humeur et journal. Heartbeat n’est jamais bloqué par l’humeur. Parler à voix haute est un interrupteur séparé sur cette carte, coupé par défaut."
     },
