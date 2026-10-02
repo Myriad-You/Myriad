@@ -32,8 +32,9 @@ mod tables_tapp;
 mod types;
 
 #[cfg(test)]
-#[cfg(test)]
 pub(crate) use ensure_heals::AGENT_MEMORIES_DDL;
+#[cfg(test)]
+pub(crate) use old_rows::rewrite_old_rows as rewrite_old_rows_for_test;
 pub use orchestrator::{ensure_schema, report_schema_drift};
 pub use seeds::{DefaultPlatformSeed, default_platform_seeds};
 #[cfg(test)]

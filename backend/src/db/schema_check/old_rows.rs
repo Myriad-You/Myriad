@@ -235,10 +235,56 @@ pub(crate) async fn rewrite_old_rows(db: &DatabaseConnection) -> Result<u64, DbE
         }
         total += changed;
     }
+    total += record_activity_for_old_history(db).await?;
     for sql in SETTLED_COLUMNS {
         db.execute_unprepared(sql)
             .await
             .map_err(|error| DbErr::Custom(format!("settle column ({sql}): {error}")))?;
+    }
+    Ok(total)
+}
+
+/// Platform history recorded before every change got an activity event. The
+/// feed reads events only; these get one each, titled like current events.
+async fn record_activity_for_old_history(db: &DatabaseConnection) -> Result<u64, DbErr> {
+    use sea_orm::{DatabaseBackend, Statement};
+    const ORPHANS: &str = "FROM metadata_history h
+        WHERE NOT EXISTS (SELECT 1 FROM activity_events e WHERE e.metadata_history_id = h.id)";
+    let platforms = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            format!("SELECT DISTINCT h.platform_name {ORPHANS}"),
+        ))
+        .await?;
+    let mut total = 0;
+    for row in platforms {
+        let platform: String = row.try_get("", "platform_name")?;
+        let title = crate::services::activity_event_service::platform_label(&platform).to_string();
+        total += db
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                format!(
+                    "INSERT INTO activity_events (metadata_history_id, metadata_id, user_id,
+                         platform_name, event_type, title, changes, change_count, importance,
+                         occurred_at, created_at)
+                     SELECT h.id, h.metadata_id, h.user_id, h.platform_name, 'updated', $2,
+                            jsonb_build_array(jsonb_build_object(
+                                'kind', 'summary', 'metric', 'data_changes', 'new', c.n)),
+                            c.n, 0, h.change_date, NOW()
+                     FROM metadata_history h
+                     CROSS JOIN LATERAL (
+                         SELECT CASE WHEN json_typeof(h.changed_fields) = 'array'
+                                     THEN json_array_length(h.changed_fields) ELSE 1 END AS n
+                     ) c
+                     WHERE h.platform_name = $1 AND h.id IN (SELECT h.id {ORPHANS})"
+                ),
+                [platform.into(), title.into()],
+            ))
+            .await?
+            .rows_affected();
+    }
+    if total > 0 {
+        tracing::info!(total, "Recorded activity events for older platform history");
     }
     Ok(total)
 }

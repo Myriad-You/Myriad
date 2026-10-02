@@ -479,7 +479,7 @@ INSERT INTO platform_reports (user_id, platform, metadata, report, created_at) V
 }
 
 #[tokio::test]
-async fn postgres_recent_activity_uses_history_projection_without_snapshots() {
+async fn postgres_recent_activity_reads_events_including_older_history() {
     use crate::api::profile::{ActivityQuery, get_recent_activities};
     use axum::extract::{Query, State};
     let Some(f) = Fixture::new().await else {
@@ -489,21 +489,36 @@ async fn postgres_recent_activity_uses_history_projection_without_snapshots() {
 UPDATE users SET is_owner = TRUE WHERE id = 1;
 INSERT INTO users (id, username) VALUES (2, 'history-other');
 INSERT INTO metadata_history (user_id, platform_name, changed_fields, old_data, new_data, change_date) VALUES
-(1, 'steam', '["games", "playtime"]', json_build_object('large', repeat('x', 100000)), '{}', '2026-09-22'),
-(1, 'steam', '["games"]', '{}', '{}', '2026-09-22'),
-(2, 'github', '["repos"]', '{}', '{}', '2026-09-23');
+(1, 'steam', '["games", "playtime"]', json_build_object('large', repeat('x', 100000)), '{}', '2026-09-22 10:00'),
+(1, 'steam', '["games"]', '{}', '{}', '2026-09-22 09:00'),
+(2, 'github', '["repos"]', '{}', '{}', '2026-09-23'),
+(1, 'github', '["repos"]', '{}', '{}', '2026-09-24');
+INSERT INTO activity_events (metadata_history_id, user_id, platform_name, event_type, title, changes,
+    change_count, importance, occurred_at, created_at)
+SELECT id, 1, 'github', 'suppressed', 'GitHub', '[]', 1, 0, change_date, NOW()
+FROM metadata_history WHERE user_id = 1 AND platform_name = 'github';
 ALTER TABLE metadata_history DROP COLUMN old_data, DROP COLUMN new_data;
 "#).await.unwrap();
-    // Removing the unused columns makes an accidental full-entity SELECT fail.
+    // History from before activity events gets one event each; removing the
+    // snapshot columns makes an accidental full-row read fail.
+    crate::db::schema_check::rewrite_old_rows_for_test(&f.db)
+        .await
+        .unwrap();
     let (status, axum::Json(body)) = get_recent_activities(
         Query(ActivityQuery { limit: Some(10) }),
         State(f.db.clone()),
     )
     .await;
     assert_eq!(status, axum::http::StatusCode::OK);
-    assert_eq!(body["count"], 1);
+    assert_eq!(body["count"], 2, "{body}");
     assert_eq!(body["activities"][0]["platform_name"], "steam");
-    assert_eq!(body["activities"][0]["change_count"], 3);
+    assert_eq!(body["activities"][0]["title"], "Steam");
+    assert_eq!(body["activities"][0]["change_count"], 2);
+    assert_eq!(body["activities"][1]["change_count"], 1);
+    assert_eq!(
+        body["activities"][0]["changes"][0]["metric"],
+        "data_changes"
+    );
     f.close().await;
 }
 
