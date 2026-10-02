@@ -7,7 +7,10 @@ import {
   ARM_SWAY_RADIANS,
   ArmDrape,
   ArmPendulum,
+  ArmSegment,
   DRAPE_SAG,
+  FOREARM,
+  HAND,
 } from './armPendulum'
 
 const STILL = { open: 0, sway: 0, bodyRoll: 0, dynamic: true }
@@ -138,4 +141,32 @@ test('a drape without dynamics or with bad input sits on its target', () => {
   const drape = new ArmDrape()
   assert.ok(Math.abs(drape.step(0.1, 0, false, DT) - ARM_MAX_RADIANS * Math.tanh((0.1 * (1 - DRAPE_SAG)) / ARM_MAX_RADIANS)) < 1e-12)
   assert.ok(Number.isFinite(drape.step(Number.NaN, Infinity, true, Number.NaN)))
+})
+
+test('each segment down the arm trails the one above it, quicker and within its joint', () => {
+  const forearm = new ArmSegment(FOREARM)
+  const hand = new ArmSegment(HAND)
+  forearm.step(0, 0, true, DT)
+  hand.step(0, 0, true, DT)
+  // The upper arm swings out and holds: the forearm and then the hand lag behind it.
+  let forearmTurn = 0
+  let handTurn = 0
+  let handPeak = 0
+  for (let i = 0; i < 12; i++) {
+    forearmTurn = forearm.step(0.4, 0, true, DT)
+    handTurn = hand.step(0.4 + forearmTurn, 0, true, DT)
+  }
+  assert.ok(forearmTurn < 0 && handTurn < 0, `${forearmTurn} ${handTurn}`)
+  for (let i = 0; i < 600; i++) {
+    forearmTurn = forearm.step(0.4, 0, true, DT)
+    handTurn = hand.step(0.4 + forearmTurn, 0, true, DT)
+    handPeak = Math.max(handPeak, Math.abs(handTurn))
+  }
+  assert.ok(handPeak <= HAND.maxBend + 1e-9)
+  // At rest each hangs back towards the vertical by its sag.
+  assert.ok(Math.abs(forearmTurn + 0.4 * FOREARM.sag) < 1e-3, `${forearmTurn}`)
+  assert.ok(Math.abs(handTurn + (0.4 + forearmTurn) * HAND.sag) < 1e-3, `${handTurn}`)
+  // Without physics the hand is set where it hangs, at once.
+  const still = new ArmSegment(HAND)
+  assert.ok(Math.abs(still.step(0.2, 0, false, DT) + 0.2 * HAND.sag) < 1e-9)
 })

@@ -25,6 +25,11 @@ export interface ArmRig {
    * below it swings on its own after the upper arm.
    */
   elbow: { x: number; y: number } | null
+  /**
+   * The wrist found on the portrait, below a found elbow with a hand showing
+   * beyond it: the hand swings on its own after the forearm.
+   */
+  wrist: { x: number; y: number } | null
   /** The canvas cut this drawing runs into, if any; a swing slides along it. */
   cutY: number | null
   /**
@@ -167,18 +172,33 @@ export function bindArmRig(
     elbowJoint.x <= arm.x + arm.w
       ? { x: elbowJoint.x, y: elbowJoint.y }
       : null
+  const drape = !posed && lower > 0 && skin / lower < DRAPE_SKIN
+  // The wrist, when a hand hangs out of the sleeve below it. A hand hidden in
+  // a draped sleeve is cloth, which trails on its own.
+  const wristJoint = anchors.skeleton?.joints[`wrist${arm.side}`]
+  const wrist =
+    elbow &&
+    !drape &&
+    wristJoint &&
+    wristJoint.y > elbow.y + radius &&
+    wristJoint.y < arm.y + arm.h - radius * 0.5 &&
+    wristJoint.x >= arm.x &&
+    wristJoint.x <= arm.x + arm.w
+      ? { x: wristJoint.x, y: wristJoint.y }
+      : null
   return {
     outward: arm.side === 'L' ? 1 : -1,
     pivotX,
     pivotY,
     elbow,
+    wrist,
     radius,
     reach: Math.max(arm.y + arm.h - pivotY, faceHeight * 2.2),
     length: arm.y + arm.h - pivotY,
     scale: posed ? POSED_SCALE : 1,
     cutY: cut ? arm.y + arm.h : null,
     // A raised arm's lower sleeve is folded around an elbow, not hanging.
-    drape: !posed && lower > 0 && skin / lower < DRAPE_SKIN,
+    drape,
   }
 }
 

@@ -1299,6 +1299,7 @@ const ARM = {
   cutY: 224,
   drape: false,
   elbow: null as { x: number; y: number } | null,
+  wrist: null as { x: number; y: number } | null,
 }
 
 test('below a found elbow the forearm turns about it, and the upper arm does not', () => {
@@ -1331,6 +1332,43 @@ test('below a found elbow the forearm turns about it, and the upper arm does not
   const q = { x: 60, y: 130 }
   deformAnime25DSecondaryPoint(q, 60, 130, 7, plain, torsoTurnFrame(0, 0))
   assert.deepEqual(p, q)
+})
+
+test('below a found wrist the hand turns about it, and is carried by its forearm', () => {
+  const arm = { ...ARM, cutY: null, elbow: { x: 70, y: 150 }, wrist: { x: 70, y: 200 } }
+  const rest = new Float32Array([70, 90, 70, 130, 70, 150, 70, 180, 70, 220])
+  const binding = createAnime25DSecondaryDeformationBinding({
+    ...bodyBinding('handwear', 'L'),
+    arm,
+    armMesh: bindArmRigMesh(arm, rest),
+  })
+  const at = (vertex: number, y: number, forearm: number, hand: number) => {
+    const point = { x: 70, y }
+    const frame = torsoTurnFrame(0, 0)
+    frame.forearmL = forearm
+    frame.handL = hand
+    deformAnime25DSecondaryPoint(point, 70, y, vertex, binding, frame)
+    return point
+  }
+  const still = at(4, 220, 0, 0)
+  const forearmOnly = at(3, 180, 0, 0.3)
+  assert.ok(Math.abs(forearmOnly.x - 70) < 1e-6, 'above the wrist the hand does not turn')
+  const fingers = at(4, 220, 0, 0.3)
+  assert.ok(fingers.x < still.x - 4, `${fingers.x} vs ${still.x}`)
+  // The forearm carries the wrist: the hand ends up turned by both.
+  const both = at(4, 220, 0.3, 0.3)
+  const forearmTurn = at(4, 220, 0.3, 0)
+  assert.ok(both.x < forearmTurn.x - 4, `${both.x} vs ${forearmTurn.x}`)
+  // The hand bends at its wrist and stays whole: its length from the carried wrist holds.
+  const wrist = { x: 70, y: 200 }
+  const elbowTurn = 0.3
+  const carried = {
+    x: 70 + (wrist.x - 70) * Math.cos(elbowTurn) - (wrist.y - 150) * Math.sin(elbowTurn),
+    y: 150 + (wrist.x - 70) * Math.sin(elbowTurn) + (wrist.y - 150) * Math.cos(elbowTurn),
+  }
+  const offset = { x: still.x - 70, y: still.y - 220 }
+  const reach = Math.hypot(both.x - offset.x - carried.x, both.y - offset.y - carried.y)
+  assert.ok(Math.abs(reach - 20) < 0.01, `the hand keeps its length from the wrist: ${reach}`)
 })
 
 function riggedSleeve(cutY: number | null = ARM.cutY, drape = false): Anime25DSecondaryDeformationBinding {

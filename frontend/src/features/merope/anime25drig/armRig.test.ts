@@ -155,6 +155,27 @@ test('a shoulder found on the portrait is the pivot; an elbow found below it is 
   assert.equal(plain.elbow, null)
 })
 
+test('a wrist is kept below a found elbow when a hand hangs out past it', () => {
+  const arm = { x: 120, y: 780, w: 220, h: 500, side: 'L' as const }
+  const paint: Paint = (x, y) => x >= 150 && x < 310 && y >= 790 && y < 1270
+  const bare = (_x: number, y: number) => (y > 1150 ? SKIN : FABRIC)
+  const joints = {
+    shoulderL: { x: 232, y: 812, score: 0.95 },
+    elbowL: { x: 228, y: 1040, score: 0.9 },
+    wristL: { x: 226, y: 1180, score: 0.9 },
+  }
+  const bind = (wristL: { x: number; y: number; score: number }, color = bare) =>
+    bindArmRig(arm, sleeve(arm, paint, color), { ...ANCHORS, skeleton: { model: 'dwpose', joints: { ...joints, wristL } } }, 1320)!
+  assert.deepEqual(bind(joints.wristL).wrist, { x: 226, y: 1180 })
+  // A hand hidden in a draped sleeve is cloth, and a wrist at the hem has no hand past it.
+  assert.equal(bind(joints.wristL, () => FABRIC).wrist, null)
+  assert.equal(bind({ ...joints.wristL, y: 1262 }).wrist, null)
+  // Without an elbow there is no wrist either.
+  const { elbowL: _elbow, ...elbowless } = joints
+  const rig = bindArmRig(arm, sleeve(arm, paint, bare), { ...ANCHORS, skeleton: { model: 'dwpose', joints: elbowless } }, 1320)!
+  assert.equal(rig.wrist, null)
+})
+
 test('a forearm the frame cuts off is left to the cut, without an elbow', () => {
   const skeleton = {
     model: 'dwpose',

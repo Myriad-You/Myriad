@@ -22,26 +22,36 @@ export interface PsdSkeleton {
 export const MIN_JOINT_SCORE = 0.5
 
 /**
- * COCO-WholeBody's body and feet, as pairs for the person's left and right,
- * or one point. Which of a pair is on the left of the picture is decided by
- * where it was found, so a figure turned away still gets its sides right.
+ * COCO-WholeBody's body and feet: one point, or the person's own left and
+ * right of a pair. Which side of the picture a pair lands on follows the
+ * torso, so an arm or leg crossing over keeps the joints of its own chain.
  */
 const JOINTS: ReadonlyArray<
-  readonly [Anime25DJointName, number] | readonly [string, number, number]
+  readonly [Anime25DJointName, number] | readonly [string, number, number, 'upper' | 'lower']
 > = [
   ['nose', 0],
-  ['eye', 1, 2],
-  ['ear', 3, 4],
-  ['shoulder', 5, 6],
-  ['elbow', 7, 8],
-  ['wrist', 9, 10],
-  ['hip', 11, 12],
-  ['knee', 13, 14],
-  ['ankle', 15, 16],
-  ['bigToe', 17, 20],
-  ['smallToe', 18, 21],
-  ['heel', 19, 22],
+  ['eye', 1, 2, 'upper'],
+  ['ear', 3, 4, 'upper'],
+  ['shoulder', 5, 6, 'upper'],
+  ['elbow', 7, 8, 'upper'],
+  ['wrist', 9, 10, 'upper'],
+  ['hip', 11, 12, 'lower'],
+  ['knee', 13, 14, 'lower'],
+  ['ankle', 15, 16, 'lower'],
+  ['bigToe', 17, 20, 'lower'],
+  ['smallToe', 18, 21, 'lower'],
+  ['heel', 19, 22, 'lower'],
 ]
+
+/**
+ * Pairs that show which way a half of the body faces, most telling first: the
+ * shoulders for the arms and head, the hips for the legs, each standing in
+ * for the other when it is not seen.
+ */
+const FACING = {
+  upper: [[5, 6], [11, 12], [1, 2], [3, 4]],
+  lower: [[11, 12], [5, 6]],
+} as const
 
 /**
  * The PSD is the portrait padded to a square and scaled: its keypoints take
@@ -78,30 +88,50 @@ export function skeletonInFrame(
   frame: { x: number; y: number; width: number; height: number },
 ): Anime25DSkeleton | null {
   const joints: Anime25DSkeleton['joints'] = {}
-  const seen = (index: number) => {
+  const sure = (index: number) => {
     const point = skeleton.keypoints[index]
+    return point && point[2] >= MIN_JOINT_SCORE ? point : null
+  }
+  const seen = (index: number) => {
+    const point = sure(index)
     if (!point) return null
     const [x, y, score] = point
     const fx = x - frame.x
     const fy = y - frame.y
-    if (!(score >= MIN_JOINT_SCORE)) return null
     if (fx < 0 || fy < 0 || fx > frame.width || fy > frame.height) return null
     return { x: fx, y: fy, score }
   }
+  // True when the person's left is on the left of the picture: seen from behind.
+  const facing = (half: 'upper' | 'lower') => {
+    for (const [left, right] of FACING[half]) {
+      const a = sure(left)
+      const b = sure(right)
+      if (a && b && a[0] !== b[0]) return a[0] < b[0]
+    }
+    return null
+  }
+  const leftOnLeft = { upper: facing('upper'), lower: facing('lower') }
   for (const joint of JOINTS) {
     if (joint.length === 2) {
       const point = seen(joint[1])
       if (point) joints[joint[0]] = point
       continue
     }
-    const [name, first, second] = joint
+    const [name, first, second, half] = joint
     const a = seen(first)
     const b = seen(second)
-    const [left, right] = a && b ? (a.x <= b.x ? [a, b] : [b, a]) : [null, null]
-    if (left && right) {
-      joints[`${name}L` as Anime25DJointName] = left
-      joints[`${name}R` as Anime25DJointName] = right
+    const onLeft = leftOnLeft[half]
+    if (onLeft === null) {
+      // No torso to go by: a pair seen together is told apart by position.
+      if (a && b) {
+        joints[`${name}L` as Anime25DJointName] = a.x <= b.x ? a : b
+        joints[`${name}R` as Anime25DJointName] = a.x <= b.x ? b : a
+      }
+      continue
     }
+    const [left, right] = onLeft ? [a, b] : [b, a]
+    if (left) joints[`${name}L` as Anime25DJointName] = left
+    if (right) joints[`${name}R` as Anime25DJointName] = right
   }
   return Object.keys(joints).length > 0 ? { model: skeleton.model, joints } : null
 }
