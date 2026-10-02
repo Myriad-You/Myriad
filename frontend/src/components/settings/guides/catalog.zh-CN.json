@@ -572,7 +572,7 @@
       "what": "她的声音是哪一整套：怎么听、谁来想、怎么说。",
       "chain": "① TTS：浏览器录音，AI 页「语音服务」的 ASR 听写，Lite 档想，语音服务的 TTS 朗读。\n② 声网：实时对话走声网（声网听写、声网朗读，中间是 Lite 档）；打字聊天仍由 TTS 朗读。要先在 AI 页添加声网源。\n③ Omni：全部由 Lite 档的 Omni 来，直接听原声、边想边说，不用声网和 ASR/TTS。要求 Lite 档用 DashScope 源直连（新加坡节点），模型是 Omni（如 qwen3.8-omni-flash，不带 qwen/ 前缀）。\n④ 条件不满足时退回 TTS，这里会写明原因。没选过的站点：配了声网算声网，否则算 TTS。",
       "frontend": "设置 → Agent → 说话 → 她的声音。音色只对 Omni 起作用：留空用模型默认音色，或填预置音色名（如 Tina），或填你在 DashScope 上复刻得到的音色 ID。",
-      "notes": "复刻在 DashScope 上自己做，本站不提供：用 qwen-voice-enrollment 上传一段 10–60 秒的清晰录音（WAV/MP3/M4A），target_model 填 Lite 档的模型，返回的 voice 就是音色 ID。录音必须是你有权使用的声音。DashScope 文档列出的可复刻模型里没有非实时的 qwen3.8-omni-flash，被拒时可把 Lite 档换成 qwen3.5-omni-flash。「声音设计」做出的音色只给 Qwen-TTS 朗读模型用，不能直接给 Omni。"
+      "notes": "复刻在 DashScope 上自己做，本站不提供：用 qwen-voice-enrollment 上传一段 10–60 秒的清晰录音（WAV/MP3/M4A），target_model 填 Lite 档的模型，返回的 voice 就是音色 ID。录音必须是你有权使用的声音。只有 qwen3.5-omni-plus 和 qwen3.5-omni-flash 支持复刻音色（快照版本不支持）；qwen3.8-omni-flash 只能用预置音色，要用复刻音色就把 Lite 档换成 qwen3.5-omni-flash。「声音设计」做出的音色只给 Qwen-TTS 朗读模型用，不能直接给 Omni。"
     },
     "channels": {
       "what": "添加一个私聊办事 Bot，让 Agent 能从 QQ、Telegram、Discord 或飞书接请求。",

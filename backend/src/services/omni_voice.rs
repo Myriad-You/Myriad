@@ -148,10 +148,38 @@ pub enum OmniDelta {
     /// A piece of how it sounds: base64 of 16-bit mono PCM at
     /// [`SAMPLE_RATE`].
     Audio(String),
+    /// What the sound so far says, where the stream tells it
+    /// (`delta.audio.transcript`).
+    Spoken(String),
 }
 
-/// How a recording rides in a request. DashScope's guide passes base64
-/// with this data-URL prefix (not verified against the live API yet).
+/// Her actions (`[[wear:…]]`, `[[game:soup]]` and the like) are lines of
+/// her text, not things she says; but the sound follows the text. Where the
+/// stream tells what its sound says, the sound stops at the first `[[`,
+/// which only ever begins her last line. Without that, nothing is held back.
+#[derive(Default)]
+pub struct Unsaid {
+    spoken: String,
+    holding: bool,
+}
+
+impl Unsaid {
+    pub fn heard_as(&mut self, transcript: &str) {
+        if self.holding {
+            return;
+        }
+        self.spoken.push_str(transcript);
+        self.holding = self.spoken.contains("[[");
+    }
+
+    /// Whether the sound now arriving is still something she says.
+    pub fn lets_through(&self) -> bool {
+        !self.holding
+    }
+}
+
+/// How a recording rides in a request: DashScope's guide (its Python and
+/// Node examples for local files) passes base64 with this prefix.
 const HEARD_PREFIX: &str = "data:;base64,";
 
 /// What she is asked: `prompt`, with `images` and what she `heard` (base64
@@ -268,6 +296,13 @@ fn deltas(event: &Value) -> Vec<OmniDelta> {
         && !text.is_empty()
     {
         out.push(OmniDelta::Text(text.to_string()));
+    }
+    // What the sound says comes before the sound, so what it says can hold
+    // it back.
+    if let Some(spoken) = delta.pointer("/audio/transcript").and_then(Value::as_str)
+        && !spoken.is_empty()
+    {
+        out.push(OmniDelta::Spoken(spoken.to_string()));
     }
     if let Some(data) = delta.pointer("/audio/data").and_then(Value::as_str)
         && !data.is_empty()
@@ -537,6 +572,7 @@ mod tests {
             seen.push(match delta {
                 OmniDelta::Text(text) => format!("text:{text}"),
                 OmniDelta::Audio(sound) => format!("audio:{sound}"),
+                OmniDelta::Spoken(spoken) => format!("spoken:{spoken}"),
             });
             async { true }
         })
@@ -555,6 +591,24 @@ mod tests {
                 .map(|cut| cut.partial.as_str()),
             Some("说到一半")
         );
+    }
+
+    #[test]
+    fn her_actions_are_not_said_aloud_where_the_stream_tells_what_it_says() {
+        let mut unsaid = Unsaid::default();
+        assert!(unsaid.lets_through(), "nothing known: nothing held");
+        unsaid.heard_as("好呀，换给你看。");
+        assert!(unsaid.lets_through());
+        unsaid.heard_as("\n[");
+        assert!(unsaid.lets_through(), "one bracket is not an action yet");
+        unsaid.heard_as("[wear:japanese]]");
+        assert!(!unsaid.lets_through());
+        unsaid.heard_as("还有");
+        assert!(!unsaid.lets_through(), "held to the end");
+        let event = json!({"choices":[{"delta":{"audio":{"transcript":"你好","data":"AAEC"}}}]});
+        let pieces = deltas(&event);
+        assert!(matches!(&pieces[0], OmniDelta::Spoken(spoken) if spoken == "你好"));
+        assert!(matches!(&pieces[1], OmniDelta::Audio(_)));
     }
 
     #[test]

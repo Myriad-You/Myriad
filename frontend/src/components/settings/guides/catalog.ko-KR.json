@@ -572,7 +572,7 @@
       "what": "그녀의 목소리 묶음: 어떻게 듣고, 누가 생각하고, 어떻게 말하는지.",
       "chain": "1) TTS: 브라우저가 녹음하고 AI 페이지 「음성 서비스」의 ASR이 받아 적고, Lite가 생각하고, 음성 서비스의 TTS가 읽습니다.\n2) Agora: 음성 대화는 Agora를 거칩니다(Agora가 받아 적고 읽으며 그 사이에 Lite). 텍스트 채팅은 계속 TTS가 읽습니다. 먼저 AI 페이지에서 Agora 소스를 추가하세요.\n3) Omni: 모두 Lite의 Omni 모델이 맡습니다. 목소리를 그대로 듣고 생각하면서 말하며, Agora·ASR·TTS를 쓰지 않습니다. Lite는 DashScope 소스에 직접 연결(싱가포르)하고 모델은 Omni(예: qwen3.8-omni-flash, qwen/ 접두사 없이)여야 합니다.\n4) 조건을 못 맞추면 TTS로 돌아가며 이유를 여기 표시합니다. 고른 적 없는 사이트: Agora가 설정돼 있으면 Agora, 아니면 TTS.",
       "frontend": "설정 → Agent → 말하기 → 그녀의 목소리. 목소리는 Omni에만 적용됩니다: 비워 두면 모델 기본값, 프리셋 이름(예: Tina), 또는 DashScope에서 복제한 목소리 ID를 입력하세요.",
-      "notes": "복제는 DashScope에서 직접 하며 이 사이트는 제공하지 않습니다: qwen-voice-enrollment로 10–60초의 깨끗한 녹음(WAV/MP3/M4A)을 올리고 target_model에 Lite의 모델을 넣으면, 돌아오는 voice가 목소리 ID입니다. 녹음은 사용할 권리가 있는 목소리여야 합니다. DashScope의 복제 지원 모델 목록에는 비실시간 qwen3.8-omni-flash가 없습니다. 거부되면 Lite를 qwen3.5-omni-flash로 바꾸세요. Voice Design 목소리는 Qwen-TTS 전용이라 Omni에 바로 쓸 수 없습니다."
+      "notes": "복제는 DashScope에서 직접 하며 이 사이트는 제공하지 않습니다: qwen-voice-enrollment로 10–60초의 깨끗한 녹음(WAV/MP3/M4A)을 올리고 target_model에 Lite의 모델을 넣으면, 돌아오는 voice가 목소리 ID입니다. 녹음은 사용할 권리가 있는 목소리여야 합니다. 복제 목소리는 qwen3.5-omni-plus와 qwen3.5-omni-flash만 지원합니다(스냅숏 버전은 미지원). qwen3.8-omni-flash는 프리셋 목소리만 쓸 수 있으니, 복제 목소리를 쓰려면 Lite를 qwen3.5-omni-flash로 바꾸세요. Voice Design 목소리는 Qwen-TTS 전용이라 Omni에 바로 쓸 수 없습니다."
     },
     "channels": {
       "what": "1:1 업무 봇을 추가해 QQ, Telegram, Discord, Feishu에서 요청을 받아요.",
