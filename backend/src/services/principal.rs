@@ -114,10 +114,9 @@ async fn query_site_owner_id(db: &impl ConnectionTrait) -> Result<Option<i32>, D
 
 /// Whether someone has claimed this installation (an admin or durable owner exists).
 ///
-/// A database without a `users` table is unclaimed, and one whose `users`
-/// predates `is_owner` is judged by `is_admin` alone; these are facts about
-/// the schema, not failures. Any query or decode failure is `Err`. Generic
-/// over the connection so create-admin can ask inside its locked transaction.
+/// A database without a `users` table is unclaimed: a fact about the schema,
+/// not a failure. Any query or decode failure is `Err`. Generic over the
+/// connection so create-admin can ask inside its locked transaction.
 pub async fn installation_claimed<C: ConnectionTrait>(db: &C) -> Result<bool, DbErr> {
     let schema = db
         .query_one_raw(Statement::from_string(
@@ -129,14 +128,9 @@ pub async fn installation_claimed<C: ConnectionTrait>(db: &C) -> Result<bool, Db
     if !schema.try_get::<bool>("", "has_users")? {
         return Ok(false);
     }
-    let sql = if schema.try_get::<bool>("", "has_owner_column")? {
-        INSTALLATION_CLAIMED_SQL
-    } else {
-        INSTALLATION_CLAIMED_LEGACY_SQL
-    };
     db.query_one_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        sql.to_string(),
+        INSTALLATION_CLAIMED_SQL.to_string(),
     ))
     .await?
     .ok_or_else(|| DbErr::RecordNotFound("installation claim".to_string()))?
@@ -145,14 +139,9 @@ pub async fn installation_claimed<C: ConnectionTrait>(db: &C) -> Result<bool, Db
 
 /// `to_regclass` resolves through `search_path`, so a session TEMP `users`
 /// counts too (tests rely on it).
-const INSTALLATION_SCHEMA_SQL: &str = "SELECT to_regclass('users') IS NOT NULL AS has_users, \
-     EXISTS (SELECT 1 FROM pg_attribute \
-             WHERE attrelid = to_regclass('users') AND attname = 'is_owner' \
-               AND NOT attisdropped) AS has_owner_column";
+const INSTALLATION_SCHEMA_SQL: &str = "SELECT to_regclass('users') IS NOT NULL AS has_users";
 const INSTALLATION_CLAIMED_SQL: &str = "SELECT EXISTS (SELECT 1 FROM users \
      WHERE is_admin = true OR is_owner = true) AS claimed";
-const INSTALLATION_CLAIMED_LEGACY_SQL: &str =
-    "SELECT EXISTS (SELECT 1 FROM users WHERE is_admin = true) AS claimed";
 
 #[cfg(test)]
 mod tests {
@@ -252,16 +241,15 @@ mod tests {
 
         exec(
             &db,
-            "CREATE TEMP TABLE users (id INT PRIMARY KEY, is_admin BOOLEAN)",
+            "CREATE TEMP TABLE users (id INT PRIMARY KEY, is_admin BOOLEAN, is_owner BOOLEAN)",
         )
         .await;
         assert!(!installation_claimed(&db).await.unwrap());
-        exec(&db, "INSERT INTO users VALUES (1, false)").await;
+        exec(&db, "INSERT INTO users VALUES (1, false, false)").await;
         assert!(!installation_claimed(&db).await.unwrap());
         exec(&db, "UPDATE users SET is_admin = true").await;
-        assert!(installation_claimed(&db).await.unwrap(), "legacy schema");
+        assert!(installation_claimed(&db).await.unwrap(), "admin claims");
 
-        exec(&db, "ALTER TABLE users ADD COLUMN is_owner BOOLEAN").await;
         exec(&db, "UPDATE users SET is_admin = false, is_owner = true").await;
         assert!(installation_claimed(&db).await.unwrap(), "owner claims");
         exec(&db, "UPDATE users SET is_owner = false").await;

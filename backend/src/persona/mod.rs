@@ -32,9 +32,6 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
     agent::skill_evolution::init_skill_evolution(agent_data_dir.join("skills")).await;
     tracing::info!("✅ Agent skill evolution system initialized");
 
-    // Carry the pre-unified JSON memory into the database (idempotent)
-    agent::memory::import_legacy_json(&db, &agent_data_dir.join("memory")).await;
-
     // Initialize MCP (Model Context Protocol) client
     agent::mcp::init_mcp(&agent_data_dir.join("mcp_servers.json")).await;
     tracing::info!("✅ MCP client initialized");

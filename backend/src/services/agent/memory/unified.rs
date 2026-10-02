@@ -86,8 +86,6 @@ impl MemoryKind {
 pub enum Speaker {
     User,
     Agent,
-    /// Carried over from the pre-unified stores; who said it is unknown.
-    Import,
 }
 
 impl Speaker {
@@ -95,7 +93,6 @@ impl Speaker {
         match self {
             Self::User => "user",
             Self::Agent => "agent",
-            Self::Import => "import",
         }
     }
 }
