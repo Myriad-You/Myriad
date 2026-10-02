@@ -172,7 +172,13 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
     shellMode === 'front-hair' && source.role === 'front-hair'
       ? sampleAnime25DHairlinePinWeights(rest, source, rows, shellProfile)
       : null
+  // Only a standing figure has a ground for its skirt to hang above.
+  const skirt =
+    baseRole === 'bottomwear' && playback.anchors.groundY !== undefined
+      ? { topY: source.y, bottomY: source.y + source.h }
+      : null
   const deformationPolicy = resolveAnime25DLayerDeformationPolicy({
+    skirtSway: Boolean(skirt),
     rigidAttachment: isAnime25DRigidAttachment(source),
     baseRole,
     fade: source.fade,
@@ -249,6 +255,7 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
     torsoShellMode,
     handwearAnchorX: linkedArmAnchorX,
     turnFeature: turnFeatures.get(source) ?? null,
+    skirt,
     ...armBinding(source, rest),
   })
   const layerTransform = new Float32Array(9)

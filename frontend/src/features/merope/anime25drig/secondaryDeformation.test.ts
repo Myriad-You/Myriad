@@ -669,6 +669,22 @@ test('fades split-collar torso volume with the inverse neck-follow field', () =>
   )
 })
 
+test('a standing figure\'s skirt hem trails by the swing, held at the waist', () => {
+  const frame = secondaryFrame(0, 0)
+  const plain = secondaryBinding('bottomwear', 'body', false)
+  const skirt = { ...plain, skirt: { topY: 400, bottomY: 600 } }
+  const at = (binding: Anime25DSecondaryDeformationBinding, y: number) =>
+    deformSecondary({ x: 300, y }, binding, frame).x
+  frame.skirtSwing = 0
+  const still = [400, 500, 600].map((y) => at(skirt, y))
+  frame.skirtSwing = 12
+  assert.ok(Math.abs(at(skirt, 400) - still[0]) < 1e-9, 'waist')
+  assert.ok(Math.abs(at(skirt, 500) - still[1] - 3) < 1e-9, 'midway, a quarter')
+  assert.ok(Math.abs(at(skirt, 600) - still[2] - 12) < 1e-9, 'hem')
+  // A bust's lower clothing has no skirt binding and never swings.
+  assert.equal(at(plain, 600), deformSecondary({ x: 300, y: 600 }, plain, { ...frame, skirtSwing: 0 }).x)
+})
+
 function secondaryBindings(): Anime25DSecondaryDeformationBinding[] {
   return [
     secondaryBinding('face', 'head', false),

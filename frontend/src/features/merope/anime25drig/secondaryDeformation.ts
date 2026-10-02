@@ -113,6 +113,8 @@ export interface Anime25DSecondaryDeformationFrame {
   torsoShellBlend: number
   torsoNeckOffsetX: number
   torsoShellRotation: Readonly<Anime25DTorsoShellRotation>
+  /** How far a standing figure's skirt hem trails its hips, in pixels. */
+  skirtSwing?: number
 }
 
 export interface Anime25DSecondaryDeformationBinding {
@@ -145,6 +147,8 @@ export interface Anime25DSecondaryDeformationBinding {
   shellMode: Anime25DShellMode | null
   hairlinePinWeights: Float32Array | null
   torsoShellMode: Anime25DTorsoShellMode | null
+  /** A standing figure's skirt: the waist it hangs from and its hem. */
+  skirt: { topY: number; bottomY: number } | null
 }
 
 export interface Anime25DMutableSecondaryPoint {
@@ -174,6 +178,7 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   handwearAnchorX?: number
   /** The drawn feature this layer belongs to; it turns with the head as one piece. */
   turnFeature?: HeadTurnFeature | null
+  skirt?: { topY: number; bottomY: number } | null
 }): Anime25DSecondaryDeformationBinding {
   return {
     ...input,
@@ -189,6 +194,7 @@ export function createAnime25DSecondaryDeformationBinding(input: {
     shellMode: input.shellMode ?? null,
     hairlinePinWeights: input.hairlinePinWeights ?? null,
     torsoShellMode: input.torsoShellMode ?? null,
+    skirt: input.skirt ?? null,
     arm: input.baseRole === 'handwear' ? (input.arm ?? null) : null,
     armMesh: input.baseRole === 'handwear' ? (input.armMesh ?? null) : null,
   }
@@ -474,6 +480,12 @@ export function deformAnime25DSecondaryPoint(
   // The neck's lower part already receives its cylinder projection above;
   // only its head-follow share inherits the root, avoiding double travel.
   point.x += frame.torsoNeckOffsetX * torsoNeckFollow
+  const skirt = binding.skirt
+  if (skirt && frame.skirtSwing) {
+    // Held at the waist, freest at the hem.
+    const along = clamp((restY - skirt.topY) / Math.max(1, skirt.bottomY - skirt.topY), 0, 1)
+    point.x += frame.skirtSwing * along * along
+  }
 }
 
 const chainPoint = { x: 0, y: 0 }
