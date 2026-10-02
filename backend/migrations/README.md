@@ -35,9 +35,10 @@ upgrades to 0.6.1 first, then to the current release; the renames and heals
 for anything older are gone.
 
 Whole tables are created by Migrator (001–006) — the numbered series is the
-**complete greenfield source of truth**. Runtime `schema_check` only heals
-**recent (~1 month) features** plus ongoing data/object jobs (platform seeds,
-single owner, storage-quota trigger).
+**complete greenfield source of truth**. Runtime `schema_check` heals missing
+columns and indexes generically, plus ongoing data/object jobs (platform and
+config seeds, single owner, user lifecycle, the agent task status CHECK, note
+docs whose article was deleted).
 
 **Setup path:** `api/setup::init_database` runs `Migrator::up` then
 `schema_check::ensure_schema` so first-boot seeds/heals do not require a
@@ -56,27 +57,16 @@ those capabilities. Until that isolation exists, classifying drift as
 "non-critical" or adding an operator bypass merely moves a deterministic
 startup failure into partial writes and request-time SQL errors.
 
-Recent tables:
+A new table or structure goes into 001–006 for new databases, and gets an
+`ensure_*` heal (`CREATE IF NOT EXISTS`) for databases already past that
+migration — until the support floor moves past the release that brought it.
+The `_schema_versions` mark does **not** skip the safety check, and is written
+only after the final drift check succeeds.
 
-| Feature | Migration | schema_check |
+| Ongoing | Migration | schema_check |
 |---------|-----------|--------------|
-| agent_persona / addressee / diary / proactive | `004` | `ensure_agent_merope_tables` + TableDef |
-| agent_intentions | `004` | `ensure_agent_intentions_table` + TableDef |
-| agent_intentions unique source event | `004` | `ensure_agent_intentions_table` unique index |
-| agent_autonomy_grants | `004` | `ensure_agent_autonomy_grants_table` + TableDef |
-| agent_memories（统一记忆；旧 `agent_diary` 事实由 `migrate_diary_facts_to_memories` 复制） | `004` | `ensure_agent_memories_table` + TableDef |
-| inbox_receipts | `005` | `ensure_federation_inbox_receipts_table` + TableDef |
-| phantasi_note_docs | `003` | `ensure_phantasi_note_docs_table` + TableDef |
-| phantasi_note_authors | `003` | `ensure_phantasi_note_authors_table` + TableDef |
-| phantasi_source_applications | `003` | `ensure_phantasi_source_applications_table` + TableDef |
-| media_assets | `003` / `media_asset_model.sql` | `ensure_media_assets_table` + TableDef |
-| media_references / media_url_aliases / media_migration_jobs | `003` / `media_asset_model.sql` | `ensure_media_assets_table` + TableDef |
-| note editor history | `003` / `note_editor.sql` | `ensure_note_editor_history` + TableDef |
 | user lifecycle FKs + subject-table guard / delete triggers | `006` / `user_lifecycle.sql` (down: `user_lifecycle_down.sql`) | `ensure_user_lifecycle` (orphans of the listed FKs are removed / set NULL before the constraint is added) |
-
-Older DBs that already applied a pre-feature migration version get tables via
-`ensure_*` (`CREATE IF NOT EXISTS`). The `_schema_versions` mark does **not**
-skip the safety check, and is written only after the final drift check succeeds.
+| agent task status CHECK | — | `ensure_agent_tasks_status_check` |
 
 ## Applying migrations
 

@@ -325,7 +325,7 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             name: "idx_phantasi_sources_url_key".into(),
             table: "phantasi_sources".into(),
             columns: vec!["url_key".into()],
-            // 规范化 URL 全站唯一；存量库先经 `ensure_phantasi_source_url_key_unique` 合并重复。
+            // 规范化 URL 全站唯一。
             is_unique: true,
         },
         IndexDef {
