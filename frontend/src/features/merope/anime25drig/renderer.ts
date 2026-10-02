@@ -52,6 +52,7 @@ export interface Anime25DRendererBindings {
   bodyTransform: WebGLUniformLocation
   bodyLift: WebGLUniformLocation
   bodyPitch: WebGLUniformLocation
+  bodyStance: WebGLUniformLocation
   opacity: WebGLUniformLocation
   cut: WebGLUniformLocation
   cryTime: WebGLUniformLocation
@@ -104,6 +105,7 @@ export function createAnime25DRendererBindings(
     bodyTransform: requiredUniform(gl, program, 'u_body_transform'),
     bodyLift: requiredUniform(gl, program, 'u_body_lift'),
     bodyPitch: requiredUniform(gl, program, 'u_body_pitch'),
+    bodyStance: requiredUniform(gl, program, 'u_body_stance'),
     opacity: requiredUniform(gl, program, 'u_opacity'),
     cut: requiredUniform(gl, program, 'u_cut'),
     cryTime: requiredUniform(gl, program, 'u_cry_time'),
@@ -161,6 +163,7 @@ export function drawAnime25DFrame(
   gl.uniform4f(bindings.bodyLift, lift?.centerX ?? 0, lift?.upperY ?? 0, lift?.lowerY ?? 1, lift?.amount ?? 0)
   const pitch = bodyPitchUniform(lift, bodyPitchValue)
   gl.uniform3f(bindings.bodyPitch, pitch[0], pitch[1], pitch[2])
+  gl.uniform3f(bindings.bodyStance, lift?.lowerY ?? 1, lift?.groundY ?? 0, lift?.stanceShift ?? 0)
   gl.activeTexture(gl.TEXTURE0)
   if (!atlasTexture) return
   gl.bindTexture(gl.TEXTURE_2D, atlasTexture)

@@ -73,3 +73,22 @@ test('posture response agrees across frame rates and does not jump on reversal',
   })
   assert.ok(Math.max(...values) - Math.min(...values) < 1e-10)
 })
+
+test('a weight shift moves the hips and everything above, keeps the soles, and leans the legs straight', () => {
+  const field = { centerX: 100, upperY: 200, lowerY: 600, amount: 0, groundY: 1200, stanceShift: 30 }
+  const at = (y: number) => {
+    const point = { x: 100, y }
+    applyBodyLift(point, field)
+    return point
+  }
+  assert.deepEqual(at(100), { x: 130, y: 100 })
+  assert.deepEqual(at(600), { x: 130, y: 600 })
+  assert.deepEqual(at(900), { x: 115, y: 900 })
+  assert.deepEqual(at(1200), { x: 100, y: 1200 })
+  assert.deepEqual(at(1250), { x: 100, y: 1250 })
+  // A bust stands on no ground: its crop is where the shift would have to vanish.
+  const bust = { ...field, groundY: undefined }
+  const point = { x: 100, y: 100 }
+  applyBodyLift(point, bust)
+  assert.deepEqual(point, { x: 100, y: 100 })
+})

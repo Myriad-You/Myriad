@@ -82,6 +82,8 @@ export interface Anime25DPlaybackAnchors {
   neckTop: number
   neckBottom: number
   bodyPivot: { x: number; y: number }
+  /** A standing figure's soles; a bust is cut off above any ground. */
+  groundY?: number
   mouth: {
     x0: number
     y0: number

@@ -59,13 +59,14 @@ export interface Anime25DPlaybackBuildInput {
 }
 
 /**
- * `bodyPivot` is where the upper body leans from, in document pixels; without
- * one it is the frame's bottom edge, a bust's crop.
+ * A standing figure's `stance`, in document pixels: the hips its upper body
+ * leans from and the ground its soles stand on. Without one the upper body
+ * leans from the frame's bottom edge, a bust's crop.
  */
 export function remapRiggerAnchors(
   anchors: Anime25DRiggerAnchors,
   frame: { x: number; y: number; width: number; height: number },
-  bodyPivot: { x: number; y: number } | null = null,
+  stance: { hips: { x: number; y: number }; groundY: number } | null = null,
 ): Anime25DPlaybackAnchors {
   const shiftX = (value: number) => value - frame.x
   const shiftY = (value: number) => value - frame.y
@@ -85,9 +86,10 @@ export function remapRiggerAnchors(
     neckPivot,
     neckTop: shiftY(anchors.neckTop),
     neckBottom: shiftY(anchors.neckBottom),
-    bodyPivot: bodyPivot
-      ? { x: shiftX(bodyPivot.x), y: shiftY(bodyPivot.y) }
+    bodyPivot: stance
+      ? { x: shiftX(stance.hips.x), y: shiftY(stance.hips.y) }
       : { x: neckPivot.x, y: frame.height },
+    ...(stance ? { groundY: shiftY(stance.groundY) } : {}),
     mouth: {
       x0: shiftX(anchors.mouth.x0),
       y0: shiftY(anchors.mouth.y0),

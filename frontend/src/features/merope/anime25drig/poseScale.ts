@@ -5,6 +5,12 @@ export const HEAD_ROLL_RADIANS = 0.15
 export const BODY_ROLL_RADIANS = 0.05
 
 /**
+ * A standing figure's hip shift at `body` = ±1, as a share of its leg length.
+ * The hips move against the lean, so the weight stays over the feet.
+ */
+export const STANCE_SHIFT = 0.06
+
+/**
  * How much of the lean a point at `y` takes: none on the canvas cut at
  * `pivotY`, all of it from `bendHeight` above. Mirrors the vertex shader.
  */

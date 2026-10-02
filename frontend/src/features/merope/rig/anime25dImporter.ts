@@ -21,7 +21,7 @@ import { addAuthoredExpressionLayers } from './authoredExpression'
 import { compensateSyntheticClosedEyeAngles } from './closedEyeCompensation'
 import { CHARACTER_ASSET_PROFILES, MAX_RIG_PARTS, RIG_IR_VERSION } from './contract'
 import { formatTemplate } from './formatTemplate'
-import { contentFrame, deriveAnchors, hipPivot, semanticAnchors } from './importerAnchors'
+import { contentFrame, deriveAnchors, semanticAnchors, standingStance } from './importerAnchors'
 import { assignCrossfadeSlots, hasStaticSeeThroughMouth, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded } from './importerLayerSplits'
 import { addHiddenArmFragments, anime25DShoulderSeeds } from './linkedHandwear'
 import { findMotionExposure } from './motionExposure'
@@ -144,8 +144,8 @@ export async function prepareAnime25DRigPsd(
     )
   }
   const frame = contentFrame(psd, layers, importProfile)
-  const hips = importProfile.bodyPivot === 'hips' ? hipPivot(layers) : null
-  if (importProfile.bodyPivot === 'hips' && !hips) {
+  const stance = importProfile.bodyPivot === 'hips' ? standingStance(layers) : null
+  if (importProfile.bodyPivot === 'hips' && !stance) {
     throw new Error(formatTemplate(copy.anime25dMissingLayer, { role: 'legwear' }))
   }
   onStage?.('packing')
@@ -161,7 +161,7 @@ export async function prepareAnime25DRigPsd(
     buildAnime25DBonesAndHandles(prepared, anchors, copy)
   const rigLayers = buildAnime25DLayerSources(prepared, layerHandles)
   const partIds = prepared.map((layer) => `a25d-${layer.id}`)
-  const playbackAnchors = remapRiggerAnchors(rig.anchors, frame, hips)
+  const playbackAnchors = remapRiggerAnchors(rig.anchors, frame, stance)
   const mouthProfile = analyzeAnime25DMouthProfile(
     prepared,
     frame,

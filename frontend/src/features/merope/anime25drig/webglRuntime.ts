@@ -13,6 +13,7 @@ uniform mat3 u_layer_transform;
 uniform vec4 u_body_transform;
 uniform vec4 u_body_lift;
 uniform vec3 u_body_pitch;
+uniform vec3 u_body_stance;
 ${BODY_LIFT_GLSL}
 out vec2 v_uv;
 void main() {
@@ -28,7 +29,10 @@ void main() {
     offset.x * c - offset.y * s,
     offset.x * s + offset.y * c
   );
-  transformed = bodyLift(bodyPitch(transformed, u_body_lift, u_body_pitch), u_body_lift);
+  transformed = bodyStance(
+    bodyLift(bodyPitch(transformed, u_body_lift, u_body_pitch), u_body_lift),
+    u_body_stance
+  );
   vec2 clip = vec2(transformed.x / u_view.x * 2.0 - 1.0, 1.0 - transformed.y / u_view.y * 2.0);
   gl_Position = vec4(clip, 0.0, 1.0);
   v_uv = a_uv;

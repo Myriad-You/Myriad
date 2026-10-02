@@ -54,17 +54,21 @@ export function contentFrame(
 }
 
 /**
- * A standing figure's hips: the top of its legs, between them. The upper body
- * leans from here while the legs and feet stay planted.
+ * A standing figure's hips and ground: the top of its legs, between them, and
+ * the line its soles stand on. The upper body leans from the hips while the
+ * legs and feet stay planted.
  */
-export function hipPivot(layers: readonly RasterLayer[]): RigPoint | null {
+export function standingStance(
+  layers: readonly RasterLayer[],
+): { hips: RigPoint; groundY: number } | null {
   const legs = layers.filter((layer) => layer.role === 'legwear')
   if (legs.length === 0) return null
   const left = Math.min(...legs.map((layer) => layer.left))
   const right = Math.max(...legs.map((layer) => layer.left + layer.width))
+  const planted = [...legs, ...layers.filter((layer) => layer.role === 'footwear')]
   return {
-    x: (left + right) / 2,
-    y: Math.min(...legs.map((layer) => layer.top)),
+    hips: { x: (left + right) / 2, y: Math.min(...legs.map((layer) => layer.top)) },
+    groundY: Math.max(...planted.map((layer) => layer.top + layer.height)),
   }
 }
 

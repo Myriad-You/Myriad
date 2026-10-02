@@ -576,6 +576,9 @@ test('a full figure keeps each leg and shoe, frames down to the soles and leans 
   const hipsY = Math.min(...legs.map((layer) => layer.y))
   assert.ok(Math.abs(playback.anchors.bodyPivot.y - hipsY) <= 3, `${playback.anchors.bodyPivot.y} vs ${hipsY}`)
   assert.ok(playback.anchors.bodyPivot.y < height * 0.6)
+  // The soles stand on the ground line.
+  const feet = playback.layers.filter((layer) => layer.role === 'footwear')
+  assert.ok(Math.abs(playback.anchors.groundY! - Math.max(...feet.map((layer) => layer.y + layer.h))) <= 3)
 })
 
 test('legs pressed together are cut down their middle into a left and a right leg', async () => {

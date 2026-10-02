@@ -54,7 +54,7 @@ import {
 } from './jellyVolume'
 import { writeAnime25DLayerGlobalTransform } from './layerTransform'
 import { writePoseCorrectionWeights } from './poseCorrections'
-import { BODY_ROLL_RADIANS, HEAD_ROLL_RADIANS } from './poseScale'
+import { BODY_ROLL_RADIANS, HEAD_ROLL_RADIANS, STANCE_SHIFT } from './poseScale'
 import { deformAnime25DSecondaryPoint } from './secondaryDeformation'
 import { writeAnime25DShellRotation } from './shellDeformation'
 import {
@@ -102,7 +102,7 @@ export class Anime25DBodyFrames {
   private readonly torsoYaw: Anime25DTorsoYawState = { value: 0, velocity: 0 }
   private bodyLiftResponse = new BodyLiftResponse()
   private bodyPitchResponse = new BodyLiftResponse()
-  private readonly bodyLiftField = { centerX: 0, upperY: 0, lowerY: 1, amount: 0, pitch: 0, depth: 0, shoulderY: 0 }
+  private readonly bodyLiftField = { centerX: 0, upperY: 0, lowerY: 1, amount: 0, pitch: 0, depth: 0, shoulderY: 0, groundY: 0, stanceShift: 0 }
 
   /** Each sleeve hangs from its shoulder; its swing is simulated, not authored. */
   private readonly armPendulums = { L: new ArmPendulum(1), R: new ArmPendulum(-1) } as const
@@ -382,6 +382,10 @@ export class Anime25DBodyFrames {
       pitch: this.bodyPitchResponse.value * 0.18,
       depth: this.shellProfile.torso.enabled ? Math.min(this.shellProfile.torso.radiusZ, span * 0.45) : 0,
       shoulderY: anchors.neckBottom,
+      groundY: anchors.groundY ?? anchors.bodyPivot.y,
+      stanceShift: anchors.groundY === undefined
+        ? 0
+        : -e.body * STANCE_SHIFT * (anchors.groundY - anchors.bodyPivot.y),
     })
     this.renderFrame.bodyLift = this.bodyLiftField
     frame.headAngleY = e.angleY

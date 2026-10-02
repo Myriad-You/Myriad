@@ -27,7 +27,7 @@ export function hitTestTouchMesh(
   > & Partial<Pick<Anime25DRenderFrame, 'bodyBendHeight' | 'bodyLift'>>,
 ): TouchMeshHit | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
-  if (frame.bodyLift && (frame.bodyLift.amount || frame.bodyLift.pitch)) {
+  if (frame.bodyLift && (frame.bodyLift.amount || frame.bodyLift.pitch || frame.bodyLift.stanceShift)) {
     // The GPU interpolates transformed triangle vertices, not the continuous
     // field inside each triangle. Pick those exact triangles (no inverse-warp
     // approximation near a coarse garment edge).

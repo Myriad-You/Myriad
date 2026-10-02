@@ -12,20 +12,37 @@ export interface BodyLift {
   pitch?: number
   depth?: number
   shoulderY?: number
+  /**
+   * A standing figure's soles. Shifting its weight, everything from the hips
+   * at `lowerY` up moves by `stanceShift` while the soles stay on the ground
+   * and the legs lean between them. A bust has no ground.
+   */
+  groundY?: number
+  stanceShift?: number
 }
 
 export function applyBodyLift(point: { x: number; y: number }, field?: Readonly<BodyLift>): void {
   if (!field) return
   applyBodyPitch(point, field)
-  if (!field.amount) return
-  const span = Math.max(1, field.lowerY - field.upperY)
-  const t = Math.max(0, Math.min(1, (field.lowerY - point.y) / span))
-  const amount = Math.max(-span * 0.08, Math.min(span * 0.08, field.amount))
-  const gradient = amount * 6 * t * (1 - t) / span
-  // Partial width compensation: no whole-torso ballooning. Zero derivative at
-  // both ends leaves the chest, shoulders, face and canvas cut undistorted.
-  point.x = field.centerX + (point.x - field.centerX) / Math.sqrt(1 + gradient)
-  point.y -= amount * t * t * (3 - 2 * t)
+  if (field.amount) {
+    const span = Math.max(1, field.lowerY - field.upperY)
+    const t = Math.max(0, Math.min(1, (field.lowerY - point.y) / span))
+    const amount = Math.max(-span * 0.08, Math.min(span * 0.08, field.amount))
+    const gradient = amount * 6 * t * (1 - t) / span
+    // Partial width compensation: no whole-torso ballooning. Zero derivative at
+    // both ends leaves the chest, shoulders, face and canvas cut undistorted.
+    point.x = field.centerX + (point.x - field.centerX) / Math.sqrt(1 + gradient)
+    point.y -= amount * t * t * (3 - 2 * t)
+  }
+  applyBodyStance(point, field)
+}
+
+/** The weight shift: a straight leg from the planted sole to the moved hip. */
+export function applyBodyStance(point: { x: number; y: number }, field: Readonly<BodyLift>): void {
+  const shift = field.stanceShift ?? 0
+  const ground = field.groundY ?? field.lowerY
+  if (!shift || !(ground > field.lowerY)) return
+  point.x += shift * Math.max(0, Math.min(1, (ground - point.y) / (ground - field.lowerY)))
 }
 
 /**
@@ -94,6 +111,11 @@ vec2 bodyPitch(vec2 p, vec4 f, vec3 pose) {
   float correction = p.y < pose.x ? (p.y - pose.x) * pose.y
     : pose.y * span * t * t * (1.0 - t);
   return vec2(f.x + (p.x - f.x) * (1.0 + pose.y * share), p.y + pose.z * share + correction);
+}
+// stance: hips (lowerY), ground, shift.
+vec2 bodyStance(vec2 p, vec3 stance) {
+  if (stance.z == 0.0 || !(stance.y > stance.x)) return p;
+  return vec2(p.x + stance.z * clamp((stance.y - p.y) / (stance.y - stance.x), 0.0, 1.0), p.y);
 }
 vec2 bodyLift(vec2 p, vec4 f) {
   float span = max(1.0, f.z - f.y);
