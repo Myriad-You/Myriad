@@ -52,8 +52,12 @@ pub const SUPPORT_FLOOR_SCHEMA_MARK: &str = "2026.09.29.1";
 const REFUSE_BELOW_SUPPORT_FLOOR_SQL: &str = r#"
 DO $$
 BEGIN
-    IF to_regclass('seaql_migrations') IS NULL
-       OR NOT EXISTS (SELECT 1 FROM seaql_migrations) THEN
+    -- Two statements: PL/pgSQL plans each one when it first runs, and a
+    -- single OR would name seaql_migrations before a new database has it.
+    IF to_regclass('seaql_migrations') IS NULL THEN
+        RETURN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM seaql_migrations) THEN
         RETURN;
     END IF;
     IF to_regclass('_schema_versions') IS NULL THEN

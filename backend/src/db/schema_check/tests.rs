@@ -1520,3 +1520,46 @@ async fn federation_fk_heal_runs_against_real_catalog() {
             .expect("federation FK heal must succeed");
     }
 }
+
+/// The support floor lets a new database through and refuses one with
+/// migration history but no 0.6.1 mark. Runs in its own schema.
+#[tokio::test]
+async fn the_support_floor_refuses_an_unmarked_old_database() {
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database};
+    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the support floor check");
+        return;
+    };
+    let schema = format!("floor_test_{}", uuid::Uuid::new_v4().simple());
+    let admin = Database::connect(&url).await.expect("connect test db");
+    admin
+        .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
+        .await
+        .expect("create test schema");
+    let mut options = ConnectOptions::new(url);
+    options
+        .set_schema_search_path(&schema)
+        .max_connections(1)
+        .sqlx_logging(false);
+    let db = Database::connect(options).await.expect("connect test schema");
+    db.execute_unprepared(
+        "CREATE TABLE seaql_migrations (version varchar PRIMARY KEY, applied_at bigint NOT NULL);
+         INSERT INTO seaql_migrations VALUES ('m20240101_000001_initial_schema', 0)",
+    )
+    .await
+    .expect("old history");
+    let refused = crate::db::Migrator::up(&db, None).await;
+
+    db.execute_unprepared("DROP TABLE seaql_migrations")
+        .await
+        .expect("clear history");
+    let fresh = crate::db::Migrator::up(&db, None).await;
+
+    admin
+        .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
+        .await
+        .expect("drop test schema");
+    let error = refused.expect_err("an unmarked old database is refused");
+    assert!(error.to_string().contains("upgrade to 0.6.1 first"), "{error}");
+    fresh.expect("a new database migrates");
+}
