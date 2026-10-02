@@ -477,8 +477,8 @@
       "notes": "Nur bei Bedarf aktivieren; nicht jede Aufgabe braucht diese Stufe."
     },
     "aux": {
-      "what": "Auf welchem Anbieter Lites kleine Urteile (Gefühle, ob sie spricht, was sie behält) und die Einbettungen fürs Erinnern laufen.",
-      "chain": "1) Nie gewählt: Lites aktueller Anbieter, wie bisher; einmal gespeichert bleibt er.\n2) Eine Anbieterquelle gewählt: Urteils- und Einbettungsmodell laufen dort, mit deren Adresse und Schlüssel, und bleiben, wenn Lite woanders hinzieht (etwa zu DashScopes Omni).\n3) Leeres Urteilsmodell: Lites eigenes Modell; leeres Einbettungsmodell: Erinnern nur nach Wörtern.\n4) Ist Lite aus, wird keines genutzt.",
+      "what": "Auf welchem Anbieter ihre kleinen Urteile (Gefühle, ob sie spricht, was sie behält) und die Einbettungen fürs Erinnern laufen.",
+      "chain": "1) Nie gewählt: Lites aktueller Anbieter, wie bisher; einmal gespeichert bleibt er.\n2) Eine Anbieterquelle gewählt: Urteils- und Einbettungsmodell laufen dort, mit deren Adresse und Schlüssel, und bleiben, wenn Lite woanders hinzieht (etwa zu DashScopes Omni).\n3) Leeres Urteilsmodell: Lites eigenes Modell; leeres Einbettungsmodell: Erinnern nur nach Wörtern.\n4) Unabhängig von Lite: Ist Lite aus, laufen sie weiter auf dieser Quelle; nur ein leeres Urteilsmodell (also Lites eigenes) stoppt die Urteile.",
       "frontend": "Einstellungen → KI → Modelle → Urteil & Einbettung.",
       "notes": "Modellnamen müssen der Quelle bekannt sein, z. B. openai/gpt-6-luna über OpenRouter."
     },

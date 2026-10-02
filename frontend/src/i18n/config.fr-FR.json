@@ -1122,7 +1122,7 @@
   "aiLiteEmbeddingModelLabel": "Modèle d'embedding",
   "aiLiteEmbeddingModelPlaceholder": "Vide : rappel par les mots seulement. Un modèle d'embedding (ex. perplexity/pplx-embed-v1-0.6b) permet aussi le rappel par le sens",
   "aiAuxModelTitle": "Jugement et vectorisation",
-  "aiAuxModelDesc": "Les petits jugements de Lite et les vecteurs du rappel peuvent tourner sur leur propre fournisseur, et restent en place quand Lite change (vers l’Omni de DashScope, par exemple).",
+  "aiAuxModelDesc": "Ses petits jugements et les vecteurs du rappel tournent sur leur propre fournisseur, que Lite soit activé ou non et où qu’il aille (vers l’Omni de DashScope, par exemple).",
   "aiAuxProviderHint": "Jamais choisi : le fournisseur actuel de Lite ; une fois enregistré, il reste, quoi que devienne Lite ensuite.",
   "aiVendorUsedAux": "Jugement et vectorisation",
   "aiStandardModelTitle": "Modèle Standard",

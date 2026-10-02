@@ -477,8 +477,8 @@
       "notes": "Enable only when needed; not every task needs this tier."
     },
     "aux": {
-      "what": "Which provider Lite's small judgments (feelings, whether to speak, what to remember) and recall's embeddings run on.",
-      "chain": "1) Never chosen: it is Lite's provider of now, working as before; once saved it stays.\n2) A provider source chosen: the judgment and embedding models run on it, with its address and key, and stay put when Lite moves (to DashScope's Omni, say).\n3) A blank judgment model is Lite's own model; a blank embedding model means recall by words only.\n4) With Lite off, neither is used.",
+      "what": "Which provider her small judgments (feelings, whether to speak, what to remember) and recall's embeddings run on.",
+      "chain": "1) Never chosen: it is Lite's provider of now, working as before; once saved it stays.\n2) A provider source chosen: the judgment and embedding models run on it, with its address and key, and stay put when Lite moves (to DashScope's Omni, say).\n3) A blank judgment model is Lite's own model; a blank embedding model means recall by words only.\n4) Independent of Lite: with Lite off they still run on this source; only a blank judge model (meaning Lite's own) stops judgments.",
       "frontend": "Settings → AI → Models → Judgment & embedding.",
       "notes": "Model names must be ones the source knows, e.g. openai/gpt-6-luna through OpenRouter."
     },

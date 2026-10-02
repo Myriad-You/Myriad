@@ -1122,7 +1122,7 @@
   "aiLiteEmbeddingModelLabel": "Embedding-Modell",
   "aiLiteEmbeddingModelPlaceholder": "Leer: Erinnern nur über Wörter. Ein Embedding-Modell (z. B. perplexity/pplx-embed-v1-0.6b) lässt sie auch über die Bedeutung erinnern",
   "aiAuxModelTitle": "Urteil & Einbettung",
-  "aiAuxModelDesc": "Lites kleine Urteile und die Einbettungen für das Erinnern können auf einem eigenen Anbieter laufen und bleiben, wenn Lite woanders hinzieht (etwa zu DashScopes Omni).",
+  "aiAuxModelDesc": "Ihre kleinen Urteile und die Einbettungen fürs Erinnern laufen auf einem eigenen Anbieter – egal ob Lite an ist oder wohin es zieht (etwa zu DashScopes Omni).",
   "aiAuxProviderHint": "Nie gewählt: Lites aktueller Anbieter; einmal gespeichert bleibt er, egal wohin Lite später wechselt.",
   "aiVendorUsedAux": "Urteil & Einbettung",
   "aiStandardModelTitle": "Standard-Modell",

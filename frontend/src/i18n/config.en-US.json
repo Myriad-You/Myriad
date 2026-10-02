@@ -1122,7 +1122,7 @@
   "aiLiteEmbeddingModelLabel": "Embedding model",
   "aiLiteEmbeddingModelPlaceholder": "Blank: recall by words only. An embedding model (e.g. perplexity/pplx-embed-v1-0.6b) lets her recall by meaning too",
   "aiAuxModelTitle": "Judgment & embedding",
-  "aiAuxModelDesc": "Lite's small judgments and the embeddings recall uses can run on their own provider, so they stay put when Lite moves elsewhere (to DashScope's Omni, say).",
+  "aiAuxModelDesc": "Her small judgments and the embeddings recall uses run on their own provider, whether Lite is on or wherever it moves (to DashScope's Omni, say).",
   "aiAuxProviderHint": "Never chosen, it is Lite's provider of now; once saved it stays, whatever Lite changes to later.",
   "aiVendorUsedAux": "Judgment & embedding",
   "aiStandardModelTitle": "Standard Model",

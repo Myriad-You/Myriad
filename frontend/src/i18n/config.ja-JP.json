@@ -1122,7 +1122,7 @@
   "aiLiteEmbeddingModelLabel": "埋め込みモデル",
   "aiLiteEmbeddingModelPlaceholder": "空欄なら言葉どおりにだけ思い出す。埋め込みモデル（例：perplexity/pplx-embed-v1-0.6b）を入れると意味でも思い出せる",
   "aiAuxModelTitle": "判断とベクトル",
-  "aiAuxModelDesc": "Lite の小さな判断と、思い出しに使うベクトルは、独自のプロバイダーで動かせます。Lite を別の場所（例：DashScope の Omni）に移しても、こちらは動きません。",
+  "aiAuxModelDesc": "彼女の小さな判断と、思い出しに使うベクトルは、独自のプロバイダーで動きます。Lite のオン・オフや移動先（例：DashScope の Omni）には左右されません。",
   "aiAuxProviderHint": "未選択なら Lite が今使っているプロバイダー。保存すると固定され、あとで Lite を変えてもここは変わりません。",
   "aiVendorUsedAux": "判断とベクトル",
   "aiStandardModelTitle": "スタンダードモデル",

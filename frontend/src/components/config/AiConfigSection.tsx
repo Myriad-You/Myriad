@@ -460,7 +460,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     if (proEnabled) {
       add(getFieldValue('pro_ai_source') || currentProProvider, 'pro')
     }
-    if (liteEnabled && getFieldValue('aux_ai_source')) {
+    if (getFieldValue('aux_ai_source')) {
       add(getFieldValue('aux_ai_source'), 'aux')
     }
     add(getFieldValue('ai_image_source') || currentImageProvider, 'image')
@@ -792,25 +792,23 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           updateValue={updateValue}
         />
 
-        {liteEnabled ? (
-          <ModelTierGroup
-            title={t.config.aiAuxModelTitle}
-            description={t.config.aiAuxModelDesc}
-            {...bindGuide('ai.aux', g.ai.aux)}
-            providerGuide={providerGuideBinding.guide}
-            providerGuidePath={providerGuideBinding.guidePath}
-            fieldGuideFor={fieldGuideFor}
-            providerItemKey="aux_ai_source"
-            providerLabel={t.config.aiProvider}
-            provider={getFieldValue('aux_ai_source')}
-            providerOptions={auxSourceOptions}
-            providerHint={t.config.aiAuxProviderHint}
-            hideProvider={auxSourceOptions.length === 0}
-            fields={auxFields}
-            onProviderChange={(slug) => updateValue('aux_ai_source', slug)}
-            updateValue={updateValue}
-          />
-        ) : null}
+        <ModelTierGroup
+          title={t.config.aiAuxModelTitle}
+          description={t.config.aiAuxModelDesc}
+          {...bindGuide('ai.aux', g.ai.aux)}
+          providerGuide={providerGuideBinding.guide}
+          providerGuidePath={providerGuideBinding.guidePath}
+          fieldGuideFor={fieldGuideFor}
+          providerItemKey="aux_ai_source"
+          providerLabel={t.config.aiProvider}
+          provider={getFieldValue('aux_ai_source')}
+          providerOptions={auxSourceOptions}
+          providerHint={t.config.aiAuxProviderHint}
+          hideProvider={auxSourceOptions.length === 0}
+          fields={auxFields}
+          onProviderChange={(slug) => updateValue('aux_ai_source', slug)}
+          updateValue={updateValue}
+        />
       </SettingGroup>
 
       <SettingGroup

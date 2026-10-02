@@ -1673,37 +1673,38 @@ impl DynamicConfig {
         Some(self.resolve_ai_config(ModelTier::Lite))
     }
 
-    /// Lite for small typed judgments: `lite_judge_model` on the judgment
-    /// and embedding source when both are set and that source can be used;
-    /// otherwise Lite's own model on Lite's own provider, which always works
-    /// where Lite does (a model name is never sent to a provider it is not
-    /// for). Speaking stays on Lite's own model. No Lite, no judge.
+    /// Small typed judgments: `lite_judge_model` on the judgment and
+    /// embedding source when both are set and that source can be used,
+    /// whether Lite is on or not; otherwise Lite's own model on Lite's own
+    /// provider (a model name is never sent to a provider it is not for).
+    /// Speaking stays on Lite's own model.
     pub fn resolve_lite_judge_ai_config(&self) -> Option<ResolvedAiConfig> {
-        let lite = self.resolve_strict_lite_ai_config()?;
+        let lite = self.resolve_strict_lite_ai_config();
         let judge = self.lite_judge_model.trim();
         if judge.is_empty() {
-            return Some(lite);
+            return lite;
         }
-        if !self.aux_chosen() {
+        match lite {
             // Never chosen: on Lite's provider and credentials, as before.
-            return Some(ResolvedAiConfig {
+            Some(lite) if !self.aux_chosen() => Some(ResolvedAiConfig {
                 model: judge.to_string(),
                 ..lite
-            });
+            }),
+            lite => self.on_aux_source(judge).or(lite),
         }
-        Some(self.on_aux_source(judge).unwrap_or(lite))
     }
 
     /// The embedding model, when one is set, on the judgment and embedding
-    /// source; `None` (recall by words alone) when either is missing or
-    /// that source cannot be used. Off with Lite.
+    /// source, whether Lite is on or not; `None` (recall by words alone)
+    /// when either is missing or that source cannot be used.
     pub fn resolve_lite_embedding_ai_config(&self) -> Option<ResolvedAiConfig> {
-        let lite = self.resolve_strict_lite_ai_config()?;
         let model = self.lite_embedding_model.trim();
         if model.is_empty() {
             return None;
         }
-        if !self.aux_chosen() {
+        if !self.aux_chosen()
+            && let Some(lite) = self.resolve_strict_lite_ai_config()
+        {
             // Never chosen: on Lite's provider and credentials, as before.
             return Some(ResolvedAiConfig {
                 model: model.to_string(),
@@ -2332,7 +2333,7 @@ mod tests {
         };
         assert!(
             off.resolve_lite_judge_ai_config().is_none(),
-            "no Lite, no judge"
+            "no Lite and no source of their own, no judge"
         );
     }
 
@@ -2439,13 +2440,43 @@ mod tests {
             blank.resolve_lite_judge_ai_config().unwrap().model,
             "qwen3.8-omni-flash"
         );
-        // No Lite, no judge, wherever it would run.
+        // Their own option, not Lite's: with Lite off they still run on
+        // their source; only a judge model left blank (Lite's own) stops.
         let off = DynamicConfig {
             lite_enabled: false,
             ..own
         };
-        assert!(off.resolve_lite_judge_ai_config().is_none());
-        assert!(off.resolve_lite_embedding_ai_config().is_none());
+        let judge = off.resolve_lite_judge_ai_config().unwrap();
+        assert!(judge.base_url.contains("openrouter"));
+        assert_eq!(judge.model, "openai/gpt-6-luna");
+        assert!(
+            off.resolve_lite_embedding_ai_config()
+                .unwrap()
+                .base_url
+                .contains("openrouter")
+        );
+        let blank_off = DynamicConfig {
+            lite_judge_model: String::new(),
+            ..off.clone()
+        };
+        assert!(blank_off.resolve_lite_judge_ai_config().is_none());
+        // Never chosen with Lite off: the source the page shows, Lite's.
+        let never_off = DynamicConfig {
+            aux_ai_source: String::new(),
+            ..off.clone()
+        };
+        assert!(
+            never_off
+                .resolve_lite_judge_ai_config()
+                .unwrap()
+                .base_url
+                .contains("dashscope")
+        );
+        // Their source unusable and no Lite to fall back to: nothing.
+        let mut nothing = off.clone();
+        nothing.ai_vendor_sources[1].enabled = false;
+        assert!(nothing.resolve_lite_judge_ai_config().is_none());
+        assert!(nothing.resolve_lite_embedding_ai_config().is_none());
     }
 
     #[test]
