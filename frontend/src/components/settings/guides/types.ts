@@ -95,6 +95,7 @@ export interface SettingGuidesCatalog {
     liteEnable: SettingGuideEntry
     pro: SettingGuideEntry
     proEnable: SettingGuideEntry
+    aux: SettingGuideEntry
     image: SettingGuideEntry
     speech: SettingGuideEntry
     vendors: SettingGuideEntry

@@ -829,6 +829,17 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
+                    key: "aux_ai_source".to_string(),
+                    label: "Judgment and embedding source".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.aux_ai_source.clone())
+                        .unwrap_or_default(),
+                    placeholder: "Blank: Lite's source".to_string(),
+                    required: false,
+                },
+                ConfigField {
                     key: "lite_openai_base_url".to_string(),
                     label: "【Lite Model】OpenAI Base URL".to_string(),
                     field_type: "text".to_string(),

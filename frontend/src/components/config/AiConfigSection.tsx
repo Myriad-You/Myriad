@@ -234,12 +234,9 @@ function fieldsForModelTier(
     if (field.key.includes('api_key') || field.key.endsWith('base_url')) {
       return false
     }
-    // Same provider as Lite, whichever it is: only a model name.
-    if (
-      prefix === 'lite_' &&
-      (field.key === 'lite_judge_model' || field.key === 'lite_embedding_model')
-    ) {
-      return true
+    // Their own option (judgment and embedding), not Lite's.
+    if (field.key === 'lite_judge_model' || field.key === 'lite_embedding_model') {
+      return false
     }
     if (provider === 'gemini') {
       return field.key.startsWith(geminiPrefix) && field.key.endsWith('model')
@@ -458,6 +455,9 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     if (proEnabled) {
       add(getFieldValue('pro_ai_source') || currentProProvider, 'pro')
     }
+    if (liteEnabled && getFieldValue('aux_ai_source')) {
+      add(getFieldValue('aux_ai_source'), 'aux')
+    }
     add(getFieldValue('ai_image_source') || currentImageProvider, 'image')
     add(getFieldValue('speech_source') || currentSpeechProvider, 'speech')
     for (const source of vendorSources) {
@@ -605,6 +605,23 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       updateValue('ai_image_provider', mapped)
     },
     [updateValue, vendorSources],
+  )
+
+  // Judgment and embedding: their own source, or Lite's when none is chosen.
+  const auxFields = useMemo(
+    () =>
+      ['lite_judge_model', 'lite_embedding_model'].flatMap((key) => {
+        const field = configFields.find((item) => item.key === key)
+        return field ? [field] : []
+      }),
+    [configFields],
+  )
+  const auxSourceOptions = useMemo(
+    () => [
+      { value: '', label: t.config.aiAuxFollowLite },
+      ...(textSourceOptions ?? []),
+    ],
+    [t.config.aiAuxFollowLite, textSourceOptions],
   )
 
   const liteProviderFields = useMemo(
@@ -771,6 +788,25 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           }
           updateValue={updateValue}
         />
+
+        {liteEnabled ? (
+          <ModelTierGroup
+            title={t.config.aiAuxModelTitle}
+            description={t.config.aiAuxModelDesc}
+            {...bindGuide('ai.aux', g.ai.aux)}
+            providerGuide={providerGuideBinding.guide}
+            providerGuidePath={providerGuideBinding.guidePath}
+            fieldGuideFor={fieldGuideFor}
+            providerItemKey="aux_ai_source"
+            providerLabel={t.config.aiProvider}
+            provider={getFieldValue('aux_ai_source')}
+            providerOptions={auxSourceOptions}
+            providerHint={t.config.aiAuxProviderHint}
+            fields={auxFields}
+            onProviderChange={(slug) => updateValue('aux_ai_source', slug)}
+            updateValue={updateValue}
+          />
+        ) : null}
       </SettingGroup>
 
       <SettingGroup

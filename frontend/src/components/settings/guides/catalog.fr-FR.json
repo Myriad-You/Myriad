@@ -476,6 +476,12 @@
       "frontend": "La qualité de génération peut être meilleure. Comparez des questions difficiles dans l’assistant.",
       "notes": "N’activez que si besoin ; toutes les tâches n’ont pas besoin de ce palier."
     },
+    "aux": {
+      "what": "Sur quel fournisseur tournent les petits jugements de Lite (émotions, parler ou non, quoi retenir) et les vecteurs du rappel.",
+      "chain": "1) Non choisi : ils suivent comme avant le fournisseur et la clé de Lite.\n2) Une source choisie : les modèles de jugement et de vectorisation y tournent, avec son adresse et sa clé, et restent en place quand Lite change (vers l’Omni de DashScope, par exemple).\n3) Modèle de jugement vide : celui de Lite ; modèle de vectorisation vide : rappel par les mots seulement.\n4) Lite désactivé : aucun des deux n’est utilisé.",
+      "frontend": "Réglages → IA → Modèles → Jugement et vectorisation.",
+      "notes": "Les noms de modèle doivent être connus de la source, p. ex. openai/gpt-6-luna via OpenRouter."
+    },
     "proEnable": {
       "what": "Activer ou non le palier de modèle haute qualité.",
       "chain": "1) Coupé → les tâches difficiles se rabattent aussi sur Standard.\n2) Activé → les tâches difficiles peuvent utiliser le fournisseur/modèle haute qualité. La configuration de persona (tags, nom, persona) utilise aussi ce palier.\n3) Encore limité par autorisations et quota ; couper ne supprime pas les clés.",

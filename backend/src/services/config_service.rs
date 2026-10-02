@@ -102,6 +102,7 @@ standard_fields! {
         lite_openai_base_url,
         lite_judge_model,
         lite_embedding_model,
+        aux_ai_source,
         pro_ai_provider,
         pro_gemini_model,
         pro_openai_model,

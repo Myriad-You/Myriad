@@ -146,7 +146,7 @@ export function VendorKindIcon({
 }
 
 export type VendorUsageId =
-  'standard' | 'lite' | 'pro' | 'image' | 'speech' | 'realtime'
+  'standard' | 'lite' | 'pro' | 'aux' | 'image' | 'speech' | 'realtime'
 
 export type VendorUsageMap = Partial<Record<string, VendorUsageId[]>>
 
@@ -167,6 +167,8 @@ function usageLabel(
       return t.config.aiVendorUsedLite
     case 'pro':
       return t.config.aiVendorUsedPro
+    case 'aux':
+      return t.config.aiVendorUsedAux
     case 'image':
       return t.config.aiVendorUsedImage
     case 'speech':

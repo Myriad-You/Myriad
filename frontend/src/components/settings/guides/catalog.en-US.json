@@ -476,6 +476,12 @@
       "frontend": "Generation quality may be better. Compare hard questions in the assistant.",
       "notes": "Enable only when needed; not every task needs this tier."
     },
+    "aux": {
+      "what": "Which provider Lite's small judgments (feelings, whether to speak, what to remember) and recall's embeddings run on.",
+      "chain": "1) Not chosen: they follow Lite's provider and key, as before.\n2) A provider source chosen: the judgment and embedding models run on it, with its address and key, and stay put when Lite moves (to DashScope's Omni, say).\n3) A blank judgment model is Lite's own model; a blank embedding model means recall by words only.\n4) With Lite off, neither is used.",
+      "frontend": "Settings → AI → Models → Judgment & embedding.",
+      "notes": "Model names must be ones the source knows, e.g. openai/gpt-6-luna through OpenRouter."
+    },
     "proEnable": {
       "what": "Whether to enable the high-quality model tier.",
       "chain": "1) Off → hard tasks also fall back to Standard.\n2) On → hard tasks may use the high-quality provider/model. Persona setup (tags, name, persona) also uses this tier.\n3) Still limited by permissions and quota; turning off does not delete keys.",

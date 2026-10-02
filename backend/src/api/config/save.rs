@@ -482,6 +482,7 @@ pub(crate) fn collect_database_updates_with_vendor(
                 "lite_embedding_model",
                 JsonValue::String(field.value.clone()),
             ),
+            "aux_ai_source" => ("aux_ai_source", JsonValue::String(field.value.clone())),
             // AI 图片生成配置
             "ai_image_provider" => ("ai_image_provider", JsonValue::String(field.value.clone())),
             "ai_image_model" => ("ai_image_model", JsonValue::String(field.value.clone())),
@@ -646,6 +647,8 @@ pub(crate) fn collect_database_updates_with_vendor(
                 | "lite_judge_model"
                 // Cleared: recall goes back to words alone.
                 | "lite_embedding_model"
+                // Cleared: judgments and embeddings go back to Lite's source.
+                | "aux_ai_source"
                 | "pro_ai_source"
                 | "ai_image_source"
                 | "speech_source"

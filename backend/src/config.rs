@@ -354,6 +354,10 @@ pub struct DynamicConfig {
     /// then finds a memory by what it means, not only by its words. Blank:
     /// words only.
     pub lite_embedding_model: String,
+    /// Where the judgment and embedding models run, their own source apart
+    /// from Lite's (a vendor source slug): Lite can move (to DashScope, say)
+    /// while they stay where they are. Blank: on Lite's own source.
+    pub aux_ai_source: String,
     // AI 配置（Pro 模型）
     pub pro_enabled: bool,
     pub pro_ai_provider: String,
@@ -806,6 +810,7 @@ impl Default for DynamicConfig {
             // 留空：判断也用 Lite 的模型。
             lite_judge_model: String::new(),
             lite_embedding_model: String::new(),
+            aux_ai_source: String::new(),
             // Pro 模型默认配置
             pro_enabled: false,
             pro_ai_provider: "openai".to_string(),
@@ -1667,27 +1672,41 @@ impl DynamicConfig {
         Some(self.resolve_ai_config(ModelTier::Lite))
     }
 
-    /// Lite for small typed judgments: the same provider and credentials,
-    /// with `lite_judge_model` when set. Speaking stays on Lite's own model.
+    /// Lite for small typed judgments: `lite_judge_model` when set, on the
+    /// judgment-and-embedding source when one is chosen, else on Lite's own
+    /// provider and credentials. Blank: Lite's own model. Speaking stays on
+    /// Lite's own model. No Lite, no judge.
     pub fn resolve_lite_judge_ai_config(&self) -> Option<ResolvedAiConfig> {
         let mut resolved = self.resolve_strict_lite_ai_config()?;
         let judge = self.lite_judge_model.trim();
         if !judge.is_empty() {
-            resolved.model = judge.to_string();
+            resolved = self.on_aux_source(judge).unwrap_or(ResolvedAiConfig {
+                model: judge.to_string(),
+                ..resolved
+            });
         }
         Some(resolved)
     }
 
-    /// The embedding model on Lite's provider and credentials, when one is
-    /// set; `None` leaves recall to words alone.
+    /// The embedding model, when one is set: on the judgment-and-embedding
+    /// source when one is chosen, else on Lite's provider and credentials;
+    /// `None` leaves recall to words alone.
     pub fn resolve_lite_embedding_ai_config(&self) -> Option<ResolvedAiConfig> {
         let model = self.lite_embedding_model.trim();
         if model.is_empty() {
             return None;
         }
-        let mut resolved = self.resolve_strict_lite_ai_config()?;
-        resolved.model = model.to_string();
-        Some(resolved)
+        let resolved = self.resolve_strict_lite_ai_config()?;
+        Some(self.on_aux_source(model).unwrap_or(ResolvedAiConfig {
+            model: model.to_string(),
+            ..resolved
+        }))
+    }
+
+    /// `model` on the judgment-and-embedding source, when one is chosen.
+    fn on_aux_source(&self, model: &str) -> Option<ResolvedAiConfig> {
+        let source = self.find_vendor_source(&self.aux_ai_source)?;
+        Some(self.resolve_from_vendor_source(&source, model))
     }
 
     /// 这一档要的模型没配、实际会落到 Standard 上吗？
@@ -2306,6 +2325,74 @@ mod tests {
             lite_enabled: false,
             ..on
         };
+        assert!(off.resolve_lite_embedding_ai_config().is_none());
+    }
+
+    #[test]
+    fn judgments_and_embeddings_stay_on_their_own_source_when_lite_moves() {
+        let dashscope = AiVendorSource {
+            slug: "dashscope".into(),
+            kind: "openai_compatible".into(),
+            enabled: true,
+            credential_mode: "own".into(),
+            api_key: Some("ds-key".into()),
+            base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".into(),
+            ..AiVendorSource::default()
+        };
+        let openrouter = AiVendorSource {
+            slug: "openrouter".into(),
+            kind: "openrouter".into(),
+            enabled: true,
+            credential_mode: "own".into(),
+            api_key: Some("or-key".into()),
+            base_url: "https://openrouter.ai/api/v1".into(),
+            ..AiVendorSource::default()
+        };
+        let moved = DynamicConfig {
+            lite_enabled: true,
+            lite_ai_provider: "openai".to_string(),
+            lite_openai_model: "qwen3.8-omni-flash".to_string(),
+            lite_ai_source: "dashscope".to_string(),
+            lite_judge_model: "openai/gpt-6-luna".to_string(),
+            lite_embedding_model: "perplexity/pplx-embed-v1-0.6b".to_string(),
+            ai_vendor_sources: vec![dashscope, openrouter],
+            ..DynamicConfig::default()
+        };
+        // Not chosen: they follow Lite, as before.
+        let follows = moved.resolve_lite_judge_ai_config().unwrap();
+        assert!(follows.base_url.contains("dashscope"));
+        // Their own source: Lite moved, they did not.
+        let own = DynamicConfig {
+            aux_ai_source: "openrouter".to_string(),
+            ..moved.clone()
+        };
+        let judge = own.resolve_lite_judge_ai_config().unwrap();
+        assert!(judge.base_url.contains("openrouter"), "{}", judge.base_url);
+        assert_eq!(judge.model, "openai/gpt-6-luna");
+        let embedding = own.resolve_lite_embedding_ai_config().unwrap();
+        assert!(embedding.base_url.contains("openrouter"));
+        assert_eq!(embedding.model, "perplexity/pplx-embed-v1-0.6b");
+        // Speaking stays on Lite; a blank judge model is Lite's own.
+        assert!(
+            own.resolve_strict_lite_ai_config()
+                .unwrap()
+                .base_url
+                .contains("dashscope")
+        );
+        let blank = DynamicConfig {
+            lite_judge_model: String::new(),
+            ..own.clone()
+        };
+        assert_eq!(
+            blank.resolve_lite_judge_ai_config().unwrap().model,
+            "qwen3.8-omni-flash"
+        );
+        // No Lite, no judge, wherever it would run.
+        let off = DynamicConfig {
+            lite_enabled: false,
+            ..own
+        };
+        assert!(off.resolve_lite_judge_ai_config().is_none());
         assert!(off.resolve_lite_embedding_ai_config().is_none());
     }
 

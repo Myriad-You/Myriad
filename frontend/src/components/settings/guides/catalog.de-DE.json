@@ -476,6 +476,12 @@
       "frontend": "Die Erzeugungsqualität kann besser sein. Schwere Fragen im Assistenten vergleichen.",
       "notes": "Nur bei Bedarf aktivieren; nicht jede Aufgabe braucht diese Stufe."
     },
+    "aux": {
+      "what": "Auf welchem Anbieter Lites kleine Urteile (Gefühle, ob sie spricht, was sie behält) und die Einbettungen fürs Erinnern laufen.",
+      "chain": "1) Nicht gewählt: Sie folgen wie bisher Lites Anbieter und Schlüssel.\n2) Eine Anbieterquelle gewählt: Urteils- und Einbettungsmodell laufen dort, mit deren Adresse und Schlüssel, und bleiben, wenn Lite woanders hinzieht (etwa zu DashScopes Omni).\n3) Leeres Urteilsmodell: Lites eigenes Modell; leeres Einbettungsmodell: Erinnern nur nach Wörtern.\n4) Ist Lite aus, wird keines genutzt.",
+      "frontend": "Einstellungen → KI → Modelle → Urteil & Einbettung.",
+      "notes": "Modellnamen müssen der Quelle bekannt sein, z. B. openai/gpt-6-luna über OpenRouter."
+    },
     "proEnable": {
       "what": "Ob die hochwertige Modellstufe aktiviert wird.",
       "chain": "1) Aus → auch schwere Aufgaben fallen auf Standard zurück.\n2) An → schwere Aufgaben können den hochwertigen Anbieter/das Modell nutzen. Persona-Einrichtung (Tags, Name, Persona) nutzt ebenfalls diese Stufe.\n3) Weiter durch Berechtigungen und Kontingent begrenzt; Ausschalten löscht keine Schlüssel.",
