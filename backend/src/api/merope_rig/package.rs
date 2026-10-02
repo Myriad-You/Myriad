@@ -5,18 +5,19 @@ use std::sync::OnceLock;
 use axum::{
     Extension, Json,
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderValue, StatusCode, header},
     response::Response,
 };
 use myriad_error::AppError;
-use myriad_merope::RigManifest;
+use myriad_merope::{CharacterAssetProfile, RigManifest};
 use sea_orm::{DatabaseConnection, EntityTrait, QuerySelect, TransactionTrait};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{
     ApiError, ApiResult, bad_request, internal_error,
-    master::{MasterProvenance, manifest_matches_master, master_from_persona},
+    master::{MasterProvenance, manifest_matches_master, master_for},
     not_found, require_merope_enabled, require_owner,
 };
 use crate::{
@@ -96,7 +97,12 @@ pub(super) async fn bind_and_activate_outfit_rig(
             .one(&transaction)
             .await
             .map_err(internal_error)?;
-    if row.as_ref().and_then(master_from_persona).as_ref() != Some(expected) {
+    if row
+        .as_ref()
+        .and_then(|row| master_for(row, expected.profile))
+        .as_ref()
+        != Some(expected)
+    {
         return Err((
             StatusCode::CONFLICT,
             Json(json!({
@@ -110,7 +116,15 @@ pub(super) async fn bind_and_activate_outfit_rig(
             return Err(rig_revision_conflict());
         }
         let mut profile = row.visual_profile.clone().unwrap_or_else(|| json!({}));
-        if !myriad_merope::bind_active_outfit_rig(&mut profile, asset_id) {
+        let bound = match expected.profile {
+            CharacterAssetProfile::Bust => {
+                myriad_merope::bind_active_outfit_rig(&mut profile, asset_id)
+            }
+            CharacterAssetProfile::FullBody => {
+                myriad_merope::bind_active_outfit_full_body_rig(&mut profile, asset_id)
+            }
+        };
+        if !bound {
             return Err(bad_request("The worn outfit is missing"));
         }
         if let Err(error) = merope::upsert_persona_on(
@@ -129,6 +143,10 @@ pub(super) async fn bind_and_activate_outfit_rig(
             let _ = transaction.rollback().await;
             return Err(internal_error(error));
         }
+    }
+    // The live pointer is the panel's, and the panel plays the bust.
+    if expected.profile == CharacterAssetProfile::FullBody {
+        return transaction.commit().await.map_err(internal_error);
     }
     let persisted = match merope_rig::persist_active_asset(&transaction, Some(asset_id)).await {
         Ok(value) => value,
@@ -156,14 +174,29 @@ pub(super) fn rig_revision_conflict() -> ApiError {
     )
 }
 
-pub async fn get_active_rig(crate::extract::Db(db): crate::extract::Db) -> ApiResult<Json<Value>> {
+#[derive(Debug, Default, Deserialize)]
+pub struct ActiveRigQuery {
+    /// The worn outfit's bust by default, or its full figure.
+    #[serde(default)]
+    profile: CharacterAssetProfile,
+}
+
+pub async fn get_active_rig(
+    crate::extract::Db(db): crate::extract::Db,
+    Query(query): Query<ActiveRigQuery>,
+) -> ApiResult<Json<Value>> {
     // Read portrait and worn rig from the same committed persona snapshot.
     // A late configuration mirror must never select a different package.
     let persona = merope::get_persona(&db).await.map_err(internal_error)?;
-    let master = persona.as_ref().and_then(master_from_persona);
-    let asset_id = myriad_merope::active_outfit_rig_asset_id(
-        persona.as_ref().and_then(|row| row.visual_profile.as_ref()),
-    );
+    let master = persona
+        .as_ref()
+        .and_then(|row| master_for(row, query.profile));
+    let visual_profile = persona.as_ref().and_then(|row| row.visual_profile.as_ref());
+    let asset_id = match query.profile {
+        CharacterAssetProfile::Bust => myriad_merope::active_outfit_rig_asset_id(visual_profile),
+        CharacterAssetProfile::FullBody => myriad_merope::active_outfit_full_body(visual_profile)
+            .and_then(|full| full.rig_asset_id),
+    };
     if let (Some(asset_id), Some(master)) = (asset_id, master.as_ref()) {
         match load_stored_manifest(&asset_id).await {
             Ok(mut manifest) if manifest_matches_master(&manifest, master) => {
@@ -244,6 +277,7 @@ pub(crate) async fn wardrobe_outfit_face(
                 Some(portrait) => manifest_matches_master(
                     &manifest,
                     &MasterProvenance {
+                        profile: CharacterAssetProfile::Bust,
                         asset_id: portrait.to_string(),
                         generation_fingerprint: look.generation_fingerprint.clone(),
                         gender: gender.to_string(),
@@ -308,7 +342,7 @@ pub async fn get_site_rig(
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
-    get_active_rig(crate::extract::Db(db)).await
+    get_active_rig(crate::extract::Db(db), Query(ActiveRigQuery::default())).await
 }
 
 #[cfg(test)]

@@ -98,21 +98,26 @@ pub use sticker_avatar::{
     build_sticker_avatar_contract, build_sticker_avatar_prompt,
 };
 pub use visual_contract::{
-    appearance_visual_profile, build_character_asset_contract, character_asset_contract_fingerprint,
+    appearance_visual_profile, build_character_asset_contract, build_full_body_asset_contract,
+    character_asset_contract_fingerprint,
 };
 pub use visual_design::{
-    CLOTHING_STYLES, DEFAULT_WARDROBE_ID, MAX_VISUAL_NOTES_CHARS, MAX_WARDROBE_ID_CHARS,
-    MAX_WARDROBE_ITEMS, UPPER_BODY_VISUAL_IDENTITY_FIELDS, VisualProfileIssue, VisualProfileReason,
-    active_outfit_generation_fingerprint, active_outfit_rig_asset_id, bind_active_outfit_rig,
-    character_module, clothing_style_grammar, clothing_style_of, detach_active_outfit_rig,
-    ensure_default_wardrobe, flatten_visual_identity, normalize_clothing_style,
-    reconcile_wardrobe_rigs, sanitize_outfit_module, sanitize_upper_body_visual_identity,
-    sanitize_upper_body_visual_identity_checked, sanitize_wardrobe, sanitize_wardrobe_checked,
-    stamp_clothing_style, upper_body_visual_identity_is_complete,
+    ActiveFullBody, CLOTHING_STYLES, DEFAULT_WARDROBE_ID, MAX_VISUAL_NOTES_CHARS,
+    MAX_WARDROBE_ID_CHARS, MAX_WARDROBE_ITEMS, UPPER_BODY_VISUAL_IDENTITY_FIELDS,
+    VisualProfileIssue, VisualProfileReason, active_outfit_full_body,
+    active_outfit_generation_fingerprint, active_outfit_rig_asset_id,
+    bind_active_outfit_full_body_portrait, bind_active_outfit_full_body_rig,
+    bind_active_outfit_rig, character_module, clothing_style_grammar, clothing_style_of,
+    detach_active_outfit_rig, ensure_default_wardrobe, flatten_visual_identity,
+    normalize_clothing_style, reconcile_wardrobe_rigs, sanitize_outfit_module,
+    sanitize_upper_body_visual_identity, sanitize_upper_body_visual_identity_checked,
+    sanitize_wardrobe, sanitize_wardrobe_checked, stamp_clothing_style,
+    upper_body_visual_identity_is_complete,
 };
 pub use visual_prompt::{
-    MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL, MEROPE_VISUAL_SCHOOL_VERSION,
-    build_character_visual_edit_prompt, build_character_visual_prompt,
+    FULL_BODY_PORTRAIT_INSTRUCTION_VERSION, MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL,
+    MEROPE_VISUAL_SCHOOL_VERSION, build_character_visual_edit_prompt,
+    build_character_visual_prompt, build_full_body_portrait_prompt,
     ensure_visual_identity_states_gender, normalize_visual_identity_for_prompt,
     normalize_visual_identity_for_prompt_checked,
     normalize_visual_requirements_for_design_with_gender, persona_has_literary_sludge,

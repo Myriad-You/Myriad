@@ -11,8 +11,11 @@ use serde_json::{Value, json};
 use super::{ApiResult, internal_error, not_found};
 use crate::services::agent::merope;
 
+/// The worn outfit's master portrait for one asset profile: the bust portrait,
+/// or the full figure drawn from it. Only a rig of that profile descends from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct MasterProvenance {
+    pub(super) profile: CharacterAssetProfile,
     pub(super) asset_id: String,
     pub(super) generation_fingerprint: Option<String>,
     pub(super) gender: String,
@@ -66,12 +69,39 @@ pub(super) fn portrait_generation_fingerprint(
     Ok(Some(fingerprint.to_ascii_lowercase()))
 }
 
-pub(super) async fn current_master(db: &DatabaseConnection) -> ApiResult<Option<MasterProvenance>> {
+pub(super) async fn current_master(
+    db: &DatabaseConnection,
+    profile: CharacterAssetProfile,
+) -> ApiResult<Option<MasterProvenance>> {
     let persona = merope::get_persona(db).await.map_err(internal_error)?;
     let Some(persona) = persona else {
         return Ok(None);
     };
-    Ok(master_from_persona(&persona))
+    Ok(master_for(&persona, profile))
+}
+
+pub(super) fn master_for(
+    persona: &crate::models::entities::agent_persona::Model,
+    profile: CharacterAssetProfile,
+) -> Option<MasterProvenance> {
+    match profile {
+        CharacterAssetProfile::Bust => master_from_persona(persona),
+        CharacterAssetProfile::FullBody => full_body_master_from_persona(persona),
+    }
+}
+
+/// The worn outfit's full figure, drawn from the bust master that is still worn.
+fn full_body_master_from_persona(
+    persona: &crate::models::entities::agent_persona::Model,
+) -> Option<MasterProvenance> {
+    let bust = master_from_persona(persona)?;
+    let full = myriad_merope::active_outfit_full_body(persona.visual_profile.as_ref())?;
+    Some(MasterProvenance {
+        profile: CharacterAssetProfile::FullBody,
+        asset_id: full.portrait_asset_id,
+        generation_fingerprint: full.generation_fingerprint,
+        ..bust
+    })
 }
 
 pub(super) fn master_from_persona(
@@ -87,6 +117,7 @@ pub(super) fn master_from_persona(
         .to_string();
     let asset_id = persona.portrait_asset_id.clone()?;
     Some(MasterProvenance {
+        profile: CharacterAssetProfile::Bust,
         asset_id,
         generation_fingerprint: myriad_merope::active_outfit_generation_fingerprint(
             persona.visual_profile.as_ref(),
@@ -111,10 +142,11 @@ pub(super) fn master_from_persona(
 
 pub(super) async fn require_master_match(
     db: &DatabaseConnection,
+    profile: CharacterAssetProfile,
     source_master_asset_id: &str,
     source_generation_fingerprint: Option<&str>,
 ) -> ApiResult<MasterProvenance> {
-    let stored = current_master(db)
+    let stored = current_master(db, profile)
         .await?
         .ok_or_else(|| not_found("Site portrait is missing"))?;
     let supplied_fingerprint = source_generation_fingerprint.map(str::to_ascii_lowercase);
@@ -132,16 +164,17 @@ pub(super) async fn require_master_match(
     Ok(stored)
 }
 
-/// The outfit's master portrait is a bust, so only a bust rig can descend from it.
+/// A rig descends from a master of its own profile: a full-body rig never
+/// stands in for the bust, nor a bust rig for the full figure.
 pub(super) fn manifest_matches_master(manifest: &RigManifest, master: &MasterProvenance) -> bool {
-    let bust = CharacterAssetProfile::Bust.contract();
+    let contract = master.profile.contract();
     manifest.validate().is_ok()
-        && manifest.profile == CharacterAssetProfile::Bust
-        && manifest.character_asset_contract_version == Some(bust.contract_version)
+        && manifest.profile == master.profile
+        && manifest.character_asset_contract_version == Some(contract.contract_version)
         && manifest.source_master_asset_id.as_deref() == Some(master.asset_id.as_str())
         && manifest.source_generation_fingerprint == master.generation_fingerprint
-        && (manifest.canvas.width - bust.canvas_width).abs() <= 0.0001
-        && (manifest.canvas.height - bust.canvas_height).abs() <= 0.0001
+        && (manifest.canvas.width - contract.canvas_width).abs() <= 0.0001
+        && (manifest.canvas.height - contract.canvas_height).abs() <= 0.0001
 }
 
 #[cfg(test)]
@@ -179,6 +212,45 @@ mod tests {
         assert_ne!(master_from_persona(&persona).as_ref(), Some(&original));
         persona.portrait_asset_id = None;
         assert!(master_from_persona(&persona).is_none());
+    }
+
+    #[test]
+    fn the_full_figure_master_is_the_worn_outfits_and_needs_its_bust() {
+        let fingerprint = "c".repeat(64);
+        let mut persona = crate::models::entities::agent_persona::Model {
+            id: "site".into(),
+            name: "Merope".into(),
+            personality: String::new(),
+            persona_json: None,
+            visual_profile: Some(json!({
+                "activeOutfitId": "a",
+                "gender": "female",
+                "wardrobe": [{
+                    "id": "a",
+                    "portraitAssetId": "master-a",
+                    "fullBodyPortraitAssetId": "full-a",
+                    "fullBodyGenerationFingerprint": fingerprint,
+                }],
+            })),
+            portrait_asset_id: Some("master-a".into()),
+            portrait_generation: None,
+            avatar_asset_id: None,
+            avatar_generation: None,
+            updated_by: None,
+            updated_at: chrono::Utc::now().fixed_offset(),
+        };
+        let full = master_for(&persona, CharacterAssetProfile::FullBody).unwrap();
+        assert_eq!(full.profile, CharacterAssetProfile::FullBody);
+        assert_eq!(full.asset_id, "full-a");
+        assert_eq!(
+            full.generation_fingerprint.as_deref(),
+            Some(fingerprint.as_str())
+        );
+        assert_eq!(full.gender, "female");
+        let bust = master_for(&persona, CharacterAssetProfile::Bust).unwrap();
+        assert_eq!(bust.asset_id, "master-a");
+        persona.portrait_asset_id = None;
+        assert!(master_for(&persona, CharacterAssetProfile::FullBody).is_none());
     }
 
     fn layered_stub_manifest(
@@ -251,6 +323,7 @@ mod tests {
     fn active_manifest_must_match_master_contract_and_generation() {
         let fingerprint = "a".repeat(64);
         let master = MasterProvenance {
+            profile: CharacterAssetProfile::Bust,
             asset_id: "/master.png".to_string(),
             generation_fingerprint: Some(fingerprint.clone()),
             gender: "female".to_string(),
@@ -275,6 +348,11 @@ mod tests {
             !manifest_matches_master(&manifest, &master),
             "a full-body rig never stands in for the bust the master portrait is"
         );
+        let full_master = MasterProvenance {
+            profile: CharacterAssetProfile::FullBody,
+            ..master
+        };
+        assert!(manifest_matches_master(&manifest, &full_master));
     }
 
     #[test]

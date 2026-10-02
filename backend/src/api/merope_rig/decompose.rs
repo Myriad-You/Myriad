@@ -7,6 +7,7 @@ use axum::{
     http::{HeaderValue, StatusCode, header},
     response::Response,
 };
+use myriad_merope::CharacterAssetProfile;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -77,6 +78,9 @@ pub struct UpdateSeeThroughTokenRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SeeThroughDecomposeRequest {
+    /// Which of the worn outfit's masters to decompose; the bust by default.
+    #[serde(default)]
+    profile: CharacterAssetProfile,
     source_master_asset_id: String,
     #[serde(default)]
     source_generation_fingerprint: Option<String>,
@@ -149,6 +153,7 @@ pub async fn decompose_with_see_through(
     }
     let master = require_master_match(
         &db,
+        payload.profile,
         &payload.source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )
@@ -184,6 +189,7 @@ pub async fn decompose_with_see_through(
     // master changed while the remote job was running.
     require_master_match(
         &db,
+        payload.profile,
         &payload.source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )

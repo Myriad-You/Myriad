@@ -958,6 +958,20 @@ pub fn build_character_visual_edit_prompt(notes: &str) -> String {
     )
 }
 
+/// Bump when the full-figure instruction changes; it is part of that portrait's fingerprint.
+pub const FULL_BODY_PORTRAIT_INSTRUCTION_VERSION: &str = "full-body-standing-v1";
+
+/// Redraws an outfit's bust master portrait as its optional full figure. The
+/// pose serves the rig: square to the camera, arms clear of the body, legs
+/// apart, so decomposition gets each limb whole and the feet stand on one line.
+pub fn build_full_body_portrait_prompt() -> String {
+    let full = CharacterAssetProfile::FullBody.contract();
+    format!(
+        "Redraw the character in the source image as one full-body standing illustration of the same person. The source image is the immutable identity anchor: keep the same apparent maturity, gender presentation, face and eye geometry, gaze and default expression, hair cut, length, colors and gradient, every hair ornament and accessory, the upper-body costume, palette, materials, line weight, and the same locked 2D anime-game cel-to-gradient finish and lighting. Complete the lower body in the costume's own design language and palette: the matching lower garment, legwear, and shoes, with no new motifs. Frame the whole figure from the top of the hair to the soles of the shoes on a vertical {}:{} canvas, with a slim near-white margin above the head and below the feet and equal side clearance; the figure fills most of the canvas height. Use a strict centered eye-level frontal view with no perspective distortion: the head, torso and hips are square to the camera, shoulders and hips level. Pose: a relaxed neutral stance, arms hanging naturally at the sides slightly away from the body with both hands visible and open, legs straight and slightly apart with a clear gap between them, both feet flat on one ground line. Nothing held, no props, no cast shadow. Use a seamless near-white studio backdrop and an opaque finished illustration.",
+        full.aspect_width, full.aspect_height,
+    )
+}
+
 pub fn style_lock_violation_in(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     STYLE_LOCK_BANS.iter().any(|ban| {

@@ -535,12 +535,15 @@ pub fn migrate_rig_manifest(
     Ok((manifest, changed))
 }
 
-/// Authoritative server-side gate for a bust character asset.
+/// Authoritative server-side gate for a character asset of either profile.
 /// Browser PSD preflight improves feedback, but cannot be the trust boundary.
 pub fn validate_character_asset_source(
+    profile: CharacterAssetProfile,
     bones: &[RigBone],
     layers: &[RigLayerSource],
 ) -> Result<(), RigValidationError> {
+    // A bust is cut above the legs; a full figure stands on its own.
+    let legs_allowed = profile == CharacterAssetProfile::FullBody;
     let has_layer = |prefix: &str| {
         layers.iter().any(|layer| {
             layer.id == prefix
@@ -570,27 +573,23 @@ pub fn validate_character_asset_source(
     };
     let forbidden_bone = bones.iter().any(|bone| {
         let id = bone.id.to_ascii_lowercase();
-        [
+        let arm = [
             "shoulder",
             "upper-arm",
             "upper_arm",
             "elbow",
             "forearm",
             "wrist",
-            "thigh",
-            "knee",
-            "calf",
-            "ankle",
-            "leg",
-            "foot",
-        ]
-        .iter()
-        .any(|segment| id.contains(segment))
+        ];
+        let leg = ["thigh", "knee", "calf", "ankle", "leg", "foot"];
+        arm.iter().any(|segment| id.contains(segment))
+            || (!legs_allowed && leg.iter().any(|segment| id.contains(segment)))
     });
-    let forbidden_layer = layers.iter().any(|layer| {
-        let id = layer.id.to_ascii_lowercase();
-        id.contains("legwear") || id.contains("footwear")
-    });
+    let forbidden_layer = !legs_allowed
+        && layers.iter().any(|layer| {
+            let id = layer.id.to_ascii_lowercase();
+            id.contains("legwear") || id.contains("footwear")
+        });
     let canonical_skeleton = parent_is("body", "root")
         && parent_is("head", "body")
         && parent_is("face", "head")
@@ -631,7 +630,7 @@ pub fn validate_character_asset_source(
         "rigid-right-arm-fragment" => rigid_fragment("right"),
         _ => false,
     };
-    let required_capabilities = CharacterAssetProfile::Bust
+    let required_capabilities = profile
         .contract()
         .required_capabilities
         .iter()
@@ -1425,19 +1424,34 @@ mod tests {
             layer("a25d-handwear-left", None, None, "a25d-handwear-left"),
             layer("a25d-handwear-right", None, None, "a25d-handwear-right"),
         ];
-        validate_character_asset_source(&bones, &layers).unwrap();
+        let bust = CharacterAssetProfile::Bust;
+        let full_body = CharacterAssetProfile::FullBody;
+        validate_character_asset_source(bust, &bones, &layers).unwrap();
 
         let right_arm = layers.pop().unwrap();
         assert_eq!(
-            validate_character_asset_source(&bones, &layers),
+            validate_character_asset_source(bust, &bones, &layers),
             Err(RigValidationError::AssetContract)
         );
         layers.push(right_arm);
-        bones.push(bone("left-shoulder", Some("body")));
+
+        // Legs and shoes: only a full figure has them.
+        layers.push(layer("a25d-legwear-left", None, None, "root"));
+        layers.push(layer("a25d-footwear-left", None, None, "root"));
         assert_eq!(
-            validate_character_asset_source(&bones, &layers),
+            validate_character_asset_source(bust, &bones, &layers),
             Err(RigValidationError::AssetContract)
         );
+        validate_character_asset_source(full_body, &bones, &layers).unwrap();
+
+        // Neither has an arm chain.
+        bones.push(bone("left-shoulder", Some("body")));
+        for profile in [bust, full_body] {
+            assert_eq!(
+                validate_character_asset_source(profile, &bones, &layers),
+                Err(RigValidationError::AssetContract)
+            );
+        }
     }
 
     #[test]

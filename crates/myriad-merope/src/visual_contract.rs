@@ -88,6 +88,45 @@ pub fn build_character_asset_contract(
     })
 }
 
+/// Immutable input snapshot for an outfit's full figure, drawn from its bust
+/// master portrait: a new bust portrait, or a new instruction, is a new figure.
+pub fn build_full_body_asset_contract(
+    bust_portrait: &str,
+    bust_generation_fingerprint: Option<&str>,
+) -> Value {
+    let full = CharacterAssetProfile::FullBody.contract();
+    json!({
+        "contractVersion": full.contract_version,
+        "slot": "fullBody",
+        "source": {
+            "bustPortrait": bust_portrait,
+            "bustGenerationFingerprint": bust_generation_fingerprint,
+        },
+        "output": {
+            "width": full.generation_width,
+            "height": full.generation_height,
+            "portraitAspect": {
+                "width": full.aspect_width,
+                "height": full.aspect_height,
+            },
+            "rigCanvas": {
+                "width": full.canvas_width,
+                "height": full.canvas_height,
+            },
+            "framing": full.framing,
+            "background": full.background,
+        },
+        "rendering": {
+            "instructionVersion": crate::visual_prompt::FULL_BODY_PORTRAIT_INSTRUCTION_VERSION,
+            "referenceRole": "bust-portrait-identity-anchor",
+        },
+        "rig": {
+            "maxRigidArmRotationDegrees": full.max_rigid_arm_rotation_degrees,
+            "requiredCapabilities": full.required_capabilities,
+        },
+    })
+}
+
 pub fn character_asset_contract_fingerprint(contract: &Value) -> String {
     let encoded = serde_json::to_vec(contract).expect("character asset contract is serializable");
     let mut hasher = Sha256::new();
@@ -192,6 +231,27 @@ mod tests {
             character_asset_contract_fingerprint(&contract),
             "1e6c2e4e94adb0b45320230aab71fcd6a2aa4c2f441b19b7b2a77f0e0a62b641"
         );
+    }
+
+    #[test]
+    fn a_full_figure_is_bound_to_the_bust_portrait_it_was_drawn_from() {
+        let first = build_full_body_asset_contract("/media/bust.png", Some(&"a".repeat(64)));
+        assert_eq!(first["slot"], "fullBody");
+        assert_eq!(first["output"]["height"], 2048);
+        let fingerprint = character_asset_contract_fingerprint(&first);
+        assert_eq!(
+            fingerprint,
+            character_asset_contract_fingerprint(&build_full_body_asset_contract(
+                "/media/bust.png",
+                Some(&"a".repeat(64))
+            ))
+        );
+        for other in [
+            build_full_body_asset_contract("/media/bust-2.png", Some(&"a".repeat(64))),
+            build_full_body_asset_contract("/media/bust.png", None),
+        ] {
+            assert_ne!(fingerprint, character_asset_contract_fingerprint(&other));
+        }
     }
 
     #[test]

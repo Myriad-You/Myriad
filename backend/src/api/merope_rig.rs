@@ -24,6 +24,7 @@ use crate::{
 mod avatar;
 mod decompose;
 mod expressions;
+mod full_body;
 mod import;
 mod master;
 mod package;
@@ -40,6 +41,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
     let owner = Router::new()
         .route("/", get(package::get_site_rig))
         .route("/portrait", post(portrait::generate_portrait))
+        .route(
+            "/full-body/portrait",
+            post(full_body::generate_full_body_portrait),
+        )
         .route("/avatar", post(avatar::generate_sticker_avatar))
         .route("/expressions", get(expressions::list_expressions))
         .route(

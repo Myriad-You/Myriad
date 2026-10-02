@@ -46,17 +46,12 @@ async fn compile_imported_rig(
     source: ImportRigSourceRequest,
     texture_url: String,
 ) -> ApiResult<(String, RigManifest)> {
-    // Each outfit has one rig slot, the bust's; a full-body rig needs its own
-    // slot and master portrait before it can be accepted.
-    if source.profile != CharacterAssetProfile::Bust {
-        return Err(bad_request(
-            "Full-body character assets cannot be imported yet",
-        ));
-    }
-    validate_character_asset_source(&source.bones, &source.layers).map_err(|error| {
-        tracing::error!(%error, "Rig character asset preflight failed");
-        bad_request("Rig character asset is invalid")
-    })?;
+    validate_character_asset_source(source.profile, &source.bones, &source.layers).map_err(
+        |error| {
+            tracing::error!(%error, "Rig character asset preflight failed");
+            bad_request("Rig character asset is invalid")
+        },
+    )?;
     let source_master_asset_id = source.source_master_asset_id.clone();
     let manifest = tokio::task::spawn_blocking(move || {
         compile_layered_rig(RigCompileSource {
@@ -318,6 +313,7 @@ pub async fn preview_site_rig(
         .ok_or_else(|| bad_request("Rig preview is missing its analysis reference"))?;
     let master = require_master_match(
         &db,
+        source.profile,
         &source.source_master_asset_id,
         source.source_generation_fingerprint.as_deref(),
     )
@@ -350,6 +346,7 @@ pub async fn import_site_rig(
     let source_generation_fingerprint = source.source_generation_fingerprint.clone();
     let master = require_master_match(
         &db,
+        source.profile,
         &source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )
