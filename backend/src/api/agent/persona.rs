@@ -288,7 +288,7 @@ pub async fn put_persona(
             crate::services::media::normalize_local_url(
                 &transaction,
                 url,
-                &crate::services::media::upgrade::configured_origins().await,
+                &crate::services::media::configured_origins().await,
             )
             .await
             .map_err(|error| HttpError(error.into()))?,
@@ -300,7 +300,7 @@ pub async fn put_persona(
             crate::services::media::normalize_local_url(
                 &transaction,
                 url,
-                &crate::services::media::upgrade::configured_origins().await,
+                &crate::services::media::configured_origins().await,
             )
             .await
             .map_err(|error| HttpError(error.into()))?,
@@ -322,7 +322,7 @@ pub async fn put_persona(
             .or(saved.portrait_asset_id.as_deref()),
         avatar_url.as_deref().or(saved.avatar_asset_id.as_deref()),
         saved.visual_profile.as_ref(),
-        &crate::services::media::upgrade::configured_origins().await,
+        &crate::services::media::configured_origins().await,
     )
     .await
     .map_err(|error| HttpError(error.into()))?;
@@ -364,7 +364,7 @@ pub async fn delete_persona(
         None,
         None,
         None,
-        &crate::services::media::upgrade::configured_origins().await,
+        &crate::services::media::configured_origins().await,
     )
     .await
     .map_err(|error| HttpError(error.into()))?;

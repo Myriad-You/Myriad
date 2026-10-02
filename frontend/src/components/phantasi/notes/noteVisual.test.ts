@@ -253,16 +253,16 @@ describe('图片显示地址', () => {
     setVisualImageResolver((src) => (src.startsWith('/media/') ? `http://api${src}` : src))
     try {
       const html = markdownToVisualHtml(
-        '![封面](/media/federation/1/a.jpg) 和 ![外](https://x.y/p.png)',
+        '![封面](/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg) 和 ![外](https://x.y/p.png)',
       )
       assert.match(
         html,
-        /<img src="http:\/\/api\/media\/federation\/1\/a\.jpg" data-src="\/media\/federation\/1\/a\.jpg" alt="封面">/,
+        /<img src="http:\/\/api\/media\/assets\/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708\/a\.jpg" data-src="\/media\/assets\/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708\/a\.jpg" alt="封面">/,
       )
       assert.match(html, /<img src="https:\/\/x\.y\/p\.png" alt="外">/)
       assert.equal(
         visualHtmlToMarkdown(html),
-        '![封面](/media/federation/1/a.jpg) 和 ![外](https://x.y/p.png)',
+        '![封面](/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg) 和 ![外](https://x.y/p.png)',
       )
     } finally {
       setVisualImageResolver((src) => src)

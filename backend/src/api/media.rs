@@ -249,38 +249,3 @@ mod tests {
         assert!(!upload.contains("MediaExposure::Public"));
     }
 }
-
-/// GET /api/media/migration — persisted cursor and last redacted failure.
-pub async fn media_migration_status(
-    State(db): State<DatabaseConnection>,
-    _admin: AdminClaims,
-) -> Result<Json<Value>, HttpError> {
-    let progress = crate::services::media::upgrade::status(&db)
-        .await
-        .map_err(|error| HttpError(error.into()))?;
-    Ok(Json(json!({"success": true, "progress": progress})))
-}
-
-#[derive(serde::Deserialize)]
-pub struct MediaMigrationRequest {
-    #[serde(default)]
-    pub restart: bool,
-}
-
-/// POST /api/media/migration — one bounded batch; repeat until complete.
-pub async fn advance_media_migration(
-    State(db): State<DatabaseConnection>,
-    _admin: AdminClaims,
-    Json(request): Json<MediaMigrationRequest>,
-) -> Result<Json<Value>, HttpError> {
-    let origins = crate::services::media::upgrade::configured_origins().await;
-    let store = MediaStore::new(paths().media.clone());
-    let legacy = crate::services::media::LegacyPaths::from_data_paths(paths());
-    let progress =
-        crate::services::media::upgrade::advance(&db, &store, &legacy, &origins, request.restart)
-            .await
-            .map_err(|error| HttpError(error.into()))?;
-    Ok(Json(
-        json!({"success": progress.error.is_none(), "progress": progress}),
-    ))
-}

@@ -133,7 +133,7 @@ async fn save_to_database(
         .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
     // Same origin set as the media upgrade backfill. URLs under an older site
     // origin are recognized by the binder when they resolve locally.
-    let origins = crate::services::media::upgrade::configured_origins().await;
+    let origins = crate::services::media::configured_origins().await;
     for key in ["ui_wallpaper_url", "site_og_image", "site_favicon"] {
         let Some(url) = updates.get(key).and_then(Value::as_str) else {
             continue;

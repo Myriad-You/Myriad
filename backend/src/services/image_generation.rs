@@ -18,8 +18,8 @@ use crate::{
         http_client::get_long_running_client,
         image_cache::ImageCacheService,
         media::{
-            LegacyPaths, MediaContext, MediaExposure, MediaService, MediaStore, NewMediaBytes,
-            ServeOutcome, resolve_alias_or_legacy, resolve_public_asset,
+            MediaContext, MediaExposure, MediaService, MediaStore, NewMediaBytes, ServeOutcome,
+            resolve_cached_image, resolve_public_asset,
         },
     },
 };
@@ -518,7 +518,7 @@ pub async fn remove_persisted_generated(
 }
 
 /// Read a local reference exactly as the public media routes would serve it:
-/// only ready public assets or live legacy aliases. Unpublished or deleting
+/// only ready public assets or the image cache. Unpublished or deleting
 /// assets must not leak into generation just because their UUID is known.
 pub(crate) async fn read_public_local_media(url: &str) -> Option<(Vec<u8>, String)> {
     let path = crate::services::media::registered_local_path(url)?;
@@ -531,10 +531,7 @@ pub(crate) async fn read_public_local_media(url: &str) -> Option<(Vec<u8>, Strin
             .await
             .ok()?
     } else {
-        let legacy = LegacyPaths::from_data_paths(paths());
-        resolve_alias_or_legacy(&db, &store, &legacy, &path)
-            .await
-            .ok()?
+        resolve_cached_image(&db, &store, &path).await.ok()?
     };
     let ServeOutcome::File(file) = outcome else {
         return None;

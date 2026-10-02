@@ -20,10 +20,9 @@ const api = 'http://localhost:3000'
 describe('displayImageUrl', () => {
   it('本站媒体：不管存的是哪个域名，都改成当前 API origin', () => {
     assert.equal(
-      displayImageUrl('https://my.site/media/federation/1/a.jpg', api),
-      'http://localhost:3000/media/federation/1/a.jpg',
+      displayImageUrl('https://my.site/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg', api),
+      'http://localhost:3000/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg',
     )
-    assert.equal(displayImageUrl('/media/federation/1/a.jpg', api), 'http://localhost:3000/media/federation/1/a.jpg')
     assert.equal(
       displayImageUrl('/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg', api),
       'http://localhost:3000/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg',
@@ -40,10 +39,10 @@ describe('displayImageUrl', () => {
 
 describe('withDisplayImages', () => {
   it('只改 src，alt 和别的属性不动，& 转义来回一致', () => {
-    const html = '<p><img alt="封面" src="https://my.site/media/federation/1/a.jpg?x=1&amp;y=2"></p>'
+    const html = '<p><img alt="封面" src="https://my.site/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg?x=1&amp;y=2"></p>'
     assert.equal(
       withDisplayImages(html, api),
-      '<p><img alt="封面" src="http://localhost:3000/media/federation/1/a.jpg?x=1&amp;y=2"></p>',
+      '<p><img alt="封面" src="http://localhost:3000/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg?x=1&amp;y=2"></p>',
     )
   })
 

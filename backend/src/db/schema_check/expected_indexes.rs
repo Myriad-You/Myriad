@@ -524,30 +524,6 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["consumer_type".into(), "consumer_id".into()],
             is_unique: false,
         },
-        IndexDef {
-            name: "idx_media_url_aliases_local_path".into(),
-            table: "media_url_aliases".into(),
-            columns: vec!["local_path".into()],
-            is_unique: true,
-        },
-        IndexDef {
-            name: "idx_media_url_aliases_asset".into(),
-            table: "media_url_aliases".into(),
-            columns: vec!["asset_id".into()],
-            is_unique: false,
-        },
-        IndexDef {
-            name: "idx_media_migration_jobs_source".into(),
-            table: "media_migration_jobs".into(),
-            columns: vec!["source_kind".into(), "source_key".into()],
-            is_unique: true,
-        },
-        IndexDef {
-            name: "idx_media_migration_jobs_copy_state".into(),
-            table: "media_migration_jobs".into(),
-            columns: vec!["copy_state".into(), "id".into()],
-            is_unique: false,
-        },
         // rsshub_instances 索引
         IndexDef {
             name: "idx_rsshub_instances_user_url".into(),

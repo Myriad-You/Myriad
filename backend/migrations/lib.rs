@@ -69,12 +69,38 @@ BEGIN
 END $$;
 "#;
 
+/// Earlier releases kept old media addresses working through an upgrade job
+/// that copied every catalogued file into the asset store. Startup now drops
+/// that layer, so a database whose job never finished would lose the files it
+/// had not copied yet. A database without the job table never had the layer,
+/// or already dropped it.
+const REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL: &str = r#"
+DO $$
+BEGIN
+    -- One statement each: PL/pgSQL plans a statement when it first runs, and
+    -- the job table is only named once it is known to exist.
+    IF to_regclass('media_migration_jobs') IS NULL THEN
+        RETURN;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM media_migration_jobs
+         WHERE source_kind = 'upgrade' AND source_key = 'platform_media_v2'
+           AND CASE WHEN cursor ~ '^\s*\{'
+                    THEN cursor::jsonb ->> 'complete' = 'true'
+                         AND cursor::jsonb ->> 'revision' = '4'
+                    ELSE false END
+    ) THEN
+        RAISE EXCEPTION 'the media upgrade of this database has not finished: start Myriad 0.6 (web role) until it completes, then upgrade to this release';
+    END IF;
+END $$;
+"#;
+
 pub struct Migrator;
 
 impl Migrator {
-    /// Refuse a database older than the support floor (0.6.1), keep only
-    /// versions that still have files in `seaql_migrations`, then apply
-    /// 001–006.
+    /// Refuse a database older than the support floor (0.6.1) or one whose
+    /// media upgrade has not finished, keep only versions that still have
+    /// files in `seaql_migrations`, then apply 001–006.
     ///
     /// SeaORM rejects applied versions that have no file *before* any `up()`
     /// body runs, so this wrapper is the only `Migrator::up` call path.
@@ -87,6 +113,9 @@ impl Migrator {
             .execute_unprepared(
                 &REFUSE_BELOW_SUPPORT_FLOOR_SQL.replace("@FLOOR@", SUPPORT_FLOOR_SCHEMA_MARK),
             )
+            .await?;
+        executor
+            .execute_unprepared(REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL)
             .await?;
         discard_unknown_migration_history(&executor).await?;
         <Self as MigratorTrait>::up(executor, steps).await

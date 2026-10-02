@@ -586,7 +586,6 @@ async fn bind_restored_media(
     txn: &impl ConnectionTrait,
     entries: &mut [SettingsBackupEntry],
     origins: &[String],
-    legacy: &crate::services::media::LegacyPaths,
 ) -> Result<Vec<UnresolvedRestoredMedia>, crate::services::media::MediaError> {
     let mut unresolved = Vec::new();
     for entry in entries {
@@ -594,12 +593,10 @@ async fn bind_restored_media(
         let raw = text.as_deref().unwrap_or("");
         let (stored, dead) = match entry.key.as_str() {
             key @ ("ui_wallpaper_url" | "site_og_image" | "site_favicon") => {
-                crate::services::media::bind_restored_site_image(txn, key, raw, origins, legacy)
-                    .await?
+                crate::services::media::bind_restored_site_image(txn, key, raw, origins).await?
             }
             "dashboard_layout" => {
-                crate::services::media::bind_restored_dashboard_layout(txn, raw, origins, legacy)
-                    .await?
+                crate::services::media::bind_restored_dashboard_layout(txn, raw, origins).await?
             }
             _ => continue,
         };
@@ -628,11 +625,10 @@ pub(crate) async fn write_restored_configurations(
     txn: &impl ConnectionTrait,
     mut entries: Vec<SettingsBackupEntry>,
     origins: &[String],
-    legacy: &crate::services::media::LegacyPaths,
 ) -> Result<Vec<UnresolvedRestoredMedia>, RestoreWriteError> {
     // Entries come from `build_settings_restore_plan`, which already dropped
     // settings failing their save policy; nothing here publishes those.
-    let unresolved = bind_restored_media(txn, &mut entries, origins, legacy)
+    let unresolved = bind_restored_media(txn, &mut entries, origins)
         .await
         .map_err(RestoreWriteError::Media)?;
     for entry in entries {
@@ -700,10 +696,8 @@ pub async fn restore_settings(
         .notification_preferences
         .normalized();
 
-    // Same origin set as saving the wallpaper and the media upgrade backfill.
-    let origins = crate::services::media::upgrade::configured_origins().await;
-    let legacy =
-        crate::services::media::LegacyPaths::from_data_paths(crate::services::data_paths::paths());
+    // Same origin set as saving the wallpaper.
+    let origins = crate::services::media::configured_origins().await;
     let transaction = match db.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -722,7 +716,7 @@ pub async fn restore_settings(
         RestoreWriteError,
     > = async {
         let unresolved =
-            write_restored_configurations(&transaction, entries, &origins, &legacy).await?;
+            write_restored_configurations(&transaction, entries, &origins).await?;
 
         let notification_value = serde_json::to_value(&notification_preferences)
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;

@@ -8,7 +8,7 @@ import { apiService } from './api'
 import { listMedia, mediaAssetSrc, saveMediaEdit, uploadMedia } from './mediaApi'
 
 const asset = {
-  id: 7, kind: 'upload' as const, url: '/media/federation/1/photo.png',
+  id: 7, kind: 'upload' as const, url: '/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/photo.png',
   mime: 'image/png', name: 'photo.png', size: 12, created_at: 1, references: [],
 }
 
@@ -23,7 +23,7 @@ it('list and saved edits retain API references and paths; display resolves per o
   for (const origin of ['', 'https://api.example']) {
     assert.equal(displayImageUrl(asset.url, origin), `${origin}${asset.url}`)
   }
-  assert.equal(asset.url, '/media/federation/1/photo.png')
+  assert.equal(asset.url, '/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/photo.png')
 })
 
 it('invalid catalog rows fail instead of disappearing or receiving empty URLs', async () => {

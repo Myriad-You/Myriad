@@ -125,7 +125,7 @@ pub async fn upload_portrait(
     let public_url = match crate::services::media::normalize_local_url(
         &transaction,
         &stored.url,
-        &crate::services::media::upgrade::configured_origins().await,
+        &crate::services::media::configured_origins().await,
     )
     .await
     {
@@ -179,7 +179,7 @@ pub async fn upload_portrait(
         saved_persona
             .as_ref()
             .and_then(|p| p.visual_profile.as_ref()),
-        &crate::services::media::upgrade::configured_origins().await,
+        &crate::services::media::configured_origins().await,
     )
     .await
     .map_err(|error| internal_error(error.to_string()))?;

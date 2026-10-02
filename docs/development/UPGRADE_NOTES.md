@@ -1,5 +1,13 @@
 # 升级说明
 
+## 旧媒体地址退场（破坏性变更）
+
+`/media/federation/…`、`/api/brew/image-cache/…` 两条路由和 `media_url_aliases` /
+`media_migration_jobs` 两张表一起删掉，后台媒体升级任务与 `/api/media/migration` 接口随之移除。
+`Migrator::up` 先确认 `platform_media_v2` 第 4 版已经完成，没完成的库拒绝启动；启动时在开放服务前，
+把内容里引用的旧地址改写成永久地址，再删表。外站按旧附件地址的拉取会失效。不支持滚动升级。
+细节见 [MEDIA.md](../deployment/MEDIA.md)。
+
 ## 每日 AI 配额改为平台设施
 
 每日 AI 配额计数原名 `tapp_quota_usage`，以 `tapp_id` 为键，Agent 和游客全站上限只能占用

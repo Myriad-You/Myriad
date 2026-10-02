@@ -22,7 +22,7 @@ pub async fn update_dashboard_config(
 ) -> (StatusCode, Json<Value>) {
     // Same origin set as the wallpaper, settings restore and the media upgrade,
     // so absolute sticker URLs under this site are protected as local media.
-    let origins = crate::services::media::upgrade::configured_origins().await;
+    let origins = crate::services::media::configured_origins().await;
     save_dashboard_config(&db, payload, &origins).await
 }
 

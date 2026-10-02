@@ -70,6 +70,20 @@ only after the final drift check succeeds.
 | user lifecycle FKs + subject-table guard / delete triggers | `006` / `user_lifecycle.sql` (down: `user_lifecycle_down.sql`) | `ensure_user_lifecycle` (orphans of the listed FKs are removed / set NULL before the constraint is added) |
 | agent task status CHECK | — | `ensure_agent_tasks_status_check` |
 
+### Removed when the floor moves past the current release
+
+These exist only to bring a 0.6.x database to the current shape. Once the
+support floor is a release that already ran them, delete them together with
+their tests:
+
+- `src/db/schema_check/old_rows.rs`: rows stored in old shapes, rewritten once
+  at startup, and the column constraints it adds to existing databases.
+- `src/services/media/retire.rs` and `REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL` in
+  `lib.rs`: the old media addresses and their two tables.
+- `rewrap_legacy_private_keys` (`src/federation/keys.rs`, called from
+  `main.rs`) and the `MYRIAD_MIGRATE_DATA_KEY_FROM_JWT` path in
+  `crates/myriad-data-key`: federation keys sealed under the JWT secret.
+
 ## Applying migrations
 
 Prefer backend startup (runs `Migrator::up` automatically), or:

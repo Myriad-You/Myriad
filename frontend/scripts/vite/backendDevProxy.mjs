@@ -285,8 +285,7 @@ function isBackendDevProxyPath(urlPath, userAgent) {
     path === '/nodeinfo/2.1' ||
     path === '/inbox' ||
     path.startsWith('/users/') ||
-    // Public site media, including migrated uploads, portraits and stickers.
-    path.startsWith('/media/federation/') ||
+    // Public site media: uploads, portraits and stickers.
     path.startsWith('/media/assets/')
   )
 }

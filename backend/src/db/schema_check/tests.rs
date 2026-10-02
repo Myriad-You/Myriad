@@ -62,8 +62,6 @@ fn test_folded_extension_tables_in_expected_schema() {
         "phantasi_source_applications",
         "media_assets",
         "media_references",
-        "media_url_aliases",
-        "media_migration_jobs",
         // 006
         "user_identities",
     ] {
@@ -150,8 +148,6 @@ fn test_folded_extension_tables_in_expected_schema() {
         "idx_platform_metadata_user_platform",
         "idx_media_assets_public_id",
         "idx_media_references_slot",
-        "idx_media_url_aliases_local_path",
-        "idx_media_migration_jobs_source",
     ] {
         assert!(
             idx_names.contains(&required),
@@ -1562,4 +1558,58 @@ async fn the_support_floor_refuses_an_unmarked_old_database() {
     let error = refused.expect_err("an unmarked old database is refused");
     assert!(error.to_string().contains("upgrade to 0.6.1 first"), "{error}");
     fresh.expect("a new database migrates");
+}
+
+/// A database still holding the old media job table starts only once that
+/// job finished. Runs in its own schema.
+#[tokio::test]
+async fn an_unfinished_media_upgrade_is_refused() {
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database};
+    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the media upgrade guard");
+        return;
+    };
+    let schema = format!("media_guard_test_{}", uuid::Uuid::new_v4().simple());
+    let admin = Database::connect(&url).await.expect("connect test db");
+    admin
+        .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
+        .await
+        .expect("create test schema");
+    let mut options = ConnectOptions::new(url);
+    options
+        .set_schema_search_path(&schema)
+        .max_connections(1)
+        .sqlx_logging(false);
+    let db = Database::connect(options).await.expect("connect test schema");
+    db.execute_unprepared(
+        "CREATE TABLE media_migration_jobs (id SERIAL PRIMARY KEY, source_kind TEXT NOT NULL,
+             source_key TEXT NOT NULL, cursor TEXT);
+         INSERT INTO media_migration_jobs (source_kind, source_key, cursor)
+             VALUES ('upgrade', 'platform_media_v2', 'not json')",
+    )
+    .await
+    .expect("old job table");
+    let malformed = crate::db::Migrator::up(&db, None).await;
+    db.execute_unprepared(
+        r#"UPDATE media_migration_jobs SET cursor = '{"revision":4,"complete":false}'"#,
+    )
+    .await
+    .expect("running job");
+    let running = crate::db::Migrator::up(&db, None).await;
+    db.execute_unprepared(
+        r#"UPDATE media_migration_jobs SET cursor = '{"revision":4,"complete":true}'"#,
+    )
+    .await
+    .expect("finished job");
+    let finished = crate::db::Migrator::up(&db, None).await;
+
+    admin
+        .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
+        .await
+        .expect("drop test schema");
+    for refused in [malformed, running] {
+        let error = refused.expect_err("an unfinished media upgrade is refused");
+        assert!(error.to_string().contains("media upgrade"), "{error}");
+    }
+    finished.expect("a finished media upgrade migrates");
 }

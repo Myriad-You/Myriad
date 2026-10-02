@@ -149,7 +149,7 @@ async fn write_published_item<C: ConnectionTrait>(
 ) -> Result<PublishedNote, HttpError> {
     let (rewritten_cover, rewritten_body) = crate::services::media::normalize_cited_media(
         db,
-        &crate::services::media::upgrade::configured_origins().await,
+        &crate::services::media::configured_origins().await,
         image.as_deref(),
         content_md,
     )
@@ -314,7 +314,7 @@ pub async fn publish_doc_on<C: ConnectionTrait>(
             history_since,
             saved.image.as_deref(),
             &saved.content_md,
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(media_bind_http)?;
@@ -323,7 +323,7 @@ pub async fn publish_doc_on<C: ConnectionTrait>(
             item.id,
             saved.image.as_deref(),
             &saved.content_md,
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(media_bind_http)?;
@@ -368,7 +368,7 @@ pub async fn delete_note_with_doc(
             item_id,
             None,
             "",
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(media_bind_http)?;
@@ -460,7 +460,7 @@ pub async fn update_note_doc_topic(
             &txn,
             doc_id,
             expected_revision,
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(media_bind_http)?;
@@ -783,7 +783,7 @@ pub async fn write_note_with_doc(
             doc.revision - 1,
             doc.image.as_deref(),
             &doc.content_md,
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(media_bind_http)?;
@@ -792,7 +792,7 @@ pub async fn write_note_with_doc(
             item.id,
             doc.image.as_deref(),
             &doc.content_md,
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(media_bind_http)?;

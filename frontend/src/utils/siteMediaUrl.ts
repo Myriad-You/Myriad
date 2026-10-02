@@ -6,7 +6,7 @@ import { API_URL } from '../config'
  * another site's, even when its path happens to start with `/api/`.
  */
 const SITE_MEDIA_PATH =
-  /^\/(?:media\/(?:assets|federation)\/|api\/media\/\d+\/content$|api\/(?:phantasi|brew)\/image-cache\/|api\/proxy\/image(?:\/|$))/
+  /^\/(?:media\/assets\/|api\/media\/\d+\/content$|api\/phantasi\/image-cache\/|api\/proxy\/image(?:\/|$))/
 
 /** Resolve backend-owned paths for display only; never rewrite stored asset identity. */
 export function siteMediaUrl(src: string, apiUrl = API_URL): string {
@@ -19,11 +19,7 @@ export function siteMediaUrl(src: string, apiUrl = API_URL): string {
       path = `${parsed.pathname}${parsed.search}${parsed.hash}`
     }
   } catch { /* Keep non-URL sources unchanged. */ }
-  if (
-    path.startsWith('/api/') ||
-    path.startsWith('/media/assets/') ||
-    path.startsWith('/media/federation/')
-  ) {
+  if (path.startsWith('/api/') || path.startsWith('/media/assets/')) {
     return `${apiUrl.replace(/\/$/, '')}${path}`
   }
   return path

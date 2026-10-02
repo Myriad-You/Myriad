@@ -772,9 +772,8 @@ fn is_backend_path_for(path: &str, user_agent: &str, query: &str) -> bool {
         || path == "/inbox"
         // Actor, outbox, followers, following, per-user inbox, avatar
         || path.starts_with("/users/")
-        // Site media is served by the web process, including historical federation
-        // attachment URLs. Must not hit SPA or the federation worker.
-        || path.starts_with("/media/federation/")
+        // Site media is served by the web process. Must not hit SPA or the
+        // federation worker.
         || path.starts_with("/media/assets/")
 }
 
@@ -1384,7 +1383,7 @@ mod tests {
         ] {
             assert!(is_federation_path(path), "missing {path}");
         }
-        for path in ["/media/federation/file", "/media/assets/id/a.png"] {
+        for path in ["/media/assets/id/a.png"] {
             assert!(
                 !is_federation_path(path),
                 "site media must not go to the federation worker: {path}"
@@ -1765,11 +1764,6 @@ mod tests {
         assert!(is_backend_path("/users/misakimei/avatar", browser));
         // Note attachment media
         assert!(is_backend_path(
-            "/media/federation/1/abc-def_01.jpg",
-            browser
-        ));
-        assert!(is_backend_path("/media/federation/42/uuid.mp4", browser));
-        assert!(is_backend_path(
             "/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.png",
             browser
         ));
@@ -1783,7 +1777,7 @@ mod tests {
             "/.well-known/acme-challenge/token",
             browser
         ));
-        assert!(!is_backend_path("/media/federation", browser));
+        assert!(!is_backend_path("/media/federation/1/abc.jpg", browser));
         assert!(!is_backend_path("/media/other/x.jpg", browser));
     }
 

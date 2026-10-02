@@ -1,53 +1,22 @@
-const FEDERATION_MEDIA_PATH = /^\/media\/federation\/(\d+)\/([\w.-]+)$/
+/** A site asset's permanent address, or the signed-in content route. */
+const SITE_MEDIA_PATH =
+  /^\/media\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[\w.-]+$|^\/api\/media\/[1-9]\d*\/content$/i
 
-export interface FederationMediaUrlParts {
-  userId: number
-  filename: string
-  origin: string
-}
-
+/** An attachment URL the backend will accept: this site's own media. */
 export function isValidFederationMediaUrl(url: unknown): boolean {
-  return parseFederationMediaUrl(url) !== null
-}
-
-export function parseFederationMediaUrl(
-  url: unknown,
-): FederationMediaUrlParts | null {
-  if (typeof url !== 'string') return null
+  if (typeof url !== 'string') return false
   const trimmed = url.trim()
-  if (!trimmed) return null
-
-  if (trimmed.includes('..')) return null
-
+  if (!trimmed || trimmed.includes('..')) return false
   let parsed: URL
   try {
     parsed = new URL(trimmed)
   } catch {
-    return null
+    return false
   }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return null
-  }
-
-  if (parsed.pathname.includes('..')) return null
-
-  const match = FEDERATION_MEDIA_PATH.exec(parsed.pathname)
-  if (!match) return null
-
-  const userId = Number(match[1])
-  const filename = match[2]
-  if (!Number.isFinite(userId) || userId <= 0) return null
-  if (!filename || filename === '.' || filename === '..') return null
-
-  return {
-    userId,
-    filename,
-    origin: parsed.origin,
-  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+  return SITE_MEDIA_PATH.test(parsed.pathname)
 }
 
 export function federationMediaUrlRejectionReason(url: unknown): string | null {
-  if (parseFederationMediaUrl(url)) return null
-  return 'Invalid attachment URL'
+  return isValidFederationMediaUrl(url) ? null : 'Invalid attachment URL'
 }

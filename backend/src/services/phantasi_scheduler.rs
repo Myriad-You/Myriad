@@ -39,7 +39,7 @@ pub(crate) async fn insert_feed_items(
     if items.is_empty() {
         return Ok(Vec::new());
     }
-    let origins = crate::services::media::upgrade::configured_origins().await;
+    let origins = crate::services::media::configured_origins().await;
     let txn = db.begin().await?;
     // A multi-row RETURNING yields only the rows actually inserted; an
     // all-conflict batch comes back as an empty Vec, not an error.

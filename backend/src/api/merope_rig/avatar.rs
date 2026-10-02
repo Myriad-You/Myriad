@@ -212,7 +212,7 @@ pub async fn generate_sticker_avatar(
         let public_url = crate::services::media::normalize_local_url(
             &transaction,
             &url,
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(|error| internal_error(error.to_string()))?;
@@ -242,7 +242,7 @@ pub async fn generate_sticker_avatar(
             Some(&portrait_asset_id),
             Some(&public_url),
             Some(&stored_visual_profile),
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(|error| internal_error(error.to_string()))?;

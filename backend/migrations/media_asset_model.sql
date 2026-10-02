@@ -124,34 +124,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_media_references_slot
 CREATE INDEX IF NOT EXISTS idx_media_references_consumer
     ON media_references (consumer_type, consumer_id);
 
-CREATE TABLE IF NOT EXISTS media_url_aliases (
-    id SERIAL PRIMARY KEY,
-    local_path TEXT NOT NULL,
-    asset_id INTEGER NOT NULL REFERENCES media_assets(id) ON DELETE RESTRICT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_media_url_aliases_local_path
-    ON media_url_aliases (local_path);
-CREATE INDEX IF NOT EXISTS idx_media_url_aliases_asset
-    ON media_url_aliases (asset_id);
-
-CREATE TABLE IF NOT EXISTS media_migration_jobs (
-    id SERIAL PRIMARY KEY,
-    source_kind TEXT NOT NULL,
-    source_key TEXT NOT NULL,
-    asset_id INTEGER REFERENCES media_assets(id) ON DELETE RESTRICT,
-    copy_state TEXT NOT NULL DEFAULT 'pending',
-    verify_state TEXT NOT NULL DEFAULT 'pending',
-    switch_state TEXT NOT NULL DEFAULT 'pending',
-    error_code TEXT,
-    cursor TEXT,
-    batch_version INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_media_migration_jobs_source
-    ON media_migration_jobs (source_kind, source_key);
-CREATE INDEX IF NOT EXISTS idx_media_migration_jobs_copy_state
-    ON media_migration_jobs (copy_state, id);
-
 CREATE INDEX IF NOT EXISTS idx_media_assets_created_id ON media_assets (created_at, id);

@@ -63,11 +63,9 @@ pub fn registered_local_path(raw: &str) -> Option<String> {
     if path.contains("..") || path.contains('\\') || path.contains('\0') {
         return None;
     }
-    if !(path.starts_with("/media/federation/")
-        || path.starts_with("/media/assets/")
+    if !(path.starts_with("/media/assets/")
         || path.starts_with("/api/media/")
-        || path.starts_with("/api/phantasi/image-cache/")
-        || path.starts_with("/api/brew/image-cache/"))
+        || path.starts_with("/api/phantasi/image-cache/"))
     {
         return None;
     }
@@ -122,8 +120,7 @@ pub fn media_shaped_path(raw: &str) -> Option<String> {
         .strip_prefix("/api/media/")
         .and_then(|rest| rest.strip_suffix("/content"))
         .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()));
-    if !(path.starts_with("/media/assets/") || path.starts_with("/media/federation/") || content_id)
-    {
+    if !(path.starts_with("/media/assets/") || content_id) {
         return None;
     }
     registered_local_path(path)
@@ -219,15 +216,17 @@ mod tests {
     #[test]
     fn registered_paths_do_not_follow_foreign_origins() {
         assert_eq!(
-            registered_local_path("https://site.example/media/federation/1/a.jpg"),
-            Some("/media/federation/1/a.jpg".into())
+            registered_local_path("https://site.example/media/assets/1/a.jpg"),
+            Some("/media/assets/1/a.jpg".into())
         );
-        assert!(registered_local_path("https://other.site/media/federation/1/a.jpg").is_some());
+        assert!(registered_local_path("https://other.site/media/assets/1/a.jpg").is_some());
         assert_eq!(
-            registered_local_path("/media/federation/1/a.jpg?track=1"),
-            Some("/media/federation/1/a.jpg".into())
+            registered_local_path("/media/assets/1/a.jpg?track=1"),
+            Some("/media/assets/1/a.jpg".into())
         );
-        assert!(registered_local_path("/media/federation/../secret").is_none());
+        assert!(registered_local_path("/media/assets/../secret").is_none());
+        assert!(registered_local_path("/media/federation/1/a.jpg").is_none());
+        assert!(registered_local_path("/api/brew/image-cache/ab/ab.png").is_none());
         assert!(registered_local_path("/tmp/x.png").is_none());
         assert!(registered_local_path("").is_none());
     }
@@ -237,20 +236,20 @@ mod tests {
         let allowed = ["https://site.example".to_string()];
         assert_eq!(
             alias_local_path(
-                "https://site.example/media/federation/1/a.jpg?utm=1",
+                "https://site.example/media/assets/1/a.jpg?utm=1",
                 &allowed
             ),
-            Some("/media/federation/1/a.jpg".into())
+            Some("/media/assets/1/a.jpg".into())
         );
         assert!(
-            alias_local_path("https://other.site/media/federation/1/a.jpg", &allowed).is_none()
+            alias_local_path("https://other.site/media/assets/1/a.jpg", &allowed).is_none()
         );
         assert_eq!(
-            alias_local_path("/media/federation/1/a.jpg", &allowed),
-            Some("/media/federation/1/a.jpg".into())
+            alias_local_path("/media/assets/1/a.jpg", &allowed),
+            Some("/media/assets/1/a.jpg".into())
         );
-        assert!(alias_local_path("/media/federation/1/%2e%2e/secret", &[]).is_some());
-        assert!(alias_local_path("/media/federation/../secret", &[]).is_none());
+        assert!(alias_local_path("/media/assets/1/%2e%2e/secret", &[]).is_some());
+        assert!(alias_local_path("/media/assets/../secret", &[]).is_none());
         assert_eq!(
             cite_local_path(
                 "/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.png",
@@ -285,8 +284,8 @@ mod tests {
             Some(asset.into())
         );
         assert_eq!(
-            media_shaped_path("http://old.example:8080/media/federation/1/a.jpg"),
-            Some("/media/federation/1/a.jpg".into())
+            media_shaped_path("http://old.example:8080/media/assets/1/a.jpg"),
+            Some("/media/assets/1/a.jpg".into())
         );
         assert_eq!(
             media_shaped_path("https://old.example/api/media/42/content"),
@@ -300,9 +299,9 @@ mod tests {
             "https://old.example/api/media/x/content",
             "https://old.example/api/phantasi/image-cache/aa/b.png",
             "https://old.example/uploads/media/assets/a.png",
-            "https://old.example/media/federation/../secret",
-            "https://old.example/media/federation/%2e%2e/secret",
-            "ftp://old.example/media/federation/1/a.jpg",
+            "https://old.example/media/assets/../secret",
+            "https://old.example/media/assets/%2e%2e/secret",
+            "ftp://old.example/media/assets/1/a.jpg",
             "data:image/png;base64,AAAA",
         ] {
             assert!(media_shaped_path(rejected).is_none(), "{rejected}");
