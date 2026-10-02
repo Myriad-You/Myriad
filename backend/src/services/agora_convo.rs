@@ -922,9 +922,8 @@ mod tests {
                 ..crate::config::AiVendorSource::default()
             },
         ];
-        config.lite_ai_provider = "openai".to_string();
-        config.lite_openai_model = "lite-model".to_string();
-        config.lite_openai_api_key = Some("lite-key".to_string());
+        config.lite_ai_model = "lite-model".to_string();
+        config.provider_openrouter_api_key = Some("lite-key".to_string());
         assert!(convo_configured(&config));
         // The speech service's voice is its own provider's name: an OpenAI
         // voice is none to MiniMax, a MiniMax one is used.

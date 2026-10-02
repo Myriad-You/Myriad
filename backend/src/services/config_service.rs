@@ -4,6 +4,8 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
+pub(crate) mod legacy_ai_tiers;
+
 /// Optional config string: null / "" / whitespace → None.
 /// Empty `Some("")` must not reach outbound auth headers.
 fn opt_nonempty_string(v: &JsonValue) -> Option<String> {
@@ -91,22 +93,16 @@ macro_rules! read_rule {
 
 standard_fields! {
     text: [
-        ai_provider,
-        gemini_model,
-        openai_model,
-        openai_base_url,
+        ai_source,
+        ai_model,
         topic_style,
-        lite_ai_provider,
-        lite_gemini_model,
-        lite_openai_model,
-        lite_openai_base_url,
-        lite_judge_model,
-        lite_embedding_model,
+        lite_ai_source,
+        lite_ai_model,
+        aux_judge_model,
+        aux_embedding_model,
         aux_ai_source,
-        pro_ai_provider,
-        pro_gemini_model,
-        pro_openai_model,
-        pro_openai_base_url,
+        pro_ai_source,
+        pro_ai_model,
         ai_image_provider,
         ai_image_model,
         ai_image_volcengine_base_url,
@@ -114,9 +110,6 @@ standard_fields! {
         speech_openai_base_url,
         provider_openai_base_url,
         provider_volcengine_base_url,
-        ai_source,
-        lite_ai_source,
-        pro_ai_source,
         ai_image_source,
         speech_source,
         speech_stt_model,
@@ -131,13 +124,7 @@ standard_fields! {
         site_visibility_policy,
     ],
     opt_text: [
-        gemini_api_key,
-        openai_api_key,
         openweather_api_key,
-        lite_gemini_api_key,
-        lite_openai_api_key,
-        pro_gemini_api_key,
-        pro_openai_api_key,
         ui_wallpaper_url,
         ui_theme,
         ui_primary_color,
@@ -351,6 +338,11 @@ impl ConfigService {
     /// Full configuration as seen by `db`, which may be an open transaction:
     /// a writer can prove what it wrote still loads before committing it.
     pub async fn load_config_on(db: &impl ConnectionTrait) -> Result<DynamicConfig> {
+        Ok(Self::parse_config(Self::load_stored_on(db).await?))
+    }
+
+    /// Every stored setting, secrets opened.
+    async fn load_stored_on(db: &impl ConnectionTrait) -> Result<HashMap<String, JsonValue>> {
         let sql = "SELECT key, value FROM configurations";
         let rows = db
             .query_all_raw(Statement::from_string(
@@ -373,25 +365,49 @@ impl ConfigService {
                 config_map.insert(key, value);
             }
         }
+        Ok(config_map)
+    }
 
-        Ok(Self::parse_config(config_map))
+    /// Rewrite the old text-model settings in the new keys and drop the old
+    /// ones, in one transaction (see [`legacy_ai_tiers`]). Must run before
+    /// defaults are seeded: a seeded default would read as already chosen.
+    pub async fn upgrade_legacy_ai_tiers(db: &DatabaseConnection) -> Result<usize> {
+        use sea_orm::TransactionTrait;
+        let txn = db
+            .begin()
+            .await
+            .context("Failed to begin AI settings upgrade")?;
+        let stored = Self::load_stored_on(&txn).await?;
+        let old: Vec<&str> = legacy_ai_tiers::LEGACY_KEYS
+            .iter()
+            .copied()
+            .filter(|key| stored.contains_key(*key))
+            .collect();
+        if old.is_empty() {
+            return Ok(0);
+        }
+        Self::update_configs_on(&txn, legacy_ai_tiers::upgrade(&stored)).await?;
+        txn.execute_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "DELETE FROM configurations WHERE key = ANY($1)",
+            [old.iter()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>()
+                .into()],
+        ))
+        .await
+        .context("Failed to drop old AI settings")?;
+        txn.commit()
+            .await
+            .context("Failed to commit AI settings upgrade")?;
+        tracing::info!(count = old.len(), "Upgraded the old text-model settings");
+        Ok(old.len())
     }
 
     /// 从配置映射解析为 DynamicConfig
     fn parse_config(map: HashMap<String, JsonValue>) -> DynamicConfig {
         let mut config = DynamicConfig::default();
         read_standard_fields(&mut config, &map);
-
-        // Lite used to have a switch. Left off, Lite stays unused: its models
-        // read as blank. Saving Lite's models writes it on (`save.rs`), and
-        // from then on only the model decides.
-        let lite_switched_on = map
-            .get("lite_enabled")
-            .is_some_and(|v| v.as_bool() == Some(true) || matches!(v.as_str(), Some("true" | "1")));
-        if !lite_switched_on {
-            config.lite_gemini_model.clear();
-            config.lite_openai_model.clear();
-        }
 
         if let Some(v) = map.get("discord_token_expires_at") {
             config.discord_token_expires_at = v.as_str().map(|s| s.to_string()).or_else(|| {
@@ -1021,7 +1037,7 @@ mod tests {
             .unwrap(),
             permissions
         );
-        assert!(stale.openai_api_key.is_none());
+        assert!(stale.provider_openai_api_key.is_none());
         let change = writer.begin().await.unwrap();
         change
             .execute_unprepared(
@@ -1629,27 +1645,6 @@ mod tests {
     }
 
     #[test]
-    fn lite_switched_off_before_reads_as_unused() {
-        let stored = |switch: Option<serde_json::Value>| {
-            let mut map = HashMap::from([("lite_openai_model".to_string(), json!("lite/model"))]);
-            if let Some(switch) = switch {
-                map.insert("lite_enabled".to_string(), switch);
-            }
-            ConfigService::parse_config(map)
-        };
-        assert!(!stored(Some(json!(false))).lite_on());
-        assert!(!stored(Some(json!("false"))).lite_on());
-        assert!(
-            !stored(None).lite_on(),
-            "never switched: off, as the default was"
-        );
-        let on = stored(Some(json!(true)));
-        assert!(on.lite_on());
-        assert_eq!(on.lite_openai_model, "lite/model");
-        assert!(stored(Some(json!("true"))).lite_on());
-    }
-
-    #[test]
     fn merope_stays_off_without_required_models() {
         // Pro is required for onboarding. Lite is optional: without it,
         // Merope still runs, but Lite jobs must not fall back to Standard.
@@ -1667,7 +1662,7 @@ mod tests {
 
         let no_pro = DynamicConfig {
             merope_enabled: true,
-            lite_openai_model: "lite-model".into(),
+            lite_ai_model: "lite-model".into(),
             pro_enabled: false,
             ..DynamicConfig::default()
         };
@@ -1677,7 +1672,7 @@ mod tests {
 
         let with_tiers = DynamicConfig {
             merope_enabled: true,
-            lite_openai_model: "lite-model".into(),
+            lite_ai_model: "lite-model".into(),
             pro_enabled: true,
             ..DynamicConfig::default()
         };
@@ -1730,8 +1725,7 @@ mod tests {
             merope_enabled: true,
             merope_speech_enabled: true,
             pro_enabled: true,
-            lite_ai_provider: "openai".into(),
-            lite_openai_model: "qwen3.8-omni-flash".into(),
+            lite_ai_model: "qwen3.8-omni-flash".into(),
             lite_ai_source: "dashscope".into(),
             ai_vendor_sources: vec![crate::config::AiVendorSource {
                 slug: "dashscope".into(),
@@ -1762,7 +1756,7 @@ mod tests {
         assert_eq!(reads_aloud.merope_omni_voice().err(), Some("mode_tts"));
         // Through OpenRouter the model gives text only: read aloud instead.
         let routed = DynamicConfig {
-            lite_openai_model: "qwen/qwen3.8-omni-flash".into(),
+            lite_ai_model: "qwen/qwen3.8-omni-flash".into(),
             ai_vendor_sources: vec![crate::config::AiVendorSource {
                 slug: "dashscope".into(),
                 kind: "openrouter".into(),
@@ -1776,7 +1770,7 @@ mod tests {
         };
         assert_eq!(routed.merope_omni_voice().err(), Some("lite_not_dashscope"));
         let not_omni = DynamicConfig {
-            lite_openai_model: "qwen-plus".into(),
+            lite_ai_model: "qwen-plus".into(),
             ..omni.clone()
         };
         assert_eq!(not_omni.merope_omni_voice().err(), Some("lite_not_omni"));

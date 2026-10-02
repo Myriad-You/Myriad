@@ -1867,14 +1867,14 @@ mod tests {
             Err(ImageGenerationError::NotConfigured(_))
         ));
 
-        config.openai_api_key = Some("sk-test".to_string());
+        config.provider_openrouter_api_key = Some("sk-test".to_string());
         let resolved = config_from_dynamic(&config).unwrap();
         assert_eq!(resolved.provider, "openrouter");
         assert_eq!(resolved.base_url, "https://openrouter.ai/api/v1");
 
         config.ai_image_provider = "gemini".to_string();
         config.ai_image_model = "gemini-3.1-flash-image".to_string();
-        config.gemini_api_key = Some("AIza-test".to_string());
+        config.provider_gemini_api_key = Some("AIza-test".to_string());
         let gemini = config_from_dynamic(&config).unwrap();
         assert_eq!(gemini.provider, "gemini");
         assert_eq!(gemini.model, "gemini-3.1-flash-image");

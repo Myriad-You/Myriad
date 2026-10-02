@@ -142,6 +142,33 @@ fn is_sensitive_configuration_key(key: &str) -> bool {
     crate::services::data_key::is_sensitive_config_key(key)
 }
 
+/// A backup from before tiers were a source and one model: its old rows,
+/// plus old fields its settings snapshot had and the rows did not (a v1
+/// deploy's environment), in the new keys.
+fn legacy_ai_tier_values(backup: &SettingsBackup) -> std::collections::HashMap<String, Value> {
+    use crate::services::config_service::legacy_ai_tiers::{LEGACY_KEYS, upgrade};
+    let mut stored: std::collections::HashMap<String, Value> = backup
+        .configurations
+        .iter()
+        .map(|entry| (entry.key.clone(), entry.value.clone()))
+        .collect();
+    for field in &backup.effective_config.ai_config.config_fields {
+        // The snapshot's form named three keys differently.
+        let key = match field.key.as_str() {
+            "provider" => "ai_provider",
+            "lite_provider" => "lite_ai_provider",
+            "pro_provider" => "pro_ai_provider",
+            other => other,
+        };
+        if LEGACY_KEYS.contains(&key) && !super::secrets::is_masked_secret_value(&field.value) {
+            stored
+                .entry(key.to_string())
+                .or_insert_with(|| Value::String(field.value.clone()));
+        }
+    }
+    upgrade(&stored)
+}
+
 fn merge_settings_backup_entries(
     backup: &SettingsBackup,
 ) -> std::collections::HashMap<String, SettingsBackupEntry> {
@@ -152,6 +179,24 @@ fn merge_settings_backup_entries(
         .filter(|entry| !is_retired_configuration_key(&entry.key))
         .map(|entry| (entry.key.clone(), entry))
         .collect();
+
+    // Old text-model settings come back in their new keys; the old keys are
+    // retired and never restored as they are.
+    for (key, value) in legacy_ai_tier_values(backup) {
+        let is_encrypted = is_sensitive_configuration_key(&key);
+        entries.insert(
+            key.clone(),
+            SettingsBackupEntry {
+                key,
+                value,
+                schema_version: 1,
+                description: None,
+                category: Some("general".to_string()),
+                is_encrypted: Some(is_encrypted),
+                is_public: Some(false),
+            },
+        );
+    }
 
     // v1 部署可能从环境变量取值。快照里有、备份行里没有的键在这里补上；
     // 下线键不补。`collect_database_updates` 只发出快照 bag 里实际存在的字段。
@@ -950,6 +995,61 @@ mod settings_backup_tests {
         assert!(!is_retired_configuration_key("github_token"));
         assert!(!is_retired_configuration_key("github_enabled"));
         assert!(!is_retired_configuration_key("island_show_tapp"));
+    }
+
+    #[test]
+    fn an_old_backup_restores_its_text_models_in_the_new_keys() {
+        let value = |key: &str, value: Value| SettingsBackupEntry {
+            value,
+            ..entry(key)
+        };
+        let mut backup = backup_with_entries(vec![
+            value("ai_provider", json!("openai")),
+            value("openai_model", json!("minimax/minimax-m3")),
+            value("openai_base_url", json!("https://openrouter.ai/api/v1")),
+            value("lite_enabled", json!(true)),
+            value("lite_openai_model", json!("qwen3.8-omni-flash")),
+            value("lite_ai_source", json!("dashscope")),
+            value("lite_judge_model", json!("openai/gpt-6-luna")),
+        ]);
+        // A v1 deploy's key came from its environment: only in the snapshot.
+        backup.effective_config.ai_config.config_fields = vec![ConfigField {
+            key: "openai_api_key".to_string(),
+            value: "sk-or-env".to_string(),
+            ..Default::default()
+        }];
+        let plan = build_settings_restore_plan(&backup);
+        let restored = |key: &str| {
+            plan.entries
+                .iter()
+                .find(|entry| entry.key == key)
+                .map(|entry| entry.value.clone())
+        };
+        assert_eq!(restored("ai_model"), Some(json!("minimax/minimax-m3")));
+        assert_eq!(restored("ai_source"), Some(json!("openrouter")));
+        assert_eq!(restored("lite_ai_model"), Some(json!("qwen3.8-omni-flash")));
+        assert_eq!(restored("lite_ai_source"), Some(json!("dashscope")));
+        assert_eq!(
+            restored("aux_judge_model"),
+            Some(json!("openai/gpt-6-luna"))
+        );
+        assert_eq!(
+            restored("provider_openrouter_api_key"),
+            Some(json!("sk-or-env"))
+        );
+        // The old keys themselves are not written back.
+        for old in [
+            "ai_provider",
+            "openai_model",
+            "lite_enabled",
+            "lite_openai_model",
+        ] {
+            assert_eq!(restored(old), None, "{old}");
+            assert!(
+                plan.preview.ignored_keys.iter().any(|key| key == old),
+                "{old}"
+            );
+        }
     }
 
     #[test]

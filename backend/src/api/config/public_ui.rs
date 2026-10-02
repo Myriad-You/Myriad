@@ -508,7 +508,7 @@ mod ai_availability_tests {
     #[test]
     fn chat_and_naming_require_explicit_lite_without_pro_or_merope() {
         let mut config = crate::config::DynamicConfig {
-            lite_openai_model: "test-lite".into(),
+            lite_ai_model: "test-lite".into(),
             provider_openrouter_api_key: Some("test-key".into()),
             ..Default::default()
         };
@@ -516,7 +516,7 @@ mod ai_availability_tests {
         assert_eq!(value["chat"], true);
         assert_eq!(value["personaName"], true);
         assert_eq!(value["persona"], false);
-        config.lite_openai_model.clear();
+        config.lite_ai_model.clear();
         assert_eq!(ai_availability(&config)["chat"], false);
         assert_eq!(ai_availability(&config)["personaName"], false);
     }

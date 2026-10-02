@@ -11,6 +11,7 @@ use super::types::{
     AiConfig, ConfigField, ConfigResponse, PlatformAutoFetchConfig, PlatformConfig, ReportConfig,
     TripoConfig, UiConfig,
 };
+use crate::config::ModelTier;
 use crate::services::platform_id::PlatformId;
 
 /// Fails when stored configuration cannot be read (database or decryption).
@@ -449,87 +450,52 @@ pub(crate) async fn build_config(
         }),
         ai_config: AiConfig {
             config_fields: vec![
+                // 文本模型：每档一个服务商源加一个模型名。源显示的是实际在用的那个
+                // （Lite / Pro 没选过时是 Standard 的，判断与向量没选过时是 Lite 的）。
                 ConfigField {
-                    key: "provider".to_string(),
-                    label: "AI Provider".to_string(),
-                    field_type: "select".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ai_provider.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("AI_PROVIDER").unwrap_or_else(|_| "openai".to_string())
-                        }),
-                    placeholder: "openai".to_string(),
-                    required: true,
-                },
-                ConfigField {
-                    key: "gemini_api_key".to_string(),
-                    label: "Gemini API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config.as_ref().and_then(|c| c.gemini_api_key.clone()),
-                        "GEMINI_API_KEY",
-                    )),
-                    placeholder: "Get from https://makersuite.google.com/app/apikey".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "gemini_model".to_string(),
-                    label: "Model Name".to_string(),
+                    key: "ai_source".to_string(),
+                    label: "Standard AI source".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.gemini_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("GEMINI_MODEL")
-                                .unwrap_or_else(|_| "gemini-3.8-flash".to_string())
-                        }),
-                    placeholder: "gemini-3.8-flash, gemini-3.5-flash-lite, gemini-3.1-pro-preview, etc."
-                        .to_string(),
+                        .map(|c| c.tier_source(ModelTier::Standard))
+                        .unwrap_or_default(),
+                    placeholder: String::new(),
                     required: false,
                 },
                 ConfigField {
-                    key: "openai_api_key".to_string(),
-                    label: "OpenAI API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config.as_ref().and_then(|c| c.openai_api_key.clone()),
-                        "OPENAI_API_KEY",
-                    )),
-                    placeholder: "OpenAI API Key or compatible service key".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "openai_model".to_string(),
-                    label: "Model Name".to_string(),
+                    key: "ai_model".to_string(),
+                    label: "Standard model".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.openai_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("OPENAI_MODEL")
-                                .unwrap_or_else(|_| "minimax/minimax-m3".to_string())
-                        }),
+                        .map(|c| c.ai_model.clone())
+                        .unwrap_or_default(),
                     placeholder: "minimax/minimax-m3, gpt-5.6-terra, etc.".to_string(),
                     required: false,
                 },
                 ConfigField {
-                    key: "openai_base_url".to_string(),
-                    label: "OpenAI Base URL".to_string(),
+                    key: "lite_ai_source".to_string(),
+                    label: "Lite AI source".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.openai_base_url.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("OPENAI_BASE_URL")
-                                .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string())
-                        }),
-                    placeholder:
-                        "https://openrouter.ai/api/v1 (base URL only, no /chat/completions)"
-                            .to_string(),
+                        .map(|c| c.tier_source(ModelTier::Lite))
+                        .unwrap_or_default(),
+                    placeholder: String::new(),
                     required: false,
                 },
-                // Pro 模型配置
+                ConfigField {
+                    key: "lite_ai_model".to_string(),
+                    label: "Lite model".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.lite_ai_model.clone())
+                        .unwrap_or_default(),
+                    placeholder: "Blank: Lite is not used".to_string(),
+                    required: false,
+                },
                 ConfigField {
                     key: "pro_enabled".to_string(),
                     label: "Enable Pro Model".to_string(),
@@ -542,88 +508,58 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
-                    key: "pro_provider".to_string(),
-                    label: "【Pro Model】AI Provider".to_string(),
-                    field_type: "select".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.pro_ai_provider.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("PRO_AI_PROVIDER")
-                                .unwrap_or_else(|_| "openai".to_string())
-                        }),
-                    placeholder: "openai".to_string(),
-                    required: true,
-                },
-                ConfigField {
-                    key: "pro_gemini_api_key".to_string(),
-                    label: "【Pro Model】Gemini API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.pro_gemini_api_key.clone()),
-                        "PRO_GEMINI_API_KEY",
-                    )),
-                    placeholder: "Pro model Gemini API Key (leave empty to reuse standard)"
-                        .to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "pro_gemini_model".to_string(),
-                    label: "Model Name".to_string(),
+                    key: "pro_ai_source".to_string(),
+                    label: "Pro AI source".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.pro_gemini_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("PRO_GEMINI_MODEL")
-                                .unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string())
-                        }),
-                    placeholder: "gemini-3.1-pro-preview, gemini-3.8-flash, etc.".to_string(),
+                        .map(|c| c.tier_source(ModelTier::Pro))
+                        .unwrap_or_default(),
+                    placeholder: String::new(),
                     required: false,
                 },
                 ConfigField {
-                    key: "pro_openai_api_key".to_string(),
-                    label: "【Pro Model】OpenAI API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.pro_openai_api_key.clone()),
-                        "PRO_OPENAI_API_KEY",
-                    )),
-                    placeholder: "Pro model OpenAI API Key (leave empty to reuse standard)"
-                        .to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "pro_openai_model".to_string(),
-                    label: "Model Name".to_string(),
+                    key: "pro_ai_model".to_string(),
+                    label: "Pro model".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.pro_openai_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("PRO_OPENAI_MODEL")
-                                .unwrap_or_else(|_| "anthropic/claude-opus-5.5".to_string())
-                        }),
+                        .map(|c| c.pro_ai_model.clone())
+                        .unwrap_or_default(),
                     placeholder: "anthropic/claude-opus-5.5, gpt-5.6-sol, etc.".to_string(),
                     required: false,
                 },
                 ConfigField {
-                    key: "pro_openai_base_url".to_string(),
-                    label: "【Pro Model】OpenAI Base URL".to_string(),
+                    key: "aux_ai_source".to_string(),
+                    label: "Judgment and embedding source".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.pro_openai_base_url.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("PRO_OPENAI_BASE_URL")
-                                .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string())
-                        }),
-                    placeholder: "https://api.openai.com/v1 (leave empty to reuse standard)"
-                        .to_string(),
+                        .map(|c| c.aux_source_slug())
+                        .unwrap_or_default(),
+                    placeholder: String::new(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "aux_judge_model".to_string(),
+                    label: "Judgment Model".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.aux_judge_model.clone())
+                        .unwrap_or_default(),
+                    placeholder: "Blank: same as the Lite model".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "aux_embedding_model".to_string(),
+                    label: "Embedding Model".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.aux_embedding_model.clone())
+                        .unwrap_or_default(),
+                    placeholder: "Blank: recall by words only".to_string(),
                     required: false,
                 },
                 // AI 图片生成配置
@@ -722,128 +658,6 @@ pub(crate) async fn build_config(
                             })
                         }),
                     placeholder: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
-                    required: false,
-                },
-                // Lite 独立 lite_* 字段，没有开关：模型留空就不用 Lite（resolve_strict_lite 是 None）。
-                ConfigField {
-                    key: "lite_provider".to_string(),
-                    label: "【Lite Model】AI Provider".to_string(),
-                    field_type: "select".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_ai_provider.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("LITE_AI_PROVIDER")
-                                .unwrap_or_else(|_| "openai".to_string())
-                        }),
-                    placeholder: "openai".to_string(),
-                    required: true,
-                },
-                ConfigField {
-                    key: "lite_gemini_api_key".to_string(),
-                    label: "【Lite Model】Gemini API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.lite_gemini_api_key.clone()),
-                        "LITE_GEMINI_API_KEY",
-                    )),
-                    placeholder: "Leave empty to reuse Standard".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "lite_gemini_model".to_string(),
-                    label: "Model Name".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_gemini_model.clone())
-                        .unwrap_or_else(|| std::env::var("LITE_GEMINI_MODEL").unwrap_or_default()),
-                    placeholder: "gemini-3.5-flash-lite".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "lite_openai_api_key".to_string(),
-                    label: "【Lite Model】OpenAI API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.lite_openai_api_key.clone()),
-                        "LITE_OPENAI_API_KEY",
-                    )),
-                    placeholder: "Leave empty to reuse Standard".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "lite_openai_model".to_string(),
-                    label: "Model Name".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_openai_model.clone())
-                        .unwrap_or_else(|| std::env::var("LITE_OPENAI_MODEL").unwrap_or_default()),
-                    placeholder: "google/gemini-3.5-flash-lite, gpt-5.6-luna, etc.".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "lite_judge_model".to_string(),
-                    label: "Judgment Model".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_judge_model.clone())
-                        .unwrap_or_else(|| std::env::var("LITE_JUDGE_MODEL").unwrap_or_default()),
-                    placeholder: "Blank: same as the Lite model".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "lite_embedding_model".to_string(),
-                    label: "Embedding Model".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_embedding_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("LITE_EMBEDDING_MODEL").unwrap_or_default()
-                        }),
-                    placeholder: "Blank: recall by words only".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "aux_ai_source".to_string(),
-                    label: "Judgment and embedding source".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        // Never chosen: shown as Lite's source of now, which
-                        // is what it is in effect. Without vendor sources there
-                        // is nothing to choose, and it stays blank (on Lite).
-                        .map(|c| {
-                            if c.ai_vendor_sources.is_empty() {
-                                c.aux_ai_source.clone()
-                            } else {
-                                c.aux_source_slug()
-                            }
-                        })
-                        .unwrap_or_default(),
-                    placeholder: String::new(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "lite_openai_base_url".to_string(),
-                    label: "【Lite Model】OpenAI Base URL".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_openai_base_url.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("LITE_OPENAI_BASE_URL").unwrap_or_else(|_| {
-                                "https://openrouter.ai/api/v1".to_string()
-                            })
-                        }),
-                    placeholder: "https://openrouter.ai/api/v1".to_string(),
                     required: false,
                 },
                 // tencent_* 凭据；其后 speech_* 为多供应商 TTS/ASR
@@ -1089,39 +903,6 @@ pub(crate) async fn build_config(
                         })
                         .unwrap_or_else(|| "[]".to_string()),
                     placeholder: "[]".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "ai_source".to_string(),
-                    label: "Standard AI source".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ai_source.clone())
-                        .unwrap_or_default(),
-                    placeholder: "".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "lite_ai_source".to_string(),
-                    label: "Lite AI source".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_ai_source.clone())
-                        .unwrap_or_default(),
-                    placeholder: "".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "pro_ai_source".to_string(),
-                    label: "Pro AI source".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.pro_ai_source.clone())
-                        .unwrap_or_default(),
-                    placeholder: "".to_string(),
                     required: false,
                 },
                 ConfigField {

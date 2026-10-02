@@ -21,17 +21,9 @@ export const AGENT_AI_FIELD_KEYS = new Set([
 // Bag keys from api/config/build.rs, with factory values from DynamicConfig::default.
 // Credentials and optional source/model overrides reset to an empty value.
 const AI_FIELD_DEFAULTS: Readonly<Record<string, string>> = {
-  provider: 'openai',
-  gemini_model: 'gemini-3.8-flash',
-  openai_model: 'minimax/minimax-m3',
-  openai_base_url: 'https://openrouter.ai/api/v1',
-  lite_provider: 'openai',
-  lite_openai_base_url: 'https://openrouter.ai/api/v1',
+  ai_model: 'minimax/minimax-m3',
   pro_enabled: 'false',
-  pro_provider: 'openai',
-  pro_gemini_model: 'gemini-3.1-pro-preview',
-  pro_openai_model: 'anthropic/claude-opus-5.5',
-  pro_openai_base_url: 'https://openrouter.ai/api/v1',
+  pro_ai_model: 'anthropic/claude-opus-5.5',
   ai_image_provider: 'openrouter',
   ai_image_model: 'openai/gpt-image-2.5-sunburst',
   ai_image_openai_base_url: 'https://api.openai.com/v1',

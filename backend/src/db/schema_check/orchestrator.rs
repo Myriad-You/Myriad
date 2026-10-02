@@ -28,8 +28,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// （`ensure_agent_memories_table`）；记忆的概念与别名列（`agent_memories.concepts`）；
 /// 记忆的场合放宽到能放下群的标识（`agent_memories.venue` VARCHAR(96)）；
 /// 按场合取记忆的索引（`idx_agent_memories_venue_created`，群聊和她自己的记录）；
-/// 记忆的意思向量（`agent_memory_embeddings`，随统一记忆表一起建）。
-pub const SCHEMA_VERSION: &str = "2026.09.29.1";
+/// 记忆的意思向量（`agent_memory_embeddings`，随统一记忆表一起建）；
+/// 文本模型旧设置迁到「源 + 一个模型名」（`upgrade_legacy_ai_tiers`）。
+pub const SCHEMA_VERSION: &str = "2026.10.02.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -222,6 +223,13 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     if seeded_platforms > 0 {
         changes_made += seeded_platforms;
     }
+
+    // Old text-model settings move to their new keys before seeding: a
+    // seeded default of a new key would read as already chosen.
+    let upgraded = crate::services::config_service::ConfigService::upgrade_legacy_ai_tiers(db)
+        .await
+        .map_err(|error| DbErr::Custom(format!("upgrade AI settings: {error:#}")))?;
+    changes_made += upgraded;
 
     // Seed all runtime configuration keys after the explicit default-open
     // entries have had first refusal, preserving any existing administrator

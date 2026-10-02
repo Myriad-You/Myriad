@@ -51,7 +51,7 @@ pub async fn create_ai_analyzer_for_tier_with_timeout(
         return None;
     }
     if config.tier_falls_back_to_standard(tier) {
-        warn_tier_fallback(tier, &config.openai_model);
+        warn_tier_fallback(tier, &config.ai_model);
     }
     let resolved = config.resolve_ai_config(tier);
 
@@ -107,7 +107,7 @@ pub async fn create_strict_lite_ai_analyzer_with_timeout(
     lite_analyzer(resolved, request_timeout).await
 }
 
-/// Lite for small typed judgments (see `lite_judge_model`): a fast model
+/// Lite for small typed judgments (see `aux_judge_model`): a fast model
 /// deciding, while Lite's own model speaks. Judgments are short, so it
 /// thinks little: measured on the judgment suite, the same decisions in
 /// about two thirds of the time.
@@ -123,7 +123,7 @@ pub async fn create_lite_judge_ai_analyzer_with_timeout(
         .map(AiAnalyzer::with_light_thinking)
 }
 
-/// Lite's embedding model (`lite_embedding_model`), when one is set: what a
+/// The embedding model (`aux_embedding_model`), when one is set: what a
 /// memory means, as a vector. `None`: recall goes by words alone.
 pub async fn create_lite_embedding_analyzer_with_timeout(
     request_timeout: Option<std::time::Duration>,

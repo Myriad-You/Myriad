@@ -27,7 +27,7 @@ function config(): Config {
     ai_config: {
       config_fields: [
         field('gemini_model'),
-        field('lite_openai_model', 'lite/model'),
+        field('lite_ai_model', 'lite/model'),
         field('pro_enabled', 'true'),
         field('qq_bot_enabled', 'true'),
         field('telegram_bot_token', 'secret'),
@@ -51,7 +51,7 @@ describe('agent bag slice', () => {
     assert.deepEqual(
       slice.aiFields.map((item) => item.key),
       [
-        'lite_openai_model',
+        'lite_ai_model',
         'pro_enabled',
         'qq_bot_enabled',
         'telegram_bot_token',
@@ -88,7 +88,7 @@ describe('agent bag slice', () => {
       '',
     )
     assert.equal(
-      reset.aiFields.find((item) => item.key === 'lite_openai_model')?.value,
+      reset.aiFields.find((item) => item.key === 'lite_ai_model')?.value,
       'lite/model',
     )
     assert.equal(
@@ -101,7 +101,7 @@ describe('agent bag slice', () => {
     const next = omitAgentOwnedFields(config())
     assert.deepEqual(
       next.ai_config.config_fields.map((item) => item.key),
-      ['gemini_model', 'lite_openai_model', 'pro_enabled'],
+      ['gemini_model', 'lite_ai_model', 'pro_enabled'],
     )
     assert.deepEqual(
       next.ui_config.config_fields.map((item) => item.key),

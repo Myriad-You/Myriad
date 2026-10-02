@@ -330,42 +330,33 @@ impl AppConfig {
 /// 这些配置可以在运行时通过API修改
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DynamicConfig {
-    // AI 配置（标准模型）
-    pub ai_provider: String,
-    pub gemini_api_key: Option<String>,
-    pub gemini_model: String,
-    pub openai_api_key: Option<String>,
-    pub openai_model: String,
-    pub openai_base_url: String,
+    // 文本模型：每一档是一个服务商源（slug）加一个模型名。
+    /// Standard 的服务商源。留空按出厂的 OpenRouter。
+    pub ai_source: String,
+    pub ai_model: String,
     pub openai_max_tokens: i32,
-    // AI 配置（Lite 模型）：模型留空就不用 Lite，没有单独的开关。
-    pub lite_ai_provider: String,
-    pub lite_gemini_api_key: Option<String>,
-    pub lite_gemini_model: String,
-    pub lite_openai_api_key: Option<String>,
-    pub lite_openai_model: String,
-    pub lite_openai_base_url: String,
-    /// Optional model for Lite's small typed judgments (affect appraisal,
-    /// event decisions, memory extraction, whether to look something up),
-    /// on the same provider and credentials. Blank: Lite's own model.
-    pub lite_judge_model: String,
-    /// Optional embedding model on Lite's provider and credentials: recall
+    /// Lite 的服务商源。留空跟 Standard 用同一个。
+    pub lite_ai_source: String,
+    /// Lite 的模型。留空就不用 Lite，没有单独的开关。
+    pub lite_ai_model: String,
+    /// Optional model for small typed judgments (affect appraisal, event
+    /// decisions, memory extraction, whether to look something up), on the
+    /// judgment and embedding source. Blank: Lite's own model.
+    pub aux_judge_model: String,
+    /// Optional embedding model on the judgment and embedding source: recall
     /// then finds a memory by what it means, not only by its words. Blank:
     /// words only.
-    pub lite_embedding_model: String,
+    pub aux_embedding_model: String,
     /// Where the judgment and embedding models run, their own source apart
     /// from Lite's (a vendor source slug): Lite can move (to DashScope, say)
     /// while they stay where they are. Blank (never chosen): Lite's source
     /// of now, which is also what the settings page shows chosen.
     pub aux_ai_source: String,
-    // AI 配置（Pro 模型）
+    // Pro 有开关；开着却没填模型时，Pro 的活交给 Standard。
     pub pro_enabled: bool,
-    pub pro_ai_provider: String,
-    pub pro_gemini_api_key: Option<String>,
-    pub pro_gemini_model: String,
-    pub pro_openai_api_key: Option<String>,
-    pub pro_openai_model: String,
-    pub pro_openai_base_url: String,
+    /// Pro 的服务商源。留空跟 Standard 用同一个。
+    pub pro_ai_source: String,
+    pub pro_ai_model: String,
     pub topic_style: String,
 
     // 平台配置
@@ -456,9 +447,6 @@ pub struct DynamicConfig {
     pub provider_volcengine_base_url: String,
     /// 可添加的服务商源列表（OAuth providers 同款：可多家、可同 kind 多源）
     pub ai_vendor_sources: Vec<AiVendorSource>,
-    pub ai_source: String,
-    pub lite_ai_source: String,
-    pub pro_ai_source: String,
     pub ai_image_source: String,
     pub speech_source: String,
 
@@ -791,33 +779,20 @@ pub struct DynamicConfig {
 impl Default for DynamicConfig {
     fn default() -> Self {
         Self {
-            // 默认使用 OpenRouter（OpenAI 兼容，provider 记为 openai + OpenRouter base_url）
-            ai_provider: "openai".to_string(),
-            gemini_api_key: None,
-            gemini_model: "gemini-3.8-flash".to_string(),
-            openai_api_key: None,
-            openai_model: "minimax/minimax-m3".to_string(),
-            openai_base_url: "https://openrouter.ai/api/v1".to_string(),
+            // 出厂走 OpenRouter。
+            ai_source: "openrouter".to_string(),
+            ai_model: "minimax/minimax-m3".to_string(),
             openai_max_tokens: 2000,
-            // Lite 默认不用：模型留空。
-            lite_ai_provider: "openai".to_string(),
-            lite_gemini_api_key: None,
-            lite_gemini_model: String::new(),
-            lite_openai_api_key: None,
-            lite_openai_model: String::new(),
-            lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
-            // 留空：判断也用 Lite 的模型。
-            lite_judge_model: String::new(),
-            lite_embedding_model: String::new(),
+            // Lite 默认不用：模型留空；源跟 Standard。
+            lite_ai_source: String::new(),
+            lite_ai_model: String::new(),
+            // 留空：判断也用 Lite 的模型，回忆只按字面。
+            aux_judge_model: String::new(),
+            aux_embedding_model: String::new(),
             aux_ai_source: String::new(),
-            // Pro 模型默认配置
             pro_enabled: false,
-            pro_ai_provider: "openai".to_string(),
-            pro_gemini_api_key: None,
-            pro_gemini_model: "gemini-3.1-pro-preview".to_string(),
-            pro_openai_api_key: None,
-            pro_openai_model: "anthropic/claude-opus-5.5".to_string(),
-            pro_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
+            pro_ai_source: String::new(),
+            pro_ai_model: "anthropic/claude-opus-5.5".to_string(),
             topic_style: "balanced".to_string(),
 
             github_enabled: None,
@@ -878,9 +853,6 @@ impl Default for DynamicConfig {
             provider_volcengine_api_key: None,
             provider_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
             ai_vendor_sources: Vec::new(),
-            ai_source: String::new(),
-            lite_ai_source: String::new(),
-            pro_ai_source: String::new(),
             ai_image_source: String::new(),
             speech_source: String::new(),
             agora_convo_enabled: false,
@@ -1200,15 +1172,6 @@ impl DynamicConfig {
             self.provider_openrouter_api_key.clone(),
             self.speech_openrouter_api_key.clone(),
             self.ai_image_openrouter_api_key.clone(),
-            Self::is_openrouter_base(&self.openai_base_url)
-                .then(|| self.openai_api_key.clone())
-                .flatten(),
-            Self::is_openrouter_base(&self.lite_openai_base_url)
-                .then(|| self.lite_openai_api_key.clone())
-                .flatten(),
-            Self::is_openrouter_base(&self.pro_openai_base_url)
-                .then(|| self.pro_openai_api_key.clone())
-                .flatten(),
         ])
     }
 
@@ -1217,15 +1180,6 @@ impl DynamicConfig {
             self.provider_openai_api_key.clone(),
             self.speech_openai_api_key.clone(),
             self.ai_image_openai_api_key.clone(),
-            (!Self::is_openrouter_base(&self.openai_base_url))
-                .then(|| self.openai_api_key.clone())
-                .flatten(),
-            (!Self::is_openrouter_base(&self.lite_openai_base_url))
-                .then(|| self.lite_openai_api_key.clone())
-                .flatten(),
-            (!Self::is_openrouter_base(&self.pro_openai_base_url))
-                .then(|| self.pro_openai_api_key.clone())
-                .flatten(),
         ])
     }
 
@@ -1237,7 +1191,6 @@ impl DynamicConfig {
         for url in [
             self.speech_openai_base_url.as_str(),
             self.ai_image_openai_base_url.as_str(),
-            self.openai_base_url.as_str(),
         ] {
             if !url.trim().is_empty() && !Self::is_openrouter_base(url) {
                 return url.trim().to_string();
@@ -1247,12 +1200,7 @@ impl DynamicConfig {
     }
 
     pub fn shared_gemini_api_key(&self) -> Option<String> {
-        Self::first_nonempty_key([
-            self.provider_gemini_api_key.clone(),
-            self.gemini_api_key.clone(),
-            self.lite_gemini_api_key.clone(),
-            self.pro_gemini_api_key.clone(),
-        ])
+        Self::first_nonempty_key([self.provider_gemini_api_key.clone()])
     }
 
     pub fn shared_tinyfish_api_key(&self) -> Option<String> {
@@ -1266,25 +1214,15 @@ impl DynamicConfig {
 
     /// Google Search grounding 只能走 Gemini。
     ///
-    /// key 用共享 Gemini 库；模型优先当前 Standard 若本身就是 Gemini，
-    /// 否则借各档 `gemini_model`，再落到 grounding 默认型号。
+    /// key 用共享 Gemini 库；模型取第一档本身就在 Gemini 上的（Standard、
+    /// Lite、Pro），都不是就用 grounding 默认型号。
     pub fn resolve_gemini_grounding(&self) -> Option<(String, String)> {
         let api_key = self.shared_gemini_api_key()?;
-        let resolved = self.resolve_ai_config(ModelTier::Standard);
-        let model = if resolved.provider == "gemini" && !resolved.model.trim().is_empty() {
-            resolved.model
-        } else {
-            let borrowed = Self::first_nonempty_url([
-                self.gemini_model.as_str(),
-                self.lite_gemini_model.as_str(),
-                self.pro_gemini_model.as_str(),
-            ]);
-            if borrowed.is_empty() {
-                "gemini-3.8-flash".to_string()
-            } else {
-                borrowed
-            }
-        };
+        let model = [ModelTier::Standard, ModelTier::Lite, ModelTier::Pro]
+            .into_iter()
+            .map(|tier| self.resolve_ai_config(tier))
+            .find(|resolved| resolved.provider == "gemini" && !resolved.model.trim().is_empty())
+            .map_or_else(|| "gemini-3.8-flash".to_string(), |resolved| resolved.model);
         Some((api_key, model))
     }
 
@@ -1552,16 +1490,6 @@ impl DynamicConfig {
             .find(|source| source.slug == slug)
     }
 
-    fn inferred_text_source_slug(&self, provider: &str, base_url: &str) -> String {
-        if provider == "gemini" {
-            "gemini".to_string()
-        } else if Self::is_openrouter_base(base_url) {
-            "openrouter".to_string()
-        } else {
-            "openai".to_string()
-        }
-    }
-
     pub fn resolve_from_vendor_source(
         &self,
         source: &AiVendorSource,
@@ -1628,40 +1556,77 @@ impl DynamicConfig {
         }
     }
 
-    fn resolve_openai_compatible(&self, model: &str, selected_base: &str) -> ResolvedAiConfig {
-        if Self::is_openrouter_base(selected_base) {
-            ResolvedAiConfig {
-                provider: "openai".to_string(),
-                api_format: "openai".to_string(),
-                api_key: self.shared_openrouter_api_key(),
-                credential_origin: AiCredentialOrigin::Shared("openrouter".to_string()),
+    /// `model` on a built-in source that has no vendor source row: the
+    /// shared key of that vendor. Any other slug (a source since deleted)
+    /// resolves to nothing usable rather than to someone else's endpoint.
+    fn resolve_builtin_source(&self, slug: &str, model: &str) -> ResolvedAiConfig {
+        let shared =
+            |provider: &str, api_format: &str, api_key, key_ref: &str, base_url| ResolvedAiConfig {
+                provider: provider.to_string(),
+                api_format: api_format.to_string(),
+                api_key,
+                credential_origin: AiCredentialOrigin::Shared(key_ref.to_string()),
                 model: model.to_string(),
-                base_url: "https://openrouter.ai/api/v1".to_string(),
+                base_url,
                 source_enabled: true,
                 requires_explicit_endpoint: false,
-            }
+            };
+        match slug {
+            "openrouter" => shared(
+                "openai",
+                "openai",
+                self.shared_openrouter_api_key(),
+                "openrouter",
+                "https://openrouter.ai/api/v1".to_string(),
+            ),
+            "openai" => shared(
+                "openai",
+                "openai",
+                self.shared_openai_api_key(),
+                "openai",
+                self.shared_openai_base_url(),
+            ),
+            "gemini" => shared(
+                "gemini",
+                "gemini",
+                self.shared_gemini_api_key(),
+                "gemini",
+                String::new(),
+            ),
+            _ => ResolvedAiConfig {
+                provider: "openai".to_string(),
+                api_format: "openai".to_string(),
+                api_key: None,
+                credential_origin: AiCredentialOrigin::Invalid,
+                model: model.to_string(),
+                base_url: String::new(),
+                source_enabled: false,
+                requires_explicit_endpoint: true,
+            },
+        }
+    }
+
+    /// The source a tier runs on: its own; else, for Lite and Pro,
+    /// Standard's; else the factory OpenRouter.
+    pub fn tier_source(&self, tier: ModelTier) -> String {
+        let own = match tier {
+            ModelTier::Standard => &self.ai_source,
+            ModelTier::Lite => &self.lite_ai_source,
+            ModelTier::Pro => &self.pro_ai_source,
+        }
+        .trim();
+        if !own.is_empty() {
+            own.to_string()
+        } else if tier == ModelTier::Standard {
+            "openrouter".to_string()
         } else {
-            ResolvedAiConfig {
-                provider: "openai".to_string(),
-                api_format: "openai".to_string(),
-                api_key: self.shared_openai_api_key(),
-                credential_origin: AiCredentialOrigin::Shared("openai".to_string()),
-                model: model.to_string(),
-                base_url: self.shared_openai_base_url(),
-                source_enabled: true,
-                requires_explicit_endpoint: false,
-            }
+            self.tier_source(ModelTier::Standard)
         }
     }
 
     /// Lite is in use when its own model is filled in; there is no switch.
     pub fn lite_on(&self) -> bool {
-        let model = if self.lite_ai_provider == "gemini" {
-            &self.lite_gemini_model
-        } else {
-            &self.lite_openai_model
-        };
-        !model.trim().is_empty()
+        !self.lite_ai_model.trim().is_empty()
     }
 
     /// Resolve Lite only when its own model is filled in. Shared provider
@@ -1671,19 +1636,19 @@ impl DynamicConfig {
             .then(|| self.resolve_ai_config(ModelTier::Lite))
     }
 
-    /// Small typed judgments: `lite_judge_model` on the judgment and
+    /// Small typed judgments: `aux_judge_model` on the judgment and
     /// embedding source when both are set and that source can be used,
     /// whether Lite is on or not; otherwise Lite's own model on Lite's own
-    /// provider (a model name is never sent to a provider it is not for).
+    /// source (a model name is never sent to a source it is not for).
     /// Speaking stays on Lite's own model.
     pub fn resolve_lite_judge_ai_config(&self) -> Option<ResolvedAiConfig> {
         let lite = self.resolve_strict_lite_ai_config();
-        let judge = self.lite_judge_model.trim();
+        let judge = self.aux_judge_model.trim();
         if judge.is_empty() {
             return lite;
         }
         match lite {
-            // Never chosen: on Lite's provider and credentials, as before.
+            // Never chosen: on Lite's source, as before.
             Some(lite) if !self.aux_chosen() => Some(ResolvedAiConfig {
                 model: judge.to_string(),
                 ..lite
@@ -1696,14 +1661,14 @@ impl DynamicConfig {
     /// source, whether Lite is on or not; `None` (recall by words alone)
     /// when either is missing or that source cannot be used.
     pub fn resolve_lite_embedding_ai_config(&self) -> Option<ResolvedAiConfig> {
-        let model = self.lite_embedding_model.trim();
+        let model = self.aux_embedding_model.trim();
         if model.is_empty() {
             return None;
         }
         if !self.aux_chosen()
             && let Some(lite) = self.resolve_strict_lite_ai_config()
         {
-            // Never chosen: on Lite's provider and credentials, as before.
+            // Never chosen: on Lite's source, as before.
             return Some(ResolvedAiConfig {
                 model: model.to_string(),
                 ..lite
@@ -1720,137 +1685,54 @@ impl DynamicConfig {
     /// Lite's source of now.
     pub fn aux_source_slug(&self) -> String {
         let chosen = self.aux_ai_source.trim();
-        if !chosen.is_empty() {
-            return chosen.to_string();
-        }
-        let lite = self.lite_ai_source.trim();
-        if !lite.is_empty() {
-            return lite.to_string();
-        }
-        let base = if self.lite_openai_base_url.trim().is_empty() {
-            self.openai_base_url.as_str()
+        if chosen.is_empty() {
+            self.tier_source(ModelTier::Lite)
         } else {
-            self.lite_openai_base_url.as_str()
-        };
-        self.inferred_text_source_slug(&self.lite_ai_provider, base)
+            chosen.to_string()
+        }
     }
 
     /// `model` on the judgment and embedding source, when that source is
     /// there and can be used (on, with its key).
     fn on_aux_source(&self, model: &str) -> Option<ResolvedAiConfig> {
-        let source = self.find_vendor_source(&self.aux_source_slug())?;
-        let resolved = self.resolve_from_vendor_source(&source, model);
+        let resolved = self.resolve_on_source(&self.aux_source_slug(), model);
         resolved.text_ready().then_some(resolved)
     }
 
     /// 这一档要的模型没配、实际会落到 Standard 上吗？
     ///
-    /// 开关打开但模型字段留空时，`resolve_tier` 会取 Standard 的模型。配置上
-    /// 看是「Pro 已启用」，跑的却是 Standard——账单和延迟都按 Standard 走，
-    /// 而日志里记的是 Pro。这个函数只负责认出这件事，喊出来是调用方的事。
+    /// 只有 Pro 会：开关开着、模型留空时，Pro 的活整个交给 Standard（源和
+    /// 模型都是 Standard 的）。配置上看是「Pro 已启用」，账单和延迟却按
+    /// Standard 走。这个函数只负责认出这件事，喊出来是调用方的事。
     ///
-    /// 关掉的档不算回退：那是明确的选择，不是没说清楚。Lite 没有开关，
-    /// 模型留空就是不用，所以从不回退。
+    /// 关掉的 Pro 不算回退：那是明确的选择。Lite 没有开关，模型留空就是
+    /// 不用，所以从不回退。
     pub fn tier_falls_back_to_standard(&self, tier: ModelTier) -> bool {
-        let (enabled, provider, gemini_model, openai_model) = match tier {
-            ModelTier::Lite => return false,
-            ModelTier::Pro => (
-                self.pro_enabled,
-                &self.pro_ai_provider,
-                &self.pro_gemini_model,
-                &self.pro_openai_model,
-            ),
-            ModelTier::Standard => return false,
-        };
-        if !enabled {
-            return false;
-        }
-        let configured = if provider == "gemini" {
-            gemini_model.trim()
-        } else {
-            openai_model.trim()
-        };
-        configured.is_empty()
+        tier == ModelTier::Pro && self.pro_enabled && self.pro_ai_model.trim().is_empty()
     }
 
-    /// 按档解析 AI 配置。档关闭时走 Standard；档开着但模型留空时
-    /// `resolve_tier` 用 Standard 的模型。与 `resolve_strict_lite_ai_config` 不同。
-    ///
-    /// [`Self::tier_falls_back_to_standard`] 只认出「开着但模型留空」。关掉的档它返回 false。
+    /// 按档解析 AI 配置：这一档的源加这一档的模型。Lite 没填模型、Pro 关着
+    /// 或没填模型时，解析成 Standard。与 `resolve_strict_lite_ai_config` 不同。
     pub fn resolve_ai_config(&self, tier: ModelTier) -> ResolvedAiConfig {
-        if tier == ModelTier::Lite && self.lite_on() {
-            return self.resolve_tier(
-                &self.lite_ai_source,
-                &self.lite_ai_provider,
-                &self.lite_gemini_model,
-                &self.lite_openai_model,
-                &self.lite_openai_base_url,
-            );
-        }
-        if tier == ModelTier::Pro && self.pro_enabled {
-            return self.resolve_tier(
-                &self.pro_ai_source,
-                &self.pro_ai_provider,
-                &self.pro_gemini_model,
-                &self.pro_openai_model,
-                &self.pro_openai_base_url,
-            );
-        }
-
-        self.resolve_tier(
-            &self.ai_source,
-            &self.ai_provider,
-            &self.gemini_model,
-            &self.openai_model,
-            &self.openai_base_url,
-        )
+        let model = match tier {
+            ModelTier::Lite if self.lite_on() => self.lite_ai_model.trim(),
+            ModelTier::Pro if self.pro_enabled && !self.pro_ai_model.trim().is_empty() => {
+                self.pro_ai_model.trim()
+            }
+            _ => {
+                return self
+                    .resolve_on_source(&self.tier_source(ModelTier::Standard), &self.ai_model);
+            }
+        };
+        self.resolve_on_source(&self.tier_source(tier), model)
     }
 
-    fn resolve_tier(
-        &self,
-        source_slug: &str,
-        provider: &str,
-        gemini_model: &str,
-        openai_model: &str,
-        openai_base_url: &str,
-    ) -> ResolvedAiConfig {
-        let base = if openai_base_url.trim().is_empty() {
-            self.openai_base_url.as_str()
-        } else {
-            openai_base_url
-        };
-        let slug = if source_slug.trim().is_empty() {
-            self.inferred_text_source_slug(provider, base)
-        } else {
-            source_slug.trim().to_string()
-        };
-        let model = if provider == "gemini" {
-            if gemini_model.trim().is_empty() {
-                self.gemini_model.clone()
-            } else {
-                gemini_model.to_string()
-            }
-        } else if openai_model.trim().is_empty() {
-            self.openai_model.clone()
-        } else {
-            openai_model.to_string()
-        };
-        if let Some(source) = self.find_vendor_source(&slug) {
-            return self.resolve_from_vendor_source(&source, &model);
-        }
-        if provider == "openai" {
-            self.resolve_openai_compatible(&model, base)
-        } else {
-            ResolvedAiConfig {
-                provider: "gemini".to_string(),
-                api_format: "gemini".to_string(),
-                api_key: self.shared_gemini_api_key(),
-                credential_origin: AiCredentialOrigin::Shared("gemini".to_string()),
-                model,
-                base_url: String::new(),
-                source_enabled: true,
-                requires_explicit_endpoint: false,
-            }
+    /// `model` on the source named `slug`: its vendor source row, or a
+    /// built-in vendor's shared key.
+    pub fn resolve_on_source(&self, slug: &str, model: &str) -> ResolvedAiConfig {
+        match self.find_vendor_source(slug) {
+            Some(source) => self.resolve_from_vendor_source(&source, model),
+            None => self.resolve_builtin_source(slug.trim(), model),
         }
     }
 }
@@ -2052,7 +1934,7 @@ mod tests {
         };
         let mut config = DynamicConfig {
             ai_source: source.slug.clone(),
-            openai_model: "model".to_string(),
+            ai_model: "model".to_string(),
             ai_vendor_sources: vec![source],
             ..DynamicConfig::default()
         };
@@ -2129,9 +2011,9 @@ mod tests {
     #[test]
     fn an_enabled_tier_with_no_model_of_its_own_is_a_fallback() {
         let mut config = DynamicConfig::default();
-        config.openai_model = "standard-model".into();
+        config.ai_model = "standard-model".into();
         // 出厂默认给 Pro 配了自己的模型，回退只在字段被清空后发生。
-        config.pro_openai_model = String::new();
+        config.pro_ai_model = String::new();
 
         // 关着不算回退：那是明确的选择。
         assert!(!config.tier_falls_back_to_standard(ModelTier::Pro));
@@ -2141,7 +2023,7 @@ mod tests {
         assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
 
         // 填上自己的模型就用上了。
-        config.lite_openai_model = "lite-model".into();
+        config.lite_ai_model = "lite-model".into();
         assert!(config.lite_on());
         assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
         assert_eq!(
@@ -2152,28 +2034,23 @@ mod tests {
         // Pro 开着但模型留空 —— 配置上写着 Pro，跑的是 Standard。
         config.pro_enabled = true;
         assert!(config.tier_falls_back_to_standard(ModelTier::Pro));
-        config.pro_openai_model = "pro-model".into();
+        config.pro_ai_model = "pro-model".into();
         assert!(!config.tier_falls_back_to_standard(ModelTier::Pro));
 
         // Standard 是回退的目的地，它自己不会回退。
         assert!(!config.tier_falls_back_to_standard(ModelTier::Standard));
     }
 
-    /// Lite 没有开关：默认不用，填了模型才用，按提供方看对应的那一格。
+    /// Lite 没有开关：默认不用，填了模型才用。
     #[test]
     fn lite_is_on_exactly_when_its_own_model_is_filled() {
         let mut config = DynamicConfig::default();
         assert!(!config.lite_on());
         assert!(config.resolve_strict_lite_ai_config().is_none());
 
-        config.lite_openai_model = " lite-model ".into();
+        config.lite_ai_model = " lite-model ".into();
         assert!(config.lite_on());
         assert!(config.resolve_strict_lite_ai_config().is_some());
-
-        config.lite_ai_provider = "gemini".into();
-        assert!(!config.lite_on(), "Gemini 看的是 Gemini 那一格");
-        config.lite_gemini_model = "gemini-lite".into();
-        assert!(config.lite_on());
     }
 
     #[test]
@@ -2193,11 +2070,10 @@ mod tests {
     }
 
     #[test]
-    fn shared_provider_keys_win_over_legacy_fields() {
+    fn shared_provider_keys_win_over_service_keys() {
         let config = DynamicConfig {
             provider_openrouter_api_key: Some("vault-or".to_string()),
-            openai_api_key: Some("legacy-or".to_string()),
-            openai_base_url: "https://openrouter.ai/api/v1".to_string(),
+            ai_image_openrouter_api_key: Some("image-or".to_string()),
             provider_openai_api_key: Some("vault-oa".to_string()),
             ai_image_openai_api_key: Some("image-oa".to_string()),
             ..DynamicConfig::default()
@@ -2213,65 +2089,81 @@ mod tests {
     }
 
     #[test]
-    fn resolves_lite_with_the_same_provider_contract_as_pro() {
+    fn a_tier_is_its_source_and_its_model() {
         let config = DynamicConfig {
-            lite_ai_provider: "openai".to_string(),
-            lite_openai_api_key: Some("lite-key".to_string()),
-            lite_openai_model: "cheap/model".to_string(),
+            ai_source: "openai".to_string(),
+            ai_model: "std/model".to_string(),
+            provider_openai_api_key: Some("oa-key".to_string()),
+            provider_openai_base_url: "https://llm.example.com/v1".to_string(),
+            provider_openrouter_api_key: Some("or-key".to_string()),
+            lite_ai_model: "lite/model".to_string(),
+            pro_enabled: true,
+            pro_ai_source: "openrouter".to_string(),
+            pro_ai_model: "pro/model".to_string(),
             ..DynamicConfig::default()
         };
-        let resolved = config.resolve_ai_config(ModelTier::Lite);
-        assert_eq!(resolved.provider, "openai");
-        assert_eq!(resolved.api_key.as_deref(), Some("lite-key"));
-        assert_eq!(resolved.model, "cheap/model");
-        assert!(resolved.base_url.contains("openrouter.ai"));
+        let standard = config.resolve_ai_config(ModelTier::Standard);
+        assert_eq!(standard.api_key.as_deref(), Some("oa-key"));
+        assert_eq!(standard.base_url, "https://llm.example.com/v1");
+        assert_eq!(standard.model, "std/model");
+        // Lite without a source of its own runs on Standard's.
+        assert_eq!(config.tier_source(ModelTier::Lite), "openai");
+        let lite = config.resolve_ai_config(ModelTier::Lite);
+        assert_eq!(lite.api_key.as_deref(), Some("oa-key"));
+        assert_eq!(lite.model, "lite/model");
+        let pro = config.resolve_ai_config(ModelTier::Pro);
+        assert_eq!(pro.api_key.as_deref(), Some("or-key"));
+        assert!(pro.base_url.contains("openrouter.ai"));
+        assert_eq!(pro.model, "pro/model");
+        // Pro on with no model: all of Standard, never Standard's model on
+        // Pro's source.
+        let blank_pro = DynamicConfig {
+            pro_ai_model: " ".to_string(),
+            ..config.clone()
+        };
+        let fallback = blank_pro.resolve_ai_config(ModelTier::Pro);
+        assert_eq!(fallback.base_url, "https://llm.example.com/v1");
+        assert_eq!(fallback.model, "std/model");
+        // Lite with no model: Standard (only for callers that allow it).
+        let blank_lite = DynamicConfig {
+            lite_ai_model: String::new(),
+            ..config
+        };
+        assert_eq!(
+            blank_lite.resolve_ai_config(ModelTier::Lite).model,
+            "std/model"
+        );
     }
 
     #[test]
-    fn lite_falls_back_to_standard_when_its_model_is_blank() {
+    fn a_source_since_deleted_resolves_to_nothing_usable() {
         let config = DynamicConfig {
-            lite_openai_api_key: Some("lite-key".to_string()),
-            lite_openai_model: " ".to_string(),
-            openai_api_key: Some("std-key".to_string()),
-            openai_model: "std/model".to_string(),
+            ai_source: "deleted".to_string(),
+            provider_openrouter_api_key: Some("or-key".to_string()),
             ..DynamicConfig::default()
         };
-        let resolved = config.resolve_ai_config(ModelTier::Lite);
-        assert_eq!(resolved.api_key.as_deref(), Some("std-key"));
-        assert_eq!(resolved.model, "std/model");
-    }
-
-    #[test]
-    fn lite_reuses_standard_credentials_when_its_own_are_empty() {
-        let config = DynamicConfig {
-            lite_ai_provider: "openai".to_string(),
-            lite_openai_api_key: None,
-            lite_openai_model: "lite/model".to_string(),
-            lite_openai_base_url: String::new(),
-            openai_api_key: Some("std-key".to_string()),
-            openai_model: "std/model".to_string(),
-            openai_base_url: "https://api.openai.com/v1".to_string(),
-            ..DynamicConfig::default()
+        let resolved = config.resolve_ai_config(ModelTier::Standard);
+        assert!(!resolved.text_ready());
+        assert_eq!(resolved.api_key, None);
+        // A blank Standard source is the factory OpenRouter.
+        let blank = DynamicConfig {
+            ai_source: String::new(),
+            ..config
         };
-        let resolved = config.resolve_ai_config(ModelTier::Lite);
-        assert_eq!(resolved.api_key.as_deref(), Some("std-key"));
-        assert_eq!(resolved.model, "lite/model");
-        assert_eq!(resolved.base_url, "https://api.openai.com/v1");
+        assert!(blank.resolve_ai_config(ModelTier::Standard).text_ready());
     }
 
     #[test]
     fn strict_lite_resolution_never_inherits_the_standard_model() {
         let empty = DynamicConfig {
-            lite_ai_provider: "openai".to_string(),
-            lite_openai_model: String::new(),
-            openai_model: "std/model".to_string(),
+            lite_ai_model: String::new(),
+            ai_model: "std/model".to_string(),
             ..DynamicConfig::default()
         };
         assert!(empty.resolve_strict_lite_ai_config().is_none());
 
         let configured = DynamicConfig {
-            lite_ai_provider: "openai".to_string(),
-            lite_openai_model: "lite/model".to_string(),
+            lite_ai_model: "lite/model".to_string(),
             ..DynamicConfig::default()
         };
         assert_eq!(
@@ -2285,9 +2177,7 @@ mod tests {
     #[test]
     fn judgments_use_the_judge_model_on_the_same_lite_credentials() {
         let lite = DynamicConfig {
-            lite_ai_provider: "openai".to_string(),
-            lite_openai_model: "google/gemini-3.8-flash".to_string(),
-            lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
+            lite_ai_model: "google/gemini-3.8-flash".to_string(),
             ..DynamicConfig::default()
         };
         assert_eq!(
@@ -2296,7 +2186,7 @@ mod tests {
             "blank: judgments use Lite's own model"
         );
         let split = DynamicConfig {
-            lite_judge_model: "  openai/gpt-6-luna ".to_string(),
+            aux_judge_model: "  openai/gpt-6-luna ".to_string(),
             ..lite.clone()
         };
         let judge = split.resolve_lite_judge_ai_config().unwrap();
@@ -2306,7 +2196,7 @@ mod tests {
         assert_eq!(judge.base_url, speak.base_url, "same provider");
         assert_eq!(judge.api_format, speak.api_format);
         let off = DynamicConfig {
-            lite_openai_model: String::new(),
+            lite_ai_model: String::new(),
             ..split
         };
         assert!(
@@ -2318,14 +2208,12 @@ mod tests {
     #[test]
     fn embeddings_are_off_until_a_model_is_named_on_lite() {
         let lite = DynamicConfig {
-            lite_ai_provider: "openai".to_string(),
-            lite_openai_model: "google/gemini-3.8-flash".to_string(),
-            lite_openai_base_url: "https://openrouter.ai/api/v1".to_string(),
+            lite_ai_model: "google/gemini-3.8-flash".to_string(),
             ..DynamicConfig::default()
         };
         assert!(lite.resolve_lite_embedding_ai_config().is_none());
         let on = DynamicConfig {
-            lite_embedding_model: " perplexity/pplx-embed-v1-0.6b ".to_string(),
+            aux_embedding_model: " perplexity/pplx-embed-v1-0.6b ".to_string(),
             ..lite.clone()
         };
         let embedding = on.resolve_lite_embedding_ai_config().unwrap();
@@ -2335,7 +2223,7 @@ mod tests {
             on.resolve_strict_lite_ai_config().unwrap().base_url
         );
         let off = DynamicConfig {
-            lite_openai_model: String::new(),
+            lite_ai_model: String::new(),
             ..on
         };
         assert!(off.resolve_lite_embedding_ai_config().is_none());
@@ -2362,11 +2250,10 @@ mod tests {
             ..AiVendorSource::default()
         };
         let moved = DynamicConfig {
-            lite_ai_provider: "openai".to_string(),
-            lite_openai_model: "qwen3.8-omni-flash".to_string(),
+            lite_ai_model: "qwen3.8-omni-flash".to_string(),
             lite_ai_source: "dashscope".to_string(),
-            lite_judge_model: "openai/gpt-6-luna".to_string(),
-            lite_embedding_model: "perplexity/pplx-embed-v1-0.6b".to_string(),
+            aux_judge_model: "openai/gpt-6-luna".to_string(),
+            aux_embedding_model: "perplexity/pplx-embed-v1-0.6b".to_string(),
             ai_vendor_sources: vec![dashscope, openrouter],
             ..DynamicConfig::default()
         };
@@ -2409,7 +2296,7 @@ mod tests {
                 .contains("dashscope")
         );
         let blank = DynamicConfig {
-            lite_judge_model: String::new(),
+            aux_judge_model: String::new(),
             ..own.clone()
         };
         assert_eq!(
@@ -2419,7 +2306,7 @@ mod tests {
         // Their own option, not Lite's: with Lite off they still run on
         // their source; only a judge model left blank (Lite's own) stops.
         let off = DynamicConfig {
-            lite_openai_model: String::new(),
+            lite_ai_model: String::new(),
             ..own
         };
         let judge = off.resolve_lite_judge_ai_config().unwrap();
@@ -2432,7 +2319,7 @@ mod tests {
                 .contains("openrouter")
         );
         let blank_off = DynamicConfig {
-            lite_judge_model: String::new(),
+            aux_judge_model: String::new(),
             ..off.clone()
         };
         assert!(blank_off.resolve_lite_judge_ai_config().is_none());
@@ -2461,8 +2348,7 @@ mod tests {
         assert!(!missing.text_ai_available());
 
         let vault_only = DynamicConfig {
-            ai_provider: "openai".to_string(),
-            openai_base_url: "https://api.openai.com/v1".to_string(),
+            ai_source: "openai".to_string(),
             provider_openai_api_key: Some("vault-oa".to_string()),
             ..DynamicConfig::default()
         };
@@ -2470,7 +2356,7 @@ mod tests {
 
         let keyless_custom = DynamicConfig {
             ai_source: "local".to_string(),
-            openai_model: "local-model".to_string(),
+            ai_model: "local-model".to_string(),
             ai_vendor_sources: vec![AiVendorSource {
                 slug: "local".to_string(),
                 kind: "custom".to_string(),
@@ -2486,7 +2372,7 @@ mod tests {
 
         let invalid_format = DynamicConfig {
             ai_source: "invalid".to_string(),
-            openai_model: "model".to_string(),
+            ai_model: "model".to_string(),
             ai_vendor_sources: vec![AiVendorSource {
                 slug: "invalid".to_string(),
                 kind: "custom".to_string(),
@@ -2504,18 +2390,24 @@ mod tests {
     #[test]
     fn gemini_grounding_uses_shared_key_even_when_text_tier_is_openai() {
         let config = DynamicConfig {
-            ai_provider: "openai".to_string(),
-            openai_base_url: "https://api.openai.com/v1".to_string(),
-            gemini_api_key: None,
+            ai_source: "openai".to_string(),
             provider_gemini_api_key: Some("vault-gm".to_string()),
-            gemini_model: String::new(),
-            lite_gemini_model: "gemini-lite".to_string(),
+            lite_ai_source: "gemini".to_string(),
+            lite_ai_model: "gemini-lite".to_string(),
             ..DynamicConfig::default()
         };
         let (key, model) = config.resolve_gemini_grounding().expect("shared gemini");
         assert_eq!(key, "vault-gm");
-        assert_eq!(model, "gemini-lite");
+        assert_eq!(model, "gemini-lite", "the first tier on Gemini");
         assert!(!config.text_ai_available());
+        let none_on_gemini = DynamicConfig {
+            lite_ai_model: String::new(),
+            ..config
+        };
+        assert_eq!(
+            none_on_gemini.resolve_gemini_grounding().unwrap().1,
+            "gemini-3.8-flash"
+        );
     }
 
     #[test]

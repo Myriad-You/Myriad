@@ -10,6 +10,8 @@ const RETIRED_CONFIGURATION_PREFIXES: &[&str] = &["pet_", "github_client_"];
 
 pub(crate) fn is_retired_configuration_key(key: &str) -> bool {
     RETIRED_CONFIGURATION_KEYS.contains(&key)
+        // Old text-model settings: restored in their new keys instead.
+        || crate::services::config_service::legacy_ai_tiers::LEGACY_KEYS.contains(&key)
         || RETIRED_CONFIGURATION_PREFIXES
             .iter()
             .any(|prefix| key.starts_with(prefix))
@@ -38,6 +40,10 @@ mod tests {
         assert!(!is_retired_configuration_key("github_username"));
         assert!(!is_retired_configuration_key("github_api_base_url"));
         assert!(!is_retired_configuration_key("island_show_tapp"));
+        assert!(is_retired_configuration_key("lite_openai_model"));
+        assert!(is_retired_configuration_key("openai_api_key"));
+        assert!(!is_retired_configuration_key("lite_ai_model"));
+        assert!(!is_retired_configuration_key("provider_openai_api_key"));
     }
 
     #[test]

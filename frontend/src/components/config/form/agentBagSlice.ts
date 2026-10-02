@@ -4,12 +4,7 @@ import { AGENT_AI_FIELD_KEYS, defaultAiFieldValue, defaultUiFieldValue, mapConfi
 import { DEFAULT_AUTO_FETCH_CONFIG } from './defaults'
 
 /** 人设开关要读，但不归 Agent 域写。 */
-export const AGENT_GATE_AI_KEYS = new Set([
-  'lite_provider',
-  'lite_gemini_model',
-  'lite_openai_model',
-  'pro_enabled',
-])
+export const AGENT_GATE_AI_KEYS = new Set(['lite_ai_model', 'pro_enabled'])
 
 export interface AgentSettingsSlice {
   aiFields: ConfigField[]

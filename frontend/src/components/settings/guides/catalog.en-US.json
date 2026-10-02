@@ -454,19 +454,19 @@
     },
     "standard": {
       "what": "The default smart setup for everyday chat, analysis, and generating reports.",
-      "chain": "1) Pick a provider, fill the secret key (and address/model if needed) → save at the bottom.\n2) Assistant chat, report generation, and smart features in some small apps use this set by default.\n3) If “Lite / High quality” is off or unusable, work falls back to this set too.\n4) Also depends on “Permissions” allowing AI use and remaining quota.\n5) If the server needs a proxy for the open internet, set it under “Advanced,” or smart services may not connect.",
+      "chain": "1) Pick one of the providers above and fill in the model → save at the bottom. Keys and addresses live on the provider.\n2) Assistant chat, report generation, and smart features in some small apps use this set by default.\n3) When Pro is off or has no model, its work comes to this set too.\n4) Also depends on “Permissions” allowing AI use and remaining quota.\n5) If the server needs a proxy for the open internet, set it under “Advanced,” or smart services may not connect.",
       "frontend": "Whether the assistant panel can answer normally, and whether reports can generate.\nSend one simple message in the assistant first as a connectivity test.",
       "notes": "Get Standard working first, then turn on other tiers. Don’t leak secret keys."
     },
     "lite": {
       "what": "A cheaper setup for simple, repetitive tasks (optional).",
-      "chain": "1) Fill in a model and Lite is in use; there is no separate switch (if the secret key is empty it borrows Standard’s).\n2) Tasks marked “lite” prefer this setup.\n3) Model left blank → Lite is not used: those tasks stop rather than falling back to Standard. The Agent persona still works, but proactive lines stay short and mood hints stay off.\n4) Same permission and quota limits apply.",
+      "chain": "1) Fill in a model and Lite is in use; there is no separate switch (never chosen, its provider is Standard’s).\n2) Tasks marked “lite” prefer this setup.\n3) Model left blank → Lite is not used: those tasks stop rather than falling back to Standard. The Agent persona still works, but proactive lines stay short and mood hints stay off.\n4) Same permission and quota limits apply.",
       "frontend": "Users usually don’t see a separate page — mainly which setup simple background tasks use.",
       "notes": "Can use a different provider than Standard; safer to make sure Standard works first."
     },
     "pro": {
       "what": "A stronger, usually costlier tier for harder tasks.",
-      "chain": "1) When on and configured, jobs that need high quality go here.\n2) Off → falls back to Standard.\n3) Usually more expensive; same permission and quota limits.",
+      "chain": "1) When on and configured, jobs that need high quality go here.\n2) Off or no model → falls back to Standard.\n3) Usually more expensive; same permission and quota limits.",
       "frontend": "Generation quality may be better. Compare hard questions in the assistant.",
       "notes": "Enable only when needed; not every task needs this tier."
     },
@@ -508,7 +508,7 @@
     },
     "provider": {
       "what": "Which smart-service company to use.",
-      "chain": "1) Switching providers changes the fields below.\n2) Requests go to that provider.\n3) After switching, re-check that secret key and model name still match.",
+      "chain": "1) Switching providers means a model name that provider knows.\n2) Requests go to that provider.\n3) After switching, re-check that secret key and model name still match.",
       "frontend": "Form fields on the settings page change; wrong setup shows errors when used.",
       "notes": "Don’t switch provider but keep another provider’s model name."
     },

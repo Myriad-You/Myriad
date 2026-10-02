@@ -443,42 +443,14 @@ pub(crate) fn collect_database_updates_with_vendor(
     // 保存 AI 配置
     for field in &config.ai_config.config_fields {
         let (key, json_value) = match field.key.as_str() {
-            "provider" => ("ai_provider", JsonValue::String(field.value.clone())),
-            "gemini_api_key" => ("gemini_api_key", JsonValue::String(field.value.clone())),
-            "gemini_model" => ("gemini_model", JsonValue::String(field.value.clone())),
-            "openai_api_key" => ("openai_api_key", JsonValue::String(field.value.clone())),
-            "openai_model" => ("openai_model", JsonValue::String(field.value.clone())),
-            "openai_base_url" => ("openai_base_url", JsonValue::String(field.value.clone())),
-            // Pro 模型配置
+            // 文本模型：每档一个服务商源加一个模型名
+            "ai_model" => ("ai_model", JsonValue::String(field.value.clone())),
+            "lite_ai_model" => ("lite_ai_model", JsonValue::String(field.value.clone())),
             "pro_enabled" => ("pro_enabled", JsonValue::Bool(field.value == "true")),
-            "pro_provider" => ("pro_ai_provider", JsonValue::String(field.value.clone())),
-            "pro_gemini_api_key" => ("pro_gemini_api_key", JsonValue::String(field.value.clone())),
-            "pro_gemini_model" => ("pro_gemini_model", JsonValue::String(field.value.clone())),
-            "pro_openai_api_key" => ("pro_openai_api_key", JsonValue::String(field.value.clone())),
-            "pro_openai_model" => ("pro_openai_model", JsonValue::String(field.value.clone())),
-            "pro_openai_base_url" => (
-                "pro_openai_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            // AI Lite 模型配置
-            "lite_provider" => ("lite_ai_provider", JsonValue::String(field.value.clone())),
-            "lite_gemini_api_key" => (
-                "lite_gemini_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "lite_gemini_model" => ("lite_gemini_model", JsonValue::String(field.value.clone())),
-            "lite_openai_api_key" => (
-                "lite_openai_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "lite_openai_model" => ("lite_openai_model", JsonValue::String(field.value.clone())),
-            "lite_openai_base_url" => (
-                "lite_openai_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            "lite_judge_model" => ("lite_judge_model", JsonValue::String(field.value.clone())),
-            "lite_embedding_model" => (
-                "lite_embedding_model",
+            "pro_ai_model" => ("pro_ai_model", JsonValue::String(field.value.clone())),
+            "aux_judge_model" => ("aux_judge_model", JsonValue::String(field.value.clone())),
+            "aux_embedding_model" => (
+                "aux_embedding_model",
                 JsonValue::String(field.value.clone()),
             ),
             "aux_ai_source" => ("aux_ai_source", JsonValue::String(field.value.clone())),
@@ -643,12 +615,11 @@ pub(crate) fn collect_database_updates_with_vendor(
                 | "ai_source"
                 | "lite_ai_source"
                 // Cleared: Lite is not used (there is no switch).
-                | "lite_gemini_model"
-                | "lite_openai_model"
+                | "lite_ai_model"
                 // Cleared: judgments go back to Lite's own model.
-                | "lite_judge_model"
+                | "aux_judge_model"
                 // Cleared: recall goes back to words alone.
-                | "lite_embedding_model"
+                | "aux_embedding_model"
                 // Cleared: judgments and embeddings go back to Lite's source.
                 | "aux_ai_source"
                 | "pro_ai_source"
@@ -683,21 +654,6 @@ pub(crate) fn collect_database_updates_with_vendor(
         }
         updates.insert(key.to_string(), json_value);
     }
-    // Lite's old switch, read back by `parse_config`: written on, so from
-    // the first save of Lite's models only the model decides. A form or
-    // backup from before still saying off keeps Lite unused: blank models.
-    if updates.contains_key("lite_gemini_model") || updates.contains_key("lite_openai_model") {
-        let switched_off = config.ai_config.config_fields.iter().any(|field| {
-            field.key == "lite_enabled" && !matches!(field.value.trim(), "true" | "1")
-        });
-        if switched_off {
-            for key in ["lite_gemini_model", "lite_openai_model"] {
-                updates.insert(key.to_string(), JsonValue::String(String::new()));
-            }
-        }
-        updates.insert("lite_enabled".to_string(), JsonValue::Bool(true));
-    }
-
     if updates.contains_key("ai_vendor_sources") {
         let has_agora = updates
             .get("ai_vendor_sources")
@@ -1262,30 +1218,31 @@ mod tests {
     }
 
     #[test]
-    fn lite_has_no_switch_its_model_decides() {
-        // Cleared: saved blank, so Lite is not used.
-        let cleared = collect_database_updates(&ai_fields(&[
-            ("lite_openai_model", ""),
-            ("lite_gemini_model", ""),
+    fn each_tier_saves_one_model_and_lite_can_be_cleared() {
+        let saved = collect_database_updates(&ai_fields(&[
+            ("ai_model", "minimax/minimax-m3"),
+            ("lite_ai_model", ""),
+            ("pro_ai_model", "anthropic/claude-opus-5.5"),
+            ("aux_judge_model", ""),
+            ("aux_embedding_model", "perplexity/pplx-embed-v1-0.6b"),
         ]))
         .unwrap();
-        assert_eq!(cleared.get("lite_openai_model"), Some(&json!("")));
-        assert_eq!(cleared.get("lite_enabled"), Some(&json!(true)));
-        let filled =
-            collect_database_updates(&ai_fields(&[("lite_openai_model", "lite/model")])).unwrap();
-        assert_eq!(filled.get("lite_openai_model"), Some(&json!("lite/model")));
-        assert_eq!(filled.get("lite_enabled"), Some(&json!(true)));
-        // An old form or backup that had Lite switched off keeps it unused.
-        let old_off = collect_database_updates(&ai_fields(&[
-            ("lite_enabled", "false"),
+        assert_eq!(saved.get("ai_model"), Some(&json!("minimax/minimax-m3")));
+        // Cleared: Lite is not used.
+        assert_eq!(saved.get("lite_ai_model"), Some(&json!("")));
+        assert_eq!(saved.get("aux_judge_model"), Some(&json!("")));
+        assert_eq!(
+            saved.get("aux_embedding_model"),
+            Some(&json!("perplexity/pplx-embed-v1-0.6b"))
+        );
+        // Old field names from a stale page are not saved.
+        let stale = collect_database_updates(&ai_fields(&[
+            ("lite_enabled", "true"),
             ("lite_openai_model", "lite/model"),
+            ("provider", "openai"),
         ]))
         .unwrap();
-        assert_eq!(old_off.get("lite_openai_model"), Some(&json!("")));
-        assert_eq!(old_off.get("lite_enabled"), Some(&json!(true)));
-        // Not saving Lite at all leaves the old switch alone.
-        let other = collect_database_updates(&ai_fields(&[("openai_model", "std")])).unwrap();
-        assert!(!other.contains_key("lite_enabled"));
+        assert!(stale.is_empty(), "{stale:?}");
     }
 
     #[test]

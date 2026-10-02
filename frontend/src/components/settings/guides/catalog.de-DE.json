@@ -454,19 +454,19 @@
     },
     "standard": {
       "what": "Die standardmäßige intelligente Einrichtung für Alltagschat, Analyse und Berichte erzeugen.",
-      "chain": "1) Anbieter wählen, Geheimschlüssel (und Adresse/Modell falls nötig) ausfüllen → unten speichern.\n2) Assistenten-Chat, Berichterzeugung und intelligente Funktionen in manchen kleinen Apps nutzen dieses Set standardmäßig.\n3) Wenn „Lite / Hohe Qualität“ aus oder unbrauchbar ist, fällt Arbeit ebenfalls auf dieses Set zurück.\n4) Hängt auch davon ab, dass „Berechtigungen“ KI-Nutzung erlauben und Kontingent bleibt.\n5) Wenn der Server für das offene Internet einen Proxy braucht, unter „Erweitert“ setzen, sonst verbinden intelligente Dienste möglicherweise nicht.",
+      "chain": "1) Einen der Anbieter oben wählen und das Modell eintragen → unten speichern. Schlüssel und Adressen liegen beim Anbieter.\n2) Assistenten-Chat, Berichterzeugung und intelligente Funktionen in manchen kleinen Apps nutzen dieses Set standardmäßig.\n3) Ist Pro aus oder ohne Modell, kommt seine Arbeit ebenfalls zu diesem Set.\n4) Hängt auch davon ab, dass „Berechtigungen“ KI-Nutzung erlauben und Kontingent bleibt.\n5) Wenn der Server für das offene Internet einen Proxy braucht, unter „Erweitert“ setzen, sonst verbinden intelligente Dienste möglicherweise nicht.",
       "frontend": "Ob das Assistentenpanel normal antworten kann und ob Berichte erzeugt werden können.\nZuerst eine einfache Nachricht im Assistenten als Verbindungstest senden.",
       "notes": "Zuerst Standard zum Laufen bringen, dann andere Stufen einschalten. Geheimschlüssel nicht preisgeben."
     },
     "lite": {
       "what": "Eine günstigere Einrichtung für einfache, wiederholte Aufgaben (optional).",
-      "chain": "1) Modell eintragen, dann ist Lite in Gebrauch; einen eigenen Schalter gibt es nicht (ist der Geheimschlüssel leer, leiht es den von Standard).\n2) Als „lite“ markierte Aufgaben bevorzugen diese Einrichtung.\n3) Modell leer → Lite wird nicht genutzt: diese Aufgaben laufen nicht, statt auf Standard auszuweichen. Die Agent-Persona geht trotzdem, aber proaktive Zeilen bleiben kurz, Stimmungshinweise aus.\n4) Dieselben Berechtigungs- und Kontingentgrenzen gelten.",
+      "chain": "1) Modell eintragen, dann ist Lite in Gebrauch; einen eigenen Schalter gibt es nicht (nie gewählt, ist sein Anbieter der von Standard).\n2) Als „lite“ markierte Aufgaben bevorzugen diese Einrichtung.\n3) Modell leer → Lite wird nicht genutzt: diese Aufgaben laufen nicht, statt auf Standard auszuweichen. Die Agent-Persona geht trotzdem, aber proaktive Zeilen bleiben kurz, Stimmungshinweise aus.\n4) Dieselben Berechtigungs- und Kontingentgrenzen gelten.",
       "frontend": "Nutzer sehen meist keine eigene Seite — vor allem, welche Einrichtung einfache Hintergrundaufgaben nutzen.",
       "notes": "Kann einen anderen Anbieter als Standard nutzen; sicherer, zuerst Standard zum Laufen zu bringen."
     },
     "pro": {
       "what": "Eine stärkere, meist teurere Stufe für schwerere Aufgaben.",
-      "chain": "1) Wenn an und konfiguriert, gehen Aufgaben, die hohe Qualität brauchen, hierhin.\n2) Aus → fällt auf Standard zurück.\n3) Meist teurer; dieselben Berechtigungs- und Kontingentgrenzen.",
+      "chain": "1) Wenn an und konfiguriert, gehen Aufgaben, die hohe Qualität brauchen, hierhin.\n2) Aus oder ohne Modell → fällt auf Standard zurück.\n3) Meist teurer; dieselben Berechtigungs- und Kontingentgrenzen.",
       "frontend": "Die Erzeugungsqualität kann besser sein. Schwere Fragen im Assistenten vergleichen.",
       "notes": "Nur bei Bedarf aktivieren; nicht jede Aufgabe braucht diese Stufe."
     },
@@ -508,7 +508,7 @@
     },
     "provider": {
       "what": "Welches Intelligenz-Unternehmen genutzt wird.",
-      "chain": "1) Anbieterwechsel ändert die Felder darunter.\n2) Anfragen gehen an diesen Anbieter.\n3) Nach dem Wechsel erneut prüfen, ob Geheimschlüssel und Modellname noch passen.",
+      "chain": "1) Anbieterwechsel heißt: ein Modellname, den dieser Anbieter kennt.\n2) Anfragen gehen an diesen Anbieter.\n3) Nach dem Wechsel erneut prüfen, ob Geheimschlüssel und Modellname noch passen.",
       "frontend": "Formularfelder auf der Einstellungsseite ändern sich; falsche Einrichtung zeigt Fehler bei der Nutzung.",
       "notes": "Nicht den Anbieter wechseln, aber den Modellnamen eines anderen Anbieters behalten."
     },
