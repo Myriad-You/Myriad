@@ -14,15 +14,11 @@ export function restoreSessionMessage(
     ?.stepHistory as Array<Record<string, unknown>> | undefined
   const imageUrls = imageUrlsFromAgentPayload(data, stepHistory)
 
-  const storedTaskId =
+  const metaTaskId =
     (typeof meta?.taskId === 'string' && meta.taskId) ||
     (typeof meta?.task_id === 'string' && meta.task_id) ||
     m.taskId ||
     undefined
-  // Legacy recipe-level confirmations stored a synthetic id no task endpoint knows.
-  const metaTaskId = storedTaskId?.startsWith('confirmation:')
-    ? undefined
-    : storedTaskId
   const metaRunId =
     (typeof meta?.runId === 'string' && meta.runId) ||
     (typeof meta?.run_id === 'string' && meta.run_id) ||

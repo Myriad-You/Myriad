@@ -150,6 +150,61 @@ UPDATE tapp_widgets
 "#,
     ),
     (
+        // Recipe-level confirmations are gone; a channel prompt parked for
+        // one, or stored before prompts carried an id, cannot be answered.
+        "channel prompts for retired confirmations",
+        r#"
+DELETE FROM runtime_registry
+WHERE namespace IN ('qq_c2c_pending', 'telegram_dm_pending', 'discord_dm_pending',
+                    'feishu_p2p_pending', 'onebot_private_pending')
+  AND (jsonb_typeof(payload #> '{prompt,kind}') IS DISTINCT FROM 'object'
+       OR payload #> '{prompt,kind}' ? 'Confirm'
+       OR COALESCE(btrim(payload #>> '{prompt,id}'), '') = '')
+"#,
+    ),
+    (
+        "channel outbox buttons for retired confirmations",
+        r#"
+UPDATE runtime_registry SET payload = jsonb_set(payload, '{prompt}', 'null'::jsonb)
+WHERE namespace IN ('qq_c2c_outbound', 'telegram_dm_outbound', 'discord_dm_outbound',
+                    'feishu_p2p_outbound', 'onebot_private_outbound')
+  AND jsonb_typeof(payload -> 'prompt') = 'object'
+  AND (payload #> '{prompt,kind}' ? 'Confirm'
+       OR COALESCE(btrim(payload #>> '{prompt,id}'), '') = '')
+"#,
+    ),
+    (
+        // Messages that carried a recipe-level confirmation: its synthetic
+        // task id and question point at nothing. The column is `json`.
+        "session messages carrying a retired confirmation",
+        r#"
+UPDATE agent_messages a SET metadata = cleaned.m::json
+FROM (
+    SELECT id, metadata::jsonb - 'confirmation' AS m0 FROM agent_messages
+    WHERE json_typeof(metadata) = 'object'
+      AND metadata::text ~ '"confirmation"|"confirmationId"|"confirmation_id"|"confirmation:'
+) src
+CROSS JOIN LATERAL (
+    SELECT CASE WHEN COALESCE(src.m0 ->> 'taskId', '') LIKE 'confirmation:%'
+                  OR COALESCE(src.m0 ->> 'task_id', '') LIKE 'confirmation:%'
+                THEN src.m0 - 'taskId' - 'task_id' ELSE src.m0 END AS m1
+) step1
+CROSS JOIN LATERAL (
+    SELECT CASE WHEN jsonb_typeof(step1.m1 -> 'pendingQuestion') = 'object'
+                THEN CASE WHEN (step1.m1 -> 'pendingQuestion') ?| ARRAY['confirmationId', 'confirmation_id']
+                          THEN step1.m1 - 'pendingQuestion' ELSE step1.m1 END
+                ELSE step1.m1 END AS m2
+) step2
+CROSS JOIN LATERAL (
+    SELECT CASE WHEN jsonb_typeof(step2.m2 #> '{task,pendingQuestion}') = 'object'
+                THEN CASE WHEN (step2.m2 #> '{task,pendingQuestion}') ?| ARRAY['confirmationId', 'confirmation_id']
+                          THEN step2.m2 #- '{task,pendingQuestion}' ELSE step2.m2 END
+                ELSE step2.m2 END AS m
+) cleaned
+WHERE a.id = src.id AND cleaned.m IS DISTINCT FROM a.metadata::jsonb
+"#,
+    ),
+    (
         "intentions without a known accept source",
         r#"
 UPDATE agent_intentions SET accept_source = 'user'
@@ -204,10 +259,10 @@ mod tests {
         }
     }
 
-    /// Every statement runs on the migrated schema, and old widget rows come
-    /// out in the shape the code reads.
+    /// Every statement runs on the migrated schema, and old rows come out in
+    /// the shape the code reads.
     #[tokio::test]
-    async fn old_widget_rows_are_rewritten_on_a_migrated_schema() {
+    async fn old_rows_are_rewritten_on_a_migrated_schema() {
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
         let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
             eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the old row rewrites");
@@ -223,7 +278,17 @@ mod tests {
                  ('tapp.com.ex.card', 'com.ex', 1, 'declared', '{"settings":{"a":1}}'),
                  ('tapp.com.ex.gone', 'com.ex', 1, 'undeclared', '{}'),
                  ('tapp.com.ex.mine', 'com.ex', 2, 'runtime', '{"source":"runtime"}'),
-                 ('tapp.com.ex.bound', 'com.ex', 2, 'bound', '{"source":"runtime","installationOwnerId":1}')"#,
+                 ('tapp.com.ex.bound', 'com.ex', 2, 'bound', '{"source":"runtime","installationOwnerId":1}');
+               INSERT INTO runtime_registry (namespace, record_id, payload, expires_at) VALUES
+                 ('telegram_dm_pending', 'no-id', '{"prompt":{"id":"","kind":{"Clarify":{"original_input":"x"}},"question":"q","options":[],"expires_at_unix":null}}', 9999999999),
+                 ('telegram_dm_pending', 'confirm', '{"prompt":{"id":"ab12","kind":{"Confirm":{"confirmation_id":"c"}},"question":"q","options":[],"expires_at_unix":null}}', 9999999999),
+                 ('telegram_dm_pending', 'answer', '{"prompt":{"id":"cd34","kind":{"Answer":{"task_id":"t","question_id":"q","question_type":"confirmation"}},"question":"q","options":[],"expires_at_unix":null}}', 9999999999),
+                 ('telegram_dm_outbound', 'out', '{"run_id":"r","items":[],"next_index":0,"prompt":{"id":"ef56","kind":{"Confirm":{"confirmation_id":"c"}},"question":"q","options":[],"expires_at_unix":null}}', 9999999999);
+               INSERT INTO agent_sessions (id, user_id, created_at, last_active_at)
+                 VALUES ('s', 1, NOW(), NOW());
+               INSERT INTO agent_messages (session_id, role, content, metadata, created_at) VALUES
+                 ('s', 'assistant', 'old', '{"taskId":"confirmation:c1","pendingQuestion":{"question":"q","confirmationId":"c1"},"message":"x"}', NOW()),
+                 ('s', 'assistant', 'current', '{"taskId":"t1","task":{"pendingQuestion":{"question":"q","questionType":"confirmation","questionId":"q1"}}}', NOW())"#,
         )
         .await
         .unwrap();
@@ -253,6 +318,43 @@ mod tests {
         assert_eq!(
             config("bound"),
             serde_json::json!({"source":"runtime","installationOwnerId":1})
+        );
+        let registry = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT record_id, payload -> 'prompt' AS prompt FROM runtime_registry ORDER BY 1",
+            ))
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row.try_get::<String>("", "record_id").unwrap(),
+                    row.try_get::<serde_json::Value>("", "prompt").unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(registry.len(), 2, "{registry:?}");
+        assert_eq!(registry[0].0, "answer");
+        assert_eq!(registry[1], ("out".to_string(), serde_json::Value::Null));
+        let messages = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT content, metadata::jsonb AS metadata FROM agent_messages ORDER BY content",
+            ))
+            .await
+            .unwrap();
+        let metadata = |content: &str| {
+            messages
+                .iter()
+                .find(|row| row.try_get::<String>("", "content").unwrap() == content)
+                .map(|row| row.try_get::<serde_json::Value>("", "metadata").unwrap())
+                .unwrap()
+        };
+        assert_eq!(metadata("old"), serde_json::json!({"message":"x"}));
+        assert_eq!(
+            metadata("current"),
+            serde_json::json!({"taskId":"t1","task":{"pendingQuestion":{"question":"q","questionType":"confirmation","questionId":"q1"}}})
         );
         // A second start finds nothing left to change.
         assert_eq!(super::rewrite_old_rows(&db).await.unwrap(), 0);

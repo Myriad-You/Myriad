@@ -738,8 +738,10 @@ fn discord_dm_create_is_kept_and_guild_is_dropped() {
     assert!(discord_private_text_from_create(&guild, "99").is_none());
     let mut prompt = PendingPrompt {
         id: String::new(),
-        kind: PendingKind::Confirm {
-            confirmation_id: "c1".into(),
+        kind: PendingKind::Answer {
+            task_id: "t1".into(),
+            question_id: "q1".into(),
+            question_type: "confirmation".into(),
         },
         question: "确认？".into(),
         options: Vec::new(),
@@ -998,8 +1000,10 @@ fn pending_choice_accepts_number_or_label_not_other_text() {
 fn pending_confirmation_never_defaults_to_yes() {
     let prompt = PendingPrompt {
         id: "c1id".into(),
-        kind: PendingKind::Confirm {
-            confirmation_id: "c1".into(),
+        kind: PendingKind::Answer {
+            task_id: "t1".into(),
+            question_id: "q1".into(),
+            question_type: "confirmation".into(),
         },
         question: "要删掉这篇文章吗？".into(),
         options: vec![],
@@ -1093,8 +1097,10 @@ fn telegram_choice_becomes_one_inline_button_per_option() {
 fn telegram_confirm_and_input_buttons() {
     let mut confirm = PendingPrompt {
         id: String::new(),
-        kind: PendingKind::Confirm {
-            confirmation_id: "c1".into(),
+        kind: PendingKind::Answer {
+            task_id: "t1".into(),
+            question_id: "q1".into(),
+            question_type: "confirmation".into(),
         },
         question: "要删吗？".into(),
         options: vec![],

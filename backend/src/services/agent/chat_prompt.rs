@@ -504,13 +504,6 @@ fn work_artifact_extras(metadata: Option<&Value>) -> Option<String> {
     {
         extras.push(format!("[frontend action: {action}]"));
     }
-    if let Some(confirmation_id) = meta
-        .get("confirmation")
-        .and_then(|value| value.get("confirmationId").or_else(|| value.get("id")))
-        .and_then(Value::as_str)
-    {
-        extras.push(format!("[confirm: {confirmation_id}]"));
-    }
     if extras.is_empty() {
         None
     } else {
@@ -528,8 +521,7 @@ mod tests {
         json!({
             "data": { "task": { "status": "completed", "stepHistory": [{"id": "s1"}] } },
             "dataDisplay": { "type": "table" },
-            "frontendAction": { "action": "navigate", "path": "/reports" },
-            "confirmation": { "confirmationId": "cnf_1" }
+            "frontendAction": { "action": "navigate", "path": "/reports" }
         })
     }
 
@@ -611,7 +603,6 @@ mod tests {
         assert!(work.content.contains("[output data:"));
         assert!(work.content.contains("[display type: table]"));
         assert!(work.content.contains("[frontend action: navigate]"));
-        assert!(work.content.contains("[confirm: cnf_1]"));
         assert_eq!(chat_safe_content("行啊。\n[[wear:舞台装]]"), "行啊。");
         assert_eq!(chat_safe_content("唱。\n[[music:play]]"), "唱。");
     }
