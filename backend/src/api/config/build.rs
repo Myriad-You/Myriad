@@ -24,10 +24,10 @@ pub(crate) async fn build_config(
     let db = db.clone();
     // 优先从数据库读取配置
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
-    let db_config = Some(config_service.load_config().await.map_err(|error| {
+    let stored = config_service.load_config().await.map_err(|error| {
         tracing::error!(error = %error, "stored configuration could not be read");
         "Stored configuration could not be read".to_string()
-    })?);
+    })?;
 
     // Prefer DB when present (including intentional empty clear); else process env.
     // Same clearable semantics as SEO/analytics (`db_or_env_clearable`).
@@ -50,34 +50,26 @@ pub(crate) async fn build_config(
     };
 
     let has_bangumi_username =
-        nonempty_db(db_config.as_ref().and_then(|c| c.bangumi_username.as_ref()))
-            || nonempty_env("BANGUMI_USERNAME");
-    let has_bangumi_access_token = nonempty_db(
-        db_config
-            .as_ref()
-            .and_then(|c| c.bangumi_access_token.as_ref()),
-    ) || nonempty_env("BANGUMI_ACCESS_TOKEN");
+        nonempty_db(stored.bangumi_username.as_ref()) || nonempty_env("BANGUMI_USERNAME");
+    let has_bangumi_access_token =
+        nonempty_db(stored.bangumi_access_token.as_ref()) || nonempty_env("BANGUMI_ACCESS_TOKEN");
     let has_bangumi_identity = has_bangumi_username || has_bangumi_access_token;
-    let has_youtube_key = nonempty_db(db_config.as_ref().and_then(|c| c.youtube_api_key.as_ref()))
-        || nonempty_env("YOUTUBE_API_KEY");
-    let has_x_bearer = nonempty_db(db_config.as_ref().and_then(|c| c.x_bearer_token.as_ref()))
-        || nonempty_env("X_BEARER_TOKEN");
-    let has_discord_token = nonempty_db(
-        db_config
-            .as_ref()
-            .and_then(|c| c.discord_access_token.as_ref()),
-    ) || nonempty_env("DISCORD_ACCESS_TOKEN");
-    let has_mal_username = nonempty_db(db_config.as_ref().and_then(|c| c.mal_username.as_ref()))
-        || nonempty_env("MAL_USERNAME");
-    let has_openxbl_key = nonempty_db(db_config.as_ref().and_then(|c| c.openxbl_api_key.as_ref()))
+    let has_youtube_key =
+        nonempty_db(stored.youtube_api_key.as_ref()) || nonempty_env("YOUTUBE_API_KEY");
+    let has_x_bearer =
+        nonempty_db(stored.x_bearer_token.as_ref()) || nonempty_env("X_BEARER_TOKEN");
+    let has_discord_token =
+        nonempty_db(stored.discord_access_token.as_ref()) || nonempty_env("DISCORD_ACCESS_TOKEN");
+    let has_mal_username =
+        nonempty_db(stored.mal_username.as_ref()) || nonempty_env("MAL_USERNAME");
+    let has_openxbl_key = nonempty_db(stored.openxbl_api_key.as_ref())
         || nonempty_env("OPENXBL_API_KEY")
         || nonempty_env("XBL_API_KEY");
-    let has_psn_npsso = nonempty_db(db_config.as_ref().and_then(|c| c.psn_npsso.as_ref()))
-        || nonempty_env("PSN_NPSSO");
+    let has_psn_npsso = nonempty_db(stored.psn_npsso.as_ref()) || nonempty_env("PSN_NPSSO");
     // 开关显示的是「按表单现状保存之后」的启用：同一条 PlatformId 规则，作用在表单
     // 里显示（也会被保存回去）的凭据上。
     let enabled = {
-        let admin = admin_platform_enabled(db_config.as_ref(), |key| std::env::var(key).ok());
+        let admin = admin_platform_enabled(Some(&stored), |key| std::env::var(key).ok());
         move |id: PlatformId| admin.iter().any(|(p, on)| *p == id && *on)
     };
 
@@ -86,7 +78,7 @@ pub(crate) async fn build_config(
             PlatformConfig {
                 name: "GitHub".to_string(),
                 enabled: enabled(PlatformId::Github),
-                has_token: nonempty_db(db_config.as_ref().and_then(|c| c.github_token.as_ref()))
+                has_token: nonempty_db(stored.github_token.as_ref())
                     || nonempty_env("GITHUB_TOKEN"),
                 icon: "".to_string(),
                 description: "Repos, stars, and contributions".to_string(),
@@ -96,7 +88,7 @@ pub(crate) async fn build_config(
                         label: "GitHub Username".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.github_username.clone()),
+                            stored.github_username.clone(),
                             "GITHUB_USERNAME",
                         ),
                         placeholder: "octocat".to_string(),
@@ -107,7 +99,7 @@ pub(crate) async fn build_config(
                         label: "Personal Access Token (Optional)".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config.as_ref().and_then(|c| c.github_token.clone()),
+                            stored.github_token.clone(),
                             "GITHUB_TOKEN",
                         )),
                         placeholder: "ghp_xxxxxxxxxxxx (Increases API rate limit)".to_string(),
@@ -118,7 +110,7 @@ pub(crate) async fn build_config(
             PlatformConfig {
                 name: "Bilibili".to_string(),
                 enabled: enabled(PlatformId::Bilibili),
-                has_token: nonempty_db(db_config.as_ref().and_then(|c| c.bilibili_uid.as_ref()))
+                has_token: nonempty_db(stored.bilibili_uid.as_ref())
                     || nonempty_env("BILIBILI_UID"),
                 icon: "".to_string(),
                 description: "Favorites, anime, and viewing history".to_string(),
@@ -127,7 +119,7 @@ pub(crate) async fn build_config(
                     label: "User ID (UID)".to_string(),
                     field_type: "number".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.bilibili_uid.clone()),
+                        stored.bilibili_uid.clone(),
                         "BILIBILI_UID",
                     ),
                     placeholder: "123456789".to_string(),
@@ -137,7 +129,7 @@ pub(crate) async fn build_config(
             PlatformConfig {
                 name: "Steam".to_string(),
                 enabled: enabled(PlatformId::Steam),
-                has_token: nonempty_db(db_config.as_ref().and_then(|c| c.steam_api_key.as_ref()))
+                has_token: nonempty_db(stored.steam_api_key.as_ref())
                     || nonempty_env("STEAM_API_KEY"),
                 icon: "".to_string(),
                 description: "Library, wishlist, and play stats".to_string(),
@@ -147,7 +139,7 @@ pub(crate) async fn build_config(
                         label: "Steam API Key".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config.as_ref().and_then(|c| c.steam_api_key.clone()),
+                            stored.steam_api_key.clone(),
                             "STEAM_API_KEY",
                         )),
                         placeholder: "Get from steamcommunity.com/dev/apikey".to_string(),
@@ -158,7 +150,7 @@ pub(crate) async fn build_config(
                         label: "Steam ID".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.steam_id.clone()),
+                            stored.steam_id.clone(),
                             "STEAM_ID",
                         ),
                         placeholder: "76561198XXXXXXXXX".to_string(),
@@ -178,7 +170,7 @@ pub(crate) async fn build_config(
                         label: "YouTube Data API Key".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config.as_ref().and_then(|c| c.youtube_api_key.clone()),
+                            stored.youtube_api_key.clone(),
                             "YOUTUBE_API_KEY",
                         )),
                         placeholder: "Google Cloud → YouTube Data API v3 key".to_string(),
@@ -189,7 +181,7 @@ pub(crate) async fn build_config(
                         label: "Channel ID or @handle".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.youtube_channel_id.clone()),
+                            stored.youtube_channel_id.clone(),
                             "YOUTUBE_CHANNEL_ID",
                         ),
                         placeholder: "UCxxxxx or @GoogleDevelopers".to_string(),
@@ -200,7 +192,7 @@ pub(crate) async fn build_config(
             PlatformConfig {
                 name: "Netease Music".to_string(),
                 enabled: enabled(PlatformId::Netease),
-                has_token: nonempty_db(db_config.as_ref().and_then(|c| c.netease_user_id.as_ref()))
+                has_token: nonempty_db(stored.netease_user_id.as_ref())
                     || nonempty_env("NETEASE_USER_ID"),
                 icon: "".to_string(),
                 description: "Liked songs and music taste".to_string(),
@@ -209,7 +201,7 @@ pub(crate) async fn build_config(
                     label: "User ID".to_string(),
                     field_type: "number".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.netease_user_id.clone()),
+                        stored.netease_user_id.clone(),
                         "NETEASE_USER_ID",
                     ),
                     placeholder: "Your Netease Cloud Music user ID".to_string(),
@@ -228,7 +220,7 @@ pub(crate) async fn build_config(
                         label: "Bangumi Username".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.bangumi_username.clone()),
+                            stored.bangumi_username.clone(),
                             "BANGUMI_USERNAME",
                         ),
                         placeholder: "your Bangumi username".to_string(),
@@ -239,9 +231,7 @@ pub(crate) async fn build_config(
                         label: "Access Token".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config
-                                .as_ref()
-                                .and_then(|c| c.bangumi_access_token.clone()),
+                            stored.bangumi_access_token.clone(),
                             "BANGUMI_ACCESS_TOKEN",
                         )),
                         placeholder: "Bearer token for private collections".to_string(),
@@ -252,9 +242,7 @@ pub(crate) async fn build_config(
                         label: "User-Agent".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config
-                                .as_ref()
-                                .and_then(|c| c.bangumi_user_agent.clone()),
+                            stored.bangumi_user_agent.clone(),
                             "BANGUMI_USER_AGENT",
                         ),
                         placeholder: "myriad/Myriad".to_string(),
@@ -274,7 +262,7 @@ pub(crate) async fn build_config(
                         label: "X Username".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.x_username.clone()),
+                            stored.x_username.clone(),
                             "X_USERNAME",
                         ),
                         placeholder: String::new(),
@@ -285,7 +273,7 @@ pub(crate) async fn build_config(
                         label: "Bearer Token".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config.as_ref().and_then(|c| c.x_bearer_token.clone()),
+                            stored.x_bearer_token.clone(),
                             "X_BEARER_TOKEN",
                         )),
                         placeholder: "From developer.x.com App keys (read-only sync)".to_string(),
@@ -305,9 +293,7 @@ pub(crate) async fn build_config(
                         label: "Access Token".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config
-                                .as_ref()
-                                .and_then(|c| c.discord_access_token.clone()),
+                            stored.discord_access_token.clone(),
                             "DISCORD_ACCESS_TOKEN",
                         )),
                         placeholder:
@@ -319,9 +305,7 @@ pub(crate) async fn build_config(
                         label: "Refresh Token (Recommended)".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config
-                                .as_ref()
-                                .and_then(|c| c.discord_refresh_token.clone()),
+                            stored.discord_refresh_token.clone(),
                             "DISCORD_REFRESH_TOKEN",
                         )),
                         placeholder:
@@ -333,7 +317,7 @@ pub(crate) async fn build_config(
                         label: "User ID (auto-filled after test)".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.discord_user_id.clone()),
+                            stored.discord_user_id.clone(),
                             "DISCORD_USER_ID",
                         ),
                         placeholder: "Discord snowflake id".to_string(),
@@ -353,7 +337,7 @@ pub(crate) async fn build_config(
                         label: "MyAnimeList Username".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.mal_username.clone()),
+                            stored.mal_username.clone(),
                             "MAL_USERNAME",
                         ),
                         placeholder: "your MAL username (required)".to_string(),
@@ -364,7 +348,7 @@ pub(crate) async fn build_config(
                         label: "Client ID (optional)".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config.as_ref().and_then(|c| c.mal_client_id.clone()),
+                            stored.mal_client_id.clone(),
                             "MAL_CLIENT_ID",
                         )),
                         placeholder:
@@ -386,7 +370,7 @@ pub(crate) async fn build_config(
                         label: "Gamertag".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.xbox_gamertag.clone()),
+                            stored.xbox_gamertag.clone(),
                             "XBOX_GAMERTAG",
                         ),
                         placeholder: "Major Nelson or Name#1234".to_string(),
@@ -397,7 +381,7 @@ pub(crate) async fn build_config(
                         label: "OpenXBL API Key".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config.as_ref().and_then(|c| c.openxbl_api_key.clone()),
+                            stored.openxbl_api_key.clone(),
                             "OPENXBL_API_KEY",
                         )),
                         placeholder: "From xbl.io profile".to_string(),
@@ -417,7 +401,7 @@ pub(crate) async fn build_config(
                         label: "Online ID".to_string(),
                         field_type: "text".to_string(),
                         value: get_value(
-                            db_config.as_ref().and_then(|c| c.psn_online_id.clone()),
+                            stored.psn_online_id.clone(),
                             "PSN_ONLINE_ID",
                         ),
                         placeholder: "Your PSN Online ID".to_string(),
@@ -428,7 +412,7 @@ pub(crate) async fn build_config(
                         label: "NPSSO Token".to_string(),
                         field_type: "password".to_string(),
                         value: mask_sensitive(get_value(
-                            db_config.as_ref().and_then(|c| c.psn_npsso.clone()),
+                            stored.psn_npsso.clone(),
                             "PSN_NPSSO",
                         )),
                         placeholder: "64-char token from ca.account.sony.com".to_string(),
@@ -438,14 +422,9 @@ pub(crate) async fn build_config(
             },
         ],
         auto_fetch: Some(PlatformAutoFetchConfig {
-            enabled: db_config
-                .as_ref()
-                .is_some_and(|config| config.enable_auto_fetch),
+            enabled: stored.enable_auto_fetch,
             interval_hours: crate::services::platform_auto_refresh::clamp_interval_hours(
-                db_config
-                    .as_ref()
-                    .map(|config| config.fetch_interval_hours)
-                    .unwrap_or(24),
+                stored.fetch_interval_hours,
             ),
         }),
         ai_config: AiConfig {
@@ -456,10 +435,7 @@ pub(crate) async fn build_config(
                     key: "ai_source".to_string(),
                     label: "Standard AI source".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tier_source(ModelTier::Standard))
-                        .unwrap_or_default(),
+                    value: stored.tier_source(ModelTier::Standard),
                     placeholder: String::new(),
                     required: false,
                 },
@@ -467,10 +443,7 @@ pub(crate) async fn build_config(
                     key: "ai_model".to_string(),
                     label: "Standard model".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ai_model.clone())
-                        .unwrap_or_default(),
+                    value: stored.ai_model.clone(),
                     placeholder: "minimax/minimax-m3, gpt-5.6-terra, etc.".to_string(),
                     required: false,
                 },
@@ -478,10 +451,7 @@ pub(crate) async fn build_config(
                     key: "lite_ai_source".to_string(),
                     label: "Lite AI source".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tier_source(ModelTier::Lite))
-                        .unwrap_or_default(),
+                    value: stored.tier_source(ModelTier::Lite),
                     placeholder: String::new(),
                     required: false,
                 },
@@ -489,10 +459,7 @@ pub(crate) async fn build_config(
                     key: "lite_ai_model".to_string(),
                     label: "Lite model".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.lite_ai_model.clone())
-                        .unwrap_or_default(),
+                    value: stored.lite_ai_model.clone(),
                     placeholder: "Blank: Lite is not used".to_string(),
                     required: false,
                 },
@@ -500,10 +467,7 @@ pub(crate) async fn build_config(
                     key: "pro_enabled".to_string(),
                     label: "Enable Pro Model".to_string(),
                     field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.pro_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.pro_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -511,10 +475,7 @@ pub(crate) async fn build_config(
                     key: "pro_ai_source".to_string(),
                     label: "Pro AI source".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tier_source(ModelTier::Pro))
-                        .unwrap_or_default(),
+                    value: stored.tier_source(ModelTier::Pro),
                     placeholder: String::new(),
                     required: false,
                 },
@@ -522,10 +483,7 @@ pub(crate) async fn build_config(
                     key: "pro_ai_model".to_string(),
                     label: "Pro model".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.pro_ai_model.clone())
-                        .unwrap_or_default(),
+                    value: stored.pro_ai_model.clone(),
                     placeholder: "anthropic/claude-opus-5.5, gpt-5.6-sol, etc.".to_string(),
                     required: false,
                 },
@@ -533,10 +491,7 @@ pub(crate) async fn build_config(
                     key: "aux_ai_source".to_string(),
                     label: "Judgment and embedding source".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.aux_source_slug())
-                        .unwrap_or_default(),
+                    value: stored.aux_source_slug(),
                     placeholder: String::new(),
                     required: false,
                 },
@@ -544,10 +499,7 @@ pub(crate) async fn build_config(
                     key: "aux_judge_model".to_string(),
                     label: "Judgment Model".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.aux_judge_model.clone())
-                        .unwrap_or_default(),
+                    value: stored.aux_judge_model.clone(),
                     placeholder: "Blank: same as the Lite model".to_string(),
                     required: false,
                 },
@@ -555,10 +507,7 @@ pub(crate) async fn build_config(
                     key: "aux_embedding_model".to_string(),
                     label: "Embedding Model".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.aux_embedding_model.clone())
-                        .unwrap_or_default(),
+                    value: stored.aux_embedding_model.clone(),
                     placeholder: "Blank: recall by words only".to_string(),
                     required: false,
                 },
@@ -567,13 +516,7 @@ pub(crate) async fn build_config(
                     key: "ai_image_model".to_string(),
                     label: "Model Name".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ai_image_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("AI_IMAGE_MODEL")
-                                .unwrap_or_else(|_| "openai/gpt-image-2.5-sunburst".to_string())
-                        }),
+                    value: stored.ai_image_model.clone(),
                     placeholder: "openai/gpt-image-2.5-sunburst".to_string(),
                     required: false,
                 },
@@ -582,10 +525,7 @@ pub(crate) async fn build_config(
                     key: "speech_stt_model".to_string(),
                     label: "Speech-to-text model".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.speech_stt_model.clone())
-                        .unwrap_or_default(),
+                    value: stored.speech_stt_model.clone(),
                     placeholder: "gpt-transcribe".to_string(),
                     required: false,
                 },
@@ -593,10 +533,7 @@ pub(crate) async fn build_config(
                     key: "speech_tts_model".to_string(),
                     label: "Text-to-speech model".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.speech_tts_model.clone())
-                        .unwrap_or_default(),
+                    value: stored.speech_tts_model.clone(),
                     placeholder: "gpt-4o-mini-tts".to_string(),
                     required: false,
                 },
@@ -604,10 +541,7 @@ pub(crate) async fn build_config(
                     key: "speech_tts_voice".to_string(),
                     label: "TTS voice".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.speech_tts_voice.clone())
-                        .unwrap_or_default(),
+                    value: stored.speech_tts_voice.clone(),
                     placeholder: "marin".to_string(),
                     required: false,
                 },
@@ -616,9 +550,7 @@ pub(crate) async fn build_config(
                     label: "OpenRouter API Key".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.shared_openrouter_api_key())
+                        stored.shared_openrouter_api_key()
                             .unwrap_or_default(),
                     ),
                     placeholder: "sk-or-v1-...".to_string(),
@@ -629,9 +561,7 @@ pub(crate) async fn build_config(
                     label: "OpenAI API Key".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.shared_openai_api_key())
+                        stored.shared_openai_api_key()
                             .unwrap_or_default(),
                     ),
                     placeholder: "sk-...".to_string(),
@@ -642,9 +572,7 @@ pub(crate) async fn build_config(
                     label: "Gemini API Key".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.shared_gemini_api_key())
+                        stored.shared_gemini_api_key()
                             .unwrap_or_default(),
                     ),
                     placeholder: "AIza...".to_string(),
@@ -655,9 +583,7 @@ pub(crate) async fn build_config(
                     label: "TinyFish API Key".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.shared_tinyfish_api_key())
+                        stored.shared_tinyfish_api_key()
                             .unwrap_or_default(),
                     ),
                     placeholder: "Get from https://agent.tinyfish.ai/api-keys".to_string(),
@@ -668,9 +594,7 @@ pub(crate) async fn build_config(
                     label: "Volcengine Ark API Key".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.shared_volcengine_api_key())
+                        stored.shared_volcengine_api_key()
                             .unwrap_or_default(),
                     ),
                     placeholder: "Ark API key".to_string(),
@@ -680,10 +604,8 @@ pub(crate) async fn build_config(
                     key: "ai_vendor_sources".to_string(),
                     label: "AI vendor sources".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| {
-                            let mut sources = c.effective_vendor_sources();
+                    value: {
+                            let mut sources = stored.effective_vendor_sources();
                             for source in &mut sources {
                                 if source
                                     .api_key
@@ -708,8 +630,7 @@ pub(crate) async fn build_config(
                                 }
                             }
                             serde_json::to_string(&sources).unwrap_or_else(|_| "[]".to_string())
-                        })
-                        .unwrap_or_else(|| "[]".to_string()),
+                        },
                     placeholder: "[]".to_string(),
                     required: false,
                 },
@@ -717,10 +638,7 @@ pub(crate) async fn build_config(
                     key: "ai_image_source".to_string(),
                     label: "Image AI source".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.image_source())
-                        .unwrap_or_default(),
+                    value: stored.image_source(),
                     placeholder: "".to_string(),
                     required: false,
                 },
@@ -728,10 +646,7 @@ pub(crate) async fn build_config(
                     key: "speech_source".to_string(),
                     label: "Speech source".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.speech_source_slug())
-                        .unwrap_or_default(),
+                    value: stored.speech_source_slug(),
                     placeholder: "".to_string(),
                     required: false,
                 },
@@ -739,10 +654,7 @@ pub(crate) async fn build_config(
                     key: "qq_bot_enabled".to_string(),
                     label: "QQ bot".to_string(),
                     field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.qq_bot_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.qq_bot_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -750,10 +662,7 @@ pub(crate) async fn build_config(
                     key: "qq_bot_app_id".to_string(),
                     label: "QQ bot AppID".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.qq_bot_app_id.clone())
-                        .unwrap_or_default(),
+                    value: stored.qq_bot_app_id.clone(),
                     placeholder: "102...".to_string(),
                     required: false,
                 },
@@ -762,9 +671,7 @@ pub(crate) async fn build_config(
                     label: "QQ bot AppSecret".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.qq_bot_app_secret.clone())
+                        stored.qq_bot_app_secret.clone()
                             .unwrap_or_default(),
                     ),
                     placeholder: "".to_string(),
@@ -774,10 +681,7 @@ pub(crate) async fn build_config(
                     key: "telegram_bot_enabled".to_string(),
                     label: "Telegram bot".to_string(),
                     field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.telegram_bot_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.telegram_bot_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -786,9 +690,7 @@ pub(crate) async fn build_config(
                     label: "Telegram bot token".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.telegram_bot_token.clone())
+                        stored.telegram_bot_token.clone()
                             .unwrap_or_default(),
                     ),
                     placeholder: "".to_string(),
@@ -798,10 +700,7 @@ pub(crate) async fn build_config(
                     key: "discord_bot_enabled".to_string(),
                     label: "Discord bot".to_string(),
                     field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.discord_bot_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.discord_bot_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -810,9 +709,7 @@ pub(crate) async fn build_config(
                     label: "Discord bot token".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.discord_bot_token.clone())
+                        stored.discord_bot_token.clone()
                             .unwrap_or_default(),
                     ),
                     placeholder: "".to_string(),
@@ -822,10 +719,7 @@ pub(crate) async fn build_config(
                     key: "feishu_bot_enabled".to_string(),
                     label: "Feishu bot".to_string(),
                     field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.feishu_bot_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.feishu_bot_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -833,10 +727,7 @@ pub(crate) async fn build_config(
                     key: "feishu_bot_app_id".to_string(),
                     label: "Feishu bot AppID".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.feishu_bot_app_id.clone())
-                        .unwrap_or_default(),
+                    value: stored.feishu_bot_app_id.clone(),
                     placeholder: "cli_...".to_string(),
                     required: false,
                 },
@@ -845,9 +736,7 @@ pub(crate) async fn build_config(
                     label: "Feishu bot AppSecret".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.feishu_bot_app_secret.clone())
+                        stored.feishu_bot_app_secret.clone()
                             .unwrap_or_default(),
                     ),
                     placeholder: "".to_string(),
@@ -857,10 +746,7 @@ pub(crate) async fn build_config(
                     key: "onebot_bot_enabled".to_string(),
                     label: "OneBot bot".to_string(),
                     field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.onebot_bot_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.onebot_bot_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -868,10 +754,7 @@ pub(crate) async fn build_config(
                     key: "onebot_bot_groups_enabled".to_string(),
                     label: "OneBot groups".to_string(),
                     field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.onebot_bot_groups_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.onebot_bot_groups_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -879,10 +762,7 @@ pub(crate) async fn build_config(
                     key: "onebot_bot_group_ids".to_string(),
                     label: "OneBot group allowlist".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.onebot_bot_group_ids.clone())
-                        .unwrap_or_default(),
+                    value: stored.onebot_bot_group_ids.clone(),
                     placeholder: "".to_string(),
                     required: false,
                 },
@@ -890,10 +770,7 @@ pub(crate) async fn build_config(
                     key: "onebot_bot_ws_url".to_string(),
                     label: "OneBot WebSocket URL".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.onebot_bot_ws_url.clone())
-                        .unwrap_or_default(),
+                    value: stored.onebot_bot_ws_url.clone(),
                     placeholder: "ws://127.0.0.1:3001".to_string(),
                     required: false,
                 },
@@ -902,9 +779,7 @@ pub(crate) async fn build_config(
                     label: "OneBot access token".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.onebot_bot_access_token.clone())
+                        stored.onebot_bot_access_token.clone()
                             .unwrap_or_default(),
                     ),
                     placeholder: "".to_string(),
@@ -918,13 +793,7 @@ pub(crate) async fn build_config(
                     key: "tripo_enabled".to_string(),
                     label: "Enable Tripo 3D".to_string(),
                     field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tripo_enabled.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("TRIPO_ENABLED")
-                                .unwrap_or_else(|_| "false".to_string())
-                        }),
+                    value: stored.tripo_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -933,7 +802,7 @@ pub(crate) async fn build_config(
                     label: "Tripo API Key".to_string(),
                     field_type: "password".to_string(),
                     value: mask_sensitive(get_value(
-                        db_config.as_ref().and_then(|c| c.tripo_api_key.clone()),
+                        stored.tripo_api_key.clone(),
                         "TRIPO_API_KEY",
                     )),
                     placeholder: "Get from platform.tripo3d.ai".to_string(),
@@ -943,14 +812,7 @@ pub(crate) async fn build_config(
                     key: "tripo_base_url".to_string(),
                     label: "Tripo API Base URL".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tripo_base_url.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("TRIPO_BASE_URL").unwrap_or_else(|_| {
-                                "https://openapi.tripo3d.ai/v3".to_string()
-                            })
-                        }),
+                    value: stored.tripo_base_url.clone(),
                     placeholder: "https://openapi.tripo3d.ai/v3".to_string(),
                     required: true,
                 },
@@ -958,13 +820,7 @@ pub(crate) async fn build_config(
                     key: "tripo_model".to_string(),
                     label: "Default low-poly model".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tripo_model.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("TRIPO_MODEL")
-                                .unwrap_or_else(|_| "P1-20260311".to_string())
-                        }),
+                    value: stored.tripo_model.clone(),
                     placeholder: "P1-20260311".to_string(),
                     required: true,
                 },
@@ -972,13 +828,7 @@ pub(crate) async fn build_config(
                     key: "tripo_face_limit".to_string(),
                     label: "Default face limit".to_string(),
                     field_type: "number".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tripo_face_limit.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("TRIPO_FACE_LIMIT")
-                                .unwrap_or_else(|_| "5000".to_string())
-                        }),
+                    value: stored.tripo_face_limit.to_string(),
                     placeholder: "5000".to_string(),
                     required: true,
                 },
@@ -986,13 +836,7 @@ pub(crate) async fn build_config(
                     key: "tripo_poll_interval_seconds".to_string(),
                     label: "Polling interval (seconds)".to_string(),
                     field_type: "number".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tripo_poll_interval_seconds.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("TRIPO_POLL_INTERVAL_SECONDS")
-                                .unwrap_or_else(|_| "2".to_string())
-                        }),
+                    value: stored.tripo_poll_interval_seconds.to_string(),
                     placeholder: "2".to_string(),
                     required: true,
                 },
@@ -1000,13 +844,7 @@ pub(crate) async fn build_config(
                     key: "tripo_task_timeout_seconds".to_string(),
                     label: "Task timeout (seconds)".to_string(),
                     field_type: "number".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tripo_task_timeout_seconds.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("TRIPO_TASK_TIMEOUT_SECONDS")
-                                .unwrap_or_else(|_| "900".to_string())
-                        }),
+                    value: stored.tripo_task_timeout_seconds.to_string(),
                     placeholder: "900".to_string(),
                     required: true,
                 },
@@ -1014,13 +852,7 @@ pub(crate) async fn build_config(
                     key: "tripo_max_download_mb".to_string(),
                     label: "Maximum stored model size (MB)".to_string(),
                     field_type: "number".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.tripo_max_download_mb.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("TRIPO_MAX_DOWNLOAD_MB")
-                                .unwrap_or_else(|_| "64".to_string())
-                        }),
+                    value: stored.tripo_max_download_mb.to_string(),
                     placeholder: "64".to_string(),
                     required: true,
                 },
@@ -1045,7 +877,7 @@ pub(crate) async fn build_config(
                     label: "Wallpaper URL".to_string(),
                     field_type: "text".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.ui_wallpaper_url.clone()),
+                        stored.ui_wallpaper_url.clone(),
                         "UI_WALLPAPER_URL",
                     ),
                     placeholder: "URL to wallpaper image or API endpoint".to_string(),
@@ -1055,12 +887,7 @@ pub(crate) async fn build_config(
                     key: "wallpaper_blur".to_string(),
                     label: "Wallpaper Blur (0-10)".to_string(),
                     field_type: "number".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ui_wallpaper_blur.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("UI_WALLPAPER_BLUR").unwrap_or_else(|_| "3".to_string())
-                        }),
+                    value: stored.ui_wallpaper_blur.to_string(),
                     placeholder: "3".to_string(),
                     required: false,
                 },
@@ -1069,13 +896,7 @@ pub(crate) async fn build_config(
                     key: "evocative_parallax".to_string(),
                     label: "Parallax effect".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ui_evocative_parallax.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("UI_EVOCATIVE_PARALLAX")
-                                .unwrap_or_else(|_| "true".to_string())
-                        }),
+                    value: stored.ui_evocative_parallax.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1083,13 +904,7 @@ pub(crate) async fn build_config(
                     key: "evocative_dynamic_blur".to_string(),
                     label: "Dynamic blur".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ui_evocative_dynamic_blur.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("UI_EVOCATIVE_DYNAMIC_BLUR")
-                                .unwrap_or_else(|_| "false".to_string())
-                        }),
+                    value: stored.ui_evocative_dynamic_blur.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1097,13 +912,7 @@ pub(crate) async fn build_config(
                     key: "evocative_ripple".to_string(),
                     label: "Ripple effect".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ui_evocative_ripple.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("UI_EVOCATIVE_RIPPLE")
-                                .unwrap_or_else(|_| "false".to_string())
-                        }),
+                    value: stored.ui_evocative_ripple.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1111,12 +920,7 @@ pub(crate) async fn build_config(
                     key: "evocative_fps".to_string(),
                     label: "Effect frame rate".to_string(),
                     field_type: "select".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ui_evocative_fps.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("UI_EVOCATIVE_FPS").unwrap_or_else(|_| "30".to_string())
-                        }),
+                    value: stored.ui_evocative_fps.to_string(),
                     placeholder: "30".to_string(),
                     required: false,
                 },
@@ -1124,13 +928,7 @@ pub(crate) async fn build_config(
                     key: "evocative_ripple_quality".to_string(),
                     label: "Ripple quality".to_string(),
                     field_type: "select".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ui_evocative_ripple_quality.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("UI_EVOCATIVE_RIPPLE_QUALITY")
-                                .unwrap_or_else(|_| "0.85".to_string())
-                        }),
+                    value: stored.ui_evocative_ripple_quality.to_string(),
                     placeholder: "0.85".to_string(),
                     required: false,
                 },
@@ -1138,13 +936,7 @@ pub(crate) async fn build_config(
                     key: "analytics_enabled".to_string(),
                     label: "Enable visitor analytics".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.analytics_enabled.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("ANALYTICS_ENABLED")
-                                .unwrap_or_else(|_| "true".to_string())
-                        }),
+                    value: stored.analytics_enabled.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1152,13 +944,7 @@ pub(crate) async fn build_config(
                     key: "pwa_enabled".to_string(),
                     label: "Enable PWA".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.pwa_enabled.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("PWA_ENABLED")
-                                .unwrap_or_else(|_| "true".to_string())
-                        }),
+                    value: stored.pwa_enabled.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1167,7 +953,7 @@ pub(crate) async fn build_config(
                     label: "Site title".to_string(),
                     field_type: "text".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.site_title.clone()),
+                        stored.site_title.clone(),
                         "SITE_TITLE",
                     ),
                     placeholder: "Myriad - A myriad of lights, in one place.".to_string(),
@@ -1178,7 +964,7 @@ pub(crate) async fn build_config(
                     label: "Site description".to_string(),
                     field_type: "text".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.site_description.clone()),
+                        stored.site_description.clone(),
                         "SITE_DESCRIPTION",
                     ),
                     placeholder: "A myriad of lights, in one place.".to_string(),
@@ -1189,7 +975,7 @@ pub(crate) async fn build_config(
                     label: "Favicon URL".to_string(),
                     field_type: "text".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.site_favicon.clone()),
+                        stored.site_favicon.clone(),
                         "SITE_FAVICON",
                     ),
                     placeholder: "/favicon.webp or https://example.com/icon.png (external URLs allowed)"
@@ -1202,7 +988,7 @@ pub(crate) async fn build_config(
                     field_type: "text".to_string(),
                     // Clearable: empty DB wins over env (see db_or_env_clearable).
                     value: db_or_env_clearable(
-                        db_config.as_ref().and_then(|c| c.site_keywords.clone()),
+                        stored.site_keywords.clone(),
                         "SITE_KEYWORDS",
                         "",
                     ),
@@ -1214,7 +1000,7 @@ pub(crate) async fn build_config(
                     label: "Share preview image".to_string(),
                     field_type: "text".to_string(),
                     value: db_or_env_clearable(
-                        db_config.as_ref().and_then(|c| c.site_og_image.clone()),
+                        stored.site_og_image.clone(),
                         "SITE_OG_IMAGE",
                         "",
                     ),
@@ -1226,9 +1012,7 @@ pub(crate) async fn build_config(
                     label: "Google Search Console verification".to_string(),
                     field_type: "text".to_string(),
                     value: db_or_env_clearable(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.google_site_verification.clone()),
+                        stored.google_site_verification.clone(),
                         "GOOGLE_SITE_VERIFICATION",
                         "",
                     ),
@@ -1239,13 +1023,7 @@ pub(crate) async fn build_config(
                     key: "site_noindex".to_string(),
                     label: "Block search engine indexing".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.site_noindex.to_string())
-                        .unwrap_or_else(|| {
-                            std::env::var("SITE_NOINDEX")
-                                .unwrap_or_else(|_| "false".to_string())
-                        }),
+                    value: stored.site_noindex.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1254,17 +1032,8 @@ pub(crate) async fn build_config(
                     label: "Search and AI visibility".to_string(),
                     field_type: "select".to_string(),
                     value: {
-                        let noindex = db_config
-                            .as_ref()
-                            .map(|c| c.site_noindex)
-                            .unwrap_or_else(|| {
-                                std::env::var("SITE_NOINDEX")
-                                    .map(|v| v == "true" || v == "1")
-                                    .unwrap_or(false)
-                            });
-                        let raw = db_config
-                            .as_ref()
-                            .map(|c| c.site_visibility_policy.clone())
+                        let noindex = stored.site_noindex;
+                        let raw = Some(stored.site_visibility_policy.clone())
                             .filter(|s| !s.trim().is_empty())
                             .or_else(|| std::env::var("SITE_VISIBILITY_POLICY").ok())
                             .unwrap_or_default();
@@ -1278,7 +1047,7 @@ pub(crate) async fn build_config(
                     label: "AI site intro".to_string(),
                     field_type: "text".to_string(),
                     value: db_or_env_clearable(
-                        db_config.as_ref().and_then(|c| c.site_ai_intro.clone()),
+                        stored.site_ai_intro.clone(),
                         "SITE_AI_INTRO",
                         "",
                     ),
@@ -1291,10 +1060,7 @@ pub(crate) async fn build_config(
                     label: "How often Agent checks public copy".to_string(),
                     field_type: "select".to_string(),
                     value: crate::api::seo_policy::normalize_seo_review_cadence(
-                        db_config
-                            .as_ref()
-                            .map(|c| c.site_seo_review_cadence.as_str())
-                            .unwrap_or(""),
+                        stored.site_seo_review_cadence.as_str(),
                     )
                     .to_string(),
                     placeholder: "off".to_string(),
@@ -1305,9 +1071,7 @@ pub(crate) async fn build_config(
                     label: "Google Analytics".to_string(),
                     field_type: "text".to_string(),
                     value: db_or_env_clearable(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.ga_measurement_id.clone()),
+                        stored.ga_measurement_id.clone(),
                         "GA_MEASUREMENT_ID",
                         "",
                     ),
@@ -1319,9 +1083,7 @@ pub(crate) async fn build_config(
                     label: "Umami Website ID".to_string(),
                     field_type: "text".to_string(),
                     value: db_or_env_clearable(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.umami_website_id.clone()),
+                        stored.umami_website_id.clone(),
                         "UMAMI_WEBSITE_ID",
                         "",
                     ),
@@ -1333,9 +1095,7 @@ pub(crate) async fn build_config(
                     label: "Umami Script URL".to_string(),
                     field_type: "text".to_string(),
                     value: db_or_env_clearable(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.umami_script_url.clone()),
+                        stored.umami_script_url.clone(),
                         "UMAMI_SCRIPT_URL",
                         "",
                     ),
@@ -1346,9 +1106,7 @@ pub(crate) async fn build_config(
                     key: "site_icp".to_string(),
                     label: "ICP filing number".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .and_then(|c| c.site_icp.clone())
+                    value: stored.site_icp.clone()
                         .unwrap_or_default(),
                     placeholder: "e.g. 京ICP备12345678号".to_string(),
                     required: false,
@@ -1357,9 +1115,7 @@ pub(crate) async fn build_config(
                     key: "site_gongan".to_string(),
                     label: "Public security filing number".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .and_then(|c| c.site_gongan.clone())
+                    value: stored.site_gongan.clone()
                         .unwrap_or_default(),
                     placeholder: "e.g. 京公网安备11010802012345号".to_string(),
                     required: false,
@@ -1368,9 +1124,7 @@ pub(crate) async fn build_config(
                     key: "cloud_sponsors".to_string(),
                     label: "Cloud sponsors".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .and_then(|c| c.cloud_sponsors.clone())
+                    value: stored.cloud_sponsors.clone()
                         .unwrap_or_default(),
                     placeholder: "cloudflare,edgeone,upyun (comma-separated)".to_string(),
                     required: false,
@@ -1380,9 +1134,7 @@ pub(crate) async fn build_config(
                     label: "Footer custom items".to_string(),
                     field_type: "text".to_string(),
                     value: db_or_env_clearable(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.site_footer_custom.clone()),
+                        stored.site_footer_custom.clone(),
                         "SITE_FOOTER_CUSTOM",
                         "",
                     ),
@@ -1394,9 +1146,7 @@ pub(crate) async fn build_config(
                     key: "base_url".to_string(),
                     label: "Site Base URL".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .and_then(|c| c.base_url.clone())
+                    value: stored.base_url.clone()
                         .unwrap_or_default(),
                     placeholder: "https://yourdomain.com (used to build OAuth callback URLs)".to_string(),
                     required: false,
@@ -1406,7 +1156,7 @@ pub(crate) async fn build_config(
                     label: "Enable Music Player".to_string(),
                     field_type: "checkbox".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.music_enabled.clone()),
+                        stored.music_enabled.clone(),
                         "MUSIC_ENABLED",
                     ),
                     placeholder: "false".to_string(),
@@ -1417,7 +1167,7 @@ pub(crate) async fn build_config(
                     label: "Music Source".to_string(),
                     field_type: "select".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.music_source.clone()),
+                        stored.music_source.clone(),
                         "MUSIC_SOURCE",
                     ),
                     placeholder: "netease or qq".to_string(),
@@ -1428,7 +1178,7 @@ pub(crate) async fn build_config(
                     label: "Playlist ID".to_string(),
                     field_type: "text".to_string(),
                     value: get_value(
-                        db_config.as_ref().and_then(|c| c.music_playlist_id.clone()),
+                        stored.music_playlist_id.clone(),
                         "MUSIC_PLAYLIST_ID",
                     ),
                     placeholder: "Playlist ID from music platform".to_string(),
@@ -1438,10 +1188,7 @@ pub(crate) async fn build_config(
                     key: "music_proxy_enabled".to_string(),
                     label: "Music stream proxy".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.music_proxy_enabled.to_string())
-                        .unwrap_or_else(|| "true".to_string()),
+                    value: stored.music_proxy_enabled.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1449,10 +1196,7 @@ pub(crate) async fn build_config(
                     key: "music_preload_enabled".to_string(),
                     label: "Music preload".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.music_preload_enabled.to_string())
-                        .unwrap_or_else(|| "true".to_string()),
+                    value: stored.music_preload_enabled.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1460,10 +1204,7 @@ pub(crate) async fn build_config(
                     key: "island_show_greeting".to_string(),
                     label: "Island greeting".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.island_show_greeting.to_string())
-                        .unwrap_or_else(|| "true".to_string()),
+                    value: stored.island_show_greeting.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1471,10 +1212,7 @@ pub(crate) async fn build_config(
                     key: "island_show_weather".to_string(),
                     label: "Island weather".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.island_show_weather.to_string())
-                        .unwrap_or_else(|| "true".to_string()),
+                    value: stored.island_show_weather.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1482,10 +1220,7 @@ pub(crate) async fn build_config(
                     key: "island_show_quote".to_string(),
                     label: "Island quote".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.island_show_quote.to_string())
-                        .unwrap_or_else(|| "true".to_string()),
+                    value: stored.island_show_quote.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1493,10 +1228,7 @@ pub(crate) async fn build_config(
                     key: "island_show_music".to_string(),
                     label: "Island music".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.island_show_music.to_string())
-                        .unwrap_or_else(|| "true".to_string()),
+                    value: stored.island_show_music.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1504,10 +1236,7 @@ pub(crate) async fn build_config(
                     key: "island_show_tapp".to_string(),
                     label: "Island Tapp content".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.island_show_tapp.to_string())
-                        .unwrap_or_else(|| "true".to_string()),
+                    value: stored.island_show_tapp.to_string(),
                     placeholder: "true".to_string(),
                     required: false,
                 },
@@ -1516,10 +1245,7 @@ pub(crate) async fn build_config(
                     key: "memory_saver_enabled".to_string(),
                     label: "Memory saver".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.memory_saver_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.memory_saver_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1527,10 +1253,7 @@ pub(crate) async fn build_config(
                     key: "precise_location_enabled".to_string(),
                     label: "Precise location".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.precise_location_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.precise_location_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1538,10 +1261,7 @@ pub(crate) async fn build_config(
                     key: "merope_enabled".to_string(),
                     label: "Agent persona".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.merope_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.merope_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1549,10 +1269,7 @@ pub(crate) async fn build_config(
                     key: "merope_speech_enabled".to_string(),
                     label: "Agent persona speech".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.merope_speech_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.merope_speech_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1560,15 +1277,12 @@ pub(crate) async fn build_config(
                     key: "merope_voice_mode".to_string(),
                     label: "Agent persona voice mode".to_string(),
                     field_type: "select".to_string(),
-                    value: db_config
-                        .as_ref()
-                        // What was chosen, even if it cannot be met now (the page
-                        // says why); never chosen: what she does as before.
-                        .map(|c| match c.merope_voice_mode.trim() {
-                            "" => c.merope_voice_mode_resolved().to_string(),
-                            chosen => chosen.to_string(),
-                        })
-                        .unwrap_or_else(|| "tts".to_string()),
+                    // What was chosen, even if it cannot be met now (the page
+                    // says why); never chosen: what she does as before.
+                    value: match stored.merope_voice_mode.trim() {
+                        "" => stored.merope_voice_mode_resolved().to_string(),
+                        chosen => chosen.to_string(),
+                    },
                     placeholder: "tts".to_string(),
                     required: false,
                 },
@@ -1577,10 +1291,7 @@ pub(crate) async fn build_config(
                     key: "merope_voice_mode_effective".to_string(),
                     label: "Agent persona voice in effect".to_string(),
                     field_type: "readonly".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.merope_voice_mode_effective())
-                        .unwrap_or_else(|| "tts".to_string()),
+                    value: stored.merope_voice_mode_effective(),
                     placeholder: String::new(),
                     required: false,
                 },
@@ -1588,10 +1299,7 @@ pub(crate) async fn build_config(
                     key: "merope_voice_voice".to_string(),
                     label: "Agent persona voice".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.merope_voice_voice.clone())
-                        .unwrap_or_default(),
+                    value: stored.merope_voice_voice.clone(),
                     placeholder: "Tina".to_string(),
                     required: false,
                 },
@@ -1600,10 +1308,7 @@ pub(crate) async fn build_config(
                     key: "proxy_enabled".to_string(),
                     label: "Enable network proxy".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.proxy_enabled.to_string())
-                        .unwrap_or_else(|| "false".to_string()),
+                    value: stored.proxy_enabled.to_string(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1611,9 +1316,7 @@ pub(crate) async fn build_config(
                     key: "proxy_url".to_string(),
                     label: "Proxy server URL".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .and_then(|c| c.proxy_url.clone())
+                    value: stored.proxy_url.clone()
                         .unwrap_or_default(),
                     placeholder: "http://127.0.0.1:7890 or socks5://127.0.0.1:1080".to_string(),
                     required: false,
@@ -1622,9 +1325,7 @@ pub(crate) async fn build_config(
                     key: "proxy_bypass".to_string(),
                     label: "Proxy bypass list".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .and_then(|c| c.proxy_bypass.clone())
+                    value: stored.proxy_bypass.clone()
                         .unwrap_or_default(),
                     placeholder: "localhost,127.0.0.1,.local".to_string(),
                     required: false,
@@ -1633,9 +1334,7 @@ pub(crate) async fn build_config(
                     key: "gemini_base_url".to_string(),
                     label: "Gemini API base URL".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .and_then(|c| c.gemini_base_url.clone())
+                    value: stored.gemini_base_url.clone()
                         .unwrap_or_default(),
                     placeholder: "https://generativelanguage.googleapis.com (leave empty for default)"
                         .to_string(),
@@ -1645,9 +1344,7 @@ pub(crate) async fn build_config(
                     key: "github_api_base_url".to_string(),
                     label: "GitHub API base URL".to_string(),
                     field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .and_then(|c| c.github_api_base_url.clone())
+                    value: stored.github_api_base_url.clone()
                         .unwrap_or_default(),
                     placeholder: "https://api.github.com (leave empty for default)".to_string(),
                     required: false,
@@ -1657,10 +1354,7 @@ pub(crate) async fn build_config(
     };
 
     let mut config = config;
-    sort_platforms_by_order(
-        &mut config.platforms,
-        db_config.as_ref().and_then(|c| c.platform_order.as_ref()),
-    );
+    sort_platforms_by_order(&mut config.platforms, stored.platform_order.as_ref());
 
     Ok(config)
 }
