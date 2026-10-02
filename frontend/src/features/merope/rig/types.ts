@@ -1,5 +1,9 @@
 import type { Anime25DPlayback } from '../anime25drig/types'
-import type { RIG_SEMANTIC_BONE_ROLES, RIG_SEMANTIC_CHAIN_ROLES } from './contract'
+import type {
+  CharacterAssetProfile,
+  RIG_SEMANTIC_BONE_ROLES,
+  RIG_SEMANTIC_CHAIN_ROLES,
+} from './contract'
 
 export type RigQuality = 'layered-2d'
 
@@ -163,6 +167,8 @@ export interface MeropeRigManifest {
   schemaVersion: number
   rigIrVersion?: number
   characterAssetContractVersion?: number
+  /** Absent on a bust. */
+  profile?: CharacterAssetProfile
   sourceMasterAssetId?: string
   sourceGenerationFingerprint?: string
   quality: RigQuality

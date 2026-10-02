@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  CHARACTER_ASSET_CONTRACT_VERSION,
-  CHARACTER_ASSET_REQUIRED_CAPABILITIES,
+  CHARACTER_ASSET_PROFILES,
+  characterAssetProfileOf,
   MAX_RIG_BONES,
   MIN_SUPPORTED_RIG_IR_VERSION,
   RIG_IR_VERSION,
@@ -15,8 +15,26 @@ test('keeps one explicit legacy IR readable while new imports use current IR', (
   assert.equal(RIG_IR_VERSION, 4)
 })
 
+const CHARACTER_ASSET_REQUIRED_CAPABILITIES =
+  CHARACTER_ASSET_PROFILES.bust.rig.requiredCapabilities
+
+test('the two asset profiles version apart and a profile-less manifest is a bust', () => {
+  assert.equal(CHARACTER_ASSET_PROFILES.bust.contractVersion, 13)
+  assert.equal(CHARACTER_ASSET_PROFILES.fullBody.contractVersion, 1)
+  assert.deepEqual(CHARACTER_ASSET_PROFILES.bust.portrait.canvas, {
+    width: 1,
+    height: 4 / 3,
+  })
+  assert.equal(characterAssetProfileOf({}), 'bust')
+  assert.equal(characterAssetProfileOf({ profile: 'fullBody' }), 'fullBody')
+  // The runtime has one arm pendulum for both.
+  assert.equal(
+    CHARACTER_ASSET_PROFILES.fullBody.rig.maxRigidArmRotationDegrees,
+    CHARACTER_ASSET_PROFILES.bust.rig.maxRigidArmRotationDegrees,
+  )
+})
+
 test('character imports require independent generated expression variants', () => {
-  assert.equal(CHARACTER_ASSET_CONTRACT_VERSION, 13)
   assert.ok(CHARACTER_ASSET_REQUIRED_CAPABILITIES.includes('dizzy-eye-variant'))
   assert.ok(
     CHARACTER_ASSET_REQUIRED_CAPABILITIES.includes('squeeze-eye-variant'),

@@ -1,4 +1,4 @@
-import { CHARACTER_ASSET_REQUIRED_CAPABILITIES } from './contract'
+import { CHARACTER_ASSET_PROFILES } from './contract'
 
 export interface Anime25DCapabilityLayer {
   id: string
@@ -26,7 +26,7 @@ export const ANIME25D_FACIAL_CAPABILITIES = [
 export function missingAnime25DRequiredCapabilities(
   layers: readonly Anime25DCapabilityLayer[],
 ): string[] {
-  return CHARACTER_ASSET_REQUIRED_CAPABILITIES.filter(
+  return CHARACTER_ASSET_PROFILES.bust.rig.requiredCapabilities.filter(
     (capability) => !hasAnime25DCapability(layers, capability),
   )
 }

@@ -2,8 +2,8 @@
 
 use axum::{Json, http::StatusCode};
 use myriad_merope::{
-    CHARACTER_ASSET_CONTRACT_VERSION, PORTRAIT_CANVAS_HEIGHT, PORTRAIT_CANVAS_WIDTH, RigManifest,
-    build_character_asset_contract, character_asset_contract_fingerprint,
+    CharacterAssetProfile, RigManifest, build_character_asset_contract,
+    character_asset_contract_fingerprint,
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -132,13 +132,16 @@ pub(super) async fn require_master_match(
     Ok(stored)
 }
 
+/// The outfit's master portrait is a bust, so only a bust rig can descend from it.
 pub(super) fn manifest_matches_master(manifest: &RigManifest, master: &MasterProvenance) -> bool {
+    let bust = CharacterAssetProfile::Bust.contract();
     manifest.validate().is_ok()
-        && manifest.character_asset_contract_version == Some(CHARACTER_ASSET_CONTRACT_VERSION)
+        && manifest.profile == CharacterAssetProfile::Bust
+        && manifest.character_asset_contract_version == Some(bust.contract_version)
         && manifest.source_master_asset_id.as_deref() == Some(master.asset_id.as_str())
         && manifest.source_generation_fingerprint == master.generation_fingerprint
-        && (manifest.canvas.width - PORTRAIT_CANVAS_WIDTH).abs() <= 0.0001
-        && (manifest.canvas.height - PORTRAIT_CANVAS_HEIGHT).abs() <= 0.0001
+        && (manifest.canvas.width - bust.canvas_width).abs() <= 0.0001
+        && (manifest.canvas.height - bust.canvas_height).abs() <= 0.0001
 }
 
 #[cfg(test)]
@@ -182,16 +185,18 @@ mod tests {
         master_url: &str,
         source_generation_fingerprint: Option<String>,
     ) -> RigManifest {
+        let bust = CharacterAssetProfile::Bust.contract();
         RigManifest {
             schema_version: RIG_SCHEMA_VERSION,
             rig_ir_version: None,
-            character_asset_contract_version: Some(CHARACTER_ASSET_CONTRACT_VERSION),
+            character_asset_contract_version: Some(bust.contract_version),
+            profile: CharacterAssetProfile::Bust,
             source_master_asset_id: Some(master_url.to_string()),
             source_generation_fingerprint,
             quality: RigQuality::Layered2d,
             canvas: RigSize {
-                width: PORTRAIT_CANVAS_WIDTH,
-                height: PORTRAIT_CANVAS_HEIGHT,
+                width: bust.canvas_width,
+                height: bust.canvas_height,
             },
             textures: vec![RigTexture {
                 id: "atlas".to_string(),
@@ -259,6 +264,17 @@ mod tests {
         manifest.source_generation_fingerprint = master.generation_fingerprint.clone();
         manifest.canvas.height = 1.0;
         assert!(!manifest_matches_master(&manifest, &master));
+
+        let full_body = CharacterAssetProfile::FullBody.contract();
+        let mut manifest = layered_stub_manifest("/master.png", Some(fingerprint));
+        manifest.profile = CharacterAssetProfile::FullBody;
+        manifest.character_asset_contract_version = Some(full_body.contract_version);
+        manifest.canvas.height = full_body.canvas_height;
+        assert!(manifest.validate().is_ok());
+        assert!(
+            !manifest_matches_master(&manifest, &master),
+            "a full-body rig never stands in for the bust the master portrait is"
+        );
     }
 
     #[test]

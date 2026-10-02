@@ -206,6 +206,19 @@ test('same live face runtime ignores a freshly parsed copy of the same atlas', (
   assert.equal(sameLiveFaceRuntime(first, null), false)
 })
 
+test('a manifest is held to the contract version of its own profile', () => {
+  const bust = structuredClone(manifest)
+  bust.characterAssetContractVersion = 13
+  assert.equal(isRigManifest(bust), true)
+  const fullBody = structuredClone(bust)
+  fullBody.profile = 'fullBody'
+  assert.equal(isRigManifest(fullBody), false)
+  fullBody.characterAssetContractVersion = 1
+  assert.equal(isRigManifest(fullBody), true)
+  assert.equal(sameLiveFaceRuntime(bust, fullBody), false)
+  assert.equal(isRigManifest({ ...bust, profile: 'halfBody' as never }), false)
+})
+
 test('validates portrait generation provenance when present', () => {
   const generated = structuredClone(manifest)
   generated.sourceGenerationFingerprint = 'a'.repeat(64)

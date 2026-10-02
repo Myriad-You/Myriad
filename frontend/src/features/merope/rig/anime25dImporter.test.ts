@@ -12,7 +12,7 @@ import {
 } from './anime25dImporter'
 import { syntheticSeeThroughPsd } from './anime25dImporter.fixture'
 import { gridMesh } from './anime25dSkeletonCompiler'
-import { CHARACTER_ASSET_CONTRACT_VERSION } from './contract'
+import { CHARACTER_ASSET_PROFILES } from './contract'
 
 await loadShellNamespace('merope', getDefaultLocale())
 
@@ -434,7 +434,7 @@ test('semantic content framing removes letterboxing and pads into the 3:4 stage'
   })
   assert.equal(
     prepared.source.characterAssetContractVersion,
-    CHARACTER_ASSET_CONTRACT_VERSION,
+    CHARACTER_ASSET_PROFILES.bust.contractVersion,
   )
   assert.equal(
     prepared.source.sourceGenerationFingerprint,

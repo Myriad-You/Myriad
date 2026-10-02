@@ -4,6 +4,49 @@ pub(crate) struct RigOutfitSafetyContract {
     pub secondary_motion_scale: f32,
 }
 
+/// What one character-asset mode asks of its master portrait and its rig.
+#[derive(Debug, Clone, Copy)]
+pub struct CharacterAssetProfileContract {
+    pub contract_version: u16,
+    pub aspect_width: u32,
+    pub aspect_height: u32,
+    pub generation_width: u32,
+    pub generation_height: u32,
+    pub canvas_width: f32,
+    pub canvas_height: f32,
+    pub framing: &'static str,
+    pub background: &'static str,
+    pub max_rigid_arm_rotation_degrees: f32,
+    pub required_capabilities: &'static [&'static str],
+}
+
+/// The two kinds of character asset: the bust the panel shows, and the
+/// optional standing full figure. Each has its own portrait, rig and contract
+/// version, so changing one never invalidates the other.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum CharacterAssetProfile {
+    #[default]
+    Bust,
+    FullBody,
+}
+
+impl CharacterAssetProfile {
+    pub const fn contract(self) -> &'static CharacterAssetProfileContract {
+        match self {
+            Self::Bust => &BUST_ASSET_CONTRACT,
+            Self::FullBody => &FULL_BODY_ASSET_CONTRACT,
+        }
+    }
+
+    /// Manifests written before the full-body mode carry no profile; they are busts.
+    pub fn is_bust(&self) -> bool {
+        *self == Self::Bust
+    }
+}
+
 include!(concat!(env!("OUT_DIR"), "/merope_rig_contract.rs"));
 
 const _: () = assert!(MAX_GPU_RIG_BONES >= MAX_RIG_BONES);

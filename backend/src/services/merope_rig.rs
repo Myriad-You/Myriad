@@ -340,8 +340,8 @@ mod tests {
     use super::*;
     use flate2::{Compression, write::ZlibEncoder};
     use myriad_merope::{
-        CHARACTER_ASSET_CONTRACT_VERSION, RIG_IR_VERSION, RIG_SCHEMA_VERSION, RigBone, RigManifest,
-        RigPart, RigPoint, RigQuality, RigTexture, RigVertex,
+        CharacterAssetProfile, RIG_IR_VERSION, RIG_SCHEMA_VERSION, RigBone, RigManifest, RigPart,
+        RigPoint, RigQuality, RigTexture, RigVertex,
     };
     use std::{collections::HashMap, io::Write};
 
@@ -444,7 +444,10 @@ mod tests {
         RigManifest {
             schema_version: RIG_SCHEMA_VERSION,
             rig_ir_version: Some(RIG_IR_VERSION),
-            character_asset_contract_version: Some(CHARACTER_ASSET_CONTRACT_VERSION),
+            character_asset_contract_version: Some(
+                CharacterAssetProfile::Bust.contract().contract_version,
+            ),
+            profile: CharacterAssetProfile::Bust,
             source_master_asset_id: Some(master.to_string()),
             source_generation_fingerprint: fingerprint,
             quality: RigQuality::Layered2d,

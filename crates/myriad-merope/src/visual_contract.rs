@@ -2,12 +2,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 
-use crate::rig_contract::{
-    CHARACTER_ASSET_CONTRACT_VERSION, CHARACTER_ASSET_REQUIRED_CAPABILITIES,
-    MAX_RIGID_ARM_ROTATION_DEGREES, PORTRAIT_ASPECT_HEIGHT, PORTRAIT_ASPECT_WIDTH,
-    PORTRAIT_CANVAS_HEIGHT, PORTRAIT_CANVAS_WIDTH, PORTRAIT_GENERATION_HEIGHT,
-    PORTRAIT_GENERATION_WIDTH,
-};
+use crate::rig_contract::CharacterAssetProfile;
 
 const APPEARANCE_VISUAL_PROFILE_KEYS: &[&str] = &["gender", "visualIdentity"];
 
@@ -45,7 +40,7 @@ pub fn appearance_visual_profile(visual_profile: &Value) -> Value {
     Value::Object(appearance)
 }
 
-/// Immutable input snapshot for the generated master portrait.
+/// Immutable input snapshot for the generated bust master portrait.
 ///
 /// The portrait URL identifies pixels; this contract identifies what those
 /// pixels were supposed to depict and which downstream rig contract they use.
@@ -55,27 +50,28 @@ pub fn build_character_asset_contract(
     visual_profile: &Value,
     additional_requirements: Option<&str>,
 ) -> Value {
+    let bust = CharacterAssetProfile::Bust.contract();
     json!({
-        "contractVersion": CHARACTER_ASSET_CONTRACT_VERSION,
+        "contractVersion": bust.contract_version,
         "slot": "master",
         "identity": {
             "name": bounded_text(name, 50),
             "visualProfile": appearance_visual_profile(visual_profile),
         },
         "output": {
-            "width": PORTRAIT_GENERATION_WIDTH,
-            "height": PORTRAIT_GENERATION_HEIGHT,
+            "width": bust.generation_width,
+            "height": bust.generation_height,
             "portraitAspect": {
-                "width": PORTRAIT_ASPECT_WIDTH,
-                "height": PORTRAIT_ASPECT_HEIGHT,
+                "width": bust.aspect_width,
+                "height": bust.aspect_height,
             },
             "rigCanvas": {
-                "width": PORTRAIT_CANVAS_WIDTH,
-                "height": PORTRAIT_CANVAS_HEIGHT,
+                "width": bust.canvas_width,
+                "height": bust.canvas_height,
             },
-            "framing": "close-full-head-through-lower-chest",
+            "framing": bust.framing,
             "view": "strict-centered-eye-level-zero-yaw-front",
-            "background": "clean-near-white",
+            "background": bust.background,
         },
         "rendering": {
             "visualSchoolVersion": crate::visual_prompt::MEROPE_VISUAL_SCHOOL_VERSION,
@@ -83,8 +79,8 @@ pub fn build_character_asset_contract(
             "styleReferenceRole": "rendering-technique-only",
         },
         "rig": {
-            "maxRigidArmRotationDegrees": MAX_RIGID_ARM_ROTATION_DEGREES,
-            "requiredCapabilities": CHARACTER_ASSET_REQUIRED_CAPABILITIES,
+            "maxRigidArmRotationDegrees": bust.max_rigid_arm_rotation_degrees,
+            "requiredCapabilities": bust.required_capabilities,
         },
         "additionalRequirements": additional_requirements
             .map(|value| bounded_text(value, 2_000))
@@ -181,6 +177,21 @@ mod tests {
         );
         assert_eq!(contract["rig"]["maxRigidArmRotationDegrees"], 15.0);
         assert_eq!(character_asset_contract_fingerprint(&contract).len(), 64);
+    }
+
+    /// Every stored portrait was fingerprinted with this exact contract; a
+    /// different byte here detaches every rig built before it.
+    #[test]
+    fn bust_contract_fingerprint_is_unchanged_by_the_profile_split() {
+        let contract = build_character_asset_contract(
+            "Nova",
+            &json!({ "gender": "female", "visualIdentity": { "hairShape": "bob" } }),
+            Some("extra"),
+        );
+        assert_eq!(
+            character_asset_contract_fingerprint(&contract),
+            "1e6c2e4e94adb0b45320230aab71fcd6a2aa4c2f441b19b7b2a77f0e0a62b641"
+        );
     }
 
     #[test]

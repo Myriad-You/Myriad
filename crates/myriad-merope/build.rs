@@ -37,14 +37,6 @@ fn main() {
         "pub const RIG_SCHEMA_VERSION: u8 = {};\n\
          pub const RIG_IR_VERSION: u16 = {};\n\
          pub const MIN_SUPPORTED_RIG_IR_VERSION: u16 = {};\n\
-         pub const CHARACTER_ASSET_CONTRACT_VERSION: u16 = {};\n\
-         pub const PORTRAIT_ASPECT_WIDTH: u32 = {};\n\
-         pub const PORTRAIT_ASPECT_HEIGHT: u32 = {};\n\
-         pub const PORTRAIT_GENERATION_WIDTH: u32 = {};\n\
-         pub const PORTRAIT_GENERATION_HEIGHT: u32 = {};\n\
-         pub const PORTRAIT_CANVAS_WIDTH: f32 = {};\n\
-         pub const PORTRAIT_CANVAS_HEIGHT: f32 = {};\n\
-         pub const MAX_RIGID_ARM_ROTATION_DEGREES: f32 = {};\n\
          pub const MAX_RIG_BONES: usize = {};\n\
          pub const MAX_GPU_RIG_BONES: usize = {};\n\
          pub const MAX_RIG_TEXTURES: usize = {};\n\
@@ -55,26 +47,6 @@ fn main() {
         number(&["schemaVersion"]),
         number(&["rigIrVersion"]),
         number(&["minSupportedRigIrVersion"]),
-        number(&["characterAsset", "contractVersion"]),
-        number(&["characterAsset", "portrait", "aspect", "width"]),
-        number(&["characterAsset", "portrait", "aspect", "height"]),
-        number(&["characterAsset", "portrait", "generationPixels", "width"]),
-        number(&["characterAsset", "portrait", "generationPixels", "height"]),
-        f32_lit(
-            contract["characterAsset"]["portrait"]["canvas"]["width"]
-                .as_f64()
-                .expect("missing characterAsset.portrait.canvas.width"),
-        ),
-        f32_lit(
-            contract["characterAsset"]["portrait"]["canvas"]["height"]
-                .as_f64()
-                .expect("missing characterAsset.portrait.canvas.height"),
-        ),
-        f32_lit(
-            contract["characterAsset"]["rig"]["maxRigidArmRotationDegrees"]
-                .as_f64()
-                .expect("missing characterAsset.rig.maxRigidArmRotationDegrees"),
-        ),
         number(&["limits", "maxBones"]),
         number(&["limits", "maxGpuBones"]),
         number(&["limits", "maxTextures"]),
@@ -91,29 +63,86 @@ fn main() {
         number(&["minSupportedRigIrVersion"]) <= number(&["rigIrVersion"]),
         "minimum supported Rig IR cannot exceed the current version"
     );
+    let profiles = contract["characterAsset"]["profiles"]
+        .as_object()
+        .expect("missing characterAsset.profiles");
+    let mut profile_names: Vec<&str> = profiles.keys().map(String::as_str).collect();
+    profile_names.sort_unstable();
     assert_eq!(
-        number(&["characterAsset", "portrait", "aspect", "width"])
-            * number(&["characterAsset", "portrait", "generationPixels", "height"]),
-        number(&["characterAsset", "portrait", "aspect", "height"])
-            * number(&["characterAsset", "portrait", "generationPixels", "width"]),
-        "portrait generation dimensions must match the canonical aspect"
+        profile_names,
+        ["bust", "fullBody"],
+        "character asset profiles must be exactly the ones CharacterAssetProfile names"
     );
-    let required_capabilities = contract["characterAsset"]["rig"]["requiredCapabilities"]
-        .as_array()
-        .expect("missing characterAsset.rig.requiredCapabilities");
-    generated.push_str("pub const CHARACTER_ASSET_REQUIRED_CAPABILITIES: &[&str] = &[\n");
-    for capability in required_capabilities {
-        generated.push_str(&format!(
-            "    {},\n",
-            serde_json::to_string(
-                capability
-                    .as_str()
-                    .expect("requiredCapabilities values must be strings")
+    for (profile, constant) in [
+        ("bust", "BUST_ASSET_CONTRACT"),
+        ("fullBody", "FULL_BODY_ASSET_CONTRACT"),
+    ] {
+        let definition = &profiles[profile];
+        let portrait = |group: &str, axis: &str| {
+            number(&[
+                "characterAsset",
+                "profiles",
+                profile,
+                "portrait",
+                group,
+                axis,
+            ])
+        };
+        let float = |value: &Value, field: &str| {
+            f32_lit(
+                value
+                    .as_f64()
+                    .unwrap_or_else(|| panic!("missing {profile}.{field}")),
             )
-            .expect("serialize required character asset capability")
+        };
+        let text = |value: &Value, field: &str| {
+            serde_json::to_string(
+                value
+                    .as_str()
+                    .unwrap_or_else(|| panic!("missing {profile}.{field}")),
+            )
+            .expect("serialize profile text")
+        };
+        assert_eq!(
+            portrait("aspect", "width") * portrait("generationPixels", "height"),
+            portrait("aspect", "height") * portrait("generationPixels", "width"),
+            "{profile} portrait generation dimensions must match its aspect"
+        );
+        let capabilities = definition["rig"]["requiredCapabilities"]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing {profile}.rig.requiredCapabilities"))
+            .iter()
+            .map(|capability| text(capability, "rig.requiredCapabilities"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        generated.push_str(&format!(
+            "pub const {constant}: CharacterAssetProfileContract = CharacterAssetProfileContract {{\n    \
+             contract_version: {},\n    \
+             aspect_width: {},\n    \
+             aspect_height: {},\n    \
+             generation_width: {},\n    \
+             generation_height: {},\n    \
+             canvas_width: {},\n    \
+             canvas_height: {},\n    \
+             framing: {},\n    \
+             background: {},\n    \
+             max_rigid_arm_rotation_degrees: {},\n    \
+             required_capabilities: &[{capabilities}],\n}};\n",
+            number(&["characterAsset", "profiles", profile, "contractVersion"]),
+            portrait("aspect", "width"),
+            portrait("aspect", "height"),
+            portrait("generationPixels", "width"),
+            portrait("generationPixels", "height"),
+            float(&definition["portrait"]["canvas"]["width"], "portrait.canvas.width"),
+            float(&definition["portrait"]["canvas"]["height"], "portrait.canvas.height"),
+            text(&definition["portrait"]["framing"], "portrait.framing"),
+            text(&definition["portrait"]["background"], "portrait.background"),
+            float(
+                &definition["rig"]["maxRigidArmRotationDegrees"],
+                "rig.maxRigidArmRotationDegrees"
+            ),
         ));
     }
-    generated.push_str("];\n");
     let secondary_patterns = contract["secondaryPartPatterns"]
         .as_array()
         .expect("missing secondaryPartPatterns");

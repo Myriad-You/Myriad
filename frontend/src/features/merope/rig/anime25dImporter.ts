@@ -17,7 +17,7 @@ import { anime25DBaseRole, normalizeAnime25DLayerName } from './anime25dLayerSem
 import { buildAnime25DBonesAndHandles, buildAnime25DLayerSources } from './anime25dSkeletonCompiler'
 import { addAuthoredExpressionLayers } from './authoredExpression'
 import { compensateSyntheticClosedEyeAngles } from './closedEyeCompensation'
-import { CHARACTER_ASSET_CONTRACT_VERSION, MAX_RIG_PARTS, PORTRAIT_CANVAS, RIG_IR_VERSION } from './contract'
+import { CHARACTER_ASSET_PROFILES, MAX_RIG_PARTS, RIG_IR_VERSION } from './contract'
 import { formatTemplate } from './formatTemplate'
 import { contentFrame, deriveAnchors, semanticAnchors } from './importerAnchors'
 import { assignCrossfadeSlots, hasStaticSeeThroughMouth, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitVariantEyesIfNeeded } from './importerLayerSplits'
@@ -193,10 +193,10 @@ export async function prepareAnime25DRigPsd(
     motionExposure,
     source: {
       rigIrVersion: RIG_IR_VERSION,
-      characterAssetContractVersion: CHARACTER_ASSET_CONTRACT_VERSION,
+      characterAssetContractVersion: CHARACTER_ASSET_PROFILES.bust.contractVersion,
       sourceMasterAssetId,
       ...(sourceGenerationFingerprint ? { sourceGenerationFingerprint } : {}),
-      canvas: { ...PORTRAIT_CANVAS },
+      canvas: { ...CHARACTER_ASSET_PROFILES.bust.portrait.canvas },
       atlas: { id: 'atlas', width: packedWidth, height: packedHeight },
       bones,
       layers: rigLayers,

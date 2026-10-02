@@ -1,6 +1,6 @@
 import type { MeropeRigManifest, RigBone, RigMotionProfile, RigOutfitProfile, RigOutfitTopology, RigPoint, RigSemantics, RigSize, RigSpatialProfile, RigVertex } from './types'
 import { isAnime25DPlayback } from '../anime25drig/types'
-import { CHARACTER_ASSET_CONTRACT_VERSION, MAX_RIG_BONES, MAX_RIG_COLLISION_VOLUMES, MAX_RIG_PARTS, MAX_RIG_TEXTURES, MAX_RIG_TOTAL_VERTICES, MAX_RIG_VERTICES_PER_PART, MIN_SUPPORTED_RIG_IR_VERSION, RIG_IR_VERSION, RIG_PRESENTATION_SLOTS, RIG_SCHEMA_VERSION, RIG_SEMANTIC_BONE_ROLES, RIG_SEMANTIC_CHAIN_ROLES } from './contract'
+import { CHARACTER_ASSET_PROFILES, characterAssetProfileOf, isCharacterAssetProfile, MAX_RIG_BONES, MAX_RIG_COLLISION_VOLUMES, MAX_RIG_PARTS, MAX_RIG_TEXTURES, MAX_RIG_TOTAL_VERTICES, MAX_RIG_VERTICES_PER_PART, MIN_SUPPORTED_RIG_IR_VERSION, RIG_IR_VERSION, RIG_PRESENTATION_SLOTS, RIG_SCHEMA_VERSION, RIG_SEMANTIC_BONE_ROLES, RIG_SEMANTIC_CHAIN_ROLES } from './contract'
 import { RIG_OUTFIT_TOPOLOGIES } from './types'
 
 export function isLiveMeropeManifest(
@@ -23,6 +23,7 @@ export function sameLiveFaceRuntime(
   return (
     current.textures[0]?.url === next.textures[0]?.url &&
     current.sourceMasterAssetId === next.sourceMasterAssetId &&
+    characterAssetProfileOf(current) === characterAssetProfileOf(next) &&
     current.characterAssetContractVersion ===
       next.characterAssetContractVersion
   )
@@ -58,9 +59,13 @@ export function isRigManifest(value: unknown): value is MeropeRigManifest {
   ) {
     return false
   }
+  if (value.profile !== undefined && !isCharacterAssetProfile(value.profile)) {
+    return false
+  }
   if (
     value.characterAssetContractVersion !== undefined &&
-    value.characterAssetContractVersion !== CHARACTER_ASSET_CONTRACT_VERSION
+    value.characterAssetContractVersion !==
+      CHARACTER_ASSET_PROFILES[value.profile ?? 'bust'].contractVersion
   ) {
     return false
   }

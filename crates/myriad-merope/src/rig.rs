@@ -3,12 +3,11 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::rig_contract::PRESENTATION_SLOT_VARIANTS;
 pub use crate::rig_contract::{
-    CHARACTER_ASSET_CONTRACT_VERSION, MAX_RIG_BONES, MAX_RIG_PARTS, MAX_RIG_TEXTURES,
-    MAX_RIG_TOTAL_VERTICES, MAX_RIG_VERTICES_PER_PART, MIN_SUPPORTED_RIG_IR_VERSION,
-    PORTRAIT_CANVAS_HEIGHT, PORTRAIT_CANVAS_WIDTH, RIG_IR_VERSION, RIG_SCHEMA_VERSION,
+    CharacterAssetProfile, MAX_RIG_BONES, MAX_RIG_PARTS, MAX_RIG_TEXTURES, MAX_RIG_TOTAL_VERTICES,
+    MAX_RIG_VERTICES_PER_PART, MIN_SUPPORTED_RIG_IR_VERSION, RIG_IR_VERSION, RIG_SCHEMA_VERSION,
 };
-use crate::rig_contract::{CHARACTER_ASSET_REQUIRED_CAPABILITIES, PRESENTATION_SLOT_VARIANTS};
 pub use crate::rig_outfit::{RigOutfitProfile, RigSemanticAnchor, infer_outfit_profile};
 use crate::rig_outfit::{
     default_semantic_anchors, outfit_profile_is_valid, semantic_anchors_are_valid,
@@ -131,6 +130,10 @@ pub struct RigManifest {
     pub rig_ir_version: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub character_asset_contract_version: Option<u16>,
+    /// Absent on a bust, so every manifest written before the full-body mode
+    /// keeps its bytes and therefore its package identity.
+    #[serde(default, skip_serializing_if = "CharacterAssetProfile::is_bust")]
+    pub profile: CharacterAssetProfile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_master_asset_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -194,6 +197,7 @@ pub struct RigLayerSource {
 pub struct RigCompileSource {
     pub rig_ir_version: Option<u16>,
     pub character_asset_contract_version: Option<u16>,
+    pub profile: CharacterAssetProfile,
     pub source_master_asset_id: Option<String>,
     pub source_generation_fingerprint: Option<String>,
     pub canvas: RigSize,
@@ -274,7 +278,7 @@ impl RigManifest {
         }
         if self
             .character_asset_contract_version
-            .is_some_and(|version| version != CHARACTER_ASSET_CONTRACT_VERSION)
+            .is_some_and(|version| version != self.profile.contract().contract_version)
             || self
                 .source_master_asset_id
                 .as_deref()
@@ -531,7 +535,7 @@ pub fn migrate_rig_manifest(
     Ok((manifest, changed))
 }
 
-/// Authoritative server-side gate for the current upper-body character asset.
+/// Authoritative server-side gate for a bust character asset.
 /// Browser PSD preflight improves feedback, but cannot be the trust boundary.
 pub fn validate_character_asset_source(
     bones: &[RigBone],
@@ -627,7 +631,9 @@ pub fn validate_character_asset_source(
         "rigid-right-arm-fragment" => rigid_fragment("right"),
         _ => false,
     };
-    let required_capabilities = CHARACTER_ASSET_REQUIRED_CAPABILITIES
+    let required_capabilities = CharacterAssetProfile::Bust
+        .contract()
+        .required_capabilities
         .iter()
         .all(|capability| has_capability(capability));
     if canonical_skeleton && required_capabilities && !forbidden_bone && !forbidden_layer {
@@ -644,7 +650,8 @@ pub fn compile_layered_rig(source: RigCompileSource) -> Result<RigManifest, RigC
     {
         return Err(RigCompileError::IrVersion);
     }
-    if source.character_asset_contract_version != Some(CHARACTER_ASSET_CONTRACT_VERSION)
+    let contract = source.profile.contract();
+    if source.character_asset_contract_version != Some(contract.contract_version)
         || source
             .source_master_asset_id
             .as_deref()
@@ -655,8 +662,8 @@ pub fn compile_layered_rig(source: RigCompileSource) -> Result<RigManifest, RigC
             .is_some_and(|value| {
                 value.len() != 64 || !value.chars().all(|character| character.is_ascii_hexdigit())
             })
-        || (source.canvas.width - PORTRAIT_CANVAS_WIDTH).abs() > 0.0001
-        || (source.canvas.height - PORTRAIT_CANVAS_HEIGHT).abs() > 0.0001
+        || (source.canvas.width - contract.canvas_width).abs() > 0.0001
+        || (source.canvas.height - contract.canvas_height).abs() > 0.0001
     {
         return Err(RigCompileError::AssetContract);
     }
@@ -816,6 +823,7 @@ pub fn compile_layered_rig(source: RigCompileSource) -> Result<RigManifest, RigC
         schema_version: RIG_SCHEMA_VERSION,
         rig_ir_version: source.rig_ir_version.or(Some(RIG_IR_VERSION)),
         character_asset_contract_version: source.character_asset_contract_version,
+        profile: source.profile,
         source_master_asset_id: source.source_master_asset_id,
         source_generation_fingerprint: source.source_generation_fingerprint,
         quality: RigQuality::Layered2d,
@@ -1065,6 +1073,7 @@ fn motion_profile_is_valid(profile: &RigMotionProfile) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rig_contract::{BUST_ASSET_CONTRACT as BUST, FULL_BODY_ASSET_CONTRACT};
     use crate::rig_outfit::RigOutfitTopology;
 
     fn sample_vertex(x: f32, y: f32) -> RigVertex {
@@ -1078,8 +1087,8 @@ mod tests {
 
     fn sample_manifest() -> RigManifest {
         let canvas = RigSize {
-            width: PORTRAIT_CANVAS_WIDTH,
-            height: PORTRAIT_CANVAS_HEIGHT,
+            width: BUST.canvas_width,
+            height: BUST.canvas_height,
         };
         let bones = vec![
             RigBone {
@@ -1117,7 +1126,8 @@ mod tests {
         RigManifest {
             schema_version: RIG_SCHEMA_VERSION,
             rig_ir_version: Some(RIG_IR_VERSION),
-            character_asset_contract_version: Some(CHARACTER_ASSET_CONTRACT_VERSION),
+            character_asset_contract_version: Some(BUST.contract_version),
+            profile: CharacterAssetProfile::Bust,
             source_master_asset_id: Some("/portrait.png".to_string()),
             source_generation_fingerprint: None,
             quality: RigQuality::Layered2d,
@@ -1140,6 +1150,29 @@ mod tests {
     }
 
     #[test]
+    fn a_bust_manifest_keeps_its_bytes_and_a_full_body_one_names_itself() {
+        let bust = sample_manifest();
+        let encoded = serde_json::to_value(&bust).unwrap();
+        assert!(encoded.get("profile").is_none());
+        let decoded: RigManifest = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.profile, CharacterAssetProfile::Bust);
+
+        let mut full_body = sample_manifest();
+        full_body.profile = CharacterAssetProfile::FullBody;
+        assert_eq!(
+            full_body.validate(),
+            Err(RigValidationError::AssetContract),
+            "a bust contract version does not admit a full-body asset"
+        );
+        full_body.character_asset_contract_version =
+            Some(FULL_BODY_ASSET_CONTRACT.contract_version);
+        let encoded = serde_json::to_value(&full_body).unwrap();
+        assert_eq!(encoded["profile"], "fullBody");
+        let decoded: RigManifest = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.profile, CharacterAssetProfile::FullBody);
+    }
+
+    #[test]
     fn sample_manifest_is_valid_without_clip_stack() {
         let rig = sample_manifest();
         rig.validate().unwrap();
@@ -1147,8 +1180,8 @@ mod tests {
         assert_eq!(
             rig.canvas,
             RigSize {
-                width: PORTRAIT_CANVAS_WIDTH,
-                height: PORTRAIT_CANVAS_HEIGHT,
+                width: BUST.canvas_width,
+                height: BUST.canvas_height,
             }
         );
     }
@@ -1423,12 +1456,13 @@ mod tests {
         ];
         let rig = compile_layered_rig(RigCompileSource {
             rig_ir_version: Some(RIG_IR_VERSION),
-            character_asset_contract_version: Some(CHARACTER_ASSET_CONTRACT_VERSION),
+            character_asset_contract_version: Some(BUST.contract_version),
+            profile: CharacterAssetProfile::Bust,
             source_master_asset_id: Some("/portrait.png".to_string()),
             source_generation_fingerprint: None,
             canvas: RigSize {
-                width: PORTRAIT_CANVAS_WIDTH,
-                height: PORTRAIT_CANVAS_HEIGHT,
+                width: BUST.canvas_width,
+                height: BUST.canvas_height,
             },
             textures: vec![RigTexture {
                 id: "atlas".to_string(),
@@ -1546,6 +1580,7 @@ mod tests {
         let source = RigCompileSource {
             rig_ir_version: Some(MIN_SUPPORTED_RIG_IR_VERSION),
             character_asset_contract_version: None,
+            profile: CharacterAssetProfile::Bust,
             source_master_asset_id: None,
             source_generation_fingerprint: None,
             canvas: RigSize {

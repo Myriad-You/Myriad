@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::rig_contract::{PORTRAIT_ASPECT_HEIGHT, PORTRAIT_ASPECT_WIDTH};
+use crate::rig_contract::CharacterAssetProfile;
 use crate::visual_design::{
     UPPER_BODY_VISUAL_IDENTITY_FIELDS, VisualProfileIssue, VisualProfileReason,
 };
@@ -905,9 +905,10 @@ pub fn build_character_visual_prompt(
         header.push(gender.to_string());
     }
     header.push(MASTER_PORTRAIT_INSTRUCTION.to_string());
+    let bust = CharacterAssetProfile::Bust.contract();
     header.push(format!(
         "Vertical {}:{} width-to-height canvas.",
-        PORTRAIT_ASPECT_WIDTH, PORTRAIT_ASPECT_HEIGHT,
+        bust.aspect_width, bust.aspect_height,
     ));
     let header = header.join("\n\n");
 

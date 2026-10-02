@@ -1,4 +1,4 @@
-import { MAX_RIGID_ARM_ROTATION_DEGREES } from '../rig/contract'
+import { CHARACTER_ASSET_PROFILES } from '../rig/contract'
 
 /** `armY` = 1 opens both arms this far away from the body. */
 export const ARM_OPEN_RADIANS = (14 * Math.PI) / 180
@@ -6,8 +6,12 @@ export const ARM_OPEN_RADIANS = (14 * Math.PI) / 180
 /** `armPos` = 1 swings both arms this far toward image right. */
 export const ARM_SWAY_RADIANS = (14 * Math.PI) / 180
 
-/** The asset contract's promise; the swing saturates softly into it. */
-export const ARM_MAX_RADIANS = (MAX_RIGID_ARM_ROTATION_DEGREES * Math.PI) / 180
+/**
+ * The asset contract's promise; the swing saturates softly into it. One
+ * pendulum serves both profiles, and the contract test keeps their limits equal.
+ */
+export const ARM_MAX_RADIANS =
+  (CHARACTER_ASSET_PROFILES.bust.rig.maxRigidArmRotationDegrees * Math.PI) / 180
 
 /** How much of a body roll the hanging arms give back to gravity. */
 export const ARM_HANG = 0.5

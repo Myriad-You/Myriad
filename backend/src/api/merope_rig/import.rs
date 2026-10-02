@@ -9,9 +9,10 @@ use axum::{
 };
 use myriad_error::AppError;
 use myriad_merope::{
-    RigBone, RigCompileSource, RigLayerSource, RigManifest, RigMotionProfile, RigOutfitProfile,
-    RigSemanticAnchor, RigSemantics, RigSize, RigSpatialProfile, RigTexture, compile_layered_rig,
-    migrate_rig_manifest, validate_character_asset_source,
+    CharacterAssetProfile, RigBone, RigCompileSource, RigLayerSource, RigManifest,
+    RigMotionProfile, RigOutfitProfile, RigSemanticAnchor, RigSemantics, RigSize,
+    RigSpatialProfile, RigTexture, compile_layered_rig, migrate_rig_manifest,
+    validate_character_asset_source,
 };
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
@@ -45,6 +46,13 @@ async fn compile_imported_rig(
     source: ImportRigSourceRequest,
     texture_url: String,
 ) -> ApiResult<(String, RigManifest)> {
+    // Each outfit has one rig slot, the bust's; a full-body rig needs its own
+    // slot and master portrait before it can be accepted.
+    if source.profile != CharacterAssetProfile::Bust {
+        return Err(bad_request(
+            "Full-body character assets cannot be imported yet",
+        ));
+    }
     validate_character_asset_source(&source.bones, &source.layers).map_err(|error| {
         tracing::error!(%error, "Rig character asset preflight failed");
         bad_request("Rig character asset is invalid")
@@ -54,6 +62,7 @@ async fn compile_imported_rig(
         compile_layered_rig(RigCompileSource {
             rig_ir_version: source.rig_ir_version,
             character_asset_contract_version: Some(source.character_asset_contract_version),
+            profile: source.profile,
             source_master_asset_id: Some(source.source_master_asset_id),
             source_generation_fingerprint: source.source_generation_fingerprint,
             canvas: source.canvas,
@@ -146,6 +155,8 @@ struct ImportRigSourceRequest {
     #[serde(default)]
     rig_ir_version: Option<u16>,
     character_asset_contract_version: u16,
+    #[serde(default)]
+    profile: CharacterAssetProfile,
     source_master_asset_id: String,
     #[serde(default)]
     source_generation_fingerprint: Option<String>,

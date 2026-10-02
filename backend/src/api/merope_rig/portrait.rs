@@ -2,10 +2,9 @@
 
 use axum::{Extension, Json, extract::State, http::StatusCode};
 use myriad_merope::{
-    CHARACTER_ASSET_CONTRACT_VERSION, MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL_VERSION,
-    PORTRAIT_GENERATION_HEIGHT, PORTRAIT_GENERATION_WIDTH, build_character_asset_contract,
-    build_character_visual_edit_prompt, build_character_visual_prompt,
-    character_asset_contract_fingerprint,
+    CharacterAssetProfile, MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL_VERSION,
+    build_character_asset_contract, build_character_visual_edit_prompt,
+    build_character_visual_prompt, character_asset_contract_fingerprint,
 };
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde::Deserialize;
@@ -289,7 +288,8 @@ pub async fn generate_portrait(
     } else {
         build_character_visual_prompt(name, &visual_profile, additional_requirements.as_deref())
     };
-    let (width, height) = (PORTRAIT_GENERATION_WIDTH, PORTRAIT_GENERATION_HEIGHT);
+    let bust = CharacterAssetProfile::Bust.contract();
+    let (width, height) = (bust.generation_width, bust.generation_height);
     let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
     let config = image_generation::config_from_dynamic(&dynamic)
         .map_err(portrait_generation_config_error)?;
@@ -465,7 +465,7 @@ pub async fn generate_portrait(
     Ok(Json(json!({
         "portraitUrl": public_url,
         "portraitAssetId": public_url,
-        "characterAssetContractVersion": CHARACTER_ASSET_CONTRACT_VERSION,
+        "characterAssetContractVersion": CharacterAssetProfile::Bust.contract().contract_version,
         "generationFingerprint": contract_fingerprint,
     })))
 }

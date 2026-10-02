@@ -3,46 +3,93 @@
   "rigIrVersion": 4,
   "minSupportedRigIrVersion": 2,
   "characterAsset": {
-    "contractVersion": 13,
-    "portrait": {
-      "aspect": {
-        "width": 3,
-        "height": 4
+    "profiles": {
+      "bust": {
+        "contractVersion": 13,
+        "portrait": {
+          "aspect": {
+            "width": 3,
+            "height": 4
+          },
+          "generationPixels": {
+            "width": 1152,
+            "height": 1536
+          },
+          "canvas": {
+            "width": 1,
+            "height": 1.3333333333333333
+          },
+          "framing": "close-full-head-through-lower-chest",
+          "background": "clean-near-white"
+        },
+        "rig": {
+          "maxRigidArmRotationDegrees": 15,
+          "requiredCapabilities": [
+            "separate-face",
+            "independent-eyes",
+            "blink",
+            "dizzy-eye-variant",
+            "squeeze-eye-variant",
+            "cry-eye-variant",
+            "silly-eye-variant",
+            "lovestruck-heart-pupils",
+            "lovestruck-face-effects",
+            "cry-mouth-variant",
+            "maniac-mouth-variant",
+            "silly-mouth-variant",
+            "mouth-shapes",
+            "separate-front-hair",
+            "separate-back-hair",
+            "separate-topwear",
+            "rigid-left-arm-fragment",
+            "rigid-right-arm-fragment"
+          ],
+          "forbiddenChains": ["shoulder-elbow-wrist-hand", "leg"]
+        }
       },
-      "generationPixels": {
-        "width": 1152,
-        "height": 1536
-      },
-      "canvas": {
-        "width": 1,
-        "height": 1.3333333333333333
-      },
-      "framing": "close-full-head-through-lower-chest-or-high-waist",
-      "background": "clean-near-white"
-    },
-    "rig": {
-      "maxRigidArmRotationDegrees": 15,
-      "requiredCapabilities": [
-        "separate-face",
-        "independent-eyes",
-        "blink",
-        "dizzy-eye-variant",
-        "squeeze-eye-variant",
-        "cry-eye-variant",
-        "silly-eye-variant",
-        "lovestruck-heart-pupils",
-        "lovestruck-face-effects",
-        "cry-mouth-variant",
-        "maniac-mouth-variant",
-        "silly-mouth-variant",
-        "mouth-shapes",
-        "separate-front-hair",
-        "separate-back-hair",
-        "separate-topwear",
-        "rigid-left-arm-fragment",
-        "rigid-right-arm-fragment"
-      ],
-      "forbiddenChains": ["shoulder-elbow-wrist-hand", "leg"]
+      "fullBody": {
+        "contractVersion": 1,
+        "portrait": {
+          "aspect": {
+            "width": 9,
+            "height": 16
+          },
+          "generationPixels": {
+            "width": 1152,
+            "height": 2048
+          },
+          "canvas": {
+            "width": 1,
+            "height": 1.7777777777777777
+          },
+          "framing": "full-figure-crown-to-soles",
+          "background": "clean-near-white"
+        },
+        "rig": {
+          "maxRigidArmRotationDegrees": 15,
+          "requiredCapabilities": [
+            "separate-face",
+            "independent-eyes",
+            "blink",
+            "dizzy-eye-variant",
+            "squeeze-eye-variant",
+            "cry-eye-variant",
+            "silly-eye-variant",
+            "lovestruck-heart-pupils",
+            "lovestruck-face-effects",
+            "cry-mouth-variant",
+            "maniac-mouth-variant",
+            "silly-mouth-variant",
+            "mouth-shapes",
+            "separate-front-hair",
+            "separate-back-hair",
+            "separate-topwear",
+            "rigid-left-arm-fragment",
+            "rigid-right-arm-fragment"
+          ],
+          "forbiddenChains": ["shoulder-elbow-wrist-hand"]
+        }
+      }
     }
   },
   "semanticBoneRoles": [

@@ -3,13 +3,26 @@ import contract from '../../../../../shared/merope_rig_contract.json' with { typ
 export const RIG_SCHEMA_VERSION = contract.schemaVersion
 export const RIG_IR_VERSION = contract.rigIrVersion
 export const MIN_SUPPORTED_RIG_IR_VERSION = contract.minSupportedRigIrVersion
-export const CHARACTER_ASSET_CONTRACT_VERSION =
-  contract.characterAsset.contractVersion
-export const PORTRAIT_CANVAS = contract.characterAsset.portrait.canvas
-export const MAX_RIGID_ARM_ROTATION_DEGREES =
-  contract.characterAsset.rig.maxRigidArmRotationDegrees
-export const CHARACTER_ASSET_REQUIRED_CAPABILITIES =
-  contract.characterAsset.rig.requiredCapabilities
+/**
+ * The two kinds of character asset: the bust the panel shows, and the
+ * optional standing full figure. Each has its own portrait, rig and contract
+ * version, so changing one never invalidates the other.
+ */
+export const CHARACTER_ASSET_PROFILES = contract.characterAsset.profiles
+export type CharacterAssetProfile = keyof typeof CHARACTER_ASSET_PROFILES
+
+export function isCharacterAssetProfile(
+  value: unknown,
+): value is CharacterAssetProfile {
+  return value === 'bust' || value === 'fullBody'
+}
+
+/** Manifests written before the full-body mode carry no profile; they are busts. */
+export function characterAssetProfileOf(manifest: {
+  profile?: CharacterAssetProfile
+}): CharacterAssetProfile {
+  return manifest.profile ?? 'bust'
+}
 export const RIG_SEMANTIC_BONE_ROLES =
   contract.semanticBoneRoles as unknown as readonly [
     'root',

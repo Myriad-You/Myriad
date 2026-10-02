@@ -4,7 +4,7 @@ import type { Anime25DImportCopy } from './anime25dImportCopy'
 import type { AnimeAnchors, EyeSide, PreparedLayer, RasterLayer, RigCanvasFrame } from './anime25dImportTypes'
 import type { MeropeRigImportSource, RigPoint } from './types'
 import { anime25DLayerAffectsFraming } from './anime25dLayerSemantics'
-import { PORTRAIT_CANVAS } from './contract'
+import { CHARACTER_ASSET_PROFILES } from './contract'
 import { formatTemplate } from './formatTemplate'
 
 /** Removes model letterboxing, then pads (never stretches) into the canonical 3:4 stage. */
@@ -38,7 +38,8 @@ export function contentFrame(
   bottom = Math.min(psd.height, Math.ceil(bottom + verticalPadding))
   let width = Math.max(1, right - left)
   let height = Math.max(1, bottom - top)
-  const targetAspect = PORTRAIT_CANVAS.width / PORTRAIT_CANVAS.height
+  const canvas = CHARACTER_ASSET_PROFILES.bust.portrait.canvas
+  const targetAspect = canvas.width / canvas.height
   if (width / height > targetAspect) {
     const targetHeight = width / targetAspect
     top -= (targetHeight - height) / 2
