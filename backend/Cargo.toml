@@ -94,6 +94,8 @@ flate2 = "1"         # zlib inflate for KuGou KRC (逐字歌词) decode
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 # Pure-Rust ONNX inference for the rig's pose model (no native runtime to ship)
 tract-onnx = "0.21"
+# Allocator that returns freed memory to the system (see the `mimalloc` feature)
+mimalloc = { version = "0.1", optional = true }
 
 # Federation (MFP - Myriad Federation Protocol)
 rsa = { version = "0.10.0-rc.18", features = ["sha2"] }  # RSA keygen/signing (digest 0.11)
@@ -144,3 +146,10 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "3", features = ["full", "visit"] }
 
 # release profile lives in the root workspace Cargo.toml
+
+[features]
+default = ["mimalloc"]
+# Allocate with mimalloc instead of the system allocator. Measured on Linux
+# under the same load (2 CPU / 2 GiB): glibc with MALLOC_ARENA_MAX=4 held
+# 183 MiB after load and never gave it back; mimalloc settled at 145 MiB.
+mimalloc = ["dep:mimalloc"]
