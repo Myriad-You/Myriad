@@ -577,42 +577,7 @@ pub(crate) async fn build_config(
                     placeholder: "openai/gpt-image-2.5-sunburst".to_string(),
                     required: false,
                 },
-                // 腾讯云凭据；其后是语音的模型和音色（源是 speech_source）
-                ConfigField {
-                    key: "tencent_secret_id".to_string(),
-                    label: "Tencent Cloud Secret ID".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config.as_ref().and_then(|c| c.tencent_secret_id.clone()),
-                        "TENCENT_SECRET_ID",
-                    )),
-                    placeholder: "Get from https://console.cloud.tencent.com/cam/capi".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "tencent_secret_key".to_string(),
-                    label: "Tencent Cloud Secret Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.tencent_secret_key.clone()),
-                        "TENCENT_SECRET_KEY",
-                    )),
-                    placeholder: "Keep this secret secure".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "tencent_region".to_string(),
-                    label: "Tencent Cloud Region".to_string(),
-                    field_type: "select".to_string(),
-                    value: get_value(
-                        db_config.as_ref().and_then(|c| c.tencent_region.clone()),
-                        "TENCENT_REGION",
-                    ),
-                    placeholder: "ap-guangzhou".to_string(),
-                    required: false,
-                },
+                // 语音的模型和音色（源是 speech_source）
                 ConfigField {
                     key: "speech_stt_model".to_string(),
                     label: "Speech-to-text model".to_string(),
@@ -673,17 +638,6 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
-                    key: "provider_openai_base_url".to_string(),
-                    label: "OpenAI Base URL".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.shared_openai_base_url())
-                        .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
-                    placeholder: "https://api.openai.com/v1".to_string(),
-                    required: false,
-                },
-                ConfigField {
                     key: "provider_gemini_api_key".to_string(),
                     label: "Gemini API Key".to_string(),
                     field_type: "password".to_string(),
@@ -720,19 +674,6 @@ pub(crate) async fn build_config(
                             .unwrap_or_default(),
                     ),
                     placeholder: "Ark API key".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "provider_volcengine_base_url".to_string(),
-                    label: "Volcengine Ark Base URL".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.shared_volcengine_base_url())
-                        .unwrap_or_else(|| {
-                            "https://ark.cn-beijing.volces.com/api/v3".to_string()
-                        }),
-                    placeholder: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
                     required: false,
                 },
                 ConfigField {

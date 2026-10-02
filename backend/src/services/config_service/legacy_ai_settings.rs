@@ -2,9 +2,11 @@
 //! provider, two model names (Gemini and OpenAI-compatible), its own key and
 //! endpoint, and Lite an on/off switch; the judgment and embedding models
 //! were named after Lite. Images and speech each had a provider beside their
-//! source, and keys and endpoints of their own. Now a tier, images and
-//! speech are each a source (plus their models), and keys live in the
-//! shared vault.
+//! source, and keys and endpoints of their own. Tencent Cloud's credentials
+//! and the shared OpenAI and Volcengine endpoints had settings of their own
+//! that no page edited. Now a tier, images and speech are each a source
+//! (plus their models), keys live in the shared vault, and endpoints and
+//! Tencent's credentials on the sources.
 //!
 //! Runs on stored settings at startup, before defaults are seeded
 //! (`db::schema_check`), and on a settings backup being restored
@@ -55,9 +57,22 @@ const SERVICE_KEYS: &[&str] = &[
     "speech_openrouter_api_key",
 ];
 
+/// Tencent's credentials and the vault's endpoints, now on the sources.
+const VAULT_KEYS: &[&str] = &[
+    "tencent_secret_id",
+    "tencent_secret_key",
+    "tencent_region",
+    "provider_openai_base_url",
+    "provider_volcengine_base_url",
+];
+
 /// Every old key. None of them is stored after the upgrade.
 pub(crate) fn legacy_keys() -> impl Iterator<Item = &'static str> {
-    TIER_KEYS.iter().chain(SERVICE_KEYS).copied()
+    TIER_KEYS
+        .iter()
+        .chain(SERVICE_KEYS)
+        .chain(VAULT_KEYS)
+        .copied()
 }
 
 pub(crate) fn is_legacy_key(key: &str) -> bool {
@@ -122,12 +137,20 @@ pub(crate) fn upgrade(stored: &HashMap<String, JsonValue>) -> HashMap<String, Js
     if TIER_KEYS.iter().any(|key| stored.contains_key(*key)) {
         upgrade_tiers(stored, &mut out);
     }
+    // Each stage after the ones before: what they filled is already there.
     if SERVICE_KEYS.iter().any(|key| stored.contains_key(*key)) {
-        // After the tiers: a vault key they filled is already there.
         let mut seen = stored.clone();
         seen.extend(out.clone());
         upgrade_services(&seen, &mut out);
     }
+    let mut seen = stored.clone();
+    seen.extend(out.clone());
+    if VAULT_KEYS.iter().any(|key| seen.contains_key(*key)) {
+        upgrade_vault(&seen, &mut out);
+    }
+    // A stage may fill an old key a later one moves on (the shared OpenAI
+    // endpoint onto its sources); none is written back.
+    out.retain(|key, _| !is_legacy_key(key));
     out
 }
 
@@ -307,9 +330,175 @@ fn upgrade_services(stored: &HashMap<String, JsonValue>, out: &mut HashMap<Strin
     }
 }
 
+/// Tencent's credentials and custom shared endpoints move onto the sources
+/// that used them. With no source list stored, the list was synthesized
+/// from the shared keys; it is written down as it was.
+fn upgrade_vault(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, JsonValue>) {
+    let openai_base = text(stored, "provider_openai_base_url", OPENAI_BASE);
+    let openai_base = if usable_openai_base(&openai_base) {
+        openai_base.trim().to_string()
+    } else {
+        OPENAI_BASE.to_string()
+    };
+    let volcengine_base = filled(stored, "provider_volcengine_base_url")
+        .unwrap_or_else(|| VOLCENGINE_BASE.to_string());
+    let tencent_id = filled(stored, "tencent_secret_id");
+    let tencent_key = filled(stored, "tencent_secret_key");
+    let tencent_region = filled(stored, "tencent_region");
+    let custom_openai = openai_base != OPENAI_BASE;
+    let custom_volcengine = volcengine_base != VOLCENGINE_BASE;
+    let tencent = tencent_id.is_some() || tencent_key.is_some();
+    if !custom_openai && !custom_volcengine && !tencent {
+        return;
+    }
+
+    let mut sources: Vec<JsonValue> = match stored.get("ai_vendor_sources") {
+        Some(JsonValue::Array(items)) => items.clone(),
+        Some(JsonValue::String(raw)) => serde_json::from_str(raw).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let shared = |slug: &str, kind: &str, name: &str, base: &str| {
+        serde_json::to_value(crate::config::AiVendorSource {
+            slug: slug.to_string(),
+            kind: kind.to_string(),
+            display_name: name.to_string(),
+            enabled: true,
+            preset: slug.to_string(),
+            api_format: if kind == "gemini" {
+                "gemini".to_string()
+            } else {
+                String::new()
+            },
+            credential_mode: "shared".to_string(),
+            shared_key_ref: Some(slug.to_string()),
+            base_url: base.to_string(),
+            ..Default::default()
+        })
+        .expect("a vendor source is JSON")
+    };
+    if sources.is_empty() {
+        for (slug, kind, name, base) in [
+            ("openrouter", "openrouter", "OpenRouter", OPENROUTER_BASE),
+            ("openai", "openai", "OpenAI", openai_base.as_str()),
+            ("gemini", "gemini", "Gemini", ""),
+            (
+                "volcengine",
+                "volcengine",
+                "Volcengine",
+                volcengine_base.as_str(),
+            ),
+        ] {
+            if filled(stored, &format!("provider_{slug}_api_key")).is_some() {
+                sources.push(shared(slug, kind, name, base));
+            }
+        }
+    } else {
+        let kind_of = |source: &JsonValue| {
+            source
+                .get("kind")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase()
+        };
+        for source in &mut sources {
+            let kind = kind_of(source);
+            let Some(fields) = source.as_object_mut() else {
+                continue;
+            };
+            let blank = |fields: &serde_json::Map<String, JsonValue>, key: &str| {
+                fields
+                    .get(key)
+                    .and_then(JsonValue::as_str)
+                    .is_none_or(|value| value.trim().is_empty())
+            };
+            // A source with no address of its own used the shared one.
+            let base = match kind.as_str() {
+                "openai" if custom_openai => Some(&openai_base),
+                "volcengine" if custom_volcengine => Some(&volcengine_base),
+                _ => None,
+            };
+            if let Some(base) = base
+                && blank(fields, "base_url")
+            {
+                fields.insert("base_url".to_string(), json!(base));
+            }
+            // A Tencent source missing a credential used the setting's.
+            if kind == "tencent" {
+                for (key, value) in [
+                    ("secret_id", &tencent_id),
+                    ("secret_key", &tencent_key),
+                    ("region", &tencent_region),
+                ] {
+                    if let Some(value) = value
+                        && blank(fields, key)
+                    {
+                        fields.insert(key.to_string(), json!(value));
+                    }
+                }
+            }
+        }
+    }
+    let has_kind = |sources: &[JsonValue], kind: &str| {
+        sources.iter().any(|source| {
+            source
+                .get("kind")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|own| own.trim().eq_ignore_ascii_case(kind))
+        })
+    };
+    // Tencent speech fell back to the setting with no Tencent source at all.
+    if tencent && !has_kind(&sources, "tencent") {
+        sources.push(
+            serde_json::to_value(crate::config::AiVendorSource {
+                slug: "tencent".to_string(),
+                kind: "tencent".to_string(),
+                display_name: "Tencent Cloud".to_string(),
+                enabled: true,
+                preset: "tencent".to_string(),
+                secret_id: tencent_id.clone(),
+                secret_key: tencent_key.clone(),
+                region: Some(tencent_region.unwrap_or_else(|| "ap-guangzhou".to_string())),
+                ..Default::default()
+            })
+            .expect("a vendor source is JSON"),
+        );
+    }
+    // The built-in `openai` / `volcengine` slug with no row used the custom
+    // shared endpoint too.
+    for (slug, kind, name, base, custom) in [
+        ("openai", "openai", "OpenAI", &openai_base, custom_openai),
+        (
+            "volcengine",
+            "volcengine",
+            "Volcengine",
+            &volcengine_base,
+            custom_volcengine,
+        ),
+    ] {
+        let has_slug = sources
+            .iter()
+            .any(|source| source.get("slug").and_then(JsonValue::as_str) == Some(slug));
+        if custom && !has_slug && filled(stored, &format!("provider_{slug}_api_key")).is_some() {
+            sources.push(shared(slug, kind, name, base));
+        }
+    }
+    out.insert("ai_vendor_sources".to_string(), JsonValue::Array(sources));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The address the upgraded source list gives the source `slug`.
+    fn source_base(out: &HashMap<String, JsonValue>, slug: &str) -> Option<String> {
+        out.get("ai_vendor_sources")?
+            .as_array()?
+            .iter()
+            .find(|source| source["slug"] == json!(slug))
+            .and_then(|source| source["base_url"].as_str())
+            .map(str::to_string)
+    }
 
     fn stored(pairs: &[(&str, JsonValue)]) -> HashMap<String, JsonValue> {
         pairs
@@ -438,15 +627,17 @@ mod tests {
         assert_eq!(out["ai_image_source"], json!("volcengine"));
         assert_eq!(out["speech_source"], json!("openai"));
         assert_eq!(out["provider_volcengine_api_key"], json!("volc-key"));
-        assert_eq!(
-            out["provider_volcengine_base_url"],
-            json!("https://ark.example/v3")
-        );
         assert_eq!(out["provider_openai_api_key"], json!("sk-speech"));
+        // Their endpoints end up on the sources, written down from the keys.
         assert_eq!(
-            out["provider_openai_base_url"],
-            json!("https://speech.example/v1")
+            source_base(&out, "volcengine").as_deref(),
+            Some("https://ark.example/v3")
         );
+        assert_eq!(
+            source_base(&out, "openai").as_deref(),
+            Some("https://speech.example/v1")
+        );
+        assert!(!out.contains_key("provider_openai_base_url"));
         assert!(is_legacy_key("speech_reuse_text_credentials"));
 
         // A chosen source and a vault already set stay as they are.
@@ -477,12 +668,13 @@ mod tests {
         let out = upgrade(&stored(&[
             ("openai_base_url", json!("https://llm.example.com/v1")),
             ("provider_openai_base_url", json!("")),
+            ("provider_openai_api_key", json!("sk-oa")),
             ("speech_openai_base_url", json!("")),
             ("ai_image_openai_base_url", json!("")),
         ]));
         assert_eq!(
-            out["provider_openai_base_url"],
-            json!("https://llm.example.com/v1")
+            source_base(&out, "openai").as_deref(),
+            Some("https://llm.example.com/v1")
         );
         let kept = upgrade(&stored(&[
             ("openai_base_url", json!("https://llm.example.com/v1")),
@@ -491,12 +683,13 @@ mod tests {
                 json!("https://api.openai.com/v1"),
             ),
         ]));
-        assert!(!kept.contains_key("provider_openai_base_url"));
+        assert!(!kept.contains_key("ai_vendor_sources"));
         let behind_speech = upgrade(&stored(&[
             ("openai_base_url", json!("https://llm.example.com/v1")),
             ("provider_openai_base_url", json!("")),
+            ("provider_openai_api_key", json!("sk-oa")),
         ]));
-        assert!(!behind_speech.contains_key("provider_openai_base_url"));
+        assert!(!behind_speech.contains_key("ai_vendor_sources"));
     }
 
     #[test]
@@ -519,5 +712,88 @@ mod tests {
             ("aux_judge_model", json!("new")),
         ]));
         assert!(!kept.contains_key("aux_judge_model"));
+    }
+    #[test]
+    fn tencent_credentials_and_custom_endpoints_move_onto_the_sources() {
+        // No list stored: the synthesized one is written down, with Tencent.
+        let out = upgrade(&stored(&[
+            ("provider_openai_api_key", json!("sk-oa")),
+            (
+                "provider_openai_base_url",
+                json!("https://llm.example.com/v1"),
+            ),
+            (
+                "provider_volcengine_base_url",
+                json!("https://ark.cn-beijing.volces.com/api/v3"),
+            ),
+            ("tencent_secret_id", json!("AKID")),
+            ("tencent_secret_key", json!("tsecret")),
+            ("tencent_region", json!("ap-shanghai")),
+            ("ai_vendor_sources", json!([])),
+        ]));
+        let sources: Vec<crate::config::AiVendorSource> =
+            serde_json::from_value(out["ai_vendor_sources"].clone()).unwrap();
+        let openai = sources
+            .iter()
+            .find(|source| source.slug == "openai")
+            .unwrap();
+        assert_eq!(openai.base_url, "https://llm.example.com/v1");
+        assert_eq!(openai.credential_mode, "shared");
+        let tencent = sources
+            .iter()
+            .find(|source| source.kind == "tencent")
+            .unwrap();
+        assert_eq!(tencent.secret_id.as_deref(), Some("AKID"));
+        assert_eq!(tencent.region.as_deref(), Some("ap-shanghai"));
+        assert!(
+            !sources.iter().any(|source| source.slug == "openrouter"),
+            "no key, no source"
+        );
+
+        // A list stored: blanks are filled, chosen values stay.
+        let out = upgrade(&stored(&[
+            (
+                "provider_openai_base_url",
+                json!("https://llm.example.com/v1"),
+            ),
+            ("tencent_secret_id", json!("AKID")),
+            ("tencent_secret_key", json!("tsecret")),
+            (
+                "ai_vendor_sources",
+                json!([
+                    {"slug": "work", "kind": "openai", "display_name": "Work", "enabled": true, "base_url": ""},
+                    {"slug": "mine", "kind": "openai", "display_name": "Mine", "enabled": true, "base_url": "https://mine.example/v1", "extra": 1},
+                    {"slug": "tc", "kind": "tencent", "display_name": "TC", "enabled": true, "secret_id": "own-id"}
+                ]),
+            ),
+        ]));
+        let sources = out["ai_vendor_sources"].as_array().unwrap();
+        assert_eq!(sources[0]["base_url"], json!("https://llm.example.com/v1"));
+        assert_eq!(sources[1]["base_url"], json!("https://mine.example/v1"));
+        assert_eq!(
+            sources[1]["extra"],
+            json!(1),
+            "fields the page keeps are kept"
+        );
+        assert_eq!(sources[2]["secret_id"], json!("own-id"));
+        assert_eq!(sources[2]["secret_key"], json!("tsecret"));
+        assert_eq!(sources.len(), 3);
+    }
+
+    #[test]
+    fn default_endpoints_and_no_tencent_change_no_sources() {
+        let out = upgrade(&stored(&[
+            (
+                "provider_openai_base_url",
+                json!("https://api.openai.com/v1"),
+            ),
+            (
+                "provider_volcengine_base_url",
+                json!("https://ark.cn-beijing.volces.com/api/v3"),
+            ),
+            ("tencent_region", json!("ap-guangzhou")),
+            ("tencent_secret_id", json!(null)),
+        ]));
+        assert!(out.is_empty(), "{out:?}");
     }
 }

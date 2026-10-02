@@ -73,9 +73,6 @@ describe('config bag reset ownership', () => {
       aux_judge_model: '',
       aux_embedding_model: '',
       ai_image_model: 'openai/gpt-image-2.5-sunburst',
-      tencent_region: 'ap-guangzhou',
-      provider_openai_base_url: 'https://api.openai.com/v1',
-      provider_volcengine_base_url: 'https://ark.cn-beijing.volces.com/api/v3',
       ai_vendor_sources: '[]',
       ai_source: '',
       lite_ai_source: '',
@@ -85,7 +82,6 @@ describe('config bag reset ownership', () => {
       speech_stt_model: '',
       speech_tts_model: '',
       speech_tts_voice: '',
-      tencent_secret_key: '',
       provider_openrouter_api_key: '',
     }
     const initial = config()

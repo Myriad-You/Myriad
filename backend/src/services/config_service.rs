@@ -103,8 +103,6 @@ standard_fields! {
         pro_ai_source,
         pro_ai_model,
         ai_image_model,
-        provider_openai_base_url,
-        provider_volcengine_base_url,
         ai_image_source,
         speech_source,
         speech_stt_model,
@@ -121,9 +119,6 @@ standard_fields! {
     opt_text: [
         ui_wallpaper_url,
         tripo_api_key,
-        tencent_secret_id,
-        tencent_secret_key,
-        tencent_region,
         provider_openai_api_key,
         provider_openrouter_api_key,
         provider_gemini_api_key,

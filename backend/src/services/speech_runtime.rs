@@ -708,7 +708,7 @@ async fn fallback_openai_stt() -> Result<FallbackOpenAiStt, OpenAiSpeechError> {
             (
                 key,
                 if base.is_empty() {
-                    config.shared_openai_base_url()
+                    crate::config::OPENAI_API_BASE.to_string()
                 } else {
                     base
                 },
@@ -720,7 +720,7 @@ async fn fallback_openai_stt() -> Result<FallbackOpenAiStt, OpenAiSpeechError> {
     } else if let Some(key) = config.shared_openai_api_key() {
         (
             key,
-            config.shared_openai_base_url(),
+            crate::config::OPENAI_API_BASE.to_string(),
             DEFAULT_OPENAI_STT_MODEL.to_string(),
             None,
             SpeechProviderKind::OpenAi,
@@ -817,7 +817,7 @@ async fn resolve_openai_speech() -> Result<ResolvedOpenAiSpeech, OpenAiSpeechErr
     let openai_key = source_key
         .unwrap_or_else(|| config.shared_openai_api_key())
         .unwrap_or_default();
-    let openai_base = source_base.unwrap_or_else(|| config.shared_openai_base_url());
+    let openai_base = source_base.unwrap_or_else(|| crate::config::OPENAI_API_BASE.to_string());
     drop(config);
 
     let (api_key, base_url, default_stt, default_tts, default_voice, referer) = match provider {

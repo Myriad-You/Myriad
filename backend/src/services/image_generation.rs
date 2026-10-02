@@ -197,7 +197,7 @@ pub fn config_from_dynamic(
             "openai" | "openai_compatible" => (
                 api_key,
                 if source.base_url.trim().is_empty() {
-                    dynamic.shared_openai_base_url()
+                    crate::config::OPENAI_API_BASE.to_string()
                 } else {
                     source.base_url.trim().to_string()
                 },
@@ -213,7 +213,7 @@ pub fn config_from_dynamic(
             "volcengine" | "ark" | "seedream" => (
                 api_key,
                 if source.base_url.trim().is_empty() {
-                    dynamic.shared_volcengine_base_url()
+                    crate::config::VOLCENGINE_API_BASE.to_string()
                 } else {
                     source.base_url.trim().to_string()
                 },
@@ -225,7 +225,7 @@ pub fn config_from_dynamic(
         match provider.as_str() {
             "openai" => (
                 dynamic.shared_openai_api_key(),
-                dynamic.shared_openai_base_url(),
+                crate::config::OPENAI_API_BASE.to_string(),
             ),
             "openrouter" => (
                 dynamic.shared_openrouter_api_key(),
@@ -233,7 +233,7 @@ pub fn config_from_dynamic(
             ),
             "volcengine" | "ark" | "seedream" => (
                 dynamic.shared_volcengine_api_key(),
-                dynamic.shared_volcengine_base_url(),
+                crate::config::VOLCENGINE_API_BASE.to_string(),
             ),
             "gemini" => (
                 dynamic.shared_gemini_api_key(),

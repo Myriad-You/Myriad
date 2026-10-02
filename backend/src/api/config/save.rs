@@ -456,16 +456,8 @@ pub(crate) fn collect_database_updates_with_vendor(
             "aux_ai_source" => ("aux_ai_source", JsonValue::String(field.value.clone())),
             // AI 图片生成配置
             "ai_image_model" => ("ai_image_model", JsonValue::String(field.value.clone())),
-            // 腾讯云语音服务配置 (TTS/ASR)
-            "tencent_secret_id" => ("tencent_secret_id", JsonValue::String(field.value.clone())),
-            "tencent_secret_key" => ("tencent_secret_key", JsonValue::String(field.value.clone())),
-            "tencent_region" => ("tencent_region", JsonValue::String(field.value.clone())),
             "provider_openai_api_key" => (
                 "provider_openai_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "provider_openai_base_url" => (
-                "provider_openai_base_url",
                 JsonValue::String(field.value.clone()),
             ),
             "provider_openrouter_api_key" => (
@@ -482,10 +474,6 @@ pub(crate) fn collect_database_updates_with_vendor(
             ),
             "provider_volcengine_api_key" => (
                 "provider_volcengine_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "provider_volcengine_base_url" => (
-                "provider_volcengine_base_url",
                 JsonValue::String(field.value.clone()),
             ),
             "speech_stt_model" => ("speech_stt_model", JsonValue::String(field.value.clone())),
@@ -575,8 +563,6 @@ pub(crate) fn collect_database_updates_with_vendor(
             "speech_stt_model"
                 | "speech_tts_model"
                 | "speech_tts_voice"
-                | "provider_openai_base_url"
-                | "provider_volcengine_base_url"
                 | "ai_source"
                 | "lite_ai_source"
                 // Cleared: Lite is not used (there is no switch).

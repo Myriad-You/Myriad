@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 
+/// The official OpenAI endpoint: a source of kind `openai` with no address
+/// of its own, and the built-in `openai` slug, go here.
+pub const OPENAI_API_BASE: &str = "https://api.openai.com/v1";
+/// The same for Volcengine Ark.
+pub const VOLCENGINE_API_BASE: &str = "https://ark.cn-beijing.volces.com/api/v3";
+
 /// AI 模型层级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ModelTier {
@@ -416,24 +422,19 @@ pub struct DynamicConfig {
     /// PSN NPSSO cookie（ca.account.sony.com 获取，服务端凭据）
     pub psn_npsso: Option<String>,
 
-    // 腾讯云凭据：tencent 源（含合成的）用它。
-    pub tencent_secret_id: Option<String>,
-    pub tencent_secret_key: Option<String>,
-    pub tencent_region: Option<String>, // 默认 ap-guangzhou
     pub speech_stt_model: String,
     pub speech_tts_model: String,
     pub speech_tts_voice: String,
 
-    /// 全站共用的服务商凭据（文字 / 图片 / 语音都从这里取）
+    /// 共享密钥：服务商源选「共享」时用的 key（文字 / 图片 / 语音都从这里取）。
+    /// 地址在源上，不在这里。
     pub provider_openai_api_key: Option<String>,
-    pub provider_openai_base_url: String,
     pub provider_openrouter_api_key: Option<String>,
     pub provider_gemini_api_key: Option<String>,
     /// TinyFish Search / Fetch host secret. Search is free; the key is still required.
     #[serde(default)]
     pub provider_tinyfish_api_key: Option<String>,
     pub provider_volcengine_api_key: Option<String>,
-    pub provider_volcengine_base_url: String,
     /// 可添加的服务商源列表（OAuth providers 同款：可多家、可同 kind 多源）
     pub ai_vendor_sources: Vec<AiVendorSource>,
     /// 图片走的服务商源（slug）。留空按出厂的 OpenRouter。
@@ -783,19 +784,14 @@ impl Default for DynamicConfig {
             psn_online_id: None,
             psn_npsso: None,
 
-            tencent_secret_id: None,
-            tencent_secret_key: None,
-            tencent_region: Some("ap-guangzhou".to_string()),
             speech_stt_model: String::new(),
             speech_tts_model: String::new(),
             speech_tts_voice: String::new(),
             provider_openai_api_key: None,
-            provider_openai_base_url: "https://api.openai.com/v1".to_string(),
             provider_openrouter_api_key: None,
             provider_gemini_api_key: None,
             provider_tinyfish_api_key: None,
             provider_volcengine_api_key: None,
-            provider_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
             ai_vendor_sources: Vec::new(),
             ai_image_source: "openrouter".to_string(),
             speech_source: "tencent".to_string(),
@@ -1086,15 +1082,6 @@ impl DynamicConfig {
         Self::first_nonempty_key([self.provider_openai_api_key.clone()])
     }
 
-    /// The shared OpenAI endpoint; an OpenRouter address there is not one.
-    pub fn shared_openai_base_url(&self) -> String {
-        let from_shared = self.provider_openai_base_url.trim();
-        if !from_shared.is_empty() && !Self::is_openrouter_base(from_shared) {
-            return from_shared.to_string();
-        }
-        "https://api.openai.com/v1".to_string()
-    }
-
     pub fn shared_gemini_api_key(&self) -> Option<String> {
         Self::first_nonempty_key([self.provider_gemini_api_key.clone()])
     }
@@ -1124,13 +1111,6 @@ impl DynamicConfig {
 
     pub fn shared_volcengine_api_key(&self) -> Option<String> {
         Self::first_nonempty_key([self.provider_volcengine_api_key.clone()])
-    }
-
-    pub fn shared_volcengine_base_url(&self) -> String {
-        Self::slug_or(
-            &self.provider_volcengine_base_url,
-            "https://ark.cn-beijing.volces.com/api/v3",
-        )
     }
 
     fn shared_api_key_by_ref(&self, key_ref: &str) -> Option<String> {
@@ -1262,7 +1242,7 @@ impl DynamicConfig {
                 preset: "openai".to_string(),
                 credential_mode: "shared".to_string(),
                 shared_key_ref: Some("openai".to_string()),
-                base_url: self.shared_openai_base_url(),
+                base_url: OPENAI_API_BASE.to_string(),
                 ..AiVendorSource::default()
             });
         }
@@ -1288,22 +1268,7 @@ impl DynamicConfig {
                 preset: "volcengine".to_string(),
                 credential_mode: "shared".to_string(),
                 shared_key_ref: Some("volcengine".to_string()),
-                base_url: self.shared_volcengine_base_url(),
-                ..AiVendorSource::default()
-            });
-        }
-        let tencent_id = Self::nonempty_opt(self.tencent_secret_id.as_ref());
-        let tencent_key = Self::nonempty_opt(self.tencent_secret_key.as_ref());
-        if tencent_id.is_some() || tencent_key.is_some() {
-            sources.push(AiVendorSource {
-                slug: "tencent".to_string(),
-                kind: "tencent".to_string(),
-                display_name: "Tencent Cloud".to_string(),
-                enabled: true,
-                preset: "tencent".to_string(),
-                secret_id: tencent_id,
-                secret_key: tencent_key,
-                region: self.tencent_region.clone(),
+                base_url: VOLCENGINE_API_BASE.to_string(),
                 ..AiVendorSource::default()
             });
         }
@@ -1420,7 +1385,7 @@ impl DynamicConfig {
                 credential_origin: credential.origin,
                 model: model.to_string(),
                 base_url: if source.base_url.trim().is_empty() {
-                    self.shared_openai_base_url()
+                    OPENAI_API_BASE.to_string()
                 } else {
                     source.base_url.trim().to_string()
                 },
@@ -1472,7 +1437,7 @@ impl DynamicConfig {
                 "openai",
                 self.shared_openai_api_key(),
                 "openai",
-                self.shared_openai_base_url(),
+                OPENAI_API_BASE.to_string(),
             ),
             "gemini" => shared(
                 "gemini",
@@ -1870,10 +1835,7 @@ mod tests {
 
     #[test]
     fn custom_text_sources_require_an_explicit_endpoint() {
-        let config = DynamicConfig {
-            provider_openai_base_url: "https://shared-openai.example/v1".to_string(),
-            ..DynamicConfig::default()
-        };
+        let config = DynamicConfig::default();
         let source = AiVendorSource {
             kind: "custom".to_string(),
             enabled: true,
@@ -1907,7 +1869,7 @@ mod tests {
             ..source
         };
         let resolved = config.resolve_from_vendor_source(&official, "model");
-        assert_eq!(resolved.base_url, "https://shared-openai.example/v1");
+        assert_eq!(resolved.base_url, OPENAI_API_BASE, "the official one");
         assert!(resolved.text_ready());
     }
 
@@ -1996,7 +1958,6 @@ mod tests {
             ai_source: "openai".to_string(),
             ai_model: "std/model".to_string(),
             provider_openai_api_key: Some("oa-key".to_string()),
-            provider_openai_base_url: "https://llm.example.com/v1".to_string(),
             provider_openrouter_api_key: Some("or-key".to_string()),
             lite_ai_model: "lite/model".to_string(),
             pro_enabled: true,
@@ -2006,7 +1967,7 @@ mod tests {
         };
         let standard = config.resolve_ai_config(ModelTier::Standard);
         assert_eq!(standard.api_key.as_deref(), Some("oa-key"));
-        assert_eq!(standard.base_url, "https://llm.example.com/v1");
+        assert_eq!(standard.base_url, OPENAI_API_BASE);
         assert_eq!(standard.model, "std/model");
         // Lite without a source of its own runs on Standard's.
         assert_eq!(config.tier_source(ModelTier::Lite), "openai");
@@ -2024,7 +1985,7 @@ mod tests {
             ..config.clone()
         };
         let fallback = blank_pro.resolve_ai_config(ModelTier::Pro);
-        assert_eq!(fallback.base_url, "https://llm.example.com/v1");
+        assert_eq!(fallback.base_url, OPENAI_API_BASE);
         assert_eq!(fallback.model, "std/model");
         // Lite with no model: Standard (only for callers that allow it).
         let blank_lite = DynamicConfig {
