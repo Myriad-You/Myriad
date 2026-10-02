@@ -1,13 +1,13 @@
 //! 立绘的骨架识别：用 DWPose（全身 133 点：身体 17、脚 6、脸 68、双手 42）找出关节在
 //! 主立绘上的位置，给形象绑定用。模型第一次用到时从作者仓库下载，按 SHA-256 校验；
-//! 同一张图只识别一次，结果按图片内容缓存。
+//! 识别在一个临时子进程里做：子进程加载模型、识别一张图、交回结果后退出，模型的内存
+//! 随进程一起还给系统，后端进程从不持有模型。同一张图只识别一次，结果按图片内容缓存。
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::sync::OnceCell;
+use tokio::sync::Semaphore;
 use tract_onnx::prelude::*;
 
 use crate::services::data_paths;
@@ -64,9 +64,20 @@ pub struct Pose {
     pub keypoints: Vec<[f32; 3]>,
 }
 
-type Runnable = Arc<TypedRunnableModel<TypedModel>>;
+type Runnable = TypedRunnableModel<TypedModel>;
 
-static MODEL: OnceCell<Runnable> = OnceCell::const_new();
+/**
+ * One look at a time. Each look runs in its own child process, which loads the
+ * model, looks, and exits: a portrait is looked at once, on import, and an
+ * allocator keeps freed memory, so the model's few hundred megabytes are never
+ * held by the server between imports.
+ */
+static LOOKING: Semaphore = Semaphore::const_new(1);
+
+/// The backend's own binary, started with this, is a one-shot pose worker.
+pub const WORKER_ARG: &str = "--merope-pose-worker";
+/// A look that has not finished by then has hung.
+const WORKER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 
 fn models_dir() -> PathBuf {
     data_paths::paths().root.join("models")
@@ -80,27 +91,16 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-async fn model() -> Result<Runnable, PoseError> {
-    MODEL
-        .get_or_try_init(|| async {
-            let path = ensure_model_file().await?;
-            tokio::task::spawn_blocking(move || {
-                let model = tract_onnx::onnx()
-                    .model_for_path(&path)
-                    .and_then(|model| {
-                        model
-                            .with_input_fact(0, f32::fact([1, 3, INPUT_HEIGHT, INPUT_WIDTH]).into())
-                    })
-                    .and_then(|model| model.into_optimized())
-                    .and_then(|model| model.into_runnable())
-                    .map_err(|error| PoseError::Model(error.to_string()))?;
-                Ok(Arc::new(model))
-            })
-            .await
-            .map_err(|error| PoseError::Model(error.to_string()))?
+/// Loads the model from its file; it lives only as long as the caller keeps it.
+fn load_model(path: &std::path::Path) -> Result<Runnable, PoseError> {
+    tract_onnx::onnx()
+        .model_for_path(path)
+        .and_then(|model| {
+            model.with_input_fact(0, f32::fact([1, 3, INPUT_HEIGHT, INPUT_WIDTH]).into())
         })
-        .await
-        .cloned()
+        .and_then(|model| model.into_optimized())
+        .and_then(|model| model.into_runnable())
+        .map_err(|error| PoseError::Model(error.to_string()))
 }
 
 /// The model file, downloaded once and kept only if it is the pinned one.
@@ -143,22 +143,19 @@ async fn ensure_model_file() -> Result<PathBuf, PoseError> {
 pub async fn estimate(bytes: &[u8]) -> Result<Pose, PoseError> {
     let key = hex(&Sha256::digest(bytes));
     let cached = cache_dir().join(format!("{key}.json"));
-    if let Ok(saved) = tokio::fs::read(&cached).await
-        && let Ok(pose) = serde_json::from_slice::<Pose>(&saved)
-        && pose.model == POSE_MODEL
-    {
+    if let Some(pose) = read_cached(&cached).await {
         return Ok(pose);
     }
-    let model = model().await?;
-    let bytes = bytes.to_vec();
-    let pose = tokio::task::spawn_blocking(move || {
-        let image = image::load_from_memory(&bytes)
-            .map_err(|error| PoseError::Image(error.to_string()))?
-            .to_rgba8();
-        run(&model, &image)
-    })
-    .await
-    .map_err(|error| PoseError::Inference(error.to_string()))??;
+    let _looking = LOOKING
+        .acquire()
+        .await
+        .map_err(|error| PoseError::Model(error.to_string()))?;
+    // Someone may have looked at the same image while this one waited.
+    if let Some(pose) = read_cached(&cached).await {
+        return Ok(pose);
+    }
+    let path = ensure_model_file().await?;
+    let pose = look_in_child(&path, bytes).await?;
     if tokio::fs::create_dir_all(cache_dir()).await.is_ok()
         && let Ok(json) = serde_json::to_vec(&pose)
         && let Err(error) = tokio::fs::write(&cached, json).await
@@ -166,6 +163,86 @@ pub async fn estimate(bytes: &[u8]) -> Result<Pose, PoseError> {
         tracing::warn!(%error, "failed to cache a pose");
     }
     Ok(pose)
+}
+
+/// Runs one look in a child process: the image in on stdin, the pose out on stdout.
+async fn look_in_child(model: &std::path::Path, bytes: &[u8]) -> Result<Pose, PoseError> {
+    use tokio::io::AsyncWriteExt;
+
+    let program = std::env::current_exe().map_err(|error| PoseError::Model(error.to_string()))?;
+    let mut child = tokio::process::Command::new(program)
+        .arg(WORKER_ARG)
+        .arg(model)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| PoseError::Model(error.to_string()))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| PoseError::Model("pose worker has no stdin".into()))?;
+    let image = bytes.to_vec();
+    let feed = tokio::spawn(async move {
+        let _ = stdin.write_all(&image).await;
+    });
+    let output = tokio::time::timeout(WORKER_TIMEOUT, child.wait_with_output())
+        .await
+        .map_err(|_| PoseError::Inference("pose worker timed out".into()))?
+        .map_err(|error| PoseError::Inference(error.to_string()))?;
+    let _ = feed.await;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(match message.strip_prefix("empty:") {
+            Some(_) => PoseError::Empty,
+            None => match message.strip_prefix("image:") {
+                Some(reason) => PoseError::Image(reason.trim().to_string()),
+                None => PoseError::Inference(message),
+            },
+        });
+    }
+    serde_json::from_slice(&output.stdout).map_err(|error| PoseError::Inference(error.to_string()))
+}
+
+/// The worker's whole life: read one image from stdin, write its pose to
+/// stdout as JSON, and exit. Failures go to stderr, tagged by kind.
+pub fn worker_main() -> anyhow::Result<()> {
+    use std::io::{Read, Write};
+
+    let model = std::env::args()
+        .nth(2)
+        .ok_or_else(|| anyhow::anyhow!("pose worker needs the model path"))?;
+    let mut bytes = Vec::new();
+    std::io::stdin().read_to_end(&mut bytes)?;
+    let looked = image::load_from_memory(&bytes)
+        .map_err(|error| PoseError::Image(error.to_string()))
+        .and_then(|image| {
+            let image = image.to_rgba8();
+            run(&load_model(std::path::Path::new(&model))?, &image)
+        });
+    match looked {
+        Ok(pose) => {
+            std::io::stdout().write_all(&serde_json::to_vec(&pose)?)?;
+            Ok(())
+        }
+        Err(error) => {
+            let tag = match error {
+                PoseError::Empty => "empty:",
+                PoseError::Image(_) => "image:",
+                _ => "",
+            };
+            eprintln!("{tag} {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn read_cached(path: &std::path::Path) -> Option<Pose> {
+    let saved = tokio::fs::read(path).await.ok()?;
+    serde_json::from_slice::<Pose>(&saved)
+        .ok()
+        .filter(|pose| pose.model == POSE_MODEL)
 }
 
 /// The square-ish box the figure is cropped to, in image pixels: its content,
