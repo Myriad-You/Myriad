@@ -8,6 +8,7 @@ import type {
   Anime25DShellMode,
   Anime25DShellRotation,
 } from './shellDeformation'
+import type { SkirtBinding } from './standing'
 import type {
   Anime25DTorsoChestShape,
   Anime25DTorsoShellMode,
@@ -34,6 +35,7 @@ import { HEAD_TURN_SHARE } from './headTurn'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint } from './shellDeformation'
+import { applySkirtSwing } from './standing'
 import {
   anime25DSleeveAnchorX,
   anime25DTorsoShellOffsetX,
@@ -147,8 +149,8 @@ export interface Anime25DSecondaryDeformationBinding {
   shellMode: Anime25DShellMode | null
   hairlinePinWeights: Float32Array | null
   torsoShellMode: Anime25DTorsoShellMode | null
-  /** A standing figure's skirt: the waist it hangs from and its hem. */
-  skirt: { topY: number; bottomY: number } | null
+  /** A standing figure's skirt. */
+  skirt: SkirtBinding | null
 }
 
 export interface Anime25DMutableSecondaryPoint {
@@ -178,7 +180,7 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   handwearAnchorX?: number
   /** The drawn feature this layer belongs to; it turns with the head as one piece. */
   turnFeature?: HeadTurnFeature | null
-  skirt?: { topY: number; bottomY: number } | null
+  skirt?: SkirtBinding | null
 }): Anime25DSecondaryDeformationBinding {
   return {
     ...input,
@@ -480,12 +482,7 @@ export function deformAnime25DSecondaryPoint(
   // The neck's lower part already receives its cylinder projection above;
   // only its head-follow share inherits the root, avoiding double travel.
   point.x += frame.torsoNeckOffsetX * torsoNeckFollow
-  const skirt = binding.skirt
-  if (skirt && frame.skirtSwing) {
-    // Held at the waist, freest at the hem.
-    const along = clamp((restY - skirt.topY) / Math.max(1, skirt.bottomY - skirt.topY), 0, 1)
-    point.x += frame.skirtSwing * along * along
-  }
+  if (binding.skirt && frame.skirtSwing) applySkirtSwing(point, binding.skirt, restY, frame.skirtSwing)
 }
 
 const chainPoint = { x: 0, y: 0 }

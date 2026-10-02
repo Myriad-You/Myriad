@@ -36,6 +36,7 @@ import {
 } from './shellDeformation'
 import { shoulderContactWeights } from './shoulderContact'
 import { fuseShoulderSurface } from './shoulderSurface'
+import { bindSkirt } from './standing'
 import { bindSurfaceContact } from './surfaceContact'
 import { buildContactSurfaceMesh } from './surfaceMesh'
 import { anime25DTorsoShellModeForLayer } from './torsoDeformation'
@@ -172,11 +173,7 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
     shellMode === 'front-hair' && source.role === 'front-hair'
       ? sampleAnime25DHairlinePinWeights(rest, source, rows, shellProfile)
       : null
-  // Only a standing figure has a ground for its skirt to hang above.
-  const skirt =
-    baseRole === 'bottomwear' && playback.anchors.groundY !== undefined
-      ? { topY: source.y, bottomY: source.y + source.h }
-      : null
+  const skirt = bindSkirt(baseRole, source, playback.anchors)
   const deformationPolicy = resolveAnime25DLayerDeformationPolicy({
     skirtSway: Boolean(skirt),
     rigidAttachment: isAnime25DRigidAttachment(source),

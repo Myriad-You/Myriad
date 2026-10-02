@@ -54,9 +54,10 @@ import {
 } from './jellyVolume'
 import { writeAnime25DLayerGlobalTransform } from './layerTransform'
 import { writePoseCorrectionWeights } from './poseCorrections'
-import { BODY_ROLL_RADIANS, HEAD_ROLL_RADIANS, STANCE_SHIFT } from './poseScale'
+import { BODY_ROLL_RADIANS, HEAD_ROLL_RADIANS } from './poseScale'
 import { deformAnime25DSecondaryPoint } from './secondaryDeformation'
 import { writeAnime25DShellRotation } from './shellDeformation'
+import { Anime25DStanding } from './standing'
 import {
   anime25DTorsoShellOffsetX,
   anime25DTorsoYawFollow,
@@ -66,10 +67,6 @@ import {
 
 /** Share of an arm with a bare forearm that is sleeve: only that much of it is soft. */
 const SLEEVE_SOFT_REACH = 0.55
-
-/** A skirt hem on the hips: a loose, slow pendulum that trails and then overshoots. */
-const SKIRT_FREQUENCY = 1.3
-const SKIRT_DAMPING = 0.35
 
 interface JellyPart extends LayerJelly {
   volume: JellyVolume
@@ -144,8 +141,8 @@ export class Anime25DBodyFrames {
   private chestRegion!: ChestDeformationRegion
   private readonly jaw = createJawMotionState()
   private jawTravel = 0
-  /** Where a standing figure's skirt hem has got to, chasing the hips. */
-  private readonly skirt = { x: 0, velocity: 0 }
+  /** A full figure's stance on its ground; a bust has none. */
+  private standing: Anime25DStanding | null = null
 
   constructor(
     /** The composed driver; the body only reads it. */
@@ -238,8 +235,7 @@ export class Anime25DBodyFrames {
       shellRotation: this.shellRotation,
       skirtSwing: 0,
     }
-    this.skirt.x = 0
-    this.skirt.velocity = 0
+    this.standing = Anime25DStanding.of(anchors)
     this.collarMotion = {
       neckPivotX: anchors.neckPivot.x,
       neckPivotY: anchors.neckPivot.y,
@@ -372,29 +368,9 @@ export class Anime25DBodyFrames {
     stepAnime25DHairLayerSprings(layers, hairSpringFrame, dt)
     this.stepArms(dt, layers, time)
     this.stepJelly(dt)
-    this.stepSkirt(dt)
-  }
-
-  /** A standing figure's hip shift: against the lean, so the weight stays over the feet. */
-  private stanceShift(): number {
-    const { groundY, bodyPivot } = this.anchors
-    return groundY === undefined ? 0 : -this.current.body * STANCE_SHIFT * (groundY - bodyPivot.y)
-  }
-
-  private stepSkirt(dt: number): void {
-    const skirt = this.skirt
-    const hips = this.stanceShift()
-    if (!this.current.phys || this.anchors.groundY === undefined) {
-      skirt.x = hips
-      skirt.velocity = 0
-      this.secondaryDeformationFrame.skirtSwing = 0
-      return
+    if (this.standing) {
+      this.secondaryDeformationFrame.skirtSwing = this.standing.stepSkirt(dt, this.current.body, this.current.phys)
     }
-    const omega = 2 * Math.PI * SKIRT_FREQUENCY
-    skirt.velocity += (-omega * omega * (skirt.x - hips) - 2 * SKIRT_DAMPING * omega * skirt.velocity) * dt
-    skirt.x += skirt.velocity * dt
-    // The hem's lag behind the hips the stance field already carries it with.
-    this.secondaryDeformationFrame.skirtSwing = skirt.x - hips
   }
 
   /** Shared primary pose for physics substeps and the final visible mesh. */
@@ -414,8 +390,8 @@ export class Anime25DBodyFrames {
       pitch: this.bodyPitchResponse.value * 0.18,
       depth: this.shellProfile.torso.enabled ? Math.min(this.shellProfile.torso.radiusZ, span * 0.45) : 0,
       shoulderY: anchors.neckBottom,
-      groundY: anchors.groundY ?? anchors.bodyPivot.y,
-      stanceShift: this.stanceShift(),
+      groundY: this.standing?.groundY ?? anchors.bodyPivot.y,
+      stanceShift: this.standing?.shift(e.body) ?? 0,
     })
     this.renderFrame.bodyLift = this.bodyLiftField
     frame.headAngleY = e.angleY

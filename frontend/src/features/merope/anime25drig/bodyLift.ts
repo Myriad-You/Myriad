@@ -1,3 +1,5 @@
+import { applyBodyStance } from './standing'
+
 /**
  * Shared final-space upper-body posture. The chest/head translate as a unit;
  * the lower transition absorbs extension without treating the crop as a joint.
@@ -35,14 +37,6 @@ export function applyBodyLift(point: { x: number; y: number }, field?: Readonly<
     point.y -= amount * t * t * (3 - 2 * t)
   }
   applyBodyStance(point, field)
-}
-
-/** The weight shift: a straight leg from the planted sole to the moved hip. */
-export function applyBodyStance(point: { x: number; y: number }, field: Readonly<BodyLift>): void {
-  const shift = field.stanceShift ?? 0
-  const ground = field.groundY ?? field.lowerY
-  if (!shift || !(ground > field.lowerY)) return
-  point.x += shift * Math.max(0, Math.min(1, (ground - point.y) / (ground - field.lowerY)))
 }
 
 /**
@@ -111,11 +105,6 @@ vec2 bodyPitch(vec2 p, vec4 f, vec3 pose) {
   float correction = p.y < pose.x ? (p.y - pose.x) * pose.y
     : pose.y * span * t * t * (1.0 - t);
   return vec2(f.x + (p.x - f.x) * (1.0 + pose.y * share), p.y + pose.z * share + correction);
-}
-// stance: hips (lowerY), ground, shift.
-vec2 bodyStance(vec2 p, vec3 stance) {
-  if (stance.z == 0.0 || !(stance.y > stance.x)) return p;
-  return vec2(p.x + stance.z * clamp((stance.y - p.y) / (stance.y - stance.x), 0.0, 1.0), p.y);
 }
 vec2 bodyLift(vec2 p, vec4 f) {
   float span = max(1.0, f.z - f.y);

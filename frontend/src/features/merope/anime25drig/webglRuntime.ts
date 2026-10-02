@@ -2,6 +2,7 @@ import type { Anime25DPlaybackLayer } from './types'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { BODY_LIFT_GLSL } from './bodyLift'
 import { NECK_SURFACE_COLUMNS } from './neckSurfaceContour'
+import { BODY_STANCE_GLSL } from './standing'
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_pos;
@@ -15,6 +16,7 @@ uniform vec4 u_body_lift;
 uniform vec3 u_body_pitch;
 uniform vec3 u_body_stance;
 ${BODY_LIFT_GLSL}
+${BODY_STANCE_GLSL}
 out vec2 v_uv;
 void main() {
   vec2 layer_position = (u_layer_transform * vec3(a_pos, 1.0)).xy;
