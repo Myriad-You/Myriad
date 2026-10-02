@@ -1,8 +1,7 @@
-import type { RefObject } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../character/RigCharacter'
-import type { CharacterAssetProfile } from '../rig/contract'
 import type { DriverSliderKey } from './motionControls'
 import type { WorkbenchDriver } from './useWorkbenchDriver'
 import {
@@ -14,7 +13,6 @@ import {
 } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
 import { ANIME25D_MOTION_ENVELOPE_PROBES } from '../anime25drig/motionEnvelope'
-import { FaceTabs } from './FaceTabs'
 import {
   DRIVER_SLIDERS,
   envelopeProbeLabel,
@@ -28,9 +26,8 @@ interface Props {
   characterRef: RefObject<RigCharacterHandle | null>
   motion: WorkbenchDriver
   motionEnabled: boolean
-  stageProfile?: CharacterAssetProfile
-  fullBodyReady?: boolean
-  onStageProfileChange?: (profile: CharacterAssetProfile) => void
+  /** Shown above the controls. */
+  lead?: ReactNode
   correctionPlayback?: Anime25DPlayback | null
   correctionAssetId?: string | null
   onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
@@ -41,9 +38,7 @@ export function MotionPanel({
   characterRef,
   motion,
   motionEnabled,
-  stageProfile = 'bust',
-  fullBodyReady = false,
-  onStageProfileChange,
+  lead = null,
   correctionPlayback,
   correctionAssetId,
   onSavePoseCorrections,
@@ -79,17 +74,7 @@ export function MotionPanel({
 
   return (
     <>
-      {fullBodyReady && onStageProfileChange ? (
-        <FaceTabs
-          ariaLabel={labels.fullBody.stage}
-          value={stageProfile}
-          options={[
-            { value: 'bust', label: labels.fullBody.stageBust },
-            { value: 'fullBody', label: labels.fullBody.stageFullBody },
-          ]}
-          onChange={onStageProfileChange}
-        />
-      ) : null}
+      {lead}
       <SettingGroup
         title={labels.expressionGroup}
         description={

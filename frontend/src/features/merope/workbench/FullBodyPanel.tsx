@@ -8,12 +8,12 @@ import { useI18n } from '../../../contexts/I18nContext'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { userFacingError } from '../../../utils/userFacingError'
 import {
-  decomposeSitePortraitWithSeeThrough,
+  decomposeFullBodyWithSeeThrough,
   generateFullBodyPortrait,
-  getSiteFace,
+  getFullBodyFace,
   uploadFullBodyPortrait,
 } from '../api'
-import { commitRigPsdAsset, preflightRigPsdAsset } from '../assets/pipeline'
+import { commitFullBodyPsdAsset, preflightFullBodyPsdAsset } from '../assets/pipeline'
 import RigCharacter from '../character/RigCharacter'
 
 interface Props {
@@ -47,7 +47,7 @@ export function FullBodyPanel({
   const uploadRef = useRef<HTMLInputElement>(null)
 
   const reload = useCallback(async () => {
-    setFace(await getSiteFace('fullBody'))
+    setFace(await getFullBodyFace())
   }, [])
 
   useEffect(() => {
@@ -143,22 +143,11 @@ export function FullBodyPanel({
         const portrait = face?.portraitUrl
         if (!portrait) return
         const fingerprint = face.generationFingerprint ?? undefined
-        const file = await decomposeSitePortraitWithSeeThrough({
-          profile: 'fullBody',
+        const file = await decomposeFullBodyWithSeeThrough({
           sourceMasterAssetId: portrait,
           sourceGenerationFingerprint: fingerprint,
         })
-        setPreflight(
-          await preflightRigPsdAsset(
-            file,
-            portrait,
-            undefined,
-            fingerprint,
-            undefined,
-            [],
-            'fullBody',
-          ),
-        )
+        setPreflight(await preflightFullBodyPsdAsset(file, portrait, fingerprint))
       },
       labels.motionSeeThroughUpstream,
     )
@@ -168,7 +157,7 @@ export function FullBodyPanel({
       'save',
       async () => {
         if (!preflight) return
-        await commitRigPsdAsset(preflight)
+        await commitFullBodyPsdAsset(preflight)
         setPreflight(null)
         setSaved(true)
         await reload()

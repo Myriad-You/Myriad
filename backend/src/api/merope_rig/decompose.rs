@@ -78,9 +78,6 @@ pub struct UpdateSeeThroughTokenRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SeeThroughDecomposeRequest {
-    /// Which of the worn outfit's masters to decompose; the bust by default.
-    #[serde(default)]
-    profile: CharacterAssetProfile,
     source_master_asset_id: String,
     #[serde(default)]
     source_generation_fingerprint: Option<String>,
@@ -137,8 +134,18 @@ pub async fn decompose_with_see_through(
     Extension(claims): Extension<Claims>,
     Json(payload): Json<SeeThroughDecomposeRequest>,
 ) -> ApiResult<Response> {
+    decompose_master(&db, &claims, CharacterAssetProfile::Bust, payload).await
+}
+
+/// Splits the worn outfit's master of `profile` into a PSD for the importer.
+pub(super) async fn decompose_master(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    profile: CharacterAssetProfile,
+    payload: SeeThroughDecomposeRequest,
+) -> ApiResult<Response> {
     require_merope_enabled().await?;
-    require_owner(&claims, &db).await?;
+    require_owner(claims, db).await?;
     let source_generation_fingerprint = payload
         .source_generation_fingerprint
         .as_deref()
@@ -152,8 +159,8 @@ pub async fn decompose_with_see_through(
         ));
     }
     let master = require_master_match(
-        &db,
-        payload.profile,
+        db,
+        profile,
         &payload.source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )
@@ -188,8 +195,8 @@ pub async fn decompose_with_see_through(
     // Inference can take minutes. Never hand a result back as current if the
     // master changed while the remote job was running.
     require_master_match(
-        &db,
-        payload.profile,
+        db,
+        profile,
         &payload.source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )

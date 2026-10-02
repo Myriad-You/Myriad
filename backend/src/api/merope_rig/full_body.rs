@@ -1,28 +1,38 @@
-//! 全身立绘：照穿着这套衣服的半身立绘画出从头到脚的站姿，存进这套衣服的全身槽。
+//! 全身：照穿着这套衣服的半身立绘画出从头到脚的站姿，拆层、导入，存进这套衣服的全身槽。
+//! 全身只读写自己的槽，不碰半身的形象，也不碰面板正在播的那份。
 
 use axum::{
     Extension, Json,
     extract::{Multipart, State},
     http::StatusCode,
+    response::Response,
 };
 use myriad_merope::{
     CharacterAssetProfile, build_full_body_asset_contract, build_full_body_portrait_prompt,
     character_asset_contract_fingerprint,
 };
-use sea_orm::{DatabaseConnection, EntityTrait, QuerySelect, TransactionTrait};
+use sea_orm::{
+    DatabaseConnection, DatabaseTransaction, EntityTrait, QuerySelect, TransactionTrait,
+};
 use serde_json::{Value, json};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use super::{
-    ApiResult, bad_request, internal_error,
-    master::{MasterProvenance, master_from_persona},
-    not_found, portrait_generation_config_error, portrait_generation_provider_error,
+    ApiResult, bad_request,
+    decompose::{SeeThroughDecomposeRequest, decompose_master},
+    import::{import_rig, preview_rig},
+    internal_error,
+    master::{MasterProvenance, master_for, master_from_persona},
+    not_found,
+    package::figure_json,
+    portrait_generation_config_error, portrait_generation_provider_error,
     portrait_upload::{persist_uploaded_portrait, read_portrait_upload},
     require_merope_enabled, require_owner,
 };
 use crate::{
     middleware::auth::Claims,
+    models::entities::agent_persona,
     services::{agent::merope, image_generation},
 };
 
@@ -162,17 +172,7 @@ async fn store_full_body_portrait(
 ) -> ApiResult<String> {
     let transaction = db.begin().await.map_err(internal_error)?;
     let written = async {
-        merope::api::store::lock_persona_on(&transaction)
-            .await
-            .map_err(internal_error)?;
-        let row = crate::models::entities::agent_persona::Entity::find_by_id(
-            merope::api::store::PERSONA_ROW_ID,
-        )
-        .lock_exclusive()
-        .one(&transaction)
-        .await
-        .map_err(internal_error)?
-        .ok_or_else(provenance_changed)?;
+        let row = lock_worn_persona(&transaction).await?;
         if master_from_persona(&row).as_ref() != Some(bust) {
             return Err(provenance_changed());
         }
@@ -200,30 +200,128 @@ async fn store_full_body_portrait(
         )
         .await
         .map_err(|error| internal_error(error.to_string()))?;
-        merope::upsert_persona_on(
-            &transaction,
-            row.name,
-            row.personality,
-            merope::PortraitUpdate::Keep,
-            merope::PersonaContractUpdate {
-                visual_profile: merope::JsonDocumentUpdate::Set(profile),
-                ..Default::default()
-            },
-            user_id,
-        )
-        .await
-        .map_err(internal_error)?;
+        save_visual_profile(&transaction, row, profile, user_id).await?;
         Ok(public_url)
     }
     .await;
+    finish(transaction, written).await
+}
+
+/// Binds an imported package to the worn outfit's full figure, if that is
+/// still the figure it was compiled from.
+async fn bind_full_body_rig(
+    db: &DatabaseConnection,
+    user_id: i32,
+    asset_id: &str,
+    expected: &MasterProvenance,
+) -> ApiResult<()> {
+    let transaction = db.begin().await.map_err(internal_error)?;
+    let written = async {
+        let row = lock_worn_persona(&transaction).await?;
+        if master_for(&row, CharacterAssetProfile::FullBody).as_ref() != Some(expected) {
+            return Err(provenance_changed());
+        }
+        let mut profile = row.visual_profile.clone().unwrap_or_else(|| json!({}));
+        if !myriad_merope::bind_active_outfit_full_body_rig(&mut profile, asset_id) {
+            return Err(bad_request("The worn outfit is missing"));
+        }
+        save_visual_profile(&transaction, row, profile, user_id).await
+    }
+    .await;
+    finish(transaction, written).await
+}
+
+/// The persona row, locked until the transaction ends so a concurrent
+/// portrait or outfit change cannot slip between the check and the write.
+async fn lock_worn_persona(transaction: &DatabaseTransaction) -> ApiResult<agent_persona::Model> {
+    merope::api::store::lock_persona_on(transaction)
+        .await
+        .map_err(internal_error)?;
+    agent_persona::Entity::find_by_id(merope::api::store::PERSONA_ROW_ID)
+        .lock_exclusive()
+        .one(transaction)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(provenance_changed)
+}
+
+async fn save_visual_profile(
+    transaction: &DatabaseTransaction,
+    row: agent_persona::Model,
+    profile: Value,
+    user_id: i32,
+) -> ApiResult<()> {
+    merope::upsert_persona_on(
+        transaction,
+        row.name,
+        row.personality,
+        merope::PortraitUpdate::Keep,
+        merope::PersonaContractUpdate {
+            visual_profile: merope::JsonDocumentUpdate::Set(profile),
+            ..Default::default()
+        },
+        user_id,
+    )
+    .await
+    .map_err(internal_error)?;
+    Ok(())
+}
+
+async fn finish<T>(transaction: DatabaseTransaction, written: ApiResult<T>) -> ApiResult<T> {
     match written {
-        Ok(public_url) => {
+        Ok(value) => {
             transaction.commit().await.map_err(internal_error)?;
-            Ok(public_url)
+            Ok(value)
         }
         Err(error) => {
             let _ = transaction.rollback().await;
             Err(error)
         }
     }
+}
+
+/// The worn outfit's full figure and its package, for the owner's workbench.
+pub async fn get_full_body(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    require_owner(&claims, &db).await?;
+    let persona = merope::get_persona(&db).await.map_err(internal_error)?;
+    let master = persona
+        .as_ref()
+        .and_then(|row| master_for(row, CharacterAssetProfile::FullBody));
+    let asset_id = myriad_merope::active_outfit_full_body(
+        persona.as_ref().and_then(|row| row.visual_profile.as_ref()),
+    )
+    .and_then(|full| full.rig_asset_id);
+    figure_json(master, asset_id).await
+}
+
+pub async fn decompose_full_body(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<SeeThroughDecomposeRequest>,
+) -> ApiResult<Response> {
+    decompose_master(&db, &claims, CharacterAssetProfile::FullBody, payload).await
+}
+
+pub async fn preview_full_body_rig(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    multipart: Multipart,
+) -> ApiResult<Json<Value>> {
+    preview_rig(&db, &claims, multipart, CharacterAssetProfile::FullBody).await
+}
+
+pub async fn import_full_body_rig(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    multipart: Multipart,
+) -> ApiResult<Json<Value>> {
+    let imported = import_rig(&db, &claims, multipart, CharacterAssetProfile::FullBody).await?;
+    bind_full_body_rig(&db, imported.user_id, &imported.asset_id, &imported.master).await?;
+    Ok(Json(
+        json!({ "manifest": imported.manifest, "assetId": imported.asset_id }),
+    ))
 }

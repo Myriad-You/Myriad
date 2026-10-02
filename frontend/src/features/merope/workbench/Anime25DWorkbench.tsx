@@ -3,7 +3,6 @@ import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { AuthoredExpressionKind } from '../rig/authoredExpression'
-import type { CharacterAssetProfile } from '../rig/contract'
 import type { RigPath } from './RigImportPanel'
 import type { RigImportSource } from './useRigImport'
 import { useState, useSyncExternalStore } from 'react'
@@ -15,7 +14,6 @@ import {
 import { personaTourPanel } from '../../../components/tour/tourLogic'
 import { useI18n } from '../../../contexts/I18nContext'
 import { FaceTabs } from './FaceTabs'
-import { FullBodyPanel } from './FullBodyPanel'
 import { MotionPanel } from './MotionPanel'
 import { RigImportPanel } from './RigImportPanel'
 import { useRigImport } from './useRigImport'
@@ -31,12 +29,12 @@ interface Props extends RigImportSource {
   personaLead?: ReactNode
   overviewLead?: ReactNode
   motionEnabled?: boolean
-  /** Which of the worn outfit's figures the stage plays. */
-  stageProfile?: CharacterAssetProfile
-  /** The worn outfit has a playable full figure to stage. */
-  fullBodyReady?: boolean
-  onStageProfileChange?: (profile: CharacterAssetProfile) => void
-  onFullBodyChanged?: () => void
+  /** Shown under the worn outfit's rig once it has a portrait. */
+  outfitTrailing?: ReactNode
+  /** Shown above the motion controls. */
+  motionLead?: ReactNode
+  /** Changes when the stage plays another figure; the controls are re-sent to it. */
+  stageKey?: string
   correctionPlayback?: Anime25DPlayback | null
   correctionAssetId?: string | null
   onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
@@ -53,10 +51,9 @@ export default function Anime25DWorkbench({
   personaLead = null,
   overviewLead = null,
   motionEnabled = false,
-  stageProfile = 'bust',
-  fullBodyReady = false,
-  onStageProfileChange,
-  onFullBodyChanged,
+  outfitTrailing = null,
+  motionLead = null,
+  stageKey = '',
   correctionPlayback,
   correctionAssetId,
   onSavePoseCorrections,
@@ -86,7 +83,7 @@ export default function Anime25DWorkbench({
   const motion = useWorkbenchDriver(
     characterRef,
     panel === 'motion' && motionEnabled,
-    `${source.sourceMasterAssetId}\n${source.sourceGenerationFingerprint ?? ''}\n${stageProfile}`,
+    `${source.sourceMasterAssetId}\n${source.sourceGenerationFingerprint ?? ''}\n${stageKey}`,
   )
 
   return (
@@ -157,19 +154,9 @@ export default function Anime25DWorkbench({
           )}
         </SettingGroup>
       ) : null}
-      {panel === 'wardrobe' && outfitLead && outfitRig && source.sourceMasterAssetId ? (
-        <SettingGroup
-          title={labels.fullBody.title}
-          description={labels.fullBody.description}
-          id="merope-motion-full-body"
-        >
-          <FullBodyPanel
-            outfitKey={`${source.sourceMasterAssetId}\n${source.sourceGenerationFingerprint ?? ''}`}
-            seeThroughTokenConfigured={source.seeThroughTokenConfigured}
-            onChanged={onFullBodyChanged}
-          />
-        </SettingGroup>
-      ) : null}
+      {panel === 'wardrobe' && outfitLead && outfitRig && source.sourceMasterAssetId
+        ? outfitTrailing
+        : null}
       </div>
       <div data-tour="config-persona-motion">
       {panel === 'motion' ? (
@@ -177,9 +164,7 @@ export default function Anime25DWorkbench({
           characterRef={characterRef}
           motion={motion}
           motionEnabled={motionEnabled}
-          stageProfile={stageProfile}
-          fullBodyReady={fullBodyReady}
-          onStageProfileChange={onStageProfileChange}
+          lead={motionLead}
           correctionPlayback={correctionPlayback}
           correctionAssetId={correctionAssetId}
           onSavePoseCorrections={onSavePoseCorrections}

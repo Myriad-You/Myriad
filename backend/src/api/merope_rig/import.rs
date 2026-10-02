@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use super::{
     ApiError, ApiResult, bad_request, internal_error,
-    master::{require_master_match, valid_generation_fingerprint},
+    master::{MasterProvenance, require_master_match, valid_generation_fingerprint},
     package::{bind_and_activate_outfit_rig, rewrite_texture_urls},
     require_merope_enabled, require_owner,
 };
@@ -179,7 +179,10 @@ struct ParsedRigImport {
     analysis_reference_bytes: Option<Vec<u8>>,
 }
 
-async fn parse_rig_import(mut multipart: Multipart) -> ApiResult<ParsedRigImport> {
+async fn parse_rig_import(
+    mut multipart: Multipart,
+    profile: CharacterAssetProfile,
+) -> ApiResult<ParsedRigImport> {
     let mut source_bytes = None;
     let mut atlas_bytes = None;
     let mut analysis_reference_bytes = None;
@@ -239,6 +242,10 @@ async fn parse_rig_import(mut multipart: Multipart) -> ApiResult<ParsedRigImport
         tracing::error!(%error, "Invalid rig source metadata");
         bad_request("Invalid rig import")
     })?;
+    // A bust import never lands in the full-body slot, nor the reverse.
+    if source.profile != profile {
+        return Err(bad_request("Rig import is for another asset profile"));
+    }
     if let Some(fingerprint) = &mut source.source_generation_fingerprint {
         if !valid_generation_fingerprint(fingerprint) {
             return Err(bad_request(
@@ -302,18 +309,28 @@ pub async fn preview_site_rig(
     Extension(claims): Extension<Claims>,
     multipart: Multipart,
 ) -> ApiResult<Json<Value>> {
+    preview_rig(&db, &claims, multipart, CharacterAssetProfile::Bust).await
+}
+
+/// Compiles an import of the worn outfit's master of `profile` without keeping it.
+pub(super) async fn preview_rig(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    multipart: Multipart,
+    profile: CharacterAssetProfile,
+) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
-    let user_id = require_owner(&claims, &db).await?;
+    let user_id = require_owner(claims, db).await?;
     let ParsedRigImport {
         mut source,
         analysis_reference_bytes,
         ..
-    } = parse_rig_import(multipart).await?;
+    } = parse_rig_import(multipart, profile).await?;
     let analysis_reference_bytes = analysis_reference_bytes
         .ok_or_else(|| bad_request("Rig preview is missing its analysis reference"))?;
     let master = require_master_match(
-        &db,
-        source.profile,
+        db,
+        profile,
         &source.source_master_asset_id,
         source.source_generation_fingerprint.as_deref(),
     )
@@ -335,18 +352,47 @@ pub async fn import_site_rig(
     Extension(claims): Extension<Claims>,
     multipart: Multipart,
 ) -> ApiResult<Json<Value>> {
+    let imported = import_rig(&db, &claims, multipart, CharacterAssetProfile::Bust).await?;
+    bind_and_activate_outfit_rig(
+        &db,
+        imported.user_id,
+        &imported.asset_id,
+        &imported.master,
+        None,
+    )
+    .await?;
+    Ok(Json(
+        json!({ "manifest": imported.manifest, "assetId": imported.asset_id }),
+    ))
+}
+
+/// A compiled, stored package not yet bound to the outfit it was made for.
+pub(super) struct ImportedRig {
+    pub(super) user_id: i32,
+    pub(super) master: MasterProvenance,
+    pub(super) manifest: RigManifest,
+    pub(super) asset_id: String,
+}
+
+/// Compiles and stores an import of the worn outfit's master of `profile`.
+pub(super) async fn import_rig(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    multipart: Multipart,
+    profile: CharacterAssetProfile,
+) -> ApiResult<ImportedRig> {
     require_merope_enabled().await?;
-    let user_id = require_owner(&claims, &db).await?;
+    let user_id = require_owner(claims, db).await?;
     let ParsedRigImport {
         mut source,
         atlas_bytes,
         ..
-    } = parse_rig_import(multipart).await?;
+    } = parse_rig_import(multipart, profile).await?;
     let source_master_asset_id = source.source_master_asset_id.clone();
     let source_generation_fingerprint = source.source_generation_fingerprint.clone();
     let master = require_master_match(
-        &db,
-        source.profile,
+        db,
+        profile,
         &source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )
@@ -360,6 +406,10 @@ pub async fn import_site_rig(
     merope_rig::persist_package(&asset_id, &atlas_bytes, &json)
         .await
         .map_err(internal_error)?;
-    bind_and_activate_outfit_rig(&db, user_id, &asset_id, &master, None).await?;
-    Ok(Json(json!({ "manifest": manifest, "assetId": asset_id })))
+    Ok(ImportedRig {
+        user_id,
+        master,
+        manifest,
+        asset_id,
+    })
 }

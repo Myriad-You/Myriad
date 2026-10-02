@@ -1,6 +1,5 @@
 import type { PoseCorrection } from './anime25drig/poseCorrections'
 import type { AuthoredExpressionKind } from './rig/authoredExpression'
-import type { CharacterAssetProfile } from './rig/contract'
 import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
@@ -74,21 +73,19 @@ function meropeError(
   )
 }
 
-const siteFaceInflight = new Map<CharacterAssetProfile, Promise<SiteFace>>()
+let siteFaceInflight: Promise<SiteFace> | null = null
 
-/** The worn outfit's bust, or with `fullBody` its optional full figure. */
-export async function getSiteFace(
-  profile: CharacterAssetProfile = 'bust',
-): Promise<SiteFace> {
-  const inflight = siteFaceInflight.get(profile)
-  if (inflight) return inflight
-  const path =
-    profile === 'bust' ? `${PREFIX}/active` : `${PREFIX}/active?profile=${profile}`
-  const loading = loadFace(path).finally(() => {
-    siteFaceInflight.delete(profile)
+export async function getSiteFace(): Promise<SiteFace> {
+  if (siteFaceInflight) return siteFaceInflight
+  siteFaceInflight = loadFace(`${PREFIX}/active`).finally(() => {
+    siteFaceInflight = null
   })
-  siteFaceInflight.set(profile, loading)
-  return loading
+  return siteFaceInflight
+}
+
+/** The worn outfit's optional full figure, for the owner's workbench. */
+export async function getFullBodyFace(): Promise<SiteFace> {
+  return loadFace(`${PREFIX}/full-body`)
 }
 
 async function loadFace(path: string): Promise<SiteFace> {
@@ -192,18 +189,34 @@ function seeThroughError(status: number, body: unknown, fallback: string): Merop
   )
 }
 
-export async function decomposeSitePortraitWithSeeThrough(input: {
-  /** Which of the worn outfit's portraits; the bust by default. */
-  profile?: CharacterAssetProfile
+interface SeeThroughDecomposeInput {
   sourceMasterAssetId: string
   sourceGenerationFingerprint?: string
   resolution?: number
   seed?: number
   splitArmsAndLegs?: boolean
-}): Promise<File> {
+}
+
+export async function decomposeSitePortraitWithSeeThrough(
+  input: SeeThroughDecomposeInput,
+): Promise<File> {
+  return decomposeWithSeeThrough('/see-through/decompose', input)
+}
+
+/** Splits the worn outfit's full figure, as the bust's portrait is split. */
+export async function decomposeFullBodyWithSeeThrough(
+  input: SeeThroughDecomposeInput,
+): Promise<File> {
+  return decomposeWithSeeThrough('/full-body/see-through/decompose', input)
+}
+
+async function decomposeWithSeeThrough(
+  path: string,
+  input: SeeThroughDecomposeInput,
+): Promise<File> {
   try {
     const psd = await apiService.post<Blob>(
-      `${PREFIX}/see-through/decompose`,
+      `${PREFIX}${path}`,
       input,
       {
         responseType: 'blob',
@@ -239,6 +252,14 @@ export async function importMeropeRig(
   return submitMeropeRigImport('/import', source, atlas, 'import')
 }
 
+/** Stores a full-figure package in the worn outfit's full-body slot. */
+export async function importFullBodyRig(
+  source: MeropeRigImportSource,
+  atlas: Blob,
+): Promise<MeropeRigManifest> {
+  return submitMeropeRigImport('/full-body/import', source, atlas, 'import')
+}
+
 export async function saveRigPoseCorrections(assetId: string, corrections: PoseCorrection[]): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
   try {
     const data = await apiService.patch<{ manifest: unknown; assetId: unknown }>(`${PREFIX}/pose-corrections`, { assetId, corrections })
@@ -260,6 +281,20 @@ export async function previewMeropeRigImport(
 ): Promise<MeropeRigManifest> {
   return submitMeropeRigImport(
     '/import/preview',
+    source,
+    atlas,
+    'preview',
+    analysisReference,
+  )
+}
+
+export async function previewFullBodyRigImport(
+  source: MeropeRigImportSource,
+  atlas: Blob,
+  analysisReference: Blob,
+): Promise<MeropeRigManifest> {
+  return submitMeropeRigImport(
+    '/full-body/import/preview',
     source,
     atlas,
     'preview',

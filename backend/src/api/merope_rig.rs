@@ -50,6 +50,20 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             post(full_body::upload_full_body_portrait)
                 .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
+        .route("/full-body", get(full_body::get_full_body))
+        .route(
+            "/full-body/see-through/decompose",
+            post(full_body::decompose_full_body),
+        )
+        .route(
+            "/full-body/import",
+            post(full_body::import_full_body_rig).layer(DefaultBodyLimit::max(24 * 1024 * 1024)),
+        )
+        .route(
+            "/full-body/import/preview",
+            post(full_body::preview_full_body_rig)
+                .layer(DefaultBodyLimit::max(36 * 1024 * 1024)),
+        )
         .route("/avatar", post(avatar::generate_sticker_avatar))
         .route("/expressions", get(expressions::list_expressions))
         .route(
