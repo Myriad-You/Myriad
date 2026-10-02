@@ -3,7 +3,7 @@ import type { TextVisemeCue } from './textVisemes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { TtsPipeline } from './ttsPipeline'
-import { playTtsBuffer, sampleDecodedMouth, sampleMouth } from './ttsPlayer'
+import { pcmSamples, playTtsBuffer, sampleDecodedMouth, sampleMouth } from './ttsPlayer'
 
 test('audio energy maps to a rest viseme when the buffer is silence', () => {
   const bins = new Uint8Array(32)
@@ -424,4 +424,14 @@ test('text beats reach playback before cold visemes and survive their later refi
   await settle()
   assert.deepEqual(timelines[1], timelines[0])
   handle.stop()
+})
+
+test('her own voice is read sample by sample, an odd byte waiting for the next piece', () => {
+  // 0x4000 = 16384 → 0.5; 0xC000 = -16384 → -0.5, split across pieces.
+  const first = pcmSamples(null, new Uint8Array([0x00, 0x40, 0x00]))
+  assert.deepEqual(Array.from(first.samples), [0.5])
+  assert.deepEqual(Array.from(first.carry ?? []), [0x00])
+  const second = pcmSamples(first.carry, new Uint8Array([0xC0]))
+  assert.deepEqual(Array.from(second.samples), [-0.5])
+  assert.equal(second.carry, null)
 })

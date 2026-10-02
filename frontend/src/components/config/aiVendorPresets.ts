@@ -160,8 +160,9 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
     defaultSlug: 'dashscope',
     kind: 'openai_compatible',
     display_name: 'DashScope',
-    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    docs_url: 'https://help.aliyun.com/zh/model-studio/',
+    // International (Singapore): where the site's services are.
+    base_url: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    docs_url: 'https://www.alibabacloud.com/help/en/model-studio/',
     capabilities: ['text'],
     defaultTextModel: 'qwen-plus',
   },

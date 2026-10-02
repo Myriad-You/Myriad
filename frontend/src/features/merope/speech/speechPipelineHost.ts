@@ -9,7 +9,7 @@ import { dispatchMeropeSpeech } from './speechEvents'
 import { SpeechSegmenter } from './speechSegmenter'
 import { estimateAutoSpeechDurationMs } from './textTiming'
 import { TtsPipeline } from './ttsPipeline'
-import { playTtsBuffer } from './ttsPlayer'
+import { playPcmStream, playTtsBuffer } from './ttsPlayer'
 import { patchVoicePresence } from './voicePresence'
 
 export function personaSpeechFlags(status: {
@@ -39,6 +39,9 @@ export class SpeechPipelineHost {
   private cancelledAt: number | null = null
   private readonly fedMessageIds = new Set<string>()
   private readonly cancelledMessageIds = new Set<string>()
+  private ownVoice = false
+  /** Her own voice playing for a reply, if one is. */
+  private stream: { messageId: string; stop: () => void } | null = null
 
   constructor() {
     this.pipeline = new TtsPipeline({
@@ -57,6 +60,11 @@ export class SpeechPipelineHost {
     return this.wantsSpeech
   }
 
+  /** Her replies come with her own voice, not read aloud. */
+  get ownVoiceAvailable(): boolean {
+    return this.available && this.ownVoice
+  }
+
   /** Invalidate status probes too: a late old-account response cannot re-enable TTS. */
   resetSubject(): void {
     this.cancel()
@@ -71,9 +79,11 @@ export class SpeechPipelineHost {
     status: Pick<
       SpeechStatus,
       'available' | 'tts_enabled' | 'persona_speech_enabled'
-    >,
+    > &
+      Partial<Pick<SpeechStatus, 'persona_voice'>>,
   ): void {
     this.statusEpoch += 1
+    this.ownVoice = status.persona_voice === 'omni'
     const flags = personaSpeechFlags(status)
     this.wantsSpeech = flags.speechEnabled
     this.ttsReady = flags.ttsReady
@@ -127,7 +137,84 @@ export class SpeechPipelineHost {
   }
 
   isBusyWith(messageId: string): boolean {
-    return this.pipeline.isBusyWith(messageId)
+    return (
+      this.stream?.messageId === messageId ||
+      this.pipeline.isBusyWith(messageId)
+    )
+  }
+
+  /**
+   * Her own voice for a reply, played as it arrives, in place of reading it
+   * aloud; cancelled and stopped like any reply. None when she is not to
+   * speak it.
+   */
+  openStream(
+    messageId: string,
+    generation = 0,
+    source: MeropeSpeechSource = 'reply',
+  ): { push: (bytes: Uint8Array) => void; end: () => void } | null {
+    if (!this.enabled || this.cancelledMessageIds.has(messageId)) return null
+    this.stopStream()
+    const utteranceId = `voice-${messageId}`
+    const base = {
+      messageId,
+      source,
+      utteranceId,
+      ...(generation ? { generation } : {}),
+    }
+    let begun = false
+    const handle = playPcmStream({
+      onStarted: () => {
+        markTurnTraceOnce('first_audio')
+      },
+      onEnergy: (energy, articulation) => {
+        dispatchMeropeSpeech({ ...base, phase: 'energy', energy })
+        dispatchMeropeSpeech({ ...base, phase: 'articulation', articulation })
+      },
+      onEnded: () => {
+        if (this.stream?.messageId === messageId) this.stream = null
+        if (begun) {
+          dispatchMeropeSpeech({ ...base, phase: 'end' })
+          patchVoicePresence({ ttsPlaying: false })
+        }
+        if (!this.pipeline.playing && this.pipeline.queueLength === 0)
+          markTurnTraceOnce('speech_ended')
+      },
+    })
+    const stop = (): void => {
+      handle.stop()
+      if (this.stream?.messageId === messageId) this.stream = null
+      if (!begun) return
+      dispatchMeropeSpeech({ ...base, phase: 'cancel', generation })
+      patchVoicePresence({ ttsPlaying: false })
+      this.noteSilence()
+    }
+    this.stream = { messageId, stop }
+    // Hers to say, voice or words: the finished reply is not read aloud
+    // again over it.
+    rememberMessage(this.fedMessageIds, messageId)
+    return {
+      push: (bytes) => {
+        if (this.stream?.messageId !== messageId) return
+        if (!begun) {
+          begun = true
+          dispatchMeropeSpeech({ ...base, phase: 'start' })
+          patchVoicePresence({ ttsPlaying: true })
+        }
+        handle.push(bytes)
+      },
+      end: () => {
+        if (this.stream?.messageId !== messageId) return
+        handle.end()
+      },
+    }
+  }
+
+  private stopStream(messageId?: string): boolean {
+    if (!this.stream) return false
+    if (messageId && this.stream.messageId !== messageId) return false
+    this.stream.stop()
+    return true
   }
 
   speakLine(input: {
@@ -167,7 +254,8 @@ export class SpeechPipelineHost {
       this.fedMessageIds.clear()
     }
     this.cancelledAt = nowMs()
-    const stopped = this.pipeline.cancel(messageId)
+    const streamStopped = this.stopStream(messageId)
+    const stopped = this.pipeline.cancel(messageId) || streamStopped
     if (!stopped) {
       this.cancelledAt = null
       return

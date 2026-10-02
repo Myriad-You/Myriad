@@ -121,6 +121,8 @@ standard_fields! {
         speech_stt_model,
         speech_tts_model,
         speech_tts_voice,
+        merope_voice_mode,
+        merope_voice_voice,
         agora_app_id,
         agora_app_certificate,
         agora_customer_id,
@@ -1689,6 +1691,81 @@ mod tests {
             ..DynamicConfig::default()
         };
         assert!(!no_pro.merope_speech_enabled_resolved());
+    }
+
+    #[test]
+    fn her_own_voice_is_lite_itself_on_dashscope_or_nothing() {
+        let omni = DynamicConfig {
+            merope_enabled: true,
+            merope_speech_enabled: true,
+            pro_enabled: true,
+            lite_enabled: true,
+            lite_ai_provider: "openai".into(),
+            lite_openai_model: "qwen3.8-omni-flash".into(),
+            lite_ai_source: "dashscope".into(),
+            ai_vendor_sources: vec![crate::config::AiVendorSource {
+                slug: "dashscope".into(),
+                kind: "openai_compatible".into(),
+                display_name: "DashScope".into(),
+                enabled: true,
+                preset: "dashscope".into(),
+                credential_mode: "own".into(),
+                api_key: Some("ds-key".into()),
+                base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".into(),
+                ..Default::default()
+            }],
+            merope_voice_mode: "omni".into(),
+            merope_voice_voice: " Tina ".into(),
+            ..DynamicConfig::default()
+        };
+        let voice = match omni.merope_omni_voice() {
+            Ok(voice) => voice,
+            Err(why) => panic!("her own voice: {why}"),
+        };
+        assert_eq!(voice.model, "qwen3.8-omni-flash");
+        assert_eq!(voice.voice, "Tina");
+        assert!(voice.base_url.contains("dashscope-intl"));
+        let reads_aloud = DynamicConfig {
+            merope_voice_mode: "tts".into(),
+            ..omni.clone()
+        };
+        assert_eq!(reads_aloud.merope_omni_voice().err(), Some("mode_tts"));
+        // Through OpenRouter the model gives text only: read aloud instead.
+        let routed = DynamicConfig {
+            lite_openai_model: "qwen/qwen3.8-omni-flash".into(),
+            ai_vendor_sources: vec![crate::config::AiVendorSource {
+                slug: "dashscope".into(),
+                kind: "openrouter".into(),
+                enabled: true,
+                credential_mode: "own".into(),
+                api_key: Some("or-key".into()),
+                base_url: "https://openrouter.ai/api/v1".into(),
+                ..Default::default()
+            }],
+            ..omni.clone()
+        };
+        assert_eq!(routed.merope_omni_voice().err(), Some("lite_not_dashscope"));
+        let not_omni = DynamicConfig {
+            lite_openai_model: "qwen-plus".into(),
+            ..omni.clone()
+        };
+        assert_eq!(not_omni.merope_omni_voice().err(), Some("lite_not_omni"));
+        let silent = DynamicConfig {
+            merope_speech_enabled: false,
+            ..omni.clone()
+        };
+        assert_eq!(silent.merope_omni_voice().err(), Some("speech_off"));
+        // Read back from the database as saved.
+        let parsed = ConfigService::parse_config(HashMap::from([
+            ("merope_voice_mode".into(), json!("omni")),
+            ("merope_voice_voice".into(), json!("Tina")),
+        ]));
+        assert_eq!(parsed.merope_voice_mode, "omni");
+        assert_eq!(parsed.merope_voice_voice, "Tina");
+        assert_eq!(
+            ConfigService::parse_config(HashMap::new()).merope_voice_mode,
+            "tts"
+        );
     }
 
     #[test]

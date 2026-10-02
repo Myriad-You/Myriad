@@ -61,6 +61,7 @@ import {
   setFaceMood,
   setTurnGeneration,
   stopTurnSpeech,
+  takeTurnVoiceToken,
   turnSpeechAlreadyFed,
 } from '../../features/merope/presence/engineFace'
 import { playbackDirection, startPlaybackDirection } from '../../features/merope/presence/playbackDirectionHost'
@@ -1498,6 +1499,11 @@ export const AgentEngine: React.FC = () => {
         if (attachments.length) {
           customData.attachments = attachmentsForRequest(attachments)
         }
+        // Opens this reply's speech: in her own voice, the turn is told
+        // where to send it.
+        const onProgress = createProgressHandler(assistantMsgId, mode, chatGeneration, 'local', undefined, subject)
+        const voiceOut = takeTurnVoiceToken(assistantMsgId)
+        if (voiceOut) customData.voiceOut = voiceOut
         if (Object.keys(customData).length > 0) {
           context.customData = customData
         }
@@ -1505,7 +1511,7 @@ export const AgentEngine: React.FC = () => {
         markTurnTraceOnce('request_sent')
         const response = await agentService.processWithProgress(
           requestText,
-          createProgressHandler(assistantMsgId, mode, chatGeneration, 'local', undefined, subject),
+          onProgress,
           context,
           subject,
         )

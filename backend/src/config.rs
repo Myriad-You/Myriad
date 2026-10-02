@@ -106,6 +106,17 @@ impl AiVendorSource {
     }
 }
 
+/// Lite 档作为她的原声：DashScope 的 OpenAI 兼容端点、模型与音色。
+/// 不派生 Debug：带着密钥，不该出现在任何日志里。
+#[derive(Clone)]
+pub struct OmniVoice {
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    /// 空：模型默认音色。
+    pub voice: String,
+}
+
 /// 解析后的 AI 配置（已根据 tier 确定具体的 provider/key/model）
 pub struct ResolvedAiConfig {
     pub provider: String,
@@ -572,6 +583,11 @@ pub struct DynamicConfig {
 
     /// 人设形象是否开口朗读聊天回复。默认关；人设未生效时一律关。
     pub merope_speech_enabled: bool,
+    /// 她怎么出声：`tts` 写完再朗读（默认）；`omni` 用 Lite 档的 Omni 模型边想边说，
+    /// 要求 Lite 档直连 DashScope，否则回退朗读（见 `merope_omni_voice`）。
+    pub merope_voice_mode: String,
+    /// `omni` 时她的音色：预置音色名或复刻得到的音色 id；空为模型默认。
+    pub merope_voice_voice: String,
 
     /// Agent 人设的页面形象：当前生效的 2.5D 图集包 id（sha256 hex）。
     /// None = 没有编译过的骨骼，浮动层只回退主立绘。站点级——全站一份形象。
@@ -938,6 +954,8 @@ impl Default for DynamicConfig {
             ai_image_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
             merope_enabled: false,
             merope_speech_enabled: false,
+            merope_voice_mode: "tts".to_string(),
+            merope_voice_voice: String::new(),
             agent_rig_asset_id: None,
             see_through_hf_token: None,
             // Tripo 3D（低模 Web 角色默认预算）
@@ -1080,6 +1098,40 @@ impl DynamicConfig {
     /// 人设开口朗读。人设未生效时一律关。
     pub fn merope_speech_enabled_resolved(&self) -> bool {
         self.merope_enabled_resolved() && self.merope_speech_enabled
+    }
+
+    /// 她用 Omni 原声说话时的出站：Lite 档本身（同一个源、同一个模型），
+    /// 加上音色。不满足时是为什么，给配置页和日志看。
+    pub fn merope_omni_voice(&self) -> Result<OmniVoice, &'static str> {
+        if !self.merope_speech_enabled_resolved() {
+            return Err("speech_off");
+        }
+        if self.merope_voice_mode.trim() != "omni" {
+            return Err("mode_tts");
+        }
+        let lite = self
+            .resolve_strict_lite_ai_config()
+            .ok_or("lite_unconfigured")?;
+        if !Self::is_dashscope_base(&lite.base_url) {
+            return Err("lite_not_dashscope");
+        }
+        if !lite.model.to_ascii_lowercase().contains("omni") {
+            return Err("lite_not_omni");
+        }
+        let api_key = lite
+            .api_key
+            .filter(|key| !key.trim().is_empty())
+            .ok_or("lite_no_key")?;
+        Ok(OmniVoice {
+            base_url: lite.base_url.trim_end_matches('/').to_string(),
+            api_key,
+            model: lite.model,
+            voice: self.merope_voice_voice.trim().to_string(),
+        })
+    }
+
+    pub fn is_dashscope_base(url: &str) -> bool {
+        url.to_ascii_lowercase().contains("dashscope")
     }
 
     pub fn is_openrouter_base(url: &str) -> bool {

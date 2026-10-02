@@ -44,6 +44,8 @@ pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::
         .route("/asr", post(speech_to_text))
         // 服务状态
         .route("/status", get(get_speech_status))
+        // 她的原声：一轮回复的声音流，按面板自己生成的令牌配对
+        .route("/voice/{token}", get(voice_stream))
         // 设置页可用性测试（TTS + 可选 ASR）
         .route("/test", post(test_speech_service))
         .route("/convo/start", post(start_convo_session))
@@ -350,6 +352,9 @@ pub struct SpeechStatusResponse {
     pub convo_enabled: bool,
     /// 人设开口朗读。人设未生效或开关关着时为 false。
     pub persona_speech_enabled: bool,
+    /// 她怎么出声：`omni` 原声（Lite 档的 Omni 边想边说，声音走 `/voice/{token}`），
+    /// 否则 `tts` 朗读。只在原声真能用时才是 `omni`。
+    pub persona_voice: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -957,6 +962,37 @@ async fn openai_speech_to_text(request: AsrApiRequest) -> (StatusCode, Json<AsrA
     }
 }
 
+/// 她一轮回复的原声：16 位单声道 PCM，24 kHz，边说边到。令牌由要播放的面板生成，
+/// 随这一轮的请求带上（`customData.voiceOut`）；只有同一个用户能听。这一轮不出声时
+/// 流立即结束，面板回到朗读。
+///
+/// GET /api/speech/voice/{token}
+pub async fn voice_stream(
+    Extension(claims): Extension<Claims>,
+    axum::extract::Path(token): axum::extract::Path<String>,
+) -> axum::response::Response {
+    let Some(user_id) = require_speech_user_id(&claims) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(receiver) = crate::services::omni_voice::voice_in(&token, user_id) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    use tokio_stream::StreamExt as _;
+    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver)
+        .map(Ok::<_, std::convert::Infallible>);
+    axum::response::Response::builder()
+        .header(
+            axum::http::header::CONTENT_TYPE,
+            format!(
+                "audio/L16;rate={};channels=1",
+                crate::services::omni_voice::SAMPLE_RATE
+            ),
+        )
+        .header(axum::http::header::CACHE_CONTROL, "no-store")
+        .body(axum::body::Body::from_stream(stream))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
 /// 获取语音服务状态
 ///
 /// GET /api/speech/status
@@ -965,6 +1001,11 @@ pub async fn get_speech_status() -> impl IntoResponse {
     let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
     let convo_enabled = crate::services::agora_convo::convo_configured(&config);
     let persona_speech_enabled = config.merope_speech_enabled_resolved();
+    let persona_voice = if config.merope_omni_voice().is_ok() {
+        "omni"
+    } else {
+        "tts"
+    };
     drop(config);
     let callback_ready = super::speech_conversation::callback_url(
         &crate::oauth_url_builder::SiteConfig::get_base_url().await,
@@ -977,6 +1018,7 @@ pub async fn get_speech_status() -> impl IntoResponse {
         asr_enabled: probe.asr_enabled,
         convo_enabled,
         persona_speech_enabled,
+        persona_voice,
         provider: Some(probe.provider),
         error: probe.error,
     })

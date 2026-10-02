@@ -1979,6 +1979,28 @@ pub(crate) async fn build_config(
                     placeholder: "false".to_string(),
                     required: false,
                 },
+                ConfigField {
+                    key: "merope_voice_mode".to_string(),
+                    label: "Agent persona voice mode".to_string(),
+                    field_type: "select".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.merope_voice_mode.clone())
+                        .unwrap_or_else(|| "tts".to_string()),
+                    placeholder: "tts".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "merope_voice_voice".to_string(),
+                    label: "Agent persona voice".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.merope_voice_voice.clone())
+                        .unwrap_or_default(),
+                    placeholder: "Tina".to_string(),
+                    required: false,
+                },
                 // 网络代理配置
                 ConfigField {
                     key: "proxy_enabled".to_string(),

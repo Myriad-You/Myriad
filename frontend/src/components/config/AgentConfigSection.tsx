@@ -29,6 +29,8 @@ import PersonaOnboardingPage from '../agent/onboarding/PersonaOnboardingPage'
 import {
   AutoHeight,
   InfoActionCard,
+  InputItem,
+  ProviderItem,
   SettingGroup,
   SettingsButton,
   SettingSection,
@@ -43,6 +45,7 @@ import {
 import AgentOptionsPanel, {
   AgentNestedSection,
 } from './AgentOptionsPanel'
+import { parseVendorSources } from './aiVendorPresets'
 import { useAddedSlug } from './useAddedCard'
 import { useAiSubpage } from './usePersonaPage'
 
@@ -126,6 +129,23 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
         ?.value === 'true',
     [uiConfigFields],
   )
+
+  const uiFieldValue = useCallback(
+    (key: string, fallback: string) =>
+      uiConfigFields.find((field) => field.key === key)?.value || fallback,
+    [uiConfigFields],
+  )
+  const voiceMode = uiFieldValue('merope_voice_mode', 'tts') === 'omni' ? 'omni' : 'tts'
+  // Her own voice is Lite itself, called on DashScope directly (see
+  // `DynamicConfig::merope_omni_voice`): otherwise she reads aloud.
+  const liteVoiceModel = useMemo(() => {
+    const source = parseVendorSources(getFieldValue('ai_vendor_sources')).find(
+      (item) => item.slug === getFieldValue('lite_ai_source'),
+    )
+    const model = getFieldValue('lite_openai_model')
+    const direct = (source?.base_url ?? '').toLowerCase().includes('dashscope')
+    return direct && /omni/i.test(model) ? model : null
+  }, [getFieldValue])
 
   const proEnabled = useMemo(() => {
     const val = getFieldValue('pro_enabled', 'false')
@@ -476,7 +496,43 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
             ariaLabel: t.config.agentPersonaSpeech,
             title: t.config.agentPersonaSpeechHint,
           }}
-        />
+        >
+          {agentPersonaSpeechEnabled && meropeOn ? (
+            <>
+              <ProviderItem
+                itemKey="merope_voice_mode"
+                label={t.config.agentPersonaVoiceMode}
+                value={voiceMode}
+                onChange={(value) => updateUiFieldValue('merope_voice_mode', value)}
+                options={[
+                  { value: 'tts', label: t.config.agentPersonaVoiceTts },
+                  { value: 'omni', label: t.config.agentPersonaVoiceOmni },
+                ]}
+                layout="horizontal"
+              />
+              {voiceMode === 'omni' ? (
+                <>
+                  <InputItem
+                    itemKey="merope_voice_voice"
+                    label={t.config.agentPersonaVoiceVoice}
+                    value={uiFieldValue('merope_voice_voice', '')}
+                    onChange={(value) => updateUiFieldValue('merope_voice_voice', value)}
+                    placeholder="Tina"
+                    inputType="text"
+                    layout="vertical"
+                  />
+                  <p className="setting-hint">
+                    {liteVoiceModel
+                      ? t.config.agentPersonaVoiceOmniHint.replace('{model}', liteVoiceModel)
+                      : t.config.agentPersonaVoiceOmniUnavailable}
+                  </p>
+                </>
+              ) : (
+                <p className="setting-hint">{t.config.agentPersonaVoiceTtsHint}</p>
+              )}
+            </>
+          ) : null}
+        </AgentNestedSection>
       </SettingGroup>
       <SettingGroup
         title={t.config.agentChannelsTitle}

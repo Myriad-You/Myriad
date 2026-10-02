@@ -828,8 +828,13 @@ pub(crate) fn collect_database_updates_with_vendor(
             }
             "site_title" | "ga_measurement_id" | "umami_website_id" | "music_source"
             | "site_icp" | "site_gongan" | "cloud_sponsors" | "site_footer_custom"
-            | "proxy_bypass" => {
+            | "proxy_bypass" | "merope_voice_voice" => {
                 updates.insert(field.key.clone(), JsonValue::String(field.value.clone()));
+                continue;
+            }
+            "merope_voice_mode" => {
+                let mode = if field.value.trim() == "omni" { "omni" } else { "tts" };
+                updates.insert(field.key.clone(), JsonValue::String(mode.to_string()));
                 continue;
             }
             "site_visibility_policy" => {

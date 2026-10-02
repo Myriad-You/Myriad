@@ -160,6 +160,143 @@ export function playTtsBuffer(
   return { stop }
 }
 
+export interface PcmStreamHandle {
+  /** A piece of 16-bit little-endian mono PCM, as it arrived. */
+  push: (bytes: Uint8Array) => void
+  /** Nothing more will come: ends once what was queued has played. */
+  end: () => void
+  stop: () => void
+}
+
+/** Her own voice as it is spoken: 16-bit mono PCM at 24 kHz. */
+export const PCM_STREAM_SAMPLE_RATE = 24_000
+/** Played this far behind its arrival, so a late piece does not leave a gap. */
+const PCM_LEAD_SECONDS = 0.12
+
+/** 16-bit little-endian samples as floats; an odd last byte waits for the next piece. */
+export function pcmSamples(
+  carry: Uint8Array | null,
+  bytes: Uint8Array,
+): { samples: Float32Array; carry: Uint8Array | null } {
+  const joined =
+    carry && carry.length > 0
+      ? (() => {
+          const all = new Uint8Array(carry.length + bytes.length)
+          all.set(carry)
+          all.set(bytes, carry.length)
+          return all
+        })()
+      : bytes
+  const whole = joined.length - (joined.length % 2)
+  const samples = new Float32Array(whole / 2)
+  const view = new DataView(joined.buffer, joined.byteOffset, whole)
+  for (let i = 0; i < samples.length; i += 1) {
+    samples[i] = view.getInt16(i * 2, true) / 32768
+  }
+  return {
+    samples,
+    carry: whole < joined.length ? joined.slice(whole) : null,
+  }
+}
+
+/**
+ * Plays a voice that arrives in pieces, each right after the one before; the
+ * mouth follows what is heard. Started on the first piece, ended once `end`
+ * was called and the last piece has played.
+ */
+export function playPcmStream(
+  hooks: TtsPlayHooks,
+  context?: AudioContext,
+): PcmStreamHandle {
+  let stopped = false
+  let ending = false
+  let started = false
+  let carry: Uint8Array | null = null
+  if (!context && typeof AudioContext === 'undefined') {
+    return {
+      push: () => {},
+      end: () => {
+        if (stopped) return
+        stopped = true
+        hooks.onEnded()
+      },
+      stop: () => {
+        stopped = true
+      },
+    }
+  }
+  const ctx = context ?? speechAudioContext()
+  const analyser = ctx.createAnalyser()
+  analyser.fftSize = FFT
+  analyser.connect(ctx.destination)
+  const bins: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(FFT))
+  const playing = new Set<AudioBufferSourceNode>()
+  let nextAt = 0
+  let raf = 0
+
+  const finish = (): void => {
+    if (stopped) return
+    stopped = true
+    if (raf) cancelAnimationFrame(raf)
+    analyser.disconnect()
+    hooks.onEnded()
+  }
+  const tick = (): void => {
+    if (stopped) return
+    const sample = analyserMouth(analyser, bins, [], 0)
+    hooks.onEnergy(sample.energy ?? 0, sample)
+    raf = requestAnimationFrame(tick)
+  }
+
+  return {
+    push(bytes) {
+      if (stopped || ending) return
+      const read = pcmSamples(carry, bytes)
+      carry = read.carry
+      if (read.samples.length === 0) return
+      if (ctx.state === 'suspended') void ctx.resume()
+      const buffer = ctx.createBuffer(1, read.samples.length, PCM_STREAM_SAMPLE_RATE)
+      buffer.getChannelData(0).set(read.samples)
+      const source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.connect(analyser)
+      const at = Math.max(nextAt, ctx.currentTime + PCM_LEAD_SECONDS)
+      nextAt = at + buffer.duration
+      playing.add(source)
+      source.onended = () => {
+        playing.delete(source)
+        source.disconnect()
+        if (ending && playing.size === 0) finish()
+      }
+      source.start(at)
+      if (!started) {
+        started = true
+        hooks.onStarted?.()
+        tick()
+      }
+    },
+    end() {
+      if (stopped) return
+      ending = true
+      if (playing.size === 0) finish()
+    },
+    stop() {
+      if (stopped) return
+      stopped = true
+      if (raf) cancelAnimationFrame(raf)
+      for (const source of playing) {
+        try {
+          source.stop()
+        } catch {
+        }
+        source.disconnect()
+      }
+      playing.clear()
+      analyser.disconnect()
+    },
+  }
+}
+
 export function sampleDecodedMouth(
   buffer: Pick<
     AudioBuffer,

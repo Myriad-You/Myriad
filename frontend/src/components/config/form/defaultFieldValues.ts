@@ -101,6 +101,7 @@ export function defaultUiFieldValue(key: string): string {
   if (key === 'precise_location_enabled') return 'false'
   if (key === 'merope_enabled') return 'false'
   if (key === 'merope_speech_enabled') return 'false'
+  if (key === 'merope_voice_mode') return 'tts'
   if (key === 'proxy_url') return ''
   if (key === 'proxy_bypass') return ''
   if (key === 'gemini_base_url') return ''

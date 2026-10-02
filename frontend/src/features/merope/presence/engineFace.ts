@@ -5,7 +5,9 @@ import type {
   RigStateSummary,
 } from '../../../services/agent/types'
 import type { PerceptionAdapter } from '../body/types'
+import type { SpeechSegment } from '../speech/speechSegmenter'
 import type { FaceDelivery, FaceSpeechLine } from './faceSpeechArbitration'
+import { openVoiceStream } from '../../../services/speechApi'
 import { authSubject } from '../../../utils/authSubject'
 import { getLocalPerception, getProductionBody } from '../body/host'
 import { setLiveMotionGeneration } from '../motion/liveGeneration'
@@ -47,6 +49,10 @@ export function openTurnSpeech(
   const pipeline = getSpeechPipeline()
   void pipeline.probe()
   const segmenter = new SpeechSegmenter(messageId, generation, locale)
+  if (pipeline.ownVoiceAvailable) {
+    const own = openOwnVoice(messageId, generation, segmenter)
+    if (own) return own
+  }
   return {
     cancel() {
       if (subject.aborted) return
@@ -96,6 +102,76 @@ export function deliverTurnLine(
   line: FaceSpeechLine,
 ): FaceDelivery {
   return deliverGatedLine(agentFace, faceSpeechGate, mode, line)
+}
+
+/** Tokens of the turns that asked for her own voice, by reply. */
+const turnVoiceTokens = new Map<string, string>()
+
+/** The token this reply's voice comes under, to send with the turn (once). */
+export function takeTurnVoiceToken(messageId: string): string | undefined {
+  const token = turnVoiceTokens.get(messageId)
+  turnVoiceTokens.delete(messageId)
+  return token
+}
+
+/**
+ * Her own voice for this reply: the turn says it and the sound comes on a
+ * stream of its own. Her words are cut into sentences as usual but kept;
+ * once the sound starts they are let go, and if it never comes (the turn
+ * did not speak) they are read aloud after all.
+ */
+function openOwnVoice(
+  messageId: string,
+  generation: number,
+  segmenter: SpeechSegmenter,
+) {
+  const pipeline = getSpeechPipeline()
+  const stream = pipeline.openStream(messageId, generation, 'reply')
+  if (!stream) return null
+  const token = crypto.randomUUID()
+  turnVoiceTokens.set(messageId, token)
+  if (turnVoiceTokens.size > 64)
+    turnVoiceTokens.delete(turnVoiceTokens.keys().next().value!)
+  const subject = authSubject.signal
+  const abort = new AbortController()
+  let heard = false
+  let readInstead = false
+  const kept: SpeechSegment[] = []
+  const keep = (segments: SpeechSegment[]): number => {
+    if (readInstead) pipeline.feed(segments)
+    else if (!heard) kept.push(...segments)
+    return segments.length
+  }
+  void openVoiceStream(token, abort.signal, (bytes) => {
+    if (subject.aborted) return
+    heard = true
+    kept.length = 0
+    stream.push(bytes)
+  })
+    .catch(() => 0)
+    .then(() => {
+      if (subject.aborted || abort.signal.aborted) return
+      stream.end()
+      if (heard) return
+      readInstead = true
+      pipeline.feed(kept.splice(0))
+    })
+  return {
+    cancel() {
+      abort.abort()
+      turnVoiceTokens.delete(messageId)
+      if (subject.aborted) return
+      pipeline.cancel(messageId)
+    },
+    push(token: string): number | null {
+      if (subject.aborted) return 0
+      return keep(segmenter.push(token))
+    },
+    end(): number {
+      if (subject.aborted) return 0
+      return keep(segmenter.end())
+    },
+  }
 }
 
 export function stopTurnSpeech(messageId: string): void {

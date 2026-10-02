@@ -292,6 +292,31 @@ fn on_call(request: &UserRequest) -> bool {
 
 /// Her voice in chat. It thinks little: measured on the chat suite, the first
 /// word came in about 1.9 s instead of 6 s with replies of the same kind.
+/// Her own voice for this turn (see `services::omni_voice`): where the panel
+/// that will play it asked for it, and Lite can say it. Otherwise the
+/// panel's stream ends at once, and it reads her words aloud as before.
+async fn her_voice(
+    request: &UserRequest,
+) -> Option<(
+    crate::config::OmniVoice,
+    crate::services::omni_voice::VoiceOut,
+)> {
+    let token = request
+        .context
+        .as_ref()?
+        .custom_data
+        .as_ref()?
+        .get("voiceOut")?
+        .as_str()?;
+    let out = crate::services::omni_voice::voice_out(token, request.user_id)?;
+    let omni = crate::GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .merope_omni_voice()
+        .ok()?;
+    Some((omni, out))
+}
+
 async fn chat_analyzer() -> Result<crate::services::analyzer::AiAnalyzer, String> {
     crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(None)
         .await
@@ -321,6 +346,9 @@ impl Agent {
         // Put together once: asking again is the same turn, and putting it
         // together judges soups and reads everything a second time.
         let prompt = self.chat_response_prompt(request).await;
+        // Said aloud in her own voice, where the panel will play it; asked
+        // again, the words alone, read aloud as before.
+        let voice = her_voice(request).await;
         let first = self
             .stream_chat_response_with_analyzer(
                 request,
@@ -328,6 +356,7 @@ impl Agent {
                 progress_tx,
                 analyzer,
                 speech_delivery.clone(),
+                voice,
             )
             .await;
         // The model now and then answers with nothing at all, or the provider
@@ -348,6 +377,7 @@ impl Agent {
             progress_tx,
             analyzer,
             speech_delivery,
+            None,
         )
         .await
     }
@@ -364,7 +394,10 @@ impl Agent {
             .analyze_stream_parts_with_images(&prompt, images_of(request), |_| async { true })
             .await;
         if response.as_ref().is_err_and(is_cut) {
-            tracing::warn!(user_id = request.user_id, "[Chat] reply cut off; asking once more");
+            tracing::warn!(
+                user_id = request.user_id,
+                "[Chat] reply cut off; asking once more"
+            );
             response = analyzer
                 .analyze_stream_parts_with_images(&prompt, images_of(request), |_| async { true })
                 .await;
@@ -768,6 +801,10 @@ impl Agent {
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
         analyzer: crate::services::analyzer::AiAnalyzer,
         speech_delivery: Option<ChatDelivery>,
+        voice: Option<(
+            crate::config::OmniVoice,
+            crate::services::omni_voice::VoiceOut,
+        )>,
     ) -> Result<String, String> {
         let tx = progress_tx.clone();
         let wear = std::sync::Arc::new(std::sync::Mutex::new(WearStreamFilter::new(
@@ -779,49 +816,92 @@ impl Agent {
             .context
             .as_ref()
             .and_then(|context| context.session_id.clone());
-        let streamed = analyzer
-            .analyze_stream_parts_with_images(&prompt, images_of(request), |delta| {
-                let tx = tx.clone();
-                let speech_delivery = speech_delivery.clone();
-                let wear = wear.clone();
-                let db = db.clone();
-                let session_id = session_id.clone();
-                async move {
-                    let delta = match delta {
-                        crate::services::analyzer::StreamDelta::Text(token) => {
-                            let (spoken, directive, music) = wear
-                                .lock()
-                                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                                .push(&token);
-                            if let Some(directive) = directive {
-                                spawn_model_outfit_overlay(
-                                    db.clone(),
-                                    user_id,
-                                    session_id.clone(),
-                                    directive,
-                                    tx.clone(),
-                                );
-                            }
-                            if let Some(music) = music {
-                                spawn_chat_music_control(
-                                    music,
-                                    user_id,
-                                    session_id.as_deref(),
-                                    tx.clone(),
-                                );
-                            }
-                            if spoken.is_empty() {
-                                return true;
-                            }
-                            crate::services::analyzer::StreamDelta::Text(spoken)
+        let said_anything = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let heard = said_anything.clone();
+        let on_delta = |delta| {
+            heard.store(true, std::sync::atomic::Ordering::Relaxed);
+            let tx = tx.clone();
+            let speech_delivery = speech_delivery.clone();
+            let wear = wear.clone();
+            let db = db.clone();
+            let session_id = session_id.clone();
+            async move {
+                let delta = match delta {
+                    crate::services::analyzer::StreamDelta::Text(token) => {
+                        let (spoken, directive, music) = wear
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .push(&token);
+                        if let Some(directive) = directive {
+                            spawn_model_outfit_overlay(
+                                db.clone(),
+                                user_id,
+                                session_id.clone(),
+                                directive,
+                                tx.clone(),
+                            );
                         }
-                        other => other,
+                        if let Some(music) = music {
+                            spawn_chat_music_control(
+                                music,
+                                user_id,
+                                session_id.as_deref(),
+                                tx.clone(),
+                            );
+                        }
+                        if spoken.is_empty() {
+                            return true;
+                        }
+                        crate::services::analyzer::StreamDelta::Text(spoken)
+                    }
+                    other => other,
+                };
+                emit_chat_delta(&tx, delta, speech_delivery.as_ref()).await;
+                true
+            }
+        };
+        let mut streamed = None;
+        if let Some((omni, out)) = &voice {
+            let spoken =
+                crate::services::omni_voice::speak(omni, prompt, images_of(request), |piece| {
+                    let text = match piece {
+                        crate::services::omni_voice::OmniDelta::Text(text) => Some(text),
+                        crate::services::omni_voice::OmniDelta::Audio(sound) => {
+                            out.send(&sound);
+                            None
+                        }
                     };
-                    emit_chat_delta(&tx, delta, speech_delivery.as_ref()).await;
-                    true
+                    let shown = text
+                        .map(|text| on_delta(crate::services::analyzer::StreamDelta::Text(text)));
+                    async move {
+                        match shown {
+                            Some(shown) => shown.await,
+                            None => true,
+                        }
+                    }
+                })
+                .await;
+            // Nothing of it reached them: say it the usual way instead.
+            match spoken {
+                Err(error) if !said_anything.load(std::sync::atomic::Ordering::Relaxed) => {
+                    tracing::warn!(
+                        user_id,
+                        %error,
+                        "[Chat] her own voice did not answer; the words alone"
+                    );
                 }
-            })
-            .await;
+                spoken => streamed = Some(spoken),
+            }
+        }
+        drop(voice);
+        let streamed = match streamed {
+            Some(streamed) => streamed,
+            None => {
+                analyzer
+                    .analyze_stream_parts_with_images(&prompt, images_of(request), on_delta)
+                    .await
+            }
+        };
         // The provider dropped the reply halfway. Sent whole, nothing reached
         // anyone yet: ask again. On the panel they already saw it being
         // written: keep what they saw rather than take it back.
@@ -834,7 +914,10 @@ impl Agent {
                 if sent_whole(request) || partial.trim().is_empty() {
                     return Err(CUT_REPLY.to_string());
                 }
-                tracing::warn!(user_id, "[Chat] reply cut off halfway; keeping what was shown");
+                tracing::warn!(
+                    user_id,
+                    "[Chat] reply cut off halfway; keeping what was shown"
+                );
                 Ok(partial)
             }
             other => other,

@@ -42,6 +42,7 @@ pub mod memory_profile; // default vs memory-saver process budgets
 pub mod merope_rig; // Anime2.5D rig store (live pointer is worn outfit)
 pub mod metadata_service;
 pub mod minimax_speech; // MiniMax T2A speech synthesis
+pub mod omni_voice; // Her own voice from Lite's Omni model (DashScope direct)
 pub mod module_visibility; // Module visibility for Agent (no api::config import)
 pub mod music_player_view; // Player playlist projection (slim cache + Song fields)
 pub mod netease_service;

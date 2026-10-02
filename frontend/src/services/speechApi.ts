@@ -147,6 +147,8 @@ export interface SpeechStatus {
   convo_enabled?: boolean
   /** Missing/false: do not speak. */
   persona_speech_enabled?: boolean
+  /** `omni`: her replies come with her own voice (see `openVoiceStream`). */
+  persona_voice?: 'omni' | 'tts'
   error?: string
 }
 
@@ -407,6 +409,34 @@ export function audioToBase64(blob: Blob): Promise<string> {
     reader.onerror = reject
     reader.readAsDataURL(blob)
   })
+}
+
+/**
+ * Her own voice for one reply: 16-bit mono PCM at 24 kHz as it is spoken,
+ * under the token sent with that turn (`customData.voiceOut`). Resolves with
+ * the bytes heard; none means the turn did not speak, and the words are
+ * read aloud instead.
+ */
+export async function openVoiceStream(
+  token: string,
+  signal: AbortSignal,
+  onBytes: (bytes: Uint8Array) => void,
+): Promise<number> {
+  const response = await fetch(`${API_BASE}/voice/${encodeURIComponent(token)}`, {
+    credentials: 'include',
+    signal,
+  })
+  if (!response.ok || !response.body) return 0
+  const reader = response.body.getReader()
+  let heard = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) return heard
+    if (value && value.byteLength > 0) {
+      heard += value.byteLength
+      onBytes(value)
+    }
+  }
 }
 
 export async function textToSpeech(

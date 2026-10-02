@@ -83,6 +83,8 @@ export const ADVANCED_RESET_KEYS: readonly string[] = Object.freeze([
 export const AGENT_UI_RESET_KEYS: readonly string[] = Object.freeze([
   'merope_enabled',
   'merope_speech_enabled',
+  'merope_voice_mode',
+  'merope_voice_voice',
 ])
 
 /** UI bag; base_url is SiteUrlField */
