@@ -126,8 +126,7 @@ export function compileAnime25DGpuLayers(
       playback.anchors.face,
     )
     const face = playback.layers.find((layer) => layer.role === 'face')
-    const nose = playback.layers.find((layer) => layer.role === 'nose' && layer.group === 'head')
-    const headSilhouette = face ? headSilhouetteFromFace(face, readBindingPixels(face), nose ? nose.y + nose.h : undefined) : null
+    const headSilhouette = face ? headSilhouetteFromFace(face, readBindingPixels(face)) : null
     const turnFeatures = headTurnFeatures(playback.layers)
     const linkedArmAnchorX = armsLinked && leftArm && rightArm
       ? (Math.min(leftArm.x, rightArm.x) + Math.max(leftArm.x + leftArm.w, rightArm.x + rightArm.w)) / 2

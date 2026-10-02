@@ -30,7 +30,7 @@ import {
 } from './collarRuntime'
 import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
 import { hairChainOffset, hairChainTurn } from './hairChain'
-import { HEAD_TURN_SHARE, HEAD_TURN_TUNING } from './headTurn'
+import { HEAD_TURN_SHARE } from './headTurn'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint } from './shellDeformation'
@@ -40,8 +40,6 @@ import {
   deformAnime25DTorsoShellPoint,
   SLEEVE_TORSO_TRANSMISSION,
 } from './torsoDeformation'
-
-const KEYFORM_OFFSET = { x: 0, y: 0 }
 
 type SecondaryDeformationDriver = Pick<
   Anime25DDriver,
@@ -347,13 +345,6 @@ export function deformAnime25DSecondaryPoint(
         const turnBlend = frame.headTurn?.silhouette ? frame.shellActivation * HEAD_TURN_SHARE : frame.shellBlend
         point.x = legacyX + (point.x - legacyX) * turnBlend
         point.y = legacyY + (point.y - legacyY) * turnBlend
-        const keyform = HEAD_TURN_TUNING.keyform
-        if (keyform && frame.expression.angleX > 0) {
-          keyform(source, restX, restY, KEYFORM_OFFSET)
-          const share = Math.min(1, frame.expression.angleX) * headFollow
-          point.x += KEYFORM_OFFSET.x * share
-          point.y += KEYFORM_OFFSET.y * share
-        }
       } else {
         point.x = legacyX
         point.y = legacyY
