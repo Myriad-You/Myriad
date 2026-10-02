@@ -110,10 +110,6 @@ standard_fields! {
         speech_tts_voice,
         merope_voice_mode,
         merope_voice_voice,
-        agora_app_id,
-        agora_app_certificate,
-        agora_customer_id,
-        agora_api_base,
         site_visibility_policy,
     ],
     opt_text: [
@@ -124,7 +120,6 @@ standard_fields! {
         provider_gemini_api_key,
         provider_tinyfish_api_key,
         provider_volcengine_api_key,
-        agora_customer_secret,
         base_url,
         site_title,
         site_description,
@@ -496,12 +491,6 @@ impl ConfigService {
                     config.ai_vendor_sources = parsed;
                 }
             }
-        }
-        if let Some(v) = map.get("agora_convo_enabled") {
-            config.agora_convo_enabled = v
-                .as_bool()
-                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
-                .unwrap_or(config.agora_convo_enabled);
         }
         if let Some(v) = map.get("qq_bot_enabled") {
             config.qq_bot_enabled = v

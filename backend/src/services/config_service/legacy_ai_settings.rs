@@ -4,7 +4,8 @@
 //! were named after Lite. Images and speech each had a provider beside their
 //! source, and keys and endpoints of their own. Tencent Cloud's credentials
 //! and the shared OpenAI and Volcengine endpoints had settings of their own
-//! that no page edited. Now a tier, images and speech are each a source
+//! that no page edited, and so did Shengwang's realtime talk beside its
+//! source. Now a tier, images and speech are each a source
 //! (plus their models), keys live in the shared vault, and endpoints and
 //! Tencent's credentials on the sources.
 //!
@@ -66,12 +67,23 @@ const VAULT_KEYS: &[&str] = &[
     "provider_volcengine_base_url",
 ];
 
+/// Shengwang's own settings, now its source.
+const AGORA_KEYS: &[&str] = &[
+    "agora_convo_enabled",
+    "agora_app_id",
+    "agora_app_certificate",
+    "agora_customer_id",
+    "agora_customer_secret",
+    "agora_api_base",
+];
+
 /// Every old key. None of them is stored after the upgrade.
 pub(crate) fn legacy_keys() -> impl Iterator<Item = &'static str> {
     TIER_KEYS
         .iter()
         .chain(SERVICE_KEYS)
         .chain(VAULT_KEYS)
+        .chain(AGORA_KEYS)
         .copied()
 }
 
@@ -147,6 +159,11 @@ pub(crate) fn upgrade(stored: &HashMap<String, JsonValue>) -> HashMap<String, Js
     seen.extend(out.clone());
     if VAULT_KEYS.iter().any(|key| seen.contains_key(*key)) {
         upgrade_vault(&seen, &mut out);
+    }
+    if AGORA_KEYS.iter().any(|key| stored.contains_key(*key)) {
+        let mut seen = stored.clone();
+        seen.extend(out.clone());
+        upgrade_agora(&seen, &mut out);
     }
     // A stage may fill an old key a later one moves on (the shared OpenAI
     // endpoint onto its sources); none is written back.
@@ -352,46 +369,9 @@ fn upgrade_vault(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, 
         return;
     }
 
-    let mut sources: Vec<JsonValue> = match stored.get("ai_vendor_sources") {
-        Some(JsonValue::Array(items)) => items.clone(),
-        Some(JsonValue::String(raw)) => serde_json::from_str(raw).unwrap_or_default(),
-        _ => Vec::new(),
-    };
-    let shared = |slug: &str, kind: &str, name: &str, base: &str| {
-        serde_json::to_value(crate::config::AiVendorSource {
-            slug: slug.to_string(),
-            kind: kind.to_string(),
-            display_name: name.to_string(),
-            enabled: true,
-            preset: slug.to_string(),
-            api_format: if kind == "gemini" {
-                "gemini".to_string()
-            } else {
-                String::new()
-            },
-            credential_mode: "shared".to_string(),
-            shared_key_ref: Some(slug.to_string()),
-            base_url: base.to_string(),
-            ..Default::default()
-        })
-        .expect("a vendor source is JSON")
-    };
+    let mut sources = stored_sources(stored);
     if sources.is_empty() {
-        for (slug, kind, name, base) in [
-            ("openrouter", "openrouter", "OpenRouter", OPENROUTER_BASE),
-            ("openai", "openai", "OpenAI", openai_base.as_str()),
-            ("gemini", "gemini", "Gemini", ""),
-            (
-                "volcengine",
-                "volcengine",
-                "Volcengine",
-                volcengine_base.as_str(),
-            ),
-        ] {
-            if filled(stored, &format!("provider_{slug}_api_key")).is_some() {
-                sources.push(shared(slug, kind, name, base));
-            }
-        }
+        sources = synthesized_sources(stored, &openai_base, &volcengine_base);
     } else {
         let kind_of = |source: &JsonValue| {
             source
@@ -480,9 +460,107 @@ fn upgrade_vault(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, 
             .iter()
             .any(|source| source.get("slug").and_then(JsonValue::as_str) == Some(slug));
         if custom && !has_slug && filled(stored, &format!("provider_{slug}_api_key")).is_some() {
-            sources.push(shared(slug, kind, name, base));
+            sources.push(shared_source(slug, kind, name, base));
         }
     }
+    out.insert("ai_vendor_sources".to_string(), JsonValue::Array(sources));
+}
+
+/// The stored source list: a JSON array, or one encoded as a string.
+fn stored_sources(stored: &HashMap<String, JsonValue>) -> Vec<JsonValue> {
+    match stored.get("ai_vendor_sources") {
+        Some(JsonValue::Array(items)) => items.clone(),
+        Some(JsonValue::String(raw)) => serde_json::from_str(raw).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// A source on a shared key, as an empty list was synthesized.
+fn shared_source(slug: &str, kind: &str, name: &str, base: &str) -> JsonValue {
+    serde_json::to_value(crate::config::AiVendorSource {
+        slug: slug.to_string(),
+        kind: kind.to_string(),
+        display_name: name.to_string(),
+        enabled: true,
+        preset: slug.to_string(),
+        api_format: if kind == "gemini" {
+            "gemini".to_string()
+        } else {
+            String::new()
+        },
+        credential_mode: "shared".to_string(),
+        shared_key_ref: Some(slug.to_string()),
+        base_url: base.to_string(),
+        ..Default::default()
+    })
+    .expect("a vendor source is JSON")
+}
+
+/// What an empty list stood for: a source per shared key that is set.
+/// Written down before anything else joins the list, or they would stop.
+fn synthesized_sources(
+    stored: &HashMap<String, JsonValue>,
+    openai_base: &str,
+    volcengine_base: &str,
+) -> Vec<JsonValue> {
+    [
+        ("openrouter", "openrouter", "OpenRouter", OPENROUTER_BASE),
+        ("openai", "openai", "OpenAI", openai_base),
+        ("gemini", "gemini", "Gemini", ""),
+        ("volcengine", "volcengine", "Volcengine", volcengine_base),
+    ]
+    .into_iter()
+    .filter(|(slug, ..)| filled(stored, &format!("provider_{slug}_api_key")).is_some())
+    .map(|(slug, kind, name, base)| shared_source(slug, kind, name, base))
+    .collect()
+}
+
+/// Shengwang's realtime talk had settings of its own beside its source and
+/// was synthesized from them while no Agora source was listed; it is
+/// written down as that source.
+fn upgrade_agora(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, JsonValue>) {
+    let app_id = filled(stored, "agora_app_id");
+    let certificate = filled(stored, "agora_app_certificate");
+    let customer_id = filled(stored, "agora_customer_id");
+    let customer_secret = filled(stored, "agora_customer_secret");
+    if app_id.is_none()
+        && certificate.is_none()
+        && customer_id.is_none()
+        && customer_secret.is_none()
+    {
+        return;
+    }
+    let mut sources = stored_sources(stored);
+    let listed = sources.iter().any(|source| {
+        serde_json::from_value::<crate::config::AiVendorSource>(source.clone())
+            .is_ok_and(|source| source.is_agora())
+    });
+    if listed {
+        return;
+    }
+    if sources.is_empty() {
+        sources = synthesized_sources(stored, OPENAI_BASE, VOLCENGINE_BASE);
+    }
+    let switched_on = stored.get("agora_convo_enabled").is_some_and(|value| {
+        value.as_bool() == Some(true) || matches!(value.as_str(), Some("true" | "1"))
+    });
+    sources.push(
+        serde_json::to_value(crate::config::AiVendorSource {
+            slug: "agora".to_string(),
+            kind: "agora".to_string(),
+            display_name: "Shengwang / Agora".to_string(),
+            enabled: switched_on,
+            preset: "agora".to_string(),
+            api_key: certificate,
+            secret_id: customer_id,
+            secret_key: customer_secret,
+            app_id,
+            base_url: filled(stored, "agora_api_base")
+                .unwrap_or_else(|| "https://api.agora.io/cn".to_string()),
+            ..Default::default()
+        })
+        .expect("a vendor source is JSON"),
+    );
     out.insert("ai_vendor_sources".to_string(), JsonValue::Array(sources));
 }
 
@@ -795,5 +873,45 @@ mod tests {
             ("tencent_secret_id", json!(null)),
         ]));
         assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn shengwang_settings_become_its_source() {
+        let out = upgrade(&stored(&[
+            ("agora_convo_enabled", json!(true)),
+            ("agora_app_id", json!("app")),
+            ("agora_app_certificate", json!("cert")),
+            ("agora_customer_id", json!("cid")),
+            ("agora_customer_secret", json!("csecret")),
+            ("agora_api_base", json!("")),
+            ("provider_openrouter_api_key", json!("sk-or")),
+            ("ai_vendor_sources", json!([])),
+        ]));
+        let sources: Vec<crate::config::AiVendorSource> =
+            serde_json::from_value(out["ai_vendor_sources"].clone()).unwrap();
+        // The shared-key sources it stood beside are written down too.
+        assert!(sources.iter().any(|source| source.slug == "openrouter"));
+        let agora = sources.iter().find(|source| source.is_agora()).unwrap();
+        assert!(agora.enabled);
+        assert_eq!(agora.app_id.as_deref(), Some("app"));
+        assert_eq!(agora.api_key.as_deref(), Some("cert"));
+        assert_eq!(agora.secret_id.as_deref(), Some("cid"));
+        assert_eq!(agora.secret_key.as_deref(), Some("csecret"));
+        assert_eq!(agora.base_url, "https://api.agora.io/cn");
+
+        // An Agora source already listed wins; blank settings change nothing.
+        let listed = upgrade(&stored(&[
+            ("agora_app_id", json!("old")),
+            (
+                "ai_vendor_sources",
+                json!([{"slug": "agora", "kind": "agora", "display_name": "A", "enabled": true}]),
+            ),
+        ]));
+        assert!(!listed.contains_key("ai_vendor_sources"));
+        let blank = upgrade(&stored(&[
+            ("agora_convo_enabled", json!(false)),
+            ("agora_app_id", json!("")),
+        ]));
+        assert!(blank.is_empty(), "{blank:?}");
     }
 }

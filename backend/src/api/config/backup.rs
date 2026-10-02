@@ -1443,41 +1443,6 @@ mod settings_backup_tests {
     }
 
     #[test]
-    fn saves_agora_realtime_talk_fields() {
-        let mut config = empty_config();
-        config.ai_config.config_fields = vec![
-            ui_field("agora_convo_enabled", "true"),
-            ui_field("agora_app_id", "970ca35de60c44645bbae8a215061b33"),
-            ui_field("agora_api_base", "https://api.agora.io/cn"),
-        ];
-        let updates = collect_database_updates(&config).expect("valid config");
-        assert_eq!(updates.get("agora_convo_enabled"), Some(&json!(true)));
-        assert_eq!(
-            updates.get("agora_app_id"),
-            Some(&json!("970ca35de60c44645bbae8a215061b33"))
-        );
-        assert_eq!(
-            updates.get("agora_api_base"),
-            Some(&json!("https://api.agora.io/cn"))
-        );
-    }
-
-    #[test]
-    fn saving_vendors_without_agora_clears_legacy_realtime_talk() {
-        let mut config = empty_config();
-        config.ai_config.config_fields = vec![ui_field(
-            "ai_vendor_sources",
-            r#"[{"slug":"openai","kind":"openai","display_name":"OpenAI","enabled":true}]"#,
-        )];
-        let updates = collect_database_updates(&config).expect("valid config");
-        assert_eq!(updates.get("agora_convo_enabled"), Some(&json!(false)));
-        assert_eq!(updates.get("agora_app_id"), Some(&json!("")));
-        assert_eq!(updates.get("agora_app_certificate"), Some(&json!("")));
-        assert_eq!(updates.get("agora_customer_id"), Some(&json!("")));
-        assert_eq!(updates.get("agora_customer_secret"), Some(&json!("")));
-    }
-
-    #[test]
     fn tripo_config_is_independent_clamped_and_keeps_masked_key() {
         let mut config = empty_config();
         config.tripo_config.config_fields = vec![

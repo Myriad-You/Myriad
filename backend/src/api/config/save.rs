@@ -153,26 +153,6 @@ async fn save_to_database(
     Ok(())
 }
 
-fn vendor_json_is_agora(value: &serde_json::Value) -> bool {
-    let kind = value
-        .get("kind")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let preset = value
-        .get("preset")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let slug = value
-        .get("slug")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    kind.eq_ignore_ascii_case("agora")
-        || preset.eq_ignore_ascii_case("agora")
-        || slug == "agora"
-        || slug.starts_with("agora-")
-}
-
 fn merge_vendor_source_secrets_with(
     incoming: serde_json::Value,
     existing: Result<Vec<crate::config::AiVendorSource>, String>,
@@ -484,21 +464,6 @@ pub(crate) fn collect_database_updates_with_vendor(
             "pro_ai_source" => ("pro_ai_source", JsonValue::String(field.value.clone())),
             "ai_image_source" => ("ai_image_source", JsonValue::String(field.value.clone())),
             "speech_source" => ("speech_source", JsonValue::String(field.value.clone())),
-            "agora_convo_enabled" => (
-                "agora_convo_enabled",
-                JsonValue::Bool(field.value == "true"),
-            ),
-            "agora_app_id" => ("agora_app_id", JsonValue::String(field.value.clone())),
-            "agora_app_certificate" => (
-                "agora_app_certificate",
-                JsonValue::String(field.value.clone()),
-            ),
-            "agora_customer_id" => ("agora_customer_id", JsonValue::String(field.value.clone())),
-            "agora_customer_secret" => (
-                "agora_customer_secret",
-                JsonValue::String(field.value.clone()),
-            ),
-            "agora_api_base" => ("agora_api_base", JsonValue::String(field.value.clone())),
             "qq_bot_enabled" => (
                 "qq_bot_enabled",
                 JsonValue::Bool(field.value == "true" || field.value == "1"),
@@ -577,10 +542,6 @@ pub(crate) fn collect_database_updates_with_vendor(
                 | "ai_image_source"
                 | "speech_source"
                 | "ai_vendor_sources"
-                | "agora_convo_enabled"
-                | "agora_app_id"
-                | "agora_customer_id"
-                | "agora_api_base"
                 | "qq_bot_enabled"
                 | "qq_bot_app_id"
                 | "telegram_bot_enabled"
@@ -605,29 +566,6 @@ pub(crate) fn collect_database_updates_with_vendor(
         }
         updates.insert(key.to_string(), json_value);
     }
-    if updates.contains_key("ai_vendor_sources") {
-        let has_agora = updates
-            .get("ai_vendor_sources")
-            .and_then(JsonValue::as_array)
-            .is_some_and(|sources| sources.iter().any(vendor_json_is_agora));
-        if !has_agora {
-            updates.insert("agora_convo_enabled".to_string(), JsonValue::Bool(false));
-            updates.insert("agora_app_id".to_string(), JsonValue::String(String::new()));
-            updates.insert(
-                "agora_app_certificate".to_string(),
-                JsonValue::String(String::new()),
-            );
-            updates.insert(
-                "agora_customer_id".to_string(),
-                JsonValue::String(String::new()),
-            );
-            updates.insert(
-                "agora_customer_secret".to_string(),
-                JsonValue::String(String::new()),
-            );
-        }
-    }
-
     // 保存独立 Tripo 3D 配置。密钥掩码必须保留库中原值。
     for field in &config.tripo_config.config_fields {
         let value = field.value.trim();
@@ -1135,7 +1073,7 @@ mod tests {
         let persist = src
             .split("async fn save_to_database")
             .nth(1)
-            .and_then(|rest| rest.split("fn vendor_json_is_agora").next())
+            .and_then(|rest| rest.split("fn merge_vendor_source_secrets_with").next())
             .expect("save_to_database");
         assert!(persist.contains("ConfigPersistError::Invalid"));
         assert!(!persist.contains("ErrorKind::InvalidInput"));

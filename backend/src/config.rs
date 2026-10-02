@@ -442,15 +442,6 @@ pub struct DynamicConfig {
     /// 语音走的服务商源（slug）。留空按出厂的腾讯云。
     pub speech_source: String,
 
-    /// 声网 Conversational AI（实时对话通道）。默认关。
-    pub agora_convo_enabled: bool,
-    pub agora_app_id: String,
-    pub agora_app_certificate: String,
-    pub agora_customer_id: String,
-    pub agora_customer_secret: Option<String>,
-    /// 空则运行时回落到 `https://api.agora.io/cn`
-    pub agora_api_base: String,
-
     /// QQ 机器人办事通道。默认关；凭证只写，不复用 Discord OAuth。
     pub qq_bot_enabled: bool,
     pub qq_bot_app_id: String,
@@ -795,12 +786,6 @@ impl Default for DynamicConfig {
             ai_vendor_sources: Vec::new(),
             ai_image_source: "openrouter".to_string(),
             speech_source: "tencent".to_string(),
-            agora_convo_enabled: false,
-            agora_app_id: String::new(),
-            agora_app_certificate: String::new(),
-            agora_customer_id: String::new(),
-            agora_customer_secret: None,
-            agora_api_base: String::new(),
             qq_bot_enabled: false,
             qq_bot_app_id: String::new(),
             qq_bot_app_secret: None,
@@ -1275,37 +1260,6 @@ impl DynamicConfig {
         sources
     }
 
-    fn synthesize_agora_source(&self) -> Option<AiVendorSource> {
-        let app_id = Self::nonempty_opt(Some(&self.agora_app_id));
-        let certificate = Self::nonempty_opt(Some(&self.agora_app_certificate));
-        let customer_id = Self::nonempty_opt(Some(&self.agora_customer_id));
-        let customer_secret = Self::nonempty_opt(self.agora_customer_secret.as_ref());
-        if app_id.is_none()
-            && certificate.is_none()
-            && customer_id.is_none()
-            && customer_secret.is_none()
-        {
-            return None;
-        }
-        Some(AiVendorSource {
-            slug: "agora".to_string(),
-            kind: "agora".to_string(),
-            display_name: "Shengwang / Agora".to_string(),
-            enabled: self.agora_convo_enabled,
-            preset: "agora".to_string(),
-            api_key: certificate,
-            secret_id: customer_id,
-            secret_key: customer_secret,
-            app_id,
-            base_url: if self.agora_api_base.trim().is_empty() {
-                "https://api.agora.io/cn".to_string()
-            } else {
-                self.agora_api_base.trim().to_string()
-            },
-            ..AiVendorSource::default()
-        })
-    }
-
     pub fn effective_vendor_sources(&self) -> Vec<AiVendorSource> {
         let mut sources = if self.ai_vendor_sources.is_empty() {
             self.synthesize_vendor_sources()
@@ -1323,11 +1277,6 @@ impl DynamicConfig {
                     source.credential_mode = "none".to_string();
                     source.shared_key_ref = None;
                 }
-            }
-        }
-        if !sources.iter().any(AiVendorSource::is_agora) {
-            if let Some(agora) = self.synthesize_agora_source() {
-                sources.push(agora);
             }
         }
         sources
