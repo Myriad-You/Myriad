@@ -380,7 +380,7 @@ async fn compose_line(
         Some((omni, out)) => {
             let aloud = crate::services::omni_voice::said_aloud(&format!("{system}\n\n{prompt}"));
             let mut unsaid = crate::services::omni_voice::Unsaid::default();
-            crate::services::omni_voice::speak(omni, &aloud, &[], None, |piece| {
+            let speaking = crate::services::omni_voice::speak(omni, &aloud, &[], None, |piece| {
                 match piece {
                     crate::services::omni_voice::OmniDelta::Text(text) => unsaid.written(&text),
                     crate::services::omni_voice::OmniDelta::Audio(sound) => {
@@ -390,9 +390,19 @@ async fn compose_line(
                     }
                 }
                 async { true }
-            })
+            });
+            // Billed and bounded as any line of hers is (see `call::Model`).
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(45),
+                crate::services::ai_cost_ledger::with_site_ai_ledger(
+                    user_id, "merope", "speak", speaking,
+                ),
+            )
             .await
-            .map_err(|error| error.to_string())
+            {
+                Ok(made) => made.map_err(|error| error.to_string()),
+                Err(_) => Err("her own voice ran out of time".to_string()),
+            }
         }
         None => model
             .text(&system, &prompt)

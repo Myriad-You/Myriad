@@ -183,10 +183,15 @@ const LINK_ENDINGS: [&str; 14] = [
     "com", "net", "org", "cn", "io", "me", "dev", "app", "top", "xyz", "jp", "co", "tv", "site",
 ];
 
-/// Whether `text` has begun a link or an action.
+/// Whether `text` has begun a link or an action. A link is caught by its
+/// first piece (`http`, `www`), never waiting for the rest to arrive, so not
+/// even the scheme is heard.
 fn unsayable(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
-    if lower.contains("[[") || lower.contains("://") || lower.contains("www.") {
+    if ["[[", "://", "http", "www"]
+        .iter()
+        .any(|start| lower.contains(start))
+    {
         return true;
     }
     // A bare domain: letters before a dot and a known ending after it.
@@ -624,9 +629,11 @@ mod tests {
         let mut unsaid = Unsaid::default();
         unsaid.written("好呀，我把地址发给你了。\n");
         assert!(unsaid.lets_through());
-        unsaid.written("https:/");
+        unsaid.written("htt");
         assert!(unsaid.lets_through(), "not a link yet");
-        unsaid.written("/example.com/a");
+        unsaid.written("ps");
+        assert!(!unsaid.lets_through(), "caught at its scheme");
+        unsaid.written("://example.com/a");
         assert!(!unsaid.lets_through());
         unsaid.written("\n还有");
         assert!(!unsaid.lets_through(), "held to the end of the turn");
