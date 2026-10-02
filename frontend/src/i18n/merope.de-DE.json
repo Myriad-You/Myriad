@@ -483,5 +483,23 @@
         "nothingLearned": "Seit {days} Tagen nichts Neues gelernt"
       }
     }
+  },
+  "fullBody": {
+    "title": "Ganzkörperfigur",
+    "description": "Optional. Zeichnet das Brustbild dieses Outfits als stehende Figur von Kopf bis Fuß und zerlegt sie in eine bewegliche Ganzkörperfigur. Panel und Widget zeigen weiterhin das Brustbild.",
+    "none": "Für dieses Outfit gibt es noch kein Ganzkörperbild.",
+    "generate": "Ganzkörperbild zeichnen",
+    "regenerate": "Ganzkörperbild neu zeichnen",
+    "generating": "Ganzkörperbild wird gezeichnet …",
+    "generateConfirm": "Das Ganzkörperbild wird aus dem aktuellen Brustbild neu gezeichnet; die bisherige Ganzkörperfigur wird verworfen. Fortfahren?",
+    "decompose": "Zerlegen und Vorschau",
+    "decomposing": "Wird in Ebenen zerlegt …",
+    "needsToken": "Hinterlege oben beim Ebenen-Rig ein Hugging-Face-Token, um automatisch zu zerlegen.",
+    "save": "Ganzkörperfigur speichern",
+    "saving": "Wird gespeichert …",
+    "saved": "Die Ganzkörperfigur dieses Outfits ist gespeichert.",
+    "preview": "Vorschau",
+    "portrait": "Ganzkörperbild",
+    "failed": "Das Ganzkörperbild konnte nicht gezeichnet werden. Bitte erneut versuchen."
   }
 }

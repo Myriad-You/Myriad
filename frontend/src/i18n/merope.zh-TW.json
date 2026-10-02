@@ -483,5 +483,23 @@
         "nothingLearned": "連著 {days} 天沒學到任何新東西"
       }
     }
+  },
+  "fullBody": {
+    "title": "全身形象",
+    "description": "可選。照這套衣服的半身立繪畫一張從頭到腳的站姿，拆層後做成能動的全身形象。面板和小組件仍然放半身。",
+    "none": "這套衣服還沒有全身立繪。",
+    "generate": "畫全身立繪",
+    "regenerate": "重畫全身立繪",
+    "generating": "正在畫全身立繪…",
+    "generateConfirm": "會照現在的半身立繪重畫一張全身立繪，已有的全身形象會作廢。繼續嗎？",
+    "decompose": "拆層並預覽",
+    "decomposing": "正在拆層…",
+    "needsToken": "先在上面的分層骨骼裡填寫 Hugging Face Token，才能自動拆層。",
+    "save": "儲存全身形象",
+    "saving": "正在儲存…",
+    "saved": "這套衣服的全身形象已儲存。",
+    "preview": "預覽",
+    "portrait": "全身立繪",
+    "failed": "全身立繪沒畫成，請重試。"
   }
 }

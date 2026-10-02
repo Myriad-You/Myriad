@@ -44,6 +44,7 @@ export async function preflightRigAsset(
   sourceGenerationFingerprint?: string,
   signal?: AbortSignal,
   expressions?: Parameters<typeof prepareRigPsdImport>[5],
+  profile?: Parameters<typeof prepareRigPsdImport>[6],
 ): Promise<RigAssetPreflight> {
   signal?.throwIfAborted()
   emit(onStage, 'validate-source', 'started')
@@ -64,6 +65,7 @@ export async function preflightRigAsset(
       sourceGenerationFingerprint,
       signal,
       expressions,
+      profile,
     )
     signal?.throwIfAborted()
     if (activeStage === 'validate-source') {

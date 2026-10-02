@@ -14,6 +14,7 @@ import {
 import { personaTourPanel } from '../../../components/tour/tourLogic'
 import { useI18n } from '../../../contexts/I18nContext'
 import { FaceTabs } from './FaceTabs'
+import { FullBodyPanel } from './FullBodyPanel'
 import { MotionPanel } from './MotionPanel'
 import { RigImportPanel } from './RigImportPanel'
 import { useRigImport } from './useRigImport'
@@ -143,6 +144,18 @@ export default function Anime25DWorkbench({
               motionEnabled={motionEnabled}
             />
           )}
+        </SettingGroup>
+      ) : null}
+      {panel === 'wardrobe' && outfitLead && outfitRig && source.sourceMasterAssetId ? (
+        <SettingGroup
+          title={labels.fullBody.title}
+          description={labels.fullBody.description}
+          id="merope-motion-full-body"
+        >
+          <FullBodyPanel
+            outfitKey={`${source.sourceMasterAssetId}\n${source.sourceGenerationFingerprint ?? ''}`}
+            seeThroughTokenConfigured={source.seeThroughTokenConfigured}
+          />
         </SettingGroup>
       ) : null}
       </div>

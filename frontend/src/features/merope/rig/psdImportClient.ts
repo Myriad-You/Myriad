@@ -1,6 +1,7 @@
 import type { Anime25DImportCopy } from './anime25dImportCopy'
 import type { PreparedAnime25DRigImport } from './anime25dImporter'
 import type { AuthoredExpressionKind } from './authoredExpression'
+import type { CharacterAssetProfile } from './contract'
 
 export interface RigPsdImportRequest {
   buffer: ArrayBuffer
@@ -10,6 +11,8 @@ export interface RigPsdImportRequest {
   /** Image-model redraws of the portrait, cut into authored expression parts. */
   expressions?: ReadonlyArray<{ kind: AuthoredExpressionKind; url: string }>
   copy: Anime25DImportCopy
+  /** The bust by default. */
+  profile?: CharacterAssetProfile
 }
 
 export type RigPsdImportStage = 'validated' | 'packing'

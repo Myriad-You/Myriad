@@ -483,5 +483,23 @@
         "nothingLearned": "Rien appris de nouveau depuis {days} jours"
       }
     }
+  },
+  "fullBody": {
+    "title": "Silhouette en pied",
+    "description": "Facultatif. Dessine le portrait en buste de cette tenue en silhouette debout de la tête aux pieds, puis la découpe en un personnage en pied animé. Le panneau et le widget gardent le buste.",
+    "none": "Cette tenue n’a pas encore de portrait en pied.",
+    "generate": "Dessiner le portrait en pied",
+    "regenerate": "Redessiner le portrait en pied",
+    "generating": "Dessin du portrait en pied…",
+    "generateConfirm": "Le portrait en pied sera redessiné à partir du buste actuel et la silhouette en pied existante sera abandonnée. Continuer ?",
+    "decompose": "Découper et prévisualiser",
+    "decomposing": "Découpage en calques…",
+    "needsToken": "Ajoutez un jeton Hugging Face dans le rig en calques ci-dessus pour découper automatiquement.",
+    "save": "Enregistrer la silhouette en pied",
+    "saving": "Enregistrement…",
+    "saved": "La silhouette en pied de cette tenue est enregistrée.",
+    "preview": "Aperçu",
+    "portrait": "Portrait en pied",
+    "failed": "Le portrait en pied n’a pas pu être dessiné. Réessayez."
   }
 }

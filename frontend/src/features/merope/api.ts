@@ -1,5 +1,6 @@
 import type { PoseCorrection } from './anime25drig/poseCorrections'
 import type { AuthoredExpressionKind } from './rig/authoredExpression'
+import type { CharacterAssetProfile } from './rig/contract'
 import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
@@ -73,14 +74,21 @@ function meropeError(
   )
 }
 
-let siteFaceInflight: Promise<SiteFace> | null = null
+const siteFaceInflight = new Map<CharacterAssetProfile, Promise<SiteFace>>()
 
-export async function getSiteFace(): Promise<SiteFace> {
-  if (siteFaceInflight) return siteFaceInflight
-  siteFaceInflight = loadFace(`${PREFIX}/active`).finally(() => {
-    siteFaceInflight = null
+/** The worn outfit's bust, or with `fullBody` its optional full figure. */
+export async function getSiteFace(
+  profile: CharacterAssetProfile = 'bust',
+): Promise<SiteFace> {
+  const inflight = siteFaceInflight.get(profile)
+  if (inflight) return inflight
+  const path =
+    profile === 'bust' ? `${PREFIX}/active` : `${PREFIX}/active?profile=${profile}`
+  const loading = loadFace(path).finally(() => {
+    siteFaceInflight.delete(profile)
   })
-  return siteFaceInflight
+  siteFaceInflight.set(profile, loading)
+  return loading
 }
 
 async function loadFace(path: string): Promise<SiteFace> {
@@ -185,6 +193,8 @@ function seeThroughError(status: number, body: unknown, fallback: string): Merop
 }
 
 export async function decomposeSitePortraitWithSeeThrough(input: {
+  /** Which of the worn outfit's portraits; the bust by default. */
+  profile?: CharacterAssetProfile
   sourceMasterAssetId: string
   sourceGenerationFingerprint?: string
   resolution?: number
@@ -379,6 +389,30 @@ function readExpressionUrls(value: Record<string, unknown> | undefined): SiteExp
     if (typeof url === 'string' && url.trim()) urls[kind] = url
   }
   return urls
+}
+
+/** Draws the worn outfit's full figure from its bust portrait. */
+export async function generateFullBodyPortrait(): Promise<{
+  portraitUrl: string | null
+  generationFingerprint: string | null
+}> {
+  try {
+    const data = await apiService.post<{
+      portraitUrl?: unknown
+      generationFingerprint?: unknown
+    }>(`${PREFIX}/full-body/portrait`, {}, { timeout: PORTRAIT_GENERATION_TIMEOUT_MS })
+    return {
+      portraitUrl: readPortraitUrl(data),
+      generationFingerprint:
+        typeof data.generationFingerprint === 'string' &&
+        /^[0-9a-f]{64}$/iu.test(data.generationFingerprint)
+          ? data.generationFingerprint.toLowerCase()
+          : null,
+    }
+  } catch (reason) {
+    if (reason instanceof MeropeApiError) throw reason
+    throw meropeError(reason, currentCopy().merope.fullBody.failed)
+  }
 }
 
 export async function generateSitePortrait(

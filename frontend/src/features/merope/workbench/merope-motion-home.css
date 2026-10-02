@@ -239,6 +239,48 @@ html.dark .merope-motion-page {
   min-width: 0;
 }
 
+.merope-full-body__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 200px));
+  gap: 12px;
+}
+
+.merope-full-body__figure {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.merope-full-body__frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgb(var(--merope-surface-rgb, 255 255 255) / 36%);
+}
+
+.merope-full-body__frame > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.merope-full-body__figure figcaption {
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+  text-align: center;
+}
+
+.merope-full-body__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .merope-motion-rig__tabs {
   margin: 0;
 }

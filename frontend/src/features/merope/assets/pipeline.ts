@@ -20,6 +20,7 @@ export async function preflightRigPsdAsset(
   sourceGenerationFingerprint?: string,
   signal?: AbortSignal,
   expressions?: Parameters<typeof prepareRigPsdImport>[5],
+  profile?: Parameters<typeof prepareRigPsdImport>[6],
 ): Promise<RigAssetPreflight> {
   return preflightRigAsset(
     file,
@@ -29,6 +30,7 @@ export async function preflightRigPsdAsset(
     sourceGenerationFingerprint,
     signal,
     expressions,
+    profile,
   )
 }
 

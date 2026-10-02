@@ -14,6 +14,7 @@ globalThis.onmessage = async (event: MessageEvent<RigPsdImportRequest>) => {
     sourceGenerationFingerprint,
     expressions,
     copy,
+    profile,
   } = event.data
   try {
     // The worker cannot read the page's saved locale.
@@ -48,6 +49,7 @@ globalThis.onmessage = async (event: MessageEvent<RigPsdImportRequest>) => {
       sourceGenerationFingerprint,
       master?.reference,
       expressionReferences,
+      profile,
     )
     reply({ prepared })
   } catch (error) {
