@@ -340,23 +340,6 @@ impl NotificationManager {
         let (tx, _) = broadcast::channel(512);
         let mut history = VecDeque::with_capacity(max_history);
 
-        // 启动时删除 `user_id IS NULL` 的通知：没有共享可变通知。
-        match notif_entity::Entity::delete_many()
-            .filter(notif_entity::Column::UserId.is_null())
-            .exec(&db)
-            .await
-        {
-            Ok(result) if result.rows_affected > 0 => tracing::warn!(
-                "[Notifications] Removed {} legacy ownerless notifications",
-                result.rows_affected
-            ),
-            Ok(_) => {}
-            Err(error) => tracing::warn!(
-                "[Notifications] Failed to remove legacy ownerless notifications: {}",
-                error
-            ),
-        }
-
         match notif_entity::Entity::find()
             .order_by_desc(notif_entity::Column::CreatedAt)
             .limit(max_history as u64)

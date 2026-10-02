@@ -37,14 +37,9 @@ impl Agent {
         if task.status != TaskStatus::WaitingForInput {
             return Err("Task is not waiting for input".to_string());
         }
-        let recipe = task.recipe.ok_or_else(|| {
-            "Recipe not available for resume (task may have been loaded from DB after restart)"
-                .to_string()
-        })?;
-        // Tasks from the retired DAG executor cannot continue on the Work loop.
-        if !super::super::work_loop::is_work_recipe(&recipe) {
+        if task.recipe.is_none() {
             return Err(
-                "This task was started by a retired engine and cannot resume. Please send the request again."
+                "Recipe not available for resume (task may have been loaded from DB after restart)"
                     .to_string(),
             );
         }

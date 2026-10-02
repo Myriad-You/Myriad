@@ -1,6 +1,6 @@
--- Persistent media asset model. Idempotent for greenfield 003 and runtime heals.
--- New columns stay nullable/defaulted so existing catalog rows survive the
--- expansion phase. Tightening NOT NULL happens after backfill, not here.
+-- Persistent media asset model, run by greenfield 003. Idempotent.
+-- New columns stay nullable/defaulted; tightening NOT NULL happens after
+-- backfill, not here.
 
 CREATE TABLE IF NOT EXISTS media_assets (
     id SERIAL PRIMARY KEY,
@@ -30,33 +30,6 @@ CREATE TABLE IF NOT EXISTS media_assets (
     write_lease_until TIMESTAMPTZ,
     producer_key TEXT
 );
-
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS public_id UUID DEFAULT gen_random_uuid();
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'legacy_unknown';
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS created_by INTEGER;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS storage_key TEXT;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS state TEXT;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS exposure TEXT DEFAULT 'public';
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS first_published_at TIMESTAMPTZ;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'legacy';
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS derived_from_id INTEGER;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS checksum_sha256 TEXT;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS width INTEGER;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS height INTEGER;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS state_since TIMESTAMPTZ;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS references_complete BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS write_token UUID;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS write_lease_until TIMESTAMPTZ;
-ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS producer_key TEXT;
-
-UPDATE media_assets SET public_id = gen_random_uuid() WHERE public_id IS NULL;
-UPDATE media_assets SET scope = 'legacy_unknown' WHERE scope IS NULL;
-UPDATE media_assets SET exposure = 'public' WHERE exposure IS NULL;
-UPDATE media_assets SET source = 'legacy' WHERE source IS NULL;
-UPDATE media_assets SET updated_at = created_at WHERE updated_at IS NULL;
-UPDATE media_assets SET references_complete = FALSE WHERE references_complete IS NULL;
 
 DO $$
 BEGIN
