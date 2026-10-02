@@ -1,4 +1,4 @@
-/** reset must match default delegation: theme+shortcut for users; guests closed */
+/** reset must match default delegation: theme+shortcut for users; guests have none */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
@@ -10,9 +10,9 @@ describe('DEFAULT_PERMISSION_CONFIG', () => {
     assert.equal(DEFAULT_PERMISSION_CONFIG.user_perm_shortcut_register, true)
   })
 
-  it('keeps the corresponding guest delegations closed', () => {
-    assert.equal(DEFAULT_PERMISSION_CONFIG.guest_perm_component_theme, false)
-    assert.equal(DEFAULT_PERMISSION_CONFIG.guest_perm_shortcut_register, false)
+  it('has no guest delegation for what needs a signed-in subject', () => {
+    assert.equal('guest_perm_component_theme' in DEFAULT_PERMISSION_CONFIG, false)
+    assert.equal('guest_perm_shortcut_register' in DEFAULT_PERMISSION_CONFIG, false)
   })
 
   it('keeps every other elevated delegation closed', () => {
@@ -20,7 +20,6 @@ describe('DEFAULT_PERMISSION_CONFIG', () => {
       DEFAULT_PERMISSION_CONFIG.user_perm_ai_generate,
       DEFAULT_PERMISSION_CONFIG.user_perm_ai_analyze,
       DEFAULT_PERMISSION_CONFIG.user_perm_ai_chat,
-      DEFAULT_PERMISSION_CONFIG.user_perm_report_write,
       DEFAULT_PERMISSION_CONFIG.user_perm_network_fetch,
       DEFAULT_PERMISSION_CONFIG.user_perm_event_publish,
       DEFAULT_PERMISSION_CONFIG.user_perm_ai_image,
@@ -37,20 +36,11 @@ describe('DEFAULT_PERMISSION_CONFIG', () => {
       DEFAULT_PERMISSION_CONFIG.guest_perm_ai_generate,
       DEFAULT_PERMISSION_CONFIG.guest_perm_ai_analyze,
       DEFAULT_PERMISSION_CONFIG.guest_perm_ai_chat,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_report_write,
       DEFAULT_PERMISSION_CONFIG.guest_perm_network_fetch,
       DEFAULT_PERMISSION_CONFIG.guest_perm_event_publish,
       DEFAULT_PERMISSION_CONFIG.guest_perm_ai_image,
       DEFAULT_PERMISSION_CONFIG.guest_perm_ai_search,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_3d_generate,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_scheduler_register,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_speech_tts,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_speech_asr,
       DEFAULT_PERMISSION_CONFIG.guest_perm_storage_write,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_federation_post,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_federation_channel,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_federation_room,
-      DEFAULT_PERMISSION_CONFIG.guest_perm_phantasi_comment_write,
     ]
     assert.ok(
       closed.every((value) => value === false),

@@ -29,7 +29,6 @@ export type {
   ConfigField,
   PlatformConfig,
   QuickAccessItem,
-  ReportConfig,
   SaveLibrarySourcePreferencesResponse,
   ShowMessage,
   UiConfig,

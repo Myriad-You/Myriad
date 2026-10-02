@@ -434,12 +434,8 @@ mod tests {
 
     #[test]
     fn test_media_control_is_basic_for_all_roles() {
-        // media:control is basic: always allowed regardless of user/guest_perm_media_control
-        let config = DynamicConfig {
-            user_perm_media_control: false,
-            guest_perm_media_control: false,
-            ..DynamicConfig::default()
-        };
+        // media:control is basic: always allowed, nothing to delegate.
+        let config = DynamicConfig::default();
         assert_eq!(TappPermission::MediaControl.level(), PermissionLevel::Basic);
         assert!(!TappPermission::all_elevated().contains(&TappPermission::MediaControl));
         assert!(TappPermissionService::check(
@@ -465,14 +461,7 @@ mod tests {
 
     #[test]
     fn test_guest_runtime_grant_excludes_authenticated_subject_capabilities() {
-        let config = DynamicConfig {
-            guest_perm_component_theme: true,
-            guest_perm_shortcut_register: true,
-            guest_perm_scheduler_register: true,
-            guest_perm_speech_tts: true,
-            guest_perm_speech_asr: true,
-            ..DynamicConfig::default()
-        };
+        let config = DynamicConfig::default();
         let requested = vec![
             "platform:read".to_string(),
             "analytics:read".to_string(),
@@ -584,7 +573,6 @@ mod tests {
 
         let defaults = DynamicConfig::default();
         assert!(!defaults.user_perm_3d_generate);
-        assert!(!defaults.guest_perm_3d_generate);
         assert!(!TappPermissionService::check(
             &defaults,
             UserRole::User,
@@ -593,7 +581,6 @@ mod tests {
 
         let delegated = DynamicConfig {
             user_perm_3d_generate: true,
-            guest_perm_3d_generate: true,
             ..DynamicConfig::default()
         };
         assert!(TappPermissionService::check(
@@ -601,7 +588,7 @@ mod tests {
             UserRole::User,
             TappPermission::ThreeDGenerate
         ));
-        // 游客列已删：即使库里残留 guest_perm_3d_generate=true 也不授予。
+        // 游客没有这一列。
         assert!(!TappPermissionService::check(
             &delegated,
             UserRole::Guest,
@@ -736,7 +723,6 @@ mod tests {
         // 显式下放后 user 可用；guest 仍受认证主体约束
         let delegated = DynamicConfig {
             user_perm_phantasi_comment_write: true,
-            guest_perm_phantasi_comment_write: true,
             ..DynamicConfig::default()
         };
         assert!(TappPermissionService::check(
@@ -1023,9 +1009,6 @@ mod tests {
             user_perm_federation_post: true,
             user_perm_federation_channel: true,
             user_perm_federation_room: true,
-            guest_perm_federation_post: true, // 配置即使开启也无效
-            guest_perm_federation_channel: true,
-            guest_perm_federation_room: true,
             ..DynamicConfig::default()
         };
         assert!(TappPermissionService::check(
@@ -1206,5 +1189,53 @@ mod tests {
             generic.message(),
             "Unknown Tapp permission 'legacy:unknown'"
         );
+    }
+
+    /// Guest flags for capabilities that need a signed-in subject, and the
+    /// never-delegated report and media flags, have no setting: old rows
+    /// left in storage grant nothing.
+    #[test]
+    fn leftover_flags_in_storage_grant_nothing() {
+        let stored = [
+            "guest_perm_3d_generate",
+            "guest_perm_component_theme",
+            "guest_perm_shortcut_register",
+            "guest_perm_scheduler_register",
+            "guest_perm_speech_tts",
+            "guest_perm_speech_asr",
+            "guest_perm_federation_post",
+            "guest_perm_federation_channel",
+            "guest_perm_federation_room",
+            "guest_perm_phantasi_comment_write",
+            "guest_perm_report_write",
+            "user_perm_report_write",
+        ]
+        .map(|key| (key.to_string(), serde_json::json!(true)));
+        let config = crate::services::config_service::ConfigService::parse_config(
+            std::collections::HashMap::from(stored),
+        );
+        for permission in [
+            TappPermission::ThreeDGenerate,
+            TappPermission::ComponentTheme,
+            TappPermission::ShortcutRegister,
+            TappPermission::SchedulerRegister,
+            TappPermission::SpeechTts,
+            TappPermission::SpeechAsr,
+            TappPermission::FederationPost,
+            TappPermission::FederationChannel,
+            TappPermission::FederationRoom,
+            TappPermission::PhantasiCommentWrite,
+            TappPermission::ReportWrite,
+        ] {
+            assert!(
+                !TappPermissionService::check(&config, UserRole::Guest, permission),
+                "{permission:?}"
+            );
+        }
+        assert!(!TappPermissionService::check(
+            &config,
+            UserRole::User,
+            TappPermission::ReportWrite
+        ));
     }
 }

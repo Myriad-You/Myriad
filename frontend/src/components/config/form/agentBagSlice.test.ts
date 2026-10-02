@@ -34,7 +34,6 @@ function config(): Config {
       ],
     },
     tripo_config: { config_fields: [] },
-    report_config: { config_fields: [] },
     ui_config: {
       config_fields: [
         field('site_title', 'Myriad'),

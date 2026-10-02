@@ -29,8 +29,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 记忆的场合放宽到能放下群的标识（`agent_memories.venue` VARCHAR(96)）；
 /// 按场合取记忆的索引（`idx_agent_memories_venue_created`，群聊和她自己的记录）；
 /// 记忆的意思向量（`agent_memory_embeddings`，随统一记忆表一起建）；
-/// AI 旧设置迁到「源 + 模型」：文本三档、图片、语音（`upgrade_legacy_ai_settings`）。
-pub const SCHEMA_VERSION: &str = "2026.10.02.2";
+/// AI 旧设置迁到「源 + 模型」：文本三档、图片、语音（`upgrade_legacy_ai_settings`）；
+/// 退役的配置行删掉（`drop_retired_rows`）。
+pub const SCHEMA_VERSION: &str = "2026.10.02.3";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -230,6 +231,10 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         .await
         .map_err(|error| DbErr::Custom(format!("upgrade AI settings: {error:#}")))?;
     changes_made += upgraded;
+    let dropped = crate::services::retired_configuration::drop_retired_rows(db).await?;
+    if dropped > 0 {
+        tracing::info!(dropped, "Dropped retired configuration rows");
+    }
 
     // Seed all runtime configuration keys after the explicit default-open
     // entries have had first refusal, preserving any existing administrator

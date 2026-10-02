@@ -8,8 +8,8 @@ use super::flags::{
 };
 use super::secrets::mask_secret_display_value;
 use super::types::{
-    AiConfig, ConfigField, ConfigResponse, PlatformAutoFetchConfig, PlatformConfig, ReportConfig,
-    TripoConfig, UiConfig,
+    AiConfig, ConfigField, ConfigResponse, PlatformAutoFetchConfig, PlatformConfig, TripoConfig,
+    UiConfig,
 };
 use crate::config::ModelTier;
 use crate::services::platform_id::PlatformId;
@@ -1084,21 +1084,6 @@ pub(crate) async fn build_config(
                     required: true,
                 },
             ],
-        },
-        report_config: ReportConfig {
-            config_fields: vec![ConfigField {
-                key: "topic_style".to_string(),
-                label: "Report Topic Style".to_string(),
-                field_type: "select".to_string(),
-                value: db_config
-                    .as_ref()
-                    .map(|c| c.topic_style.clone())
-                    .unwrap_or_else(|| {
-                        std::env::var("TOPIC_STYLE").unwrap_or_else(|_| "balanced".to_string())
-                    }),
-                placeholder: "balanced".to_string(),
-                required: true,
-            }],
         },
         // 管理端 ui_config 仅 bag（见 UiConfig）
         ui_config: UiConfig {

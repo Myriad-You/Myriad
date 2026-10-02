@@ -77,7 +77,6 @@ export function agentSlicePersistPayload(slice: AgentSettingsSlice) {
       ),
     },
     tripo_config: { config_fields: [] },
-    report_config: { config_fields: [] },
     ui_config: {
       config_fields: slice.uiFields.filter((field) =>
         isAgentOwnedUiKey(field.key),
@@ -92,7 +91,6 @@ export function agentSliceAsConfig(slice: AgentSettingsSlice): Config {
     auto_fetch: DEFAULT_AUTO_FETCH_CONFIG,
     ai_config: { config_fields: slice.aiFields },
     tripo_config: { config_fields: [] },
-    report_config: { config_fields: [] },
     ui_config: { config_fields: slice.uiFields },
   }
 }

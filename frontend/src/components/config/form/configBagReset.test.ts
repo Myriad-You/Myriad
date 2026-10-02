@@ -39,7 +39,6 @@ function config(): Config {
     },
     ai_config: { config_fields: fields('ai_model', 'qq_bot_enabled') },
     tripo_config: { config_fields: fields('tripo_enabled', 'tripo_model') },
-    report_config: { config_fields: [] },
   }
 }
 function value(

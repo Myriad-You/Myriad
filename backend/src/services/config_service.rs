@@ -95,7 +95,6 @@ standard_fields! {
     text: [
         ai_source,
         ai_model,
-        topic_style,
         lite_ai_source,
         lite_ai_model,
         aux_judge_model,
@@ -120,11 +119,7 @@ standard_fields! {
         site_visibility_policy,
     ],
     opt_text: [
-        openweather_api_key,
         ui_wallpaper_url,
-        ui_theme,
-        ui_primary_color,
-        ui_secondary_color,
         tripo_api_key,
         tencent_secret_id,
         tencent_secret_key,
@@ -197,9 +192,7 @@ standard_fields! {
         user_perm_ai_search,
         user_perm_ai_image,
         user_perm_3d_generate,
-        user_perm_report_write,
         user_perm_network_fetch,
-        user_perm_media_control,
         user_perm_component_theme,
         user_perm_shortcut_register,
         user_perm_event_publish,
@@ -216,21 +209,9 @@ standard_fields! {
         guest_perm_ai_chat,
         guest_perm_ai_search,
         guest_perm_ai_image,
-        guest_perm_3d_generate,
-        guest_perm_report_write,
         guest_perm_network_fetch,
-        guest_perm_media_control,
-        guest_perm_component_theme,
-        guest_perm_shortcut_register,
         guest_perm_event_publish,
-        guest_perm_scheduler_register,
-        guest_perm_speech_tts,
-        guest_perm_speech_asr,
         guest_perm_storage_write,
-        guest_perm_federation_post,
-        guest_perm_federation_channel,
-        guest_perm_federation_room,
-        guest_perm_phantasi_comment_write,
         proxy_enabled,
     ],
     flag_or_text: [
@@ -394,7 +375,7 @@ impl ConfigService {
     }
 
     /// 从配置映射解析为 DynamicConfig
-    fn parse_config(map: HashMap<String, JsonValue>) -> DynamicConfig {
+    pub(crate) fn parse_config(map: HashMap<String, JsonValue>) -> DynamicConfig {
         let mut config = DynamicConfig::default();
         read_standard_fields(&mut config, &map);
 
@@ -1198,10 +1179,6 @@ mod tests {
             ("stash_hidden_idle_seconds".into(), json!(808)),
             ("resident_quota_per_app".into(), json!(9)),
             ("resident_quota_site_total".into(), json!(10)),
-            ("openweather_api_key".into(), json!("weather-secret")),
-            ("ui_theme".into(), json!("paper")),
-            ("ui_primary_color".into(), json!("#112233")),
-            ("ui_secondary_color".into(), json!("#445566")),
         ]));
 
         assert_eq!(config.user_ai_daily_calls, 101);
@@ -1214,13 +1191,6 @@ mod tests {
         assert_eq!(config.stash_hidden_idle_seconds, 808);
         assert_eq!(config.resident_quota_per_app, 9);
         assert_eq!(config.resident_quota_site_total, 10);
-        assert_eq!(
-            config.openweather_api_key.as_deref(),
-            Some("weather-secret")
-        );
-        assert_eq!(config.ui_theme.as_deref(), Some("paper"));
-        assert_eq!(config.ui_primary_color.as_deref(), Some("#112233"));
-        assert_eq!(config.ui_secondary_color.as_deref(), Some("#445566"));
     }
 
     #[test]

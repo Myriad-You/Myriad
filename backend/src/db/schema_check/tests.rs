@@ -365,26 +365,14 @@ fn test_default_config_seeds_include_quota_and_explicit_open_permissions() {
         values["user_perm_federation_room"],
         serde_json::json!(false)
     );
-    assert_eq!(
-        values["guest_perm_federation_post"],
-        serde_json::json!(false)
-    );
-    assert_eq!(
-        values["guest_perm_federation_channel"],
-        serde_json::json!(false)
-    );
-    assert_eq!(
-        values["guest_perm_federation_room"],
-        serde_json::json!(false)
-    );
+    assert!(!values.contains_key("guest_perm_federation_post"));
+    assert!(!values.contains_key("guest_perm_federation_channel"));
+    assert!(!values.contains_key("guest_perm_federation_room"));
     assert_eq!(
         values["user_perm_phantasi_comment_write"],
         serde_json::json!(false)
     );
-    assert_eq!(
-        values["guest_perm_phantasi_comment_write"],
-        serde_json::json!(false)
-    );
+    assert!(!values.contains_key("guest_perm_phantasi_comment_write"));
     assert!(!values.contains_key("user_perm_component_theme"));
     assert!(!values.contains_key("user_perm_shortcut_register"));
     assert_eq!(values["stash_hidden_capacity"], serde_json::json!(8));

@@ -357,7 +357,6 @@ pub struct DynamicConfig {
     /// Pro 的服务商源。留空跟 Standard 用同一个。
     pub pro_ai_source: String,
     pub pro_ai_model: String,
-    pub topic_style: String,
 
     // 平台配置
     pub github_enabled: Option<bool>,
@@ -416,9 +415,6 @@ pub struct DynamicConfig {
     pub psn_online_id: Option<String>,
     /// PSN NPSSO cookie（ca.account.sony.com 获取，服务端凭据）
     pub psn_npsso: Option<String>,
-
-    /// OpenWeather API key（落库字段）
-    pub openweather_api_key: Option<String>,
 
     // 腾讯云凭据：tencent 源（含合成的）用它。
     pub tencent_secret_id: Option<String>,
@@ -493,9 +489,6 @@ pub struct DynamicConfig {
     pub ui_evocative_fps: i32,
     /// 涟漪效果 Canvas 质量（默认 0.85；后端按 f64 存储）
     pub ui_evocative_ripple_quality: f64,
-    pub ui_theme: Option<String>,
-    pub ui_primary_color: Option<String>,
-    pub ui_secondary_color: Option<String>,
 
     /// 第一方访客统计（pageview / engagement / event）是否开启；关闭后服务端拒绝采集
     pub analytics_enabled: bool,
@@ -648,12 +641,8 @@ pub struct DynamicConfig {
     pub user_perm_ai_search: bool,
     /// 3d:generate - Tripo 3D 模型生成
     pub user_perm_3d_generate: bool,
-    /// report:write - privileged，始终只限管理员；字段保留供 DB/API 兼容
-    pub user_perm_report_write: bool,
     /// network:fetch - 发起网络请求
     pub user_perm_network_fetch: bool,
-    /// media:control - basic，始终允许；字段保留供 DB/API 兼容
-    pub user_perm_media_control: bool,
     /// component:theme - 注册主题组件
     pub user_perm_component_theme: bool,
     /// shortcut:register - 注册快捷键
@@ -688,36 +677,12 @@ pub struct DynamicConfig {
     pub guest_perm_ai_image: bool,
     /// ai:search - 联网搜索（游客）
     pub guest_perm_ai_search: bool,
-    /// 3d:generate - 游客授予路径恒 false（花站点额度）；字段保留供 DB/API 兼容
-    pub guest_perm_3d_generate: bool,
-    /// report:write - privileged，始终只限管理员；字段保留供 DB/API 兼容（游客）
-    pub guest_perm_report_write: bool,
     /// network:fetch - 发起网络请求（游客）
     pub guest_perm_network_fetch: bool,
-    /// media:control - basic，始终允许；字段保留供 DB/API 兼容（游客）
-    pub guest_perm_media_control: bool,
-    /// component:theme - 游客授予路径恒 false
-    pub guest_perm_component_theme: bool,
-    /// shortcut:register - 游客授予路径恒 false
-    pub guest_perm_shortcut_register: bool,
     /// event:publish - 发布事件（游客）
     pub guest_perm_event_publish: bool,
-    /// scheduler:register - 游客授予路径恒 false
-    pub guest_perm_scheduler_register: bool,
-    /// speech:tts - 游客授予路径恒 false
-    pub guest_perm_speech_tts: bool,
-    /// speech:asr - 游客授予路径恒 false
-    pub guest_perm_speech_asr: bool,
     /// storage:write - 写入 Tapp 存储（游客）
     pub guest_perm_storage_write: bool,
-    /// federation:post - 发布联邦内容（游客；联邦写路由要求持久登录主体，配置无效）
-    pub guest_perm_federation_post: bool,
-    /// federation:channel - 频道治理（游客；同上，配置无效）
-    pub guest_perm_federation_channel: bool,
-    /// federation:room - 房间治理（游客；同上，配置无效）
-    pub guest_perm_federation_room: bool,
-    /// phantasi:commentWrite - 写 Phantasi 评论（游客；路由要求登录主体，实际恒为关闭）
-    pub guest_perm_phantasi_comment_write: bool,
 
     // AI 使用限额配置（非管理员生效；管理员无限制）
     /// 普通用户每日 AI 调用次数限制（所有 AI 权限共享）
@@ -781,7 +746,6 @@ impl Default for DynamicConfig {
             pro_enabled: false,
             pro_ai_source: String::new(),
             pro_ai_model: "anthropic/claude-opus-5.5".to_string(),
-            topic_style: "balanced".to_string(),
 
             github_enabled: None,
             github_token: None,
@@ -818,8 +782,6 @@ impl Default for DynamicConfig {
             psn_enabled: None,
             psn_online_id: None,
             psn_npsso: None,
-
-            openweather_api_key: None,
 
             tencent_secret_id: None,
             tencent_secret_key: None,
@@ -867,9 +829,6 @@ impl Default for DynamicConfig {
             ui_evocative_ripple: false,
             ui_evocative_fps: 30,
             ui_evocative_ripple_quality: 0.85,
-            ui_theme: None,
-            ui_primary_color: None,
-            ui_secondary_color: None,
 
             analytics_enabled: true,
 
@@ -954,9 +913,7 @@ impl Default for DynamicConfig {
             user_perm_ai_image: false,
             user_perm_ai_search: false,
             user_perm_3d_generate: false,
-            user_perm_report_write: false,
             user_perm_network_fetch: false,
-            user_perm_media_control: false,
             user_perm_component_theme: false,
             user_perm_shortcut_register: false,
             user_perm_event_publish: false,
@@ -975,21 +932,9 @@ impl Default for DynamicConfig {
             guest_perm_ai_chat: false,
             guest_perm_ai_image: false,
             guest_perm_ai_search: false,
-            guest_perm_3d_generate: false,
-            guest_perm_report_write: false,
             guest_perm_network_fetch: false,
-            guest_perm_media_control: false,
-            guest_perm_component_theme: false,
-            guest_perm_shortcut_register: false,
             guest_perm_event_publish: false,
-            guest_perm_scheduler_register: false,
-            guest_perm_speech_tts: false,
-            guest_perm_speech_asr: false,
             guest_perm_storage_write: false,
-            guest_perm_federation_post: false,
-            guest_perm_federation_channel: false,
-            guest_perm_federation_room: false,
-            guest_perm_phantasi_comment_write: false,
 
             // AI 使用限额默认值
             // 普通用户: 每日 50 次调用, 20000 tokens, 5 秒冷却

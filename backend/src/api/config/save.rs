@@ -703,16 +703,6 @@ pub(crate) fn collect_database_updates_with_vendor(
         }
     }
 
-    // 保存报告配置
-    for field in &config.report_config.config_fields {
-        if field.key == "topic_style" && !field.value.is_empty() {
-            updates.insert(
-                "topic_style".to_string(),
-                JsonValue::String(field.value.clone()),
-            );
-        }
-    }
-
     // 保存 UI 配置
     for field in &config.ui_config.config_fields {
         let (key, json_value) = match field.key.as_str() {
