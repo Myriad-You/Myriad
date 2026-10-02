@@ -54,8 +54,8 @@ export function resolveAnime25DLayerDeformationPolicy(input: {
   shellDeformation?: boolean
   torsoShellDeformation?: boolean
   rigidAttachment?: boolean
-  /** A standing figure's skirt, whose hem trails the hips. */
-  skirtSway?: boolean
+  /** A standing figure's skirt or leg, which follows its stance. */
+  standing?: boolean
 }): Anime25DLayerDeformationPolicy {
   if (input.rigidAttachment) {
     return {
@@ -71,7 +71,7 @@ export function resolveAnime25DLayerDeformationPolicy(input: {
     input.hasFrontHairParallax ||
     input.hairPhysics ||
     input.hasBangWeights ||
-    input.skirtSway ||
+    input.standing ||
     input.baseRole === 'neck' ||
     input.baseRole === 'collar_back' ||
     input.baseRole === 'collar_front' ||

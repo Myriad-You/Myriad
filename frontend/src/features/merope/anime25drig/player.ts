@@ -318,6 +318,7 @@ export class Anime25DPlayer {
     this.motion.singingGroove.setArmMotion(
       this.motionEnvelopeProfile.armMotion && this.motionEnvelopeProfile.rigidArm.limit > 0,
     )
+    this.motion.setStanding(playback.anchors.groundY !== undefined)
     this.body.bind(playback, this.motionEnvelopeProfile)
     this.face.bind(playback)
   }

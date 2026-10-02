@@ -36,7 +36,7 @@ import {
 } from './shellDeformation'
 import { shoulderContactWeights } from './shoulderContact'
 import { fuseShoulderSurface } from './shoulderSurface'
-import { bindSkirt } from './standing'
+import { bindStanding } from './standing'
 import { bindSurfaceContact } from './surfaceContact'
 import { buildContactSurfaceMesh } from './surfaceMesh'
 import { anime25DTorsoShellModeForLayer } from './torsoDeformation'
@@ -173,10 +173,11 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
     shellMode === 'front-hair' && source.role === 'front-hair'
       ? sampleAnime25DHairlinePinWeights(rest, source, rows, shellProfile)
       : null
-  const skirt = bindSkirt(baseRole, source, playback.anchors)
+  const standing = bindStanding(baseRole, source, playback.anchors)
   const deformationPolicy = resolveAnime25DLayerDeformationPolicy({
-    skirtSway: Boolean(skirt),
-    rigidAttachment: isAnime25DRigidAttachment(source),
+    standing: Boolean(standing),
+    // A part on a standing leg goes with the leg, not with the body as a whole.
+    rigidAttachment: !standing && isAnime25DRigidAttachment(source),
     baseRole,
     fade: source.fade,
     hairPhysics: source.phys === 'hair',
@@ -252,7 +253,7 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
     torsoShellMode,
     handwearAnchorX: linkedArmAnchorX,
     turnFeature: turnFeatures.get(source) ?? null,
-    skirt,
+    standing,
     ...armBinding(source, rest),
   })
   const layerTransform = new Float32Array(9)

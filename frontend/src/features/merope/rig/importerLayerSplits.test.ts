@@ -1,0 +1,60 @@
+import type { RasterLayer } from './anime25dImportTypes'
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { stackLowerLimbsByReference } from './importerLayerSplits'
+
+const SIZE = 20
+
+function solid(
+  id: string,
+  role: RasterLayer['role'],
+  rgb: readonly [number, number, number],
+  box: { left: number; top: number; width: number; height: number },
+): RasterLayer {
+  const data = new Uint8ClampedArray(box.width * box.height * 4)
+  for (let i = 0; i < data.length; i += 4) data.set([...rgb, 255], i)
+  return {
+    id,
+    role,
+    sourceName: id,
+    order: 0,
+    side: 'left',
+    group: 'body',
+    ...box,
+    data,
+  }
+}
+
+/** The portrait: a white sock above y = 12, a violet shoe from there down. */
+function portrait(shoeTop: number) {
+  const data = new Uint8ClampedArray(SIZE * SIZE * 4)
+  for (let y = 0; y < SIZE; y += 1) {
+    for (let x = 0; x < SIZE; x += 1) {
+      data.set(y < shoeTop ? [250, 250, 250, 255] : [120, 90, 200, 255], (y * SIZE + x) * 4)
+    }
+  }
+  return { width: SIZE, height: SIZE, data }
+}
+
+test('a shoe the portrait shows over the sock is stacked above it', () => {
+  const shoe = solid('shoe', 'footwear', [120, 90, 200], { left: 0, top: 12, width: SIZE, height: 8 })
+  // The sock runs down into the shoe and was put on top of it.
+  const sock = solid('sock', 'legwear', [250, 250, 250], { left: 0, top: 0, width: SIZE, height: 16 })
+  const stacked = stackLowerLimbsByReference([shoe, sock], portrait(12))
+  assert.deepEqual(stacked.map((layer) => layer.id), ['sock', 'shoe'])
+})
+
+test('a hem the portrait shows over the shoe stays on top', () => {
+  const shoe = solid('shoe', 'footwear', [120, 90, 200], { left: 0, top: 12, width: SIZE, height: 8 })
+  const hem = solid('hem', 'legwear', [250, 250, 250], { left: 0, top: 0, width: SIZE, height: 16 })
+  // The trouser hem covers the top of the shoe in the portrait.
+  const stacked = stackLowerLimbsByReference([shoe, hem], portrait(16))
+  assert.deepEqual(stacked.map((layer) => layer.id), ['shoe', 'hem'])
+})
+
+test('a pair the portrait cannot tell apart keeps its order', () => {
+  const shoe = solid('shoe', 'footwear', [250, 250, 250], { left: 0, top: 12, width: SIZE, height: 8 })
+  const sock = solid('sock', 'legwear', [250, 250, 250], { left: 0, top: 0, width: SIZE, height: 16 })
+  const stacked = stackLowerLimbsByReference([shoe, sock], portrait(12))
+  assert.deepEqual(stacked.map((layer) => layer.id), ['shoe', 'sock'])
+})

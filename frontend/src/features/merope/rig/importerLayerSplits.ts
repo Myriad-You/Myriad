@@ -1,5 +1,5 @@
 import type { Layer, Psd } from 'ag-psd'
-import type { EyeSide, RasterLayer } from './anime25dImportTypes'
+import type { Anime25DSourceReference, EyeSide, RasterLayer } from './anime25dImportTypes'
 import { canonicalAnime25DLayerName } from './anime25dLayerSemantics'
 import { rasterBounds, trimRaster, uniquePartId } from './anime25dRaster'
 import { anime25DShoulderSeeds, splitLinkedHandwear } from './linkedHandwear'
@@ -127,6 +127,76 @@ function splitRasterAtColumn(
     }
   }
   return output
+}
+
+/** A pixel is decided when one layer is this much closer to the portrait's colour. */
+const STACK_DECISIVE_DISTANCE = 18
+/** A pair is restacked only when at least this many pixels decide it, and most agree. */
+const STACK_MIN_DECIDED = 40
+const STACK_MAJORITY = 0.65
+
+/**
+ * A decomposer orders a leg and its shoe by estimated depth, which can put a
+ * sock over the shoe it is worn in (or a shoe over a trouser hem). Where the
+ * two overlap, the portrait shows which one is in front: put that one on top.
+ */
+export function stackLowerLimbsByReference(
+  layers: RasterLayer[],
+  reference: Readonly<Anime25DSourceReference>,
+): RasterLayer[] {
+  const output = [...layers]
+  for (const side of ['left', 'right'] as const) {
+    const leg = output.findIndex((layer) => layer.role === 'legwear' && layer.side === side)
+    const foot = output.findIndex((layer) => layer.role === 'footwear' && layer.side === side)
+    if (leg < 0 || foot < 0) continue
+    const front = frontByReference(output[leg], output[foot], reference)
+    // Only move the one the portrait shows in front, and only if it is behind.
+    // Removing the lower one shifts the upper one down a place, so the
+    // moved layer lands just above it.
+    if (front === output[foot] && foot < leg) {
+      output.splice(leg, 0, ...output.splice(foot, 1))
+    } else if (front === output[leg] && leg < foot) {
+      output.splice(foot, 0, ...output.splice(leg, 1))
+    }
+  }
+  return output
+}
+
+/** Of two overlapping layers, the one whose overlap the portrait shows, if clear. */
+function frontByReference(
+  a: RasterLayer,
+  b: RasterLayer,
+  reference: Readonly<Anime25DSourceReference>,
+): RasterLayer | null {
+  const x0 = Math.max(a.left, b.left, 0)
+  const y0 = Math.max(a.top, b.top, 0)
+  const x1 = Math.min(a.left + a.width, b.left + b.width, reference.width)
+  const y1 = Math.min(a.top + a.height, b.top + b.height, reference.height)
+  let forA = 0
+  let forB = 0
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      const ia = ((y - a.top) * a.width + (x - a.left)) * 4
+      const ib = ((y - b.top) * b.width + (x - b.left)) * 4
+      if (a.data[ia + 3] < 200 || b.data[ib + 3] < 200) continue
+      const ir = (y * reference.width + x) * 4
+      if (reference.data[ir + 3] < 250) continue
+      const distance = (data: Uint8ClampedArray, i: number) =>
+        Math.hypot(
+          data[i] - reference.data[ir],
+          data[i + 1] - reference.data[ir + 1],
+          data[i + 2] - reference.data[ir + 2],
+        )
+      const difference = distance(a.data, ia) - distance(b.data, ib)
+      if (difference < -STACK_DECISIVE_DISTANCE) forA += 1
+      else if (difference > STACK_DECISIVE_DISTANCE) forB += 1
+    }
+  }
+  const decided = forA + forB
+  if (decided < STACK_MIN_DECIDED) return null
+  if (forA / decided >= STACK_MAJORITY) return a
+  if (forB / decided >= STACK_MAJORITY) return b
+  return null
 }
 
 /** Bottom to top: an open eye's white, then its iris, then its lashes. */

@@ -233,7 +233,7 @@ export class Anime25DBodyFrames {
       shellBlend: 0,
       shellActivation: 0,
       shellRotation: this.shellRotation,
-      skirtSwing: 0,
+      standing: null,
     }
     this.standing = Anime25DStanding.of(anchors)
     this.collarMotion = {
@@ -369,7 +369,7 @@ export class Anime25DBodyFrames {
     this.stepArms(dt, layers, time)
     this.stepJelly(dt)
     if (this.standing) {
-      this.secondaryDeformationFrame.skirtSwing = this.standing.stepSkirt(dt, this.current.body, this.current.phys)
+      this.secondaryDeformationFrame.standing = this.standing.step(dt, this.current.body, this.current.phys)
     }
   }
 

@@ -8,7 +8,7 @@ import type {
   Anime25DShellMode,
   Anime25DShellRotation,
 } from './shellDeformation'
-import type { SkirtBinding } from './standing'
+import type { Anime25DStandingFrame, StandingBinding } from './standing'
 import type {
   Anime25DTorsoChestShape,
   Anime25DTorsoShellMode,
@@ -35,7 +35,7 @@ import { HEAD_TURN_SHARE } from './headTurn'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint } from './shellDeformation'
-import { applySkirtSwing } from './standing'
+import { applyStanding } from './standing'
 import {
   anime25DSleeveAnchorX,
   anime25DTorsoShellOffsetX,
@@ -115,8 +115,8 @@ export interface Anime25DSecondaryDeformationFrame {
   torsoShellBlend: number
   torsoNeckOffsetX: number
   torsoShellRotation: Readonly<Anime25DTorsoShellRotation>
-  /** How far a standing figure's skirt hem trails its hips, in pixels. */
-  skirtSwing?: number
+  /** A standing figure's stance; a bust has none. */
+  standing?: Readonly<Anime25DStandingFrame> | null
 }
 
 export interface Anime25DSecondaryDeformationBinding {
@@ -149,8 +149,8 @@ export interface Anime25DSecondaryDeformationBinding {
   shellMode: Anime25DShellMode | null
   hairlinePinWeights: Float32Array | null
   torsoShellMode: Anime25DTorsoShellMode | null
-  /** A standing figure's skirt. */
-  skirt: SkirtBinding | null
+  /** How a standing figure's skirt or leg follows its stance. */
+  standing: StandingBinding | null
 }
 
 export interface Anime25DMutableSecondaryPoint {
@@ -180,7 +180,7 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   handwearAnchorX?: number
   /** The drawn feature this layer belongs to; it turns with the head as one piece. */
   turnFeature?: HeadTurnFeature | null
-  skirt?: SkirtBinding | null
+  standing?: StandingBinding | null
 }): Anime25DSecondaryDeformationBinding {
   return {
     ...input,
@@ -196,7 +196,7 @@ export function createAnime25DSecondaryDeformationBinding(input: {
     shellMode: input.shellMode ?? null,
     hairlinePinWeights: input.hairlinePinWeights ?? null,
     torsoShellMode: input.torsoShellMode ?? null,
-    skirt: input.skirt ?? null,
+    standing: input.standing ?? null,
     arm: input.baseRole === 'handwear' ? (input.arm ?? null) : null,
     armMesh: input.baseRole === 'handwear' ? (input.armMesh ?? null) : null,
   }
@@ -482,7 +482,7 @@ export function deformAnime25DSecondaryPoint(
   // The neck's lower part already receives its cylinder projection above;
   // only its head-follow share inherits the root, avoiding double travel.
   point.x += frame.torsoNeckOffsetX * torsoNeckFollow
-  if (binding.skirt && frame.skirtSwing) applySkirtSwing(point, binding.skirt, restY, frame.skirtSwing)
+  if (binding.standing && frame.standing) applyStanding(point, binding.standing, restX, restY, frame.standing)
 }
 
 const chainPoint = { x: 0, y: 0 }

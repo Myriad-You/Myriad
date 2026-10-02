@@ -48,6 +48,7 @@ import {
 } from './randomAction'
 import { CoSpeechExpressionController } from './speechExpression'
 import { AutoSpeechController } from './speechMotion'
+import { standingWeightShift } from './standing'
 import { StylizedExpressionMotionController } from './stylizedExpressionMotion'
 import { ThinkingMotionController } from './thinkingMotion'
 
@@ -121,6 +122,7 @@ export class Anime25DMotionComposer {
   /** Reused so the per-frame pose composition never allocates. */
   private readonly composedPose = zeroOccupancyOffset()
   private readonly breathPose = { angleX: 0, angleY: 0, angleZ: 0, body: 0 }
+  private standing = false
   private readonly cryMouth = {
     mouthOpen: 0,
     mouthForm: 0,
@@ -136,6 +138,11 @@ export class Anime25DMotionComposer {
     private readonly closedEyes: ClosedEyePresentation,
     private readonly irisRebound: Anime25DIrisRebound,
   ) {}
+
+  /** A standing figure also shifts its weight from leg to leg while idle. */
+  setStanding(standing: boolean): void {
+    this.standing = standing
+  }
 
   /** Blink soon, then resume the natural rhythm. */
   blinkNow(time: number): void {
@@ -246,6 +253,7 @@ export class Anime25DMotionComposer {
     const ambient = this.ambientMotion.sample(t, target.rand)
     const thinking = this.thinkingMotion.sample(t, target.thinking && !speaking, tgt)
     const breath = idleBreathOffset(t, this.breathPose)
+    if (this.standing) breath.body += standingWeightShift(t)
     const gate = this.poseGate.sample(
       dt,
       applyBehaviorMotionGate(
