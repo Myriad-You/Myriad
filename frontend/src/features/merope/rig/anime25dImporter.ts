@@ -2,6 +2,7 @@ import type { Psd } from 'ag-psd'
 import type { Anime25DImportCopy } from './anime25dImportCopy'
 import type { Anime25DSourceReference } from './anime25dImportTypes'
 import type { AuthoredExpressionReference } from './authoredExpression'
+import type { CharacterAssetProfile } from './contract'
 import type { MotionExposureFinding } from './motionExposure'
 import type { Anime25DPsdReconciliation } from './psdReconciliation'
 import type { MeropeRigImportSource } from './types'
@@ -13,14 +14,15 @@ import { validateAnime25DCharacterLayers } from './anime25dAssetValidation'
 import { packAnime25DAtlas, visibleInAnalysisReference } from './anime25dAtlasCompiler'
 import { splitHighCollarOcclusion } from './anime25dCollarCompiler'
 import { compileAnime25DExpressionLayers } from './anime25dExpressionCompiler'
+import { anime25DImportProfile } from './anime25dImportProfile'
 import { anime25DBaseRole, normalizeAnime25DLayerName } from './anime25dLayerSemantics'
 import { buildAnime25DBonesAndHandles, buildAnime25DLayerSources } from './anime25dSkeletonCompiler'
 import { addAuthoredExpressionLayers } from './authoredExpression'
 import { compensateSyntheticClosedEyeAngles } from './closedEyeCompensation'
 import { CHARACTER_ASSET_PROFILES, MAX_RIG_PARTS, RIG_IR_VERSION } from './contract'
 import { formatTemplate } from './formatTemplate'
-import { contentFrame, deriveAnchors, semanticAnchors } from './importerAnchors'
-import { assignCrossfadeSlots, hasStaticSeeThroughMouth, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitVariantEyesIfNeeded } from './importerLayerSplits'
+import { contentFrame, deriveAnchors, hipPivot, semanticAnchors } from './importerAnchors'
+import { assignCrossfadeSlots, hasStaticSeeThroughMouth, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded } from './importerLayerSplits'
 import { addHiddenArmFragments, anime25DShoulderSeeds } from './linkedHandwear'
 import { findMotionExposure } from './motionExposure'
 import { inferOutfitProfileFromPartIds } from './outfit'
@@ -60,12 +62,14 @@ export async function prepareAnime25DRigPsd(
   sourceGenerationFingerprint?: string,
   sourceReference?: Anime25DSourceReference,
   expressionReferences: readonly AuthoredExpressionReference[] = [],
+  profile: CharacterAssetProfile = 'bust',
 ): Promise<PreparedAnime25DRigImport> {
   if (!isAnime25DDocument(psd)) {
     throw new Error(copy.anime25dMissingFace)
   }
+  const importProfile = anime25DImportProfile(profile)
   const staticSeeThroughMouth = hasStaticSeeThroughMouth(psd)
-  const working = flattenPsdForRigger(psd)
+  const working = flattenPsdForRigger(psd, importProfile)
   Rigger.cleanPsdLayers(working)
   // A named but empty/hidden face must never silently acquire guessed pivots.
   if (
@@ -86,6 +90,7 @@ export async function prepareAnime25DRigPsd(
   let layers = rig.layers.map((part) => rasterFromRiggerPart(part, usedIds))
   if (staticSeeThroughMouth) layers = preserveStaticMouthAsClosed(layers)
   layers = splitHandwearIfNeeded(layers, rig.anchors.face.cx)
+  layers = splitLowerLimbsIfNeeded(layers)
   layers = addHiddenArmFragments(layers, anime25DShoulderSeeds(layers), new Set(layers.map((layer) => layer.id)))
   layers = splitVariantEyesIfNeeded(layers, rig.anchors.face.cx, 'eye-dizzy')
   layers = splitVariantEyesIfNeeded(layers, rig.anchors.face.cx, 'eye-squeeze')
@@ -138,7 +143,11 @@ export async function prepareAnime25DRigPsd(
       formatTemplate(copy.anime25dPartCount, { max: MAX_RIG_PARTS }),
     )
   }
-  const frame = contentFrame(psd, layers)
+  const frame = contentFrame(psd, layers, importProfile)
+  const hips = importProfile.bodyPivot === 'hips' ? hipPivot(layers) : null
+  if (importProfile.bodyPivot === 'hips' && !hips) {
+    throw new Error(formatTemplate(copy.anime25dMissingLayer, { role: 'legwear' }))
+  }
   onStage?.('packing')
   const {
     atlas,
@@ -152,7 +161,7 @@ export async function prepareAnime25DRigPsd(
     buildAnime25DBonesAndHandles(prepared, anchors, copy)
   const rigLayers = buildAnime25DLayerSources(prepared, layerHandles)
   const partIds = prepared.map((layer) => `a25d-${layer.id}`)
-  const playbackAnchors = remapRiggerAnchors(rig.anchors, frame)
+  const playbackAnchors = remapRiggerAnchors(rig.anchors, frame, hips)
   const mouthProfile = analyzeAnime25DMouthProfile(
     prepared,
     frame,
@@ -193,10 +202,11 @@ export async function prepareAnime25DRigPsd(
     motionExposure,
     source: {
       rigIrVersion: RIG_IR_VERSION,
-      characterAssetContractVersion: CHARACTER_ASSET_PROFILES.bust.contractVersion,
+      characterAssetContractVersion: CHARACTER_ASSET_PROFILES[profile].contractVersion,
+      ...(profile === 'bust' ? {} : { profile }),
       sourceMasterAssetId,
       ...(sourceGenerationFingerprint ? { sourceGenerationFingerprint } : {}),
-      canvas: { ...CHARACTER_ASSET_PROFILES.bust.portrait.canvas },
+      canvas: { ...importProfile.canvas },
       atlas: { id: 'atlas', width: packedWidth, height: packedHeight },
       bones,
       layers: rigLayers,

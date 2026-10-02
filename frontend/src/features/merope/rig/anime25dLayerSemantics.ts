@@ -32,6 +32,8 @@ const BODY_ROLES = new Set([
   'neckwear',
   'topwear',
   'bottomwear',
+  'legwear',
+  'footwear',
   'handwear',
   'collar-front',
   'collar-back',
@@ -48,6 +50,8 @@ const RIGID_ROLES = new Set([
   'objects',
 ])
 const EXTRA_FRAMING_ROLES = new Set(['unknown', 'objects', 'wings', 'tail'])
+/** A bust's crop cuts these; only a full figure is framed by them. */
+const LOWER_BODY_ROLES = new Set(['bottomwear', 'legwear', 'footwear'])
 const FACE_SURFACE_ROLES = new Set([
   'face', 'facedetail', 'nose', 'eyewhite', 'eyelash', 'eyebrow', 'irides',
   'iris-silly', 'lovestruck-heart', 'lovestruck-face-effect', 'lovestruck-drool',
@@ -65,9 +69,10 @@ export function anime25DLayerUsesFaceSurface(source: { group: string; role: stri
 export function anime25DLayerAffectsFraming(
   layer: { role: string; width: number; height: number },
   documentArea: number,
+  lowerBodyFrames = false,
 ): boolean {
   return (
-    layer.role !== 'bottomwear' &&
+    (lowerBodyFrames || !LOWER_BODY_ROLES.has(layer.role)) &&
     (!EXTRA_FRAMING_ROLES.has(layer.role) ||
       layer.width * layer.height < documentArea * 0.5)
   )

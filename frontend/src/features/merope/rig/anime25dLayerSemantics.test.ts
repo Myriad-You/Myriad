@@ -28,14 +28,17 @@ test('recognizes every in-scope See-through v3 category without inventing bones'
     'topwear',
     'handwear',
     'bottomwear',
+    'legwear',
+    'footwear',
     'tail',
     'wings',
     'objects',
   ]) {
     assert.ok(anime25DBaseRole(normalizeAnime25DLayerName(name)), name)
   }
-  assert.equal(anime25DBaseRole('legwear'), null)
-  assert.equal(anime25DBaseRole('footwear'), null)
+  // Legs and shoes are body parts; only a full-body import keeps them.
+  assert.equal(anime25DLayerGroup('legwear', 'head'), 'body')
+  assert.equal(anime25DLayerGroup('footwear', 'head'), 'body')
 })
 
 test('aliases retain combined depth, index and side suffixes', () => {

@@ -3,6 +3,9 @@ import type { Anime25DFade } from '../anime25drig/types'
 export const ANIME25D_LAYER_DESCRIPTORS = {
   'back-hair': { depth: 0.55, fade: null },
   bottomwear: { depth: 0.88, fade: null },
+  // Only a full-body asset keeps legs and shoes; a bust folds or drops them.
+  legwear: { depth: 0.87, fade: null },
+  footwear: { depth: 0.87, fade: null },
   'collar-back': { depth: 0.94, fade: null },
   neck: { depth: 0.95, fade: null },
   'collar-front': { depth: 0.955, fade: null },

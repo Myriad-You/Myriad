@@ -145,6 +145,8 @@ export interface RigLayerSource {
 export interface MeropeRigImportSource {
   rigIrVersion?: number
   characterAssetContractVersion: number
+  /** Absent on a bust. */
+  profile?: CharacterAssetProfile
   sourceMasterAssetId: string
   sourceGenerationFingerprint?: string
   canvas: RigSize

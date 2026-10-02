@@ -1,20 +1,22 @@
 import type { Psd } from 'ag-psd'
 import type { Anime25DLayerRole } from './anime25d'
 import type { Anime25DImportCopy } from './anime25dImportCopy'
+import type { Anime25DImportProfile } from './anime25dImportProfile'
 import type { AnimeAnchors, EyeSide, PreparedLayer, RasterLayer, RigCanvasFrame } from './anime25dImportTypes'
 import type { MeropeRigImportSource, RigPoint } from './types'
+import { anime25DImportProfile } from './anime25dImportProfile'
 import { anime25DLayerAffectsFraming } from './anime25dLayerSemantics'
-import { CHARACTER_ASSET_PROFILES } from './contract'
 import { formatTemplate } from './formatTemplate'
 
-/** Removes model letterboxing, then pads (never stretches) into the canonical 3:4 stage. */
+/** Removes model letterboxing, then pads (never stretches) into the profile's stage. */
 export function contentFrame(
   psd: Psd,
   layers: readonly RasterLayer[],
+  profile: Anime25DImportProfile = anime25DImportProfile('bust'),
 ): RigCanvasFrame {
   const documentArea = psd.width * psd.height
   const framingLayers = layers.filter((layer) =>
-    anime25DLayerAffectsFraming(layer, documentArea),
+    anime25DLayerAffectsFraming(layer, documentArea, profile.lowerBodyFrames),
   )
   const candidates = framingLayers.length > 0 ? framingLayers : layers
   let left = psd.width
@@ -38,8 +40,7 @@ export function contentFrame(
   bottom = Math.min(psd.height, Math.ceil(bottom + verticalPadding))
   let width = Math.max(1, right - left)
   let height = Math.max(1, bottom - top)
-  const canvas = CHARACTER_ASSET_PROFILES.bust.portrait.canvas
-  const targetAspect = canvas.width / canvas.height
+  const targetAspect = profile.canvas.width / profile.canvas.height
   if (width / height > targetAspect) {
     const targetHeight = width / targetAspect
     top -= (targetHeight - height) / 2
@@ -50,6 +51,21 @@ export function contentFrame(
     width = targetWidth
   }
   return { x: left, y: top, width, height }
+}
+
+/**
+ * A standing figure's hips: the top of its legs, between them. The upper body
+ * leans from here while the legs and feet stay planted.
+ */
+export function hipPivot(layers: readonly RasterLayer[]): RigPoint | null {
+  const legs = layers.filter((layer) => layer.role === 'legwear')
+  if (legs.length === 0) return null
+  const left = Math.min(...legs.map((layer) => layer.left))
+  const right = Math.max(...legs.map((layer) => layer.left + layer.width))
+  return {
+    x: (left + right) / 2,
+    y: Math.min(...legs.map((layer) => layer.top)),
+  }
 }
 
 export function deriveAnchors(

@@ -1,6 +1,8 @@
 import type { Layer, PixelData, Psd } from 'ag-psd'
+import type { Anime25DImportProfile } from './anime25dImportProfile'
 import type { EyeSide, RasterLayer } from './anime25dImportTypes'
 import { genericParts as GenericParts } from '../anime25drig/upstream/genericParts'
+import { anime25DImportProfile } from './anime25dImportProfile'
 import { anime25DBaseRole, anime25DLayerGroup, anime25DLayerNameParts, canonicalAnime25DLayerName, isAnime25DRigidAttachment, normalizeAnime25DLayerName } from './anime25dLayerSemantics'
 import { uniquePartId } from './anime25dRaster'
 
@@ -12,15 +14,6 @@ export function genericCloseParts() {
   if (!eyeL && !mouth) return undefined
   return { eyeL, eyeR, mouth }
 }
-
-const UPPER_BODY_IGNORED_LAYERS = new Set(['footwear'])
-/**
- * A long garment's visible front is often labelled legwear (a kimono or long
- * skirt over the legs). Kept as lower-body clothing it paints where it was
- * drawn and the portrait crop cuts it; dropped, it bares the flat fill a
- * decomposer paints behind it. Feet are always far below the crop.
- */
-const UPPER_BODY_AS_BOTTOMWEAR = new Set(['legwear'])
 
 function anime25DLayerSide(normalizedName: string): EyeSide | null {
   const suffix = anime25DLayerNameParts(normalizedName).suffix.match(
@@ -68,12 +61,15 @@ function toRiggerLayerName(value: string | undefined): string {
   return number ? `${riggerName}_${number}` : riggerName
 }
 
-export function flattenPsdForRigger(psd: Psd): Psd {
+export function flattenPsdForRigger(
+  psd: Psd,
+  profile: Anime25DImportProfile = anime25DImportProfile('bust'),
+): Psd {
   const visible = flattenVisibleLayers(psd.children ?? [])
     .filter((layer) => validPixelData(layer.imageData))
     .filter(
       (layer) =>
-        !UPPER_BODY_IGNORED_LAYERS.has(
+        !profile.ignoredLayers.has(
           anime25DLayerNameParts(normalizeAnime25DLayerName(layer.name)).base,
         ),
     )
@@ -94,8 +90,8 @@ export function flattenPsdForRigger(psd: Psd): Psd {
     return {
       ...layer,
       opacity: 1,
-      name: UPPER_BODY_AS_BOTTOMWEAR.has(base)
-        ? 'bottomwear'
+      name: Object.hasOwn(profile.renamedLayers, base)
+        ? profile.renamedLayers[base]
         : toRiggerLayerName(plainHairBySide(layer.name, index, face)),
       imageData: {
         width: pixels.width,

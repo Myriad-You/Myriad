@@ -77,6 +77,72 @@ export function splitHandwearIfNeeded(
   return output
 }
 
+/**
+ * A full figure's legs and shoes each arrive as one layer, but each side
+ * stands and swings on its own. Split them about the legs' own midline; legs
+ * pressed together leave one piece, which is cut down that midline instead.
+ */
+export function splitLowerLimbsIfNeeded(layers: RasterLayer[]): RasterLayer[] {
+  const reference =
+    layers.find((layer) => layer.role === 'legwear' && !layer.side) ??
+    layers.find((layer) => layer.role === 'footwear' && !layer.side)
+  const midline = reference ? alphaCenterX(reference) : null
+  if (midline === null) return layers
+  const output: RasterLayer[] = []
+  const usedIds = new Set(layers.map((layer) => layer.id))
+  for (const layer of layers) {
+    if ((layer.role !== 'legwear' && layer.role !== 'footwear') || layer.side) {
+      output.push(layer)
+      continue
+    }
+    const bySide = {
+      left: splitRasterByComponents(layer, midline, 'left'),
+      right: splitRasterByComponents(layer, midline, 'right'),
+    }
+    const separate = rasterBounds(bySide.left) && rasterBounds(bySide.right)
+    for (const side of ['left', 'right'] as const) {
+      const split = separate ? bySide[side] : splitRasterAtColumn(layer, midline, side)
+      if (!rasterBounds(split)) continue
+      split.id = uniquePartId(`${layer.role}-${side}`, usedIds)
+      split.side = side
+      output.push(trimRaster(split))
+    }
+  }
+  return output
+}
+
+function alphaCenterX(layer: RasterLayer): number | null {
+  let weight = 0
+  let sum = 0
+  for (let y = 0; y < layer.height; y += 1) {
+    for (let x = 0; x < layer.width; x += 1) {
+      const alpha = layer.data[(y * layer.width + x) * 4 + 3]
+      if (alpha <= ALPHA_COMPONENT_THRESHOLD) continue
+      weight += alpha
+      sum += alpha * x
+    }
+  }
+  return weight > 0 ? layer.left + sum / weight : null
+}
+
+/** Keeps the part of a layer on one side of a canvas column. */
+function splitRasterAtColumn(
+  source: RasterLayer,
+  canvasX: number,
+  side: EyeSide,
+): RasterLayer {
+  const output = { ...source, data: new Uint8ClampedArray(source.data) }
+  for (let y = 0; y < source.height; y += 1) {
+    for (let x = 0; x < source.width; x += 1) {
+      const onLeft = source.left + x + 0.5 < canvasX
+      if (onLeft !== (side === 'left')) {
+        output.data[(y * source.width + x) * 4 + 3] = 0
+      }
+    }
+  }
+  return output
+}
+
 export function splitVariantEyesIfNeeded(
   layers: RasterLayer[],
   faceCenterX: number,

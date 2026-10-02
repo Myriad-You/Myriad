@@ -58,9 +58,14 @@ export interface Anime25DPlaybackBuildInput {
   mouthProfile: Anime25DMouthProfile
 }
 
+/**
+ * `bodyPivot` is where the upper body leans from, in document pixels; without
+ * one it is the frame's bottom edge, a bust's crop.
+ */
 export function remapRiggerAnchors(
   anchors: Anime25DRiggerAnchors,
   frame: { x: number; y: number; width: number; height: number },
+  bodyPivot: { x: number; y: number } | null = null,
 ): Anime25DPlaybackAnchors {
   const shiftX = (value: number) => value - frame.x
   const shiftY = (value: number) => value - frame.y
@@ -80,7 +85,9 @@ export function remapRiggerAnchors(
     neckPivot,
     neckTop: shiftY(anchors.neckTop),
     neckBottom: shiftY(anchors.neckBottom),
-    bodyPivot: { x: neckPivot.x, y: frame.height },
+    bodyPivot: bodyPivot
+      ? { x: shiftX(bodyPivot.x), y: shiftY(bodyPivot.y) }
+      : { x: neckPivot.x, y: frame.height },
     mouth: {
       x0: shiftX(anchors.mouth.x0),
       y0: shiftY(anchors.mouth.y0),

@@ -59,6 +59,9 @@ interface Entry {
 const SLOTS: Readonly<Record<string, Slot>> = {
   'back hair': { depth: 0.55, group: 'head', phys: 'hair' },
   bottomwear: { depth: 0.88, group: 'body' },
+  // Myriad: a full-body asset keeps legs and shoes.
+  legwear: { depth: 0.87, group: 'body' },
+  footwear: { depth: 0.87, group: 'body' },
   neck: { depth: 0.95, group: 'body' },
   topwear: { depth: 0.9, group: 'body' },
   handwear: { depth: 0.86, group: 'body' },

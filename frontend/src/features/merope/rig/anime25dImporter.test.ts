@@ -1,4 +1,5 @@
 import type { Layer, Psd } from 'ag-psd'
+import type { CharacterAssetProfile } from './contract'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { getDefaultLocale } from '../../../i18n'
@@ -515,6 +516,82 @@ test('a long garment labelled legwear stays as lower-body clothing; feet are dro
   assert.ok(!layers.some((layer) => /legwear|footwear/.test(layer.name)))
 })
 
+/** The bust fixture standing on two legs and two shoes, on a canvas twice as tall. */
+function standingSeeThroughPsd(
+  legs: Array<[number, number, number, number]>,
+): Psd {
+  const source = syntheticSeeThroughPsd()
+  const width = source.width
+  const height = source.height * 2
+  const paint = (rectangles: Array<[number, number, number, number]>) => {
+    const data = new Uint8ClampedArray(width * height * 4)
+    for (const [left, top, right, bottom] of rectangles) {
+      for (let y = top; y < bottom; y += 1) {
+        for (let x = left; x < right; x += 1) data.set([200, 170, 160, 255], (y * width + x) * 4)
+      }
+    }
+    return data
+  }
+  const taller = (layer: Layer): Layer => {
+    const data = new Uint8ClampedArray(width * height * 4)
+    data.set(layer.imageData!.data)
+    return { ...layer, imageData: { width, height, data } }
+  }
+  return {
+    width,
+    height,
+    children: [
+      ...(source.children ?? [])
+        .filter((layer) => layer.name !== 'legwear')
+        .map(taller),
+      { name: 'legwear', left: 0, top: 0, imageData: { width, height, data: paint(legs) } },
+      { name: 'footwear', left: 0, top: 0, imageData: { width, height, data: paint([[76, 440, 124, 470], [132, 440, 180, 470]]) } },
+    ],
+  }
+}
+
+test('a full figure keeps each leg and shoe, frames down to the soles and leans from the hips', async () => {
+  const prepared = await prepareWithFakeCanvas(
+    standingSeeThroughPsd([[80, 200, 120, 440], [136, 200, 176, 440]]),
+    undefined,
+    undefined,
+    'fullBody',
+  )
+  assert.equal(prepared.source.profile, 'fullBody')
+  assert.equal(
+    prepared.source.characterAssetContractVersion,
+    CHARACTER_ASSET_PROFILES.fullBody.contractVersion,
+  )
+  assert.deepEqual(prepared.source.canvas, CHARACTER_ASSET_PROFILES.fullBody.portrait.canvas)
+  const playback = prepared.source.anime25dPlayback!
+  const { width, height } = playback.pixelCanvas
+  assert.ok(Math.abs(height / width - 16 / 9) < 0.01, `${width}x${height}`)
+  for (const role of ['legwear', 'footwear']) {
+    const sides = playback.layers.filter((layer) => layer.role === role)
+    assert.deepEqual(sides.map((layer) => layer.side).toSorted(), ['L', 'R'], role)
+    assert.ok(sides.every((layer) => layer.y + layer.h <= height), role)
+  }
+  // The legs begin at the hips; the upper body leans from there, not from the frame's foot.
+  const legs = playback.layers.filter((layer) => layer.role === 'legwear')
+  const hipsY = Math.min(...legs.map((layer) => layer.y))
+  assert.ok(Math.abs(playback.anchors.bodyPivot.y - hipsY) <= 3, `${playback.anchors.bodyPivot.y} vs ${hipsY}`)
+  assert.ok(playback.anchors.bodyPivot.y < height * 0.6)
+})
+
+test('legs pressed together are cut down their middle into a left and a right leg', async () => {
+  const prepared = await prepareWithFakeCanvas(
+    standingSeeThroughPsd([[80, 200, 176, 440]]),
+    undefined,
+    undefined,
+    'fullBody',
+  )
+  const legs = prepared.source.anime25dPlayback!.layers.filter((layer) => layer.role === 'legwear')
+  const [left, right] = ['L', 'R'].map((side) => legs.find((layer) => layer.side === side)!)
+  assert.ok(left && right)
+  // Neither leg reaches far past the other's side of the middle.
+  assert.ok(left.x + left.w < right.x + 8, `${left.x}+${left.w} vs ${right.x}`)
+})
+
 test('a single arm is still not two arms', async () => {
   const source = syntheticSeeThroughPsd()
   const width = source.width
@@ -797,6 +874,7 @@ async function prepareWithFakeCanvas(
   psd: Psd,
   sourceGenerationFingerprint?: string,
   inspectPixels?: (data: Uint8ClampedArray) => void,
+  profile: CharacterAssetProfile = 'bust',
 ) {
   const previousDocument = globalThis.document
   const previousImageData = globalThis.ImageData
@@ -832,6 +910,9 @@ async function prepareWithFakeCanvas(
       anime25DImportCopy(),
       undefined,
       sourceGenerationFingerprint,
+      undefined,
+      [],
+      profile,
     )
   } finally {
     Object.assign(globalThis, {

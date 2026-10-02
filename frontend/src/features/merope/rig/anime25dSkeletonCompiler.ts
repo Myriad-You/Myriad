@@ -234,7 +234,13 @@ function handlesForLayer(
       ),
     ]
   }
-  if (layer.role === 'bottomwear') return [fullLayerHandle(layer, 'root')]
+  if (
+    layer.role === 'bottomwear' ||
+    layer.role === 'legwear' ||
+    layer.role === 'footwear'
+  ) {
+    return [fullLayerHandle(layer, 'root')]
+  }
   if (['neckwear', 'wings', 'tail'].includes(layer.role)) {
     return [fullLayerHandle(layer, 'body')]
   }
