@@ -1569,25 +1569,11 @@ fn runtime_widget_owner_binding_prevents_cross_installation_reuse() {
     let public_widget = widget(9, json!({ "source": "runtime", "installationOwnerId": 1 }));
     assert!(super::runtime_widget_belongs_to_installation(
         &public_widget,
-        9,
         1
     ));
     assert!(!super::runtime_widget_belongs_to_installation(
         &public_widget,
-        9,
         9
-    ));
-
-    let legacy_private = widget(9, json!({ "source": "runtime" }));
-    assert!(super::runtime_widget_belongs_to_installation(
-        &legacy_private,
-        9,
-        9
-    ));
-    assert!(!super::runtime_widget_belongs_to_installation(
-        &legacy_private,
-        9,
-        1
     ));
 }
 

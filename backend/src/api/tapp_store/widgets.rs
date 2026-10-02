@@ -41,10 +41,9 @@ use myriad_error::AppError;
 // Domain ownership rules: services::tapp_lifecycle (path-stable Model adapter).
 pub(super) fn runtime_widget_belongs_to_installation(
     widget: &tapp_widgets::Model,
-    subject_id: i32,
     installation_owner_id: i32,
 ) -> bool {
-    runtime_widget_belongs_to_installation_domain(&widget.config, subject_id, installation_owner_id)
+    runtime_widget_belongs_to_installation_domain(&widget.config, installation_owner_id)
 }
 
 fn tapp_widget_response(widget: &tapp_widgets::Model, is_admin_widget: bool) -> serde_json::Value {
@@ -135,7 +134,7 @@ pub(super) async fn list_all_widgets(
         if widget_source(&widget.config) == Some("runtime") {
             if user_id == admin_id
                 && admin_id.is_some_and(|owner_id| {
-                    runtime_widget_belongs_to_installation(&widget, owner_id, owner_id)
+                    runtime_widget_belongs_to_installation(&widget, owner_id)
                 })
             {
                 items.push(tapp_widget_response(&widget, false));
@@ -159,10 +158,10 @@ pub(super) async fn list_all_widgets(
             for widget in user_widgets {
                 let visible = if user_tapp_ids.contains(&widget.tapp_id) {
                     widget_source(&widget.config) != Some("runtime")
-                        || runtime_widget_belongs_to_installation(&widget, uid, uid)
+                        || runtime_widget_belongs_to_installation(&widget, uid)
                 } else if admin_tapp_ids.contains(&widget.tapp_id) {
                     admin_id.is_some_and(|owner_id| {
-                        runtime_widget_belongs_to_installation(&widget, uid, owner_id)
+                        runtime_widget_belongs_to_installation(&widget, owner_id)
                             && !public_manifest_widget_ids.contains(&widget.widget_id)
                     })
                 } else {
@@ -297,7 +296,7 @@ pub(super) async fn register_widget(
         {
             return Err(HttpError(AppError::conflict("Conflict")));
         }
-        if !runtime_widget_belongs_to_installation(&item, user_id, installation_owner_id) {
+        if !runtime_widget_belongs_to_installation(&item, installation_owner_id) {
             return Err(HttpError(AppError::conflict("Conflict")));
         }
         let mut active: tapp_widgets::ActiveModel = item.into();
@@ -328,9 +327,7 @@ pub(super) async fn register_widget(
             .map_err(|_| HttpError(AppError::internal("Database error")))?;
         let runtime_widget_count = subject_widgets
             .iter()
-            .filter(|widget| {
-                runtime_widget_belongs_to_installation(widget, user_id, installation_owner_id)
-            })
+            .filter(|widget| runtime_widget_belongs_to_installation(widget, installation_owner_id))
             .count();
         if !runtime_widget_slot_available(
             manifest_widget_count,
@@ -392,7 +389,7 @@ pub(super) async fn unregister_widget(
         if widget_source(&widget.config) == Some("manifest") {
             return Err(HttpError(AppError::conflict("Conflict")));
         }
-        if !runtime_widget_belongs_to_installation(widget, user_id, installation_owner_id) {
+        if !runtime_widget_belongs_to_installation(widget, installation_owner_id) {
             return Err(HttpError(AppError::not_found("Not found")));
         }
     }
@@ -462,13 +459,13 @@ mod reconcile_tests {
         )
         .await
         .unwrap();
-        // Legacy source-less manifest row, an unrelated runtime row of the owner,
-        // and another user's runtime row bound to the owner's installation.
+        // A manifest row the new manifest drops, an unrelated runtime row of the
+        // owner, and another user's runtime row bound to the owner's installation.
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO tapp_widgets (widget_id, tapp_id, user_id, name, config) VALUES \
-             ($1, $4, $5, 'legacy', '{}'), \
-             ($2, $4, $5, 'mine', '{\"source\":\"runtime\"}'), \
+             ($1, $4, $5, 'stale', '{\"source\":\"manifest\"}'), \
+             ($2, $4, $5, 'mine', $8), \
              ($3, $4, $6, 'theirs', $7)",
             [
                 full("old").into(),
@@ -478,14 +475,14 @@ mod reconcile_tests {
                 owner.into(),
                 other.into(),
                 json!({ "source": "runtime", "installationOwnerId": owner.to_string() }).into(),
+                json!({ "source": "runtime", "installationOwnerId": owner }).into(),
             ],
         ))
         .await
         .unwrap();
-        let previous = json!({ "widgets": [{ "id": "old" }] });
 
         let first = manifest(&tapp_id, json!([widget("a", "A"), widget("b", "B")]));
-        reconcile_manifest_widgets(&db, owner, &tapp_id, &first, Some(&previous))
+        reconcile_manifest_widgets(&db, owner, &tapp_id, &first)
             .await
             .unwrap();
         assert_eq!(
@@ -500,7 +497,7 @@ mod reconcile_tests {
         // Update in place, drop `b`, idempotent on repeat.
         let second = manifest(&tapp_id, json!([widget("a", "A2")]));
         for _ in 0..2 {
-            reconcile_manifest_widgets(&db, owner, &tapp_id, &second, None)
+            reconcile_manifest_widgets(&db, owner, &tapp_id, &second)
                 .await
                 .unwrap();
         }
@@ -512,7 +509,7 @@ mod reconcile_tests {
             ]
         );
 
-        reconcile_manifest_widgets(&db, owner, &tapp_id, &manifest(&tapp_id, json!([])), None)
+        reconcile_manifest_widgets(&db, owner, &tapp_id, &manifest(&tapp_id, json!([])))
             .await
             .unwrap();
         assert_eq!(
