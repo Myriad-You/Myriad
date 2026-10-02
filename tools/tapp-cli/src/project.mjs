@@ -30,10 +30,9 @@ const schemaFields = (name) => Object.keys(schemaDefinitions[name].properties)
 const schemaEnum = (name) => schemaDefinitions[name].enum
 
 const TOP_LEVEL_FIELDS = new Set(Object.keys(contract.schema.properties))
-const CATEGORIES = new Set([
-  ...schemaEnum('TappCategory'),
-  ...contract.rules.tappCategoryAliases,
-])
+const CANONICAL_CATEGORIES = schemaEnum('TappCategory')
+const CATEGORY_ALIASES = new Set(contract.rules.tappCategoryAliases)
+const CATEGORIES = new Set([...CANONICAL_CATEGORIES, ...CATEGORY_ALIASES])
 const WIDGET_SIZES = new Set(contract.rules.widgetSizes)
 const BACKGROUND_REQUIREMENTS = new Set(contract.rules.backgroundRequirements)
 const WIDGET_CATEGORIES = new Set(schemaEnum('TappWidgetCategory'))
@@ -757,7 +756,15 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
       diagnostic(
         'error',
         'invalid-category',
-        `category must be one of: ${[...CATEGORIES].join(', ')}`,
+        `category must be one of: ${CANONICAL_CATEGORIES.join(', ')}`,
+      ),
+    )
+  } else if (CATEGORY_ALIASES.has(manifest.category)) {
+    diagnostics.push(
+      diagnostic(
+        'warning',
+        'older-category-name',
+        `category "${manifest.category}" is an older name and will stop being accepted; use one of: ${CANONICAL_CATEGORIES.join(', ')}`,
       ),
     )
   }

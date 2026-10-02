@@ -204,8 +204,11 @@ const PRE_LAYER_MANIFEST_FIELDS: &[&str] = &[
 ];
 
 pub fn parse_manifest_json(content: &str) -> Result<TappManifest, PackageLoadError> {
-    match serde_json::from_str(content) {
-        Ok(manifest) => Ok(manifest),
+    match serde_json::from_str::<TappManifest>(content) {
+        Ok(manifest) => {
+            warn_older_category_name(content, &manifest.id);
+            Ok(manifest)
+        }
         Err(error) => {
             let legacy = serde_json::from_str::<serde_json::Value>(content)
                 .ok()
@@ -229,6 +232,28 @@ pub fn parse_manifest_json(content: &str) -> Result<TappManifest, PackageLoadErr
                 "Invalid manifest.json".to_string(),
             ))
         }
+    }
+}
+
+/// Older category names still install (the contract keeps them as aliases);
+/// the log says which packages still use one before the aliases can go.
+fn warn_older_category_name(content: &str, tapp_id: &str) {
+    #[derive(serde::Deserialize)]
+    struct Category {
+        category: Option<String>,
+    }
+    let Ok(Category {
+        category: Some(category),
+    }) = serde_json::from_str(content)
+    else {
+        return;
+    };
+    if myriad_tapp_contract::contract_rules::TAPP_CATEGORY_ALIASES.contains(&category.as_str()) {
+        tracing::warn!(
+            tapp_id,
+            category,
+            "tapp manifest uses an older category name"
+        );
     }
 }
 
