@@ -23,8 +23,13 @@ found hip, knee and ankle. Without a skeleton a sleeve stays one rigid piece.
 At bind time each split sleeve gets one shoulder joint, found on its own
 opaque pixels nearest the anatomical shoulder (never above the neck), and the
 rotation fades in across the joint so the sleeve bends into the shoulder rather
-than tearing from it. At runtime the sleeve is a damped pendulum: `armY` opens
-both arms, `armPos` swings both one way, the shoulder's actual acceleration
+than tearing from it. At runtime the sleeve is a damped pendulum: `armY` is a
+shared lift that the two arms do not take alike: the arm on the side the head
+turns to (or the sway goes, or else the other arm from last time) leads, and
+the other comes along with 40% of it a quarter second behind. An arm with a
+found elbow takes 40% of its lift at the elbow instead, the forearm turning
+out; a standing figure's arm over the leg with the weight is pushed out by its
+hip. `armPos` swings both one way, the shoulder's actual acceleration
 after all primary motion makes the hand trail, and half of a body roll is given
 back to gravity. The swing saturates softly into the contract's
 `maxRigidArmRotationDegrees`. A sleeve that runs into the portrait crop keeps

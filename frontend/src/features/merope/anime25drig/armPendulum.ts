@@ -189,7 +189,8 @@ export const HAND: ArmSegmentTuning = { hz: 2.4, damping: 0.45, sag: 0.25, maxBe
 
 /**
  * One segment of a hanging arm below a joint. It is driven by the turn of the
- * segment above it and returns its own turn relative to that one.
+ * segment above it and returns its own turn relative to that one; `bend` is a
+ * turn the joint is asked to make on top of hanging.
  */
 export class ArmSegment {
   private state = 0
@@ -198,10 +199,10 @@ export class ArmSegment {
 
   constructor(private readonly tuning: Readonly<ArmSegmentTuning>) {}
 
-  step(aboveAngle: number, bodyRoll: number, dynamic: boolean, dt: number): number {
+  step(aboveAngle: number, bodyRoll: number, dynamic: boolean, dt: number, bend = 0): number {
     const { hz, damping, sag, maxBend } = this.tuning
     const above = finite(aboveAngle)
-    const target = above * (1 - sag) - finite(bodyRoll) * sag
+    const target = above * (1 - sag) - finite(bodyRoll) * sag + finite(bend)
     const step = Number.isFinite(dt) ? Math.max(0, dt) : 0
     if (!this.initialized || !dynamic) {
       this.initialized = true
