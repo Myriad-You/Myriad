@@ -45,7 +45,6 @@ import {
 import AgentOptionsPanel, {
   AgentNestedSection,
 } from './AgentOptionsPanel'
-import { parseVendorSources } from './aiVendorPresets'
 import { useAddedSlug } from './useAddedCard'
 import { useAiSubpage } from './usePersonaPage'
 
@@ -138,24 +137,23 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
   const chosenVoice = uiFieldValue('merope_voice_mode', 'tts')
   const voiceMode =
     chosenVoice === 'omni' || chosenVoice === 'agora' ? chosenVoice : 'tts'
-  // Set up as an Agora source (the server also checks its TTS and callback).
-  const agoraReady = useMemo(
-    () =>
-      parseVendorSources(getFieldValue('ai_vendor_sources')).some(
-        (source) => source.kind === 'agora' && source.enabled,
-      ),
-    [getFieldValue],
-  )
-  // Her own voice is Lite itself, called on DashScope directly (see
-  // `DynamicConfig::merope_omni_voice`): otherwise she reads aloud.
-  const liteVoiceModel = useMemo(() => {
-    const source = parseVendorSources(getFieldValue('ai_vendor_sources')).find(
-      (item) => item.slug === getFieldValue('lite_ai_source'),
-    )
-    const model = getFieldValue('lite_openai_model')
-    const direct = (source?.base_url ?? '').toLowerCase().includes('dashscope')
-    return direct && /omni/i.test(model) ? model : null
-  }, [getFieldValue])
+  // What is in effect, as the server resolves it from the saved settings
+  // (`DynamicConfig::merope_voice_mode_effective`): `tts`, or with why the
+  // chosen one is not, like `tts:lite_not_dashscope`.
+  const [effectiveVoice, effectiveWhy] = uiFieldValue(
+    'merope_voice_mode_effective',
+    'tts',
+  ).split(':')
+  const voiceWhy = effectiveWhy
+    ? ({
+        lite_not_dashscope: t.config.agentPersonaVoiceWhyNotDashscope,
+        lite_not_omni: t.config.agentPersonaVoiceWhyNotOmni,
+        lite_unconfigured: t.config.agentPersonaVoiceWhyNoLite,
+        lite_no_key: t.config.agentPersonaVoiceWhyNoKey,
+        agora_unconfigured: t.config.agentPersonaVoiceAgoraUnavailable,
+      }[effectiveWhy] ?? t.config.agentPersonaVoiceOmniUnavailable)
+    : null
+  const liteModel = getFieldValue('lite_openai_model')
 
   const proEnabled = useMemo(() => {
     const val = getFieldValue('pro_enabled', 'false')
@@ -536,16 +534,16 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
                   />
                   <p className="setting-hint">{t.config.agentPersonaVoiceVoiceHint}</p>
                   <p className="setting-hint">
-                    {liteVoiceModel
-                      ? t.config.agentPersonaVoiceOmniHint.replace('{model}', liteVoiceModel)
-                      : t.config.agentPersonaVoiceOmniUnavailable}
+                    {voiceWhy && effectiveVoice !== voiceMode
+                      ? voiceWhy
+                      : t.config.agentPersonaVoiceOmniHint.replace('{model}', liteModel || 'Omni')}
                   </p>
                 </>
               ) : voiceMode === 'agora' ? (
                 <p className="setting-hint">
-                  {agoraReady
-                    ? t.config.agentPersonaVoiceAgoraHint
-                    : t.config.agentPersonaVoiceAgoraUnavailable}
+                  {voiceWhy && effectiveVoice !== voiceMode
+                    ? voiceWhy
+                    : t.config.agentPersonaVoiceAgoraHint}
                 </p>
               ) : (
                 <p className="setting-hint">{t.config.agentPersonaVoiceTtsHint}</p>

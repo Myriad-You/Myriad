@@ -1103,6 +1103,21 @@ impl DynamicConfig {
         self.merope_enabled_resolved() && self.merope_speech_enabled
     }
 
+    /// 给配置页看的事实：实际生效的是哪一套，与选的不同时为什么——
+    /// `tts`、`omni`，或 `tts:lite_not_dashscope` 这样带原因。页面只显示，不自己推断。
+    pub fn merope_voice_mode_effective(&self) -> String {
+        let resolved = self.merope_voice_mode_resolved();
+        let why = match self.merope_voice_mode.trim() {
+            "omni" if resolved != "omni" => self.merope_omni_voice().err(),
+            "agora" if resolved != "agora" => Some("agora_unconfigured"),
+            _ => None,
+        };
+        match why {
+            Some(why) => format!("{resolved}:{why}"),
+            None => resolved.to_string(),
+        }
+    }
+
     /// 保存时的选择：认得的三种之一，其余一律当朗读。
     pub fn voice_mode_choice(value: &str) -> &'static str {
         match value.trim() {

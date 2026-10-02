@@ -1995,6 +1995,18 @@ pub(crate) async fn build_config(
                     placeholder: "tts".to_string(),
                     required: false,
                 },
+                // Read-only: what is in effect, as the server resolves it.
+                ConfigField {
+                    key: "merope_voice_mode_effective".to_string(),
+                    label: "Agent persona voice in effect".to_string(),
+                    field_type: "readonly".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.merope_voice_mode_effective())
+                        .unwrap_or_else(|| "tts".to_string()),
+                    placeholder: String::new(),
+                    required: false,
+                },
                 ConfigField {
                     key: "merope_voice_voice".to_string(),
                     label: "Agent persona voice".to_string(),

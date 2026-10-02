@@ -81,7 +81,12 @@ pub struct SpeechTestResult {
 }
 
 pub async fn configured_provider() -> SpeechProviderKind {
-    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+    provider_of(&*GLOBAL_DYNAMIC_CONFIG.read().await)
+}
+
+/// The speech service's provider in `config`: its TTS model and voice are
+/// that provider's names.
+pub fn provider_of(config: &crate::config::DynamicConfig) -> SpeechProviderKind {
     if let Some(source) = config.find_vendor_source(&config.speech_source) {
         if is_minimax_vendor(&source) {
             return SpeechProviderKind::MiniMax;
@@ -346,9 +351,7 @@ pub(crate) fn stt_ledger_provider(
     executed: Option<SpeechProviderKind>,
 ) -> &'static str {
     match configured {
-        SpeechProviderKind::MiniMax => executed
-            .map(SpeechProviderKind::as_str)
-            .unwrap_or("none"),
+        SpeechProviderKind::MiniMax => executed.map(SpeechProviderKind::as_str).unwrap_or("none"),
         other => other.as_str(),
     }
 }
@@ -633,7 +636,11 @@ async fn fallback_transcribe_bytes(
             .await
             .map(|response| response.result.unwrap_or_default())
             .map_err(|e| tencent_message(&e));
-        return (Some(SpeechProviderKind::Tencent), engine.to_string(), result);
+        return (
+            Some(SpeechProviderKind::Tencent),
+            engine.to_string(),
+            result,
+        );
     }
     if let Ok(resolved) = fallback_openai_stt().await {
         let filename = format!("speech.{format}");

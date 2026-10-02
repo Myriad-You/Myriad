@@ -322,16 +322,22 @@ pub fn resolve_minimax_tts(config: &DynamicConfig) -> Result<TtsEndpoint, AgoraC
     let api_key = DynamicConfig::nonempty_opt(source.api_key.as_ref()).ok_or_else(|| {
         AgoraConvoError::NotConfigured("MiniMax API key is not configured".to_string())
     })?;
-    let model = if config.speech_tts_model.trim().is_empty() {
-        DEFAULT_MINIMAX_TTS_MODEL.to_string()
-    } else {
-        config.speech_tts_model.trim().to_string()
+    // The speech service's model and voice are its own provider's names:
+    // MiniMax's only when the speech service is MiniMax (an OpenAI `marin`
+    // is no voice to MiniMax).
+    let speech_is_minimax = matches!(
+        crate::services::speech_runtime::provider_of(config),
+        crate::services::speech_runtime::SpeechProviderKind::MiniMax
+    );
+    let own = |value: &str, fallback: &str| {
+        if speech_is_minimax && !value.trim().is_empty() {
+            value.trim().to_string()
+        } else {
+            fallback.to_string()
+        }
     };
-    let voice = if config.speech_tts_voice.trim().is_empty() {
-        DEFAULT_MINIMAX_VOICE.to_string()
-    } else {
-        config.speech_tts_voice.trim().to_string()
-    };
+    let model = own(&config.speech_tts_model, DEFAULT_MINIMAX_TTS_MODEL);
+    let voice = own(&config.speech_tts_voice, DEFAULT_MINIMAX_VOICE);
     Ok(TtsEndpoint {
         api_key,
         model,
@@ -921,6 +927,20 @@ mod tests {
         config.lite_openai_model = "lite-model".to_string();
         config.lite_openai_api_key = Some("lite-key".to_string());
         assert!(convo_configured(&config));
+        // The speech service's voice is its own provider's name: an OpenAI
+        // voice is none to MiniMax, a MiniMax one is used.
+        config.speech_provider = "openai".to_string();
+        config.speech_tts_model = "gpt-4o-mini-tts".to_string();
+        config.speech_tts_voice = "marin".to_string();
+        let tts = resolve_minimax_tts(&config).unwrap();
+        assert_eq!(tts.voice, DEFAULT_MINIMAX_VOICE);
+        assert_eq!(tts.model, DEFAULT_MINIMAX_TTS_MODEL);
+        config.speech_source = "minimax".to_string();
+        config.speech_tts_model = "speech-2.8-turbo".to_string();
+        config.speech_tts_voice = "female-tianmei".to_string();
+        let tts = resolve_minimax_tts(&config).unwrap();
+        assert_eq!(tts.voice, "female-tianmei");
+        assert_eq!(tts.model, "speech-2.8-turbo");
         config.ai_vendor_sources[0].enabled = false;
         assert!(!convo_configured(&config));
     }

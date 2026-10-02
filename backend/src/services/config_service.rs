@@ -1773,6 +1773,14 @@ mod tests {
             ..omni.clone()
         };
         assert_eq!(agora_unset.merope_voice_mode_resolved(), "tts");
+        // What the page is told: in effect, and why not what was chosen.
+        assert_eq!(omni.merope_voice_mode_effective(), "omni");
+        assert_eq!(not_omni.merope_voice_mode_effective(), "tts:lite_not_omni");
+        assert_eq!(
+            agora_unset.merope_voice_mode_effective(),
+            "tts:agora_unconfigured"
+        );
+        assert_eq!(unchosen.merope_voice_mode_effective(), "tts");
     }
 
     #[test]
