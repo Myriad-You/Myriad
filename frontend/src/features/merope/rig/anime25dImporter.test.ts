@@ -595,6 +595,26 @@ test('legs pressed together are cut down their middle into a left and a right le
   assert.ok(left.x + left.w < right.x + 8, `${left.x}+${left.w} vs ${right.x}`)
 })
 
+test('an eye whose white was decomposed above its iris is restacked white, iris, lashes', async () => {
+  const source = syntheticSeeThroughPsd()
+  const children = source.children ?? []
+  const whiteIndex = children.findIndex((layer) => layer.name === 'eyewhite')
+  const white = children[whiteIndex]
+  // The decomposer's depth order: the white last, over the iris and lashes.
+  const reordered = {
+    ...source,
+    children: [...children.filter((_, index) => index !== whiteIndex), white],
+  } as Psd
+  const prepared = await prepareWithFakeCanvas(reordered)
+  const layers = prepared.source.anime25dPlayback!.layers
+  for (const side of ['L', 'R']) {
+    const at = (role: string) =>
+      layers.findIndex((layer) => layer.role === role && layer.side === side)
+    assert.ok(at('eyewhite') >= 0 && at('irides') >= 0 && at('eyelash') >= 0, side)
+    assert.ok(at('eyewhite') < at('irides') && at('irides') < at('eyelash'), side)
+  }
+})
+
 test('a single arm is still not two arms', async () => {
   const source = syntheticSeeThroughPsd()
   const width = source.width

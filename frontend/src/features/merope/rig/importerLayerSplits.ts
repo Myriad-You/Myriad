@@ -143,6 +143,37 @@ function splitRasterAtColumn(
   return output
 }
 
+/** Bottom to top: an open eye's white, then its iris, then its lashes. */
+const OPEN_EYE_STACK = ['eyewhite', 'irides', 'eyelash'] as const
+
+/**
+ * A decomposer orders layers by estimated depth, which can put an eye's white
+ * over its own iris and lashes and leave a blank eye. Restack each eye's open
+ * parts in drawing order, within the places they already hold; an eye drawn in
+ * order stays as it is.
+ */
+export function stackOpenEyesInOrder(layers: RasterLayer[]): RasterLayer[] {
+  const output = [...layers]
+  for (const side of ['left', 'right'] as const) {
+    const slots = output
+      .map((layer, index) => ({ layer, index }))
+      .filter(({ layer }) =>
+        layer.side === side && (OPEN_EYE_STACK as readonly string[]).includes(layer.role),
+      )
+    const ordered = slots
+      .map(({ layer }) => layer)
+      .toSorted(
+        (a, b) =>
+          OPEN_EYE_STACK.indexOf(a.role as (typeof OPEN_EYE_STACK)[number]) -
+          OPEN_EYE_STACK.indexOf(b.role as (typeof OPEN_EYE_STACK)[number]),
+      )
+    slots.forEach(({ index }, slot) => {
+      output[index] = ordered[slot]
+    })
+  }
+  return output
+}
+
 export function splitVariantEyesIfNeeded(
   layers: RasterLayer[],
   faceCenterX: number,
