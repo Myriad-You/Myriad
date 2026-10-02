@@ -1089,7 +1089,7 @@ fn telegram_choice_becomes_one_inline_button_per_option() {
     );
     assert_eq!(
         telegram_callback_action(&prompt, "o:1"),
-        TelegramCallbackAction::Stale
+        TelegramCallbackAction::Unknown
     );
 }
 
@@ -1122,7 +1122,7 @@ fn telegram_confirm_and_input_buttons() {
     );
     assert_eq!(
         telegram_callback_action(&confirm, "y"),
-        TelegramCallbackAction::Stale
+        TelegramCallbackAction::Unknown
     );
     let mut free = PendingPrompt {
         id: String::new(),

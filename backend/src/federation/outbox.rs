@@ -2,7 +2,7 @@
 //!
 //! 用户的 Outbox — AP 兼容的活动历史
 //! `GET /users/{username}/outbox` 返回 OrderedCollection 摘要
-//! `GET /users/{username}/outbox?page=N` 返回 OrderedCollectionPage
+//! `GET /users/{username}/outbox?page=1`（第一页）/ `?cursor=…` 返回 OrderedCollectionPage
 
 use axum::{
     Json,
@@ -74,8 +74,8 @@ pub(crate) async fn public_local_objects(
 
 #[derive(Debug, Deserialize)]
 pub struct OutboxQuery {
-    /// 传统页码。仍然接受（远端可能缓存过这类 URL），但我们只在 `first`
-    /// 里生成 `?page=1`；之后的 `next` 一律用游标。
+    /// 只标记「第一页」：`first` 生成 `?page=1`，之后的 `next` 一律用游标。
+    /// 页码本身不参与定位。
     pub page: Option<u32>,
     /// Keyset 游标：`<published_at 微秒>.<activity id>`。
     pub cursor: Option<String>,
@@ -113,7 +113,7 @@ fn encode_cursor(published_us: i64, id: i32) -> String {
 ///
 /// - 无参数：返回 `OrderedCollection` 摘要（`totalItems` + `first`）
 /// - `?cursor=…`：keyset 分页，`next` 链接都是这种形态
-/// - `?page=N`：传统页码，仍接受；`first` 仍生成 `?page=1`，之后 `next` 用游标
+/// - `?page=…`：第一页（`first` 生成 `?page=1`）；之后 `next` 用游标
 ///
 /// keyset 用 `(published_at, id)` 作游标。
 /// `COUNT(*)` 只在无分页参数的摘要文档跑一次。
@@ -166,11 +166,6 @@ pub async fn get_outbox(
         Some(raw) => parse_cursor(raw),
         None => PagePosition::Start,
     };
-    // 传统 `?page=N` 仍走 OFFSET（`first` 会生成 `?page=1`）。
-    let legacy_offset = match (&position, query.page) {
-        (PagePosition::Start, Some(p)) => (p.max(1) as i64 - 1) * OUTBOX_PAGE_SIZE,
-        _ => 0,
-    };
 
     // 多取一条用来判断"还有没有下一页"，省掉一次 COUNT
     let fetch = OUTBOX_PAGE_SIZE + 1;
@@ -181,10 +176,10 @@ pub async fn get_outbox(
                 format!(
                     "SELECT a.object_json, a.id, a.published_at {} \
                      AND a.user_id = $1 \
-                     ORDER BY a.published_at DESC, a.id DESC LIMIT $2 OFFSET $3",
+                     ORDER BY a.published_at DESC, a.id DESC LIMIT $2",
                     PUBLIC_CONTENT_PROJECTION
                 ),
-                [user_id.into(), fetch.into(), legacy_offset.into()],
+                [user_id.into(), fetch.into()],
             ))
             .await
         }
@@ -235,7 +230,7 @@ pub async fn get_outbox(
 
     let page_id = match query.cursor.as_deref() {
         Some(c) => format!("{}?cursor={}", outbox_id, c),
-        None => format!("{}?page={}", outbox_id, query.page.unwrap_or(1).max(1)),
+        None => format!("{}?page=1", outbox_id),
     };
 
     let page_doc = OrderedCollectionPage {
