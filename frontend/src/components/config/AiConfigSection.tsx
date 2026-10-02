@@ -89,6 +89,8 @@ interface ModelTierGroupProps {
   provider: string
   providerOptions: SettingOption<string>[]
   providerHint?: string
+  /** No sources to choose from: only the model fields. */
+  hideProvider?: boolean
   fields: ConfigField[]
   enabled?: boolean
   toggle?: {
@@ -124,6 +126,7 @@ const ModelTierGroup: React.FC<
   provider,
   providerOptions,
   providerHint,
+  hideProvider = false,
   fields,
   enabled = true,
   toggle,
@@ -172,17 +175,19 @@ const ModelTierGroup: React.FC<
     </div>
     {enabled && (
       <>
-        <ProviderItem
-          itemKey={providerItemKey}
-          label={providerLabel}
-          value={provider}
-          onChange={onProviderChange}
-          options={providerOptions}
-          hint={providerHint}
-          guide={providerGuide}
-          guidePath={providerGuidePath}
-          layout="horizontal"
-        />
+        {hideProvider ? null : (
+          <ProviderItem
+            itemKey={providerItemKey}
+            label={providerLabel}
+            value={provider}
+            onChange={onProviderChange}
+            options={providerOptions}
+            hint={providerHint}
+            guide={providerGuide}
+            guidePath={providerGuidePath}
+            layout="horizontal"
+          />
+        )}
         {fields.map((field) => {
           const fieldGuide = fieldGuideFor?.(field.key)
           return (
@@ -616,12 +621,10 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       }),
     [configFields],
   )
+  // A source of their own; never chosen, the server shows Lite's of now.
   const auxSourceOptions = useMemo(
-    () => [
-      { value: '', label: t.config.aiAuxFollowLite },
-      ...(textSourceOptions ?? []),
-    ],
-    [t.config.aiAuxFollowLite, textSourceOptions],
+    () => textSourceOptions ?? [],
+    [textSourceOptions],
   )
 
   const liteProviderFields = useMemo(
@@ -802,6 +805,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             provider={getFieldValue('aux_ai_source')}
             providerOptions={auxSourceOptions}
             providerHint={t.config.aiAuxProviderHint}
+            hideProvider={auxSourceOptions.length === 0}
             fields={auxFields}
             onProviderChange={(slug) => updateValue('aux_ai_source', slug)}
             updateValue={updateValue}

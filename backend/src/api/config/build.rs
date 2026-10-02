@@ -834,9 +834,18 @@ pub(crate) async fn build_config(
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.aux_ai_source.clone())
+                        // Never chosen: shown as Lite's source of now, which
+                        // is what it is in effect. Without vendor sources there
+                        // is nothing to choose, and it stays blank (on Lite).
+                        .map(|c| {
+                            if c.ai_vendor_sources.is_empty() {
+                                c.aux_ai_source.clone()
+                            } else {
+                                c.aux_source_slug()
+                            }
+                        })
                         .unwrap_or_default(),
-                    placeholder: "Blank: Lite's source".to_string(),
+                    placeholder: String::new(),
                     required: false,
                 },
                 ConfigField {

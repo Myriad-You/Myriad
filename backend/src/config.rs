@@ -356,7 +356,8 @@ pub struct DynamicConfig {
     pub lite_embedding_model: String,
     /// Where the judgment and embedding models run, their own source apart
     /// from Lite's (a vendor source slug): Lite can move (to DashScope, say)
-    /// while they stay where they are. Blank: on Lite's own source.
+    /// while they stay where they are. Blank (never chosen): Lite's source
+    /// of now, which is also what the settings page shows chosen.
     pub aux_ai_source: String,
     // AI 配置（Pro 模型）
     pub pro_enabled: bool,
@@ -1672,41 +1673,75 @@ impl DynamicConfig {
         Some(self.resolve_ai_config(ModelTier::Lite))
     }
 
-    /// Lite for small typed judgments: `lite_judge_model` when set, on the
-    /// judgment-and-embedding source when one is chosen, else on Lite's own
-    /// provider and credentials. Blank: Lite's own model. Speaking stays on
-    /// Lite's own model. No Lite, no judge.
+    /// Lite for small typed judgments: `lite_judge_model` on the judgment
+    /// and embedding source when both are set and that source can be used;
+    /// otherwise Lite's own model on Lite's own provider, which always works
+    /// where Lite does (a model name is never sent to a provider it is not
+    /// for). Speaking stays on Lite's own model. No Lite, no judge.
     pub fn resolve_lite_judge_ai_config(&self) -> Option<ResolvedAiConfig> {
-        let mut resolved = self.resolve_strict_lite_ai_config()?;
+        let lite = self.resolve_strict_lite_ai_config()?;
         let judge = self.lite_judge_model.trim();
-        if !judge.is_empty() {
-            resolved = self.on_aux_source(judge).unwrap_or(ResolvedAiConfig {
+        if judge.is_empty() {
+            return Some(lite);
+        }
+        if !self.aux_chosen() {
+            // Never chosen: on Lite's provider and credentials, as before.
+            return Some(ResolvedAiConfig {
                 model: judge.to_string(),
-                ..resolved
+                ..lite
             });
         }
-        Some(resolved)
+        Some(self.on_aux_source(judge).unwrap_or(lite))
     }
 
-    /// The embedding model, when one is set: on the judgment-and-embedding
-    /// source when one is chosen, else on Lite's provider and credentials;
-    /// `None` leaves recall to words alone.
+    /// The embedding model, when one is set, on the judgment and embedding
+    /// source; `None` (recall by words alone) when either is missing or
+    /// that source cannot be used. Off with Lite.
     pub fn resolve_lite_embedding_ai_config(&self) -> Option<ResolvedAiConfig> {
+        let lite = self.resolve_strict_lite_ai_config()?;
         let model = self.lite_embedding_model.trim();
         if model.is_empty() {
             return None;
         }
-        let resolved = self.resolve_strict_lite_ai_config()?;
-        Some(self.on_aux_source(model).unwrap_or(ResolvedAiConfig {
-            model: model.to_string(),
-            ..resolved
-        }))
+        if !self.aux_chosen() {
+            // Never chosen: on Lite's provider and credentials, as before.
+            return Some(ResolvedAiConfig {
+                model: model.to_string(),
+                ..lite
+            });
+        }
+        self.on_aux_source(model)
     }
 
-    /// `model` on the judgment-and-embedding source, when one is chosen.
+    fn aux_chosen(&self) -> bool {
+        !self.aux_ai_source.trim().is_empty()
+    }
+
+    /// The judgment and embedding source: as chosen, or, never chosen,
+    /// Lite's source of now.
+    pub fn aux_source_slug(&self) -> String {
+        let chosen = self.aux_ai_source.trim();
+        if !chosen.is_empty() {
+            return chosen.to_string();
+        }
+        let lite = self.lite_ai_source.trim();
+        if !lite.is_empty() {
+            return lite.to_string();
+        }
+        let base = if self.lite_openai_base_url.trim().is_empty() {
+            self.openai_base_url.as_str()
+        } else {
+            self.lite_openai_base_url.as_str()
+        };
+        self.inferred_text_source_slug(&self.lite_ai_provider, base)
+    }
+
+    /// `model` on the judgment and embedding source, when that source is
+    /// there and can be used (on, with its key).
     fn on_aux_source(&self, model: &str) -> Option<ResolvedAiConfig> {
-        let source = self.find_vendor_source(&self.aux_ai_source)?;
-        Some(self.resolve_from_vendor_source(&source, model))
+        let source = self.find_vendor_source(&self.aux_source_slug())?;
+        let resolved = self.resolve_from_vendor_source(&source, model);
+        resolved.text_ready().then_some(resolved)
     }
 
     /// 这一档要的模型没配、实际会落到 Standard 上吗？
@@ -2358,7 +2393,8 @@ mod tests {
             ai_vendor_sources: vec![dashscope, openrouter],
             ..DynamicConfig::default()
         };
-        // Not chosen: they follow Lite, as before.
+        // Never chosen: Lite's source of now, as before.
+        assert_eq!(moved.aux_source_slug(), "dashscope");
         let follows = moved.resolve_lite_judge_ai_config().unwrap();
         assert!(follows.base_url.contains("dashscope"));
         // Their own source: Lite moved, they did not.
@@ -2372,6 +2408,22 @@ mod tests {
         let embedding = own.resolve_lite_embedding_ai_config().unwrap();
         assert!(embedding.base_url.contains("openrouter"));
         assert_eq!(embedding.model, "perplexity/pplx-embed-v1-0.6b");
+        // Their source turned off or gone: judgments on Lite's own model
+        // (never its name for the other provider), no embeddings.
+        let mut off_source = own.clone();
+        off_source.ai_vendor_sources[1].enabled = false;
+        let fallback = off_source.resolve_lite_judge_ai_config().unwrap();
+        assert_eq!(fallback.model, "qwen3.8-omni-flash");
+        assert!(fallback.base_url.contains("dashscope"));
+        assert!(off_source.resolve_lite_embedding_ai_config().is_none());
+        let gone = DynamicConfig {
+            aux_ai_source: "deleted".to_string(),
+            ..own.clone()
+        };
+        assert_eq!(
+            gone.resolve_lite_judge_ai_config().unwrap().model,
+            "qwen3.8-omni-flash"
+        );
         // Speaking stays on Lite; a blank judge model is Lite's own.
         assert!(
             own.resolve_strict_lite_ai_config()
