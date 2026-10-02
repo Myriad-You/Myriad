@@ -922,6 +922,7 @@
   "agentPersonaVoiceOmniHint": "全部由 Lite 档的 {model} 来：直接听你的原声，边想边说。声网和「语音服务」的设置不起作用。",
   "agentPersonaVoiceOmniUnavailable": "Lite 档不是直连 DashScope 的 Omni 模型，现在会用 TTS。",
   "agentPersonaVoiceVoice": "音色",
+  "agentPersonaVoiceVoiceHint": "留空用模型默认音色；也可以填预置音色名，或你在 DashScope 上复刻得到的音色 ID（做法见说明）。",
   "enableProxy": "启用网络代理",
   "enableProxyHint": "开启后将使用代理访问外部API",
   "proxyUrl": "代理地址",

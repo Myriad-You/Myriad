@@ -922,6 +922,7 @@
   "agentPersonaVoiceOmniHint": "All of it is Lite's {model}: it hears your own voice and speaks as it thinks. Agora and Speech service settings do not apply.",
   "agentPersonaVoiceOmniUnavailable": "Lite is not an Omni model called on DashScope directly, so TTS is used for now.",
   "agentPersonaVoiceVoice": "Voice",
+  "agentPersonaVoiceVoiceHint": "Leave empty for the model's default voice, or enter a preset voice name, or a voice ID you cloned on DashScope (see the guide).",
   "enableProxy": "Enable Network Proxy",
   "enableProxyHint": "External API requests will be sent through the proxy when enabled",
   "proxyUrl": "Proxy URL",

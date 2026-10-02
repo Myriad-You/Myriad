@@ -512,6 +512,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
               <ProviderItem
                 itemKey="merope_voice_mode"
                 label={t.config.agentPersonaVoiceMode}
+                {...bindGuide('agent.agentPersonaVoice', g.agent.agentPersonaVoice)}
                 value={voiceMode}
                 onChange={(value) => updateUiFieldValue('merope_voice_mode', value)}
                 options={[
@@ -526,12 +527,14 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
                   <InputItem
                     itemKey="merope_voice_voice"
                     label={t.config.agentPersonaVoiceVoice}
+                    {...bindGuide('agent.agentPersonaVoice', g.agent.agentPersonaVoice)}
                     value={uiFieldValue('merope_voice_voice', '')}
                     onChange={(value) => updateUiFieldValue('merope_voice_voice', value)}
                     placeholder="Tina"
                     inputType="text"
                     layout="vertical"
                   />
+                  <p className="setting-hint">{t.config.agentPersonaVoiceVoiceHint}</p>
                   <p className="setting-hint">
                     {liteVoiceModel
                       ? t.config.agentPersonaVoiceOmniHint.replace('{model}', liteVoiceModel)

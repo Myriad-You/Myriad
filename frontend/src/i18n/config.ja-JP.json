@@ -922,6 +922,7 @@
   "agentPersonaVoiceOmniHint": "すべて Lite の {model} が担います：あなたの声をそのまま聞き、考えながら話します。Agora と「音声サービス」の設定は使われません。",
   "agentPersonaVoiceOmniUnavailable": "Lite が DashScope 直結の Omni モデルではないため、今は TTS を使います。",
   "agentPersonaVoiceVoice": "声",
+  "agentPersonaVoiceVoiceHint": "空欄ならモデル既定の声。プリセット名、または DashScope で作ったクローン音声の ID も入力できます（手順はガイド参照）。",
   "enableProxy": "ネットワークプロキシを有効化",
   "enableProxyHint": "有効にすると、外部APIリクエストはプロキシ経由で送信されます",
   "proxyUrl": "プロキシURL",

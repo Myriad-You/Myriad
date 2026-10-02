@@ -922,6 +922,7 @@
   "agentPersonaVoiceOmniHint": "모두 Lite의 {model}이 맡습니다: 당신의 목소리를 그대로 듣고, 생각하면서 말합니다. Agora와 「음성 서비스」 설정은 쓰이지 않습니다.",
   "agentPersonaVoiceOmniUnavailable": "Lite가 DashScope에 직접 연결된 Omni 모델이 아니어서 지금은 TTS를 씁니다.",
   "agentPersonaVoiceVoice": "목소리",
+  "agentPersonaVoiceVoiceHint": "비워 두면 모델 기본 목소리입니다. 프리셋 이름이나 DashScope에서 복제한 목소리 ID를 넣을 수도 있어요(방법은 안내 참고).",
   "enableProxy": "네트워크 프록시 켜기",
   "enableProxyHint": "켜면 외부 API 요청을 프록시로 보냅니다",
   "proxyUrl": "프록시 URL",

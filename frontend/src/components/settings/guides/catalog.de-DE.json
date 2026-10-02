@@ -564,9 +564,15 @@
     },
     "agentPersonaSpeech": {
       "what": "Ob das Persona-Gesicht Chat-Antworten laut spricht.",
-      "chain": "1) Standardmäßig aus. Aus: Antworten bleiben Text; das Gesicht formt die Zeile weiter, ohne Stimme.\n2) An, mit konfigurierter Sprache: Antworten laufen durch die Sprachpipeline; echtes Audio treibt den Mund; Text-Viseme nur, wenn TTS scheitert.\n3) Braucht Agent-Persona an und einen Sprachanbieter auf der KI-Seite. Der Schalter zählt nicht, solange Persona aus ist.\n4) Push-to-listen bleibt manuell und getrennt.\n5) Reader-/Podcast-TTS nutzt den Sprachanbieter, nicht diesen Schalter.",
+      "chain": "1) Standardmäßig aus. Aus: Antworten bleiben Text; das Gesicht formt die Zeile weiter, ohne Stimme.\n2) An, mit konfigurierter Sprache: Antworten laufen durch die Sprachpipeline; echtes Audio treibt den Mund; Text-Viseme nur, wenn TTS scheitert.\n3) Zuerst oben die Persona einschalten. Welche ganze Stimme sie nutzt (TTS / Agora / Omni), wird unten unter Ihre Stimme gewählt; solange die Persona nicht wirkt, zählt dieser Schalter nicht als an.\n4) Push-to-listen bleibt manuell und getrennt.\n5) Reader-/Podcast-TTS nutzt den Sprachanbieter, nicht diesen Schalter.",
       "frontend": "Einstellungen → Agent → Sprechen. Wirkt auf den nächsten Chat-Zug nach dem Speichern.",
       "notes": "Stimme nutzt Kontingent. Diesen aus schaltet die Persona nicht aus."
+    },
+    "agentPersonaVoice": {
+      "what": "Welche ganze Stimme sie hat: wie sie hört, wer denkt, wie sie spricht.",
+      "chain": "1) TTS: Der Browser nimmt auf, die ASR des Sprachdiensts (KI-Seite) schreibt mit, Lite denkt, die TTS des Sprachdiensts liest vor.\n2) Agora: Sprachgespräche laufen über Agora (Agora schreibt mit und spricht, dazwischen Lite); der Textchat wird weiter per TTS vorgelesen. Zuerst auf der KI-Seite eine Agora-Quelle anlegen.\n3) Omni: Alles übernimmt Lites Omni-Modell: Es hört deine Stimme selbst und spricht, während es denkt, ohne Agora, ASR oder TTS. Lite muss eine DashScope-Quelle direkt nutzen (Singapur) mit einem Omni-Modell (z. B. qwen3.8-omni-flash, ohne qwen/-Präfix).\n4) Ist ein Modus nicht erfüllbar, fällt sie auf TTS zurück, und diese Seite nennt den Grund. Seiten ohne Wahl: Agora, wenn eingerichtet, sonst TTS.",
+      "frontend": "Einstellungen → Agent → Sprechen → Ihre Stimme. Die Stimme gilt nur für Omni: leer für die Standardstimme des Modells, ein Preset-Name (z. B. Tina) oder eine auf DashScope geklonte Stimm-ID.",
+      "notes": "Das Klonen erfolgt auf DashScope, nicht auf dieser Seite: eine klare Aufnahme von 10–60 s (WAV/MP3/M4A) mit qwen-voice-enrollment hochladen, target_model auf Lites Modell setzen; die zurückgegebene voice ist die Stimm-ID. Die Aufnahme muss eine Stimme sein, die du verwenden darfst. In DashScopes Liste der Modelle für geklonte Stimmen fehlt das nicht-echtzeitfähige qwen3.8-omni-flash; wird es abgelehnt, Lite auf qwen3.5-omni-flash umstellen. Stimmen aus Voice Design gelten nur für Qwen-TTS, nicht direkt für Omni."
     },
     "channels": {
       "what": "Einen Privatchat-Arbeitsbot hinzufügen, damit Agent Anfragen von QQ, Telegram, Discord oder Feishu entgegennimmt.",
