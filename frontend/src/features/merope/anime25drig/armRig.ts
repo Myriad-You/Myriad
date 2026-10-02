@@ -20,6 +20,11 @@ export interface ArmRig {
   length: number
   /** A drawing already raised across the body swings less. */
   scale: number
+  /**
+   * The elbow found on the portrait, when the drawing shows it: the forearm
+   * below it swings on its own after the upper arm.
+   */
+  elbow: { x: number; y: number } | null
   /** The canvas cut this drawing runs into, if any; a swing slides along it. */
   cutY: number | null
   /**
@@ -30,7 +35,7 @@ export interface ArmRig {
 }
 
 type Layer = Pick<Anime25DPlaybackLayer, 'x' | 'y' | 'w' | 'h' | 'side'>
-type Anchors = Pick<Anime25DPlaybackAnchors, 'face' | 'neckPivot' | 'neckBottom'>
+type Anchors = Pick<Anime25DPlaybackAnchors, 'face' | 'neckPivot' | 'neckBottom' | 'skeleton'>
 
 /** `armY` = 1 raises both shoulders this far, in face-scaled pixels. */
 export const ARM_SHRUG = 8
@@ -60,10 +65,12 @@ export function bindArmRig(
   const faceWidth = anchors.face.x1 - anchors.face.x0
   const faceHeight = anchors.face.y1 - anchors.face.y0
   if (!(faceWidth > 0 && faceHeight > 0)) return null
-  // Layer 'L' is the image-left sleeve: its shoulder is left of the neck.
+  // Layer 'L' is the image-left sleeve: its shoulder is left of the neck, or
+  // where the portrait shows it.
   const away = arm.side === 'L' ? -1 : 1
-  const shoulderX = anchors.neckPivot.x + away * faceWidth * 0.72
-  const shoulderY = anchors.neckBottom + faceHeight * 0.04
+  const found = anchors.skeleton?.joints[`shoulder${arm.side}`]
+  const shoulderX = found?.x ?? anchors.neckPivot.x + away * faceWidth * 0.72
+  const shoulderY = found?.y ?? anchors.neckBottom + faceHeight * 0.04
   const scaleX = arm.w / width
   const scaleY = arm.h / height
   const opaque = (x: number, y: number) => pixels[(y * width + x) * 4 + 3] >= OPAQUE
@@ -110,8 +117,16 @@ export function bindArmRig(
   // The joint sits inside the sleeve, below its top contour.
   const jointRow = Math.min(height - 1, hitY + Math.round((radius * 0.7) / scaleY))
   const span = run(jointRow) ?? girth
-  const pivotX = arm.x + ((span[0] + span[1] + 1) / 2) * scaleX
-  const pivotY = arm.y + (jointRow + 0.5) * scaleY
+  // A shoulder joint found on the portrait is the pivot itself, when it lies
+  // on this sleeve; otherwise the joint sits inside the sleeve at its top.
+  const onSleeve =
+    found &&
+    found.x >= arm.x - radius &&
+    found.x <= arm.x + arm.w + radius &&
+    found.y >= arm.y - radius &&
+    found.y <= arm.y + arm.h
+  const pivotX = onSleeve ? found.x : arm.x + ((span[0] + span[1] + 1) / 2) * scaleX
+  const pivotY = onSleeve ? found.y : arm.y + (jointRow + 0.5) * scaleY
   // A hand raised above its own shoulder must not be swung like a hanging arm.
   let raised = 0
   const raisedRow = Math.floor((pivotY - radius - arm.y) / scaleY)
@@ -138,10 +153,25 @@ export function bindArmRig(
       if (isSkinTone(pixels[i], pixels[i + 1], pixels[i + 2])) skin++
     }
   }
+  // The elbow, when the drawing reaches past it: well below the shoulder and
+  // inside the sleeve's box. A forearm the frame cuts off is left to the cut,
+  // which keeps its edge on the frame.
+  const elbowJoint = anchors.skeleton?.joints[`elbow${arm.side}`]
+  const elbow =
+    !posed &&
+    !cut &&
+    elbowJoint &&
+    elbowJoint.y > pivotY + radius * 1.5 &&
+    elbowJoint.y < arm.y + arm.h - radius * 0.5 &&
+    elbowJoint.x >= arm.x &&
+    elbowJoint.x <= arm.x + arm.w
+      ? { x: elbowJoint.x, y: elbowJoint.y }
+      : null
   return {
     outward: arm.side === 'L' ? 1 : -1,
     pivotX,
     pivotY,
+    elbow,
     radius,
     reach: Math.max(arm.y + arm.h - pivotY, faceHeight * 2.2),
     length: arm.y + arm.h - pivotY,

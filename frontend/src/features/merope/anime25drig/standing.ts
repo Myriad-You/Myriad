@@ -29,6 +29,9 @@ const KNEE_IN = 0.05
 const HEEL_LIFT = 0.024
 const KNEE_AT = 0.45
 const ANKLE_AT = 0.85
+/** A found knee or ankle this far off the usual proportions is a misreading. */
+const KNEE_RANGE = [0.25, 0.65] as const
+const ANKLE_RANGE = [0.7, 0.97] as const
 const FOOT_FOLLOW = 0.15
 /** How much of the heel's lift the tip of the shoe keeps. */
 const TOE_LIFT = 0.12
@@ -90,6 +93,13 @@ export type StandingBinding =
       /** Where this leg leaves the pelvis, and the pelvis' middle. */
       hipX: number
       centerX: number
+      /**
+       * The hip joint, knee and ankle, as shares of the way from `hipY` down
+       * to the ground: found on the portrait, or the usual proportions.
+       */
+      hipAt: number
+      kneeAt: number
+      ankleAt: number
     }
 
 /** The stance a standing figure's layers follow this frame. */
@@ -229,7 +239,35 @@ export function bindStanding(
     groundY,
     hipX: middleX,
     centerX,
+    ...legJoints(anchors, side, hipY, groundY),
   }
+}
+
+/** This leg's joints from the skeleton found on the portrait, when they make sense. */
+function legJoints(
+  anchors: Readonly<Anime25DPlaybackAnchors>,
+  side: 'L' | 'R',
+  hipY: number,
+  groundY: number,
+): { hipAt: number; kneeAt: number; ankleAt: number } {
+  const usual = { hipAt: 0, kneeAt: KNEE_AT, ankleAt: ANKLE_AT }
+  const joints = anchors.skeleton?.joints
+  const knee = joints?.[`knee${side}`]
+  const ankle = joints?.[`ankle${side}`]
+  if (!knee || !ankle) return usual
+  const span = Math.max(1, groundY - hipY)
+  const kneeAt = (knee.y - hipY) / span
+  const ankleAt = (ankle.y - hipY) / span
+  if (
+    !(kneeAt >= KNEE_RANGE[0] && kneeAt <= KNEE_RANGE[1]) ||
+    !(ankleAt >= ANKLE_RANGE[0] && ankleAt <= ANKLE_RANGE[1])
+  ) {
+    return usual
+  }
+  // The hip joint sits below where the leg's drawing starts, under the skirt.
+  const hip = joints?.[`hip${side}`]
+  const hipAt = hip ? Math.max(0, Math.min(kneeAt * 0.6, (hip.y - hipY) / span)) : 0
+  return { hipAt, kneeAt, ankleAt }
 }
 
 /** Below this share of the leg, a loose part is on a lower leg, clear of hands and hem. */
@@ -262,15 +300,22 @@ export function applyStanding(
   point.y -= (binding.hipX - binding.centerX) * frame.pelvisTilt * (1 - t)
   const bend = binding.side === 'L' ? frame.bendL : frame.bendR
   if (!(bend > 0)) return
-  // Thigh and shin stay straight; they meet at a knee that moves inwards.
-  const knee = t < KNEE_AT ? t / KNEE_AT : 1 - (1 - FOOT_FOLLOW) * (t - KNEE_AT) / (1 - KNEE_AT)
+  const { hipAt, kneeAt, ankleAt } = binding
+  // Thigh and shin stay straight, from the hip joint to a knee that moves
+  // inwards and on to the foot.
+  const knee =
+    t <= hipAt
+      ? 0
+      : t < kneeAt
+        ? (t - hipAt) / (kneeAt - hipAt)
+        : 1 - (1 - FOOT_FOLLOW) * (t - kneeAt) / (1 - kneeAt)
   point.x += binding.inward * bend * KNEE_IN * span * knee
   // The shin rises with the heel; the shoe tips forward onto its toes.
   const lift =
-    t <= KNEE_AT
+    t <= kneeAt
       ? 0
-      : t < ANKLE_AT
-        ? (t - KNEE_AT) / (ANKLE_AT - KNEE_AT)
-        : 1 - (1 - TOE_LIFT) * (t - ANKLE_AT) / (1 - ANKLE_AT)
+      : t < ankleAt
+        ? (t - kneeAt) / (ankleAt - kneeAt)
+        : 1 - (1 - TOE_LIFT) * (t - ankleAt) / (1 - ankleAt)
   point.y -= bend * HEEL_LIFT * span * lift
 }

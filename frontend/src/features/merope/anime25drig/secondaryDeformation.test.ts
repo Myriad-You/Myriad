@@ -1298,7 +1298,40 @@ const ARM = {
   scale: 1,
   cutY: 224,
   drape: false,
+  elbow: null as { x: number; y: number } | null,
 }
+
+test('below a found elbow the forearm turns about it, and the upper arm does not', () => {
+  const arm = { ...ARM, cutY: null, elbow: { x: 70, y: 170 } }
+  const rest = new Float32Array([70, 90, 70, 130, 70, 170, 70, 210, 70, 220])
+  const binding = createAnime25DSecondaryDeformationBinding({
+    ...bodyBinding('handwear', 'L'),
+    arm,
+    armMesh: bindArmRigMesh(arm, rest),
+  })
+  const at = (vertex: number, y: number, forearm: number) => {
+    const point = { x: 70, y }
+    const frame = torsoTurnFrame(0, 0)
+    frame.forearmL = forearm
+    deformAnime25DSecondaryPoint(point, 70, y, vertex, binding, frame)
+    return point
+  }
+  const still = [130, 210].map((y, i) => at(i + 1, y, 0))
+  const upper = at(1, 130, 0.3)
+  const hand = at(3, 210, 0.3)
+  assert.ok(Math.abs(upper.x - still[0].x) < 1e-6, 'above the elbow nothing turns')
+  // A positive turn about the elbow carries a point below it towards image left.
+  assert.ok(hand.x < still[1].x - 8, `${hand.x} vs ${still[1].x}`)
+  // A sleeve without an elbow ignores the forearm entirely.
+  const plain = riggedSleeve(null)
+  const p = { x: 60, y: 130 }
+  const frame = torsoTurnFrame(0, 0)
+  frame.forearmL = 0.3
+  deformAnime25DSecondaryPoint(p, 60, 130, 7, plain, frame)
+  const q = { x: 60, y: 130 }
+  deformAnime25DSecondaryPoint(q, 60, 130, 7, plain, torsoTurnFrame(0, 0))
+  assert.deepEqual(p, q)
+})
 
 function riggedSleeve(cutY: number | null = ARM.cutY, drape = false): Anime25DSecondaryDeformationBinding {
   const arm = { ...ARM, cutY, drape }

@@ -165,6 +165,42 @@ export class ArmDrape {
   }
 }
 
+/**
+ * A forearm hangs from its elbow: it follows the upper arm a beat late, leans
+ * a little back towards the vertical, overshoots, and settles. Its rotation is
+ * returned relative to the upper arm, and an elbow bends only so far.
+ */
+const FOREARM_HZ = 1.6
+const FOREARM_DAMPING = 0.4
+const FOREARM_SAG = 0.3
+const FOREARM_MAX_BEND = 0.35
+
+export class ArmForearm {
+  private state = 0
+  private velocity = 0
+  private initialized = false
+
+  step(armAngle: number, bodyRoll: number, dynamic: boolean, dt: number): number {
+    const arm = finite(armAngle)
+    const target = arm * (1 - FOREARM_SAG) - finite(bodyRoll) * FOREARM_SAG
+    const step = Number.isFinite(dt) ? Math.max(0, dt) : 0
+    if (!this.initialized || !dynamic) {
+      this.initialized = true
+      this.state = target
+      this.velocity = 0
+    } else {
+      const omega = 2 * Math.PI * FOREARM_HZ
+      this.velocity += (-omega * omega * (this.state - target) - 2 * FOREARM_DAMPING * omega * this.velocity) * step
+      this.state += this.velocity * step
+      if (!Number.isFinite(this.state) || !Number.isFinite(this.velocity)) {
+        this.state = target
+        this.velocity = 0
+      }
+    }
+    return clamp(this.state - arm, -FOREARM_MAX_BEND, FOREARM_MAX_BEND)
+  }
+}
+
 function finite(value: number): number {
   return Number.isFinite(value) ? value : 0
 }

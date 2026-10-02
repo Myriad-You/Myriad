@@ -5,6 +5,8 @@ import type {
 } from './compiler'
 import {
   fullBodyRigImport,
+  getFullBodySkeleton,
+  getSiteSkeleton,
   importMeropeRig,
   previewMeropeRigImport,
 } from '../api'
@@ -25,10 +27,25 @@ export async function preflightRigPsdAsset(
   signal?: AbortSignal,
   expressions?: Parameters<typeof prepareRigPsdImport>[5],
 ): Promise<RigAssetPreflight> {
+  // Bound to the joints found on the worn bust, when that is this portrait.
+  const skeleton = await getSiteSkeleton()
   return preflightRigAsset(
     file,
     sourceMasterAssetId,
-    { prepare: prepareRigPsdImport, preview: previewMeropeRigImport },
+    {
+      prepare: (psd, master, onPrepareStage, fingerprint, prepareSignal, references) =>
+        prepareRigPsdImport(
+          psd,
+          master,
+          onPrepareStage,
+          fingerprint,
+          prepareSignal,
+          references,
+          'bust',
+          skeleton ?? undefined,
+        ),
+      preview: previewMeropeRigImport,
+    },
     onStage,
     sourceGenerationFingerprint,
     signal,
@@ -50,12 +67,22 @@ export async function preflightFullBodyPsdAsset(
   sourceMasterAssetId: string,
   sourceGenerationFingerprint?: string,
 ): Promise<RigAssetPreflight> {
+  const skeleton = await getFullBodySkeleton(outfitId)
   return preflightRigAsset(
     file,
     sourceMasterAssetId,
     {
       prepare: (psd, master, onStage, fingerprint, signal) =>
-        prepareRigPsdImport(psd, master, onStage, fingerprint, signal, [], 'fullBody'),
+        prepareRigPsdImport(
+          psd,
+          master,
+          onStage,
+          fingerprint,
+          signal,
+          [],
+          'fullBody',
+          skeleton ?? undefined,
+        ),
       preview: fullBodyRigImport(outfitId).preview,
     },
     undefined,

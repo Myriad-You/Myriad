@@ -2,6 +2,7 @@ import type { Anime25DImportCopy } from './anime25dImportCopy'
 import type { PreparedAnime25DRigImport } from './anime25dImporter'
 import type { AuthoredExpressionKind } from './authoredExpression'
 import type { CharacterAssetProfile } from './contract'
+import type { DetectedSkeleton } from './skeleton'
 
 export interface RigPsdImportRequest {
   buffer: ArrayBuffer
@@ -13,6 +14,8 @@ export interface RigPsdImportRequest {
   copy: Anime25DImportCopy
   /** The bust by default. */
   profile?: CharacterAssetProfile
+  /** Joints found on the portrait, to bind the rig to. */
+  skeleton?: DetectedSkeleton
 }
 
 export type RigPsdImportStage = 'validated' | 'packing'

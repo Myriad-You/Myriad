@@ -21,7 +21,7 @@ import type {
   Anime25DTorsoYawState,
 } from './torsoDeformation'
 import type { Anime25DPlayback, Anime25DShellProfile } from './types'
-import { ArmDrape, ArmPendulum } from './armPendulum'
+import { ArmDrape, ArmForearm, ArmPendulum } from './armPendulum'
 import { applyBodyLift, BodyLiftResponse } from './bodyLift'
 import {
   chestBodyExcitationY,
@@ -109,6 +109,8 @@ export class Anime25DBodyFrames {
   private readonly armPendulums = { L: new ArmPendulum(1), R: new ArmPendulum(-1) } as const
 
   private readonly armDrapes = { L: new ArmDrape(), R: new ArmDrape() } as const
+  /** A forearm below a found elbow swings on after its upper arm. */
+  private readonly forearms = { L: new ArmForearm(), R: new ArmForearm() } as const
 
   private readonly armJoint = { x: 0, y: 0, reach: 0 }
   /** Each shoulder as the arm step last found it, for what else hangs there. */
@@ -219,6 +221,8 @@ export class Anime25DBodyFrames {
       armAngleR: 0,
       armDrapeL: 0,
       armDrapeR: 0,
+      forearmL: 0,
+      forearmR: 0,
       chestCenterX: this.chestRegion.centerX,
       chestRegionCenterY: this.chestRegion.centerY,
       chestMotionCenterY: this.chestRegion.centerY,
@@ -572,12 +576,15 @@ export class Anime25DBodyFrames {
       shoulder.y = this.armJoint.y
       const angle = this.armPendulums[side].step(input, joint, dt)
       const drape = this.armDrapes[side].step(angle, input.bodyRoll, input.dynamic, dt)
+      const forearm = this.forearms[side].step(angle, input.bodyRoll, input.dynamic, dt)
       if (side === 'L') {
         frame.armAngleL = angle
         frame.armDrapeL = drape
+        frame.forearmL = forearm
       } else {
         frame.armAngleR = angle
         frame.armDrapeR = drape
+        frame.forearmR = forearm
       }
     }
   }

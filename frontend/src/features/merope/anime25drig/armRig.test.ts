@@ -133,3 +133,34 @@ test('a hand raised to the cheek rests on the head; hanging arms do not', () => 
   const toCheek = { layer: raised, image: sleeve(raised, (x, y) => (x >= 620 && x < 700 && y >= 380) || (y >= 380 && y < 520 && x >= 600 && x < 740)) }
   assert.equal(anime25DHandTouchesHead([hangingArm, toCheek], ANCHORS.face), true)
 })
+
+test('a shoulder found on the portrait is the pivot; an elbow found below it is kept', () => {
+  // A full arm that ends above the frame, with its joints found on the portrait.
+  const arm = { x: 120, y: 780, w: 220, h: 500, side: 'L' as const }
+  const paint: Paint = (x, y) => x >= 150 && x < 310 && y >= 790 && y < 1270
+  const skeleton = {
+    model: 'dwpose',
+    joints: {
+      shoulderL: { x: 232, y: 812, score: 0.95 },
+      elbowL: { x: 228, y: 1040, score: 0.9 },
+    },
+  }
+  const rig = bindArmRig(arm, sleeve(arm, paint), { ...ANCHORS, skeleton }, 1320)!
+  assert.equal(rig.pivotX, 232)
+  assert.equal(rig.pivotY, 812)
+  assert.deepEqual(rig.elbow, { x: 228, y: 1040 })
+  // Without a skeleton the joint is found as before, and there is no elbow.
+  const plain = bindArmRig(arm, sleeve(arm, paint), ANCHORS, 1320)!
+  assert.notEqual(plain.pivotY, 812)
+  assert.equal(plain.elbow, null)
+})
+
+test('a forearm the frame cuts off is left to the cut, without an elbow', () => {
+  const skeleton = {
+    model: 'dwpose',
+    joints: { shoulderL: { x: 232, y: 812, score: 0.95 }, elbowL: { x: 228, y: 1100, score: 0.9 } },
+  }
+  const rig = bindArmRig(LEFT, sleeve(LEFT, hanging), { ...ANCHORS, skeleton }, 1320)!
+  assert.ok(rig.cutY !== null)
+  assert.equal(rig.elbow, null)
+})
