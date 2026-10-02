@@ -55,6 +55,46 @@ pub fn validate_open_url_target(value: &str, field: &str) -> Result<url::Url, St
     Ok(parsed)
 }
 
+/// `openUrls` entries with `match: same-origin` declare a rooted relative path.
+/// The host resolves it against its own page origin at open time, so one package
+/// can deep-link the station's pages on any self-hosted domain. No origin is
+/// declared, so nothing here can escape to another host.
+pub fn validate_same_origin_open_url_path(value: &str, field: &str) -> Result<(), String> {
+    if value.len() > MAX_HTTP_URL_LEN {
+        return Err(format!("Tapp {field} is too long"));
+    }
+    if value
+        .chars()
+        .any(|ch| ch.is_control() || ch.is_whitespace())
+    {
+        return Err(format!(
+            "Tapp {field} must not contain whitespace or control characters"
+        ));
+    }
+    if !value.starts_with('/') {
+        return Err(format!(
+            "Tapp {field} for match=same-origin must be a rooted relative path (e.g. /journal)"
+        ));
+    }
+    if value.starts_with("//") {
+        return Err(format!(
+            "Tapp {field} for match=same-origin must not be protocol-relative"
+        ));
+    }
+    if value.contains('#') {
+        return Err(format!("Tapp {field} must not include a #fragment"));
+    }
+    if value
+        .split('/')
+        .any(|segment| segment == ".." || segment.contains('\\'))
+    {
+        return Err(format!(
+            "Tapp {field} for match=same-origin must not contain path traversal"
+        ));
+    }
+    Ok(())
+}
+
 fn is_under_suffix(host: &str, suffix: &str) -> bool {
     host == suffix || host.ends_with(&format!(".{suffix}"))
 }
@@ -142,6 +182,31 @@ mod tests {
             validate_open_url_target("https://user:pass@example.com/", "openUrls[0].url").is_err()
         );
         assert!(validate_open_url_target("https://example.com/a b", "openUrls[0].url").is_err());
+    }
+
+    #[test]
+    fn same_origin_open_url_accepts_rooted_paths_only() {
+        for ok in ["/", "/journal", "/journal/notes?x=1"] {
+            assert!(
+                validate_same_origin_open_url_path(ok, "openUrls[0].url").is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in [
+            "",
+            "journal",
+            "//evil.example",
+            "https://example.com/journal",
+            "/journal#frag",
+            "/journal/../evil",
+            "/journal\\evil",
+            "/a b",
+        ] {
+            assert!(
+                validate_same_origin_open_url_path(bad, "openUrls[0].url").is_err(),
+                "{bad:?} should be rejected"
+            );
+        }
     }
 
     #[test]

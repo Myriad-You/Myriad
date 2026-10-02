@@ -1,6 +1,6 @@
 /** 沙箱只传声明 id。宿主按安装期 allowlist 重建 URL。仅 HTTPS（loopback 可 http）。 */
 
-export type OpenUrlMatchMode = 'exact' | 'prefix' | 'origin'
+export type OpenUrlMatchMode = 'exact' | 'prefix' | 'origin' | 'same-origin'
 
 export interface OpenUrlDeclaration {
   id: string
@@ -45,7 +45,14 @@ export function isAllowedOpenUrlTarget(raw: string): boolean {
 }
 
 function normalizeMatch(raw: unknown): OpenUrlMatchMode {
-  if (raw === 'prefix' || raw === 'origin' || raw === 'exact') return raw
+  if (
+    raw === 'prefix' ||
+    raw === 'origin' ||
+    raw === 'exact' ||
+    raw === 'same-origin'
+  ) {
+    return raw
+  }
   return 'exact'
 }
 
@@ -116,10 +123,78 @@ function matchesAllowlist(resolved: URL, base: URL, mode: OpenUrlMatchMode): boo
   return resolved.pathname.startsWith(basePath)
 }
 
+/**
+ * `match: same-origin` 声明一个根相对路径，宿主用自身 origin 拼接后打开，
+ * 因此同一个包在任何自托管域名下都能深链本站页面。解析结果必须留在宿主 origin，
+ * 逃逸到其它 origin 一律拒绝。
+ */
+function resolveSameOriginOpenUrl(
+  entry: OpenUrlDeclaration,
+  request: OpenUrlRequest,
+  id: string,
+  hostOrigin: string | undefined,
+): OpenUrlResolveResult {
+  if (!hostOrigin || typeof hostOrigin !== 'string') {
+    return { ok: false, error: 'same-origin openUrl requires the host origin' }
+  }
+  let host: URL
+  try {
+    host = new URL(hostOrigin)
+  } catch {
+    return { ok: false, error: 'Host origin is invalid' }
+  }
+  if (!isAllowedOpenUrlTarget(host.origin)) {
+    return { ok: false, error: 'Host origin is not allowlisted' }
+  }
+  if (entry.url.startsWith('//')) {
+    return {
+      ok: false,
+      error: 'Declared same-origin base must not be protocol-relative',
+    }
+  }
+  let base: URL
+  try {
+    base = new URL(entry.url, host.origin)
+  } catch {
+    return { ok: false, error: 'Declared same-origin base is invalid' }
+  }
+  base.hash = ''
+  // 安装校验要求根相对路径；这里再挡一次，防止绕过校验的声明逃出宿主 origin。
+  if (base.origin !== host.origin || !entry.url.startsWith('/')) {
+    return {
+      ok: false,
+      error: 'Declared same-origin base must be a rooted relative path',
+    }
+  }
+
+  // The caller path is host-rooted (e.g. `/journal/notes/1`); the declared base
+  // only bounds how far under the host origin it may go.
+  const path = request.path
+  let resolved: URL
+  try {
+    resolved = path && path.length > 0 ? new URL(path, host.origin) : new URL(base.href)
+  } catch {
+    return { ok: false, error: 'Failed to resolve openUrl path' }
+  }
+  resolved.hash = ''
+
+  const queryError = applyQuery(resolved, request.query)
+  if (queryError) return { ok: false, error: queryError }
+
+  if (!matchesAllowlist(resolved, base, 'prefix')) {
+    return { ok: false, error: 'Resolved URL is not allowlisted' }
+  }
+  if (resolved.href.length > MAX_URL_LEN) {
+    return { ok: false, error: 'Resolved URL is too long' }
+  }
+  return { ok: true, url: resolved.href, id, match: 'same-origin' }
+}
+
 /** 按安装期声明解析。不信任调用方绝对 URL。 */
 export function resolveOpenUrl(
   declarations: readonly OpenUrlDeclaration[] | null | undefined,
   request: OpenUrlRequest,
+  hostOrigin?: string,
 ): OpenUrlResolveResult {
   if (!request || typeof request.id !== 'string' || !request.id.trim()) {
     return { ok: false, error: 'openUrl requires a declared id' }
@@ -130,17 +205,6 @@ export function resolveOpenUrl(
   if (!entry) {
     return { ok: false, error: `openUrl id is not declared: ${id}` }
   }
-  if (!isAllowedOpenUrlTarget(entry.url)) {
-    return { ok: false, error: 'Declared openUrl target is invalid' }
-  }
-
-  let base: URL
-  try {
-    base = new URL(entry.url)
-  } catch {
-    return { ok: false, error: 'Declared openUrl target is invalid' }
-  }
-  base.hash = ''
 
   const mode = normalizeMatch(entry.match)
   const path = request.path
@@ -158,6 +222,22 @@ export function resolveOpenUrl(
       return { ok: false, error: 'openUrl path must be relative (not a full URL)' }
     }
   }
+
+  if (mode === 'same-origin') {
+    return resolveSameOriginOpenUrl(entry, request, id, hostOrigin)
+  }
+
+  if (!isAllowedOpenUrlTarget(entry.url)) {
+    return { ok: false, error: 'Declared openUrl target is invalid' }
+  }
+
+  let base: URL
+  try {
+    base = new URL(entry.url)
+  } catch {
+    return { ok: false, error: 'Declared openUrl target is invalid' }
+  }
+  base.hash = ''
 
   if (mode === 'exact') {
     if (path && path.length > 0) {

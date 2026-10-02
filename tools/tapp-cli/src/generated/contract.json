@@ -330,7 +330,8 @@
     "openUrlMatchModes": [
       "exact",
       "prefix",
-      "origin"
+      "origin",
+      "same-origin"
     ],
     "openUrlPermission": "ui:openUrl",
     "packageJsonObjectDirectories": [
@@ -1154,7 +1155,8 @@
             "enum": [
               "exact",
               "prefix",
-              "origin"
+              "origin",
+              "same-origin"
             ]
           },
           "url": {
@@ -1172,7 +1174,8 @@
         "enum": [
           "exact",
           "prefix",
-          "origin"
+          "origin",
+          "same-origin"
         ],
         "type": "string"
       },

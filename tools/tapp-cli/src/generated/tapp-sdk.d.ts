@@ -196,7 +196,7 @@ export interface TappSdk {
     } | string): Promise<unknown>
     /** List install-time openUrls declarations for this Tapp. */
     listOpenUrls(): Promise<
-      Array<{ id: string; url: string; match: 'exact' | 'prefix' | 'origin' }>
+      Array<{ id: string; url: string; match: 'exact' | 'prefix' | 'origin' | 'same-origin' }>
     >
     requestFullscreen(): Promise<unknown>
     exitFullscreen(): Promise<unknown>

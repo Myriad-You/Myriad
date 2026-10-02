@@ -234,8 +234,9 @@ pub const REMOTE_MEDIA_WILDCARD_DENIED_SUFFIXES: &[&str] = &[
     "deno.dev",
     "r2.dev",
 ];
-/// Allowed `openUrls[].match` values (exact path, path prefix, or whole origin).
-pub const OPEN_URL_MATCH_MODES: &[&str] = &["exact", "prefix", "origin"];
+/// Allowed `openUrls[].match` values (exact path, path prefix, whole origin,
+/// or the host's own origin resolved at open time).
+pub const OPEN_URL_MATCH_MODES: &[&str] = &["exact", "prefix", "origin", "same-origin"];
 pub const EVENT_PERMISSION_RULES: &[(&str, &str)] = &[
     ("publish", "event:publish"),
     ("subscribe", "event:subscribe"),

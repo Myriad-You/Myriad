@@ -92,6 +92,77 @@ describe('openUrlAllowlist', () => {
     assert.equal(otherOrigin.ok, false)
   })
 
+  it('resolves same-origin declarations against the host origin', () => {
+    const self: OpenUrlDeclaration = {
+      id: 'self',
+      url: '/',
+      match: 'same-origin',
+    }
+
+    const ok = resolveOpenUrl(
+      [self],
+      { id: 'self', path: '/journal/notes/1' },
+      'https://sua17.cn',
+    )
+    assert.equal(ok.ok, true)
+    if (ok.ok) {
+      assert.equal(ok.url, 'https://sua17.cn/journal/notes/1')
+      assert.equal(ok.match, 'same-origin')
+    }
+
+    const withQuery = resolveOpenUrl(
+      [self],
+      { id: 'self', path: '/journal', query: { from: 'tapp' } },
+      'https://sua17.cn',
+    )
+    assert.equal(withQuery.ok, true)
+    if (withQuery.ok) {
+      assert.equal(withQuery.url, 'https://sua17.cn/journal?from=tapp')
+    }
+
+    // The same declaration follows whatever host it runs on, so it works on any
+    // self-hosted domain instead of the package author's.
+    const other = resolveOpenUrl(
+      [self],
+      { id: 'self', path: '/journal' },
+      'https://other.example',
+    )
+    assert.equal(other.ok, true)
+    if (other.ok) assert.equal(other.url, 'https://other.example/journal')
+
+    // No host origin available → reject.
+    assert.equal(
+      resolveOpenUrl([self], { id: 'self', path: '/journal' }).ok,
+      false,
+    )
+
+    // Cannot escape the host origin via an absolute or protocol-relative path.
+    assert.equal(
+      resolveOpenUrl(
+        [self],
+        { id: 'self', path: 'https://evil.example/' },
+        'https://sua17.cn',
+      ).ok,
+      false,
+    )
+    assert.equal(
+      resolveOpenUrl(
+        [self],
+        { id: 'self', path: '//evil.example/' },
+        'https://sua17.cn',
+      ).ok,
+      false,
+    )
+
+    // A same-origin declaration must be a rooted relative path, not an absolute URL.
+    const absoluteDecl = resolveOpenUrl(
+      [{ id: 'bad', url: 'https://example.com/', match: 'same-origin' }],
+      { id: 'bad' },
+      'https://sua17.cn',
+    )
+    assert.equal(absoluteDecl.ok, false)
+  })
+
   it('rejects unknown ids', () => {
     const res = resolveOpenUrl([docs], { id: 'missing' })
     assert.equal(res.ok, false)

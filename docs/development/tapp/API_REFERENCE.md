@@ -326,6 +326,7 @@ await Tapp.ui.openUrl({
 安全行为：
 
 - 未声明的 `id`、逃出 `prefix`/`origin`、绝对 URL 形态的 `path`、危险协议 → **拒绝**
+- `match: same-origin`：`url` 为根相对路径，用宿主自身 origin 解析；结果必须留在宿主 origin，否则拒绝。同一份包因此可在任意自托管域名深链本站页面
 - 声明 URL 仅 **HTTPS**（loopback 可 `http`）；禁止用户名密码与 `#fragment`
 - 宿主 `window.open(url, '_blank', 'noopener,noreferrer')`，带简单速率限制
 - 与 `network:fetch` 无关：openUrl **不会**代发 HTTP 请求，只打开浏览器标签

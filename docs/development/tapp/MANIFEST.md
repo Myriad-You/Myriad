@@ -79,14 +79,15 @@ Page/Widget 模板必须是 `.html`；代码与模板类声明资源必须是安
 | 字段 | 类型 | 必填 | 说明 |
 | ---- | ---- | ---- | ---- |
 | `id` | string | ✅ | 稳定 id，供 SDK 引用（1–64，字母数字与 `._-`） |
-| `url` | string | ✅ | 基址：**HTTPS**；仅 `localhost` / `127.0.0.1` / `::1` 允许 `http`；禁止凭据与 `#fragment` |
-| `match` | string | ❌ | `exact`（默认）/ `prefix` / `origin` |
+| `url` | string | ✅ | 基址：**HTTPS**；仅 `localhost` / `127.0.0.1` / `::1` 允许 `http`；禁止凭据与 `#fragment`。`match: same-origin` 时改为**根相对路径**（如 `/journal`） |
+| `match` | string | ❌ | `exact`（默认）/ `prefix` / `origin` / `same-origin` |
 
 匹配规则：
 
 - **`exact`**：只能打开声明的完整 URL；不允许 `path` / `query`
 - **`prefix`**：同 origin，路径须落在声明 path 前缀下（可带 `path` / `query`）
 - **`origin`**：同 origin 任意 path/query（自由度最高，商店审核应更严）
+- **`same-origin`**：`url` 是根相对路径，运行时相对**宿主自身 origin** 解析（可带 `path` / `query`）。同一份包在任何自托管域名下都能深链本站页面，不写死作者域名；解析结果必须留在宿主 origin，逃逸到其它 origin 一律拒绝
 
 ```json
 {
@@ -100,6 +101,11 @@ Page/Widget 模板必须是 `.html`；代码与模板类声明资源必须是安
     {
       "id": "status",
       "url": "https://status.example.com/health"
+    },
+    {
+      "id": "self",
+      "url": "/",
+      "match": "same-origin"
     }
   ]
 }
@@ -112,6 +118,10 @@ await Tapp.ui.openUrl({ id: "docs", path: "install" });
 
 await Tapp.ui.openUrl({ id: "status" });
 // → https://status.example.com/health
+
+// same-origin：在任何自托管域名下都解析到当前站点
+await Tapp.ui.openUrl({ id: "self", path: "/journal/notes/1" });
+// → https://<当前站点域名>/journal/notes/1
 
 // 未声明 id 或逃出 prefix → 失败
 await Tapp.ui.openUrl({ id: "docs", path: "../evil" }); // reject

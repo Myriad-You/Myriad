@@ -22,7 +22,10 @@ use crate::paths::{
     validate_widget_refresh_policy,
 };
 use crate::permission::{TappPermission, tapp_permission_replacement_hint};
-use crate::urls::{validate_http_url, validate_open_url_target, validate_remote_media_host};
+use crate::urls::{
+    validate_http_url, validate_open_url_target, validate_remote_media_host,
+    validate_same_origin_open_url_path,
+};
 
 fn validate_open_urls(manifest: &TappManifest) -> Result<(), String> {
     let has_permission = manifest
@@ -67,18 +70,27 @@ fn validate_open_urls(manifest: &TappManifest) -> Result<(), String> {
         if !ids.insert(entry.id.as_str()) {
             return Err(format!("Duplicate Tapp openUrls id: {}", entry.id));
         }
-        let parsed = validate_open_url_target(&entry.url, &format!("{field}.url"))?;
-        // Prefix match is path-based; require a non-empty path (at least `/`).
-        if matches!(entry.match_mode, TappOpenUrlMatch::Prefix) && parsed.path().is_empty() {
-            return Err(format!(
-                "Tapp {field}.url for match=prefix must include a path (e.g. https://example.com/docs/)"
-            ));
+        match entry.match_mode {
+            // same-origin declares a rooted relative path, resolved against the
+            // host page origin at open time; there is no origin to validate here.
+            TappOpenUrlMatch::SameOrigin => {
+                validate_same_origin_open_url_path(&entry.url, &format!("{field}.url"))?;
+            }
+            _ => {
+                let parsed = validate_open_url_target(&entry.url, &format!("{field}.url"))?;
+                // Prefix match is path-based; require a non-empty path (at least `/`).
+                if matches!(entry.match_mode, TappOpenUrlMatch::Prefix) && parsed.path().is_empty()
+                {
+                    return Err(format!(
+                        "Tapp {field}.url for match=prefix must include a path (e.g. https://example.com/docs/)"
+                    ));
+                }
+                // Reject fragment-only noise in declarations — host drops fragments on open.
+                if parsed.fragment().is_some() {
+                    return Err(format!("Tapp {field}.url must not include a #fragment"));
+                }
+            }
         }
-        // Reject fragment-only noise in declarations — host drops fragments on open.
-        if parsed.fragment().is_some() {
-            return Err(format!("Tapp {field}.url must not include a #fragment"));
-        }
-        let _ = entry.match_mode; // exhaustively known via serde enum
     }
     Ok(())
 }

@@ -181,6 +181,43 @@ describe('registerUIHandlers openUrl', { concurrency: false }, () => {
     assert.equal(clicks.length, 0)
   })
 
+  it('opens same-origin declarations against the host origin', async () => {
+    installDocument()
+    const originalWindow = (globalThis as { window?: unknown }).window
+    ;(globalThis as { window?: unknown }).window = {
+      location: { origin: 'https://sua17.cn' },
+    }
+    try {
+      const bridge = new FakeBridge()
+      registerUIHandlers(
+        bridge as unknown as TappBridge,
+        instance('com.example.open-self', [
+          { id: 'self', url: '/', match: 'same-origin' },
+        ]),
+      )
+      const opened = await invoke(bridge, 'ui.openUrl', [
+        { id: 'self', path: '/journal/notes/1' },
+      ])
+      assert.deepEqual(opened, {
+        success: true,
+        data: {
+          id: 'self',
+          url: 'https://sua17.cn/journal/notes/1',
+          match: 'same-origin',
+        },
+      })
+      assert.deepEqual(clicks, [
+        {
+          href: 'https://sua17.cn/journal/notes/1',
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        },
+      ])
+    } finally {
+      ;(globalThis as { window?: unknown }).window = originalWindow
+    }
+  })
+
   it('rate-limits openUrl per tapp without opening extras', async () => {
     installDocument()
     const bridge = new FakeBridge()
