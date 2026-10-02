@@ -46,6 +46,13 @@ pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::
         .route("/status", get(get_speech_status))
         // 她的原声：一轮回复的声音流，按面板自己生成的令牌配对
         .route("/voice/{token}", get(voice_stream))
+        // Omni 模式下她听：录音交给 Omni 写下来，原声留给这一轮
+        .route(
+            "/omni/hear",
+            post(omni_hear).layer(axum::extract::DefaultBodyLimit::max(
+                crate::services::omni_voice::HEARD_MAX_BASE64 + 64 * 1024,
+            )),
+        )
         // 设置页可用性测试（TTS + 可选 ASR）
         .route("/test", post(test_speech_service))
         .route("/convo/start", post(start_convo_session))
@@ -352,8 +359,9 @@ pub struct SpeechStatusResponse {
     pub convo_enabled: bool,
     /// 人设开口朗读。人设未生效或开关关着时为 false。
     pub persona_speech_enabled: bool,
-    /// 她怎么出声：`omni` 原声（Lite 档的 Omni 边想边说，声音走 `/voice/{token}`），
-    /// 否则 `tts` 朗读。只在原声真能用时才是 `omni`。
+    /// `omni`：她的声音整套是 Omni——听原声（`/omni/hear`）、边想边说（声音走
+    /// `/voice/{token}`）；否则 `tts`（实时对话是否走声网看 `convo_enabled`）。
+    /// 只在 Omni 真能用时才是 `omni`。
     pub persona_voice: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
@@ -993,19 +1001,99 @@ pub async fn voice_stream(
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
+#[derive(Debug, Deserialize)]
+pub struct OmniHearRequest {
+    /// 面板生成的令牌，随这一轮的 `customData.voiceIn` 带上。
+    pub token: String,
+    /// 录音：base64 的 WAV。
+    pub audio: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OmniHearResponse {
+    pub success: bool,
+    /// 写下来的话：这一轮的文字（历史、想起什么都从它来）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Omni 模式下她听：一段录音由 Omni 写成文字，原声按令牌留给这一轮，让她听到的是说出来
+/// 的样子。只在 Omni 真能用时可用。
+///
+/// POST /api/speech/omni/hear
+pub async fn omni_hear(
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<OmniHearRequest>,
+) -> (StatusCode, Json<OmniHearResponse>) {
+    let fail = |status: StatusCode, error: &str| {
+        (
+            status,
+            Json(OmniHearResponse {
+                success: false,
+                text: None,
+                error: Some(error.to_string()),
+            }),
+        )
+    };
+    let Some(user_id) = require_speech_user_id(&claims) else {
+        return fail(StatusCode::FORBIDDEN, "A durable user account is required");
+    };
+    let Ok(omni) = crate::GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .merope_omni_voice()
+    else {
+        return fail(StatusCode::CONFLICT, "Her voice is not Omni");
+    };
+    let audio = request.audio.trim().to_string();
+    if audio.is_empty() || audio.len() > crate::services::omni_voice::HEARD_MAX_BASE64 {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "The recording is empty or too long",
+        );
+    }
+    let text = match crate::services::ai_cost_ledger::with_site_ai_ledger(
+        user_id,
+        "speech",
+        "omni_hear",
+        crate::services::omni_voice::transcribe(&omni, &audio),
+    )
+    .await
+    {
+        Ok(text) => text,
+        Err(error) => {
+            tracing::warn!(%error, "[Voice] what was said could not be written down");
+            return fail(StatusCode::BAD_GATEWAY, "Could not hear it");
+        }
+    };
+    if !text.is_empty() && !crate::services::omni_voice::keep_heard(&request.token, user_id, audio)
+    {
+        return fail(StatusCode::BAD_REQUEST, "Invalid token");
+    }
+    (
+        StatusCode::OK,
+        Json(OmniHearResponse {
+            success: true,
+            text: Some(text),
+            error: None,
+        }),
+    )
+}
+
 /// 获取语音服务状态
 ///
 /// GET /api/speech/status
 pub async fn get_speech_status() -> impl IntoResponse {
     let probe = crate::services::speech_runtime::speech_probe().await;
     let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
-    let convo_enabled = crate::services::agora_convo::convo_configured(&config);
+    // Which whole voice she has: Agora only when it is chosen (or, never
+    // chosen, set up), her own only when Lite can say it.
+    let mode = config.merope_voice_mode_resolved();
+    let convo_enabled = mode == "agora";
     let persona_speech_enabled = config.merope_speech_enabled_resolved();
-    let persona_voice = if config.merope_omni_voice().is_ok() {
-        "omni"
-    } else {
-        "tts"
-    };
+    let persona_voice = if mode == "omni" { "omni" } else { "tts" };
     drop(config);
     let callback_ready = super::speech_conversation::callback_url(
         &crate::oauth_url_builder::SiteConfig::get_base_url().await,
@@ -1013,7 +1101,7 @@ pub async fn get_speech_status() -> impl IntoResponse {
     .is_ok();
     let convo_enabled = convo_enabled && callback_ready;
     Json(SpeechStatusResponse {
-        available: probe.available || convo_enabled,
+        available: probe.available || convo_enabled || persona_voice == "omni",
         tts_enabled: probe.tts_enabled,
         asr_enabled: probe.asr_enabled,
         convo_enabled,
@@ -1058,6 +1146,19 @@ pub async fn start_convo_session(
         return (
             StatusCode::FORBIDDEN,
             Json(AppError::fail_json("Agent is unavailable")),
+        )
+            .into_response();
+    }
+    // Her voice is Agora's only in the Agora mode.
+    if crate::GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .merope_voice_mode_resolved()
+        != "agora"
+    {
+        return (
+            StatusCode::CONFLICT,
+            Json(AppError::fail_json("Voice calls do not go through Agora")),
         )
             .into_response();
     }

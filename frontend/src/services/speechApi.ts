@@ -439,6 +439,23 @@ export async function openVoiceStream(
   }
 }
 
+/**
+ * In Omni mode she hears a recording: Omni writes down what was said (the
+ * turn's words), and keeps the recording under `token` for that turn
+ * (`customData.voiceIn`), so she hears it as it was said.
+ */
+export async function omniHear(
+  token: string,
+  audioBase64: string,
+  signal?: AbortSignal,
+): Promise<{ success: boolean; text?: string; error?: string }> {
+  return request('/omni/hear', {
+    method: 'POST',
+    body: JSON.stringify({ token, audio: audioBase64 }),
+    signal,
+  })
+}
+
 export async function textToSpeech(
   req: TTSRequest,
   attributionHeaders?: SpeechAttributionHeaders,

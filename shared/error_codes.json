@@ -107,6 +107,7 @@
     "Scheduler not available": "service_unavailable",
     "Intention service is temporarily unavailable": "service_unavailable",
     "Agent is unavailable": "service_unavailable",
+    "Voice calls do not go through Agora": "conflict",
     "Intention state changed; refresh and try again": "conflict",
     "Cannot resolve remote actor": "not_found",
     "Inbox delivery budget exhausted; retry later": "service_unavailable",

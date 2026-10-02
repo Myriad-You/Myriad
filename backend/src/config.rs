@@ -583,8 +583,11 @@ pub struct DynamicConfig {
 
     /// 人设形象是否开口朗读聊天回复。默认关；人设未生效时一律关。
     pub merope_speech_enabled: bool,
-    /// 她怎么出声：`tts` 写完再朗读（默认）；`omni` 用 Lite 档的 Omni 模型边想边说，
-    /// 要求 Lite 档直连 DashScope，否则回退朗读（见 `merope_omni_voice`）。
+    /// 她的声音是哪一整套（见 `merope_voice_mode_resolved`）：
+    /// `tts` 浏览器听写（ASR）→ Lite → 朗读（TTS）；`agora` 实时对话走声网（声网的 ASR 与
+    /// TTS，中间是 Lite），打字聊天仍是 Lite + TTS；`omni` 全由 Lite 档的 Omni 听、想、说，
+    /// 要求 Lite 档直连 DashScope（见 `merope_omni_voice`）。空：没选过，按旧行为——
+    /// 配了声网就是 `agora`，否则 `tts`。
     pub merope_voice_mode: String,
     /// `omni` 时她的音色：预置音色名或复刻得到的音色 id；空为模型默认。
     pub merope_voice_voice: String,
@@ -954,7 +957,7 @@ impl Default for DynamicConfig {
             ai_image_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
             merope_enabled: false,
             merope_speech_enabled: false,
-            merope_voice_mode: "tts".to_string(),
+            merope_voice_mode: String::new(),
             merope_voice_voice: String::new(),
             agent_rig_asset_id: None,
             see_through_hf_token: None,
@@ -1098,6 +1101,24 @@ impl DynamicConfig {
     /// 人设开口朗读。人设未生效时一律关。
     pub fn merope_speech_enabled_resolved(&self) -> bool {
         self.merope_enabled_resolved() && self.merope_speech_enabled
+    }
+
+    /// 保存时的选择：认得的三种之一，其余一律当朗读。
+    pub fn voice_mode_choice(value: &str) -> &'static str {
+        match value.trim() {
+            "omni" => "omni",
+            "agora" => "agora",
+            _ => "tts",
+        }
+    }
+
+    /// 她的声音实际是哪一整套：选了声网却没配好，或选了 Omni 却不满足，退回 `tts`。
+    pub fn merope_voice_mode_resolved(&self) -> &'static str {
+        match self.merope_voice_mode.trim() {
+            "omni" if self.merope_omni_voice().is_ok() => "omni",
+            "agora" | "" if crate::services::agora_convo::convo_configured(self) => "agora",
+            _ => "tts",
+        }
     }
 
     /// 她用 Omni 原声说话时的出站：Lite 档本身（同一个源、同一个模型），

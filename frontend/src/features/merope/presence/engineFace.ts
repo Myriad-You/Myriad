@@ -104,6 +104,20 @@ export function deliverTurnLine(
   return deliverGatedLine(agentFace, faceSpeechGate, mode, line)
 }
 
+/** What was said aloud for the next turn, kept for her to hear (Omni mode). */
+let heardVoiceToken: string | undefined
+
+export function noteHeardVoice(token: string): void {
+  heardVoiceToken = token
+}
+
+/** The recording the next turn was said in, to send with it (once). */
+export function takeHeardVoice(): string | undefined {
+  const token = heardVoiceToken
+  heardVoiceToken = undefined
+  return token
+}
+
 /** Tokens of the turns that asked for her own voice, by reply. */
 const turnVoiceTokens = new Map<string, string>()
 

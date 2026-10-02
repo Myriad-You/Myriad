@@ -135,7 +135,17 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
       uiConfigFields.find((field) => field.key === key)?.value || fallback,
     [uiConfigFields],
   )
-  const voiceMode = uiFieldValue('merope_voice_mode', 'tts') === 'omni' ? 'omni' : 'tts'
+  const chosenVoice = uiFieldValue('merope_voice_mode', 'tts')
+  const voiceMode =
+    chosenVoice === 'omni' || chosenVoice === 'agora' ? chosenVoice : 'tts'
+  // Set up as an Agora source (the server also checks its TTS and callback).
+  const agoraReady = useMemo(
+    () =>
+      parseVendorSources(getFieldValue('ai_vendor_sources')).some(
+        (source) => source.kind === 'agora' && source.enabled,
+      ),
+    [getFieldValue],
+  )
   // Her own voice is Lite itself, called on DashScope directly (see
   // `DynamicConfig::merope_omni_voice`): otherwise she reads aloud.
   const liteVoiceModel = useMemo(() => {
@@ -506,6 +516,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
                 onChange={(value) => updateUiFieldValue('merope_voice_mode', value)}
                 options={[
                   { value: 'tts', label: t.config.agentPersonaVoiceTts },
+                  { value: 'agora', label: t.config.agentPersonaVoiceAgora },
                   { value: 'omni', label: t.config.agentPersonaVoiceOmni },
                 ]}
                 layout="horizontal"
@@ -527,6 +538,12 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
                       : t.config.agentPersonaVoiceOmniUnavailable}
                   </p>
                 </>
+              ) : voiceMode === 'agora' ? (
+                <p className="setting-hint">
+                  {agoraReady
+                    ? t.config.agentPersonaVoiceAgoraHint
+                    : t.config.agentPersonaVoiceAgoraUnavailable}
+                </p>
               ) : (
                 <p className="setting-hint">{t.config.agentPersonaVoiceTtsHint}</p>
               )}

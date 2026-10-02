@@ -52,8 +52,9 @@ export class SpeechPipelineHost {
     void this.probe()
   }
 
+  /** Read aloud, or in her own voice (which needs no text-to-speech). */
   get available(): boolean {
-    return this.wantsSpeech && this.ttsReady
+    return this.wantsSpeech && (this.ttsReady || this.ownVoice)
   }
 
   get speechEnabled(): boolean {
@@ -88,7 +89,7 @@ export class SpeechPipelineHost {
     this.wantsSpeech = flags.speechEnabled
     this.ttsReady = flags.ttsReady
     const wasEnabled = this.enabled
-    this.enabled = flags.speechEnabled && flags.ttsReady
+    this.enabled = flags.speechEnabled && (flags.ttsReady || this.ownVoice)
     if (wasEnabled && !this.enabled) this.cancel()
   }
 

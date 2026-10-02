@@ -10,6 +10,7 @@ import {
   stopAgoraConversation,
   subscribeAgoraStopped,
 } from '../../features/merope/presence/agoraConversation'
+import { noteHeardVoice } from '../../features/merope/presence/engineFace'
 import {
   isSubmittableTranscript,
   pcmToWav,
@@ -25,6 +26,7 @@ import { getDefaultLocale } from '../../i18n/locales'
 import {
   audioToBase64,
   getSpeechStatus,
+  omniHear,
   speechToText,
 } from '../../services/speechApi'
 import {
@@ -125,12 +127,16 @@ export function useVoiceRecording(
   const transcriptionRef = useRef<TranscriptionQueue<{
     text: string
     timing: VoiceInputTiming
+    heard?: string
   }> | null>(null)
+  /** Her voice is Omni's: she hears recordings herself (no ASR). */
+  const omniRef = useRef(false)
   if (!transcriptionRef.current) {
     transcriptionRef.current = new TranscriptionQueue({
-      onResult: ({ text, timing }) => {
+      onResult: ({ text, timing, heard }) => {
         if (!mountedRef.current || !isSubmittableTranscript(text)) return
         stageVoiceInputTrace(timing)
+        if (heard) noteHeardVoice(heard)
         onResultRef.current(text)
       },
       onError: (error) =>
@@ -148,7 +154,10 @@ export function useVoiceRecording(
         if (disposed) return
         const convo = !!s.convo_enabled
         convoRtcRef.current = convo
-        setSpeechAvailable(Boolean(s.available && (s.asr_enabled || convo)))
+        omniRef.current = s.persona_voice === 'omni'
+        setSpeechAvailable(
+          Boolean(s.available && (s.asr_enabled || convo || omniRef.current)),
+        )
       })
       .catch(() => {})
     return () => {
@@ -167,6 +176,22 @@ export function useVoiceRecording(
         const base64Audio = await audioToBase64(wavBlob)
         signal.throwIfAborted()
         const asrStarted = performance.now()
+        if (omniRef.current) {
+          // She hears it herself: written down for the turn's words, the
+          // recording kept for her under this token.
+          const heard = crypto.randomUUID()
+          const result = await omniHear(heard, base64Audio, signal)
+          return {
+            text: result.success ? (result.text?.trim() ?? '') : '',
+            heard,
+            timing: {
+              input_started: startedAt,
+              input_ended: inputEnded,
+              asr_started: asrStarted,
+              asr_completed: performance.now(),
+            },
+          }
+        }
         const result = await speechToText(
           {
             audio_data: base64Audio,
@@ -232,7 +257,8 @@ export function useVoiceRecording(
       )
       const status = await getSpeechStatus()
       if (!mountedRef.current || ticket !== lifecycleRef.current) return
-      if (!status.available || !status.asr_enabled) return
+      omniRef.current = status.persona_voice === 'omni'
+      if (!status.available || !(status.asr_enabled || omniRef.current)) return
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {

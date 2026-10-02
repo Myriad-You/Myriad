@@ -1762,10 +1762,17 @@ mod tests {
         ]));
         assert_eq!(parsed.merope_voice_mode, "omni");
         assert_eq!(parsed.merope_voice_voice, "Tina");
-        assert_eq!(
-            ConfigService::parse_config(HashMap::new()).merope_voice_mode,
-            "tts"
-        );
+        // Never chosen: as before, Agora where it is set up, else TTS.
+        let unchosen = ConfigService::parse_config(HashMap::new());
+        assert_eq!(unchosen.merope_voice_mode, "");
+        assert_eq!(unchosen.merope_voice_mode_resolved(), "tts");
+        assert_eq!(omni.merope_voice_mode_resolved(), "omni");
+        assert_eq!(not_omni.merope_voice_mode_resolved(), "tts", "Omni unmet");
+        let agora_unset = DynamicConfig {
+            merope_voice_mode: "agora".into(),
+            ..omni.clone()
+        };
+        assert_eq!(agora_unset.merope_voice_mode_resolved(), "tts");
     }
 
     #[test]

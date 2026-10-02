@@ -295,26 +295,29 @@ fn on_call(request: &UserRequest) -> bool {
 /// Her own voice for this turn (see `services::omni_voice`): where the panel
 /// that will play it asked for it, and Lite can say it. Otherwise the
 /// panel's stream ends at once, and it reads her words aloud as before.
-async fn her_voice(
-    request: &UserRequest,
-) -> Option<(
-    crate::config::OmniVoice,
-    crate::services::omni_voice::VoiceOut,
-)> {
-    let token = request
-        .context
-        .as_ref()?
-        .custom_data
-        .as_ref()?
-        .get("voiceOut")?
-        .as_str()?;
+async fn her_voice(request: &UserRequest) -> Option<HerVoice> {
+    let custom = request.context.as_ref()?.custom_data.as_ref()?;
+    let token = custom.get("voiceOut")?.as_str()?;
     let out = crate::services::omni_voice::voice_out(token, request.user_id)?;
     let omni = crate::GLOBAL_DYNAMIC_CONFIG
         .read()
         .await
         .merope_omni_voice()
         .ok()?;
-    Some((omni, out))
+    // Said aloud to her: she hears it as said, beside the words written down.
+    let heard = custom
+        .get("voiceIn")
+        .and_then(|token| token.as_str())
+        .and_then(|token| crate::services::omni_voice::take_heard(token, request.user_id));
+    Some(HerVoice { omni, out, heard })
+}
+
+/// Her own voice for a turn: Lite as Omni, where the sound goes, and what
+/// she heard said, if it was said aloud.
+struct HerVoice {
+    omni: crate::config::OmniVoice,
+    out: crate::services::omni_voice::VoiceOut,
+    heard: Option<String>,
 }
 
 async fn chat_analyzer() -> Result<crate::services::analyzer::AiAnalyzer, String> {
@@ -801,10 +804,7 @@ impl Agent {
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
         analyzer: crate::services::analyzer::AiAnalyzer,
         speech_delivery: Option<ChatDelivery>,
-        voice: Option<(
-            crate::config::OmniVoice,
-            crate::services::omni_voice::VoiceOut,
-        )>,
+        voice: Option<HerVoice>,
     ) -> Result<String, String> {
         let tx = progress_tx.clone();
         let wear = std::sync::Arc::new(std::sync::Mutex::new(WearStreamFilter::new(
@@ -861,9 +861,13 @@ impl Agent {
             }
         };
         let mut streamed = None;
-        if let Some((omni, out)) = &voice {
-            let spoken =
-                crate::services::omni_voice::speak(omni, prompt, images_of(request), |piece| {
+        if let Some(HerVoice { omni, out, heard }) = &voice {
+            let spoken = crate::services::omni_voice::speak(
+                omni,
+                prompt,
+                images_of(request),
+                heard.as_deref(),
+                |piece| {
                     let text = match piece {
                         crate::services::omni_voice::OmniDelta::Text(text) => Some(text),
                         crate::services::omni_voice::OmniDelta::Audio(sound) => {
@@ -879,8 +883,9 @@ impl Agent {
                             None => true,
                         }
                     }
-                })
-                .await;
+                },
+            )
+            .await;
             // Nothing of it reached them: say it the usual way instead.
             match spoken {
                 Err(error) if !said_anything.load(std::sync::atomic::Ordering::Relaxed) => {

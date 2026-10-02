@@ -833,7 +833,7 @@ pub(crate) fn collect_database_updates_with_vendor(
                 continue;
             }
             "merope_voice_mode" => {
-                let mode = if field.value.trim() == "omni" { "omni" } else { "tts" };
+                let mode = crate::config::DynamicConfig::voice_mode_choice(&field.value);
                 updates.insert(field.key.clone(), JsonValue::String(mode.to_string()));
                 continue;
             }

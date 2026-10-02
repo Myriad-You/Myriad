@@ -61,6 +61,7 @@ import {
   setFaceMood,
   setTurnGeneration,
   stopTurnSpeech,
+  takeHeardVoice,
   takeTurnVoiceToken,
   turnSpeechAlreadyFed,
 } from '../../features/merope/presence/engineFace'
@@ -1504,6 +1505,9 @@ export const AgentEngine: React.FC = () => {
         const onProgress = createProgressHandler(assistantMsgId, mode, chatGeneration, 'local', undefined, subject)
         const voiceOut = takeTurnVoiceToken(assistantMsgId)
         if (voiceOut) customData.voiceOut = voiceOut
+        // Said aloud: she hears the recording itself, not only its words.
+        const voiceIn = takeHeardVoice()
+        if (voiceIn && voiceOut) customData.voiceIn = voiceIn
         if (Object.keys(customData).length > 0) {
           context.customData = customData
         }

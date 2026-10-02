@@ -1985,7 +1985,12 @@ pub(crate) async fn build_config(
                     field_type: "select".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.merope_voice_mode.clone())
+                        // What was chosen, even if it cannot be met now (the page
+                        // says why); never chosen: what she does as before.
+                        .map(|c| match c.merope_voice_mode.trim() {
+                            "" => c.merope_voice_mode_resolved().to_string(),
+                            chosen => chosen.to_string(),
+                        })
                         .unwrap_or_else(|| "tts".to_string()),
                     placeholder: "tts".to_string(),
                     required: false,
