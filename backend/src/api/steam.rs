@@ -630,32 +630,27 @@ mod credential_source_tests {
     use crate::services::platform_id::PlatformId;
 
     /// Presence / Steam proxy credentials are the fetch arm's: stored values
-    /// only, blank = missing. No env fallback.
+    /// only, blank = missing.
     #[test]
     fn steam_credentials_follow_platform_id() {
         let mut config = DynamicConfig::default();
         let pair = |c: &DynamicConfig| {
             stored(c.steam_api_key.as_ref()).is_some() && stored(c.steam_id.as_ref()).is_some()
         };
-        crate::services::platform_id::tests::with_env(
-            &[("STEAM_API_KEY", "key"), ("STEAM_ID", "7656")],
-            || {
-                for (api_key, steam_id) in [
-                    (None, None),
-                    (Some(" "), Some("7656")),
-                    (Some("key"), None),
-                    (Some("key"), Some("7656")),
-                ] {
-                    config.steam_api_key = api_key.map(str::to_string);
-                    config.steam_id = steam_id.map(str::to_string);
-                    assert_eq!(
-                        pair(&config),
-                        PlatformId::Steam.credentials_present(&config),
-                        "{api_key:?} {steam_id:?}"
-                    );
-                }
-            },
-        );
+        for (api_key, steam_id) in [
+            (None, None),
+            (Some(" "), Some("7656")),
+            (Some("key"), None),
+            (Some("key"), Some("7656")),
+        ] {
+            config.steam_api_key = api_key.map(str::to_string);
+            config.steam_id = steam_id.map(str::to_string);
+            assert_eq!(
+                pair(&config),
+                PlatformId::Steam.credentials_present(&config),
+                "{api_key:?} {steam_id:?}"
+            );
+        }
         let src = include_str!("steam.rs");
         let body = src
             .split("mod credential_source_tests")

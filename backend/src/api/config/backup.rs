@@ -828,11 +828,11 @@ mod settings_backup_tests {
     use super::*;
     use crate::api::config::{
         AiConfig, ConfigField, ConfigResponse, MODULE_VISIBILITY_PREFERENCES_KEY,
-        PlatformAutoFetchConfig, PlatformConfig, collect_database_updates, db_or_env_clearable,
-        deploy_env_key, is_masked_secret_value, normalize_music_playlist_id,
-        sanitize_google_site_verification, sanitize_http_base_url, sanitize_proxy_url,
-        sanitize_site_favicon_url, sanitize_site_og_image_url, sanitize_umami_script_url,
-        sanitize_wallpaper_url, should_write_env_field, update_env_var,
+        PlatformAutoFetchConfig, PlatformConfig, collect_database_updates, deploy_env_key,
+        is_masked_secret_value, normalize_music_playlist_id, sanitize_google_site_verification,
+        sanitize_http_base_url, sanitize_proxy_url, sanitize_site_favicon_url,
+        sanitize_site_og_image_url, sanitize_umami_script_url, sanitize_wallpaper_url,
+        should_write_env_field, update_env_var,
     };
     use crate::services::config_service::public_ui_config_value;
     use crate::services::platform_id::platform_configured_flags;
@@ -1923,24 +1923,6 @@ mod settings_backup_tests {
     }
 
     #[test]
-    fn clearable_db_empty_wins_over_env_fallback() {
-        // UI clear writes Some(""); that must not be treated as "missing → env".
-        assert_eq!(
-            db_or_env_clearable(Some(String::new()), "GA_MEASUREMENT_ID", ""),
-            ""
-        );
-        assert_eq!(
-            db_or_env_clearable(Some("G-ABC".into()), "GA_MEASUREMENT_ID", ""),
-            "G-ABC"
-        );
-        // None = never set; may use env (unset here → default).
-        assert_eq!(
-            db_or_env_clearable(None, "MYRIAD_TEST_UNSET_ENV_KEY_XYZ", "fallback"),
-            "fallback"
-        );
-    }
-
-    #[test]
     fn ui_empty_base_url_does_not_overwrite() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("base_url", "")];
@@ -1990,7 +1972,6 @@ mod settings_backup_tests {
         // quotas are not (an empty quota must not be written as a cleared secret).
         assert!(!should_write_env_field("agora_app_certificate", ""));
         assert!(should_write_env_field("user_ai_daily_tokens", ""));
-        assert!(should_write_env_field("openai_max_tokens", ""));
     }
 
     #[test]
@@ -2117,19 +2098,6 @@ mod settings_backup_tests {
         assert_eq!(updates.get("steam_id"), Some(&json!(null)));
         assert_eq!(updates.get("psn_online_id"), Some(&json!(null)));
         assert_eq!(updates.get("psn_npsso"), Some(&json!(null)));
-    }
-
-    #[test]
-    fn platform_resolve_prefers_explicit_empty_db_over_env() {
-        let env_key = "MYRIAD_TEST_PLATFORM_RESOLVE_EMPTY";
-        unsafe { std::env::set_var(env_key, "stale-from-env") };
-        assert_eq!(db_or_env_clearable(Some(String::new()), env_key, ""), "");
-        assert_eq!(db_or_env_clearable(None, env_key, ""), "stale-from-env");
-        assert_eq!(
-            db_or_env_clearable(Some("from-db".to_string()), env_key, ""),
-            "from-db"
-        );
-        unsafe { std::env::remove_var(env_key) };
     }
 
     #[test]

@@ -30,8 +30,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 按场合取记忆的索引（`idx_agent_memories_venue_created`，群聊和她自己的记录）；
 /// 记忆的意思向量（`agent_memory_embeddings`，随统一记忆表一起建）；
 /// AI 旧设置迁到「源 + 模型」：文本三档、图片、语音（`upgrade_legacy_ai_settings`）；
-/// 退役的配置行删掉（`drop_retired_rows`）。
-pub const SCHEMA_VERSION: &str = "2026.10.02.3";
+/// 退役的配置行删掉（`drop_retired_rows`）；从没存过的设置从环境变量取一次初值
+/// （`seed_from_env`）。
+pub const SCHEMA_VERSION: &str = "2026.10.02.4";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -235,6 +236,11 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     if dropped > 0 {
         tracing::info!(dropped, "Dropped retired configuration rows");
     }
+    // Environment variables are first values only; from here on the
+    // database is where settings are read.
+    changes_made += crate::services::config_service::ConfigService::seed_from_env(db)
+        .await
+        .map_err(|error| DbErr::Custom(format!("seed settings from env: {error:#}")))?;
 
     // Seed all runtime configuration keys after the explicit default-open
     // entries have had first refusal, preserving any existing administrator

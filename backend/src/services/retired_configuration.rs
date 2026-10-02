@@ -9,6 +9,7 @@ const RETIRED_CONFIGURATION_KEYS: &[&str] = &[
     "github_redirect_url",
     // Stored and never read.
     "topic_style",
+    "openai_max_tokens",
     "openweather_api_key",
     "ui_theme",
     "ui_primary_color",

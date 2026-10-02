@@ -4,6 +4,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
+pub(crate) mod env_seed;
 pub(crate) mod legacy_ai_settings;
 
 /// Optional config string: null / "" / whitespace → None.
@@ -222,7 +223,6 @@ standard_fields! {
         psn_enabled,
     ],
     int32: [
-        openai_max_tokens,
         ui_wallpaper_blur,
         ui_evocative_fps,
         fetch_interval_hours,
@@ -328,6 +328,20 @@ impl ConfigService {
             }
         }
         Ok(config_map)
+    }
+
+    /// Settings never stored take their environment variable once (see
+    /// [`env_seed`]); everything reads the database after that.
+    pub async fn seed_from_env(db: &DatabaseConnection) -> Result<usize> {
+        let stored = Self::load_stored_on(db).await?;
+        let seeds = env_seed::seeds(&stored, |name| std::env::var(name).ok());
+        let count = seeds.len();
+        if count > 0 {
+            let keys: Vec<&String> = seeds.keys().collect();
+            tracing::info!(?keys, "Settings taken from the environment");
+            Self::update_configs_on(db, seeds).await?;
+        }
+        Ok(count)
     }
 
     /// Rewrite the old AI settings in the new keys and drop the old

@@ -288,17 +288,15 @@ mod tests {
         let mut config = DynamicConfig::default();
         config.github_username = Some("me".into());
         config.bilibili_uid = Some("1".into());
-        crate::services::platform_id::tests::with_env(&[], || {
-            assert_eq!(
-                refresh_plan(&config, None),
-                vec![PlatformId::Github, PlatformId::Bilibili]
-            );
-            assert_eq!(
-                refresh_plan(&config, Some("github")),
-                vec![PlatformId::Github]
-            );
-            assert!(refresh_plan(&config, Some("steam")).is_empty());
-            assert!(refresh_plan(&config, Some("GitHub")).is_empty());
-        });
+        assert_eq!(
+            refresh_plan(&config, None),
+            vec![PlatformId::Github, PlatformId::Bilibili]
+        );
+        assert_eq!(
+            refresh_plan(&config, Some("github")),
+            vec![PlatformId::Github]
+        );
+        assert!(refresh_plan(&config, Some("steam")).is_empty());
+        assert!(refresh_plan(&config, Some("GitHub")).is_empty());
     }
 }

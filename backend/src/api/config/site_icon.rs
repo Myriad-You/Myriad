@@ -108,12 +108,14 @@ fn not_found() -> Response {
 
 pub async fn get_site_icon(crate::extract::Db(db): crate::extract::Db) -> Response {
     let config_service = crate::services::config_service::ConfigService::new(db);
-    let db_config = config_service.load_config().await.ok();
-    let raw = db_config
-        .as_ref()
-        .and_then(|c| c.site_favicon.clone())
+    let stored = config_service.load_config().await.unwrap_or_else(|error| {
+        tracing::warn!(%error, "stored configuration could not be read; using defaults");
+        crate::config::DynamicConfig::default()
+    });
+    let raw = stored
+        .site_favicon
+        .clone()
         .filter(|v| !v.is_empty())
-        .or_else(|| std::env::var("SITE_FAVICON").ok().filter(|v| !v.is_empty()))
         .unwrap_or_else(|| "/favicon.webp".to_string());
 
     match classify_configured_favicon(&raw) {

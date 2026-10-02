@@ -340,7 +340,6 @@ pub struct DynamicConfig {
     /// Standard 的服务商源。留空按出厂的 OpenRouter。
     pub ai_source: String,
     pub ai_model: String,
-    pub openai_max_tokens: i32,
     /// Lite 的服务商源。留空跟 Standard 用同一个。
     pub lite_ai_source: String,
     /// Lite 的模型。留空就不用 Lite，没有单独的开关。
@@ -727,7 +726,6 @@ impl Default for DynamicConfig {
             // 出厂走 OpenRouter。
             ai_source: "openrouter".to_string(),
             ai_model: "minimax/minimax-m3".to_string(),
-            openai_max_tokens: 2000,
             // Lite 默认不用：模型留空；源跟 Standard。
             lite_ai_source: String::new(),
             lite_ai_model: String::new(),

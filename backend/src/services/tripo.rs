@@ -31,8 +31,7 @@ pub struct TripoRuntimeConfig {
 
 impl TripoRuntimeConfig {
     pub fn resolve(config: &DynamicConfig) -> Result<Self, TripoError> {
-        let enabled = env_bool("TRIPO_ENABLED").unwrap_or(config.tripo_enabled);
-        if !enabled {
+        if !config.tripo_enabled {
             return Err(TripoError::Disabled);
         }
 
@@ -40,38 +39,22 @@ impl TripoRuntimeConfig {
             .tripo_api_key
             .clone()
             .filter(|value| !value.trim().is_empty())
-            .or_else(|| std::env::var("TRIPO_API_KEY").ok())
-            .filter(|value| !value.trim().is_empty())
             .ok_or(TripoError::NotConfigured)?;
 
-        let base_url = env_string("TRIPO_BASE_URL")
-            .unwrap_or_else(|| config.tripo_base_url.clone())
-            .trim_end_matches('/')
-            .to_string();
+        let base_url = config.tripo_base_url.trim_end_matches('/').to_string();
         validate_base_url(&base_url)?;
 
-        let model = env_string("TRIPO_MODEL")
-            .unwrap_or_else(|| config.tripo_model.clone())
-            .trim()
-            .to_string();
+        let model = config.tripo_model.trim().to_string();
         if model.is_empty() {
             return Err(TripoError::InvalidConfig(
                 "Tripo model cannot be empty".to_string(),
             ));
         }
 
-        let face_limit = env_i32("TRIPO_FACE_LIMIT")
-            .unwrap_or(config.tripo_face_limit)
-            .clamp(50, 20_000) as u32;
-        let poll_seconds = env_i32("TRIPO_POLL_INTERVAL_SECONDS")
-            .unwrap_or(config.tripo_poll_interval_seconds)
-            .clamp(2, 60) as u64;
-        let timeout_seconds = env_i32("TRIPO_TASK_TIMEOUT_SECONDS")
-            .unwrap_or(config.tripo_task_timeout_seconds)
-            .clamp(60, 3_600) as u64;
-        let max_download_mb = env_i32("TRIPO_MAX_DOWNLOAD_MB")
-            .unwrap_or(config.tripo_max_download_mb)
-            .clamp(1, 150) as usize;
+        let face_limit = config.tripo_face_limit.clamp(50, 20_000) as u32;
+        let poll_seconds = config.tripo_poll_interval_seconds.clamp(2, 60) as u64;
+        let timeout_seconds = config.tripo_task_timeout_seconds.clamp(60, 3_600) as u64;
+        let max_download_mb = config.tripo_max_download_mb.clamp(1, 150) as usize;
 
         Ok(Self {
             api_key,
@@ -376,7 +359,7 @@ pub const PUBLIC_CAPABILITIES: &[&str] = &[
 ];
 
 pub fn is_enabled(config: &DynamicConfig) -> bool {
-    env_bool("TRIPO_ENABLED").unwrap_or(config.tripo_enabled)
+    config.tripo_enabled
 }
 
 pub fn is_configured(config: &DynamicConfig) -> bool {
@@ -384,9 +367,6 @@ pub fn is_configured(config: &DynamicConfig) -> bool {
         .tripo_api_key
         .as_ref()
         .is_some_and(|value| !value.trim().is_empty())
-        || std::env::var("TRIPO_API_KEY")
-            .ok()
-            .is_some_and(|value| !value.trim().is_empty())
 }
 
 /// Web-budget defaults. Explicit caller choices are preserved.
@@ -1003,25 +983,6 @@ fn is_image_upload(file_name: &str, content_type: &str) -> bool {
         .map(|(_, extension)| extension.to_ascii_lowercase())
         .unwrap_or_default();
     content_type.starts_with("image/") || matches!(extension.as_str(), "jpg" | "jpeg" | "png")
-}
-
-fn env_string(key: &str) -> Option<String> {
-    std::env::var(key)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-}
-
-fn env_i32(key: &str) -> Option<i32> {
-    env_string(key)?.parse().ok()
-}
-
-fn env_bool(key: &str) -> Option<bool> {
-    env_string(key).map(|value| {
-        matches!(
-            value.to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
 }
 
 #[cfg(test)]

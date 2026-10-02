@@ -3,9 +3,7 @@ use axum::{Json, http::StatusCode};
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
-use super::flags::{
-    admin_platform_enabled, db_or_env_clearable, nonempty_db, nonempty_env, sort_platforms_by_order,
-};
+use super::flags::{admin_platform_enabled, nonempty_db, sort_platforms_by_order};
 use super::secrets::mask_secret_display_value;
 use super::types::{
     AiConfig, ConfigField, ConfigResponse, PlatformAutoFetchConfig, PlatformConfig, TripoConfig,
@@ -29,12 +27,6 @@ pub(crate) async fn build_config(
         "Stored configuration could not be read".to_string()
     })?;
 
-    // Prefer DB when present (including intentional empty clear); else process env.
-    // Same clearable semantics as SEO/analytics (`db_or_env_clearable`).
-    let get_value = |db_val: Option<String>, env_key: &str| -> String {
-        db_or_env_clearable(db_val, env_key, "")
-    };
-
     // Helper to mask sensitive values (passwords, API keys, tokens).
     // Must stay aligned with [`is_masked_secret_value`] (save + platform_test).
     let mask_sensitive = |value: String| -> String {
@@ -49,27 +41,19 @@ pub(crate) async fn build_config(
         }
     };
 
-    let has_bangumi_username =
-        nonempty_db(stored.bangumi_username.as_ref()) || nonempty_env("BANGUMI_USERNAME");
-    let has_bangumi_access_token =
-        nonempty_db(stored.bangumi_access_token.as_ref()) || nonempty_env("BANGUMI_ACCESS_TOKEN");
+    let has_bangumi_username = nonempty_db(stored.bangumi_username.as_ref());
+    let has_bangumi_access_token = nonempty_db(stored.bangumi_access_token.as_ref());
     let has_bangumi_identity = has_bangumi_username || has_bangumi_access_token;
-    let has_youtube_key =
-        nonempty_db(stored.youtube_api_key.as_ref()) || nonempty_env("YOUTUBE_API_KEY");
-    let has_x_bearer =
-        nonempty_db(stored.x_bearer_token.as_ref()) || nonempty_env("X_BEARER_TOKEN");
-    let has_discord_token =
-        nonempty_db(stored.discord_access_token.as_ref()) || nonempty_env("DISCORD_ACCESS_TOKEN");
-    let has_mal_username =
-        nonempty_db(stored.mal_username.as_ref()) || nonempty_env("MAL_USERNAME");
-    let has_openxbl_key = nonempty_db(stored.openxbl_api_key.as_ref())
-        || nonempty_env("OPENXBL_API_KEY")
-        || nonempty_env("XBL_API_KEY");
-    let has_psn_npsso = nonempty_db(stored.psn_npsso.as_ref()) || nonempty_env("PSN_NPSSO");
+    let has_youtube_key = nonempty_db(stored.youtube_api_key.as_ref());
+    let has_x_bearer = nonempty_db(stored.x_bearer_token.as_ref());
+    let has_discord_token = nonempty_db(stored.discord_access_token.as_ref());
+    let has_mal_username = nonempty_db(stored.mal_username.as_ref());
+    let has_openxbl_key = nonempty_db(stored.openxbl_api_key.as_ref());
+    let has_psn_npsso = nonempty_db(stored.psn_npsso.as_ref());
     // 开关显示的是「按表单现状保存之后」的启用：同一条 PlatformId 规则，作用在表单
     // 里显示（也会被保存回去）的凭据上。
     let enabled = {
-        let admin = admin_platform_enabled(Some(&stored), |key| std::env::var(key).ok());
+        let admin = admin_platform_enabled(&stored);
         move |id: PlatformId| admin.iter().any(|(p, on)| *p == id && *on)
     };
 
@@ -78,8 +62,7 @@ pub(crate) async fn build_config(
             PlatformConfig {
                 name: "GitHub".to_string(),
                 enabled: enabled(PlatformId::Github),
-                has_token: nonempty_db(stored.github_token.as_ref())
-                    || nonempty_env("GITHUB_TOKEN"),
+                has_token: nonempty_db(stored.github_token.as_ref()),
                 icon: "".to_string(),
                 description: "Repos, stars, and contributions".to_string(),
                 config_fields: vec![
@@ -87,10 +70,7 @@ pub(crate) async fn build_config(
                         key: "username".to_string(),
                         label: "GitHub Username".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.github_username.clone(),
-                            "GITHUB_USERNAME",
-                        ),
+                        value: stored.github_username.clone().unwrap_or_default(),
                         placeholder: "octocat".to_string(),
                         required: true,
                     },
@@ -98,10 +78,7 @@ pub(crate) async fn build_config(
                         key: "token".to_string(),
                         label: "Personal Access Token (Optional)".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.github_token.clone(),
-                            "GITHUB_TOKEN",
-                        )),
+                        value: mask_sensitive(stored.github_token.clone().unwrap_or_default()),
                         placeholder: "ghp_xxxxxxxxxxxx (Increases API rate limit)".to_string(),
                         required: false,
                     },
@@ -110,18 +87,14 @@ pub(crate) async fn build_config(
             PlatformConfig {
                 name: "Bilibili".to_string(),
                 enabled: enabled(PlatformId::Bilibili),
-                has_token: nonempty_db(stored.bilibili_uid.as_ref())
-                    || nonempty_env("BILIBILI_UID"),
+                has_token: nonempty_db(stored.bilibili_uid.as_ref()),
                 icon: "".to_string(),
                 description: "Favorites, anime, and viewing history".to_string(),
                 config_fields: vec![ConfigField {
                     key: "uid".to_string(),
                     label: "User ID (UID)".to_string(),
                     field_type: "number".to_string(),
-                    value: get_value(
-                        stored.bilibili_uid.clone(),
-                        "BILIBILI_UID",
-                    ),
+                    value: stored.bilibili_uid.clone().unwrap_or_default(),
                     placeholder: "123456789".to_string(),
                     required: true,
                 }],
@@ -129,8 +102,7 @@ pub(crate) async fn build_config(
             PlatformConfig {
                 name: "Steam".to_string(),
                 enabled: enabled(PlatformId::Steam),
-                has_token: nonempty_db(stored.steam_api_key.as_ref())
-                    || nonempty_env("STEAM_API_KEY"),
+                has_token: nonempty_db(stored.steam_api_key.as_ref()),
                 icon: "".to_string(),
                 description: "Library, wishlist, and play stats".to_string(),
                 config_fields: vec![
@@ -138,10 +110,7 @@ pub(crate) async fn build_config(
                         key: "api_key".to_string(),
                         label: "Steam API Key".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.steam_api_key.clone(),
-                            "STEAM_API_KEY",
-                        )),
+                        value: mask_sensitive(stored.steam_api_key.clone().unwrap_or_default()),
                         placeholder: "Get from steamcommunity.com/dev/apikey".to_string(),
                         required: true,
                     },
@@ -149,10 +118,7 @@ pub(crate) async fn build_config(
                         key: "steam_id".to_string(),
                         label: "Steam ID".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.steam_id.clone(),
-                            "STEAM_ID",
-                        ),
+                        value: stored.steam_id.clone().unwrap_or_default(),
                         placeholder: "76561198XXXXXXXXX".to_string(),
                         required: true,
                     },
@@ -169,10 +135,7 @@ pub(crate) async fn build_config(
                         key: "api_key".to_string(),
                         label: "YouTube Data API Key".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.youtube_api_key.clone(),
-                            "YOUTUBE_API_KEY",
-                        )),
+                        value: mask_sensitive(stored.youtube_api_key.clone().unwrap_or_default()),
                         placeholder: "Google Cloud → YouTube Data API v3 key".to_string(),
                         required: true,
                     },
@@ -180,10 +143,7 @@ pub(crate) async fn build_config(
                         key: "channel_id".to_string(),
                         label: "Channel ID or @handle".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.youtube_channel_id.clone(),
-                            "YOUTUBE_CHANNEL_ID",
-                        ),
+                        value: stored.youtube_channel_id.clone().unwrap_or_default(),
                         placeholder: "UCxxxxx or @GoogleDevelopers".to_string(),
                         required: true,
                     },
@@ -192,18 +152,14 @@ pub(crate) async fn build_config(
             PlatformConfig {
                 name: "Netease Music".to_string(),
                 enabled: enabled(PlatformId::Netease),
-                has_token: nonempty_db(stored.netease_user_id.as_ref())
-                    || nonempty_env("NETEASE_USER_ID"),
+                has_token: nonempty_db(stored.netease_user_id.as_ref()),
                 icon: "".to_string(),
                 description: "Liked songs and music taste".to_string(),
                 config_fields: vec![ConfigField {
                     key: "user_id".to_string(),
                     label: "User ID".to_string(),
                     field_type: "number".to_string(),
-                    value: get_value(
-                        stored.netease_user_id.clone(),
-                        "NETEASE_USER_ID",
-                    ),
+                    value: stored.netease_user_id.clone().unwrap_or_default(),
                     placeholder: "Your Netease Cloud Music user ID".to_string(),
                     required: true,
                 }],
@@ -219,10 +175,7 @@ pub(crate) async fn build_config(
                         key: "username".to_string(),
                         label: "Bangumi Username".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.bangumi_username.clone(),
-                            "BANGUMI_USERNAME",
-                        ),
+                        value: stored.bangumi_username.clone().unwrap_or_default(),
                         placeholder: "your Bangumi username".to_string(),
                         required: false,
                     },
@@ -230,10 +183,7 @@ pub(crate) async fn build_config(
                         key: "access_token".to_string(),
                         label: "Access Token".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.bangumi_access_token.clone(),
-                            "BANGUMI_ACCESS_TOKEN",
-                        )),
+                        value: mask_sensitive(stored.bangumi_access_token.clone().unwrap_or_default()),
                         placeholder: "Bearer token for private collections".to_string(),
                         required: false,
                     },
@@ -241,10 +191,7 @@ pub(crate) async fn build_config(
                         key: "user_agent".to_string(),
                         label: "User-Agent".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.bangumi_user_agent.clone(),
-                            "BANGUMI_USER_AGENT",
-                        ),
+                        value: stored.bangumi_user_agent.clone().unwrap_or_default(),
                         placeholder: "myriad/Myriad".to_string(),
                         required: false,
                     },
@@ -261,10 +208,7 @@ pub(crate) async fn build_config(
                         key: "username".to_string(),
                         label: "X Username".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.x_username.clone(),
-                            "X_USERNAME",
-                        ),
+                        value: stored.x_username.clone().unwrap_or_default(),
                         placeholder: String::new(),
                         required: true,
                     },
@@ -272,10 +216,7 @@ pub(crate) async fn build_config(
                         key: "bearer_token".to_string(),
                         label: "Bearer Token".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.x_bearer_token.clone(),
-                            "X_BEARER_TOKEN",
-                        )),
+                        value: mask_sensitive(stored.x_bearer_token.clone().unwrap_or_default()),
                         placeholder: "From developer.x.com App keys (read-only sync)".to_string(),
                         required: true,
                     },
@@ -292,10 +233,7 @@ pub(crate) async fn build_config(
                         key: "access_token".to_string(),
                         label: "Access Token".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.discord_access_token.clone(),
-                            "DISCORD_ACCESS_TOKEN",
-                        )),
+                        value: mask_sensitive(stored.discord_access_token.clone().unwrap_or_default()),
                         placeholder:
                             "OAuth user token (scopes: identify guilds connections)".to_string(),
                         required: true,
@@ -304,10 +242,7 @@ pub(crate) async fn build_config(
                         key: "refresh_token".to_string(),
                         label: "Refresh Token (Recommended)".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.discord_refresh_token.clone(),
-                            "DISCORD_REFRESH_TOKEN",
-                        )),
+                        value: mask_sensitive(stored.discord_refresh_token.clone().unwrap_or_default()),
                         placeholder:
                             "Optional; enables auto-refresh when access token expires".to_string(),
                         required: false,
@@ -316,10 +251,7 @@ pub(crate) async fn build_config(
                         key: "user_id".to_string(),
                         label: "User ID (auto-filled after test)".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.discord_user_id.clone(),
-                            "DISCORD_USER_ID",
-                        ),
+                        value: stored.discord_user_id.clone().unwrap_or_default(),
                         placeholder: "Discord snowflake id".to_string(),
                         required: false,
                     },
@@ -336,10 +268,7 @@ pub(crate) async fn build_config(
                         key: "username".to_string(),
                         label: "MyAnimeList Username".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.mal_username.clone(),
-                            "MAL_USERNAME",
-                        ),
+                        value: stored.mal_username.clone().unwrap_or_default(),
                         placeholder: "your MAL username (required)".to_string(),
                         required: true,
                     },
@@ -347,10 +276,7 @@ pub(crate) async fn build_config(
                         key: "client_id".to_string(),
                         label: "Client ID (optional)".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.mal_client_id.clone(),
-                            "MAL_CLIENT_ID",
-                        )),
+                        value: mask_sensitive(stored.mal_client_id.clone().unwrap_or_default()),
                         placeholder:
                             "Optional — leave empty for public list (load.json); fill for official API (myanimelist.net/apiconfig)"
                                 .to_string(),
@@ -369,10 +295,7 @@ pub(crate) async fn build_config(
                         key: "gamertag".to_string(),
                         label: "Gamertag".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.xbox_gamertag.clone(),
-                            "XBOX_GAMERTAG",
-                        ),
+                        value: stored.xbox_gamertag.clone().unwrap_or_default(),
                         placeholder: "Major Nelson or Name#1234".to_string(),
                         required: true,
                     },
@@ -380,10 +303,7 @@ pub(crate) async fn build_config(
                         key: "openxbl_api_key".to_string(),
                         label: "OpenXBL API Key".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.openxbl_api_key.clone(),
-                            "OPENXBL_API_KEY",
-                        )),
+                        value: mask_sensitive(stored.openxbl_api_key.clone().unwrap_or_default()),
                         placeholder: "From xbl.io profile".to_string(),
                         required: true,
                     },
@@ -400,10 +320,7 @@ pub(crate) async fn build_config(
                         key: "online_id".to_string(),
                         label: "Online ID".to_string(),
                         field_type: "text".to_string(),
-                        value: get_value(
-                            stored.psn_online_id.clone(),
-                            "PSN_ONLINE_ID",
-                        ),
+                        value: stored.psn_online_id.clone().unwrap_or_default(),
                         placeholder: "Your PSN Online ID".to_string(),
                         required: true,
                     },
@@ -411,10 +328,7 @@ pub(crate) async fn build_config(
                         key: "npsso".to_string(),
                         label: "NPSSO Token".to_string(),
                         field_type: "password".to_string(),
-                        value: mask_sensitive(get_value(
-                            stored.psn_npsso.clone(),
-                            "PSN_NPSSO",
-                        )),
+                        value: mask_sensitive(stored.psn_npsso.clone().unwrap_or_default()),
                         placeholder: "64-char token from ca.account.sony.com".to_string(),
                         required: true,
                     },
@@ -801,10 +715,7 @@ pub(crate) async fn build_config(
                     key: "tripo_api_key".to_string(),
                     label: "Tripo API Key".to_string(),
                     field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        stored.tripo_api_key.clone(),
-                        "TRIPO_API_KEY",
-                    )),
+                    value: mask_sensitive(stored.tripo_api_key.clone().unwrap_or_default()),
                     placeholder: "Get from platform.tripo3d.ai".to_string(),
                     required: false,
                 },
@@ -876,10 +787,7 @@ pub(crate) async fn build_config(
                     key: "wallpaper_url".to_string(),
                     label: "Wallpaper URL".to_string(),
                     field_type: "text".to_string(),
-                    value: get_value(
-                        stored.ui_wallpaper_url.clone(),
-                        "UI_WALLPAPER_URL",
-                    ),
+                    value: stored.ui_wallpaper_url.clone().unwrap_or_default(),
                     placeholder: "URL to wallpaper image or API endpoint".to_string(),
                     required: false,
                 },
@@ -952,10 +860,7 @@ pub(crate) async fn build_config(
                     key: "site_title".to_string(),
                     label: "Site title".to_string(),
                     field_type: "text".to_string(),
-                    value: get_value(
-                        stored.site_title.clone(),
-                        "SITE_TITLE",
-                    ),
+                    value: stored.site_title.clone().unwrap_or_default(),
                     placeholder: "Myriad - A myriad of lights, in one place.".to_string(),
                     required: false,
                 },
@@ -963,10 +868,7 @@ pub(crate) async fn build_config(
                     key: "site_description".to_string(),
                     label: "Site description".to_string(),
                     field_type: "text".to_string(),
-                    value: get_value(
-                        stored.site_description.clone(),
-                        "SITE_DESCRIPTION",
-                    ),
+                    value: stored.site_description.clone().unwrap_or_default(),
                     placeholder: "A myriad of lights, in one place.".to_string(),
                     required: false,
                 },
@@ -974,10 +876,7 @@ pub(crate) async fn build_config(
                     key: "site_favicon".to_string(),
                     label: "Favicon URL".to_string(),
                     field_type: "text".to_string(),
-                    value: get_value(
-                        stored.site_favicon.clone(),
-                        "SITE_FAVICON",
-                    ),
+                    value: stored.site_favicon.clone().unwrap_or_default(),
                     placeholder: "/favicon.webp or https://example.com/icon.png (external URLs allowed)"
                         .to_string(),
                     required: false,
@@ -986,12 +885,7 @@ pub(crate) async fn build_config(
                     key: "site_keywords".to_string(),
                     label: "SEO keywords".to_string(),
                     field_type: "text".to_string(),
-                    // Clearable: empty DB wins over env (see db_or_env_clearable).
-                    value: db_or_env_clearable(
-                        stored.site_keywords.clone(),
-                        "SITE_KEYWORDS",
-                        "",
-                    ),
+                    value: stored.site_keywords.clone().unwrap_or_default(),
                     placeholder: "homepage, blog, digital life (comma-separated)".to_string(),
                     required: false,
                 },
@@ -999,11 +893,7 @@ pub(crate) async fn build_config(
                     key: "site_og_image".to_string(),
                     label: "Share preview image".to_string(),
                     field_type: "text".to_string(),
-                    value: db_or_env_clearable(
-                        stored.site_og_image.clone(),
-                        "SITE_OG_IMAGE",
-                        "",
-                    ),
+                    value: stored.site_og_image.clone().unwrap_or_default(),
                     placeholder: "https://example.com/og.png or upload a local image".to_string(),
                     required: false,
                 },
@@ -1011,11 +901,7 @@ pub(crate) async fn build_config(
                     key: "google_site_verification".to_string(),
                     label: "Google Search Console verification".to_string(),
                     field_type: "text".to_string(),
-                    value: db_or_env_clearable(
-                        stored.google_site_verification.clone(),
-                        "GOOGLE_SITE_VERIFICATION",
-                        "",
-                    ),
+                    value: stored.google_site_verification.clone().unwrap_or_default(),
                     placeholder: "Paste the verification code or a full meta tag".to_string(),
                     required: false,
                 },
@@ -1033,11 +919,11 @@ pub(crate) async fn build_config(
                     field_type: "select".to_string(),
                     value: {
                         let noindex = stored.site_noindex;
-                        let raw = Some(stored.site_visibility_policy.clone())
-                            .filter(|s| !s.trim().is_empty())
-                            .or_else(|| std::env::var("SITE_VISIBILITY_POLICY").ok())
-                            .unwrap_or_default();
-                        crate::api::seo_policy::normalize_visibility_policy(&raw, noindex).to_string()
+                        crate::api::seo_policy::normalize_visibility_policy(
+                            stored.site_visibility_policy.trim(),
+                            noindex,
+                        )
+                        .to_string()
                     },
                     placeholder: "ai_citation".to_string(),
                     required: false,
@@ -1046,11 +932,7 @@ pub(crate) async fn build_config(
                     key: "site_ai_intro".to_string(),
                     label: "AI site intro".to_string(),
                     field_type: "text".to_string(),
-                    value: db_or_env_clearable(
-                        stored.site_ai_intro.clone(),
-                        "SITE_AI_INTRO",
-                        "",
-                    ),
+                    value: stored.site_ai_intro.clone().unwrap_or_default(),
                     placeholder: "2–4 sentences for AI about who this site is and what it contains (written to llms.txt)"
                         .to_string(),
                     required: false,
@@ -1070,11 +952,7 @@ pub(crate) async fn build_config(
                     key: "ga_measurement_id".to_string(),
                     label: "Google Analytics".to_string(),
                     field_type: "text".to_string(),
-                    value: db_or_env_clearable(
-                        stored.ga_measurement_id.clone(),
-                        "GA_MEASUREMENT_ID",
-                        "",
-                    ),
+                    value: stored.ga_measurement_id.clone().unwrap_or_default(),
                     placeholder: "G-XXXXXXXXXX".to_string(),
                     required: false,
                 },
@@ -1082,11 +960,7 @@ pub(crate) async fn build_config(
                     key: "umami_website_id".to_string(),
                     label: "Umami Website ID".to_string(),
                     field_type: "text".to_string(),
-                    value: db_or_env_clearable(
-                        stored.umami_website_id.clone(),
-                        "UMAMI_WEBSITE_ID",
-                        "",
-                    ),
+                    value: stored.umami_website_id.clone().unwrap_or_default(),
                     placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx".to_string(),
                     required: false,
                 },
@@ -1094,11 +968,7 @@ pub(crate) async fn build_config(
                     key: "umami_script_url".to_string(),
                     label: "Umami Script URL".to_string(),
                     field_type: "text".to_string(),
-                    value: db_or_env_clearable(
-                        stored.umami_script_url.clone(),
-                        "UMAMI_SCRIPT_URL",
-                        "",
-                    ),
+                    value: stored.umami_script_url.clone().unwrap_or_default(),
                     placeholder: "https://cloud.umami.is/script.js".to_string(),
                     required: false,
                 },
@@ -1133,11 +1003,7 @@ pub(crate) async fn build_config(
                     key: "site_footer_custom".to_string(),
                     label: "Footer custom items".to_string(),
                     field_type: "text".to_string(),
-                    value: db_or_env_clearable(
-                        stored.site_footer_custom.clone(),
-                        "SITE_FOOTER_CUSTOM",
-                        "",
-                    ),
+                    value: stored.site_footer_custom.clone().unwrap_or_default(),
                     placeholder: r#"[{"text":"示例","icon":"/logo.webp","url":"https://example.com"}]"#
                         .to_string(),
                     required: false,
@@ -1155,10 +1021,7 @@ pub(crate) async fn build_config(
                     key: "music_enabled".to_string(),
                     label: "Enable Music Player".to_string(),
                     field_type: "checkbox".to_string(),
-                    value: get_value(
-                        stored.music_enabled.clone(),
-                        "MUSIC_ENABLED",
-                    ),
+                    value: stored.music_enabled.clone().unwrap_or_default(),
                     placeholder: "false".to_string(),
                     required: false,
                 },
@@ -1166,10 +1029,7 @@ pub(crate) async fn build_config(
                     key: "music_source".to_string(),
                     label: "Music Source".to_string(),
                     field_type: "select".to_string(),
-                    value: get_value(
-                        stored.music_source.clone(),
-                        "MUSIC_SOURCE",
-                    ),
+                    value: stored.music_source.clone().unwrap_or_default(),
                     placeholder: "netease or qq".to_string(),
                     required: false,
                 },
@@ -1177,10 +1037,7 @@ pub(crate) async fn build_config(
                     key: "music_playlist_id".to_string(),
                     label: "Playlist ID".to_string(),
                     field_type: "text".to_string(),
-                    value: get_value(
-                        stored.music_playlist_id.clone(),
-                        "MUSIC_PLAYLIST_ID",
-                    ),
+                    value: stored.music_playlist_id.clone().unwrap_or_default(),
                     placeholder: "Playlist ID from music platform".to_string(),
                     required: false,
                 },
