@@ -490,6 +490,8 @@
     "none": "This outfit has no full-body portrait yet.",
     "generate": "Draw full-body portrait",
     "regenerate": "Redraw full-body portrait",
+    "upload": "Upload your own full-body portrait",
+    "uploading": "Uploading…",
     "generating": "Drawing the full-body portrait…",
     "generateConfirm": "This redraws the full-body portrait from the current bust portrait and retires the existing full-body figure. Continue?",
     "decompose": "Split and preview",

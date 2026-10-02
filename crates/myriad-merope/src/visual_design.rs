@@ -649,24 +649,32 @@ fn active_outfit_mut(profile: &mut Value) -> Option<&mut Map<String, Value>> {
         .as_object_mut()
 }
 
-/// Store a full figure drawn from the worn outfit's bust portrait. A rig
-/// compiled from an earlier full figure no longer matches it.
+/// Store the worn outfit's full figure: drawn from its bust portrait, with that
+/// drawing's fingerprint, or uploaded, without one. A rig compiled from an
+/// earlier full figure no longer matches it.
 pub fn bind_active_outfit_full_body_portrait(
     profile: &mut Value,
     portrait_asset_id: &str,
-    generation_fingerprint: &str,
+    generation_fingerprint: Option<&str>,
 ) -> bool {
-    let (Some(portrait), Some(fingerprint)) = (
-        sanitize_wardrobe_portrait(portrait_asset_id),
-        sanitize_wardrobe_hex_id(generation_fingerprint),
-    ) else {
+    let Some(portrait) = sanitize_wardrobe_portrait(portrait_asset_id) else {
         return false;
+    };
+    let fingerprint = match generation_fingerprint {
+        Some(raw) => match sanitize_wardrobe_hex_id(raw) {
+            Some(fingerprint) => Some(fingerprint),
+            None => return false,
+        },
+        None => None,
     };
     let Some(item) = active_outfit_mut(profile) else {
         return false;
     };
     item.insert(FULL_BODY_PORTRAIT.into(), json!(portrait));
-    item.insert(FULL_BODY_FINGERPRINT.into(), json!(fingerprint));
+    match fingerprint {
+        Some(fingerprint) => item.insert(FULL_BODY_FINGERPRINT.into(), json!(fingerprint)),
+        None => item.remove(FULL_BODY_FINGERPRINT),
+    };
     item.remove(FULL_BODY_RIG);
     true
 }
@@ -1408,7 +1416,7 @@ mod tests {
         assert!(bind_active_outfit_full_body_portrait(
             &mut stored,
             "/media/full.png",
-            &fingerprint
+            Some(&fingerprint)
         ));
         assert!(bind_active_outfit_full_body_rig(&mut stored, &rig));
         let full = active_outfit_full_body(Some(&stored)).unwrap();

@@ -327,6 +327,33 @@ export async function uploadSitePortrait(image: Blob): Promise<{
   }
 }
 
+/** Puts the owner's own full figure beside the worn outfit's bust. */
+export async function uploadFullBodyPortrait(image: Blob): Promise<{
+  portraitUrl: string
+}> {
+  const body = new FormData()
+  body.append(
+    'image',
+    image,
+    image instanceof File ? image.name : 'uploaded-full-body.png',
+  )
+  try {
+    const data = await apiService.post<{ portraitUrl?: unknown }>(
+      `${PREFIX}/full-body/portrait/upload`,
+      body,
+      { timeout: RIG_MUTATION_TIMEOUT_MS },
+    )
+    const portraitUrl = readPortraitUrl(data)
+    if (!portraitUrl) {
+      throw new MeropeApiError(currentCopy().merope.portraitUploadFailed, 502)
+    }
+    return { portraitUrl }
+  } catch (reason) {
+    if (reason instanceof MeropeApiError) throw reason
+    throw meropeError(reason, currentCopy().merope.portraitUploadFailed)
+  }
+}
+
 export async function generateStickerAvatar(): Promise<{
   avatarUrl: string | null
 }> {

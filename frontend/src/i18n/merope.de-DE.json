@@ -490,6 +490,8 @@
     "none": "Für dieses Outfit gibt es noch kein Ganzkörperbild.",
     "generate": "Ganzkörperbild zeichnen",
     "regenerate": "Ganzkörperbild neu zeichnen",
+    "upload": "Eigenes Ganzkörperbild hochladen",
+    "uploading": "Wird hochgeladen …",
     "generating": "Ganzkörperbild wird gezeichnet …",
     "generateConfirm": "Das Ganzkörperbild wird aus dem aktuellen Brustbild neu gezeichnet; die bisherige Ganzkörperfigur wird verworfen. Fortfahren?",
     "decompose": "Zerlegen und Vorschau",

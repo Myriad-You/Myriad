@@ -490,6 +490,8 @@
     "none": "这套衣服还没有全身立绘。",
     "generate": "画全身立绘",
     "regenerate": "重画全身立绘",
+    "upload": "上传自己的全身立绘",
+    "uploading": "正在上传…",
     "generating": "正在画全身立绘…",
     "generateConfirm": "会照现在的半身立绘重画一张全身立绘，已有的全身形象会作废。继续吗？",
     "decompose": "拆层并预览",

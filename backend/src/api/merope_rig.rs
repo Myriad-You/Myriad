@@ -45,6 +45,11 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             "/full-body/portrait",
             post(full_body::generate_full_body_portrait),
         )
+        .route(
+            "/full-body/portrait/upload",
+            post(full_body::upload_full_body_portrait)
+                .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
+        )
         .route("/avatar", post(avatar::generate_sticker_avatar))
         .route("/expressions", get(expressions::list_expressions))
         .route(

@@ -490,6 +490,8 @@
     "none": "Cette tenue n’a pas encore de portrait en pied.",
     "generate": "Dessiner le portrait en pied",
     "regenerate": "Redessiner le portrait en pied",
+    "upload": "Importer votre propre portrait en pied",
+    "uploading": "Import en cours…",
     "generating": "Dessin du portrait en pied…",
     "generateConfirm": "Le portrait en pied sera redessiné à partir du buste actuel et la silhouette en pied existante sera abandonnée. Continuer ?",
     "decompose": "Découper et prévisualiser",

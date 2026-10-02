@@ -16,7 +16,7 @@ use crate::{
     services::{agent::merope, image_generation, merope_rig},
 };
 
-fn uploaded_portrait_reference(
+pub(super) fn uploaded_portrait_reference(
     bytes: impl Into<axum::body::Bytes>,
 ) -> ApiResult<image_generation::ImageReference> {
     let bytes = bytes.into();
@@ -30,13 +30,10 @@ fn uploaded_portrait_reference(
         .map_err(|error| bad_request(&error.to_string()))
 }
 
-pub async fn upload_portrait(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
+/// The one `image` field of a portrait upload, checked to be a supported picture.
+pub(super) async fn read_portrait_upload(
     mut multipart: Multipart,
-) -> ApiResult<Json<Value>> {
-    require_merope_enabled().await?;
-    let user_id = require_owner(&claims, &db).await?;
+) -> ApiResult<image_generation::ImageReference> {
     let mut image_bytes = None;
     while let Some(field) = multipart.next_field().await.map_err(|error| {
         tracing::error!(%error, "Invalid portrait upload");
@@ -60,13 +57,21 @@ pub async fn upload_portrait(
             _ => return Err(bad_request("Portrait upload contains an unsupported field")),
         }
     }
-    let reference = image_bytes.ok_or_else(|| bad_request("Portrait upload is missing image"))?;
+    image_bytes.ok_or_else(|| bad_request("Portrait upload is missing image"))
+}
+
+/// Stores an uploaded portrait privately; returns its catalog URL.
+pub(super) async fn persist_uploaded_portrait(
+    db: &DatabaseConnection,
+    user_id: i32,
+    reference: image_generation::ImageReference,
+) -> ApiResult<String> {
     let actor = crate::services::media::MediaActor::admin(user_id)
         .map_err(|error| internal_error(error.to_string()))?;
     let (asset, _) =
         crate::services::media::MediaService::from_data_paths(crate::services::data_paths::paths())
             .persist_ready_bytes(
-                &db,
+                db,
                 crate::services::media::MediaContext::site(
                     actor,
                     crate::services::media::MediaSource::Upload,
@@ -87,8 +92,19 @@ pub async fn upload_portrait(
                 }
                 _ => internal_error(error.to_string()),
             })?;
+    Ok(asset.catalog_url())
+}
+
+pub async fn upload_portrait(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    multipart: Multipart,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    let user_id = require_owner(&claims, &db).await?;
+    let reference = read_portrait_upload(multipart).await?;
     let stored = crate::services::image_cache::StoredImage {
-        url: asset.catalog_url(),
+        url: persist_uploaded_portrait(&db, user_id, reference).await?,
         created: true,
     };
     let persona = merope::get_persona(&db).await.map_err(internal_error)?;

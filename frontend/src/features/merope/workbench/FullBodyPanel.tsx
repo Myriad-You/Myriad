@@ -1,7 +1,7 @@
 import type { SiteFace } from '../api'
 import type { RigAssetPreflight } from '../assets/pipeline'
 import type { MeropeRigManifest } from '../rig/types'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import { SettingsButton } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -11,6 +11,7 @@ import {
   decomposeSitePortraitWithSeeThrough,
   generateFullBodyPortrait,
   getSiteFace,
+  uploadFullBodyPortrait,
 } from '../api'
 import { commitRigPsdAsset, preflightRigPsdAsset } from '../assets/pipeline'
 import RigCharacter from '../character/RigCharacter'
@@ -21,7 +22,7 @@ interface Props {
   seeThroughTokenConfigured: boolean
 }
 
-type Operation = 'generate' | 'decompose' | 'save'
+type Operation = 'generate' | 'upload' | 'decompose' | 'save'
 
 /**
  * The worn outfit's optional full figure: drawn from its bust portrait, split
@@ -37,6 +38,7 @@ export function FullBodyPanel({ outfitKey, seeThroughTokenConfigured }: Props) {
   const [preflight, setPreflight] = useState<RigAssetPreflight | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const uploadRef = useRef<HTMLInputElement>(null)
 
   const reload = useCallback(async () => {
     setFace(await getSiteFace('fullBody'))
@@ -113,6 +115,17 @@ export function FullBodyPanel({ outfitKey, seeThroughTokenConfigured }: Props) {
         await reload()
       },
       copy.failed,
+    )
+
+  const upload = (file: File) =>
+    run(
+      'upload',
+      async () => {
+        await uploadFullBodyPortrait(file)
+        setPreflight(null)
+        await reload()
+      },
+      labels.portraitUploadFailed,
     )
 
   const decompose = () =>
@@ -198,6 +211,16 @@ export function FullBodyPanel({ outfitKey, seeThroughTokenConfigured }: Props) {
               ? copy.regenerate
               : copy.generate}
         </SettingsButton>
+        <SettingsButton
+          type="button"
+          size="sm"
+          disabled={operation !== null}
+          loading={operation === 'upload'}
+          confirm={portrait ? copy.generateConfirm : undefined}
+          onClick={() => uploadRef.current?.click()}
+        >
+          {operation === 'upload' ? copy.uploading : copy.upload}
+        </SettingsButton>
         {portrait ? (
           <SettingsButton
             type="button"
@@ -221,6 +244,17 @@ export function FullBodyPanel({ outfitKey, seeThroughTokenConfigured }: Props) {
           </SettingsButton>
         ) : null}
       </div>
+      <input
+        ref={uploadRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        hidden
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0]
+          event.currentTarget.value = ''
+          if (file) void upload(file)
+        }}
+      />
       {portrait && !seeThroughTokenConfigured ? (
         <p className="merope-motion-rig__hint">{copy.needsToken}</p>
       ) : null}

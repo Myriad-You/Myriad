@@ -1,6 +1,10 @@
 //! 全身立绘：照穿着这套衣服的半身立绘画出从头到脚的站姿，存进这套衣服的全身槽。
 
-use axum::{Extension, Json, extract::State, http::StatusCode};
+use axum::{
+    Extension, Json,
+    extract::{Multipart, State},
+    http::StatusCode,
+};
 use myriad_merope::{
     CharacterAssetProfile, build_full_body_asset_contract, build_full_body_portrait_prompt,
     character_asset_contract_fingerprint,
@@ -14,6 +18,7 @@ use super::{
     ApiResult, bad_request, internal_error,
     master::{MasterProvenance, master_from_persona},
     not_found, portrait_generation_config_error, portrait_generation_provider_error,
+    portrait_upload::{persist_uploaded_portrait, read_portrait_upload},
     require_merope_enabled, require_owner,
 };
 use crate::{
@@ -102,7 +107,8 @@ pub async fn generate_full_body_portrait(
     )
     .await
     .map_err(|error| bad_request(&error.to_string()))?;
-    let stored = store_full_body_portrait(&db, user_id, &bust, &persisted.url, &fingerprint).await;
+    let stored =
+        store_full_body_portrait(&db, user_id, &bust, &persisted.url, Some(&fingerprint)).await;
     let public_url = match stored {
         Ok(public_url) => public_url,
         Err(error) => {
@@ -121,14 +127,38 @@ pub async fn generate_full_body_portrait(
     })))
 }
 
-/// Binds the drawn figure to the worn outfit, if that outfit still wears the
-/// bust it was drawn from. The figure's old rig no longer matches it.
+/// The owner's own full figure for the worn outfit. Like an uploaded bust it
+/// has no generation fingerprint; it stays tied to the bust it was put beside.
+pub async fn upload_full_body_portrait(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    multipart: Multipart,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    let user_id = require_owner(&claims, &db).await?;
+    let reference = read_portrait_upload(multipart).await?;
+    let persona = merope::get_persona(&db).await.map_err(internal_error)?;
+    let bust = persona
+        .as_ref()
+        .and_then(master_from_persona)
+        .ok_or_else(|| not_found("The worn outfit has no portrait to put a full figure beside"))?;
+    let url = persist_uploaded_portrait(&db, user_id, reference).await?;
+    let public_url = store_full_body_portrait(&db, user_id, &bust, &url, None).await?;
+    Ok(Json(json!({
+        "portraitUrl": public_url,
+        "generationFingerprint": Value::Null,
+        "characterAssetContractVersion": CharacterAssetProfile::FullBody.contract().contract_version,
+    })))
+}
+
+/// Binds the full figure to the worn outfit, if that outfit still wears the
+/// bust it belongs with. The figure's old rig no longer matches it.
 async fn store_full_body_portrait(
     db: &DatabaseConnection,
     user_id: i32,
     bust: &MasterProvenance,
     url: &str,
-    fingerprint: &str,
+    fingerprint: Option<&str>,
 ) -> ApiResult<String> {
     let transaction = db.begin().await.map_err(internal_error)?;
     let written = async {
