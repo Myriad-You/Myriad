@@ -32,7 +32,9 @@ The migrator has no 007+ files. Before SeaORM validates history, any
 
 **Support floor:** upgrades start from 0.6.1 or later. An older instance
 upgrades to 0.6.1 first, then to the current release; the renames and heals
-for anything older are gone.
+for anything older are gone. `Migrator::up` refuses an existing database
+without the 0.6.1 schema mark (`SUPPORT_FLOOR_SCHEMA_MARK`) instead of
+starting on a shape nothing heals.
 
 Whole tables are created by Migrator (001–006) — the numbered series is the
 **complete greenfield source of truth**. Runtime `schema_check` heals missing

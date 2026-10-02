@@ -41,12 +41,36 @@ CREATE TRIGGER federation_room_membership_notify
 
 pub const SOURCE_RECENT_INDEX_SQL: &str = "CREATE INDEX IF NOT EXISTS idx_phantasi_items_source_recent ON phantasi_items (source_id, published_at DESC NULLS LAST, id DESC)";
 
+/// The schema mark 0.6.1 writes once its startup heals have all run
+/// (`schema_check::SCHEMA_VERSION` at that release). Marks are dated, so
+/// they compare as text.
+pub const SUPPORT_FLOOR_SCHEMA_MARK: &str = "2026.09.29.1";
+
+/// An existing database must have finished a 0.6.1 (or later) startup:
+/// the renames and heals for anything older are gone, and skipping them
+/// would fail later, less clearly, or not at all. A new database passes.
+const REFUSE_BELOW_SUPPORT_FLOOR_SQL: &str = r#"
+DO $$
+BEGIN
+    IF to_regclass('seaql_migrations') IS NULL
+       OR NOT EXISTS (SELECT 1 FROM seaql_migrations) THEN
+        RETURN;
+    END IF;
+    IF to_regclass('_schema_versions') IS NULL THEN
+        RAISE EXCEPTION 'this database predates Myriad 0.6.1: upgrade to 0.6.1 first, start it once, then upgrade to this release';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM _schema_versions WHERE version >= '@FLOOR@') THEN
+        RAISE EXCEPTION 'this database predates Myriad 0.6.1: upgrade to 0.6.1 first, start it once, then upgrade to this release';
+    END IF;
+END $$;
+"#;
+
 pub struct Migrator;
 
 impl Migrator {
-    /// Keep only versions that still have files in `seaql_migrations`, then
-    /// apply 001–006. Upgrades start from 0.6.1 or later (the support floor),
-    /// so no table renames run first.
+    /// Refuse a database older than the support floor (0.6.1), keep only
+    /// versions that still have files in `seaql_migrations`, then apply
+    /// 001–006.
     ///
     /// SeaORM rejects applied versions that have no file *before* any `up()`
     /// body runs, so this wrapper is the only `Migrator::up` call path.
@@ -55,6 +79,11 @@ impl Migrator {
         C: IntoSchemaManagerConnection<'c>,
     {
         let executor = db.into_database_executor();
+        executor
+            .execute_unprepared(
+                &REFUSE_BELOW_SUPPORT_FLOOR_SQL.replace("@FLOOR@", SUPPORT_FLOOR_SCHEMA_MARK),
+            )
+            .await?;
         discard_unknown_migration_history(&executor).await?;
         <Self as MigratorTrait>::up(executor, steps).await
     }
@@ -167,5 +196,13 @@ mod tests {
             assert!(sql.contains(&format!("${index}")));
         }
         assert!(!sql.contains(&format!("${}", keep.len() + 1)));
+    }
+
+    #[test]
+    fn the_floor_mark_is_a_dated_schema_mark() {
+        let parts: Vec<&str> = SUPPORT_FLOOR_SCHEMA_MARK.split('.').collect();
+        assert_eq!(parts.len(), 4, "YYYY.MM.DD.N compares as text");
+        assert!(REFUSE_BELOW_SUPPORT_FLOOR_SQL.contains("@FLOOR@"));
+        assert!(REFUSE_BELOW_SUPPORT_FLOOR_SQL.contains("upgrade to 0.6.1 first"));
     }
 }
