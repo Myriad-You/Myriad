@@ -863,24 +863,24 @@ impl Agent {
         let mut streamed = None;
         if let Some(HerVoice { omni, out, heard }) = &voice {
             let mut unsaid = crate::services::omni_voice::Unsaid::default();
+            let aloud = crate::services::omni_voice::said_aloud(prompt);
             let spoken = crate::services::omni_voice::speak(
                 omni,
-                prompt,
+                &aloud,
                 images_of(request),
                 heard.as_deref(),
                 |piece| {
                     let text = match piece {
-                        crate::services::omni_voice::OmniDelta::Text(text) => Some(text),
+                        crate::services::omni_voice::OmniDelta::Text(text) => {
+                            unsaid.written(&text);
+                            Some(text)
+                        }
                         crate::services::omni_voice::OmniDelta::Audio(sound) => {
                             // Heard is said: no going back to the words alone.
                             said_anything.store(true, std::sync::atomic::Ordering::Relaxed);
                             if unsaid.lets_through() {
                                 out.send(&sound);
                             }
-                            None
-                        }
-                        crate::services::omni_voice::OmniDelta::Spoken(spoken) => {
-                            unsaid.heard_as(&spoken);
                             None
                         }
                     };

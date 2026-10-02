@@ -148,33 +148,67 @@ pub enum OmniDelta {
     /// A piece of how it sounds: base64 of 16-bit mono PCM at
     /// [`SAMPLE_RATE`].
     Audio(String),
-    /// What the sound so far says, where the stream tells it
-    /// (`delta.audio.transcript`).
-    Spoken(String),
 }
 
-/// Her actions (`[[wear:…]]`, `[[game:soup]]` and the like) are lines of
-/// her text, not things she says; but the sound follows the text. Where the
-/// stream tells what its sound says, the sound stops at the first `[[`,
-/// which only ever begins her last line. Without that, nothing is held back.
+/// What is in her text but must never be heard: a link (it cannot be said
+/// aloud) and her actions (`[[wear:…]]`, `[[game:soup]]` and the like).
+/// The sound follows the text and never comes before it, so once the text
+/// reaches either, no more of the sound goes out this turn; the end of what
+/// she said just before may be cut, a link is never read. She is told to
+/// keep both to her last line (see [`SAID_ALOUD`]).
 #[derive(Default)]
 pub struct Unsaid {
-    spoken: String,
+    written: String,
     holding: bool,
 }
 
 impl Unsaid {
-    pub fn heard_as(&mut self, transcript: &str) {
+    /// More of her text, as it came.
+    pub fn written(&mut self, text: &str) {
         if self.holding {
             return;
         }
-        self.spoken.push_str(transcript);
-        self.holding = self.spoken.contains("[[");
+        self.written.push_str(text);
+        self.holding = unsayable(&self.written);
     }
 
-    /// Whether the sound now arriving is still something she says.
+    /// Whether the sound now arriving may still go out.
     pub fn lets_through(&self) -> bool {
         !self.holding
+    }
+}
+
+/// Domain endings a bare link is read by, after a dot.
+const LINK_ENDINGS: [&str; 14] = [
+    "com", "net", "org", "cn", "io", "me", "dev", "app", "top", "xyz", "jp", "co", "tv", "site",
+];
+
+/// Whether `text` has begun a link or an action.
+fn unsayable(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("[[") || lower.contains("://") || lower.contains("www.") {
+        return true;
+    }
+    // A bare domain: letters before a dot and a known ending after it.
+    lower.match_indices('.').any(|(at, _)| {
+        let before = lower[..at].chars().next_back();
+        let after: String = lower[at + 1..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect();
+        before.is_some_and(|c| c.is_ascii_alphanumeric()) && LINK_ENDINGS.contains(&after.as_str())
+    })
+}
+
+/// Told to her on a turn said in her own voice, beside the rest.
+pub const SAID_ALOUD: &str = "## Said aloud\nThis reply is heard in your own voice as you write it. A link cannot be said aloud: any link goes alone on your last line, after all you say, and nothing after it is heard. Lines of [[...]] go last too.";
+
+/// `prompt` for a turn said in her own voice: [`SAID_ALOUD`] beside her
+/// other facts, before the conversation.
+pub fn said_aloud(prompt: &str) -> String {
+    match prompt.find("\nConversation:\n") {
+        Some(at) => format!("{}\n\n{SAID_ALOUD}\n{}", &prompt[..at], &prompt[at..]),
+        None => format!("{prompt}\n\n{SAID_ALOUD}"),
     }
 }
 
@@ -296,13 +330,6 @@ fn deltas(event: &Value) -> Vec<OmniDelta> {
         && !text.is_empty()
     {
         out.push(OmniDelta::Text(text.to_string()));
-    }
-    // What the sound says comes before the sound, so what it says can hold
-    // it back.
-    if let Some(spoken) = delta.pointer("/audio/transcript").and_then(Value::as_str)
-        && !spoken.is_empty()
-    {
-        out.push(OmniDelta::Spoken(spoken.to_string()));
     }
     if let Some(data) = delta.pointer("/audio/data").and_then(Value::as_str)
         && !data.is_empty()
@@ -572,7 +599,6 @@ mod tests {
             seen.push(match delta {
                 OmniDelta::Text(text) => format!("text:{text}"),
                 OmniDelta::Audio(sound) => format!("audio:{sound}"),
-                OmniDelta::Spoken(spoken) => format!("spoken:{spoken}"),
             });
             async { true }
         })
@@ -594,21 +620,36 @@ mod tests {
     }
 
     #[test]
-    fn her_actions_are_not_said_aloud_where_the_stream_tells_what_it_says() {
+    fn a_link_or_an_action_is_never_heard() {
         let mut unsaid = Unsaid::default();
-        assert!(unsaid.lets_through(), "nothing known: nothing held");
-        unsaid.heard_as("好呀，换给你看。");
+        unsaid.written("好呀，我把地址发给你了。\n");
         assert!(unsaid.lets_through());
-        unsaid.heard_as("\n[");
-        assert!(unsaid.lets_through(), "one bracket is not an action yet");
-        unsaid.heard_as("[wear:japanese]]");
+        unsaid.written("https:/");
+        assert!(unsaid.lets_through(), "not a link yet");
+        unsaid.written("/example.com/a");
         assert!(!unsaid.lets_through());
-        unsaid.heard_as("还有");
-        assert!(!unsaid.lets_through(), "held to the end");
-        let event = json!({"choices":[{"delta":{"audio":{"transcript":"你好","data":"AAEC"}}}]});
-        let pieces = deltas(&event);
-        assert!(matches!(&pieces[0], OmniDelta::Spoken(spoken) if spoken == "你好"));
-        assert!(matches!(&pieces[1], OmniDelta::Audio(_)));
+        unsaid.written("\n还有");
+        assert!(!unsaid.lets_through(), "held to the end of the turn");
+        for text in [
+            "看 www.bilibili.com",
+            "去 github.com/x 看",
+            "换给你看。\n[[wear:japanese]]",
+            "Example.COM",
+        ] {
+            let mut unsaid = Unsaid::default();
+            unsaid.written(text);
+            assert!(!unsaid.lets_through(), "{text}");
+        }
+        for text in ["今天 3.5 度，冷。", "版本 v2.0 出了", "好…吧", "一点点[笑]"]
+        {
+            let mut unsaid = Unsaid::default();
+            unsaid.written(text);
+            assert!(unsaid.lets_through(), "{text}");
+        }
+        assert!(SAID_ALOUD.contains("cannot be said aloud"));
+        let prompt = said_aloud("## Now\nIt is 3pm.\nConversation:\nthem: hi");
+        assert!(prompt.starts_with("## Now\nIt is 3pm.\n\n## Said aloud"));
+        assert!(prompt.ends_with("\nConversation:\nthem: hi"));
     }
 
     #[test]
