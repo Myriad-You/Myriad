@@ -289,7 +289,7 @@ impl TencentSpeechService {
     pub async fn new() -> Result<Self, TencentSpeechError> {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
 
-        let source = config.find_vendor_source(&config.speech_source);
+        let source = config.find_vendor_source(&config.speech_source_slug());
         let tencent = source.as_ref().filter(|item| item.kind == "tencent");
         let secret_id = tencent
             .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_id.as_ref()))

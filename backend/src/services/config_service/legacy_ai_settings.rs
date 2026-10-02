@@ -1,8 +1,10 @@
-//! One-way upgrade from the old text-model settings. Each tier used to
-//! carry a provider, two model names (Gemini and OpenAI-compatible), its own
-//! key and endpoint, and Lite an on/off switch; the judgment and embedding
-//! models were named after Lite. Now a tier is a source and one model, and
-//! keys live in the shared vault.
+//! One-way upgrade from the old AI settings. Each text tier used to carry a
+//! provider, two model names (Gemini and OpenAI-compatible), its own key and
+//! endpoint, and Lite an on/off switch; the judgment and embedding models
+//! were named after Lite. Images and speech each had a provider beside their
+//! source, and keys and endpoints of their own. Now a tier, images and
+//! speech are each a source (plus their models), and keys live in the
+//! shared vault.
 //!
 //! Runs on stored settings at startup, before defaults are seeded
 //! (`db::schema_check`), and on a settings backup being restored
@@ -13,8 +15,8 @@ use std::collections::HashMap;
 
 use serde_json::{Value as JsonValue, json};
 
-/// Every old key. None of them is stored after the upgrade.
-pub(crate) const LEGACY_KEYS: &[&str] = &[
+/// The text tiers' old keys.
+const TIER_KEYS: &[&str] = &[
     "ai_provider",
     "gemini_api_key",
     "gemini_model",
@@ -38,7 +40,33 @@ pub(crate) const LEGACY_KEYS: &[&str] = &[
     "pro_openai_base_url",
 ];
 
+/// Images' and speech's old keys.
+const SERVICE_KEYS: &[&str] = &[
+    "ai_image_provider",
+    "ai_image_openai_api_key",
+    "ai_image_openai_base_url",
+    "ai_image_openrouter_api_key",
+    "ai_image_volcengine_api_key",
+    "ai_image_volcengine_base_url",
+    "speech_provider",
+    "speech_reuse_text_credentials",
+    "speech_openai_api_key",
+    "speech_openai_base_url",
+    "speech_openrouter_api_key",
+];
+
+/// Every old key. None of them is stored after the upgrade.
+pub(crate) fn legacy_keys() -> impl Iterator<Item = &'static str> {
+    TIER_KEYS.iter().chain(SERVICE_KEYS).copied()
+}
+
+pub(crate) fn is_legacy_key(key: &str) -> bool {
+    legacy_keys().any(|old| old == key)
+}
+
 const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
+const OPENAI_BASE: &str = "https://api.openai.com/v1";
+const VOLCENGINE_BASE: &str = "https://ark.cn-beijing.volces.com/api/v3";
 
 /// A tier's key prefix and its old factory model names (Gemini, OpenAI).
 const TIERS: [(&str, &str, &str); 3] = [
@@ -55,30 +83,57 @@ fn is_openrouter(url: &str) -> bool {
     url.to_ascii_lowercase().contains("openrouter.ai")
 }
 
+/// A shared OpenAI endpoint has to be there and not OpenRouter's.
+fn usable_openai_base(url: &str) -> bool {
+    !url.trim().is_empty() && !is_openrouter(url)
+}
+
+/// Read as the old parser did: the stored string, else the old default.
+fn text(stored: &HashMap<String, JsonValue>, key: &str, default: &str) -> String {
+    stored
+        .get(key)
+        .and_then(JsonValue::as_str)
+        .unwrap_or(default)
+        .to_string()
+}
+
+/// The stored string, trimmed, when there is one.
+fn filled(stored: &HashMap<String, JsonValue>, key: &str) -> Option<String> {
+    stored
+        .get(key)
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn blank(stored: &HashMap<String, JsonValue>, key: &str) -> bool {
+    stored
+        .get(key)
+        .and_then(JsonValue::as_str)
+        .is_none_or(|value| value.trim().is_empty())
+}
+
 /// What the old settings in `stored` come to in the new keys. Values a
 /// key already holds in `stored` are kept, except a blank source. Empty
-/// when nothing old is there. The caller removes [`LEGACY_KEYS`].
+/// when nothing old is there. The caller removes [`legacy_keys`].
 pub(crate) fn upgrade(stored: &HashMap<String, JsonValue>) -> HashMap<String, JsonValue> {
     let mut out = HashMap::new();
-    if !LEGACY_KEYS.iter().any(|key| stored.contains_key(*key)) {
-        return out;
+    if TIER_KEYS.iter().any(|key| stored.contains_key(*key)) {
+        upgrade_tiers(stored, &mut out);
     }
-    // Read as the old parser did: a stored string, else the old default.
-    let text = |key: &str, default: &str| {
-        stored
-            .get(key)
-            .and_then(JsonValue::as_str)
-            .unwrap_or(default)
-            .to_string()
-    };
-    let secret = |key: &str| {
-        stored
-            .get(key)
-            .and_then(JsonValue::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-    };
+    if SERVICE_KEYS.iter().any(|key| stored.contains_key(*key)) {
+        // After the tiers: a vault key they filled is already there.
+        let mut seen = stored.clone();
+        seen.extend(out.clone());
+        upgrade_services(&seen, &mut out);
+    }
+    out
+}
+
+fn upgrade_tiers(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, JsonValue>) {
+    let text = |key: &str, default: &str| text(stored, key, default);
+    let filled = |key: &str| filled(stored, key);
     let fill = |out: &mut HashMap<String, JsonValue>, key: String, value: JsonValue| {
         if !stored.contains_key(&key) {
             out.insert(key, value);
@@ -105,16 +160,12 @@ pub(crate) fn upgrade(stored: &HashMap<String, JsonValue>) -> HashMap<String, Js
         if prefix == "lite_" && !lite_switched_on {
             model.clear();
         }
-        fill(&mut out, format!("{prefix}ai_model"), json!(model.trim()));
+        fill(out, format!("{prefix}ai_model"), json!(model.trim()));
 
         // A blank source was inferred from the provider and the endpoint
         // (the tier's own, else Standard's); now it is written down.
         let source_key = format!("{prefix}ai_source");
-        let blank_source = stored
-            .get(&source_key)
-            .and_then(JsonValue::as_str)
-            .is_none_or(|slug| slug.trim().is_empty());
-        if blank_source {
+        if blank(stored, &source_key) {
             let own_base = text(&format!("{prefix}openai_base_url"), OPENROUTER_BASE);
             let base = if own_base.trim().is_empty() {
                 &standard_base
@@ -139,12 +190,12 @@ pub(crate) fn upgrade(stored: &HashMap<String, JsonValue>) -> HashMap<String, Js
         .map(|prefix| {
             (
                 is_openrouter(&text(&format!("{prefix}openai_base_url"), OPENROUTER_BASE)),
-                secret(&format!("{prefix}openai_api_key")),
+                filled(&format!("{prefix}openai_api_key")),
             )
         })
         .collect();
     let mut fold_key = |vault: &str, before: &[&str], legacy: Option<String>| {
-        let unset = |key: &&str| secret(key).is_none();
+        let unset = |key: &&str| filled(key).is_none();
         if unset(&vault)
             && before.iter().all(unset)
             && let Some(key) = legacy
@@ -177,18 +228,14 @@ pub(crate) fn upgrade(stored: &HashMap<String, JsonValue>) -> HashMap<String, Js
             "pro_gemini_api_key",
         ]
         .into_iter()
-        .find_map(secret),
+        .find_map(filled),
     );
     // Standard's endpoint was the last fallback of the shared OpenAI one.
-    let usable = |url: &str| !url.trim().is_empty() && !is_openrouter(url);
-    let shared_base_set = [
-        "provider_openai_base_url",
-        "speech_openai_base_url",
-        "ai_image_openai_base_url",
-    ]
-    .into_iter()
-    .any(|key| usable(&text(key, "")));
-    if !shared_base_set && usable(&standard_base) {
+    let shared_base_set = usable_openai_base(&text("provider_openai_base_url", OPENAI_BASE))
+        || ["speech_openai_base_url", "ai_image_openai_base_url"]
+            .into_iter()
+            .any(|key| usable_openai_base(&text(key, OPENAI_BASE)));
+    if !shared_base_set && usable_openai_base(&standard_base) {
         out.insert(
             "provider_openai_base_url".to_string(),
             json!(standard_base.trim()),
@@ -201,10 +248,63 @@ pub(crate) fn upgrade(stored: &HashMap<String, JsonValue>) -> HashMap<String, Js
         ("lite_embedding_model", "aux_embedding_model"),
     ] {
         if stored.contains_key(old) {
-            fill(&mut out, new.to_string(), json!(text(old, "").trim()));
+            fill(out, new.to_string(), json!(text(old, "").trim()));
         }
     }
-    out
+}
+
+fn upgrade_services(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, JsonValue>) {
+    // A blank source went by the provider, a built-in slug's name.
+    for (source_key, provider_key, factory) in [
+        ("ai_image_source", "ai_image_provider", "openrouter"),
+        ("speech_source", "speech_provider", "tencent"),
+    ] {
+        if stored.contains_key(provider_key) && blank(stored, source_key) {
+            let provider = text(stored, provider_key, factory);
+            let slug = match provider.trim() {
+                "" => factory,
+                slug => slug,
+            };
+            out.insert(source_key.to_string(), json!(slug));
+        }
+    }
+
+    // Their keys came after the vault's: they counted only when it was empty.
+    for (vault, own) in [
+        (
+            "provider_openrouter_api_key",
+            &["speech_openrouter_api_key", "ai_image_openrouter_api_key"][..],
+        ),
+        (
+            "provider_openai_api_key",
+            &["speech_openai_api_key", "ai_image_openai_api_key"][..],
+        ),
+        (
+            "provider_volcengine_api_key",
+            &["ai_image_volcengine_api_key"][..],
+        ),
+    ] {
+        if filled(stored, vault).is_none()
+            && let Some(key) = own.iter().find_map(|key| filled(stored, key))
+        {
+            out.insert(vault.to_string(), json!(key));
+        }
+    }
+    // And their endpoints after the vault's.
+    if !usable_openai_base(&text(stored, "provider_openai_base_url", OPENAI_BASE))
+        && let Some(base) = ["speech_openai_base_url", "ai_image_openai_base_url"]
+            .into_iter()
+            .map(|key| text(stored, key, OPENAI_BASE))
+            .find(|base| usable_openai_base(base))
+    {
+        out.insert("provider_openai_base_url".to_string(), json!(base.trim()));
+    }
+    let vault_volcengine = text(stored, "provider_volcengine_base_url", VOLCENGINE_BASE);
+    if vault_volcengine.trim().is_empty()
+        && let Some(base) = filled(stored, "ai_image_volcengine_base_url")
+    {
+        out.insert("provider_volcengine_base_url".to_string(), json!(base));
+    }
 }
 
 #[cfg(test)]
@@ -221,6 +321,13 @@ mod tests {
     #[test]
     fn nothing_old_nothing_to_do() {
         assert!(upgrade(&stored(&[("ai_model", json!("m"))])).is_empty());
+        // Only service keys left: the tiers' choices are not touched.
+        let out = upgrade(&stored(&[
+            ("lite_ai_source", json!("")),
+            ("speech_provider", json!("tencent")),
+            ("speech_source", json!("tencent")),
+        ]));
+        assert!(out.is_empty(), "{out:?}");
     }
 
     #[test]
@@ -302,14 +409,76 @@ mod tests {
             ("speech_openai_api_key", json!("sk-speech")),
         ]));
         assert!(!kept.contains_key("provider_openrouter_api_key"));
-        assert!(!kept.contains_key("provider_openai_api_key"));
+        // The speech key was the one in use, so it is the one kept.
+        assert_eq!(kept["provider_openai_api_key"], json!("sk-speech"));
+    }
+
+    #[test]
+    fn images_and_speech_become_their_source_and_their_keys_the_vaults() {
+        let out = upgrade(&stored(&[
+            ("ai_image_provider", json!("volcengine")),
+            ("ai_image_source", json!("")),
+            ("ai_image_volcengine_api_key", json!("volc-key")),
+            (
+                "ai_image_volcengine_base_url",
+                json!("https://ark.example/v3"),
+            ),
+            ("provider_volcengine_base_url", json!("")),
+            ("speech_provider", json!("openai")),
+            ("speech_source", json!("")),
+            ("speech_openai_api_key", json!("sk-speech")),
+            ("ai_image_openai_api_key", json!("sk-image")),
+            ("speech_openai_base_url", json!("https://speech.example/v1")),
+            (
+                "provider_openai_base_url",
+                json!("https://openrouter.ai/api/v1"),
+            ),
+            ("speech_reuse_text_credentials", json!(true)),
+        ]));
+        assert_eq!(out["ai_image_source"], json!("volcengine"));
+        assert_eq!(out["speech_source"], json!("openai"));
+        assert_eq!(out["provider_volcengine_api_key"], json!("volc-key"));
+        assert_eq!(
+            out["provider_volcengine_base_url"],
+            json!("https://ark.example/v3")
+        );
+        assert_eq!(out["provider_openai_api_key"], json!("sk-speech"));
+        assert_eq!(
+            out["provider_openai_base_url"],
+            json!("https://speech.example/v1")
+        );
+        assert!(is_legacy_key("speech_reuse_text_credentials"));
+
+        // A chosen source and a vault already set stay as they are.
+        let kept = upgrade(&stored(&[
+            ("speech_provider", json!("openai")),
+            ("speech_source", json!("work-openai")),
+            ("speech_openai_api_key", json!("sk-speech")),
+            ("provider_openai_api_key", json!("sk-vault")),
+        ]));
+        assert!(kept.is_empty(), "{kept:?}");
+    }
+
+    #[test]
+    fn a_vault_key_the_tiers_filled_is_not_filled_again() {
+        let out = upgrade(&stored(&[
+            ("openai_base_url", json!("https://openrouter.ai/api/v1")),
+            ("openai_api_key", json!("sk-or-standard")),
+            ("ai_image_provider", json!("openrouter")),
+        ]));
+        assert_eq!(out["provider_openrouter_api_key"], json!("sk-or-standard"));
+        assert_eq!(out["ai_image_source"], json!("openrouter"));
     }
 
     #[test]
     fn standards_endpoint_becomes_the_shared_one_when_nothing_else_was() {
+        // The speech and image endpoints came first and were the official
+        // one unless cleared.
         let out = upgrade(&stored(&[
             ("openai_base_url", json!("https://llm.example.com/v1")),
             ("provider_openai_base_url", json!("")),
+            ("speech_openai_base_url", json!("")),
+            ("ai_image_openai_base_url", json!("")),
         ]));
         assert_eq!(
             out["provider_openai_base_url"],
@@ -323,6 +492,11 @@ mod tests {
             ),
         ]));
         assert!(!kept.contains_key("provider_openai_base_url"));
+        let behind_speech = upgrade(&stored(&[
+            ("openai_base_url", json!("https://llm.example.com/v1")),
+            ("provider_openai_base_url", json!("")),
+        ]));
+        assert!(!behind_speech.contains_key("provider_openai_base_url"));
     }
 
     #[test]

@@ -564,21 +564,6 @@ pub(crate) async fn build_config(
                 },
                 // AI 图片生成配置
                 ConfigField {
-                    key: "ai_image_provider".to_string(),
-                    label: "Image Provider".to_string(),
-                    field_type: "select".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ai_image_provider.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("AI_IMAGE_PROVIDER")
-                                .unwrap_or_else(|_| "openrouter".to_string())
-                        }),
-                    placeholder: "openai (compatible), openrouter, or volcengine"
-                        .to_string(),
-                    required: false,
-                },
-                ConfigField {
                     key: "ai_image_model".to_string(),
                     label: "Model Name".to_string(),
                     field_type: "text".to_string(),
@@ -592,75 +577,7 @@ pub(crate) async fn build_config(
                     placeholder: "openai/gpt-image-2.5-sunburst".to_string(),
                     required: false,
                 },
-                ConfigField {
-                    key: "ai_image_openai_api_key".to_string(),
-                    label: "OpenAI API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.ai_image_openai_api_key.clone()),
-                        "AI_IMAGE_OPENAI_API_KEY",
-                    )),
-                    placeholder: "Falls back to the standard OpenAI key when empty".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "ai_image_openai_base_url".to_string(),
-                    label: "OpenAI Base URL".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ai_image_openai_base_url.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("AI_IMAGE_OPENAI_BASE_URL")
-                                .unwrap_or_else(|_| "https://api.openai.com/v1".to_string())
-                        }),
-                    placeholder: "https://api.openai.com/v1".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "ai_image_openrouter_api_key".to_string(),
-                    label: "OpenAI API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.ai_image_openrouter_api_key.clone()),
-                        "AI_IMAGE_OPENROUTER_API_KEY",
-                    )),
-                    placeholder: "Falls back to the standard OpenRouter key when compatible".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "ai_image_volcengine_api_key".to_string(),
-                    label: "Volcengine Ark API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.ai_image_volcengine_api_key.clone()),
-                        "AI_IMAGE_VOLCENGINE_API_KEY",
-                    )),
-                    placeholder: "Ark API key".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "ai_image_volcengine_base_url".to_string(),
-                    label: "Volcengine Ark Base URL".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.ai_image_volcengine_base_url.clone())
-                        .unwrap_or_else(|| {
-                            std::env::var("AI_IMAGE_VOLCENGINE_BASE_URL").unwrap_or_else(|_| {
-                                "https://ark.cn-beijing.volces.com/api/v3".to_string()
-                            })
-                        }),
-                    placeholder: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
-                    required: false,
-                },
-                // tencent_* 凭据；其后 speech_* 为多供应商 TTS/ASR
+                // 腾讯云凭据；其后是语音的模型和音色（源是 speech_source）
                 ConfigField {
                     key: "tencent_secret_id".to_string(),
                     label: "Tencent Cloud Secret ID".to_string(),
@@ -697,18 +614,6 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
-                    key: "speech_provider".to_string(),
-                    label: "Speech Provider".to_string(),
-                    field_type: "select".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.speech_provider.clone())
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| "tencent".to_string()),
-                    placeholder: "tencent".to_string(),
-                    required: false,
-                },
-                ConfigField {
                     key: "speech_stt_model".to_string(),
                     label: "Speech-to-text model".to_string(),
                     field_type: "text".to_string(),
@@ -739,44 +644,6 @@ pub(crate) async fn build_config(
                         .map(|c| c.speech_tts_voice.clone())
                         .unwrap_or_default(),
                     placeholder: "marin".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "speech_openai_api_key".to_string(),
-                    label: "OpenAI API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.speech_openai_api_key.clone()),
-                        "SPEECH_OPENAI_API_KEY",
-                    )),
-                    placeholder: "sk-...".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "speech_openai_base_url".to_string(),
-                    label: "OpenAI Base URL".to_string(),
-                    field_type: "text".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.speech_openai_base_url.clone())
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
-                    placeholder: "https://api.openai.com/v1".to_string(),
-                    required: false,
-                },
-                ConfigField {
-                    key: "speech_openrouter_api_key".to_string(),
-                    label: "OpenRouter API Key".to_string(),
-                    field_type: "password".to_string(),
-                    value: mask_sensitive(get_value(
-                        db_config
-                            .as_ref()
-                            .and_then(|c| c.speech_openrouter_api_key.clone()),
-                        "SPEECH_OPENROUTER_API_KEY",
-                    )),
-                    placeholder: "sk-or-v1-...".to_string(),
                     required: false,
                 },
                 ConfigField {
@@ -911,7 +778,7 @@ pub(crate) async fn build_config(
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.ai_image_source.clone())
+                        .map(|c| c.image_source())
                         .unwrap_or_default(),
                     placeholder: "".to_string(),
                     required: false,
@@ -922,7 +789,7 @@ pub(crate) async fn build_config(
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.speech_source.clone())
+                        .map(|c| c.speech_source_slug())
                         .unwrap_or_default(),
                     placeholder: "".to_string(),
                     required: false,

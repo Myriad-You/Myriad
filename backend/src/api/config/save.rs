@@ -455,45 +455,11 @@ pub(crate) fn collect_database_updates_with_vendor(
             ),
             "aux_ai_source" => ("aux_ai_source", JsonValue::String(field.value.clone())),
             // AI 图片生成配置
-            "ai_image_provider" => ("ai_image_provider", JsonValue::String(field.value.clone())),
             "ai_image_model" => ("ai_image_model", JsonValue::String(field.value.clone())),
-            "ai_image_openai_api_key" => (
-                "ai_image_openai_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "ai_image_openai_base_url" => (
-                "ai_image_openai_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            "ai_image_openrouter_api_key" => (
-                "ai_image_openrouter_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "ai_image_volcengine_api_key" => (
-                "ai_image_volcengine_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "ai_image_volcengine_base_url" => (
-                "ai_image_volcengine_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
             // 腾讯云语音服务配置 (TTS/ASR)
             "tencent_secret_id" => ("tencent_secret_id", JsonValue::String(field.value.clone())),
             "tencent_secret_key" => ("tencent_secret_key", JsonValue::String(field.value.clone())),
             "tencent_region" => ("tencent_region", JsonValue::String(field.value.clone())),
-            "speech_provider" => ("speech_provider", JsonValue::String(field.value.clone())),
-            "speech_openai_api_key" => (
-                "speech_openai_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "speech_openai_base_url" => (
-                "speech_openai_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            "speech_openrouter_api_key" => (
-                "speech_openrouter_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
             "provider_openai_api_key" => (
                 "provider_openai_api_key",
                 JsonValue::String(field.value.clone()),
@@ -606,8 +572,7 @@ pub(crate) fn collect_database_updates_with_vendor(
         // 掩码：保持库里原值。空密钥：写成 null 清除（与平台凭证同一套）。
         let allow_empty = matches!(
             field.key.as_str(),
-            "speech_provider"
-                | "speech_stt_model"
+            "speech_stt_model"
                 | "speech_tts_model"
                 | "speech_tts_voice"
                 | "provider_openai_base_url"

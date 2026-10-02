@@ -11,7 +11,7 @@ const RETIRED_CONFIGURATION_PREFIXES: &[&str] = &["pet_", "github_client_"];
 pub(crate) fn is_retired_configuration_key(key: &str) -> bool {
     RETIRED_CONFIGURATION_KEYS.contains(&key)
         // Old text-model settings: restored in their new keys instead.
-        || crate::services::config_service::legacy_ai_tiers::LEGACY_KEYS.contains(&key)
+        || crate::services::config_service::legacy_ai_settings::is_legacy_key(key)
         || RETIRED_CONFIGURATION_PREFIXES
             .iter()
             .any(|prefix| key.starts_with(prefix))

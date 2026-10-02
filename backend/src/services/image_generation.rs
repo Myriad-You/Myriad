@@ -178,12 +178,14 @@ fn provider_status_is(lower: &str, status: u16) -> bool {
 pub fn config_from_dynamic(
     dynamic: &DynamicConfig,
 ) -> Result<ImageGenerationConfig, ImageGenerationError> {
-    let source = dynamic.find_vendor_source(&dynamic.ai_image_source);
+    // A built-in slug with no source row of its own: that vendor's shared key.
+    let slug = dynamic.image_source();
+    let source = dynamic.find_vendor_source(&slug);
     let provider = source
         .as_ref()
         .map(|item| image_protocol(&item.kind))
         .filter(|item| !item.is_empty())
-        .unwrap_or_else(|| image_protocol(&dynamic.ai_image_provider));
+        .unwrap_or_else(|| image_protocol(&slug));
     if provider.is_empty() {
         return Err(ImageGenerationError::NotConfigured(
             "image provider is not configured".to_string(),
@@ -1853,15 +1855,15 @@ mod tests {
     }
 
     #[test]
-    fn config_from_dynamic_rejects_unknown_provider_and_missing_keys() {
+    fn config_from_dynamic_rejects_unknown_sources_and_missing_keys() {
         let mut config = DynamicConfig::default();
-        config.ai_image_provider = "unknown".to_string();
+        config.ai_image_source = "unknown".to_string();
         assert!(matches!(
             config_from_dynamic(&config),
             Err(ImageGenerationError::UnsupportedProvider(provider)) if provider == "unknown"
         ));
 
-        config.ai_image_provider = "openrouter".to_string();
+        config.ai_image_source = "openrouter".to_string();
         assert!(matches!(
             config_from_dynamic(&config),
             Err(ImageGenerationError::NotConfigured(_))
@@ -1872,7 +1874,7 @@ mod tests {
         assert_eq!(resolved.provider, "openrouter");
         assert_eq!(resolved.base_url, "https://openrouter.ai/api/v1");
 
-        config.ai_image_provider = "gemini".to_string();
+        config.ai_image_source = "gemini".to_string();
         config.ai_image_model = "gemini-3.1-flash-image".to_string();
         config.provider_gemini_api_key = Some("AIza-test".to_string());
         let gemini = config_from_dynamic(&config).unwrap();
@@ -1880,7 +1882,6 @@ mod tests {
         assert_eq!(gemini.model, "gemini-3.1-flash-image");
         assert_eq!(gemini.base_url, "https://generativelanguage.googleapis.com");
 
-        config.ai_image_provider = "openrouter".to_string();
         config.ai_image_source = "work-gemini".to_string();
         config.ai_vendor_sources = vec![crate::config::AiVendorSource {
             slug: "work-gemini".to_string(),

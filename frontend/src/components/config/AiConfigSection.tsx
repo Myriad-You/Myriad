@@ -304,15 +304,21 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     return val === 'true' || val === '1'
   }, [getFieldValue])
 
-  const currentImageProvider = useMemo(
-    () => getFieldValue('ai_image_provider', 'openrouter'),
-    [getFieldValue],
-  )
+  // Images and speech: a source each (the server shows the one in effect);
+  // its kind picks the placeholders and which fields speech shows.
+  const currentImageProvider = useMemo(() => {
+    const slug = getFieldValue('ai_image_source', 'openrouter')
+    const kind = vendorSources.find((item) => item.slug === slug)?.kind || slug
+    return kind === 'volcengine' || kind === 'openrouter' || kind === 'gemini'
+      ? kind
+      : 'openai'
+  }, [getFieldValue, vendorSources])
 
-  const currentSpeechProvider = useMemo(
-    () => getFieldValue('speech_provider', 'tencent'),
-    [getFieldValue],
-  )
+  const currentSpeechProvider = useMemo(() => {
+    const slug = getFieldValue('speech_source', 'tencent')
+    const source = vendorSources.find((item) => item.slug === slug)
+    return speechProviderKindFromSource(source, source?.kind || slug)
+  }, [getFieldValue, vendorSources])
 
   const vendorUsages = useMemo(() => {
     const map: VendorUsageMap = {}
@@ -329,8 +335,8 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     if (getFieldValue('aux_judge_model') || getFieldValue('aux_embedding_model')) {
       add(getFieldValue('aux_ai_source'), 'aux')
     }
-    add(getFieldValue('ai_image_source') || currentImageProvider, 'image')
-    add(getFieldValue('speech_source') || currentSpeechProvider, 'speech')
+    add(getFieldValue('ai_image_source'), 'image')
+    add(getFieldValue('speech_source'), 'speech')
     for (const source of vendorSources) {
       if (source.enabled && vendorSupports(source, 'realtime')) {
         add(source.slug, 'realtime')
@@ -338,8 +344,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     }
     return map
   }, [
-    currentImageProvider,
-    currentSpeechProvider,
     getFieldValue,
     liteEnabled,
     proEnabled,
@@ -375,26 +379,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       t.config.providerOpenRouter,
       t.config.speechProviderTencent,
     ],
-  )
-
-  const handleSpeechProviderChange = useCallback(
-    (slug: string) => {
-      if (!slug) {
-        updateValue('speech_source', '')
-        const hasVendorSpeech = vendorSources.some(
-          (item) => item.enabled && vendorSupports(item, 'speech'),
-        )
-        if (!hasVendorSpeech) updateValue('speech_provider', '')
-        return
-      }
-      updateValue('speech_source', slug)
-      const source = vendorSources.find((item) => item.slug === slug)
-      updateValue(
-        'speech_provider',
-        speechProviderKindFromSource(source, slug),
-      )
-    },
-    [updateValue, vendorSources],
   )
 
   const aiProviderOptions: SettingOption<string>[] = useMemo(
@@ -447,32 +431,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       t.config.providerOpenRouter,
       t.config.providerVolcengine,
     ],
-  )
-
-  const handleImageProviderChange = useCallback(
-    (slug: string) => {
-      if (!slug) {
-        updateValue('ai_image_source', '')
-        const hasVendorImage = vendorSources.some(
-          (item) => item.enabled && vendorSupports(item, 'image'),
-        )
-        if (!hasVendorImage) updateValue('ai_image_provider', '')
-        return
-      }
-      updateValue('ai_image_source', slug)
-      const source = vendorSources.find((item) => item.slug === slug)
-      const kind = source?.kind || slug
-      const mapped =
-        kind === 'volcengine'
-          ? 'volcengine'
-          : kind === 'openrouter'
-            ? 'openrouter'
-            : kind === 'gemini'
-              ? 'gemini'
-              : 'openai'
-      updateValue('ai_image_provider', mapped)
-    },
-    [updateValue, vendorSources],
   )
 
   // Each tier: a source (the server shows the one in effect) and one model.
@@ -661,15 +619,11 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         {...bindGuide('ai.image', g.ai.image)}
       >
         <ProviderItem
-          itemKey="image_provider"
+          itemKey="ai_image_source"
           label={t.config.aiProvider}
           {...bindGuide('ai.provider', g.ai.provider)}
-          value={
-            imageSourceOptions
-              ? getFieldValue('ai_image_source')
-              : getFieldValue('ai_image_provider')
-          }
-          onChange={handleImageProviderChange}
+          value={getFieldValue('ai_image_source')}
+          onChange={(slug) => updateValue('ai_image_source', slug)}
           options={imageSourceOptions ?? imageProviderOptions}
           layout="horizontal"
         />
@@ -718,31 +672,17 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         }
       >
         <ProviderItem
-          itemKey="speech_provider"
+          itemKey="speech_source"
           label={t.config.speechProvider}
           {...bindGuide('ai.provider', g.ai.provider)}
-          value={
-            speechSourceOptions
-              ? getFieldValue('speech_source')
-              : getFieldValue('speech_provider')
-          }
-          onChange={handleSpeechProviderChange}
+          value={getFieldValue('speech_source')}
+          onChange={(slug) => updateValue('speech_source', slug)}
           options={speechSourceOptions ?? speechProviderOptions}
           layout="horizontal"
         />
 
         {(() => {
-          const speechSelectorValue = speechSourceOptions
-            ? getFieldValue('speech_source')
-            : getFieldValue('speech_provider')
-          if (!speechSelectorValue) return null
-          const selectedSource = vendorSources.find(
-            (item) => item.slug === speechSelectorValue,
-          )
-          const selected = speechProviderKindFromSource(
-            selectedSource,
-            selectedSource?.kind || speechSelectorValue,
-          )
+          const selected = currentSpeechProvider
           if (selected === 'minimax') {
             return (
               <>

@@ -927,7 +927,7 @@ mod tests {
         assert!(convo_configured(&config));
         // The speech service's voice is its own provider's name: an OpenAI
         // voice is none to MiniMax, a MiniMax one is used.
-        config.speech_provider = "openai".to_string();
+        config.speech_source = "openai".to_string();
         config.speech_tts_model = "gpt-4o-mini-tts".to_string();
         config.speech_tts_voice = "marin".to_string();
         let tts = resolve_minimax_tts(&config).unwrap();

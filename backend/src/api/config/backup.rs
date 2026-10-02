@@ -146,7 +146,7 @@ fn is_sensitive_configuration_key(key: &str) -> bool {
 /// plus old fields its settings snapshot had and the rows did not (a v1
 /// deploy's environment), in the new keys.
 fn legacy_ai_tier_values(backup: &SettingsBackup) -> std::collections::HashMap<String, Value> {
-    use crate::services::config_service::legacy_ai_tiers::{LEGACY_KEYS, upgrade};
+    use crate::services::config_service::legacy_ai_settings::{is_legacy_key, upgrade};
     let mut stored: std::collections::HashMap<String, Value> = backup
         .configurations
         .iter()
@@ -160,7 +160,7 @@ fn legacy_ai_tier_values(backup: &SettingsBackup) -> std::collections::HashMap<S
             "pro_provider" => "pro_ai_provider",
             other => other,
         };
-        if LEGACY_KEYS.contains(&key) && !super::secrets::is_masked_secret_value(&field.value) {
+        if is_legacy_key(key) && !super::secrets::is_masked_secret_value(&field.value) {
             stored
                 .entry(key.to_string())
                 .or_insert_with(|| Value::String(field.value.clone()));

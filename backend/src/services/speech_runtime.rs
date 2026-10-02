@@ -87,13 +87,15 @@ pub async fn configured_provider() -> SpeechProviderKind {
 /// The speech service's provider in `config`: its TTS model and voice are
 /// that provider's names.
 pub fn provider_of(config: &crate::config::DynamicConfig) -> SpeechProviderKind {
-    if let Some(source) = config.find_vendor_source(&config.speech_source) {
+    let slug = config.speech_source_slug();
+    if let Some(source) = config.find_vendor_source(&slug) {
         if is_minimax_vendor(&source) {
             return SpeechProviderKind::MiniMax;
         }
         return SpeechProviderKind::parse(&source.kind);
     }
-    SpeechProviderKind::parse(&config.speech_provider)
+    // A built-in slug with no source row of its own names its vendor.
+    SpeechProviderKind::parse(&slug)
 }
 
 pub async fn speech_probe() -> SpeechProbe {
@@ -506,11 +508,7 @@ struct ResolvedGeminiSpeech {
 
 async fn resolve_gemini_speech() -> Result<ResolvedGeminiSpeech, GeminiMediaError> {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let source = if config.speech_source.trim().is_empty() {
-        None
-    } else {
-        config.find_vendor_source(&config.speech_source)
-    };
+    let source = config.find_vendor_source(&config.speech_source_slug());
     let api_key = source
         .as_ref()
         .map(|item| config.resolve_source_credential(item).api_key)
@@ -563,11 +561,7 @@ struct ResolvedMiniMaxSpeech {
 
 async fn resolve_minimax_speech() -> Result<ResolvedMiniMaxSpeech, MiniMaxSpeechError> {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let source = if config.speech_source.trim().is_empty() {
-        None
-    } else {
-        config.find_vendor_source(&config.speech_source)
-    };
+    let source = config.find_vendor_source(&config.speech_source_slug());
     let source = source.filter(|item| is_minimax_vendor(item)).or_else(|| {
         config
             .ai_vendor_sources
@@ -799,15 +793,11 @@ struct ResolvedOpenAiSpeech {
 
 async fn resolve_openai_speech() -> Result<ResolvedOpenAiSpeech, OpenAiSpeechError> {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let source = if config.speech_source.trim().is_empty() {
-        None
-    } else {
-        config.find_vendor_source(&config.speech_source)
-    };
+    let source = config.find_vendor_source(&config.speech_source_slug());
     let provider = if let Some(source) = source.as_ref() {
         SpeechProviderKind::parse(&source.kind)
     } else {
-        SpeechProviderKind::parse(&config.speech_provider)
+        SpeechProviderKind::parse(&config.speech_source_slug())
     };
     let stt_override = config.speech_stt_model.trim().to_string();
     let tts_override = config.speech_tts_model.trim().to_string();

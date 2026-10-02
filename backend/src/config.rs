@@ -420,17 +420,10 @@ pub struct DynamicConfig {
     /// OpenWeather API key（落库字段）
     pub openweather_api_key: Option<String>,
 
-    // 语音：tencent_* 为 tencent 分支凭据；speech_provider 决定出站。
+    // 腾讯云凭据：tencent 源（含合成的）用它。
     pub tencent_secret_id: Option<String>,
     pub tencent_secret_key: Option<String>,
     pub tencent_region: Option<String>, // 默认 ap-guangzhou
-    /// 语音服务商字符串。出站 parse：openai/openai_compatible、openrouter、gemini、minimax；其余 tencent。
-    pub speech_provider: String,
-    /// 落库字段；语音出站不读此开关
-    pub speech_reuse_text_credentials: bool,
-    pub speech_openai_api_key: Option<String>,
-    pub speech_openai_base_url: String,
-    pub speech_openrouter_api_key: Option<String>,
     pub speech_stt_model: String,
     pub speech_tts_model: String,
     pub speech_tts_voice: String,
@@ -447,7 +440,9 @@ pub struct DynamicConfig {
     pub provider_volcengine_base_url: String,
     /// 可添加的服务商源列表（OAuth providers 同款：可多家、可同 kind 多源）
     pub ai_vendor_sources: Vec<AiVendorSource>,
+    /// 图片走的服务商源（slug）。留空按出厂的 OpenRouter。
     pub ai_image_source: String,
+    /// 语音走的服务商源（slug）。留空按出厂的腾讯云。
     pub speech_source: String,
 
     /// 声网 Conversational AI（实时对话通道）。默认关。
@@ -559,16 +554,9 @@ pub struct DynamicConfig {
     pub island_show_music: bool,
     pub island_show_tapp: bool,
 
-    // AI 图片生成配置（统一服务：OpenAI 兼容 / OpenRouter / Volcengine）
-    // 分辨率由调用方（agent / tapp）在请求参数中决定，不设全局配置
-    pub ai_image_provider: String,
+    // AI 图片生成：源是 `ai_image_source`，这里是模型。分辨率由调用方
+    // （agent / tapp）在请求参数中决定，不设全局配置。
     pub ai_image_model: String,
-    pub ai_image_openai_api_key: Option<String>,
-    /// OpenAI 兼容图片接口 Base URL（如官方 /v1 或第三方代理）
-    pub ai_image_openai_base_url: String,
-    pub ai_image_openrouter_api_key: Option<String>,
-    pub ai_image_volcengine_api_key: Option<String>,
-    pub ai_image_volcengine_base_url: String,
 
     /// Merope：设定、状态、主动对话、事件开口。默认关。用户界面叫 Agent 人设。
     pub merope_enabled: bool,
@@ -833,15 +821,9 @@ impl Default for DynamicConfig {
 
             openweather_api_key: None,
 
-            // 语音默认：tencent 凭据 + speech_provider=tencent
             tencent_secret_id: None,
             tencent_secret_key: None,
             tencent_region: Some("ap-guangzhou".to_string()),
-            speech_provider: "tencent".to_string(),
-            speech_reuse_text_credentials: true,
-            speech_openai_api_key: None,
-            speech_openai_base_url: "https://api.openai.com/v1".to_string(),
-            speech_openrouter_api_key: None,
             speech_stt_model: String::new(),
             speech_tts_model: String::new(),
             speech_tts_voice: String::new(),
@@ -853,8 +835,8 @@ impl Default for DynamicConfig {
             provider_volcengine_api_key: None,
             provider_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
             ai_vendor_sources: Vec::new(),
-            ai_image_source: String::new(),
-            speech_source: String::new(),
+            ai_image_source: "openrouter".to_string(),
+            speech_source: "tencent".to_string(),
             agora_convo_enabled: false,
             agora_app_id: String::new(),
             agora_app_certificate: String::new(),
@@ -923,14 +905,7 @@ impl Default for DynamicConfig {
             island_show_music: true,
             island_show_tapp: true,
 
-            // AI 图片生成配置
-            ai_image_provider: "openrouter".to_string(),
             ai_image_model: "openai/gpt-image-2.5-sunburst".to_string(),
-            ai_image_openai_api_key: None,
-            ai_image_openai_base_url: "https://api.openai.com/v1".to_string(),
-            ai_image_openrouter_api_key: None,
-            ai_image_volcengine_api_key: None,
-            ai_image_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
             merope_enabled: false,
             merope_speech_enabled: false,
             merope_voice_mode: String::new(),
@@ -1158,43 +1133,19 @@ impl DynamicConfig {
         })
     }
 
-    fn first_nonempty_url<'a>(candidates: impl IntoIterator<Item = &'a str>) -> String {
-        candidates
-            .into_iter()
-            .map(str::trim)
-            .find(|s| !s.is_empty())
-            .unwrap_or("")
-            .to_string()
-    }
-
     pub fn shared_openrouter_api_key(&self) -> Option<String> {
-        Self::first_nonempty_key([
-            self.provider_openrouter_api_key.clone(),
-            self.speech_openrouter_api_key.clone(),
-            self.ai_image_openrouter_api_key.clone(),
-        ])
+        Self::first_nonempty_key([self.provider_openrouter_api_key.clone()])
     }
 
     pub fn shared_openai_api_key(&self) -> Option<String> {
-        Self::first_nonempty_key([
-            self.provider_openai_api_key.clone(),
-            self.speech_openai_api_key.clone(),
-            self.ai_image_openai_api_key.clone(),
-        ])
+        Self::first_nonempty_key([self.provider_openai_api_key.clone()])
     }
 
+    /// The shared OpenAI endpoint; an OpenRouter address there is not one.
     pub fn shared_openai_base_url(&self) -> String {
         let from_shared = self.provider_openai_base_url.trim();
         if !from_shared.is_empty() && !Self::is_openrouter_base(from_shared) {
             return from_shared.to_string();
-        }
-        for url in [
-            self.speech_openai_base_url.as_str(),
-            self.ai_image_openai_base_url.as_str(),
-        ] {
-            if !url.trim().is_empty() && !Self::is_openrouter_base(url) {
-                return url.trim().to_string();
-            }
         }
         "https://api.openai.com/v1".to_string()
     }
@@ -1227,22 +1178,14 @@ impl DynamicConfig {
     }
 
     pub fn shared_volcengine_api_key(&self) -> Option<String> {
-        Self::first_nonempty_key([
-            self.provider_volcengine_api_key.clone(),
-            self.ai_image_volcengine_api_key.clone(),
-        ])
+        Self::first_nonempty_key([self.provider_volcengine_api_key.clone()])
     }
 
     pub fn shared_volcengine_base_url(&self) -> String {
-        let url = Self::first_nonempty_url([
-            self.provider_volcengine_base_url.as_str(),
-            self.ai_image_volcengine_base_url.as_str(),
-        ]);
-        if url.is_empty() {
-            "https://ark.cn-beijing.volces.com/api/v3".to_string()
-        } else {
-            url
-        }
+        Self::slug_or(
+            &self.provider_volcengine_base_url,
+            "https://ark.cn-beijing.volces.com/api/v3",
+        )
     }
 
     fn shared_api_key_by_ref(&self, key_ref: &str) -> Option<String> {
@@ -1622,6 +1565,22 @@ impl DynamicConfig {
         } else {
             self.tier_source(ModelTier::Standard)
         }
+    }
+
+    /// The source images are made on: as chosen, else the factory OpenRouter.
+    pub fn image_source(&self) -> String {
+        Self::slug_or(&self.ai_image_source, "openrouter")
+    }
+
+    /// The source speech runs on: as chosen, else the factory Tencent Cloud.
+    pub fn speech_source_slug(&self) -> String {
+        Self::slug_or(&self.speech_source, "tencent")
+    }
+
+    /// `chosen` trimmed, or `factory` when it is blank.
+    fn slug_or(chosen: &str, factory: &str) -> String {
+        let chosen = chosen.trim();
+        if chosen.is_empty() { factory } else { chosen }.to_string()
     }
 
     /// Lite is in use when its own model is filled in; there is no switch.
@@ -2070,12 +2029,10 @@ mod tests {
     }
 
     #[test]
-    fn shared_provider_keys_win_over_service_keys() {
+    fn shared_keys_are_the_vaults() {
         let config = DynamicConfig {
             provider_openrouter_api_key: Some("vault-or".to_string()),
-            ai_image_openrouter_api_key: Some("image-or".to_string()),
             provider_openai_api_key: Some("vault-oa".to_string()),
-            ai_image_openai_api_key: Some("image-oa".to_string()),
             ..DynamicConfig::default()
         };
         assert_eq!(

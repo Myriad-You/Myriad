@@ -4,7 +4,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
-pub(crate) mod legacy_ai_tiers;
+pub(crate) mod legacy_ai_settings;
 
 /// Optional config string: null / "" / whitespace → None.
 /// Empty `Some("")` must not reach outbound auth headers.
@@ -103,11 +103,7 @@ standard_fields! {
         aux_ai_source,
         pro_ai_source,
         pro_ai_model,
-        ai_image_provider,
         ai_image_model,
-        ai_image_volcengine_base_url,
-        speech_provider,
-        speech_openai_base_url,
         provider_openai_base_url,
         provider_volcengine_base_url,
         ai_image_source,
@@ -129,15 +125,10 @@ standard_fields! {
         ui_theme,
         ui_primary_color,
         ui_secondary_color,
-        ai_image_openai_api_key,
-        ai_image_openrouter_api_key,
-        ai_image_volcengine_api_key,
         tripo_api_key,
         tencent_secret_id,
         tencent_secret_key,
         tencent_region,
-        speech_openai_api_key,
-        speech_openrouter_api_key,
         provider_openai_api_key,
         provider_openrouter_api_key,
         provider_gemini_api_key,
@@ -368,25 +359,23 @@ impl ConfigService {
         Ok(config_map)
     }
 
-    /// Rewrite the old text-model settings in the new keys and drop the old
-    /// ones, in one transaction (see [`legacy_ai_tiers`]). Must run before
+    /// Rewrite the old AI settings in the new keys and drop the old
+    /// ones, in one transaction (see [`legacy_ai_settings`]). Must run before
     /// defaults are seeded: a seeded default would read as already chosen.
-    pub async fn upgrade_legacy_ai_tiers(db: &DatabaseConnection) -> Result<usize> {
+    pub async fn upgrade_legacy_ai_settings(db: &DatabaseConnection) -> Result<usize> {
         use sea_orm::TransactionTrait;
         let txn = db
             .begin()
             .await
             .context("Failed to begin AI settings upgrade")?;
         let stored = Self::load_stored_on(&txn).await?;
-        let old: Vec<&str> = legacy_ai_tiers::LEGACY_KEYS
-            .iter()
-            .copied()
+        let old: Vec<&str> = legacy_ai_settings::legacy_keys()
             .filter(|key| stored.contains_key(*key))
             .collect();
         if old.is_empty() {
             return Ok(0);
         }
-        Self::update_configs_on(&txn, legacy_ai_tiers::upgrade(&stored)).await?;
+        Self::update_configs_on(&txn, legacy_ai_settings::upgrade(&stored)).await?;
         txn.execute_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
             "DELETE FROM configurations WHERE key = ANY($1)",
@@ -400,7 +389,7 @@ impl ConfigService {
         txn.commit()
             .await
             .context("Failed to commit AI settings upgrade")?;
-        tracing::info!(count = old.len(), "Upgraded the old text-model settings");
+        tracing::info!(count = old.len(), "Upgraded the old AI settings");
         Ok(old.len())
     }
 
@@ -466,15 +455,6 @@ impl ConfigService {
             }
         }
 
-        // AI 图片生成配置
-        if let Some(v) = map.get("ai_image_openai_base_url") {
-            if let Some(s) = v.as_str() {
-                if !s.trim().is_empty() {
-                    config.ai_image_openai_base_url = s.to_string();
-                }
-            }
-        }
-
         if let Some(v) = map.get("merope_enabled") {
             config.merope_enabled = v
                 .as_bool()
@@ -529,14 +509,6 @@ impl ConfigService {
         }
         if let Some(v) = map.get("tripo_max_download_mb").and_then(|v| v.as_i64()) {
             config.tripo_max_download_mb = v as i32;
-        }
-        // 腾讯云语音服务配置 (TTS/ASR)
-        if let Some(v) = map.get("speech_reuse_text_credentials") {
-            if let Some(b) = v.as_bool() {
-                config.speech_reuse_text_credentials = b;
-            } else if let Some(s) = v.as_str() {
-                config.speech_reuse_text_credentials = s == "true" || s == "1";
-            }
         }
         if let Some(v) = map.get("ai_vendor_sources") {
             if let Ok(parsed) =
@@ -1443,26 +1415,12 @@ mod tests {
         );
 
         let config = ConfigService::parse_config(HashMap::from([
-            ("speech_provider".into(), json!("openai")),
-            ("speech_reuse_text_credentials".into(), json!(false)),
+            ("speech_source".into(), json!("openai")),
             ("speech_stt_model".into(), json!("gpt-transcribe")),
             ("speech_tts_model".into(), json!("gpt-4o-mini-tts")),
             ("speech_tts_voice".into(), json!("marin")),
-            ("speech_openai_api_key".into(), json!("sk-speech")),
-            (
-                "speech_openai_base_url".into(),
-                json!("https://api.openai.com/v1"),
-            ),
-            ("speech_openrouter_api_key".into(), json!("sk-or-speech")),
         ]));
-        assert_eq!(config.speech_provider, "openai");
-        assert!(!config.speech_reuse_text_credentials);
-        assert_eq!(config.speech_openai_api_key.as_deref(), Some("sk-speech"));
-        assert_eq!(config.speech_openai_base_url, "https://api.openai.com/v1");
-        assert_eq!(
-            config.speech_openrouter_api_key.as_deref(),
-            Some("sk-or-speech")
-        );
+        assert_eq!(config.speech_source_slug(), "openai");
         assert_eq!(config.speech_stt_model, "gpt-transcribe");
         assert_eq!(config.speech_tts_model, "gpt-4o-mini-tts");
         assert_eq!(config.speech_tts_voice, "marin");
