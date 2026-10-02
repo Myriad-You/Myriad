@@ -136,7 +136,7 @@ export function useVoiceRecording(
       onResult: ({ text, timing, heard }) => {
         if (!mountedRef.current || !isSubmittableTranscript(text)) return
         stageVoiceInputTrace(timing)
-        if (heard) noteHeardVoice(heard)
+        if (heard) noteHeardVoice(heard, text)
         onResultRef.current(text)
       },
       onError: (error) =>

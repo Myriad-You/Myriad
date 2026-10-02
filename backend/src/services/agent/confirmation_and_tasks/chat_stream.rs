@@ -871,6 +871,8 @@ impl Agent {
                     let text = match piece {
                         crate::services::omni_voice::OmniDelta::Text(text) => Some(text),
                         crate::services::omni_voice::OmniDelta::Audio(sound) => {
+                            // Heard is said: no going back to the words alone.
+                            said_anything.store(true, std::sync::atomic::Ordering::Relaxed);
                             out.send(&sound);
                             None
                         }

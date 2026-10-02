@@ -104,18 +104,22 @@ export function deliverTurnLine(
   return deliverGatedLine(agentFace, faceSpeechGate, mode, line)
 }
 
-/** What was said aloud for the next turn, kept for her to hear (Omni mode). */
-let heardVoiceToken: string | undefined
+/** What was said aloud, kept for her to hear (Omni mode), with its words. */
+let heardVoice: { token: string; text: string } | undefined
 
-export function noteHeardVoice(token: string): void {
-  heardVoiceToken = token
+export function noteHeardVoice(token: string, text: string): void {
+  heardVoice = { token, text: text.trim() }
 }
 
-/** The recording the next turn was said in, to send with it (once). */
-export function takeHeardVoice(): string | undefined {
-  const token = heardVoiceToken
-  heardVoiceToken = undefined
-  return token
+/**
+ * The recording a turn was said in, to send with it: only for the words it
+ * was written down as, so a later typed message never carries an old
+ * recording. Taken once.
+ */
+export function takeHeardVoice(text: string): string | undefined {
+  const heard = heardVoice
+  heardVoice = undefined
+  return heard && heard.text === text.trim() ? heard.token : undefined
 }
 
 /** Tokens of the turns that asked for her own voice, by reply. */

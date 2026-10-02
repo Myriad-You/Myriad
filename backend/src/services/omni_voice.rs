@@ -85,7 +85,10 @@ fn with_stream<T>(token: &str, user_id: i32, take: impl FnOnce(&mut Stream) -> T
 pub fn voice_out(token: &str, user_id: i32) -> Option<VoiceOut> {
     with_stream(token, user_id, |stream| stream.sender.take())
         .flatten()
-        .map(|sender| VoiceOut { sender })
+        .map(|sender| VoiceOut {
+            sender,
+            pending: std::sync::Mutex::new(String::new()),
+        })
 }
 
 /// The end the panel plays from.
@@ -99,6 +102,10 @@ pub fn voice_in(
 /// Where a turn's voice goes.
 pub struct VoiceOut {
     sender: tokio::sync::mpsc::UnboundedSender<axum::body::Bytes>,
+    /// Base64 not yet a whole number of 4-character groups: the stream may
+    /// split it anywhere (DashScope's own example joins the pieces before
+    /// decoding), so the rest waits for the next piece.
+    pending: std::sync::Mutex<String>,
 }
 
 impl VoiceOut {
@@ -106,7 +113,24 @@ impl VoiceOut {
     /// listening.
     pub fn send(&self, base64_pcm: &str) -> bool {
         use base64::Engine as _;
-        match base64::engine::general_purpose::STANDARD.decode(base64_pcm.trim()) {
+        let Ok(mut pending) = self.pending.lock() else {
+            return true;
+        };
+        pending.extend(base64_pcm.chars().filter(|c| !c.is_ascii_whitespace()));
+        // A padded group ends a run: decode up to it, whatever its length.
+        let whole = match pending.rfind('=') {
+            Some(at) => at + 1,
+            None => pending.len() - pending.len() % 4,
+        };
+        if whole == 0 {
+            return true;
+        }
+        let ready: String = pending.drain(..whole).collect();
+        let ready = ready.trim_start_matches('=');
+        if ready.is_empty() {
+            return true;
+        }
+        match base64::engine::general_purpose::STANDARD.decode(ready) {
             Ok(pcm) if !pcm.is_empty() => self.sender.send(axum::body::Bytes::from(pcm)).is_ok(),
             Ok(_) => true,
             Err(_) => {
@@ -459,6 +483,19 @@ mod tests {
         drop(out);
         assert_eq!(heard.recv().await.unwrap().as_ref(), &pcm);
         assert!(heard.recv().await.is_none(), "dropped: the stream ends");
+        // Base64 split anywhere still comes out whole, in order.
+        let out = voice_out("turn-voice-token-0002", 7).unwrap();
+        let mut heard_split = voice_in("turn-voice-token-0002", 7).unwrap();
+        let encoded = base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3, 4, 5, 6, 7]);
+        let (a, b) = encoded.split_at(5);
+        assert!(out.send(a));
+        assert!(out.send(b));
+        drop(out);
+        let mut got = Vec::new();
+        while let Some(piece) = heard_split.recv().await {
+            got.extend_from_slice(&piece);
+        }
+        assert_eq!(got, [1, 2, 3, 4, 5, 6, 7]);
         // A token no panel would make is nothing.
         assert!(voice_out("short", 7).is_none());
         assert!(voice_out("has spaces in it, sixteen+", 7).is_none());
@@ -476,6 +513,48 @@ mod tests {
         assert_eq!(take_heard(token, 7).as_deref(), Some("UklGRg=="));
         assert_eq!(take_heard(token, 7), None, "once");
         assert!(!keep_heard("short", 7, "x".into()));
+    }
+
+    fn response(body: &str) -> reqwest::Response {
+        reqwest::Response::from(
+            axum::http::Response::builder()
+                .body(body.to_string())
+                .unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_whole_stream_is_read_in_order_and_a_cut_one_is_not_whole() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"audio\":{\"data\":\"AAEC\"}}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"好\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"total_tokens\":9}}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let mut seen = Vec::new();
+        let text = read_stream(response(body), &mut |delta| {
+            seen.push(match delta {
+                OmniDelta::Text(text) => format!("text:{text}"),
+                OmniDelta::Audio(sound) => format!("audio:{sound}"),
+            });
+            async { true }
+        })
+        .await
+        .unwrap();
+        assert_eq!(text, "你好");
+        assert_eq!(seen, ["text:你", "audio:AAEC", "text:好"]);
+        // Ended before the model said it was done: a cut, never a whole reply.
+        let cut = "data: {\"choices\":[{\"delta\":{\"content\":\"说到一半\"}}]}\n\n";
+        let error = read_stream(response(cut), &mut |_| async { true })
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<crate::services::analyzer::StreamCut>()
+                .map(|cut| cut.partial.as_str()),
+            Some("说到一半")
+        );
     }
 
     #[test]

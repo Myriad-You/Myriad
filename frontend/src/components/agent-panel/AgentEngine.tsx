@@ -1506,7 +1506,7 @@ export const AgentEngine: React.FC = () => {
         const voiceOut = takeTurnVoiceToken(assistantMsgId)
         if (voiceOut) customData.voiceOut = voiceOut
         // Said aloud: she hears the recording itself, not only its words.
-        const voiceIn = takeHeardVoice()
+        const voiceIn = takeHeardVoice(requestText)
         if (voiceIn && voiceOut) customData.voiceIn = voiceIn
         if (Object.keys(customData).length > 0) {
           context.customData = customData
