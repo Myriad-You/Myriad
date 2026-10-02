@@ -76,9 +76,6 @@ pub enum KeySource {
     File,
     /// `{DATA_DIR}/.secret-key`（本次启动新建）
     Generated,
-    /// Historical JWT_SECRET derivation. Runtime load never selects this;
-    /// `MYRIAD_MIGRATE_DATA_KEY_FROM_JWT` writes the same bytes into the key file.
-    LegacyJwtSecret,
 }
 
 impl KeySource {
@@ -87,13 +84,7 @@ impl KeySource {
             KeySource::Env => "env:MYRIAD_DATA_KEY",
             KeySource::File => "file",
             KeySource::Generated => "file(generated)",
-            KeySource::LegacyJwtSecret => "legacy:JWT_SECRET",
         }
-    }
-
-    /// 兜底来源意味着 2a/2b 的加固**没有真正生效**，值得持续告警。
-    pub fn is_fallback(self) -> bool {
-        matches!(self, KeySource::LegacyJwtSecret)
     }
 }
 
@@ -572,19 +563,11 @@ pub fn open_config_value(key: &str, value: serde_json::Value) -> Result<serde_js
 /// 启动时调用一次，把密钥来源写进日志。
 pub fn log_startup_state() {
     let key = data_key();
-    if key.source().is_fallback() {
-        tracing::warn!(
-            source = key.source().as_str(),
-            fingerprint = %key.fingerprint(),
-            "Data key active (fallback mode — secrets still tied to JWT_SECRET)"
-        );
-    } else {
-        tracing::info!(
-            source = key.source().as_str(),
-            fingerprint = %key.fingerprint(),
-            "🔐 Data key active"
-        );
-    }
+    tracing::info!(
+        source = key.source().as_str(),
+        fingerprint = %key.fingerprint(),
+        "🔐 Data key active"
+    );
 }
 
 #[cfg(test)]
@@ -881,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_jwt_migration_writes_file_and_does_not_use_runtime_fallback_source() {
+    fn explicit_jwt_migration_writes_the_historical_key_to_the_file() {
         let dir = std::env::temp_dir().join(format!("myriad-key-{}", uuid::Uuid::new_v4()));
         let path = dir.join(".secret-key");
         let loaded = load_or_create_from(None, &path, Some("jwt-secret"), true).expect("migrate");
@@ -889,7 +872,7 @@ mod tests {
         assert_eq!(loaded.fingerprint(), {
             let expected = DataKey {
                 key: derive_legacy_key("jwt-secret"),
-                source: KeySource::LegacyJwtSecret,
+                source: KeySource::File,
             };
             expected.fingerprint()
         });

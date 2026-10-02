@@ -17,13 +17,6 @@ pub async fn migrate_plaintext_config_values(
     use anyhow::Context;
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-    if data_key().source().is_fallback() {
-        // 兜底密钥仍然绑在 JWT_SECRET 上。此时加密只会把"明文风险"换成
-        // "轮换即失数据"的风险，得不偿失 —— 等运维修好密钥文件再迁。
-        tracing::warn!("Skipping configuration encryption migration: data key is in fallback mode");
-        return Ok(0);
-    }
-
     let rows = db
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
