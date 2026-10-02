@@ -8,7 +8,6 @@ import type {
   TappPlaygroundProject,
 } from '../services/TappPlaygroundService'
 
-export const LEGACY_SESSION_STORAGE_KEY = 'myriad:tapp-playground:session:v1'
 export const SESSIONS_STORAGE_KEY = 'myriad:tapp-playground:sessions:v2'
 
 export const MAX_SESSIONS = 10
@@ -181,29 +180,6 @@ function normalizeSession(raw: unknown): PlaygroundSession | null {
     lastFailedAttempt: isFailedAttempt(s.lastFailedAttempt)
       ? s.lastFailedAttempt
       : null,
-  }
-}
-
-function loadV1Session(): PlaygroundSession | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = sessionStorage.getItem(LEGACY_SESSION_STORAGE_KEY)
-    if (!raw) return null
-    const value = JSON.parse(raw)
-    if (!value || !Array.isArray(value.revisions)) return null
-    const session = normalizeSession({
-      id: createSessionId(),
-      title: titleFromInstruction(value.revisions[0]?.instruction || ''),
-      createdAt: value.revisions[0]?.createdAt || Date.now(),
-      updatedAt:
-        value.revisions.at(-1)?.createdAt || Date.now(),
-      revisions: value.revisions,
-      revisionIndex: value.revisionIndex,
-      lastFailedAttempt: value.lastFailedAttempt,
-    })
-    return session
-  } catch {
-    return null
   }
 }
 
@@ -565,20 +541,6 @@ export function loadSessionsStore(): PlaygroundSessionsStore {
       }
     }
   } catch {
-  }
-
-  const migrated = loadV1Session()
-  if (migrated && (migrated.revisions.length > 0 || migrated.lastFailedAttempt)) {
-    const store = pruneStore({
-      activeSessionId: migrated.id,
-      sessions: [migrated],
-    })
-    saveSessionsStore(store)
-    try {
-      sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY)
-    } catch {
-    }
-    return store
   }
 
   return createEmptyStore()

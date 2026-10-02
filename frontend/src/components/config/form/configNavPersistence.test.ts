@@ -23,11 +23,11 @@ describe('resolveConfigSectionFromSearch', () => {
     assert.equal(resolveConfigSectionFromSearch(agent, true), null)
   })
 
-  it('maps the old Laboratory deep link to lab', () => {
-    const legacy = new URLSearchParams('section=tripo')
+  it('takes the lab deep link and no retired section ids', () => {
     const current = new URLSearchParams('section=lab')
-    assert.equal(resolveConfigSectionFromSearch(legacy, true), 'lab')
+    const retired = new URLSearchParams('section=tripo')
     assert.equal(resolveConfigSectionFromSearch(current, false), 'lab')
+    assert.equal(resolveConfigSectionFromSearch(retired, true), null)
   })
 
   it('rejects federation deep links when the gate is closed', () => {

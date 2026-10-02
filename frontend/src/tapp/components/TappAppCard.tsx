@@ -48,7 +48,6 @@ export type TappAppCardSize = '1x1' | '2x1'
 
 const SUBTITLE_ROTATE_MS = 3200
 const CARD_LAYOUT_STORAGE_KEY = 'tapp.listCardLayout.v2'
-const CARD_SIZE_STORAGE_KEY_LEGACY = 'tapp.listCardSizes.v1'
 
 function getTappIconStyle(tapp: TappInstance): IconStyle {
   return getTappIconStyleFromManifest({
@@ -102,9 +101,7 @@ function normalizeLocalLayout(parsed: unknown): TappAppCardLayoutLocal {
 export function loadTappAppCardLayout(): TappAppCardLayoutLocal {
   if (typeof window === 'undefined') return { sizes: {}, order: [] }
   try {
-    const raw =
-      window.localStorage.getItem(CARD_LAYOUT_STORAGE_KEY) ??
-      window.localStorage.getItem(CARD_SIZE_STORAGE_KEY_LEGACY)
+    const raw = window.localStorage.getItem(CARD_LAYOUT_STORAGE_KEY)
     if (!raw) return { sizes: {}, order: [] }
     return normalizeLocalLayout(JSON.parse(raw) as unknown)
   } catch {

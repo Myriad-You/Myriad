@@ -1,5 +1,3 @@
-import { LEGACY_CONFIG_SECTION_MAP } from './defaults'
-
 export const CONFIG_NAV_STORAGE_KEY = 'myriad_config_nav_v1'
 
 /** 侧栏「全部配置」默认顺序：基础与数据 → 智能 → 人与权限 → 模块与运维。 */
@@ -58,8 +56,7 @@ export function normalizeConfigSection(
   federationEnabled = true,
 ): string | null {
   if (!raw) return null
-  const next = LEGACY_CONFIG_SECTION_MAP[raw] ?? raw
-  return isKnownSection(next, isAdmin, federationEnabled) ? next : null
+  return isKnownSection(raw, isAdmin, federationEnabled) ? raw : null
 }
 
 export function resolveConfigSectionFromSearch(

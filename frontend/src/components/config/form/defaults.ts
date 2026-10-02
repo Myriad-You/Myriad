@@ -43,17 +43,6 @@ export const DEFAULT_AUTO_FETCH_CONFIG: PlatformAutoFetchConfig = {
   interval_hours: 24,
 }
 
-/** 收藏/深链/搜索里的旧导航 id → 现行 section。 */
-export const LEGACY_CONFIG_SECTION_MAP: Record<string, string> = {
-  music: 'modules',
-  data: 'platforms',
-  network: 'advanced',
-  updater: 'about',
-  mcp: 'advanced',
-  ui: 'basic',
-  tripo: 'lab',
-}
-
 export function loadConfigFavorites(): string[] {
   if (typeof window === 'undefined') return DEFAULT_CONFIG_FAVORITES
   try {
@@ -66,11 +55,7 @@ export function loadConfigFavorites(): string[] {
     ) {
       return DEFAULT_CONFIG_FAVORITES
     }
-    return Iterator.from(
-      new Set(
-        (parsed as string[]).map((id) => LEGACY_CONFIG_SECTION_MAP[id] ?? id),
-      ),
-    ).toArray()
+    return Iterator.from(new Set(parsed as string[])).toArray()
   } catch {
     return DEFAULT_CONFIG_FAVORITES
   }
