@@ -236,6 +236,8 @@ pub(super) fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError>
     Ok(Value::Object(profile))
 }
 
+/// The worn set must be one in the wardrobe, and a bust: a full-body set is
+/// never worn on the panel.
 pub(super) fn drop_stale_active_outfit(profile: &mut Map<String, Value>) {
     let Some(id) = profile.get("activeOutfitId").and_then(Value::as_str) else {
         return;
@@ -244,9 +246,10 @@ pub(super) fn drop_stale_active_outfit(profile: &mut Map<String, Value>) {
         .get("wardrobe")
         .and_then(Value::as_array)
         .is_some_and(|items| {
-            items
-                .iter()
-                .any(|item| item.get("id").and_then(Value::as_str) == Some(id))
+            items.iter().any(|item| {
+                item.get("id").and_then(Value::as_str) == Some(id)
+                    && !myriad_merope::is_full_body_item(item)
+            })
         });
     if !known {
         profile.insert("activeOutfitId".into(), Value::Null);

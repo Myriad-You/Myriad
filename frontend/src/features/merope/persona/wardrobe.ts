@@ -21,9 +21,20 @@ export interface WardrobeItem {
   rigAssetId?: string
   generationFingerprint?: string
   name?: string
+  /**
+   * A full-body set: its own head-to-toe picture and rig, never worn on the
+   * panel. Its picture, fingerprint and rig are written by the server.
+   */
+  profile?: 'fullBody'
+  /** The bust set a full-body set is redrawn from, chosen when it was made. */
+  referenceOutfitId?: string
 }
 
 const LIVE_ID = 'live'
+
+export function isFullBodyItem(item: Pick<WardrobeItem, 'profile'>): boolean {
+  return item.profile === 'fullBody'
+}
 
 export function isDefaultWardrobeItem(
   item: Pick<WardrobeItem, 'id'> | string,
@@ -71,6 +82,11 @@ export function parseWardrobeItem(value: unknown): WardrobeItem | null {
   const generationFingerprint = parseHexId(source.generationFingerprint)
   const name =
     id === DEFAULT_WARDROBE_ID ? undefined : parseWardrobeName(source.name)
+  const fullBody = source.profile === 'fullBody' && id !== DEFAULT_WARDROBE_ID
+  const referenceOutfitId =
+    fullBody && typeof source.referenceOutfitId === 'string'
+      ? source.referenceOutfitId.trim().slice(0, 64)
+      : ''
   return {
     id,
     clothingStyle: source.clothingStyle,
@@ -79,6 +95,8 @@ export function parseWardrobeItem(value: unknown): WardrobeItem | null {
     ...(rigAssetId ? { rigAssetId } : {}),
     ...(generationFingerprint ? { generationFingerprint } : {}),
     ...(name ? { name } : {}),
+    ...(fullBody ? { profile: 'fullBody' as const } : {}),
+    ...(referenceOutfitId ? { referenceOutfitId } : {}),
   }
 }
 
@@ -185,6 +203,9 @@ export function sortWardrobe(items: WardrobeItem[]): WardrobeItem[] {
   return items.toSorted((left, right) => {
     if (left.id === DEFAULT_WARDROBE_ID) return -1
     if (right.id === DEFAULT_WARDROBE_ID) return 1
+    // Busts first; the full-body sets hang after them.
+    const byProfile = Number(isFullBodyItem(left)) - Number(isFullBodyItem(right))
+    if (byProfile !== 0) return byProfile
     const byStyle =
       CLOTHING_STYLE_OPTIONS.indexOf(left.clothingStyle) -
       CLOTHING_STYLE_OPTIONS.indexOf(right.clothingStyle)

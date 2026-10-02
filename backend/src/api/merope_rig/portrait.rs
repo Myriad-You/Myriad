@@ -23,7 +23,7 @@ use crate::{
 const MEROPE_STYLE_REFERENCE_BYTES: &[u8] =
     include_bytes!("../../../assets/merope/style-reference.png");
 
-fn merope_style_reference()
+pub(super) fn merope_style_reference()
 -> Result<image_generation::ImageReference, image_generation::ImageGenerationError> {
     image_generation::ImageReference::new(
         axum::body::Bytes::from_static(MEROPE_STYLE_REFERENCE_BYTES),
@@ -126,15 +126,19 @@ where
 fn portrait_visual_profile(
     persona: Option<&crate::models::entities::agent_persona::Model>,
 ) -> ApiResult<Value> {
+    drawable_visual_profile(persona.and_then(|row| row.visual_profile.clone()))
+}
+
+/// A visual profile a portrait can be drawn from: a gender and a complete,
+/// usable design that matches it.
+pub(super) fn drawable_visual_profile(visual_profile: Option<Value>) -> ApiResult<Value> {
     let visual_profile = {
-        let mut profile = persona
-            .and_then(|row| row.visual_profile.clone())
-            .unwrap_or_else(|| {
-                json!({
-                    "gender": "unspecified",
-                    "language": "en-US"
-                })
-            });
+        let mut profile = visual_profile.unwrap_or_else(|| {
+            json!({
+                "gender": "unspecified",
+                "language": "en-US"
+            })
+        });
         let gender = profile
             .get("gender")
             .and_then(Value::as_str)

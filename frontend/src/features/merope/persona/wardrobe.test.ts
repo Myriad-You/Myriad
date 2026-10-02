@@ -9,6 +9,7 @@ import {
   DEFAULT_WARDROBE_ID,
   hydrateWardrobe,
   isDefaultWardrobeItem,
+  isFullBodyItem,
   parseWardrobe,
   parseWardrobeName,
   seedWardrobeFromIdentity,
@@ -172,6 +173,38 @@ test('the default outfit cannot be renamed and stays first', () => {
       },
     ]).map((item) => item.id),
     [DEFAULT_WARDROBE_ID, 'w-b'],
+  )
+})
+
+test('a full-body set keeps its kind and reference and hangs after the busts', () => {
+  const items = parseWardrobe([
+    {
+      id: 'w-full',
+      clothingStyle: 'everyday',
+      outfit: outfitA,
+      profile: 'fullBody',
+      referenceOutfitId: ' w-b ',
+    },
+    { id: 'w-b', clothingStyle: 'urban', outfit: outfitB, referenceOutfitId: 'x' },
+    {
+      id: DEFAULT_WARDROBE_ID,
+      clothingStyle: 'idol',
+      outfit: outfitA,
+      profile: 'fullBody',
+    },
+  ])
+  const byId = new Map(items.map((item) => [item.id, item]))
+  assert.ok(isFullBodyItem(byId.get('w-full')!))
+  assert.equal(byId.get('w-full')!.referenceOutfitId, 'w-b')
+  assert.ok(!isFullBodyItem(byId.get('w-b')!))
+  assert.equal(byId.get('w-b')!.referenceOutfitId, undefined)
+  assert.ok(
+    !isFullBodyItem(byId.get(DEFAULT_WARDROBE_ID)!),
+    'the default set is the master portrait\'s bust',
+  )
+  assert.deepEqual(
+    sortWardrobe(items).map((item) => item.id),
+    [DEFAULT_WARDROBE_ID, 'w-b', 'w-full'],
   )
 })
 
@@ -373,7 +406,7 @@ test('the wardrobe lives in settings, not in the onboarding wizard', () => {
   assert.match(workbench, /wardrobeWear/)
   assert.match(workbench, /wearOutfit\(managingOutfit\)/)
   assert.match(workbench, /generatePortrait\(managingOutfit\)/)
-  assert.match(workbench, /showGenerate = wearing \|\| !picture/)
+  assert.match(workbench, /showGenerate = !standing && \(wearing \|\| !picture\)/)
   assert.match(workbench, /portraitAssetId: nextItem.portraitAssetId \?\? null/)
   assert.doesNotMatch(
     workbench,

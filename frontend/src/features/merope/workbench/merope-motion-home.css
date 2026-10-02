@@ -866,6 +866,12 @@ html.dark .merope-wardrobe {
   pointer-events: none;
 }
 
+/* A full-body set shows its whole figure. */
+.merope-wardrobe__garment--full-body img {
+  object-fit: contain;
+  object-position: center;
+}
+
 .merope-wardrobe__garment:disabled {
   cursor: default;
 }
@@ -918,6 +924,25 @@ html.dark .merope-wardrobe {
   font-weight: 650;
   letter-spacing: 0.04em;
   color: var(--merope-accent);
+}
+
+.merope-wardrobe__kind {
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--merope-muted);
+}
+
+.merope-wardrobe__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.merope-wardrobe__family--plain {
+  align-content: center;
+  min-height: 72px;
 }
 
 .merope-wardrobe__remove {

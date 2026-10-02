@@ -26,6 +26,7 @@ import {
   bindPortrait,
   hydrateWardrobe,
   isDefaultWardrobeItem,
+  isFullBodyItem,
   parseWardrobe,
   parseWardrobeName,
   persistWardrobeState,
@@ -524,7 +525,11 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
     if (isDefaultWardrobeItem(id)) return
     const remaining = wardrobeItems.filter((item) => item.id !== id)
     if (remaining.length === 0 || !visualIdentity) return
-    const nextItem = id === activeOutfitId ? remaining[0] : null
+    // Only a bust set can be worn next.
+    const nextItem =
+      id === activeOutfitId
+        ? (remaining.find((item) => !isFullBodyItem(item)) ?? null)
+        : null
     await saveVisualProfile({
       identity: nextItem
         ? applyOutfit(visualIdentity, nextItem)

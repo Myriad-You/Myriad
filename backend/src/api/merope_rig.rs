@@ -41,26 +41,26 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
     let owner = Router::new()
         .route("/", get(package::get_site_rig))
         .route("/portrait", post(portrait::generate_portrait))
+        .route("/full-body/{outfit_id}", get(full_body::get_full_body))
         .route(
-            "/full-body/portrait",
+            "/full-body/{outfit_id}/portrait",
             post(full_body::generate_full_body_portrait),
         )
         .route(
-            "/full-body/portrait/upload",
+            "/full-body/{outfit_id}/portrait/upload",
             post(full_body::upload_full_body_portrait)
                 .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
-        .route("/full-body", get(full_body::get_full_body))
         .route(
-            "/full-body/see-through/decompose",
+            "/full-body/{outfit_id}/see-through/decompose",
             post(full_body::decompose_full_body),
         )
         .route(
-            "/full-body/import",
+            "/full-body/{outfit_id}/import",
             post(full_body::import_full_body_rig).layer(DefaultBodyLimit::max(24 * 1024 * 1024)),
         )
         .route(
-            "/full-body/import/preview",
+            "/full-body/{outfit_id}/import/preview",
             post(full_body::preview_full_body_rig)
                 .layer(DefaultBodyLimit::max(36 * 1024 * 1024)),
         )

@@ -83,9 +83,13 @@ export async function getSiteFace(): Promise<SiteFace> {
   return siteFaceInflight
 }
 
-/** The worn outfit's optional full figure, for the owner's workbench. */
-export async function getFullBodyFace(): Promise<SiteFace> {
-  return loadFace(`${PREFIX}/full-body`)
+function fullBodyPath(outfitId: string): string {
+  return `/full-body/${encodeURIComponent(outfitId)}`
+}
+
+/** A full-body set's picture and package, for the owner's workbench. */
+export async function getFullBodyFace(outfitId: string): Promise<SiteFace> {
+  return loadFace(`${PREFIX}${fullBodyPath(outfitId)}`)
 }
 
 async function loadFace(path: string): Promise<SiteFace> {
@@ -203,11 +207,15 @@ export async function decomposeSitePortraitWithSeeThrough(
   return decomposeWithSeeThrough('/see-through/decompose', input)
 }
 
-/** Splits the worn outfit's full figure, as the bust's portrait is split. */
+/** Splits a full-body set's picture, as the bust's portrait is split. */
 export async function decomposeFullBodyWithSeeThrough(
+  outfitId: string,
   input: SeeThroughDecomposeInput,
 ): Promise<File> {
-  return decomposeWithSeeThrough('/full-body/see-through/decompose', input)
+  return decomposeWithSeeThrough(
+    `${fullBodyPath(outfitId)}/see-through/decompose`,
+    input,
+  )
 }
 
 async function decomposeWithSeeThrough(
@@ -252,12 +260,28 @@ export async function importMeropeRig(
   return submitMeropeRigImport('/import', source, atlas, 'import')
 }
 
-/** Stores a full-figure package in the worn outfit's full-body slot. */
-export async function importFullBodyRig(
-  source: MeropeRigImportSource,
-  atlas: Blob,
-): Promise<MeropeRigManifest> {
-  return submitMeropeRigImport('/full-body/import', source, atlas, 'import')
+/** Previews and stores packages for one full-body set. */
+export function fullBodyRigImport(outfitId: string) {
+  const path = fullBodyPath(outfitId)
+  return {
+    preview: (
+      source: MeropeRigImportSource,
+      atlas: Blob,
+      analysisReference: Blob,
+    ): Promise<MeropeRigManifest> =>
+      submitMeropeRigImport(
+        `${path}/import/preview`,
+        source,
+        atlas,
+        'preview',
+        analysisReference,
+      ),
+    commit: (
+      source: MeropeRigImportSource,
+      atlas: Blob,
+    ): Promise<MeropeRigManifest> =>
+      submitMeropeRigImport(`${path}/import`, source, atlas, 'import'),
+  }
 }
 
 export async function saveRigPoseCorrections(assetId: string, corrections: PoseCorrection[]): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
@@ -281,20 +305,6 @@ export async function previewMeropeRigImport(
 ): Promise<MeropeRigManifest> {
   return submitMeropeRigImport(
     '/import/preview',
-    source,
-    atlas,
-    'preview',
-    analysisReference,
-  )
-}
-
-export async function previewFullBodyRigImport(
-  source: MeropeRigImportSource,
-  atlas: Blob,
-  analysisReference: Blob,
-): Promise<MeropeRigManifest> {
-  return submitMeropeRigImport(
-    '/full-body/import/preview',
     source,
     atlas,
     'preview',
@@ -362,8 +372,11 @@ export async function uploadSitePortrait(image: Blob): Promise<{
   }
 }
 
-/** Puts the owner's own full figure beside the worn outfit's bust. */
-export async function uploadFullBodyPortrait(image: Blob): Promise<{
+/** The owner's own picture for a full-body set. */
+export async function uploadFullBodyPortrait(
+  outfitId: string,
+  image: Blob,
+): Promise<{
   portraitUrl: string
 }> {
   const body = new FormData()
@@ -374,7 +387,7 @@ export async function uploadFullBodyPortrait(image: Blob): Promise<{
   )
   try {
     const data = await apiService.post<{ portraitUrl?: unknown }>(
-      `${PREFIX}/full-body/portrait/upload`,
+      `${PREFIX}${fullBodyPath(outfitId)}/portrait/upload`,
       body,
       { timeout: RIG_MUTATION_TIMEOUT_MS },
     )
@@ -453,8 +466,11 @@ function readExpressionUrls(value: Record<string, unknown> | undefined): SiteExp
   return urls
 }
 
-/** Draws the worn outfit's full figure from its bust portrait. */
-export async function generateFullBodyPortrait(): Promise<{
+/**
+ * Draws a full-body set's picture: redrawn from the bust set it was made
+ * from, or from its design.
+ */
+export async function generateFullBodyPortrait(outfitId: string): Promise<{
   portraitUrl: string | null
   generationFingerprint: string | null
 }> {
@@ -462,7 +478,9 @@ export async function generateFullBodyPortrait(): Promise<{
     const data = await apiService.post<{
       portraitUrl?: unknown
       generationFingerprint?: unknown
-    }>(`${PREFIX}/full-body/portrait`, {}, { timeout: PORTRAIT_GENERATION_TIMEOUT_MS })
+    }>(`${PREFIX}${fullBodyPath(outfitId)}/portrait`, {}, {
+      timeout: PORTRAIT_GENERATION_TIMEOUT_MS,
+    })
     return {
       portraitUrl: readPortraitUrl(data),
       generationFingerprint:

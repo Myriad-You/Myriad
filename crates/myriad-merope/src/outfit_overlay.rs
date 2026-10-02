@@ -156,6 +156,10 @@ pub fn looks_from_visual_profile(profile: &Value) -> Vec<WardrobeLook> {
 }
 
 fn look_from_item(item: &Value) -> Option<WardrobeLook> {
+    // A full-body set is never shown on the panel, so she cannot change into it.
+    if crate::visual_design::is_full_body_item(item) {
+        return None;
+    }
     let id = item.get("id").and_then(Value::as_str)?.trim();
     if id.is_empty() {
         return None;
@@ -990,6 +994,17 @@ mod tests {
             resolve_wear_directive(&WearDirective::Revert, &looks, "default", Some("w-stage")),
             OverlayDecision::Clear
         );
+    }
+
+    #[test]
+    fn a_full_body_set_is_not_a_look_she_can_change_into() {
+        let profile = json!({ "wardrobe": [
+            { "id": "default", "clothingStyle": "uniform" },
+            { "id": "w-full", "clothingStyle": "uniform", "name": "舞台装", "profile": "fullBody" },
+        ]});
+        let looks = looks_from_visual_profile(&profile);
+        assert_eq!(looks.len(), 1);
+        assert_eq!(looks[0].id, "default");
     }
 
     #[test]

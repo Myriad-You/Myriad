@@ -4,9 +4,8 @@ import type {
   RigAssetPreflight,
 } from './compiler'
 import {
-  importFullBodyRig,
+  fullBodyRigImport,
   importMeropeRig,
-  previewFullBodyRigImport,
   previewMeropeRigImport,
 } from '../api'
 import { prepareRigPsdImport } from '../rig/psdImporter'
@@ -44,8 +43,9 @@ export async function commitRigPsdAsset(
   return persistRigAsset(preflight, importMeropeRig, onStage)
 }
 
-/** The worn outfit's full figure, imported beside its bust and stored in its own slot. */
+/** A full-body set's picture, imported into that set. */
 export async function preflightFullBodyPsdAsset(
+  outfitId: string,
   file: File,
   sourceMasterAssetId: string,
   sourceGenerationFingerprint?: string,
@@ -56,7 +56,7 @@ export async function preflightFullBodyPsdAsset(
     {
       prepare: (psd, master, onStage, fingerprint, signal) =>
         prepareRigPsdImport(psd, master, onStage, fingerprint, signal, [], 'fullBody'),
-      preview: previewFullBodyRigImport,
+      preview: fullBodyRigImport(outfitId).preview,
     },
     undefined,
     sourceGenerationFingerprint,
@@ -64,7 +64,8 @@ export async function preflightFullBodyPsdAsset(
 }
 
 export async function commitFullBodyPsdAsset(
+  outfitId: string,
   preflight: RigAssetPreflight,
 ): Promise<ImportedRigAsset> {
-  return persistRigAsset(preflight, importFullBodyRig)
+  return persistRigAsset(preflight, fullBodyRigImport(outfitId).commit)
 }

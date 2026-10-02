@@ -25,7 +25,7 @@ import { commitRigPsdAsset, preflightRigPsdAsset } from '../assets/pipeline'
 import RigCharacter from '../character/RigCharacter'
 import { notifyFaceUpdated } from '../events/updates'
 import { useRigPreviewMotionLifecycle } from '../motion/useRigMotionLifecycle'
-import { applyOutfit, sortWardrobe } from '../persona/wardrobe'
+import { applyOutfit, isFullBodyItem, sortWardrobe, wardrobeItemLabel } from '../persona/wardrobe'
 import Anime25DWorkbench from './Anime25DWorkbench'
 import { FullBodyPanel } from './FullBodyPanel'
 import { FullBodyStageSwitch } from './FullBodyStageSwitch'
@@ -93,9 +93,8 @@ export default function SiteMotionWorkbench({
   )
   const seeThrough = useSeeThroughToken(t.merope.seeThroughStatusFailed)
   const aiExpressions = useAiExpressions(portraitUrl)
-  // The worn outfit's bust, or its optional full figure, drawn from that bust.
-  const outfitKey = `${portraitUrl ?? ''}\n${generationFingerprint ?? ''}`
-  const fullBody = useFullBodyStage(outfitKey)
+  // The stage plays the worn bust, or any full-body set in the wardrobe.
+  const fullBody = useFullBodyStage(wardrobeItems)
   const staged = fullBody.staged
   const managingId = personaTouring ? null : managingOutfitId
   const [studioHost, setStudioHost] = useState<HTMLDivElement | null>(null)
@@ -362,10 +361,28 @@ export default function SiteMotionWorkbench({
     (item) => item.id === managingId,
   )
   const wearingManaged = managingOutfit?.id === activeOutfitId
+  const managingReference = managingOutfit?.referenceOutfitId
+    ? wardrobeItems.find((item) => item.id === managingOutfit.referenceOutfitId)
+    : undefined
   const outfitCard = managingOutfit ? (
     <OutfitDetail
       outfit={managingOutfit}
       wearing={wearingManaged}
+      reference={
+        !managingOutfit.referenceOutfitId
+          ? t.merope.fullBody.referenceNoneNote
+          : managingReference &&
+              (managingReference.portraitAssetId ||
+                managingReference.id === activeOutfitId)
+            ? format(t.merope.fullBody.referenceOf, {
+                name: wardrobeItemLabel(
+                  managingReference,
+                  o.clothingStyle,
+                  t.merope.wardrobeDefault,
+                ),
+              })
+            : t.merope.fullBody.referenceGone
+      }
       identity={
         visualIdentity ? applyOutfit(visualIdentity, managingOutfit) : null
       }
@@ -433,27 +450,31 @@ export default function SiteMotionWorkbench({
           onGenerateAiExpressions={portraitUrl ? aiExpressions.generate : undefined}
           motionEnabled={motionEnabled}
           outfitTrailing={
-            <SettingGroup
-              title={t.merope.fullBody.title}
-              description={t.merope.fullBody.description}
-              id="merope-motion-full-body"
-            >
-              <FullBodyPanel
-                outfitKey={outfitKey}
-                seeThroughTokenConfigured={seeThrough.configured}
-                onChanged={() => void fullBody.reload()}
-              />
-            </SettingGroup>
+            managingOutfit && isFullBodyItem(managingOutfit) ? (
+              <SettingGroup
+                title={t.merope.fullBody.title}
+                description={t.merope.fullBody.description}
+                id="merope-motion-full-body"
+              >
+                <FullBodyPanel
+                  outfitId={managingOutfit.id}
+                  seeThroughTokenConfigured={seeThrough.configured}
+                  // The server wrote the set's picture or rig.
+                  onChanged={() => void persona.reload()}
+                />
+              </SettingGroup>
+            ) : null
           }
           motionLead={
-            fullBody.figure ? (
+            fullBody.sets.length > 0 ? (
               <FullBodyStageSwitch
-                staging={fullBody.staging}
-                onChange={fullBody.setStaging}
+                sets={fullBody.sets}
+                stagedId={fullBody.stagedId}
+                onChange={fullBody.stage}
               />
             ) : null
           }
-          stageKey={staged ? 'fullBody' : 'bust'}
+          stageKey={staged ? (fullBody.stagedId ?? '') : 'bust'}
           // Pose corrections are the bust rig's.
           correctionPlayback={staged ? null : (rigManifest?.anime25dPlayback ?? null)}
           correctionAssetId={staged ? null : rigAssetId}

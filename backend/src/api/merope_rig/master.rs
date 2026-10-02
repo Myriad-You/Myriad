@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 use super::{ApiResult, internal_error, not_found};
 use crate::services::agent::merope;
 
-/// The worn outfit's master portrait for one asset profile: the bust portrait,
-/// or the full figure drawn from it. Only a rig of that profile descends from it.
+/// A master portrait and what it is: the worn bust, or a full-body set's
+/// picture. Only a rig of that profile descends from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct MasterProvenance {
     pub(super) profile: CharacterAssetProfile,
@@ -69,52 +69,75 @@ pub(super) fn portrait_generation_fingerprint(
     Ok(Some(fingerprint.to_ascii_lowercase()))
 }
 
+/// Which master a rig descends from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum MasterSlot<'a> {
+    /// The worn set's bust portrait, the one the panel plays.
+    WornBust,
+    /// A full-body set's own picture, worn or not.
+    FullBody(&'a str),
+}
+
+impl MasterSlot<'_> {
+    pub(super) fn profile(self) -> CharacterAssetProfile {
+        match self {
+            Self::WornBust => CharacterAssetProfile::Bust,
+            Self::FullBody(_) => CharacterAssetProfile::FullBody,
+        }
+    }
+}
+
 pub(super) async fn current_master(
     db: &DatabaseConnection,
-    profile: CharacterAssetProfile,
+    slot: MasterSlot<'_>,
 ) -> ApiResult<Option<MasterProvenance>> {
     let persona = merope::get_persona(db).await.map_err(internal_error)?;
     let Some(persona) = persona else {
         return Ok(None);
     };
-    Ok(master_for(&persona, profile))
+    Ok(master_for(&persona, slot))
 }
 
 pub(super) fn master_for(
     persona: &crate::models::entities::agent_persona::Model,
-    profile: CharacterAssetProfile,
+    slot: MasterSlot<'_>,
 ) -> Option<MasterProvenance> {
-    match profile {
-        CharacterAssetProfile::Bust => master_from_persona(persona),
-        CharacterAssetProfile::FullBody => full_body_master_from_persona(persona),
+    match slot {
+        MasterSlot::WornBust => master_from_persona(persona),
+        MasterSlot::FullBody(id) => full_body_master(persona, id),
     }
 }
 
-/// The worn outfit's full figure, drawn from the bust master that is still worn.
-fn full_body_master_from_persona(
+/// A full-body set's picture, once it has one.
+fn full_body_master(
     persona: &crate::models::entities::agent_persona::Model,
+    id: &str,
 ) -> Option<MasterProvenance> {
-    let bust = master_from_persona(persona)?;
-    let full = myriad_merope::active_outfit_full_body(persona.visual_profile.as_ref())?;
+    let full = myriad_merope::full_body_outfit(persona.visual_profile.as_ref(), id)?;
     Some(MasterProvenance {
         profile: CharacterAssetProfile::FullBody,
-        asset_id: full.portrait_asset_id,
+        asset_id: full.portrait_asset_id?,
         generation_fingerprint: full.generation_fingerprint,
-        ..bust
+        gender: persona_gender(persona),
+        outfit_id: Some(full.id),
     })
 }
 
-pub(super) fn master_from_persona(
-    persona: &crate::models::entities::agent_persona::Model,
-) -> Option<MasterProvenance> {
-    let gender = persona
+fn persona_gender(persona: &crate::models::entities::agent_persona::Model) -> String {
+    persona
         .visual_profile
         .as_ref()
         .and_then(|profile| profile.get("gender"))
         .and_then(Value::as_str)
         .filter(|value| matches!(*value, "female" | "male" | "nonbinary" | "unspecified"))
         .unwrap_or("unspecified")
-        .to_string();
+        .to_string()
+}
+
+pub(super) fn master_from_persona(
+    persona: &crate::models::entities::agent_persona::Model,
+) -> Option<MasterProvenance> {
+    let gender = persona_gender(persona);
     let asset_id = persona.portrait_asset_id.clone()?;
     Some(MasterProvenance {
         profile: CharacterAssetProfile::Bust,
@@ -142,11 +165,11 @@ pub(super) fn master_from_persona(
 
 pub(super) async fn require_master_match(
     db: &DatabaseConnection,
-    profile: CharacterAssetProfile,
+    slot: MasterSlot<'_>,
     source_master_asset_id: &str,
     source_generation_fingerprint: Option<&str>,
 ) -> ApiResult<MasterProvenance> {
-    let stored = current_master(db, profile)
+    let stored = current_master(db, slot)
         .await?
         .ok_or_else(|| not_found("Site portrait is missing"))?;
     let supplied_fingerprint = source_generation_fingerprint.map(str::to_ascii_lowercase);
@@ -215,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn the_full_figure_master_is_the_worn_outfits_and_needs_its_bust() {
+    fn a_full_body_sets_master_is_its_own_picture_worn_or_not() {
         let fingerprint = "c".repeat(64);
         let mut persona = crate::models::entities::agent_persona::Model {
             id: "site".into(),
@@ -225,12 +248,16 @@ mod tests {
             visual_profile: Some(json!({
                 "activeOutfitId": "a",
                 "gender": "female",
-                "wardrobe": [{
-                    "id": "a",
-                    "portraitAssetId": "master-a",
-                    "fullBodyPortraitAssetId": "full-a",
-                    "fullBodyGenerationFingerprint": fingerprint,
-                }],
+                "wardrobe": [
+                    { "id": "a", "portraitAssetId": "master-a" },
+                    {
+                        "id": "w-full",
+                        "profile": "fullBody",
+                        "portraitAssetId": "full-a",
+                        "generationFingerprint": fingerprint,
+                    },
+                    { "id": "w-empty", "profile": "fullBody" },
+                ],
             })),
             portrait_asset_id: Some("master-a".into()),
             portrait_generation: None,
@@ -239,7 +266,7 @@ mod tests {
             updated_by: None,
             updated_at: chrono::Utc::now().fixed_offset(),
         };
-        let full = master_for(&persona, CharacterAssetProfile::FullBody).unwrap();
+        let full = master_for(&persona, MasterSlot::FullBody("w-full")).unwrap();
         assert_eq!(full.profile, CharacterAssetProfile::FullBody);
         assert_eq!(full.asset_id, "full-a");
         assert_eq!(
@@ -247,10 +274,19 @@ mod tests {
             Some(fingerprint.as_str())
         );
         assert_eq!(full.gender, "female");
-        let bust = master_for(&persona, CharacterAssetProfile::Bust).unwrap();
+        assert_eq!(full.outfit_id.as_deref(), Some("w-full"));
+        assert!(master_for(&persona, MasterSlot::FullBody("w-empty")).is_none());
+        assert!(
+            master_for(&persona, MasterSlot::FullBody("a")).is_none(),
+            "a bust set is no full-body master"
+        );
+        let bust = master_for(&persona, MasterSlot::WornBust).unwrap();
         assert_eq!(bust.asset_id, "master-a");
         persona.portrait_asset_id = None;
-        assert!(master_for(&persona, CharacterAssetProfile::FullBody).is_none());
+        assert!(
+            master_for(&persona, MasterSlot::FullBody("w-full")).is_some(),
+            "a full-body set stands on its own"
+        );
     }
 
     fn layered_stub_manifest(

@@ -88,20 +88,62 @@ pub fn build_character_asset_contract(
     })
 }
 
-/// Immutable input snapshot for an outfit's full figure, drawn from its bust
-/// master portrait: a new bust portrait, or a new instruction, is a new figure.
-pub fn build_full_body_asset_contract(
-    bust_portrait: &str,
-    bust_generation_fingerprint: Option<&str>,
-) -> Value {
+/// What a full-body set is drawn from.
+#[derive(Debug, Clone, Copy)]
+pub enum FullBodySource<'a> {
+    /// Redrawn from a bust set's master portrait, the identity anchor.
+    Bust {
+        portrait: &'a str,
+        generation_fingerprint: Option<&'a str>,
+    },
+    /// Drawn from the confirmed design with this set's outfit on, like a bust
+    /// master portrait.
+    Design {
+        name: &'a str,
+        visual_profile: &'a Value,
+    },
+}
+
+/// Immutable input snapshot for a full-body set's picture: another source, or
+/// a new instruction, is a new figure.
+pub fn build_full_body_asset_contract(source: FullBodySource<'_>) -> Value {
     let full = CharacterAssetProfile::FullBody.contract();
+    let (source, rendering) = match source {
+        FullBodySource::Bust {
+            portrait,
+            generation_fingerprint,
+        } => (
+            json!({
+                "bustPortrait": portrait,
+                "bustGenerationFingerprint": generation_fingerprint,
+            }),
+            json!({
+                "instructionVersion": crate::visual_prompt::FULL_BODY_PORTRAIT_INSTRUCTION_VERSION,
+                "referenceRole": "bust-portrait-identity-anchor",
+            }),
+        ),
+        FullBodySource::Design {
+            name,
+            visual_profile,
+        } => (
+            json!({
+                "identity": {
+                    "name": bounded_text(name, 50),
+                    "visualProfile": appearance_visual_profile(visual_profile),
+                },
+            }),
+            json!({
+                "instructionVersion": crate::visual_prompt::FULL_BODY_PORTRAIT_INSTRUCTION_VERSION,
+                "visualSchoolVersion": crate::visual_prompt::MEROPE_VISUAL_SCHOOL_VERSION,
+                "styleReferenceSha256": crate::visual_prompt::MEROPE_STYLE_REFERENCE_SHA256,
+                "styleReferenceRole": "rendering-technique-only",
+            }),
+        ),
+    };
     json!({
         "contractVersion": full.contract_version,
         "slot": "fullBody",
-        "source": {
-            "bustPortrait": bust_portrait,
-            "bustGenerationFingerprint": bust_generation_fingerprint,
-        },
+        "source": source,
         "output": {
             "width": full.generation_width,
             "height": full.generation_height,
@@ -116,10 +158,7 @@ pub fn build_full_body_asset_contract(
             "framing": full.framing,
             "background": full.background,
         },
-        "rendering": {
-            "instructionVersion": crate::visual_prompt::FULL_BODY_PORTRAIT_INSTRUCTION_VERSION,
-            "referenceRole": "bust-portrait-identity-anchor",
-        },
+        "rendering": rendering,
         "rig": {
             "maxRigidArmRotationDegrees": full.max_rigid_arm_rotation_degrees,
             "requiredCapabilities": full.required_capabilities,
@@ -234,24 +273,47 @@ mod tests {
     }
 
     #[test]
-    fn a_full_figure_is_bound_to_the_bust_portrait_it_was_drawn_from() {
-        let first = build_full_body_asset_contract("/media/bust.png", Some(&"a".repeat(64)));
+    fn a_full_figure_is_bound_to_what_it_was_drawn_from() {
+        let bust = |portrait, fingerprint| {
+            build_full_body_asset_contract(FullBodySource::Bust {
+                portrait,
+                generation_fingerprint: fingerprint,
+            })
+        };
+        let a = "a".repeat(64);
+        let first = bust("/media/bust.png", Some(a.as_str()));
         assert_eq!(first["slot"], "fullBody");
         assert_eq!(first["output"]["height"], 2048);
         let fingerprint = character_asset_contract_fingerprint(&first);
         assert_eq!(
             fingerprint,
-            character_asset_contract_fingerprint(&build_full_body_asset_contract(
-                "/media/bust.png",
-                Some(&"a".repeat(64))
-            ))
+            character_asset_contract_fingerprint(&bust("/media/bust.png", Some(a.as_str())))
+        );
+        let profile = complete_profile("soft oval face", "satin");
+        let design = |profile| {
+            build_full_body_asset_contract(FullBodySource::Design {
+                name: "Merope",
+                visual_profile: profile,
+            })
+        };
+        assert_eq!(
+            design(&profile)["rendering"]["styleReferenceRole"],
+            "rendering-technique-only"
         );
         for other in [
-            build_full_body_asset_contract("/media/bust-2.png", Some(&"a".repeat(64))),
-            build_full_body_asset_contract("/media/bust.png", None),
+            bust("/media/bust-2.png", Some(a.as_str())),
+            bust("/media/bust.png", None),
+            design(&profile),
         ] {
             assert_ne!(fingerprint, character_asset_contract_fingerprint(&other));
         }
+        assert_ne!(
+            character_asset_contract_fingerprint(&design(&profile)),
+            character_asset_contract_fingerprint(&design(&complete_profile(
+                "soft oval face",
+                "wool"
+            )))
+        );
     }
 
     #[test]

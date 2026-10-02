@@ -85,6 +85,39 @@ fn wardrobe_is_kept_on_partial_visual_saves_and_cleared_with_identity() {
 }
 
 #[test]
+fn a_full_body_set_is_never_the_worn_one() {
+    let previous = json!({
+        "gender": "female",
+        "clothingStyle": "urban",
+        "wardrobe": [
+            { "id": "w-urban", "clothingStyle": "urban", "outfit": test_outfit() },
+        ],
+        "activeOutfitId": "w-urban"
+    });
+    let worn = merge_visual_profile(
+        sanitize_visual_profile(&json!({
+            "gender": "female",
+            "wardrobe": [
+                { "id": "w-urban", "clothingStyle": "urban", "outfit": test_outfit() },
+                {
+                    "id": "w-full",
+                    "clothingStyle": "urban",
+                    "outfit": test_outfit(),
+                    "profile": "fullBody",
+                    "referenceOutfitId": "w-urban"
+                },
+            ],
+            "activeOutfitId": "w-full"
+        }))
+        .unwrap(),
+        Some(&previous),
+    );
+    assert_eq!(worn["activeOutfitId"], Value::Null);
+    assert_eq!(worn["wardrobe"][1]["profile"], "fullBody");
+    assert_eq!(worn["wardrobe"][1]["referenceOutfitId"], "w-urban");
+}
+
+#[test]
 fn empty_wardrobe_with_identity_becomes_the_default_outfit() {
     let identity = json!({
         "character": {

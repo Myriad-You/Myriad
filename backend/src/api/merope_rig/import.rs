@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use super::{
     ApiError, ApiResult, bad_request, internal_error,
-    master::{MasterProvenance, require_master_match, valid_generation_fingerprint},
+    master::{MasterProvenance, MasterSlot, require_master_match, valid_generation_fingerprint},
     package::{bind_and_activate_outfit_rig, rewrite_texture_urls},
     require_merope_enabled, require_owner,
 };
@@ -309,15 +309,15 @@ pub async fn preview_site_rig(
     Extension(claims): Extension<Claims>,
     multipart: Multipart,
 ) -> ApiResult<Json<Value>> {
-    preview_rig(&db, &claims, multipart, CharacterAssetProfile::Bust).await
+    preview_rig(&db, &claims, multipart, MasterSlot::WornBust).await
 }
 
-/// Compiles an import of the worn outfit's master of `profile` without keeping it.
+/// Compiles an import of a master portrait without keeping it.
 pub(super) async fn preview_rig(
     db: &DatabaseConnection,
     claims: &Claims,
     multipart: Multipart,
-    profile: CharacterAssetProfile,
+    slot: MasterSlot<'_>,
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     let user_id = require_owner(claims, db).await?;
@@ -325,12 +325,12 @@ pub(super) async fn preview_rig(
         mut source,
         analysis_reference_bytes,
         ..
-    } = parse_rig_import(multipart, profile).await?;
+    } = parse_rig_import(multipart, slot.profile()).await?;
     let analysis_reference_bytes = analysis_reference_bytes
         .ok_or_else(|| bad_request("Rig preview is missing its analysis reference"))?;
     let master = require_master_match(
         db,
-        profile,
+        slot,
         &source.source_master_asset_id,
         source.source_generation_fingerprint.as_deref(),
     )
@@ -352,7 +352,7 @@ pub async fn import_site_rig(
     Extension(claims): Extension<Claims>,
     multipart: Multipart,
 ) -> ApiResult<Json<Value>> {
-    let imported = import_rig(&db, &claims, multipart, CharacterAssetProfile::Bust).await?;
+    let imported = import_rig(&db, &claims, multipart, MasterSlot::WornBust).await?;
     bind_and_activate_outfit_rig(
         &db,
         imported.user_id,
@@ -374,12 +374,12 @@ pub(super) struct ImportedRig {
     pub(super) asset_id: String,
 }
 
-/// Compiles and stores an import of the worn outfit's master of `profile`.
+/// Compiles and stores an import of a master portrait.
 pub(super) async fn import_rig(
     db: &DatabaseConnection,
     claims: &Claims,
     multipart: Multipart,
-    profile: CharacterAssetProfile,
+    slot: MasterSlot<'_>,
 ) -> ApiResult<ImportedRig> {
     require_merope_enabled().await?;
     let user_id = require_owner(claims, db).await?;
@@ -387,12 +387,12 @@ pub(super) async fn import_rig(
         mut source,
         atlas_bytes,
         ..
-    } = parse_rig_import(multipart, profile).await?;
+    } = parse_rig_import(multipart, slot.profile()).await?;
     let source_master_asset_id = source.source_master_asset_id.clone();
     let source_generation_fingerprint = source.source_generation_fingerprint.clone();
     let master = require_master_match(
         db,
-        profile,
+        slot,
         &source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )

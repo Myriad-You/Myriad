@@ -891,6 +891,45 @@ pub fn build_character_visual_prompt(
     onboarding: &Value,
     additional_requirements: Option<&str>,
 ) -> String {
+    let bust = CharacterAssetProfile::Bust.contract();
+    character_prompt(
+        name,
+        onboarding,
+        additional_requirements,
+        MASTER_PORTRAIT_INSTRUCTION,
+        &format!(
+            "Vertical {}:{} width-to-height canvas.",
+            bust.aspect_width, bust.aspect_height,
+        ),
+    )
+}
+
+/// A full-body set drawn from the confirmed design with its outfit on, when
+/// no bust portrait anchors it.
+pub fn build_full_body_design_prompt(name: &str, onboarding: &Value) -> String {
+    let full = CharacterAssetProfile::FullBody.contract();
+    character_prompt(
+        name,
+        onboarding,
+        None,
+        &format!(
+            "One polished full-body standing illustration of the confirmed character. Complete the lower body in the costume's own design language and palette: the matching lower garment, legwear, and shoes, with no new motifs. {}",
+            full_body_frame(),
+        ),
+        &format!(
+            "Vertical {}:{} width-to-height canvas.",
+            full.aspect_width, full.aspect_height,
+        ),
+    )
+}
+
+fn character_prompt(
+    name: &str,
+    onboarding: &Value,
+    additional_requirements: Option<&str>,
+    framing: &str,
+    canvas: &str,
+) -> String {
     let visual_identity = normalize_visual_identity_for_prompt(onboarding)
         .and_then(|identity| crate::visual_design::flatten_visual_identity(&identity))
         .unwrap_or(Value::Null);
@@ -904,12 +943,8 @@ pub fn build_character_visual_prompt(
     if let Some(gender) = gender_presentation_instruction(onboarding) {
         header.push(gender.to_string());
     }
-    header.push(MASTER_PORTRAIT_INSTRUCTION.to_string());
-    let bust = CharacterAssetProfile::Bust.contract();
-    header.push(format!(
-        "Vertical {}:{} width-to-height canvas.",
-        bust.aspect_width, bust.aspect_height,
-    ));
+    header.push(framing.to_string());
+    header.push(canvas.to_string());
     let header = header.join("\n\n");
 
     let mut identity = Vec::new();
@@ -965,9 +1000,19 @@ pub const FULL_BODY_PORTRAIT_INSTRUCTION_VERSION: &str = "full-body-standing-v1"
 /// pose serves the rig: square to the camera, arms clear of the body, legs
 /// apart, so decomposition gets each limb whole and the feet stand on one line.
 pub fn build_full_body_portrait_prompt() -> String {
+    format!(
+        "Redraw the character in the source image as one full-body standing illustration of the same person. The source image is the immutable identity anchor: keep the same apparent maturity, gender presentation, face and eye geometry, gaze and default expression, hair cut, length, colors and gradient, every hair ornament and accessory, the upper-body costume, palette, materials, line weight, and the same locked 2D anime-game cel-to-gradient finish and lighting. Complete the lower body in the costume's own design language and palette: the matching lower garment, legwear, and shoes, with no new motifs. {}",
+        full_body_frame(),
+    )
+}
+
+/// Framing and pose for every full figure. The pose serves the rig: square to
+/// the camera, arms clear of the body, legs apart, so decomposition gets each
+/// limb whole and the feet stand on one line.
+fn full_body_frame() -> String {
     let full = CharacterAssetProfile::FullBody.contract();
     format!(
-        "Redraw the character in the source image as one full-body standing illustration of the same person. The source image is the immutable identity anchor: keep the same apparent maturity, gender presentation, face and eye geometry, gaze and default expression, hair cut, length, colors and gradient, every hair ornament and accessory, the upper-body costume, palette, materials, line weight, and the same locked 2D anime-game cel-to-gradient finish and lighting. Complete the lower body in the costume's own design language and palette: the matching lower garment, legwear, and shoes, with no new motifs. Frame the whole figure from the top of the hair to the soles of the shoes on a vertical {}:{} canvas, with a slim near-white margin above the head and below the feet and equal side clearance; the figure fills most of the canvas height. Use a strict centered eye-level frontal view with no perspective distortion: the head, torso and hips are square to the camera, shoulders and hips level. Pose: a relaxed neutral stance, arms hanging naturally at the sides slightly away from the body with both hands visible and open, legs straight and slightly apart with a clear gap between them, both feet flat on one ground line. Nothing held, no props, no cast shadow. Use a seamless near-white studio backdrop and an opaque finished illustration.",
+        "Frame the whole figure from the top of the hair to the soles of the shoes on a vertical {}:{} canvas, with a slim near-white margin above the head and below the feet and equal side clearance; the figure fills most of the canvas height. Use a strict centered eye-level frontal view with no perspective distortion: the head, torso and hips are square to the camera, shoulders and hips level. Pose: a relaxed neutral stance, arms hanging naturally at the sides slightly away from the body with both hands visible and open, legs straight and slightly apart with a clear gap between them, both feet flat on one ground line. Nothing held, no props, no cast shadow. Use a seamless near-white studio backdrop and an opaque finished illustration.",
         full.aspect_width, full.aspect_height,
     )
 }
@@ -1523,6 +1568,38 @@ fn bounded_text(value: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_full_body_set_drawn_from_its_design_keeps_the_identity_and_frames_the_whole_figure() {
+        let profile = json!({
+            "gender": "female",
+            "clothingStyle": "idol",
+            "visualIdentity": {
+                "faceDesign": "refined oval face",
+                "eyeDesign": "layered gold jewel eyes",
+                "hairShape": "short silver bob",
+                "hairLayerPlan": "separate back mass, bangs, and side locks",
+                "upperBodySilhouette": "compact shoulder and collar silhouette",
+                "outfitConstruction": "layered windcut coat and structured collar",
+                "sleeveArmDesign": "short side sleeve fragments at both edges",
+                "materialPlan": "matte cloth, silver metal, and restrained gem highlights",
+                "heroAccessory": "star-track chest clasp",
+                "paletteHint": "mist blue and silver",
+                "motif": "one restrained star-track arc"
+            }
+        });
+        let bust = build_character_visual_prompt("Nova", &profile, None);
+        assert!(bust.contains(&format!(
+            "{MASTER_PORTRAIT_INSTRUCTION}\n\nVertical 3:4 width-to-height canvas."
+        )));
+        let full = build_full_body_design_prompt("Nova", &profile);
+        assert!(!full.contains(MASTER_PORTRAIT_INSTRUCTION));
+        assert!(full.contains(&full_body_frame()));
+        assert!(full.contains("Vertical 9:16 width-to-height canvas."));
+        assert!(full.contains("short silver bob"));
+        assert!(full.contains("layered windcut coat"));
+        assert!(build_full_body_portrait_prompt().ends_with(&full_body_frame()));
+    }
 
     #[test]
     fn visual_prompt_connects_onboarding_identity_and_character_only_constraints() {

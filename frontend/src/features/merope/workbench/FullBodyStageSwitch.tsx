@@ -1,25 +1,33 @@
+import type { WardrobeItem } from '../persona/wardrobe'
 import { useI18n } from '../../../contexts/I18nContext'
+import { wardrobeItemLabel } from '../persona/wardrobe'
 import { FaceTabs } from './FaceTabs'
 
-/** Switches the stage between the worn outfit's bust and its full figure. */
+/** Switches the stage between the worn bust and any full-body set. */
 export function FullBodyStageSwitch({
-  staging,
+  sets,
+  stagedId,
   onChange,
 }: {
-  staging: boolean
-  onChange: (staging: boolean) => void
+  sets: readonly WardrobeItem[]
+  stagedId: string | null
+  onChange: (id: string | null) => void
 }) {
   const { t } = useI18n()
   const copy = t.merope.fullBody
+  const styleNames = t.agentPersona.onboarding.clothingStyle
   return (
     <FaceTabs
       ariaLabel={copy.stage}
-      value={staging ? 'fullBody' : 'bust'}
+      value={stagedId ?? ''}
       options={[
-        { value: 'bust', label: copy.stageBust },
-        { value: 'fullBody', label: copy.stageFullBody },
+        { value: '', label: copy.stageBust },
+        ...sets.map((set) => ({
+          value: set.id,
+          label: `${wardrobeItemLabel(set, styleNames)} · ${copy.badge}`,
+        })),
       ]}
-      onChange={(value) => onChange(value === 'fullBody')}
+      onChange={(value) => onChange(value || null)}
     />
   )
 }

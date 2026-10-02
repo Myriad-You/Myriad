@@ -29,7 +29,7 @@ interface Props extends RigImportSource {
   personaLead?: ReactNode
   overviewLead?: ReactNode
   motionEnabled?: boolean
-  /** Shown under the worn outfit's rig once it has a portrait. */
+  /** Shown under the managed outfit's page. */
   outfitTrailing?: ReactNode
   /** Shown above the motion controls. */
   motionLead?: ReactNode
@@ -154,9 +154,7 @@ export default function Anime25DWorkbench({
           )}
         </SettingGroup>
       ) : null}
-      {panel === 'wardrobe' && outfitLead && outfitRig && source.sourceMasterAssetId
-        ? outfitTrailing
-        : null}
+      {panel === 'wardrobe' && outfitLead ? outfitTrailing : null}
       </div>
       <div data-tour="config-persona-motion">
       {panel === 'motion' ? (

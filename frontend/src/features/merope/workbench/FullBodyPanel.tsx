@@ -17,22 +17,22 @@ import { commitFullBodyPsdAsset, preflightFullBodyPsdAsset } from '../assets/pip
 import RigCharacter from '../character/RigCharacter'
 
 interface Props {
-  /** Changes with the worn outfit and its bust portrait, which the figure is drawn from. */
-  outfitKey: string
+  /** The full-body set in the wardrobe. */
+  outfitId: string
   seeThroughTokenConfigured: boolean
-  /** The outfit's full figure was redrawn, replaced or saved. */
+  /** The set's picture was redrawn, replaced or its figure saved. */
   onChanged?: () => void
 }
 
 type Operation = 'generate' | 'upload' | 'decompose' | 'save'
 
 /**
- * The worn outfit's optional full figure: drawn from its bust portrait, split
- * by See-through, previewed, then saved beside the bust. The panel keeps
- * playing the bust.
+ * A full-body set's figure: its picture drawn or uploaded, split by
+ * See-through, previewed, then saved into the set. The panel keeps playing
+ * the bust.
  */
 export function FullBodyPanel({
-  outfitKey,
+  outfitId,
   seeThroughTokenConfigured,
   onChanged,
 }: Props) {
@@ -47,15 +47,15 @@ export function FullBodyPanel({
   const uploadRef = useRef<HTMLInputElement>(null)
 
   const reload = useCallback(async () => {
-    setFace(await getFullBodyFace())
-  }, [])
+    setFace(await getFullBodyFace(outfitId))
+  }, [outfitId])
 
   useEffect(() => {
     setPreflight(null)
     setSaved(false)
     setError(null)
     reload().catch(() => setFace(null))
-  }, [outfitKey, reload])
+  }, [reload])
 
   // A preflight has no stored atlas yet; play it from the packed one.
   const previewAtlas = useMemo(
@@ -116,7 +116,7 @@ export function FullBodyPanel({
     run(
       'generate',
       async () => {
-        await generateFullBodyPortrait()
+        await generateFullBodyPortrait(outfitId)
         setPreflight(null)
         await reload()
         onChanged?.()
@@ -128,7 +128,7 @@ export function FullBodyPanel({
     run(
       'upload',
       async () => {
-        await uploadFullBodyPortrait(file)
+        await uploadFullBodyPortrait(outfitId, file)
         setPreflight(null)
         await reload()
         onChanged?.()
@@ -143,11 +143,13 @@ export function FullBodyPanel({
         const portrait = face?.portraitUrl
         if (!portrait) return
         const fingerprint = face.generationFingerprint ?? undefined
-        const file = await decomposeFullBodyWithSeeThrough({
+        const file = await decomposeFullBodyWithSeeThrough(outfitId, {
           sourceMasterAssetId: portrait,
           sourceGenerationFingerprint: fingerprint,
         })
-        setPreflight(await preflightFullBodyPsdAsset(file, portrait, fingerprint))
+        setPreflight(
+          await preflightFullBodyPsdAsset(outfitId, file, portrait, fingerprint),
+        )
       },
       labels.motionSeeThroughUpstream,
     )
@@ -157,7 +159,7 @@ export function FullBodyPanel({
       'save',
       async () => {
         if (!preflight) return
-        await commitFullBodyPsdAsset(preflight)
+        await commitFullBodyPsdAsset(outfitId, preflight)
         setPreflight(null)
         setSaved(true)
         await reload()

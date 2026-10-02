@@ -413,20 +413,30 @@ pub fn sanitize_wardrobe_checked(value: &Value) -> Result<Vec<Value>, VisualProf
         {
             obj.insert("generationFingerprint".into(), json!(fingerprint));
         }
-        if let Some(portrait) = item
-            .get(FULL_BODY_PORTRAIT)
-            .and_then(Value::as_str)
-            .and_then(sanitize_wardrobe_portrait)
-        {
-            obj.insert(FULL_BODY_PORTRAIT.into(), json!(portrait));
-        }
-        for key in [FULL_BODY_FINGERPRINT, FULL_BODY_RIG] {
-            if let Some(id) = item
-                .get(key)
-                .and_then(Value::as_str)
-                .and_then(sanitize_wardrobe_hex_id)
-            {
-                obj.insert(key.into(), json!(id));
+        match item.get(PROFILE_KEY) {
+            None | Some(Value::Null) => {}
+            Some(Value::String(profile)) if profile == "bust" => {}
+            // The default set is the master portrait's, which is a bust.
+            Some(Value::String(profile)) if profile == FULL_BODY && id != DEFAULT_WARDROBE_ID => {
+                obj.insert(PROFILE_KEY.into(), json!(FULL_BODY));
+                if let Some(reference) = item
+                    .get(REFERENCE_KEY)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|reference| {
+                        !reference.is_empty()
+                            && reference.chars().count() <= MAX_WARDROBE_ID_CHARS
+                            && !reference.chars().any(char::is_control)
+                    })
+                {
+                    obj.insert(REFERENCE_KEY.into(), json!(reference));
+                }
+            }
+            Some(_) => {
+                return Err(VisualProfileIssue::new(
+                    join_field(&prefix, PROFILE_KEY),
+                    VisualProfileReason::Invalid,
+                ));
             }
         }
         if id != DEFAULT_WARDROBE_ID
@@ -542,12 +552,12 @@ pub fn ensure_default_wardrobe(profile: &mut Value, previous: Option<&Map<String
             };
             items.push(default_wardrobe_item(style, outfit));
             seeded = true;
-        } else if previous.is_some() {
-            promoted_from = items[0]
-                .get("id")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            if let Some(obj) = items[0].as_object_mut() {
+        } else if previous.is_some()
+            && let Some(first) = items.iter_mut().find(|item| !is_full_body_item(item))
+        {
+            // A full figure is never the master portrait's set.
+            promoted_from = first.get("id").and_then(Value::as_str).map(str::to_string);
+            if let Some(obj) = first.as_object_mut() {
                 obj.insert("id".into(), json!(DEFAULT_WARDROBE_ID));
                 obj.remove("name");
             }
@@ -580,19 +590,25 @@ fn wardrobe_portrait(item: &Value) -> Option<&str> {
     item.get("portraitAssetId").and_then(Value::as_str)
 }
 
-/// An outfit's optional full figure: a portrait drawn from its bust portrait,
-/// that portrait's generation fingerprint, and the rig compiled from it.
-const FULL_BODY_PORTRAIT: &str = "fullBodyPortraitAssetId";
-const FULL_BODY_FINGERPRINT: &str = "fullBodyGenerationFingerprint";
-const FULL_BODY_RIG: &str = "fullBodyRigAssetId";
-const FULL_BODY_KEYS: [&str; 3] = [FULL_BODY_PORTRAIT, FULL_BODY_FINGERPRINT, FULL_BODY_RIG];
+const PROFILE_KEY: &str = "profile";
+const FULL_BODY: &str = "fullBody";
+/// The bust set a full-body set was created from, if one was chosen.
+const REFERENCE_KEY: &str = "referenceOutfitId";
+/// A full-body set's picture, its fingerprint and its rig: written only by the
+/// server, which draws, uploads and compiles them.
+const FULL_BODY_OWNED_KEYS: [&str; 3] = ["portraitAssetId", "generationFingerprint", "rigAssetId"];
+
+/// A full-body set: its own portrait and rig, never worn on the panel.
+pub fn is_full_body_item(item: &Value) -> bool {
+    item.get(PROFILE_KEY).and_then(Value::as_str) == Some(FULL_BODY)
+}
 
 /// Drop a stored rig when that outfit's portrait is no longer the one it was
 /// compiled from. Other outfits keep their packages.
 ///
-/// The full figure is written only by the server, which draws it from the
-/// bust portrait: a profile save keeps what was stored while that portrait
-/// stays, whatever it sends, and loses it when the portrait changes.
+/// A set's profile and a full-body set's reference are fixed when it is
+/// created. A full-body set's picture and rig are the server's: a profile
+/// save keeps what was stored, whatever it sends.
 pub fn reconcile_wardrobe_rigs(profile: &mut Value, previous: Option<&Map<String, Value>>) {
     let previous_items = previous
         .and_then(|value| value.get("wardrobe"))
@@ -613,47 +629,121 @@ pub fn reconcile_wardrobe_rigs(profile: &mut Value, previous: Option<&Map<String
                 .iter()
                 .find(|candidate| wardrobe_item_id(candidate) == Some(id.as_str()))
         });
+        let full_body = previous_item.map_or_else(|| is_full_body_item(item), is_full_body_item);
         let portrait_kept = previous_items.is_none()
             || wardrobe_portrait(item) == previous_item.and_then(wardrobe_portrait);
         let Some(obj) = item.as_object_mut() else {
             continue;
         };
-        for key in FULL_BODY_KEYS {
-            match previous_item.and_then(|previous| previous.get(key)) {
-                Some(value) if portrait_kept => {
-                    obj.insert(key.into(), value.clone());
-                }
-                _ => {
-                    obj.remove(key);
-                }
+        if !full_body {
+            obj.remove(PROFILE_KEY);
+            obj.remove(REFERENCE_KEY);
+            if !portrait_kept {
+                obj.remove("rigAssetId");
+                obj.remove("generationFingerprint");
             }
+            continue;
         }
-        if !portrait_kept {
-            obj.remove("rigAssetId");
-            obj.remove("generationFingerprint");
+        obj.insert(PROFILE_KEY.into(), json!(FULL_BODY));
+        let mut owned = FULL_BODY_OWNED_KEYS.to_vec();
+        if previous_item.is_some() {
+            owned.push(REFERENCE_KEY);
+        }
+        for key in owned {
+            match previous_item.and_then(|previous| previous.get(key)) {
+                Some(value) => obj.insert(key.into(), value.clone()),
+                None => obj.remove(key),
+            };
         }
     }
 }
 
-/// The worn outfit's entry, for writing.
-fn active_outfit_mut(profile: &mut Value) -> Option<&mut Map<String, Value>> {
-    let root = profile.as_object_mut()?;
-    let active = root
-        .get("activeOutfitId")
-        .and_then(Value::as_str)?
-        .to_string();
-    root.get_mut("wardrobe")?
+/// A full-body set as stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FullBodyOutfit {
+    pub id: String,
+    pub portrait_asset_id: Option<String>,
+    pub generation_fingerprint: Option<String>,
+    pub rig_asset_id: Option<String>,
+    pub reference_outfit_id: Option<String>,
+}
+
+fn wardrobe_item<'a>(profile: Option<&'a Value>, id: &str) -> Option<&'a Value> {
+    profile?
+        .get("wardrobe")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|item| wardrobe_item_id(item) == Some(id))
+}
+
+pub fn full_body_outfit(profile: Option<&Value>, id: &str) -> Option<FullBodyOutfit> {
+    let item = wardrobe_item(profile, id).filter(|item| is_full_body_item(item))?;
+    let hex = |key: &str| {
+        item.get(key)
+            .and_then(Value::as_str)
+            .and_then(sanitize_wardrobe_hex_id)
+    };
+    Some(FullBodyOutfit {
+        id: id.to_string(),
+        portrait_asset_id: wardrobe_portrait(item).and_then(sanitize_wardrobe_portrait),
+        generation_fingerprint: hex("generationFingerprint"),
+        rig_asset_id: hex("rigAssetId"),
+        reference_outfit_id: item
+            .get(REFERENCE_KEY)
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    })
+}
+
+/// A bust set's portrait and its fingerprint, to redraw a full figure from.
+pub fn wardrobe_bust_portrait(
+    profile: Option<&Value>,
+    id: &str,
+) -> Option<(String, Option<String>)> {
+    let item = wardrobe_item(profile, id).filter(|item| !is_full_body_item(item))?;
+    let portrait = wardrobe_portrait(item).and_then(sanitize_wardrobe_portrait)?;
+    let fingerprint = item
+        .get("generationFingerprint")
+        .and_then(Value::as_str)
+        .and_then(sanitize_wardrobe_hex_id);
+    Some((portrait, fingerprint))
+}
+
+/// The visual profile with this set's outfit on, to draw it from its design.
+pub fn visual_profile_wearing(profile: &Value, id: &str) -> Option<Value> {
+    let item = wardrobe_item(Some(profile), id)?;
+    let style = item
+        .get("clothingStyle")
+        .and_then(Value::as_str)
+        .and_then(normalize_clothing_style)?;
+    let outfit = item.get("outfit")?.clone();
+    let mut dressed = profile.clone();
+    let root = dressed.as_object_mut()?;
+    root.insert("clothingStyle".into(), json!(style));
+    let identity = root.get_mut("visualIdentity")?.as_object_mut()?;
+    identity.insert("outfit".into(), outfit);
+    stamp_clothing_style(root.get_mut("visualIdentity")?, style);
+    Some(dressed)
+}
+
+fn full_body_outfit_mut<'a>(
+    profile: &'a mut Value,
+    id: &str,
+) -> Option<&'a mut Map<String, Value>> {
+    profile
+        .get_mut("wardrobe")?
         .as_array_mut()?
         .iter_mut()
-        .find(|item| wardrobe_item_id(item) == Some(active.as_str()))?
+        .find(|item| wardrobe_item_id(item) == Some(id) && is_full_body_item(item))?
         .as_object_mut()
 }
 
-/// Store the worn outfit's full figure: drawn from its bust portrait, with that
-/// drawing's fingerprint, or uploaded, without one. A rig compiled from an
-/// earlier full figure no longer matches it.
-pub fn bind_active_outfit_full_body_portrait(
+/// Store a full-body set's picture: drawn, with that drawing's fingerprint, or
+/// uploaded, without one. A rig compiled from an earlier picture no longer
+/// matches it.
+pub fn bind_full_body_outfit_portrait(
     profile: &mut Value,
+    id: &str,
     portrait_asset_id: &str,
     generation_fingerprint: Option<&str>,
 ) -> bool {
@@ -667,62 +757,31 @@ pub fn bind_active_outfit_full_body_portrait(
         },
         None => None,
     };
-    let Some(item) = active_outfit_mut(profile) else {
+    let Some(item) = full_body_outfit_mut(profile, id) else {
         return false;
     };
-    item.insert(FULL_BODY_PORTRAIT.into(), json!(portrait));
+    item.insert("portraitAssetId".into(), json!(portrait));
     match fingerprint {
-        Some(fingerprint) => item.insert(FULL_BODY_FINGERPRINT.into(), json!(fingerprint)),
-        None => item.remove(FULL_BODY_FINGERPRINT),
+        Some(fingerprint) => item.insert("generationFingerprint".into(), json!(fingerprint)),
+        None => item.remove("generationFingerprint"),
     };
-    item.remove(FULL_BODY_RIG);
+    item.remove("rigAssetId");
     true
 }
 
-/// Bind a compiled full-body package to the worn outfit's full figure.
-pub fn bind_active_outfit_full_body_rig(profile: &mut Value, rig_asset_id: &str) -> bool {
+/// Bind a compiled full-body package to the set its picture belongs to.
+pub fn bind_full_body_outfit_rig(profile: &mut Value, id: &str, rig_asset_id: &str) -> bool {
     let Some(rig) = sanitize_wardrobe_hex_id(rig_asset_id) else {
         return false;
     };
-    let Some(item) = active_outfit_mut(profile) else {
+    let Some(item) = full_body_outfit_mut(profile, id) else {
         return false;
     };
-    if !item.contains_key(FULL_BODY_PORTRAIT) {
+    if !item.contains_key("portraitAssetId") {
         return false;
     }
-    item.insert(FULL_BODY_RIG.into(), json!(rig));
+    item.insert("rigAssetId".into(), json!(rig));
     true
-}
-
-/// The worn outfit's full figure, if it has one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActiveFullBody {
-    pub portrait_asset_id: String,
-    pub generation_fingerprint: Option<String>,
-    pub rig_asset_id: Option<String>,
-}
-
-pub fn active_outfit_full_body(profile: Option<&Value>) -> Option<ActiveFullBody> {
-    let profile = profile?;
-    let active = profile.get("activeOutfitId").and_then(Value::as_str)?;
-    let item = profile
-        .get("wardrobe")
-        .and_then(Value::as_array)?
-        .iter()
-        .find(|item| wardrobe_item_id(item) == Some(active))?;
-    let hex = |key: &str| {
-        item.get(key)
-            .and_then(Value::as_str)
-            .and_then(sanitize_wardrobe_hex_id)
-    };
-    Some(ActiveFullBody {
-        portrait_asset_id: item
-            .get(FULL_BODY_PORTRAIT)
-            .and_then(Value::as_str)
-            .and_then(sanitize_wardrobe_portrait)?,
-        generation_fingerprint: hex(FULL_BODY_FINGERPRINT),
-        rig_asset_id: hex(FULL_BODY_RIG),
-    })
 }
 
 /// Bind a compiled package to the outfit currently being worn.
@@ -782,10 +841,6 @@ pub fn detach_active_outfit_rig(profile: &mut Value) {
         if let Some(obj) = item.as_object_mut() {
             obj.remove("rigAssetId");
             obj.remove("generationFingerprint");
-            // The full figure was drawn from the portrait that just changed.
-            for key in FULL_BODY_KEYS {
-                obj.remove(key);
-            }
         }
         return;
     }
@@ -1402,56 +1457,119 @@ mod tests {
     }
 
     #[test]
-    fn the_full_figure_is_server_owned_and_follows_its_bust_portrait() {
+    fn a_full_body_set_keeps_its_own_server_owned_picture_and_rig() {
         let fingerprint = "a".repeat(64);
         let rig = "b".repeat(64);
+        let set = |extra: Value| {
+            let mut item = json!({
+                "id": "w-full",
+                "clothingStyle": "uniform",
+                "outfit": {},
+                "profile": "fullBody",
+                "referenceOutfitId": "default",
+            });
+            item.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            item
+        };
         let mut stored = json!({
             "activeOutfitId": "default",
-            "wardrobe": [{ "id": "default", "portraitAssetId": "/media/bust.png" }],
+            "wardrobe": [
+                { "id": "default", "portraitAssetId": "/media/bust.png" },
+                set(json!({})),
+            ],
         });
+        assert!(is_full_body_item(&stored["wardrobe"][1]));
         assert!(
-            !bind_active_outfit_full_body_rig(&mut stored, &rig),
-            "no full figure yet"
+            !bind_full_body_outfit_rig(&mut stored, "w-full", &rig),
+            "no picture yet"
         );
-        assert!(bind_active_outfit_full_body_portrait(
+        assert!(
+            !bind_full_body_outfit_portrait(&mut stored, "default", "/media/x.png", None),
+            "a bust set has no full figure"
+        );
+        assert!(bind_full_body_outfit_portrait(
             &mut stored,
+            "w-full",
             "/media/full.png",
             Some(&fingerprint)
         ));
-        assert!(bind_active_outfit_full_body_rig(&mut stored, &rig));
-        let full = active_outfit_full_body(Some(&stored)).unwrap();
-        assert_eq!(full.portrait_asset_id, "/media/full.png");
+        assert!(bind_full_body_outfit_rig(&mut stored, "w-full", &rig));
+        let full = full_body_outfit(Some(&stored), "w-full").unwrap();
+        assert_eq!(full.portrait_asset_id.as_deref(), Some("/media/full.png"));
         assert_eq!(full.rig_asset_id.as_deref(), Some(rig.as_str()));
+        assert_eq!(full.reference_outfit_id.as_deref(), Some("default"));
+        assert_eq!(full_body_outfit(Some(&stored), "default"), None);
         let previous = stored.as_object().unwrap().clone();
 
-        // A profile save keeps the stored full figure whatever it sends.
+        // A save keeps the stored picture, rig and reference whatever it sends,
+        // and a new bust portrait leaves the full-body set alone.
         let mut saved = json!({
             "activeOutfitId": "default",
-            "wardrobe": [{
-                "id": "default",
-                "portraitAssetId": "/media/bust.png",
-                "fullBodyRigAssetId": "c".repeat(64),
-            }],
+            "wardrobe": [
+                { "id": "default", "portraitAssetId": "/media/bust-2.png" },
+                set(json!({ "rigAssetId": "c".repeat(64), "referenceOutfitId": "w-other" })),
+            ],
         });
         reconcile_wardrobe_rigs(&mut saved, Some(&previous));
-        assert_eq!(active_outfit_full_body(Some(&saved)), Some(full));
+        assert_eq!(full_body_outfit(Some(&saved), "w-full"), Some(full));
 
-        // A new bust portrait takes the full figure drawn from the old one with it.
-        let mut redrawn = json!({
-            "activeOutfitId": "default",
-            "wardrobe": [{ "id": "default", "portraitAssetId": "/media/bust-2.png" }],
+        // A set cannot change profile once stored, either way.
+        let mut flipped = json!({
+            "wardrobe": [
+                { "id": "default", "profile": "fullBody" },
+                { "id": "w-full", "portraitAssetId": "/media/planted.png" },
+            ],
         });
-        reconcile_wardrobe_rigs(&mut redrawn, Some(&previous));
-        assert_eq!(active_outfit_full_body(Some(&redrawn)), None);
-        detach_active_outfit_rig(&mut stored);
-        assert_eq!(active_outfit_full_body(Some(&stored)), None);
+        reconcile_wardrobe_rigs(&mut flipped, Some(&previous));
+        assert!(!is_full_body_item(&flipped["wardrobe"][0]));
+        assert_eq!(flipped["wardrobe"][1]["portraitAssetId"], "/media/full.png");
 
-        // Nothing stored: a client cannot plant one.
+        // A new set brings its reference but cannot plant a picture.
         let mut planted = json!({
-            "activeOutfitId": "default",
-            "wardrobe": [{ "id": "default", "fullBodyPortraitAssetId": "/media/x.png" }],
+            "wardrobe": [set(json!({ "portraitAssetId": "/media/x.png" }))],
         });
-        reconcile_wardrobe_rigs(&mut planted, None);
-        assert_eq!(active_outfit_full_body(Some(&planted)), None);
+        reconcile_wardrobe_rigs(&mut planted, Some(&Map::new()));
+        let fresh = full_body_outfit(Some(&planted), "w-full").unwrap();
+        assert_eq!(fresh.portrait_asset_id, None);
+        assert_eq!(fresh.reference_outfit_id.as_deref(), Some("default"));
+    }
+
+    #[test]
+    fn the_default_set_is_never_a_full_figure() {
+        let identity = complete_flat()["visualIdentity"].clone();
+        let outfit: Map<String, Value> = [
+            "upperBodySilhouette",
+            "outfitConstruction",
+            "sleeveArmDesign",
+            "materialPlan",
+            "heroAccessory",
+            "paletteHint",
+            "motif",
+        ]
+        .into_iter()
+        .map(|key| (key.to_string(), identity[key].clone()))
+        .collect();
+        let item = |id: &str| json!({ "id": id, "clothingStyle": "uniform", "outfit": outfit, "profile": "fullBody" });
+        let issue = sanitize_wardrobe_checked(&json!([item("default")])).unwrap_err();
+        assert_eq!(issue.field, "0.profile");
+        let kept = sanitize_wardrobe_checked(&json!([item("w-full")])).unwrap();
+        assert!(is_full_body_item(&kept[0]));
+        let mut odd = item("w-x");
+        odd["profile"] = json!("head");
+        let issue = sanitize_wardrobe_checked(&json!([odd])).unwrap_err();
+        assert_eq!(issue.field, "0.profile");
+
+        let mut legacy = json!({
+            "visualIdentity": { "outfit": {} },
+            "clothingStyle": "uniform",
+            "wardrobe": [item("w-full"), { "id": "w-bust", "clothingStyle": "uniform", "outfit": {} }],
+            "activeOutfitId": "w-bust",
+        });
+        ensure_default_wardrobe(&mut legacy, Some(&Map::new()));
+        assert_eq!(legacy["wardrobe"][0]["id"], "w-full");
+        assert_eq!(legacy["wardrobe"][1]["id"], DEFAULT_WARDROBE_ID);
+        assert_eq!(legacy["activeOutfitId"], DEFAULT_WARDROBE_ID);
     }
 }

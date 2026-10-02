@@ -13,6 +13,7 @@ import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { userFacingError } from '../../../utils/userFacingError'
 import {
   isDefaultWardrobeItem,
+  isFullBodyItem,
   MAX_WARDROBE_NAME_CHARS,
   parseWardrobeName,
   wardrobeItemLabel,
@@ -23,6 +24,8 @@ interface Props {
   outfit: WardrobeItem
   /** She is wearing this outfit now. */
   wearing: boolean
+  /** What a full-body set is drawn from, in words. */
+  reference?: string
   /** Her character with this outfit on. */
   identity: UpperBodyVisualIdentity | null
   /** The outfit's own picture, or the master portrait while she wears it. */
@@ -43,6 +46,7 @@ interface Props {
 export function OutfitDetail({
   outfit,
   wearing,
+  reference,
   identity,
   picture,
   generating,
@@ -58,8 +62,10 @@ export function OutfitDetail({
 }: Props) {
   const { t } = useI18n()
   const o = t.agentPersona.onboarding
-  const showWear = !wearing && Boolean(picture)
-  const showGenerate = wearing || !picture
+  // A full-body set is never worn; its own panel draws and splits it.
+  const standing = isFullBodyItem(outfit)
+  const showWear = !standing && !wearing && Boolean(picture)
+  const showGenerate = !standing && (wearing || !picture)
   return (
     <div className="merope-wardrobe-page">
       <header className="merope-wardrobe-page__head">
@@ -73,7 +79,12 @@ export function OutfitDetail({
           <span>{t.common.back}</span>
         </button>
       </header>
-      {picture ? (
+      {standing ? (
+        <p className="merope-wardrobe__caption">
+          <i className="merope-wardrobe__kind">{t.merope.fullBody.badge}</i>{' '}
+          {reference}
+        </p>
+      ) : picture ? (
         <div className="merope-wardrobe-page__portrait">
           <img src={siteMediaUrl(picture)} alt="" draggable={false} />
         </div>

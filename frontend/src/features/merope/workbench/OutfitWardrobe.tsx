@@ -21,6 +21,7 @@ import { showStickyToast } from '../../../utils/toastManager'
 import {
   applyOutfit,
   isDefaultWardrobeItem,
+  isFullBodyItem,
   MAX_WARDROBE_ITEMS,
   MAX_WARDROBE_NAME_CHARS,
   newWardrobeId,
@@ -67,13 +68,25 @@ export default function OutfitWardrobe({
   const o = t.agentPersona.onboarding
   const [composing, setComposing] = useState(false)
   const [style, setStyle] = useState<ClothingStyle | null>(null)
+  const [fullBody, setFullBody] = useState(false)
+  const [referenceId, setReferenceId] = useState<string | null>(null)
   const [itemName, setItemName] = useState('')
   const [requirements, setRequirements] = useState('')
   const [generating, setGenerating] = useState(false)
   const blocked = busy || generating
   const full = items.length >= MAX_WARDROBE_ITEMS
-  const canGenerate = Boolean(identity && gender && style) && !full
   const rack = sortWardrobe(items)
+  // A full-body set can be redrawn from any bust set with a picture.
+  const references = rack.filter(
+    (item) =>
+      !isFullBodyItem(item) &&
+      (item.portraitAssetId || (item.id === activeId && portraitUrl)),
+  )
+  const reference = fullBody
+    ? (references.find((item) => item.id === referenceId) ?? null)
+    : null
+  const canGenerate =
+    Boolean(identity && gender && (reference || style)) && !full
   const current = rack.find((item) => item.id === activeId) ?? rack[0] ?? null
   const others = current
     ? rack.filter((item) => item.id !== current.id)
@@ -114,8 +127,50 @@ export default function OutfitWardrobe({
     })
   }
 
+  const resetDrawer = () => {
+    setComposing(false)
+    setStyle(null)
+    setFullBody(false)
+    setReferenceId(null)
+    setItemName('')
+    setRequirements('')
+  }
+
   const generate = async () => {
-    if (!identity || !gender || !style || blocked || full) return
+    if (!identity || !gender || blocked || full) return
+    const name = parseWardrobeName(itemName)
+    if (reference) {
+      // Redrawn from that bust set, so it wears that set's design and, unless
+      // renamed, its name.
+      const named = name ?? parseWardrobeName(labelOf(reference))
+      const item: WardrobeItem = {
+        id: newWardrobeId(),
+        clothingStyle: reference.clothingStyle,
+        outfit: reference.outfit,
+        profile: 'fullBody',
+        referenceOutfitId: reference.id,
+        ...(named ? { name: named } : {}),
+      }
+      setGenerating(true)
+      try {
+        await onCreated(item, applyOutfit(identity, item))
+        resetDrawer()
+      } catch (reason) {
+        showStickyToast({
+          message: generationFailureMessage(
+            reason,
+            o.visualDesignFailed,
+            o.generationTimeout,
+          ),
+          type: 'error',
+          replaceKey: 'merope-wardrobe',
+        })
+      } finally {
+        setGenerating(false)
+      }
+      return
+    }
+    if (!style) return
     setGenerating(true)
     try {
       const response = await agentService.suggestPersonaVisualDesign({
@@ -133,18 +188,15 @@ export default function OutfitWardrobe({
         clothingStyle: style,
         outfit: generated.outfit,
       })
-      const name = parseWardrobeName(itemName)
       const item: WardrobeItem = {
         id: newWardrobeId(),
         clothingStyle: style,
         outfit: generated.outfit,
+        ...(fullBody ? { profile: 'fullBody' as const } : {}),
         ...(name ? { name } : {}),
       }
       await onCreated(item, nextIdentity)
-      setComposing(false)
-      setStyle(null)
-      setItemName('')
-      setRequirements('')
+      resetDrawer()
     } catch (reason) {
       showStickyToast({
         message: generationFailureMessage(
@@ -220,11 +272,12 @@ export default function OutfitWardrobe({
             ) : null}
             {others.map((item) => {
               const picture = item.portraitAssetId || null
+              const standing = isFullBodyItem(item)
               return (
                 <div key={item.id} className="merope-wardrobe__set" role="listitem">
                   <button
                     type="button"
-                    className={`merope-wardrobe__garment${picture ? '' : ' merope-wardrobe__garment--fold'}`}
+                    className={`merope-wardrobe__garment${picture ? '' : ' merope-wardrobe__garment--fold'}${standing ? ' merope-wardrobe__garment--full-body' : ''}`}
                     disabled={blocked}
                     aria-pressed={false}
                     aria-label={labelOf(item)}
@@ -240,6 +293,11 @@ export default function OutfitWardrobe({
                   </button>
                   <div className="merope-wardrobe__tag">
                     <span>{labelOf(item)}</span>
+                    {standing ? (
+                      <i className="merope-wardrobe__kind">
+                        {labels.fullBody.badge}
+                      </i>
+                    ) : null}
                     {isDefaultWardrobeItem(item) ? null : (
                       <button
                         type="button"
@@ -296,6 +354,83 @@ export default function OutfitWardrobe({
       ) : null}
       {composing ? (
         <div className="merope-wardrobe__drawer">
+          <p className="merope-wardrobe__drawer-label">{labels.fullBody.kind}</p>
+          <div
+            className="merope-wardrobe__kinds"
+            role="radiogroup"
+            aria-label={labels.fullBody.kind}
+          >
+            {[false, true].map((standing) => (
+              <button
+                key={String(standing)}
+                type="button"
+                role="radio"
+                aria-checked={fullBody === standing}
+                className={`merope-wardrobe__family${fullBody === standing ? ' is-on' : ''}`}
+                disabled={blocked}
+                onClick={() => {
+                  setFullBody(standing)
+                  setReferenceId(null)
+                }}
+              >
+                <span>
+                  {standing
+                    ? labels.fullBody.kindFullBody
+                    : labels.fullBody.kindBust}
+                </span>
+              </button>
+            ))}
+          </div>
+          {fullBody ? (
+            <>
+              <p className="merope-wardrobe__drawer-label">
+                {labels.fullBody.reference}
+              </p>
+              <div
+                className="merope-wardrobe__families"
+                role="radiogroup"
+                aria-label={labels.fullBody.reference}
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={!reference}
+                  className={`merope-wardrobe__family merope-wardrobe__family--plain${reference ? '' : ' is-on'}`}
+                  disabled={blocked}
+                  onClick={() => setReferenceId(null)}
+                >
+                  <span>{labels.fullBody.referenceNone}</span>
+                </button>
+                {references.map((item) => {
+                  const picture =
+                    item.portraitAssetId ||
+                    (item.id === activeId ? portraitUrl : null)
+                  const selected = reference?.id === item.id
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      className={`merope-wardrobe__family${selected ? ' is-on' : ''}`}
+                      disabled={blocked}
+                      onClick={() => setReferenceId(item.id)}
+                    >
+                      {picture ? (
+                        <img src={siteMediaUrl(picture)} alt="" draggable={false} />
+                      ) : null}
+                      <span>{labelOf(item)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="merope-motion-home__help">
+                {labels.fullBody.referenceHint}
+              </p>
+            </>
+          ) : null}
+          {reference ? null : (
+          <>
           <p className="merope-wardrobe__drawer-label">{o.clothingStyleLabel}</p>
           <div
             className="merope-wardrobe__families"
@@ -324,6 +459,8 @@ export default function OutfitWardrobe({
               )
             })}
           </div>
+          </>
+          )}
           <Field
             label={labels.wardrobeName}
             optional
@@ -336,13 +473,16 @@ export default function OutfitWardrobe({
               maxLength={MAX_WARDROBE_NAME_CHARS}
               disabled={blocked}
               placeholder={
-                style
-                  ? styleNames[style]
-                  : labels.wardrobeNamePlaceholder
+                reference
+                  ? labelOf(reference)
+                  : style
+                    ? styleNames[style]
+                    : labels.wardrobeNamePlaceholder
               }
               onChange={(event) => setItemName(event.target.value)}
             />
           </Field>
+          {reference ? null : (
           <Field
             label={labels.wardrobeRequirements}
             optional
@@ -360,6 +500,7 @@ export default function OutfitWardrobe({
               onChange={(event) => setRequirements(event.target.value)}
             />
           </Field>
+          )}
           <div className="merope-wardrobe__actions">
             <SettingsButton
               type="button"
@@ -375,10 +516,7 @@ export default function OutfitWardrobe({
               size="sm"
               variant="secondary"
               disabled={generating}
-              onClick={() => {
-                setComposing(false)
-                setItemName('')
-              }}
+              onClick={resetDrawer}
             >
               {t.common.cancel}
             </SettingsButton>

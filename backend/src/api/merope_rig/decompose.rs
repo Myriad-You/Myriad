@@ -7,14 +7,13 @@ use axum::{
     http::{HeaderValue, StatusCode, header},
     response::Response,
 };
-use myriad_merope::CharacterAssetProfile;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{
     ApiError, ApiResult, bad_request, internal_error,
-    master::{require_master_match, valid_generation_fingerprint},
+    master::{MasterSlot, require_master_match, valid_generation_fingerprint},
     require_merope_enabled, require_owner,
 };
 use crate::{
@@ -134,14 +133,14 @@ pub async fn decompose_with_see_through(
     Extension(claims): Extension<Claims>,
     Json(payload): Json<SeeThroughDecomposeRequest>,
 ) -> ApiResult<Response> {
-    decompose_master(&db, &claims, CharacterAssetProfile::Bust, payload).await
+    decompose_master(&db, &claims, MasterSlot::WornBust, payload).await
 }
 
-/// Splits the worn outfit's master of `profile` into a PSD for the importer.
+/// Splits a master portrait into a PSD for the importer.
 pub(super) async fn decompose_master(
     db: &DatabaseConnection,
     claims: &Claims,
-    profile: CharacterAssetProfile,
+    slot: MasterSlot<'_>,
     payload: SeeThroughDecomposeRequest,
 ) -> ApiResult<Response> {
     require_merope_enabled().await?;
@@ -160,7 +159,7 @@ pub(super) async fn decompose_master(
     }
     let master = require_master_match(
         db,
-        profile,
+        slot,
         &payload.source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )
@@ -196,7 +195,7 @@ pub(super) async fn decompose_master(
     // master changed while the remote job was running.
     require_master_match(
         db,
-        profile,
+        slot,
         &payload.source_master_asset_id,
         source_generation_fingerprint.as_deref(),
     )
