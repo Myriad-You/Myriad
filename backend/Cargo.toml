@@ -92,6 +92,8 @@ base64 = "0.23"      # For audio data encoding
 flate2 = "1"         # zlib inflate for KuGou KRC (逐字歌词) decode
 # Image proxy still streams bytes only. `image` is sticker cutout fallback.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+# Pure-Rust ONNX inference for the rig's pose model (no native runtime to ship)
+tract-onnx = "0.21"
 
 # Federation (MFP - Myriad Federation Protocol)
 rsa = { version = "0.10.0-rc.18", features = ["sha2"] }  # RSA keygen/signing (digest 0.11)
