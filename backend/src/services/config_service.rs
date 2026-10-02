@@ -357,10 +357,11 @@ impl ConfigService {
         let old: Vec<&str> = legacy_ai_settings::legacy_keys()
             .filter(|key| stored.contains_key(*key))
             .collect();
-        if old.is_empty() {
+        let updates = legacy_ai_settings::upgrade(&stored);
+        if old.is_empty() && updates.is_empty() {
             return Ok(0);
         }
-        Self::update_configs_on(&txn, legacy_ai_settings::upgrade(&stored)).await?;
+        Self::update_configs_on(&txn, updates).await?;
         txn.execute_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
             "DELETE FROM configurations WHERE key = ANY($1)",

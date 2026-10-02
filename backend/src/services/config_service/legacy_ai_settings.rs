@@ -165,10 +165,55 @@ pub(crate) fn upgrade(stored: &HashMap<String, JsonValue>) -> HashMap<String, Js
         seen.extend(out.clone());
         upgrade_agora(&seen, &mut out);
     }
+    // Sources stored without a credential mode (or as a JSON string) get the
+    // mode they always resolved to, written down.
+    let mut seen = stored.clone();
+    seen.extend(out.clone());
+    if let Some(sources) = settle_sources(&seen) {
+        out.insert("ai_vendor_sources".to_string(), sources);
+    }
     // A stage may fill an old key a later one moves on (the shared OpenAI
     // endpoint onto its sources); none is written back.
     out.retain(|key, _| !is_legacy_key(key));
     out
+}
+
+/// A source as stored JSON, its credential mode settled.
+fn settled(mut source: crate::config::AiVendorSource) -> JsonValue {
+    source.settle_credential_mode();
+    serde_json::to_value(source).expect("a vendor source is JSON")
+}
+
+/// The stored source list with every unsettled source settled, as an array;
+/// `None` when it already is one with nothing to settle. Only the mode and
+/// its key ref are written into each object; other fields stay as stored.
+fn settle_sources(stored: &HashMap<String, JsonValue>) -> Option<JsonValue> {
+    let raw = stored.get("ai_vendor_sources")?;
+    let mut changed = raw.is_string();
+    let mut sources = stored_sources(stored);
+    for source in &mut sources {
+        let blank = source
+            .get("credential_mode")
+            .and_then(JsonValue::as_str)
+            .is_none_or(|mode| mode.trim().is_empty());
+        if !blank {
+            continue;
+        }
+        let Some(fields) = source.as_object_mut() else {
+            continue;
+        };
+        fields.remove("credential_mode");
+        let Ok(mut parsed) = serde_json::from_value::<crate::config::AiVendorSource>(
+            JsonValue::Object(fields.clone()),
+        ) else {
+            continue;
+        };
+        parsed.settle_credential_mode();
+        fields.insert("credential_mode".to_string(), json!(parsed.credential_mode));
+        fields.insert("shared_key_ref".to_string(), json!(parsed.shared_key_ref));
+        changed = true;
+    }
+    changed.then_some(JsonValue::Array(sources))
 }
 
 fn upgrade_tiers(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, JsonValue>) {
@@ -429,20 +474,17 @@ fn upgrade_vault(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, 
     };
     // Tencent speech fell back to the setting with no Tencent source at all.
     if tencent && !has_kind(&sources, "tencent") {
-        sources.push(
-            serde_json::to_value(crate::config::AiVendorSource {
-                slug: "tencent".to_string(),
-                kind: "tencent".to_string(),
-                display_name: "Tencent Cloud".to_string(),
-                enabled: true,
-                preset: "tencent".to_string(),
-                secret_id: tencent_id.clone(),
-                secret_key: tencent_key.clone(),
-                region: Some(tencent_region.unwrap_or_else(|| "ap-guangzhou".to_string())),
-                ..Default::default()
-            })
-            .expect("a vendor source is JSON"),
-        );
+        sources.push(settled(crate::config::AiVendorSource {
+            slug: "tencent".to_string(),
+            kind: "tencent".to_string(),
+            display_name: "Tencent Cloud".to_string(),
+            enabled: true,
+            preset: "tencent".to_string(),
+            secret_id: tencent_id.clone(),
+            secret_key: tencent_key.clone(),
+            region: Some(tencent_region.unwrap_or_else(|| "ap-guangzhou".to_string())),
+            ..Default::default()
+        }));
     }
     // The built-in `openai` / `volcengine` slug with no row used the custom
     // shared endpoint too.
@@ -477,7 +519,7 @@ fn stored_sources(stored: &HashMap<String, JsonValue>) -> Vec<JsonValue> {
 
 /// A source on a shared key, as an empty list was synthesized.
 fn shared_source(slug: &str, kind: &str, name: &str, base: &str) -> JsonValue {
-    serde_json::to_value(crate::config::AiVendorSource {
+    settled(crate::config::AiVendorSource {
         slug: slug.to_string(),
         kind: kind.to_string(),
         display_name: name.to_string(),
@@ -493,7 +535,6 @@ fn shared_source(slug: &str, kind: &str, name: &str, base: &str) -> JsonValue {
         base_url: base.to_string(),
         ..Default::default()
     })
-    .expect("a vendor source is JSON")
 }
 
 /// What an empty list stood for: a source per shared key that is set.
@@ -544,23 +585,20 @@ fn upgrade_agora(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, 
     let switched_on = stored.get("agora_convo_enabled").is_some_and(|value| {
         value.as_bool() == Some(true) || matches!(value.as_str(), Some("true" | "1"))
     });
-    sources.push(
-        serde_json::to_value(crate::config::AiVendorSource {
-            slug: "agora".to_string(),
-            kind: "agora".to_string(),
-            display_name: "Shengwang / Agora".to_string(),
-            enabled: switched_on,
-            preset: "agora".to_string(),
-            api_key: certificate,
-            secret_id: customer_id,
-            secret_key: customer_secret,
-            app_id,
-            base_url: filled(stored, "agora_api_base")
-                .unwrap_or_else(|| "https://api.agora.io/cn".to_string()),
-            ..Default::default()
-        })
-        .expect("a vendor source is JSON"),
-    );
+    sources.push(settled(crate::config::AiVendorSource {
+        slug: "agora".to_string(),
+        kind: "agora".to_string(),
+        display_name: "Shengwang / Agora".to_string(),
+        enabled: switched_on,
+        preset: "agora".to_string(),
+        api_key: certificate,
+        secret_id: customer_id,
+        secret_key: customer_secret,
+        app_id,
+        base_url: filled(stored, "agora_api_base")
+            .unwrap_or_else(|| "https://api.agora.io/cn".to_string()),
+        ..Default::default()
+    }));
     out.insert("ai_vendor_sources".to_string(), JsonValue::Array(sources));
 }
 
@@ -904,7 +942,7 @@ mod tests {
             ("agora_app_id", json!("old")),
             (
                 "ai_vendor_sources",
-                json!([{"slug": "agora", "kind": "agora", "display_name": "A", "enabled": true}]),
+                json!([{"slug": "agora", "kind": "agora", "display_name": "A", "enabled": true, "credential_mode": "none"}]),
             ),
         ]));
         assert!(!listed.contains_key("ai_vendor_sources"));
@@ -913,5 +951,40 @@ mod tests {
             ("agora_app_id", json!("")),
         ]));
         assert!(blank.is_empty(), "{blank:?}");
+    }
+
+    #[test]
+    fn sources_without_a_mode_get_the_one_they_always_had() {
+        let out = upgrade(&stored(&[(
+            "ai_vendor_sources",
+            json!([
+                {"slug": "own", "kind": "openai_compatible", "display_name": "Own", "enabled": true, "api_key": "sk", "base_url": "https://llm.example/v1", "extra": 1},
+                {"slug": "openrouter", "kind": "openrouter", "display_name": "OR", "enabled": true},
+                {"slug": "proxy", "kind": "openai", "display_name": "Proxy", "enabled": true, "base_url": "https://proxy.example/v1"},
+                {"slug": "set", "kind": "openai", "display_name": "Set", "enabled": true, "credential_mode": "none"}
+            ]),
+        )]));
+        let sources = out["ai_vendor_sources"].as_array().unwrap();
+        assert_eq!(sources[0]["credential_mode"], json!("own"));
+        assert_eq!(sources[0]["extra"], json!(1), "other fields stay as stored");
+        assert_eq!(sources[1]["credential_mode"], json!("shared"));
+        assert_eq!(sources[1]["shared_key_ref"], json!("openrouter"));
+        assert_eq!(sources[2]["credential_mode"], json!("none"));
+        assert_eq!(sources[3]["credential_mode"], json!("none"));
+
+        // Already settled, as an array: nothing to write.
+        let settled = upgrade(&stored(&[(
+            "ai_vendor_sources",
+            json!([{"slug": "a", "kind": "openai", "display_name": "A", "enabled": true, "credential_mode": "none"}]),
+        )]));
+        assert!(settled.is_empty(), "{settled:?}");
+        // A JSON string becomes an array.
+        let string = upgrade(&stored(&[(
+            "ai_vendor_sources",
+            json!(
+                r#"[{"slug":"a","kind":"openai","display_name":"A","enabled":true,"credential_mode":"none"}]"#
+            ),
+        )]));
+        assert!(string["ai_vendor_sources"].is_array());
     }
 }

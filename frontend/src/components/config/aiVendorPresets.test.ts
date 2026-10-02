@@ -219,16 +219,16 @@ it('creates native Anthropic and Gemini sources with their wire protocols', () =
   }
 })
 
-it('keeps legacy Gemini native and custom endpoints off shared credentials', () => {
+it('reads the stored credential mode and never guesses one', () => {
   assert.equal(apiFormatForSource({ kind: 'gemini' }), 'gemini')
   assert.equal(apiFormatForSource({ kind: 'openai' }), 'openai')
   assert.equal(apiFormatForSource({ kind: 'gemini', api_format: 'openai' }), 'openai')
   const custom = { kind: 'openai', base_url: 'https://proxy.example/v1' }
   assert.equal(credentialModeForSource(custom), 'none')
   assert.equal(sharedKeyRefForSource(custom), null)
-  assert.equal(credentialModeForSource({ ...custom, api_key: 'key' }), 'own')
+  assert.equal(credentialModeForSource({ ...custom, credential_mode: 'own', api_key: 'key' }), 'own')
   assert.equal(sharedKeyRefForSource({ ...custom, credential_mode: 'shared', shared_key_ref: 'openai' }), 'openai')
-  assert.equal(sharedKeyRefForSource({ kind: 'gemini' }), 'gemini')
+  assert.equal(sharedKeyRefForSource({ kind: 'gemini' }), null)
 })
 
 it('creates independent custom sources with explicit unauthenticated mode', () => {

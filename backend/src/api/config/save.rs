@@ -226,6 +226,7 @@ fn merge_vendor_source_secrets_with(
                     })?,
             );
         }
+        source.settle_credential_mode();
     }
     serde_json::to_value(sources).map_err(|error| error.to_string())
 }

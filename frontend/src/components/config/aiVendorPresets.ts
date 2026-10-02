@@ -564,44 +564,14 @@ function sharedKeyRefForPreset(
   }
 }
 
-function canonicalLegacySharedKeyRef(
-  source: Pick<AiVendorSource, 'kind' | 'base_url'>,
-): SharedAiKeyRef | null {
-  const baseUrl = (source.base_url || '').trim().replace(/\/+$/, '')
-  switch (source.kind.trim().toLowerCase()) {
-    case 'openai':
-      return !baseUrl || baseUrl === 'https://api.openai.com/v1'
-        ? 'openai'
-        : null
-    case 'openai_compatible':
-      return baseUrl === 'https://api.openai.com/v1' ? 'openai' : null
-    case 'openrouter':
-      return !baseUrl || baseUrl === 'https://openrouter.ai/api/v1'
-        ? 'openrouter'
-        : null
-    case 'gemini':
-      return !baseUrl || baseUrl === 'https://generativelanguage.googleapis.com'
-        ? 'gemini'
-        : null
-    case 'volcengine':
-      return !baseUrl || baseUrl === 'https://ark.cn-beijing.volces.com/api/v3'
-        ? 'volcengine'
-        : null
-    default:
-      return null
-  }
-}
-
 export function credentialModeForSource(
   source: Pick<
     AiVendorSource,
     'kind' | 'base_url' | 'api_key' | 'credential_mode'
   >,
 ): string {
-  const explicit = source.credential_mode?.trim()
-  if (explicit) return explicit
-  if (source.api_key?.trim()) return 'own'
-  return canonicalLegacySharedKeyRef(source) ? 'shared' : 'none'
+  // The server settles every source's mode before it stores one.
+  return source.credential_mode?.trim() || 'none'
 }
 
 export function sharedKeyRefForSource(
@@ -619,8 +589,7 @@ export function sharedKeyRefForSource(
   ) {
     return source.shared_key_ref
   }
-  if (source.credential_mode) return null
-  return canonicalLegacySharedKeyRef(source)
+  return null
 }
 
 export function apiFormatForSource(

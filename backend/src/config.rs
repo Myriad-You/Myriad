@@ -103,6 +103,56 @@ impl AiVendorSource {
         )
     }
 
+    /// Give a source with no credential mode the one it always had: its own
+    /// key when it has one, else the shared key of its vendor on that vendor's
+    /// own endpoint, else none. Every writer settles a source before storing
+    /// it, so reading never has to guess.
+    pub fn settle_credential_mode(&mut self) {
+        if !self.credential_mode.trim().is_empty() {
+            return;
+        }
+        if self
+            .api_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty())
+        {
+            self.credential_mode = "own".to_string();
+        } else if let Some(key_ref) = self.canonical_shared_key_ref() {
+            self.credential_mode = "shared".to_string();
+            self.shared_key_ref = Some(key_ref.to_string());
+        } else {
+            self.credential_mode = "none".to_string();
+            self.shared_key_ref = None;
+        }
+    }
+
+    fn canonical_shared_key_ref(&self) -> Option<&'static str> {
+        let kind = self.kind.trim().to_ascii_lowercase();
+        let base_url = self.base_url.trim().trim_end_matches('/');
+        match kind.as_str() {
+            "openai" if base_url.is_empty() || base_url == "https://api.openai.com/v1" => {
+                Some("openai")
+            }
+            "openai_compatible" if base_url == "https://api.openai.com/v1" => Some("openai"),
+            "openrouter" if base_url.is_empty() || base_url == "https://openrouter.ai/api/v1" => {
+                Some("openrouter")
+            }
+            "gemini"
+                if base_url.is_empty()
+                    || base_url == "https://generativelanguage.googleapis.com" =>
+            {
+                Some("gemini")
+            }
+            "volcengine"
+                if base_url.is_empty()
+                    || base_url == "https://ark.cn-beijing.volces.com/api/v3" =>
+            {
+                Some("volcengine")
+            }
+            _ => None,
+        }
+    }
+
     pub fn is_agora(&self) -> bool {
         let slug = self.slug.trim().to_ascii_lowercase();
         self.kind.trim().eq_ignore_ascii_case("agora")
@@ -1106,36 +1156,9 @@ impl DynamicConfig {
         }
     }
 
-    fn canonical_source_shared_key_ref(source: &AiVendorSource) -> Option<&'static str> {
-        let kind = source.kind.trim().to_ascii_lowercase();
-        let base_url = source.base_url.trim().trim_end_matches('/');
-        match kind.as_str() {
-            "openai" if base_url.is_empty() || base_url == "https://api.openai.com/v1" => {
-                Some("openai")
-            }
-            "openai_compatible" if base_url == "https://api.openai.com/v1" => Some("openai"),
-            "openrouter" if base_url.is_empty() || base_url == "https://openrouter.ai/api/v1" => {
-                Some("openrouter")
-            }
-            "gemini"
-                if base_url.is_empty()
-                    || base_url == "https://generativelanguage.googleapis.com" =>
-            {
-                Some("gemini")
-            }
-            "volcengine"
-                if base_url.is_empty()
-                    || base_url == "https://ark.cn-beijing.volces.com/api/v3" =>
-            {
-                Some("volcengine")
-            }
-            _ => None,
-        }
-    }
-
     /// Resolve a source credential without exposing it outside the backend.
-    /// Missing mode is the legacy shape: prefer the source key, then borrow only
-    /// from a matching vendor on its canonical endpoint.
+    /// A source without a mode resolves to nothing: every writer settles it
+    /// (`AiVendorSource::settle_credential_mode`).
     pub fn resolve_source_credential(&self, source: &AiVendorSource) -> ResolvedAiCredential {
         match source.credential_mode.trim() {
             "own" => ResolvedAiCredential {
@@ -1170,24 +1193,6 @@ impl DynamicConfig {
                 api_key: None,
                 origin: AiCredentialOrigin::None,
             },
-            "" => {
-                if let Some(api_key) = Self::nonempty_opt(source.api_key.as_ref()) {
-                    return ResolvedAiCredential {
-                        api_key: Some(api_key),
-                        origin: AiCredentialOrigin::Own,
-                    };
-                }
-                let Some(key_ref) = Self::canonical_source_shared_key_ref(source) else {
-                    return ResolvedAiCredential {
-                        api_key: None,
-                        origin: AiCredentialOrigin::None,
-                    };
-                };
-                ResolvedAiCredential {
-                    api_key: self.shared_api_key_by_ref(key_ref),
-                    origin: AiCredentialOrigin::Shared(key_ref.to_string()),
-                }
-            }
             _ => ResolvedAiCredential {
                 api_key: None,
                 origin: AiCredentialOrigin::Invalid,
@@ -1259,25 +1264,11 @@ impl DynamicConfig {
     }
 
     pub fn effective_vendor_sources(&self) -> Vec<AiVendorSource> {
-        let mut sources = if self.ai_vendor_sources.is_empty() {
+        if self.ai_vendor_sources.is_empty() {
             self.synthesize_vendor_sources()
         } else {
             self.ai_vendor_sources.clone()
-        };
-        for source in &mut sources {
-            if source.credential_mode.trim().is_empty() {
-                if Self::nonempty_opt(source.api_key.as_ref()).is_some() {
-                    source.credential_mode = "own".to_string();
-                } else if let Some(key_ref) = Self::canonical_source_shared_key_ref(source) {
-                    source.credential_mode = "shared".to_string();
-                    source.shared_key_ref = Some(key_ref.to_string());
-                } else {
-                    source.credential_mode = "none".to_string();
-                    source.shared_key_ref = None;
-                }
-            }
         }
-        sources
     }
 
     pub fn find_vendor_source(&self, slug: &str) -> Option<AiVendorSource> {
@@ -1638,7 +1629,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_official_vendor_source_keeps_using_its_shared_key() {
+    fn an_unsettled_source_settles_to_what_it_always_resolved_to() {
         let source: AiVendorSource = serde_json::from_value(serde_json::json!({
             "slug": "openai-work",
             "kind": "openai",
@@ -1651,16 +1642,19 @@ mod tests {
         .expect("legacy official source");
         let config = DynamicConfig {
             provider_openai_api_key: Some("shared-openai-key".to_string()),
-            ai_vendor_sources: vec![source.clone()],
             ..DynamicConfig::default()
         };
-
-        let resolved = config.resolve_from_vendor_source(&source, "gpt-x");
-
+        // Unsettled, it resolves to nothing: every writer settles first.
+        assert_eq!(
+            config.resolve_source_credential(&source).origin,
+            AiCredentialOrigin::Invalid
+        );
+        let mut settled = source;
+        settled.settle_credential_mode();
+        assert_eq!(settled.credential_mode, "shared");
+        assert_eq!(settled.shared_key_ref.as_deref(), Some("openai"));
+        let resolved = config.resolve_from_vendor_source(&settled, "gpt-x");
         assert_eq!(resolved.api_key.as_deref(), Some("shared-openai-key"));
-        let normalized = config.effective_vendor_sources();
-        assert_eq!(normalized[0].credential_mode, "shared");
-        assert_eq!(normalized[0].shared_key_ref.as_deref(), Some("openai"));
     }
 
     #[test]
@@ -1670,11 +1664,12 @@ mod tests {
             provider_openrouter_api_key: Some("shared-openrouter-key".to_string()),
             ..DynamicConfig::default()
         };
-        let custom = AiVendorSource {
+        let mut custom = AiVendorSource {
             kind: "custom".to_string(),
             base_url: "https://gateway.example/v1".to_string(),
             ..AiVendorSource::default()
         };
+        custom.settle_credential_mode();
         assert_eq!(
             config.resolve_source_credential(&custom),
             ResolvedAiCredential {
@@ -1683,16 +1678,17 @@ mod tests {
             }
         );
 
-        let customized_openai = AiVendorSource {
+        let mut customized_openai = AiVendorSource {
             kind: "openai".to_string(),
             preset: "openai".to_string(),
             base_url: "https://proxy.example/v1".to_string(),
             ..AiVendorSource::default()
         };
+        customized_openai.settle_credential_mode();
         assert_eq!(
             config.resolve_source_credential(&customized_openai).api_key,
             None,
-            "legacy inference must not send the OpenAI key to a custom endpoint"
+            "settling never sends the OpenAI key to a custom endpoint"
         );
 
         let explicitly_shared = AiVendorSource {
@@ -2173,6 +2169,7 @@ mod tests {
                 display_name: "Local".to_string(),
                 enabled: true,
                 api_format: String::new(),
+                credential_mode: "none".to_string(),
                 base_url: "http://127.0.0.1:11434/v1".to_string(),
                 ..AiVendorSource::default()
             }],

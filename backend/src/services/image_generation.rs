@@ -1890,6 +1890,7 @@ mod tests {
             enabled: true,
             preset: "gemini".to_string(),
             api_format: "gemini".to_string(),
+            credential_mode: "own".to_string(),
             api_key: Some("AIza-source".to_string()),
             ..crate::config::AiVendorSource::default()
         }];
