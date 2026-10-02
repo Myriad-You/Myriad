@@ -2780,10 +2780,8 @@ checksum = "c2a86d3146ed3995b5913c414f6664344b9617457320782e64f0bb44afd49d74"
 name = "migration"
 version = "0.6.1"
 dependencies = [
- "myriad-phantasi",
  "sea-orm",
  "sea-orm-migration",
- "serde_json",
  "tokio",
 ]
 
