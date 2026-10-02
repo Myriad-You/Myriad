@@ -23,6 +23,8 @@ export interface FaceSpeechLine {
   source?: 'reply' | 'proactive' | 'interaction' | 'preview'
   locale?: string
   performance?: unknown
+  /** Said in her own voice: the stream its sound is on. */
+  voice?: string
 }
 
 export interface FaceDelivery {
@@ -215,6 +217,7 @@ export function deliverProactiveFace(
     body?: string
     performance?: unknown
     meropeState?: unknown
+    voice?: string
   },
 ): FaceDelivery {
   const text = notification.body?.trim() ? notification.body : undefined
@@ -237,6 +240,7 @@ export function deliverProactiveFace(
     text: notification.body,
     source: 'proactive',
     performance: notification.performance,
+    ...(notification.voice ? { voice: notification.voice } : {}),
   })
 }
 
@@ -287,6 +291,7 @@ export function deliverGatedLine(
       ...(line.runId ? { runId: line.runId } : {}),
       ...(line.source ? { source: line.source } : {}),
       speechText: text,
+      ...(line.voice ? { speechVoice: line.voice } : {}),
       ...(line.touchContinuation ? { touchContinuation: true } : {}),
       ...(performance ? { performance } : {}),
     })
@@ -299,7 +304,7 @@ export function deliverGatedLine(
     }
     return { surface: 'speech', messageId: line.messageId }
   }
-  if (text && speakUnmountedLine(line.messageId, text, line.source)) {
+  if (text && speakUnmountedLine(line.messageId, text, line.source, line.voice)) {
     if (line.performance) {
       channel.deliver({ ...line, text: undefined })
     }
@@ -314,6 +319,7 @@ function speakUnmountedLine(
   messageId: string,
   text: string,
   source: FaceSpeechLine['source'] = 'reply',
+  voice?: string,
 ): boolean {
   return getSpeechPipeline().speakLine({
     messageId,
@@ -321,5 +327,6 @@ function speakUnmountedLine(
     generation: source === 'reply' ? liveMotionGeneration() : 0,
     source,
     interrupt: 'queue',
+    ...(voice ? { voice } : {}),
   })
 }

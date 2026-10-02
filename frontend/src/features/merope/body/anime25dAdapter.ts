@@ -59,6 +59,7 @@ export class Anime25DBodyAdapter implements BodyAdapter {
         generation,
         source,
         interrupt: 'queue',
+        ...(intent.speechVoice ? { voice: intent.speechVoice } : {}),
       })
     }
     if (intent.performance?.plan) {

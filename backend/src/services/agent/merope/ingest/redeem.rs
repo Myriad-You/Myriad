@@ -99,7 +99,23 @@ async fn redeem_speak_intent(
     let shown = decision.live
         || (source_intent_id.is_some() && is_valuable_event(&intent.topic))
         || speech_is_shown(&intent.topic, decision.notify);
-    let spoken = if touch {
+    // Said in person while her voice is Omni's: the line is made and said in
+    // one breath, its sound on a stream of its own for the face to play.
+    let omni = if decision.live {
+        crate::GLOBAL_DYNAMIC_CONFIG
+            .read()
+            .await
+            .merope_omni_voice()
+            .ok()
+    } else {
+        None
+    };
+    let voice = omni.and_then(|omni| {
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        let out = crate::services::omni_voice::voice_out(&token, intent.user_id)?;
+        Some((omni, out, token))
+    });
+    let spoken = if touch && voice.is_none() {
         // The consciousness decision already contains the in-person sentence.
         // Do not paraphrase it in a second model call or invent a fallback.
         sanitize_speech(&intent.gist)
@@ -107,7 +123,10 @@ async fn redeem_speak_intent(
         // Background composition does not own the foreground activity. A late
         // completion must not reset a newer Chat/Work task to idle.
         // Nothing composed, nothing said: she never speaks a stock line.
-        match compose_line(db, intent.user_id, &intent.gist).await {
+        // A touch's sentence is already decided; said in her own voice it is
+        // what she means to say, and what she says is the line.
+        let saying = voice.as_ref().map(|(omni, out, _)| (omni, out));
+        match compose_line(db, intent.user_id, &intent.gist, saying).await {
             Some(line) => line,
             None => {
                 log_skip(intent.user_id, &intent.topic, "not_composed");
@@ -210,6 +229,7 @@ async fn redeem_speak_intent(
             performance.as_ref(),
             motion_mood.as_ref(),
             source_intent_id,
+            voice.as_ref().map(|(_, _, token)| token.as_str()),
         );
         if delivered {
             claim.delivered(&intent, repeat_minutes);
@@ -310,7 +330,17 @@ fn speech_is_shown(event_key: &str, notify: bool) -> bool {
     notify && merope_owns_notify(event_key)
 }
 
-async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> Option<String> {
+/// The line she says about `summary`, as she would put it; with `voice`, in
+/// her own voice, its sound sent as it is made.
+async fn compose_line(
+    db: &DatabaseConnection,
+    user_id: i32,
+    summary: &str,
+    voice: Option<(
+        &crate::config::OmniVoice,
+        &crate::services::omni_voice::VoiceOut,
+    )>,
+) -> Option<String> {
     let model = super::super::call::Ask::new(super::super::call::Voice::Hers, user_id, "speak")
         .within(std::time::Duration::from_secs(30))
         .model()
@@ -346,7 +376,30 @@ async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> O
     let system =
         super::super::speaking_prompts::compose_proactive_system(&soul, &mind, &recent_block);
     let prompt = super::super::speaking_prompts::compose_proactive_user(summary);
-    match model.text(&system, &prompt).await {
+    let made = match voice {
+        Some((omni, out)) => {
+            let aloud = crate::services::omni_voice::said_aloud(&format!("{system}\n\n{prompt}"));
+            let mut unsaid = crate::services::omni_voice::Unsaid::default();
+            crate::services::omni_voice::speak(omni, &aloud, &[], None, |piece| {
+                match piece {
+                    crate::services::omni_voice::OmniDelta::Text(text) => unsaid.written(&text),
+                    crate::services::omni_voice::OmniDelta::Audio(sound) => {
+                        if unsaid.lets_through() {
+                            out.send(&sound);
+                        }
+                    }
+                }
+                async { true }
+            })
+            .await
+            .map_err(|error| error.to_string())
+        }
+        None => model
+            .text(&system, &prompt)
+            .await
+            .map_err(|error| error.to_string()),
+    };
+    match made {
         Ok(raw) => {
             let spoken = sanitize_speech(&raw);
             (!is_trivial_line(&spoken)).then_some(spoken)
@@ -394,6 +447,7 @@ fn emit_live_speech(
     performance: Option<&PerformanceDirective>,
     mood: Option<&MoodTransition>,
     source_intent_id: Option<&str>,
+    voice: Option<&str>,
 ) -> bool {
     let Some(manager) = get_notification_manager() else {
         return false;
@@ -408,6 +462,7 @@ fn emit_live_speech(
             merope_state: mood
                 .map(|mood| serde_json::json!({ "mood": mood, "activity": "talking" })),
             intention_id: source_intent_id.map(str::to_string),
+            voice: voice.map(str::to_string),
         },
     )
 }

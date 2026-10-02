@@ -13,6 +13,8 @@ export interface BodyIntent {
   runId?: string
   source?: MeropePerformanceEventDetail['source']
   speechText?: string
+  /** Said in her own voice: the stream its sound is on (see `speakLine`). */
+  speechVoice?: string
   messageId?: string
   performance?: PerformanceDirective
   /** Update only a currently playing matching line */

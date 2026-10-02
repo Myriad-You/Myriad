@@ -1,7 +1,11 @@
 import type { SpeechStatus } from '../../../services/speechApi'
 import type { MeropeSpeechSource } from './speechEvents'
 import type { SpeechInterruptMode, SpeechSegment } from './speechSegmenter'
-import { getSpeechStatus, textToSpeech } from '../../../services/speechApi'
+import {
+  getSpeechStatus,
+  openVoiceStream,
+  textToSpeech,
+} from '../../../services/speechApi'
 import { authSubject } from '../../../utils/authSubject'
 import { markTurnTraceOnce, noteTurnTraceCancelToSilence } from '../events/turnTrace'
 import { speakableText } from './speakableText'
@@ -211,6 +215,42 @@ export class SpeechPipelineHost {
     }
   }
 
+  /**
+   * A line already said in her own voice: its sound played as it comes;
+   * read aloud instead only if no sound comes at all.
+   */
+  private hearOwnVoice(
+    input: {
+      messageId: string
+      text: string
+      generation?: number
+      source?: MeropeSpeechSource
+      interrupt?: SpeechInterruptMode
+    },
+    voice: string,
+  ): boolean {
+    const stream = this.openStream(
+      input.messageId,
+      input.generation ?? 0,
+      input.source ?? 'proactive',
+    )
+    if (!stream) return false
+    let heard = false
+    void openVoiceStream(voice, new AbortController().signal, (bytes) => {
+      heard = true
+      stream.push(bytes)
+    })
+      .catch(() => 0)
+      .then(() => {
+        stream.end()
+        if (heard || this.cancelledMessageIds.has(input.messageId)) return
+        // No sound came: her words, read aloud.
+        this.fedMessageIds.delete(input.messageId)
+        this.speakLine({ ...input, voice: undefined })
+      })
+    return true
+  }
+
   private stopStream(messageId?: string): boolean {
     if (!this.stream) return false
     if (messageId && this.stream.messageId !== messageId) return false
@@ -224,11 +264,15 @@ export class SpeechPipelineHost {
     generation?: number
     source?: MeropeSpeechSource
     interrupt?: SpeechInterruptMode
+    /** Said in her own voice: the stream its sound is on. */
+    voice?: string
   }): boolean {
     if (this.cancelledMessageIds.has(input.messageId)) return true
     if (!this.enabled) return false
     const text = speakableText(input.text)
     if (!text) return false
+    if (input.voice && this.ownVoice && this.hearOwnVoice(input, input.voice))
+      return true
     const interrupt = input.interrupt ?? 'queue'
     const splitter = new SpeechSegmenter(
       input.messageId,

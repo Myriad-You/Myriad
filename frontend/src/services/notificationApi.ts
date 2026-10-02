@@ -53,6 +53,8 @@ export interface LiveSpeechEvent {
   performance?: unknown
   merope_state?: unknown
   intention_id?: string
+  /** Said in her own voice: the stream its sound is on, heard instead of `body`. */
+  voice?: string
 }
 
 export type NotificationStreamEvent =

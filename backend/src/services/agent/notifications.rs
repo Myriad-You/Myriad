@@ -262,6 +262,10 @@ pub struct LiveSpeech {
     pub merope_state: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub intention_id: Option<String>,
+    /// Said in her own voice (Omni): the token of the stream its sound is on
+    /// (`GET /api/speech/voice/{token}`), heard instead of reading `body`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
 }
 
 pub fn event_is_for_user(event: &NotificationEvent, user_id: i32) -> bool {
@@ -964,6 +968,7 @@ mod tests {
             performance: None,
             merope_state: None,
             intention_id: None,
+            voice: None,
         };
         assert!(!manager.emit_live_speech(2, speech()));
         let mut stream = manager.subscribe();
@@ -1170,6 +1175,7 @@ mod tests {
                 performance: None,
                 merope_state: None,
                 intention_id: None,
+                voice: None,
             },
         };
         assert!(event_is_for_user(&live, 2));

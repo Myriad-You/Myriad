@@ -157,6 +157,7 @@ export function useControlPanelNotifications({
       body: string
       performance?: unknown
       merope_state?: unknown
+      voice?: string
     }) => {
       void Promise.all([
         import('../../features/merope/presence/faceSpeechArbitration'),
@@ -168,6 +169,7 @@ export function useControlPanelNotifications({
           body: speech.body,
           performance: speech.performance,
           meropeState: speech.merope_state,
+          ...(speech.voice ? { voice: speech.voice } : {}),
         })
       })
     },
