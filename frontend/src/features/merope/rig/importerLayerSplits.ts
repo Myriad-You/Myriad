@@ -1,4 +1,4 @@
-import type { Psd } from 'ag-psd'
+import type { Layer, Psd } from 'ag-psd'
 import type { EyeSide, RasterLayer } from './anime25dImportTypes'
 import { canonicalAnime25DLayerName } from './anime25dLayerSemantics'
 import { rasterBounds, trimRaster, uniquePartId } from './anime25dRaster'
@@ -86,7 +86,7 @@ export function splitLowerLimbsIfNeeded(layers: RasterLayer[]): RasterLayer[] {
   const reference =
     layers.find((layer) => layer.role === 'legwear' && !layer.side) ??
     layers.find((layer) => layer.role === 'footwear' && !layer.side)
-  const midline = reference ? alphaCenterX(reference) : null
+  const midline = reference ? (alphaCenter(reference)?.x ?? null) : null
   if (midline === null) return layers
   const output: RasterLayer[] = []
   const usedIds = new Set(layers.map((layer) => layer.id))
@@ -109,20 +109,6 @@ export function splitLowerLimbsIfNeeded(layers: RasterLayer[]): RasterLayer[] {
     }
   }
   return output
-}
-
-function alphaCenterX(layer: RasterLayer): number | null {
-  let weight = 0
-  let sum = 0
-  for (let y = 0; y < layer.height; y += 1) {
-    for (let x = 0; x < layer.width; x += 1) {
-      const alpha = layer.data[(y * layer.width + x) * 4 + 3]
-      if (alpha <= ALPHA_COMPONENT_THRESHOLD) continue
-      weight += alpha
-      sum += alpha * x
-    }
-  }
-  return weight > 0 ? layer.left + sum / weight : null
 }
 
 /** Keeps the part of a layer on one side of a canvas column. */
@@ -172,6 +158,117 @@ export function stackOpenEyesInOrder(layers: RasterLayer[]): RasterLayer[] {
     })
   }
   return output
+}
+
+function alphaCenter(layer: RasterLayer): { x: number; y: number } | null {
+  let weight = 0
+  let sumX = 0
+  let sumY = 0
+  for (let y = 0; y < layer.height; y += 1) {
+    for (let x = 0; x < layer.width; x += 1) {
+      const alpha = layer.data[(y * layer.width + x) * 4 + 3]
+      if (alpha <= ALPHA_COMPONENT_THRESHOLD) continue
+      weight += alpha
+      sumX += alpha * x
+      sumY += alpha * y
+    }
+  }
+  return weight > 0
+    ? { x: layer.left + sumX / weight, y: layer.top + sumY / weight }
+    : null
+}
+
+/**
+ * A decomposer working on a small face can lose one eye's white while keeping
+ * that eye's iris and lashes. Without a white the rigger anchors no eye there,
+ * and no closed or expression eyes follow. Before rigging, give that eye the
+ * other eye's white, mirrored and placed where it sits relative to its own
+ * iris; it stays under iris and lashes, so only its outline shows.
+ */
+export function mirrorLostEyeWhite(
+  psd: Psd,
+  baseName: (name: string) => string,
+): void {
+  const layers = (psd.children ?? []).filter((layer) => layer.imageData)
+  const named = (name: string) =>
+    layers.filter((layer) => baseName(layer.name ?? '') === name)
+  const face = named('face')[0]
+  const whites = named('eyewhite')
+  const faceCenter = face && psdLayersCenter([face])
+  if (!faceCenter || whites.length !== 1) return
+  const white = whites[0]
+  const whiteCenter = psdLayersCenter([white])!
+  const whiteLeft = whiteCenter.x < faceCenter.x
+  const pixels = white.imageData!
+  const left = white.left ?? 0
+  const top = white.top ?? 0
+  for (let y = 0; y < pixels.height; y += 1) {
+    for (let x = 0; x < pixels.width; x += 1) {
+      const onLeft = left + x < faceCenter.x
+      if (onLeft !== whiteLeft && pixels.data[(y * pixels.width + x) * 4 + 3] > ALPHA_COMPONENT_THRESHOLD) {
+        return
+      }
+    }
+  }
+  // Each eye's iris, split at the face's middle: one layer may hold both.
+  const irisOn = (onLeft: boolean) =>
+    psdLayersCenter(named('irides'), (x) => x < faceCenter.x === onLeft)
+  const own = irisOn(whiteLeft)
+  const other = irisOn(!whiteLeft)
+  if (!own || !other) return
+  // Mirror about the white's own centre, then carry it to the other iris.
+  const shiftX = Math.round(other.x - (whiteCenter.x - own.x) - whiteCenter.x)
+  const shiftY = Math.round(other.y + (whiteCenter.y - own.y) - whiteCenter.y)
+  const mirroredLeft = Math.round(2 * whiteCenter.x - (left + pixels.width)) + shiftX
+  const mirroredTop = top + shiftY
+  const unionLeft = Math.min(left, mirroredLeft)
+  const unionTop = Math.min(top, mirroredTop)
+  const width = Math.max(left, mirroredLeft) + pixels.width - unionLeft
+  const height = Math.max(top, mirroredTop) + pixels.height - unionTop
+  const data = new Uint8ClampedArray(width * height * 4)
+  for (let y = 0; y < pixels.height; y += 1) {
+    for (let x = 0; x < pixels.width; x += 1) {
+      const from = (y * pixels.width + x) * 4
+      if (pixels.data[from + 3] === 0) continue
+      const own = ((top - unionTop + y) * width + (left - unionLeft + x)) * 4
+      const mirrored =
+        ((mirroredTop - unionTop + y) * width +
+          (mirroredLeft - unionLeft + pixels.width - 1 - x)) * 4
+      data.set(pixels.data.subarray(from, from + 4), own)
+      data.set(pixels.data.subarray(from, from + 4), mirrored)
+    }
+  }
+  white.left = unionLeft
+  white.top = unionTop
+  white.right = unionLeft + width
+  white.bottom = unionTop + height
+  white.imageData = { width, height, data }
+}
+
+/** The alpha-weighted centre of some layers' pixels, in document space, optionally only where `keep(x)`. */
+function psdLayersCenter(
+  layers: readonly Layer[],
+  keep: (documentX: number) => boolean = () => true,
+): { x: number; y: number } | null {
+  let weight = 0
+  let sumX = 0
+  let sumY = 0
+  for (const layer of layers) {
+    const pixels = layer.imageData
+    if (!pixels) continue
+    const left = layer.left ?? 0
+    const top = layer.top ?? 0
+    for (let y = 0; y < pixels.height; y += 1) {
+      for (let x = 0; x < pixels.width; x += 1) {
+        const alpha = pixels.data[(y * pixels.width + x) * 4 + 3]
+        if (alpha <= ALPHA_COMPONENT_THRESHOLD || !keep(left + x)) continue
+        weight += alpha
+        sumX += alpha * (left + x)
+        sumY += alpha * (top + y)
+      }
+    }
+  }
+  return weight > 0 ? { x: sumX / weight, y: sumY / weight } : null
 }
 
 export function splitVariantEyesIfNeeded(

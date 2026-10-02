@@ -615,6 +615,30 @@ test('an eye whose white was decomposed above its iris is restacked white, iris,
   }
 })
 
+test('an eye whose white the decomposer lost gets the other eye\'s white, mirrored onto its iris', async () => {
+  const source = syntheticSeeThroughPsd()
+  const width = source.width
+  const children = (source.children ?? []).map((layer) => {
+    if (layer.name !== 'eyewhite') return layer
+    // Only the left eye's white survived; the right eye keeps iris and lashes.
+    const data = new Uint8ClampedArray(layer.imageData!.data)
+    for (let y = 0; y < source.height; y += 1) {
+      for (let x = width / 2; x < width; x += 1) data[(y * width + x) * 4 + 3] = 0
+    }
+    return { ...layer, imageData: { width, height: source.height, data } }
+  })
+  const prepared = await prepareWithFakeCanvas({ ...source, children } as Psd)
+  const layers = prepared.source.anime25dPlayback!.layers
+  const whites = layers.filter((layer) => layer.role === 'eyewhite')
+  assert.deepEqual(whites.map((layer) => layer.side).toSorted(), ['L', 'R'])
+  // The left white sits 2px left of its iris; the mirrored right one 2px right of its own.
+  const right = whites.find((layer) => layer.side === 'R')!
+  assert.ok(Math.abs(right.x + right.w / 2 - 159) <= 2, `${right.x}+${right.w}`)
+  for (const side of ['L', 'R']) {
+    assert.ok(layers.some((layer) => layer.role === 'eye-dizzy' && layer.side === side), side)
+  }
+})
+
 test('a single arm is still not two arms', async () => {
   const source = syntheticSeeThroughPsd()
   const width = source.width

@@ -22,7 +22,7 @@ import { compensateSyntheticClosedEyeAngles } from './closedEyeCompensation'
 import { CHARACTER_ASSET_PROFILES, MAX_RIG_PARTS, RIG_IR_VERSION } from './contract'
 import { formatTemplate } from './formatTemplate'
 import { contentFrame, deriveAnchors, semanticAnchors, standingStance } from './importerAnchors'
-import { assignCrossfadeSlots, hasStaticSeeThroughMouth, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackOpenEyesInOrder } from './importerLayerSplits'
+import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackOpenEyesInOrder } from './importerLayerSplits'
 import { addHiddenArmFragments, anime25DShoulderSeeds } from './linkedHandwear'
 import { findMotionExposure } from './motionExposure'
 import { inferOutfitProfileFromPartIds } from './outfit'
@@ -71,6 +71,7 @@ export async function prepareAnime25DRigPsd(
   const staticSeeThroughMouth = hasStaticSeeThroughMouth(psd)
   const working = flattenPsdForRigger(psd, importProfile)
   Rigger.cleanPsdLayers(working)
+  mirrorLostEyeWhite(working, Rigger.baseName)
   // A named but empty/hidden face must never silently acquire guessed pivots.
   if (
     !working.children?.some(
