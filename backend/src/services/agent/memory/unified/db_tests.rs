@@ -219,29 +219,6 @@ async fn old_memories_get_concepts_only_once_and_only_for_their_person() {
 }
 
 #[tokio::test]
-async fn importing_the_same_legacy_row_twice_writes_it_once() {
-    let Some(db) = temp_db().await else {
-        return;
-    };
-    let legacy = || ImportedMemory {
-        id: "json_abc".into(),
-        user_id: 7,
-        kind: MemoryKind::Lesson,
-        content: "动漫角色图 category=anime 效果好".into(),
-        importance: 0.7,
-        access_count: 2,
-        created_at: (Utc::now() - chrono::Duration::days(30)).fixed_offset(),
-        last_accessed_at: None,
-    };
-    assert!(import(&db, legacy()).await.unwrap());
-    assert!(!import(&db, legacy()).await.unwrap());
-    let rows = active(&db, 7, &[MemoryKind::Lesson]).await.unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].access_count, 2);
-    assert_eq!(rows[0].source, "import");
-}
-
-#[tokio::test]
 async fn only_what_comes_to_her_mind_counts_as_recalled_not_what_is_read_behind_it() {
     let Some(db) = temp_db().await else {
         return;

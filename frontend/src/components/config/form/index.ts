@@ -20,7 +20,6 @@ export {
   DEFAULT_AUTO_FETCH_CONFIG,
   DEFAULT_CONFIG_FAVORITES,
   DEFAULT_PERMISSION_CONFIG,
-  LEGACY_CONFIG_SECTION_MAP,
   loadConfigFavorites,
 } from './defaults'
 export type {
@@ -29,7 +28,6 @@ export type {
   ConfigField,
   PlatformConfig,
   QuickAccessItem,
-  ReportConfig,
   SaveLibrarySourcePreferencesResponse,
   ShowMessage,
   UiConfig,

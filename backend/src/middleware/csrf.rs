@@ -435,7 +435,6 @@ pub(crate) fn is_csrf_exempt(path: &str) -> bool {
         || path.starts_with("/api/ai/") // AI 推荐等公开接口
         // 仅公开写入埋点；export/import/summary 需会话 + CSRF（admin）
         || path.starts_with("/api/analytics/collect")
-        || path.starts_with("/api/analytics/pageview")
         // HMAC-authenticated inbound routes ignore cookies; other programs
         // must not need a browser CSRF token.
         || path.starts_with("/tapi/")
@@ -754,7 +753,6 @@ mod tests {
         assert!(is_csrf_exempt("/health"));
         assert!(is_csrf_exempt("/api/proxy/image"));
         assert!(is_csrf_exempt("/api/analytics/collect"));
-        assert!(is_csrf_exempt("/api/analytics/pageview"));
         assert!(is_csrf_exempt("/tapi/com.example.app/sponsors"));
         assert!(!is_csrf_exempt("/api/analytics/summary"));
         assert!(!is_csrf_exempt("/api/analytics/export"));

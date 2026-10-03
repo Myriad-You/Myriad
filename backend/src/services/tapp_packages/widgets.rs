@@ -1,4 +1,4 @@
-use crate::services::tapp_lifecycle::{format_tapp_widget_id, legacy_manifest_widget_ids};
+use crate::services::tapp_lifecycle::format_tapp_widget_id;
 use myriad_error::AppError;
 use myriad_tapp_contract::manifest::{TappManifest, TappWidgetDef};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
@@ -20,7 +20,6 @@ pub(crate) async fn reconcile_manifest_widgets(
     user_id: i32,
     tapp_id: &str,
     manifest: &TappManifest,
-    previous_manifest: Option<&serde_json::Value>,
 ) -> Result<(), AppError> {
     let db_error = |_| AppError::internal("Database error");
     let desired_widgets = manifest.widgets.as_deref().unwrap_or_default();
@@ -34,26 +33,12 @@ pub(crate) async fn reconcile_manifest_widgets(
         .filter(|(widget_id, _)| seen.insert(widget_id.clone()))
         .collect();
     desired.reverse();
-    let legacy_manifest_ids = legacy_manifest_widget_ids(tapp_id, previous_manifest);
 
-    // Stale manifest rows (`config.source = manifest` or a legacy source-less
-    // manifest id) that the new manifest no longer declares.
+    // Stale manifest rows the new manifest no longer declares.
     let mut values: Vec<SeaValue> = vec![user_id.into(), tapp_id.into()];
-    let mut manifest_row = "config->>'source' = 'manifest'".to_string();
-    if !legacy_manifest_ids.is_empty() {
-        manifest_row.push_str(&format!(
-            " OR widget_id IN ({})",
-            placeholder_list(values.len() + 1, legacy_manifest_ids.len())
-        ));
-        values.extend(
-            legacy_manifest_ids
-                .iter()
-                .map(|id| SeaValue::from(id.as_str())),
-        );
-    }
-    let mut sql = format!(
-        "DELETE FROM tapp_widgets WHERE user_id = $1 AND tapp_id = $2 AND ({manifest_row})"
-    );
+    let mut sql = "DELETE FROM tapp_widgets WHERE user_id = $1 AND tapp_id = $2 \
+                   AND config->>'source' = 'manifest'"
+        .to_string();
     if !desired.is_empty() {
         sql.push_str(&format!(
             " AND widget_id NOT IN ({})",

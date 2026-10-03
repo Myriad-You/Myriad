@@ -597,12 +597,6 @@ pub enum PendingKind {
     Clarify {
         original_input: String,
     },
-    /// Legacy recipe-level confirmation. The backend no longer creates it;
-    /// it survives only so prompts stored before that change still decode,
-    /// and resuming one answers that it is no longer available.
-    Confirm {
-        confirmation_id: String,
-    },
     Answer {
         task_id: String,
         question_id: String,
@@ -621,8 +615,8 @@ pub struct PendingOption {
 /// A question parked on a channel until the next inbound text.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingPrompt {
-    /// Short id bound into buttons. Empty means a pre-id stored prompt.
-    #[serde(default)]
+    /// Short id bound into buttons; constructors leave it empty and fill it
+    /// with [`ensure_pending_id`].
     pub id: String,
     pub kind: PendingKind,
     pub question: String,
@@ -641,7 +635,7 @@ pub fn encode_pending_id(bytes: [u8; 4]) -> String {
     out
 }
 
-/// Fill a missing prompt id from kind + question so old constructors stay valid.
+/// Fill a missing prompt id from kind + question.
 pub fn ensure_pending_id(prompt: &mut PendingPrompt) {
     if !prompt.id.trim().is_empty() {
         return;
@@ -651,7 +645,6 @@ pub fn ensure_pending_id(prompt: &mut PendingPrompt) {
 
 fn pending_id_from_parts(kind: &PendingKind, question: &str) -> String {
     let seed: std::borrow::Cow<'_, str> = match kind {
-        PendingKind::Confirm { confirmation_id } => confirmation_id.as_str().into(),
         PendingKind::Answer {
             task_id,
             question_id,
@@ -783,7 +776,6 @@ pub fn decide_pending_reply(prompt: &PendingPrompt, text: &str, now_unix: i64) -
 
 fn prompt_question_type(prompt: &PendingPrompt) -> &str {
     match &prompt.kind {
-        PendingKind::Confirm { .. } => "confirmation",
         PendingKind::Answer { question_type, .. } => question_type.as_str(),
         PendingKind::Clarify { .. } => {
             if prompt.options.is_empty() {
@@ -998,7 +990,7 @@ pub fn telegram_inline_keyboard(prompt: &PendingPrompt) -> Vec<Vec<TelegramInlin
     }
 }
 
-/// Parsed private-chat callback. `prompt_id` is empty for legacy unbound data.
+/// Parsed private-chat callback.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TelegramCallbackBinding {
     pub prompt_id: String,
@@ -1013,51 +1005,32 @@ pub enum TelegramBoundKind {
     Option(usize),
 }
 
-/// Parse `callback_data`. Bound form is `y:{id}` / `n:{id}` / `i:{id}` / `o:{id}:{index}`.
-/// Legacy `y` / `n` / `i` / `o:0` stay parseable so they can be rejected as stale.
+/// Parse `callback_data`: `y:{id}` / `n:{id}` / `i:{id}` / `o:{id}:{index}`.
 pub fn parse_telegram_callback(data: &str) -> Option<TelegramCallbackBinding> {
     let data = data.trim();
     if data.is_empty() {
         return None;
     }
     if let Some(rest) = data.strip_prefix("o:") {
-        if let Some((id, index)) = rest.rsplit_once(':')
-            && !id.is_empty()
-            && id != TELEGRAM_CALLBACK_YES
-            && id != TELEGRAM_CALLBACK_NO
-        {
-            let index = index.parse::<usize>().ok()?;
-            return Some(TelegramCallbackBinding {
-                prompt_id: id.to_string(),
-                kind: TelegramBoundKind::Option(index),
-            });
+        let (id, index) = rest.rsplit_once(':')?;
+        if id.is_empty() || id == TELEGRAM_CALLBACK_YES || id == TELEGRAM_CALLBACK_NO {
+            return None;
         }
-        let index = rest.parse::<usize>().ok()?;
+        let index = index.parse::<usize>().ok()?;
         return Some(TelegramCallbackBinding {
-            prompt_id: String::new(),
+            prompt_id: id.to_string(),
             kind: TelegramBoundKind::Option(index),
         });
     }
-    if let Some((action, id)) = data.split_once(':') {
-        let kind = match action {
-            TELEGRAM_CALLBACK_YES => TelegramBoundKind::Yes,
-            TELEGRAM_CALLBACK_NO => TelegramBoundKind::No,
-            TELEGRAM_CALLBACK_INPUT => TelegramBoundKind::Input,
-            _ => return None,
-        };
-        return Some(TelegramCallbackBinding {
-            prompt_id: id.to_string(),
-            kind,
-        });
-    }
-    let kind = match data {
+    let (action, id) = data.split_once(':')?;
+    let kind = match action {
         TELEGRAM_CALLBACK_YES => TelegramBoundKind::Yes,
         TELEGRAM_CALLBACK_NO => TelegramBoundKind::No,
         TELEGRAM_CALLBACK_INPUT => TelegramBoundKind::Input,
         _ => return None,
     };
     Some(TelegramCallbackBinding {
-        prompt_id: String::new(),
+        prompt_id: id.to_string(),
         kind,
     })
 }

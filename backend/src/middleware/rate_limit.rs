@@ -291,9 +291,7 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
             RATE_LIMITER.check_bucket(ip, &path, COMPUTE_MAX, Duration::from_secs(60)),
             60,
         )
-    } else if path.starts_with("/api/analytics/collect")
-        || path.starts_with("/api/analytics/pageview")
-    {
+    } else if path.starts_with("/api/analytics/collect") {
         (
             RATE_LIMITER.check_bucket(
                 ip,

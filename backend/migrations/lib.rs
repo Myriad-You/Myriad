@@ -20,16 +20,6 @@ mod federation;
 #[path = "006_oauth_identities.rs"]
 mod oauth_identities;
 
-mod ai_cost_ledger_rename;
-mod ai_quota_usage_rename;
-mod phantasi_legacy_rename;
-mod runtime_registry_rename;
-
-pub use ai_cost_ledger_rename::rename_ai_cost_ledger_if_needed;
-pub use ai_quota_usage_rename::rename_ai_quota_usage_if_needed;
-pub use phantasi_legacy_rename::rename_brew_to_phantasi_if_needed;
-pub use runtime_registry_rename::rename_runtime_registry_if_needed;
-
 /// Channel on which every change to a room membership row is announced, so
 /// live room sockets can re-check whether their member still belongs.
 pub const ROOM_MEMBERSHIP_CHANNEL: &str = "myriad_room_membership";
@@ -51,11 +41,66 @@ CREATE TRIGGER federation_room_membership_notify
 
 pub const SOURCE_RECENT_INDEX_SQL: &str = "CREATE INDEX IF NOT EXISTS idx_phantasi_items_source_recent ON phantasi_items (source_id, published_at DESC NULLS LAST, id DESC)";
 
+/// The schema mark 0.6.1 writes once its startup heals have all run
+/// (`schema_check::SCHEMA_VERSION` at that release). Marks are dated, so
+/// they compare as text.
+pub const SUPPORT_FLOOR_SCHEMA_MARK: &str = "2026.09.29.1";
+
+/// An existing database must have finished a 0.6.1 (or later) startup:
+/// the renames and heals for anything older are gone, and skipping them
+/// would fail later, less clearly, or not at all. A new database passes.
+const REFUSE_BELOW_SUPPORT_FLOOR_SQL: &str = r#"
+DO $$
+BEGIN
+    -- Two statements: PL/pgSQL plans each one when it first runs, and a
+    -- single OR would name seaql_migrations before a new database has it.
+    IF to_regclass('seaql_migrations') IS NULL THEN
+        RETURN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM seaql_migrations) THEN
+        RETURN;
+    END IF;
+    IF to_regclass('_schema_versions') IS NULL THEN
+        RAISE EXCEPTION 'this database predates Myriad 0.6.1: upgrade to 0.6.1 first, start it once, then upgrade to this release';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM _schema_versions WHERE version >= '@FLOOR@') THEN
+        RAISE EXCEPTION 'this database predates Myriad 0.6.1: upgrade to 0.6.1 first, start it once, then upgrade to this release';
+    END IF;
+END $$;
+"#;
+
+/// Earlier releases kept old media addresses working through an upgrade job
+/// that copied every catalogued file into the asset store. Startup now drops
+/// that layer, so a database whose job never finished would lose the files it
+/// had not copied yet. A database without the job table never had the layer,
+/// or already dropped it.
+const REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL: &str = r#"
+DO $$
+BEGIN
+    -- One statement each: PL/pgSQL plans a statement when it first runs, and
+    -- the job table is only named once it is known to exist.
+    IF to_regclass('media_migration_jobs') IS NULL THEN
+        RETURN;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM media_migration_jobs
+         WHERE source_kind = 'upgrade' AND source_key = 'platform_media_v2'
+           AND CASE WHEN cursor ~ '^\s*\{'
+                    THEN cursor::jsonb ->> 'complete' = 'true'
+                         AND cursor::jsonb ->> 'revision' = '4'
+                    ELSE false END
+    ) THEN
+        RAISE EXCEPTION 'the media upgrade of this database has not finished: start Myriad 0.6 (web role) until it completes, then upgrade to this release';
+    END IF;
+END $$;
+"#;
+
 pub struct Migrator;
 
 impl Migrator {
-    /// Drop leftover `digital_life_*` experiment tables, keep only versions
-    /// that still have files in `seaql_migrations`, then apply 001–006.
+    /// Refuse a database older than the support floor (0.6.1) or one whose
+    /// media upgrade has not finished, keep only versions that still have
+    /// files in `seaql_migrations`, then apply 001–006.
     ///
     /// SeaORM rejects applied versions that have no file *before* any `up()`
     /// body runs, so this wrapper is the only `Migrator::up` call path.
@@ -64,10 +109,14 @@ impl Migrator {
         C: IntoSchemaManagerConnection<'c>,
     {
         let executor = db.into_database_executor();
-        rename_brew_to_phantasi_if_needed(&executor).await?;
-        rename_runtime_registry_if_needed(&executor).await?;
-        rename_ai_cost_ledger_if_needed(&executor).await?;
-        rename_ai_quota_usage_if_needed(&executor).await?;
+        executor
+            .execute_unprepared(
+                &REFUSE_BELOW_SUPPORT_FLOOR_SQL.replace("@FLOOR@", SUPPORT_FLOOR_SCHEMA_MARK),
+            )
+            .await?;
+        executor
+            .execute_unprepared(REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL)
+            .await?;
         discard_unknown_migration_history(&executor).await?;
         <Self as MigratorTrait>::up(executor, steps).await
     }
@@ -87,40 +136,6 @@ impl MigratorTrait for Migrator {
     }
 }
 
-/// Prefix-scan drop for local/dev `digital_life_*` leftovers. No table catalog.
-const DROP_DIGITAL_LIFE_SQL: &str = r#"
-DO $$
-DECLARE
-    r RECORD;
-BEGIN
-    FOR r IN
-        SELECT tablename
-          FROM pg_tables
-         WHERE schemaname = 'public'
-           AND tablename LIKE 'digital_life!_%' ESCAPE '!'
-    LOOP
-        EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', r.tablename);
-    END LOOP;
-
-    FOR r IN
-        SELECT t.typname
-          FROM pg_type t
-          JOIN pg_namespace n ON n.oid = t.typnamespace
-         WHERE n.nspname = 'public'
-           AND t.typname LIKE 'digital_life!_%' ESCAPE '!'
-           AND t.typtype IN ('e', 'd', 'c')
-    LOOP
-        EXECUTE format('DROP TYPE IF EXISTS public.%I CASCADE', r.typname);
-    END LOOP;
-
-    IF to_regclass('public._schema_versions') IS NOT NULL THEN
-        DELETE FROM _schema_versions
-         WHERE version LIKE 'digital_life%'
-            OR version LIKE '%digital_life%';
-    END IF;
-END $$;
-"#;
-
 fn keep_migration_versions() -> Vec<String> {
     Migrator::migrations()
         .iter()
@@ -136,11 +151,10 @@ fn discard_unknown_history_sql(keep_count: usize) -> String {
     format!("DELETE FROM seaql_migrations WHERE version NOT IN ({placeholders})")
 }
 
-/// `digital_life_*` tables must not remain. `seaql_migrations` may only
-/// record versions that still have files — otherwise SeaORM demands a no-op.
+/// `seaql_migrations` may only record versions that still have files —
+/// otherwise SeaORM demands a no-op. Structure folded into 001–006 leaves
+/// such rows behind on older databases.
 async fn discard_unknown_migration_history(db: &impl ConnectionTrait) -> Result<(), DbErr> {
-    db.execute_unprepared(DROP_DIGITAL_LIFE_SQL).await?;
-
     let present = db
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
@@ -215,15 +229,13 @@ mod tests {
             assert!(sql.contains(&format!("${index}")));
         }
         assert!(!sql.contains(&format!("${}", keep.len() + 1)));
-        assert!(!keep.iter().any(|name| name.contains("digital_life")));
     }
 
     #[test]
-    fn digital_life_drop_sql_is_prefix_only() {
-        assert!(DROP_DIGITAL_LIFE_SQL.contains("LIKE 'digital_life!_%' ESCAPE '!'"));
-        assert!(DROP_DIGITAL_LIFE_SQL.contains("DROP TABLE IF EXISTS public.%I CASCADE"));
-        assert!(DROP_DIGITAL_LIFE_SQL.contains("DROP TYPE IF EXISTS public.%I CASCADE"));
-        assert!(!DROP_DIGITAL_LIFE_SQL.contains("agent_persona"));
-        assert!(!DROP_DIGITAL_LIFE_SQL.contains("digital_life_characters"));
+    fn the_floor_mark_is_a_dated_schema_mark() {
+        let parts: Vec<&str> = SUPPORT_FLOOR_SCHEMA_MARK.split('.').collect();
+        assert_eq!(parts.len(), 4, "YYYY.MM.DD.N compares as text");
+        assert!(REFUSE_BELOW_SUPPORT_FLOOR_SQL.contains("@FLOOR@"));
+        assert!(REFUSE_BELOW_SUPPORT_FLOOR_SQL.contains("upgrade to 0.6.1 first"));
     }
 }

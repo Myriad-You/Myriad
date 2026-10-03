@@ -9,7 +9,7 @@ pub(super) async fn embedding_as_asked() {
         crate::GLOBAL_DYNAMIC_CONFIG
             .write()
             .await
-            .lite_embedding_model = model;
+            .aux_embedding_model = model;
     }
 }
 
@@ -35,7 +35,7 @@ pub(super) async fn the_models_answer() {
         crate::GLOBAL_DYNAMIC_CONFIG
             .write()
             .await
-            .lite_embedding_model = model;
+            .aux_embedding_model = model;
         match crate::services::ai::create_lite_embedding_analyzer_with_timeout(Some(
             Duration::from_secs(30),
         ))

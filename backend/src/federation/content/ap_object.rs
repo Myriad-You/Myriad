@@ -72,9 +72,7 @@ pub(super) async fn build_ap_object(
                         Json(AppError::public_json("Unsupported attachment type")),
                     )
                 })?;
-                if let Some(reason) =
-                    attachment_url_rejection_reason(base_url, user_id, att.url.trim())
-                {
+                if let Some(reason) = attachment_url_rejection_reason(base_url, att.url.trim()) {
                     return Err((
                         StatusCode::BAD_REQUEST,
                         Json(json!({

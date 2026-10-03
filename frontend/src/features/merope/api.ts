@@ -1,5 +1,6 @@
 import type { PoseCorrection } from './anime25drig/poseCorrections'
 import type { AuthoredExpressionKind } from './rig/authoredExpression'
+import type { DetectedSkeleton } from './rig/skeleton'
 import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../../services/api'
@@ -11,6 +12,8 @@ const RIG_MUTATION_TIMEOUT_MS = 6 * 60 * 1000
 /** Keep in sync with MEROPE_PROXY_TIMEOUT_MS and get_long_running_client. */
 const PORTRAIT_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
 const SEE_THROUGH_TIMEOUT_MS = 360_000
+/** The first look also downloads the pose model on the server. */
+const SKELETON_TIMEOUT_MS = 180_000
 
 export class MeropeApiError extends Error {
   constructor(
@@ -85,6 +88,53 @@ export async function getSiteFace(): Promise<SiteFace> {
 
 function fullBodyPath(outfitId: string): string {
   return `/full-body/${encodeURIComponent(outfitId)}`
+}
+
+/**
+ * The joints the backend found on a master portrait, or null when it found
+ * none or cannot look: the rig then falls back to its own proportions.
+ */
+async function getSkeleton(path: string): Promise<DetectedSkeleton | null> {
+  try {
+    const data = await apiService.get<Partial<DetectedSkeleton>>(`${PREFIX}${path}`, {
+      timeout: SKELETON_TIMEOUT_MS,
+    })
+    const keypoints = data.keypoints
+    if (
+      typeof data.sourceMasterAssetId !== 'string' ||
+      typeof data.model !== 'string' ||
+      !(typeof data.width === 'number' && data.width > 0) ||
+      !(typeof data.height === 'number' && data.height > 0) ||
+      !Array.isArray(keypoints) ||
+      !keypoints.every(
+        (point) =>
+          Array.isArray(point) &&
+          point.length === 3 &&
+          point.every((value) => typeof value === 'number' && Number.isFinite(value)),
+      )
+    ) {
+      return null
+    }
+    return {
+      sourceMasterAssetId: data.sourceMasterAssetId,
+      model: data.model,
+      width: data.width,
+      height: data.height,
+      keypoints,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** The worn bust's skeleton. */
+export function getSiteSkeleton(): Promise<DetectedSkeleton | null> {
+  return getSkeleton('/skeleton')
+}
+
+/** A full-body set's skeleton. */
+export function getFullBodySkeleton(outfitId: string): Promise<DetectedSkeleton | null> {
+  return getSkeleton(`${fullBodyPath(outfitId)}/skeleton`)
 }
 
 /** A full-body set's picture and package, for the owner's workbench. */

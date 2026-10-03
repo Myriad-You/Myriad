@@ -1206,8 +1206,8 @@ Timeline。需要同时展示公开内容时优先 `getFeed()`；`getTimeline()`
 **权限**: `federation:post`
 
 推荐流程：**先 `uploadMedia`，再把返回的 URL 放进 `createNote` / `publish` 的
-`attachments`**。不要把任意外链当作附件；bridge 与后端都会校验联邦媒体 URL 形态
-（`/media/federation/{userId}/{filename}`）。
+`attachments`**。不要把任意外链当作附件；bridge 与后端都会校验它是本站媒体
+（`/media/assets/{uuid}/{filename}` 或 `/api/media/{id}/content`）。
 
 ```javascript
 // 1) 上传：data 为 data URL 或 raw base64（经 postMessage；见下方体积上限）

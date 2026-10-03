@@ -1,7 +1,7 @@
 //! 语音服务 API
 //!
 //! 提供 TTS（文本转语音）和 ASR（语音转文本）的 HTTP API。
-//! 探测/单条 TTS 走 `configured_provider`（`speech_source` 优先，否则 `speech_provider`）。
+//! 探测/单条 TTS 走 `configured_provider`（`speech_source`，留空是出厂的腾讯云）。
 //! batch 播客路径固定 `TencentSpeechService`。
 
 use crate::middleware::auth::Claims;

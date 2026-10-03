@@ -165,6 +165,62 @@ export class ArmDrape {
   }
 }
 
+/** How a segment hanging at the end of an arm follows the one above it. */
+export interface ArmSegmentTuning {
+  hz: number
+  damping: number
+  /** Share of the turn above it the segment holds back, hanging towards the vertical. */
+  sag: number
+  /** A joint bends only this far, in radians. */
+  maxBend: number
+}
+
+/**
+ * A forearm hangs from its elbow: it follows the upper arm a beat late, leans
+ * a little back towards the vertical, overshoots, and settles.
+ */
+export const FOREARM: ArmSegmentTuning = { hz: 1.6, damping: 0.4, sag: 0.3, maxBend: 0.35 }
+
+/**
+ * A hand hangs from its wrist the same way after its forearm: lighter and
+ * shorter, so quicker, and a relaxed wrist gives only a little.
+ */
+export const HAND: ArmSegmentTuning = { hz: 2.4, damping: 0.45, sag: 0.25, maxBend: 0.22 }
+
+/**
+ * One segment of a hanging arm below a joint. It is driven by the turn of the
+ * segment above it and returns its own turn relative to that one; `bend` is a
+ * turn the joint is asked to make on top of hanging.
+ */
+export class ArmSegment {
+  private state = 0
+  private velocity = 0
+  private initialized = false
+
+  constructor(private readonly tuning: Readonly<ArmSegmentTuning>) {}
+
+  step(aboveAngle: number, bodyRoll: number, dynamic: boolean, dt: number, bend = 0): number {
+    const { hz, damping, sag, maxBend } = this.tuning
+    const above = finite(aboveAngle)
+    const target = above * (1 - sag) - finite(bodyRoll) * sag + finite(bend)
+    const step = Number.isFinite(dt) ? Math.max(0, dt) : 0
+    if (!this.initialized || !dynamic) {
+      this.initialized = true
+      this.state = target
+      this.velocity = 0
+    } else {
+      const omega = 2 * Math.PI * hz
+      this.velocity += (-omega * omega * (this.state - target) - 2 * damping * omega * this.velocity) * step
+      this.state += this.velocity * step
+      if (!Number.isFinite(this.state) || !Number.isFinite(this.velocity)) {
+        this.state = target
+        this.velocity = 0
+      }
+    }
+    return clamp(this.state - above, -maxBend, maxBend)
+  }
+}
+
 function finite(value: number): number {
   return Number.isFinite(value) ? value : 0
 }

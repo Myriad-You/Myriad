@@ -96,12 +96,8 @@ pub(super) fn build_base_api_router(
                 middleware::auth::admin_middleware,
             )),
         )
-        // 站点访客统计：collect/pageview 公开写入；summary 仅管理员
+        // 站点访客统计：collect 公开写入；summary 仅管理员
         .route("/api/analytics/collect", post(api::analytics::collect))
-        .route(
-            "/api/analytics/pageview",
-            post(api::analytics::record_pageview),
-        )
         // 公开访客卡片：站点总量 + 5 日趋势 + 调用者自己的到达序号，
         // 页面 / 来源 / 国家 / 停留等细分仍然只走下面的 admin summary
         .route(
@@ -524,7 +520,7 @@ mod config_mode_route_tests {
         let body = &src[start..];
         assert!(
             body.contains("public_media_routes"),
-            "web process must serve /media/federation and /media/assets"
+            "web process must serve /media/assets"
         );
     }
 }

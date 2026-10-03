@@ -358,23 +358,7 @@ impl Agent {
         emitter: &executor::events::StepEventEmitter,
         analyzer: &super::work_call::WorkModel,
     ) -> Result<(), String> {
-        // Legacy checkpoints keep their already-consumed context estimate.
-        let budget = state.budget.get_or_insert_with(|| budget::Budget {
-            spent_tokens: (state.input_chars.div_ceil(4) as u64).saturating_add(
-                state
-                    .history
-                    .iter()
-                    .filter_map(|message| {
-                        if let ToolMessage::Assistant { turn } = message {
-                            Some(turn.native.to_string().len().div_ceil(4) as u64)
-                        } else {
-                            None
-                        }
-                    })
-                    .sum::<u64>(),
-            ),
-            ..Default::default()
-        });
+        let budget = state.budget.get_or_insert_with(budget::Budget::default);
         // A reservation left by a killed request is charged once, never reset.
         budget.settle(None);
         store::save(&self.db, state).await?;

@@ -1,20 +1,20 @@
-//! Public media read decisions. Disk paths come from storage_key or legacy maps,
-//! never from concatenating the request URL.
+//! Public media read decisions. Disk paths come from storage_key or the image
+//! cache's own layout, never from concatenating the request URL.
 
 use std::path::PathBuf;
 
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use sea_orm::ConnectionTrait;
 use uuid::Uuid;
 
-use crate::models::entities::{media_assets, media_url_aliases};
+use crate::models::entities::media_assets;
 
 use super::access::can_read;
 use super::assets;
+use super::cache_import::cached_public_id;
 use super::error::MediaError;
-use super::legacy::{LegacyPaths, legacy_serve_path};
 use super::store::MediaStore;
 use super::types::{MediaActor, MediaExposure, MediaState};
-use super::urls::{filename_for_mime, registered_local_path};
+use super::urls::filename_for_mime;
 use super::validate::extension_for_mime;
 
 pub const PUBLIC_CACHE_CONTROL: &str = "public, max-age=300, must-revalidate";
@@ -46,19 +46,6 @@ pub fn public_filename_ok(name: &str, mime: &str, public_id: Uuid, filename: &st
         return false;
     };
     filename == display || filename == format!("{public_id}.{ext}")
-}
-
-pub fn alias_forbids_legacy_fallback(state: Option<&str>, exposure: Option<&str>) -> bool {
-    match MediaState::parse(state.unwrap_or("")) {
-        Ok(MediaState::Deleted)
-        | Ok(MediaState::Deleting)
-        | Ok(MediaState::Missing)
-        | Ok(MediaState::Staging) => true,
-        Ok(MediaState::Ready) => {
-            MediaExposure::parse(exposure.unwrap_or("")).ok() != Some(MediaExposure::Public)
-        }
-        Err(_) => true,
-    }
 }
 
 pub async fn resolve_authenticated_content(
@@ -119,34 +106,25 @@ pub async fn resolve_private_asset(
     file_from_row(store, &row, NO_STORE)
 }
 
-/// A local path that is not a permanent asset address. A registered alias
-/// (a migrated legacy file, or a cached file that content cited) serves its
-/// asset and never falls back to disk. Otherwise the raw file is served: the
-/// live image cache (RSS pictures, proxied downloads) and legacy federation
-/// files that nothing has cited yet.
-pub async fn resolve_alias_or_legacy(
+/// An image-cache path. Once site content cited it, the cached file was
+/// imported as an asset: that asset answers, and a deleted or private one is
+/// never served from the cache instead. Otherwise the cached file itself.
+pub async fn resolve_cached_image(
     db: &impl ConnectionTrait,
     store: &MediaStore,
-    paths: &LegacyPaths,
     local_path: &str,
 ) -> Result<ServeOutcome, MediaError> {
-    let Some(local_path) = registered_local_path(local_path) else {
+    let Some(public_id) = cached_public_id(local_path) else {
         return Ok(ServeOutcome::NotFound { no_store: true });
     };
-    if let Some(alias) = media_url_aliases::Entity::find()
-        .filter(media_url_aliases::Column::LocalPath.eq(&local_path))
-        .one(db)
-        .await?
-    {
-        let Some(row) = assets::find_by_id(db, alias.asset_id).await? else {
-            return Ok(ServeOutcome::NotFound { no_store: true });
-        };
-        if alias_forbids_legacy_fallback(row.state.as_deref(), row.exposure.as_deref()) {
+    if let Some(row) = assets::find_by_public_id(db, public_id).await? {
+        if !ready_public(&row) {
             return Ok(ServeOutcome::NotFound { no_store: true });
         }
         return file_from_row(store, &row, PUBLIC_CACHE_CONTROL);
     }
-    let Some(disk) = legacy_serve_path(paths, &local_path) else {
+    let cache = crate::services::image_cache::ImageCacheService::new();
+    let Some(disk) = cache.display_path_for_public_url(local_path) else {
         return Ok(ServeOutcome::NotFound { no_store: true });
     };
     if tokio::fs::metadata(&disk).await.is_err() {
@@ -156,11 +134,7 @@ pub async fn resolve_alias_or_legacy(
         mime: mime_from_path(&disk).to_string(),
         path: disk,
         etag: None,
-        cache_control: if local_path.contains("/image-cache/") {
-            CACHE_FALLBACK_CONTROL
-        } else {
-            PUBLIC_CACHE_CONTROL
-        },
+        cache_control: CACHE_FALLBACK_CONTROL,
     }))
 }
 
@@ -201,9 +175,6 @@ fn mime_from_path(path: &std::path::Path) -> &'static str {
         "webp" => "image/webp",
         "avif" => "image/avif",
         "svg" => "image/svg+xml",
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "mov" => "video/quicktime",
         _ => "application/octet-stream",
     }
 }
@@ -238,26 +209,6 @@ mod tests {
             "image/png",
             id,
             "other.png"
-        ));
-    }
-
-    #[test]
-    fn deleted_or_private_alias_does_not_fall_back() {
-        assert!(alias_forbids_legacy_fallback(
-            Some("deleted"),
-            Some("public")
-        ));
-        assert!(alias_forbids_legacy_fallback(
-            Some("ready"),
-            Some("private")
-        ));
-        assert!(alias_forbids_legacy_fallback(
-            Some("deleting"),
-            Some("public")
-        ));
-        assert!(!alias_forbids_legacy_fallback(
-            Some("ready"),
-            Some("public")
         ));
     }
 }

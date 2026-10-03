@@ -69,6 +69,28 @@ export interface Anime25DEyeAnchor {
   closeY: number
 }
 
+/** Joints named by side of the picture: `L` is the one on the left as seen. */
+export type Anime25DJointName =
+  | 'nose'
+  | `${'eye' | 'ear' | 'shoulder' | 'elbow' | 'wrist' | 'hip' | 'knee' | 'ankle' | 'bigToe' | 'smallToe' | 'heel'}${'L' | 'R'}`
+
+/** A joint seen on the master portrait, in frame pixels, with the model's confidence. */
+export interface Anime25DJoint {
+  x: number
+  y: number
+  score: number
+}
+
+/**
+ * The figure's skeleton as a pose model found it on the master portrait. Only
+ * joints seen clearly and inside the frame are kept; each one replaces a
+ * proportion the rig would otherwise assume.
+ */
+export interface Anime25DSkeleton {
+  model: string
+  joints: Partial<Record<Anime25DJointName, Anime25DJoint>>
+}
+
 export interface Anime25DPlaybackAnchors {
   face: {
     x0: number
@@ -84,6 +106,8 @@ export interface Anime25DPlaybackAnchors {
   bodyPivot: { x: number; y: number }
   /** A standing figure's soles; a bust is cut off above any ground. */
   groundY?: number
+  /** Joints found on the master portrait, when the import could see them. */
+  skeleton?: Anime25DSkeleton
   mouth: {
     x0: number
     y0: number

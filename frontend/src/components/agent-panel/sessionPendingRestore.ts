@@ -6,7 +6,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-/** Legacy recipe-level confirmations carry a confirmationId; nothing can answer them any more. */
 export function pendingQuestionFromMetadata(
   meta: Record<string, unknown> | undefined,
 ): PendingQuestion | undefined {
@@ -14,9 +13,6 @@ export function pendingQuestionFromMetadata(
   const pq =
     asRecord(meta?.pendingQuestion) ?? asRecord(taskMeta?.pendingQuestion)
   if (!pq || typeof pq.question !== 'string') return undefined
-  if (pq.confirmationId !== undefined || pq.confirmation_id !== undefined) {
-    return undefined
-  }
   return {
     questionId: String(pq.questionId ?? pq.question_id ?? ''),
     questionType: String(pq.questionType ?? pq.question_type ?? 'free_text'),

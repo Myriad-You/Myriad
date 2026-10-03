@@ -50,7 +50,7 @@ impl Meaning {
         let model = crate::GLOBAL_DYNAMIC_CONFIG
             .read()
             .await
-            .lite_embedding_model
+            .aux_embedding_model
             .trim()
             .to_string();
         Some(Self { analyzer, model })

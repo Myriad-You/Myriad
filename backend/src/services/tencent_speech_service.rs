@@ -289,39 +289,28 @@ impl TencentSpeechService {
     pub async fn new() -> Result<Self, TencentSpeechError> {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
 
-        let source = config.find_vendor_source(&config.speech_source);
-        let tencent = source.as_ref().filter(|item| item.kind == "tencent");
-        let secret_id = tencent
-            .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_id.as_ref()))
+        // The speech source when it is Tencent Cloud, else the first one on.
+        let source = config
+            .find_vendor_source(&config.speech_source_slug())
+            .filter(|item| item.kind == "tencent")
             .or_else(|| {
                 config
-                    .tencent_secret_id
-                    .clone()
-                    .map(|k| k.trim().to_string())
-                    .filter(|k| !k.is_empty())
-            })
+                    .ai_vendor_sources
+                    .iter()
+                    .find(|item| item.enabled && item.kind.trim().eq_ignore_ascii_case("tencent"))
+                    .cloned()
+            });
+        let tencent = source.as_ref();
+        let secret_id = tencent
+            .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_id.as_ref()))
             .ok_or(TencentSpeechError::ApiKeyNotConfigured)?;
 
         let secret_key = tencent
             .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_key.as_ref()))
-            .or_else(|| {
-                config
-                    .tencent_secret_key
-                    .clone()
-                    .map(|k| k.trim().to_string())
-                    .filter(|k| !k.is_empty())
-            })
             .ok_or(TencentSpeechError::ApiKeyNotConfigured)?;
 
         let region = tencent
             .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.region.as_ref()))
-            .or_else(|| {
-                config
-                    .tencent_region
-                    .clone()
-                    .map(|r| r.trim().to_string())
-                    .filter(|r| !r.is_empty())
-            })
             .unwrap_or_else(|| "ap-guangzhou".to_string());
 
         drop(config);
@@ -356,33 +345,12 @@ impl TencentSpeechService {
             .find(|item| item.enabled && item.kind.trim().eq_ignore_ascii_case("tencent"));
         let secret_id = tencent
             .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_id.as_ref()))
-            .or_else(|| {
-                config
-                    .tencent_secret_id
-                    .clone()
-                    .map(|k| k.trim().to_string())
-                    .filter(|k| !k.is_empty())
-            })
             .ok_or(TencentSpeechError::ApiKeyNotConfigured)?;
         let secret_key = tencent
             .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_key.as_ref()))
-            .or_else(|| {
-                config
-                    .tencent_secret_key
-                    .clone()
-                    .map(|k| k.trim().to_string())
-                    .filter(|k| !k.is_empty())
-            })
             .ok_or(TencentSpeechError::ApiKeyNotConfigured)?;
         let region = tencent
             .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.region.as_ref()))
-            .or_else(|| {
-                config
-                    .tencent_region
-                    .clone()
-                    .map(|r| r.trim().to_string())
-                    .filter(|r| !r.is_empty())
-            })
             .unwrap_or_else(|| "ap-guangzhou".to_string());
         drop(config);
         let proxy_config = ProxyConfig::from_dynamic_config().await;

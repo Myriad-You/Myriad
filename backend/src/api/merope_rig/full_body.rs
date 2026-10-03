@@ -210,7 +210,7 @@ async fn store_full_body_portrait(
         let public_url = crate::services::media::normalize_local_url(
             &transaction,
             url,
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(|error| internal_error(error.to_string()))?;
@@ -228,7 +228,7 @@ async fn store_full_body_portrait(
             row.portrait_asset_id.as_deref(),
             row.avatar_asset_id.as_deref(),
             Some(&profile),
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(|error| internal_error(error.to_string()))?;

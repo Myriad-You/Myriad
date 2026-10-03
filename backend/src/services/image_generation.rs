@@ -18,8 +18,8 @@ use crate::{
         http_client::get_long_running_client,
         image_cache::ImageCacheService,
         media::{
-            LegacyPaths, MediaContext, MediaExposure, MediaService, MediaStore, NewMediaBytes,
-            ServeOutcome, resolve_alias_or_legacy, resolve_public_asset,
+            MediaContext, MediaExposure, MediaService, MediaStore, NewMediaBytes, ServeOutcome,
+            resolve_cached_image, resolve_public_asset,
         },
     },
 };
@@ -178,12 +178,14 @@ fn provider_status_is(lower: &str, status: u16) -> bool {
 pub fn config_from_dynamic(
     dynamic: &DynamicConfig,
 ) -> Result<ImageGenerationConfig, ImageGenerationError> {
-    let source = dynamic.find_vendor_source(&dynamic.ai_image_source);
+    // A built-in slug with no source row of its own: that vendor's shared key.
+    let slug = dynamic.image_source();
+    let source = dynamic.find_vendor_source(&slug);
     let provider = source
         .as_ref()
         .map(|item| image_protocol(&item.kind))
         .filter(|item| !item.is_empty())
-        .unwrap_or_else(|| image_protocol(&dynamic.ai_image_provider));
+        .unwrap_or_else(|| image_protocol(&slug));
     if provider.is_empty() {
         return Err(ImageGenerationError::NotConfigured(
             "image provider is not configured".to_string(),
@@ -195,7 +197,7 @@ pub fn config_from_dynamic(
             "openai" | "openai_compatible" => (
                 api_key,
                 if source.base_url.trim().is_empty() {
-                    dynamic.shared_openai_base_url()
+                    crate::config::OPENAI_API_BASE.to_string()
                 } else {
                     source.base_url.trim().to_string()
                 },
@@ -211,7 +213,7 @@ pub fn config_from_dynamic(
             "volcengine" | "ark" | "seedream" => (
                 api_key,
                 if source.base_url.trim().is_empty() {
-                    dynamic.shared_volcengine_base_url()
+                    crate::config::VOLCENGINE_API_BASE.to_string()
                 } else {
                     source.base_url.trim().to_string()
                 },
@@ -223,7 +225,7 @@ pub fn config_from_dynamic(
         match provider.as_str() {
             "openai" => (
                 dynamic.shared_openai_api_key(),
-                dynamic.shared_openai_base_url(),
+                crate::config::OPENAI_API_BASE.to_string(),
             ),
             "openrouter" => (
                 dynamic.shared_openrouter_api_key(),
@@ -231,7 +233,7 @@ pub fn config_from_dynamic(
             ),
             "volcengine" | "ark" | "seedream" => (
                 dynamic.shared_volcengine_api_key(),
-                dynamic.shared_volcengine_base_url(),
+                crate::config::VOLCENGINE_API_BASE.to_string(),
             ),
             "gemini" => (
                 dynamic.shared_gemini_api_key(),
@@ -516,7 +518,7 @@ pub async fn remove_persisted_generated(
 }
 
 /// Read a local reference exactly as the public media routes would serve it:
-/// only ready public assets or live legacy aliases. Unpublished or deleting
+/// only ready public assets or the image cache. Unpublished or deleting
 /// assets must not leak into generation just because their UUID is known.
 pub(crate) async fn read_public_local_media(url: &str) -> Option<(Vec<u8>, String)> {
     let path = crate::services::media::registered_local_path(url)?;
@@ -529,10 +531,7 @@ pub(crate) async fn read_public_local_media(url: &str) -> Option<(Vec<u8>, Strin
             .await
             .ok()?
     } else {
-        let legacy = LegacyPaths::from_data_paths(paths());
-        resolve_alias_or_legacy(&db, &store, &legacy, &path)
-            .await
-            .ok()?
+        resolve_cached_image(&db, &store, &path).await.ok()?
     };
     let ServeOutcome::File(file) = outcome else {
         return None;
@@ -1853,34 +1852,33 @@ mod tests {
     }
 
     #[test]
-    fn config_from_dynamic_rejects_unknown_provider_and_missing_keys() {
+    fn config_from_dynamic_rejects_unknown_sources_and_missing_keys() {
         let mut config = DynamicConfig::default();
-        config.ai_image_provider = "unknown".to_string();
+        config.ai_image_source = "unknown".to_string();
         assert!(matches!(
             config_from_dynamic(&config),
             Err(ImageGenerationError::UnsupportedProvider(provider)) if provider == "unknown"
         ));
 
-        config.ai_image_provider = "openrouter".to_string();
+        config.ai_image_source = "openrouter".to_string();
         assert!(matches!(
             config_from_dynamic(&config),
             Err(ImageGenerationError::NotConfigured(_))
         ));
 
-        config.openai_api_key = Some("sk-test".to_string());
+        config.provider_openrouter_api_key = Some("sk-test".to_string());
         let resolved = config_from_dynamic(&config).unwrap();
         assert_eq!(resolved.provider, "openrouter");
         assert_eq!(resolved.base_url, "https://openrouter.ai/api/v1");
 
-        config.ai_image_provider = "gemini".to_string();
+        config.ai_image_source = "gemini".to_string();
         config.ai_image_model = "gemini-3.1-flash-image".to_string();
-        config.gemini_api_key = Some("AIza-test".to_string());
+        config.provider_gemini_api_key = Some("AIza-test".to_string());
         let gemini = config_from_dynamic(&config).unwrap();
         assert_eq!(gemini.provider, "gemini");
         assert_eq!(gemini.model, "gemini-3.1-flash-image");
         assert_eq!(gemini.base_url, "https://generativelanguage.googleapis.com");
 
-        config.ai_image_provider = "openrouter".to_string();
         config.ai_image_source = "work-gemini".to_string();
         config.ai_vendor_sources = vec![crate::config::AiVendorSource {
             slug: "work-gemini".to_string(),
@@ -1889,6 +1887,7 @@ mod tests {
             enabled: true,
             preset: "gemini".to_string(),
             api_format: "gemini".to_string(),
+            credential_mode: "own".to_string(),
             api_key: Some("AIza-source".to_string()),
             ..crate::config::AiVendorSource::default()
         }];

@@ -121,18 +121,14 @@ pub fn widget_installation_owner(config: &serde_json::Value) -> Option<i32> {
         .and_then(|value| i32::try_from(value).ok())
 }
 
-/// Whether a runtime-sourced widget row belongs to the given installation.
-///
-/// Runtime widgets bind to `installationOwnerId` when set; rows without
-/// the field bind to the subject when subject == installation owner.
+/// Whether a runtime-sourced widget row belongs to the given installation:
+/// it names that installation's owner in `installationOwnerId`.
 pub fn runtime_widget_belongs_to_installation(
     config: &serde_json::Value,
-    subject_id: i32,
     installation_owner_id: i32,
 ) -> bool {
     widget_source(config) == Some("runtime")
-        && (widget_installation_owner(config) == Some(installation_owner_id)
-            || (widget_installation_owner(config).is_none() && subject_id == installation_owner_id))
+        && widget_installation_owner(config) == Some(installation_owner_id)
 }
 
 /// Canonical registry id: `tapp.{tapp_id}.{local_id}`.
@@ -174,24 +170,6 @@ pub fn runtime_widget_register_shape_ok(
         && sizes.len() <= 10
         && sizes.iter().all(|size| is_valid_widget_size(size))
         && sizes.iter().any(|size| size == default_size)
-}
-
-/// Full widget ids from a previous raw manifest JSON `widgets` array.
-///
-/// During reconcile a row is manifest-sourced when `config.source` is
-/// `"manifest"` or its id is one of these legacy (source-less) ids.
-pub fn legacy_manifest_widget_ids(
-    tapp_id: &str,
-    previous_manifest: Option<&serde_json::Value>,
-) -> std::collections::HashSet<String> {
-    previous_manifest
-        .and_then(|value| value.get("widgets"))
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|widget| widget.get("id").and_then(serde_json::Value::as_str))
-        .map(|id| format_tapp_widget_id(tapp_id, id))
-        .collect()
 }
 
 /// Local widget id stripped of the `tapp.{tapp_id}.` prefix when present.
@@ -348,27 +326,15 @@ mod tests {
     #[test]
     fn runtime_widget_owner_binding_prevents_cross_installation_reuse() {
         let public = json!({ "source": "runtime", "installationOwnerId": 1 });
-        assert!(runtime_widget_belongs_to_installation(&public, 9, 1));
-        assert!(!runtime_widget_belongs_to_installation(&public, 9, 9));
-
-        let legacy_private = json!({ "source": "runtime" });
-        assert!(runtime_widget_belongs_to_installation(
-            &legacy_private,
-            9,
-            9
-        ));
+        assert!(runtime_widget_belongs_to_installation(&public, 1));
+        assert!(!runtime_widget_belongs_to_installation(&public, 9));
         assert!(!runtime_widget_belongs_to_installation(
-            &legacy_private,
-            9,
-            1
+            &json!({ "source": "runtime" }),
+            9
         ));
 
         let manifest_widget = json!({ "source": "manifest" });
-        assert!(!runtime_widget_belongs_to_installation(
-            &manifest_widget,
-            9,
-            9
-        ));
+        assert!(!runtime_widget_belongs_to_installation(&manifest_widget, 9));
     }
 
     #[test]
@@ -454,10 +420,6 @@ mod tests {
 
     #[test]
     fn reconcile_and_slot_helpers() {
-        let legacy =
-            legacy_manifest_widget_ids("com.ex", Some(&json!({ "widgets": [{ "id": "old" }] })));
-        assert!(legacy.contains("tapp.com.ex.old"));
-
         assert!(runtime_widget_slot_available(1, 1, 3));
         assert!(!runtime_widget_slot_available(2, 1, 3));
         assert!(manifest_declares_local_widget_id(

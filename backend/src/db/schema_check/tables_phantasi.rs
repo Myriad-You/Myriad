@@ -950,35 +950,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
-            name: "media_url_aliases".to_string(),
-            columns: vec![
-                ColumnDef::new("id", "integer"),
-                ColumnDef::new("local_path", "text"),
-                ColumnDef::new("asset_id", "integer"),
-                ColumnDef::new("created_at", "timestamp with time zone")
-                    .default_value("CURRENT_TIMESTAMP"),
-            ],
-        },
-        TableDef {
-            name: "media_migration_jobs".to_string(),
-            columns: vec![
-                ColumnDef::new("id", "integer"),
-                ColumnDef::new("source_kind", "text"),
-                ColumnDef::new("source_key", "text"),
-                ColumnDef::new("asset_id", "integer"),
-                ColumnDef::new("copy_state", "text").default_value("'pending'"),
-                ColumnDef::new("verify_state", "text").default_value("'pending'"),
-                ColumnDef::new("switch_state", "text").default_value("'pending'"),
-                ColumnDef::new("error_code", "text"),
-                ColumnDef::new("cursor", "text"),
-                ColumnDef::new("batch_version", "integer").default_value("1"),
-                ColumnDef::new("created_at", "timestamp with time zone")
-                    .default_value("CURRENT_TIMESTAMP"),
-                ColumnDef::new("updated_at", "timestamp with time zone")
-                    .default_value("CURRENT_TIMESTAMP"),
-            ],
-        },
-        TableDef {
             name: "phantasi_source_applications".to_string(),
             columns: vec![
                 ColumnDef {

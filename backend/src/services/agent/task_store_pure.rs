@@ -11,8 +11,8 @@
 pub use myriad_agent_rules::session_id_from_lane_key;
 pub use myriad_agent_rules::{
     is_cancellable_task_status, is_terminal_past_retention, is_waiting_input_timed_out,
-    lane_id_from_user_session, session_id_from_lane_id, status_counts_from_iter,
-    task_status_from_db_str, task_status_to_db_str, waiting_input_timeout_error,
+    session_id_from_lane_id, status_counts_from_iter, task_status_from_db_str,
+    task_status_to_db_str, waiting_input_timeout_error,
 };
 
 #[cfg(test)]
@@ -68,12 +68,6 @@ mod tests {
             session_id_from_lane_id(Some("user:1:session:s1")),
             Some("s1".into())
         );
-        assert_eq!(
-            lane_id_from_user_session(7, "ses_x"),
-            Some("user:7:session:ses_x".into())
-        );
-        assert_eq!(lane_id_from_user_session(7, "  "), None);
-        assert_eq!(lane_id_from_user_session(7, ""), None);
     }
 
     #[test]

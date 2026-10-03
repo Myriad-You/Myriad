@@ -21,7 +21,8 @@ import type {
   Anime25DTorsoYawState,
 } from './torsoDeformation'
 import type { Anime25DPlayback, Anime25DShellProfile } from './types'
-import { ArmDrape, ArmPendulum } from './armPendulum'
+import { ArmChoreography } from './armChoreography'
+import { ArmDrape, ArmPendulum, ArmSegment, FOREARM, HAND } from './armPendulum'
 import { applyBodyLift, BodyLiftResponse } from './bodyLift'
 import {
   chestBodyExcitationY,
@@ -108,7 +109,14 @@ export class Anime25DBodyFrames {
   /** Each sleeve hangs from its shoulder; its swing is simulated, not authored. */
   private readonly armPendulums = { L: new ArmPendulum(1), R: new ArmPendulum(-1) } as const
 
+  /** Splits the shared arm intent into what each arm does. */
+  private readonly armChoreography = new ArmChoreography()
+  private readonly armElbows = { L: false, R: false }
   private readonly armDrapes = { L: new ArmDrape(), R: new ArmDrape() } as const
+  /** A forearm below a found elbow swings on after its upper arm. */
+  private readonly forearms = { L: new ArmSegment(FOREARM), R: new ArmSegment(FOREARM) } as const
+  /** A hand below a found wrist swings on after its forearm. */
+  private readonly hands = { L: new ArmSegment(HAND), R: new ArmSegment(HAND) } as const
 
   private readonly armJoint = { x: 0, y: 0, reach: 0 }
   /** Each shoulder as the arm step last found it, for what else hangs there. */
@@ -219,6 +227,10 @@ export class Anime25DBodyFrames {
       armAngleR: 0,
       armDrapeL: 0,
       armDrapeR: 0,
+      forearmL: 0,
+      forearmR: 0,
+      handL: 0,
+      handR: 0,
       chestCenterX: this.chestRegion.centerX,
       chestRegionCenterY: this.chestRegion.centerY,
       chestMotionCenterY: this.chestRegion.centerY,
@@ -563,29 +575,56 @@ export class Anime25DBodyFrames {
     const e = this.current
     const frame = this.secondaryDeformationFrame
     if (!e.phys) this.prepareHeadFrame(time)
-    const input = { open: e.armY, sway: e.armPos, bodyRoll: e.body * BODY_ROLL_RADIANS, dynamic: e.phys }
+    const bodyRoll = e.body * BODY_ROLL_RADIANS
+    const sleeves = {
+      L: layers.find((layer) => layer.secondaryDeformation.arm && layer.secondaryDeformation.handwearSide === 'L'),
+      R: layers.find((layer) => layer.secondaryDeformation.arm && layer.secondaryDeformation.handwearSide === 'R'),
+    }
+    this.armElbows.L = Boolean(sleeves.L?.secondaryDeformation.arm?.elbow)
+    this.armElbows.R = Boolean(sleeves.R?.secondaryDeformation.arm?.elbow)
+    const choreography = this.armChoreography
+    choreography.step(
+      {
+        open: e.armY,
+        sway: e.armPos,
+        headTurn: e.angleX,
+        // The hips go against the lean: their weight is on the leg they move over.
+        weight: this.standing ? -e.body : null,
+        dynamic: e.phys,
+      },
+      this.armElbows,
+      dt,
+    )
     for (const side of ['L', 'R'] as const) {
-      const joint = this.writeArmJoint(side, layers) ? this.armJoint : null
+      const joint = this.writeArmJoint(sleeves[side]) ? this.armJoint : null
       const shoulder = this.shoulders[side]
       shoulder.found = joint !== null
       shoulder.x = this.armJoint.x
       shoulder.y = this.armJoint.y
+      const own = choreography[side]
+      const input = { open: own.open, sway: e.armPos, bodyRoll, dynamic: e.phys }
       const angle = this.armPendulums[side].step(input, joint, dt)
       const drape = this.armDrapes[side].step(angle, input.bodyRoll, input.dynamic, dt)
+      // Away from the body is the arm's own outward turn.
+      const outward = side === 'L' ? 1 : -1
+      const forearm = this.forearms[side].step(angle, input.bodyRoll, input.dynamic, dt, outward * own.bend)
+      const hand = this.hands[side].step(angle + forearm, input.bodyRoll, input.dynamic, dt)
       if (side === 'L') {
         frame.armAngleL = angle
         frame.armDrapeL = drape
+        frame.forearmL = forearm
+        frame.handL = hand
       } else {
         frame.armAngleR = angle
         frame.armDrapeR = drape
+        frame.forearmR = forearm
+        frame.handR = hand
       }
     }
   }
 
   /** The shoulder joint after all primary motion, including the shader's body roll. */
-  private writeArmJoint(side: 'L' | 'R', layers: readonly Anime25DGpuLayer[]): boolean {
-    const layer = layers.find((candidate) =>
-      candidate.secondaryDeformation.arm && candidate.secondaryDeformation.handwearSide === side)
+  private writeArmJoint(layer: Anime25DGpuLayer | undefined): boolean {
     const binding = layer?.secondaryDeformation
     if (!layer || !binding?.arm || !binding.armMesh) return false
     const vertex = binding.armMesh.jointVertex

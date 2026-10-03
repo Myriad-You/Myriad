@@ -68,7 +68,7 @@ pub(crate) async fn lock_room_capacity(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT COUNT(*)::int AS cnt FROM federation_room_members
-               WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
+               WHERE room_id = $1 AND membership_status = 'active'"#,
             [room_id.into()],
         ))
         .await?;
@@ -140,7 +140,7 @@ pub(crate) async fn mark_room_read(
            SET last_read_at = NOW()
            WHERE room_id = $1
              AND actor_url = $2
-             AND COALESCE(membership_status, 'active') = 'active'"#,
+             AND membership_status = 'active'"#,
         [room_id.into(), actor_url.into()],
     ))
     .await?;
@@ -156,16 +156,14 @@ pub(crate) async fn resolve_active_member_actor(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT actor_url, role, COALESCE(membership_status, 'active') AS membership_status
+            r#"SELECT actor_url, role, membership_status
                FROM federation_room_members
                WHERE room_id = $1 AND actor_url = $2"#,
             [room_id.into(), actor_url.into()],
         ))
         .await?;
     if let Some(r) = row {
-        let status: String = r
-            .try_get("", "membership_status")
-            .unwrap_or_else(|_| "active".into());
+        let status: String = r.try_get("", "membership_status")?;
         if status == "active" {
             let stored: String = r.try_get("", "actor_url").unwrap_or_default();
             let role: String = r.try_get("", "role").unwrap_or_else(|_| "member".into());
@@ -179,7 +177,7 @@ pub(crate) async fn resolve_active_member_actor(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT actor_url, role, COALESCE(membership_status, 'active') AS membership_status
+            r#"SELECT actor_url, role, membership_status
                FROM federation_room_members WHERE room_id = $1"#,
             [room_id.into()],
         ))
@@ -187,9 +185,7 @@ pub(crate) async fn resolve_active_member_actor(
     for r in rows {
         let url: String = r.try_get("", "actor_url").unwrap_or_default();
         if same_actor_url(&url, actor_url) {
-            let status: String = r
-                .try_get("", "membership_status")
-                .unwrap_or_else(|_| "active".into());
+            let status: String = r.try_get("", "membership_status")?;
             if status != "active" {
                 return Ok(None);
             }
@@ -207,11 +203,10 @@ pub(crate) async fn get_member_role(
     actor_url: &str,
 ) -> Result<Option<String>, sea_orm::DbErr> {
     // Only *active* members can act (pending invites cannot send/download).
-    // NULL membership_status 当 `'active'`。
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT role, COALESCE(membership_status, 'active') AS membership_status
+            r#"SELECT role, membership_status
                FROM federation_room_members
                WHERE room_id = $1 AND actor_url = $2"#,
             [room_id.into(), actor_url.into()],
@@ -219,9 +214,7 @@ pub(crate) async fn get_member_role(
         .await?;
 
     if let Some(r) = row {
-        let status: String = r
-            .try_get("", "membership_status")
-            .unwrap_or_else(|_| "active".into());
+        let status: String = r.try_get("", "membership_status")?;
         if status == "active" {
             if let Ok(role) = r.try_get::<String>("", "role") {
                 return Ok(Some(role));
@@ -235,7 +228,7 @@ pub(crate) async fn get_member_role(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT actor_url, role, COALESCE(membership_status, 'active') AS membership_status
+            r#"SELECT actor_url, role, membership_status
                FROM federation_room_members WHERE room_id = $1"#,
             [room_id.into()],
         ))
@@ -243,9 +236,7 @@ pub(crate) async fn get_member_role(
     for r in rows {
         let url: String = r.try_get("", "actor_url").unwrap_or_default();
         if same_actor_url(&url, actor_url) {
-            let status: String = r
-                .try_get("", "membership_status")
-                .unwrap_or_else(|_| "active".into());
+            let status: String = r.try_get("", "membership_status")?;
             if status != "active" {
                 return Ok(None);
             }
@@ -257,7 +248,7 @@ pub(crate) async fn get_member_role(
 }
 
 /// Lookup membership role + status (any status, including pending).
-/// Returns `None` if no row; status defaults to `active` for legacy rows.
+/// Returns `None` if no row.
 pub(crate) async fn get_membership(
     db: &impl ConnectionTrait,
     room_id: &str,
@@ -266,7 +257,7 @@ pub(crate) async fn get_membership(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT role, COALESCE(membership_status, 'active') AS membership_status
+            r#"SELECT role, membership_status
                FROM federation_room_members
                WHERE room_id = $1 AND actor_url = $2"#,
             [room_id.into(), actor_url.into()],
@@ -275,16 +266,14 @@ pub(crate) async fn get_membership(
 
     if let Some(r) = row {
         let role: String = r.try_get("", "role").unwrap_or_else(|_| "member".into());
-        let status: String = r
-            .try_get("", "membership_status")
-            .unwrap_or_else(|_| "active".into());
+        let status: String = r.try_get("", "membership_status")?;
         return Ok(Some((role, status)));
     }
 
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT actor_url, role, COALESCE(membership_status, 'active') AS membership_status
+            r#"SELECT actor_url, role, membership_status
                FROM federation_room_members WHERE room_id = $1"#,
             [room_id.into()],
         ))
@@ -293,9 +282,7 @@ pub(crate) async fn get_membership(
         let url: String = r.try_get("", "actor_url").unwrap_or_default();
         if same_actor_url(&url, actor_url) {
             let role: String = r.try_get("", "role").unwrap_or_else(|_| "member".into());
-            let status: String = r
-                .try_get("", "membership_status")
-                .unwrap_or_else(|_| "active".into());
+            let status: String = r.try_get("", "membership_status")?;
             return Ok(Some((role, status)));
         }
     }
@@ -606,7 +593,7 @@ async fn fanout_to_remote_members_with(
                FROM federation_room_members rm
                LEFT JOIN federation_remote_actors ra ON rm.actor_url = ra.actor_url
                WHERE rm.room_id = $1 AND rm.is_local = false
-                 AND COALESCE(rm.membership_status, 'active') = 'active'
+                 AND rm.membership_status = 'active'
                  AND ra.id IS NULL"#,
             [room_id.into()],
         ))
@@ -623,7 +610,7 @@ async fn fanout_to_remote_members_with(
                FROM federation_room_members rm
                JOIN federation_remote_actors ra ON rm.actor_url = ra.actor_url
                WHERE rm.room_id = $1 AND rm.is_local = false
-                 AND COALESCE(rm.membership_status, 'active') = 'active'"#,
+                 AND rm.membership_status = 'active'"#,
             [room_id.into()],
         ))
         .await?;

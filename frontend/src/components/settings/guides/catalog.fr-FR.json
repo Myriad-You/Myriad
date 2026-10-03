@@ -454,19 +454,19 @@
     },
     "standard": {
       "what": "Le réglage intelligent par défaut pour le chat quotidien, l’analyse et la génération de rapports.",
-      "chain": "1) Choisissez un fournisseur, remplissez la clé secrète (et adresse/modèle si besoin) → enregistrez en bas.\n2) Chat de l’assistant, génération de rapports et fonctions intelligentes de certaines petites applications utilisent cet ensemble par défaut.\n3) Si « Lite / Haute qualité » est coupé ou inutilisable, le travail se rabat aussi sur cet ensemble.\n4) Dépend aussi de « Autorisations » qui autorisent l’IA et du quota restant.\n5) Si le serveur a besoin d’un proxy pour Internet, réglez-le sous « Avancé », sinon les services intelligents peuvent ne pas se connecter.",
+      "chain": "1) Choisissez un des fournisseurs ci-dessus et renseignez le modèle → enregistrez en bas. Clés et adresses sont sur le fournisseur.\n2) Chat de l’assistant, génération de rapports et fonctions intelligentes de certaines petites applications utilisent cet ensemble par défaut.\n3) Si Pro est coupé ou sans modèle, son travail vient aussi à cet ensemble.\n4) Dépend aussi de « Autorisations » qui autorisent l’IA et du quota restant.\n5) Si le serveur a besoin d’un proxy pour Internet, réglez-le sous « Avancé », sinon les services intelligents peuvent ne pas se connecter.",
       "frontend": "Si le panneau assistant peut répondre normalement, et si les rapports peuvent se générer.\nEnvoyez d’abord un message simple dans l’assistant comme test de connectivité.",
       "notes": "Faites d’abord marcher Standard, puis activez les autres paliers. Ne divulguez pas les clés secrètes."
     },
     "lite": {
       "what": "Un réglage moins cher pour des tâches simples et répétitives (facultatif).",
-      "chain": "1) Renseignez un modèle et Lite est utilisé ; il n’y a pas d’interrupteur à part (si la clé secrète est vide, il emprunte celle de Standard).\n2) Les tâches marquées « lite » préfèrent ce réglage.\n3) Modèle vide → Lite n’est pas utilisé : ces tâches s’arrêtent au lieu de retomber sur Standard. La persona Agent fonctionne quand même, mais les phrases proactives restent courtes et les indices d’humeur restent off.\n4) Les mêmes limites d’autorisation et de quota s’appliquent.",
+      "chain": "1) Renseignez un modèle et Lite est utilisé ; il n’y a pas d’interrupteur à part (jamais choisi, son fournisseur est celui de Standard).\n2) Les tâches marquées « lite » préfèrent ce réglage.\n3) Modèle vide → Lite n’est pas utilisé : ces tâches s’arrêtent au lieu de retomber sur Standard. La persona Agent fonctionne quand même, mais les phrases proactives restent courtes et les indices d’humeur restent off.\n4) Les mêmes limites d’autorisation et de quota s’appliquent.",
       "frontend": "Les utilisateurs ne voient en général pas de page séparée — surtout quel réglage utilisent les tâches d’arrière-plan simples.",
       "notes": "Peut utiliser un autre fournisseur que Standard ; plus sûr de s’assurer d’abord que Standard marche."
     },
     "pro": {
       "what": "Un palier plus fort, en général plus coûteux, pour les tâches plus difficiles.",
-      "chain": "1) Activé et configuré, les tâches qui ont besoin de haute qualité y vont.\n2) Coupé → repli sur Standard.\n3) En général plus cher ; mêmes limites d’autorisation et de quota.",
+      "chain": "1) Activé et configuré, les tâches qui ont besoin de haute qualité y vont.\n2) Coupé ou sans modèle → repli sur Standard.\n3) En général plus cher ; mêmes limites d’autorisation et de quota.",
       "frontend": "La qualité de génération peut être meilleure. Comparez des questions difficiles dans l’assistant.",
       "notes": "N’activez que si besoin ; toutes les tâches n’ont pas besoin de ce palier."
     },
@@ -508,7 +508,7 @@
     },
     "provider": {
       "what": "Quelle entreprise de service intelligent utiliser.",
-      "chain": "1) Changer de fournisseur change les champs ci-dessous.\n2) Les requêtes vont vers ce fournisseur.\n3) Après changement, revérifiez que clé secrète et nom de modèle correspondent encore.",
+      "chain": "1) Changer de fournisseur demande un nom de modèle qu’il connaît.\n2) Les requêtes vont vers ce fournisseur.\n3) Après changement, revérifiez que clé secrète et nom de modèle correspondent encore.",
       "frontend": "Les champs du formulaire de la page de paramètres changent ; un mauvais réglage affiche des erreurs à l’usage.",
       "notes": "Ne changez pas de fournisseur en gardant le nom de modèle d’un autre."
     },

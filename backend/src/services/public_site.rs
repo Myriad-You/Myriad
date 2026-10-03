@@ -70,36 +70,21 @@ pub(crate) async fn site_branding_copy(db: &DatabaseConnection) -> (String, Stri
 
 pub(crate) async fn load_site_branding(db: &DatabaseConnection) -> SiteBranding {
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
-    let db_config = config_service.load_config().await.ok();
+    let stored = config_service.load_config().await.unwrap_or_else(|error| {
+        tracing::warn!(%error, "stored configuration could not be read; using defaults");
+        crate::config::DynamicConfig::default()
+    });
 
-    let branding = |db_val: Option<String>, env_key: &str, default: &str| -> String {
+    // Branding fields: an empty value falls through to the default.
+    let branding = |db_val: Option<String>, default: &str| -> String {
         db_val
             .filter(|v| !v.is_empty())
-            .or_else(|| std::env::var(env_key).ok().filter(|v| !v.is_empty()))
             .unwrap_or_else(|| default.to_string())
     };
-    let clearable = |db_val: Option<String>, env_key: &str| -> String {
-        if let Some(v) = db_val {
-            return v;
-        }
-        std::env::var(env_key).unwrap_or_default()
-    };
 
-    let noindex_flag = db_config
-        .as_ref()
-        .map(|c| c.site_noindex)
-        .unwrap_or_else(|| {
-            std::env::var("SITE_NOINDEX")
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false)
-        });
+    let noindex_flag = stored.site_noindex;
 
-    let policy_raw = db_config
-        .as_ref()
-        .map(|c| c.site_visibility_policy.clone())
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| std::env::var("SITE_VISIBILITY_POLICY").ok())
-        .unwrap_or_default();
+    let policy_raw = stored.site_visibility_policy.trim().to_string();
     let policy =
         crate::services::seo_policy::normalize_visibility_policy(&policy_raw, noindex_flag)
             .to_string();
@@ -107,40 +92,20 @@ pub(crate) async fn load_site_branding(db: &DatabaseConnection) -> SiteBranding 
 
     SiteBranding {
         title: branding(
-            db_config.as_ref().and_then(|c| c.site_title.clone()),
-            "SITE_TITLE",
+            stored.site_title.clone(),
             "Myriad - A myriad of lights, in one place.",
         ),
         description: branding(
-            db_config.as_ref().and_then(|c| c.site_description.clone()),
-            "SITE_DESCRIPTION",
+            stored.site_description.clone(),
             "A myriad of lights, in one place.",
         ),
-        favicon: branding(
-            db_config.as_ref().and_then(|c| c.site_favicon.clone()),
-            "SITE_FAVICON",
-            "/favicon.webp",
-        ),
-        og_image: clearable(
-            db_config.as_ref().and_then(|c| c.site_og_image.clone()),
-            "SITE_OG_IMAGE",
-        ),
+        favicon: branding(stored.site_favicon.clone(), "/favicon.webp"),
+        og_image: stored.site_og_image.clone().unwrap_or_default(),
         noindex,
         policy,
-        ai_intro: clearable(
-            db_config.as_ref().and_then(|c| c.site_ai_intro.clone()),
-            "SITE_AI_INTRO",
-        ),
-        keywords: clearable(
-            db_config.as_ref().and_then(|c| c.site_keywords.clone()),
-            "SITE_KEYWORDS",
-        ),
-        google_site_verification: clearable(
-            db_config
-                .as_ref()
-                .and_then(|c| c.google_site_verification.clone()),
-            "GOOGLE_SITE_VERIFICATION",
-        ),
+        ai_intro: stored.site_ai_intro.clone().unwrap_or_default(),
+        keywords: stored.site_keywords.clone().unwrap_or_default(),
+        google_site_verification: stored.google_site_verification.clone().unwrap_or_default(),
     }
 }
 

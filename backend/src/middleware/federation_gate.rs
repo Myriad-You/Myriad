@@ -102,7 +102,6 @@ mod tests {
             "/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.png",
             false
         ));
-        assert!(!should_refuse("/media/federation/1/pic.png", false));
         assert!(!should_refuse("/api/media/7/content", false));
         assert!(!should_refuse(
             "/api/phantasi/image-cache/aa/abcdef.png",
@@ -144,11 +143,7 @@ mod tests {
         ] {
             assert!(is_federation_path(path), "{path} must be gated");
         }
-        for path in [
-            "/media/federation",
-            "/media/federation/2026/pic.png",
-            "/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.png",
-        ] {
+        for path in ["/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.png"] {
             assert!(
                 !is_federation_path(path),
                 "{path} is site media and must stay on the web process"

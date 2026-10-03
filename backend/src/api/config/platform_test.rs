@@ -310,13 +310,8 @@ pub async fn test_platform(
                 .trim_start_matches('@');
             let form_bearer = form_secret_if_plaintext(config["bearer_token"].as_str());
             let cfg = dynamic_config.read().await;
-            let bearer_owned = form_bearer.or_else(|| {
-                cfg.x_bearer_token
-                    .clone()
-                    .filter(|s| !s.trim().is_empty())
-                    .or_else(|| std::env::var("X_BEARER_TOKEN").ok())
-                    .filter(|s| !s.trim().is_empty())
-            });
+            let bearer_owned =
+                form_bearer.or_else(|| cfg.x_bearer_token.clone().filter(|s| !s.trim().is_empty()));
             drop(cfg);
             let bearer_token = bearer_owned.as_deref().unwrap_or("");
             if username.is_empty() {
@@ -363,18 +358,13 @@ pub async fn test_platform(
         }
         "MyAnimeList" => {
             let username = config["username"].as_str().unwrap_or("").trim();
-            // Client ID optional: form value if not masked; else fall back to saved config/env
+            // Client ID optional: form value if not masked; else the saved one
             let form_client_id = config["client_id"]
                 .as_str()
                 .and_then(|s| form_secret_if_plaintext(Some(s)));
             let cfg = dynamic_config.read().await;
-            let client_id = form_client_id.or_else(|| {
-                cfg.mal_client_id
-                    .clone()
-                    .filter(|s| !s.trim().is_empty())
-                    .or_else(|| std::env::var("MAL_CLIENT_ID").ok())
-                    .filter(|s| !s.trim().is_empty())
-            });
+            let client_id = form_client_id
+                .or_else(|| cfg.mal_client_id.clone().filter(|s| !s.trim().is_empty()));
             drop(cfg);
             if username.is_empty() {
                 return test_reject("username_required", "Username is required");

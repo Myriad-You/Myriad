@@ -5,6 +5,7 @@ import type { AuthoredExpressionReference } from './authoredExpression'
 import type { CharacterAssetProfile } from './contract'
 import type { MotionExposureFinding } from './motionExposure'
 import type { Anime25DPsdReconciliation } from './psdReconciliation'
+import type { PsdSkeleton } from './skeleton'
 import type { MeropeRigImportSource } from './types'
 import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
 import { buildAnime25DPlayback, remapRiggerAnchors } from '../anime25drig/playback'
@@ -28,6 +29,7 @@ import { findMotionExposure } from './motionExposure'
 import { inferOutfitProfileFromPartIds } from './outfit'
 import { repairAnime25DPsd } from './psdRepair'
 import { flattenPsdForRigger, flattenVisibleLayers, genericCloseParts, rasterFromRiggerPart } from './riggerBridge'
+import { skeletonInFrame } from './skeleton'
 
 export { ANIME25D_LAYER_DEPTH, type Anime25DLayerRole } from './anime25d'
 export type { Anime25DSourceReference } from './anime25dImportTypes'
@@ -63,6 +65,7 @@ export async function prepareAnime25DRigPsd(
   sourceReference?: Anime25DSourceReference,
   expressionReferences: readonly AuthoredExpressionReference[] = [],
   profile: CharacterAssetProfile = 'bust',
+  skeleton?: PsdSkeleton,
 ): Promise<PreparedAnime25DRigImport> {
   if (!isAnime25DDocument(psd)) {
     throw new Error(copy.anime25dMissingFace)
@@ -164,6 +167,8 @@ export async function prepareAnime25DRigPsd(
   const rigLayers = buildAnime25DLayerSources(prepared, layerHandles)
   const partIds = prepared.map((layer) => `a25d-${layer.id}`)
   const playbackAnchors = remapRiggerAnchors(rig.anchors, frame, stance)
+  const joints = skeleton ? skeletonInFrame(skeleton, frame) : null
+  if (joints) playbackAnchors.skeleton = joints
   const mouthProfile = analyzeAnime25DMouthProfile(
     prepared,
     frame,

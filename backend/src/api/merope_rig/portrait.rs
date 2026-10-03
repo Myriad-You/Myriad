@@ -406,7 +406,7 @@ pub async fn generate_portrait(
         let public_url = crate::services::media::normalize_local_url(
             &transaction,
             &url,
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(|error| internal_error(error.to_string()))?;
@@ -439,7 +439,7 @@ pub async fn generate_portrait(
             Some(&public_url),
             None,
             Some(&visual_profile),
-            &crate::services::media::upgrade::configured_origins().await,
+            &crate::services::media::configured_origins().await,
         )
         .await
         .map_err(|error| internal_error(error.to_string()))?;

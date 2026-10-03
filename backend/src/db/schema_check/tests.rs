@@ -62,8 +62,6 @@ fn test_folded_extension_tables_in_expected_schema() {
         "phantasi_source_applications",
         "media_assets",
         "media_references",
-        "media_url_aliases",
-        "media_migration_jobs",
         // 006
         "user_identities",
     ] {
@@ -150,8 +148,6 @@ fn test_folded_extension_tables_in_expected_schema() {
         "idx_platform_metadata_user_platform",
         "idx_media_assets_public_id",
         "idx_media_references_slot",
-        "idx_media_url_aliases_local_path",
-        "idx_media_migration_jobs_source",
     ] {
         assert!(
             idx_names.contains(&required),
@@ -161,39 +157,7 @@ fn test_folded_extension_tables_in_expected_schema() {
 }
 
 #[test]
-fn uniqueness_heals_are_invoked_and_partial() {
-    let orchestrator = include_str!("orchestrator.rs");
-    for heal in [
-        "ensure_phantasi_note_source_unique",
-        "ensure_phantasi_source_url_key_unique",
-        "ensure_rsshub_global_url_unique",
-        "ensure_phantasi_application_pending_unique",
-        "ensure_tapp_shortcut_chord_unique",
-    ] {
-        assert!(orchestrator.contains(heal), "orchestrator must call {heal}");
-    }
-    let heals = include_str!("ensure_heals.rs");
-    assert!(
-        heals.contains("AND key <> NEW.key"),
-        "quota INSERT must exclude the conflicting unique key so UPSERT does not double-count",
-    );
-    let migration = include_str!("../../../migrations/002_tapp_system.rs");
-    assert!(
-        migration.contains("AND key <> NEW.key"),
-        "migration quota INSERT must match the heal",
-    );
-    assert!(
-        heals.contains("ORDER BY fetched_at DESC NULLS LAST"),
-        "platform_metadata unique heal must keep the newest snapshot, not the smallest id"
-    );
-    assert!(heals.contains("UPDATE metadata_history"));
-    assert!(heals.contains("idx_phantasi_sources_note_type"));
-    assert!(heals.contains("idx_rsshub_instances_global_url"));
-    assert!(heals.contains("CASE health_status"));
-    assert!(heals.contains("active channel relationship collision across different channel_id"));
-    assert!(heals.contains("shortcut chord collision across different bindings"));
-    assert!(heals.contains("idx_phantasi_source_applications_pending_site"));
-    assert!(heals.contains("idx_tapp_shortcuts_owner_chord"));
+fn partial_unique_indexes_stay_out_of_generic_ddl() {
     let indexes = get_expected_indexes();
     let names: Vec<&str> = indexes.iter().map(|idx| idx.name.as_str()).collect();
     for partial in [
@@ -211,11 +175,9 @@ fn uniqueness_heals_are_invoked_and_partial() {
 }
 
 #[test]
-fn media_asset_model_is_in_expected_schema_and_shared_sql() {
-    let heals = include_str!("ensure_heals.rs");
+fn media_asset_model_is_in_expected_schema_and_003() {
     let migration = include_str!("../../../migrations/003_phantasi_system.rs");
     let sql = include_str!("../../../migrations/media_asset_model.sql");
-    assert!(heals.contains("media_asset_model.sql"));
     assert!(migration.contains("media_asset_model.sql"));
     assert!(sql.contains("idx_media_assets_producer_key"));
     assert!(sql.contains("NULLS NOT DISTINCT"));
@@ -365,26 +327,14 @@ fn test_default_config_seeds_include_quota_and_explicit_open_permissions() {
         values["user_perm_federation_room"],
         serde_json::json!(false)
     );
-    assert_eq!(
-        values["guest_perm_federation_post"],
-        serde_json::json!(false)
-    );
-    assert_eq!(
-        values["guest_perm_federation_channel"],
-        serde_json::json!(false)
-    );
-    assert_eq!(
-        values["guest_perm_federation_room"],
-        serde_json::json!(false)
-    );
+    assert!(!values.contains_key("guest_perm_federation_post"));
+    assert!(!values.contains_key("guest_perm_federation_channel"));
+    assert!(!values.contains_key("guest_perm_federation_room"));
     assert_eq!(
         values["user_perm_phantasi_comment_write"],
         serde_json::json!(false)
     );
-    assert_eq!(
-        values["guest_perm_phantasi_comment_write"],
-        serde_json::json!(false)
-    );
+    assert!(!values.contains_key("guest_perm_phantasi_comment_write"));
     assert!(!values.contains_key("user_perm_component_theme"));
     assert!(!values.contains_key("user_perm_shortcut_register"));
     assert_eq!(values["stash_hidden_capacity"], serde_json::json!(8));
@@ -622,8 +572,7 @@ async fn migrations_leave_no_schema_drift() {
     );
 
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
-    // Fixture account for the upgrade rows below (user-owned tables reject
-    // unknown positive user ids).
+    // Fixture account (user-owned tables reject unknown positive user ids).
     db.execute_unprepared("INSERT INTO users (id, username) VALUES (2147483647, 'schema-fixture')")
         .await
         .expect("insert fixture user");
@@ -644,85 +593,18 @@ VALUES
         "tapp_storage must reject encrypted payloads outside _credentials.*"
     );
 
-    db.execute_unprepared(r#"
-ALTER TABLE tapps ADD COLUMN granted_permissions JSONB NOT NULL DEFAULT '[]';
-ALTER TABLE platform_reports ADD COLUMN expires_at TIMESTAMP;
-ALTER TABLE phantasi_sources ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0;
+    // The generic path puts back a missing index, in its declared shape.
+    db.execute_unprepared(
+        r#"
 DROP INDEX idx_phantasi_items_source_recent;
 DROP INDEX idx_metadata_history_user_date;
-DROP INDEX idx_media_assets_created_id;
-CREATE INDEX idx_phantasi_items_published ON phantasi_items (source_id, published_at);
-CREATE INDEX idx_metadata_history_user ON metadata_history (user_id);
-CREATE INDEX idx_users_github_id ON users (github_id);
-ALTER TABLE phantasi_sources DROP COLUMN url_key, DROP COLUMN site_url_key;
-INSERT INTO phantasi_sources (user_id, name, url, site_url)
-VALUES (2147483647, 'url-key-upgrade-test', 'https://Blog.EXAMPLE/rss/#top', 'https://Blog.EXAMPLE/');
-INSERT INTO tapps (tapp_id, user_id, name, version, manifest, file_path, code_path, approved_permissions, granted_permissions)
-VALUES ('projection-upgrade-test', 2147483647, 'Test', '1', '{}', '', '', '["report:read"]', '["obsolete"]');
-"#).await.unwrap();
-
-    // Scope-less `federation_inbox_receipts` shape; `ensure_schema` must heal it.
-    db.execute_unprepared(
-        r#"
-DROP TABLE federation_inbox_receipts;
-CREATE TABLE federation_inbox_receipts (
-    id BIGSERIAL PRIMARY KEY,
-    signer TEXT NOT NULL,
-    activity_id TEXT NOT NULL,
-    body_digest CHAR(64) NOT NULL,
-    status VARCHAR(16) NOT NULL DEFAULT 'processing',
-    attempts INTEGER NOT NULL DEFAULT 1,
-    lease_until TIMESTAMPTZ,
-    outcome_status SMALLINT,
-    error_message TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    accepted_at TIMESTAMPTZ,
-    CONSTRAINT federation_inbox_receipts_identity_unique UNIQUE (signer, activity_id)
-);
 "#,
     )
     .await
-    .expect("create the legacy receipt shape");
-
-    db.execute_unprepared(
-        r#"
-DROP INDEX idx_delivery_queue_activity_target;
-DROP INDEX idx_timeline_user_activity;
-INSERT INTO federation_delivery_queue (id, activity_id, target_inbox, target_domain, attempts)
-VALUES (-2, 2147483647, 'https://schema.test/inbox', 'schema.test', 3),
-       (-1, 2147483647, 'https://schema.test/inbox', 'schema.test', 0);
-INSERT INTO federation_timeline (id, user_id, activity_id, is_read)
-VALUES (-2, 2147483647, 'https://schema.test/activity', TRUE),
-       (-1, 2147483647, 'https://schema.test/activity', FALSE);
-"#,
-    )
-    .await
-    .expect("seed duplicate rows in the legacy schema without unique indexes");
-
+    .unwrap();
     ensure_schema(&db)
         .await
-        .expect("schema heal must upgrade legacy receipts and deduplicate before creating indexes");
-
-    let retired = db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres, r#"
-SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = current_schema()
-AND (table_name, column_name) IN (('tapps', 'granted_permissions'), ('platform_reports', 'expires_at'), ('phantasi_sources', 'unread_count'))
-"#)).await.unwrap().unwrap();
-    assert_eq!(retired.try_get::<i64>("", "n").unwrap(), 0);
-    let approved = db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT approved_permissions FROM tapps WHERE tapp_id = 'projection-upgrade-test'",
-        ))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        approved
-            .try_get::<serde_json::Value>("", "approved_permissions")
-            .unwrap(),
-        serde_json::json!(["report:read"])
-    );
+        .expect("schema heal must put back missing indexes");
     let index = db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres,
         "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_phantasi_items_source_recent'"))
         .await.unwrap().unwrap();
@@ -732,99 +614,19 @@ AND (table_name, column_name) IN (('tapps', 'granted_permissions'), ('platform_r
             .unwrap()
             .contains("published_at DESC NULLS LAST, id DESC")
     );
-    let github_indexes = db.query_all_raw(Statement::from_string(DatabaseBackend::Postgres,
-        "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'users' AND indexdef LIKE '%(github_id)%'"))
-        .await.unwrap();
-    assert_eq!(github_indexes.len(), 1, "only the UNIQUE constraint index may cover users.github_id");
-    assert!(
-        github_indexes[0]
-            .try_get::<String>("", "indexdef")
-            .unwrap()
-            .starts_with("CREATE UNIQUE INDEX")
-    );
-    let keys = db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres,
-        "SELECT url_key, site_url_key FROM phantasi_sources WHERE name = 'url-key-upgrade-test'"))
-        .await.unwrap().unwrap();
-    assert_eq!(keys.try_get::<String>("", "url_key").unwrap(), "https://blog.example/rss");
-    assert_eq!(keys.try_get::<String>("", "site_url_key").unwrap(), "https://blog.example");
-    db.execute_unprepared("DELETE FROM phantasi_sources WHERE name = 'url-key-upgrade-test'")
-        .await
-        .unwrap();
-    db.execute_unprepared("DELETE FROM tapps WHERE tapp_id = 'projection-upgrade-test'")
-        .await
-        .unwrap();
-
-    for table in ["federation_delivery_queue", "federation_timeline"] {
-        let rows = db
-            .query_all_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                format!("SELECT id FROM {table} WHERE id IN (-2, -1)"),
-            ))
-            .await
-            .expect("read deduplicated rows");
-        assert_eq!(rows.len(), 1, "{table} must retain one row");
-        assert_eq!(rows[0].try_get::<i32>("", "id").unwrap(), -2);
-    }
-
-    // Statement triggers also reject DELETEs that would affect zero rows.
-    db.execute_unprepared(
-        r#"
-CREATE FUNCTION reject_schema_dedup_delete() RETURNS trigger AS $$
-BEGIN
-    RAISE EXCEPTION 'valid unique indexes must skip dedup DELETE';
-END;
-$$ LANGUAGE plpgsql;
-CREATE TRIGGER reject_schema_dedup_delete BEFORE DELETE ON federation_delivery_queue
-    FOR EACH STATEMENT EXECUTE FUNCTION reject_schema_dedup_delete();
-CREATE TRIGGER reject_schema_dedup_delete BEFORE DELETE ON federation_timeline
-    FOR EACH STATEMENT EXECUTE FUNCTION reject_schema_dedup_delete();
-"#,
-    )
-    .await
-    .expect("guard normal startup against unconditional deduplication");
     ensure_schema(&db)
         .await
-        .expect("repeated startup must not issue dedup DELETE when unique indexes exist");
-    db.execute_unprepared(
-        r#"
-DROP TRIGGER reject_schema_dedup_delete ON federation_delivery_queue;
-DROP TRIGGER reject_schema_dedup_delete ON federation_timeline;
-DROP FUNCTION reject_schema_dedup_delete();
-DELETE FROM federation_delivery_queue WHERE id = -2;
-DELETE FROM federation_timeline WHERE id = -2;
-DELETE FROM users WHERE id = 2147483647;
-"#,
-    )
-    .await
-    .expect("remove deduplication test fixtures");
-    let upgraded_drift = report_schema_drift(&db)
+        .expect("a second startup changes nothing");
+    db.execute_unprepared("DELETE FROM users WHERE id = 2147483647")
         .await
-        .expect("upgraded receipt schema drift report must succeed");
+        .expect("remove fixture user");
+    let healed_drift = report_schema_drift(&db)
+        .await
+        .expect("drift report after heal must succeed");
     assert!(
-        upgraded_drift.is_empty(),
-        "legacy receipt upgrade must restore the authoritative schema:\n{}",
-        upgraded_drift.summary()
-    );
-
-    let legacy_column_count = db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            r#"SELECT COUNT(*)::BIGINT AS count
-               FROM information_schema.columns
-               WHERE table_schema = current_schema()
-                 AND table_name = 'federation_inbox_receipts'
-                 AND column_name IN ('id', 'attempts', 'lease_until', 'updated_at', 'accepted_at')"#
-                .to_string(),
-        ))
-        .await
-        .expect("inspect upgraded receipt columns")
-        .expect("column count row");
-    assert_eq!(
-        legacy_column_count
-            .try_get::<i64>("", "count")
-            .expect("read legacy receipt column count"),
-        0,
-        "healer must remove every column unique to the scope-less receipt shape"
+        healed_drift.is_empty(),
+        "the heal must restore the authoritative schema:\n{}",
+        healed_drift.summary()
     );
 
     // `ROLLBACK TO SAVEPOINT` must drop post-savepoint writes in this txn.
@@ -1692,65 +1494,6 @@ VALUES
         .expect("rollback isolated federation contract tables");
 }
 
-#[tokio::test]
-async fn tapp_storage_upgrade_heals_and_enforces_credential_constraint() {
-    let Ok(url) = std::env::var("MYRIAD_TAPP_STORAGE_UPGRADE_DB") else {
-        eprintln!("skipping: set MYRIAD_TAPP_STORAGE_UPGRADE_DB for the upgrade guard test");
-        return;
-    };
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
-
-    let db = Database::connect(&url)
-        .await
-        .expect("connect to upgrade guard database");
-    db.execute_unprepared(
-        r#"
-CREATE TABLE tapp_storage (
-    id SERIAL PRIMARY KEY,
-    tapp_id VARCHAR(255) NOT NULL,
-    user_id INTEGER NOT NULL,
-    key VARCHAR(255) NOT NULL,
-    value JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-INSERT INTO tapp_storage (tapp_id, user_id, key, value)
-VALUES ('upgrade.test', 1, 'ordinary', '{}'::jsonb);
-ALTER TABLE tapp_storage ADD COLUMN encrypted_value TEXT;
-ALTER TABLE tapp_storage ADD COLUMN binding_fingerprint VARCHAR(64);
-"#,
-    )
-    .await
-    .expect("create pre-credential storage shape");
-
-    super::ensure_heals::ensure_tapp_storage_credential_constraint(&db)
-        .await
-        .expect("upgrade helper must add and validate the constraint");
-
-    let invalid = db
-        .execute_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "UPDATE tapp_storage SET encrypted_value = 'ciphertext' WHERE key = 'ordinary'"
-                .to_string(),
-        ))
-        .await;
-    assert!(
-        invalid.is_err(),
-        "healed constraint must reject invalid updates"
-    );
-
-    db.execute_unprepared(
-        r#"
-INSERT INTO tapp_storage
-    (tapp_id, user_id, key, value, encrypted_value, binding_fingerprint)
-VALUES
-    ('upgrade.test', 1, '_credentials.api', '{}', 'ciphertext', repeat('f', 64));
-"#,
-    )
-    .await
-    .expect("healed constraint must accept a complete credential row");
-}
-
 /// Federation FK heal against real PostgreSQL (report-only unless
 /// `MYRIAD_FEDERATION_APPLY_FKS` is set): the set-based catalog + orphan
 /// queries must run cleanly and be repeatable.
@@ -1774,567 +1517,106 @@ async fn federation_fk_heal_runs_against_real_catalog() {
     }
 }
 
-/// 历史非帖子行被清掉、旧 Update 行并回原帖；其余行不动，重复执行无副作用。
+/// The support floor lets a new database through and refuses one with
+/// migration history but no 0.6.1 mark. Runs in its own schema.
 #[tokio::test]
-async fn timeline_heal_keeps_only_posts() {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
-        return;
-    };
-    let db = &fixture.db;
-    db.execute_unprepared(
-        r#"
-        INSERT INTO users (id, username) VALUES (2, 'bob'), (3, 'carol');
-        INSERT INTO federation_remote_actors (id, actor_url, domain, inbox_url) VALUES
-            (21, 'https://r.example/users/amy', 'r.example', 'https://r.example/users/amy/inbox'),
-            (22, 'https://r.example/users/eve', 'r.example', 'https://r.example/users/eve/inbox');
-        INSERT INTO federation_timeline
-            (user_id, activity_id, remote_actor_id, activity_type, object_type,
-             content_preview, content_json, received_at) VALUES
-            (2, 'https://r/c1', 21, 'Create', 'Note', 'v1',
-             '{"id": "https://r/n/1", "content": "v1"}', '2026-01-01T00:00:00Z'),
-            (2, 'https://r/u1', 21, 'Update', 'Note', 'v2',
-             '{"id": "https://r/n/1", "content": "v2"}', '2026-01-02T00:00:00Z'),
-            (2, 'https://r/u2', 21, 'Update', 'Note', 'v3',
-             '{"id": "https://r/n/1", "content": "v3"}', '2026-01-03T00:00:00Z'),
-            (3, 'https://r/c1', 21, 'Create', 'Note', 'v1',
-             '{"id": "https://r/n/1", "content": "v1"}', '2026-01-01T00:00:00Z'),
-            (2, 'https://r/u3', 22, 'Update', 'Note', 'forged',
-             '{"id": "https://r/n/1", "content": "forged"}', '2026-01-04T00:00:00Z'),
-            (2, 'https://r/u4', 21, 'Update', 'Note', 'orphan',
-             '{"id": "https://r/n/2", "content": "orphan"}', '2026-01-04T00:00:00Z'),
-            (2, 'https://r/p1', 21, 'Update', 'Person', NULL,
-             '{"id": "https://r.example/users/amy", "type": "Person"}', NOW()),
-            (2, 'https://r/d1', 21, 'Delete', NULL, NULL, '"https://r/n/9"', NOW()),
-            (2, 'https://r/x1', 21, 'Undo', 'Announce', NULL, '{"type": "Announce"}', NOW()),
-            (2, 'https://r/l1', 21, 'Like', NULL, NULL, '"https://r/n/1"', NOW()),
-            (2, 'https://r/a1', 21, 'Announce', 'Note', 'boost',
-             '{"id": "https://r/n/5"}', NOW());
-        "#,
-    )
-    .await
-    .unwrap();
-
-    let rows = || async {
-        let mut rows: Vec<(i32, String, String)> = db
-            .query_all_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT user_id, activity_id, COALESCE(content_preview, '') AS preview \
-                 FROM federation_timeline ORDER BY user_id, activity_id",
-            ))
-            .await
-            .unwrap()
-            .iter()
-            .map(|row| {
-                (
-                    row.try_get("", "user_id").unwrap(),
-                    row.try_get("", "activity_id").unwrap(),
-                    row.try_get("", "preview").unwrap(),
-                )
-            })
-            .collect();
-        rows.sort();
-        rows
-    };
-    let expected = vec![
-        (2, "https://r/a1".to_string(), "boost".to_string()),
-        // 最新一条 Update 并进 Create 行。
-        (2, "https://r/c1".to_string(), "v3".to_string()),
-        // 另一个 Actor 投来的同 id 行不算这篇的编辑，保留原样。
-        (2, "https://r/u3".to_string(), "forged".to_string()),
-        // 没有 Create 行的 Update 是唯一副本，保留。
-        (2, "https://r/u4".to_string(), "orphan".to_string()),
-        // carol 没有 Update 行，不受影响。
-        (3, "https://r/c1".to_string(), "v1".to_string()),
-    ];
-    for _ in 0..2 {
-        super::ensure_heals::ensure_timeline_posts_only(db)
-            .await
-            .expect("timeline heal must succeed");
-        assert_eq!(rows().await, expected);
-    }
-    let merged: String = db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT content_json->>'content' AS c FROM federation_timeline \
-             WHERE user_id = 2 AND activity_id = 'https://r/c1'",
-        ))
-        .await
-        .unwrap()
-        .unwrap()
-        .try_get("", "c")
-        .unwrap();
-    assert_eq!(merged, "v3");
-
-    fixture.close().await;
-}
-
-/// 修复前的半撤回转发：已撤回的删掉剩下一半，没撤回的补回缺的一半，残留时间线行
-/// 清掉；健康转发与纯 Announce 不动，不写任何活动与投递，重复执行无副作用。
-#[tokio::test]
-async fn repost_heal_reconciles_half_withdrawn_reposts() {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
-        return;
-    };
-    let db = &fixture.db;
-    // 与 announce_object 同形的转发 Create：活动 id https://h/act/{k}，
-    // Note id https://h/notes/repost_{k}，引用 {quoted}。
-    let create = |key: &str, quoted: &str| {
-        format!(
-            r#"('https://h/act/{key}', 1, 'Create', 'repost',
-               '{{"type": "Create", "id": "https://h/act/{key}", "object": {{
-                   "type": "Note", "id": "https://h/notes/repost_{key}",
-                   "mfp:kind": "repost", "mfp:contentId": "repost_{key}",
-                   "mfp:quotedObjectId": "{quoted}", "quoteUrl": "{quoted}"}}}}',
-               true, '2026-01-01T00:00:00Z')"#
-        )
-    };
-    let activities = [
-        create("ok", "https://r/n/ok"),
-        create("a1", "https://r/n/a1"),
-        create("a2", "https://r/n/a2"),
-        create("a3", "https://r/n/shared"),
-        create("ok2", "https://r/n/shared"),
-        create("b1", "https://r/n/b1"),
-        create("b2", "https://r/n/b2"),
-        create("t1", "https://r/n/t1"),
-        // 旧的取消转发：Delete 转发 Note。
-        r#"('https://h/act/del-a1', 1, 'Delete', NULL,
-            '{"type": "Delete", "object": "https://h/notes/repost_a1"}', true, NOW())"#
-            .to_string(),
-        // 旧的撤回发布：Delete 原 Create 活动 id。
-        r#"('https://h/act/del-b1', 1, 'Delete', 'repost',
-            '{"type": "Delete", "object": "https://h/act/b1"}', true, NOW())"#
-            .to_string(),
-        r#"('https://h/act/ann', 1, 'Announce', NULL,
-            '{"type": "Announce", "object": "https://r/n/ann"}', true, NOW())"#
-            .to_string(),
-    ];
-    db.execute_unprepared(&format!(
-        r#"
-        INSERT INTO users (id, username) VALUES (1, 'alice'), (2, 'bob');
-        INSERT INTO federation_activities
-            (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-        VALUES {};
-        INSERT INTO federation_object_interactions (user_id, object_id, kind, activity_id) VALUES
-            (1, 'https://r/n/ok', 'announce', 'https://h/act/ok'),
-            (1, 'https://r/n/shared', 'announce', 'https://h/act/ok2'),
-            (1, 'https://r/n/b1', 'announce', 'https://h/act/b1'),
-            (1, 'https://r/n/b2', 'announce', 'https://h/act/b2'),
-            (1, 'https://r/n/ann', 'announce', 'https://h/act/ann');
-        INSERT INTO federation_published_content
-            (user_id, content_type, content_id, activity_id, visibility, published_at) VALUES
-            (1, 'repost', 'repost_ok', 'https://h/act/ok', 'public', '2026-01-01T00:00:00Z'),
-            (1, 'repost', 'repost_ok2', 'https://h/act/ok2', 'public', '2026-01-01T00:00:00Z'),
-            (1, 'repost', 'repost_a1', 'https://h/act/a1', 'public', '2026-01-01T00:00:00Z'),
-            (1, 'repost', 'repost_a2', 'https://h/act/a2', 'public', '2026-01-01T00:00:00Z'),
-            (1, 'repost', 'repost_a3', 'https://h/act/a3', 'public', '2026-01-01T00:00:00Z');
-        INSERT INTO federation_timeline (user_id, activity_id, activity_type, object_type) VALUES
-            (1, 'https://h/act/ok', 'Create', 'repost'),
-            (2, 'https://h/act/ok', 'Create', 'repost'),
-            (1, 'https://h/act/t1', 'Create', 'repost'),
-            (2, 'https://h/act/t1', 'Create', 'repost');
-        "#,
-        activities.join(",\n")
-    ))
-    .await
-    .unwrap();
-
-    let pairs = |sql: &'static str| async move {
-        let mut rows: Vec<(String, String)> = db
-            .query_all_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
-            .await
-            .unwrap()
-            .iter()
-            .map(|row| {
-                (
-                    row.try_get_by_index(0).unwrap(),
-                    row.try_get_by_index(1).unwrap(),
-                )
-            })
-            .collect();
-        rows.sort();
-        rows
-    };
-    let s = |a: &str, b: &str| (a.to_string(), b.to_string());
-    let count = |sql: &'static str| async move {
-        db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
-            .await
-            .unwrap()
-            .unwrap()
-            .try_get_by_index::<i64>(0)
-            .unwrap()
-    };
-    for _ in 0..2 {
-        super::ensure_heals::ensure_repost_state_consistent(db)
-            .await
-            .expect("repost heal must succeed");
-        assert_eq!(
-            pairs("SELECT activity_id, object_id FROM federation_object_interactions").await,
-            vec![
-                // a2 没撤回过：补回标记。
-                s("https://h/act/a2", "https://r/n/a2"),
-                s("https://h/act/ann", "https://r/n/ann"),
-                // b1 已有 Delete：标记删掉；b2 没撤回：标记保留并补回已发布行。
-                s("https://h/act/b2", "https://r/n/b2"),
-                s("https://h/act/ok", "https://r/n/ok"),
-                // a3 与 ok2 引用同一对象，唯一约束下不补 a3 的标记。
-                s("https://h/act/ok2", "https://r/n/shared"),
-            ]
-        );
-        assert_eq!(
-            pairs("SELECT activity_id, content_id FROM federation_published_content").await,
-            vec![
-                // a1 已有 Delete：已发布行删掉。
-                s("https://h/act/a2", "repost_a2"),
-                s("https://h/act/a3", "repost_a3"),
-                s("https://h/act/b2", "repost_b2"),
-                s("https://h/act/ok", "repost_ok"),
-                s("https://h/act/ok2", "repost_ok2"),
-            ]
-        );
-        assert_eq!(
-            pairs("SELECT user_id::text, activity_id FROM federation_timeline").await,
-            vec![s("1", "https://h/act/ok"), s("2", "https://h/act/ok")]
-        );
-        assert_eq!(count("SELECT COUNT(*) FROM federation_activities").await, 11);
-        assert_eq!(
-            count("SELECT COUNT(*) FROM federation_delivery_queue").await,
-            0
-        );
-    }
-
-    fixture.close().await;
-}
-
-/// 修复前写入的自治授权去掉管理员专属权限，保持顺序；修复后写入的行、
-/// 本来就只含候选权限的行都不动；重复运行不再改任何行。
-#[tokio::test]
-async fn legacy_autonomy_grants_lose_admin_only_permissions_once() {
+async fn the_support_floor_refuses_an_unmarked_old_database() {
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database};
     let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the support floor check");
         return;
     };
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    let mut options = sea_orm::ConnectOptions::new(url);
-    options.max_connections(1).sqlx_logging(false);
-    let db = sea_orm::Database::connect(options).await.unwrap();
-    db.execute_unprepared(&format!(
-        r#"CREATE TEMP TABLE agent_autonomy_grants (
-            user_id INTEGER PRIMARY KEY, allowed_permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
-            revoked BOOLEAN NOT NULL DEFAULT false,
-            created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL);
-        INSERT INTO agent_autonomy_grants VALUES
-            (1, '["http:fetch","system:admin","scheduler:write","phantasi:admin"]', false,
-             '{cutoff}'::timestamptz - INTERVAL '1 day', '{cutoff}'::timestamptz - INTERVAL '1 day'),
-            (2, '["http:fetch"]', false,
-             '{cutoff}'::timestamptz - INTERVAL '1 day', '{cutoff}'::timestamptz - INTERVAL '1 day'),
-            (3, '["system:admin"]', false,
-             '{cutoff}'::timestamptz + INTERVAL '1 hour', '{cutoff}'::timestamptz + INTERVAL '1 hour');"#,
-        cutoff = super::ensure_heals::AUTONOMY_EMPTY_GRANT_FIX_AT
-    ))
+    let schema = format!("floor_test_{}", uuid::Uuid::new_v4().simple());
+    let admin = Database::connect(&url).await.expect("connect test db");
+    admin
+        .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
+        .await
+        .expect("create test schema");
+    let mut options = ConnectOptions::new(url);
+    options
+        .set_schema_search_path(&schema)
+        .max_connections(1)
+        .sqlx_logging(false);
+    let db = Database::connect(options)
+        .await
+        .expect("connect test schema");
+    db.execute_unprepared(
+        "CREATE TABLE seaql_migrations (version varchar PRIMARY KEY, applied_at bigint NOT NULL);
+         INSERT INTO seaql_migrations VALUES ('m20240101_000001_initial_schema', 0)",
+    )
     .await
-    .unwrap();
+    .expect("old history");
+    let refused = crate::db::Migrator::up(&db, None).await;
 
-    let read = |user_id: i32| {
-        let db = &db;
-        async move {
-            let row = db
-                .query_one_raw(Statement::from_string(
-                    DatabaseBackend::Postgres,
-                    format!(
-                        "SELECT allowed_permissions::text AS p, updated_at::text AS u \
-                         FROM agent_autonomy_grants WHERE user_id = {user_id}"
-                    ),
-                ))
-                .await
-                .unwrap()
-                .unwrap();
-            (
-                row.try_get::<String>("", "p").unwrap(),
-                row.try_get::<String>("", "u").unwrap(),
-            )
-        }
-    };
-    let untouched_before = read(2).await;
-
-    super::ensure_heals::narrow_legacy_autonomy_grants(&db)
+    db.execute_unprepared("DROP TABLE seaql_migrations")
         .await
-        .unwrap();
-    let narrowed = read(1).await;
-    assert_eq!(narrowed.0, r#"["http:fetch", "scheduler:write"]"#);
-    assert_eq!(read(2).await, untouched_before);
-    assert_eq!(read(3).await.0, r#"["system:admin"]"#);
+        .expect("clear history");
+    let fresh = crate::db::Migrator::up(&db, None).await;
 
-    super::ensure_heals::narrow_legacy_autonomy_grants(&db)
+    admin
+        .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
         .await
-        .unwrap();
-    assert_eq!(read(1).await, narrowed, "a second run changes nothing");
+        .expect("drop test schema");
+    let error = refused.expect_err("an unmarked old database is refused");
+    assert!(
+        error.to_string().contains("upgrade to 0.6.1 first"),
+        "{error}"
+    );
+    fresh.expect("a new database migrates");
 }
 
-/// 旧日记里的事实复制进统一记忆：被更正的保持失效，原行保留，重复运行不重复写。
+/// A database still holding the old media job table starts only once that
+/// job finished. Runs in its own schema.
 #[tokio::test]
-async fn diary_facts_move_into_unified_memory_once() {
+async fn an_unfinished_media_upgrade_is_refused() {
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database};
     let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        eprintln!("skipping: set MYRIAD_MEDIA_TEST_DATABASE_URL to run the media upgrade guard");
         return;
     };
-    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    let mut options = sea_orm::ConnectOptions::new(url);
-    options.max_connections(1).sqlx_logging(false);
-    let db = sea_orm::Database::connect(options).await.unwrap();
-    db.execute_unprepared(
-        &super::ensure_heals::AGENT_MEMORIES_DDL
-            .replace("CREATE TABLE IF NOT EXISTS", "CREATE TEMP TABLE")
-            .replace("REFERENCES users(id) ON DELETE CASCADE", ""),
-    )
-    .await
-    .unwrap();
-    db.execute_unprepared(
-        r#"CREATE TEMP TABLE agent_diary (id VARCHAR(64) PRIMARY KEY, user_id INTEGER NOT NULL,
-            content TEXT NOT NULL, source VARCHAR(16) NOT NULL, created_at TIMESTAMPTZ NOT NULL);
-        INSERT INTO agent_diary VALUES
-            ('a', 7, 'likes tea', 'remember', NOW() - INTERVAL '1 day'),
-            ('b', 7, 'likes coffee', 'remember_retired', NOW() - INTERVAL '2 days'),
-            ('c', 7, 'said hello', 'chat', NOW());"#,
-    )
-    .await
-    .unwrap();
-    for _ in 0..2 {
-        super::ensure_heals::migrate_diary_facts_to_memories(&db)
-            .await
-            .unwrap();
-    }
-    let rows = db
-        .query_all_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT id, content, invalid_reason, audience::text AS audience FROM agent_memories ORDER BY id"
-                .to_string(),
-        ))
+    let schema = format!("media_guard_test_{}", uuid::Uuid::new_v4().simple());
+    let admin = Database::connect(&url).await.expect("connect test db");
+    admin
+        .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
         .await
-        .unwrap();
-    let summary: Vec<(String, String, Option<String>, String)> = rows
-        .iter()
-        .map(|row| {
-            (
-                row.try_get("", "id").unwrap(),
-                row.try_get("", "content").unwrap(),
-                row.try_get("", "invalid_reason").unwrap(),
-                row.try_get("", "audience").unwrap(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        summary,
-        vec![
-            ("diary_a".into(), "likes tea".into(), None, "[7]".into()),
-            (
-                "diary_b".into(),
-                "likes coffee".into(),
-                Some("superseded".into()),
-                "[7]".into()
-            ),
-        ]
-    );
-    let diary_left = db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT COUNT(*)::int AS n FROM agent_diary".to_string(),
-        ))
+        .expect("create test schema");
+    let mut options = ConnectOptions::new(url);
+    options
+        .set_schema_search_path(&schema)
+        .max_connections(1)
+        .sqlx_logging(false);
+    let db = Database::connect(options)
         .await
-        .unwrap()
-        .unwrap()
-        .try_get::<i32>("", "n")
-        .unwrap();
-    assert_eq!(diary_left, 3, "the original rows stay for rollback");
-}
+        .expect("connect test schema");
+    db.execute_unprepared(
+        "CREATE TABLE media_migration_jobs (id SERIAL PRIMARY KEY, source_kind TEXT NOT NULL,
+             source_key TEXT NOT NULL, cursor TEXT);
+         INSERT INTO media_migration_jobs (source_kind, source_key, cursor)
+             VALUES ('upgrade', 'platform_media_v2', 'not json')",
+    )
+    .await
+    .expect("old job table");
+    let malformed = crate::db::Migrator::up(&db, None).await;
+    db.execute_unprepared(
+        r#"UPDATE media_migration_jobs SET cursor = '{"revision":4,"complete":false}'"#,
+    )
+    .await
+    .expect("running job");
+    let running = crate::db::Migrator::up(&db, None).await;
+    db.execute_unprepared(
+        r#"UPDATE media_migration_jobs SET cursor = '{"revision":4,"complete":true}'"#,
+    )
+    .await
+    .expect("finished job");
+    let finished = crate::db::Migrator::up(&db, None).await;
 
-/// A database from before the runtime registry was platform infrastructure
-/// comes up with the platform names, its rows, indexes and user guard kept;
-/// running the rename again changes nothing.
-#[tokio::test]
-async fn tapp_named_runtime_registry_is_renamed_in_place() {
-    use sea_orm::{ConnectionTrait, Statement};
-    // An isolated schema: safe on the shared test database.
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
-        return;
-    };
-    let schema = crate::db::IsolatedSchema::migrated(&url, "registry_rename").await;
-    let db = &schema.db;
-    // Back to how an older database looks.
-    db.execute_unprepared(
-        "ALTER TABLE runtime_registry RENAME TO tapp_runtime_registry;
-         ALTER TABLE runtime_mailbox RENAME TO tapp_runtime_mailbox;
-         ALTER INDEX runtime_registry_pkey RENAME TO tapp_runtime_registry_pkey;
-         ALTER INDEX idx_runtime_registry_subject RENAME TO idx_tapp_runtime_registry_subject;
-         ALTER INDEX idx_runtime_registry_tapp RENAME TO idx_tapp_runtime_registry_tapp;
-         ALTER INDEX idx_runtime_registry_runtime RENAME TO idx_tapp_runtime_registry_runtime;
-         ALTER INDEX runtime_mailbox_pkey RENAME TO tapp_runtime_mailbox_pkey;
-         ALTER INDEX idx_runtime_mailbox_recipient RENAME TO idx_tapp_runtime_mailbox_recipient;
-         ALTER INDEX idx_runtime_mailbox_expiry RENAME TO idx_tapp_runtime_mailbox_expiry;
-         ALTER SEQUENCE runtime_mailbox_message_id_seq RENAME TO tapp_runtime_mailbox_message_id_seq;
-         ALTER TRIGGER trg_runtime_registry_subject_user ON tapp_runtime_registry
-             RENAME TO trg_tapp_runtime_registry_subject_user;
-         INSERT INTO tapp_runtime_registry (namespace, record_id, payload, expires_at)
-             VALUES ('telegram_dm_session', 'k', '{\"kept\":true}', 9999999999);
-         INSERT INTO tapp_runtime_mailbox (channel, runtime_id, payload, expires_at)
-             VALUES ('ai_task', 'r', '{}', 9999999999);",
-    )
-    .await
-    .unwrap();
-    for _ in 0..2 {
-        migration::rename_runtime_registry_if_needed(db).await.unwrap();
+    admin
+        .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
+        .await
+        .expect("drop test schema");
+    for refused in [malformed, running] {
+        let error = refused.expect_err("an unfinished media upgrade is refused");
+        assert!(error.to_string().contains("media upgrade"), "{error}");
     }
-    let names = |sql: &'static str| async move {
-        db.query_all_raw(Statement::from_string(db.get_database_backend(), sql))
-            .await
-            .unwrap()
-            .iter()
-            .map(|row| row.try_get::<String>("", "name").unwrap())
-            .collect::<Vec<_>>()
-    };
-    let tables = names(
-        "SELECT table_name::text AS name FROM information_schema.tables \
-         WHERE table_schema = current_schema() AND table_name LIKE '%runtime_%' ORDER BY 1",
-    )
-    .await;
-    assert_eq!(tables, ["runtime_mailbox", "runtime_registry"]);
-    let indexes = names(
-        "SELECT indexname::text AS name FROM pg_indexes \
-         WHERE schemaname = current_schema() AND indexname LIKE '%runtime_%' ORDER BY 1",
-    )
-    .await;
-    assert!(indexes.iter().all(|name| !name.contains("tapp_runtime")), "{indexes:?}");
-    assert_eq!(indexes.len(), 7, "{indexes:?}");
-    let triggers = names(
-        "SELECT tgname::text AS name FROM pg_trigger \
-         WHERE tgrelid = to_regclass('runtime_registry') AND NOT tgisinternal",
-    )
-    .await;
-    assert_eq!(triggers, ["trg_runtime_registry_subject_user"]);
-    let kept =
-        names("SELECT payload->>'kept' AS name FROM runtime_registry WHERE record_id = 'k'").await;
-    assert_eq!(kept, ["true"]);
-    db.execute_unprepared(
-        "INSERT INTO runtime_mailbox (channel, runtime_id, payload, expires_at) VALUES ('ai_task', 'r', '{}', 1)",
-    )
-    .await
-    .unwrap();
-    schema.drop().await;
-}
-
-/// A database from before the AI cost ledger was platform infrastructure
-/// comes up with the platform name; Tapp rows keep their `tapp_id`, site
-/// rows lose the `__<source>__` stand-in, and new site rows need none.
-#[tokio::test]
-async fn tapp_named_ai_cost_ledger_is_renamed_in_place() {
-    use sea_orm::{ConnectionTrait, Statement};
-    // An isolated schema: safe on the shared test database.
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
-        return;
-    };
-    let schema = crate::db::IsolatedSchema::migrated(&url, "ledger_rename").await;
-    let db = &schema.db;
-    db.execute_unprepared(
-        "ALTER TABLE ai_cost_ledger RENAME TO tapp_ai_cost_ledger;
-         ALTER INDEX ai_cost_ledger_pkey RENAME TO tapp_ai_cost_ledger_pkey;
-         ALTER INDEX idx_ai_cost_subject_time RENAME TO idx_tapp_ai_cost_subject_time;
-         ALTER INDEX idx_ai_cost_tapp_time RENAME TO idx_tapp_ai_cost_tapp_time;
-         ALTER SEQUENCE ai_cost_ledger_id_seq RENAME TO tapp_ai_cost_ledger_id_seq;
-         ALTER TRIGGER trg_ai_cost_ledger_subject_user ON tapp_ai_cost_ledger
-             RENAME TO trg_tapp_ai_cost_ledger_subject_user;
-         INSERT INTO tapp_ai_cost_ledger
-             (subject_id, owner_id, tapp_id, task_id, source, operation, provider, model, status)
-             VALUES (0, 0, 'com.example.app', 't', 'runtime', 'chat', 'p', 'm', 'ok'),
-                    (0, 0, '__merope__', 't', 'merope', 'chat', 'p', 'm', 'ok');
-         ALTER TABLE tapp_ai_cost_ledger ALTER COLUMN tapp_id SET NOT NULL;",
-    )
-    .await
-    .unwrap();
-    for _ in 0..2 {
-        migration::rename_ai_cost_ledger_if_needed(db).await.unwrap();
-    }
-    let names = |sql: &'static str| async move {
-        db.query_all_raw(Statement::from_string(db.get_database_backend(), sql))
-            .await
-            .unwrap()
-            .iter()
-            .map(|row| {
-                row.try_get::<Option<String>>("", "name")
-                    .unwrap()
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        names("SELECT indexname::text AS name FROM pg_indexes WHERE schemaname = current_schema() AND indexname LIKE '%ai_cost%' ORDER BY 1").await,
-        ["ai_cost_ledger_pkey", "idx_ai_cost_subject_time", "idx_ai_cost_tapp_time"]
-    );
-    assert_eq!(
-        names("SELECT tgname::text AS name FROM pg_trigger WHERE tgrelid = to_regclass('ai_cost_ledger') AND NOT tgisinternal").await,
-        ["trg_ai_cost_ledger_subject_user"]
-    );
-    assert_eq!(
-        names("SELECT tapp_id AS name FROM ai_cost_ledger ORDER BY source DESC").await,
-        ["com.example.app", ""]
-    );
-    db.execute_unprepared(
-        "INSERT INTO ai_cost_ledger (subject_id, owner_id, task_id, source, operation, provider, model, status)
-         VALUES (0, 0, 't', 'agent', 'chat', 'p', 'm', 'ok')",
-    )
-    .await
-    .unwrap();
-    schema.drop().await;
-}
-
-/// A database from before the daily AI quota was platform infrastructure
-/// comes up with the platform names; a Tapp's counts stay under its id, the
-/// site's own move from their stand-ins to `site:` scopes, counts kept.
-#[tokio::test]
-async fn tapp_named_ai_quota_is_renamed_in_place() {
-    use sea_orm::{ConnectionTrait, Statement};
-    // An isolated schema: safe on the shared test database.
-    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
-        return;
-    };
-    let schema = crate::db::IsolatedSchema::migrated(&url, "quota_rename").await;
-    let db = &schema.db;
-    db.execute_unprepared(
-        "ALTER TABLE ai_quota_usage RENAME TO tapp_quota_usage;
-         ALTER TABLE tapp_quota_usage RENAME COLUMN scope TO tapp_id;
-         ALTER INDEX ai_quota_usage_pkey RENAME TO tapp_quota_usage_pkey;
-         ALTER INDEX idx_ai_quota_unique RENAME TO idx_tapp_quota_unique;
-         ALTER SEQUENCE ai_quota_usage_id_seq RENAME TO tapp_quota_usage_id_seq;
-         ALTER TRIGGER trg_ai_quota_usage_subject_user ON tapp_quota_usage
-             RENAME TO trg_tapp_quota_usage_subject_user;
-         INSERT INTO tapp_quota_usage (tapp_id, user_id, quota_type, used, \"limit\", period_start, period_end)
-             VALUES ('com.example.app', -1, 'ai_calls', 3, 10, NOW(), NOW()),
-                    ('__agent__', -1, 'ai_calls', 5, 10, NOW(), NOW()),
-                    ('__anonymous_ai_site__', -1, 'ai_calls', 7, 10, NOW(), NOW());",
-    )
-    .await
-    .unwrap();
-    for _ in 0..2 {
-        migration::rename_ai_quota_usage_if_needed(db).await.unwrap();
-    }
-    let names = |sql: &'static str| async move {
-        db.query_all_raw(Statement::from_string(db.get_database_backend(), sql))
-            .await
-            .unwrap()
-            .iter()
-            .map(|row| row.try_get::<String>("", "name").unwrap())
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        names("SELECT indexname::text AS name FROM pg_indexes WHERE schemaname = current_schema() AND indexname LIKE '%quota%' ORDER BY 1").await,
-        ["ai_quota_usage_pkey", "idx_ai_quota_unique"]
-    );
-    assert_eq!(
-        names("SELECT tgname::text AS name FROM pg_trigger WHERE tgrelid = to_regclass('ai_quota_usage') AND NOT tgisinternal").await,
-        ["trg_ai_quota_usage_subject_user"]
-    );
-    assert_eq!(
-        names("SELECT scope || '=' || used AS name FROM ai_quota_usage ORDER BY used").await,
-        ["com.example.app=3", "site:agent=5", "site:anonymous=7"]
-    );
-    schema.drop().await;
+    finished.expect("a finished media upgrade migrates");
 }

@@ -70,7 +70,7 @@ it('Vite serves deep links while backend routing precedes stamping and history f
     }
     const manifest = await fetch(`${origin}/manifest.webmanifest`)
     assert.equal((await manifest.json()).name, 'Fixture Brand')
-    for (const path of ['/api/example', '/robots.txt', '/sitemap.xml', '/journal/notes.xml', '/.well-known/webfinger', '/media/federation/example']) {
+    for (const path of ['/api/example', '/robots.txt', '/sitemap.xml', '/journal/notes.xml', '/.well-known/webfinger']) {
       assert.equal(await (await fetch(origin + path)).text(), `backend:${path}`)
     }
     const media = await fetch(`${origin}${mediaPath}?version=1`)

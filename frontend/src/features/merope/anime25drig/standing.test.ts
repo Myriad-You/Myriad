@@ -82,3 +82,35 @@ test('standing idle settles on one leg, holds, then moves to the other', () => {
     assert.ok(Math.abs(samples[i] - samples[i - 1]) <= 0.6, 'moves smoothly')
   }
 })
+
+test('a leg found on the portrait bends at its own knee and lifts from its own ankle', () => {
+  const skeleton = {
+    model: 'dwpose',
+    joints: {
+      hipL: { x: 300, y: 600, score: 0.9 },
+      kneeL: { x: 300, y: 900, score: 0.9 },
+      ankleL: { x: 300, y: 1200, score: 0.9 },
+    },
+  }
+  const found = bindStanding('legwear', leftLeg, { ...anchors, skeleton })!
+  assert.ok(found.kind === 'leg')
+  if (found.kind !== 'leg') return
+  assert.equal(found.kneeAt, 0.5)
+  assert.equal(found.ankleAt, 0.875)
+  assert.equal(found.hipAt, 0.125)
+  const relaxed = { skirtSwing: 0, pelvisTilt: 0, bendL: 1, bendR: 0 }
+  const move = (y: number) => {
+    const point = { x: 300, y }
+    applyStanding(point, found, 300, y, relaxed)
+    return { dx: point.x - 300, dy: point.y - y }
+  }
+  assert.equal(move(600).dx, 0, 'nothing bends above the hip joint')
+  const knee = move(900).dx
+  assert.ok(knee > move(800).dx && knee > move(1000).dx, 'the bend peaks at the found knee')
+  // A misread knee keeps the usual proportions.
+  const odd = bindStanding('legwear', leftLeg, {
+    ...anchors,
+    skeleton: { model: 'dwpose', joints: { ...skeleton.joints, kneeL: { x: 300, y: 1250, score: 0.9 } } },
+  })!
+  assert.ok(odd.kind === 'leg' && odd.kneeAt === 0.45)
+})

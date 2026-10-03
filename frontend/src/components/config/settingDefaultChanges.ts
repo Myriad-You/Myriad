@@ -3,32 +3,9 @@ import type { SettingDefaultChangeNotice } from '../settings/SettingsDefaultsCon
 const STORAGE_KEY = 'myriad_setting_default_notices_v1'
 
 export const SETTING_PRODUCT_DEFAULTS: Readonly<Record<string, string>> = {
-  model: 'gemini-3.8-flash',
-  gemini_model: 'gemini-3.8-flash',
-  lite_gemini_model: 'gemini-3.5-flash-lite',
-  pro_gemini_model: 'gemini-3.1-pro-preview',
-  openai_model: 'minimax/minimax-m3',
-  lite_openai_model: 'google/gemini-3.5-flash-lite',
-  pro_openai_model: 'anthropic/claude-opus-5.5',
+  ai_model: 'minimax/minimax-m3',
+  pro_ai_model: 'anthropic/claude-opus-5.5',
   ai_image_model: 'openai/gpt-image-2.5-sunburst',
-  'openai_model@openai': 'gpt-5.6-terra',
-  'lite_openai_model@openai': 'gpt-5.6-luna',
-  'pro_openai_model@openai': 'gpt-5.6-sol',
-}
-
-/** first-run seed for known; diffs vs product defaults surface once */
-const LEGACY_SEED_DEFAULTS: Readonly<Record<string, string>> = {
-  model: 'gemini-3-flash-preview',
-  gemini_model: 'gemini-3.5-flash',
-  lite_gemini_model: 'gemini-3.5-flash',
-  pro_gemini_model: 'gemini-3.1-pro-preview',
-  openai_model: 'minimax/minimax-m3',
-  lite_openai_model: 'openai/gpt-oss-20b:free',
-  pro_openai_model: 'anthropic/claude-opus-4.8',
-  ai_image_model: 'openai/gpt-image-2',
-  'openai_model@openai': 'gpt-5.5',
-  'lite_openai_model@openai': 'gpt-5.5',
-  'pro_openai_model@openai': 'gpt-5.5',
 }
 
 interface StoredState {
@@ -89,14 +66,12 @@ function writeState(state: StoredState, options?: { silent?: boolean }): void {
   if (!options?.silent) notify()
 }
 
-/** seed known from legacy snapshot so current diffs can notify */
+/** first run: today's defaults are known, so nothing is a change yet */
 function seedInitialState(): StoredState {
-  const known: Record<string, string> = { ...LEGACY_SEED_DEFAULTS }
-  // new product keys: record current default, no notice
-  for (const [key, value] of Object.entries(SETTING_PRODUCT_DEFAULTS)) {
-    if (!Object.hasOwn(known, key)) known[key] = value
+  const state: StoredState = {
+    known: { ...SETTING_PRODUCT_DEFAULTS },
+    dismissed: [],
   }
-  const state: StoredState = { known, dismissed: [] }
   // write without notifying; first-paint storage read must not rerender
   writeState(state, { silent: true })
   return state

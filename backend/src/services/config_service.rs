@@ -4,6 +4,9 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
+pub(crate) mod env_seed;
+pub(crate) mod legacy_ai_settings;
+
 /// Optional config string: null / "" / whitespace → None.
 /// Empty `Some("")` must not reach outbound auth headers.
 fn opt_nonempty_string(v: &JsonValue) -> Option<String> {
@@ -91,32 +94,16 @@ macro_rules! read_rule {
 
 standard_fields! {
     text: [
-        ai_provider,
-        gemini_model,
-        openai_model,
-        openai_base_url,
-        topic_style,
-        lite_ai_provider,
-        lite_gemini_model,
-        lite_openai_model,
-        lite_openai_base_url,
-        lite_judge_model,
-        lite_embedding_model,
-        aux_ai_source,
-        pro_ai_provider,
-        pro_gemini_model,
-        pro_openai_model,
-        pro_openai_base_url,
-        ai_image_provider,
-        ai_image_model,
-        ai_image_volcengine_base_url,
-        speech_provider,
-        speech_openai_base_url,
-        provider_openai_base_url,
-        provider_volcengine_base_url,
         ai_source,
+        ai_model,
         lite_ai_source,
+        lite_ai_model,
+        aux_judge_model,
+        aux_embedding_model,
+        aux_ai_source,
         pro_ai_source,
+        pro_ai_model,
+        ai_image_model,
         ai_image_source,
         speech_source,
         speech_stt_model,
@@ -124,39 +111,16 @@ standard_fields! {
         speech_tts_voice,
         merope_voice_mode,
         merope_voice_voice,
-        agora_app_id,
-        agora_app_certificate,
-        agora_customer_id,
-        agora_api_base,
         site_visibility_policy,
     ],
     opt_text: [
-        gemini_api_key,
-        openai_api_key,
-        openweather_api_key,
-        lite_gemini_api_key,
-        lite_openai_api_key,
-        pro_gemini_api_key,
-        pro_openai_api_key,
         ui_wallpaper_url,
-        ui_theme,
-        ui_primary_color,
-        ui_secondary_color,
-        ai_image_openai_api_key,
-        ai_image_openrouter_api_key,
-        ai_image_volcengine_api_key,
         tripo_api_key,
-        tencent_secret_id,
-        tencent_secret_key,
-        tencent_region,
-        speech_openai_api_key,
-        speech_openrouter_api_key,
         provider_openai_api_key,
         provider_openrouter_api_key,
         provider_gemini_api_key,
         provider_tinyfish_api_key,
         provider_volcengine_api_key,
-        agora_customer_secret,
         base_url,
         site_title,
         site_description,
@@ -219,9 +183,7 @@ standard_fields! {
         user_perm_ai_search,
         user_perm_ai_image,
         user_perm_3d_generate,
-        user_perm_report_write,
         user_perm_network_fetch,
-        user_perm_media_control,
         user_perm_component_theme,
         user_perm_shortcut_register,
         user_perm_event_publish,
@@ -238,21 +200,9 @@ standard_fields! {
         guest_perm_ai_chat,
         guest_perm_ai_search,
         guest_perm_ai_image,
-        guest_perm_3d_generate,
-        guest_perm_report_write,
         guest_perm_network_fetch,
-        guest_perm_media_control,
-        guest_perm_component_theme,
-        guest_perm_shortcut_register,
         guest_perm_event_publish,
-        guest_perm_scheduler_register,
-        guest_perm_speech_tts,
-        guest_perm_speech_asr,
         guest_perm_storage_write,
-        guest_perm_federation_post,
-        guest_perm_federation_channel,
-        guest_perm_federation_room,
-        guest_perm_phantasi_comment_write,
         proxy_enabled,
     ],
     flag_or_text: [
@@ -273,7 +223,6 @@ standard_fields! {
         psn_enabled,
     ],
     int32: [
-        openai_max_tokens,
         ui_wallpaper_blur,
         ui_evocative_fps,
         fetch_interval_hours,
@@ -351,6 +300,11 @@ impl ConfigService {
     /// Full configuration as seen by `db`, which may be an open transaction:
     /// a writer can prove what it wrote still loads before committing it.
     pub async fn load_config_on(db: &impl ConnectionTrait) -> Result<DynamicConfig> {
+        Ok(Self::parse_config(Self::load_stored_on(db).await?))
+    }
+
+    /// Every stored setting, secrets opened.
+    async fn load_stored_on(db: &impl ConnectionTrait) -> Result<HashMap<String, JsonValue>> {
         let sql = "SELECT key, value FROM configurations";
         let rows = db
             .query_all_raw(Statement::from_string(
@@ -373,25 +327,62 @@ impl ConfigService {
                 config_map.insert(key, value);
             }
         }
+        Ok(config_map)
+    }
 
-        Ok(Self::parse_config(config_map))
+    /// Settings never stored take their environment variable once (see
+    /// [`env_seed`]); everything reads the database after that.
+    pub async fn seed_from_env(db: &DatabaseConnection) -> Result<usize> {
+        let stored = Self::load_stored_on(db).await?;
+        let seeds = env_seed::seeds(&stored, |name| std::env::var(name).ok());
+        let count = seeds.len();
+        if count > 0 {
+            let keys: Vec<&String> = seeds.keys().collect();
+            tracing::info!(?keys, "Settings taken from the environment");
+            Self::update_configs_on(db, seeds).await?;
+        }
+        Ok(count)
+    }
+
+    /// Rewrite the old AI settings in the new keys and drop the old
+    /// ones, in one transaction (see [`legacy_ai_settings`]). Must run before
+    /// defaults are seeded: a seeded default would read as already chosen.
+    pub async fn upgrade_legacy_ai_settings(db: &DatabaseConnection) -> Result<usize> {
+        use sea_orm::TransactionTrait;
+        let txn = db
+            .begin()
+            .await
+            .context("Failed to begin AI settings upgrade")?;
+        let stored = Self::load_stored_on(&txn).await?;
+        let old: Vec<&str> = legacy_ai_settings::legacy_keys()
+            .filter(|key| stored.contains_key(*key))
+            .collect();
+        let updates = legacy_ai_settings::upgrade(&stored);
+        if old.is_empty() && updates.is_empty() {
+            return Ok(0);
+        }
+        Self::update_configs_on(&txn, updates).await?;
+        txn.execute_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "DELETE FROM configurations WHERE key = ANY($1)",
+            [old.iter()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>()
+                .into()],
+        ))
+        .await
+        .context("Failed to drop old AI settings")?;
+        txn.commit()
+            .await
+            .context("Failed to commit AI settings upgrade")?;
+        tracing::info!(count = old.len(), "Upgraded the old AI settings");
+        Ok(old.len())
     }
 
     /// 从配置映射解析为 DynamicConfig
-    fn parse_config(map: HashMap<String, JsonValue>) -> DynamicConfig {
+    pub(crate) fn parse_config(map: HashMap<String, JsonValue>) -> DynamicConfig {
         let mut config = DynamicConfig::default();
         read_standard_fields(&mut config, &map);
-
-        // Lite used to have a switch. Left off, Lite stays unused: its models
-        // read as blank. Saving Lite's models writes it on (`save.rs`), and
-        // from then on only the model decides.
-        let lite_switched_on = map
-            .get("lite_enabled")
-            .is_some_and(|v| v.as_bool() == Some(true) || matches!(v.as_str(), Some("true" | "1")));
-        if !lite_switched_on {
-            config.lite_gemini_model.clear();
-            config.lite_openai_model.clear();
-        }
 
         if let Some(v) = map.get("discord_token_expires_at") {
             config.discord_token_expires_at = v.as_str().map(|s| s.to_string()).or_else(|| {
@@ -450,15 +441,6 @@ impl ConfigService {
             }
         }
 
-        // AI 图片生成配置
-        if let Some(v) = map.get("ai_image_openai_base_url") {
-            if let Some(s) = v.as_str() {
-                if !s.trim().is_empty() {
-                    config.ai_image_openai_base_url = s.to_string();
-                }
-            }
-        }
-
         if let Some(v) = map.get("merope_enabled") {
             config.merope_enabled = v
                 .as_bool()
@@ -514,14 +496,6 @@ impl ConfigService {
         if let Some(v) = map.get("tripo_max_download_mb").and_then(|v| v.as_i64()) {
             config.tripo_max_download_mb = v as i32;
         }
-        // 腾讯云语音服务配置 (TTS/ASR)
-        if let Some(v) = map.get("speech_reuse_text_credentials") {
-            if let Some(b) = v.as_bool() {
-                config.speech_reuse_text_credentials = b;
-            } else if let Some(s) = v.as_str() {
-                config.speech_reuse_text_credentials = s == "true" || s == "1";
-            }
-        }
         if let Some(v) = map.get("ai_vendor_sources") {
             if let Ok(parsed) =
                 serde_json::from_value::<Vec<crate::config::AiVendorSource>>(v.clone())
@@ -532,12 +506,6 @@ impl ConfigService {
                     config.ai_vendor_sources = parsed;
                 }
             }
-        }
-        if let Some(v) = map.get("agora_convo_enabled") {
-            config.agora_convo_enabled = v
-                .as_bool()
-                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
-                .unwrap_or(config.agora_convo_enabled);
         }
         if let Some(v) = map.get("qq_bot_enabled") {
             config.qq_bot_enabled = v
@@ -1021,7 +989,7 @@ mod tests {
             .unwrap(),
             permissions
         );
-        assert!(stale.openai_api_key.is_none());
+        assert!(stale.provider_openai_api_key.is_none());
         let change = writer.begin().await.unwrap();
         change
             .execute_unprepared(
@@ -1210,10 +1178,6 @@ mod tests {
             ("stash_hidden_idle_seconds".into(), json!(808)),
             ("resident_quota_per_app".into(), json!(9)),
             ("resident_quota_site_total".into(), json!(10)),
-            ("openweather_api_key".into(), json!("weather-secret")),
-            ("ui_theme".into(), json!("paper")),
-            ("ui_primary_color".into(), json!("#112233")),
-            ("ui_secondary_color".into(), json!("#445566")),
         ]));
 
         assert_eq!(config.user_ai_daily_calls, 101);
@@ -1226,13 +1190,6 @@ mod tests {
         assert_eq!(config.stash_hidden_idle_seconds, 808);
         assert_eq!(config.resident_quota_per_app, 9);
         assert_eq!(config.resident_quota_site_total, 10);
-        assert_eq!(
-            config.openweather_api_key.as_deref(),
-            Some("weather-secret")
-        );
-        assert_eq!(config.ui_theme.as_deref(), Some("paper"));
-        assert_eq!(config.ui_primary_color.as_deref(), Some("#112233"));
-        assert_eq!(config.ui_secondary_color.as_deref(), Some("#445566"));
     }
 
     #[test]
@@ -1427,26 +1384,12 @@ mod tests {
         );
 
         let config = ConfigService::parse_config(HashMap::from([
-            ("speech_provider".into(), json!("openai")),
-            ("speech_reuse_text_credentials".into(), json!(false)),
+            ("speech_source".into(), json!("openai")),
             ("speech_stt_model".into(), json!("gpt-transcribe")),
             ("speech_tts_model".into(), json!("gpt-4o-mini-tts")),
             ("speech_tts_voice".into(), json!("marin")),
-            ("speech_openai_api_key".into(), json!("sk-speech")),
-            (
-                "speech_openai_base_url".into(),
-                json!("https://api.openai.com/v1"),
-            ),
-            ("speech_openrouter_api_key".into(), json!("sk-or-speech")),
         ]));
-        assert_eq!(config.speech_provider, "openai");
-        assert!(!config.speech_reuse_text_credentials);
-        assert_eq!(config.speech_openai_api_key.as_deref(), Some("sk-speech"));
-        assert_eq!(config.speech_openai_base_url, "https://api.openai.com/v1");
-        assert_eq!(
-            config.speech_openrouter_api_key.as_deref(),
-            Some("sk-or-speech")
-        );
+        assert_eq!(config.speech_source_slug(), "openai");
         assert_eq!(config.speech_stt_model, "gpt-transcribe");
         assert_eq!(config.speech_tts_model, "gpt-4o-mini-tts");
         assert_eq!(config.speech_tts_voice, "marin");
@@ -1629,27 +1572,6 @@ mod tests {
     }
 
     #[test]
-    fn lite_switched_off_before_reads_as_unused() {
-        let stored = |switch: Option<serde_json::Value>| {
-            let mut map = HashMap::from([("lite_openai_model".to_string(), json!("lite/model"))]);
-            if let Some(switch) = switch {
-                map.insert("lite_enabled".to_string(), switch);
-            }
-            ConfigService::parse_config(map)
-        };
-        assert!(!stored(Some(json!(false))).lite_on());
-        assert!(!stored(Some(json!("false"))).lite_on());
-        assert!(
-            !stored(None).lite_on(),
-            "never switched: off, as the default was"
-        );
-        let on = stored(Some(json!(true)));
-        assert!(on.lite_on());
-        assert_eq!(on.lite_openai_model, "lite/model");
-        assert!(stored(Some(json!("true"))).lite_on());
-    }
-
-    #[test]
     fn merope_stays_off_without_required_models() {
         // Pro is required for onboarding. Lite is optional: without it,
         // Merope still runs, but Lite jobs must not fall back to Standard.
@@ -1667,7 +1589,7 @@ mod tests {
 
         let no_pro = DynamicConfig {
             merope_enabled: true,
-            lite_openai_model: "lite-model".into(),
+            lite_ai_model: "lite-model".into(),
             pro_enabled: false,
             ..DynamicConfig::default()
         };
@@ -1677,7 +1599,7 @@ mod tests {
 
         let with_tiers = DynamicConfig {
             merope_enabled: true,
-            lite_openai_model: "lite-model".into(),
+            lite_ai_model: "lite-model".into(),
             pro_enabled: true,
             ..DynamicConfig::default()
         };
@@ -1730,8 +1652,7 @@ mod tests {
             merope_enabled: true,
             merope_speech_enabled: true,
             pro_enabled: true,
-            lite_ai_provider: "openai".into(),
-            lite_openai_model: "qwen3.8-omni-flash".into(),
+            lite_ai_model: "qwen3.8-omni-flash".into(),
             lite_ai_source: "dashscope".into(),
             ai_vendor_sources: vec![crate::config::AiVendorSource {
                 slug: "dashscope".into(),
@@ -1762,7 +1683,7 @@ mod tests {
         assert_eq!(reads_aloud.merope_omni_voice().err(), Some("mode_tts"));
         // Through OpenRouter the model gives text only: read aloud instead.
         let routed = DynamicConfig {
-            lite_openai_model: "qwen/qwen3.8-omni-flash".into(),
+            lite_ai_model: "qwen/qwen3.8-omni-flash".into(),
             ai_vendor_sources: vec![crate::config::AiVendorSource {
                 slug: "dashscope".into(),
                 kind: "openrouter".into(),
@@ -1776,7 +1697,7 @@ mod tests {
         };
         assert_eq!(routed.merope_omni_voice().err(), Some("lite_not_dashscope"));
         let not_omni = DynamicConfig {
-            lite_openai_model: "qwen-plus".into(),
+            lite_ai_model: "qwen-plus".into(),
             ..omni.clone()
         };
         assert_eq!(not_omni.merope_omni_voice().err(), Some("lite_not_omni"));

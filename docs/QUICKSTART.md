@@ -106,7 +106,7 @@ Windows:
 .\scripts\dev.ps1 db-setup
 ```
 
-前端 dev server 会把 `/api/*`、`/health`、`/ready` 以及联邦公开路径（webfinger、nodeinfo、`/inbox`、`/users/*`、`/media/federation/*`）代理到 `:1103`。`/health` 只表示进程存活；业务就绪看 `/ready` 或直连 backend，不能用前端 HTML 的 200 代替。
+前端 dev server 会把 `/api/*`、`/health`、`/ready` 联邦公开路径（webfinger、nodeinfo、`/inbox`、`/users/*`）以及站点媒体 `/media/assets/*` 代理到 `:1103`。`/health` 只表示进程存活；业务就绪看 `/ready` 或直连 backend，不能用前端 HTML 的 200 代替。
 
 需要在开发 UI 里测试“更新管理”时：`./scripts/dev.sh start all-updater`。
 

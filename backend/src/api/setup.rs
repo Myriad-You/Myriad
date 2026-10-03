@@ -136,8 +136,8 @@ pub async fn init_database(
     })?;
 
     // Never drop feature tables from an unauthenticated setup endpoint.
-    // Migrator::up drops leftover `digital_life_*` tables, keeps only
-    // versions that still have files, then applies 001–006; other damaged
+    // Migrator::up keeps only versions that still have files, then applies
+    // 001–006; other damaged
     // migration state requires explicit operator intervention.
     // Import the migrator from migrations module
     use crate::db::Migrator;

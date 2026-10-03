@@ -6,6 +6,7 @@ import {
   noteEditorStatus,
   notesBoardIsEmpty,
   noteScheduleLabel,
+  noteWallSearchSources,
   sourceLatestStory,
   visibleCloudNoteDocs,
 } from './noteBoard.ts'
@@ -137,5 +138,32 @@ describe('noteEditorStatus', () => {
       ),
       '草稿 · 已保存',
     )
+  })
+})
+
+describe('noteWallSearchSources', () => {
+  const blog = {
+    id: 1,
+    name: '明日が来ると',
+    icon: null,
+    source_type: 'rss',
+    recent_items: [{ id: 23, title: '不虚此行 On the Journey', author: null } as never],
+  }
+  const notes = { id: 2, name: '笔记', icon: null, source_type: 'note', recent_items: [] }
+  const other = { id: 3, name: '友链', icon: null, source_type: 'rss', recent_items: [{ id: 9, title: 'Journey', author: null } as never] }
+
+  it('墙上只显示最新一篇的源，按那篇标题也能搜到', () => {
+    const hit = noteWallSearchSources([], [blog, notes, other], [blog, notes], [], 'journey')
+    assert.deepEqual(hit.map((source) => source.id), [1])
+  })
+
+  it('有笔记命中的源照旧补回；名称已命中的不重复', () => {
+    const hit = noteWallSearchSources([blog], [blog, notes], [blog, notes], [{ source_id: 2 }], 'journey')
+    assert.deepEqual(hit.map((source) => source.id), [1, 2])
+  })
+
+  it('空查询原样返回', () => {
+    const named = [blog]
+    assert.equal(noteWallSearchSources(named, [blog, notes], [blog, notes], [], ' '), named)
   })
 })

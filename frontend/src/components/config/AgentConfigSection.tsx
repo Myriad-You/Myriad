@@ -151,7 +151,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
         agora_unconfigured: t.config.agentPersonaVoiceAgoraUnavailable,
       }[effectiveWhy] ?? t.config.agentPersonaVoiceOmniUnavailable)
     : null
-  const liteModel = getFieldValue('lite_openai_model')
+  const liteModel = getFieldValue('lite_ai_model')
 
   const proEnabled = useMemo(() => {
     const val = getFieldValue('pro_enabled', 'false')

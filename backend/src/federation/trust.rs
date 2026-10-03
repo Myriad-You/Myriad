@@ -361,8 +361,7 @@ async fn check_rate_limit_for_trust(
     }
 
     // Durable path: count inbound activities by received_at (set server-side on accept).
-    // Fall back to published_at only when received_at is NULL (legacy rows).
-    // Do not use published_at alone — remote senders control that timestamp.
+    // Not published_at — remote senders control that timestamp.
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -371,8 +370,7 @@ async fn check_rate_limit_for_trust(
                JOIN federation_remote_actors ra ON a.remote_actor_id = ra.id
                WHERE a.is_local = false
                  AND ra.domain = $1
-                 AND COALESCE(a.received_at, a.published_at)
-                     > NOW() - make_interval(secs => $2::double precision)"#,
+                 AND a.received_at > NOW() - make_interval(secs => $2::double precision)"#,
             [domain.into(), policy.window_seconds.into()],
         ))
         .await;

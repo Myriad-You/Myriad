@@ -26,10 +26,6 @@ export interface TripoConfig {
   config_fields: ConfigField[]
 }
 
-export interface ReportConfig {
-  config_fields: ConfigField[]
-}
-
 export interface UiConfig {
   config_fields: ConfigField[]
 }
@@ -39,7 +35,6 @@ export interface Config {
   auto_fetch: PlatformAutoFetchConfig
   ai_config: AiConfig
   tripo_config: TripoConfig
-  report_config: ReportConfig
   ui_config: UiConfig
 }
 
@@ -79,7 +74,6 @@ export interface PermissionConfigValues extends Record<
   user_perm_ai_generate: boolean
   user_perm_ai_analyze: boolean
   user_perm_ai_chat: boolean
-  user_perm_report_write: boolean
   user_perm_network_fetch: boolean
   user_perm_component_theme: boolean
   user_perm_shortcut_register: boolean
@@ -98,22 +92,11 @@ export interface PermissionConfigValues extends Record<
   guest_perm_ai_generate: boolean
   guest_perm_ai_analyze: boolean
   guest_perm_ai_chat: boolean
-  guest_perm_report_write: boolean
   guest_perm_network_fetch: boolean
-  guest_perm_component_theme: boolean
-  guest_perm_shortcut_register: boolean
   guest_perm_event_publish: boolean
   guest_perm_ai_image: boolean
   guest_perm_ai_search: boolean
-  guest_perm_3d_generate: boolean
-  guest_perm_scheduler_register: boolean
-  guest_perm_speech_tts: boolean
-  guest_perm_speech_asr: boolean
   guest_perm_storage_write: boolean
-  guest_perm_federation_post: boolean
-  guest_perm_federation_channel: boolean
-  guest_perm_federation_room: boolean
-  guest_perm_phantasi_comment_write: boolean
   user_ai_daily_calls: number
   user_ai_daily_tokens: number
   user_ai_cooldown_seconds: number

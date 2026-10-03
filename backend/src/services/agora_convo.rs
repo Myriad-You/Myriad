@@ -182,30 +182,6 @@ pub fn resolve_agora_endpoint(config: &DynamicConfig) -> Result<AgoraEndpoint, A
                 .to_string(),
         ));
     }
-    if config.agora_convo_enabled
-        && nonempty(&config.agora_app_id)
-        && nonempty(&config.agora_app_certificate)
-        && nonempty(&config.agora_customer_id)
-        && nonempty_opt(config.agora_customer_secret.as_ref())
-    {
-        let api_base = if config.agora_api_base.trim().is_empty() {
-            DEFAULT_AGORA_API_BASE.to_string()
-        } else {
-            config.agora_api_base.trim().to_string()
-        };
-        return Ok(AgoraEndpoint {
-            app_id: config.agora_app_id.trim().to_string(),
-            certificate: config.agora_app_certificate.trim().to_string(),
-            customer_id: config.agora_customer_id.trim().to_string(),
-            customer_secret: config
-                .agora_customer_secret
-                .as_deref()
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            api_base,
-        });
-    }
     Err(AgoraConvoError::NotConfigured(
         "Shengwang conversational AI is not configured".to_string(),
     ))
@@ -218,10 +194,6 @@ pub fn convo_configured(config: &DynamicConfig) -> bool {
             .resolve_strict_lite_ai_config()
             .and_then(|resolved| resolved.api_key)
             .is_some_and(|key| !key.trim().is_empty())
-}
-
-fn nonempty(value: &str) -> bool {
-    !value.trim().is_empty()
 }
 
 fn nonempty_opt(value: Option<&String>) -> bool {
@@ -922,13 +894,12 @@ mod tests {
                 ..crate::config::AiVendorSource::default()
             },
         ];
-        config.lite_ai_provider = "openai".to_string();
-        config.lite_openai_model = "lite-model".to_string();
-        config.lite_openai_api_key = Some("lite-key".to_string());
+        config.lite_ai_model = "lite-model".to_string();
+        config.provider_openrouter_api_key = Some("lite-key".to_string());
         assert!(convo_configured(&config));
         // The speech service's voice is its own provider's name: an OpenAI
         // voice is none to MiniMax, a MiniMax one is used.
-        config.speech_provider = "openai".to_string();
+        config.speech_source = "openai".to_string();
         config.speech_tts_model = "gpt-4o-mini-tts".to_string();
         config.speech_tts_voice = "marin".to_string();
         let tts = resolve_minimax_tts(&config).unwrap();

@@ -37,9 +37,8 @@ function config(): Config {
         'analytics_enabled',
       ),
     },
-    ai_config: { config_fields: fields('gemini_model', 'qq_bot_enabled') },
+    ai_config: { config_fields: fields('ai_model', 'qq_bot_enabled') },
     tripo_config: { config_fields: fields('tripo_enabled', 'tripo_model') },
-    report_config: { config_fields: [] },
   }
 }
 function value(
@@ -60,34 +59,20 @@ describe('config bag reset ownership', () => {
     assert.deepEqual(lab.ui_config, initial.ui_config)
     const ai = resetConfigBag(initial, 'ai')!
     assert.ok(ai)
-    assert.equal(value(ai, 'ai_config', 'gemini_model'), 'gemini-3.8-flash')
+    assert.equal(value(ai, 'ai_config', 'ai_model'), 'minimax/minimax-m3')
     assert.equal(value(ai, 'ai_config', 'qq_bot_enabled'), 'custom')
     assert.equal(resetConfigBag(initial, 'agent'), undefined)
   })
   it('restores usable AI defaults and clears credentials and source selections', () => {
     const expected = {
-      provider: 'openai',
-      gemini_model: 'gemini-3.8-flash',
-      openai_model: 'minimax/minimax-m3',
-      openai_base_url: 'https://openrouter.ai/api/v1',
+      ai_model: 'minimax/minimax-m3',
       pro_enabled: 'false',
-      pro_provider: 'openai',
-      pro_gemini_model: 'gemini-3.1-pro-preview',
-      pro_openai_model: 'anthropic/claude-opus-5.5',
-      pro_openai_base_url: 'https://openrouter.ai/api/v1',
-      lite_provider: 'openai',
-      lite_gemini_model: '',
-      lite_openai_model: '',
-      lite_openai_base_url: 'https://openrouter.ai/api/v1',
-      ai_image_provider: 'openrouter',
+      pro_ai_model: 'anthropic/claude-opus-5.5',
+      lite_ai_model: '',
+      aux_ai_source: '',
+      aux_judge_model: '',
+      aux_embedding_model: '',
       ai_image_model: 'openai/gpt-image-2.5-sunburst',
-      ai_image_openai_base_url: 'https://api.openai.com/v1',
-      ai_image_volcengine_base_url: 'https://ark.cn-beijing.volces.com/api/v3',
-      tencent_region: 'ap-guangzhou',
-      speech_provider: 'tencent',
-      speech_openai_base_url: 'https://api.openai.com/v1',
-      provider_openai_base_url: 'https://api.openai.com/v1',
-      provider_volcengine_base_url: 'https://ark.cn-beijing.volces.com/api/v3',
       ai_vendor_sources: '[]',
       ai_source: '',
       lite_ai_source: '',
@@ -97,11 +82,6 @@ describe('config bag reset ownership', () => {
       speech_stt_model: '',
       speech_tts_model: '',
       speech_tts_voice: '',
-      gemini_api_key: '',
-      openai_api_key: '',
-      pro_openai_api_key: '',
-      lite_gemini_api_key: '',
-      tencent_secret_key: '',
       provider_openrouter_api_key: '',
     }
     const initial = config()

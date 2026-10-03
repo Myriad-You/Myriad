@@ -3,6 +3,7 @@ import type { AuthoredExpressionReference } from './authoredExpression'
 import type { RigPsdImportReply, RigPsdImportRequest } from './psdImportClient'
 import { prepareAnime25DRigPsd } from './anime25dImporter'
 import { decodeRigPsd } from './psdDecode'
+import { alignSkeletonToPsd } from './skeleton'
 
 const reply = (data: RigPsdImportReply) => globalThis.postMessage(data)
 
@@ -15,6 +16,7 @@ globalThis.onmessage = async (event: MessageEvent<RigPsdImportRequest>) => {
     expressions,
     copy,
     profile,
+    skeleton,
   } = event.data
   try {
     // The worker cannot read the page's saved locale.
@@ -50,6 +52,9 @@ globalThis.onmessage = async (event: MessageEvent<RigPsdImportRequest>) => {
       master?.reference,
       expressionReferences,
       profile,
+      skeleton && skeleton.sourceMasterAssetId === sourceMasterAssetId
+        ? (alignSkeletonToPsd(skeleton, psd.width, psd.height) ?? undefined)
+        : undefined,
     )
     reply({ prepared })
   } catch (error) {

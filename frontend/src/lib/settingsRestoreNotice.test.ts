@@ -65,7 +65,7 @@ describe('settings restore notice', () => {
 
   it('labels media, lists skipped settings, pluralizes and truncates', () => {
     const unresolvedMedia = [
-      { setting: 'ui_wallpaper_url', url: '/media/federation/1/w.png' },
+      { setting: 'ui_wallpaper_url', url: '/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/w.png' },
       ...Array.from({ length: 6 }, (_, i) => ({
         setting: 'dashboard_layout',
         url: `/api/media/${i + 1}/content`,
@@ -78,7 +78,7 @@ describe('settings restore notice', () => {
     )
     assert.match(notice.media!.title, /^7 media items /)
     assert.equal(notice.media!.lines.length, 5)
-    assert.equal(notice.media!.lines[0], 'Wallpaper: /media/federation/1/w.png')
+    assert.equal(notice.media!.lines[0], 'Wallpaper: /media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/w.png')
     assert.equal(notice.media!.lines[1], 'Dashboard sticker: /api/media/1/content')
     assert.equal(notice.media!.more, '…and 2 more')
     assert.match(notice.skipped!.title, /^1 setting .* was skipped; the current value was kept$/)

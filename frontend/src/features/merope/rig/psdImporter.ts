@@ -1,6 +1,7 @@
 import type { PreparedAnime25DRigImport } from './anime25dImporter'
 import type { AuthoredExpressionKind } from './authoredExpression'
 import type { CharacterAssetProfile } from './contract'
+import type { DetectedSkeleton } from './skeleton'
 import { API_URL } from '../../../config'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { anime25DImportCopy } from './anime25dImportCopy'
@@ -22,6 +23,7 @@ export async function prepareRigPsdImport(
   signal?: AbortSignal,
   expressions: ReadonlyArray<{ kind: AuthoredExpressionKind; url: string }> = [],
   profile: CharacterAssetProfile = 'bust',
+  skeleton?: DetectedSkeleton,
 ): Promise<PreparedRigPsdImport> {
   signal?.throwIfAborted()
   if (!sourceMasterAssetId) throw new Error(currentCopy().merope.psdNeedAsset)
@@ -43,6 +45,7 @@ export async function prepareRigPsdImport(
       })),
       copy: anime25DImportCopy(),
       profile,
+      ...(skeleton ? { skeleton } : {}),
     },
     signal,
     onStage,

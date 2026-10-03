@@ -342,7 +342,7 @@ async fn her_real_talk_answered_again() {
         Some(model) => {
             let kept = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
             let mut swapped = kept.clone();
-            swapped.lite_openai_model = model.clone();
+            swapped.lite_ai_model = model.clone();
             *crate::GLOBAL_DYNAMIC_CONFIG.write().await = swapped;
             let other = chat_analyzer().await.expect("the other model");
             *crate::GLOBAL_DYNAMIC_CONFIG.write().await = kept;

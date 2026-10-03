@@ -40,6 +40,7 @@ pub mod library_items; // Library item models, paging, Bangumi/MAL builders, pre
 pub mod local_music; // Local music library catalog → player playlist
 pub mod memory_profile; // default vs memory-saver process budgets
 pub mod merope_rig; // Anime2.5D rig store (live pointer is worn outfit)
+pub mod pose_estimation; // Whole-body keypoints on a master portrait (DWPose)
 pub mod metadata_service;
 pub mod minimax_speech; // MiniMax T2A speech synthesis
 pub mod omni_voice; // Her own voice from Lite's Omni model (DashScope direct)

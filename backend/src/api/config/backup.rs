@@ -14,12 +14,10 @@ use myriad_module_visibility::{MODULE_VISIBILITY_PREFERENCES_KEY, ModuleVisibili
 
 pub(crate) const SETTINGS_BACKUP_FORMAT: &str = "myriad-settings-backup";
 pub(crate) const SETTINGS_BACKUP_VERSION: u32 = 2;
-pub(crate) const MIN_SETTINGS_BACKUP_VERSION: u32 = 1;
+/// v2 since 0.2.2. Backups carry the product that wrote them from 0.6.1 on
+/// (`product_version`), so a later floor can be a product release.
+pub(crate) const MIN_SETTINGS_BACKUP_VERSION: u32 = 2;
 pub(crate) const MAX_SETTINGS_BACKUP_ENTRIES: usize = 10_000;
-
-pub(crate) fn default_setting_schema_version() -> u32 {
-    1
-}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SettingDescriptor {
@@ -41,7 +39,6 @@ fn live_setting_descriptor(key: &str) -> Option<SettingDescriptor> {
 pub struct SettingsBackupEntry {
     pub key: String,
     pub value: Value,
-    #[serde(default = "default_setting_schema_version")]
     pub schema_version: u32,
     pub description: Option<String>,
     pub category: Option<String>,
@@ -80,6 +77,9 @@ async fn load_user_locale(db: &DatabaseConnection, user_id: i32) -> Option<Strin
 pub struct SettingsBackup {
     pub format: String,
     pub version: u32,
+    /// The product release that wrote it; absent before 0.6.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product_version: Option<String>,
     pub exported_at: String,
     pub contains_secrets: bool,
     pub configurations: Vec<SettingsBackupEntry>,
@@ -142,6 +142,33 @@ fn is_sensitive_configuration_key(key: &str) -> bool {
     crate::services::data_key::is_sensitive_config_key(key)
 }
 
+/// A backup from before tiers were a source and one model: its old rows,
+/// plus old fields its settings snapshot had and the rows did not (a v1
+/// deploy's environment), in the new keys.
+fn legacy_ai_tier_values(backup: &SettingsBackup) -> std::collections::HashMap<String, Value> {
+    use crate::services::config_service::legacy_ai_settings::{is_legacy_key, upgrade};
+    let mut stored: std::collections::HashMap<String, Value> = backup
+        .configurations
+        .iter()
+        .map(|entry| (entry.key.clone(), entry.value.clone()))
+        .collect();
+    for field in &backup.effective_config.ai_config.config_fields {
+        // The snapshot's form named three keys differently.
+        let key = match field.key.as_str() {
+            "provider" => "ai_provider",
+            "lite_provider" => "lite_ai_provider",
+            "pro_provider" => "pro_ai_provider",
+            other => other,
+        };
+        if is_legacy_key(key) && !super::secrets::is_masked_secret_value(&field.value) {
+            stored
+                .entry(key.to_string())
+                .or_insert_with(|| Value::String(field.value.clone()));
+        }
+    }
+    upgrade(&stored)
+}
+
 fn merge_settings_backup_entries(
     backup: &SettingsBackup,
 ) -> std::collections::HashMap<String, SettingsBackupEntry> {
@@ -152,6 +179,24 @@ fn merge_settings_backup_entries(
         .filter(|entry| !is_retired_configuration_key(&entry.key))
         .map(|entry| (entry.key.clone(), entry))
         .collect();
+
+    // Old text-model settings come back in their new keys; the old keys are
+    // retired and never restored as they are.
+    for (key, value) in legacy_ai_tier_values(backup) {
+        let is_encrypted = is_sensitive_configuration_key(&key);
+        entries.insert(
+            key.clone(),
+            SettingsBackupEntry {
+                key,
+                value,
+                schema_version: 1,
+                description: None,
+                category: Some("general".to_string()),
+                is_encrypted: Some(is_encrypted),
+                is_public: Some(false),
+            },
+        );
+    }
 
     // v1 部署可能从环境变量取值。快照里有、备份行里没有的键在这里补上；
     // 下线键不补。`collect_database_updates` 只发出快照 bag 里实际存在的字段。
@@ -452,6 +497,7 @@ pub async fn export_settings(
     let backup = SettingsBackup {
         format: SETTINGS_BACKUP_FORMAT.to_string(),
         version: SETTINGS_BACKUP_VERSION,
+        product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         exported_at: chrono::Utc::now().to_rfc3339(),
         contains_secrets: true,
         configurations,
@@ -540,7 +586,6 @@ async fn bind_restored_media(
     txn: &impl ConnectionTrait,
     entries: &mut [SettingsBackupEntry],
     origins: &[String],
-    legacy: &crate::services::media::LegacyPaths,
 ) -> Result<Vec<UnresolvedRestoredMedia>, crate::services::media::MediaError> {
     let mut unresolved = Vec::new();
     for entry in entries {
@@ -548,12 +593,10 @@ async fn bind_restored_media(
         let raw = text.as_deref().unwrap_or("");
         let (stored, dead) = match entry.key.as_str() {
             key @ ("ui_wallpaper_url" | "site_og_image" | "site_favicon") => {
-                crate::services::media::bind_restored_site_image(txn, key, raw, origins, legacy)
-                    .await?
+                crate::services::media::bind_restored_site_image(txn, key, raw, origins).await?
             }
             "dashboard_layout" => {
-                crate::services::media::bind_restored_dashboard_layout(txn, raw, origins, legacy)
-                    .await?
+                crate::services::media::bind_restored_dashboard_layout(txn, raw, origins).await?
             }
             _ => continue,
         };
@@ -582,11 +625,10 @@ pub(crate) async fn write_restored_configurations(
     txn: &impl ConnectionTrait,
     mut entries: Vec<SettingsBackupEntry>,
     origins: &[String],
-    legacy: &crate::services::media::LegacyPaths,
 ) -> Result<Vec<UnresolvedRestoredMedia>, RestoreWriteError> {
     // Entries come from `build_settings_restore_plan`, which already dropped
     // settings failing their save policy; nothing here publishes those.
-    let unresolved = bind_restored_media(txn, &mut entries, origins, legacy)
+    let unresolved = bind_restored_media(txn, &mut entries, origins)
         .await
         .map_err(RestoreWriteError::Media)?;
     for entry in entries {
@@ -654,10 +696,8 @@ pub async fn restore_settings(
         .notification_preferences
         .normalized();
 
-    // Same origin set as saving the wallpaper and the media upgrade backfill.
-    let origins = crate::services::media::upgrade::configured_origins().await;
-    let legacy =
-        crate::services::media::LegacyPaths::from_data_paths(crate::services::data_paths::paths());
+    // Same origin set as saving the wallpaper.
+    let origins = crate::services::media::configured_origins().await;
     let transaction = match db.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -676,7 +716,7 @@ pub async fn restore_settings(
         RestoreWriteError,
     > = async {
         let unresolved =
-            write_restored_configurations(&transaction, entries, &origins, &legacy).await?;
+            write_restored_configurations(&transaction, entries, &origins).await?;
 
         let notification_value = serde_json::to_value(&notification_preferences)
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
@@ -783,11 +823,11 @@ mod settings_backup_tests {
     use super::*;
     use crate::api::config::{
         AiConfig, ConfigField, ConfigResponse, MODULE_VISIBILITY_PREFERENCES_KEY,
-        PlatformAutoFetchConfig, PlatformConfig, collect_database_updates, db_or_env_clearable,
-        deploy_env_key, is_masked_secret_value, normalize_music_playlist_id,
-        sanitize_google_site_verification, sanitize_http_base_url, sanitize_proxy_url,
-        sanitize_site_favicon_url, sanitize_site_og_image_url, sanitize_umami_script_url,
-        sanitize_wallpaper_url, should_write_env_field, update_env_var,
+        PlatformAutoFetchConfig, PlatformConfig, collect_database_updates, deploy_env_key,
+        is_masked_secret_value, normalize_music_playlist_id, sanitize_google_site_verification,
+        sanitize_http_base_url, sanitize_proxy_url, sanitize_site_favicon_url,
+        sanitize_site_og_image_url, sanitize_umami_script_url, sanitize_wallpaper_url,
+        should_write_env_field, update_env_var,
     };
     use crate::services::config_service::public_ui_config_value;
     use crate::services::platform_id::platform_configured_flags;
@@ -800,6 +840,7 @@ mod settings_backup_tests {
         SettingsBackup {
             format: SETTINGS_BACKUP_FORMAT.to_string(),
             version: SETTINGS_BACKUP_VERSION,
+            product_version: None,
             exported_at: "2026-01-01T00:00:00Z".to_string(),
             contains_secrets: true,
             configurations,
@@ -847,24 +888,12 @@ mod settings_backup_tests {
         backup.version = MIN_SETTINGS_BACKUP_VERSION;
         assert!(validate_settings_backup(&backup).is_ok());
 
+        // v1 (before 0.2.2) is below the floor.
+        backup.version = 1;
+        assert!(validate_settings_backup(&backup).is_err());
+
         backup.version = SETTINGS_BACKUP_VERSION + 1;
         assert!(validate_settings_backup(&backup).is_err());
-    }
-
-    #[test]
-    fn deserializes_v1_entries_without_per_setting_schema_version() {
-        let mut value = serde_json::to_value(backup_with_entries(vec![entry("github_enabled")]))
-            .expect("backup should serialize");
-        value["version"] = json!(MIN_SETTINGS_BACKUP_VERSION);
-        value["configurations"][0]
-            .as_object_mut()
-            .expect("entry should be an object")
-            .remove("schema_version");
-
-        let backup: SettingsBackup =
-            serde_json::from_value(value).expect("v1 backup should deserialize");
-        assert_eq!(backup.configurations[0].schema_version, 1);
-        assert!(validate_settings_backup(&backup).is_ok());
     }
 
     #[test]
@@ -950,6 +979,61 @@ mod settings_backup_tests {
         assert!(!is_retired_configuration_key("github_token"));
         assert!(!is_retired_configuration_key("github_enabled"));
         assert!(!is_retired_configuration_key("island_show_tapp"));
+    }
+
+    #[test]
+    fn an_old_backup_restores_its_text_models_in_the_new_keys() {
+        let value = |key: &str, value: Value| SettingsBackupEntry {
+            value,
+            ..entry(key)
+        };
+        let mut backup = backup_with_entries(vec![
+            value("ai_provider", json!("openai")),
+            value("openai_model", json!("minimax/minimax-m3")),
+            value("openai_base_url", json!("https://openrouter.ai/api/v1")),
+            value("lite_enabled", json!(true)),
+            value("lite_openai_model", json!("qwen3.8-omni-flash")),
+            value("lite_ai_source", json!("dashscope")),
+            value("lite_judge_model", json!("openai/gpt-6-luna")),
+        ]);
+        // A v1 deploy's key came from its environment: only in the snapshot.
+        backup.effective_config.ai_config.config_fields = vec![ConfigField {
+            key: "openai_api_key".to_string(),
+            value: "sk-or-env".to_string(),
+            ..Default::default()
+        }];
+        let plan = build_settings_restore_plan(&backup);
+        let restored = |key: &str| {
+            plan.entries
+                .iter()
+                .find(|entry| entry.key == key)
+                .map(|entry| entry.value.clone())
+        };
+        assert_eq!(restored("ai_model"), Some(json!("minimax/minimax-m3")));
+        assert_eq!(restored("ai_source"), Some(json!("openrouter")));
+        assert_eq!(restored("lite_ai_model"), Some(json!("qwen3.8-omni-flash")));
+        assert_eq!(restored("lite_ai_source"), Some(json!("dashscope")));
+        assert_eq!(
+            restored("aux_judge_model"),
+            Some(json!("openai/gpt-6-luna"))
+        );
+        assert_eq!(
+            restored("provider_openrouter_api_key"),
+            Some(json!("sk-or-env"))
+        );
+        // The old keys themselves are not written back.
+        for old in [
+            "ai_provider",
+            "openai_model",
+            "lite_enabled",
+            "lite_openai_model",
+        ] {
+            assert_eq!(restored(old), None, "{old}");
+            assert!(
+                plan.preview.ignored_keys.iter().any(|key| key == old),
+                "{old}"
+            );
+        }
     }
 
     #[test]
@@ -1340,41 +1424,6 @@ mod settings_backup_tests {
         let cleared = collect_database_updates(&config).expect("valid config");
         assert_eq!(cleared.get("discord_bot_enabled"), Some(&json!(false)));
         assert_eq!(cleared.get("discord_bot_token"), Some(&Value::Null));
-    }
-
-    #[test]
-    fn saves_agora_realtime_talk_fields() {
-        let mut config = empty_config();
-        config.ai_config.config_fields = vec![
-            ui_field("agora_convo_enabled", "true"),
-            ui_field("agora_app_id", "970ca35de60c44645bbae8a215061b33"),
-            ui_field("agora_api_base", "https://api.agora.io/cn"),
-        ];
-        let updates = collect_database_updates(&config).expect("valid config");
-        assert_eq!(updates.get("agora_convo_enabled"), Some(&json!(true)));
-        assert_eq!(
-            updates.get("agora_app_id"),
-            Some(&json!("970ca35de60c44645bbae8a215061b33"))
-        );
-        assert_eq!(
-            updates.get("agora_api_base"),
-            Some(&json!("https://api.agora.io/cn"))
-        );
-    }
-
-    #[test]
-    fn saving_vendors_without_agora_clears_legacy_realtime_talk() {
-        let mut config = empty_config();
-        config.ai_config.config_fields = vec![ui_field(
-            "ai_vendor_sources",
-            r#"[{"slug":"openai","kind":"openai","display_name":"OpenAI","enabled":true}]"#,
-        )];
-        let updates = collect_database_updates(&config).expect("valid config");
-        assert_eq!(updates.get("agora_convo_enabled"), Some(&json!(false)));
-        assert_eq!(updates.get("agora_app_id"), Some(&json!("")));
-        assert_eq!(updates.get("agora_app_certificate"), Some(&json!("")));
-        assert_eq!(updates.get("agora_customer_id"), Some(&json!("")));
-        assert_eq!(updates.get("agora_customer_secret"), Some(&json!("")));
     }
 
     #[test]
@@ -1858,24 +1907,6 @@ mod settings_backup_tests {
     }
 
     #[test]
-    fn clearable_db_empty_wins_over_env_fallback() {
-        // UI clear writes Some(""); that must not be treated as "missing → env".
-        assert_eq!(
-            db_or_env_clearable(Some(String::new()), "GA_MEASUREMENT_ID", ""),
-            ""
-        );
-        assert_eq!(
-            db_or_env_clearable(Some("G-ABC".into()), "GA_MEASUREMENT_ID", ""),
-            "G-ABC"
-        );
-        // None = never set; may use env (unset here → default).
-        assert_eq!(
-            db_or_env_clearable(None, "MYRIAD_TEST_UNSET_ENV_KEY_XYZ", "fallback"),
-            "fallback"
-        );
-    }
-
-    #[test]
     fn ui_empty_base_url_does_not_overwrite() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("base_url", "")];
@@ -1925,7 +1956,6 @@ mod settings_backup_tests {
         // quotas are not (an empty quota must not be written as a cleared secret).
         assert!(!should_write_env_field("agora_app_certificate", ""));
         assert!(should_write_env_field("user_ai_daily_tokens", ""));
-        assert!(should_write_env_field("openai_max_tokens", ""));
     }
 
     #[test]
@@ -2052,19 +2082,6 @@ mod settings_backup_tests {
         assert_eq!(updates.get("steam_id"), Some(&json!(null)));
         assert_eq!(updates.get("psn_online_id"), Some(&json!(null)));
         assert_eq!(updates.get("psn_npsso"), Some(&json!(null)));
-    }
-
-    #[test]
-    fn platform_resolve_prefers_explicit_empty_db_over_env() {
-        let env_key = "MYRIAD_TEST_PLATFORM_RESOLVE_EMPTY";
-        unsafe { std::env::set_var(env_key, "stale-from-env") };
-        assert_eq!(db_or_env_clearable(Some(String::new()), env_key, ""), "");
-        assert_eq!(db_or_env_clearable(None, env_key, ""), "stale-from-env");
-        assert_eq!(
-            db_or_env_clearable(Some("from-db".to_string()), env_key, ""),
-            "from-db"
-        );
-        unsafe { std::env::remove_var(env_key) };
     }
 
     #[test]

@@ -14,7 +14,7 @@
 脚本需要本地 Docker、Compose v2+ 和 `jq`；缺少目录或旧卷时会拒绝操作。布局迁移、停机打包和换机步骤见 [DATA_LAYOUT.md](DATA_LAYOUT.md)。
 
 `cache` / `backend_cache` 可再生，不要当灾备。媒体资产在 `backend_data/media`，
-会进 `backend_data.tar.gz`。旧 `/media/federation` 与 image-cache 地址靠别名读，
+会进 `backend_data.tar.gz`。内容里引用的都是 `/media/assets/…` 永久地址，
 不依赖缓存卷。细节见 [MEDIA.md](MEDIA.md)。Updater 对 `./pgdata` 的文件级
 快照只服务升级回滚，**不是**整站备份。
 

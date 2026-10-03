@@ -27,7 +27,8 @@ Base URL:
 | 站点配置（脱敏） | `/api/config` | 写操作需管理员 |
 | 资料 / 平台数据 | `/api/profile`、`/api/platforms` 等 | 受模块可见性与权限影响 |
 | 图片 / 媒体代理 | `/api/proxy/…` | 热链域名见 `shared/image_proxy_hosts.json` |
-| 联邦 | `/.well-known/webfinger`、`/inbox`、`/users/*`、`/media/federation/*`、`/api/federation/*`、`/api/admin/federation/*`、`/api/tapp/federation/*`，以及对象解引用 `/activities/*` `/notes/*` `/reports/*` `/tapps/*` `/library/*` `/phantasi/articles/*` | 生产经 proxy 转到 **federation-worker**（不是 web）。精确 `/reports` `/library` 仍走 SEO/SPA |
+| 站点媒体 | `/media/assets/{uuid}/{文件名}`、`/api/media/{id}/content` | 生产经 proxy 转到 **web**（不是 federation-worker）；见 [MEDIA.md](deployment/MEDIA.md) |
+| 联邦 | `/.well-known/webfinger`、`/inbox`、`/users/*`、`/api/federation/*`、`/api/admin/federation/*`、`/api/tapp/federation/*`，以及对象解引用 `/activities/*` `/notes/*` `/reports/*` `/tapps/*` `/library/*` `/phantasi/articles/*` | 生产经 proxy 转到 **federation-worker**（不是 web）。精确 `/reports` `/library` 仍走 SEO/SPA |
 | Agent / 语音 / rig | `/api/agent`、`/api/speech`、`/api/merope/rig`、`/api/tapp/agent/v2/interactions` | 生产经 proxy 转到 **persona-worker** |
 
 ## 需管理员的典型面

@@ -14,4 +14,3 @@ pub mod strength;
 pub mod unified;
 pub(crate) mod work_memory;
 
-pub(crate) use work_memory::import_legacy_json;

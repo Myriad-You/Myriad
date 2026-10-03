@@ -1223,7 +1223,7 @@ fn request(case: &Case) -> Value {
     }
 }
 
-/// Kinds production runs on the judgment model (`lite_judge_model`). A
+/// Kinds production runs on the judgment model (`aux_judge_model`). A
 /// touch decision's speech is played as written, so it stays on Lite.
 fn is_judgment(case: &Case) -> bool {
     match case.kind.as_str() {

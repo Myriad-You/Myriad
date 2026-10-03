@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { PhantasiSource } from '../../types/phantasi'
 import type { WidgetComponentProps } from '../widgetGridTypes'
 
@@ -140,6 +140,41 @@ function FriendLinkIcon({
         <Link className={iconClassName} />
       )}
     </span>
+  )
+}
+
+/** 有地址时是真链接；编辑、预览、换批进场中或没有地址时退回按钮。 */
+function FriendLinkAnchor({
+  href,
+  disabled,
+  children,
+  ...rest
+}: {
+  href?: string
+  disabled: boolean
+  children: ReactNode
+  style: CSSProperties
+  className: string
+  onClick: () => void
+  'aria-label': string
+}) {
+  if (href) {
+    return (
+      <a
+        {...rest}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        draggable={false}
+      >
+        {children}
+      </a>
+    )
+  }
+  return (
+    <button {...rest} type="button" disabled={disabled}>
+      {children}
+    </button>
   )
 }
 
@@ -366,7 +401,8 @@ export const FriendLinksWidget = memo(
       }
     }, [isEditMode, isPreview, navigate])
 
-    const openFriendLink = useCallback(
+    // 打开交给链接本身（右键复制、中键新开、长按菜单），这里只记一笔点击。
+    const trackFriendLink = useCallback(
       (entry: FriendLinkEntry) => {
         if (isEditMode || isPreview || !entry.url) return
         void import('../../utils/analyticsEvents').then(
@@ -383,7 +419,6 @@ export const FriendLinksWidget = memo(
             })
           },
         )
-        window.open(entry.url, '_blank', 'noopener,noreferrer')
       },
       [isEditMode, isPreview],
     )
@@ -396,6 +431,8 @@ export const FriendLinksWidget = memo(
     const shellClassName = isEditMode ? 'cursor-grab' : undefined
     const entryDisabled = (entryUrl: string, incoming: boolean) =>
       !interactionLocked && (incoming || !entryUrl)
+    const entryHref = (entryUrl: string, incoming: boolean) =>
+      interactionLocked || incoming || !entryUrl ? undefined : entryUrl
 
     if (isStrip) {
       return (
@@ -449,15 +486,15 @@ export const FriendLinksWidget = memo(
                   aria-hidden={layer.incoming || undefined}
                 >
                   {layer.entries.map((entry, entryIndex) => (
-                    <button
+                    <FriendLinkAnchor
                       key={entry.id}
-                      type="button"
+                      href={entryHref(entry.url, layer.incoming)}
                       style={
                         {
                           '--friend-links-entry-index': entryIndex,
                         } as CSSProperties
                       }
-                      onClick={() => openFriendLink(entry)}
+                      onClick={() => trackFriendLink(entry)}
                       disabled={entryDisabled(entry.url, layer.incoming)}
                       className="friend-links-entry group/link relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 overflow-hidden rounded-lg px-3 text-left disabled:cursor-default disabled:opacity-100"
                       aria-label={format(t.friendLinksWidget.visitSite, {
@@ -490,7 +527,7 @@ export const FriendLinksWidget = memo(
                         )}
                       </span>
                       <ExternalLink className="relative z-10 h-3.5 w-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
-                    </button>
+                    </FriendLinkAnchor>
                   ))}
                 </div>
               ))}
@@ -563,15 +600,15 @@ export const FriendLinksWidget = memo(
                   aria-hidden={layer.incoming || undefined}
                 >
                   {layer.entries.map((entry, entryIndex) => (
-                    <button
+                    <FriendLinkAnchor
                       key={entry.id}
-                      type="button"
+                      href={entryHref(entry.url, layer.incoming)}
                       style={
                         {
                           '--friend-links-entry-index': entryIndex,
                         } as CSSProperties
                       }
-                      onClick={() => openFriendLink(entry)}
+                      onClick={() => trackFriendLink(entry)}
                       disabled={entryDisabled(entry.url, layer.incoming)}
                       className="friend-links-entry group/link relative flex min-h-0 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden p-3 text-center disabled:cursor-default disabled:opacity-100"
                       aria-label={format(t.friendLinksWidget.visitSite, {
@@ -598,7 +635,7 @@ export const FriendLinksWidget = memo(
                           {entry.description}
                         </span>
                       )}
-                    </button>
+                    </FriendLinkAnchor>
                   ))}
                 </div>
               ))}
@@ -698,15 +735,15 @@ export const FriendLinksWidget = memo(
                   aria-hidden={layer.incoming || undefined}
                 >
                   {layer.entries.map((entry, entryIndex) => (
-                    <button
+                    <FriendLinkAnchor
                       key={entry.id}
-                      type="button"
+                      href={entryHref(entry.url, layer.incoming)}
                       style={
                         {
                           '--friend-links-entry-index': entryIndex,
                         } as CSSProperties
                       }
-                      onClick={() => openFriendLink(entry)}
+                      onClick={() => trackFriendLink(entry)}
                       disabled={entryDisabled(entry.url, layer.incoming)}
                       className="friend-links-entry group/link flex min-h-0 cursor-pointer items-center gap-2 overflow-hidden rounded-lg bg-black/3 px-2 text-left transition-colors hover:bg-black/6 disabled:cursor-default disabled:opacity-100 dark:bg-white/4 dark:hover:bg-white/8"
                       aria-label={format(t.friendLinksWidget.visitSite, {
@@ -736,7 +773,7 @@ export const FriendLinksWidget = memo(
                         )}
                       </span>
                       <ExternalLink className="h-3 w-3 shrink-0 text-gray-300 opacity-0 transition-opacity group-hover/link:opacity-100 dark:text-gray-600" />
-                    </button>
+                    </FriendLinkAnchor>
                   ))}
                 </div>
               ))}

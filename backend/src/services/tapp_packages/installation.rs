@@ -364,14 +364,8 @@ pub(crate) async fn install_prepared_package(
                 return Err(AppError::from_status_u16(500, "Database error"));
             }
         };
-        if let Err(err) = reconcile_manifest_widgets(
-            &txn,
-            installation_owner_id,
-            &manifest.id,
-            &manifest,
-            Some(&existing_tx.manifest),
-        )
-        .await
+        if let Err(err) =
+            reconcile_manifest_widgets(&txn, installation_owner_id, &manifest.id, &manifest).await
         {
             txn.rollback().await.ok();
             activated.rollback().await;
@@ -465,7 +459,7 @@ pub(crate) async fn install_prepared_package(
         }
     };
     if let Err(err) =
-        reconcile_manifest_widgets(&txn, installation_owner_id, &manifest.id, &manifest, None).await
+        reconcile_manifest_widgets(&txn, installation_owner_id, &manifest.id, &manifest).await
     {
         txn.rollback().await.ok();
         activated.rollback().await;
@@ -640,15 +634,7 @@ pub(crate) async fn update_prepared_package(
             return Err(AppError::from_status_u16(500, "Database error"));
         }
     };
-    if let Err(err) = reconcile_manifest_widgets(
-        &txn,
-        target_owner_id,
-        &tapp_id,
-        &manifest,
-        Some(&existing_tapp.manifest),
-    )
-    .await
-    {
+    if let Err(err) = reconcile_manifest_widgets(&txn, target_owner_id, &tapp_id, &manifest).await {
         txn.rollback().await.ok();
         activated.rollback().await;
         return Err(err);

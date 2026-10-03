@@ -230,11 +230,6 @@ pub fn create_phantasi_routes(app_state: crate::state::AppState) -> Router<crate
         ))
 }
 
-/// Leftover `/api/brew/image-cache/*` URLs from pre-rename persona assets.
-pub fn legacy_brew_image_cache_routes() -> Router<crate::state::AppState> {
-    crate::api::media_public::brew_image_cache_routes()
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -247,8 +242,6 @@ mod tests {
         assert!(routes.contains("reading_stats::get_stats"));
         assert!(routes.contains("comments::list_comments"));
         assert!(routes.contains("super::rsshub::list_rsshub_instances"));
-        assert!(routes.contains("legacy_brew_image_cache_routes"));
-        assert!(include_str!("../../router/authenticated.rs").contains("/api/brew"));
         assert!(include_str!("reading_item.rs").contains("pub(crate) async fn get_item"));
         assert!(!include_str!("reading_sync_ws.rs").contains("pub(crate) async fn get_item"));
         let comments = include_str!("comments.rs")

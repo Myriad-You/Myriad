@@ -125,8 +125,17 @@ pub static GLOBAL_CONFIG: once_cell::sync::Lazy<Arc<RwLock<AppConfig>>> =
 pub static GLOBAL_DYNAMIC_CONFIG: once_cell::sync::Lazy<Arc<RwLock<DynamicConfig>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(DynamicConfig::default())));
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // A short-lived child that looks at one portrait for its skeleton and exits,
+    // so the pose model's memory goes back to the system with it.
+    if std::env::args().nth(1).as_deref() == Some(services::pose_estimation::WORKER_ARG) {
+        return services::pose_estimation::worker_main();
+    }
     // Cwd .env first; crate .env fills keys when `cargo run` is from the workspace root.
     dotenvy::dotenv().ok();
     let _ = dotenvy::from_path(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
@@ -187,10 +196,7 @@ async fn main() -> anyhow::Result<()> {
         role == runtime_role::RuntimeRole::PersonaWorker,
         Ordering::Release,
     );
-    let _memory_cleanup = memory_cleanup::start(matches!(
-        role,
-        runtime_role::RuntimeRole::Web | runtime_role::RuntimeRole::All
-    ));
+    let _memory_cleanup = memory_cleanup::start();
     if role == runtime_role::RuntimeRole::PersonaWorker {
         return persona::worker::run().await;
     }

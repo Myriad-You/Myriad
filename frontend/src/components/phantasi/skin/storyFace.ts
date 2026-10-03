@@ -2,6 +2,7 @@ import type { FeedStory } from '../logic/feedStories'
 import type { TopicNameKey } from '../logic/topics'
 import type { TimeTranslations } from '../types'
 
+import { phantasiSubject } from '../../../utils/phantasiSubject'
 import { getIconUrl, getImageUrl, getPlainText } from '../constants'
 import { topicDisplayName, topicHue } from '../logic/topics'
 import { noteStoryTopic } from '../notes/noteCategory'
@@ -172,7 +173,9 @@ export function storyCardFace(
   locale: string,
   labels: FaceLabels,
 ): StoryCardFace {
-  const unread = !item.is_read
+  // 游客不记录阅读状态（打开不写已读，后端给的 is_read 恒为 false），「未读」对他们只是噪音。
+  const unread =
+    !item.is_read && phantasiSubject.getSnapshot().key.startsWith('user:')
   const starred = !!item.is_starred
   const site = siteStoryAttribution()
   const hit = faces.get(item)

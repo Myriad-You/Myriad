@@ -130,10 +130,6 @@ impl Consumer {
         Self::new("federation_activity", activity_id, Visibility::Public)
     }
 
-    pub fn federation_outbox(delivery_id: impl Into<String>) -> Self {
-        Self::new("federation_outbox", delivery_id, Visibility::Public)
-    }
-
     pub fn kind(&self) -> &'static str {
         self.kind
     }
@@ -321,7 +317,7 @@ pub async fn bind(
         if matches!(authority, Authority::Anonymous) {
             break;
         }
-        let mut asset_id = resolve_cited(txn, &citation.path).await?;
+        let mut asset_id = resolve_asset_id(txn, &citation.path).await?;
         if asset_id.is_none()
             && unresolved == Unresolved::Reject
             && matches!(authority, Authority::Site)
@@ -391,24 +387,13 @@ pub async fn bind(
 
 async fn import_cached(txn: &impl ConnectionTrait, path: &str) -> Result<Option<i32>, MediaError> {
     let data = crate::services::data_paths::paths();
-    super::migration::import_cached_citation(
+    super::cache_import::import_cached_citation(
         txn,
         &super::MediaStore::new(data.media.clone()),
-        &super::LegacyPaths::from_data_paths(data),
+        &crate::services::image_cache::ImageCacheService::new(),
         path,
     )
     .await
-}
-
-/// Resolve a cited path, including the brew/phantasi spelling of one cached file.
-async fn resolve_cited(txn: &impl ConnectionTrait, path: &str) -> Result<Option<i32>, MediaError> {
-    if let Some(id) = resolve_asset_id(txn, path).await? {
-        return Ok(Some(id));
-    }
-    match super::legacy::cache_equivalent_path(path) {
-        Some(other) => resolve_asset_id(txn, &other).await,
-        None => Ok(None),
-    }
 }
 
 #[cfg(test)]
@@ -428,10 +413,6 @@ mod tests {
         assert_eq!(
             Consumer::channel_message("r").visibility(),
             Visibility::Private
-        );
-        assert_eq!(
-            Consumer::federation_outbox("9").visibility(),
-            Visibility::Public
         );
     }
 

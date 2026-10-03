@@ -10,7 +10,6 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
 use std::fs;
 
 // Platform refresh / site owner live in services (scheduler must not depend on HTTP).
@@ -839,21 +838,14 @@ pub struct ActivityItem {
     pub changes: Value,
     pub change_count: i32,
     pub change_date: String,
-    pub legacy: bool,
-}
-
-struct LegacyActivityGroup {
-    platform_name: String,
-    change_count: i32,
-    change_date: String,
 }
 
 pub async fn get_recent_activities(
     Query(params): Query<ActivityQuery>,
     State(db): State<DatabaseConnection>,
 ) -> (StatusCode, Json<Value>) {
-    use crate::models::entities::{activity_events, metadata_history};
-    use crate::services::activity_event_service::{platform_label, public_activity_changes};
+    use crate::models::entities::activity_events;
+    use crate::services::activity_event_service::public_activity_changes;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
     let limit = params.limit.unwrap_or(10).clamp(1, 50);
@@ -862,117 +854,28 @@ pub async fn get_recent_activities(
         Err(error) => return site_owner_error(error),
     };
 
-    // Legacy rows are collapsed by platform/day, so fetch extra audit records
-    // before applying the user-facing limit.
-    let audit_limit = (limit * 10).min(500);
-
-    #[derive(sea_orm::FromQueryResult)]
-    struct ActivityHistory {
-        id: i32,
-        platform_name: String,
-        changed_fields: Value,
-        change_date: chrono::NaiveDateTime,
-    }
-
-    match metadata_history::Entity::find()
-        .select_only()
-        .columns([
-            metadata_history::Column::Id,
-            metadata_history::Column::PlatformName,
-            metadata_history::Column::ChangedFields,
-            metadata_history::Column::ChangeDate,
-        ])
-        .filter(metadata_history::Column::UserId.eq(user_id))
-        .order_by_desc(metadata_history::Column::ChangeDate)
-        .limit(audit_limit)
-        .into_model::<ActivityHistory>()
+    match activity_events::Entity::find()
+        .filter(activity_events::Column::UserId.eq(user_id))
+        .filter(activity_events::Column::EventType.ne("suppressed"))
+        .order_by_desc(activity_events::Column::OccurredAt)
+        .order_by_desc(activity_events::Column::Id)
+        .limit(limit)
         .all(&db)
         .await
     {
-        Ok(records) => {
-            let history_ids: Vec<i32> = records.iter().map(|record| record.id).collect();
-            let normalized = if history_ids.is_empty() {
-                Vec::new()
-            } else {
-                match activity_events::Entity::find()
-                    .filter(activity_events::Column::UserId.eq(user_id))
-                    .filter(activity_events::Column::MetadataHistoryId.is_in(history_ids))
-                    .all(&db)
-                    .await
-                {
-                    Ok(events) => events,
-                    Err(error) => {
-                        // activity_events 查询失败则只用 metadata_history 汇总。
-                        tracing::warn!("Failed to load normalized activity events: {}", error);
-                        Vec::new()
-                    }
-                }
-            };
-            let mut normalized_by_history: HashMap<i32, activity_events::Model> = normalized
+        Ok(events) => {
+            let activities: Vec<ActivityItem> = events
                 .into_iter()
-                .map(|event| (event.metadata_history_id, event))
+                .map(|event| ActivityItem {
+                    platform_name: event.platform_name,
+                    event_type: event.event_type,
+                    title: event.title,
+                    changes: public_activity_changes(&event.changes),
+                    change_count: event.change_count,
+                    // RFC3339 (NaiveDateTime treated as UTC) so FE Date parses reliably.
+                    change_date: event.occurred_at.and_utc().to_rfc3339(),
+                })
                 .collect();
-
-            let mut activities = Vec::new();
-            let mut legacy_groups: HashMap<String, LegacyActivityGroup> = HashMap::new();
-
-            for record in records {
-                if let Some(event) = normalized_by_history.remove(&record.id) {
-                    if event.event_type == "suppressed" {
-                        continue;
-                    }
-                    activities.push(ActivityItem {
-                        platform_name: event.platform_name,
-                        event_type: event.event_type,
-                        title: event.title,
-                        changes: public_activity_changes(&event.changes),
-                        change_count: event.change_count,
-                        // RFC3339 (NaiveDateTime treated as UTC) so FE Date parses reliably.
-                        change_date: event.occurred_at.and_utc().to_rfc3339(),
-                        legacy: false,
-                    });
-                    continue;
-                }
-
-                let day = record.change_date.date().to_string();
-                let key = format!("{}:{}", record.platform_name, day);
-                let field_count = record
-                    .changed_fields
-                    .as_array()
-                    .map(|fields| i32::try_from(fields.len()).unwrap_or(i32::MAX))
-                    .unwrap_or(1);
-                let change_iso = record.change_date.and_utc().to_rfc3339();
-                legacy_groups
-                    .entry(key)
-                    .and_modify(|group| {
-                        group.change_count = group.change_count.saturating_add(field_count);
-                        if change_iso > group.change_date {
-                            group.change_date = change_iso.clone();
-                        }
-                    })
-                    .or_insert_with(|| LegacyActivityGroup {
-                        platform_name: record.platform_name,
-                        change_count: field_count,
-                        change_date: change_iso,
-                    });
-            }
-
-            activities.extend(legacy_groups.into_values().map(|group| ActivityItem {
-                title: platform_label(&group.platform_name).to_string(),
-                platform_name: group.platform_name,
-                event_type: "legacy_updated".to_string(),
-                changes: json!([{
-                    "kind": "legacy_summary",
-                    "metric": "data_changes",
-                    "new": group.change_count
-                }]),
-                change_count: group.change_count,
-                change_date: group.change_date,
-                legacy: true,
-            }));
-            activities.sort_by(|a, b| b.change_date.cmp(&a.change_date));
-            activities.truncate(limit as usize);
-
             (
                 StatusCode::OK,
                 Json(json!({

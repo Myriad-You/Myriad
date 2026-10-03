@@ -174,15 +174,6 @@ pub(crate) async fn invalidate_summary_cache() {
 // ── Request types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct PageviewRequest {
-    pub path: String,
-    #[serde(default)]
-    pub vid: Option<String>,
-    #[serde(default)]
-    pub referrer: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct CollectRequest {
     #[serde(default)]
     pub vid: Option<String>,
@@ -1330,29 +1321,6 @@ impl IntakeBody for CollectRequest {
     }
 }
 
-impl IntakeBody for PageviewRequest {
-    fn vid(&self) -> Option<&str> {
-        self.vid.as_deref()
-    }
-
-    fn into_items(self) -> Result<Vec<CollectItem>, IntakeResponse> {
-        let Some(path) = normalize_path(&self.path) else {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(AppError::fail_json("invalid_path")),
-            ));
-        };
-        Ok(vec![CollectItem {
-            kind: "pageview".into(),
-            path: Some(path),
-            referrer: self.referrer,
-            ms: None,
-            name: None,
-            target: None,
-        }])
-    }
-}
-
 fn intake_skipped(reason: &'static str) -> IntakeResponse {
     (
         StatusCode::OK,
@@ -1437,30 +1405,6 @@ pub async fn collect(
         StatusCode::OK,
         Json(json!({
             "success": true,
-            "accepted": accepted,
-        })),
-    )
-}
-
-/// POST /api/analytics/pageview — single pageview (compat).
-pub async fn record_pageview(
-    axum::extract::State(dynamic_config): axum::extract::State<Arc<RwLock<DynamicConfig>>>,
-    crate::extract::Db(db): crate::extract::Db,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    request: Request,
-) -> IntakeResponse {
-    let (ctx, items) =
-        match admit_intake::<PageviewRequest>(&dynamic_config, &db, peer, request).await {
-            Ok(admitted) => admitted,
-            Err(response) => return response,
-        };
-    let accepted = run_intake(&ctx, &items).await;
-    let path = items.first().and_then(|item| item.path.clone());
-    (
-        StatusCode::OK,
-        Json(json!({
-            "success": true,
-            "path": path,
             "accepted": accepted,
         })),
     )

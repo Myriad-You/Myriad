@@ -197,7 +197,7 @@ pub(crate) async fn bind_message_media(
     let authority = actor
         .as_ref()
         .map_or(Authority::Anonymous, Authority::Actor);
-    let origins = crate::services::media::upgrade::configured_origins().await;
+    let origins = crate::services::media::configured_origins().await;
     let mut citations = Citations::fields(&origins, None, content);
     if let Some(metadata) = metadata {
         for citation in Citations::strings(&origins, metadata, |i| format!("meta:{i}")).iter() {

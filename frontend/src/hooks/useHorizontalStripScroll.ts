@@ -8,6 +8,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 const DRAG_THRESHOLD_PX = 6
 
+/** 吸附条一格滚轮换一张卡；触控板连发的小 delta 在这段时间内只算一次。 */
+const SNAP_STEP_LOCK_MS = 280
+
 export interface HorizontalStripScrollBind {
   ref: RefCallback<HTMLDivElement>
   onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void
@@ -15,6 +18,7 @@ export interface HorizontalStripScrollBind {
   onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void
   onPointerCancel: (e: ReactPointerEvent<HTMLDivElement>) => void
   onClickCapture: (e: ReactMouseEvent<HTMLDivElement>) => void
+  onPointerEnter: (e: ReactPointerEvent<HTMLDivElement>) => void
   className: string
   style: CSSProperties | undefined
   isDragging: boolean
@@ -24,6 +28,8 @@ export interface HorizontalStripScrollBind {
 export function useHorizontalStripScroll(): HorizontalStripScrollBind {
   const ref = useRef<HTMLDivElement | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [canScroll, setCanScroll] = useState(false)
+  const snapStepUntilRef = useRef(0)
 
   const dragRef = useRef({
     pointerId: -1,
@@ -114,9 +120,22 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
     const maxScrollLeft = el.scrollWidth - el.clientWidth
     if (maxScrollLeft <= 0) return
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientWidth : 1
+    const delta = e.deltaY * unit
+    const snapType = window.getComputedStyle(el).scrollSnapType
+    if (snapType && snapType !== 'none') {
+      // 直接写 scrollLeft 是「落点」滚动：一格滚轮不到半张卡，mandatory 吸附会弹回原位。
+      // scrollBy 是「方向」滚动，浏览器吸附到该方向的下一张卡。
+      const room = delta > 0 ? maxScrollLeft - el.scrollLeft : el.scrollLeft
+      if (room <= 1) return
+      e.preventDefault()
+      if (e.timeStamp < snapStepUntilRef.current) return
+      snapStepUntilRef.current = e.timeStamp + SNAP_STEP_LOCK_MS
+      el.scrollBy({ left: delta, behavior: 'smooth' })
+      return
+    }
     const next = Math.max(
       0,
-      Math.min(maxScrollLeft, el.scrollLeft + e.deltaY * unit),
+      Math.min(maxScrollLeft, el.scrollLeft + delta),
     )
     if (next === el.scrollLeft) return
     e.preventDefault()
@@ -209,6 +228,12 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
     [endDrag],
   )
 
+  // 光标只在进入时判断：可滚宽度随卡片数和视口变化，进入那一刻的几何就是用户看到的。
+  const onPointerEnter = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    setCanScroll(el.scrollWidth - el.clientWidth > 0)
+  }, [])
+
   const onClickCapture = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
     if (!suppressClickRef.current) return
     // After a drag, suppress the synthetic click that would open a card.
@@ -224,9 +249,12 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
     onPointerUp,
     onPointerCancel,
     onClickCapture,
+    onPointerEnter,
     className: isDragging
       ? 'cursor-grabbing select-none [&_*]:!cursor-grabbing'
-      : 'cursor-grab',
+      : canScroll
+        ? 'cursor-grab'
+        : '',
     style: isDragging
       ? ({ scrollSnapType: 'none' } as CSSProperties)
       : undefined,

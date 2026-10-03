@@ -8,7 +8,6 @@ use super::ensure_heals::*;
 use super::expected_indexes::get_expected_indexes;
 use super::expected_schema::get_expected_schema;
 use super::introspect::*;
-use super::phantasi_source_dedupe::ensure_phantasi_source_url_key_unique;
 use super::seeds::{ensure_default_config, ensure_default_platforms};
 
 /// Schema 版本号
@@ -20,16 +19,12 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 ///
 /// 数字系列 `migrations/001`–`006` 是新库权威建表。没有文件的
 /// `seaql_migrations` 行在 `Migrator::up` 之前删掉。普通缺列走
-/// `get_expected_schema` 通用 ADD。Support floor: product ≥ 0.3.10。
-/// Current: drop July CREATE heals; 003 source applications; 006 identities in TableDef;
-/// 时间线只放帖子（`ensure_timeline_posts_only`）；半撤回转发收尾
-/// （`ensure_repost_state_consistent`）；已发布行的发布幂等键；旧自治授权收窄
-/// （`narrow_legacy_autonomy_grants`）；统一记忆表
-/// （`ensure_agent_memories_table`）；记忆的概念与别名列（`agent_memories.concepts`）；
-/// 记忆的场合放宽到能放下群的标识（`agent_memories.venue` VARCHAR(96)）；
-/// 按场合取记忆的索引（`idx_agent_memories_venue_created`，群聊和她自己的记录）；
-/// 记忆的意思向量（`agent_memory_embeddings`，随统一记忆表一起建）。
-pub const SCHEMA_VERSION: &str = "2026.09.29.1";
+/// `get_expected_schema` 通用 ADD。Support floor: product ≥ 0.6.1（更老的实例
+/// 先升到 0.6.1）：之前版本的建表、去重、数据修正 heal 都已删掉。
+/// Current: AI 旧设置迁到「源 + 模型」：文本三档、图片、语音（`upgrade_legacy_ai_settings`）；
+/// 退役的配置行删掉（`drop_retired_rows`）；从没存过的设置从环境变量取一次初值
+/// （`seed_from_env`）。
+pub const SCHEMA_VERSION: &str = "2026.10.02.5";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -223,6 +218,22 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         changes_made += seeded_platforms;
     }
 
+    // Old AI settings move to their new keys before seeding: a
+    // seeded default of a new key would read as already chosen.
+    let upgraded = crate::services::config_service::ConfigService::upgrade_legacy_ai_settings(db)
+        .await
+        .map_err(|error| DbErr::Custom(format!("upgrade AI settings: {error:#}")))?;
+    changes_made += upgraded;
+    let dropped = crate::services::retired_configuration::drop_retired_rows(db).await?;
+    if dropped > 0 {
+        tracing::info!(dropped, "Dropped retired configuration rows");
+    }
+    // Environment variables are first values only; from here on the
+    // database is where settings are read.
+    changes_made += crate::services::config_service::ConfigService::seed_from_env(db)
+        .await
+        .map_err(|error| DbErr::Custom(format!("seed settings from env: {error:#}")))?;
+
     // Seed all runtime configuration keys after the explicit default-open
     // entries have had first refusal, preserving any existing administrator
     // choice via ON CONFLICT DO NOTHING.
@@ -230,12 +241,6 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     if seeded_config > 0 {
         changes_made += seeded_config;
     }
-
-    // Rebuild `federation_inbox_receipts` before generic ADD COLUMN:
-    // `inbox_scope` is NOT NULL without a default and belongs in the PK.
-    ensure_federation_inbox_receipts_table(db).await?;
-    ensure_read_projection_schema(db).await?;
-    ensure_phantasi_source_url_keys(db).await?;
 
     // 2/3. 比对期望列与索引（整表创建已不再由 schema_check 兜底）
     let drift = report_schema_drift(db).await?;
@@ -259,18 +264,9 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         for item in drift.missing_columns.iter().chain(&drift.missing_indexes) {
             let ddl = &item.ddl;
             tracing::debug!("Executing: {}", ddl);
-            // These unique indexes must clean historical duplicates before creation.
-            let result = match item.label.as_str() {
-                "idx_timeline_user_activity" => ensure_timeline_unique(db).await,
-                "idx_delivery_queue_activity_target" => ensure_delivery_queue_unique(db).await,
-                "idx_channels_active_relationship" => {
-                    ensure_channels_active_relationship_unique(db).await
-                }
-                "idx_platform_metadata_user_platform" => ensure_platform_metadata_unique(db).await,
-                "idx_phantasi_sources_url_key" => ensure_phantasi_source_url_key_unique(db).await,
-                _ => db.execute_unprepared(ddl).await.map(|_| ()),
-            };
-            result.map_err(|e| DbErr::Custom(format!("schema repair DDL failed: {ddl}: {e}")))?;
+            db.execute_unprepared(ddl)
+                .await
+                .map_err(|e| DbErr::Custom(format!("schema repair DDL failed: {ddl}: {e}")))?;
         }
 
         tracing::info!("✅ Applied {} schema changes", changes_made);
@@ -278,39 +274,11 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         tracing::info!("✅ Database schema is up to date (no changes needed)");
     }
 
-    // Ongoing object/data heals, plus recent (~1 month) CREATE IF NOT EXISTS.
-    ensure_tapp_storage_credential_constraint(db).await?;
+    // Ongoing heals. Structure older than the support floor came with 0.6.1.
+    super::old_rows::rewrite_old_rows(db).await?;
+    crate::services::media::retire_legacy_media(db).await?;
     ensure_agent_tasks_status_check(db).await?;
-    ensure_agent_task_engine(db).await?;
-    ensure_room_membership_notify(db).await?;
-    ensure_tapp_storage_quota(db).await?;
-    ensure_timeline_unique(db).await?;
-    ensure_timeline_posts_only(db).await?;
-    ensure_repost_state_consistent(db).await?;
-    ensure_delivery_queue_unique(db).await?;
-    ensure_channels_active_relationship_unique(db).await?;
-    ensure_platform_metadata_unique(db).await?;
-    ensure_agent_intentions_table(db).await?;
-    ensure_agent_autonomy_grants_table(db).await?;
-    narrow_legacy_autonomy_grants(db).await?;
-    ensure_agent_memories_table(db).await?;
-    ensure_agent_merope_tables(db).await?;
-    migrate_diary_facts_to_memories(db).await?;
-    ensure_phantasi_item_topic_index(db).await?;
-    ensure_phantasi_state_revision(db).await?;
-    ensure_phantasi_content_revision(db).await?;
-    ensure_phantasi_note_docs_table(db).await?;
-    ensure_note_editor_history(db).await?;
-    ensure_phantasi_note_authors_table(db).await?;
-    ensure_phantasi_source_applications_table(db).await?;
-    ensure_media_assets_table(db).await?;
-    ensure_local_music_tables(db).await?;
-    ensure_phantasi_note_source_unique(db).await?;
-    ensure_phantasi_source_url_key_unique(db).await?;
-    ensure_rsshub_global_url_unique(db).await?;
-    ensure_phantasi_application_pending_unique(db).await?;
-    ensure_tapp_shortcut_chord_unique(db).await?;
-    // last_read_at / rate_* / engagement 等字段：TableDef + 通用 drift ADD（无专用 heal）
+    unlink_note_docs_without_article(db).await?;
     ensure_user_lifecycle(db).await?;
     ensure_federation_foreign_keys(db).await?;
     ensure_single_owner(db).await?;

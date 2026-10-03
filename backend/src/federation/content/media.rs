@@ -57,32 +57,14 @@ fn extension_for_mime(mime: &str) -> Option<&'static str> {
     stored_media_kind(mime).map(|kind| kind.extension)
 }
 
-/// Human-readable reason if `url` is not a valid local federation media URL for this user.
+/// Human-readable reason if `url` is not a local media URL of this site.
 /// Returns `None` when the URL is acceptable.
-pub(super) fn attachment_url_rejection_reason(
-    base_url: &str,
-    user_id: i32,
-    url: &str,
-) -> Option<&'static str> {
+pub(super) fn attachment_url_rejection_reason(base_url: &str, url: &str) -> Option<&'static str> {
     let url = url.trim();
     if url.is_empty() {
         return Some("Invalid attachment URL");
     }
     let base = base_url.trim_end_matches('/');
-    let prefix = format!("{}/media/federation/{}/", base, user_id);
-    if url.starts_with(&prefix) {
-        let rest = &url[prefix.len()..];
-        if rest.is_empty() || rest.contains("..") || rest.contains('/') {
-            return Some("Invalid attachment URL");
-        }
-        if !rest
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
-        {
-            return Some("Invalid attachment URL");
-        }
-        return None;
-    }
     let relative = url
         .strip_prefix(base)
         .or_else(|| url.starts_with('/').then_some(url))
@@ -126,8 +108,8 @@ mod tests {
         assert_eq!(classify_media_mime("application/pdf"), None);
     }
 
-    fn validate_attachment_url(base_url: &str, user_id: i32, url: &str) -> bool {
-        attachment_url_rejection_reason(base_url, user_id, url).is_none()
+    fn validate_attachment_url(base_url: &str, url: &str) -> bool {
+        attachment_url_rejection_reason(base_url, url).is_none()
     }
 
     #[test]
@@ -135,35 +117,25 @@ mod tests {
         let base = "https://example.com";
         assert!(validate_attachment_url(
             base,
-            1,
-            "https://example.com/media/federation/1/abc.jpg"
+            "https://example.com/media/assets/11111111-1111-1111-1111-111111111111/abc.jpg"
         ));
         assert!(!validate_attachment_url(
             base,
-            1,
-            "https://evil.com/media/federation/1/abc.jpg"
+            "https://evil.com/media/assets/11111111-1111-1111-1111-111111111111/abc.jpg"
         ));
         assert!(!validate_attachment_url(
             base,
-            1,
-            "https://example.com/media/federation/1/../2/x.jpg"
+            "https://example.com/media/assets/11111111-1111-1111-1111-111111111111/../x.jpg"
+        ));
+        assert!(!validate_attachment_url(base, ""));
+        assert!(!validate_attachment_url(base, "   "));
+        assert!(!validate_attachment_url(
+            base,
+            "https://example.com/media/assets/11111111-1111-1111-1111-111111111111/"
         ));
         assert!(!validate_attachment_url(
             base,
-            2,
-            "https://example.com/media/federation/1/abc.jpg"
-        ));
-        assert!(!validate_attachment_url(base, 1, ""));
-        assert!(!validate_attachment_url(base, 1, "   "));
-        assert!(!validate_attachment_url(
-            base,
-            1,
-            "https://example.com/media/federation/1/"
-        ));
-        assert!(!validate_attachment_url(
-            base,
-            1,
-            "https://example.com/media/federation/1/bad name.jpg"
+            "https://example.com/media/assets/11111111-1111-1111-1111-111111111111/bad name.jpg"
         ));
     }
 
@@ -171,25 +143,26 @@ mod tests {
     fn attachment_url_rejection_reason_is_specific() {
         let base = "https://example.com";
         assert_eq!(
-            attachment_url_rejection_reason(base, 1, ""),
-            Some("Invalid attachment URL")
-        );
-        assert_eq!(
-            attachment_url_rejection_reason(base, 1, "https://evil.com/media/federation/1/abc.jpg"),
+            attachment_url_rejection_reason(base, ""),
             Some("Invalid attachment URL")
         );
         assert_eq!(
             attachment_url_rejection_reason(
                 base,
-                1,
-                "https://example.com/media/federation/1/abc.jpg"
+                "https://evil.com/media/assets/11111111-1111-1111-1111-111111111111/abc.jpg"
+            ),
+            Some("Invalid attachment URL")
+        );
+        assert_eq!(
+            attachment_url_rejection_reason(
+                base,
+                "https://example.com/media/assets/11111111-1111-1111-1111-111111111111/abc.jpg"
             ),
             None
         );
         assert_eq!(
             attachment_url_rejection_reason(
                 base,
-                1,
                 "https://example.com/media/assets/11111111-1111-1111-1111-111111111111/shot.png"
             ),
             None
@@ -197,7 +170,6 @@ mod tests {
         assert_eq!(
             attachment_url_rejection_reason(
                 base,
-                1,
                 "/media/assets/11111111-1111-1111-1111-111111111111/shot.png"
             ),
             None
@@ -205,7 +177,6 @@ mod tests {
         assert_eq!(
             attachment_url_rejection_reason(
                 base,
-                1,
                 "https://evil.com/media/assets/11111111-1111-1111-1111-111111111111/shot.png"
             ),
             Some("Invalid attachment URL")
@@ -235,20 +206,16 @@ mod tests {
         assert!(
             attachment_url_rejection_reason(
                 base,
-                1,
-                "https://myriad.example/media/federation/1/../etc"
+                "https://myriad.example/media/assets/11111111-1111-1111-1111-111111111111/../etc"
             )
             .is_some()
         );
         assert!(
-            attachment_url_rejection_reason(
-                base,
-                1,
-                "https://myriad.example/media/federation/1/ok-file.jpg"
+            attachment_url_rejection_reason(base, "https://myriad.example/media/assets/11111111-1111-1111-1111-111111111111/ok-file.jpg"
             )
             .is_none()
         );
-        assert!(attachment_url_rejection_reason(base, 1, "").is_some());
+        assert!(attachment_url_rejection_reason(base, "").is_some());
     }
 
     #[test]
@@ -273,20 +240,18 @@ mod tests {
         assert!(
             attachment_url_rejection_reason(
                 base,
-                7,
-                "https://myriad.example/media/federation/7/../x"
+                "https://myriad.example/media/assets/11111111-1111-1111-1111-111111111111/../x"
             )
             .is_some()
         );
         assert!(
             attachment_url_rejection_reason(
                 base,
-                7,
-                "https://myriad.example/media/federation/7/ok.jpg"
+                "https://myriad.example/media/assets/11111111-1111-1111-1111-111111111111/ok.jpg"
             )
             .is_none()
         );
-        assert!(attachment_url_rejection_reason(base, 7, "").is_some());
+        assert!(attachment_url_rejection_reason(base, "").is_some());
     }
 
     #[test]

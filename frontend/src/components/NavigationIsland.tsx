@@ -465,6 +465,10 @@ export function NavigationIsland() {
       // 中断 handleTransition，防止退出定时器在切路由后继续藏导航项。
       cancelAnimationFrame(exitRafRef.current)
       clearTimeout(exitTimerRef.current)
+      // 退场被打断时已打上 exit 的组会一直透明（返回钮只剩空位），一并清掉。
+      navContentRef.current
+        ?.querySelectorAll('.nav-group[data-animation]')
+        .forEach((group) => group.removeAttribute('data-animation'))
 
       const island = navContentRef.current?.closest(
         '.dynamic-island',
@@ -889,15 +893,16 @@ export function NavigationIsland() {
   }, [applyModeMetrics])
 
   useEffect(() => {
-    if (currentRenderMode !== 'secondary') return
+    // 沉浸时岛已隐藏，Esc 归阅读器等前景层；否则一次 Esc 既关文章又收起二级导航。
+    if (currentRenderMode !== 'secondary' || immersiveMode) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !isAnimating) {
+      if (e.key === 'Escape' && !e.defaultPrevented && !isAnimating) {
         handleCollapse()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [currentRenderMode, isAnimating, handleCollapse])
+  }, [currentRenderMode, immersiveMode, isAnimating, handleCollapse])
 
   const primaryNavItems = useMemo<PrimaryNavItem[]>(
     () => {

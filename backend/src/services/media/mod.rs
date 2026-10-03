@@ -8,24 +8,24 @@
 mod access;
 mod assets;
 mod binding;
+mod cache_import;
 mod cite;
 mod error;
 #[cfg(test)]
 mod integration_tests;
-pub(crate) mod legacy;
 mod maintenance;
-mod migration;
+mod origins;
 mod recovery;
 #[cfg(test)]
 mod reference_tests;
 mod references;
+mod retire;
 mod scan;
 pub(crate) mod serve;
 mod store;
 #[cfg(test)]
 mod test_support;
 mod types;
-pub(crate) mod upgrade;
 mod urls;
 mod validate;
 
@@ -41,15 +41,16 @@ pub(crate) use cite::{
     bind_restored_dashboard_layout, bind_restored_site_image, sync_note_history_refs,
 };
 pub use error::MediaError;
-pub use legacy::LegacyPaths;
 #[cfg(test)]
 pub use maintenance::prune_references;
-pub use maintenance::{maintain, start_upgrade_worker};
+pub use maintenance::maintain;
+pub use origins::configured_origins;
+pub(crate) use retire::retire_legacy_media;
 #[cfg(test)]
 pub use references::active_count;
 pub use scan::catalog_labels_for_assets;
 pub use serve::{
-    FileServe, NO_STORE, ServeOutcome, resolve_alias_or_legacy, resolve_authenticated_content,
+    FileServe, NO_STORE, ServeOutcome, resolve_authenticated_content, resolve_cached_image,
     resolve_private_asset, resolve_public_asset,
 };
 pub use store::MediaStore;
@@ -481,9 +482,10 @@ mod tests {
             include_str!("access.rs"),
             include_str!("assets.rs"),
             include_str!("error.rs"),
-            include_str!("legacy.rs"),
-            include_str!("migration.rs"),
+            include_str!("cache_import.rs"),
+            include_str!("origins.rs"),
             include_str!("recovery.rs"),
+            include_str!("retire.rs"),
             include_str!("references.rs"),
             include_str!("cite.rs"),
             include_str!("scan.rs"),

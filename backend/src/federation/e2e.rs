@@ -630,8 +630,6 @@ pub fn decrypt_json_for_recipient(
 const E2E_SK_SEAL_PREFIX: &str = "sealed:v1:";
 /// KDF domain for current seals (channel + room)
 const E2E_SEAL_KDF_LABEL: &[u8] = b"myriad-e2e-key-seal:";
-/// unseal 仍接受的房间-only KDF label。
-const E2E_SEAL_KDF_LABEL_LEGACY_ROOM: &[u8] = b"myriad-room-e2e-key-seal:";
 
 fn derive_seal_aes_key(jwt_secret: &str, label: &[u8]) -> [u8; 32] {
     use sha2::{Digest, Sha256};
@@ -683,20 +681,13 @@ pub fn unseal_private_key(stored: &str, jwt_secret: &str) -> Result<String, Stri
         .map_err(|_| "invalid e2e seal nonce".to_string())?;
     let nonce = Nonce::from(nonce_bytes);
 
-    // Try `E2E_SEAL_KDF_LABEL`, then `E2E_SEAL_KDF_LABEL_LEGACY_ROOM`.
-    for label in [E2E_SEAL_KDF_LABEL, E2E_SEAL_KDF_LABEL_LEGACY_ROOM] {
-        let key = derive_seal_aes_key(jwt_secret, label);
-        let cipher = match Aes256Gcm::new_from_slice(&key) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        if let Ok(plain) = cipher.decrypt(&nonce, ciphertext) {
-            if let Ok(s) = String::from_utf8(plain) {
-                return Ok(s);
-            }
-        }
-    }
-    Err("e2e unseal failed".into())
+    let key = derive_seal_aes_key(jwt_secret, E2E_SEAL_KDF_LABEL);
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|error| error.to_string())?;
+    cipher
+        .decrypt(&nonce, ciphertext)
+        .ok()
+        .and_then(|plain| String::from_utf8(plain).ok())
+        .ok_or_else(|| "e2e unseal failed".into())
 }
 
 #[cfg(test)]

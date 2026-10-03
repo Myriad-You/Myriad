@@ -7,7 +7,6 @@ const api = 'https://api.example'
 test('platform media follows the API origin, also under an older site origin', () => {
   for (const path of [
     '/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.png',
-    '/media/federation/1/a.jpg',
     '/api/media/7/content',
     `/api/phantasi/image-cache/ab/ab${'0'.repeat(62)}.png`,
   ]) {

@@ -168,11 +168,6 @@ pub async fn rewrap_legacy_private_keys(
 ) -> Result<usize> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-    if crate::services::data_key::data_key().source().is_fallback() {
-        // 兜底密钥本身就是 JWT_SECRET 派生的，重新封装没有任何收益。
-        return Ok(0);
-    }
-
     let rows = db
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,

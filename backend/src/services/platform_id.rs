@@ -3,7 +3,7 @@
 //!
 //! `credentials_present` mirrors exactly what the fetch arms need to run
 //! (`platform_refresh::arms_*`): trimmed values, and for Xbox / PSN the same
-//! DB-then-env fallback the arms resolve through [`xbox_gamertag`] and friends.
+//! stored values the arms resolve through [`xbox_gamertag`] and friends.
 //! Agent connection flags, report generate-all and the refresh gate all derive
 //! from here, so they cannot drift apart again.
 
@@ -174,20 +174,10 @@ fn nonblank(value: Option<&str>) -> Option<&str> {
     value.filter(|s| !s.trim().is_empty())
 }
 
-/// DB value when non-blank, else the first non-blank env var among `env_keys`.
-fn db_then_env(db: Option<&String>, env_keys: &[&str]) -> Option<String> {
-    nonblank(db.map(String::as_str))
-        .map(str::to_string)
-        .or_else(|| env_keys.iter().find_map(|key| env_var(key)))
-}
-
-/// Non-blank process env value (test builds can override per thread).
-fn env_var(key: &str) -> Option<String> {
-    #[cfg(test)]
-    if let Some(value) = tests::env_override(key) {
-        return value;
-    }
-    std::env::var(key).ok().filter(|s| !s.trim().is_empty())
+/// The stored value when it is not blank. Environment variables are first
+/// values only (see `config_service::env_seed`).
+fn stored(value: Option<&String>) -> Option<String> {
+    nonblank(value.map(String::as_str)).map(str::to_string)
 }
 
 /// Agent `config.get` / `platform.connection` / `auth.status` 共用：平台是否按配置视为已接通。
@@ -203,67 +193,34 @@ pub(crate) fn platform_configured_flags(
 }
 
 pub fn xbox_gamertag(config: &DynamicConfig) -> Option<String> {
-    db_then_env(config.xbox_gamertag.as_ref(), &["XBOX_GAMERTAG"])
+    stored(config.xbox_gamertag.as_ref())
 }
 
 pub fn openxbl_api_key(config: &DynamicConfig) -> Option<String> {
-    db_then_env(
-        config.openxbl_api_key.as_ref(),
-        &["OPENXBL_API_KEY", "XBL_API_KEY"],
-    )
+    stored(config.openxbl_api_key.as_ref())
 }
 
 pub fn psn_online_id(config: &DynamicConfig) -> Option<String> {
-    db_then_env(config.psn_online_id.as_ref(), &["PSN_ONLINE_ID"])
+    stored(config.psn_online_id.as_ref())
 }
 
 pub fn psn_npsso(config: &DynamicConfig) -> Option<String> {
-    db_then_env(config.psn_npsso.as_ref(), &["PSN_NPSSO"])
+    stored(config.psn_npsso.as_ref())
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use std::cell::RefCell;
     use std::collections::HashMap;
-
-    thread_local! {
-        static ENV: RefCell<Option<HashMap<String, String>>> = const { RefCell::new(None) };
-    }
-
-    /// `Some(value)` when this thread replaced the process env (then unset keys are `None`).
-    pub(super) fn env_override(key: &str) -> Option<Option<String>> {
-        ENV.with(|env| {
-            env.borrow()
-                .as_ref()
-                .map(|vars| vars.get(key).filter(|s| !s.trim().is_empty()).cloned())
-        })
-    }
-
-    /// Run `f` with the platform credential env replaced by `vars` on this thread only.
-    pub(crate) fn with_env<T>(vars: &[(&str, &str)], f: impl FnOnce() -> T) -> T {
-        let map = vars
-            .iter()
-            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
-            .collect();
-        let previous = ENV.with(|env| env.replace(Some(map)));
-        let out = f();
-        ENV.with(|env| env.replace(previous));
-        out
-    }
 
     fn set(value: &str) -> Option<String> {
         Some(value.to_string())
     }
 
     /// Named config rows: empty strings, whitespace, partial credentials, explicit switches.
-    fn config_table() -> Vec<(
-        &'static str,
-        DynamicConfig,
-        Vec<(&'static str, &'static str)>,
-    )> {
+    fn config_table() -> Vec<(&'static str, DynamicConfig)> {
         let mut rows = Vec::new();
-        rows.push(("default", DynamicConfig::default(), vec![]));
+        rows.push(("default", DynamicConfig::default()));
 
         let mut empty = DynamicConfig::default();
         empty.github_username = set("");
@@ -283,17 +240,7 @@ pub(crate) mod tests {
         empty.openxbl_api_key = set(" ");
         empty.psn_online_id = set("");
         empty.psn_npsso = set("");
-        rows.push(("empty strings", empty.clone(), vec![]));
-        rows.push((
-            "empty strings + empty env",
-            empty,
-            vec![
-                ("XBOX_GAMERTAG", ""),
-                ("OPENXBL_API_KEY", " "),
-                ("PSN_ONLINE_ID", ""),
-                ("PSN_NPSSO", ""),
-            ],
-        ));
+        rows.push(("empty strings", empty));
 
         let mut partial = DynamicConfig::default();
         partial.steam_api_key = set("key");
@@ -301,7 +248,7 @@ pub(crate) mod tests {
         partial.x_username = set("me");
         partial.xbox_gamertag = set("tag");
         partial.psn_npsso = set("npsso");
-        rows.push(("partial credentials", partial, vec![]));
+        rows.push(("partial credentials", partial));
 
         let mut full = DynamicConfig::default();
         full.github_username = set("octocat");
@@ -320,7 +267,7 @@ pub(crate) mod tests {
         full.openxbl_api_key = set("key");
         full.psn_online_id = set("me");
         full.psn_npsso = set("npsso");
-        rows.push(("full credentials", full.clone(), vec![]));
+        rows.push(("full credentials", full.clone()));
 
         let mut switched = full;
         switched.github_enabled = Some(false);
@@ -328,39 +275,11 @@ pub(crate) mod tests {
         switched.psn_enabled = Some(false);
         switched.mal_username = None;
         switched.mal_enabled = Some(true);
-        rows.push(("explicit switches", switched, vec![]));
+        rows.push(("explicit switches", switched));
 
-        rows.push((
-            "env only",
-            DynamicConfig::default(),
-            vec![
-                ("XBOX_GAMERTAG", "tag"),
-                ("OPENXBL_API_KEY", "key"),
-                ("PSN_ONLINE_ID", "me"),
-                ("PSN_NPSSO", "npsso"),
-                // Env for non-console platforms is not read by the fetcher.
-                ("GITHUB_USERNAME", "octocat"),
-                ("STEAM_API_KEY", "key"),
-                ("STEAM_ID", "7656"),
-            ],
-        ));
-        rows.push((
-            "env blank primary key, fallback key set",
-            DynamicConfig::default(),
-            vec![
-                ("XBOX_GAMERTAG", "tag"),
-                ("OPENXBL_API_KEY", ""),
-                ("XBL_API_KEY", "key"),
-            ],
-        ));
-
-        let mut env_partial = DynamicConfig::default();
-        env_partial.psn_online_id = set("me");
-        rows.push((
-            "db id + env secret",
-            env_partial,
-            vec![("PSN_NPSSO", "npsso"), ("XBOX_GAMERTAG", "tag")],
-        ));
+        let mut id_only = DynamicConfig::default();
+        id_only.psn_online_id = set("me");
+        rows.push(("an id without its secret", id_only));
         rows
     }
 
@@ -368,8 +287,8 @@ pub(crate) mod tests {
     /// must agree for every platform on every row.
     #[test]
     fn refresh_gate_agent_flags_and_report_enabled_agree() {
-        for (name, config, env) in config_table() {
-            with_env(&env, || {
+        for (name, config) in config_table() {
+            {
                 let flags: HashMap<&str, bool> =
                     platform_configured_flags(&config).into_iter().collect();
                 let report = crate::api::reports::enabled_report_platforms(&config);
@@ -386,9 +305,9 @@ pub(crate) mod tests {
                         )
                     })
                     .collect();
-                // Admin form with no env to fall back on = the runtime switch.
+                // The settings page's switch is the runtime one.
                 let admin: HashMap<PlatformId, bool> =
-                    crate::api::config::admin_platform_enabled(Some(&config), |_| None)
+                    crate::api::config::admin_platform_enabled(&config)
                         .into_iter()
                         .collect();
                 assert_eq!(flags.len(), PlatformId::ALL.len(), "{name}");
@@ -408,102 +327,42 @@ pub(crate) mod tests {
                         assert_eq!(flags[slug], fetchable, "{name}: {slug}");
                     }
                 }
-            });
-        }
-    }
-
-    /// Env for non-console platforms only reaches the admin form (prefill that a
-    /// save writes to the DB). The switch shows what that save would enable; the
-    /// public cards and every runtime view stay on the stored config.
-    #[test]
-    fn admin_form_env_prefill_matches_what_a_save_would_enable() {
-        use crate::api::config::{admin_platform_enabled, form_credentials, public_platform_cards};
-        let env = |key: &str| match key {
-            "GITHUB_USERNAME" => Some("octocat".to_string()),
-            "STEAM_API_KEY" => Some("key".to_string()),
-            _ => None,
-        };
-        let stored = DynamicConfig::default();
-        with_env(&[], || {
-            let admin: HashMap<_, _> = admin_platform_enabled(Some(&stored), env)
-                .into_iter()
-                .collect();
-            assert!(admin[&PlatformId::Github]);
-            assert!(!PlatformId::Github.enabled(&stored));
-            // The fetcher needs both Steam fields; env only fills one.
-            assert!(!admin[&PlatformId::Steam]);
-            let github_card = public_platform_cards(Some(&stored))
-                .into_iter()
-                .find(|card| PlatformId::parse(&card.name) == Some(PlatformId::Github))
-                .expect("github card");
-            assert!(!github_card.enabled);
-
-            let saved = form_credentials(&stored, env);
-            for id in PlatformId::ALL {
-                assert_eq!(admin[&id], id.enabled(&saved), "{id}");
             }
-
-            // A stored empty value wins over env (the form shows it cleared).
-            let mut cleared = DynamicConfig::default();
-            cleared.github_username = Some(String::new());
-            let admin: HashMap<_, _> = admin_platform_enabled(Some(&cleared), env)
-                .into_iter()
-                .collect();
-            assert!(!admin[&PlatformId::Github]);
-        });
+        }
     }
 
     #[test]
     fn credential_table_expectations() {
-        let rows: HashMap<_, _> = config_table()
-            .into_iter()
-            .map(|(name, config, env)| (name, (config, env)))
-            .collect();
+        let rows: HashMap<_, _> = config_table().into_iter().collect();
         let present = |row: &str| -> Vec<&'static str> {
-            let (config, env) = &rows[row];
-            with_env(env, || {
-                PlatformId::ALL
-                    .into_iter()
-                    .filter(|id| id.credentials_present(config))
-                    .map(PlatformId::slug)
-                    .collect()
-            })
+            PlatformId::ALL
+                .into_iter()
+                .filter(|id| id.credentials_present(&rows[row]))
+                .map(PlatformId::slug)
+                .collect()
         };
         assert!(present("default").is_empty());
         assert!(present("empty strings").is_empty());
-        assert!(present("empty strings + empty env").is_empty());
         assert!(present("partial credentials").is_empty());
         assert_eq!(present("full credentials"), PLATFORM_SLUGS.to_vec());
-        assert_eq!(present("env only"), vec!["xbox", "psn"]);
-        assert_eq!(
-            present("env blank primary key, fallback key set"),
-            vec!["xbox"]
-        );
-        assert_eq!(present("db id + env secret"), vec!["psn"]);
+        assert!(present("an id without its secret").is_empty());
 
-        let (switched, env) = &rows["explicit switches"];
-        with_env(env, || {
-            assert!(!PlatformId::Github.enabled(switched));
-            assert!(!PlatformId::Steam.enabled(switched));
-            assert!(PlatformId::Mal.enabled(switched));
-            assert!(!PlatformId::Mal.credentials_present(switched));
-            assert!(PlatformId::Bilibili.enabled(switched));
-        });
+        let switched = &rows["explicit switches"];
+        assert!(!PlatformId::Github.enabled(switched));
+        assert!(!PlatformId::Steam.enabled(switched));
+        assert!(PlatformId::Mal.enabled(switched));
+        assert!(!PlatformId::Mal.credentials_present(switched));
+        assert!(PlatformId::Bilibili.enabled(switched));
     }
 
     #[test]
     fn console_resolvers_return_the_value_the_fetch_arm_uses() {
         let mut config = DynamicConfig::default();
-        with_env(
-            &[("OPENXBL_API_KEY", " "), ("XBL_API_KEY", "fallback")],
-            || {
-                assert_eq!(openxbl_api_key(&config).as_deref(), Some("fallback"));
-                config.openxbl_api_key = Some("db".into());
-                assert_eq!(openxbl_api_key(&config).as_deref(), Some("db"));
-                config.openxbl_api_key = Some("  ".into());
-                assert_eq!(openxbl_api_key(&config).as_deref(), Some("fallback"));
-            },
-        );
+        assert_eq!(openxbl_api_key(&config), None);
+        config.openxbl_api_key = Some("db".into());
+        assert_eq!(openxbl_api_key(&config).as_deref(), Some("db"));
+        config.openxbl_api_key = Some("  ".into());
+        assert_eq!(openxbl_api_key(&config), None, "blank is missing");
     }
 
     #[test]

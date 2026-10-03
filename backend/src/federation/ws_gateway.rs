@@ -203,7 +203,7 @@ async fn is_active_room_member(db: &DatabaseConnection, room_id: &str, actor: &s
         DatabaseBackend::Postgres,
         r#"SELECT 1 FROM federation_room_members
            WHERE room_id = $1 AND actor_url = $2
-             AND COALESCE(membership_status, 'active') = 'active'"#,
+             AND membership_status = 'active'"#,
         [room_id.into(), actor.into()],
     ))
     .await

@@ -50,26 +50,12 @@ interface ConfigField {
   required: boolean
 }
 
-const OPENAI_BASE_URL = 'https://api.openai.com/v1'
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
-
 function notifyConfigAction(message: string, ok: boolean, replaceKey: string) {
   if (ok) {
     showToast({ message, type: 'success', replaceKey })
     return
   }
   showStickyToast({ message, type: 'error', replaceKey })
-}
-
-/** openai + openrouter.ai base_url displays as openrouter */
-function resolveProvider(rawProvider: string, openaiBaseUrl: string): string {
-  if (
-    rawProvider === 'openai' &&
-    openaiBaseUrl.trim().toLowerCase().includes('openrouter.ai')
-  ) {
-    return 'openrouter'
-  }
-  return rawProvider
 }
 
 interface AiConfigSectionProps {
@@ -91,7 +77,6 @@ interface ModelTierGroupProps {
   providerOptions: SettingOption<string>[]
   providerHint?: string
   /** No sources to choose from: only the model fields. */
-  hideProvider?: boolean
   fields: ConfigField[]
   enabled?: boolean
   toggle?: {
@@ -127,7 +112,6 @@ const ModelTierGroup: React.FC<
   provider,
   providerOptions,
   providerHint,
-  hideProvider = false,
   fields,
   enabled = true,
   toggle,
@@ -176,19 +160,17 @@ const ModelTierGroup: React.FC<
     </div>
     {enabled && (
       <>
-        {hideProvider ? null : (
-          <ProviderItem
-            itemKey={providerItemKey}
-            label={providerLabel}
-            value={provider}
-            onChange={onProviderChange}
-            options={providerOptions}
-            hint={providerHint}
-            guide={providerGuide}
-            guidePath={providerGuidePath}
-            layout="horizontal"
-          />
-        )}
+        <ProviderItem
+          itemKey={providerItemKey}
+          label={providerLabel}
+          value={provider}
+          onChange={onProviderChange}
+          options={providerOptions}
+          hint={providerHint}
+          guide={providerGuide}
+          guidePath={providerGuidePath}
+          layout="horizontal"
+        />
         {fields.map((field) => {
           const fieldGuide = fieldGuideFor?.(field.key)
           return (
@@ -196,13 +178,11 @@ const ModelTierGroup: React.FC<
               key={field.key}
               itemKey={field.key}
               label={
-                field.key === 'lite_judge_model'
-                  ? t.config.aiLiteJudgeModelLabel
-                  : field.key === 'lite_embedding_model'
-                    ? t.config.aiLiteEmbeddingModelLabel
-                    : field.key.endsWith('model')
-                    ? t.config.openaiModelLabel
-                    : field.label
+                field.key === 'aux_judge_model'
+                  ? t.config.aiAuxJudgeModelLabel
+                  : field.key === 'aux_embedding_model'
+                    ? t.config.aiAuxEmbeddingModelLabel
+                    : t.config.openaiModelLabel
               }
               required={field.required}
               value={field.value}
@@ -210,11 +190,13 @@ const ModelTierGroup: React.FC<
               guide={fieldGuide?.guide}
               guidePath={fieldGuide?.guidePath}
               placeholder={
-                field.key === 'lite_judge_model'
-                  ? t.config.aiLiteJudgeModelPlaceholder
-                  : field.key === 'lite_embedding_model'
-                    ? t.config.aiLiteEmbeddingModelPlaceholder
-                    : field.placeholder
+                field.key === 'aux_judge_model'
+                  ? t.config.aiAuxJudgeModelPlaceholder
+                  : field.key === 'aux_embedding_model'
+                    ? t.config.aiAuxEmbeddingModelPlaceholder
+                    : field.key === 'lite_ai_model'
+                      ? t.config.aiLiteModelPlaceholder
+                      : field.placeholder
               }
               inputType={field.field_type as 'text' | 'password'}
               autoSelectOnMask
@@ -228,29 +210,11 @@ const ModelTierGroup: React.FC<
   )
 }
 
-function fieldsForModelTier(
-  configFields: ConfigField[],
-  prefix: '' | 'lite_' | 'pro_',
-  provider: string,
-): ConfigField[] {
-  const providerKey = `${prefix}provider`
-  const geminiPrefix = `${prefix}gemini_`
-  return configFields.filter((field) => {
-    if (field.key === providerKey) return false
-    if (field.key.includes('api_key') || field.key.endsWith('base_url')) {
-      return false
-    }
-    // Their own option (judgment and embedding), not Lite's.
-    if (field.key === 'lite_judge_model' || field.key === 'lite_embedding_model') {
-      return false
-    }
-    if (provider === 'gemini') {
-      return field.key.startsWith(geminiPrefix) && field.key.endsWith('model')
-    }
-    if (provider === 'openai' || provider === 'openrouter') {
-      return field.key === `${prefix}openai_model`
-    }
-    return false
+/** The fields with these keys, in this order. */
+function fieldsByKey(configFields: ConfigField[], keys: string[]): ConfigField[] {
+  return keys.flatMap((key) => {
+    const field = configFields.find((item) => item.key === key)
+    return field ? [field] : []
   })
 }
 
@@ -333,114 +297,28 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   const imageSourceOptions = sourceOptions('image')
   const speechSourceOptions = sourceOptions('speech')
 
-  const currentProvider = useMemo(() => {
-    const raw = getFieldValue('provider')
-    if (!raw) return 'openrouter'
-    return resolveProvider(raw, getFieldValue('openai_base_url'))
-  }, [getFieldValue])
-
   const liteEnabled = useMemo(() => liteInUse(getFieldValue), [getFieldValue])
-
-  const currentLiteProvider = useMemo(() => {
-    const raw = getFieldValue('lite_provider')
-    if (!raw) return 'openrouter'
-    return resolveProvider(raw, getFieldValue('lite_openai_base_url'))
-  }, [getFieldValue])
 
   const proEnabled = useMemo(() => {
     const val = getFieldValue('pro_enabled', 'false')
     return val === 'true' || val === '1'
   }, [getFieldValue])
 
-  const currentProProvider = useMemo(() => {
-    const raw = getFieldValue('pro_provider')
-    if (!raw) return 'openrouter'
-    return resolveProvider(raw, getFieldValue('pro_openai_base_url'))
-  }, [getFieldValue])
+  // Images and speech: a source each (the server shows the one in effect);
+  // its kind picks the placeholders and which fields speech shows.
+  const currentImageProvider = useMemo(() => {
+    const slug = getFieldValue('ai_image_source', 'openrouter')
+    const kind = vendorSources.find((item) => item.slug === slug)?.kind || slug
+    return kind === 'volcengine' || kind === 'openrouter' || kind === 'gemini'
+      ? kind
+      : 'openai'
+  }, [getFieldValue, vendorSources])
 
-  /** OpenRouter → provider=openai + base_url; never overwrite a custom URL; don't fill models */
-  const handleProviderChange = useCallback(
-    (providerKey: string, baseUrlKey: string, next: string) => {
-      if (next === 'openrouter') {
-        updateValue(providerKey, 'openai')
-        updateValue(baseUrlKey, OPENROUTER_BASE_URL)
-        return
-      }
-      if (next === 'openai') {
-        updateValue(providerKey, 'openai')
-        const base = getFieldValue(baseUrlKey).trim().toLowerCase()
-        // empty or custom endpoints: don't fill
-        if (base.includes('openrouter.ai')) {
-          updateValue(baseUrlKey, OPENAI_BASE_URL)
-        }
-        return
-      }
-      updateValue(providerKey, next)
-    },
-    [getFieldValue, updateValue],
-  )
-
-  const applyTextSource = useCallback(
-    (
-      sourceKey: string,
-      providerKey: string,
-      baseUrlKey: string,
-      slug: string,
-    ) => {
-      if (!slug) {
-        updateValue(sourceKey, '')
-        const hasVendorText = vendorSources.some(
-          (item) => item.enabled && vendorSupports(item, 'text'),
-        )
-        if (!hasVendorText) updateValue(providerKey, '')
-        return
-      }
-      updateValue(sourceKey, slug)
-      const source = vendorSources.find((item) => item.slug === slug)
-      if (!source) {
-        handleProviderChange(providerKey, baseUrlKey, slug)
-        return
-      }
-      if (source.kind === 'gemini') {
-        updateValue(providerKey, 'gemini')
-        return
-      }
-      updateValue(providerKey, 'openai')
-      const base =
-        source.kind === 'openrouter' ||
-        (source.base_url || '').includes('openrouter.ai')
-          ? OPENROUTER_BASE_URL
-          : (source.base_url || '').trim()
-      if (base) updateValue(baseUrlKey, base)
-    },
-    [handleProviderChange, updateValue, vendorSources],
-  )
-
-  const standardSourceValue = textSourceOptions
-    ? getFieldValue('ai_source')
-    : getFieldValue('provider')
-      ? currentProvider
-      : ''
-  const liteSourceValue = textSourceOptions
-    ? getFieldValue('lite_ai_source')
-    : getFieldValue('lite_provider')
-      ? currentLiteProvider
-      : ''
-  const proSourceValue = textSourceOptions
-    ? getFieldValue('pro_ai_source')
-    : getFieldValue('pro_provider')
-      ? currentProProvider
-      : ''
-
-  const currentImageProvider = useMemo(
-    () => getFieldValue('ai_image_provider', 'openrouter'),
-    [getFieldValue],
-  )
-
-  const currentSpeechProvider = useMemo(
-    () => getFieldValue('speech_provider', 'tencent'),
-    [getFieldValue],
-  )
+  const currentSpeechProvider = useMemo(() => {
+    const slug = getFieldValue('speech_source', 'tencent')
+    const source = vendorSources.find((item) => item.slug === slug)
+    return speechProviderKindFromSource(source, source?.kind || slug)
+  }, [getFieldValue, vendorSources])
 
   const vendorUsages = useMemo(() => {
     const map: VendorUsageMap = {}
@@ -451,18 +329,14 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       if (!next.includes(id)) next.push(id)
       map[slug] = next
     }
-    add(getFieldValue('ai_source') || currentProvider, 'standard')
-    if (liteEnabled) {
-      add(getFieldValue('lite_ai_source') || currentLiteProvider, 'lite')
-    }
-    if (proEnabled) {
-      add(getFieldValue('pro_ai_source') || currentProProvider, 'pro')
-    }
-    if (getFieldValue('aux_ai_source')) {
+    add(getFieldValue('ai_source'), 'standard')
+    if (liteEnabled) add(getFieldValue('lite_ai_source'), 'lite')
+    if (proEnabled) add(getFieldValue('pro_ai_source'), 'pro')
+    if (getFieldValue('aux_judge_model') || getFieldValue('aux_embedding_model')) {
       add(getFieldValue('aux_ai_source'), 'aux')
     }
-    add(getFieldValue('ai_image_source') || currentImageProvider, 'image')
-    add(getFieldValue('speech_source') || currentSpeechProvider, 'speech')
+    add(getFieldValue('ai_image_source'), 'image')
+    add(getFieldValue('speech_source'), 'speech')
     for (const source of vendorSources) {
       if (source.enabled && vendorSupports(source, 'realtime')) {
         add(source.slug, 'realtime')
@@ -470,11 +344,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     }
     return map
   }, [
-    currentImageProvider,
-    currentLiteProvider,
-    currentProProvider,
-    currentProvider,
-    currentSpeechProvider,
     getFieldValue,
     liteEnabled,
     proEnabled,
@@ -510,26 +379,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       t.config.providerOpenRouter,
       t.config.speechProviderTencent,
     ],
-  )
-
-  const handleSpeechProviderChange = useCallback(
-    (slug: string) => {
-      if (!slug) {
-        updateValue('speech_source', '')
-        const hasVendorSpeech = vendorSources.some(
-          (item) => item.enabled && vendorSupports(item, 'speech'),
-        )
-        if (!hasVendorSpeech) updateValue('speech_provider', '')
-        return
-      }
-      updateValue('speech_source', slug)
-      const source = vendorSources.find((item) => item.slug === slug)
-      updateValue(
-        'speech_provider',
-        speechProviderKindFromSource(source, slug),
-      )
-    },
-    [updateValue, vendorSources],
   )
 
   const aiProviderOptions: SettingOption<string>[] = useMemo(
@@ -584,59 +433,24 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     ],
   )
 
-  const handleImageProviderChange = useCallback(
-    (slug: string) => {
-      if (!slug) {
-        updateValue('ai_image_source', '')
-        const hasVendorImage = vendorSources.some(
-          (item) => item.enabled && vendorSupports(item, 'image'),
-        )
-        if (!hasVendorImage) updateValue('ai_image_provider', '')
-        return
-      }
-      updateValue('ai_image_source', slug)
-      const source = vendorSources.find((item) => item.slug === slug)
-      const kind = source?.kind || slug
-      const mapped =
-        kind === 'volcengine'
-          ? 'volcengine'
-          : kind === 'openrouter'
-            ? 'openrouter'
-            : kind === 'gemini'
-              ? 'gemini'
-              : 'openai'
-      updateValue('ai_image_provider', mapped)
-    },
-    [updateValue, vendorSources],
-  )
-
-  // Judgment and embedding: their own source, or Lite's when none is chosen.
-  const auxFields = useMemo(
-    () =>
-      ['lite_judge_model', 'lite_embedding_model'].flatMap((key) => {
-        const field = configFields.find((item) => item.key === key)
-        return field ? [field] : []
-      }),
+  // Each tier: a source (the server shows the one in effect) and one model.
+  const providerFields = useMemo(
+    () => fieldsByKey(configFields, ['ai_model']),
     [configFields],
   )
-  // A source of their own; never chosen, the server shows Lite's of now.
-  const auxSourceOptions = useMemo(
-    () => textSourceOptions ?? [],
-    [textSourceOptions],
-  )
-
   const liteProviderFields = useMemo(
-    () => fieldsForModelTier(configFields, 'lite_', currentLiteProvider),
-    [configFields, currentLiteProvider],
-  )
-  const providerFields = useMemo(
-    () => fieldsForModelTier(configFields, '', currentProvider),
-    [configFields, currentProvider],
+    () => fieldsByKey(configFields, ['lite_ai_model']),
+    [configFields],
   )
   const proProviderFields = useMemo(
-    () => fieldsForModelTier(configFields, 'pro_', currentProProvider),
-    [configFields, currentProProvider],
+    () => fieldsByKey(configFields, ['pro_ai_model']),
+    [configFields],
   )
+  const auxFields = useMemo(
+    () => fieldsByKey(configFields, ['aux_judge_model', 'aux_embedding_model']),
+    [configFields],
+  )
+  const textTierOptions = textSourceOptions ?? aiProviderOptions
 
   const handleSpeechTest = useCallback(async () => {
     setSpeechTesting(true)
@@ -705,20 +519,13 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           providerGuide={providerGuideBinding.guide}
           providerGuidePath={providerGuideBinding.guidePath}
           fieldGuideFor={fieldGuideFor}
-          providerItemKey="ai_provider"
+          providerItemKey="ai_source"
           providerLabel={t.config.aiProvider}
-          provider={standardSourceValue}
-          providerOptions={textSourceOptions ?? aiProviderOptions}
+          provider={getFieldValue('ai_source')}
+          providerOptions={textTierOptions}
           providerHint={t.config.aiProviderHint}
           fields={providerFields}
-          onProviderChange={(provider) =>
-            applyTextSource(
-              'ai_source',
-              'provider',
-              'openai_base_url',
-              provider,
-            )
-          }
+          onProviderChange={(slug) => updateValue('ai_source', slug)}
           updateValue={updateValue}
         />
 
@@ -729,20 +536,13 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           providerGuide={providerGuideBinding.guide}
           providerGuidePath={providerGuideBinding.guidePath}
           fieldGuideFor={fieldGuideFor}
-          providerItemKey="lite_ai_provider"
+          providerItemKey="lite_ai_source"
           providerLabel={t.config.aiProvider}
-          provider={liteSourceValue}
-          providerOptions={textSourceOptions ?? aiProviderOptions}
+          provider={getFieldValue('lite_ai_source')}
+          providerOptions={textTierOptions}
           providerHint={t.config.aiLiteProviderHint}
           fields={liteProviderFields}
-          onProviderChange={(provider) =>
-            applyTextSource(
-              'lite_ai_source',
-              'lite_provider',
-              'lite_openai_base_url',
-              provider,
-            )
-          }
+          onProviderChange={(slug) => updateValue('lite_ai_source', slug)}
           updateValue={updateValue}
         />
 
@@ -755,10 +555,10 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           providerGuide={providerGuideBinding.guide}
           providerGuidePath={providerGuideBinding.guidePath}
           fieldGuideFor={fieldGuideFor}
-          providerItemKey="pro_ai_provider"
+          providerItemKey="pro_ai_source"
           providerLabel={t.config.aiProvider}
-          provider={proSourceValue}
-          providerOptions={textSourceOptions ?? aiProviderOptions}
+          provider={getFieldValue('pro_ai_source')}
+          providerOptions={textTierOptions}
           providerHint={t.config.aiProProviderHint}
           fields={proProviderFields}
           enabled={proEnabled}
@@ -769,14 +569,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             ariaLabel: t.config.aiProEnable,
             title: t.config.aiProEnableDesc,
           }}
-          onProviderChange={(provider) =>
-            applyTextSource(
-              'pro_ai_source',
-              'pro_provider',
-              'pro_openai_base_url',
-              provider,
-            )
-          }
+          onProviderChange={(slug) => updateValue('pro_ai_source', slug)}
           updateValue={updateValue}
         />
 
@@ -790,9 +583,8 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           providerItemKey="aux_ai_source"
           providerLabel={t.config.aiProvider}
           provider={getFieldValue('aux_ai_source')}
-          providerOptions={auxSourceOptions}
+          providerOptions={textTierOptions}
           providerHint={t.config.aiAuxProviderHint}
-          hideProvider={auxSourceOptions.length === 0}
           fields={auxFields}
           onProviderChange={(slug) => updateValue('aux_ai_source', slug)}
           updateValue={updateValue}
@@ -827,15 +619,11 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         {...bindGuide('ai.image', g.ai.image)}
       >
         <ProviderItem
-          itemKey="image_provider"
+          itemKey="ai_image_source"
           label={t.config.aiProvider}
           {...bindGuide('ai.provider', g.ai.provider)}
-          value={
-            imageSourceOptions
-              ? getFieldValue('ai_image_source')
-              : getFieldValue('ai_image_provider')
-          }
-          onChange={handleImageProviderChange}
+          value={getFieldValue('ai_image_source')}
+          onChange={(slug) => updateValue('ai_image_source', slug)}
           options={imageSourceOptions ?? imageProviderOptions}
           layout="horizontal"
         />
@@ -884,31 +672,17 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         }
       >
         <ProviderItem
-          itemKey="speech_provider"
+          itemKey="speech_source"
           label={t.config.speechProvider}
           {...bindGuide('ai.provider', g.ai.provider)}
-          value={
-            speechSourceOptions
-              ? getFieldValue('speech_source')
-              : getFieldValue('speech_provider')
-          }
-          onChange={handleSpeechProviderChange}
+          value={getFieldValue('speech_source')}
+          onChange={(slug) => updateValue('speech_source', slug)}
           options={speechSourceOptions ?? speechProviderOptions}
           layout="horizontal"
         />
 
         {(() => {
-          const speechSelectorValue = speechSourceOptions
-            ? getFieldValue('speech_source')
-            : getFieldValue('speech_provider')
-          if (!speechSelectorValue) return null
-          const selectedSource = vendorSources.find(
-            (item) => item.slug === speechSelectorValue,
-          )
-          const selected = speechProviderKindFromSource(
-            selectedSource,
-            selectedSource?.kind || speechSelectorValue,
-          )
+          const selected = currentSpeechProvider
           if (selected === 'minimax') {
             return (
               <>

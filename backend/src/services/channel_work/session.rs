@@ -125,9 +125,7 @@ pub(super) async fn take_pending_if_id(
         }
     };
     let pending = taken?;
-    let mut prompt = pending.prompt.clone();
-    ensure_pending_id(&mut prompt);
-    if !expected_id.is_empty() && prompt.id != expected_id {
+    if !expected_id.is_empty() && pending.prompt.id != expected_id {
         let _ = shared_registry::put(
             db,
             platform.pending_ns(),

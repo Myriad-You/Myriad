@@ -13,7 +13,6 @@ const config = {
   auto_fetch: DEFAULT_AUTO_FETCH_CONFIG,
   ai_config: { config_fields: [] },
   tripo_config: { config_fields: [] },
-  report_config: { config_fields: [] },
   ui_config: { config_fields: [] },
 }
 

@@ -5,21 +5,22 @@
 //! | Path | Role |
 //! |------|------|
 //! | `migrations` (Migrator 001–006; extra `seaql_migrations` rows discarded before up) | **Greenfield SoT** — CREATE tables for new installs |
-//! | `schema_check` (`ensure_schema`) | **Runtime heals** — missing columns/indexes (generic), platform seeds, single owner, recent-feature CREATE / structural heals |
+//! | `schema_check` (`ensure_schema`) | **Runtime heals** — missing columns/indexes (generic), platform and config seeds, single owner, user lifecycle, the agent task status CHECK |
 //!
 //! Boot (`main`) and setup (`init_database`) both run Migrator then `ensure_schema`.
 //! Do not empty-bump `SCHEMA_VERSION` without a real TableDef/heal change.
 //! Drift CI: `migrations_leave_no_schema_drift` (optional `MYRIAD_SCHEMA_DRIFT_DB`).
 //!
-//! **Support floor: product ≥ 0.3.10.** Pre-0.3.10 field-level alignment one-shots
-//! are not maintained; missing columns use `get_expected_schema` + ADD COLUMN.
+//! **Support floor: product ≥ 0.6.1.** Older instances upgrade to 0.6.1 first;
+//! heals for anything older are gone. Missing columns use
+//! `get_expected_schema` + ADD COLUMN.
 
 mod ensure_heals;
 mod expected_indexes;
 mod expected_schema;
 mod introspect;
+mod old_rows;
 mod orchestrator;
-mod phantasi_source_dedupe;
 mod seeds;
 mod tables_agent;
 mod tables_analytics;
@@ -32,6 +33,8 @@ mod types;
 
 #[cfg(test)]
 pub(crate) use ensure_heals::AGENT_MEMORIES_DDL;
+#[cfg(test)]
+pub(crate) use old_rows::rewrite_old_rows as rewrite_old_rows_for_test;
 pub use orchestrator::{ensure_schema, report_schema_drift};
 pub use seeds::{DefaultPlatformSeed, default_platform_seeds};
 #[cfg(test)]

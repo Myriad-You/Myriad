@@ -241,7 +241,7 @@ async fn load_public_feed(db: &DatabaseConnection) -> Result<Vec<Value>, HttpErr
                           a.object_json -> 'object',
                           a.object_json
                       ) AS content_json,
-                      COALESCE(a.received_at, a.published_at) AS received_at,
+                      a.received_at,
                       COALESCE(
                           a.object_json ->> 'actor',
                           a.object_json #>> '{{object,attributedTo}}',
@@ -275,7 +275,7 @@ async fn load_public_feed(db: &DatabaseConnection) -> Result<Vec<Value>, HttpErr
                           OR COALESCE((a.object_json #> '{{object,cc}}')::JSONB, '[]'::JSONB) ? $1
                       )
                   )
-               ORDER BY a.activity_id, COALESCE(a.received_at, a.published_at) DESC
+               ORDER BY a.activity_id, a.received_at DESC
            )
            SELECT *
            FROM public_items
@@ -342,7 +342,7 @@ fn rooms_feed_sql(local_avatar: &str) -> String {
                           a.object_json -> 'object',
                           a.object_json
                       ) AS content_json,
-                      COALESCE(a.received_at, a.published_at) AS received_at,
+                      a.received_at,
                       COALESCE(
                           a.object_json ->> 'actor',
                           a.object_json #>> '{{object,attributedTo}}',
@@ -380,7 +380,7 @@ fn rooms_feed_sql(local_avatar: &str) -> String {
                      )
                  )
                  AND {author_domain} IN (SELECT domain FROM peer_domains)
-               ORDER BY a.activity_id, COALESCE(a.received_at, a.published_at) DESC
+               ORDER BY a.activity_id, a.received_at DESC
            )
            SELECT *
            FROM rooms_items

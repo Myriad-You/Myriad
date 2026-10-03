@@ -54,6 +54,12 @@ impl ImageCacheService {
         Self { cache_dir }
     }
 
+    /// A cache rooted at `cache_dir` instead of the configured data path.
+    #[cfg(test)]
+    pub fn at(cache_dir: PathBuf) -> Self {
+        Self { cache_dir }
+    }
+
     /// 检查 URL 是否像 Notion / S3 临时文件（含 `notion.so/image` 与 `X-Amz-*`）
     pub fn is_notion_temporary_url(url: &str) -> bool {
         let patterns = [
@@ -309,7 +315,18 @@ impl ImageCacheService {
     }
 
     /// Resolve a public `/api/phantasi/image-cache/{subdir}/{sha256}.{ext}` URL to a local path.
+    /// Only formats the media store accepts, so the file can become an asset.
     pub fn local_path_for_public_url(&self, url: &str) -> Option<PathBuf> {
+        self.cache_file(url, false)
+    }
+
+    /// [`Self::local_path_for_public_url`] plus formats the cache only
+    /// displays (AVIF, SVG): what the image-cache route serves.
+    pub fn display_path_for_public_url(&self, url: &str) -> Option<PathBuf> {
+        self.cache_file(url, true)
+    }
+
+    fn cache_file(&self, url: &str, display: bool) -> Option<PathBuf> {
         let path = image_cache_path(url)?;
         let rest = path.strip_prefix("/api/phantasi/image-cache/")?;
         let (subdir, file) = rest.split_once('/')?;
@@ -324,7 +341,8 @@ impl ImageCacheService {
             return None;
         }
         let ext = ext.to_ascii_lowercase();
-        if !matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp") {
+        let importable = matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp");
+        if !importable && !(display && matches!(ext.as_str(), "avif" | "svg")) {
             return None;
         }
         let stem = stem.to_ascii_lowercase();

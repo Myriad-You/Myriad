@@ -10,7 +10,7 @@ mod intake_helpers;
 
 pub use admin_api::{export_analytics, get_summary, get_visitor_card, import_analytics};
 pub use ai_usage::get_ai_usage_summary;
-pub use intake_helpers::{collect, record_pageview};
+pub use intake_helpers::collect;
 
 /// Shared builders for Tapp runtime analytics API (aggregated only).
 pub(crate) use admin_api::{build_analytics_summary, visitor_card_aggregate};

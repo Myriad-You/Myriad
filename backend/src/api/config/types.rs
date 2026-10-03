@@ -8,7 +8,6 @@ pub struct ConfigResponse {
     pub auto_fetch: Option<PlatformAutoFetchConfig>,
     pub ai_config: AiConfig,
     pub tripo_config: TripoConfig,
-    pub report_config: ReportConfig,
     pub ui_config: UiConfig,
 }
 
@@ -62,11 +61,6 @@ pub struct AiConfig {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TripoConfig {
-    pub config_fields: Vec<ConfigField>,
-}
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ReportConfig {
     pub config_fields: Vec<ConfigField>,
 }
 

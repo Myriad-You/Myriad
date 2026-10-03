@@ -23,7 +23,7 @@ mod routes;
 mod rsshub;
 
 pub use notes_rss::notes_rss;
-pub use routes::{create_phantasi_routes, legacy_brew_image_cache_routes};
+pub use routes::create_phantasi_routes;
 
 #[cfg(test)]
 mod integration_tests {

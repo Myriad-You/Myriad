@@ -513,12 +513,12 @@ Manifest 必须同时声明 `ai:image` **和** `manifest.ai`（`protocolVersion:
 3. 不要对非 media action 塞大 base64（会撞默认 1 MiB）。
 4. `file.download` 文本 / base64 / 宿主代取生图·3D 上限 32 MiB，与 storage 单值 1 MiB 不同。
 
-### ❌ 附件 URL 被拒绝 / `Attachment URL must look like /media/federation/...`
+### ❌ 附件 URL 被拒绝 / `Invalid attachment URL`
 
 **症状**：`createNote` / `publish` 失败，提示 attachment URL 非法。
 
 **原因**：附件必须是本实例 `uploadMedia` 返回的联邦媒体 URL
-（路径形如 `/media/federation/{userId}/{filename}`），不能塞任意 CDN 或 data URL。
+（路径形如 `/media/assets/{uuid}/{filename}`），不能塞任意 CDN 或 data URL。
 
 **解决方案**：先 `uploadMedia`，再用返回的 `url` + `media_type` 填 `attachments`。
 

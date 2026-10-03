@@ -1,8 +1,8 @@
 //! Web-process public media reads. Independent of the federation worker and gate.
 //!
-//! Privacy stage is not done: unmigrated historical federation/cache files stay
-//! publicly readable. New `/media/assets/{id}` only serves ready+public assets.
-//! A deleted/private alias never falls back to the old disk.
+//! `/media/assets/{id}` serves ready public assets (and private ones to a
+//! reader allowed to see them). The image cache serves its own files, or the
+//! asset a cited cache file became.
 
 use axum::{
     Router,
@@ -19,33 +19,21 @@ use uuid::Uuid;
 use crate::extract::Db;
 use crate::services::data_paths::paths;
 use crate::services::media::{
-    FileServe, LegacyPaths, MediaStore, NO_STORE, ServeOutcome, resolve_alias_or_legacy,
-    resolve_private_asset, resolve_public_asset,
+    FileServe, MediaStore, NO_STORE, ServeOutcome, resolve_cached_image, resolve_private_asset,
+    resolve_public_asset,
 };
 
 pub fn public_media_routes() -> Router<crate::state::AppState> {
-    Router::new()
-        .route(
-            "/media/assets/{public_id}/{filename}",
-            get(serve_public_asset).head(serve_public_asset),
-        )
-        .route(
-            "/media/federation/{user}/{file}",
-            get(serve_federation_media).head(serve_federation_media),
-        )
+    Router::new().route(
+        "/media/assets/{public_id}/{filename}",
+        get(serve_public_asset).head(serve_public_asset),
+    )
 }
 
 pub fn image_cache_routes() -> Router<crate::state::AppState> {
     Router::new().route(
         "/image-cache/{subdir}/{file}",
         get(serve_phantasi_cache).head(serve_phantasi_cache),
-    )
-}
-
-pub fn brew_image_cache_routes() -> Router<crate::state::AppState> {
-    Router::new().route(
-        "/image-cache/{subdir}/{file}",
-        get(serve_brew_cache).head(serve_brew_cache),
     )
 }
 
@@ -87,42 +75,22 @@ async fn reader(
     crate::api::media::actor_from_claims(&claims).ok()
 }
 
-async fn serve_federation_media(
-    Db(db): Db,
-    Path((user, file)): Path<(String, String)>,
-    req: Request,
-) -> Response {
-    let local_path = format!("/media/federation/{user}/{file}");
-    serve_alias(db, local_path, req).await
-}
-
 async fn serve_phantasi_cache(
     Db(db): Db,
     Path((subdir, file)): Path<(String, String)>,
     req: Request,
 ) -> Response {
     let local_path = format!("/api/phantasi/image-cache/{subdir}/{file}");
-    serve_alias(db, local_path, req).await
+    serve_cached(db, local_path, req).await
 }
 
-async fn serve_brew_cache(
-    Db(db): Db,
-    Path((subdir, file)): Path<(String, String)>,
-    req: Request,
-) -> Response {
-    let local_path = format!("/api/brew/image-cache/{subdir}/{file}");
-    serve_alias(db, local_path, req).await
-}
-
-async fn serve_alias(
+async fn serve_cached(
     db: sea_orm::DatabaseConnection,
     local_path: String,
     req: Request,
 ) -> Response {
-    let data = paths();
-    let store = MediaStore::new(data.media.clone());
-    let legacy = LegacyPaths::from_data_paths(data);
-    match resolve_alias_or_legacy(&db, &store, &legacy, &local_path).await {
+    let store = MediaStore::new(paths().media.clone());
+    match resolve_cached_image(&db, &store, &local_path).await {
         Ok(outcome) => send(req, outcome).await,
         Err(_) => hide(),
     }
@@ -222,6 +190,6 @@ mod tests {
         let src = include_str!("media_public.rs");
         assert!(!src.contains(concat!("store_federation", "_media")));
         assert!(!src.contains(concat!("use crate", "::", "federation")));
-        assert!(src.contains("resolve_alias_or_legacy"));
+        assert!(src.contains("resolve_cached_image"));
     }
 }

@@ -25,7 +25,6 @@ import {
   fetchSettingsBackup,
   previewSettingsBackup,
   restoreSettingsBackup,
-  updateConfig,
 } from '../../services/configApi'
 
 import { purgeFrontendCachesAndReload } from '../../utils/frontendCachePurge'
@@ -62,7 +61,8 @@ interface AdvancedConfigSectionProps {
 }
 
 const SETTINGS_BACKUP_FORMAT = 'myriad-settings-backup'
-const MIN_SETTINGS_BACKUP_VERSION = 1
+/** v2 since 0.2.2; matches the server's floor. */
+const MIN_SETTINGS_BACKUP_VERSION = 2
 const SETTINGS_BACKUP_VERSION = 2
 
 interface ClientPreferenceDescriptor {
@@ -204,17 +204,6 @@ function isVersionedSettingsBackup(
   )
 }
 
-function isLegacyConfig(data: unknown): data is Record<string, unknown> {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return false
-  const config = data as Record<string, unknown>
-  return Boolean(
-    config.platforms &&
-    config.ai_config &&
-    config.report_config &&
-    config.ui_config,
-  )
-}
-
 export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   onReset,
   title,
@@ -327,23 +316,16 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
       reader.onload = async (event) => {
         try {
           const data = JSON.parse(event.target?.result as string)
-          if (!isVersionedSettingsBackup(data) && !isLegacyConfig(data)) {
+          if (!isVersionedSettingsBackup(data)) {
             onMessage?.(t.config.importConfigInvalid, 'error')
             return
           }
-          if (isVersionedSettingsBackup(data)) {
-            const clientPlan = planClientPreferenceRestore(
-              data.client_preferences,
-            )
-            const backendPreview = await previewSettingsBackup(data)
-            setPendingClientRestore(clientPlan)
-            setRestorePreview(
-              combineRestorePreviews(backendPreview, clientPlan),
-            )
-          } else {
-            setPendingClientRestore(null)
-            setRestorePreview(null)
-          }
+          const clientPlan = planClientPreferenceRestore(
+            data.client_preferences,
+          )
+          const backendPreview = await previewSettingsBackup(data)
+          setPendingClientRestore(clientPlan)
+          setRestorePreview(combineRestorePreviews(backendPreview, clientPlan))
           setPendingImportData(data)
           setImportConfirmOpen(true)
         } catch {
@@ -361,20 +343,16 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     setImportConfirmOpen(false)
 
     try {
-      let attentionCount = 0
-      if (isVersionedSettingsBackup(pendingImportData)) {
-        const result = await restoreSettingsBackup(pendingImportData)
-        restoreClientPreferences(pendingClientRestore)
-        attentionCount =
-          result.unresolved_media.length + result.skipped_settings.length
-        // An empty notice also clears one left by an earlier restore.
-        stashRestoreNotice({
-          unresolvedMedia: result.unresolved_media,
-          skippedSettings: result.skipped_settings,
-        })
-      } else {
-        await updateConfig(pendingImportData)
-      }
+      if (!isVersionedSettingsBackup(pendingImportData)) return
+      const result = await restoreSettingsBackup(pendingImportData)
+      restoreClientPreferences(pendingClientRestore)
+      const attentionCount =
+        result.unresolved_media.length + result.skipped_settings.length
+      // An empty notice also clears one left by an earlier restore.
+      stashRestoreNotice({
+        unresolvedMedia: result.unresolved_media,
+        skippedSettings: result.skipped_settings,
+      })
       if (attentionCount > 0) {
         onMessage?.(
           format(t.config.importConfigSuccessNeedsAttention, {

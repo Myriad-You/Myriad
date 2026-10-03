@@ -31,6 +31,7 @@ mod package;
 mod portrait;
 mod portrait_upload;
 mod pose;
+mod skeleton;
 
 pub(crate) use package::{cleanup_verified_packages, wardrobe_outfit_face};
 
@@ -41,6 +42,11 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
     let owner = Router::new()
         .route("/", get(package::get_site_rig))
         .route("/portrait", post(portrait::generate_portrait))
+        .route("/skeleton", get(skeleton::get_skeleton))
+        .route(
+            "/full-body/{outfit_id}/skeleton",
+            get(skeleton::get_full_body_skeleton),
+        )
         .route("/full-body/{outfit_id}", get(full_body::get_full_body))
         .route(
             "/full-body/{outfit_id}/portrait",

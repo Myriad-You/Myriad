@@ -6,6 +6,7 @@ import type { TimeTranslations } from '../types'
 import { memo } from 'react'
 
 import { sameFeedStory } from '../logic/feedStories'
+import { journalItemPath } from '../logic/journalRoutes'
 import { StoryCard } from '../ui/StoryCard'
 import { storyCardFace, storyCardInnerHtml } from './storyFace'
 
@@ -16,6 +17,11 @@ type StoryLabels = {
   starred: string
   unstar: string
 } & Partial<Record<TopicNameKey, string>>
+
+/** 卡片点开就是这篇的阅读页地址；聚合卡等非文章 id 不给链接。 */
+function storyHref(item: PhantasiStoryItem): string | undefined {
+  return item.id > 0 ? journalItemPath(item.id) : undefined
+}
 
 function samePlace(
   a?: { column: number; row: 1 | 2 },
@@ -76,6 +82,7 @@ export const PhantasiStory = memo(({
       unreadLabel={labels.unread}
       starLabel={labels.starred}
       unstarLabel={labels.unstar}
+      href={onOpen ? storyHref(item) : undefined}
       onOpen={onOpen ? () => onOpen(item) : undefined}
       onPeek={onPeek ? () => onPeek(item) : undefined}
       onPeekEnd={onPeekEnd}
@@ -152,6 +159,7 @@ export const PhantasiStoryColumn = memo(({
             unreadLabel={labels.unread}
             starLabel={labels.starred}
             unstarLabel={labels.unstar}
+            href={storyHref(slot.story)}
             onOpen={onOpen ? () => onOpen(slot.story) : undefined}
             onPeek={onPeek ? () => onPeek(slot.story) : undefined}
             onPeekEnd={onPeekEnd}

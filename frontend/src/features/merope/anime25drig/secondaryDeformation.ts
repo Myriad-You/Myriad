@@ -92,6 +92,12 @@ export interface Anime25DSecondaryDeformationFrame {
   /** The same rotation for cloth hanging from each arm, which lags and sags. */
   armDrapeL: number
   armDrapeR: number
+  /** Each forearm's turn about its elbow, relative to its upper arm. */
+  forearmL: number
+  forearmR: number
+  /** Each hand's turn about its wrist, relative to its forearm. */
+  handL: number
+  handR: number
   chestCenterX: number
   chestRegionCenterY: number
   chestMotionCenterY: number
@@ -453,11 +459,42 @@ export function deformAnime25DSecondaryPoint(
       ? swing * (binding.armMesh?.weights[vertex] ?? 1) +
         (drape - swing) * armDrapeWeight(arm, restY)
       : 0
+    // Below a found wrist the hand first turns about it, below a found elbow
+    // the forearm then turns about that, carrying the wrist; the whole arm
+    // then turns about the shoulder, carrying the elbow with it.
+    let armX = restX
+    let armY = restY
+    const hand = arm?.wrist ? (left ? frame.handL : frame.handR) * arm.scale : 0
+    if (arm?.wrist && hand !== 0) {
+      const share = hand * handWeight(arm, restX, restY)
+      if (share !== 0) {
+        const wx = restX - arm.wrist.x
+        const wy = restY - arm.wrist.y
+        const cosine = Math.cos(share)
+        const sine = Math.sin(share)
+        armX = arm.wrist.x + wx * cosine - wy * sine
+        armY = arm.wrist.y + wx * sine + wy * cosine
+      }
+    }
+    const forearm = arm?.elbow ? (left ? frame.forearmL : frame.forearmR) * arm.scale : 0
+    if (arm?.elbow && forearm !== 0) {
+      const share = forearm * forearmWeight(arm, restX, restY)
+      if (share !== 0) {
+        const ex = armX - arm.elbow.x
+        const ey = armY - arm.elbow.y
+        const cosine = Math.cos(share)
+        const sine = Math.sin(share)
+        armX = arm.elbow.x + ex * cosine - ey * sine
+        armY = arm.elbow.y + ex * sine + ey * cosine
+      }
+    }
+    point.x += armX - restX
+    point.y += armY - restY
     if (arm && angle !== 0) {
       // About the shoulder joint, in rest space. Everything applied above is a
       // uniform carry of the whole sleeve, so the joint travels with it.
-      const dx = restX - arm.pivotX
-      const dy = restY - arm.pivotY
+      const dx = armX - arm.pivotX
+      const dy = armY - arm.pivotY
       const cosine = Math.cos(angle)
       const sine = Math.sin(angle)
       point.x += dx * cosine - dy * sine - dx
@@ -483,6 +520,39 @@ export function deformAnime25DSecondaryPoint(
   // only its head-follow share inherits the root, avoiding double travel.
   point.x += frame.torsoNeckOffsetX * torsoNeckFollow
   if (binding.standing && frame.standing) applyStanding(point, binding.standing, restX, restY, frame.standing)
+}
+
+/**
+ * How much of its hand's own turn a point takes: none above the wrist, all of
+ * it past it, blended across the narrower joint.
+ */
+function handWeight(arm: Readonly<ArmRig>, x: number, y: number): number {
+  const { elbow, wrist } = arm
+  if (!elbow || !wrist) return 0
+  const ux = wrist.x - elbow.x
+  const uy = wrist.y - elbow.y
+  const length = Math.hypot(ux, uy)
+  if (!(length > 0)) return 0
+  const along = ((x - wrist.x) * ux + (y - wrist.y) * uy) / length
+  return smoothstep(along / Math.max(1, arm.radius * WRIST_SHARE) + 0.5)
+}
+
+/** A wrist is this much of the arm's thickness at the shoulder. */
+const WRIST_SHARE = 0.6
+
+/**
+ * How much of its forearm's own turn a sleeve point takes: none above the
+ * elbow, all of it past it, blended across the arm's thickness at the joint.
+ */
+function forearmWeight(arm: Readonly<ArmRig>, x: number, y: number): number {
+  const elbow = arm.elbow
+  if (!elbow) return 0
+  const ux = elbow.x - arm.pivotX
+  const uy = elbow.y - arm.pivotY
+  const length = Math.hypot(ux, uy)
+  if (!(length > 0)) return 0
+  const along = ((x - elbow.x) * ux + (y - elbow.y) * uy) / length
+  return smoothstep(along / Math.max(1, arm.radius) + 0.5)
 }
 
 const chainPoint = { x: 0, y: 0 }

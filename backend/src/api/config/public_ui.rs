@@ -2,7 +2,7 @@
 use axum::{Json, http::StatusCode};
 use serde_json::{Value, json};
 
-use super::flags::{db_or_env_clearable, sort_platforms_by_order};
+use super::flags::sort_platforms_by_order;
 use super::types::{ConfigField, PlatformConfig};
 use crate::services::platform_id::PlatformId;
 
@@ -11,92 +11,40 @@ pub async fn get_site_metadata(
 ) -> (StatusCode, Json<Value>) {
     // 优先从数据库读取站点元数据配置
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
-    let db_config = config_service.load_config().await.ok();
+    let stored = config_service.load_config().await.unwrap_or_else(|error| {
+        tracing::warn!(%error, "stored configuration could not be read; using defaults");
+        crate::config::DynamicConfig::default()
+    });
 
-    // Branding fields: empty DB still falls through to env/default.
-    let get_branding = |db_val: Option<String>, env_key: &str, default: &str| -> String {
+    // Branding fields: an empty value falls through to the default.
+    let get_branding = |db_val: Option<String>, default: &str| -> String {
         db_val
             .filter(|v| !v.is_empty())
-            .or_else(|| std::env::var(env_key).ok().filter(|v| !v.is_empty()))
             .unwrap_or_else(|| default.to_string())
     };
 
-    let site_noindex = db_config
-        .as_ref()
-        .map(|c| c.site_noindex)
-        .unwrap_or_else(|| {
-            std::env::var("SITE_NOINDEX")
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false)
-        });
+    let site_noindex = stored.site_noindex;
 
     let site_visibility_policy = {
-        let raw = db_config
-            .as_ref()
-            .map(|c| c.site_visibility_policy.clone())
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| std::env::var("SITE_VISIBILITY_POLICY").ok())
-            .unwrap_or_default();
+        let raw = stored.site_visibility_policy.trim().to_string();
         crate::api::seo_policy::normalize_visibility_policy(&raw, site_noindex)
     };
-    let site_ai_intro = db_or_env_clearable(
-        db_config.as_ref().and_then(|c| c.site_ai_intro.clone()),
-        "SITE_AI_INTRO",
-        "",
-    );
+    let site_ai_intro = stored.site_ai_intro.clone().unwrap_or_default();
 
     let metadata = json!({
-        "site_title": get_branding(
-            db_config.as_ref().and_then(|c| c.site_title.clone()),
-            "SITE_TITLE",
-            "Myriad - A myriad of lights, in one place."
-        ),
-        "site_description": get_branding(
-            db_config.as_ref().and_then(|c| c.site_description.clone()),
-            "SITE_DESCRIPTION",
-            "A myriad of lights, in one place."
-        ),
-        "site_favicon": get_branding(
-            db_config.as_ref().and_then(|c| c.site_favicon.clone()),
-            "SITE_FAVICON",
-            "/favicon.webp"
-        ),
+        "site_title": get_branding(stored.site_title.clone(), "Myriad - A myriad of lights, in one place."),
+        "site_description": get_branding(stored.site_description.clone(), "A myriad of lights, in one place."),
+        "site_favicon": get_branding(stored.site_favicon.clone(), "/favicon.webp"),
         // Clearable SEO / third-party analytics: explicit empty DB disables (no env re-fill).
-        "site_keywords": db_or_env_clearable(
-            db_config.as_ref().and_then(|c| c.site_keywords.clone()),
-            "SITE_KEYWORDS",
-            ""
-        ),
-        "site_og_image": db_or_env_clearable(
-            db_config.as_ref().and_then(|c| c.site_og_image.clone()),
-            "SITE_OG_IMAGE",
-            ""
-        ),
-        "google_site_verification": db_or_env_clearable(
-            db_config
-                .as_ref()
-                .and_then(|c| c.google_site_verification.clone()),
-            "GOOGLE_SITE_VERIFICATION",
-            ""
-        ),
+        "site_keywords": stored.site_keywords.clone().unwrap_or_default(),
+        "site_og_image": stored.site_og_image.clone().unwrap_or_default(),
+        "google_site_verification": stored.google_site_verification.clone().unwrap_or_default(),
         "site_noindex": site_noindex,
         "site_visibility_policy": site_visibility_policy,
         "site_ai_intro": site_ai_intro,
-        "ga_measurement_id": db_or_env_clearable(
-            db_config.as_ref().and_then(|c| c.ga_measurement_id.clone()),
-            "GA_MEASUREMENT_ID",
-            ""
-        ),
-        "umami_website_id": db_or_env_clearable(
-            db_config.as_ref().and_then(|c| c.umami_website_id.clone()),
-            "UMAMI_WEBSITE_ID",
-            ""
-        ),
-        "umami_script_url": db_or_env_clearable(
-            db_config.as_ref().and_then(|c| c.umami_script_url.clone()),
-            "UMAMI_SCRIPT_URL",
-            ""
-        ),
+        "ga_measurement_id": stored.ga_measurement_id.clone().unwrap_or_default(),
+        "umami_website_id": stored.umami_website_id.clone().unwrap_or_default(),
+        "umami_script_url": stored.umami_script_url.clone().unwrap_or_default(),
     });
 
     (StatusCode::OK, Json(metadata))
@@ -110,10 +58,6 @@ pub(crate) fn public_platform_cards(
 ) -> Vec<PlatformConfig> {
     let stored = db_config.cloned().unwrap_or_default();
     let enabled = |id: PlatformId| id.enabled(&stored);
-    // Prefer DB when present (including intentional empty clear); else process env.
-    let get_value = |db_val: Option<String>, env_key: &str| -> String {
-        db_or_env_clearable(db_val, env_key, "")
-    };
 
     // 只返回公开可见的平台配置字段（不包含 API 密钥等敏感信息）
     vec![
@@ -127,10 +71,7 @@ pub(crate) fn public_platform_cards(
                 key: "username".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.github_username.clone()),
-                    "GITHUB_USERNAME",
-                ),
+                value: stored.github_username.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -145,10 +86,7 @@ pub(crate) fn public_platform_cards(
                 key: "uid".to_string(),
                 label: "".to_string(),
                 field_type: "number".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.bilibili_uid.clone()),
-                    "BILIBILI_UID",
-                ),
+                value: stored.bilibili_uid.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -163,10 +101,7 @@ pub(crate) fn public_platform_cards(
                 key: "steam_id".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.steam_id.clone()),
-                    "STEAM_ID",
-                ),
+                value: stored.steam_id.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -181,12 +116,7 @@ pub(crate) fn public_platform_cards(
                 key: "channel_id".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config
-                        .as_ref()
-                        .and_then(|c| c.youtube_channel_id.clone()),
-                    "YOUTUBE_CHANNEL_ID",
-                ),
+                value: stored.youtube_channel_id.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -201,10 +131,7 @@ pub(crate) fn public_platform_cards(
                 key: "user_id".to_string(),
                 label: "".to_string(),
                 field_type: "number".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.netease_user_id.clone()),
-                    "NETEASE_USER_ID",
-                ),
+                value: stored.netease_user_id.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -219,10 +146,7 @@ pub(crate) fn public_platform_cards(
                 key: "username".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.bangumi_username.clone()),
-                    "BANGUMI_USERNAME",
-                ),
+                value: stored.bangumi_username.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -237,10 +161,7 @@ pub(crate) fn public_platform_cards(
                 key: "username".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.x_username.clone()),
-                    "X_USERNAME",
-                ),
+                value: stored.x_username.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -256,10 +177,7 @@ pub(crate) fn public_platform_cards(
                 key: "user_id".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.discord_user_id.clone()),
-                    "DISCORD_USER_ID",
-                ),
+                value: stored.discord_user_id.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -274,10 +192,7 @@ pub(crate) fn public_platform_cards(
                 key: "username".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.mal_username.clone()),
-                    "MAL_USERNAME",
-                ),
+                value: stored.mal_username.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -292,10 +207,7 @@ pub(crate) fn public_platform_cards(
                 key: "gamertag".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.xbox_gamertag.clone()),
-                    "XBOX_GAMERTAG",
-                ),
+                value: stored.xbox_gamertag.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -310,10 +222,7 @@ pub(crate) fn public_platform_cards(
                 key: "online_id".to_string(),
                 label: "".to_string(),
                 field_type: "text".to_string(),
-                value: get_value(
-                    db_config.as_ref().and_then(|c| c.psn_online_id.clone()),
-                    "PSN_ONLINE_ID",
-                ),
+                value: stored.psn_online_id.clone().unwrap_or_default(),
                 placeholder: "".to_string(),
                 required: false,
             }],
@@ -328,20 +237,17 @@ pub async fn get_public_config(
 ) -> (StatusCode, Json<Value>) {
     // 优先从数据库读取配置
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
-    let db_config = config_service.load_config().await.ok();
+    let stored = config_service.load_config().await.unwrap_or_else(|error| {
+        tracing::warn!(%error, "stored configuration could not be read; using defaults");
+        crate::config::DynamicConfig::default()
+    });
 
-    let public_platforms = public_platform_cards(db_config.as_ref());
+    let public_platforms = public_platform_cards(Some(&stored));
 
     let mut public_platforms = public_platforms;
-    sort_platforms_by_order(
-        &mut public_platforms,
-        db_config.as_ref().and_then(|c| c.platform_order.as_ref()),
-    );
+    sort_platforms_by_order(&mut public_platforms, stored.platform_order.as_ref());
 
-    let is_enabled = db_config
-        .as_ref()
-        .map(|config| config.merope_enabled_resolved())
-        .unwrap_or_else(|| crate::config::DynamicConfig::default().merope_enabled_resolved());
+    let is_enabled = stored.merope_enabled_resolved();
     let stored_persona = if is_enabled {
         crate::services::agent::merope::get_persona(&db)
             .await
@@ -359,7 +265,7 @@ pub async fn get_public_config(
         .filter(|value| !value.is_empty());
     let response = json!({
         "platforms": public_platforms,
-        "aiAvailability": db_config.as_ref().map(ai_availability),
+        "aiAvailability": Some(ai_availability(&stored)),
         "meropeEnabled": is_enabled,
         "agentPersonaName": crate::services::agent::merope::public_persona_name(
             is_enabled,
@@ -379,86 +285,50 @@ pub async fn get_public_ui_config(
 ) -> (StatusCode, Json<Value>) {
     // 优先从数据库读取配置
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
-    let db_config = config_service.load_config().await.ok();
-
-    // Prefer DB when present (including intentional empty clear); else process env.
-    // Must match admin bag / SEO clearable fields — empty wallpaper must NOT fall
-    // through to a stale UI_WALLPAPER_URL still sitting in process env after clear.
-    let get_value = |db_val: Option<String>, env_key: &str| -> String {
-        db_or_env_clearable(db_val, env_key, "")
-    };
+    let stored = config_service.load_config().await.unwrap_or_else(|error| {
+        tracing::warn!(%error, "stored configuration could not be read; using defaults");
+        crate::config::DynamicConfig::default()
+    });
 
     let ui_config = json!({
-        "analytics_enabled": db_config.as_ref().map(|c| c.analytics_enabled).unwrap_or_else(||
-            std::env::var("ANALYTICS_ENABLED").unwrap_or_else(|_| "true".to_string()).parse().unwrap_or(true)
-        ),
-        "pwa_enabled": db_config.as_ref().map(|c| c.pwa_enabled).unwrap_or_else(||
-            std::env::var("PWA_ENABLED").unwrap_or_else(|_| "true".to_string()).parse().unwrap_or(true)
-        ),
-        "wallpaper_url": get_value(
-            db_config.as_ref().and_then(|c| c.ui_wallpaper_url.clone()),
-            "UI_WALLPAPER_URL"
-        ),
-        "wallpaper_blur": db_config.as_ref().map(|c| c.ui_wallpaper_blur as u32).unwrap_or_else(||
-            std::env::var("UI_WALLPAPER_BLUR").unwrap_or_else(|_| "3".to_string()).parse::<u32>().unwrap_or(3)
-        ),
+        "analytics_enabled": stored.analytics_enabled,
+        "pwa_enabled": stored.pwa_enabled,
+        "wallpaper_url": stored.ui_wallpaper_url.clone().unwrap_or_default(),
+        "wallpaper_blur": stored.ui_wallpaper_blur as u32,
         // Evocative 壁纸动效
-        "evocative_parallax": db_config.as_ref().map(|c| c.ui_evocative_parallax).unwrap_or_else(||
-            std::env::var("UI_EVOCATIVE_PARALLAX").unwrap_or_else(|_| "true".to_string()).parse().unwrap_or(true)
-        ),
-        "evocative_dynamic_blur": db_config.as_ref().map(|c| c.ui_evocative_dynamic_blur).unwrap_or_else(||
-            std::env::var("UI_EVOCATIVE_DYNAMIC_BLUR").unwrap_or_else(|_| "false".to_string()).parse().unwrap_or(false)
-        ),
-        "evocative_ripple": db_config.as_ref().map(|c| c.ui_evocative_ripple).unwrap_or_else(||
-            std::env::var("UI_EVOCATIVE_RIPPLE").unwrap_or_else(|_| "false".to_string()).parse().unwrap_or(false)
-        ),
-        "evocative_fps": db_config.as_ref().map(|c| c.ui_evocative_fps as u32).unwrap_or_else(||
-            std::env::var("UI_EVOCATIVE_FPS").unwrap_or_else(|_| "30".to_string()).parse::<u32>().unwrap_or(30)
-        ),
-        "evocative_ripple_quality": db_config.as_ref().map(|c| c.ui_evocative_ripple_quality).unwrap_or_else(||
-            std::env::var("UI_EVOCATIVE_RIPPLE_QUALITY").unwrap_or_else(|_| "0.85".to_string()).parse::<f64>().unwrap_or(0.85)
-        ),
-        "music_enabled": get_value(
-            db_config.as_ref().and_then(|c| c.music_enabled.clone()),
-            "MUSIC_ENABLED"
-        ),
-        "music_source": get_value(
-            db_config.as_ref().and_then(|c| c.music_source.clone()),
-            "MUSIC_SOURCE"
-        ),
-        "music_playlist_id": get_value(
-            db_config.as_ref().and_then(|c| c.music_playlist_id.clone()),
-            "MUSIC_PLAYLIST_ID"
-        ),
-        "music_proxy_enabled": db_config.as_ref().map(|c| c.music_proxy_enabled).unwrap_or(true),
-        "music_preload_enabled": db_config.as_ref().map(|c| c.music_preload_enabled).unwrap_or(true),
-        "island_show_greeting": db_config.as_ref().map(|c| c.island_show_greeting).unwrap_or(true),
-        "island_show_weather": db_config.as_ref().map(|c| c.island_show_weather).unwrap_or(true),
-        "island_show_quote": db_config.as_ref().map(|c| c.island_show_quote).unwrap_or(true),
-        "island_show_music": db_config.as_ref().map(|c| c.island_show_music).unwrap_or(true),
-        "island_show_tapp": db_config.as_ref().map(|c| c.island_show_tapp).unwrap_or(true),
-        "precise_location_enabled": db_config.as_ref().map(|c| c.precise_location_enabled).unwrap_or(false),
-        "dashboard_layout": db_config.as_ref().and_then(|c| c.dashboard_layout.clone()),
-        "dashboard_layout_mode": db_config.as_ref().and_then(|c| c.dashboard_layout_mode.clone()),
-        "dashboard_title": db_config.as_ref().and_then(|c| c.dashboard_title.clone()),
-        "custom_platforms": db_config.as_ref().and_then(|c| c.custom_platforms.clone()),
-        "widget_theme": db_config.as_ref().and_then(|c| c.widget_theme.clone()),
-        "control_panel_layout": db_config.as_ref().and_then(|c| c.control_panel_layout.clone()),
-        "control_panel_rows": db_config.as_ref().map(|c| c.control_panel_rows).unwrap_or(2),
-        "tapp_window_schemes": db_config.as_ref().and_then(|c| c.tapp_window_schemes.clone()),
+        "evocative_parallax": stored.ui_evocative_parallax,
+        "evocative_dynamic_blur": stored.ui_evocative_dynamic_blur,
+        "evocative_ripple": stored.ui_evocative_ripple,
+        "evocative_fps": stored.ui_evocative_fps as u32,
+        "evocative_ripple_quality": stored.ui_evocative_ripple_quality,
+        "music_enabled": stored.music_enabled.clone().unwrap_or_default(),
+        "music_source": stored.music_source.clone().unwrap_or_default(),
+        "music_playlist_id": stored.music_playlist_id.clone().unwrap_or_default(),
+        "music_proxy_enabled": stored.music_proxy_enabled,
+        "music_preload_enabled": stored.music_preload_enabled,
+        "island_show_greeting": stored.island_show_greeting,
+        "island_show_weather": stored.island_show_weather,
+        "island_show_quote": stored.island_show_quote,
+        "island_show_music": stored.island_show_music,
+        "island_show_tapp": stored.island_show_tapp,
+        "precise_location_enabled": stored.precise_location_enabled,
+        "dashboard_layout": stored.dashboard_layout.clone(),
+        "dashboard_layout_mode": stored.dashboard_layout_mode.clone(),
+        "dashboard_title": stored.dashboard_title.clone(),
+        "custom_platforms": stored.custom_platforms.clone(),
+        "widget_theme": stored.widget_theme.clone(),
+        "control_panel_layout": stored.control_panel_layout.clone(),
+        "control_panel_rows": stored.control_panel_rows,
+        "tapp_window_schemes": stored.tapp_window_schemes.clone(),
         // 标题字体样式设置
-        "title_font": db_config.as_ref().and_then(|c| c.title_font.clone()),
-        "title_font_size": db_config.as_ref().and_then(|c| c.title_font_size),
-        "title_color": db_config.as_ref().and_then(|c| c.title_color.clone()),
+        "title_font": stored.title_font.clone(),
+        "title_font_size": stored.title_font_size,
+        "title_color": stored.title_color.clone(),
         // 站点信息（用于底部显示）
-        "site_icp": db_config.as_ref().and_then(|c| c.site_icp.clone()),
-        "site_gongan": db_config.as_ref().and_then(|c| c.site_gongan.clone()),
-        "cloud_sponsors": db_config.as_ref().and_then(|c| c.cloud_sponsors.clone()),
-        "site_footer_custom": db_or_env_clearable(
-            db_config.as_ref().and_then(|c| c.site_footer_custom.clone()),
-            "SITE_FOOTER_CUSTOM",
-            ""
-        ),
+        "site_icp": stored.site_icp.clone(),
+        "site_gongan": stored.site_gongan.clone(),
+        "cloud_sponsors": stored.cloud_sponsors.clone(),
+        "site_footer_custom": stored.site_footer_custom.clone().unwrap_or_default(),
     });
 
     (StatusCode::OK, Json(ui_config))
@@ -508,7 +378,7 @@ mod ai_availability_tests {
     #[test]
     fn chat_and_naming_require_explicit_lite_without_pro_or_merope() {
         let mut config = crate::config::DynamicConfig {
-            lite_openai_model: "test-lite".into(),
+            lite_ai_model: "test-lite".into(),
             provider_openrouter_api_key: Some("test-key".into()),
             ..Default::default()
         };
@@ -516,7 +386,7 @@ mod ai_availability_tests {
         assert_eq!(value["chat"], true);
         assert_eq!(value["personaName"], true);
         assert_eq!(value["persona"], false);
-        config.lite_openai_model.clear();
+        config.lite_ai_model.clear();
         assert_eq!(ai_availability(&config)["chat"], false);
         assert_eq!(ai_availability(&config)["personaName"], false);
     }

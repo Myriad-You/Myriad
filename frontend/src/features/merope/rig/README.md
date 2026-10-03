@@ -12,16 +12,24 @@ root, torso, head, face, left-eye, right-eye, mouth, handwear
 ```
 
 There are no shoulder, elbow, wrist, leg, foot, contact-IK, locomotion, or hand
-pose chains. `handwear` is the shared semantic parent; optional
-`a25d-handwear-left/right` children hold the two rigid sleeve/partial-forearm/
-hand drawings. They may lag or swing within ±15 degrees but never deform into
-an articulated limb.
+pose bones in the IR. `handwear` is the shared semantic parent; optional
+`a25d-handwear-left/right` children hold the two sleeve/partial-forearm/hand
+drawings, which swing within ±15 degrees. The only bending inside a drawing
+comes from joints a pose model found on the master portrait
+(`anchors.skeleton`): below a found elbow the forearm, and below a found wrist
+the hand, each trail the segment above them; a full figure's legs bend at their
+found hip, knee and ankle. Without a skeleton a sleeve stays one rigid piece.
 
 At bind time each split sleeve gets one shoulder joint, found on its own
 opaque pixels nearest the anatomical shoulder (never above the neck), and the
 rotation fades in across the joint so the sleeve bends into the shoulder rather
-than tearing from it. At runtime the sleeve is a damped pendulum: `armY` opens
-both arms, `armPos` swings both one way, the shoulder's actual acceleration
+than tearing from it. At runtime the sleeve is a damped pendulum: `armY` is a
+shared lift that the two arms do not take alike: the arm on the side the head
+turns to (or the sway goes, or else the other arm from last time) leads, and
+the other comes along with 40% of it a quarter second behind. An arm with a
+found elbow takes 40% of its lift at the elbow instead, the forearm turning
+out; a standing figure's arm over the leg with the weight is pushed out by its
+hip. `armPos` swings both one way, the shoulder's actual acceleration
 after all primary motion makes the hand trail, and half of a body roll is given
 back to gravity. The swing saturates softly into the contract's
 `maxRigidArmRotationDegrees`. A sleeve that runs into the portrait crop keeps
@@ -31,8 +39,8 @@ A drawing whose hand is raised above its shoulder swings at 30%.
 A sleeve that is fabric all the way down (under 5% skin-toned pixels in its
 lower half, so no forearm or hand shows) is a drape: below a third of its length
 it blends from the arm's swing to its own softer pendulum, which trails the arm
-and settles 30% nearer vertical. A visible forearm never bends; a raised arm
-never drapes. Ribbons and tassels painted inside a sleeve cannot be separated
+and settles 30% nearer vertical. A visible forearm bends only at a found elbow;
+a raised arm never drapes. Ribbons and tassels painted inside a sleeve cannot be separated
 from it and move with the sleeve.
 
 This boundary is shared by

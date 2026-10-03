@@ -4,33 +4,6 @@
 mod tests {
     use super::*;
     #[test]
-    fn reference_paths_cannot_escape_federation_storage() {
-        let paths = crate::services::media::LegacyPaths {
-            federation_root: std::path::PathBuf::from("/data/federation_media"),
-            cache_images: std::path::PathBuf::from("/cache/images"),
-        };
-        assert!(
-            crate::services::media::legacy::legacy_disk_path(
-                &paths,
-                "/media/federation/1/picture.png"
-            )
-            .is_some()
-        );
-        for path in [
-            "/media/federation/../secret",
-            "/media/federation/1/../../secret",
-            "https://example.org/a.png",
-            "/media/federation/1/%2e%2e",
-            "/media/federation/1/a/b",
-        ] {
-            assert!(
-                crate::services::media::legacy::legacy_disk_path(&paths, path).is_none(),
-                "{path}"
-            );
-        }
-    }
-
-    #[test]
     fn save_edit_does_not_call_federation_store() {
         let src = include_str!("media_edit.rs");
         assert!(!src.contains(concat!("store_federation", "_media")));
@@ -61,8 +34,8 @@ use crate::services::{
     data_paths::paths,
     image_generation::{self, ImageReference},
     media::{
-        LegacyPaths, MediaActor, MediaContext, MediaExposure, MediaService, MediaSource,
-        MediaStore, NewMediaBytes, legacy::legacy_disk_path,
+        MediaActor, MediaContext, MediaExposure, MediaService, MediaSource, MediaStore,
+        NewMediaBytes,
     },
 };
 use crate::{GLOBAL_DYNAMIC_CONFIG, error::HttpError, extract::AdminClaims};
@@ -180,9 +153,6 @@ async fn read_reference(asset: &media_assets::Model) -> Result<ImageReference, H
         let path = store
             .final_path(key)
             .map_err(|_| HttpError(AppError::not_found("Source image is missing")))?;
-        read_file_capped(path).await?
-    } else if let Some(path) = legacy_disk_path(&LegacyPaths::from_data_paths(paths()), &asset.url)
-    {
         read_file_capped(path).await?
     } else {
         crate::services::image_cache::ImageCacheService::new()

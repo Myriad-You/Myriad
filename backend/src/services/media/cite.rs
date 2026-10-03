@@ -1,11 +1,9 @@
 //! Consumer-shaped wrappers over [`super::binding::bind`]: each names its
 //! consumer and how it extracts citations. Callers pass an open transaction.
 
-use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::Value;
 use uuid::Uuid;
-
-use crate::models::entities::{media_assets, media_url_aliases};
 
 use super::assets;
 use super::binding::{Authority, Bound, Citations, Consumer, Unresolved, bind};
@@ -103,19 +101,10 @@ pub async fn resolve_asset_id(
             return Ok(Some(row.id));
         }
     }
-    if let Some(alias) = media_url_aliases::Entity::find()
-        .filter(media_url_aliases::Column::LocalPath.eq(path))
-        .one(db)
-        .await?
-    {
-        return Ok(Some(alias.asset_id));
-    }
-    if let Some(row) = media_assets::Entity::find()
-        .filter(media_assets::Column::Url.eq(path))
-        .one(db)
-        .await?
-    {
-        return Ok(Some(row.id));
+    if let Some(public_id) = super::cache_import::cached_public_id(path) {
+        if let Some(row) = assets::find_by_public_id(db, public_id).await? {
+            return Ok(Some(row.id));
+        }
     }
     Ok(None)
 }
@@ -352,84 +341,6 @@ pub async fn bind_ai_task(
     .map(|_| ())
 }
 
-/// Media upgrade of one `tapp_storage` row, bound exactly as a live write
-/// binds it (as the namespace user, skipping what they cannot manage), for
-/// values written before storage writes recorded references.
-///
-/// Tapp AI results generated between 0ce67eaa4 and d438e3f7f were born
-/// private at the login-only `/api/media/{id}/content`, which no sandbox
-/// `<img>` can load. Those never published and still the user's are published
-/// as current results are, and every bound citation in the value is rewritten
-/// to its permanent address. Returns the value when that changed it.
-pub(crate) async fn bind_tapp_storage_upgrade(
-    txn: &impl ConnectionTrait,
-    row_id: i32,
-    user_id: i32,
-    value: &Value,
-    origins: &[String],
-) -> Result<Option<Value>, MediaError> {
-    let consumer = Consumer::tapp_storage(row_id);
-    let citations = Citations::strings(origins, value, |i| format!("value:{i}"));
-    let Ok(actor) = MediaActor::user(user_id) else {
-        bind(
-            txn,
-            &consumer,
-            &citations,
-            Authority::Anonymous,
-            Unresolved::Skip,
-        )
-        .await?;
-        return Ok(None);
-    };
-    let mut born_private = Vec::new();
-    for citation in citations.iter() {
-        let Some(id) = resolve_asset_id(txn, &citation.path).await? else {
-            continue;
-        };
-        let Some(row) = assets::find_by_id(txn, id).await? else {
-            continue;
-        };
-        let unpublished_task_result = row.first_published_at.is_none()
-            && row.exposure.as_deref() == Some("private")
-            && row.state.as_deref() == Some("ready")
-            && row
-                .producer_key
-                .as_deref()
-                .is_some_and(|key| key.starts_with("ai-task:"));
-        if unpublished_task_result && super::access::can_manage(&actor, &assets::to_domain(row, 0)?)
-        {
-            born_private.push(id);
-        }
-    }
-    born_private.sort_unstable();
-    born_private.dedup();
-    publish_asset_ids(txn, &born_private).await?;
-    let bound = bind(
-        txn,
-        &consumer,
-        &citations,
-        Authority::Actor(&actor),
-        Unresolved::Skip,
-    )
-    .await?;
-    let mut rewritten = value.clone();
-    rewrite_strings(&mut rewritten, &|raw| bound.rewrite(raw));
-    Ok((rewritten != *value).then_some(rewritten))
-}
-
-fn rewrite_strings(value: &mut Value, rewrite: &impl Fn(&str) -> String) {
-    match value {
-        Value::String(text) => *text = rewrite(text),
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| rewrite_strings(item, rewrite)),
-        Value::Object(map) => map
-            .values_mut()
-            .for_each(|item| rewrite_strings(item, rewrite)),
-        _ => {}
-    }
-}
-
 /// Media handed to one Agent run (web or channel). `payload` is client input:
 /// any string in it may name an asset. Only assets the sender may manage are
 /// bound, so a message cannot pin someone else's media against deletion; a
@@ -642,12 +553,11 @@ pub(crate) async fn bind_restored_site_image(
     key: &str,
     url: &str,
     origins: &[String],
-    paths: &super::LegacyPaths,
 ) -> Result<(String, Vec<String>), MediaError> {
     let consumer =
         Consumer::site_image(key).ok_or_else(|| MediaError::invalid("Not a site image setting"))?;
     if let Some(path) = cite_local_path(url, origins) {
-        if super::upgrade::is_dead_local_path(txn, paths, origins, &path).await? {
+        if is_dead_local_path(txn, &path).await? {
             bind(
                 txn,
                 &consumer,
@@ -671,7 +581,6 @@ pub(crate) async fn bind_restored_dashboard_layout(
     txn: &impl ConnectionTrait,
     layout_json: &str,
     origins: &[String],
-    paths: &super::LegacyPaths,
 ) -> Result<(String, Vec<String>), MediaError> {
     let layout: Value = serde_json::from_str(layout_json).unwrap_or(Value::Null);
     let mut dead_urls = Vec::new();
@@ -680,7 +589,7 @@ pub(crate) async fn bind_restored_dashboard_layout(
         let Some(path) = cite_local_path(&url, origins) else {
             continue;
         };
-        if super::upgrade::is_dead_local_path(txn, paths, origins, &path).await? {
+        if is_dead_local_path(txn, &path).await? {
             dead_urls.push(url);
             push_unique(&mut dead_paths, path);
         }
@@ -688,6 +597,25 @@ pub(crate) async fn bind_restored_dashboard_layout(
     let stored =
         bind_and_publish_dashboard_layout_except(txn, layout_json, origins, &dead_paths).await?;
     Ok((stored, dead_urls))
+}
+
+/// A local path that definitely has no media on this instance: its asset was
+/// deleted, or nothing is catalogued for it and no cached file exists to
+/// import. A catalogued asset that is not ready (its file is missing) is not
+/// dead: its bytes may come back. Database and filesystem errors propagate.
+async fn is_dead_local_path(db: &impl ConnectionTrait, path: &str) -> Result<bool, MediaError> {
+    if let Some(id) = resolve_asset_id(db, path).await? {
+        let row = assets::find_by_id(db, id).await?;
+        return Ok(row.is_none_or(|row| row.state.as_deref() == Some("deleted")));
+    }
+    let cache = crate::services::image_cache::ImageCacheService::new();
+    match cache.local_path_for_public_url(path) {
+        Some(disk) if path.starts_with("/api/phantasi/image-cache/") => {
+            Ok(!tokio::fs::try_exists(&disk).await?)
+        }
+        // Other platform media paths are only ever created by a catalogued upload.
+        _ => Ok(true),
+    }
 }
 
 /// Mark assets public. Only [`super::binding::bind`] calls this, after it has

@@ -478,7 +478,7 @@ async fn bind_storage_media(
 ) {
     use crate::services::media::{Authority, Citations, Consumer, MediaActor, Unresolved, bind};
     use sea_orm::TransactionTrait;
-    let origins = crate::services::media::upgrade::configured_origins().await;
+    let origins = crate::services::media::configured_origins().await;
     let citations = Citations::strings(&origins, value, |i| format!("value:{i}"));
     let consumer = Consumer::tapp_storage(row_id);
     let actor = writer.and_then(|id| MediaActor::user(id).ok());

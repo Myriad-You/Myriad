@@ -24,7 +24,6 @@ const CONSUMER_TYPES: &[&str] = &[
     "site_setting",
     "ai_task",
     "federation_activity",
-    "federation_outbox",
     "channel_message",
     "tapp_storage",
 ];

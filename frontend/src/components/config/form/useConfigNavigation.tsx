@@ -23,7 +23,7 @@ import {
   syncConfigSectionToUrl,
 } from './configNavPersistence'
 import { configSectionCatalog } from './configSections'
-import { LEGACY_CONFIG_SECTION_MAP, loadConfigFavorites } from './defaults'
+import { loadConfigFavorites } from './defaults'
 import { useConfigDomain } from './useConfigDomain'
 
 export function useConfigNavigation(
@@ -182,8 +182,7 @@ export function useConfigNavigation(
 
   const handleSectionChange = useCallback(
     (section: string, options?: { guidePath?: string | null }) => {
-      const next = LEGACY_CONFIG_SECTION_MAP[section] ?? section
-      const portal = quickAccessItems.find((item) => item.section === next)
+      const portal = quickAccessItems.find((item) => item.section === section)
       if (portal?.href) {
         navigate(
           portal.href.startsWith('/agent/settings')
@@ -193,7 +192,7 @@ export function useConfigNavigation(
         return
       }
       if (
-        next === 'federation' &&
+        section === 'federation' &&
         !federationSettingsVisible(isAdmin, federationEnabled)
       ) {
         return
@@ -203,21 +202,21 @@ export function useConfigNavigation(
 
       const order = quickAccessItems.map((item) => item.section)
       const from = order.indexOf(activeSection)
-      const to = order.indexOf(next)
+      const to = order.indexOf(section)
       setSectionDir(from >= 0 && to >= 0 && to < from ? 'back' : 'forward')
 
-      const sameSection = next === activeSection
-      setActiveSection(next)
+      const sameSection = section === activeSection
+      setActiveSection(section)
       setPlatformFocus(null)
       setMobilePane('section')
       // new section: scroll top; drop previous snapshot
       saveConfigNavPersisted({
-        section: next,
+        section,
         mobilePane: 'section',
         platformFocus: null,
         scrollY: 0,
       })
-      syncConfigSectionToUrl(next)
+      syncConfigSectionToUrl(section)
 
       if (sameSection && guidePath) {
         requestAnimationFrame(() => {

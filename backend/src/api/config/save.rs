@@ -133,7 +133,7 @@ async fn save_to_database(
         .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
     // Same origin set as the media upgrade backfill. URLs under an older site
     // origin are recognized by the binder when they resolve locally.
-    let origins = crate::services::media::upgrade::configured_origins().await;
+    let origins = crate::services::media::configured_origins().await;
     for key in ["ui_wallpaper_url", "site_og_image", "site_favicon"] {
         let Some(url) = updates.get(key).and_then(Value::as_str) else {
             continue;
@@ -151,26 +151,6 @@ async fn save_to_database(
         .await
         .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
     Ok(())
-}
-
-fn vendor_json_is_agora(value: &serde_json::Value) -> bool {
-    let kind = value
-        .get("kind")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let preset = value
-        .get("preset")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let slug = value
-        .get("slug")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    kind.eq_ignore_ascii_case("agora")
-        || preset.eq_ignore_ascii_case("agora")
-        || slug == "agora"
-        || slug.starts_with("agora-")
 }
 
 fn merge_vendor_source_secrets_with(
@@ -246,6 +226,7 @@ fn merge_vendor_source_secrets_with(
                     })?,
             );
         }
+        source.settle_credential_mode();
     }
     serde_json::to_value(sources).map_err(|error| error.to_string())
 }
@@ -443,91 +424,21 @@ pub(crate) fn collect_database_updates_with_vendor(
     // 保存 AI 配置
     for field in &config.ai_config.config_fields {
         let (key, json_value) = match field.key.as_str() {
-            "provider" => ("ai_provider", JsonValue::String(field.value.clone())),
-            "gemini_api_key" => ("gemini_api_key", JsonValue::String(field.value.clone())),
-            "gemini_model" => ("gemini_model", JsonValue::String(field.value.clone())),
-            "openai_api_key" => ("openai_api_key", JsonValue::String(field.value.clone())),
-            "openai_model" => ("openai_model", JsonValue::String(field.value.clone())),
-            "openai_base_url" => ("openai_base_url", JsonValue::String(field.value.clone())),
-            // Pro 模型配置
+            // 文本模型：每档一个服务商源加一个模型名
+            "ai_model" => ("ai_model", JsonValue::String(field.value.clone())),
+            "lite_ai_model" => ("lite_ai_model", JsonValue::String(field.value.clone())),
             "pro_enabled" => ("pro_enabled", JsonValue::Bool(field.value == "true")),
-            "pro_provider" => ("pro_ai_provider", JsonValue::String(field.value.clone())),
-            "pro_gemini_api_key" => ("pro_gemini_api_key", JsonValue::String(field.value.clone())),
-            "pro_gemini_model" => ("pro_gemini_model", JsonValue::String(field.value.clone())),
-            "pro_openai_api_key" => ("pro_openai_api_key", JsonValue::String(field.value.clone())),
-            "pro_openai_model" => ("pro_openai_model", JsonValue::String(field.value.clone())),
-            "pro_openai_base_url" => (
-                "pro_openai_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            // AI Lite 模型配置
-            "lite_provider" => ("lite_ai_provider", JsonValue::String(field.value.clone())),
-            "lite_gemini_api_key" => (
-                "lite_gemini_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "lite_gemini_model" => ("lite_gemini_model", JsonValue::String(field.value.clone())),
-            "lite_openai_api_key" => (
-                "lite_openai_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "lite_openai_model" => ("lite_openai_model", JsonValue::String(field.value.clone())),
-            "lite_openai_base_url" => (
-                "lite_openai_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            "lite_judge_model" => ("lite_judge_model", JsonValue::String(field.value.clone())),
-            "lite_embedding_model" => (
-                "lite_embedding_model",
+            "pro_ai_model" => ("pro_ai_model", JsonValue::String(field.value.clone())),
+            "aux_judge_model" => ("aux_judge_model", JsonValue::String(field.value.clone())),
+            "aux_embedding_model" => (
+                "aux_embedding_model",
                 JsonValue::String(field.value.clone()),
             ),
             "aux_ai_source" => ("aux_ai_source", JsonValue::String(field.value.clone())),
             // AI 图片生成配置
-            "ai_image_provider" => ("ai_image_provider", JsonValue::String(field.value.clone())),
             "ai_image_model" => ("ai_image_model", JsonValue::String(field.value.clone())),
-            "ai_image_openai_api_key" => (
-                "ai_image_openai_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "ai_image_openai_base_url" => (
-                "ai_image_openai_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            "ai_image_openrouter_api_key" => (
-                "ai_image_openrouter_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "ai_image_volcengine_api_key" => (
-                "ai_image_volcengine_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "ai_image_volcengine_base_url" => (
-                "ai_image_volcengine_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            // 腾讯云语音服务配置 (TTS/ASR)
-            "tencent_secret_id" => ("tencent_secret_id", JsonValue::String(field.value.clone())),
-            "tencent_secret_key" => ("tencent_secret_key", JsonValue::String(field.value.clone())),
-            "tencent_region" => ("tencent_region", JsonValue::String(field.value.clone())),
-            "speech_provider" => ("speech_provider", JsonValue::String(field.value.clone())),
-            "speech_openai_api_key" => (
-                "speech_openai_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "speech_openai_base_url" => (
-                "speech_openai_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
-            "speech_openrouter_api_key" => (
-                "speech_openrouter_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
             "provider_openai_api_key" => (
                 "provider_openai_api_key",
-                JsonValue::String(field.value.clone()),
-            ),
-            "provider_openai_base_url" => (
-                "provider_openai_base_url",
                 JsonValue::String(field.value.clone()),
             ),
             "provider_openrouter_api_key" => (
@@ -546,10 +457,6 @@ pub(crate) fn collect_database_updates_with_vendor(
                 "provider_volcengine_api_key",
                 JsonValue::String(field.value.clone()),
             ),
-            "provider_volcengine_base_url" => (
-                "provider_volcengine_base_url",
-                JsonValue::String(field.value.clone()),
-            ),
             "speech_stt_model" => ("speech_stt_model", JsonValue::String(field.value.clone())),
             "speech_tts_model" => ("speech_tts_model", JsonValue::String(field.value.clone())),
             "speech_tts_voice" => ("speech_tts_voice", JsonValue::String(field.value.clone())),
@@ -558,21 +465,6 @@ pub(crate) fn collect_database_updates_with_vendor(
             "pro_ai_source" => ("pro_ai_source", JsonValue::String(field.value.clone())),
             "ai_image_source" => ("ai_image_source", JsonValue::String(field.value.clone())),
             "speech_source" => ("speech_source", JsonValue::String(field.value.clone())),
-            "agora_convo_enabled" => (
-                "agora_convo_enabled",
-                JsonValue::Bool(field.value == "true"),
-            ),
-            "agora_app_id" => ("agora_app_id", JsonValue::String(field.value.clone())),
-            "agora_app_certificate" => (
-                "agora_app_certificate",
-                JsonValue::String(field.value.clone()),
-            ),
-            "agora_customer_id" => ("agora_customer_id", JsonValue::String(field.value.clone())),
-            "agora_customer_secret" => (
-                "agora_customer_secret",
-                JsonValue::String(field.value.clone()),
-            ),
-            "agora_api_base" => ("agora_api_base", JsonValue::String(field.value.clone())),
             "qq_bot_enabled" => (
                 "qq_bot_enabled",
                 JsonValue::Bool(field.value == "true" || field.value == "1"),
@@ -634,31 +526,23 @@ pub(crate) fn collect_database_updates_with_vendor(
         // 掩码：保持库里原值。空密钥：写成 null 清除（与平台凭证同一套）。
         let allow_empty = matches!(
             field.key.as_str(),
-            "speech_provider"
-                | "speech_stt_model"
+            "speech_stt_model"
                 | "speech_tts_model"
                 | "speech_tts_voice"
-                | "provider_openai_base_url"
-                | "provider_volcengine_base_url"
                 | "ai_source"
                 | "lite_ai_source"
                 // Cleared: Lite is not used (there is no switch).
-                | "lite_gemini_model"
-                | "lite_openai_model"
+                | "lite_ai_model"
                 // Cleared: judgments go back to Lite's own model.
-                | "lite_judge_model"
+                | "aux_judge_model"
                 // Cleared: recall goes back to words alone.
-                | "lite_embedding_model"
+                | "aux_embedding_model"
                 // Cleared: judgments and embeddings go back to Lite's source.
                 | "aux_ai_source"
                 | "pro_ai_source"
                 | "ai_image_source"
                 | "speech_source"
                 | "ai_vendor_sources"
-                | "agora_convo_enabled"
-                | "agora_app_id"
-                | "agora_customer_id"
-                | "agora_api_base"
                 | "qq_bot_enabled"
                 | "qq_bot_app_id"
                 | "telegram_bot_enabled"
@@ -683,44 +567,6 @@ pub(crate) fn collect_database_updates_with_vendor(
         }
         updates.insert(key.to_string(), json_value);
     }
-    // Lite's old switch, read back by `parse_config`: written on, so from
-    // the first save of Lite's models only the model decides. A form or
-    // backup from before still saying off keeps Lite unused: blank models.
-    if updates.contains_key("lite_gemini_model") || updates.contains_key("lite_openai_model") {
-        let switched_off = config.ai_config.config_fields.iter().any(|field| {
-            field.key == "lite_enabled" && !matches!(field.value.trim(), "true" | "1")
-        });
-        if switched_off {
-            for key in ["lite_gemini_model", "lite_openai_model"] {
-                updates.insert(key.to_string(), JsonValue::String(String::new()));
-            }
-        }
-        updates.insert("lite_enabled".to_string(), JsonValue::Bool(true));
-    }
-
-    if updates.contains_key("ai_vendor_sources") {
-        let has_agora = updates
-            .get("ai_vendor_sources")
-            .and_then(JsonValue::as_array)
-            .is_some_and(|sources| sources.iter().any(vendor_json_is_agora));
-        if !has_agora {
-            updates.insert("agora_convo_enabled".to_string(), JsonValue::Bool(false));
-            updates.insert("agora_app_id".to_string(), JsonValue::String(String::new()));
-            updates.insert(
-                "agora_app_certificate".to_string(),
-                JsonValue::String(String::new()),
-            );
-            updates.insert(
-                "agora_customer_id".to_string(),
-                JsonValue::String(String::new()),
-            );
-            updates.insert(
-                "agora_customer_secret".to_string(),
-                JsonValue::String(String::new()),
-            );
-        }
-    }
-
     // 保存独立 Tripo 3D 配置。密钥掩码必须保留库中原值。
     for field in &config.tripo_config.config_fields {
         let value = field.value.trim();
@@ -779,16 +625,6 @@ pub(crate) fn collect_database_updates_with_vendor(
                 }
             }
             _ => {}
-        }
-    }
-
-    // 保存报告配置
-    for field in &config.report_config.config_fields {
-        if field.key == "topic_style" && !field.value.is_empty() {
-            updates.insert(
-                "topic_style".to_string(),
-                JsonValue::String(field.value.clone()),
-            );
         }
     }
 
@@ -1238,7 +1074,7 @@ mod tests {
         let persist = src
             .split("async fn save_to_database")
             .nth(1)
-            .and_then(|rest| rest.split("fn vendor_json_is_agora").next())
+            .and_then(|rest| rest.split("fn merge_vendor_source_secrets_with").next())
             .expect("save_to_database");
         assert!(persist.contains("ConfigPersistError::Invalid"));
         assert!(!persist.contains("ErrorKind::InvalidInput"));
@@ -1262,30 +1098,31 @@ mod tests {
     }
 
     #[test]
-    fn lite_has_no_switch_its_model_decides() {
-        // Cleared: saved blank, so Lite is not used.
-        let cleared = collect_database_updates(&ai_fields(&[
-            ("lite_openai_model", ""),
-            ("lite_gemini_model", ""),
+    fn each_tier_saves_one_model_and_lite_can_be_cleared() {
+        let saved = collect_database_updates(&ai_fields(&[
+            ("ai_model", "minimax/minimax-m3"),
+            ("lite_ai_model", ""),
+            ("pro_ai_model", "anthropic/claude-opus-5.5"),
+            ("aux_judge_model", ""),
+            ("aux_embedding_model", "perplexity/pplx-embed-v1-0.6b"),
         ]))
         .unwrap();
-        assert_eq!(cleared.get("lite_openai_model"), Some(&json!("")));
-        assert_eq!(cleared.get("lite_enabled"), Some(&json!(true)));
-        let filled =
-            collect_database_updates(&ai_fields(&[("lite_openai_model", "lite/model")])).unwrap();
-        assert_eq!(filled.get("lite_openai_model"), Some(&json!("lite/model")));
-        assert_eq!(filled.get("lite_enabled"), Some(&json!(true)));
-        // An old form or backup that had Lite switched off keeps it unused.
-        let old_off = collect_database_updates(&ai_fields(&[
-            ("lite_enabled", "false"),
+        assert_eq!(saved.get("ai_model"), Some(&json!("minimax/minimax-m3")));
+        // Cleared: Lite is not used.
+        assert_eq!(saved.get("lite_ai_model"), Some(&json!("")));
+        assert_eq!(saved.get("aux_judge_model"), Some(&json!("")));
+        assert_eq!(
+            saved.get("aux_embedding_model"),
+            Some(&json!("perplexity/pplx-embed-v1-0.6b"))
+        );
+        // Old field names from a stale page are not saved.
+        let stale = collect_database_updates(&ai_fields(&[
+            ("lite_enabled", "true"),
             ("lite_openai_model", "lite/model"),
+            ("provider", "openai"),
         ]))
         .unwrap();
-        assert_eq!(old_off.get("lite_openai_model"), Some(&json!("")));
-        assert_eq!(old_off.get("lite_enabled"), Some(&json!(true)));
-        // Not saving Lite at all leaves the old switch alone.
-        let other = collect_database_updates(&ai_fields(&[("openai_model", "std")])).unwrap();
-        assert!(!other.contains_key("lite_enabled"));
+        assert!(stale.is_empty(), "{stale:?}");
     }
 
     #[test]

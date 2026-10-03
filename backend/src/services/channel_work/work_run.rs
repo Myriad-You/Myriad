@@ -108,11 +108,6 @@ pub(super) async fn resume_pending(
             .await
             .map_err(|error| error.to_json())
         }
-        // Recipe-level confirmations are gone; only prompts stored before
-        // that change can still carry this kind.
-        PendingKind::Confirm { .. } => Err(myriad_error::AppError::public_json(
-            "This confirmation is no longer available. Please send the request again.",
-        )),
         PendingKind::Answer {
             task_id,
             question_id,

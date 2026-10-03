@@ -35,12 +35,11 @@ interface ActivityChange {
 
 interface Activity {
   platform_name: string
-  event_type: 'imported' | 'updated' | 'legacy_updated' | string
+  event_type: 'imported' | 'updated' | string
   title: string
   changes: ActivityChange[]
   change_count: number
   change_date: string
-  legacy?: boolean
 }
 
 function metricLabel(metric: string | undefined, t: ShellTranslationKeys): string {

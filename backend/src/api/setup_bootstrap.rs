@@ -23,8 +23,6 @@ const SETUP_SECRET_ENV: &str = "MYRIAD_SETUP_SECRET";
 const SETUP_SECRET_HEADER: &str = "x-setup-secret";
 
 const CLAIMED_MARKER_FILE_NAME: &str = ".bootstrap-claimed";
-const LEGACY_TOKEN_FILE_NAME: &str = ".bootstrap-token";
-const LEGACY_ROTATION_MARKER_FILE_NAME: &str = ".bootstrap-rotating";
 
 #[derive(Debug)]
 struct InstallationWindow {
@@ -123,11 +121,6 @@ fn persist_claimed_marker(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn remove_legacy_token_files(data_dir: &Path) -> io::Result<()> {
-    remove_file_if_present(&data_dir.join(LEGACY_TOKEN_FILE_NAME))?;
-    remove_file_if_present(&data_dir.join(LEGACY_ROTATION_MARKER_FILE_NAME))
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClaimedMarkerPlan {
     OpenFresh,
@@ -177,7 +170,6 @@ pub fn init_for_setup(data_dir: &Path, database_verified_unclaimed: bool) -> io:
             remove_file_if_present(&claimed_marker_file)?;
         }
         ClaimedMarkerPlan::KeepClosed => {
-            remove_legacy_token_files(data_dir)?;
             let state = InstallationWindow {
                 open: false,
                 claimed_marker_file,
@@ -191,8 +183,6 @@ pub fn init_for_setup(data_dir: &Path, database_verified_unclaimed: bool) -> io:
         }
         ClaimedMarkerPlan::OpenFresh => {}
     }
-    remove_legacy_token_files(data_dir)?;
-
     let secret_note = if setup_secret_is_configured() {
         "Owner claim and other setup writes require MYRIAD_SETUP_SECRET."
     } else {
@@ -239,12 +229,6 @@ pub fn consume_setup() -> io::Result<()> {
         .lock()
         .map_err(|_| io::Error::other("installation window mutex is poisoned"))?;
     persist_claimed_marker(&state.claimed_marker_file)?;
-    remove_legacy_token_files(
-        state
-            .claimed_marker_file
-            .parent()
-            .unwrap_or_else(|| Path::new(".")),
-    )?;
     state.consume();
     Ok(())
 }
@@ -284,8 +268,7 @@ pub fn invalidate_setup_in_memory() -> io::Result<()> {
 
 /// Claimed installations do not reopen setup on restart.
 pub fn mark_claimed_on_disk(data_dir: &Path) -> io::Result<()> {
-    persist_claimed_marker(&claimed_marker_path(data_dir))?;
-    remove_legacy_token_files(data_dir)
+    persist_claimed_marker(&claimed_marker_path(data_dir))
 }
 
 fn unquote_env(value: &str) -> &str {
@@ -439,17 +422,11 @@ mod tests {
     }
 
     #[test]
-    fn claimed_marker_is_private_and_legacy_token_files_are_removed() {
+    fn claimed_marker_is_private() {
         let dir = std::env::temp_dir().join(format!("myriad-setup-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
-        let token = dir.join(LEGACY_TOKEN_FILE_NAME);
-        let rotating = dir.join(LEGACY_ROTATION_MARKER_FILE_NAME);
-        fs::write(&token, "leftover\n").unwrap();
-        fs::write(&rotating, "rotating\n").unwrap();
         mark_claimed_on_disk(&dir).unwrap();
         assert!(claimed_marker_path(&dir).exists());
-        assert!(!token.exists());
-        assert!(!rotating.exists());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

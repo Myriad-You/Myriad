@@ -407,8 +407,8 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef {
                     name: "received_at".into(),
                     data_type: "timestamp with time zone".into(),
-                    default_value: None,
-                    not_null: false,
+                    default_value: Some("now()".into()),
+                    not_null: true,
                 },
             ],
         },
@@ -806,7 +806,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     name: "membership_status".into(),
                     data_type: "character varying".into(),
                     default_value: Some("'active'".into()),
-                    not_null: false,
+                    not_null: true,
                 },
                 // Per-member read cursor for sidebar unread badges (Aro groups).
                 ColumnDef {

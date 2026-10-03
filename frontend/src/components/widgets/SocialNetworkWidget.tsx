@@ -859,6 +859,7 @@ const InfoTooltip = memo(
     return createPortal(
       <motion.div
         {...TOOLTIP_ANIMATION}
+        data-social-info-tip=""
         className="fixed z-10001 pointer-events-auto w-fit h-fit"
         style={{ top: position.top, left: position.left }}
       >
@@ -1453,6 +1454,16 @@ export const SocialNetworkWidget = memo(
     const isPopupType = popupPlatformData !== null
     const hasInteraction = !isEditMode && !!userId
 
+    // 跳外站的平台渲染成真链接：右键复制、中键新开、长按菜单都归浏览器。
+    const linkUrl = useMemo(() => {
+      if (!hasInteraction || popupPlatformData?.popupData.text) return null
+      if (userId === '__popup__') return null
+      const url = selectedPlatform.getUserUrl(
+        userId === '__direct_url__' ? '' : userId,
+      )
+      return url && url !== '#' ? url : null
+    }, [hasInteraction, popupPlatformData, selectedPlatform, userId])
+
     const handleClick = useCallback(async () => {
       // 长按打开设置时不要当点击跳转。
       if (isLongPressRef.current) {
@@ -1781,6 +1792,43 @@ export const SocialNetworkWidget = memo(
       }
     }, [isEditMode, userId, isPopupType, popupPlatformData, config.size])
 
+    const lastTouchAtRef = useRef(-Infinity)
+    const handleTouchStart = useCallback(() => {
+      lastTouchAtRef.current = performance.now()
+      handlePressStart()
+    }, [handlePressStart])
+
+    // 触摸合成的 mouseenter 会弹出浮层，但不会有 mouseleave 收起它：
+    // 点到别处、页面滚动时收起；由触摸弹出的几秒后自己收起。
+    useEffect(() => {
+      if (!showInfoTooltip) return
+      const dismiss = () => {
+        if (hoverTimerRef.current) {
+          clearTimeout(hoverTimerRef.current)
+          hoverTimerRef.current = null
+        }
+        setShowInfoTooltip(false)
+      }
+      const onPointerDown = (event: PointerEvent) => {
+        const target = event.target
+        if (!(target instanceof Node)) return
+        if (localRef.current?.contains(target)) return
+        if (target instanceof Element && target.closest('[data-social-info-tip]')) return
+        dismiss()
+      }
+      document.addEventListener('pointerdown', onPointerDown, true)
+      window.addEventListener('scroll', dismiss, { passive: true })
+      const autoHide =
+        performance.now() - lastTouchAtRef.current < 1500
+          ? setTimeout(dismiss, 5000)
+          : null
+      return () => {
+        document.removeEventListener('pointerdown', onPointerDown, true)
+        window.removeEventListener('scroll', dismiss)
+        if (autoHide) clearTimeout(autoHide)
+      }
+    }, [showInfoTooltip])
+
     const mergedRef = useCallback(
       (node: HTMLDivElement | null) => {
         localRef.current = node
@@ -1813,9 +1861,9 @@ export const SocialNetworkWidget = memo(
           }
           rootProps={{
             ...containerHoverProps,
-            role: hasInteraction ? 'button' : undefined,
-            tabIndex: hasInteraction ? 0 : undefined,
-            'aria-label': hasInteraction
+            role: hasInteraction && !linkUrl ? 'button' : undefined,
+            tabIndex: hasInteraction && !linkUrl ? 0 : undefined,
+            'aria-label': hasInteraction && !linkUrl
               ? `${selectedPlatform.name}: ${t.socialNetwork.clickToVisit}`
               : undefined,
             onClick: handleClick,
@@ -1824,12 +1872,24 @@ export const SocialNetworkWidget = memo(
             onMouseUp: handlePressEnd,
             onMouseLeave: handleMouseLeave,
             onMouseEnter: handleMouseEnter,
-            onTouchStart: handlePressStart,
+            onTouchStart: handleTouchStart,
             onTouchEnd: handlePressEnd,
             onTouchCancel: handlePressEnd,
           }}
         >
           {content}
+          {linkUrl && (
+            <a
+              href={linkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              draggable={false}
+              className="absolute inset-0 z-[2]"
+              aria-label={`${selectedPlatform.name}: ${t.socialNetwork.clickToVisit}`}
+              // 根节点的 onClick 会再 window.open 一次。
+              onClick={(event) => event.stopPropagation()}
+            />
+          )}
           <WidgetLongPressHint
             visible={isEditMode}
             title={t.socialNetwork.longPressToEdit}

@@ -183,6 +183,8 @@ export function usePhantasiRailPan(
           ? railColumnSlots(totalCols, colW)
           : railSlotOffsets(cards)
       scrollMax = railMaxScroll(rawSlots, overflowPx)
+      // 只有一个落点时拖不动，光标不该提示能抓。
+      viewport.classList.toggle('is-rail-static', scrollMax <= 0)
       slotsCols = totalCols
       slotsColW = colW
     }
@@ -469,8 +471,9 @@ export function usePhantasiRailPan(
 
     const beginGrab = () => {
       clearIdleTimer()
+      if (maxScroll() <= 0) return
       paintPanning(true)
-      if (maxScroll() > 0) track.style.willChange = 'transform'
+      track.style.willChange = 'transform'
       if (grabOn) return
       grabOn = true
       onGrabRef.current?.()
@@ -833,7 +836,8 @@ export function usePhantasiRailPan(
       const node = event.target
       if (!(node instanceof Element)) return false
       return Boolean(
-        node.closest('a[href], input, textarea, select, [contenteditable="true"]'),
+        // 文章卡本身是链接，从卡上起手照样拖轨道；卡里别的链接才让给浏览器。
+        node.closest('a[href]:not([data-phantasi-surface="story"]), input, textarea, select, [contenteditable="true"]'),
       )
     }
 
@@ -1014,6 +1018,7 @@ export function usePhantasiRailPan(
       viewport.removeEventListener('pointercancel', onPointerUp)
       viewport.removeEventListener('lostpointercapture', onPointerUp)
       clearExit()
+      viewport.classList.remove('is-rail-static')
       if (apiRef) apiRef.current = null
     }
   }, [apiRef, cardSelector, enabled, loopCols, overflowLeft, resetKey, trackRef, viewportRef])
