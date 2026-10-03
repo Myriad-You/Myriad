@@ -146,20 +146,72 @@ describe('useWidgetRotation', () => {
     assert.deepEqual(steps, [])
   })
 
-  it('pages on a horizontal wheel sweep once, and lets vertical wheel scroll the page', async () => {
+  function wheelAt(el: Element, at: number, init: WheelEventInit) {
+    const event = new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, ...init })
+    Object.defineProperty(event, 'timeStamp', { value: at })
+    el.dispatchEvent(event)
+    return event
+  }
+
+  it('lets vertical wheel scroll the page and pages on a horizontal sweep', async () => {
     const el = await mount()
-    const wheel = (init: WheelEventInit) => {
-      const event = new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, ...init })
-      el.dispatchEvent(event)
-      return event
-    }
     await act(async () => {
-      assert.equal(wheel({ deltaY: 80 }).defaultPrevented, false)
-      assert.equal(wheel({ deltaX: 30 }).defaultPrevented, true)
-      wheel({ deltaX: 30 })
-      wheel({ deltaX: 30 })
+      assert.equal(wheelAt(el, 1000, { deltaY: 80 }).defaultPrevented, false)
+      assert.equal(wheelAt(el, 1016, { deltaX: 30 }).defaultPrevented, true)
+      wheelAt(el, 1032, { deltaX: 30 })
     })
-    assert.deepEqual(steps, [1], 'inertia right after a step is ignored')
+    assert.deepEqual(steps, [1])
+  })
+
+  it('turns one trackpad sweep, inertia included, into exactly one page', async () => {
+    const el = await mount()
+    await act(async () => {
+      // 一秒多的惯性尾巴，每帧都还在攒位移。
+      for (let i = 0; i < 80; i++) wheelAt(el, 2000 + i * 16, { deltaX: Math.max(1, 60 - i) })
+    })
+    assert.deepEqual(steps, [1])
+    await act(async () => {
+      wheelAt(el, 2000 + 79 * 16 + 300, { deltaX: -60 })
+    })
+    assert.deepEqual(steps, [1, -1], 'a new sweep after a pause pages again')
+  })
+
+  it('does not autoplay while a finger is down, so a slow swipe cannot land two pages', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const el = await mount({ delay: 1000, autoplay: true })
+    await act(async () => pointer(el, 'pointerdown', { clientX: 100, clientY: 100, pointerType: 'touch' }))
+    await act(async () => mock.timers.tick(5000))
+    assert.deepEqual(steps, [])
+    await act(async () => pointer(el, 'pointermove', { clientX: 40, clientY: 100, pointerType: 'touch' }))
+    assert.deepEqual(steps, [1])
+    await act(async () => {
+      window.dispatchEvent(new dom.window.PointerEvent('pointerup', { pointerId: 1, pointerType: 'touch' }))
+    })
+    assert.equal(latest.paused, true, 'still held right after the swipe')
+    await act(async () => mock.timers.tick(ROTATION_HOLD_MS))
+    assert.equal(latest.paused, false, 'released finger and expired hold both clear the pause')
+    await act(async () => mock.timers.tick(1000))
+    assert.deepEqual(steps, [1, 1], 'after the hold it resumes')
+  })
+
+  it('lets only the innermost rotating widget take a gesture', async () => {
+    const outer: number[] = []
+    function Inner() {
+      const rotation = useWidgetRotation({ count: 3, interactive: true, delay: null, autoplay: false, onStep: (d) => steps.push(d) })
+      return createElement('div', { 'ref': rotation.rootRef, ...rotation.rootProps, 'data-inner': true })
+    }
+    function Outer() {
+      const rotation = useWidgetRotation({ count: 3, interactive: true, delay: null, autoplay: false, onStep: (d) => outer.push(d) })
+      return createElement('div', { ref: rotation.rootRef, ...rotation.rootProps }, createElement(Inner))
+    }
+    await act(async () => root.render(createElement(Outer)))
+    const inner = document.querySelector('[data-inner]')!
+    await swipe(inner, -60)
+    await act(async () => {
+      wheelAt(inner, 5000, { deltaX: 80 })
+    })
+    assert.deepEqual(steps, [1, 1])
+    assert.deepEqual(outer, [], 'the panel around it must not page too')
   })
 
   it('pages with arrow keys and holds the autoplay after any manual step', async () => {

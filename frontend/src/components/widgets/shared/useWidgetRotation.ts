@@ -20,11 +20,21 @@ import { useVisibilityInterval } from '../../../hooks/animation'
 export const ROTATION_SWIPE_PX = 36
 /** 竖向位移先超过这个、且大于横向，就让给页面滚动。 */
 export const ROTATION_SCROLL_PX = 12
-/** 触控板一次横扫会连发很多 wheel；攒够这么多算一步，然后锁一会儿等惯性过去。 */
+/** 触控板一次横扫会连发很多 wheel；攒够这么多算一步。 */
 export const ROTATION_WHEEL_PX = 50
-export const ROTATION_WHEEL_LOCK_MS = 450
+/**
+ * 一次横扫（连同松手后的惯性）只翻一页：翻过之后，wheel 要停这么久才算下一次手势。
+ * 固定时长的锁挡不住惯性——惯性能拖一秒多，锁一过又会攒够一页，一扫翻两页。
+ */
+export const ROTATION_WHEEL_IDLE_MS = 180
 /** 手动拨过之后多久恢复自动轮换。 */
 export const ROTATION_HOLD_MS = 15_000
+
+/**
+ * 已被某个轮换接管的原生事件。小组件可以嵌在会翻页的容器里（控制面板），
+ * 事件冒泡到外层时外层不能再翻一次。
+ */
+const claimedEvents = new WeakSet<Event>()
 
 /** 不接管手势的元素：表单控件和显式声明的区域。 */
 const GESTURE_IGNORE =
@@ -127,6 +137,8 @@ export function useWidgetRotation({
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [held, setHeld] = useState(false)
+  // 按住时不自动翻：触屏没有悬停暂停，手指还没滑到阈值时自动翻一页、滑动再翻一页，就成了两页。
+  const [pressing, setPressing] = useState(false)
   const active = interactive && count > 1
 
   const onStepRef = useRef(onStep)
@@ -162,11 +174,12 @@ export function useWidgetRotation({
     setHovered(false)
     setFocused(false)
     setHeld(false)
+    setPressing(false)
     if (holdTimerRef.current) clearTimeout(holdTimerRef.current)
     holdTimerRef.current = null
   }, [active])
 
-  const paused = active && (hovered || focused || held)
+  const paused = active && (hovered || focused || held || pressing)
 
   // enabled 一变计时就从头算：暂停结束后整整一个间隔才翻下一页。
   useVisibilityInterval(() => onStepRef.current(1), {
@@ -181,6 +194,8 @@ export function useWidgetRotation({
     intent: SwipeIntent
   } | null>(null)
   const suppressClickRef = useRef(false)
+  const releaseRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => releaseRef.current?.(), [])
 
   const onPointerEnter = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
@@ -201,13 +216,30 @@ export function useWidgetRotation({
       suppressClickRef.current = false
       gestureRef.current = null
       if (!active || !event.isPrimary || event.button !== 0) return
+      if (claimedEvents.has(event.nativeEvent)) return
       if (ignoresGesture(event.target)) return
+      claimedEvents.add(event.nativeEvent)
       gestureRef.current = {
         pointerId: event.pointerId,
         x: event.clientX,
         y: event.clientY,
         intent: 'pending',
       }
+      setPressing(true)
+      // 松手可能在小组件外面，挂在 window 上才收得到。
+      releaseRef.current?.()
+      const pointerId = event.pointerId
+      const onRelease = (ev: PointerEvent) => {
+        if (ev.pointerId === pointerId) releaseRef.current?.()
+      }
+      releaseRef.current = () => {
+        window.removeEventListener('pointerup', onRelease)
+        window.removeEventListener('pointercancel', onRelease)
+        releaseRef.current = null
+        setPressing(false)
+      }
+      window.addEventListener('pointerup', onRelease)
+      window.addEventListener('pointercancel', onRelease)
     },
     [active],
   )
@@ -277,23 +309,33 @@ export function useWidgetRotation({
   const wheelRef = useRef<{
     el: HTMLElement | null
     acc: number
-    lockedUntil: number
-  }>({ el: null, acc: 0, lockedUntil: 0 })
+    /** 这次手势已经翻过一页。 */
+    stepped: boolean
+    lastAt: number
+  }>({ el: null, acc: 0, stepped: false, lastAt: Number.NEGATIVE_INFINITY })
   const activeRef = useRef(active)
   activeRef.current = active
   const handleWheel = useCallback(
     (event: WheelEvent) => {
       if (!activeRef.current || event.ctrlKey) return
+      if (claimedEvents.has(event)) return
       const dx = horizontalWheelDelta(event)
       if (dx === 0) return
+      claimedEvents.add(event)
       event.preventDefault()
       const state = wheelRef.current
-      if (event.timeStamp < state.lockedUntil) return
+      // 停顿超过阈值才是新的一次手势；之前的余量和「已翻过」都作废。
+      if (event.timeStamp - state.lastAt >= ROTATION_WHEEL_IDLE_MS) {
+        state.acc = 0
+        state.stepped = false
+      }
+      state.lastAt = event.timeStamp
+      if (state.stepped) return
       state.acc += dx
       if (Math.abs(state.acc) < ROTATION_WHEEL_PX) return
       const delta = state.acc > 0 ? 1 : -1
       state.acc = 0
-      state.lockedUntil = event.timeStamp + ROTATION_WHEEL_LOCK_MS
+      state.stepped = true
       step(delta)
     },
     [step],
