@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 )
-const APP_VERSION = pkg.version || '0.6.2'
+const APP_VERSION = pkg.version || '0.6.3'
 
 export default defineConfig(({ command }) => ({
   appType: 'spa',
