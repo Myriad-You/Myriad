@@ -20,7 +20,7 @@ import {
 import { shuffleBySeed, storiesFromSources } from './logic/feedStories'
 import { roleFromAuth } from './logic/score'
 import { PhantasiSourceTitleTags } from './manager/PhantasiSourceTitleTags'
-import { leftoverNoteSources, visibleCloudNoteDocs } from './notes/noteBoard'
+import { leftoverNoteSources, noteWallSearchSources, visibleCloudNoteDocs } from './notes/noteBoard'
 import { loadNoteDocs } from './pageData'
 import PhantasiBoardView from './skin/PhantasiBoard'
 import { PhantasiViewLane } from './skin/PhantasiChip'
@@ -204,14 +204,27 @@ export default function PhantasiSourceGrid({
         : [],
     [board, cloudDocs, searchQuery],
   )
+  const notesSources = useMemo(
+    () =>
+      board === 'notes'
+        ? noteWallSearchSources(
+            sorted,
+            sources,
+            sourcesForBoard(sources, 'notes'),
+            searchedNotes,
+            searchQuery,
+          )
+        : sorted,
+    [board, searchQuery, searchedNotes, sorted, sources],
+  )
   const noteHits = useMemo(() => {
     if (board !== 'notes') return 0
     return (
       searchedNotes.length +
       searchedDocs.length +
-      leftoverNoteSources(sorted, searchedNotes).length
+      leftoverNoteSources(notesSources, searchedNotes).length
     )
-  }, [board, searchedDocs.length, searchedNotes, sorted])
+  }, [board, notesSources, searchedDocs.length, searchedNotes])
   useEffect(() => {
     if (!onSearchHits) return
     if (board === 'notes') onSearchHits(noteHits)
@@ -283,16 +296,6 @@ export default function PhantasiSourceGrid({
       : board === 'sites'
         ? friendSources.length === 0 && friendStories.length === 0
         : filtered.length === 0)
-  const notesSources = useMemo(() => {
-    if (board !== 'notes') return sorted
-    const have = new Set(sorted.map((source) => source.id))
-    const extra = sources.filter(
-      (source) =>
-        !have.has(source.id) &&
-        searchedNotes.some((note) => note.source_id === source.id),
-    )
-    return extra.length > 0 ? [...sorted, ...extra] : sorted
-  }, [board, searchedNotes, sorted, sources])
   const miss = useMemo(
     () => (
       <PhantasiVacant

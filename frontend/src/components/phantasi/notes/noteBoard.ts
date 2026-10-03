@@ -3,6 +3,7 @@
 import type { PhantasiItemPreview } from '../../../types/phantasi'
 
 import type { FeedStory } from '../logic/feedStories'
+import { haystackMatchesQuery } from '../logic/board'
 
 /** 墙上已有笔记的源不再另占一张源卡。 */
 export function leftoverNoteSources<T extends { id: number }>(
@@ -31,6 +32,37 @@ export function sourceLatestStory(
     source_icon: source.icon,
     source_type: source.source_type,
   }
+}
+
+type NoteWallSource = Parameters<typeof sourceLatestStory>[0]
+
+/**
+ * 搜索时笔记墙在按名称命中的源之外补回两类：有笔记命中的源；
+ * 没有笔记、墙上显示其最新一篇的源——按那篇的标题/作者命中也算。
+ */
+export function noteWallSearchSources<T extends NoteWallSource>(
+  named: T[],
+  sources: readonly T[],
+  wallSources: readonly T[],
+  matchedNotes: ReadonlyArray<{ source_id: number }>,
+  query: string,
+): T[] {
+  const have = new Set(named.map((source) => source.id))
+  const noteHits = new Set(matchedNotes.map((note) => note.source_id))
+  const storyHits = new Set<number>()
+  if (query.trim()) {
+    for (const source of wallSources) {
+      const story = sourceLatestStory(source)
+      if (story && haystackMatchesQuery(query, story.title, story.author))
+        storyHits.add(source.id)
+    }
+  }
+  const extra = sources.filter(
+    (source) =>
+      !have.has(source.id) &&
+      (noteHits.has(source.id) || storyHits.has(source.id)),
+  )
+  return extra.length > 0 ? [...named, ...extra] : named
 }
 
 export function noteScheduleLabel(
