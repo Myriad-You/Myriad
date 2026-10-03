@@ -1504,7 +1504,7 @@ export function TappPlaygroundPage() {
             <div
               className="w-16 h-16 mx-auto rounded-[22px] grid place-items-center border"
               style={{
-                color: 'var(--color-primary)',
+                color: 'var(--cfg-accent)',
                 background:
                   'color-mix(in srgb, var(--color-primary) 10%, transparent)',
                 borderColor:
@@ -1531,7 +1531,7 @@ export function TappPlaygroundPage() {
                   title={example.prompt}
                   className="rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors"
                   style={{
-                    color: 'var(--color-primary)',
+                    color: 'var(--cfg-accent)',
                     background:
                       'color-mix(in srgb, var(--color-primary) 12%, transparent)',
                     border:
@@ -1707,7 +1707,7 @@ export function TappPlaygroundPage() {
       )}
       <FaCode
         className="w-3 h-3 shrink-0"
-        style={{ color: 'var(--color-primary)' }}
+        style={{ color: 'var(--cfg-accent)' }}
       />
       <span
         className="text-xs font-medium truncate"

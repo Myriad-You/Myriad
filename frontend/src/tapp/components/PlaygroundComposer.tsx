@@ -473,7 +473,7 @@ export function PlaygroundComposer({
                                   {isCurrent && (
                                     <span
                                       className="text-[9px] font-semibold"
-                                      style={{ color: 'var(--color-primary)' }}
+                                      style={{ color: 'var(--cfg-accent)' }}
                                     >
                                       · {t.tapp.playgroundCurrentRevision}
                                     </span>
@@ -498,7 +498,7 @@ export function PlaygroundComposer({
                                 >
                                   <div
                                     className="text-[9px] font-semibold mb-0.5"
-                                    style={{ color: 'var(--color-primary)' }}
+                                    style={{ color: 'var(--cfg-accent)' }}
                                   >
                                     {rev.origin === 'manual'
                                       ? t.tapp.playgroundOriginManual
@@ -525,7 +525,7 @@ export function PlaygroundComposer({
                                   <div className="rounded-xl px-2.5 py-2 bg-[color-mix(in_srgb,var(--color-primary),transparent_92%)] ring-1 ring-[color-mix(in_srgb,var(--color-primary),transparent_82%)]">
                                     <div
                                       className="text-[9px] font-semibold mb-0.5"
-                                      style={{ color: 'var(--color-primary)' }}
+                                      style={{ color: 'var(--cfg-accent)' }}
                                     >
                                       {t.tapp.playgroundMemoryAgent}
                                     </div>
@@ -563,7 +563,7 @@ export function PlaygroundComposer({
                               <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-2.5 py-2">
                                 <div
                                   className="text-[9px] font-semibold mb-0.5"
-                                  style={{ color: 'var(--color-primary)' }}
+                                  style={{ color: 'var(--cfg-accent)' }}
                                 >
                                   {t.tapp.playgroundMemoryUser}
                                 </div>
@@ -685,7 +685,7 @@ export function PlaygroundComposer({
                                     {isCurrent && (
                                       <span
                                         className="text-[9px] font-semibold"
-                                        style={{ color: 'var(--color-primary)' }}
+                                        style={{ color: 'var(--cfg-accent)' }}
                                       >
                                         · {t.tapp.playgroundCurrentRevision}
                                       </span>
@@ -830,7 +830,7 @@ export function PlaygroundComposer({
                                         <span
                                           className="font-semibold"
                                           style={{
-                                            color: 'var(--color-primary)',
+                                            color: 'var(--cfg-accent)',
                                           }}
                                         >
                                           {t.tapp.playgroundActiveSession}
@@ -1045,7 +1045,7 @@ export function PlaygroundComposer({
                   >
                     <PlaygroundTraceIcon
                       className="w-3.5 h-3.5 shrink-0"
-                      style={{ color: 'var(--color-primary)' }}
+                      style={{ color: 'var(--cfg-accent)' }}
                     />
                     <span
                       className="text-xs font-semibold"
@@ -1061,7 +1061,7 @@ export function PlaygroundComposer({
                       <span
                         className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold"
                         style={{
-                          color: 'var(--color-primary)',
+                          color: 'var(--cfg-accent)',
                           background:
                             'color-mix(in srgb, var(--color-primary) 10%, transparent)',
                         }}
@@ -1150,7 +1150,7 @@ export function PlaygroundComposer({
                                 />
                                 <span
                                   className="font-mono font-bold"
-                                  style={{ color: 'var(--color-primary)' }}
+                                  style={{ color: 'var(--cfg-accent)' }}
                                 >
                                   {step.tool}
                                 </span>

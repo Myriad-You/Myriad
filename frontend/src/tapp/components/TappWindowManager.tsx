@@ -1657,7 +1657,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                           ) : (
                             <FaSave
                               className="h-4 w-4"
-                              style={{ color: 'var(--color-primary)' }}
+                              style={{ color: 'var(--cfg-accent)' }}
                             />
                           )}
                           <span>

@@ -1050,7 +1050,7 @@ html.dark .tapp-app-card__dock-btn {
 }
 
 .tapp-app-card__dock-btn--size:not(:disabled) {
-  color: var(--tapp-app-accent, var(--color-primary));
+  color: var(--tapp-app-accent, var(--cfg-accent));
   background: color-mix(
     in srgb,
     var(--tapp-app-accent, var(--color-primary)) 12%,
@@ -1090,7 +1090,7 @@ html.dark .tapp-app-card__dock-btn--stop:not(:disabled) {
   }
 
   .tapp-app-card__dock-btn--size:hover:not(:disabled) {
-    color: var(--tapp-app-accent, var(--color-primary));
+    color: var(--tapp-app-accent, var(--cfg-accent));
     background: color-mix(
       in srgb,
       var(--tapp-app-accent, var(--color-primary)) 18%,
@@ -1119,7 +1119,7 @@ html.dark .tapp-app-card__dock-btn--stop:not(:disabled) {
   }
 
   .tapp-app-card__dock-btn--settings:hover:not(:disabled) {
-    color: var(--tapp-app-accent, var(--color-primary));
+    color: var(--tapp-app-accent, var(--cfg-accent));
     background: color-mix(
       in srgb,
       var(--tapp-app-accent, var(--color-primary)) 14%,
@@ -1245,7 +1245,7 @@ html.dark .tapp-app-empty__desc {
 }
 
 .tapp-app-empty__btn--ghost {
-  color: var(--color-primary);
+  color: var(--cfg-accent);
   background: rgb(0 0 0 / 5%);
 }
 

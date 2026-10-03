@@ -357,6 +357,5 @@ html.dark .home-sticker-pick-hint {
   --cfg-text-1: var(--text-primary, #1d1d1f);
   --cfg-text-2: var(--text-secondary, rgb(60 60 67 / 72%));
   --cfg-text-3: var(--text-secondary, rgb(60 60 67 / 48%));
-  --cfg-accent: var(--color-primary, #8b5cf6);
   --cfg-subtle-bg: var(--chrome-inner, rgb(255 255 255 / 42%));
 }

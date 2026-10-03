@@ -62,6 +62,16 @@ export default antfu(
     rules: {
       // Lock ES2024+ clone; JSON.parse(JSON.stringify) drops undefined and dates.
       'unicorn/prefer-structured-clone': 'error',
+      // 前两条沿用基础配置；最后一条：文字/图标色用 --cfg-accent，--color-primary 是壁纸原色，可能和底色同色（#602）。
+      'no-restricted-syntax': [
+        'error',
+        'TSEnumDeclaration[const=true]',
+        'TSExportAssignment',
+        {
+          selector: "Property[key.name='color'] > Literal[value='var(--color-primary)']",
+          message: '前景色用 var(--cfg-accent)：--color-primary 是壁纸原色，可能和底色同色（#602）',
+        },
+      ],
     },
   },
   {

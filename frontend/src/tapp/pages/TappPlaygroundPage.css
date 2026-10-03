@@ -160,8 +160,8 @@
   animation: none;
   background-image: none;
   background-clip: border-box;
-  color: var(--color-primary);
-  -webkit-text-fill-color: var(--color-primary);
+  color: var(--cfg-accent);
+  -webkit-text-fill-color: var(--cfg-accent);
 }
 
 .playground-history-item--active {
@@ -172,7 +172,7 @@
 
 .playground-history-toggle--active {
   background: color-mix(in srgb, var(--color-primary) 15%, transparent);
-  color: var(--color-primary);
+  color: var(--cfg-accent);
 }
 
 .playground-history-scroll {
@@ -319,7 +319,7 @@
     animation: none;
     background-image: none;
     background-clip: border-box;
-    color: var(--color-primary);
-    -webkit-text-fill-color: var(--color-primary);
+    color: var(--cfg-accent);
+    -webkit-text-fill-color: var(--cfg-accent);
   }
 }

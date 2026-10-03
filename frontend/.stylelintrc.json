@@ -26,6 +26,16 @@
     "no-descending-specificity": null,
     "no-duplicate-selectors": null,
     "property-no-deprecated": null,
-    "selector-class-pattern": null
+    "selector-class-pattern": null,
+    "declaration-property-value-disallowed-list": [
+      {
+        "/^(color|fill|stroke|caret-color|outline|outline-color|-webkit-text-fill-color)$/": [
+          "/var\\(--color-primary\\)/"
+        ]
+      },
+      {
+        "message": "前景色用 var(--cfg-accent)：--color-primary 是壁纸原色，可能和底色同色（#602）"
+      }
+    ]
   }
 }
