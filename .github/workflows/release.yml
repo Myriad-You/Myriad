@@ -478,7 +478,10 @@ jobs:
           # release/overrides/<version>.json (deep-merged after generation).
           # example.release.json documents the same policy but is not read at
           # assemble time.
-          MIN_FROM_VERSION="v0.4.0"
+          # The backend refuses a database that never ran 0.6.1 (see
+          # backend/migrations/lib.rs SUPPORT_FLOOR_SCHEMA_MARK); preflight
+          # refuses it first, before anything is pulled or stopped.
+          MIN_FROM_VERSION="v0.6.1"
           # v0.5.8 preserves the installed storage layout across template updates
           # and permits only fixed direct data/cache binds through Guard.
           MIN_UPDATER_VERSION="v0.5.8"

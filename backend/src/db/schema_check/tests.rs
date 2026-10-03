@@ -1517,8 +1517,9 @@ async fn federation_fk_heal_runs_against_real_catalog() {
     }
 }
 
-/// The support floor lets a new database through and refuses one with
-/// migration history but no 0.6.1 mark. Runs in its own schema.
+/// The support floor lets a new database through, again after a first start
+/// cut off before startup wrote its mark, and refuses one with migration
+/// history but no 0.6.1 mark. Runs in its own schema.
 #[tokio::test]
 async fn the_support_floor_refuses_an_unmarked_old_database() {
     use sea_orm::{ConnectOptions, ConnectionTrait, Database};
@@ -1552,6 +1553,8 @@ async fn the_support_floor_refuses_an_unmarked_old_database() {
         .await
         .expect("clear history");
     let fresh = crate::db::Migrator::up(&db, None).await;
+    // Migrations committed, startup never finished: the next start goes on.
+    let restarted = crate::db::Migrator::up(&db, None).await;
 
     admin
         .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
@@ -1563,6 +1566,7 @@ async fn the_support_floor_refuses_an_unmarked_old_database() {
         "{error}"
     );
     fresh.expect("a new database migrates");
+    restarted.expect("a new database cut off after migrating starts again");
 }
 
 /// A database still holding the old media job table starts only once that
@@ -1590,7 +1594,7 @@ async fn an_unfinished_media_upgrade_is_refused() {
         .expect("connect test schema");
     db.execute_unprepared(
         "CREATE TABLE media_migration_jobs (id SERIAL PRIMARY KEY, source_kind TEXT NOT NULL,
-             source_key TEXT NOT NULL, cursor TEXT);
+             source_key TEXT NOT NULL, error_code TEXT, cursor TEXT);
          INSERT INTO media_migration_jobs (source_kind, source_key, cursor)
              VALUES ('upgrade', 'platform_media_v2', 'not json')",
     )
@@ -1603,6 +1607,18 @@ async fn an_unfinished_media_upgrade_is_refused() {
     .await
     .expect("running job");
     let running = crate::db::Migrator::up(&db, None).await;
+    // Scanned through, left retrying files that are not on the volume.
+    db.execute_unprepared(
+        r#"UPDATE media_migration_jobs SET cursor = '{"revision":4,"complete":false,"retrying":true}';
+           INSERT INTO media_migration_jobs (source_kind, source_key, error_code)
+               VALUES ('upgrade_failure', '1:0:7', 'MEDIA_MISSING')"#,
+    )
+    .await
+    .expect("job left with missing files");
+    let only_missing = crate::db::Migrator::up(&db, None).await;
+    db.execute_unprepared("DELETE FROM media_migration_jobs WHERE source_kind = 'upgrade_failure'")
+        .await
+        .expect("clear failures");
     db.execute_unprepared(
         r#"UPDATE media_migration_jobs SET cursor = '{"revision":4,"complete":true}'"#,
     )
@@ -1616,7 +1632,14 @@ async fn an_unfinished_media_upgrade_is_refused() {
         .expect("drop test schema");
     for refused in [malformed, running] {
         let error = refused.expect_err("an unfinished media upgrade is refused");
-        assert!(error.to_string().contains("media upgrade"), "{error}");
+        assert!(error.to_string().contains("has not finished"), "{error}");
     }
+    // Only the operator can say the files are gone rather than unmounted.
+    let error = only_missing.expect_err("missing files wait for the operator");
+    assert!(
+        error.to_string().contains("1 file(s) missing")
+            && error.to_string().contains("MYRIAD_ACCEPT_MISSING_MEDIA=1"),
+        "{error}"
+    );
     finished.expect("a finished media upgrade migrates");
 }

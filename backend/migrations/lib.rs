@@ -48,16 +48,26 @@ pub const SUPPORT_FLOOR_SCHEMA_MARK: &str = "2026.09.29.1";
 
 /// An existing database must have finished a 0.6.1 (or later) startup:
 /// the renames and heals for anything older are gone, and skipping them
-/// would fail later, less clearly, or not at all. A new database passes.
+/// would fail later, less clearly, or not at all. A new database passes,
+/// and is marked at the floor before its first migration commits: nothing
+/// older ever touched it, so a first start cut off halfway can start again.
 const REFUSE_BELOW_SUPPORT_FLOOR_SQL: &str = r#"
 DO $$
+DECLARE
+    has_history boolean := false;
 BEGIN
-    -- Two statements: PL/pgSQL plans each one when it first runs, and a
+    -- Separate statements: PL/pgSQL plans each one when it first runs, and a
     -- single OR would name seaql_migrations before a new database has it.
-    IF to_regclass('seaql_migrations') IS NULL THEN
-        RETURN;
+    IF to_regclass('seaql_migrations') IS NOT NULL THEN
+        has_history := EXISTS (SELECT 1 FROM seaql_migrations);
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM seaql_migrations) THEN
+    IF NOT has_history THEN
+        -- New: marked at the floor, in the table schema_check keeps marks in.
+        CREATE TABLE IF NOT EXISTS _schema_versions (
+            version VARCHAR(50) PRIMARY KEY,
+            applied_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        INSERT INTO _schema_versions (version) VALUES ('@FLOOR@') ON CONFLICT (version) DO NOTHING;
         RETURN;
     END IF;
     IF to_regclass('_schema_versions') IS NULL THEN
@@ -74,24 +84,40 @@ END $$;
 /// that layer, so a database whose job never finished would lose the files it
 /// had not copied yet. A database without the job table never had the layer,
 /// or already dropped it.
+///
+/// A file missing from the media volume can never be copied, so a job left
+/// with only those keeps retrying. That is also what an unmounted volume
+/// looks like, so it goes on only when the operator says the files are gone
+/// (`MYRIAD_ACCEPT_MISSING_MEDIA=1`); they are then catalogued as missing.
 const REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL: &str = r#"
 DO $$
+DECLARE
+    job jsonb;
+    missing bigint;
+    other bigint;
 BEGIN
     -- One statement each: PL/pgSQL plans a statement when it first runs, and
     -- the job table is only named once it is known to exist.
     IF to_regclass('media_migration_jobs') IS NULL THEN
         RETURN;
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM media_migration_jobs
-         WHERE source_kind = 'upgrade' AND source_key = 'platform_media_v2'
-           AND CASE WHEN cursor ~ '^\s*\{'
-                    THEN cursor::jsonb ->> 'complete' = 'true'
-                         AND cursor::jsonb ->> 'revision' = '4'
-                    ELSE false END
-    ) THEN
-        RAISE EXCEPTION 'the media upgrade of this database has not finished: start Myriad 0.6 (web role) until it completes, then upgrade to this release';
+    SELECT CASE WHEN cursor ~ '^\s*\{' THEN cursor::jsonb END INTO job
+      FROM media_migration_jobs
+     WHERE source_kind = 'upgrade' AND source_key = 'platform_media_v2';
+    IF job ->> 'revision' = '4' AND job ->> 'complete' = 'true' THEN
+        RETURN;
     END IF;
+    SELECT count(*) FILTER (WHERE error_code = 'MEDIA_MISSING'),
+           count(*) FILTER (WHERE error_code IS DISTINCT FROM 'MEDIA_MISSING')
+      INTO missing, other
+      FROM media_migration_jobs WHERE source_kind = 'upgrade_failure';
+    IF job ->> 'revision' = '4' AND job ->> 'retrying' = 'true' AND other = 0 AND missing > 0 THEN
+        IF @ACCEPT_MISSING@ THEN
+            RETURN;
+        END IF;
+        RAISE EXCEPTION 'the media upgrade of this database is left with % file(s) missing from the media volume: check that the volume is mounted; if those files are gone, start with MYRIAD_ACCEPT_MISSING_MEDIA=1 to record them as missing', missing;
+    END IF;
+    RAISE EXCEPTION 'the media upgrade of this database has not finished: start Myriad 0.6 (web role) until it completes, then upgrade to this release';
 END $$;
 "#;
 
@@ -115,7 +141,15 @@ impl Migrator {
             )
             .await?;
         executor
-            .execute_unprepared(REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL)
+            .execute_unprepared(&REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL.replace(
+                "@ACCEPT_MISSING@",
+                if std::env::var("MYRIAD_ACCEPT_MISSING_MEDIA").is_ok_and(|value| value.trim() == "1")
+                {
+                    "true"
+                } else {
+                    "false"
+                },
+            ))
             .await?;
         discard_unknown_migration_history(&executor).await?;
         <Self as MigratorTrait>::up(executor, steps).await
