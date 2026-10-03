@@ -43,6 +43,36 @@ export function getLibraryCanvasKeyboardAction(
   }
 }
 
+export interface LibraryCanvasPinchStart {
+  /** 两指中点，相对画布中心。 */
+  midX: number
+  midY: number
+  distance: number
+  transform: LibraryCanvasTransform
+}
+
+/**
+ * 双指缩放：始终从按下那一刻的姿态算，不逐帧累乘，免得漂移。
+ * 按下时两指中点下的那一点，跟着中点走；缩放比按两指距离。
+ */
+export function pinchCanvasTransform(
+  start: LibraryCanvasPinchStart,
+  midX: number,
+  midY: number,
+  distance: number,
+  minScale: number,
+  maxScale: number,
+): LibraryCanvasTransform {
+  const raw = start.transform.scale * (distance / Math.max(1, start.distance))
+  const scale = Math.min(maxScale, Math.max(minScale, raw))
+  const ratio = scale / start.transform.scale
+  return {
+    scale,
+    x: midX - (start.midX - start.transform.x) * ratio,
+    y: midY - (start.midY - start.transform.y) * ratio,
+  }
+}
+
 interface LibraryCanvasControlsOptions {
   active: boolean
   defaultScale: number
@@ -104,6 +134,12 @@ export function useLibraryCanvasControls({
     dragging: boolean
   } | null>(null)
   const suppressClickUntilRef = useRef(0)
+
+  /** 画布上按着的手指；第二根落下时转入双指缩放。 */
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef<
+    (LibraryCanvasPinchStart & { ids: [number, number]; centerX: number; centerY: number }) | null
+  >(null)
 
   const applyFrame = useCallback(
     (next: LibraryCanvasTransform, forceCommit: boolean) => {
@@ -284,6 +320,42 @@ export function useLibraryCanvasControls({
         'button, a, input, textarea, select, [role="button"], [contenteditable="true"]',
       )
       if (interactive && interactive !== primaryCardAction) return
+      const pointers = pointersRef.current
+      if (event.isPrimary) {
+        // 新手势的第一根手指：漏掉的抬起事件不能留下幽灵触点，把下一次单指当成双指。
+        pointers.clear()
+        pinchRef.current = null
+      }
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (pinchRef.current) return
+      if (pointers.size === 2) {
+        // 第二根手指落下：放弃单指拖动，从此刻的姿态开始双指缩放。
+        const [[idA, a], [idB, b]] = pointers.entries()
+        const rect = event.currentTarget.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+        pinchRef.current = {
+          ids: [idA, idB],
+          centerX,
+          centerY,
+          midX: (a.x + b.x) / 2 - centerX,
+          midY: (a.y + b.y) / 2 - centerY,
+          distance: Math.hypot(a.x - b.x, a.y - b.y),
+          transform: transformRef.current,
+        }
+        dragRef.current = null
+        suppressClickUntilRef.current = Number.POSITIVE_INFINITY
+        event.currentTarget.dataset.dragging = 'true'
+        for (const id of [idA, idB]) {
+          try {
+            event.currentTarget.setPointerCapture(id)
+          } catch {
+            /* the pointer may already be gone */
+          }
+        }
+        return
+      }
+      if (pointers.size > 2) return
       dragRef.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
@@ -298,6 +370,29 @@ export function useLibraryCanvasControls({
 
   const handlePointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      const tracked = pointersRef.current.get(event.pointerId)
+      if (tracked) {
+        tracked.x = event.clientX
+        tracked.y = event.clientY
+      }
+      const pinch = pinchRef.current
+      if (pinch) {
+        if (!pinch.ids.includes(event.pointerId)) return
+        const a = pointersRef.current.get(pinch.ids[0])
+        const b = pointersRef.current.get(pinch.ids[1])
+        if (!a || !b) return
+        event.preventDefault()
+        const next = pinchCanvasTransform(
+          pinch,
+          (a.x + b.x) / 2 - pinch.centerX,
+          (a.y + b.y) / 2 - pinch.centerY,
+          Math.hypot(a.x - b.x, a.y - b.y),
+          minScale,
+          maxScale,
+        )
+        scheduleTransform(() => next)
+        return
+      }
       const drag = dragRef.current
       if (!drag || drag.pointerId !== event.pointerId) return
       const dx = event.clientX - drag.startX
@@ -324,11 +419,40 @@ export function useLibraryCanvasControls({
         y: drag.originY + dy,
       }))
     },
-    [scheduleTransform],
+    [maxScale, minScale, scheduleTransform],
   )
 
   const finishPointer = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      const pointers = pointersRef.current
+      pointers.delete(event.pointerId)
+      const pinch = pinchRef.current
+      if (pinch) {
+        if (!pinch.ids.includes(event.pointerId)) return
+        pinchRef.current = null
+        // 捏合松手后紧跟的那次点击不能打开卡片。
+        suppressClickUntilRef.current = performance.now() + 250
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId)
+        }
+        const rest = pointers.entries().next()
+        if (!rest.done) {
+          // 剩下那根手指从当前姿态接着拖，画面不跳。
+          const [pointerId, at] = rest.value
+          dragRef.current = {
+            pointerId,
+            startX: at.x,
+            startY: at.y,
+            originX: transformRef.current.x,
+            originY: transformRef.current.y,
+            dragging: true,
+          }
+          return
+        }
+        delete event.currentTarget.dataset.dragging
+        flushCommit()
+        return
+      }
       const drag = dragRef.current
       if (!drag || drag.pointerId !== event.pointerId) return
       const wasDragging = drag.dragging
