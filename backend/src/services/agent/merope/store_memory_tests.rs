@@ -370,5 +370,5 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
 
 /// What they told her today, as she holds it: placed in time.
 fn dated(fact: &str) -> String {
-    format!("[{}] {fact}", chrono::Utc::now().format("%m-%d"))
+    format!("[{}] {fact}", chrono::Local::now().format("%m-%d"))
 }

@@ -263,12 +263,13 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
     if content.is_empty() {
         return content;
     }
-    // When she came to know it: what happened "last week" is placed in time;
-    // the year only when it is not this one.
-    let when = if note.created_at.year() == chrono::Utc::now().year() {
-        note.created_at.format("%m-%d")
+    // When she came to know it, on the site's clock: what happened "last
+    // week" is placed in time; the year only when it is not this one.
+    let known = note.created_at.with_timezone(&chrono::Local);
+    let when = if known.year() == super::super::clock::local_now().year() {
+        known.format("%m-%d")
     } else {
-        note.created_at.format("%Y-%m-%d")
+        known.format("%Y-%m-%d")
     };
     let evidence = note.evidence.as_deref().unwrap_or("");
     let how = match (note.source.as_str(), note.speaker.as_str()) {

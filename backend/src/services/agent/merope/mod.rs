@@ -415,7 +415,7 @@ pub fn effective_do_not_disturb(
     match (state.dnd_start_minute, state.dnd_end_minute) {
         (Some(start), Some(end)) if (0..1440).contains(&start) && (0..1440).contains(&end) => {
             use chrono::Timelike;
-            let now = chrono::Local::now();
+            let now = clock::local_now();
             let minute = (now.hour() * 60 + now.minute()) as i32;
             minute_in_window(minute, start, end)
         }

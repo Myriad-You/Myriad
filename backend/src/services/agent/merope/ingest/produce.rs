@@ -71,9 +71,11 @@ pub fn spawn_presence(user_id: i32) {
             .last_user_message_at
             .map(|at| (Utc::now() - at.with_timezone(&Utc)).num_minutes() as f64 / 60.0)
             .unwrap_or(24.0);
-        let first_today = state
-            .last_user_message_at
-            .is_none_or(|at| at.with_timezone(&Utc).date_naive() != Utc::now().date_naive());
+        // Her day, on the site's clock: it turns when she gets up, not at
+        // midnight UTC.
+        let first_today = state.last_user_message_at.is_none_or(|at| {
+            at.with_timezone(&chrono::Local).date_naive() < super::super::timing::her_date()
+        });
         if !first_today && gap_hours < 12.0 {
             return;
         }
