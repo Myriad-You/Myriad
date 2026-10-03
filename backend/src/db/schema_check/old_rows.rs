@@ -251,6 +251,16 @@ UPDATE federation_ring_memberships
 "#,
     ),
     (
+        // A failed turn was kept as her line, and read back as something she
+        // said. It is the transcript's now. The column is `json`.
+        "failed turns kept as her words",
+        r#"
+UPDATE agent_messages SET role = 'system'
+WHERE role = 'assistant' AND json_typeof(metadata) = 'object'
+  AND CASE WHEN strpos(metadata::text, '\u0000') = 0 THEN metadata ->> 'error' END = 'true'
+"#,
+    ),
+    (
         "intentions without a known accept source",
         r#"
 UPDATE agent_intentions SET accept_source = 'user'
@@ -382,7 +392,8 @@ mod tests {
                INSERT INTO agent_messages (session_id, role, content, metadata, task_id, created_at) VALUES
                  ('s', 'assistant', 'old', '{"taskId":"confirmation:c1","pendingQuestion":{"question":"q","confirmationId":"c1"},"message":"x"}', 'confirmation:c1', NOW()),
                  ('s', 'assistant', 'current', '{"taskId":"t1","task":{"pendingQuestion":{"question":"q","questionType":"confirmation","questionId":"q1"}}}', 't1', NOW()),
-                 ('s', 'assistant', 'nul', '{"confirmationId":"c2","output":"a\u0000b"}', NULL, NOW());
+                 ('s', 'assistant', 'nul', '{"confirmationId":"c2","output":"a\u0000b"}', NULL, NOW()),
+                 ('s', 'assistant', 'Processing failed', '{"error":true,"code":"PROCESSING_ERROR"}', NULL, NOW());
                INSERT INTO agent_tasks (id, user_id, recipe_id, status, current_step, step_results, progress, started_at, updated_at) VALUES
                  ('old-task', 1, 'r', 'completed', 1, '[{"output":"网络搜索 - x"}]', 100, '2026-09-01', '2026-09-01'),
                  ('new-task', 1, 'r', 'running', 1, '[{"output":"网络搜索 - x"}]', 50, NOW(), NOW());
@@ -451,7 +462,7 @@ mod tests {
             .query_all_raw(Statement::from_string(
                 DatabaseBackend::Postgres,
                 "SELECT content, metadata::jsonb AS metadata, task_id FROM agent_messages
-                  WHERE content <> 'nul' ORDER BY content",
+                  WHERE content NOT IN ('nul', 'Processing failed') ORDER BY content",
             ))
             .await
             .unwrap();
@@ -472,6 +483,17 @@ mod tests {
             metadata("current"),
             serde_json::json!({"taskId":"t1","task":{"pendingQuestion":{"question":"q","questionType":"confirmation","questionId":"q1"}}})
         );
+        let failed = db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT role FROM agent_messages WHERE content = 'Processing failed'",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<String>("", "role")
+            .unwrap();
+        assert_eq!(failed, "system", "a failed turn is not her line");
         // Rows the current code writes are never touched, whatever their text.
         let tasks = db
             .query_all_raw(Statement::from_string(

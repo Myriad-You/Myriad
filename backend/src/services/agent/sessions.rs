@@ -61,7 +61,7 @@ pub(crate) async fn load_private_chat_history(
             "SELECT m.role, m.content, m.metadata, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
-               AND NOT s.archived \
+               AND NOT s.archived AND m.role IN ('user', 'assistant') \
              ORDER BY m.created_at DESC LIMIT $2",
             [user_id.into(), (max_messages as i64).into()],
         ))
@@ -230,13 +230,36 @@ pub(crate) async fn persist_assistant_message(
     content: &str,
     metadata: Option<Value>,
 ) -> Result<(), String> {
+    persist_message(db, session_id, task_id, "assistant", content, metadata).await
+}
+
+/// A turn that failed, kept in the transcript for whoever reads it but not
+/// as anything she said: `system`, which nothing reads back as her words or
+/// theirs.
+pub(crate) async fn persist_failed_turn(
+    db: &DatabaseConnection,
+    session_id: &str,
+    content: &str,
+    metadata: Option<Value>,
+) -> Result<(), String> {
+    persist_message(db, session_id, None, "system", content, metadata).await
+}
+
+async fn persist_message(
+    db: &DatabaseConnection,
+    session_id: &str,
+    task_id: Option<&str>,
+    role: &str,
+    content: &str,
+    metadata: Option<Value>,
+) -> Result<(), String> {
     let now = Utc::now().fixed_offset();
     let cited_metadata = metadata.clone();
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
         session_id: Set(session_id.to_string()),
         task_id: Set(task_id.map(|s| s.to_string())),
-        role: Set("assistant".to_string()),
+        role: Set(role.to_string()),
         content: Set(content.to_string()),
         metadata: Set(metadata),
         created_at: Set(now),

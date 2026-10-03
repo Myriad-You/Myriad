@@ -838,10 +838,9 @@ pub(crate) async fn start(
                     } else {
                         "Processing failed".to_string()
                     };
-                    let _ = persist_assistant_message(
+                    let _ = crate::services::agent::sessions::persist_failed_turn(
                         &db_clone,
                         &session_id_clone,
-                        None,
                         &text,
                         Some(json!({"error": true, "code": code})),
                     )
