@@ -314,18 +314,19 @@ export function useLibraryCanvasControls({
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
+      const pointers = pointersRef.current
+      if (event.isPrimary) {
+        // 新手势的第一根手指：漏掉的抬起事件不能留下幽灵触点，把下一次单指当成双指。
+        // 放在交互元素判断之前：第一根手指落在按钮上时也要清。
+        pointers.clear()
+        pinchRef.current = null
+      }
       const target = event.target as Element
       const primaryCardAction = target.closest('[data-canvas-card-action]')
       const interactive = target.closest(
         'button, a, input, textarea, select, [role="button"], [contenteditable="true"]',
       )
       if (interactive && interactive !== primaryCardAction) return
-      const pointers = pointersRef.current
-      if (event.isPrimary) {
-        // 新手势的第一根手指：漏掉的抬起事件不能留下幽灵触点，把下一次单指当成双指。
-        pointers.clear()
-        pinchRef.current = null
-      }
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
       if (pinchRef.current) return
       if (pointers.size === 2) {

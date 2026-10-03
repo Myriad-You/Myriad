@@ -37,8 +37,9 @@ async function mount(visible = true) {
   if (el) Object.defineProperties(el, { scrollWidth: { configurable: true, value: 800 }, clientWidth: { configurable: true, value: 300 } })
   return el!
 }
-function wheel(el: HTMLDivElement, options: WheelEventInit = {}) {
+function wheel(el: HTMLDivElement, options: WheelEventInit = {}, at?: number) {
   const event = new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 60, ...options })
+  if (at !== undefined) Object.defineProperty(event, 'timeStamp', { value: at })
   el.dispatchEvent(event)
   return event
 }
@@ -94,15 +95,20 @@ it('steps one snap point per wheel notch on snapping strips instead of writing s
   const getComputedStyle = dom.window.getComputedStyle
   dom.window.getComputedStyle = ((node: Element) => ({ ...getComputedStyle(node), scrollSnapType: 'x mandatory' })) as typeof getComputedStyle
   try {
-    const first = wheel(el, { deltaY: 100 })
+    const first = wheel(el, { deltaY: 100 }, 1000)
     assert.equal(first.defaultPrevented, true)
     assert.deepEqual(calls, [{ left: 100, behavior: 'smooth' }])
     assert.equal(el.scrollLeft, 0)
-    // A trackpad burst inside the lock window is swallowed, not turned into page scroll.
-    assert.equal(wheel(el, { deltaY: 4 }).defaultPrevented, true)
+    // The rest of the gesture (trackpad inertia, over a second long) is swallowed, not paged again
+    // and not turned into page scroll halfway through.
+    for (let i = 1; i <= 70; i++) {
+      assert.equal(wheel(el, { deltaY: Math.max(1, 60 - i) }, 1000 + i * 16).defaultPrevented, true)
+    }
     assert.equal(calls.length, 1)
-    // At the leading edge the page keeps the wheel.
-    assert.equal(wheel(el, { deltaY: -100 }).defaultPrevented, false)
+    // A new gesture after a pause steps again; at the leading edge the page keeps the wheel.
+    assert.equal(wheel(el, { deltaY: -100 }, 3000).defaultPrevented, false)
+    assert.equal(wheel(el, { deltaY: 100 }, 3400).defaultPrevented, true)
+    assert.equal(calls.length, 2)
   } finally {
     dom.window.getComputedStyle = getComputedStyle
   }

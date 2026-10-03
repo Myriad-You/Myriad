@@ -8,8 +8,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 const DRAG_THRESHOLD_PX = 6
 
-/** 吸附条一格滚轮换一张卡；触控板连发的小 delta 在这段时间内只算一次。 */
-const SNAP_STEP_LOCK_MS = 280
+/**
+ * 吸附条一次手势（一格滚轮、一次触控板轻扫连同惯性）只换一张卡：
+ * 走过一步之后，wheel 要停这么久才算下一次手势。固定时长的锁挡不住一秒多的惯性。
+ */
+const SNAP_GESTURE_IDLE_MS = 180
 
 export interface HorizontalStripScrollBind {
   ref: RefCallback<HTMLDivElement>
@@ -29,7 +32,8 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
   const ref = useRef<HTMLDivElement | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [canScroll, setCanScroll] = useState(false)
-  const snapStepUntilRef = useRef(0)
+  const observersRef = useRef<(() => void) | null>(null)
+  const snapGestureRef = useRef({ stepped: false, lastAt: Number.NEGATIVE_INFINITY })
 
   const dragRef = useRef({
     pointerId: -1,
@@ -125,11 +129,18 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
     if (snapType && snapType !== 'none') {
       // 直接写 scrollLeft 是「落点」滚动：一格滚轮不到半张卡，mandatory 吸附会弹回原位。
       // scrollBy 是「方向」滚动，浏览器吸附到该方向的下一张卡。
+      const gesture = snapGestureRef.current
+      if (e.timeStamp - gesture.lastAt >= SNAP_GESTURE_IDLE_MS) gesture.stepped = false
+      gesture.lastAt = e.timeStamp
+      // 这次手势已经走过一步：余下的惯性继续吞掉，页面不在手势中途突然滚起来。
+      if (gesture.stepped) {
+        e.preventDefault()
+        return
+      }
       const room = delta > 0 ? maxScrollLeft - el.scrollLeft : el.scrollLeft
       if (room <= 1) return
       e.preventDefault()
-      if (e.timeStamp < snapStepUntilRef.current) return
-      snapStepUntilRef.current = e.timeStamp + SNAP_STEP_LOCK_MS
+      gesture.stepped = true
       el.scrollBy({ left: delta, behavior: 'smooth' })
       return
     }
@@ -146,8 +157,24 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
   // effect, and avoid React's passive delegated wheel listener.
   const setStripRef = useCallback((el: HTMLDivElement | null) => {
     ref.current?.removeEventListener('wheel', onWheel)
+    observersRef.current?.()
+    observersRef.current = null
     ref.current = el
     el?.addEventListener('wheel', onWheel, { passive: false })
+    if (!el) return
+    // 卡片增减、窗口变宽变窄都会改变能不能滚；指针停在条上时光标也要跟着变。
+    const update = () => setCanScroll(el.scrollWidth - el.clientWidth > 0)
+    update()
+    const resize =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    resize?.observe(el)
+    const mutation =
+      typeof MutationObserver === 'undefined' ? null : new MutationObserver(update)
+    mutation?.observe(el, { childList: true })
+    observersRef.current = () => {
+      resize?.disconnect()
+      mutation?.disconnect()
+    }
   }, [onWheel])
 
   const onPointerDown = useCallback(
