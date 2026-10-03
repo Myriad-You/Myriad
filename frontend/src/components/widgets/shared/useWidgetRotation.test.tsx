@@ -230,4 +230,46 @@ describe('useWidgetRotation', () => {
     await act(async () => mock.timers.tick(1000))
     assert.deepEqual(steps, [-1, 1])
   })
+
+  it('pages with arrow keys even when focus sits on the page dots', async () => {
+    function WithDots() {
+      latest = useWidgetRotation({ count: 3, interactive: true, delay: null, autoplay: false, onStep: (d) => steps.push(d) })
+      return createElement('div', { ref: latest.rootRef, ...latest.rootProps }, createElement('div', { 'data-rotation-ignore': '' }, createElement('button', { 'type': 'button', 'data-dot': true })))
+    }
+    await act(async () => root.render(createElement(WithDots)))
+    const dot = document.querySelector('[data-dot]')!
+    await act(async () => {
+      dot.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    })
+    assert.deepEqual(steps, [1])
+  })
+
+  it('leaves wheel in an ignored strip to native scrolling, and keeps the outer panel still', async () => {
+    const outer: number[] = []
+    function Inner() {
+      const rotation = useWidgetRotation({ count: 3, interactive: true, delay: null, autoplay: false, onStep: (d) => steps.push(d) })
+      return createElement('div', { ref: rotation.rootRef, ...rotation.rootProps }, createElement('div', { 'data-rotation-ignore': '', 'data-strip': true }))
+    }
+    function Outer() {
+      const rotation = useWidgetRotation({ count: 3, interactive: true, delay: null, autoplay: false, onStep: (d) => outer.push(d) })
+      return createElement('div', { ref: rotation.rootRef, ...rotation.rootProps }, createElement(Inner))
+    }
+    await act(async () => root.render(createElement(Outer)))
+    const strip = document.querySelector('[data-strip]')!
+    let prevented = true
+    await act(async () => {
+      prevented = wheelAt(strip, 9000, { deltaX: 90 }).defaultPrevented
+    })
+    assert.equal(prevented, false, 'the strip scrolls natively')
+    await swipe(strip, -60)
+    assert.deepEqual(steps, [])
+    assert.deepEqual(outer, [], 'a drag inside the inner widget never pages the panel around it')
+  })
+
+  it('counts a mouse that was already over the card as hovering once it becomes pageable', async () => {
+    const el = await mount({ count: 1 })
+    await act(async () => pointer(el, 'pointerover', { pointerType: 'mouse' }))
+    await mount({ count: 3 })
+    assert.equal(latest.paused, true)
+  })
 })

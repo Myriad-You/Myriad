@@ -346,10 +346,13 @@ const WelcomeWidgetContent = memo(
                 })}
                 aria-current={index === currentGuideIndex ? 'true' : undefined}
                 title={guide.title}
-                disabled={isEditMode || isPreview}
-                className="group/dot -my-2 flex items-center rounded-full py-2 outline-none disabled:cursor-default"
+                // 不用原生 disabled：全局 button:disabled 会把编辑态和预览里的进度条洗成半透明。
+                aria-disabled={isEditMode || isPreview || undefined}
+                tabIndex={isEditMode || isPreview ? -1 : undefined}
+                className="group/dot -my-2 flex items-center rounded-full py-2 outline-none aria-disabled:cursor-default"
                 onClick={(event) => {
                   event.stopPropagation()
+                  if (isEditMode || isPreview) return
                   if (index !== currentGuideIndex) selectGuide(index)
                 }}
               >

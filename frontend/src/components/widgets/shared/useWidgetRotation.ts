@@ -36,15 +36,20 @@ export const ROTATION_HOLD_MS = 15_000
  */
 const claimedEvents = new WeakSet<Event>()
 
-/** 不接管手势的元素：表单控件和显式声明的区域。 */
-const GESTURE_IGNORE =
-  'input, textarea, select, [contenteditable="true"], [data-rotation-ignore]'
+/** 表单控件：方向键、拖动、滚轮都归它自己。 */
+const FORM_CONTROLS = 'input, textarea, select, [contenteditable="true"]'
+/** 不接管拖动和滚轮的区域：表单控件和显式声明的区域（自带横向滚动的条、页码点）。 */
+const GESTURE_IGNORE = `${FORM_CONTROLS}, [data-rotation-ignore]`
 
 export type SwipeIntent = 'pending' | 'scroll' | 'next' | 'prev'
 
-function ignoresGesture(target: EventTarget | null): boolean {
+function closestMatches(target: EventTarget | null, selector: string): boolean {
   const el = target as Element | null
-  return typeof el?.closest === 'function' && el.closest(GESTURE_IGNORE) !== null
+  return typeof el?.closest === 'function' && el.closest(selector) !== null
+}
+
+function ignoresGesture(target: EventTarget | null): boolean {
+  return closestMatches(target, GESTURE_IGNORE)
 }
 
 function isKeyboardFocus(target: EventTarget | null): boolean {
@@ -160,19 +165,25 @@ export function useWidgetRotation({
     [],
   )
 
+  const rootElRef = useRef<HTMLElement | null>(null)
   const step = useCallback(
     (delta: 1 | -1) => {
       onStepRef.current(delta)
       hold()
+      // 翻页可能把带焦点的元素换掉（友链整批重挂）；元素被移除时浏览器不一定发 blur，
+      // 焦点不在了就别再算「在看」，否则会一直暂停。
+      requestAnimationFrame(() => {
+        const root = rootElRef.current
+        if (root && !root.contains(document.activeElement)) setFocused(false)
+      })
     },
     [hold],
   )
 
-  // 不再允许手动时清掉悬停/聚焦/暂停，否则进出编辑态后会停在「暂停」。
+  // 不再允许手动时清掉「刚拨过 / 按着」，否则进出编辑态后会停在暂停。
+  // 悬停和聚焦照实跟踪：鼠标先停在卡上、数据后到变成可翻时，也该立刻算悬停。
   useEffect(() => {
     if (active) return
-    setHovered(false)
-    setFocused(false)
     setHeld(false)
     setPressing(false)
     if (holdTimerRef.current) clearTimeout(holdTimerRef.current)
@@ -200,9 +211,9 @@ export function useWidgetRotation({
   const onPointerEnter = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       // 触摸合成的 enter 不会配对 leave，会让轮换永远停着。
-      if (active && event.pointerType === 'mouse') setHovered(true)
+      if (event.pointerType === 'mouse') setHovered(true)
     },
-    [active],
+    [],
   )
   const onPointerLeave = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
@@ -217,8 +228,9 @@ export function useWidgetRotation({
       gestureRef.current = null
       if (!active || !event.isPrimary || event.button !== 0) return
       if (claimedEvents.has(event.nativeEvent)) return
-      if (ignoresGesture(event.target)) return
+      // 先认领再看排除区：内层不接管的拖动（头像条、页码点）也不能让外层的面板翻页。
       claimedEvents.add(event.nativeEvent)
+      if (ignoresGesture(event.target)) return
       gestureRef.current = {
         pointerId: event.pointerId,
         x: event.clientX,
@@ -284,7 +296,8 @@ export function useWidgetRotation({
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
         return
       }
-      if (ignoresGesture(event.target)) return
+      // 只让表单控件自己用方向键；页码点、头像条上按 ← → 照样翻页。
+      if (closestMatches(event.target, FORM_CONTROLS)) return
       event.preventDefault()
       step(event.key === 'ArrowRight' ? 1 : -1)
     },
@@ -294,10 +307,9 @@ export function useWidgetRotation({
   // 鼠标点进去也会聚焦；只有键盘聚焦（:focus-visible）才算「在看」。
   const onFocus = useCallback(
     (event: ReactFocusEvent<HTMLElement>) => {
-      if (!active) return
       if (isKeyboardFocus(event.target)) setFocused(true)
     },
-    [active],
+    [],
   )
   const onBlur = useCallback((event: ReactFocusEvent<HTMLElement>) => {
     const next = event.relatedTarget as Node | null
@@ -322,6 +334,8 @@ export function useWidgetRotation({
       const dx = horizontalWheelDelta(event)
       if (dx === 0) return
       claimedEvents.add(event)
+      // 排除区（自带横向滚动的头像条等）：认领但不拦，让它照常原生滚动。
+      if (ignoresGesture(event.target)) return
       event.preventDefault()
       const state = wheelRef.current
       // 停顿超过阈值才是新的一次手势；之前的余量和「已翻过」都作废。
@@ -346,6 +360,7 @@ export function useWidgetRotation({
       if (state.el === el) return
       state.el?.removeEventListener('wheel', handleWheel)
       state.el = el
+      rootElRef.current = el
       state.acc = 0
       el?.addEventListener('wheel', handleWheel, { passive: false })
     },
@@ -371,6 +386,7 @@ export function useWidgetRotation({
       onFocus,
       onBlur,
     },
-    rootClassName: active ? 'touch-pan-y' : '',
+    // 只要竖向平移和页面双指缩放；横向交给脚本翻页。
+    rootClassName: active ? '[touch-action:pan-y_pinch-zoom]' : '',
   }
 }

@@ -60,6 +60,10 @@ export const ReportCardWidget = memo(
       pages: 1,
       dwellMs: REPORT_ITEM_DWELL_MS,
     })
+    // 换了平台就从总览开始。
+    useEffect(() => {
+      setPage(0)
+    }, [platformId])
     const registerDetailPages = useCallback((pages: number, dwellMs: number) => {
       const next = Math.max(1, pages)
       setDetailPaging((prev) =>
@@ -147,7 +151,8 @@ export const ReportCardWidget = memo(
           ? 1
           : 2
       : 1
-    const currentPage = page % pageCount
+    // 页数变少（数据刷新）时停在最后一页，不按取模跳到不相干的页。
+    const currentPage = Math.min(page, pageCount - 1)
     const showOverview = isOverviewControlled
       ? controlledShowOverview
       : paged
@@ -197,7 +202,7 @@ export const ReportCardWidget = memo(
           setInternalShowOverview((prev) => !prev)
           return
         }
-        setPage((prev) => (((prev % pageCount) + delta) % pageCount + pageCount) % pageCount)
+        setPage((prev) => (Math.min(prev, pageCount - 1) + delta + pageCount) % pageCount)
       },
     })
     const shellRef = useCallback(

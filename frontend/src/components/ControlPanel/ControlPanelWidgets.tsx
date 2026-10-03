@@ -237,13 +237,17 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
     }, [maxPage, currentPage])
 
     // 非编辑态的手动翻页：横滑、触控板横扫、← →、页码点；拨过之后一段时间不自动翻。自动翻页仍走下面的 gate。
+    const cancelPressRef = useRef<() => void>(() => {})
     const rotation = useWidgetRotation({
       count: isEditMode ? 0 : maxPage + 1,
       interactive: !isEditMode && panelVisible,
       delay: null,
       autoplay: false,
-      onStep: (delta) =>
-        setCurrentPage((prev) => Math.max(0, Math.min(maxPage, prev + delta))),
+      onStep: (delta) => {
+        // 横拖成了翻页就不再是长按：管理员慢慢拖过 800ms 也不该顺带进编辑态。
+        cancelPressRef.current()
+        setCurrentPage((prev) => Math.max(0, Math.min(maxPage, prev + delta)))
+      },
     })
 
     // 自动翻页另接 panelVisible 与 isHovering：收起/通知页或指针停在卡片上时不要翻。
@@ -295,6 +299,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
         rotation.hold()
       },
     })
+    cancelPressRef.current = handleMouseUp
 
     return (
       <>
