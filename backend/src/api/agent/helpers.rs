@@ -82,14 +82,12 @@ mod agent_entry_gate_tests {
     /// `interrupt_session` 提交 `context: None` 即 Work；只解析 user_id 拦不住。
     #[test]
     fn every_work_entry_checks_module_visibility() {
-        let cases: [(&str, &str, &str); 6] = [
-            ("process.rs", include_str!("process.rs"), "process"),
+        let cases: [(&str, &str, &str); 4] = [
             (
                 "process.rs",
                 include_str!("process.rs"),
                 "start_process_run",
             ),
-            ("process.rs", include_str!("process.rs"), "clarify"),
             ("presets.rs", include_str!("presets.rs"), "execute_preset"),
             (
                 "heartbeat_mcp.rs",

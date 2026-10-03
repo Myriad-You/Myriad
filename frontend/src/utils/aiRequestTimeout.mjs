@@ -21,7 +21,6 @@ const LONG_AI_PREFIXES = [
   '/api/ai/',
   '/api/phantasiai',
   '/api/agent/process',
-  '/api/agent/clarify',
 ]
 
 export function requestPathname(urlPath) {

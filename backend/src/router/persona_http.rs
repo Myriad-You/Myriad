@@ -84,7 +84,7 @@ mod tests {
             .with_state(state.clone());
         let persona = build_persona_router(state.clone()).with_state(state);
         for path in [
-            "/api/agent/process",
+            "/api/agent/process/stream",
             "/api/agent/notifications/stream",
             "/api/agent/runs/id/stream",
             "/api/speech/convo/start",

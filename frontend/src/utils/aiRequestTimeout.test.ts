@@ -46,7 +46,7 @@ describe('aiRequestTimeoutMs', () => {
       '/api/ai/recommend-icon',
       '/api/phantasiai/items/1/annotations',
       '/api/agent/process',
-      '/api/agent/clarify',
+      '/api/agent/process/stream',
       '/api/agent/tasks/x/answer',
     ]
     for (const path of paths) {

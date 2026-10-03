@@ -1,7 +1,3 @@
-import type { AgentResponse, ProcessContext } from './types'
-
-import { agentService } from './agentApi'
-
 export { agentService } from './agentApi'
 
 export type { FrontendActionHandler } from './frontendActions'
@@ -23,7 +19,6 @@ export type {
   Capability,
   ClarificationPoint,
   ClarificationType,
-  ClarifyRequest,
   ColumnDef,
   ConversationMessage,
   CreatePresetRequest,
@@ -85,17 +80,3 @@ export type {
   WaitingForInputEvent,
   WindowTarget,
 } from './types'
-
-export async function ask(
-  input: string,
-  context?: Partial<ProcessContext>,
-): Promise<AgentResponse> {
-  return agentService.process(input, context)
-}
-
-export async function chat(
-  input: string,
-  context?: Partial<ProcessContext>,
-): Promise<AgentResponse> {
-  return agentService.process(input, context)
-}

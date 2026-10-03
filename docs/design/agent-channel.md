@@ -126,7 +126,6 @@ ChannelAdapter
 
 | 人做了什么 | 接口 |
 | --- | --- |
-| 规划前澄清 | `POST /api/agent/clarify` |
 | 执行中答题（含敏感操作确认） | `POST /api/agent/tasks/{id}/answer` 或 `.../answer/stream` |
 | 浏览器做完一步 | `POST /api/agent/tasks/{id}/frontend-ack`（IM 没有这个表面） |
 | 取消 | `POST /api/agent/tasks/{id}/cancel` |

@@ -191,14 +191,6 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
-        // 处理自然语言请求（需要认证）
-        .route(
-            "/process",
-            post(process).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
         // 流式处理请求（带实时进度更新）
         .route(
             "/process/stream",
@@ -225,14 +217,6 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                     app_state.clone(),
                     middleware::auth::auth_middleware,
                 )),
-        )
-        // 提供澄清（需要认证）
-        .route(
-            "/clarify",
-            post(clarify).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
         )
         // 执行追踪列表（需要认证）
         .route(

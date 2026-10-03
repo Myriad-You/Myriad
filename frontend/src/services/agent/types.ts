@@ -74,13 +74,6 @@ export interface ProcessRequest {
   context?: ProcessContext
 }
 
-export interface ClarifyRequest {
-  originalInput: string
-  clarificationId: string
-  answer: string
-  context?: ProcessContext
-}
-
 export type TaskStatus =
   | 'pending'
   | 'running'

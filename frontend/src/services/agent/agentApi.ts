@@ -1,7 +1,6 @@
 import type {
   AgentResponse,
   Capability,
-  ClarifyRequest,
   CreatePresetRequest,
   ExecutionTrace,
   HeartbeatTask,
@@ -528,28 +527,6 @@ class AgentService {
     )
   }
 
-  async process(
-    input: string,
-    context?: Partial<ProcessContext>,
-  ): Promise<AgentResponse> {
-    const request: ProcessRequest = {
-      input,
-      context: {
-        currentRoute: window.location.pathname,
-        ...context,
-      },
-    }
-
-    const response = await apiService.post<AgentResponse>(
-      `${this.baseUrl}/process`,
-      request,
-      {
-        timeout: 5 * 60 * 1000,
-      },
-    )
-    return response
-  }
-
   async processWithProgress(
     input: string,
     onProgress: ProgressCallback,
@@ -576,22 +553,6 @@ class AgentService {
       lane,
       signal,
     )
-  }
-
-  async clarify(
-    originalInput: string,
-    clarificationId: string,
-    answer: string,
-    context?: Partial<ProcessContext>,
-  ): Promise<AgentResponse> {
-    const request: ClarifyRequest = {
-      originalInput,
-      clarificationId,
-      answer,
-      context,
-    }
-
-    return apiService.post<AgentResponse>(`${this.baseUrl}/clarify`, request)
   }
 
   async getTask(

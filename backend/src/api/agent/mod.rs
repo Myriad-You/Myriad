@@ -30,9 +30,7 @@ use crate::middleware::auth::Claims;
 use crate::models::entities::{agent_messages, agent_sessions, agent_task_presets};
 use crate::services::agent::queue::LaneQueue;
 use crate::services::agent::run_hub::{AgentRun, get_run_for_user};
-use crate::services::agent::{
-    Agent, AgentProgressEvent, LANE_QUEUE, RequestContext, UserAnswer, UserRequest,
-};
+use crate::services::agent::{Agent, AgentProgressEvent, LANE_QUEUE, UserAnswer};
 
 /// 等待用户回答的任务上下文
 /// `spawn_restored_wait_loop` 注册后等待 oneshot；answer / cancel / interrupt 都可 send `done_tx`
