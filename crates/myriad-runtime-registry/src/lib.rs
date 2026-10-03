@@ -25,13 +25,38 @@ pub struct RegistryRow {
 
 static CLEANUP_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// Opportunistic sweep after a write. The write may sit in the caller's
+/// transaction: a failed sweep there would abort it, and its COMMIT would
+/// then roll back without an error, losing the write. So the sweep runs in
+/// its own savepoint, rolled back on failure. Outside a transaction the
+/// savepoint is refused and the sweep stands alone.
 pub async fn maybe_cleanup(db: &impl ConnectionTrait) {
-    if CLEANUP_COUNTER
+    if !CLEANUP_COUNTER
         .fetch_add(1, Ordering::Relaxed)
         .is_multiple_of(256)
-        && let Err(error) = cleanup(db).await
     {
-        tracing::warn!(%error, "[Registry] Runtime registry cleanup failed");
+        return;
+    }
+    let in_transaction = db
+        .execute_unprepared("SAVEPOINT runtime_registry_cleanup")
+        .await
+        .is_ok();
+    match cleanup(db).await {
+        Ok(()) => {
+            if in_transaction {
+                let _ = db
+                    .execute_unprepared("RELEASE SAVEPOINT runtime_registry_cleanup")
+                    .await;
+            }
+        }
+        Err(error) => {
+            if in_transaction {
+                let _ = db
+                    .execute_unprepared("ROLLBACK TO SAVEPOINT runtime_registry_cleanup")
+                    .await;
+            }
+            tracing::warn!(%error, "[Registry] Runtime registry cleanup failed");
+        }
     }
 }
 
