@@ -93,7 +93,7 @@ flate2 = "1"         # zlib inflate for KuGou KRC (逐字歌词) decode
 # Image proxy still streams bytes only. `image` is sticker cutout fallback.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 # Pure-Rust ONNX inference for the rig's pose model (no native runtime to ship)
-tract-onnx = "0.21"
+tract-onnx = "0.22.4"
 # Allocator that returns freed memory to the system (see the `mimalloc` feature)
 mimalloc = { version = "0.1", optional = true }
 
