@@ -958,6 +958,7 @@ export default function Reports() {
                       onPointerUp={platformStripScroll.onPointerUp}
                       onPointerCancel={platformStripScroll.onPointerCancel}
                       onClickCapture={platformStripScroll.onClickCapture}
+                      onPointerEnter={platformStripScroll.onPointerEnter}
                       initial={{ opacity: 0 }}
                       animate={isPageReady ? { opacity: 1 } : { opacity: 0 }}
                       exit={{ opacity: 0 }}

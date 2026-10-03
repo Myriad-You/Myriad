@@ -86,3 +86,33 @@ it('attaches after conditional mounting and removes listeners from replaced stri
   const replacement = await mount()
   assert.equal(wheel(replacement).defaultPrevented, true)
 })
+
+it('steps one snap point per wheel notch on snapping strips instead of writing scrollLeft', async () => {
+  const el = await mount()
+  const calls: ScrollToOptions[] = []
+  el.scrollBy = ((options: ScrollToOptions) => { calls.push(options) }) as typeof el.scrollBy
+  const getComputedStyle = dom.window.getComputedStyle
+  dom.window.getComputedStyle = ((node: Element) => ({ ...getComputedStyle(node), scrollSnapType: 'x mandatory' })) as typeof getComputedStyle
+  try {
+    const first = wheel(el, { deltaY: 100 })
+    assert.equal(first.defaultPrevented, true)
+    assert.deepEqual(calls, [{ left: 100, behavior: 'smooth' }])
+    assert.equal(el.scrollLeft, 0)
+    // A trackpad burst inside the lock window is swallowed, not turned into page scroll.
+    assert.equal(wheel(el, { deltaY: 4 }).defaultPrevented, true)
+    assert.equal(calls.length, 1)
+    // At the leading edge the page keeps the wheel.
+    assert.equal(wheel(el, { deltaY: -100 }).defaultPrevented, false)
+  } finally {
+    dom.window.getComputedStyle = getComputedStyle
+  }
+})
+
+it('shows the grab cursor only when the strip overflows', async () => {
+  const el = await mount()
+  await act(async () => { el.dispatchEvent(new dom.window.PointerEvent('pointerover', { bubbles: true })) })
+  assert.match(el.className, /cursor-grab/)
+  Object.defineProperty(el, 'scrollWidth', { value: 300 })
+  await act(async () => { el.dispatchEvent(new dom.window.PointerEvent('pointerover', { bubbles: true })) })
+  assert.doesNotMatch(el.className, /cursor-grab/)
+})
