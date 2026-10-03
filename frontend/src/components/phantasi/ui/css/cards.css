@@ -1017,6 +1017,16 @@ html[data-perf-mode='exlight'] .phantasi-story[data-leaving='true'] {
   cursor: grab;
 }
 
+/* 内容一屏放得下时轨道不可平移，不显示抓手。 */
+.phantasi-feeds__sites.is-rail-static,
+.phantasi-feeds__items.is-rail-static,
+.phantasi-friends__sites.is-rail-static,
+.phantasi-friends__items.is-rail-static,
+.phantasi-notes.is-rail-static,
+.phantasi-stories.is-rail-static {
+  cursor: auto;
+}
+
 .phantasi-friends__sites.is-rail-panning,
 .phantasi-friends__items.is-rail-panning,
 .phantasi-notes.is-rail-panning,
