@@ -1,0 +1,90 @@
+/*
+ * 报告卡总览上一直在动的氛围效果（B 站弹幕、网易云心情气泡）。
+ *
+ * 用 CSS 动画而不是 motion：motion 的入场策略在首屏把 initial 压成 false，
+ * 这类动画会直接停在终点（弹幕飞出、气泡不浮）；而且首页轮换会因悬停或手动翻页
+ * 在总览停很久，只动一会儿的话之后就是静止的。
+ * 「减少动态效果」由全局规则把动画压成一帧，自然停住。
+ */
+
+/* 弹幕：每条飞完由组件在 animationend 时换下一句。 */
+.report-danmaku {
+  animation: report-danmaku-fly var(--danmaku-duration, 8s) linear
+    var(--danmaku-delay, 0s) both;
+}
+
+@keyframes report-danmaku-fly {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+
+  33%,
+  67% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+/* 网易云心情气泡：外层管入场与悬停放大，这一层管外观和上下浮动。 */
+.report-mood-bubble__body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 30%);
+  border-radius: 9999px;
+  background: radial-gradient(
+    120% 120% at 30% 30%,
+    rgb(255 255 255 / 60%) 0%,
+    color-mix(in srgb, var(--bubble-color) 12%, transparent) 20%,
+    color-mix(in srgb, var(--bubble-color) 38%, transparent) 100%
+  );
+  color: var(--bubble-color);
+  text-shadow: 0 1px 1px rgb(255 255 255 / 80%);
+}
+
+/*
+ * 深色：浅色那套靠白色高光和白色描字，叠在深底上发灰、字发糊。
+ * 改成以气泡色为主的暗玻璃，字提亮、阴影改深；边线和外光都压低，只隐约看得出轮廓。
+ */
+:where(html.dark) .report-mood-bubble__body {
+  /* 边线压暗：亮边在深底上比气泡本身还抢眼。 */
+  border-color: color-mix(in srgb, var(--bubble-color) 22%, transparent);
+  background: radial-gradient(
+    120% 120% at 30% 30%,
+    rgb(255 255 255 / 16%) 0%,
+    color-mix(in srgb, var(--bubble-color) 24%, transparent) 32%,
+    color-mix(in srgb, var(--bubble-color) 40%, rgb(0 0 0 / 35%)) 100%
+  );
+  box-shadow: 0 0 12px -6px color-mix(in srgb, var(--bubble-color) 35%, transparent);
+  color: color-mix(in srgb, var(--bubble-color) 50%, white);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 55%);
+}
+
+.report-mood-bubble__body.is-floating {
+  animation: report-bubble-float var(--float-duration, 5s) ease-in-out
+    var(--float-delay, 0s) infinite;
+  will-change: transform;
+}
+
+@keyframes report-bubble-float {
+  0%,
+  50%,
+  100% {
+    transform: translateY(0);
+  }
+
+  25% {
+    transform: translateY(-8px);
+  }
+
+  75% {
+    transform: translateY(8px);
+  }
+}

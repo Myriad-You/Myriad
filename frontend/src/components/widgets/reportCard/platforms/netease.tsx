@@ -1,35 +1,26 @@
+import type { CSSProperties } from 'react'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
-import { useLoopAnimation } from '../../../../hooks/animation'
 import {
   pairPageCount,
   REPORT_PAIR_DWELL_MS,
   useReportDetailPage,
 } from '../reportPaging'
+import '../ambient.css'
 
 export const MusicStatsWidget = memo(
   ({
     data,
     allowLoop = true,
-    triggerKey,
   }: {
     data?: any
     allowLoop?: boolean
-    triggerKey?: unknown
   }) => {
     const { t } = useI18n()
-
-    const { isAnimating } = useLoopAnimation({
-      duration: 5000,
-      trigger: triggerKey,
-      enabled: allowLoop,
-    })
-
-    const canAnimate = allowLoop && isAnimating
 
     const moodKeywords = useMemo(
       () => data?.mood_keywords || [],
@@ -119,32 +110,25 @@ export const MusicStatsWidget = memo(
         <div className="relative h-full w-full p-3">
           <div className="absolute inset-0 pointer-events-none">
             {bubbles.map((bubble, i) => (
+              // 外层只管入场和悬停放大；外观与上下浮动在内层，用 CSS 一直浮（见 ambient.css）。
               <motion.div
                 key={bubble.tag}
-                className="absolute flex items-center justify-center rounded-full font-bold pointer-events-auto cursor-default"
-                style={{
-                  left: `${bubble.x}%`,
-                  top: `${bubble.y}%`,
-                  width: `${bubble.size}px`,
-                  height: `${bubble.size}px`,
-                  marginLeft: `-${bubble.size / 2}px`,
-                  marginTop: `-${bubble.size / 2}px`,
-                  background: `radial-gradient(120% 120% at 30% 30%, rgba(255,255,255,0.6) 0%, ${bubble.color}20 20%, ${bubble.color}60 100%)`,
-                  border: `1px solid rgba(255,255,255,0.3)`,
-                  color: bubble.color,
-                  fontSize: `${Math.min(Math.max(10, bubble.size / 4), 16)}px`,
-                  textShadow: `0 1px 1px rgba(255,255,255,0.8)`,
-                  zIndex: 10,
-                  willChange: 'transform',
-                  transform: 'translateZ(0)',
-                  backfaceVisibility: 'hidden',
-                }}
+                className="report-mood-bubble absolute font-bold pointer-events-auto cursor-default"
+                style={
+                  {
+                    'left': `${bubble.x}%`,
+                    'top': `${bubble.y}%`,
+                    'width': `${bubble.size}px`,
+                    'height': `${bubble.size}px`,
+                    'marginLeft': `-${bubble.size / 2}px`,
+                    'marginTop': `-${bubble.size / 2}px`,
+                    'fontSize': `${Math.min(Math.max(10, bubble.size / 4), 16)}px`,
+                    'zIndex': 10,
+                    '--bubble-color': bubble.color,
+                  } as CSSProperties
+                }
                 initial={{ scale: 0, opacity: 0 }}
-                animate={{
-                  scale: 1,
-                  opacity: 1,
-                  y: [0, -8, 0, 8, 0],
-                }}
+                animate={{ scale: 1, opacity: 1 }}
                 transition={{
                   scale: {
                     type: 'spring',
@@ -153,12 +137,6 @@ export const MusicStatsWidget = memo(
                     delay: i * 0.1,
                   },
                   opacity: { duration: 0.6, delay: i * 0.1 },
-                  y: {
-                    duration: bubble.floatDuration,
-                    repeat: canAnimate ? Infinity : 0,
-                    ease: 'easeInOut',
-                    delay: bubble.floatDelay,
-                  },
                 }}
                 whileHover={{
                   scale: 1.15,
@@ -166,10 +144,20 @@ export const MusicStatsWidget = memo(
                   transition: { duration: 0.3, ease: 'easeOut' },
                 }}
               >
-                <div className="absolute top-[15%] left-[15%] w-[20%] h-[10%] bg-white/30 rounded-full transform -rotate-45" />
-                <span className="relative z-10 mix-blend-multiply dark:mix-blend-normal">
-                  {bubble.tag}
-                </span>
+                <div
+                  className={`report-mood-bubble__body${allowLoop ? ' is-floating' : ''}`}
+                  style={
+                    {
+                      '--float-duration': `${bubble.floatDuration}s`,
+                      '--float-delay': `${bubble.floatDelay}s`,
+                    } as CSSProperties
+                  }
+                >
+                  <div className="absolute top-[15%] left-[15%] w-[20%] h-[10%] bg-white/30 dark:bg-white/15 rounded-full transform -rotate-45" />
+                  <span className="relative z-10 mix-blend-multiply dark:mix-blend-normal">
+                    {bubble.tag}
+                  </span>
+                </div>
               </motion.div>
             ))}
           </div>
@@ -342,7 +330,6 @@ export const NeteaseWidget = memo(
             <MusicStatsWidget
               data={processedData}
               allowLoop={allowLoop}
-              triggerKey={showOverview}
             />
           </motion.div>
         ) : (

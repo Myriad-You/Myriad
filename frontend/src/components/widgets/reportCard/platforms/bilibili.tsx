@@ -18,6 +18,7 @@ import {
 } from '../animations'
 import { useLibraryItemRotation } from '../hooks'
 import { getBilibiliProxyUrl } from '../media'
+import '../ambient.css'
 
 interface DanmakuLanePlan {
   top: string
