@@ -286,6 +286,23 @@ impl Agent {
                 }
                 None => Err("No Work model is configured".into()),
             };
+        // Unattended, nobody can answer: a task that stops to ask ends here,
+        // saying what it stopped on, instead of waiting out its expiry.
+        let result = match result {
+            Ok(()) if unattended_and_waiting(&state) => {
+                let asked = state
+                    .task
+                    .pending_question
+                    .take()
+                    .map(|question| question.question)
+                    .unwrap_or_default();
+                state.wait = None;
+                Err(format!(
+                    "Stopped: running unattended, it needed an answer nobody could give ({asked})"
+                ))
+            }
+            other => other,
+        };
         if let Err(error) = result {
             if executor::is_cancelled(&state.task.task_id).await {
                 state.task.status = TaskStatus::Cancelled;
@@ -903,6 +920,11 @@ fn request_evidence(request: &UserRequest, recipe: &Recipe, task: &TaskState) ->
 /// recorded as a tool error and the handler is not entered, so there is no
 /// effect. Other Low / Medium calls return false and auto-run. Interactive
 /// users are unchanged.
+/// Run unattended (the heartbeat) and stopped to wait for someone.
+fn unattended_and_waiting(state: &Checkpoint) -> bool {
+    state.user_id == super::SYSTEM_USER_ID && state.task.status == TaskStatus::WaitingForInput
+}
+
 /// Whether a call may change something outside the task: anything but a
 /// data read, unless it only looks (queries, summaries) and needs no
 /// confirmation. A look at the page or the player can be taken twice.

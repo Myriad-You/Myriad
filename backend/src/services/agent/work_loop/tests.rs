@@ -734,3 +734,16 @@ fn only_calls_that_may_change_something_are_held_as_effects() {
     assert!(effects("http.fetch"), "asks first: may do more than look");
     assert!(effects("content.write"));
 }
+
+/// Nobody answers the heartbeat: a task of its that stops to ask is over.
+#[test]
+fn an_unattended_task_waiting_for_an_answer_is_over() {
+    let mut state = checkpoint();
+    state.user_id = 7;
+    state.task.status = TaskStatus::WaitingForInput;
+    assert!(!super::unattended_and_waiting(&state), "a person can answer");
+    state.user_id = crate::services::agent::SYSTEM_USER_ID;
+    assert!(super::unattended_and_waiting(&state));
+    state.task.status = TaskStatus::Running;
+    assert!(!super::unattended_and_waiting(&state));
+}
