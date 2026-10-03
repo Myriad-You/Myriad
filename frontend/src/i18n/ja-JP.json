@@ -1101,7 +1101,6 @@
       "portraitEditFailed": "立ち絵の調整に失敗しました。再試行してください。",
       "portraitEditNeedsNotes": "先に直したい点を話してから、この絵をモデルに渡してください。",
       "portraitGenerateFailed": "メイン立ち絵の生成に失敗しました。再試行してください。",
-      "imageProviderInvalidResponse": "画像生成元の応答を読み取れませんでした。",
       "portraitLoadFailed": "メイン立ち絵を読み込めませんでした",
       "portraitFinish": "次へ：動かす"
     }

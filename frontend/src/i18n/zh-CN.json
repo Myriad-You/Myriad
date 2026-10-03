@@ -1101,7 +1101,6 @@
       "portraitEditFailed": "按对话调整失败，请重试",
       "portraitEditNeedsNotes": "先说要改的地方，再交给模型调整这张图。",
       "portraitGenerateFailed": "主立绘生成失败，请重试",
-      "imageProviderInvalidResponse": "图片源返回了无法解析的结果。",
       "portraitLoadFailed": "读取主立绘失败",
       "portraitFinish": "下一步：让她动起来"
     }

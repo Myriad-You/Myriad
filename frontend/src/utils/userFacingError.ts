@@ -937,8 +937,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (
     code === 'agent_processing_failed' ||
-    is('text_processing_failed') ||
-    raw.startsWith('处理失败')
+    is('text_processing_failed')
   ) {
     return classified(t.agentProcessingFailed, raw, hint)
   }
@@ -951,7 +950,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (is('agent_step_retrying')) {
     return t.agentStepRetrying
   }
-  if (is('text_confirmation_failed') || raw.startsWith('确认执行失败')) {
+  if (is('text_confirmation_failed')) {
     return t.agentConfirmFailed
   }
   if (is('agent_unsupported')) {
@@ -970,11 +969,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return t.waitChannelClosed
   }
   if (is('wait_input_timeout')) {
-    const hours = raw.match(/（(\d+)小时）|\((\d+) hours\)/)
+    const hours = raw.match(/\((\d+) hours\)/)
     if (hours) {
-      return fill(t.waitInputTimeoutHours, {
-        hours: Number(hours[1] || hours[2] || '0'),
-      })
+      return fill(t.waitInputTimeoutHours, { hours: Number(hours[1]) })
     }
     return t.waitInputTimeout
   }
@@ -1008,22 +1005,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'analytics_unavailable') {
     return t.analyticsUnavailable
   }
-  const queued = raw.match(
-    /排队中（前方约\s*(\d+)\s*个任务）|Queued \(about (\d+) ahead\)/i,
-  )
-  if (queued) {
-    return fill(t.agentQueued, {
-      n: Number(queued[1] || queued[2] || '0'),
-    })
-  }
-  const queueWait = raw.match(
-    /系统繁忙，排队超过\s*(\d+)\s*秒|Waited more than (\d+) seconds/i,
-  )
-  if (queueWait) {
-    return fill(t.agentQueueTimeout, {
-      sec: Number(queueWait[1] || queueWait[2] || '0'),
-    })
-  }
+  const queued = raw.match(/Queued \(about (\d+) ahead\)/i)
+  if (queued) return fill(t.agentQueued, { n: Number(queued[1]) })
+  const queueWait = raw.match(/Waited more than (\d+) seconds/i)
+  if (queueWait) return fill(t.agentQueueTimeout, { sec: Number(queueWait[1]) })
   if (is('music_not_playing')) {
     return currentCopy().music.noPlaying
   }
@@ -1035,16 +1020,6 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   )
   if (planFailed) {
     const detail = (planFailed[1] || '').trim()
-    return detail
-      ? fill(t.agentPlanningFailed, { detail })
-      : t.agentPlanningFailedBare
-  }
-  if (raw.startsWith('我理解了你的请求，但生成执行计划时出现问题')) {
-    const detail = raw
-      .replaceAll(/^我理解了你的请求，但生成执行计划时出现问题[：:.\s]*/g, '')
-      .replaceAll(/请更具体地描述你想要什么。?$/g, '')
-      .replaceAll(/[。．.]+$/g, '')
-      .trim()
     return detail
       ? fill(t.agentPlanningFailed, { detail })
       : t.agentPlanningFailedBare
@@ -1132,21 +1107,21 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return currentCopy().phantasi.noteTitleRequired
   }
   const titleTooLong = raw.match(
-    /^标题最多 (\d+) 字，现在有 (\d+) 字$|^Titles can be at most (\d+) characters \(this one is (\d+)\)$/i,
+    /^Titles can be at most (\d+) characters \(this one is (\d+)\)$/i,
   )
   if (titleTooLong) {
     return fill(currentCopy().phantasi.noteTitleTooLong, {
-      max: titleTooLong[1] || titleTooLong[3] || '',
-      chars: titleTooLong[2] || titleTooLong[4] || '',
+      max: titleTooLong[1],
+      chars: titleTooLong[2],
     })
   }
   const bodyTooLong = raw.match(
-    /^正文最多 (\d+) 字，现在有 (\d+) 字$|^Notes can be at most (\d+) characters \(this one is (\d+)\)$/i,
+    /^Notes can be at most (\d+) characters \(this one is (\d+)\)$/i,
   )
   if (bodyTooLong) {
     return fill(currentCopy().phantasi.noteBodyTooLong, {
-      max: bodyTooLong[1] || bodyTooLong[3] || '',
-      chars: bodyTooLong[2] || bodyTooLong[4] || '',
+      max: bodyTooLong[1],
+      chars: bodyTooLong[2],
     })
   }
   if (is('text_note_draft_was_updated_elsewhere')) {
@@ -1159,6 +1134,8 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return currentCopy().phantasi.noteScheduleNeedTime
   }
   if (is('text_guest')) return t.guestLabel
+  // Stored labels (author names, list names) keep the words they were saved
+  // with; like the stored labels in error_codes.json, they are still read.
   const userNumber = raw.match(/^用户#(\d+)$/)
   if (userNumber) return fill(t.userNumber, { id: userNumber[1] })
   if (is('text_xbox_player')) return currentCopy().reportCardWidget.xboxGamerDefault
@@ -1167,38 +1144,18 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (is('text_wait_tapp_interaction')) return t.waitTappInteraction
   if (is('text_dynamic_skills')) return t.capDynamicSkills
   if (is('text_mcp_tools')) return t.capMcpTools
-  if (
-    raw.startsWith('我现在心情很低，不想接新的事情') ||
-    raw.startsWith('I\'m in a very low mood and don\'t want to take on anything new')
-  ) {
+  if (raw.startsWith('I\'m in a very low mood and don\'t want to take on anything new')) {
     return t.agentRefuseLowMood
   }
-  if (raw.startsWith('我对这个请求的理解置信度较低')) return t.agentNeedClarification
   if (is('text_retry_step_desc')) return t.retryStepDesc
   if (is('text_skip_step_desc')) return t.skipStepDesc
   if (is('text_cancel_task_desc')) return t.cancelTaskDesc
   if (is('text_retry_step')) return t.retryStep
   if (is('text_skip_step')) return t.skipStep
   if (is('text_web_search_result')) return t.webSearchResult
-  if (raw.includes('试试搜索你已有数据')) return t.searchLocalHint
-  const dbMissing = raw.match(/^(\S+) 数据库文件不存在（(.+)）/)
-  if (dbMissing) {
-    return fill(t.databaseFileMissing, {
-      name: dbMissing[1],
-      path: dbMissing[2],
-    })
-  }
   if (is('text_try_other_keyword')) return t.tryOtherKeyword
   if (is('text_check_spelling')) return t.checkSpelling
-  if (raw.includes('page.content 读取 Tapp')) return t.pageContentNeedsTapp
-  if (raw.includes('page.content 读取平台')) return t.pageContentNeedsPlatform
   if (is('text_web_search_result')) return t.webSearchResult
-  if (raw.includes('AI 已根据近期失败原因改写')) return t.noticeSkillImprovedBody
-  const prunedSkill = raw.match(/^自动技能「(.+)」因失败率过高被淘汰/)
-  if (prunedSkill) {
-    return fill(t.noticeSkillPrunedBody, { name: prunedSkill[1] })
-  }
-  if (raw.startsWith('我的理解是：')) return t.agentNeedClarification
   if (is('text_netease_music_user')) return t.neteaseMusicUser
   if (is('text_bangumi_user')) return t.bangumiUser
   if (is('text_mal_user')) return t.malUser
@@ -1216,27 +1173,19 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (webSearchNamed) {
     return fill(t.webSearchNamed, { name: webSearchNamed[1] })
   }
-  // legacy: zh reading-list name the agent stored before 7431f345c.
   const readingListNamed = raw.match(/^阅读列表\s*[—\-]\s*(\S.*)$/)
   if (readingListNamed) {
     return fill(t.readingListNamed, { name: readingListNamed[1] })
   }
   // Confirmation text with the tool and server names in it
-  // (capability/mod.rs mcp_capability); the zh form is legacy.
-  const mcpTool = raw.match(
-    /^将调用外部 MCP 服务 '(.+)' 的工具 '(.+)'$|^This will call tool '(.+)' on MCP server '(.+)'$/i,
-  )
+  // (capability/mod.rs mcp_capability).
+  const mcpTool = raw.match(/^This will call tool '(.+)' on MCP server '(.+)'$/i)
   if (mcpTool) {
-    const server = mcpTool[1] || mcpTool[4] || ''
-    const tool = mcpTool[2] || mcpTool[3] || ''
-    return fill(t.confirmMcpTool, { server, tool })
+    return fill(t.confirmMcpTool, { server: mcpTool[2], tool: mcpTool[1] })
   }
-  // legacy: MCP notice bodies stored before 162557c21.
-  const mcpToolsLoaded = raw.match(/^已加载 (\d+) 个工具$|^Loaded (\d+) tools$/i)
+  const mcpToolsLoaded = raw.match(/^Loaded (\d+) tools$/i)
   if (mcpToolsLoaded) {
-    return fill(t.noticeMcpToolsLoaded, {
-      n: Number(mcpToolsLoaded[1] || mcpToolsLoaded[2] || '0'),
-    })
+    return fill(t.noticeMcpToolsLoaded, { n: Number(mcpToolsLoaded[1]) })
   }
   if (is('text_maintenance_retry_succeeded')) {
     return t.noticeMcpMaintenanceRetry
@@ -1246,24 +1195,15 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (is('text_updater_watch_timeout')) return t.noticeUpdaterWatchTimeout
   if (is('text_unknown_artist')) return currentCopy().library.unknownArtist
-  // Scheduled-task name stored in the database (platform_auto_refresh.rs);
-  // the zh form is legacy.
-  const autoRefreshNamed = raw.match(
-    /^自动刷新 (.+) 数据$|^Auto-refresh (.+) data$/i,
-  )
+  // Scheduled-task name stored in the database (platform_auto_refresh.rs).
+  const autoRefreshNamed = raw.match(/^Auto-refresh (.+) data$/i)
   if (autoRefreshNamed) {
-    return fill(t.autoRefreshNamed, {
-      name: autoRefreshNamed[1] || autoRefreshNamed[2] || '',
-    })
+    return fill(t.autoRefreshNamed, { name: autoRefreshNamed[1] })
   }
-  // Stored notification title (notification_producers.rs); the zh form is legacy.
-  const leftoverHeartbeatTask = raw.match(
-    /^定时任务:\s*(\S.*)$|^Scheduled task:\s*(\S.*)$/i,
-  )
-  if (leftoverHeartbeatTask) {
-    return fill(t.noticeHeartbeatTask, {
-      name: leftoverHeartbeatTask[1] || leftoverHeartbeatTask[2] || '',
-    })
+  // Stored notification title (notification_producers.rs).
+  const heartbeatTask = raw.match(/^Scheduled task:\s*(\S.*)$/i)
+  if (heartbeatTask) {
+    return fill(t.noticeHeartbeatTask, { name: heartbeatTask[1] })
   }
   if (is('text_confirm_add_feed')) return t.confirmAddFeed
   if (is('text_confirm_phantasi_schedule')) return t.confirmPhantasiSchedule
@@ -1283,13 +1223,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (is('text_agent_understanding')) return t.agentUnderstanding
   if (is('text_agent_planning')) return t.agentPlanning
   if (is('text_agent_need_clarification')) return t.agentNeedClarification
-  // Confirmation text naming the step (response_agent.rs); the zh form is legacy.
-  const willRun = raw.match(/^This will run (.+)$|^此操作将执行\s*(\S.*)$/)
-  if (willRun) {
-    return fill(t.willExecute, { name: willRun[1] || willRun[2] || '' })
-  }
-  // legacy: zh confirmation text stored before 9dd3f671f.
-  if (raw.startsWith('此操作将')) return t.stepNeedsConfirm
+  // Confirmation text naming the step (response_agent.rs).
+  const willRun = raw.match(/^This will run (.+)$/)
+  if (willRun) return fill(t.willExecute, { name: willRun[1] })
   if (is('text_cap_category_data')) return t.capCategoryData
   if (is('text_cap_category_write')) return t.capCategoryWrite
   if (is('text_cap_category_ai')) return t.capCategoryAi
@@ -1330,27 +1266,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (is('agent_service_not_configured')) return t.serviceNotConfigured
   if (is('agent_feed_name_required')) return t.feedNameRequired
   if (is('agent_task_submit_failed')) return t.taskSubmitFailed
-  // legacy: zh agent step errors with a dynamic middle, stored in tasks before
-  // 9dd3f671f (2026-09-11). Their fixed-text siblings are leftovers.
-  if (/执行超时/.test(raw)) return t.agentStepTimeout
-  if (/尝试了 .* 个源都无法订阅/.test(raw)) return t.subscribeAllFailed
-  if (/需要人工确认|未经确认的高风险/.test(raw)) return t.stepNeedsConfirm
-  if (/不应被直接调用/.test(raw)) return t.agentUnsupported
-  if (/未对普通用户开放/.test(raw)) return t.forbidden
-  if (/API Key 未配置/i.test(raw)) {
-    return /TTS|语音|Speech/.test(raw) ? t.speechNotConfigured : t.serviceNotConfigured
-  }
-  if (/无法访问或解析此 RSS|RSSHub 实例不存在/i.test(raw)) {
-    return currentCopy().phantasi.errorDiscoverFailed
-  }
-  if (/notion api key 未配置/i.test(raw)) return currentCopy().phantasi.errorNotionFetch
-  if (raw.includes('图片生成完成，但无法提取')) {
-    return currentCopy().agentPersona.onboarding.imageProviderInvalidResponse
-  }
-  if (
-    is('text_invalid_tappid') ||
-    raw.includes('无效的 tappId')
-  ) {
+  if (is('text_invalid_tappid')) {
     return currentCopy().tapp.invalidId
   }
   if (code === 'media_action_invalid') {

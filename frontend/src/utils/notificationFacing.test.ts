@@ -1,7 +1,7 @@
 import type { AppNotification } from '../services/notificationApi'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { currentCopy } from '../i18n/localeCopy.ts'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy.ts'
 import {
   notificationFacingBody,
   notificationFacingTitle,
@@ -143,7 +143,7 @@ describe('notificationFacing', () => {
     assert.equal(text.includes('新的关注者'), false)
   })
 
-  it('maps leftover phantasi new-item and heartbeat Chinese titles', () => {
+  it('maps phantasi new-item and heartbeat notices by their event', () => {
     const phantasi = notificationFacingTitle(
       notice('科技新闻 · 3 篇新内容', '发现 3 篇新内容', 'phantasi.new_items', {
         source_name: '科技新闻',
@@ -153,18 +153,23 @@ describe('notificationFacing', () => {
     assert.equal(phantasi.includes('篇新内容'), false)
     assert.match(phantasi, /科技新闻/)
     const phantasiBody = notificationFacingBody(
-      notice('科技新闻 · 3 篇新内容', '发现 3 篇新内容', 'phantasi.new_items', {
+      notice('科技新闻 · 3 new items', '3 new items found', 'phantasi.new_items', {
         new_count: 3,
       }),
     )
-    assert.equal(phantasiBody.includes('篇新内容'), false)
+    assert.equal(
+      phantasiBody,
+      formatCurrent(currentCopy().errors.noticePhantasiNewItemsBody, { n: 3 }),
+    )
     const heartbeat = notificationFacingTitle(
-      notice('定时任务: 备份', 'ok', 'heartbeat.succeeded', {
+      notice('Scheduled task: 备份', 'ok', 'heartbeat.succeeded', {
         task_name: '备份',
       }),
     )
-    assert.equal(heartbeat.includes('定时任务'), false)
-    assert.match(heartbeat, /备份/)
+    assert.equal(
+      heartbeat,
+      formatCurrent(currentCopy().errors.noticeHeartbeatTask, { name: '备份' }),
+    )
     const seo = notificationFacingTitle(
       notice('Scheduled task: SEO review', 'rewrite', 'heartbeat.seo_review'),
     )
@@ -216,9 +221,9 @@ describe('notificationFacing', () => {
     assert.equal(/All 3 retries/.test(schedule), false)
   })
 
-  it('maps leftover MCP retry bodies', () => {
+  it('maps MCP retry bodies', () => {
     const retry = notificationFacingBody(
-      notice('MCP files is connected', '维护重试成功', 'mcp.connected', {
+      notice('MCP files is connected', 'Maintenance retry succeeded', 'mcp.connected', {
         server_id: 'files',
       }),
     )

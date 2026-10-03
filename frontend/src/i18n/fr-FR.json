@@ -1101,7 +1101,6 @@
       "portraitEditFailed": "Impossible d'ajuster le portrait. Réessayez.",
       "portraitEditNeedsNotes": "Dites quoi changer avant d'envoyer ce portrait au modèle.",
       "portraitGenerateFailed": "Impossible de générer le portrait principal. Réessayez.",
-      "imageProviderInvalidResponse": "Le fournisseur d'images a renvoyé un résultat illisible.",
       "portraitLoadFailed": "Impossible de charger le portrait principal",
       "portraitFinish": "Ensuite : la faire bouger"
     }

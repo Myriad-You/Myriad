@@ -1101,7 +1101,6 @@
       "portraitEditFailed": "Porträt ließ sich nicht anpassen. Erneut versuchen.",
       "portraitEditNeedsNotes": "Sagen, was sich ändern soll, bevor dieses Porträt an das Modell geht.",
       "portraitGenerateFailed": "Hauptporträt ließ sich nicht erzeugen. Erneut versuchen.",
-      "imageProviderInvalidResponse": "Der Bildanbieter hat ein Ergebnis geliefert, das sich nicht lesen ließ.",
       "portraitLoadFailed": "Hauptporträt ließ sich nicht laden",
       "portraitFinish": "Weiter: sie bewegen"
     }

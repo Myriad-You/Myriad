@@ -204,9 +204,8 @@ describe('userFacingError', () => {
   })
 
   it('maps leftover Chinese agent progress chrome', () => {
-    const queued = userFacingError('排队中（前方约 3 个任务）…')
-    assert.equal(/排队中（前方约 3 个任务）/.test(queued), false)
-    assert.match(queued, /3/)
+    const queued = userFacingError('Queued (about 3 ahead)')
+    assert.equal(queued, fill(currentCopy().errors.agentQueued, { n: 3 }))
     const bili = userFacingError('获取 B 站数据')
     assert.equal(/获取 B 站数据/.test(bili), false)
     assert.match(bili, /Bilibili/)
@@ -467,13 +466,6 @@ describe('userFacingError', () => {
     assert.notEqual(load, currentCopy().errors.database)
   })
 
-  it('maps leftover high-risk step confirmation dumps', () => {
-    const text = userFacingError(
-      "步骤 'dyn-1' 涉及未经确认的高风险操作（system.export，风险 High），动态生成的子步骤不允许自动执行",
-    )
-    assert.equal(/dyn-1|system\.export|High/.test(text), false)
-  })
-
   it('maps leftover article lookup dumps', () => {
     const text = userFacingError(
       '未找到文章: id=Some(12), key=Some("abc"), url=Some("https://example.com/x")',
@@ -485,20 +477,6 @@ describe('userFacingError', () => {
     const text = userFacingError('未找到名为「政治」的订阅源或作者')
     assert.equal(text.includes('政治'), false)
     assert.equal(text.includes('未找到名为'), false)
-  })
-
-  it('maps leftover agent permission Chinese without leaking setting paths', () => {
-    const text = userFacingError(
-      'Agent 未对普通用户开放 AI 对话（请在「Tapp 权限管理」中下放 ai:chat 或选用助手预设）',
-    )
-    assert.equal(/ai:chat|Tapp 权限管理/.test(text), false)
-  })
-
-  it('maps leftover context.reference Chinese without leaking recipe internals', () => {
-    const text = userFacingError(
-      'context.reference 不应被直接调用。请使用 xxxFrom 参数引用上游步骤的输出。',
-    )
-    assert.equal(/xxxFrom|context\.reference/.test(text), false)
   })
 
   it('maps leftover Gemini dumps away from API bodies', () => {
@@ -1560,11 +1538,6 @@ describe('userFacingError', () => {
       planFailed,
       fill(currentCopy().errors.agentPlanningFailed, { detail: 'timeout' }),
     )
-    const leftoverPlan = userFacingError(
-      '我理解了你的请求，但生成执行计划时出现问题：timeout。请更具体地描述你想要什么。',
-    )
-    assert.equal(leftoverPlan.includes('我理解了你的请求'), false)
-    assert.match(leftoverPlan, /timeout/)
   })
 
   it('maps Discord app-missing and leftover music-control chrome', () => {
@@ -1589,10 +1562,8 @@ describe('userFacingError', () => {
       currentCopy().music.noPlaying,
     )
     assert.equal(
-      /系统繁忙/.test(
-        userFacingError('系统繁忙，排队超过 30 秒仍未获得执行许可，请稍后重试'),
-      ),
-      false,
+      userFacingError('Waited more than 30 seconds'),
+      fill(currentCopy().errors.agentQueueTimeout, { sec: 30 }),
     )
   })
 
@@ -1601,7 +1572,7 @@ describe('userFacingError', () => {
     assert.equal(userFacingError('Chatting'), currentCopy().errors.agentChat)
     assert.equal(userFacingError('好了，都处理完啦~'), currentCopy().errors.agentAllDone)
     assert.equal(
-      userFacingError('此操作将执行 打开窗口'),
+      userFacingError('This will run 打开窗口'),
       fill(currentCopy().errors.willExecute, { name: '打开窗口' }),
     )
     assert.equal(userFacingError('数据读取'), currentCopy().errors.capCategoryData)
@@ -1625,11 +1596,11 @@ describe('userFacingError', () => {
       currentCopy().library.unknownArtist,
     )
     assert.equal(
-      userFacingError('自动刷新 steam 数据'),
+      userFacingError('Auto-refresh steam data'),
       fill(currentCopy().errors.autoRefreshNamed, { name: 'steam' }),
     )
     assert.equal(
-      userFacingError('定时任务: 备份'),
+      userFacingError('Scheduled task: 备份'),
       fill(currentCopy().errors.noticeHeartbeatTask, { name: '备份' }),
     )
     assert.equal(
@@ -1647,14 +1618,14 @@ describe('userFacingError', () => {
       fill(currentCopy().errors.webSearchNamed, { name: '科技' }),
     )
     assert.equal(
-      userFacingError("将调用外部 MCP 服务 'files' 的工具 'read'"),
+      userFacingError("This will call tool 'read' on MCP server 'files'"),
       fill(currentCopy().errors.confirmMcpTool, {
         server: 'files',
         tool: 'read',
       }),
     )
     assert.equal(
-      userFacingError('已加载 3 个工具'),
+      userFacingError('Loaded 3 tools'),
       fill(currentCopy().errors.noticeMcpToolsLoaded, { n: 3 }),
     )
     assert.equal(
@@ -1694,7 +1665,7 @@ describe('userFacingError', () => {
       currentCopy().phantasi.latestArticles,
     )
     assert.equal(
-      userFacingError('任务等待用户输入超时（2小时），已自动取消'),
+      userFacingError('Waiting for a reply timed out (2 hours); the task was cancelled'),
       fill(currentCopy().errors.waitInputTimeoutHours, { hours: 2 }),
     )
     assert.equal(
@@ -1726,23 +1697,19 @@ describe('userFacingError', () => {
       currentCopy().phantasi.noteScheduleNeedTime,
     )
     assert.equal(
-      userFacingError('标题最多 200 字，现在有 201 字'),
+      userFacingError('Titles can be at most 200 characters (this one is 201)'),
       fill(currentCopy().phantasi.noteTitleTooLong, { max: '200', chars: '201' }),
     )
     assert.equal(
-      userFacingError('正文最多 200000 字，现在有 200001 字'),
+      userFacingError('Notes can be at most 200000 characters (this one is 200001)'),
       fill(currentCopy().phantasi.noteBodyTooLong, {
         max: '200000',
         chars: '200001',
       }),
     )
     assert.equal(
-      userFacingError('我现在心情很低，不想接新的事情。我们先说说话吧。'),
+      userFacingError("I'm in a very low mood and don't want to take on anything new"),
       currentCopy().errors.agentRefuseLowMood,
-    )
-    assert.equal(
-      userFacingError('我对这个请求的理解置信度较低（20%），可能会误解你的意图。能再详细描述一下你想要做什么吗？'),
-      currentCopy().errors.agentNeedClarification,
     )
     assert.equal(userFacingError('重试'), currentCopy().errors.retryStep)
     assert.equal(
@@ -1754,18 +1721,8 @@ describe('userFacingError', () => {
       currentCopy().errors.webSearchResult,
     )
     assert.equal(
-      userFacingError('AI 已根据近期失败原因改写该自动技能。'),
-      currentCopy().errors.noticeSkillImprovedBody,
-    )
-    assert.equal(
       userFacingError('请尝试其他关键词'),
       currentCopy().errors.tryOtherKeyword,
-    )
-    assert.equal(
-      userFacingError(
-        'page.content 读取 Tapp 页需要 context.tappId，或由前端提供 content 快照',
-      ),
-      currentCopy().errors.pageContentNeedsTapp,
     )
     assert.equal(
       userFacingError('即将向外部 URL 发起 HTTP 请求'),

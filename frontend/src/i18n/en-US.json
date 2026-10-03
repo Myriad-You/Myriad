@@ -1101,7 +1101,6 @@
       "portraitEditFailed": "Could not adjust the portrait. Try again.",
       "portraitEditNeedsNotes": "Say what to change before sending this portrait to the model.",
       "portraitGenerateFailed": "Could not generate the master portrait. Try again.",
-      "imageProviderInvalidResponse": "The image provider returned a result that could not be read.",
       "portraitLoadFailed": "Could not load the master portrait",
       "portraitFinish": "Next: make her move"
     }

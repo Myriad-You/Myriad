@@ -18,7 +18,7 @@ const DEFAULT_TAPP_TITLES = new Set([
   'Tapp-Benachrichtigung',
 ])
 
-const SCHEDULED_TAPP_TITLE = /^(?:定时任务失败|Scheduled task failed|A scheduled task failed)$/i
+const SCHEDULED_TAPP_TITLE = /^(?:Scheduled task failed|A scheduled task failed)$/i
 
 function fill(
   template: string,
@@ -35,10 +35,10 @@ function noticeLeftover(raw: string, fallback: string): string {
   if (lower === 'unauthorized') return t.unauthorized
   if (lower === 'forbidden') return t.forbidden
   if (lower === 'not found') return t.notFound
-  if (/^维护重试成功$|^Maintenance retry succeeded$/i.test(text)) {
+  if (/^Maintenance retry succeeded$/i.test(text)) {
     return t.noticeMcpMaintenanceRetry
   }
-  if (/^自动重启成功$|^Auto-restart succeeded$/i.test(text)) {
+  if (/^Auto-restart succeeded$/i.test(text)) {
     return t.noticeMcpAutoRestart
   }
   const colon = text.indexOf(':')
@@ -91,10 +91,7 @@ export function notificationFacingTitle(notification: AppNotification): string {
       return fill(t.noticeHeartbeatTask, {
         name:
           metaString(notification, 'task_name') ||
-          notification.title
-            .replaceAll(/^定时任务:\s*/g, '')
-            .replaceAll(/^Scheduled task:\s*/gi, '')
-            .trim() ||
+          notification.title.replaceAll(/^Scheduled task:\s*/gi, '').trim() ||
           'task',
       })
     case NotificationEvent.platformSyncFailed:
@@ -166,75 +163,18 @@ export function notificationFacingTitle(notification: AppNotification): string {
     return raw
   }
   if (notification.notification_type === 'federation_message') return raw
-  const leftoverPhantasiNew = raw.match(/^(.+) · (\d+) 篇新内容$/)
-  if (leftoverPhantasiNew) {
-    return fill(t.noticePhantasiNewItems, {
-      name: leftoverPhantasiNew[1],
-      n: leftoverPhantasiNew[2],
-    })
-  }
-  const leftoverHeartbeat = raw.match(/^定时任务:\s*(\S.*)$/)
-  if (leftoverHeartbeat) {
-    return fill(t.noticeHeartbeatTask, { name: leftoverHeartbeat[1] })
-  }
-  if (raw.includes('连续抓取失败')) {
-    return fill(t.noticePhantasiSourceFailed, { name: name || raw.replaceAll(/连续抓取失败/g, '').trim() || 'RSS' })
-  }
-  if (raw.includes('自动刷新失败')) {
-    return fill(t.noticePlatformSyncFailed, { name: name || raw.replaceAll(/自动刷新失败/g, '').trim() })
-  }
-  if (raw.includes('连接失败') && raw.includes('MCP')) {
-    return fill(t.noticeMcpFailed, { name: name || 'MCP' })
-  }
-  if (raw.includes('定时任务失败')) return t.noticeScheduleFailed
-  if (/^任务失败$|^任务执行失败$|^前端任务执行失败$|^The task failed$/.test(raw)) {
-    return t.noticeAgentTaskFailed
-  }
-  if (/^任务完成$|^任务已完成$|^The task finished$/.test(raw)) {
-    return t.noticeAgentTaskCompleted
-  }
+  if (/^The task failed$/.test(raw)) return t.noticeAgentTaskFailed
+  if (/^The task finished$/.test(raw)) return t.noticeAgentTaskCompleted
+  // The run hub still words a cancelled task in Chinese.
   if (/^任务已取消$|^The task was cancelled$/.test(raw)) {
     return t.agentTaskCancelled
   }
-  if (/任务等待通道已断开|^The wait channel closed$/.test(raw)) {
-    return t.waitChannelClosed
-  }
-  if (/等待用户输入已超时|^Waiting for input timed out/.test(raw)) {
-    return t.waitInputTimeout
-  }
-  if (/任务状态已不可用|^The task is no longer available$/.test(raw)) {
-    return t.taskUnavailable
-  }
-  if (/任务等待你的回答|The task needs your reply/.test(raw)) {
-    return t.noticeAgentTaskWaiting
-  }
-  if (/Arael 正在执行任务|^Arael is working$|^Agent is working$/.test(raw)) {
+  if (/^The wait channel closed$/.test(raw)) return t.waitChannelClosed
+  if (raw.startsWith('Waiting for input timed out')) return t.waitInputTimeout
+  if (/^The task is no longer available$/.test(raw)) return t.taskUnavailable
+  if (/The task needs your reply/.test(raw)) return t.noticeAgentTaskWaiting
+  if (/^Arael is working$|^Agent is working$/.test(raw)) {
     return t.noticeAgentTaskRunning
-  }
-  if (raw.includes('系统更新任务失败')) return t.noticeUpdaterFailed
-  if (raw.includes('系统更新需要人工')) return t.noticeUpdaterNeedsManual
-  if (raw.includes('Tapp 通知')) return t.noticeTapp
-  if (raw.includes('联邦关系已解除')) {
-    return fill(t.noticeFederationRevoked, {
-      name: metaString(notification, 'target_domain') || 'remote',
-    })
-  }
-  if (raw.includes('新的关注者')) return t.noticeNewFollower
-  if (raw.includes('关注已通过')) return t.noticeFollowAccepted
-  if (raw.includes('新的私信请求')) return t.noticeChannelInvite
-  if (raw.includes('群组邀请已接受')) return t.noticeRoomInviteAccepted
-  if (raw.includes('群组邀请')) return t.noticeRoomInvite
-  if (raw.includes('私信通道已建立')) return t.noticeChannelAccepted
-  if (raw.includes('联邦投递失败')) return t.noticeDeliveryFailed
-  if (raw.includes('技能已自动淘汰')) {
-    return fill(t.noticeSkillPruned, {
-      name: metaString(notification, 'skill_id') || name,
-    })
-  }
-  if (raw.includes('技能已自动改进')) {
-    return fill(t.noticeSkillImproved, {
-      name: metaString(notification, 'skill_id') || name,
-    })
   }
   if (/feed failed repeatedly/i.test(raw)) {
     return fill(t.noticePhantasiSourceFailed, { name: name || 'RSS' })
@@ -308,7 +248,6 @@ export function notificationFacingBody(notification: AppNotification): string {
   if (
     eventKey === NotificationEvent.phantasiNewItems &&
     (!notification.body ||
-      /^发现 \d+ 篇新内容$/.test(notification.body) ||
       /^\d+ new items found$/i.test(notification.body))
   ) {
     const n = notification.metadata?.new_count
@@ -317,25 +256,23 @@ export function notificationFacingBody(notification: AppNotification): string {
     })
   }
   const messageType = metaString(notification, 'message_type')
-  if (messageType === 'image' || /^📷 图片$|^Photo$/.test(notification.body)) {
+  if (messageType === 'image' || /^Photo$/.test(notification.body)) {
     return t.noticePreviewPhoto
   }
   if (
     messageType === 'file' ||
     messageType === 'file-meta' ||
-    /^📎 文件$|^File$/.test(notification.body)
+    /^File$/.test(notification.body)
   ) {
     return t.noticePreviewFile
   }
-  if (messageType === 'system' || /^系统消息$|^System message$/.test(notification.body)) {
+  if (messageType === 'system' || /^System message$/.test(notification.body)) {
     return t.noticePreviewSystem
   }
-  if (
-    /^🔒 加密消息$|^Encrypted message$/.test(notification.body)
-  ) {
+  if (/^Encrypted message$/.test(notification.body)) {
     return t.noticePreviewEncrypted
   }
-  if (/^新消息$|^New message$/.test(notification.body)) {
+  if (/^New message$/.test(notification.body)) {
     return t.noticePreviewNew
   }
   if (notification.notification_type === 'federation_message') {
@@ -345,10 +282,6 @@ export function notificationFacingBody(notification: AppNotification): string {
     return SCHEDULED_TAPP_TITLE.test(notification.title)
       ? noticeLeftover(notification.body, notification.body)
       : notification.body
-  }
-  const leftoverPhantasiBody = notification.body.match(/^发现 (\d+) 篇新内容$/)
-  if (leftoverPhantasiBody) {
-    return fill(t.noticePhantasiNewItemsBody, { n: Number(leftoverPhantasiBody[1]) })
   }
   if (!notification.body.trim()) return ''
   return noticeLeftover(notification.body, notification.body)
