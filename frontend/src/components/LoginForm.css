@@ -187,7 +187,7 @@ html.dark .login-form-footer {
 
 .login-form-footer a {
   margin-left: 0.35rem;
-  color: var(--color-primary, #6366f1);
+  color: var(--cfg-accent, #6366f1);
   font-weight: 600;
   text-decoration: none;
 }

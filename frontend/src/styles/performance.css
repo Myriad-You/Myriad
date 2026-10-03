@@ -186,8 +186,8 @@ html[data-perf-mode='exlight'] .as-detail__progress-bar > i::after {
 html[data-perf-mode='exlight'] .playground-text-shimmer {
   background-image: none;
   background-clip: border-box;
-  color: var(--color-primary, #10b981);
-  -webkit-text-fill-color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
+  -webkit-text-fill-color: var(--cfg-accent, #10b981);
 }
 
 /*

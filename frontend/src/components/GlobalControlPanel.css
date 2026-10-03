@@ -1130,7 +1130,7 @@ html.gcp-widget-edit .control-panel-overlay.visible {
 }
 
 .dynamic-notification-affordance:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-primary, #94a3b8) 65%, white);
+  outline: 2px solid color-mix(in srgb, var(--cfg-accent, #94a3b8) 65%, white);
   outline-offset: 2px;
   border-radius: 9px;
 }

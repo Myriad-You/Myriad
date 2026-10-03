@@ -68,7 +68,8 @@ export default antfu(
         'TSEnumDeclaration[const=true]',
         'TSExportAssignment',
         {
-          selector: "Property[key.name='color'] > Literal[value='var(--color-primary)']",
+          // 带兜底值的写法 var(--color-primary, #xxx) 也算。
+          selector: "Property[key.name='color'] > Literal[value=/^var\\(--color-primary[,)]/]",
           message: '前景色用 var(--cfg-accent)：--color-primary 是壁纸原色，可能和底色同色（#602）',
         },
       ],

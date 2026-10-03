@@ -297,7 +297,7 @@ html.dark .home-layout-rail__island {
 
 .home-layout-rail__btn:focus-visible {
   outline: 2px solid
-    color-mix(in srgb, var(--color-primary, #8b5cf6) 70%, transparent);
+    color-mix(in srgb, var(--cfg-accent, #8b5cf6) 70%, transparent);
   outline-offset: 2px;
 }
 

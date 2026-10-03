@@ -135,11 +135,11 @@ html.dark .tour-ring {
 }
 
 .tour-hold-demo__track {
-  stroke: color-mix(in srgb, var(--color-primary, #10b981) 16%, transparent);
+  stroke: color-mix(in srgb, var(--cfg-accent, #10b981) 16%, transparent);
 }
 
 .tour-hold-demo__ring {
-  stroke: var(--color-primary, #10b981);
+  stroke: var(--cfg-accent, #10b981);
   stroke-dasharray: 100;
   stroke-dashoffset: 100;
   transform: rotate(-90deg);
@@ -545,7 +545,7 @@ html.dark .tour-card__btn--entry-back {
 
 .tour-card__btn:focus-visible {
   outline: 2px solid
-    color-mix(in srgb, var(--color-primary, #8b5cf6) 70%, transparent);
+    color-mix(in srgb, var(--cfg-accent, #8b5cf6) 70%, transparent);
   outline-offset: 2px;
 }
 

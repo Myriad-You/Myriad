@@ -30,7 +30,7 @@
     "declaration-property-value-disallowed-list": [
       {
         "/^(color|fill|stroke|caret-color|outline|outline-color|-webkit-text-fill-color)$/": [
-          "/var\\(--color-primary\\)/"
+          "/var\\(--color-primary[,)]/"
         ]
       },
       {

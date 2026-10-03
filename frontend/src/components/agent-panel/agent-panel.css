@@ -614,7 +614,7 @@
     var(--color-primary, #10b981) 16%,
     transparent
   );
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
 }
 
 .agent-panel-tag[data-tone='primary'] {
@@ -628,7 +628,7 @@
     var(--color-primary, #10b981) 12%,
     transparent
   );
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
 }
 
 .agent-panel-tag[data-tone='alert'] {
@@ -715,7 +715,7 @@ button.agent-panel-tag:not(:disabled):hover {
     var(--color-primary, #10b981) 40%,
     transparent
   );
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
 }
 
 /* 关掉的闸悬停不该变主色——它说的是「有东西没在读」 */
@@ -765,7 +765,7 @@ button.agent-panel-tag:disabled {
 }
 
 .agent-panel-composer-tags .agent-panel-tag-saved:hover .agent-panel-tag-text {
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
 }
 
 /* 输入框和右侧动作各自一块独立玻璃，并排才能采到背后画面；套进 .glass 子层只会糊。
@@ -824,7 +824,7 @@ button.agent-panel-tag:disabled {
 }
 
 .agent-panel-intention-copy > span {
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -906,7 +906,7 @@ button.agent-panel-tag:disabled {
 }
 
 .agent-panel-work-offer-copy > span {
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -1347,7 +1347,7 @@ button.agent-panel-tag:disabled {
 
 @media (hover: hover) {
   .agent-panel-control:not(:disabled):hover {
-    color: var(--color-primary, #10b981);
+    color: var(--cfg-accent, #10b981);
     transform: translateY(-1px) scale(1.045);
     filter: brightness(1.04);
   }
@@ -1366,7 +1366,7 @@ button.agent-panel-tag:disabled {
 
 .agent-panel-control:focus-visible {
   outline: 2px solid
-    color-mix(in srgb, var(--color-primary, #10b981) 68%, white);
+    color-mix(in srgb, var(--cfg-accent, #10b981) 68%, white);
   outline-offset: 2px;
 }
 
@@ -1445,11 +1445,11 @@ button.agent-panel-tag:disabled {
 }
 
 .agent-panel-mic-hold-track {
-  stroke: color-mix(in srgb, var(--color-primary, #10b981) 20%, transparent);
+  stroke: color-mix(in srgb, var(--cfg-accent, #10b981) 20%, transparent);
 }
 
 .agent-panel-mic-hold-ring {
-  stroke: var(--color-primary, #10b981);
+  stroke: var(--cfg-accent, #10b981);
   stroke-dasharray: 100;
   stroke-dashoffset: 100;
   filter: drop-shadow(
@@ -1477,7 +1477,7 @@ button.agent-panel-tag:disabled {
       color-mix(in srgb, var(--color-primary, #10b981) 18%, transparent)
     ),
     var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
 }
 
 .agent-panel-mic[data-conversation='true'] .agent-panel-mic-hold-ring {
@@ -1736,7 +1736,7 @@ button.agent-panel-tag:disabled {
 
 .agent-panel-attach:focus-visible {
   outline: 2px solid
-    color-mix(in srgb, var(--color-primary, #10b981) 68%, white);
+    color-mix(in srgb, var(--cfg-accent, #10b981) 68%, white);
   outline-offset: 2px;
 }
 
@@ -2767,7 +2767,7 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
     var(--color-primary, #10b981) 16%,
     transparent
   );
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
 }
 
 .agent-panel-question-options .agent-panel-tag:disabled {
@@ -2952,7 +2952,7 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
 }
 
 .agent-md-link {
-  color: var(--color-primary, #10b981);
+  color: var(--cfg-accent, #10b981);
   text-decoration: underline;
   text-underline-offset: 2px;
 }

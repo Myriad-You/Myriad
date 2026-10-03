@@ -155,7 +155,7 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   }
 
   .tapp-app-card__drag-handle:hover {
-    color: var(--tapp-app-accent, var(--color-primary, #6366f1));
+    color: var(--tapp-app-accent, var(--cfg-accent, #6366f1));
     background: color-mix(
       in srgb,
       var(--tapp-app-accent, var(--color-primary, #6366f1)) 16%,
@@ -187,7 +187,7 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   outline: 2px solid
     color-mix(
       in srgb,
-      var(--tapp-app-accent, var(--color-primary, #6366f1)) 55%,
+      var(--tapp-app-accent, var(--cfg-accent, #6366f1)) 55%,
       transparent
     );
   outline-offset: 2px;
@@ -448,7 +448,7 @@ html.dark .tapp-app-card__name {
   margin: 0.02rem 0 0;
   padding: 0.08rem 0.35rem;
   overflow: hidden;
-  color: var(--tapp-app-accent, var(--color-primary, #6366f1));
+  color: var(--tapp-app-accent, var(--cfg-accent, #6366f1));
   font-size: 0.5625rem;
   font-weight: 650;
   line-height: 1.2;
@@ -921,7 +921,7 @@ html.dark .tapp-app-card__perm--privileged {
   min-height: 0;
   padding: 0 0.55rem;
   overflow: hidden;
-  color: var(--tapp-app-accent, var(--color-primary, #6366f1));
+  color: var(--tapp-app-accent, var(--cfg-accent, #6366f1));
   font-size: 0.6875rem;
   font-weight: 650;
   line-height: 1.2;

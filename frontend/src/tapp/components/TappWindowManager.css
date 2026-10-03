@@ -622,7 +622,7 @@ html[data-perf-mode='exlight'] .tapp-multi-dock-label {
 }
 
 .tapp-launchpad-search:focus-within .tapp-launchpad-search-icon {
-  color: var(--color-primary, #6366f1);
+  color: var(--cfg-accent, #6366f1);
   opacity: 0.95;
 }
 
@@ -752,7 +752,7 @@ html[data-perf-mode='exlight'] .tapp-multi-dock-label {
 
 .tapp-launchpad-cat:focus-visible {
   outline: 2px solid
-    color-mix(in srgb, var(--color-primary, #6366f1) 55%, transparent);
+    color-mix(in srgb, var(--cfg-accent, #6366f1) 55%, transparent);
   outline-offset: 2px;
 }
 
@@ -915,7 +915,7 @@ html.dark .tapp-launchpad-cat.is-active {
 }
 
 .tapp-launchpad-page-dot:focus-visible {
-  outline: 2px solid var(--color-primary, #6366f1);
+  outline: 2px solid var(--cfg-accent, #6366f1);
   outline-offset: 2px;
 }
 

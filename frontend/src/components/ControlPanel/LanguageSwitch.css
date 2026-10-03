@@ -163,6 +163,6 @@ html.dark .language-switch-idle .language-switch-btn {
 
 .language-switch-idle:focus-visible,
 .language-switch-track .language-switch-btn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-primary, #64748b) 70%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--cfg-accent, #64748b) 70%, transparent);
   outline-offset: 2px;
 }

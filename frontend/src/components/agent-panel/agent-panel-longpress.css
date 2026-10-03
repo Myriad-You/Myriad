@@ -143,13 +143,13 @@
 
 .agent-panel-lp-track {
   fill: none;
-  stroke: color-mix(in srgb, var(--color-primary, #10b981) 10%, transparent);
+  stroke: color-mix(in srgb, var(--cfg-accent, #10b981) 10%, transparent);
   stroke-width: 2.5;
 }
 
 .agent-panel-lp-ring {
   fill: none;
-  stroke: var(--color-primary, #10b981);
+  stroke: var(--cfg-accent, #10b981);
   stroke-width: 2.5;
   filter: drop-shadow(
     0 0 4px color-mix(in srgb, var(--color-primary, #10b981) 45%, transparent)

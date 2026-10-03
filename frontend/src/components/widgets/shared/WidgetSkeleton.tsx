@@ -77,7 +77,7 @@ export function resolveSkeletonAccent(accent?: WidgetSkeletonAccent): {
   soft?: string
 } {
   if (!accent) {
-    return { color: 'var(--color-primary, #6366f1)' }
+    return { color: 'var(--cfg-accent, #6366f1)' }
   }
   if (typeof accent === 'string') {
     return { color: accent }

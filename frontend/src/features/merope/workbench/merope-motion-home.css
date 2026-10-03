@@ -133,7 +133,7 @@ html.dark .merope-motion-page {
 
 .merope-motion-page__tab:focus-visible {
   outline: 2px solid
-    color-mix(in srgb, var(--color-primary, #7c6ee6) 48%, transparent);
+    color-mix(in srgb, var(--cfg-accent, #7c6ee6) 48%, transparent);
   outline-offset: 2px;
   border-radius: 8px;
 }

@@ -63,7 +63,7 @@
 
 .site-footer-custom-add:hover {
   border-style: solid;
-  color: var(--color-primary, #64748b);
+  color: var(--cfg-accent, #64748b);
   border-color: color-mix(in srgb, var(--color-primary, #64748b) 40%, transparent);
 }
 

@@ -86,7 +86,7 @@ html.dark .widget-library-nav-item:hover {
     var(--color-primary, #8b5cf6) 18%,
     transparent
   );
-  color: var(--color-primary, #8b5cf6);
+  color: var(--cfg-accent, #8b5cf6);
   font-weight: 650;
 }
 
@@ -256,7 +256,7 @@ html.dark .widget-library-island.is-staged {
 
 .widget-library-stage-hit:focus-visible {
   outline: 2px solid
-    color-mix(in srgb, var(--color-primary, #8b5cf6) 70%, transparent);
+    color-mix(in srgb, var(--cfg-accent, #8b5cf6) 70%, transparent);
   outline-offset: 3px;
 }
 

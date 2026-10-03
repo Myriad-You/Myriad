@@ -46,7 +46,7 @@ html.dark [data-perf-monitor].pm-root {
 }
 
 .pm-bar:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-primary, #8b5cf6) 70%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--cfg-accent, #8b5cf6) 70%, transparent);
   outline-offset: -3px;
 }
 

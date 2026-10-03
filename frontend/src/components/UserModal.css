@@ -303,7 +303,7 @@ html.dark .user-modal-avatar-lg {
 }
 
 .user-modal-avatar-btn:focus-visible {
-  outline: 2px solid var(--color-primary, #6366f1);
+  outline: 2px solid var(--cfg-accent, #6366f1);
   outline-offset: 3px;
 }
 
@@ -437,7 +437,7 @@ html.dark .badge-admin {
     color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent) 0%,
     color-mix(in srgb, var(--color-secondary, #94a3b8) 15%, transparent) 100%
   );
-  color: var(--color-primary, #64748b);
+  color: var(--cfg-accent, #64748b);
   box-shadow: 0 2px 8px
     color-mix(in srgb, var(--color-primary, #94a3b8) 15%, transparent);
 }
@@ -523,7 +523,7 @@ html.dark .user-modal-bio {
     color-mix(in srgb, var(--color-primary, #94a3b8) 20%, transparent) 0%,
     color-mix(in srgb, var(--color-secondary, #94a3b8) 20%, transparent) 100%
   );
-  color: var(--color-primary, #64748b);
+  color: var(--cfg-accent, #64748b);
   border: 1px solid
     color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent);
   box-shadow: 0 2px 8px
@@ -572,7 +572,7 @@ html.dark .action-logout:hover {
     color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent) 0%,
     color-mix(in srgb, var(--color-secondary, #94a3b8) 25%, transparent) 100%
   );
-  color: var(--color-primary, #64748b);
+  color: var(--cfg-accent, #64748b);
   border: 1px solid
     color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent);
   box-shadow: 0 2px 8px
@@ -707,7 +707,7 @@ html.dark .user-modal-tapps-count-btn:hover {
 .user-modal-tapps-arrow {
   width: 0.875rem;
   height: 0.875rem;
-  color: var(--color-primary, #94a3b8);
+  color: var(--cfg-accent, #94a3b8);
   opacity: 0.6;
   transition: all 0.25s ease;
 }
@@ -728,7 +728,7 @@ html.dark .user-modal-tapps-count-btn:hover {
     color-mix(in srgb, var(--color-primary, #94a3b8) 30%, transparent) 0%,
     color-mix(in srgb, var(--color-secondary, #94a3b8) 30%, transparent) 100%
   );
-  color: var(--color-primary, #64748b);
+  color: var(--cfg-accent, #64748b);
   border-radius: 9999px;
   font-size: 0.75rem;
   font-weight: 700;
@@ -1152,7 +1152,7 @@ html.dark .user-modal-qq-row {
     color-mix(in srgb, var(--color-primary, #94a3b8) 14%, transparent) 0%,
     color-mix(in srgb, var(--color-secondary, #94a3b8) 14%, transparent) 100%
   );
-  color: var(--color-primary, #64748b);
+  color: var(--cfg-accent, #64748b);
   border: 1px solid
     color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent);
 }

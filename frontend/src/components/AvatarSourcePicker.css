@@ -116,12 +116,12 @@ html.dark .user-modal-profile-source-name {
   font-weight: 600;
   padding: 0.1rem 0.35rem;
   border-radius: 999px;
-  color: var(--color-primary, #6366f1);
+  color: var(--cfg-accent, #6366f1);
   background: color-mix(in srgb, var(--color-primary, #6366f1) 14%, transparent);
 }
 
 .user-modal-profile-source-check {
   font-size: 0.9rem;
   font-weight: 700;
-  color: var(--color-primary, #6366f1);
+  color: var(--cfg-accent, #6366f1);
 }
