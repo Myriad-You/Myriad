@@ -1124,7 +1124,10 @@ mod tests {
             ("provider", "openai"),
         ]))
         .unwrap();
-        assert!(stale.is_empty(), "{stale:?}");
+        assert!(
+            stale.is_empty(),
+            "stale AI fields must not produce database updates"
+        );
     }
 
     #[test]

@@ -637,18 +637,21 @@ mod credential_source_tests {
         let pair = |c: &DynamicConfig| {
             stored(c.steam_api_key.as_ref()).is_some() && stored(c.steam_id.as_ref()).is_some()
         };
-        for (api_key, steam_id) in [
+        for (case, (api_key, steam_id)) in [
             (None, None),
             (Some(" "), Some("7656")),
             (Some("key"), None),
             (Some("key"), Some("7656")),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             config.steam_api_key = api_key.map(str::to_string);
             config.steam_id = steam_id.map(str::to_string);
             assert_eq!(
                 pair(&config),
                 PlatformId::Steam.credentials_present(&config),
-                "{api_key:?} {steam_id:?}"
+                "credential presence disagrees for test case {case}"
             );
         }
         let src = include_str!("steam.rs");
