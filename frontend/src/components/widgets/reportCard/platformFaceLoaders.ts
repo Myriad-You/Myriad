@@ -6,6 +6,8 @@ export type PlatformFaceComponent = ComponentType<{
   showOverview: boolean
   onContentChange: (content: any) => void
   allowLoop?: boolean
+  /** 悬停或刚手动翻过：详情里的小轮换也停。 */
+  paused?: boolean
   // 预览须关掉真实网络轮询。
   isPreview?: boolean
 }>

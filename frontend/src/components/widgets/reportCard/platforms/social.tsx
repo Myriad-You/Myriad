@@ -14,6 +14,7 @@ import {
   CONTENT_FADE_TRANSITION,
 } from '../animations'
 import { formatCompactNumber, localizeDiscordGuildTake } from '../format'
+import { REPORT_ITEM_DWELL_MS, useReportDetailPage } from '../reportPaging'
 
 const X_CIRCLE_COLOR_CLASSES = [
   'bg-[#2563eb] dark:bg-[#3b82f6]',
@@ -22,7 +23,7 @@ const X_CIRCLE_COLOR_CLASSES = [
   'bg-[#db2777] dark:bg-[#ec4899]',
 ]
 
-export const XWidget = memo(({ data, showOverview, onContentChange }: any) => {
+export const XWidget = memo(({ data, showOverview, onContentChange, paused = false }: any) => {
   const { t } = useI18n()
   const stats = data?.stats || {}
   const followingSample = useMemo(
@@ -118,7 +119,7 @@ export const XWidget = memo(({ data, showOverview, onContentChange }: any) => {
     return [...curated, ...rest].slice(0, 7)
   }, [followingSample, data?.following_highlights, data?.interest_circles])
 
-  const [slideIndex, setSlideIndex] = useState(0)
+  const [ownSlideIndex, setSlideIndex] = useState(0)
   const [tints, setTints] = useState<Record<string, string>>({})
   const tweetItems = useMemo(() => {
     const fromLib = Array.isArray(data?.library_items) ? data.library_items : []
@@ -138,15 +139,18 @@ export const XWidget = memo(({ data, showOverview, onContentChange }: any) => {
   const flipMode: 'following' | 'tweets' =
     highlights.length > 0 ? 'following' : tweetItems.length > 0 ? 'tweets' : 'following'
   const flipItems = flipMode === 'tweets' ? tweetItems : highlights
+  // 首页由报告卡按页码给详情项（页码点在卡上）；嵌在别处时自己轮换。
+  const paged = useReportDetailPage(flipItems.length, REPORT_ITEM_DWELL_MS)
+  const slideIndex = paged ?? ownSlideIndex
 
   useEffect(() => {
-    if (!showOverview && flipItems.length > 1) {
+    if (paged === null && !showOverview && !paused && flipItems.length > 1) {
       const timer = setInterval(() => {
         setSlideIndex((i) => (i + 1) % flipItems.length)
       }, 4000)
       return () => clearInterval(timer)
     }
-  }, [showOverview, flipItems.length])
+  }, [paged, showOverview, paused, flipItems.length])
 
   useEffect(() => {
     if (!showOverview && flipItems[slideIndex % flipItems.length]) {
@@ -371,7 +375,7 @@ export const XWidget = memo(({ data, showOverview, onContentChange }: any) => {
               <span>↻ {formatCompactNumber(tweet.retweet_count)}</span>
             )}
           </div>
-          {flipItems.length > 1 && (
+          {paged === null && flipItems.length > 1 && (
             <div className="absolute bottom-3 right-3 z-10 flex gap-1">
               {flipItems.map((_: any, i: number) => (
                 <span
@@ -488,7 +492,7 @@ export const XWidget = memo(({ data, showOverview, onContentChange }: any) => {
             </div>
           )}
         </div>
-        {flipItems.length > 1 && (
+        {paged === null && flipItems.length > 1 && (
           <div className="absolute bottom-3 right-3 z-10 flex gap-1">
             {flipItems.map((_: any, i: number) => (
               <span
@@ -580,7 +584,7 @@ function DiscordGuildIcon({
   )
 }
 
-export const DiscordWidget = memo(({ data, showOverview, onContentChange }: any) => {
+export const DiscordWidget = memo(({ data, showOverview, onContentChange, paused = false }: any) => {
   const { t } = useI18n()
   const profile = data?.profile || {}
   const stats = data?.stats || {}
@@ -637,27 +641,30 @@ export const DiscordWidget = memo(({ data, showOverview, onContentChange }: any)
     return map
   }, [data?.guild_takes, t.reportCardWidget])
 
-  const [slideIndex, setSlideIndex] = useState(0)
+  const [ownSlideIndex, setSlideIndex] = useState(0)
+  // 首页由报告卡按页码给详情项；嵌在别处时自己轮换。
+  const paged = useReportDetailPage(flipItems.length, REPORT_ITEM_DWELL_MS)
+  const slideIndex = paged ?? ownSlideIndex
   useEffect(() => {
-    if (!showOverview && flipItems.length > 1) {
+    if (paged === null && !showOverview && !paused && flipItems.length > 1) {
       const timer = setInterval(() => {
         setSlideIndex((i) => (i + 1) % flipItems.length)
       }, 4000)
       return () => clearInterval(timer)
     }
-  }, [showOverview, flipItems.length])
+  }, [paged, showOverview, paused, flipItems.length])
 
   const hasHandle = Boolean(profile.username || profile.nitro)
   const headerSlides = (hasHandle ? 1 : 0) + badges.length
   const [headerIdx, setHeaderIdx] = useState(0)
   useEffect(() => {
-    if (showOverview && headerSlides > 1) {
+    if (showOverview && !paused && headerSlides > 1) {
       const timer = setInterval(() => {
         setHeaderIdx((i) => (i + 1) % headerSlides)
       }, 3200)
       return () => clearInterval(timer)
     }
-  }, [showOverview, headerSlides])
+  }, [showOverview, paused, headerSlides])
 
   useEffect(() => {
     if (!showOverview && flipItems[slideIndex % flipItems.length]) {
@@ -938,7 +945,7 @@ export const DiscordWidget = memo(({ data, showOverview, onContentChange }: any)
             </motion.div>
           )}
         </div>
-        {flipItems.length > 1 && (
+        {paged === null && flipItems.length > 1 && (
           <div className="absolute bottom-3 right-3 z-10 flex gap-1">
             {flipItems.map((_: any, i: number) => (
               <span

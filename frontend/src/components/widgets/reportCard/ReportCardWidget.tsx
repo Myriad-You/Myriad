@@ -14,7 +14,9 @@ import {
 import { getLatestReportDeduped } from '../../../utils/requestDedup'
 import { widgetDisplayLabel } from '../../widgetLibraryModel'
 import { GlowBackground } from '../shared/GlowBackground'
+import { useWidgetRotation } from '../shared/useWidgetRotation'
 import { WidgetLongPressHint } from '../shared/WidgetLongPressHint'
+import { WidgetPager } from '../shared/WidgetPager'
 import { WidgetShell } from '../shared/WidgetShell'
 import { WidgetSkeletonCover } from '../shared/WidgetSkeleton'
 import { CardLogoPill } from './CardLogoPill'
@@ -22,6 +24,10 @@ import { PLATFORM_CONFIG } from './platformConfig'
 import { PlatformFace } from './PlatformFace'
 import { fetchPlatformUserIds, PLATFORM_SOCIAL } from './platformSocial'
 import { buildReportCardPreviewData } from './previewData'
+import {
+  REPORT_ITEM_DWELL_MS,
+  ReportDetailPagingContext,
+} from './reportPaging'
 import {
   openReportCardSettingsModal,
   ReportCardSettingsModal,
@@ -47,9 +53,21 @@ export const ReportCardWidget = memo(
     const [failed, setFailed] = useState(false)
     const isOverviewControlled = controlledShowOverview !== undefined
     const [internalShowOverview, setInternalShowOverview] = useState(true)
-    const showOverview = isOverviewControlled
-      ? controlledShowOverview
-      : internalShowOverview
+    // 首页可交互的卡按真实页数翻：0 是总览，之后每页是详情里的一项（或一对）。
+    const paged = !bare && !isPreview && !isOverviewControlled
+    const [page, setPage] = useState(0)
+    const [detailPaging, setDetailPaging] = useState({
+      pages: 1,
+      dwellMs: REPORT_ITEM_DWELL_MS,
+    })
+    const registerDetailPages = useCallback((pages: number, dwellMs: number) => {
+      const next = Math.max(1, pages)
+      setDetailPaging((prev) =>
+        prev.pages === next && prev.dwellMs === dwellMs
+          ? prev
+          : { pages: next, dwellMs },
+      )
+    }, [])
     const [cardContent, setCardContent] = useState<CardContent>(null)
 
     useEffect(() => {
@@ -122,40 +140,33 @@ export const ReportCardWidget = memo(
       [reportData],
     )
 
+    const pageCount = hasDetailContent
+      ? paged
+        ? 1 + detailPaging.pages
+        : isOverviewControlled
+          ? 1
+          : 2
+      : 1
+    const currentPage = page % pageCount
+    const showOverview = isOverviewControlled
+      ? controlledShowOverview
+      : paged
+        ? currentPage === 0
+        : internalShowOverview
+    const detailPagingValue = useMemo(
+      () => ({
+        detailIndex: Math.max(0, currentPage - 1),
+        register: registerDetailPages,
+      }),
+      [currentPage, registerDetailPages],
+    )
+
+    // 没有详情可翻、或这一档不自动轮换时回到总览；手动翻不受档位限制。
     useEffect(() => {
       if (isPreview || isOverviewControlled) return
-      if (!hasDetailContent) {
+      if (!hasDetailContent || !animLevel.widgetUiRotation) {
         setInternalShowOverview(true)
-        return
-      }
-      if (!animLevel.widgetUiRotation) {
-        setInternalShowOverview(true)
-        return
-      }
-
-      let cancelled = false
-      let timeoutId: number | null = null
-      const tick = () => {
-        if (cancelled || document.hidden) return
-        setInternalShowOverview((prev) => !prev)
-        timeoutId = window.setTimeout(tick, 10000)
-      }
-      timeoutId = window.setTimeout(tick, 10000)
-
-      const onVisibility = () => {
-        if (document.hidden && timeoutId) {
-          clearTimeout(timeoutId)
-          timeoutId = null
-        } else if (!document.hidden && !cancelled && !timeoutId) {
-          tick()
-        }
-      }
-      document.addEventListener('visibilitychange', onVisibility)
-
-      return () => {
-        cancelled = true
-        if (timeoutId) clearTimeout(timeoutId)
-        document.removeEventListener('visibilitychange', onVisibility)
+        setPage(0)
       }
     }, [
       isPreview,
@@ -169,6 +180,33 @@ export const ReportCardWidget = memo(
     }, [])
 
     const interactive = !bare && !isPreview
+
+    // 首页：总览停 10 秒，详情每页按平台面报的时长；滑动、页码点都按真实页数翻。
+    // 嵌在报告页（bare）时只在总览 ↔ 详情间自动翻，详情项由平台面自己轮换。
+    const rotation = useWidgetRotation({
+      count: pageCount,
+      interactive: interactive && !isEditMode,
+      delay: paged && currentPage > 0 ? detailPaging.dwellMs : 10000,
+      autoplay:
+        !isPreview &&
+        !isOverviewControlled &&
+        hasDetailContent &&
+        animLevel.widgetUiRotation,
+      onStep: (delta) => {
+        if (!paged) {
+          setInternalShowOverview((prev) => !prev)
+          return
+        }
+        setPage((prev) => (((prev % pageCount) + delta) % pageCount + pageCount) % pageCount)
+      },
+    })
+    const shellRef = useCallback(
+      (node: HTMLDivElement | null) => {
+        localRef.current = node
+        rotation.rootRef(node)
+      },
+      [rotation.rootRef],
+    )
     const clickAction: ReportCardClickAction =
       config.config?.clickAction === 'social' ? 'social' : 'report'
 
@@ -288,12 +326,13 @@ export const ReportCardWidget = memo(
 
     return (
       <WidgetShell
-        containerRef={localRef}
+        containerRef={shellRef}
         padding={0}
         contentClassName="contents"
         glass={!bare}
-        className={interactive && !isEditMode ? 'cursor-pointer' : ''}
+        className={`${interactive && !isEditMode ? 'cursor-pointer' : ''} ${rotation.rootClassName}`}
         rootProps={{
+          ...rotation.rootProps,
           onClick: interactive ? handleCardClick : undefined,
           onMouseDown: interactive ? handlePressStart : undefined,
           onMouseUp: interactive ? handlePressEnd : undefined,
@@ -318,19 +357,38 @@ export const ReportCardWidget = memo(
       >
         {reportData ? (
           <div className="absolute inset-0 z-10 flex min-h-0 flex-col">
-            <PlatformFace
-              platformId={platformId}
-              data={reportData}
-              showOverview={showOverview}
-              onContentChange={handleContentChange}
-              allowLoop={animLevel.loop}
-              isPreview={isPreview}
-            />
+            <ReportDetailPagingContext
+              value={paged ? detailPagingValue : null}
+            >
+              <PlatformFace
+                platformId={platformId}
+                data={reportData}
+                showOverview={showOverview}
+                onContentChange={handleContentChange}
+                allowLoop={animLevel.loop}
+                paused={rotation.paused}
+                isPreview={isPreview}
+              />
+            </ReportDetailPagingContext>
           </div>
         ) : null}
 
         {reportData ? (
           <CardLogoPill platformId={platformId} cardContent={cardContent} />
+        ) : null}
+
+        {reportData && rotation.active ? (
+          <WidgetPager
+            count={pageCount}
+            index={paged ? currentPage : showOverview ? 0 : 1}
+            placement="top"
+            visible={rotation.showPager}
+            onSelect={(index) => {
+              if (paged) setPage(index)
+              else setInternalShowOverview(index === 0)
+              rotation.hold()
+            }}
+          />
         ) : null}
 
         <WidgetSkeletonCover

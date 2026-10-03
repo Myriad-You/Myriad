@@ -5,6 +5,11 @@ import {
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { useLoopAnimation } from '../../../../hooks/animation'
+import {
+  pairPageCount,
+  REPORT_PAIR_DWELL_MS,
+  useReportDetailPage,
+} from '../reportPaging'
 
 export const MusicStatsWidget = memo(
   ({
@@ -251,11 +256,17 @@ export const NeteaseWidget = memo(
       () => processedData?.library_items || [],
       [processedData?.library_items],
     )
-    const [currentItemIndex, setCurrentItemIndex] = useState(0)
+    // 一页两首。首页由报告卡按页码给；嵌在别处时自己轮换。
+    const paged = useReportDetailPage(
+      pairPageCount(libraryItems.length),
+      REPORT_PAIR_DWELL_MS,
+    )
+    const [ownItemIndex, setCurrentItemIndex] = useState(0)
     const prevShowOverviewRef = useRef(showOverview)
 
     useEffect(() => {
       if (
+        paged === null &&
         prevShowOverviewRef.current &&
         !showOverview &&
         libraryItems.length > 0
@@ -263,10 +274,10 @@ export const NeteaseWidget = memo(
         setCurrentItemIndex((prev) => (prev + 2) % libraryItems.length)
       }
       prevShowOverviewRef.current = showOverview
-    }, [showOverview, libraryItems.length])
+    }, [paged, showOverview, libraryItems.length])
 
     useEffect(() => {
-      if (!showOverview && libraryItems.length > 0) {
+      if (paged === null && !showOverview && libraryItems.length > 0) {
         let cancelled = false
         let timeoutId: number | null = null
         const tick = () => {
@@ -292,7 +303,8 @@ export const NeteaseWidget = memo(
           document.removeEventListener('visibilitychange', onVisibility)
         }
       }
-    }, [showOverview, libraryItems.length])
+    }, [paged, showOverview, libraryItems.length])
+    const currentItemIndex = paged === null ? ownItemIndex : paged * 2
 
     const currentItems = useMemo(
       () =>

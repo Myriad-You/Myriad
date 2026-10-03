@@ -1419,6 +1419,8 @@
     "canPlace": "Platzierbar",
     "prevPage": "Vorherige Seite",
     "nextPage": "Nächste Seite",
+    "pagerLabel": "Inhalt wechseln",
+    "goToPage": "Seite {page} von {total}",
     "widgetSettings": "Widget-Einstellungen",
     "longPressToEdit": "Widget lange drücken zum Einrichten",
     "createSticker": "Sticker anlegen"

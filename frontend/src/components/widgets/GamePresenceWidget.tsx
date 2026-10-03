@@ -6,7 +6,6 @@ import {
 } from '@lib/motionShim'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { useVisibilityInterval } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { armWidgetSettingsHost } from '../../lib/widgetSettingsHost'
@@ -20,6 +19,7 @@ import {
   widgetFontFamilyName,
 } from '../../utils/widgetFonts'
 import { GlowBackground } from './shared/GlowBackground'
+import { useWidgetRotation } from './shared/useWidgetRotation'
 import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
 import {
   WidgetSettingsChoice,
@@ -601,9 +601,21 @@ const GamePresenceWidget = memo(
       setFocusIndex(0)
     }, [accountId, game, showcaseLen])
 
-    useVisibilityInterval(
-      () => setFocusIndex((prev) => (prev + 1) % showcaseLen),
-      { delay: 4000, enabled: !isPreview && anim.loop && showcaseLen > 1 },
+    // 头像条就是页码：点头像、在卡面上横滑都能换角色；悬停或刚手动换过时不自动轮。
+    const rotation = useWidgetRotation({
+      count: showcaseLen,
+      interactive: !isPreview && !isEditMode,
+      delay: 4000,
+      autoplay: !isPreview && anim.loop && showcaseLen > 1,
+      onStep: (delta) =>
+        setFocusIndex((prev) => (prev + delta + showcaseLen) % showcaseLen),
+    })
+    const shellRef = useCallback(
+      (node: HTMLDivElement | null) => {
+        setRefs(node)
+        rotation.rootRef(node)
+      },
+      [setRefs, rotation.rootRef],
     )
 
     const persist = useCallback(
@@ -854,6 +866,7 @@ const GamePresenceWidget = memo(
               <>
                 <div
                   ref={queueRef}
+                  data-rotation-ignore=""
                   className="scrollbar-hide w-full flex items-center gap-2 overflow-x-auto px-1.5 py-1.5 shrink-0"
                 >
                   {showcase.map((s, i) => (
@@ -864,6 +877,7 @@ const GamePresenceWidget = memo(
                       onClick={(e) => {
                         e.stopPropagation()
                         setFocusIndex(i)
+                        rotation.hold()
                       }}
                       className="rounded-full transition-all duration-300 shrink-0"
                       style={{
@@ -956,7 +970,8 @@ const GamePresenceWidget = memo(
 
     return (
       <WidgetShell
-        containerRef={setRefs}
+        containerRef={shellRef}
+        rootProps={rotation.rootProps}
         scale={scale}
         background={
           <GlowBackground
@@ -968,7 +983,7 @@ const GamePresenceWidget = memo(
           />
         }
         contentClassName={`flex flex-col ${!isEditMode && hasAccount ? 'cursor-pointer' : ''}`}
-        className={`select-none ${meta.fontClass}`}
+        className={`select-none ${meta.fontClass} ${rotation.rootClassName}`}
         style={
           customFamily
             ? ({

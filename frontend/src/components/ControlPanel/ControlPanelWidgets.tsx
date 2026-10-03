@@ -22,6 +22,8 @@ import { useTappWidgets } from '../../hooks/useTappWidgets'
 import { emitAppEvent } from '../../utils/appEvents'
 import WidgetGrid, { startGridLibraryDrag } from '../WidgetGrid'
 import { getBuiltinWidgets } from '../widgets/builtinWidgets'
+import { useWidgetRotation } from '../widgets/shared/useWidgetRotation'
+import { WidgetPager } from '../widgets/shared/WidgetPager'
 import {
   PANEL_MORPH_BASE_MS,
   PANEL_SETTLE_SLACK_MS,
@@ -234,10 +236,20 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       }
     }, [maxPage, currentPage])
 
+    // 非编辑态的手动翻页：横滑、触控板横扫、← →、页码点；拨过之后一段时间不自动翻。自动翻页仍走下面的 gate。
+    const rotation = useWidgetRotation({
+      count: isEditMode ? 0 : maxPage + 1,
+      interactive: !isEditMode && panelVisible,
+      delay: null,
+      autoplay: false,
+      onStep: (delta) =>
+        setCurrentPage((prev) => Math.max(0, Math.min(maxPage, prev + delta))),
+    })
+
     // 自动翻页另接 panelVisible 与 isHovering：收起/通知页或指针停在卡片上时不要翻。
     useVisibilityInterval(
       () => setCurrentPage((prev) => (prev >= maxPage ? 0 : prev + 1)),
-      { delay: 10000, enabled: shouldAutoAdvanceWidgets({ isEditMode, maxPage, panelVisible, isHovering }) },
+      { delay: 10000, enabled: shouldAutoAdvanceWidgets({ isEditMode, maxPage, panelVisible, isHovering }) && !rotation.paused },
     )
 
     const filteredWidgets = useMemo((): WidgetType[] => {
@@ -278,7 +290,10 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       onEdit: () => setIsEditMode(true),
       onPrepareEdit: () => { void import('../WidgetLibraryIsland') },
       onRows: handleRowsChange,
-      onPage: setCurrentPage,
+      onPage: (page) => {
+        setCurrentPage(page)
+        rotation.hold()
+      },
     })
 
     return (
@@ -310,7 +325,11 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           onTouchEnd={handleMouseUp}
           onTouchCancel={handleMouseUp}
         >
-          <div className="bg-gray-100/50 dark:bg-white/5 rounded-2xl p-1 border border-gray-200/50 dark:border-white/5 shadow-inner overflow-hidden relative group/container transition-all duration-300 ease-in-out">
+          <div
+            ref={rotation.rootRef}
+            {...rotation.rootProps}
+            className={`bg-gray-100/50 dark:bg-white/5 rounded-2xl p-1 border border-gray-200/50 dark:border-white/5 shadow-inner overflow-hidden relative group/container transition-all duration-300 ease-in-out ${rotation.rootClassName}`}
+          >
             <div className="w-full overflow-hidden" onWheel={handleWheel}>
               <div
                 className={`flex transition-transform duration-500 cubic-bezier(0.25, 1, 0.5, 1) pages-3 slider page-${Math.min(2, Math.max(0, currentPage))}`}
@@ -329,6 +348,18 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
                 </div>
               </div>
             </div>
+
+            {rotation.active && (
+              <WidgetPager
+                count={maxPage + 1}
+                index={Math.min(currentPage, maxPage)}
+                visible={rotation.showPager}
+                onSelect={(page) => {
+                setCurrentPage(page)
+                rotation.hold()
+              }}
+              />
+            )}
 
             {isEditMode && (
               <div

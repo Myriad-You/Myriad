@@ -1419,6 +1419,8 @@
     "canPlace": "배치 가능",
     "prevPage": "이전 페이지",
     "nextPage": "다음 페이지",
+    "pagerLabel": "내용 전환",
+    "goToPage": "{total}쪽 중 {page}쪽",
     "widgetSettings": "위젯 설정",
     "longPressToEdit": "위젯을 길게 눌러 설정",
     "createSticker": "스티커 만들기"

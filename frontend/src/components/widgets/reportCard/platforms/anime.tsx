@@ -18,6 +18,11 @@ import {
   CONTENT_SLIDE_INITIAL,
   CONTENT_SLIDE_TRANSITION,
 } from '../animations'
+import {
+  pairPageCount,
+  REPORT_PAIR_DWELL_MS,
+  useReportDetailPage,
+} from '../reportPaging'
 
 type I18nT = ReturnType<typeof useI18n>['t']
 
@@ -100,11 +105,14 @@ const AnimeListFace = memo(
     data,
     showOverview,
     onContentChange,
+    paused = false,
   }: {
     theme: AnimeListTheme
     data: any
     showOverview: boolean
     onContentChange?: (content: any) => void
+    /** 悬停或刚手动翻过：详情里的条目先别换。 */
+    paused?: boolean
   }) => {
     const { t } = useI18n()
     const labels = useMemo(() => theme.labels(t), [theme, t])
@@ -150,11 +158,17 @@ const AnimeListFace = memo(
       () => libraryItems.filter((item: any) => item.cover).slice(0, 5),
       [libraryItems],
     )
-    const [currentIndex, setCurrentIndex] = useState(0)
+    // 一页两部。首页由报告卡按页码给；嵌在别处时自己轮换。
+    const paged = useReportDetailPage(
+      pairPageCount(libraryItems.length),
+      REPORT_PAIR_DWELL_MS,
+    )
+    const [ownIndex, setCurrentIndex] = useState(0)
     const prevShowOverviewRef = useRef(showOverview)
 
     useEffect(() => {
       if (
+        paged === null &&
         prevShowOverviewRef.current &&
         !showOverview &&
         libraryItems.length > 0
@@ -162,15 +176,18 @@ const AnimeListFace = memo(
         setCurrentIndex((prev) => (prev + 2) % libraryItems.length)
       }
       prevShowOverviewRef.current = showOverview
-    }, [showOverview, libraryItems.length])
+    }, [paged, showOverview, libraryItems.length])
 
     useEffect(() => {
-      if (showOverview || libraryItems.length === 0) return
+      if (paged !== null || showOverview || paused || libraryItems.length === 0) {
+        return
+      }
       const timer = window.setInterval(() => {
         setCurrentIndex((prev) => (prev + 2) % libraryItems.length)
       }, 5000)
       return () => window.clearInterval(timer)
-    }, [showOverview, libraryItems.length])
+    }, [paged, showOverview, paused, libraryItems.length])
+    const currentIndex = paged === null ? ownIndex : paged * 2
 
     const currentItems = useMemo(() => {
       if (libraryItems.length === 0) return []

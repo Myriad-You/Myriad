@@ -97,7 +97,8 @@ export function useWidgetGestures(options: WidgetGestureOptions) {
 
   const handleWheel = useCallback((event: WheelEvent) => {
     const current = latest.current
-    if (!current.visible || wheel.current !== null || Math.abs(event.deltaY) <= 30) return
+    // Shift+滚轮是横向手势，归轮换 hook 处理，这里再翻会一次翻两页。
+    if (!current.visible || event.shiftKey || wheel.current !== null || Math.abs(event.deltaY) <= 30) return
     const page = Math.max(0, Math.min(current.maxPage, current.page + (event.deltaY > 0 ? 1 : -1)))
     if (page === current.page) return
     current.onPage(page)

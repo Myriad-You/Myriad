@@ -14,6 +14,8 @@ interface PlatformFaceProps {
   showOverview: boolean
   onContentChange: (content: any) => void
   allowLoop: boolean
+  /** 悬停或刚手动翻过：详情里的小轮换也停。 */
+  paused?: boolean
   // 预览须关掉在线轮询：fixture 身份是假的，不 gate 会拿去打后端。
   isPreview?: boolean
 }
@@ -24,6 +26,7 @@ export function PlatformFace({
   showOverview,
   onContentChange,
   allowLoop,
+  paused = false,
   isPreview,
 }: PlatformFaceProps) {
   const platformConfig =
@@ -81,6 +84,7 @@ export function PlatformFace({
     showOverview,
     onContentChange,
     allowLoop,
+    paused,
     isPreview,
   })
 }

@@ -1419,6 +1419,8 @@
     "canPlace": "Placement possible",
     "prevPage": "Page précédente",
     "nextPage": "Page suivante",
+    "pagerLabel": "Changer de contenu",
+    "goToPage": "Page {page} sur {total}",
     "widgetSettings": "Réglages du widget",
     "longPressToEdit": "Appui long pour configurer",
     "createSticker": "Créer un sticker"

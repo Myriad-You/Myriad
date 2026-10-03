@@ -1419,6 +1419,8 @@
     "canPlace": "配置可能",
     "prevPage": "前のページ",
     "nextPage": "次のページ",
+    "pagerLabel": "表示を切り替え",
+    "goToPage": "{page} / {total} ページ",
     "widgetSettings": "ウィジェット設定",
     "longPressToEdit": "ウィジェットを長押しして設定",
     "createSticker": "ステッカーを作成"

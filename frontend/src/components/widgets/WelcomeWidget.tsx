@@ -9,14 +9,12 @@ import {
 import { memo, useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
-import {
-  useLoopAnimation,
-  useVisibilityInterval,
-} from '../../hooks/animation'
+import { useLoopAnimation } from '../../hooks/animation'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { ClampText, FitText } from './shared/FitText'
 import { GlowBackground } from './shared/GlowBackground'
+import { useWidgetRotation } from './shared/useWidgetRotation'
 import { WidgetShell } from './shared/WidgetShell'
 import { useWelcomeTime, welcomeGreetingKey } from './useWelcomeTime'
 
@@ -30,6 +28,13 @@ interface NavigationGuide {
 
 const WELCOME_ICON_ASSET = '/icons/widgets/welcome.webp'
 
+/** 往后翻从右边进、往前翻从左边进。 */
+const GUIDE_SLIDE = {
+  enter: (direction: number) => ({ opacity: 0, x: 20 * direction }),
+  center: { opacity: 1, x: 0 },
+  exit: (direction: number) => ({ opacity: 0, x: -20 * direction }),
+}
+
 const WelcomeWidgetContent = memo(
   ({ config, isEditMode, isPreview }: WidgetComponentProps) => {
     const { containerRef, scale, fontScale, height } = useWidgetSize(
@@ -37,7 +42,7 @@ const WelcomeWidgetContent = memo(
       isPreview ? 1 : undefined,
     )
     const anim = useAnimationLevel()
-    const { t, locale } = useI18n()
+    const { t, format, locale } = useI18n()
 
     const { isAnimating } = useLoopAnimation({
       duration: 1500,
@@ -50,6 +55,7 @@ const WelcomeWidgetContent = memo(
 
     const navigate = useNavigate()
     const [currentGuideIndex, setCurrentGuideIndex] = useState(0)
+    const [guideDirection, setGuideDirection] = useState<1 | -1>(1)
     const now = useWelcomeTime()
     const greeting = isPreview ? t.greeting.welcome : t.greeting[welcomeGreetingKey(now.getHours())]
 
@@ -87,10 +93,32 @@ const WelcomeWidgetContent = memo(
       [t],
     )
 
-    useVisibilityInterval(
-      () =>
-        setCurrentGuideIndex((prev) => (prev + 1) % navigationGuides.length),
-      { delay: 5000, enabled: !isEditMode && !isPreview && anim.widgetUiRotation },
+    const is2x2 = config.size === '2x2'
+    const guideCount = is2x2 ? 0 : navigationGuides.length
+    const rotation = useWidgetRotation({
+      count: guideCount,
+      interactive: !isEditMode && !isPreview,
+      delay: 5000,
+      autoplay: !isEditMode && !isPreview && anim.widgetUiRotation,
+      onStep: (delta) => {
+        setGuideDirection(delta)
+        setCurrentGuideIndex((prev) => (prev + delta + guideCount) % guideCount)
+      },
+    })
+    const selectGuide = useCallback(
+      (index: number) => {
+        setGuideDirection(index > currentGuideIndex ? 1 : -1)
+        setCurrentGuideIndex(index)
+        rotation.hold()
+      },
+      [currentGuideIndex, rotation.hold],
+    )
+    const shellRef = useCallback(
+      (node: HTMLDivElement | null) => {
+        containerRef(node)
+        rotation.rootRef(node)
+      },
+      [containerRef, rotation.rootRef],
     )
 
     const currentGuide = useMemo(
@@ -128,8 +156,6 @@ const WelcomeWidgetContent = memo(
         weekday: 'long',
       })
     }, [locale, now])
-
-    const is2x2 = config.size === '2x2'
 
     // 4x2 英语两行问候不能撑满列高，要给日期/轮播点留空。
     const greetingBoxHeight = Math.round((height || 140) * (is2x2 ? 0.44 : 0.3))
@@ -251,7 +277,9 @@ const WelcomeWidgetContent = memo(
 
     return (
       <WidgetShell
-        containerRef={containerRef}
+        containerRef={shellRef}
+        className={rotation.rootClassName}
+        rootProps={rotation.rootProps}
         scale={scale}
         padding={16}
         contentClassName="flex flex-row"
@@ -308,34 +336,52 @@ const WelcomeWidgetContent = memo(
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, delay: 0.2 }}
           >
-            {navigationGuides.map((_, index) => (
-              <motion.div
+            {navigationGuides.map((guide, index) => (
+              <button
                 key={index}
-                className="h-1 rounded-full"
-                style={{
-                  backgroundColor:
-                    index === currentGuideIndex
-                      ? 'var(--color-primary)'
-                      : '#d1d5db',
-                  height: `${4 * scale}px`,
+                type="button"
+                aria-label={format(t.widgetGrid.goToPage, {
+                  page: index + 1,
+                  total: navigationGuides.length,
+                })}
+                aria-current={index === currentGuideIndex ? 'true' : undefined}
+                title={guide.title}
+                disabled={isEditMode || isPreview}
+                className="group/dot -my-2 flex items-center rounded-full py-2 outline-none disabled:cursor-default"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (index !== currentGuideIndex) selectGuide(index)
                 }}
-                animate={{
-                  width: index === currentGuideIndex ? 28 * scale : 8 * scale,
-                  opacity: index === currentGuideIndex ? 1 : 0.4,
-                }}
-                transition={{ duration: 0.3 }}
-              />
+              >
+                <motion.span
+                  className="block rounded-full group-focus-visible/dot:ring-2 group-focus-visible/dot:ring-[var(--cfg-accent)]"
+                  style={{
+                    backgroundColor:
+                      index === currentGuideIndex
+                        ? 'var(--color-primary)'
+                        : '#d1d5db',
+                    height: `${4 * scale}px`,
+                  }}
+                  animate={{
+                    width: index === currentGuideIndex ? 28 * scale : 8 * scale,
+                    opacity: index === currentGuideIndex ? 1 : 0.4,
+                  }}
+                  transition={{ duration: 0.3 }}
+                />
+              </button>
             ))}
           </motion.div>
         </div>
 
         <div className="flex-1 relative">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="wait" custom={guideDirection}>
             <motion.div
               key={currentGuideIndex}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
+              custom={guideDirection}
+              variants={GUIDE_SLIDE}
+              initial="enter"
+              animate="center"
+              exit="exit"
               transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
               onClick={handleGuideClick}
               className="absolute inset-0 cursor-pointer"

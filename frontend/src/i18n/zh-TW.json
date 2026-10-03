@@ -1419,6 +1419,8 @@
     "canPlace": "可以放置",
     "prevPage": "上一頁",
     "nextPage": "下一頁",
+    "pagerLabel": "切換內容",
+    "goToPage": "第 {page} 頁，共 {total} 頁",
     "widgetSettings": "小元件設定",
     "longPressToEdit": "長按小元件進行設定",
     "createSticker": "建立貼紙"

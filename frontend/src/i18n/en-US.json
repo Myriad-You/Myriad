@@ -1419,6 +1419,8 @@
     "canPlace": "Can place",
     "prevPage": "Previous page",
     "nextPage": "Next page",
+    "pagerLabel": "Switch content",
+    "goToPage": "Page {page} of {total}",
     "widgetSettings": "Widget settings",
     "longPressToEdit": "Long press widget to configure",
     "createSticker": "Create sticker"

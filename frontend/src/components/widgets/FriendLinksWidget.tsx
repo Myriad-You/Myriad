@@ -11,7 +11,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useI18n } from '../../contexts/I18nContext'
-import { useVisibilityInterval } from '../../hooks/animation'
 import {
   isExlight,
   useAnimationLevel,
@@ -19,6 +18,8 @@ import {
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { getSources } from '../../services/phantasiApi'
 import { getIconUrl, isFriendLinkCategory } from '../phantasi/constants'
+import { useWidgetRotation } from './shared/useWidgetRotation'
+import { WidgetPager } from './shared/WidgetPager'
 import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeletonCover } from './shared/WidgetSkeleton'
 import './FriendLinksWidget.css'
@@ -141,6 +142,10 @@ function FriendLinkIcon({
       )}
     </span>
   )
+}
+
+function cx(...parts: (string | false | undefined)[]): string {
+  return parts.filter(Boolean).join(' ')
 }
 
 /** 有地址时是真链接；编辑、预览、换批进场中或没有地址时退回按钮。 */
@@ -362,10 +367,10 @@ export const FriendLinksWidget = memo(
       [],
     )
 
-    const advanceBatch = useCallback(() => {
+    const goToBatch = useCallback((nextIndex: number) => {
       if (batchCount <= 1 || batchTransitioningRef.current) return
+      if (nextIndex === batchIndexRef.current) return
 
-      const nextIndex = (batchIndexRef.current + 1) % batchCount
       if (isExlight(anim)) {
         batchIndexRef.current = nextIndex
         setBatchIndex(nextIndex)
@@ -383,9 +388,31 @@ export const FriendLinksWidget = memo(
       }, BATCH_TRANSITION_DURATION)
     }, [anim.durationScale, anim.level, batchCount])
 
-    useVisibilityInterval(
-      advanceBatch,
-      { delay: BATCH_INTERVAL, enabled: !isPreview && !isEditMode && batchCount > 1 && anim.widgetUiRotation },
+    const rotation = useWidgetRotation({
+      count: batchCount,
+      interactive: !isEditMode && !isPreview,
+      delay: BATCH_INTERVAL,
+      autoplay: !isPreview && !isEditMode && anim.widgetUiRotation,
+      onStep: (delta) =>
+        goToBatch((batchIndexRef.current + delta + batchCount) % batchCount),
+    })
+    const shellRef = useCallback(
+      (node: HTMLDivElement | null) => {
+        containerRef(node)
+        rotation.rootRef(node)
+      },
+      [containerRef, rotation.rootRef],
+    )
+    const pager = rotation.active && (
+      <WidgetPager
+        count={batchCount}
+        index={incomingBatchIndex ?? batchIndex}
+        visible={rotation.showPager}
+        onSelect={(index) => {
+          goToBatch(index)
+          rotation.hold()
+        }}
+      />
     )
 
     const openPhantasi = useCallback(() => {
@@ -437,10 +464,11 @@ export const FriendLinksWidget = memo(
     if (isStrip) {
       return (
         <WidgetShell
-          containerRef={containerRef}
+          containerRef={shellRef}
           scale={scale}
           padding={{ x: 9, y: 8 }}
-          className={shellClassName}
+          className={cx(shellClassName, rotation.rootClassName)}
+          rootProps={rotation.rootProps}
           style={pointerEventsStyle}
           contentClassName="relative min-h-0 overflow-hidden"
         >
@@ -539,6 +567,7 @@ export const FriendLinksWidget = memo(
             accent="#f97316"
             label={t.common.loading}
           />
+          {pager}
         </WidgetShell>
       )
     }
@@ -546,10 +575,11 @@ export const FriendLinksWidget = memo(
     if (!isWide) {
       return (
         <WidgetShell
-          containerRef={containerRef}
+          containerRef={shellRef}
           scale={scale}
           padding={{ x: 10, y: 10 }}
-          className={shellClassName}
+          className={cx(shellClassName, rotation.rootClassName)}
+          rootProps={rotation.rootProps}
           style={pointerEventsStyle}
           contentClassName="relative min-h-0 overflow-hidden"
         >
@@ -647,16 +677,18 @@ export const FriendLinksWidget = memo(
             accent="#f97316"
             label={t.common.loading}
           />
+          {pager}
         </WidgetShell>
       )
     }
 
     return (
       <WidgetShell
-        containerRef={containerRef}
+        containerRef={shellRef}
         scale={scale}
         padding={{ x: 14, y: 10 }}
-        className={shellClassName}
+        className={cx(shellClassName, rotation.rootClassName)}
+        rootProps={rotation.rootProps}
         style={pointerEventsStyle}
         contentClassName="flex min-h-0 flex-col"
       >
@@ -787,6 +819,7 @@ export const FriendLinksWidget = memo(
             label={t.common.loading}
           />
         </div>
+        {pager}
       </WidgetShell>
     )
   },

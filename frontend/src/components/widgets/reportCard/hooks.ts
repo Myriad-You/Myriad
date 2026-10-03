@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { REPORT_ITEM_DWELL_MS, useReportDetailPage } from './reportPaging'
 
+/** 详情一页一项。首页由报告卡按页码给；嵌在别处时每次从总览翻到详情换下一项。 */
 export function useLibraryItemRotation(libraryItems: any[], showOverview: boolean) {
+  const paged = useReportDetailPage(libraryItems.length, REPORT_ITEM_DWELL_MS)
   const [currentItemIndex, setCurrentItemIndex] = useState(0)
   const prevShowOverviewRef = useRef(showOverview)
 
   useEffect(() => {
     if (
+      paged === null &&
       prevShowOverviewRef.current &&
       !showOverview &&
       libraryItems.length > 0
@@ -13,9 +17,10 @@ export function useLibraryItemRotation(libraryItems: any[], showOverview: boolea
       setCurrentItemIndex((prev) => (prev + 1) % libraryItems.length)
     }
     prevShowOverviewRef.current = showOverview
-  }, [showOverview, libraryItems.length])
+  }, [paged, showOverview, libraryItems.length])
 
-  return { currentItem: libraryItems[currentItemIndex], currentItemIndex }
+  const index = paged ?? currentItemIndex
+  return { currentItem: libraryItems[index], currentItemIndex: index }
 }
 
 export function useCountUp(value: number, duration = 800, delay = 0) {
