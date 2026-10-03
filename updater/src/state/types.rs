@@ -57,9 +57,7 @@ pub struct UpdaterStateFile {
     pub latest_available: Option<LatestAvailable>,
 
     /// Previous known-good version whose images are pinned as `*:myriad-rollback`.
-    /// The alias migrates state written by updater versions that used the internal
-    /// `last_good_version` name.
-    #[serde(default, alias = "last_good_version")]
+    #[serde(default)]
     pub rollback_version: Option<DeployTag>,
 }
 
@@ -383,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn rollback_version_reads_legacy_state_name_and_writes_the_new_name() {
+    fn a_state_file_with_retired_fields_still_loads() {
         let mut value = serde_json::to_value(UpdaterStateFile::default()).unwrap();
         let object = value.as_object_mut().unwrap();
         object.remove("rollback_version");
@@ -393,13 +391,7 @@ mod tests {
         );
 
         let state: UpdaterStateFile = serde_json::from_value(value).unwrap();
-        assert_eq!(
-            state.rollback_version.as_ref().map(DeployTag::as_str),
-            Some("v0.2.2")
-        );
-        let migrated = serde_json::to_value(state).unwrap();
-        assert_eq!(migrated["rollback_version"], "v0.2.2");
-        assert!(migrated.get("last_good_version").is_none());
+        assert!(state.rollback_version.is_none());
     }
 
     #[test]

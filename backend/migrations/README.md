@@ -70,18 +70,36 @@ only after the final drift check succeeds.
 | user lifecycle FKs + subject-table guard / delete triggers | `006` / `user_lifecycle.sql` (down: `user_lifecycle_down.sql`) | `ensure_user_lifecycle` (orphans of the listed FKs are removed / set NULL before the constraint is added) |
 | agent task status CHECK | — | `ensure_agent_tasks_status_check` |
 
-### Removed when the floor moves past the current release
+### Removed when the floor moves past 0.6.2
 
-These exist only to bring a 0.6.x database to the current shape. Once the
-support floor is a release that already ran them, delete them together with
-their tests:
+These exist only to bring a 0.6.1 database to the current shape, and were
+added after 0.6.1, so 0.6.2 must still carry them. Once the support floor is
+0.6.2 or later (bump `SUPPORT_FLOOR_SCHEMA_MARK` to the mark that release
+writes), delete them together with their tests:
 
-- `src/db/schema_check/old_rows.rs`: rows stored in old shapes, rewritten once
-  at startup, and the column constraints it adds to existing databases.
-- `src/services/media/retire.rs` and `REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL` in
-  `lib.rs`: the old media addresses and their two tables.
+- `src/db/schema_check/old_rows.rs`: rows stored in old shapes, rewritten at
+  startup, and the column constraints it adds to existing databases.
+- `src/services/media/retire.rs`, `REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL` in
+  `lib.rs` and its `MYRIAD_ACCEPT_MISSING_MEDIA` switch: the old media
+  addresses and their two tables.
+- The startup calls of `ConfigService::upgrade_legacy_ai_settings` and
+  `retired_configuration::drop_retired_rows` (`orchestrator.rs`): old
+  settings rows. Their tables and `legacy_ai_settings::upgrade` stay, because
+  restoring a settings backup still reads the old keys (see below).
 
-Not on this list, whatever the floor: `rewrap_legacy_private_keys`
+### Kept regardless of the floor
+
+Inputs a newer release still receives from outside the database:
+
+- Settings backups: `legacy_ai_settings::upgrade`, the retired-key lists and
+  the old cache spelling in `media::cite` (`current_cache_spelling`,
+  `is_retired_address`). Backups are kept for years; drop them by the
+  backup's `product_version` when that is wanted, not by the floor.
+- Third-party Tapp packages: the older category names
+  (`TAPP_CATEGORY_ALIASES`); install logs say which packages still use one.
+- Operator environment: `config_service::env_seed`.
+
+Key material, also kept: `rewrap_legacy_private_keys`
 (`src/federation/keys.rs`) and the `MYRIAD_MIGRATE_DATA_KEY_FROM_JWT` path in
 `crates/myriad-data-key`. They guard key material; a key sealed the old way
 that can no longer be opened is data or a federation identity lost for good,

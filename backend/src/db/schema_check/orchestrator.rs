@@ -21,10 +21,12 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `seaql_migrations` 行在 `Migrator::up` 之前删掉。普通缺列走
 /// `get_expected_schema` 通用 ADD。Support floor: product ≥ 0.6.1（更老的实例
 /// 先升到 0.6.1）：之前版本的建表、去重、数据修正 heal 都已删掉。
-/// Current: AI 旧设置迁到「源 + 模型」：文本三档、图片、语音（`upgrade_legacy_ai_settings`）；
-/// 退役的配置行删掉（`drop_retired_rows`）；从没存过的设置从环境变量取一次初值
-/// （`seed_from_env`）。
-pub const SCHEMA_VERSION: &str = "2026.10.02.5";
+/// Current (0.6.2): AI 旧设置迁到「源 + 模型」：文本三档、图片、语音
+/// （`upgrade_legacy_ai_settings`）；退役的配置行删掉（`drop_retired_rows`）；从没存过
+/// 的设置从环境变量取一次初值（`seed_from_env`）；旧形状的行改写（`old_rows`）；旧媒体
+/// 地址退场（`retire_legacy_media`）。最低支持版本提到 0.6.2 时，这个标记就是新的
+/// `SUPPORT_FLOOR_SCHEMA_MARK`。
+pub const SCHEMA_VERSION: &str = "2026.10.03.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

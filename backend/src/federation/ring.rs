@@ -54,8 +54,7 @@ pub struct CreateRingRequest {
     pub interval: Option<u64>,
     /// Optional phantasi category filter (phantasi-recommend only).
     /// When set, only sources/items under this category name are synced.
-    /// Accepts either `category` or `phantasi_category` in JSON.
-    #[serde(default, alias = "phantasi_category")]
+    #[serde(default)]
     pub category: Option<String>,
 }
 
@@ -687,7 +686,6 @@ pub async fn trigger_sync(
     let local_user_id = user_id;
     let category_filter = gossip_config
         .get("category")
-        .or_else(|| gossip_config.get("phantasi_category"))
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -1643,18 +1641,12 @@ mod tests {
     }
 
     #[test]
-    fn create_ring_request_deserializes_category_aliases() {
+    fn create_ring_request_deserializes_category() {
         let a: CreateRingRequest = serde_json::from_str(
             r#"{"name":"r","ring_type":"phantasi-recommend","category":"技术"}"#,
         )
         .unwrap();
         assert_eq!(a.category.as_deref(), Some("技术"));
-
-        let b: CreateRingRequest = serde_json::from_str(
-            r#"{"name":"r","ring_type":"phantasi-recommend","phantasi_category":"生活"}"#,
-        )
-        .unwrap();
-        assert_eq!(b.category.as_deref(), Some("生活"));
 
         let c: CreateRingRequest =
             serde_json::from_str(r#"{"name":"r","ring_type":"tapp-store"}"#).unwrap();

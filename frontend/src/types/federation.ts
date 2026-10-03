@@ -461,9 +461,8 @@ export interface CreateRingRequest {
   fanout?: number
   ttl?: number
   interval?: number
-  /** phantasi-recommend only. Alias: phantasi_category. */
+  /** phantasi-recommend only. */
   category?: string
-  phantasi_category?: string
 }
 
 export interface RingSummary {

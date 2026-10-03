@@ -238,6 +238,19 @@ WHERE a.id = src.id AND cleaned.m IS DISTINCT FROM a.metadata::jsonb
         r#"UPDATE agent_messages SET task_id = NULL WHERE task_id LIKE 'confirmation:%'"#,
     ),
     (
+        // Ring filters stored under the name the Brew rename gave them. The
+        // column is `json`.
+        "ring category filters under their old name",
+        r#"
+UPDATE federation_ring_memberships
+   SET gossip_config = ((gossip_config::jsonb - 'phantasi_category')
+       || CASE WHEN gossip_config::jsonb ? 'category' THEN '{}'::jsonb
+               ELSE jsonb_build_object('category', gossip_config::jsonb -> 'phantasi_category') END)::json
+ WHERE json_typeof(gossip_config) = 'object' AND gossip_config::text LIKE '%"phantasi_category"%'
+   AND strpos(gossip_config::text, '\u0000') = 0
+"#,
+    ),
+    (
         "intentions without a known accept source",
         r#"
 UPDATE agent_intentions SET accept_source = 'user'
@@ -373,6 +386,9 @@ mod tests {
                INSERT INTO agent_tasks (id, user_id, recipe_id, status, current_step, step_results, progress, started_at, updated_at) VALUES
                  ('old-task', 1, 'r', 'completed', 1, '[{"output":"网络搜索 - x"}]', 100, '2026-09-01', '2026-09-01'),
                  ('new-task', 1, 'r', 'running', 1, '[{"output":"网络搜索 - x"}]', 50, NOW(), NOW());
+               INSERT INTO federation_ring_memberships (id, ring_id, ring_type, gossip_config) VALUES
+                 (1, 'r1', 'phantasi-recommend', '{"fanout":3,"phantasi_category":"生活"}'),
+                 (2, 'r2', 'phantasi-recommend', '{"category":"技术","phantasi_category":"生活"}');
                INSERT INTO agent_notifications (id, notification_type, priority, title, body, user_id, read, created_at) VALUES
                  ('n-old-beat', 'heartbeat_result', 'low', '定时任务: 日报', 'ok', 1, false, '2026-09-01'),
                  ('n-old-fail', 'tapp_notification', 'high', '定时任务失败: 签到', 'e', 1, false, '2026-09-01'),
@@ -494,6 +510,24 @@ mod tests {
                 ),
                 ("n-tapp".to_string(), "定时任务: 签到".to_string()),
             ]
+        );
+        let rings = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT gossip_config::jsonb AS config FROM federation_ring_memberships ORDER BY id",
+            ))
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.try_get::<serde_json::Value>("", "config").unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rings,
+            [
+                serde_json::json!({"fanout":3,"category":"生活"}),
+                serde_json::json!({"category":"技术"}),
+            ],
+            "the current name wins when both are there"
         );
         // A second start finds nothing left to change.
         assert_eq!(super::rewrite_old_rows(&db).await.unwrap(), 0);

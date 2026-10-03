@@ -253,9 +253,6 @@ impl TappPermissionService {
                 federation_channel: user(TappPermission::FederationChannel),
                 federation_room: user(TappPermission::FederationRoom),
                 phantasi_comment_write: user(TappPermission::PhantasiCommentWrite),
-                report_write: false, // 不再下放
-                // media:control 为 basic，始终可用；字段保留供 API 兼容
-                media_control: true,
             },
             guest: ElevatedPermissions {
                 ai_generate: guest(TappPermission::AiGenerate),
@@ -276,8 +273,6 @@ impl TappPermissionService {
                 federation_channel: guest(TappPermission::FederationChannel),
                 federation_room: guest(TappPermission::FederationRoom),
                 phantasi_comment_write: guest(TappPermission::PhantasiCommentWrite),
-                report_write: false, // 不再下放
-                media_control: true,
             },
             user_ai_quota: AiQuotaConfig {
                 daily_calls: config.user_ai_daily_calls,
@@ -326,13 +321,7 @@ pub struct ElevatedPermissions {
     pub ai_search: bool,
     #[serde(default)]
     pub three_d_generate: bool,
-    /// 兼容字段；`get_permission_config` 写 false
-    #[serde(default)]
-    pub report_write: bool,
     pub network_fetch: bool,
-    /// 保留字段：media:control 为 basic，摘要中始终为 true
-    #[serde(default)]
-    pub media_control: bool,
     pub component_theme: bool,
     pub shortcut_register: bool,
     pub event_publish: bool,
@@ -453,10 +442,6 @@ mod tests {
             UserRole::Guest,
             TappPermission::MediaControl
         ));
-
-        let effective = TappPermissionService::get_permission_config(&config);
-        assert!(effective.user.media_control);
-        assert!(effective.guest.media_control);
     }
 
     #[test]
