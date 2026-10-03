@@ -681,6 +681,7 @@
     "federation_move_failed": "이 사이트 이전을 끝내지 못했어요. 다시 시도하세요.",
     "schedule_invalid": "그 일정이 올바르지 않아요.",
     "rig_stored_invalid": "저장된 리그가 올바르지 않아요. 다시 가져오세요.",
+    "skeleton_not_found": "메인 초상화에서 인물을 찾지 못했어요. 인물이 선명하게 보이는 초상화를 사용해 주세요.",
     "rig_compile_failed": "레이어 리그를 컴파일하지 못했어요.",
     "rig_atlas_invalid": "리그 아틀라스 PNG를 만들지 못했어요.",
     "rig_import_invalid": "이 레이어 PSD를 가져오지 못했어요.",

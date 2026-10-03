@@ -681,6 +681,7 @@
     "federation_move_failed": "Der Umzug dieser Site konnte nicht abgeschlossen werden. Bitte erneut versuchen.",
     "schedule_invalid": "Dieser Zeitplan ist ungültig.",
     "rig_stored_invalid": "Das gespeicherte Rig ist ungültig. Bitte erneut importieren.",
+    "skeleton_not_found": "Im Hauptporträt wurde keine Figur erkannt. Verwende ein Porträt, auf dem die Figur deutlich zu sehen ist.",
     "rig_compile_failed": "Das Ebenen-Rig konnte nicht kompiliert werden.",
     "rig_atlas_invalid": "Das Rig-Atlas-PNG konnte nicht erzeugt werden.",
     "rig_import_invalid": "Diese PSD mit Ebenen konnte nicht importiert werden.",

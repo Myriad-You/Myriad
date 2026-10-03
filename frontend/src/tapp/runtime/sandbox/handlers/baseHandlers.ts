@@ -158,7 +158,13 @@ export function registerUIHandlers(
       return { success: false, error: 'openUrl rate limit exceeded' }
     }
 
-    const resolved = resolveOpenUrl(tappInstance.manifest.openUrls, request)
+    const hostOrigin =
+      typeof window !== 'undefined' ? window.location.origin : undefined
+    const resolved = resolveOpenUrl(
+      tappInstance.manifest.openUrls,
+      request,
+      hostOrigin,
+    )
     if (!resolved.ok) {
       return { success: false, error: resolved.error }
     }

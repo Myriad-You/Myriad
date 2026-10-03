@@ -681,6 +681,7 @@
     "federation_move_failed": "站点迁移没完成，请稍后重试。",
     "schedule_invalid": "定时任务的时间设置无效。",
     "rig_stored_invalid": "已保存的骨骼无效，请重新导入。",
+    "skeleton_not_found": "未能在主立绘中识别人物，请使用人物清晰可见的立绘。",
     "rig_compile_failed": "分层骨骼没能编译。",
     "rig_atlas_invalid": "Rig 图集 PNG 生成失败",
     "rig_import_invalid": "分层 PSD 导入失败",

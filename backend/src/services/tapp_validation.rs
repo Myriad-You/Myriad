@@ -598,6 +598,22 @@ mod tests {
         }]);
         assert!(validate_tapp_manifest(&manifest).is_ok());
 
+        // same-origin: rooted relative path, resolved against the host origin at open time
+        manifest.open_urls = Some(vec![TappOpenUrlDef {
+            id: "self".into(),
+            url: "/".into(),
+            match_mode: TappOpenUrlMatch::SameOrigin,
+        }]);
+        assert!(validate_tapp_manifest(&manifest).is_ok());
+
+        // same-origin must not declare an absolute URL
+        manifest.open_urls = Some(vec![TappOpenUrlDef {
+            id: "self".into(),
+            url: "https://example.com/".into(),
+            match_mode: TappOpenUrlMatch::SameOrigin,
+        }]);
+        assert!(validate_tapp_manifest(&manifest).is_err());
+
         // openUrls without permission → fail
         manifest.permissions.clear();
         assert!(validate_tapp_manifest(&manifest).is_err());

@@ -634,7 +634,8 @@
           "enum": [
             "exact",
             "prefix",
-            "origin"
+            "origin",
+            "same-origin"
           ]
         },
         "url": {
@@ -649,12 +650,21 @@
       "type": "object"
     },
     "TappOpenUrlMatch": {
-      "enum": [
-        "exact",
-        "prefix",
-        "origin"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "exact",
+            "prefix",
+            "origin"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "same-origin",
+          "description": "Resolve against the host page origin at open time. `url` must be a rooted\nrelative path (e.g. `/`). Lets one package deep-link the station's own\npages on any self-hosted domain.",
+          "type": "string"
+        }
+      ]
     },
     "TappPageLayer": {
       "additionalProperties": false,

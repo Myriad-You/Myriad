@@ -681,6 +681,7 @@
     "federation_move_failed": "Could not finish moving this site. Please try again.",
     "schedule_invalid": "That schedule is not valid.",
     "rig_stored_invalid": "The saved rig is invalid. Import it again.",
+    "skeleton_not_found": "No figure was found in the master portrait. Use a portrait with a clearly visible figure.",
     "rig_compile_failed": "Could not compile the layered rig.",
     "rig_atlas_invalid": "Failed to generate the rig atlas PNG.",
     "rig_import_invalid": "Could not import this layered PSD.",

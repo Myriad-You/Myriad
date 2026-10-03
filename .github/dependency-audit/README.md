@@ -36,10 +36,10 @@ trees when auditing nested packages like `updater/`).
 | --- | --- | --- |
 | `RUSTSEC-2023-0071` | `rsa` | Medium timing side channel with no fixed release; track `rsa` / `jsonwebtoken`. |
 
-### Frontend (`frontend/package.json`)
+### Frontend (`frontend/pnpm-workspace.yaml`)
 
-1. Prefer **`pnpm.overrides`** to pull patched transitive versions when safe.
-2. Prefer **`pnpm.auditConfig.ignoreGhsas`** only when an upgrade is blocked or the
+1. Prefer **`overrides`** to pull patched transitive versions when safe.
+2. Prefer **`auditConfig.ignoreGhsas`** only when an upgrade is blocked or the
    advisory does not apply (document the reason in the same PR / this file).
 
 #### Current frontend exception
@@ -47,6 +47,7 @@ trees when auditing nested packages like `updater/`).
 | GHSA | Package | Reason |
 | --- | --- | --- |
 | `GHSA-qwww-vcr4-c8h2` | `react-router` | RSC-mode CSRF only; app uses classic `react-router-dom` client routing, not unstable RSC APIs. Fix requires `react-router` ≥ 8.3 (major). Revisit when upgrading RR to v8. |
+| `GHSA-vfj7-8cjw-p6xm` | `braces` | No patched release as of 2026-10-03. Only Stylelint's development dependency graph contains it (`pnpm why braces --prod` is empty). The vulnerable input is a deeply nested glob pattern, while `package.json` and `.stylelintrc.json` provide fixed repository-owned patterns; CSS contents and runtime user input are not supplied as glob patterns. A contributor who changes those patterns can already execute code through project scripts. Other uses with untrusted patterns remain vulnerable. Remove this exception when braces/Stylelint provides a fix, or if untrusted glob input is introduced. [Advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm). |
 
 ## Local runs
 

@@ -966,11 +966,19 @@ async function eyeRuntime() {
     advance()
     player.blinkNow()
     let rebound = 0
+    let reboundAreaError = 0
     for (let i = 0; i < 90; i++) {
       player.tick(1 / 60)
       if (player.getCurrent().eyeOpenL > 0.6)
         rebound = Math.max(rebound, Math.abs(state.irisRebound.x - 1))
+      reboundAreaError = Math.max(
+        reboundAreaError,
+        Math.abs(state.irisRebound.x * state.irisRebound.y - 1),
+      )
     }
+    player.setTarget({ blink: false })
+    advance(120)
+    const settledRebound = { ...state.irisRebound }
     return {
       ordinaryBlink,
       alternateBlink,
@@ -978,6 +986,8 @@ async function eyeRuntime() {
       both,
       cry,
       rebound,
+      reboundAreaError,
+      settledRebound: { x: settledRebound.x, y: settledRebound.y },
       glError: canvas.getContext('webgl2')!.getError(),
     }
   } finally {

@@ -681,6 +681,7 @@
     "federation_move_failed": "Impossible de terminer le déplacement de ce site. Réessayez.",
     "schedule_invalid": "Cette planification n’est pas valide.",
     "rig_stored_invalid": "Le rig enregistré est invalide. Importez-le à nouveau.",
+    "skeleton_not_found": "Aucun personnage n’a été détecté dans le portrait principal. Utilisez un portrait où le personnage est clairement visible.",
     "rig_compile_failed": "Impossible de compiler le rig en calques.",
     "rig_atlas_invalid": "Échec de génération du PNG d’atlas du rig.",
     "rig_import_invalid": "Impossible d’importer ce PSD en calques.",
