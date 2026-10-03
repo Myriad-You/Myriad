@@ -652,7 +652,10 @@ async fn wallpaper_saved_under_previous_origin_binds_only_local_media() {
     .unwrap();
     txn.commit().await.unwrap();
     // The stale origin is dropped and the wallpaper is published and protected.
-    assert!(stored.starts_with("/media/assets/"), "{stored}");
+    assert!(
+        stored.starts_with("/media/assets/"),
+        "saved wallpaper must use a local media asset path"
+    );
     assert_eq!(wallpaper_references(&f).await, vec![image.id]);
     assert!(matches!(
         f.service.delete(&f.db, image.id).await,
@@ -1261,7 +1264,10 @@ async fn postgres_share_image_and_favicon_are_published_and_bound() {
             .await
             .unwrap();
         txn.commit().await.unwrap();
-        assert!(stored.starts_with("/media/assets/"), "{key}: {stored}");
+        assert!(
+            stored.starts_with("/media/assets/"),
+            "{key} must use a local media asset path"
+        );
         let row = assets::find_by_id(&f.db, image.id).await.unwrap().unwrap();
         assert_eq!(row.exposure.as_deref(), Some("public"));
         assert_eq!(references::active_count(&f.db, image.id).await.unwrap(), 1);

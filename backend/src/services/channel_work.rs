@@ -42,6 +42,7 @@ const BINDING_TTL_SECS: i64 = 30 * 24 * 60 * 60;
 const TYPING_REFRESH: Duration = Duration::from_secs(4);
 
 mod chat;
+mod chat_images;
 mod transport;
 use crate::services::channel_pairing::ChannelBinding;
 pub use transport::ChannelTransport;

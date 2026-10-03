@@ -15,11 +15,10 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures::StreamExt;
 use myriad_agent_rules::channel::{ChannelImageRef, split_channel_text};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tracing::warn;
 
 use crate::services::agent::chat_prompt::{CUT_OFF_PART_SENT, CUT_OFF_UNSENT};
@@ -29,6 +28,7 @@ use crate::services::agent::{AgentInteractionMode, AgentProgressEvent};
 use crate::services::channel_platform::ChannelPlatform;
 use crate::services::runtime_registry::{self as shared_registry, RegistryIdentity};
 
+use super::chat_images::with_model_images;
 use super::{ChannelSink, cache_inbound_images, is_active, load_session, put_session};
 
 /// Longest she takes over one reply before giving up on it.
@@ -39,7 +39,6 @@ const LATE_REPLY: Duration = Duration::from_secs(600);
 const TYPING_EVERY: Duration = Duration::from_secs(4);
 /// What she handed off still counts as recent this long.
 const HANDED_OFF_FOR: chrono::Duration = chrono::Duration::hours(24);
-const MODEL_IMAGE_EDGE: u32 = 1024;
 /// She is in talk with someone this long after they last wrote to her, or
 /// she to them, anywhere (the site, a group, any app they paired): she sees
 /// what they send at once.
@@ -607,55 +606,6 @@ async fn their_typing(
     myriad_merope::talk_shape::room_of(&lines)
 }
 
-/// The cached attachments, with a small copy of each image the model can
-/// look at. The copies are taken out of the request before anything is kept.
-async fn with_model_images(cached: Option<&Value>) -> Option<Value> {
-    let mut data = cached?.clone();
-    let Some(attachments) = data.get_mut("attachments").and_then(Value::as_array_mut) else {
-        return Some(data);
-    };
-    for attachment in attachments.iter_mut() {
-        let Some(url) = attachment
-            .get("url")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-        else {
-            continue;
-        };
-        let Ok(image) = super::transport::load_channel_image_bytes(&url).await else {
-            continue;
-        };
-        let bytes = image.bytes;
-        if let Ok(Some(small)) = tokio::task::spawn_blocking(move || model_copy(&bytes)).await {
-            attachment["image"] = json!(small);
-        }
-    }
-    Some(data)
-}
-
-/// A JPEG data URL no longer than `MODEL_IMAGE_EDGE` on its long side.
-fn model_copy(bytes: &[u8]) -> Option<String> {
-    let image = image::load_from_memory(bytes).ok()?;
-    let image = if image.width().max(image.height()) > MODEL_IMAGE_EDGE {
-        image.resize(
-            MODEL_IMAGE_EDGE,
-            MODEL_IMAGE_EDGE,
-            image::imageops::FilterType::Triangle,
-        )
-    } else {
-        image
-    };
-    let mut out = Vec::new();
-    image
-        .to_rgb8()
-        .write_to(
-            &mut std::io::Cursor::new(&mut out),
-            image::ImageFormat::Jpeg,
-        )
-        .ok()?;
-    Some(format!("data:image/jpeg;base64,{}", STANDARD.encode(out)))
-}
-
 /// What became of her reply in the chat app, kept on her line of it: she
 /// reads it back as said only if it went out.
 async fn mark_delivery(db: &DatabaseConnection, chat_session_id: &str, run_id: &str, kind: &str) {
@@ -741,23 +691,6 @@ mod tests {
             "查一下明天东京的天气\n\n（对方原话：明天东京会下雨吗？帮我看看）"
         );
         assert_eq!(work_input("帮我看看", "帮我看看"), "帮我看看");
-    }
-
-    #[test]
-    fn photos_are_shrunk_for_the_model() {
-        let mut big = image::RgbImage::new(3000, 1500);
-        big.put_pixel(0, 0, image::Rgb([255, 0, 0]));
-        let mut png = Vec::new();
-        image::DynamicImage::ImageRgb8(big)
-            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-            .unwrap();
-        let url = model_copy(&png).unwrap();
-        let bytes = STANDARD
-            .decode(url.strip_prefix("data:image/jpeg;base64,").unwrap())
-            .unwrap();
-        let small = image::load_from_memory(&bytes).unwrap();
-        assert_eq!((small.width(), small.height()), (1024, 512));
-        assert!(model_copy(b"not an image").is_none());
     }
 }
 
