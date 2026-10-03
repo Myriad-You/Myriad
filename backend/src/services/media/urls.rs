@@ -126,6 +126,11 @@ pub fn media_shaped_path(raw: &str) -> Option<String> {
     registered_local_path(path)
 }
 
+/// Whether the absolute URL `raw` is on one of `allowed`.
+pub(super) fn is_allowed_origin(raw: &str, allowed: &[String]) -> bool {
+    origin_of(raw).is_some_and(|origin| allowed.iter().any(|own| same_origin(own, &origin)))
+}
+
 fn origin_of(raw: &str) -> Option<String> {
     let parsed = url::Url::parse(raw).ok()?;
     if parsed.cannot_be_a_base() {

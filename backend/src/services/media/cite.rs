@@ -556,6 +556,19 @@ pub(crate) async fn bind_restored_site_image(
 ) -> Result<(String, Vec<String>), MediaError> {
     let consumer =
         Consumer::site_image(key).ok_or_else(|| MediaError::invalid("Not a site image setting"))?;
+    let url = current_cache_spelling(url);
+    let url = url.as_str();
+    if is_retired_address(url, origins) {
+        bind(
+            txn,
+            &consumer,
+            &Citations::new(),
+            Authority::Site,
+            Unresolved::Skip,
+        )
+        .await?;
+        return Ok((url.to_string(), vec![url.to_string()]));
+    }
     if let Some(path) = cite_local_path(url, origins) {
         if is_dead_local_path(txn, &path).await? {
             bind(
@@ -582,10 +595,16 @@ pub(crate) async fn bind_restored_dashboard_layout(
     layout_json: &str,
     origins: &[String],
 ) -> Result<(String, Vec<String>), MediaError> {
+    let layout_json = current_cache_spelling(layout_json);
+    let layout_json = layout_json.as_str();
     let layout: Value = serde_json::from_str(layout_json).unwrap_or(Value::Null);
     let mut dead_urls = Vec::new();
     let mut dead_paths = Vec::new();
     for url in extract_sticker_image_urls(&layout) {
+        if is_retired_address(&url, origins) {
+            dead_urls.push(url);
+            continue;
+        }
         let Some(path) = cite_local_path(&url, origins) else {
             continue;
         };
@@ -597,6 +616,27 @@ pub(crate) async fn bind_restored_dashboard_layout(
     let stored =
         bind_and_publish_dashboard_layout_except(txn, layout_json, origins, &dead_paths).await?;
     Ok((stored, dead_urls))
+}
+
+/// A backup from before the asset store spells the image cache by its old
+/// name; the cache itself is the same.
+fn current_cache_spelling(value: &str) -> String {
+    value.replace("/api/brew/image-cache/", "/api/phantasi/image-cache/")
+}
+
+/// This site's address from before the asset store. Nothing serves it any
+/// more, and a backup cannot say which asset it was.
+fn is_retired_address(url: &str, origins: &[String]) -> bool {
+    let url = url.trim();
+    match url.split_once("://") {
+        Some((_, rest)) => {
+            super::urls::is_allowed_origin(url, origins)
+                && rest
+                    .find('/')
+                    .is_some_and(|at| rest[at..].starts_with("/media/federation/"))
+        }
+        None => url.starts_with("/media/federation/"),
+    }
 }
 
 /// A local path that definitely has no media on this instance: its asset was

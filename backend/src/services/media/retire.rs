@@ -7,8 +7,10 @@
 //! `Migrator::up` already refused a database whose upgrade job had not copied
 //! every file into the asset store.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
+use once_cell::sync::Lazy;
+use regex::{Captures, Regex};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, TransactionTrait,
 };
@@ -19,6 +21,15 @@ const PHANTASI_CACHE: &str = "/api/phantasi/image-cache/";
 const BREW_CACHE: &str = "/api/brew/image-cache/";
 const FEDERATION: &str = "/media/federation/";
 
+/// An old address in stored text: the origin it was written with, if any,
+/// then its path up to the first character no stored path carries.
+static OLD_ADDRESS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r#"(https?://[^/\s"'()<>\\]+)?(?:/media/federation/|/api/(?:brew|phantasi)/image-cache/)[A-Za-z0-9._\-/]*"#,
+    )
+    .expect("old address pattern")
+});
+
 /// Rewrite, normalise and drop; returns how many stored values changed.
 pub(crate) async fn retire_legacy_media(db: &DatabaseConnection) -> Result<u64, DbErr> {
     if !table_exists(db, "media_url_aliases").await?
@@ -26,9 +37,13 @@ pub(crate) async fn retire_legacy_media(db: &DatabaseConnection) -> Result<u64, 
     {
         return Ok(0);
     }
+    let origins = super::configured_origins().await;
     let txn = db.begin().await?;
     let addresses = permanent_addresses(&txn).await?;
-    let renamed = old_addresses(&txn, &addresses).await?;
+    let renamed = Renamed {
+        paths: old_addresses(&txn, &addresses).await?,
+        origins,
+    };
     let rewritten = rewrite_stored_values(&txn, &renamed).await?;
     let normalised = normalise_catalog_urls(&txn, &addresses).await?;
     let missing = txn
@@ -96,12 +111,19 @@ async fn permanent_addresses(db: &impl ConnectionTrait) -> Result<BTreeMap<i32, 
     Ok(out)
 }
 
+/// Old path → permanent address, and the origins this site wrote absolute
+/// addresses under: one under any other origin is another site's file.
+struct Renamed {
+    paths: HashMap<String, String>,
+    origins: Vec<String>,
+}
+
 /// Old address → permanent address, from the aliases and from catalogue rows
 /// still named by an old address. A cached file answers to both spellings.
 async fn old_addresses(
     db: &impl ConnectionTrait,
     addresses: &BTreeMap<i32, String>,
-) -> Result<Vec<(String, String)>, DbErr> {
+) -> Result<HashMap<String, String>, DbErr> {
     let mut sql = String::from(
         "SELECT url AS old, id AS asset_id FROM media_assets
          WHERE url ~ '/media/federation/|/api/(phantasi|brew)/image-cache/'",
@@ -112,7 +134,7 @@ async fn old_addresses(
     let rows = db
         .query_all_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
         .await?;
-    let mut map = BTreeMap::new();
+    let mut map = HashMap::new();
     for row in rows {
         let old: String = row.try_get("", "old")?;
         let asset_id: i32 = row.try_get("", "asset_id")?;
@@ -124,10 +146,7 @@ async fn old_addresses(
             map.entry(spelling).or_insert_with(|| permanent.clone());
         }
     }
-    // Longest first, so no address is rewritten through a shorter one.
-    let mut pairs: Vec<_> = map.into_iter().collect();
-    pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.0.cmp(&b.0)));
-    Ok(pairs)
+    Ok(map)
 }
 
 /// The path of an old address. These prefixes are no longer citable, so
@@ -158,32 +177,45 @@ fn spellings(path: &str) -> Vec<String> {
     vec![path.to_string()]
 }
 
-fn rewrite(text: &str, renamed: &[(String, String)]) -> String {
-    let mut out = text.to_string();
-    for (old, new) in renamed {
-        if out.contains(old.as_str()) {
-            out = out.replace(old.as_str(), new);
-        }
-    }
-    // A cached file nothing imported keeps its cache address.
-    out.replace(BREW_CACHE, PHANTASI_CACHE)
+/// Each old address this site wrote, as its permanent address. Matched as a
+/// whole path, so a longer path is never cut through a shorter one; a path
+/// ending a sentence keeps its full stop.
+fn rewrite(text: &str, renamed: &Renamed) -> String {
+    OLD_ADDRESS
+        .replace_all(text, |found: &Captures| {
+            let whole = &found[0];
+            let origin = found.get(1).map_or("", |origin| origin.as_str());
+            if !origin.is_empty() && !super::urls::is_allowed_origin(origin, &renamed.origins) {
+                return whole.to_string();
+            }
+            let address = &whole[origin.len()..];
+            let path = address.trim_end_matches('.');
+            let tail = &address[path.len()..];
+            if let Some(permanent) = renamed.paths.get(path) {
+                return format!("{origin}{permanent}{tail}");
+            }
+            // A cached file nothing imported keeps its cache address.
+            match path.strip_prefix(BREW_CACHE) {
+                Some(rest) => format!("{origin}{PHANTASI_CACHE}{rest}{tail}"),
+                None => whole.to_string(),
+            }
+        })
+        .into_owned()
 }
 
 /// Every text and JSON column outside the media catalogue that cites an old
 /// address. Each row is rewritten with its triggers off: this is the same
 /// content under its permanent address, not an edit (no history revision,
 /// no timestamp).
-async fn rewrite_stored_values(
-    db: &impl ConnectionTrait,
-    renamed: &[(String, String)],
-) -> Result<u64, DbErr> {
+async fn rewrite_stored_values(db: &impl ConnectionTrait, renamed: &Renamed) -> Result<u64, DbErr> {
     let mut alternatives = vec![regex_escape(FEDERATION), regex_escape(BREW_CACHE)];
-    alternatives.extend(
-        renamed
-            .iter()
-            .filter(|(old, _)| old.starts_with(PHANTASI_CACHE))
-            .map(|(old, _)| regex_escape(old)),
-    );
+    if renamed
+        .paths
+        .keys()
+        .any(|old| old.starts_with(PHANTASI_CACHE))
+    {
+        alternatives.push(regex_escape(PHANTASI_CACHE));
+    }
     let pattern = alternatives.join("|");
     let columns = db
         .query_all_raw(Statement::from_string(
@@ -205,8 +237,10 @@ async fn rewrite_stored_values(
         let rows = db
             .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
+                // Locked: a worker updating a row in between would move it to
+                // another ctid and the rewrite below would miss it.
                 format!(
-                    "SELECT ctid::text AS tid, {col}::text AS value FROM {tbl} WHERE {col}::text ~ $1",
+                    "SELECT ctid::text AS tid, {col}::text AS value FROM {tbl} WHERE {col}::text ~ $1 FOR UPDATE",
                     col = quote_ident(&name),
                     tbl = quote_ident(&table),
                 ),
@@ -233,17 +267,18 @@ async fn rewrite_stored_values(
             if updated == value {
                 continue;
             }
-            db.execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                format!(
-                    "UPDATE {tbl} SET {col} = $1{cast} WHERE ctid = $2::tid",
-                    col = quote_ident(&name),
-                    tbl = quote_ident(&table),
-                ),
-                [updated.into(), tid.into()],
-            ))
-            .await?;
-            changed += 1;
+            changed += db
+                .execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    format!(
+                        "UPDATE {tbl} SET {col} = $1{cast} WHERE ctid = $2::tid",
+                        col = quote_ident(&name),
+                        tbl = quote_ident(&table),
+                    ),
+                    [updated.into(), tid.into()],
+                ))
+                .await?
+                .rows_affected();
         }
         db.execute_unprepared(&format!(
             "ALTER TABLE {} ENABLE TRIGGER USER",
@@ -304,13 +339,23 @@ mod tests {
         assert_eq!(registered_old_path("/media/assets/x/a.png"), None);
     }
 
+    fn renamed(pairs: &[(&str, &str)]) -> Renamed {
+        let mut paths = HashMap::new();
+        for (old, new) in pairs {
+            for spelling in spellings(old) {
+                paths.insert(spelling, new.to_string());
+            }
+        }
+        Renamed {
+            paths,
+            origins: vec!["https://own.example".into()],
+        }
+    }
+
     #[test]
     fn a_cached_file_is_rewritten_under_both_spellings() {
         let phantasi = format!("{PHANTASI_CACHE}44/{HASH}.png");
-        let renamed: Vec<_> = spellings(&phantasi)
-            .into_iter()
-            .map(|old| (old, "/media/assets/u/a.png".to_string()))
-            .collect();
+        let renamed = renamed(&[(&phantasi, "/media/assets/u/a.png")]);
         let text =
             format!("![]({phantasi}) ![]({BREW_CACHE}44/{HASH}.png) ![]({BREW_CACHE}ab/other.png)");
         assert_eq!(
@@ -318,6 +363,24 @@ mod tests {
             format!(
                 "![](/media/assets/u/a.png) ![](/media/assets/u/a.png) ![]({PHANTASI_CACHE}ab/other.png)"
             )
+        );
+    }
+
+    #[test]
+    fn only_this_sites_addresses_are_rewritten_and_only_whole() {
+        let renamed = renamed(&[("/media/federation/1/a.png", "/media/assets/u/a.png")]);
+        let text = "https://own.example/media/federation/1/a.png?x=1 \
+                    https://OWN.example/media/federation/1/a.png \
+                    https://other.example/media/federation/1/a.png \
+                    https://other.example/api/brew/image-cache/ab/c.png \
+                    /media/federation/1/a.png.bak, see /media/federation/1/a.png.";
+        assert_eq!(
+            rewrite(text, &renamed),
+            "https://own.example/media/assets/u/a.png?x=1 \
+             https://OWN.example/media/assets/u/a.png \
+             https://other.example/media/federation/1/a.png \
+             https://other.example/api/brew/image-cache/ab/c.png \
+             /media/federation/1/a.png.bak, see /media/assets/u/a.png."
         );
     }
 

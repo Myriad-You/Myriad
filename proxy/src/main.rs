@@ -1383,12 +1383,10 @@ mod tests {
         ] {
             assert!(is_federation_path(path), "missing {path}");
         }
-        for path in ["/media/assets/id/a.png"] {
-            assert!(
-                !is_federation_path(path),
-                "site media must not go to the federation worker: {path}"
-            );
-        }
+        assert!(
+            !is_federation_path("/media/assets/id/a.png"),
+            "site media must not go to the federation worker"
+        );
         for path in [
             "/",
             "/reports",
