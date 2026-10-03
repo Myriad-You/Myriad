@@ -280,6 +280,23 @@ pub(super) async fn judge(message: &GroupLine, token: &str) -> Option<(Why, Stri
         )
     })
     .flatten();
+    // How much of the talk lately was hers: a fact for her, not a limit.
+    let share = with_group(&venue, |group| {
+        let recent: Vec<_> = group
+            .lines
+            .iter()
+            .skip(group.lines.len().saturating_sub(CONVERSATION_LINES))
+            .collect();
+        let hers = recent.iter().filter(|line| line.hers).count();
+        let others = recent
+            .iter()
+            .filter(|line| !line.hers)
+            .map(|line| line.from.as_deref().unwrap_or(&line.name))
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        myriad_merope::joining::share_of_talk(recent.len(), hers, others)
+    })
+    .flatten();
     crate::services::agent::merope::group::joining::decide(
         &db,
         owner,
@@ -288,6 +305,7 @@ pub(super) async fn judge(message: &GroupLine, token: &str) -> Option<(Why, Stri
             last_spoke: last_spoke.as_deref(),
             late: late.as_deref(),
             how_it_went: how_it_went.as_deref(),
+            share: share.as_deref(),
         },
     )
     .await
