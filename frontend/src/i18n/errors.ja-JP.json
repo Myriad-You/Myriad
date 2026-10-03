@@ -685,6 +685,7 @@
     "federation_move_failed": "サイトの移行を完了できませんでした。再試行してください。",
     "schedule_invalid": "そのスケジュール設定は無効です。",
     "rig_stored_invalid": "保存済みのリグは無効です。もう一度読み込んでください。",
+    "skeleton_not_found": "メインの立ち絵から人物を検出できませんでした。人物がはっきり見える立ち絵を使ってください。",
     "rig_compile_failed": "レイヤーリグをコンパイルできませんでした。",
     "rig_atlas_invalid": "Rig アトラス PNG の生成に失敗しました。",
     "rig_import_invalid": "レイヤー PSD を読み込めませんでした。",

@@ -1669,6 +1669,7 @@
     "store_asset_fetch_failed",
     "cover_not_found",
     "playlist_not_found",
-    "track_not_found"
+    "track_not_found",
+    "skeleton_not_found"
   ]
 }
