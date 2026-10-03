@@ -836,7 +836,8 @@ export function usePhantasiRailPan(
       const node = event.target
       if (!(node instanceof Element)) return false
       return Boolean(
-        node.closest('a[href], input, textarea, select, [contenteditable="true"]'),
+        // 文章卡本身是链接，从卡上起手照样拖轨道；卡里别的链接才让给浏览器。
+        node.closest('a[href]:not([data-phantasi-surface="story"]), input, textarea, select, [contenteditable="true"]'),
       )
     }
 

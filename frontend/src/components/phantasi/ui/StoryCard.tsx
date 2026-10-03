@@ -4,6 +4,7 @@ import type {
   CSSProperties,
   FocusEvent as ReactFocusEvent,
   PointerEvent as ReactPointerEvent,
+  Ref,
   SyntheticEvent,
 } from 'react'
 
@@ -11,6 +12,7 @@ import type { PeekStoryPreview } from './peekLane'
 import { forwardRef, useCallback, useRef } from 'react'
 import { scheduleTask } from '../../../hooks/animation'
 import { phantasiMotionBusy, whenPhantasiMotionIdle } from '../../../hooks/animation/pages/phantasiMotion'
+import { isPlainClick } from '../../../utils/plainClick'
 import { cx } from './cx'
 import { canPhantasiPeek } from './interactionMedia'
 import {
@@ -276,6 +278,8 @@ export const StoryCard = forwardRef<
   HTMLButtonElement,
   {
     face?: StoryCardFace
+    /** 有地址时卡片是真链接：右键复制、中键新开、长按都归浏览器；普通左键仍走 onOpen。 */
+    href?: string
     unreadLabel?: string
     starLabel?: string
     unstarLabel?: string
@@ -299,6 +303,7 @@ export const StoryCard = forwardRef<
 >((
   {
     face,
+    href,
     unreadLabel,
     starLabel,
     unstarLabel,
@@ -364,6 +369,28 @@ export const StoryCard = forwardRef<
     && !picked
     && arrive == null
   ) {
+    const fastClass = storyCardClass(
+      !!face.unread,
+      !!face.cover,
+      showStar,
+      deferCover,
+    )
+    // 点击由轨道代理（它负责拦下普通左键）；这里只把地址交给浏览器。
+    if (href) {
+      return (
+        <a
+          ref={ref as Ref<HTMLAnchorElement>}
+          href={href}
+          draggable={false}
+          data-rail-id={railId}
+          data-rail-col={railCol ?? place?.column}
+          data-phantasi-surface="story"
+          className={fastClass}
+          style={style ?? undefined}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )
+    }
     return (
       <button
         ref={ref}
@@ -371,51 +398,15 @@ export const StoryCard = forwardRef<
         data-rail-id={railId}
         data-rail-col={railCol ?? place?.column}
         data-phantasi-surface="story"
-        className={storyCardClass(
-          !!face.unread,
-          !!face.cover,
-          showStar,
-          deferCover,
-        )}
+        className={fastClass}
         style={style ?? undefined}
         dangerouslySetInnerHTML={{ __html: html }}
       />
     )
   }
 
-  return (
-    <button
-      ref={ref}
-      type="button"
-      data-rail-id={railId}
-      data-rail-col={railCol ?? place?.column}
-      data-phantasi-surface="story"
-      data-phantasi-card={arrive != null ? `story:${face.id}` : undefined}
-      className={
-        current || picked || picking || arrive != null
-          ? cx(
-              storyCardClass(
-                !!face.unread,
-                !!face.cover,
-                showStar && !picking,
-                deferCover,
-              ),
-              current && 'is-current',
-              picked && 'is-picked',
-              picking && 'is-picking',
-              arrive != null && 'is-arrive',
-            )
-          : storyCardClass(
-              !!face.unread,
-              !!face.cover,
-              showStar,
-              deferCover,
-            )
-      }
-      style={style ?? undefined}
-      onClick={onOpen}
-      aria-pressed={picking ? picked : undefined}
-    >
+  const content = (
+    <>
         <span className="phantasi-story__kicker">
           {face.topic ? (
             <span className="phantasi-story__topic">{face.topic}</span>
@@ -491,6 +482,8 @@ export const StoryCard = forwardRef<
           onClick={
             onToggleStar
               ? (event) => {
+                  // 卡片可能是链接：只拦冒泡不够，还要拦下链接跳转。
+                  event.preventDefault()
                   event.stopPropagation()
                   onToggleStar()
                 }
@@ -498,6 +491,64 @@ export const StoryCard = forwardRef<
           }
         />
       ) : null}
+    </>
+  )
+  const className =
+    current || picked || picking || arrive != null
+      ? cx(
+          storyCardClass(
+            !!face.unread,
+            !!face.cover,
+            showStar && !picking,
+            deferCover,
+          ),
+          current && 'is-current',
+          picked && 'is-picked',
+          picking && 'is-picking',
+          arrive != null && 'is-arrive',
+        )
+      : storyCardClass(
+          !!face.unread,
+          !!face.cover,
+          showStar,
+          deferCover,
+        )
+  if (href && !picking) {
+    return (
+      <a
+        ref={ref as Ref<HTMLAnchorElement>}
+        href={href}
+        draggable={false}
+        data-rail-id={railId}
+        data-rail-col={railCol ?? place?.column}
+        data-phantasi-surface="story"
+        data-phantasi-card={arrive != null ? `story:${face.id}` : undefined}
+        className={className}
+        style={style ?? undefined}
+        onClick={(event) => {
+          if (!onOpen || !isPlainClick(event)) return
+          event.preventDefault()
+          onOpen()
+        }}
+      >
+        {content}
+      </a>
+    )
+  }
+  return (
+    <button
+      ref={ref}
+      type="button"
+      data-rail-id={railId}
+      data-rail-col={railCol ?? place?.column}
+      data-phantasi-surface="story"
+      data-phantasi-card={arrive != null ? `story:${face.id}` : undefined}
+      className={className}
+      style={style ?? undefined}
+      onClick={onOpen}
+      aria-pressed={picking ? picked : undefined}
+    >
+      {content}
     </button>
   )
 })

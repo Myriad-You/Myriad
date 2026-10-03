@@ -4,6 +4,7 @@ import type { TimeTranslations } from '../types'
 import type { PhantasiRailApi } from './usePhantasiRailPan'
 
 import { isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { isPlainClick } from '../../../utils/plainClick'
 import {
   clipPaintedBatches,
   storyColumnCount,
@@ -567,6 +568,8 @@ export const PhantasiFeedsStories = memo(({
       ? event.target.closest('.phantasi-story__star')
       : null
     if (star) {
+      // 卡片是链接：点星标不能顺带跳走。
+      event.preventDefault()
       const story = storyAtRailTarget(star, storyByIdRef.current)
       if (story) onStarRef.current?.(story)
       return
@@ -575,8 +578,12 @@ export const PhantasiFeedsStories = memo(({
       ? event.target.closest('.phantasi-story__hit')
       : null
     if (!hit) return
+    // 带修饰键或中键（新标签、新窗口）交给链接本身。
+    if (!isPlainClick(event)) return
     const story = storyAtRailTarget(hit, storyByIdRef.current)
-    if (story) onOpenRef.current(story)
+    if (!story) return
+    event.preventDefault()
+    onOpenRef.current(story)
   }, [])
   return (
     <div
