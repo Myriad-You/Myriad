@@ -42,7 +42,7 @@ pub struct TtsApiRequest {
     /// 情感类别（透传 `emotion_category`；本层不校验音色是否支持）
     #[serde(default)]
     pub emotion: Option<String>,
-    /// 强制重新合成（跳过 exact + any-voice 缓存；与 batch TTS 语义对齐）
+    /// 强制重新合成（跳过缓存）
     #[serde(default)]
     pub force_regenerate: bool,
 }
@@ -73,14 +73,28 @@ pub fn generate_text_hash(text: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Audio filename for a voice/speed/sample_rate/codec combination.
+/// Audio filename for a voice/speed/emotion/sample_rate/codec combination.
+/// Speed to a tenth (0.5 and 0.8 are different voices); emotion as asked,
+/// kept only when it is a plain word, since it lands in a file name.
 pub fn generate_audio_filename(
     voice_type: i32,
     speed: f32,
     sample_rate: i32,
     codec: &str,
+    emotion: Option<&str>,
 ) -> String {
-    format!("{}_{}_{}.{}", voice_type, speed as i32, sample_rate, codec)
+    let tenths = (speed * 10.0).round() as i32;
+    let emotion = emotion
+        .map(str::trim)
+        .filter(|emotion| {
+            !emotion.is_empty()
+                && emotion.len() <= 32
+                && emotion
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        })
+        .unwrap_or("plain");
+    format!("{voice_type}_{tenths}_{emotion}_{sample_rate}.{codec}")
 }
 
 /// Rejection message for a codec that cannot be used as a cache file extension.
@@ -107,12 +121,14 @@ fn get_standalone_tts_file_path(
     speed: f32,
     sample_rate: i32,
     codec: &str,
+    emotion: Option<&str>,
 ) -> PathBuf {
     get_standalone_tts_dir(text_hash).join(generate_audio_filename(
         voice_type,
         speed,
         sample_rate,
         codec,
+        emotion,
     ))
 }
 
@@ -132,36 +148,14 @@ async fn find_exact_tts(
     speed: f32,
     sample_rate: i32,
     codec: &str,
+    emotion: Option<&str>,
 ) -> Option<String> {
-    let path = get_standalone_tts_file_path(text_hash, voice_type, speed, sample_rate, codec);
+    let path =
+        get_standalone_tts_file_path(text_hash, voice_type, speed, sample_rate, codec, emotion);
     if let Some(audio) = read_tts_file(&path).await {
         tracing::info!("Standalone TTS exact match: {}", path.display());
         return Some(audio);
     }
-    None
-}
-
-async fn find_any_tts(text_hash: &str, codec: &str) -> Option<String> {
-    let tts_dir = get_standalone_tts_dir(text_hash);
-
-    let mut entries = match fs::read_dir(&tts_dir).await {
-        Ok(entries) => entries,
-        Err(_) => return None,
-    };
-
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let file_name = entry.file_name();
-        let file_name_str = file_name.to_string_lossy();
-
-        if file_name_str.ends_with(&format!(".{codec}")) {
-            let path = entry.path();
-            if let Some(audio) = read_tts_file(&path).await {
-                tracing::info!("Standalone TTS any-voice match: {}", path.display());
-                return Some(audio);
-            }
-        }
-    }
-
     None
 }
 
@@ -171,6 +165,7 @@ async fn write_tts_file(
     speed: f32,
     sample_rate: i32,
     codec: &str,
+    emotion: Option<&str>,
     audio_base64: &str,
 ) -> Result<(), std::io::Error> {
     let tts_dir = get_standalone_tts_dir(text_hash);
@@ -180,7 +175,8 @@ async fn write_tts_file(
         .decode(audio_base64)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-    let file_path = get_standalone_tts_file_path(text_hash, voice_type, speed, sample_rate, codec);
+    let file_path =
+        get_standalone_tts_file_path(text_hash, voice_type, speed, sample_rate, codec, emotion);
     fs::write(&file_path, &audio_data).await?;
 
     tracing::info!(
@@ -235,25 +231,17 @@ pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApi
     let sample_rate = request.sample_rate.unwrap_or(16000);
     let text_hash = generate_text_hash(&request.text);
 
-    // force_regenerate：跳过 exact + any-voice 缓存，强制按指定音色重新合成
+    // force_regenerate：跳过缓存，强制重新合成。只认同一音色、语速、情绪的那份：
+    // 别的音色读同一句话不是她的声音。
+    let emotion = request.emotion.as_deref();
     if !request.force_regenerate {
         if let Some(cached_audio) =
-            find_exact_tts(&text_hash, voice_type, speed, sample_rate, codec).await
+            find_exact_tts(&text_hash, voice_type, speed, sample_rate, codec, emotion).await
         {
             return Ok(TtsApiResponse {
                 success: true,
                 audio: Some(cached_audio),
                 session_id: Some(format!("cached-{}", &text_hash[..8])),
-                cached: Some(true),
-                error: None,
-            });
-        }
-
-        if let Some(cached_audio) = find_any_tts(&text_hash, codec).await {
-            return Ok(TtsApiResponse {
-                success: true,
-                audio: Some(cached_audio),
-                session_id: Some(format!("cached-any-{}", &text_hash[..8])),
                 cached: Some(true),
                 error: None,
             });
@@ -285,8 +273,16 @@ pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApi
             )
             .await;
             if let Some(ref audio) = response.audio {
-                if let Err(e) =
-                    write_tts_file(&text_hash, voice_type, speed, sample_rate, codec, audio).await
+                if let Err(e) = write_tts_file(
+                    &text_hash,
+                    voice_type,
+                    speed,
+                    sample_rate,
+                    codec,
+                    emotion,
+                    audio,
+                )
+                .await
                 {
                     tracing::warn!("Failed to write TTS file: {}", e);
                 }
@@ -343,6 +339,7 @@ async fn synthesize_minimax_standalone(
         speed,
         sample_rate,
         codec,
+        request.emotion.as_deref(),
         &audio_b64,
     )
     .await
@@ -374,6 +371,7 @@ async fn synthesize_openai_standalone(
         speed,
         sample_rate,
         codec,
+        None,
         &audio_b64,
     )
     .await
@@ -415,11 +413,23 @@ mod tests {
     }
 
     #[test]
-    fn audio_filename_embeds_voice_speed_rate_codec() {
-        let name = generate_audio_filename(10510000, 0.0, 16000, "mp3");
-        assert_eq!(name, "10510000_0_16000.mp3");
-        let name2 = generate_audio_filename(1, 1.5, 24000, "wav");
-        assert_eq!(name2, "1_1_24000.wav"); // speed cast to i32
+    fn audio_filename_embeds_voice_speed_emotion_rate_codec() {
+        let name = generate_audio_filename(10510000, 0.0, 16000, "mp3", None);
+        assert_eq!(name, "10510000_0_plain_16000.mp3");
+        // 0.5 and 0.8 are not one speed; a feeling is not another's.
+        assert_ne!(
+            generate_audio_filename(1, 0.5, 24000, "wav", None),
+            generate_audio_filename(1, 0.8, 24000, "wav", None)
+        );
+        assert_eq!(
+            generate_audio_filename(1, 1.5, 24000, "wav", Some("happy")),
+            "1_15_happy_24000.wav"
+        );
+        // Whatever is asked, a file name stays one plain component.
+        assert_eq!(
+            generate_audio_filename(1, 1.0, 16000, "mp3", Some("../x")),
+            "1_10_plain_16000.mp3"
+        );
     }
 
     #[test]
