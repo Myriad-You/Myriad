@@ -295,8 +295,12 @@ impl Agent {
             state.task.error = Some(error.clone());
             state.final_text = error;
             state.task.completed_at = Some(chrono::Utc::now());
-            // A stale worker must not overwrite a newer continuation.
-            store::save(&self.db, &mut state).await?;
+            // A stale worker must not overwrite a newer continuation. She is
+            // not working on it any more either way.
+            if let Err(error) = store::save(&self.db, &mut state).await {
+                super::merope::mark_activity(&self.db, state.user_id, "idle").await;
+                return Err(error);
+            }
         }
         super::merope::mark_activity(&self.db, state.user_id, "idle").await;
         if state.task.status == TaskStatus::WaitingForInput {
@@ -747,7 +751,9 @@ impl Agent {
         budget.reserved_tokens = allowance;
         let request_budget =
             crate::services::analyzer::request_budget::RequestBudget::new(allowance);
-        let effectful = capability.category != CapabilityCategory::DataRead;
+        let effectful = has_effects(&capability);
+        let effect_key_for_retry = effect_key.clone();
+        let mut not_applied = false;
         if effectful {
             state.attempted_effects.insert(effect_key);
         }
@@ -819,9 +825,15 @@ impl Agent {
                 )
                 .await
             }
-            // Any failed effectful call goes to recovery below, whatever its
-            // outcome, so the Work loop needs only the message.
-            Err(error) => Err(error.message),
+            // Refused or failed before taking effect: nothing to reconcile,
+            // and the same call may be tried again.
+            Err(error) => {
+                if !error.outcome.may_have_applied() {
+                    state.attempted_effects.remove(&effect_key_for_retry);
+                    not_applied = true;
+                }
+                Err(error.message)
+            }
         };
         state.task.execution_context = Some(context);
         super::tier_router::record_step_to_breaker(tier, output.is_ok());
@@ -860,7 +872,11 @@ impl Agent {
                 .step_failed(&call.id, state.calls as u32, duration, error)
                 .await;
         }
-        if effectful && output.is_err() && !executor::is_cancelled(&state.task.task_id).await {
+        if effectful
+            && !not_applied
+            && output.is_err()
+            && !executor::is_cancelled(&state.task.task_id).await
+        {
             // Preserve the pending call and its in-flight identity for reconciliation.
             state.wait = Some(Wait::Recovery);
             state.task.set_pending_question(UserQuestion::free_text("The operation did not return a verified result. Reply to continue and check its outcome before taking further action.",&capability.name,true));
@@ -887,6 +903,29 @@ fn request_evidence(request: &UserRequest, recipe: &Recipe, task: &TaskState) ->
 /// recorded as a tool error and the handler is not entered, so there is no
 /// effect. Other Low / Medium calls return false and auto-run. Interactive
 /// users are unchanged.
+/// Whether a call may change something outside the task: anything but a
+/// data read, unless it only looks (queries, summaries) and needs no
+/// confirmation. A look at the page or the player can be taken twice.
+fn has_effects(capability: &Capability) -> bool {
+    use crate::services::agent::IntentAction;
+    if capability.category == CapabilityCategory::DataRead {
+        return false;
+    }
+    let only_looks = !capability.supported_actions.is_empty()
+        && capability.supported_actions.iter().all(|action| {
+            matches!(
+                action,
+                IntentAction::Query
+                    | IntentAction::Summarize
+                    | IntentAction::Analyze
+                    | IntentAction::Monitor
+                    | IntentAction::Compare
+                    | IntentAction::Recommend
+            )
+        });
+    !(only_looks && !capability.requires_confirmation)
+}
+
 pub(super) fn reject_unattended_confirmation(
     state: &mut Checkpoint,
     pending: &PendingCall,

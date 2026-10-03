@@ -720,3 +720,17 @@ async fn stopping_work_lease_reclaims_cancellation_marker() {
             .contains(&task_id)
     );
 }
+
+/// A look at the player or the page can be taken twice; playing, fetching
+/// with confirmation, or writing cannot.
+#[test]
+fn only_calls_that_may_change_something_are_held_as_effects() {
+    let registry = crate::services::agent::capability::CapabilityRegistry::new();
+    let effects = |id: &str| super::has_effects(registry.get(id).expect(id));
+    assert!(!effects("music.status"));
+    assert!(!effects("router.state"));
+    assert!(!effects("page.content"));
+    assert!(effects("music.control"));
+    assert!(effects("http.fetch"), "asks first: may do more than look");
+    assert!(effects("content.write"));
+}
