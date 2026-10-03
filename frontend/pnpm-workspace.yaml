@@ -4,6 +4,11 @@ trustPolicy: no-downgrade
 auditConfig:
   ignoreGhsas:
     - GHSA-qwww-vcr4-c8h2
+    # braces <=3.0.3 has no patched release (2026-10-03). It is only pulled by
+    # Stylelint's dev-time glob matching; scripts/config supply fixed patterns,
+    # never runtime user input. Revisit when braces/Stylelint ships a fix or
+    # untrusted patterns are accepted. See .github/dependency-audit/README.md.
+    - GHSA-vfj7-8cjw-p6xm
 # TUI / --detach start redirects stdin to /dev/null. pnpm 11's
 # verifyDepsBeforeRun=install then aborts with
 # ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY when it needs to
