@@ -1607,6 +1607,8 @@ async fn an_unfinished_media_upgrade_is_refused() {
     .await
     .expect("running job");
     let running = crate::db::Migrator::up(&db, None).await;
+    let running_with_approval =
+        crate::db::Migrator::up_after_media_preflight(&db, None, true).await;
     // Scanned through, left retrying files that are not on the volume.
     db.execute_unprepared(
         r#"UPDATE media_migration_jobs SET cursor = '{"revision":4,"complete":false,"retrying":true}';
@@ -1630,7 +1632,7 @@ async fn an_unfinished_media_upgrade_is_refused() {
         .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
         .await
         .expect("drop test schema");
-    for refused in [malformed, running] {
+    for refused in [malformed, running, running_with_approval] {
         let error = refused.expect_err("an unfinished media upgrade is refused");
         assert!(error.to_string().contains("has not finished"), "{error}");
     }

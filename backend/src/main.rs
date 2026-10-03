@@ -382,7 +382,16 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                 // `seaql_migrations` rows without files are deleted first.
                 // Remaining migration failure is fatal to full mode.
                 tracing::debug!("Checking for pending database migrations...");
-                migration::Migrator::up(&db, None)
+                let verified_missing = services::media::prepare_legacy_media_upgrade(
+                    &db,
+                    services::data_paths::paths(),
+                    &services::media::configured_origins().await,
+                    std::env::var("MYRIAD_ACCEPT_MISSING_MEDIA")
+                        .is_ok_and(|value| value.trim() == "1"),
+                )
+                .await
+                .map_err(|error| startup_schema_error("Media upgrade preflight", &error))?;
+                migration::Migrator::up_after_media_preflight(&db, None, verified_missing)
                     .await
                     .map_err(|error| startup_schema_error("Database migration", &error))?;
                 tracing::info!("✅ Database migrations up to date");

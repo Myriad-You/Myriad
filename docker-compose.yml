@@ -165,6 +165,9 @@ services:
       # one-shot initializer. Do not redirect these to the container layer.
       DATA_DIR: /app/data
       CACHE_DIR: /app/cache
+      # Only needed when no intact media can verify the old data volume.
+      # Confirm the mounts and missing files before enabling for one upgrade.
+      MYRIAD_ACCEPT_MISSING_MEDIA: ${MYRIAD_ACCEPT_MISSING_MEDIA:-0}
       PERSONA_DB_PASSWORD: ${PERSONA_DB_PASSWORD:?Run deploy.sh to generate worker DB passwords}
       FEDERATION_DB_PASSWORD: ${FEDERATION_DB_PASSWORD:?Run deploy.sh to generate worker DB passwords}
       JWT_SECRET: ${JWT_SECRET}

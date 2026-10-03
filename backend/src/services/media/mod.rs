@@ -26,6 +26,7 @@ mod store;
 #[cfg(test)]
 mod test_support;
 mod types;
+mod upgrade_preflight;
 mod urls;
 mod validate;
 
@@ -41,13 +42,13 @@ pub(crate) use cite::{
     bind_restored_dashboard_layout, bind_restored_site_image, sync_note_history_refs,
 };
 pub use error::MediaError;
+pub use maintenance::maintain;
 #[cfg(test)]
 pub use maintenance::prune_references;
-pub use maintenance::maintain;
 pub use origins::configured_origins;
-pub(crate) use retire::retire_legacy_media;
 #[cfg(test)]
 pub use references::active_count;
+pub(crate) use retire::retire_legacy_media;
 pub use scan::catalog_labels_for_assets;
 pub use serve::{
     FileServe, NO_STORE, ServeOutcome, resolve_authenticated_content, resolve_cached_image,
@@ -60,6 +61,7 @@ pub use types::{
     DeleteOutcome, MediaActor, MediaAsset, MediaContext, MediaExposure, MediaSource, MediaState,
     NewMediaBytes, RecoveryReport, task_media_context,
 };
+pub(crate) use upgrade_preflight::prepare_legacy_media_upgrade;
 #[cfg(test)]
 pub use urls::storage_key;
 pub use urls::{cite_local_path, content_path, registered_local_path};
@@ -84,7 +86,9 @@ pub async fn resolve_guest_media_bytes(
     let key = row.storage_key.ok_or(MediaError::StoreFailed)?;
     let store = MediaStore::new(crate::services::data_paths::paths().media.clone());
     let path = store.final_path(&key)?;
-    let bytes = tokio::fs::read(path).await.map_err(|_| MediaError::StoreFailed)?;
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| MediaError::StoreFailed)?;
     Ok((row.mime, bytes))
 }
 pub use validate::{

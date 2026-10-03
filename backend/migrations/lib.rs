@@ -134,6 +134,20 @@ impl Migrator {
     where
         C: IntoSchemaManagerConnection<'c>,
     {
+        Self::up_after_media_preflight(db, steps, false).await
+    }
+
+    /// Startup may accept a missing-only upgrade after checking the mounted
+    /// files and its dependent work records. This does not bypass the floor,
+    /// cursor revision, or missing-only SQL gate.
+    pub async fn up_after_media_preflight<'c, C>(
+        db: C,
+        steps: Option<u32>,
+        verified_missing: bool,
+    ) -> Result<(), DbErr>
+    where
+        C: IntoSchemaManagerConnection<'c>,
+    {
         let executor = db.into_database_executor();
         executor
             .execute_unprepared(
@@ -141,15 +155,19 @@ impl Migrator {
             )
             .await?;
         executor
-            .execute_unprepared(&REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL.replace(
-                "@ACCEPT_MISSING@",
-                if std::env::var("MYRIAD_ACCEPT_MISSING_MEDIA").is_ok_and(|value| value.trim() == "1")
-                {
-                    "true"
-                } else {
-                    "false"
-                },
-            ))
+            .execute_unprepared(
+                &REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL.replace(
+                    "@ACCEPT_MISSING@",
+                    if verified_missing
+                        || std::env::var("MYRIAD_ACCEPT_MISSING_MEDIA")
+                            .is_ok_and(|value| value.trim() == "1")
+                    {
+                        "true"
+                    } else {
+                        "false"
+                    },
+                ),
+            )
             .await?;
         discard_unknown_migration_history(&executor).await?;
         <Self as MigratorTrait>::up(executor, steps).await
@@ -190,16 +208,16 @@ fn discard_unknown_history_sql(keep_count: usize) -> String {
 /// such rows behind on older databases.
 async fn discard_unknown_migration_history(db: &impl ConnectionTrait) -> Result<(), DbErr> {
     let present = db
-        .query_all_raw(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            "SELECT 1
-               FROM information_schema.tables
-              WHERE table_schema = 'public'
-                AND table_name = 'seaql_migrations'"
-                .to_string(),
+            "SELECT to_regclass('seaql_migrations') IS NOT NULL AS present",
         ))
         .await?;
-    if present.is_empty() {
+    if !present
+        .map(|row| row.try_get::<bool>("", "present"))
+        .transpose()?
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 

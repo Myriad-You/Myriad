@@ -4,8 +4,8 @@
 //! in one transaction: stored content is rewritten to permanent addresses,
 //! then the tables go. A database without them has nothing to retire.
 //!
-//! `Migrator::up` already refused a database whose upgrade job had not copied
-//! every file into the asset store.
+//! Startup has verified either a completed upgrade or a missing-only tail;
+//! the migrator refuses any other unfinished job before these tables retire.
 
 use std::collections::{BTreeMap, HashMap};
 
