@@ -96,14 +96,10 @@ const WAITING_NS: &str = "channel_private_waiting";
 /// Kept this long at most, whatever happens.
 const WAITING_FOR: chrono::Duration = chrono::Duration::hours(24);
 
-/// Platforms where she can answer when she wakes: a bot there may send a
-/// message unasked. The official QQ bot only answers a message while it is
-/// fresh, and Feishu does not write first yet: there a message wakes her.
-fn can_answer_later(platform: ChannelPlatform) -> bool {
-    matches!(
-        platform,
-        ChannelPlatform::Telegram | ChannelPlatform::Discord | ChannelPlatform::OneBot
-    )
+/// Platforms where she can answer when she wakes; elsewhere a message wakes
+/// her (see [`ChannelPlatform::may_send_unasked`]).
+pub(super) fn can_answer_later(platform: ChannelPlatform) -> bool {
+    platform.may_send_unasked()
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

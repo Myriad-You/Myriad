@@ -26,6 +26,17 @@ impl ChannelPlatform {
         Self::OneBot,
     ];
 
+    /// Whether a bot here may send a private message unasked: to answer
+    /// what came while she slept, or to write first. The official QQ bot
+    /// only answers a message while it is fresh; Feishu does not write
+    /// first yet. One table, read by both.
+    pub const fn may_send_unasked(self) -> bool {
+        match self {
+            Self::Telegram | Self::Discord | Self::OneBot => true,
+            Self::Qq | Self::Feishu => false,
+        }
+    }
+
     /// Platform slug used in session keys and logs.
     pub const fn slug(self) -> &'static str {
         match self {
