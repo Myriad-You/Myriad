@@ -56,8 +56,9 @@ pub(super) async fn load_configured_lite() -> sea_orm::DatabaseConnection {
             .unwrap(),
         "on"
     );
-    let config = crate::services::config_service::ConfigService::new(db.clone())
-        .load_config()
+    // The site may not have restarted onto this version yet: read its old
+    // settings the way its startup will rewrite them.
+    let config = crate::services::config_service::ConfigService::load_config_upgraded_on(&db)
         .await
         .unwrap_or_else(|_| panic!("cannot load host model configuration"));
     *crate::GLOBAL_DYNAMIC_CONFIG.write().await = config;

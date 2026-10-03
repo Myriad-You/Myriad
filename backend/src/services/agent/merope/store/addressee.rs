@@ -74,7 +74,7 @@ where
     C: ConnectionTrait,
 {
     let base = load_affect_baseline(db).await?;
-    let weighs = super::super::sore::weighs_on(db, user_id).await;
+    let weighs = super::super::sore::weighs_on(db, user_id).await?;
     Ok(AffectBaseline {
         mood: (base.mood - weighs).max(0.0),
         ..base

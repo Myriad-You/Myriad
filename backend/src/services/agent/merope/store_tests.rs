@@ -95,6 +95,8 @@ async fn appraisal_commit_rechecks_input_after_waiting_for_the_database_lock() {
     for mut statement in [
         schema.create_table_from_entity(super::agent_persona::Entity),
         schema.create_table_from_entity(super::agent_addressee_state::Entity),
+        // What still stings with them weighs on her mood toward them.
+        schema.create_table_from_entity(crate::models::entities::agent_memories::Entity),
     ] {
         statement.if_not_exists();
         db.execute(&statement).await.unwrap();

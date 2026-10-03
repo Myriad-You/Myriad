@@ -303,6 +303,17 @@ impl ConfigService {
         Ok(Self::parse_config(Self::load_stored_on(db).await?))
     }
 
+    /// Configuration as this version reads it once its startup has run,
+    /// without writing: the old AI settings a database still holds until then
+    /// are read through the same upgrade. For read-only tools pointed at a
+    /// site that has not restarted onto this version.
+    pub async fn load_config_upgraded_on(db: &impl ConnectionTrait) -> Result<DynamicConfig> {
+        let mut stored = Self::load_stored_on(db).await?;
+        let upgraded = legacy_ai_settings::upgrade(&stored);
+        stored.extend(upgraded);
+        Ok(Self::parse_config(stored))
+    }
+
     /// Every stored setting, secrets opened.
     async fn load_stored_on(db: &impl ConnectionTrait) -> Result<HashMap<String, JsonValue>> {
         let sql = "SELECT key, value FROM configurations";

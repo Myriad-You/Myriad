@@ -65,15 +65,19 @@ fn audience_of(user_id: i32, venue: &str) -> Audience {
 
 /// All of this person's sore spots, wherever they were born, oldest first.
 /// How much what still stings with them lowers where her mood toward them
-/// settles (see `myriad_merope::sore::mood_weighs`).
-pub(crate) async fn weighs_on<C: sea_orm::ConnectionTrait>(db: &C, user_id: i32) -> f64 {
+/// settles (see `myriad_merope::sore::mood_weighs`). Runs inside the caller's
+/// transaction: a failed read is returned, not taken as "nothing stings",
+/// because it has already aborted that transaction.
+pub(crate) async fn weighs_on<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+) -> Result<f64, sea_orm::DbErr> {
     let sores: Vec<Sore> = unified::latest_of(db, user_id, SOURCE, MAX_OPEN as u64 * 3)
-        .await
-        .unwrap_or_default()
+        .await?
         .iter()
         .filter_map(sore_of)
         .collect();
-    myriad_merope::sore::mood_weighs(&sores)
+    Ok(myriad_merope::sore::mood_weighs(&sores))
 }
 
 pub async fn open_all(db: &DatabaseConnection, user_id: i32) -> Vec<Sore> {

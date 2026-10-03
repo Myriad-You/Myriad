@@ -97,7 +97,7 @@ async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolat
         recall_remembered(&db, user_id, Some("saffron tea"), 8)
             .await
             .unwrap(),
-        vec!["prefers saffron tea"]
+        vec![dated("prefers saffron tea")]
     );
     assert!(
         !insert_remembered_if_new(&db, user_id, "prefers saffron tea", None)
@@ -153,11 +153,11 @@ async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolat
     }
     let recent = recall_remembered(&db, user_id, None, 8).await.unwrap();
     assert_eq!(recent.len(), 8);
-    assert_eq!(recent[0], "likes jasmine tea");
+    assert_eq!(recent[0], dated("likes jasmine tea"));
     assert_eq!(
         recent
             .iter()
-            .filter(|fact| fact.as_str() == "likes jasmine tea")
+            .filter(|fact| **fact == dated("likes jasmine tea"))
             .count(),
         1
     );
@@ -218,7 +218,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         recall_remembered(&db, user_id, Some("咖啡"), 8)
             .await
             .unwrap(),
-        vec!["现在不喝咖啡"]
+        vec![dated("现在不喝咖啡")]
     );
     let retired = agent_memories::Entity::find_by_id(old.id)
         .one(&db)
@@ -230,7 +230,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
     assert_eq!(retired.created_at, old.created_at);
     assert_eq!(
         recall_remembered(&db, other_user, None, 8).await.unwrap(),
-        vec!["喜欢咖啡"]
+        vec![dated("喜欢咖啡")]
     );
     assert_eq!(
         latest_diary(&db, user_id, DIARY_SOURCE_EVENT)
@@ -305,7 +305,7 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
     );
     assert_eq!(
         recall_remembered(&db, user_id, None, 8).await.unwrap(),
-        vec!["现在不喝咖啡"]
+        vec![dated("现在不喝咖啡")]
     );
     // A fresh explicit user assertion may re-establish a withdrawn preference.
     let (_, second) = update_affect(&db, user_id, true, |_| {}).await.unwrap();
@@ -352,6 +352,11 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         recall_remembered(&db, user_id, None, 8)
             .await
             .unwrap()
-            .contains(&"喜欢茶".into())
+            .contains(&dated("喜欢茶"))
     );
+}
+
+/// What they told her today, as she holds it: placed in time.
+fn dated(fact: &str) -> String {
+    format!("[{}] {fact}", chrono::Utc::now().format("%m-%d"))
 }
