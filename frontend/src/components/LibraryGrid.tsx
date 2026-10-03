@@ -73,8 +73,8 @@ import {
   getTypeIcon,
   hasUserRatingBadge,
   isBangumiPlatform,
+  LibraryCardLink,
   LibraryCardShell,
-  openLibraryItemExternal,
   useLibraryCardActions,
 } from './library/libraryCardShell'
 import { buildLibraryListIndex } from './library/libraryListWindow'
@@ -1198,16 +1198,9 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                             </div>
                           }
                         >
-                          <button
-                            type="button"
+                          <LibraryCardLink
+                            item={item}
                             className="absolute inset-0 z-[1] cursor-pointer text-left bg-transparent border-0 p-0"
-                            data-canvas-card-action
-                            aria-label={item.title}
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              openLibraryItemExternal(item)
-                            }}
                           >
                             <div className="absolute bottom-3 left-3 right-3 z-[1] flex justify-start pointer-events-none">
                               <div className="library-card-caption">
@@ -1238,7 +1231,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                                 {renderWatchProgressPanel(item)}
                               </div>
                             </div>
-                          </button>
+                          </LibraryCardLink>
                           {platformCorner}
                           {ratingBadge}
                         </LibraryCardShell>
@@ -1257,16 +1250,9 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                             </div>
                           }
                         >
-                          <button
-                            type="button"
+                          <LibraryCardLink
+                            item={item}
                             className="absolute inset-0 z-[1] cursor-pointer text-left bg-transparent border-0 p-0"
-                            data-canvas-card-action
-                            aria-label={item.title}
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              openLibraryItemExternal(item)
-                            }}
                           >
                             <div className="absolute bottom-3 left-3 right-3 z-[1] flex justify-start pointer-events-none">
                               <div className="library-card-caption">
@@ -1281,7 +1267,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                                   ))}
                               </div>
                             </div>
-                          </button>
+                          </LibraryCardLink>
                           {platformCorner}
                           {ratingBadge}
                         </LibraryCardShell>
@@ -1300,16 +1286,9 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                             </div>
                           }
                         >
-                          <button
-                            type="button"
+                          <LibraryCardLink
+                            item={item}
                             className="absolute inset-0 z-[1] cursor-pointer bg-transparent border-0 p-0"
-                            data-canvas-card-action
-                            aria-label={item.title}
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              openLibraryItemExternal(item)
-                            }}
                           />
                           <div className="library-card-chrome absolute inset-0 z-[1] bg-linear-to-t from-black/90 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4 pointer-events-none">
                             <h3 className="font-bold text-white text-base line-clamp-2 leading-snug mb-1">

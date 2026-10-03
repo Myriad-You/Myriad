@@ -774,16 +774,46 @@ function resolveLibraryItemUrl(item: {
   return null
 }
 
-export function openLibraryItemExternal(item: {
-  id: string
-  platform: string
-  item_type: string
-  title: string
-  metadata: any
-}): void {
+/**
+ * 卡片主操作是去原站：有地址就是真链接（右键复制、中键新开、长按菜单都归浏览器），
+ * 拿不到地址时退回不跳转的按钮。拖动画布后的点击由画布在捕获阶段吞掉。
+ */
+export function LibraryCardLink({
+  item,
+  className,
+  children,
+}: {
+  item: Parameters<typeof resolveLibraryItemUrl>[0] & { title: string }
+  className: string
+  children?: ReactNode
+}) {
   const url = resolveLibraryItemUrl(item)
-  if (!url) return
-  window.open(url, '_blank', 'noopener,noreferrer')
+  if (!url) {
+    return (
+      <button
+        type="button"
+        className={className}
+        data-canvas-card-action
+        aria-label={item.title}
+      >
+        {children}
+      </button>
+    )
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      draggable={false}
+      className={className}
+      data-canvas-card-action
+      aria-label={item.title}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
+    </a>
+  )
 }
 
 export function isBangumiPlatform(platform: string) {
