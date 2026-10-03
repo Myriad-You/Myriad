@@ -167,23 +167,25 @@ pub const EVENT_TOPIC_PREFIXES: &[(&str, &[&str])] = &[
     ("publish", &["tapp.{id}."]),
     ("subscribe", &["tapp.", "system."]),
 ];
-pub const TAPP_CATEGORY_ALIASES: &[&str] = &[
-    "data-extension",
-    "platform",
-    "visualization",
-    "development",
-    "dev",
-    "games",
-    "entertainment",
-    "music",
-    "communication",
-    "demo",
-    "page",
-    "test",
-    "tool",
-    "tools",
-    "utilities",
-    "widget",
+/// Older category names, each with the name it installs as. Kept in step
+/// with the `alias` attributes on [`crate::manifest::TappCategory`].
+pub const TAPP_CATEGORY_ALIASES: &[(&str, &str)] = &[
+    ("data-extension", "data"),
+    ("platform", "data"),
+    ("visualization", "data"),
+    ("development", "developer"),
+    ("dev", "developer"),
+    ("games", "game"),
+    ("entertainment", "media"),
+    ("music", "media"),
+    ("communication", "social"),
+    ("demo", "utility"),
+    ("page", "utility"),
+    ("test", "utility"),
+    ("tool", "utility"),
+    ("tools", "utility"),
+    ("utilities", "utility"),
+    ("widget", "utility"),
 ];
 pub const WIDGET_MANIFEST_PERMISSION: &str = "widget:register";
 pub const HTTP_API_PERMISSION: &str = "network:fetch";
@@ -326,6 +328,17 @@ pub const WIDGET_REFRESH_MODES: &[(&str, &str)] = &[("event", "event"), ("interv
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_older_category_name_installs_as_its_listed_name() {
+        use crate::manifest::TappCategory;
+        for (alias, name) in super::TAPP_CATEGORY_ALIASES {
+            let parsed: TappCategory = serde_json::from_value(serde_json::json!(alias))
+                .unwrap_or_else(|_| panic!("{alias} no longer installs"));
+            assert_eq!(serde_json::to_value(parsed).unwrap(), *name, "{alias}");
+            assert_ne!(alias, name);
+        }
+    }
+
     use super::{HOST_PAGE_CSS, HOST_WIDGET_CSS};
 
     #[test]

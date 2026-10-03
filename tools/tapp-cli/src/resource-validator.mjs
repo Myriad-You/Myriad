@@ -26,7 +26,11 @@ function arrayValue(value) {
 }
 
 export function usesGamePackageLimits(manifest) {
-  const category = manifest?.category
+  // An older category name installs as its current one, limits included.
+  const aliases = contract.rules.tappCategoryAliases
+  const category = Object.hasOwn(aliases, manifest?.category ?? '')
+    ? aliases[manifest.category]
+    : manifest?.category
   if (category !== 'game' && category !== 'developer') return false
   const protocol = typeof manifest?.game?.protocol === 'string' ? manifest.game.protocol.trim() : ''
   const hasRuntime = Array.isArray(manifest?.runtimeModules) && manifest.runtimeModules.length > 0

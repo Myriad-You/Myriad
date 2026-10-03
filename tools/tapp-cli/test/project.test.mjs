@@ -13,6 +13,7 @@ import {
   packProject,
   permissionCatalog,
 } from '../src/project.mjs'
+import { usesGamePackageLimits } from '../src/resource-validator.mjs'
 import { listZipEntries } from '../src/zip.mjs'
 import { findMyriadRepoRoot } from '../scripts/myriad-source.mjs'
 
@@ -1035,5 +1036,15 @@ Tapp.storage.get(key)
       report.diagnostics.some(({ code }) => code === 'headless-denied-action'),
       false,
     )
+  })
+})
+
+describe('older category names', () => {
+  it('get the package limits of the category they install as', () => {
+    const runtime = { runtimeModules: ['engine.wasm'] }
+    assert.equal(usesGamePackageLimits({ category: 'games', ...runtime }), true)
+    assert.equal(usesGamePackageLimits({ category: 'dev', ...runtime }), true)
+    assert.equal(usesGamePackageLimits({ category: 'tools', ...runtime }), false)
+    assert.equal(usesGamePackageLimits({ category: 'toString', ...runtime }), false)
   })
 })

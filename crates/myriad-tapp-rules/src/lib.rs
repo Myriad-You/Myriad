@@ -48,7 +48,7 @@ pub use package_fs::{
 pub use prepared::{
     PackageLoadError, PackageValidateError, PreparedTappPackage, PreparedTappResources,
     WidgetTemplateContents, check_manifest_byte_size, nonempty_content, parse_manifest_json,
-    validate_widget_template_contents, widget_template_path,
+    validate_widget_template_contents, warn_older_category_name, widget_template_path,
 };
 pub use transform::{
     DataTransformError, MAX_MAP_OPERATIONS, MAX_PIPELINE_STEPS, MapOp, ProcessStep, apply_map_op,

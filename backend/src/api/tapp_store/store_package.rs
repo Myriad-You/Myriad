@@ -220,6 +220,7 @@ pub(super) async fn fetch_from_store(
         tracing::error!(error = %e, "upstream fetch failed");
         api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
     })?;
+    myriad_tapp_rules::warn_older_category_name(&manifest_bytes, &manifest.id);
     // The manifest is authoritative even when the index omits permissions.
     super::store_policy::ensure_permissions_allowed(&manifest.permissions).await?;
     validate_store_manifest_category(app_info, &manifest)

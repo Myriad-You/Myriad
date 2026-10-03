@@ -206,7 +206,7 @@ const PRE_LAYER_MANIFEST_FIELDS: &[&str] = &[
 pub fn parse_manifest_json(content: &str) -> Result<TappManifest, PackageLoadError> {
     match serde_json::from_str::<TappManifest>(content) {
         Ok(manifest) => {
-            warn_older_category_name(content, &manifest.id);
+            warn_older_category_name(content.as_bytes(), &manifest.id);
             Ok(manifest)
         }
         Err(error) => {
@@ -237,18 +237,22 @@ pub fn parse_manifest_json(content: &str) -> Result<TappManifest, PackageLoadErr
 
 /// Older category names still install (the contract keeps them as aliases);
 /// the log says which packages still use one before the aliases can go.
-fn warn_older_category_name(content: &str, tapp_id: &str) {
+/// Takes the raw manifest: once parsed, an alias reads as its current name.
+pub fn warn_older_category_name(content: &[u8], tapp_id: &str) {
     #[derive(serde::Deserialize)]
     struct Category {
         category: Option<String>,
     }
     let Ok(Category {
         category: Some(category),
-    }) = serde_json::from_str(content)
+    }) = serde_json::from_slice(content)
     else {
         return;
     };
-    if myriad_tapp_contract::contract_rules::TAPP_CATEGORY_ALIASES.contains(&category.as_str()) {
+    if myriad_tapp_contract::contract_rules::TAPP_CATEGORY_ALIASES
+        .iter()
+        .any(|(alias, _)| *alias == category)
+    {
         tracing::warn!(
             tapp_id,
             category,

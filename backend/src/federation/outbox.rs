@@ -75,8 +75,8 @@ pub(crate) async fn public_local_objects(
 #[derive(Debug, Deserialize)]
 pub struct OutboxQuery {
     /// 只标记「第一页」：`first` 生成 `?page=1`，之后的 `next` 一律用游标。
-    /// 页码本身不参与定位。
-    pub page: Option<u32>,
+    /// 值不参与定位，所以任何写法（`?page=1`、Mastodon 的 `?page=true`）都收。
+    pub page: Option<String>,
     /// Keyset 游标：`<published_at 微秒>.<activity id>`。
     pub cursor: Option<String>,
 }

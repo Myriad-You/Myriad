@@ -476,24 +476,24 @@
       "build",
       "coverage"
     ],
-    "tappCategoryAliases": [
-      "data-extension",
-      "platform",
-      "visualization",
-      "development",
-      "dev",
-      "games",
-      "entertainment",
-      "music",
-      "communication",
-      "demo",
-      "page",
-      "test",
-      "tool",
-      "tools",
-      "utilities",
-      "widget"
-    ],
+    "tappCategoryAliases": {
+      "communication": "social",
+      "data-extension": "data",
+      "demo": "utility",
+      "dev": "developer",
+      "development": "developer",
+      "entertainment": "media",
+      "games": "game",
+      "music": "media",
+      "page": "utility",
+      "platform": "data",
+      "test": "utility",
+      "tool": "utility",
+      "tools": "utility",
+      "utilities": "utility",
+      "visualization": "data",
+      "widget": "utility"
+    },
     "urlFields": [
       "homepage",
       "repository"

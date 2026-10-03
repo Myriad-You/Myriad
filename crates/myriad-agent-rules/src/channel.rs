@@ -1035,7 +1035,8 @@ pub fn parse_telegram_callback(data: &str) -> Option<TelegramCallbackBinding> {
     })
 }
 
-/// Map `callback_data` onto the parked prompt. A missing or other id is stale.
+/// Map `callback_data` onto the parked prompt. A button carrying no id is
+/// unknown; one carrying another prompt's id is stale.
 pub fn telegram_callback_action(prompt: &PendingPrompt, data: &str) -> TelegramCallbackAction {
     let Some(binding) = parse_telegram_callback(data) else {
         return TelegramCallbackAction::Unknown;
