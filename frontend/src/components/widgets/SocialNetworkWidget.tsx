@@ -1449,7 +1449,9 @@ export const SocialNetworkWidget = memo(
         }
       }
       return null
-    }, [selectedPlatformId])
+      // customPlatformsReady：自定义平台是异步加载的，首屏渲染时还没到；
+      // 不跟着重算的话弹出型平台（QQ 等）会一直被当成普通平台，浮层永远出不来。
+    }, [selectedPlatformId, customPlatformsReady])
 
     const isPopupType = popupPlatformData !== null
     const hasInteraction = !isEditMode && !!userId
@@ -1502,6 +1504,9 @@ export const SocialNetworkWidget = memo(
 
     const handleKeyDown = useCallback(
       (event: React.KeyboardEvent<HTMLDivElement>) => {
+        // 只管根节点自己（弹出型平台）；覆盖层链接冒上来的按键归链接：
+        // 链接不该响应空格，Ctrl/⌘/Shift+Enter 的新标签、新窗口也不能被吞。
+        if (event.target !== event.currentTarget) return
         if (
           hasInteraction &&
           (event.key === 'Enter' || event.key === ' ')
@@ -1796,7 +1801,21 @@ export const SocialNetworkWidget = memo(
     const handleTouchStart = useCallback(() => {
       lastTouchAtRef.current = performance.now()
       handlePressStart()
-    }, [handlePressStart])
+      // 触屏直接点出浮层：模拟出来的 mouseenter 只在第一次触摸时有，
+      // 浮层自动收起后再点就再也出不来了。
+      if (
+        !isEditMode &&
+        isPopupType &&
+        popupPlatformData &&
+        config.size !== '2x2'
+      ) {
+        if (tooltipHideTimerRef.current) {
+          clearTimeout(tooltipHideTimerRef.current)
+          tooltipHideTimerRef.current = null
+        }
+        setShowInfoTooltip(true)
+      }
+    }, [handlePressStart, isEditMode, isPopupType, popupPlatformData, config.size])
 
     // 触摸合成的 mouseenter 会弹出浮层，但不会有 mouseleave 收起它：
     // 点到别处、页面滚动时收起；由触摸弹出的几秒后自己收起。
@@ -1884,7 +1903,8 @@ export const SocialNetworkWidget = memo(
               target="_blank"
               rel="noopener noreferrer"
               draggable={false}
-              className="absolute inset-0 z-[2]"
+              // 焦点环画在内侧：外层 overflow:hidden 会把画在外面的 outline 整圈裁掉。
+              className="absolute inset-0 z-[2] rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cfg-accent)]"
               aria-label={`${selectedPlatform.name}: ${t.socialNetwork.clickToVisit}`}
               // 根节点的 onClick 会再 window.open 一次。
               onClick={(event) => event.stopPropagation()}

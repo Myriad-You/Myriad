@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { WidgetComponentProps } from '../widgetGridTypes'
+import { LuPause, LuPlay } from '@lib/icons'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
@@ -874,6 +875,8 @@ const GamePresenceWidget = memo(
                       key={`${s.name}-${i}`}
                       type="button"
                       title={s.level != null ? `${s.name} · Lv.${s.level}` : s.name}
+                      aria-label={s.name}
+                      aria-pressed={i === focusIndex}
                       onClick={(e) => {
                         e.stopPropagation()
                         setFocusIndex(i)
@@ -895,6 +898,25 @@ const GamePresenceWidget = memo(
                       )}
                     </button>
                   ))}
+                  {/* 自动轮换要能一直停住（WCAG 2.2.2），不只是悬停时暂停。 */}
+                  {!isPreview && !isEditMode && anim.loop && showcaseLen > 1 ? (
+                    <button
+                      type="button"
+                      aria-label={rotation.stopped ? t.widgetGrid.resumeRotation : t.widgetGrid.pauseRotation}
+                      aria-pressed={rotation.stopped}
+                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-gray-400 outline-none transition-colors hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-[var(--cfg-accent)] dark:text-white/40 dark:hover:text-white/80 ml-auto"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        rotation.toggleStopped()
+                      }}
+                    >
+                      {rotation.stopped ? (
+                        <LuPlay className="h-2.5 w-2.5" aria-hidden />
+                      ) : (
+                        <LuPause className="h-2.5 w-2.5" aria-hidden />
+                      )}
+                    </button>
+                  ) : null}
                 </div>
 
                 <div className="mt-2 flex items-center gap-4 shrink-0 overflow-hidden">

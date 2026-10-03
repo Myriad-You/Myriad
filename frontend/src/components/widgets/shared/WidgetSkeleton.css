@@ -52,6 +52,7 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
 
 .widget-skeleton {
   --ws-accent: var(--color-primary, #6366f1);
+  --ws-accent-ink: var(--cfg-accent, #6366f1);
   --ws-soft: color-mix(in srgb, var(--ws-accent) 12%, transparent);
   --ws-shine: color-mix(in srgb, var(--ws-accent) 28%, transparent);
   --ws-muted: color-mix(in srgb, var(--ws-accent) 7%, transparent);
@@ -311,13 +312,13 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   font-size: 0.65rem;
   line-height: 1.3;
   font-weight: 600;
-  color: color-mix(in srgb, var(--ws-accent) 85%, #111);
+  color: color-mix(in srgb, var(--ws-accent-ink) 85%, #111);
   background: color-mix(in srgb, var(--ws-soft) 70%, transparent);
   pointer-events: none;
 }
 
 html.dark .widget-skeleton-stall {
-  color: color-mix(in srgb, var(--ws-accent) 70%, #fff);
+  color: color-mix(in srgb, var(--ws-accent-ink) 70%, #fff);
 }
 
 @media (prefers-reduced-motion: reduce) {

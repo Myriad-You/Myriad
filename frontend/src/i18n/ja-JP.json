@@ -1421,6 +1421,8 @@
     "nextPage": "次のページ",
     "pagerLabel": "表示を切り替え",
     "goToPage": "{page} / {total} ページ",
+    "pauseRotation": "自動切り替えを一時停止",
+    "resumeRotation": "自動切り替えを再開",
     "widgetSettings": "ウィジェット設定",
     "longPressToEdit": "ウィジェットを長押しして設定",
     "createSticker": "ステッカーを作成"

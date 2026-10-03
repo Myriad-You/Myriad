@@ -99,16 +99,22 @@ it('steps one snap point per wheel notch on snapping strips instead of writing s
     assert.equal(first.defaultPrevented, true)
     assert.deepEqual(calls, [{ left: 100, behavior: 'smooth' }])
     assert.equal(el.scrollLeft, 0)
-    // The rest of the gesture (trackpad inertia, over a second long) is swallowed, not paged again
+    // Trackpad inertia (decaying deltas, over a second long) is swallowed, not paged again
     // and not turned into page scroll halfway through.
     for (let i = 1; i <= 70; i++) {
-      assert.equal(wheel(el, { deltaY: Math.max(1, 60 - i) }, 1000 + i * 16).defaultPrevented, true)
+      assert.equal(wheel(el, { deltaY: Math.max(1, 100 - i) }, 1000 + i * 16).defaultPrevented, true)
     }
     assert.equal(calls.length, 1)
     // A new gesture after a pause steps again; at the leading edge the page keeps the wheel.
     assert.equal(wheel(el, { deltaY: -100 }, 3000).defaultPrevented, false)
     assert.equal(wheel(el, { deltaY: 100 }, 3400).defaultPrevented, true)
     assert.equal(calls.length, 2)
+    // A mouse spun continuously (equal notches) keeps stepping, one card per notch.
+    for (let i = 1; i <= 4; i++) wheel(el, { deltaY: 100 }, 3400 + i * 160)
+    assert.equal(calls.length, 6)
+    // At the far edge the wheel goes to the page even mid-gesture: no scroll trap.
+    el.scrollLeft = 500
+    assert.equal(wheel(el, { deltaY: 100 }, 4100).defaultPrevented, false)
   } finally {
     dom.window.getComputedStyle = getComputedStyle
   }

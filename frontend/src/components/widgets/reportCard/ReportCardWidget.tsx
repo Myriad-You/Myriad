@@ -60,10 +60,12 @@ export const ReportCardWidget = memo(
       pages: 1,
       dwellMs: REPORT_ITEM_DWELL_MS,
     })
-    // 换了平台就从总览开始。
-    useEffect(() => {
+    // 换了平台就从总览开始；在渲染时就改，不留一帧「旧页码 + 新平台」。
+    const [pagedPlatform, setPagedPlatform] = useState(platformId)
+    if (pagedPlatform !== platformId) {
+      setPagedPlatform(platformId)
       setPage(0)
-    }, [platformId])
+    }
     const registerDetailPages = useCallback((pages: number, dwellMs: number) => {
       const next = Math.max(1, pages)
       setDetailPaging((prev) =>
@@ -151,8 +153,12 @@ export const ReportCardWidget = memo(
           ? 1
           : 2
       : 1
-    // 页数变少（数据刷新）时停在最后一页，不按取模跳到不相干的页。
+    // 页数变少（数据刷新）时停在最后一页，不按取模跳到不相干的页；
+    // 存着的页码也改掉，页数再变多时不会跳回去。
     const currentPage = Math.min(page, pageCount - 1)
+    useEffect(() => {
+      if (page > pageCount - 1) setPage(pageCount - 1)
+    }, [page, pageCount])
     const showOverview = isOverviewControlled
       ? controlledShowOverview
       : paged
@@ -387,6 +393,8 @@ export const ReportCardWidget = memo(
             count={pageCount}
             index={paged ? currentPage : showOverview ? 0 : 1}
             placement="top"
+            stopped={rotation.stopped}
+            onToggleStopped={animLevel.widgetUiRotation ? rotation.toggleStopped : undefined}
             visible={rotation.showPager}
             onSelect={(index) => {
               if (paged) setPage(index)

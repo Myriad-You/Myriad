@@ -1,5 +1,6 @@
 .as-store {
   --as-blue: var(--color-primary, #0a84ff);
+  --as-blue-ink: var(--cfg-accent, #0a84ff);
   --as-blue-soft: color-mix(in srgb, var(--as-blue) 13%, transparent);
   --as-label: var(--text-primary, #1d1d1f);
   --as-secondary: var(--text-muted, #6e6e73);
@@ -441,7 +442,7 @@ html[data-perf-mode='exlight'] .as-store__search-shell {
 }
 
 .as-store__search-shell:focus-within .as-store__search-icon {
-  color: var(--as-blue);
+  color: var(--as-blue-ink);
   filter: drop-shadow(
     0 0 5px color-mix(in srgb, var(--as-blue) 28%, transparent)
   );
@@ -457,7 +458,7 @@ html[data-perf-mode='exlight'] .as-store__search-shell {
   color: var(--as-label);
   font-size: 0.8125rem;
   line-height: 1;
-  caret-color: var(--as-blue);
+  caret-color: var(--as-blue-ink);
   background: transparent;
   border: 0;
   border-radius: inherit;
@@ -669,7 +670,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   place-items: center;
   width: 2.2rem;
   height: 2.2rem;
-  color: var(--as-blue);
+  color: var(--as-blue-ink);
   border-radius: 0.58rem;
   transition:
     background 140ms ease,
@@ -708,7 +709,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   flex-shrink: 0;
   height: 1.8rem;
   padding: 0 0.75rem;
-  color: var(--as-blue);
+  color: var(--as-blue-ink);
   font-size: 0.75rem;
   font-weight: 650;
   letter-spacing: -0.01em;
@@ -744,7 +745,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   gap: 0.25rem;
   min-height: 2rem;
   padding: 0 0.6rem;
-  color: var(--as-blue);
+  color: var(--as-blue-ink);
   font-size: 0.875rem;
   font-weight: 550;
   border-radius: 0.52rem;
@@ -865,7 +866,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
 .as-store__see-all {
   margin: 0;
   padding: 0.15rem 0.2rem;
-  color: var(--as-blue, #0a84ff);
+  color: var(--as-blue-ink, #0a84ff);
   font-size: 0.75rem;
   font-weight: 620;
   line-height: 1.2;
@@ -891,7 +892,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
 }
 
 .as-store__see-all:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--as-blue, #0a84ff) 55%, white);
+  outline: 2px solid color-mix(in srgb, var(--as-blue-ink, #0a84ff) 55%, white);
   outline-offset: 2px;
 }
 
@@ -1043,7 +1044,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
 }
 
 .as-store__feature-hit:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--as-blue) 72%, white);
+  outline: 2px solid color-mix(in srgb, var(--as-blue-ink) 72%, white);
   outline-offset: -3px;
 }
 
@@ -1185,7 +1186,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   align-items: center;
   justify-content: center;
   margin-left: 0.32rem;
-  color: var(--as-blue, #0a84ff);
+  color: var(--as-blue-ink, #0a84ff);
   line-height: 0;
   vertical-align: middle;
 }
@@ -1230,7 +1231,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
 }
 
 .as-store-row:hover .as-store-row__name {
-  color: var(--as-blue);
+  color: var(--as-blue-ink);
 }
 
 .as-store-row__sub {
@@ -1326,7 +1327,7 @@ html[data-perf-mode='exlight'] .as-store__chrome {
 
 .as-get--open,
 .as-get--busy {
-  color: var(--as-blue);
+  color: var(--as-blue-ink);
   background: var(--as-blue-soft);
 }
 
@@ -1749,7 +1750,7 @@ html[data-perf-mode='exlight'] .as-store__skel-feature::after {
   width: 1.85rem;
   height: 1.85rem;
   padding: 0;
-  color: var(--as-blue);
+  color: var(--as-blue-ink);
   font-size: 0;
   text-decoration: none;
   background: var(--as-blue-soft);
@@ -1834,7 +1835,7 @@ html[data-perf-mode='exlight'] .as-store__skel-feature::after {
 @media (hover: hover) {
   :root:not([data-surface='liquid'])
     .as-detail__fluid-control:not(.glass-liquid):hover {
-    color: var(--as-blue);
+    color: var(--as-blue-ink);
     background: var(--surface-bg);
     transform: translateY(-1px) scale(1.045);
     filter: brightness(1.04);
@@ -1850,7 +1851,7 @@ html[data-perf-mode='exlight'] .as-store__skel-feature::after {
 }
 
 .as-detail__fluid-control:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--as-blue) 68%, white);
+  outline: 2px solid color-mix(in srgb, var(--as-blue-ink) 68%, white);
   outline-offset: 2px;
 }
 

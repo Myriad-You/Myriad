@@ -14,7 +14,8 @@ const SIZE_PX: Record<'xs' | 'sm' | 'md' | 'lg' | 'xl', number> = {
 
 const COLOR_VALUE: Record<string, string> = {
   current: 'currentcolor',
-  primary: 'var(--color-primary, #94a3b8)',
+  // 转圈是前景：用按主题校准过的可读色。
+  primary: 'var(--cfg-accent, #94a3b8)',
   white: '#fff',
 }
 

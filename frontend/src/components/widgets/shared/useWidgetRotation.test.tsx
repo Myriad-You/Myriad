@@ -121,6 +121,8 @@ describe('useWidgetRotation', () => {
   })
 
   it('steps on a horizontal swipe and swallows the click that follows', async () => {
+    // 松手后的 click 与 pointerup 属于同一轮事件；act 的异步刷新不能先跑清理计时器。
+    mock.timers.enable({ apis: ['setTimeout'] })
     const el = await mount()
     await swipe(el, -60)
     assert.deepEqual(steps, [1])
@@ -244,6 +246,38 @@ describe('useWidgetRotation', () => {
     assert.deepEqual(steps, [1])
   })
 
+  for (const compact of [false, true]) {
+    it(`restores lost focus to ${compact ? 'a compact pager button' : 'the current dot'} after replacing content`, async () => {
+      function WithPager({ replaced = false }: { replaced?: boolean }) {
+        latest = useWidgetRotation({ count: 3, interactive: true, delay: null, autoplay: false, onStep: (d) => steps.push(d) })
+        return createElement('div', { ref: latest.rootRef, ...latest.rootProps },
+          replaced ? null : createElement('button', { 'data-content': '' }, 'content'),
+          createElement('div', { role: 'group' },
+            createElement('button', { 'data-first': '' }, 'previous'),
+            compact
+              ? createElement('span', { 'aria-current': 'page' }, '2 / 3')
+              : createElement('button', { 'data-pager-dot': '', 'aria-current': 'true' }, 'current'),
+          ),
+        )
+      }
+      const raf = window.requestAnimationFrame
+      const frames: FrameRequestCallback[] = []
+      window.requestAnimationFrame = (callback) => { frames.push(callback); return frames.length }
+      mock.timers.enable({ apis: ['setTimeout'] })
+      try {
+        await act(async () => root.render(createElement(WithPager)))
+        await act(async () => document.querySelector<HTMLElement>('[data-content]')!.focus())
+        await act(async () => latest.step(1))
+        await act(async () => root.render(createElement(WithPager, { replaced: true })))
+        assert.equal(document.activeElement, document.body)
+        await act(async () => frames.forEach(callback => callback(0)))
+        assert.equal(document.activeElement, document.querySelector(compact ? '[data-first]' : '[data-pager-dot]'))
+      } finally {
+        window.requestAnimationFrame = raf
+      }
+    })
+  }
+
   it('leaves wheel in an ignored strip to native scrolling, and keeps the outer panel still', async () => {
     const outer: number[] = []
     function Inner() {
@@ -255,7 +289,9 @@ describe('useWidgetRotation', () => {
       return createElement('div', { ref: rotation.rootRef, ...rotation.rootProps }, createElement(Inner))
     }
     await act(async () => root.render(createElement(Outer)))
-    const strip = document.querySelector('[data-strip]')!
+    const strip = document.querySelector<HTMLElement>('[data-strip]')!
+    // jsdom 不排版：手动给出「还能往右横滚」的几何。
+    Object.defineProperties(strip, { scrollWidth: { configurable: true, value: 400 }, clientWidth: { configurable: true, value: 200 } })
     let prevented = true
     await act(async () => {
       prevented = wheelAt(strip, 9000, { deltaX: 90 }).defaultPrevented
@@ -271,5 +307,71 @@ describe('useWidgetRotation', () => {
     await act(async () => pointer(el, 'pointerover', { pointerType: 'mouse' }))
     await mount({ count: 3 })
     assert.equal(latest.paused, true)
+  })
+
+  it('keeps autoplay off once the user stops it, until they turn it back on', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    await mount({ delay: 1000, autoplay: true })
+    await act(async () => latest.toggleStopped())
+    await act(async () => mock.timers.tick(60_000))
+    assert.deepEqual(steps, [])
+    await act(async () => latest.toggleStopped())
+    await act(async () => mock.timers.tick(1000))
+    assert.deepEqual(steps, [1])
+  })
+
+  it('drops a stale hover when the root element goes away', async () => {
+    const el = await mount()
+    await act(async () => pointer(el, 'pointerover', { pointerType: 'mouse' }))
+    assert.equal(latest.paused, true)
+    await act(async () => {
+      latest.rootRef(null)
+      await Promise.resolve()
+    })
+    assert.equal(latest.paused, false)
+  })
+
+  it('pages on a horizontal sweep over the page dots (they do not scroll)', async () => {
+    function WithDots() {
+      latest = useWidgetRotation({ count: 3, interactive: true, delay: null, autoplay: false, onStep: (d) => steps.push(d) })
+      return createElement('div', { ref: latest.rootRef, ...latest.rootProps }, createElement('div', { 'data-rotation-ignore': '', 'data-dots': true }))
+    }
+    await act(async () => root.render(createElement(WithDots)))
+    let prevented = false
+    await act(async () => {
+      prevented = wheelAt(document.querySelector('[data-dots]')!, 12_000, { deltaX: 80 }).defaultPrevented
+    })
+    assert.equal(prevented, true)
+    assert.deepEqual(steps, [1])
+  })
+
+  it('blocks native image drag so a mouse swipe over a cover still pages', async () => {
+    const el = await mount()
+    const event = new dom.window.MouseEvent('dragstart', { bubbles: true, cancelable: true })
+    el.dispatchEvent(event)
+    assert.equal(event.defaultPrevented, true)
+  })
+
+  it('forgets the swallowed click when no click follows a swipe', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const el = await mount()
+    await act(async () => {
+      pointer(el, 'pointerdown', { clientX: 100, clientY: 100, pointerType: 'touch' })
+      pointer(el, 'pointermove', { clientX: 40, clientY: 100, pointerType: 'touch' })
+      window.dispatchEvent(new dom.window.PointerEvent('pointerup', { pointerId: 1, pointerType: 'touch' }))
+      mock.timers.tick(1)
+    })
+    assert.deepEqual(steps, [1])
+    await act(async () => el.querySelector('button')!.click())
+    assert.deepEqual(steps, [1, 0], 'a later keyboard/plain activation is not eaten')
+  })
+})
+
+describe('pagerDotCapacity', () => {
+  it('fits dots to the width and falls back to a counter when they do not fit', async () => {
+    const { pagerDotCapacity } = await import('./pagerCapacity')
+    assert.equal(pagerDotCapacity(308) >= 11, true, 'a 4x2 card shows 11 dots')
+    assert.equal(pagerDotCapacity(150) < 24, true, 'a 2x2 card cannot show 24 dots')
+    assert.equal(pagerDotCapacity(10), 0)
   })
 })

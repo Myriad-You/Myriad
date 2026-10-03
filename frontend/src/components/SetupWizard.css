@@ -13,6 +13,7 @@
   );
   --sob-line: color-mix(in srgb, var(--border-color, #d8dbe6) 72%, transparent);
   --sob-accent: var(--color-primary, #7c6ee6);
+  --sob-accent-ink: var(--cfg-accent, #7c6ee6);
   --sob-surface-rgb: var(--surface-rgb, 255 255 255);
   --sob-dur-fast: 160ms;
   --sob-dur-base: 280ms;
@@ -449,7 +450,7 @@ html.dark .setup-ob {
       color-mix(in srgb, var(--sob-accent) 4%, transparent)
     );
   box-shadow: var(--sob-liq-soft-shadow);
-  color: color-mix(in srgb, var(--sob-accent) 62%, var(--sob-ink));
+  color: color-mix(in srgb, var(--sob-accent-ink) 62%, var(--sob-ink));
   cursor: default;
   font-size: 11.5px;
   font-weight: 620;
@@ -678,7 +679,7 @@ html.dark .setup-ob {
 
 .setup-ob-hero__eyebrow {
   margin: 0;
-  color: color-mix(in srgb, var(--sob-accent) 72%, var(--sob-ink));
+  color: color-mix(in srgb, var(--sob-accent-ink) 72%, var(--sob-ink));
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -805,7 +806,7 @@ html.dark .setup-ob {
     inset 0 0 18px -4px rgb(255 255 255 / 22%),
     0 2px 6px -2px rgb(31 38 135 / 14%),
     0 16px 36px -12px color-mix(in srgb, var(--sob-accent) 42%, transparent);
-  color: color-mix(in srgb, var(--sob-accent) 78%, var(--sob-ink));
+  color: color-mix(in srgb, var(--sob-accent-ink) 78%, var(--sob-ink));
   isolation: isolate;
   backdrop-filter: blur(10.2px) saturate(1.85) brightness(1.05);
   animation: setup-ob-fab-breathe 4.6s var(--sob-ease-glide) infinite;
@@ -903,7 +904,7 @@ html.dark .setup-ob-bar .setup-ob-cta {
     inset 0 0 18px -4px rgb(255 255 255 / 6%),
     0 2px 6px -2px rgb(0 0 0 / 36%),
     0 16px 36px -12px color-mix(in srgb, var(--sob-accent) 36%, transparent);
-  color: color-mix(in srgb, var(--sob-accent) 70%, white);
+  color: color-mix(in srgb, var(--sob-accent-ink) 70%, white);
 }
 
 @keyframes setup-ob-fab-breathe {
@@ -1232,7 +1233,7 @@ html.dark .setup-ob-bar .setup-ob-cta {
 .setup-ob-features svg {
   width: 1.3rem;
   height: 1.3rem;
-  color: var(--sob-accent);
+  color: var(--sob-accent-ink);
   transition: transform var(--sob-dur-fast) var(--sob-ease-spring);
 }
 
@@ -1305,7 +1306,7 @@ html.dark .setup-ob-bar .setup-ob-cta {
   background: color-mix(in srgb, var(--sob-accent) 11%, transparent);
   box-shadow: inset 0 0 0 1px
     color-mix(in srgb, var(--sob-accent) 18%, transparent);
-  color: var(--sob-accent);
+  color: var(--sob-accent-ink);
   place-items: center;
   animation: setup-ob-glyph-pop var(--sob-dur-slow) var(--sob-ease-spring)
     backwards;

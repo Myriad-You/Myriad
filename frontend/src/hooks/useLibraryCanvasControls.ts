@@ -318,6 +318,13 @@ export function useLibraryCanvasControls({
       if (event.isPrimary) {
         // 新手势的第一根手指：漏掉的抬起事件不能留下幽灵触点，把下一次单指当成双指。
         // 放在交互元素判断之前：第一根手指落在按钮上时也要清。
+        // 残留捏合留下的「吞点击」和拖动标记一起复位，否则下一下点卡片打不开。
+        if (pinchRef.current || pointers.size > 0) {
+          if (suppressClickUntilRef.current === Number.POSITIVE_INFINITY) {
+            suppressClickUntilRef.current = 0
+          }
+          delete event.currentTarget.dataset.dragging
+        }
         pointers.clear()
         pinchRef.current = null
       }

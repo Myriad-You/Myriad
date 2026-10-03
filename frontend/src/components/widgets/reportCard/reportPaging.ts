@@ -32,12 +32,14 @@ export function useReportDetailPage(
   dwellMs: number,
 ): number | null {
   const paging = useContext(ReportDetailPagingContext)
+  // 只跟 register 走：paging 对象每翻一页都换新，跟它走会在每页先撤销再上报，多渲染一次。
+  const register = paging?.register
   useLayoutEffect(() => {
-    if (!paging) return
-    paging.register(pages, dwellMs)
+    if (!register) return
+    register(pages, dwellMs)
     // 换平台后新的平台面可能不上报（详情不分页），旧页数不能留着。
-    return () => paging.register(0, dwellMs)
-  }, [paging, pages, dwellMs])
+    return () => register(0, dwellMs)
+  }, [register, pages, dwellMs])
   if (!paging) return null
   return pages > 0 ? paging.detailIndex % pages : 0
 }

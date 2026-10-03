@@ -1421,6 +1421,8 @@
     "nextPage": "Page suivante",
     "pagerLabel": "Changer de contenu",
     "goToPage": "Page {page} sur {total}",
+    "pauseRotation": "Mettre en pause le défilement automatique",
+    "resumeRotation": "Reprendre le défilement automatique",
     "widgetSettings": "Réglages du widget",
     "longPressToEdit": "Appui long pour configurer",
     "createSticker": "Créer un sticker"

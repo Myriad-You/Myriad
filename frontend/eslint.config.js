@@ -67,9 +67,17 @@ export default antfu(
         'error',
         'TSEnumDeclaration[const=true]',
         'TSExportAssignment',
+        // 前景属性的值里出现 var(--color-primary)（含兜底值、三元、模板字符串、带引号的键）。
         {
-          // 带兜底值的写法 var(--color-primary, #xxx) 也算。
-          selector: "Property[key.name='color'] > Literal[value=/^var\\(--color-primary[,)]/]",
+          selector: "Property[key.name=/^(color|caretColor|outlineColor|textDecorationColor|stroke|fill|WebkitTextFillColor)$/] Literal[value=/var\\(--color-primary[,)]/]",
+          message: '前景色用 var(--cfg-accent)：--color-primary 是壁纸原色，可能和底色同色（#602）',
+        },
+        {
+          selector: "Property[key.value=/^(color|caretColor|outlineColor|textDecorationColor|stroke|fill|WebkitTextFillColor)$/] Literal[value=/var\\(--color-primary[,)]/]",
+          message: '前景色用 var(--cfg-accent)：--color-primary 是壁纸原色，可能和底色同色（#602）',
+        },
+        {
+          selector: "Property[key.name=/^(color|caretColor|outlineColor|textDecorationColor|stroke|fill|WebkitTextFillColor)$/] TemplateElement[value.raw=/var\\(--color-primary[,)]/]",
           message: '前景色用 var(--cfg-accent)：--color-primary 是壁纸原色，可能和底色同色（#602）',
         },
       ],

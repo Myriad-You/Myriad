@@ -458,7 +458,7 @@ export function PlaygroundComposer({
                                     className="text-[9px] font-mono font-bold tabular-nums"
                                     style={{
                                       color: isCurrent
-                                        ? 'var(--color-primary)'
+                                        ? 'var(--cfg-accent)'
                                         : 'var(--text-muted)',
                                     }}
                                   >
@@ -651,7 +651,7 @@ export function PlaygroundComposer({
                                       className="text-[10px] font-mono font-bold tabular-nums shrink-0"
                                       style={{
                                         color: isCurrent
-                                          ? 'var(--color-primary)'
+                                          ? 'var(--cfg-accent)'
                                           : 'var(--text-muted)',
                                       }}
                                     >

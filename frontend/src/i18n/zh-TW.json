@@ -1421,6 +1421,8 @@
     "nextPage": "下一頁",
     "pagerLabel": "切換內容",
     "goToPage": "第 {page} 頁，共 {total} 頁",
+    "pauseRotation": "暫停自動切換",
+    "resumeRotation": "繼續自動切換",
     "widgetSettings": "小元件設定",
     "longPressToEdit": "長按小元件進行設定",
     "createSticker": "建立貼紙"

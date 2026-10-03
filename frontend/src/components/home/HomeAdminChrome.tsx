@@ -86,7 +86,7 @@ export function HomeStatusBarActions({
         }`}
         style={{
           backgroundColor: isEditMode ? 'var(--color-primary)' : undefined,
-          color: isEditMode ? '#fff' : 'var(--color-primary)',
+          color: isEditMode ? '#fff' : 'var(--cfg-accent)',
         }}
         aria-label={isEditMode ? t.common.done : t.common.edit}
       >

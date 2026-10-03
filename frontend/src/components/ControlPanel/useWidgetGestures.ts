@@ -1,4 +1,8 @@
-import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  WheelEvent,
+} from 'react'
 import { useCallback, useLayoutEffect, useRef } from 'react'
 import { onVisibility } from '../../hooks/animation/core'
 
@@ -15,6 +19,8 @@ interface WidgetGestureOptions {
   onPage: (page: number) => void
 }
 
+const PRESS_MOVE_TOLERANCE_PX = 8
+
 /** Gesture work belongs to the visible panel, not to the render that started it. */
 export function useWidgetGestures(options: WidgetGestureOptions) {
   const latest = useRef(options)
@@ -22,6 +28,8 @@ export function useWidgetGestures(options: WidgetGestureOptions) {
   const wheel = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopDrag = useRef<(() => void) | null>(null)
   const isDraggingRef = useRef(false)
+  /** 长按起点：按住后移动超过这个距离就是拖动（横拖翻页、嵌套小组件的滑动），不是长按。 */
+  const pressFrom = useRef<{ x: number; y: number } | null>(null)
   const handleMouseUp = useCallback(() => {
     if (press.current !== null) clearTimeout(press.current)
     press.current = null
@@ -104,5 +112,24 @@ export function useWidgetGestures(options: WidgetGestureOptions) {
     current.onPage(page)
     wheel.current = setTimeout(() => { wheel.current = null }, 400)
   }, [])
-  return { handleMouseDown, handleMouseUp, handleResizeStart, handleWheel, isDraggingRef }
+  // 按下时记起点；指针挪开超过阈值就不再是长按，管理员慢慢横拖也不会顺带进编辑态。
+  const handlePointerDown = useCallback((event: ReactPointerEvent) => {
+    pressFrom.current = { x: event.clientX, y: event.clientY }
+  }, [])
+  const handlePointerMove = useCallback((event: ReactPointerEvent) => {
+    const from = pressFrom.current
+    if (press.current === null || !from) return
+    if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > PRESS_MOVE_TOLERANCE_PX) {
+      handleMouseUp()
+    }
+  }, [handleMouseUp])
+  return {
+    handleMouseDown,
+    handleMouseUp,
+    handlePointerDown,
+    handlePointerMove,
+    handleResizeStart,
+    handleWheel,
+    isDraggingRef,
+  }
 }

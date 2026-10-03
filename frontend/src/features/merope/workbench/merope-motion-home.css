@@ -16,6 +16,7 @@
   );
   --merope-line: color-mix(in srgb, var(--border-color, #d8dbe6) 72%, transparent);
   --merope-accent: var(--color-primary, #7c6ee6);
+  --merope-accent-ink: var(--cfg-accent, #7c6ee6);
   --merope-surface-rgb: var(--surface-rgb, 255 255 255);
   --ob-liq-border: var(
     --surface-border,
@@ -42,6 +43,7 @@ html.dark .merope-motion-home {
   );
   --merope-line: color-mix(in srgb, var(--border-color, #d8dbe6) 72%, transparent);
   --merope-accent: var(--color-primary, #7c6ee6);
+  --merope-accent-ink: var(--cfg-accent, #7c6ee6);
   --merope-surface-rgb: var(--surface-rgb, 255 255 255);
   --ob-liq-border: var(
     --surface-border,
@@ -379,13 +381,13 @@ html.dark .merope-motion-page {
 
 .merope-motion-rig__step.is-started .merope-motion-rig__step-marker {
   border-color: var(--merope-accent);
-  color: var(--merope-accent);
+  color: var(--merope-accent-ink);
   background: color-mix(in srgb, var(--merope-accent) 10%, transparent);
 }
 
 .merope-motion-rig__step.is-started .merope-motion-rig__step-state,
 .merope-motion-rig__step.is-completed .merope-motion-rig__step-state {
-  color: var(--merope-accent);
+  color: var(--merope-accent-ink);
 }
 
 .merope-motion-rig__step.is-completed .merope-motion-rig__step-marker {
@@ -810,7 +812,7 @@ html.dark .merope-wardrobe {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--merope-accent);
+  color: var(--merope-accent-ink);
   font: inherit;
   font-size: 12.5px;
   font-weight: 650;
@@ -923,7 +925,7 @@ html.dark .merope-wardrobe {
   font-style: normal;
   font-weight: 650;
   letter-spacing: 0.04em;
-  color: var(--merope-accent);
+  color: var(--merope-accent-ink);
 }
 
 .merope-wardrobe__kind {

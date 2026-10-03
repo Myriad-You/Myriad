@@ -9,10 +9,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const DRAG_THRESHOLD_PX = 6
 
 /**
- * 吸附条一次手势（一格滚轮、一次触控板轻扫连同惯性）只换一张卡：
- * 走过一步之后，wheel 要停这么久才算下一次手势。固定时长的锁挡不住一秒多的惯性。
+ * 吸附条上滚轮换卡：
+ * - 停顿这么久之后的第一个 wheel 是新手势，走一张；
+ * - 同一手势里幅度在衰减的是松手后的惯性，吞掉（固定时长的锁挡不住一秒多的惯性）；
+ * - 幅度没衰减的是又一格（鼠标连续滚），离上一步够久就再走一张；
+ * - 走到头就放行给页面：条带占满整宽，竖着滚页面一定会经过它，不能在这里卡住。
  */
 const SNAP_GESTURE_IDLE_MS = 180
+const SNAP_REPEAT_MS = 150
 
 export interface HorizontalStripScrollBind {
   ref: RefCallback<HTMLDivElement>
@@ -33,7 +37,11 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
   const [isDragging, setIsDragging] = useState(false)
   const [canScroll, setCanScroll] = useState(false)
   const observersRef = useRef<(() => void) | null>(null)
-  const snapGestureRef = useRef({ stepped: false, lastAt: Number.NEGATIVE_INFINITY })
+  const snapGestureRef = useRef({
+    lastAt: Number.NEGATIVE_INFINITY,
+    lastMagnitude: 0,
+    lastStepAt: Number.NEGATIVE_INFINITY,
+  })
 
   const dragRef = useRef({
     pointerId: -1,
@@ -130,17 +138,18 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
       // 直接写 scrollLeft 是「落点」滚动：一格滚轮不到半张卡，mandatory 吸附会弹回原位。
       // scrollBy 是「方向」滚动，浏览器吸附到该方向的下一张卡。
       const gesture = snapGestureRef.current
-      if (e.timeStamp - gesture.lastAt >= SNAP_GESTURE_IDLE_MS) gesture.stepped = false
+      const magnitude = Math.abs(delta)
+      const fresh = e.timeStamp - gesture.lastAt >= SNAP_GESTURE_IDLE_MS
+      const decaying = !fresh && magnitude < gesture.lastMagnitude
       gesture.lastAt = e.timeStamp
-      // 这次手势已经走过一步：余下的惯性继续吞掉，页面不在手势中途突然滚起来。
-      if (gesture.stepped) {
-        e.preventDefault()
-        return
-      }
+      gesture.lastMagnitude = magnitude
       const room = delta > 0 ? maxScrollLeft - el.scrollLeft : el.scrollLeft
       if (room <= 1) return
       e.preventDefault()
-      gesture.stepped = true
+      if (!fresh && (decaying || e.timeStamp - gesture.lastStepAt < SNAP_REPEAT_MS)) {
+        return
+      }
+      gesture.lastStepAt = e.timeStamp
       el.scrollBy({ left: delta, behavior: 'smooth' })
       return
     }
