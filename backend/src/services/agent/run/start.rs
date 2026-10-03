@@ -530,7 +530,11 @@ pub(crate) async fn start(
     // 在后台执行任务
     let db_clone = db.clone();
     let session_id_clone = session_id.clone();
-    let queue = LANE_QUEUE.clone();
+    let queue = if interaction_mode == crate::services::agent::AgentInteractionMode::Chat {
+        crate::services::agent::CHAT_LANE_QUEUE.clone()
+    } else {
+        LANE_QUEUE.clone()
+    };
     let source_intent_id_for_work = source_intent_id.clone();
     let (mut chat_cancel, chat_slot_id, chat_spoken) = match chat_claim {
         Some(claim) => (

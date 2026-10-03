@@ -6,6 +6,12 @@ use std::sync::Arc;
 pub static LANE_QUEUE: Lazy<Arc<super::queue::LaneQueue>> =
     Lazy::new(|| Arc::new(super::queue::LaneQueue::new(4)));
 
+/// Chat turns have their own admission: talking to her never waits behind
+/// Work loops that hold the four slots above. Each conversation's lane still
+/// takes one turn at a time.
+pub static CHAT_LANE_QUEUE: Lazy<Arc<super::queue::LaneQueue>> =
+    Lazy::new(|| Arc::new(super::queue::LaneQueue::new(16)));
+
 /// 心跳的主体 ID。心跳不是一个人：它代站长运行（授予权限跟随站长，见
 /// `heartbeat_delegate`），无人值守，也不是「全体用户」。需要「全体」的地方
 /// 用 `Option::None` 表达，不要借用 0。
