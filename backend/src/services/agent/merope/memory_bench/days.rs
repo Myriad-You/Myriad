@@ -274,6 +274,9 @@ fn tell(lived: &Lived, checks: &[(&str, bool)]) {
         });
         std::fs::write(path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
     }
+    // Shown first, then held to: a check that did not hold fails the life,
+    // so the regression run counts it as not passed.
+    assert!(checks.iter().all(|(_, held)| *held), "not every check held");
 }
 
 #[tokio::test]

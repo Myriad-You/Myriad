@@ -1421,6 +1421,8 @@
     "nextPage": "Next page",
     "pagerLabel": "Switch content",
     "goToPage": "Page {page} of {total}",
+    "pauseRotation": "Pause auto-advance",
+    "resumeRotation": "Resume auto-advance",
     "widgetSettings": "Widget settings",
     "longPressToEdit": "Long press widget to configure",
     "createSticker": "Create sticker"

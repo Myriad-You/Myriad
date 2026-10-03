@@ -516,15 +516,26 @@ export const StoryCard = forwardRef<
           deferCover,
         )
   // 挑选（编辑）态也保持 <a>：元素类型一变整张卡会重挂，入场动画重播、封面重载。
-  // 挑选时它是个开关：任何点击都只切换选中，不跳转。
+  // 挑选时它是个开关：去掉 href（中键、长按链接菜单都不会把文章打开），
+  // 补上按钮该有的 Tab 聚焦和空格/回车切换。
   if (href) {
     return (
       <a
         ref={ref as Ref<HTMLAnchorElement>}
-        href={href}
+        href={picking ? undefined : href}
         draggable={false}
         role={picking ? 'button' : undefined}
+        tabIndex={picking ? 0 : undefined}
         aria-pressed={picking ? picked : undefined}
+        onKeyDown={
+          picking
+            ? (event) => {
+                if (event.key !== ' ' && event.key !== 'Enter') return
+                event.preventDefault()
+                onOpen?.()
+              }
+            : undefined
+        }
         data-rail-id={railId}
         data-rail-col={railCol ?? place?.column}
         data-phantasi-surface="story"

@@ -469,6 +469,8 @@
       "proactive": "主动发的",
       "proactiveCount": "{sent} 条，{answered} 条有回应",
       "learned": "学到新东西",
+      "groups": "群里她说的占比",
+      "groupsCount": "{lines} 句里她说了 {hers} 句，另有 {others} 人在说",
       "alerts": {
         "unreadable": "有 {count} 条她自己的经历读不出来",
         "failedCalls": "{calls} 次调用里失败 {failed} 次",

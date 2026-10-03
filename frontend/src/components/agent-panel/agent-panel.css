@@ -1561,6 +1561,7 @@ button.agent-panel-tag:disabled {
 /* 状态灯和添加附件是同一枚。 */
 .agent-panel-attach {
   --orb: var(--color-primary, #10b981);
+  --orb-ink: var(--cfg-accent, #10b981);
 
   position: relative;
   z-index: 1;
@@ -1587,20 +1588,23 @@ button.agent-panel-tag:disabled {
 .agent-panel-attach[data-status='working'],
 .agent-panel-attach[data-status='done'] {
   --orb: var(--color-primary, #10b981);
+  --orb-ink: var(--cfg-accent, #10b981);
 
-  color: var(--orb);
+  color: var(--orb-ink);
 }
 
 .agent-panel-attach[data-status='needsInput'] {
   --orb: var(--color-accent, #f59e0b);
+  --orb-ink: var(--orb);
 
-  color: var(--orb);
+  color: var(--orb-ink);
 }
 
 .agent-panel-attach[data-status='error'] {
   --orb: var(--color-error, #ef4444);
+  --orb-ink: var(--orb);
 
-  color: var(--orb);
+  color: var(--orb-ink);
 }
 
 /* 待命 14px 加号；亮起两臂胀成圆。 */
@@ -1730,7 +1734,7 @@ button.agent-panel-tag:disabled {
   }
 
   .agent-panel-attach[data-status]:not([data-status='idle']):hover {
-    color: var(--orb);
+    color: var(--orb-ink);
   }
 }
 

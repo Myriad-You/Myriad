@@ -138,7 +138,7 @@ injectLibraryStyle(
         /* 加载按钮主题色 */
         .load-more-btn.primary-load-btn {
             background-color: color-mix(in srgb, var(--color-primary, #3b82f6) 10%, transparent);
-            color: var(--color-primary, #3b82f6);
+            color: var(--cfg-accent, #3b82f6);
             border: 1px solid color-mix(in srgb, var(--color-primary, #3b82f6) 20%, transparent);
         }
 

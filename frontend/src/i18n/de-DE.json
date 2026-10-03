@@ -1421,6 +1421,8 @@
     "nextPage": "Nächste Seite",
     "pagerLabel": "Inhalt wechseln",
     "goToPage": "Seite {page} von {total}",
+    "pauseRotation": "Automatischen Wechsel pausieren",
+    "resumeRotation": "Automatischen Wechsel fortsetzen",
     "widgetSettings": "Widget-Einstellungen",
     "longPressToEdit": "Widget lange drücken zum Einrichten",
     "createSticker": "Sticker anlegen"

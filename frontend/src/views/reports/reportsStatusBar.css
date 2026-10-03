@@ -1,6 +1,7 @@
 .rsb {
   --rsb-h: 3.25rem;
   --rsb-accent: var(--color-primary, #7c6ee6);
+  --rsb-accent-ink: var(--cfg-accent, #7c6ee6);
   --rsb-ink: color-mix(in srgb, var(--text-primary, #1f2937) 94%, transparent);
   --rsb-muted: color-mix(
     in srgb,
@@ -103,7 +104,7 @@ html.dark .rsb {
   height: 1.15rem;
   font-size: 1.15rem;
   line-height: 1;
-  color: var(--rsb-accent);
+  color: var(--rsb-accent-ink);
 }
 
 .rsb-glyph svg {
@@ -214,7 +215,7 @@ html.dark .rsb {
   padding: 0 0.75rem;
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--rsb-accent);
+  color: var(--rsb-accent-ink);
   white-space: nowrap;
   cursor: pointer;
   background: var(--rsb-ghost);
@@ -272,7 +273,7 @@ html.dark .rsb {
 
 .rsb-tip:focus-visible,
 .rsb-btn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--rsb-accent) 62%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--rsb-accent-ink) 62%, transparent);
   outline-offset: 2px;
 }
 

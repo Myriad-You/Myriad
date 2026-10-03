@@ -363,6 +363,12 @@ export default function AgentMind() {
           <div>
             {copy.vitals.learned}：{latest.learned ?? '—'}
           </div>
+          <div>
+            {copy.vitals.groups}：
+            {(latest.groups ?? [])
+              .map((group) => fill(copy.vitals.groupsCount, group))
+              .join(' · ') || '—'}
+          </div>
         </div>
       </>
     )

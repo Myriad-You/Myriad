@@ -237,17 +237,13 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
     }, [maxPage, currentPage])
 
     // 非编辑态的手动翻页：横滑、触控板横扫、← →、页码点；拨过之后一段时间不自动翻。自动翻页仍走下面的 gate。
-    const cancelPressRef = useRef<() => void>(() => {})
     const rotation = useWidgetRotation({
       count: isEditMode ? 0 : maxPage + 1,
       interactive: !isEditMode && panelVisible,
       delay: null,
       autoplay: false,
-      onStep: (delta) => {
-        // 横拖成了翻页就不再是长按：管理员慢慢拖过 800ms 也不该顺带进编辑态。
-        cancelPressRef.current()
-        setCurrentPage((prev) => Math.max(0, Math.min(maxPage, prev + delta)))
-      },
+      onStep: (delta) =>
+        setCurrentPage((prev) => Math.max(0, Math.min(maxPage, prev + delta))),
     })
 
     // 自动翻页另接 panelVisible 与 isHovering：收起/通知页或指针停在卡片上时不要翻。
@@ -284,7 +280,15 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       return CONTROL_PANEL_WIDGETS
     }, [gridRows, CONTROL_PANEL_WIDGETS])
 
-    const { handleMouseDown, handleMouseUp, handleResizeStart, handleWheel, isDraggingRef } = useWidgetGestures({
+    const {
+      handleMouseDown,
+      handleMouseUp,
+      handlePointerDown,
+      handlePointerMove,
+      handleResizeStart,
+      handleWheel,
+      isDraggingRef,
+    } = useWidgetGestures({
       visible: panelVisible,
       isAdmin,
       editing: isEditMode,
@@ -299,7 +303,6 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
         rotation.hold()
       },
     })
-    cancelPressRef.current = handleMouseUp
 
     return (
       <>
@@ -319,6 +322,8 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           className="control-panel-widgets-container relative w-full transition-all rounded-xl"
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}
+          onPointerDownCapture={handlePointerDown}
+          onPointerMoveCapture={handlePointerMove}
           onPointerEnter={(e) => {
             if (isHoverCapablePointer(e.pointerType)) setIsHovering(true)
           }}
@@ -359,6 +364,8 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
                 count={maxPage + 1}
                 index={Math.min(currentPage, maxPage)}
                 visible={rotation.showPager}
+                stopped={rotation.stopped}
+                onToggleStopped={rotation.toggleStopped}
                 onSelect={(page) => {
                 setCurrentPage(page)
                 rotation.hold()

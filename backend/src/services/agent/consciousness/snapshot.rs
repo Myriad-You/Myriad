@@ -49,6 +49,11 @@ pub async fn capture_self_snapshot(
         live: super::presence::last_live_presence(user_id),
         attention: super::attention::last_attention(user_id),
         myself: Some(merope::self_state::current(db).await.facts_view()),
+        minutes_since_you_spoke_unasked: state.last_proactive_at.map(|at| {
+            ((Utc::now() - at.with_timezone(&Utc)).num_seconds().max(0) as f64 / 60.0 * 10.0)
+                .round()
+                / 10.0
+        }),
         addressee_name: Some(merope::resolve_addressee_label(db, user_id).await)
             .filter(|name| !name.trim().is_empty()),
         inner: merope::inner::current(

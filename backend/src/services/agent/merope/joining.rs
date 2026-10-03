@@ -68,6 +68,8 @@ pub struct Here<'a> {
     pub late: Option<&'a str>,
     /// How her speaking up unasked went there lately.
     pub how_it_went: Option<&'a str>,
+    /// How much of the talk there lately was hers.
+    pub share: Option<&'a str>,
 }
 
 fn input(conversation: &[String], here: &Here, material: &[Material]) -> String {
@@ -76,6 +78,7 @@ fn input(conversation: &[String], here: &Here, material: &[Material]) -> String 
         "youLastSpokeHere": here.last_spoke,
         "youAreSeeingItLate": here.late,
         "howItWentHere": here.how_it_went,
+        "yourShareOfTheTalk": here.share,
         "yourOwnTime": super::doing::now_text(Utc::now()),
         "whatYouHave": material_view(material),
     })

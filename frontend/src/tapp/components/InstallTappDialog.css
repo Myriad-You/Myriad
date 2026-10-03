@@ -4,6 +4,7 @@
   --install-tip-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --install-tip-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --install-tip-accent: var(--color-primary, #6366f1);
+  --install-tip-accent-ink: var(--cfg-accent, #6366f1);
 
   position: fixed;
   top: 0;
@@ -140,7 +141,7 @@ html.dark .install-tip.is-ready {
   flex-shrink: 0;
   width: 1rem;
   height: 1rem;
-  color: var(--install-tip-accent);
+  color: var(--install-tip-accent-ink);
 }
 
 .install-tip-title {

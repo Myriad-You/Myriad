@@ -595,7 +595,8 @@ html.dark .phantasi-site__unread {
   outline: none;
 }
 
-.phantasi-skin a.phantasi-story__hit:focus-visible {
+/* 叠加类名提高优先级：当前卡、已选中卡后面的 box-shadow 规则不能把焦点环盖掉。 */
+.phantasi-skin a.phantasi-story__hit.phantasi-story:focus-visible {
   box-shadow: var(--phantasi-focus);
 }
 

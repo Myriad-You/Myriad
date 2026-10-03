@@ -789,15 +789,12 @@ export function LibraryCardLink({
 }) {
   const url = resolveLibraryItemUrl(item)
   if (!url) {
+    // 没有原站地址就没有可做的事：不渲染成能 Tab 到、显示手形却点了没反应的按钮。
+    // 仍带 data-canvas-card-action，从卡上起手照样拖得动画布。
     return (
-      <button
-        type="button"
-        className={className}
-        data-canvas-card-action
-        aria-label={item.title}
-      >
+      <div className={`${className} cursor-default`} data-canvas-card-action>
         {children}
-      </button>
+      </div>
     )
   }
   return (
@@ -806,7 +803,8 @@ export function LibraryCardLink({
       target="_blank"
       rel="noopener noreferrer"
       draggable={false}
-      className={className}
+      // 焦点环画在内侧：卡片 overflow:hidden，外侧 outline 会被裁掉。
+      className={`${className} rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cfg-accent)]`}
       data-canvas-card-action
       aria-label={item.title}
       onClick={(event) => event.stopPropagation()}

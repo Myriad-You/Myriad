@@ -29,6 +29,8 @@ export const ROTATION_WHEEL_PX = 50
 export const ROTATION_WHEEL_IDLE_MS = 180
 /** 手动拨过之后多久恢复自动轮换。 */
 export const ROTATION_HOLD_MS = 15_000
+/** 翻页过场（友链换批约 0.8 秒）结束后再确认焦点还在不在。 */
+const FOCUS_SETTLE_MS = 1000
 
 /**
  * 已被某个轮换接管的原生事件。小组件可以嵌在会翻页的容器里（控制面板），
@@ -50,6 +52,21 @@ function closestMatches(target: EventTarget | null, selector: string): boolean {
 
 function ignoresGesture(target: EventTarget | null): boolean {
   return closestMatches(target, GESTURE_IGNORE)
+}
+
+/** 排除区里有能往 dx 方向继续横滚的元素（自带横向滚动的条）。 */
+function canScrollNatively(target: EventTarget | null, dx: number): boolean {
+  let el = target as HTMLElement | null
+  if (typeof el?.closest !== 'function') return false
+  const zone = el.closest(GESTURE_IGNORE)
+  if (!zone) return false
+  for (; el; el = el.parentElement) {
+    const room =
+      dx > 0 ? el.scrollWidth - el.clientWidth - el.scrollLeft : el.scrollLeft
+    if (el.scrollWidth > el.clientWidth && room > 1) return true
+    if (el === zone) break
+  }
+  return false
 }
 
 function isKeyboardFocus(target: EventTarget | null): boolean {
@@ -112,6 +129,10 @@ export interface WidgetRotation {
   step: (delta: 1 | -1) => void
   /** 手动做了别的切换（例如点页码点）：同样暂停自动轮换。 */
   hold: () => void
+  /** 用户用页码里的开关停掉了自动轮换（一直生效，直到再打开）。 */
+  stopped: boolean
+  /** 停掉 / 恢复自动轮换（WCAG 2.2.2：自动更新的内容要能暂停，不只是悬停时暂停）。 */
+  toggleStopped: () => void
   /** 挂到小组件根节点：非被动 wheel 监听要原生绑定。 */
   rootRef: RefCallback<HTMLElement>
   /** 展开到小组件根节点。 */
@@ -126,6 +147,7 @@ export interface WidgetRotation {
     onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void
     onFocus: (event: ReactFocusEvent<HTMLElement>) => void
     onBlur: (event: ReactFocusEvent<HTMLElement>) => void
+    onDragStart: (event: ReactMouseEvent<HTMLElement>) => void
   }
   /** 根节点要加的类：横向手势交给脚本，竖向仍是页面滚动。 */
   rootClassName: string
@@ -144,6 +166,8 @@ export function useWidgetRotation({
   const [held, setHeld] = useState(false)
   // 按住时不自动翻：触屏没有悬停暂停，手指还没滑到阈值时自动翻一页、滑动再翻一页，就成了两页。
   const [pressing, setPressing] = useState(false)
+  const [stopped, setStopped] = useState(false)
+  const toggleStopped = useCallback(() => setStopped((prev) => !prev), [])
   const active = interactive && count > 1
 
   const onStepRef = useRef(onStep)
@@ -172,10 +196,27 @@ export function useWidgetRotation({
       hold()
       // 翻页可能把带焦点的元素换掉（友链整批重挂）；元素被移除时浏览器不一定发 blur，
       // 焦点不在了就别再算「在看」，否则会一直暂停。
-      requestAnimationFrame(() => {
-        const root = rootElRef.current
-        if (root && !root.contains(document.activeElement)) setFocused(false)
-      })
+      // 换掉的元素若正带着焦点，焦点会掉回 <body>，键盘用户得从页首重新 Tab；
+      // 交给组件里当前那个页码（或第一个能聚焦的元素）。过场动画结束才删旧元素，所以晚些再看一次。
+      const root = rootElRef.current
+      const hadFocus = !!root && root.contains(document.activeElement)
+      const settleFocus = () => {
+        const current = rootElRef.current
+        if (!current || current.contains(document.activeElement)) return
+        const lost =
+          hadFocus &&
+          (document.activeElement === null || document.activeElement === document.body)
+        const target = lost
+          ? (current.querySelector<HTMLElement>('[data-pager-dot][aria-current]') ??
+              current.querySelector<HTMLElement>(
+                '[role=group] button:not([disabled]), a[href], button:not([disabled])',
+              ))
+          : null
+        if (target) target.focus({ preventScroll: true })
+        else setFocused(false)
+      }
+      window.requestAnimationFrame(settleFocus)
+      if (hadFocus) setTimeout(settleFocus, FOCUS_SETTLE_MS)
     },
     [hold],
   )
@@ -190,7 +231,7 @@ export function useWidgetRotation({
     holdTimerRef.current = null
   }, [active])
 
-  const paused = active && (hovered || focused || held || pressing)
+  const paused = active && (hovered || focused || held || pressing || stopped)
 
   // enabled 一变计时就从头算：暂停结束后整整一个间隔才翻下一页。
   useVisibilityInterval(() => onStepRef.current(1), {
@@ -249,6 +290,11 @@ export function useWidgetRotation({
         window.removeEventListener('pointercancel', onRelease)
         releaseRef.current = null
         setPressing(false)
+        // 滑动之后不一定有 click（触屏横滑、在组件外松手）：标记留着会吞掉之后的键盘激活。
+        // 等这次松手可能带来的 click 先走完再清。
+        setTimeout(() => {
+          suppressClickRef.current = false
+        }, 0)
       }
       window.addEventListener('pointerup', onRelease)
       window.addEventListener('pointercancel', onRelease)
@@ -334,8 +380,9 @@ export function useWidgetRotation({
       const dx = horizontalWheelDelta(event)
       if (dx === 0) return
       claimedEvents.add(event)
-      // 排除区（自带横向滚动的头像条等）：认领但不拦，让它照常原生滚动。
-      if (ignoresGesture(event.target)) return
+      // 排除区里真能往这个方向横滚的（头像条还没到头）：认领但不拦，让它原生滚。
+      // 页码点、滚到头的条照常翻页——也顺带拦住 macOS 横扫后退。
+      if (canScrollNatively(event.target, dx)) return
       event.preventDefault()
       const state = wheelRef.current
       // 停顿超过阈值才是新的一次手势；之前的余量和「已翻过」都作废。
@@ -358,13 +405,33 @@ export function useWidgetRotation({
     (el: HTMLElement | null) => {
       const state = wheelRef.current
       if (state.el === el) return
+      const previous = state.el
       state.el?.removeEventListener('wheel', handleWheel)
       state.el = el
       rootElRef.current = el
+      // 根节点没了（换成加载失败的占位、卸载）就收不到 pointerleave/blur 了，
+      // 悬停和聚焦不清的话，数据回来后自动翻页会一直停着。
+      // 合并 ref 换了身份时 React 会先给 null 再给同一个元素，那种不算，延后到微任务再判断。
+      if (previous) {
+        queueMicrotask(() => {
+          if (state.el === previous) return
+          setHovered(false)
+          setFocused(false)
+        })
+      }
       state.acc = 0
       el?.addEventListener('wheel', handleWheel, { passive: false })
     },
     [handleWheel],
+  )
+
+  // 组件里的封面图会被浏览器当成可拖的图片：鼠标按住横拖时变成原生拖放，
+  // pointermove 不再送达，翻页手势就断了。
+  const onDragStart = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      if (active) event.preventDefault()
+    },
+    [active],
   )
 
   return {
@@ -373,6 +440,8 @@ export function useWidgetRotation({
     showPager: active && (hovered || focused || held),
     step,
     hold,
+    stopped,
+    toggleStopped,
     rootRef,
     rootProps: {
       onPointerEnter,
@@ -385,6 +454,7 @@ export function useWidgetRotation({
       onKeyDown,
       onFocus,
       onBlur,
+      onDragStart,
     },
     // 只要竖向平移和页面双指缩放；横向交给脚本翻页。
     rootClassName: active ? '[touch-action:pan-y_pinch-zoom]' : '',

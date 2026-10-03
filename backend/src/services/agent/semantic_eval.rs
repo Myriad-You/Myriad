@@ -809,6 +809,7 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         }),
         myself: None,
         addressee_name: None,
+        minutes_since_you_spoke_unasked: None,
         inner: None,
     };
     (event, snapshot)

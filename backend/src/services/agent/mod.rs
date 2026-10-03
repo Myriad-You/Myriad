@@ -71,6 +71,6 @@ pub(crate) use agent_footer::{
     max_user_agent_permissions, scheduler_create_actions_within_grants,
     scheduler_create_tapp_permissions_within_grants,
 };
-pub use agent_header::{Agent, LANE_QUEUE, SYSTEM_USER_ID};
+pub use agent_header::{Agent, CHAT_LANE_QUEUE, LANE_QUEUE, SYSTEM_USER_ID};
 
 pub(crate) mod work_call;

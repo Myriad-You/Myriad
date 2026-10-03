@@ -167,6 +167,8 @@ function FriendLinkAnchor({
     return (
       <a
         {...rest}
+        // 焦点环画在内侧：条目和卡片都 overflow:hidden，外侧 outline 会被裁掉。
+        className={`${rest.className} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cfg-accent)]`}
         href={href}
         target="_blank"
         rel="noopener noreferrer"
@@ -207,6 +209,7 @@ export const FriendLinksWidget = memo(
     const batchIndexRef = useRef(0)
     const batchTransitioningRef = useRef(false)
     const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const incomingIndexRef = useRef<number | null>(null)
 
     useEffect(() => {
       mountedRef.current = true
@@ -355,6 +358,7 @@ export const FriendLinksWidget = memo(
       if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
       batchTimerRef.current = null
       batchTransitioningRef.current = false
+      incomingIndexRef.current = null
       batchIndexRef.current = 0
       setBatchIndex(0)
       setIncomingBatchIndex(null)
@@ -367,26 +371,50 @@ export const FriendLinksWidget = memo(
       [],
     )
 
-    const goToBatch = useCallback((nextIndex: number) => {
-      if (batchCount <= 1 || batchTransitioningRef.current) return
-      if (nextIndex === batchIndexRef.current) return
-
-      if (isExlight(anim)) {
-        batchIndexRef.current = nextIndex
-        setBatchIndex(nextIndex)
-        return
+    // 换批过场还没走完又手动翻：先把这一批直接落定，再往下翻。直接忽略的话这一下手动操作
+    // 被吞掉，却照样让自动轮换停 15 秒。
+    const settleBatch = useCallback(() => {
+      if (!batchTransitioningRef.current) return
+      if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
+      batchTimerRef.current = null
+      batchTransitioningRef.current = false
+      const incoming = incomingIndexRef.current
+      if (incoming !== null) {
+        batchIndexRef.current = incoming
+        setBatchIndex(incoming)
       }
+      incomingIndexRef.current = null
+      setIncomingBatchIndex(null)
+    }, [])
 
-      batchTransitioningRef.current = true
-      setIncomingBatchIndex(nextIndex)
-      batchTimerRef.current = setTimeout(() => {
-        batchIndexRef.current = nextIndex
-        setBatchIndex(nextIndex)
-        setIncomingBatchIndex(null)
-        batchTransitioningRef.current = false
-        batchTimerRef.current = null
-      }, BATCH_TRANSITION_DURATION)
-    }, [anim.durationScale, anim.level, batchCount])
+    const goToBatch = useCallback(
+      (target: number | ((current: number) => number)) => {
+        if (batchCount <= 1) return
+        settleBatch()
+        const nextIndex =
+          typeof target === 'function' ? target(batchIndexRef.current) : target
+        if (nextIndex === batchIndexRef.current) return
+
+        if (isExlight(anim)) {
+          batchIndexRef.current = nextIndex
+          setBatchIndex(nextIndex)
+          return
+        }
+
+        batchTransitioningRef.current = true
+        incomingIndexRef.current = nextIndex
+        setIncomingBatchIndex(nextIndex)
+        batchTimerRef.current = setTimeout(() => {
+          batchIndexRef.current = nextIndex
+          setBatchIndex(nextIndex)
+          setIncomingBatchIndex(null)
+          incomingIndexRef.current = null
+          batchTransitioningRef.current = false
+          batchTimerRef.current = null
+        }, BATCH_TRANSITION_DURATION)
+      },
+      [anim.durationScale, anim.level, batchCount, settleBatch],
+    )
 
     const rotation = useWidgetRotation({
       count: batchCount,
@@ -394,7 +422,7 @@ export const FriendLinksWidget = memo(
       delay: BATCH_INTERVAL,
       autoplay: !isPreview && !isEditMode && anim.widgetUiRotation,
       onStep: (delta) =>
-        goToBatch((batchIndexRef.current + delta + batchCount) % batchCount),
+        goToBatch((current) => (current + delta + batchCount) % batchCount),
     })
     const shellRef = useCallback(
       (node: HTMLDivElement | null) => {
@@ -408,6 +436,8 @@ export const FriendLinksWidget = memo(
         count={batchCount}
         index={incomingBatchIndex ?? batchIndex}
         visible={rotation.showPager}
+        stopped={rotation.stopped}
+        onToggleStopped={anim.widgetUiRotation ? rotation.toggleStopped : undefined}
         onSelect={(index) => {
           goToBatch(index)
           rotation.hold()

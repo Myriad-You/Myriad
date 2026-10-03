@@ -236,6 +236,8 @@ export const WidgetSkeleton = memo(({
   const cssVars = useMemo(() => {
     const vars: CSSProperties & Record<string, string | number> = {
       '--ws-accent': resolved.color,
+      // 文字/描边用的那份跟着走：样式表里的默认值是全站可读色，组件自定的强调色不能被它盖掉。
+      '--ws-accent-ink': resolved.color,
       '--ws-cols': columns,
     }
     if (resolved.soft) {

@@ -65,3 +65,17 @@ it('counts two items per page for paired details', () => {
   assert.equal(pairPageCount(1), 1)
   assert.equal(pairPageCount(5), 3)
 })
+
+it('keeps the page registration while only the current detail page changes', async () => {
+  const registered: Array<[number, number]> = []
+  const register = (pages: number, dwell: number) => registered.push([pages, dwell])
+  const render = (detailIndex: number, pages = 3) => root.render(
+    createElement(ReportDetailPagingContext, { value: { detailIndex, register } }, createElement(Face, { pages })),
+  )
+  await act(async () => render(0))
+  await act(async () => render(1))
+  assert.equal(seen.at(-1), 1)
+  assert.deepEqual(registered, [[3, 5000]], 'paging must not withdraw and register the same count again')
+  await act(async () => render(2, 4))
+  assert.deepEqual(registered, [[3, 5000], [0, 5000], [4, 5000]], 'a changed page count still updates the registration')
+})

@@ -44,6 +44,12 @@
   --color-light: #cbd5e1;
   --color-dark: #475569;
 
+  /*
+   * 前景用的可读强调色。真正的值由 cfgAccent.ts 按主题算好写到根元素的行内样式上；
+   * 这里只是首帧之前的兜底，免得导航选中图标、圆点在那一帧没有颜色。
+   */
+  --cfg-accent: #64748b;
+
   /* Written by useCoverColors. */
   --music-primary: #6b7280;
   --music-secondary: #9ca3af;

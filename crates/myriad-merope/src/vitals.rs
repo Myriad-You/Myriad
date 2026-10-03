@@ -58,8 +58,22 @@ pub struct Day {
     /// counted before this was.
     #[serde(default)]
     pub learned: Option<u64>,
+    /// Each group that talked that day: how much was said there and how
+    /// much of it was hers. Empty on days counted before this was.
+    #[serde(default)]
+    pub groups: Vec<GroupTalk>,
     /// What is worth raising.
     pub alerts: Vec<Alert>,
+}
+
+/// One group's talk on a day, as counts only.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GroupTalk {
+    pub venue: String,
+    /// Lines said there, hers among them, and how many others spoke.
+    pub lines: u64,
+    pub hers: u64,
+    pub others: u64,
 }
 
 /// Something in a day worth raising.

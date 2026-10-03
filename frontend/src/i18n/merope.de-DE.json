@@ -469,6 +469,8 @@
       "proactive": "Zuerst geschrieben",
       "proactiveCount": "{sent}, {answered} beantwortet",
       "learned": "Neu gelernt",
+      "groups": "Ihr Anteil in Gruppen",
+      "groupsCount": "{hers} von {lines} Zeilen von ihr, {others} andere reden",
       "alerts": {
         "unreadable": "{count} ihrer eigenen Einträge sind nicht lesbar",
         "failedCalls": "{failed} von {calls} Aufrufen fehlgeschlagen",

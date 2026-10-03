@@ -1421,6 +1421,8 @@
     "nextPage": "下一页",
     "pagerLabel": "切换内容",
     "goToPage": "第 {page} 页，共 {total} 页",
+    "pauseRotation": "暂停自动切换",
+    "resumeRotation": "继续自动切换",
     "widgetSettings": "小组件设置",
     "longPressToEdit": "长按小组件进行设置",
     "createSticker": "创建贴纸"
