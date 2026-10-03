@@ -132,8 +132,15 @@ pub async fn recall_primed<C: ConnectionTrait>(
         ),
         None => std::collections::HashMap::new(),
     };
-    let (chosen, next) = rank_marked(rows, query, limit, priming, breadth, &by_meaning);
-    if !chosen.is_empty() && counts_as_recalled() {
+    let (chosen, next, filler) = rank_marked(rows, query, limit, priming, breadth, &by_meaning);
+    // Only what came to mind counts: the recent rows filling the rest were
+    // shown, and counting them would make what is shown most come easiest.
+    let recalled: Vec<String> = chosen
+        .iter()
+        .map(|(row, _)| row.id.clone())
+        .filter(|id| !filler.contains(id))
+        .collect();
+    if !recalled.is_empty() && counts_as_recalled() {
         let now = Utc::now().fixed_offset();
         agent_memories::Entity::update_many()
             .col_expr(
@@ -144,7 +151,7 @@ pub async fn recall_primed<C: ConnectionTrait>(
                 agent_memories::Column::LastAccessedAt,
                 sea_orm::sea_query::Expr::value(now),
             )
-            .filter(agent_memories::Column::Id.is_in(chosen.iter().map(|(row, _)| row.id.clone())))
+            .filter(agent_memories::Column::Id.is_in(recalled))
             .exec(db)
             .await?;
     }
@@ -177,7 +184,7 @@ pub(super) fn rank_primed(
     priming: &Priming,
     breadth: f64,
 ) -> (Vec<agent_memories::Model>, Priming) {
-    let (chosen, next) = rank_marked(
+    let (chosen, next, _) = rank_marked(
         rows,
         query,
         limit,
@@ -228,6 +235,8 @@ pub(super) fn named_by_words_or_meaning(words: &[f64], meaning: &[f64]) -> Vec<f
 /// what was named rather than being named itself. `by_meaning` holds the
 /// memories that stand out by meaning from the rest (memory id → how far,
 /// [`super::super::meaning::standing_out`]): they count as named as well.
+/// Also the ids of rows that only fill the budget as recent context: they
+/// were shown, not recalled.
 pub(super) fn rank_marked(
     rows: Vec<agent_memories::Model>,
     query: Option<&str>,
@@ -235,7 +244,7 @@ pub(super) fn rank_marked(
     priming: &Priming,
     breadth: f64,
     by_meaning: &std::collections::HashMap<String, f64>,
-) -> (Vec<(agent_memories::Model, bool)>, Priming) {
+) -> (Vec<(agent_memories::Model, bool)>, Priming, Vec<String>) {
     // Blank and repeated legacy rows must not spend the recall budget.
     let mut seen = std::collections::HashSet::new();
     let rows: Vec<agent_memories::Model> = rows
@@ -313,8 +322,9 @@ pub(super) fn rank_marked(
             .take(limit)
             .filter_map(|(_, index)| rows[index].take())
             .map(|row| (row, false))
-            .collect();
-        return (chosen, Priming::default());
+            .collect::<Vec<_>>();
+        let filler = chosen.iter().map(|(row, _)| row.id.clone()).collect();
+        return (chosen, Priming::default(), filler);
     }
     let seeds: Vec<f64> = named
         .iter()
@@ -374,6 +384,7 @@ pub(super) fn rank_marked(
         .map(|(_, index)| *index)
         .collect();
     let mut order: Vec<usize> = picked.into_iter().map(|(_, index)| index).collect();
+    let mut filled = std::collections::HashSet::new();
     if strongest <= 0.0 {
         // Only the lingering topic came to mind: the rest of the budget is
         // the ordinary recent context, as when nothing is on the mind.
@@ -383,9 +394,11 @@ pub(super) fn rank_marked(
             }
             if !order.contains(&index) {
                 order.push(index);
+                filled.insert(index);
             }
         }
     }
+    let filler = filled.iter().map(|index| rows[*index].id.clone()).collect();
     let mut rows: Vec<Option<agent_memories::Model>> = rows.into_iter().map(Some).collect();
     let chosen = order
         .into_iter()
@@ -395,7 +408,7 @@ pub(super) fn rank_marked(
                 .map(|row| (row, brought.contains(&index)))
         })
         .collect();
-    (chosen, next)
+    (chosen, next, filler)
 }
 
 /// Let the mind wander over a person's memories that `present` may hear:

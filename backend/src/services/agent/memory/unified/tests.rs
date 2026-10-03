@@ -95,7 +95,7 @@ fn what_stands_out_by_meaning_is_named_even_with_no_word_shared() {
     ];
     let query = Some("推荐点这周末的文化活动");
     let by_meaning: std::collections::HashMap<String, f64> = [("exchange".to_string(), 3.1)].into();
-    let (chosen, _) = rank_marked(rows, query, 2, &Priming::default(), 0.0, &by_meaning);
+    let (chosen, _, _) = rank_marked(rows, query, 2, &Priming::default(), 0.0, &by_meaning);
     let chosen: Vec<(String, bool)> = chosen
         .into_iter()
         .map(|(row, brought)| (row.id, brought))
@@ -360,7 +360,7 @@ fn what_was_named_and_what_it_brought_to_mind_are_told_apart() {
         about(row("cat", "养了一只猫叫年糕", 0.5, 0), &["猫", "年糕"]),
         about(row("vet", "年糕上周打了疫苗", 0.5, 30 * DAY), &["年糕"]),
     ];
-    let (chosen, _) = rank_marked(
+    let (chosen, _, filler) = rank_marked(
         rows.clone(),
         Some("猫怎么样"),
         8,
@@ -373,8 +373,9 @@ fn what_was_named_and_what_it_brought_to_mind_are_told_apart() {
         .map(|(row, brought)| (row.id, brought))
         .collect();
     assert_eq!(marks, vec![("cat".into(), false), ("vet".into(), true)]);
+    assert!(filler.is_empty(), "both came to mind");
     // A topic only lingering from before is not a new association.
-    let (lingering, _) = rank_marked(
+    let (lingering, _, _) = rank_marked(
         rows,
         Some("明日预报"),
         8,
@@ -383,6 +384,20 @@ fn what_was_named_and_what_it_brought_to_mind_are_told_apart() {
         &std::collections::HashMap::new(),
     );
     assert!(lingering.iter().all(|(_, brought)| !brought));
+    // Nothing named: what is there is recent context, shown but not recalled.
+    let (shown, _, filler) = rank_marked(
+        vec![
+            row("a", "最近在学吉他", 0.5, 0),
+            row("b", "明天下雨", 0.5, DAY),
+        ],
+        None,
+        8,
+        &Priming::default(),
+        0.0,
+        &std::collections::HashMap::new(),
+    );
+    assert_eq!(shown.len(), 2);
+    assert_eq!(filler.len(), 2);
 }
 
 #[test]
