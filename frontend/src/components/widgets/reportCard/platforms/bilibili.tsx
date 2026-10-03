@@ -1,10 +1,10 @@
+import type { CSSProperties } from 'react'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import { memo, useEffect, useMemo } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
-import { useLoopAnimation } from '../../../../hooks/animation'
 import {
   CONTENT_FADE_ANIMATE,
   CONTENT_FADE_EXIT,
@@ -14,50 +14,98 @@ import {
   CONTENT_SLIDE_EXIT,
   CONTENT_SLIDE_INITIAL,
   CONTENT_SLIDE_TRANSITION,
-  createDanmakuTransition,
-  DANMAKU_ANIMATE,
-  DANMAKU_INITIAL,
   LANES_ARRAY,
 } from '../animations'
 import { useLibraryItemRotation } from '../hooks'
 import { getBilibiliProxyUrl } from '../media'
 
+interface DanmakuLanePlan {
+  top: string
+  opacity: number
+  duration: number
+  firstDelay: number
+}
+
+/**
+ * 一条弹幕轨道：飞完隔一小段再发下一句，轮流取不同的句子。
+ * 总览可能停很久（悬停、手动翻页后的暂停），只飞一遍的话之后整屏是空的。
+ */
+const DanmakuLane = memo(
+  ({
+    texts,
+    start,
+    stride,
+    plan,
+  }: {
+    texts: string[]
+    start: number
+    stride: number
+    plan: DanmakuLanePlan
+  }) => {
+    const [pass, setPass] = useState(0)
+    const gap = useMemo(
+      () => (pass === 0 ? plan.firstDelay : 0.6 + Math.random() * 2.4),
+      [pass, plan.firstDelay],
+    )
+    return (
+      <div
+        key={pass}
+        className="report-danmaku absolute whitespace-nowrap text-base font-bold danmaku-text-color gpu-accelerated"
+        style={
+          {
+            'top': plan.top,
+            '--danmaku-duration': `${plan.duration}s`,
+            '--danmaku-delay': `${gap}s`,
+          } as CSSProperties
+        }
+        onAnimationEnd={() => setPass((prev) => prev + 1)}
+      >
+        {texts[(start + pass * stride) % texts.length]}
+      </div>
+    )
+  },
+)
+DanmakuLane.displayName = 'DanmakuLane'
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
 export const DanmakuWidget = memo(
   ({
     data,
     allowLoop = true,
-    triggerKey,
   }: {
     data?: { danmaku?: string[] }
     allowLoop?: boolean
-    triggerKey?: unknown
   }) => {
     const { t } = useI18n()
     const defaultDanmaku = t.reportCard.danmakuDefault as unknown as string[]
     const texts = useMemo(
-      () => data?.danmaku || defaultDanmaku,
+      () => (data?.danmaku?.length ? data.danmaku : defaultDanmaku),
       [data?.danmaku, defaultDanmaku],
     )
 
-    useLoopAnimation({
-      duration: 11000,
-      trigger: triggerKey,
-      enabled: allowLoop,
-    })
-
-    const maxDanmakuCount = useMemo(
+    const laneCount = useMemo(
       () =>
-        allowLoop
-          ? Math.random() < 0.7
-            ? Math.random() < 0.5
-              ? 3
-              : 4
-            : 5
-          : 3,
-      [allowLoop],
+        Math.min(
+          texts.length,
+          allowLoop
+            ? Math.random() < 0.7
+              ? Math.random() < 0.5
+                ? 3
+                : 4
+              : 5
+            : 3,
+        ),
+      [allowLoop, texts.length],
     )
 
-    const animations = useMemo(() => {
+    const plans = useMemo<DanmakuLanePlan[]>(() => {
       const availableLanes = Iterator.from(LANES_ARRAY).toArray()
       for (let i = availableLanes.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1))
@@ -66,30 +114,46 @@ export const DanmakuWidget = memo(
           availableLanes[i],
         ]
       }
-      return texts.slice(0, maxDanmakuCount).map((_, i) => ({
+      return Array.from({ length: laneCount }, (_, i) => ({
         duration: 6 + Math.random() * 4,
-        delay: i * 0.7 + Math.random() * 0.5,
+        firstDelay: i * 0.7 + Math.random() * 0.5,
         top: `${10 + availableLanes[i] * 18}%`,
         opacity: 0.4 + Math.random() * 0.3,
       }))
-    }, [texts, maxDanmakuCount])
+    }, [laneCount])
+
+    // 不跑循环动画的档位或减少动态效果：铺成静止的几行，内容一直在。
+    // （减少动态效果时全局 CSS 把动画压成 0.01ms，靠 animationend 换句会空转。）
+    if (!allowLoop || prefersReducedMotion()) {
+      return (
+        <div className="relative h-full w-full overflow-hidden">
+          {plans.map((plan, i) => (
+            <div
+              key={`${texts[i]}-${i}`}
+              className="absolute whitespace-nowrap text-base font-bold danmaku-text-color"
+              style={{
+                top: plan.top,
+                left: `${6 + ((i * 29) % 52)}%`,
+                opacity: plan.opacity,
+              }}
+            >
+              {texts[i]}
+            </div>
+          ))}
+        </div>
+      )
+    }
 
     return (
       <div className="relative h-full w-full overflow-hidden">
-        {animations.map((anim, i) => (
-          <motion.div
-            key={`${texts[i]}-${i}`}
-            initial={DANMAKU_INITIAL}
-            animate={DANMAKU_ANIMATE}
-            transition={createDanmakuTransition(anim.duration, anim.delay)}
-            className="absolute whitespace-nowrap text-base font-bold danmaku-text-color gpu-accelerated"
-            style={{
-              top: anim.top,
-              opacity: anim.opacity,
-            }}
-          >
-            {texts[i]}
-          </motion.div>
+        {plans.map((plan, i) => (
+          <DanmakuLane
+            key={i}
+            texts={texts}
+            start={i}
+            stride={laneCount}
+            plan={plan}
+          />
         ))}
       </div>
     )
@@ -157,7 +221,6 @@ export const BilibiliWidget = memo(
             <DanmakuWidget
               data={data}
               allowLoop={allowLoop}
-              triggerKey={showOverview}
             />
             {stats.length > 0 && (
               <motion.div

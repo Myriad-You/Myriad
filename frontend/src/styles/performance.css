@@ -350,3 +350,30 @@ html[data-perf-mode='exlight']:not([data-surface]) .glass-solid {
 .danmaku-text-color {
   color: #b3e5ff;
 }
+
+/*
+ * B 站报告卡的弹幕：用 CSS 动画而不是 motion。
+ * motion 的入场策略在首屏把 initial 压成 false，弹幕会直接停在终点（飞出、透明），第一屏就空了。
+ * 每条飞完由组件在 animationend 时换下一句。
+ */
+.report-danmaku {
+  animation: report-danmaku-fly var(--danmaku-duration, 8s) linear
+    var(--danmaku-delay, 0s) both;
+}
+
+@keyframes report-danmaku-fly {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+
+  33%,
+  67% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
