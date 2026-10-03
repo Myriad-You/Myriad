@@ -146,10 +146,11 @@ export const DanmakuWidget = memo(
     }
 
     return (
-      <div className="relative h-full w-full overflow-hidden">
+      <div className="report-danmaku-field relative h-full w-full overflow-hidden">
         {plans.map((plan, i) => (
+          // 参数变了（数据刷新）就换一条新轨道，免得正在飞的那条中途改时长跳位。
           <DanmakuLane
-            key={i}
+            key={`${i}:${plan.top}:${plan.duration}`}
             texts={texts}
             start={i}
             stride={laneCount}

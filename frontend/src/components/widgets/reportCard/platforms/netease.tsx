@@ -113,7 +113,7 @@ export const MusicStatsWidget = memo(
               // 外层只管入场和悬停放大；外观与上下浮动在内层，用 CSS 一直浮（见 ambient.css）。
               <motion.div
                 key={bubble.tag}
-                className="report-mood-bubble absolute font-bold pointer-events-auto cursor-default"
+                className="report-mood-bubble absolute rounded-full font-bold pointer-events-auto cursor-default"
                 style={
                   {
                     'left': `${bubble.x}%`,
