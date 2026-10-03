@@ -914,4 +914,29 @@ describe('storyCardFace', () => {
     assert.notEqual(c, a)
     assert.equal(c.starred, true)
   })
+
+  it('游客不显示未读，登录后按 is_read 显示', async () => {
+    const { storyCardFace } = await import('./storyFace.ts')
+    const { phantasiSubject } = await import('../../../utils/phantasiSubject.ts')
+    const times = { justNow: 'now', minutesAgo: '{minutes}m', hoursAgo: '{hours}h', daysAgo: '{days}d' }
+    const labels = { unread: 'new', starred: 'star', unstar: 'unstar' }
+    const item = {
+      id: 2,
+      title: 'Unread',
+      summary: '',
+      image: null,
+      published_at: Date.now(),
+      is_read: false,
+      is_starred: false,
+      source_name: 'A',
+    }
+    phantasiSubject.change('guest')
+    assert.equal(storyCardFace(item, times, 'en', labels).unread, false)
+    phantasiSubject.change('user:1:member')
+    try {
+      assert.equal(storyCardFace(item, times, 'en', labels).unread, true)
+    } finally {
+      phantasiSubject.change('guest')
+    }
+  })
 })
