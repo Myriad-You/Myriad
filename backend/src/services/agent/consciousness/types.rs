@@ -115,6 +115,9 @@ pub struct SelfSnapshot {
     /// Who they are to her, as she calls them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addressee_name: Option<String>,
+    /// Minutes since she last spoke up to them unasked, if she has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minutes_since_you_spoke_unasked: Option<f64>,
     /// How she was after her last exchange with them, if a moment ago.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner: Option<String>,

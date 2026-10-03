@@ -115,6 +115,7 @@ mod tests {
             attention: None,
             myself: None,
             addressee_name: None,
+            minutes_since_you_spoke_unasked: None,
             inner: None,
         }
     }
