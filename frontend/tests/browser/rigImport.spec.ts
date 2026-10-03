@@ -461,7 +461,10 @@ test('real player distinguishes automatic blinks, deliberate closure and special
   expect(result.both.right).toBeGreaterThan(0.95)
   expect(result.cry).toBeLessThan(0.01)
   expect(result.rebound).toBeGreaterThan(0.003)
-  expect(result.rebound).toBeLessThan(0.045)
+  // The lid jelly's 5.5% stretch gives a reciprocal horizontal scale below 6%.
+  expect(result.rebound).toBeLessThan(0.06)
+  expect(result.reboundAreaError).toBeLessThan(1e-9)
+  expect(result.settledRebound).toEqual({ x: 1, y: 1 })
   expect(result.glError).toBe(0)
 })
 

@@ -10,6 +10,7 @@ tapp-contract-schema = ["dep:schemars"]
 
 [dependencies]
 http = "1"
+percent-encoding = "2"
 schemars = { version = "1.0", optional = true }
 semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }

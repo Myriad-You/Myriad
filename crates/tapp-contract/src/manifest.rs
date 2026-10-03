@@ -226,6 +226,11 @@ pub enum TappOpenUrlMatch {
     Exact,
     Prefix,
     Origin,
+    /// Resolve against the host page origin at open time. `url` must be a rooted
+    /// relative path (e.g. `/`). Lets one package deep-link the station's own
+    /// pages on any self-hosted domain.
+    #[serde(rename = "same-origin")]
+    SameOrigin,
 }
 
 /// 单个语言下的清单展示文案覆盖

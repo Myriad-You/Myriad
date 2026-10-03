@@ -140,8 +140,11 @@ export interface TappManifest {
 export interface TappOpenUrlDef {
   id: string
   url: string
-  /** exact 仅声明 URL；prefix 同 origin 且路径在前缀下；origin 该源任意路径。 */
-  match?: 'exact' | 'prefix' | 'origin'
+  /**
+   * exact 仅声明 URL；prefix 同 origin 且路径在前缀下；origin 该源任意路径；
+   * same-origin 相对宿主自身 origin 解析 `url`（根相对路径），适合深链本站页面。
+   */
+  match?: 'exact' | 'prefix' | 'origin' | 'same-origin'
 }
 
 export type TappAIOperation = 'generate' | 'analyze' | 'chat' | 'image' | 'search'
