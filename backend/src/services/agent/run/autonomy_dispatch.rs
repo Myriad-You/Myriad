@@ -40,6 +40,16 @@ async fn dispatch_one(db: &DatabaseConnection, intent: IntentRecord) -> Result<(
         defer_skipped_autonomy(db, &intent).await;
         return Ok(());
     }
+    // The same gate every run starts behind: the site may have closed the
+    // agent to this person since they accepted. Left Accepted, like a
+    // revoked grant, so it can run if it opens again.
+    if super::start::agent_access_gate(db, intent.user_id)
+        .await
+        .is_err()
+    {
+        defer_skipped_autonomy(db, &intent).await;
+        return Ok(());
+    }
     let grant = AutonomyGrantStore::new(db.clone())
         .find(intent.user_id)
         .await

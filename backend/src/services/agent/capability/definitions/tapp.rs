@@ -685,4 +685,19 @@ mod tests {
             );
         }
     }
+
+    /// The deny list is only consulted where a call asks first: a denied
+    /// capability that ran without asking would run unattended too.
+    #[test]
+    fn every_capability_denied_unattended_asks_first() {
+        let registry = CapabilityRegistry::new();
+        for id in crate::services::agent::executor_resolve_pure::UNATTENDED_DENIED_CAPABILITIES {
+            let capability = registry.get(id).expect(id);
+            assert!(
+                crate::services::agent::capability::capability_requires_confirmation(capability)
+                    .is_some(),
+                "{id}"
+            );
+        }
+    }
 }

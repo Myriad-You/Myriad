@@ -13,6 +13,9 @@ pub const UNATTENDED_DENIED_CAPABILITIES: &[&str] = &[
     "tapp.install",
     // Installs what it generates.
     "tapp.generate",
+    // Public site copy, after the owner confirms; a scheduled review only
+    // drafts it (its own contract). A fetched page must not rewrite it.
+    "seo.apply",
 ];
 
 /// 心跳能否不经人工确认执行一个需要确认的能力。
