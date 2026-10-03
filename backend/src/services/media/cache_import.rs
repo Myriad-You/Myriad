@@ -19,12 +19,14 @@ use super::validate::extension_for_mime;
 
 const CACHE_PREFIX: &str = "/api/phantasi/image-cache/";
 
-/// The public id an imported copy of the cached file at `path` carries.
+/// The public id an imported copy of the cached file at `path` carries. The
+/// cache reads its file names case-blind, so the id is too: every spelling
+/// that reaches the file reaches its asset.
 pub(super) fn cached_public_id(path: &str) -> Option<Uuid> {
     if !path.starts_with(CACHE_PREFIX) {
         return None;
     }
-    let digest = <sha2::Sha256 as sha2::Digest>::digest(path.as_bytes());
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(path.to_ascii_lowercase().as_bytes());
     let mut identity = [0u8; 16];
     identity.copy_from_slice(&digest[..16]);
     Some(uuid::Builder::from_custom_bytes(identity).into_uuid())
@@ -118,5 +120,10 @@ mod tests {
             cached_public_id("/api/phantasi/image-cache/ab/ab01.png")
         );
         assert_eq!(cached_public_id("/media/assets/x/y.png"), None);
+        assert_eq!(
+            cached_public_id("/api/phantasi/image-cache/ab/AB00.PNG"),
+            cached_public_id(path),
+            "the cache serves both spellings from one file"
+        );
     }
 }

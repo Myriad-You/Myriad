@@ -295,7 +295,7 @@ html.dark .nav-item:active {
 
 @media (hover: hover) {
   .nav-item:hover {
-    color: var(--color-primary);
+    color: var(--cfg-accent);
     background: color-mix(in srgb, var(--color-primary) 12%, transparent);
     transform: scale(1.08) translateZ(0);
     box-shadow: 0 3px 10px
@@ -316,13 +316,17 @@ html.dark .nav-item:active {
 }
 
 .nav-item:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--cfg-accent);
   outline-offset: 4px;
   border-radius: 18px;
 }
 
+/*
+ * 图标、圆点、焦点框是前景：用按主题校准过的 --cfg-accent。
+ * 壁纸取出的 --color-primary 可能和玻璃底同色（深蓝壁纸 + 深色模式时对比度约 1），只用于铺底与光晕。
+ */
 [aria-current='page'].nav-item {
-  color: var(--color-primary);
+  color: var(--cfg-accent);
   background: color-mix(in srgb, var(--color-primary) 15%, white);
   box-shadow: 0 2px 10px
     color-mix(in srgb, var(--color-primary) 25%, transparent);
@@ -337,7 +341,7 @@ html.dark [aria-current='page'].nav-item {
 
 html.dark [aria-current='page'].nav-item::after,
 html.dark .nav-item.active-secondary::after {
-  box-shadow: 0 0 12px var(--color-primary);
+  box-shadow: 0 0 12px var(--cfg-accent);
 }
 
 [aria-current='page'].nav-item::after,
@@ -350,9 +354,9 @@ html.dark .nav-item.active-secondary::after {
   transform: translateY(-50%);
   width: 5px;
   height: 5px;
-  background: var(--color-primary);
+  background: var(--cfg-accent);
   border-radius: 50%;
-  box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--cfg-accent) 60%, transparent);
 }
 
 @media (width <= 767px) {

@@ -204,6 +204,17 @@ function isVersionedSettingsBackup(
   )
 }
 
+/** A settings backup this version no longer reads: valid, just too old. */
+function isOlderSettingsBackup(data: unknown): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false
+  const backup = data as Record<string, unknown>
+  return (
+    backup.format === SETTINGS_BACKUP_FORMAT &&
+    typeof backup.version === 'number' &&
+    backup.version < MIN_SETTINGS_BACKUP_VERSION
+  )
+}
+
 export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   onReset,
   title,
@@ -317,7 +328,12 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
         try {
           const data = JSON.parse(event.target?.result as string)
           if (!isVersionedSettingsBackup(data)) {
-            onMessage?.(t.config.importConfigInvalid, 'error')
+            onMessage?.(
+              isOlderSettingsBackup(data)
+                ? t.config.importConfigTooOld
+                : t.config.importConfigInvalid,
+              'error',
+            )
             return
           }
           const clientPlan = planClientPreferenceRestore(

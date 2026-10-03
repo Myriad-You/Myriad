@@ -870,6 +870,28 @@ async fn settings_restore_rebinds_wallpaper_and_stickers_in_the_config_transacti
             .is_none()
     );
 
+    // A backup from before the asset store: its old address is reported too.
+    let retired_wallpaper = "/media/federation/1/wall.png";
+    let txn = f.db.begin().await.unwrap();
+    let unresolved = write_restored_configurations(
+        &txn,
+        vec![restored_entry("ui_wallpaper_url", json!(retired_wallpaper))],
+        &[],
+    )
+    .await
+    .ok()
+    .unwrap();
+    // Not kept: the cases below start from the wallpaper restored above.
+    txn.rollback().await.unwrap();
+    assert_eq!(
+        unresolved,
+        vec![UnresolvedRestoredMedia {
+            setting: "ui_wallpaper_url".into(),
+            url: retired_wallpaper.into(),
+        }]
+    );
+    assert!(wallpaper_references(&f).await.is_empty());
+
     // A wallpaper that saving would reject (unsafe scheme, private host) is
     // marked invalid by the restore plan and skipped: the current wallpaper
     // stays, nothing is published or bound, the rest of the backup restores.
@@ -1551,6 +1573,9 @@ async fn postgres_retiring_old_addresses_rewrites_content_then_drops_the_tables(
     let cache_path = format!("/api/phantasi/image-cache/44/{hash}.png");
     let brew_path = format!("/api/brew/image-cache/44/{hash}.png");
     let uncached_brew = format!("/api/brew/image-cache/ab/ab{}.png", "2".repeat(62));
+    let own = crate::services::media::configured_origins().await[0]
+        .trim_end_matches('/')
+        .to_string();
     f.db.execute_unprepared(&format!(
         "CREATE TABLE media_url_aliases (id SERIAL PRIMARY KEY, local_path TEXT NOT NULL,
              asset_id INTEGER NOT NULL REFERENCES media_assets(id) ON DELETE RESTRICT,
@@ -1565,9 +1590,9 @@ async fn postgres_retiring_old_addresses_rewrites_content_then_drops_the_tables(
          INSERT INTO media_references (asset_id, consumer_type, consumer_id, slot)
              VALUES ({fed}, 'federation_outbox', '9', 'attachment:0');
          INSERT INTO phantasi_note_docs (id, user_id, title, content_md, image)
-             VALUES (5, 1, 'n', '![a]({old_file}) ![b]({brew_path}) ![c]({uncached_brew})', '{cache_path}');
+             VALUES (5, 1, 'n', '![a]({old_file}) ![b]({brew_path}) ![c]({uncached_brew}) ![d](https://old.example{old_file})', '{cache_path}');
          INSERT INTO configurations (key, value)
-             VALUES ('ui_wallpaper_url', to_jsonb('https://old.example{old_file}'::text))
+             VALUES ('ui_wallpaper_url', to_jsonb('{own}{old_file}'::text))
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;",
         fed = federated.id,
         cache = cached.id,
@@ -1602,15 +1627,16 @@ async fn postgres_retiring_old_addresses_rewrites_content_then_drops_the_tables(
     assert_eq!(
         note.try_get::<String>("", "content_md").unwrap(),
         format!(
-            "![a]({fed_url}) ![b]({cache_url}) ![c]({})",
+            "![a]({fed_url}) ![b]({cache_url}) ![c]({}) ![d](https://old.example{old_file})",
             uncached_brew.replace("/api/brew/", "/api/phantasi/")
-        )
+        ),
+        "another site's address is its file, not ours"
     );
     assert_eq!(note.try_get::<String>("", "image").unwrap(), cache_url);
     assert_eq!(history().await, history_before, "no history revision");
     assert_eq!(
         stored_config(&f, "ui_wallpaper_url").await,
-        Some(json!(format!("https://old.example{fed_url}")))
+        Some(json!(format!("{own}{fed_url}")))
     );
     let row = assets::find_by_id(&f.db, federated.id)
         .await

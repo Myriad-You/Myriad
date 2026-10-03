@@ -192,28 +192,34 @@ fn settle_sources(stored: &HashMap<String, JsonValue>) -> Option<JsonValue> {
     let mut changed = raw.is_string();
     let mut sources = stored_sources(stored);
     for source in &mut sources {
-        let blank = source
-            .get("credential_mode")
-            .and_then(JsonValue::as_str)
-            .is_none_or(|mode| mode.trim().is_empty());
-        if !blank {
-            continue;
+        if let Some(fields) = source.as_object_mut() {
+            changed |= settle_fields(fields);
         }
-        let Some(fields) = source.as_object_mut() else {
-            continue;
-        };
-        fields.remove("credential_mode");
-        let Ok(mut parsed) = serde_json::from_value::<crate::config::AiVendorSource>(
-            JsonValue::Object(fields.clone()),
-        ) else {
-            continue;
-        };
-        parsed.settle_credential_mode();
-        fields.insert("credential_mode".to_string(), json!(parsed.credential_mode));
-        fields.insert("shared_key_ref".to_string(), json!(parsed.shared_key_ref));
-        changed = true;
     }
     changed.then_some(JsonValue::Array(sources))
+}
+
+/// Write down the credential mode a stored source without one resolved to;
+/// false when it has one or does not parse.
+fn settle_fields(fields: &mut serde_json::Map<String, JsonValue>) -> bool {
+    let blank = fields
+        .get("credential_mode")
+        .and_then(JsonValue::as_str)
+        .is_none_or(|mode| mode.trim().is_empty());
+    if !blank {
+        return false;
+    }
+    let mut unsettled = fields.clone();
+    unsettled.remove("credential_mode");
+    let Ok(mut parsed) =
+        serde_json::from_value::<crate::config::AiVendorSource>(JsonValue::Object(unsettled))
+    else {
+        return false;
+    };
+    parsed.settle_credential_mode();
+    fields.insert("credential_mode".to_string(), json!(parsed.credential_mode));
+    fields.insert("shared_key_ref".to_string(), json!(parsed.shared_key_ref));
+    true
 }
 
 fn upgrade_tiers(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, JsonValue>) {
@@ -327,13 +333,20 @@ fn upgrade_tiers(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, 
         );
     }
 
-    // The judgment and embedding models, named after their own option.
+    // The judgment and embedding models, named after their own option. They
+    // ran only while Lite was on; with Lite off they stay unused, as Lite's
+    // own model does, rather than start on Standard's source.
     for (old, new) in [
         ("lite_judge_model", "aux_judge_model"),
         ("lite_embedding_model", "aux_embedding_model"),
     ] {
         if stored.contains_key(old) {
-            fill(out, new.to_string(), json!(text(old, "").trim()));
+            let model = if lite_switched_on {
+                text(old, "")
+            } else {
+                String::new()
+            };
+            fill(out, new.to_string(), json!(model.trim()));
         }
     }
 }
@@ -437,15 +450,18 @@ fn upgrade_vault(stored: &HashMap<String, JsonValue>, out: &mut HashMap<String, 
                     .and_then(JsonValue::as_str)
                     .is_none_or(|value| value.trim().is_empty())
             };
-            // A source with no address of its own used the shared one.
+            // A source with no address of its own used the shared one. Its
+            // mode is settled first: with the address filled in, a source on
+            // the shared key no longer reads as one.
             let base = match kind.as_str() {
-                "openai" if custom_openai => Some(&openai_base),
-                "volcengine" if custom_volcengine => Some(&volcengine_base),
+                "openai" | "openai_compatible" if custom_openai => Some(&openai_base),
+                "volcengine" | "ark" | "seedream" if custom_volcengine => Some(&volcengine_base),
                 _ => None,
             };
             if let Some(base) = base
                 && blank(fields, "base_url")
             {
+                settle_fields(fields);
                 fields.insert("base_url".to_string(), json!(base));
             }
             // A Tencent source missing a credential used the setting's.
@@ -811,6 +827,7 @@ mod tests {
     #[test]
     fn judgment_and_embedding_models_take_their_own_names() {
         let out = upgrade(&stored(&[
+            ("lite_enabled", json!(true)),
             ("lite_judge_model", json!("openai/gpt-6-luna")),
             (
                 "lite_embedding_model",
@@ -828,7 +845,48 @@ mod tests {
             ("aux_judge_model", json!("new")),
         ]));
         assert!(!kept.contains_key("aux_judge_model"));
+        // They ran only while Lite was on: with Lite off they stay unused.
+        let off = upgrade(&stored(&[
+            ("lite_enabled", json!(false)),
+            ("lite_judge_model", json!("openai/gpt-6-luna")),
+            (
+                "lite_embedding_model",
+                json!("perplexity/pplx-embed-v1-0.6b"),
+            ),
+        ]));
+        assert_eq!(off["aux_judge_model"], json!(""));
+        assert_eq!(off["aux_embedding_model"], json!(""));
     }
+
+    #[test]
+    fn image_kinds_on_the_shared_address_keep_it() {
+        let out = upgrade(&stored(&[
+            (
+                "provider_openai_base_url",
+                json!("https://llm.example.com/v1"),
+            ),
+            (
+                "provider_volcengine_base_url",
+                json!("https://ark.example.com/api/v3"),
+            ),
+            (
+                "ai_vendor_sources",
+                json!([
+                    {"slug": "compat", "kind": "openai_compatible", "display_name": "C", "enabled": true, "api_key": "sk-own"},
+                    {"slug": "seed", "kind": "seedream", "display_name": "S", "enabled": true, "credential_mode": "shared", "shared_key_ref": "volcengine"}
+                ]),
+            ),
+        ]));
+        let sources = out["ai_vendor_sources"].as_array().unwrap();
+        assert_eq!(sources[0]["base_url"], json!("https://llm.example.com/v1"));
+        assert_eq!(sources[0]["credential_mode"], json!("own"));
+        assert_eq!(
+            sources[1]["base_url"],
+            json!("https://ark.example.com/api/v3")
+        );
+        assert_eq!(sources[1]["credential_mode"], json!("shared"));
+    }
+
     #[test]
     fn tencent_credentials_and_custom_endpoints_move_onto_the_sources() {
         // No list stored: the synthesized one is written down, with Tencent.
@@ -885,6 +943,9 @@ mod tests {
         ]));
         let sources = out["ai_vendor_sources"].as_array().unwrap();
         assert_eq!(sources[0]["base_url"], json!("https://llm.example.com/v1"));
+        // It used the shared key at the shared address, and still does.
+        assert_eq!(sources[0]["credential_mode"], json!("shared"));
+        assert_eq!(sources[0]["shared_key_ref"], json!("openai"));
         assert_eq!(sources[1]["base_url"], json!("https://mine.example/v1"));
         assert_eq!(
             sources[1]["extra"],

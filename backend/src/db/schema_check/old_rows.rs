@@ -51,44 +51,62 @@ ON CONFLICT (doc_id, user_id) DO NOTHING
 "#,
     ),
     (
-        // Platform auto-refresh tasks named in Chinese before the English names.
+        // Platform auto-refresh tasks named in Chinese before the English
+        // names. Only the platform's own tasks: a Tapp may name its own so.
         "auto-refresh task names in Chinese",
         r#"
 UPDATE tapp_scheduled_tasks SET name = regexp_replace(name, '^自动刷新 (.+) 数据$', 'Auto-refresh \1 data')
-WHERE name ~ '^自动刷新 .+ 数据$'
+WHERE tapp_id = 'myriad.core.platform-sync' AND name ~ '^自动刷新 .+ 数据$'
 "#,
     ),
+    // Notices below were written in Chinese until 0.4.10 (released
+    // 2026-09-15). Text alone cannot tell them apart: Tapps and heartbeat
+    // results write free text into the same columns. Each is bounded by the
+    // type that carried it and by a creation time before that release.
     (
         "scheduled-task notice titles in Chinese",
         r#"
 UPDATE agent_notifications SET title = regexp_replace(title, '^定时任务:\s*', 'Scheduled task: ')
-WHERE title ~ '^定时任务:'
+WHERE notification_type = 'heartbeat_result' AND created_at < '2026-09-16'
+  AND title ~ '^定时任务:'
 "#,
     ),
     (
         "failed scheduled-task notice titles in Chinese",
-        r#"UPDATE agent_notifications SET title = 'Scheduled task failed' WHERE title = '定时任务失败'"#,
+        r#"
+UPDATE agent_notifications SET title = regexp_replace(title, '^定时任务失败', 'Scheduled task failed')
+WHERE notification_type = 'tapp_notification' AND created_at < '2026-09-16'
+  AND title ~ '^定时任务失败(:|$)'
+"#,
     ),
     (
         "MCP tools-loaded notices in Chinese",
         r#"
 UPDATE agent_notifications SET body = regexp_replace(body, '^已加载 ([0-9]+) 个工具$', 'Loaded \1 tools')
-WHERE body ~ '^已加载 [0-9]+ 个工具$'
+WHERE notification_type = 'mcp_server_status' AND created_at < '2026-09-16'
+  AND body ~ '^已加载 [0-9]+ 个工具$'
 "#,
     ),
     (
         // Platform sync failures in Chinese only; no current notice matches.
         "platform sync failure notices in Chinese",
-        r#"DELETE FROM agent_notifications WHERE title LIKE '%自动刷新失败%' OR body LIKE '%自动刷新失败%'"#,
+        r#"
+DELETE FROM agent_notifications
+WHERE notification_type = 'system_info' AND created_at < '2026-09-16'
+  AND title LIKE '%自动刷新失败%'
+"#,
     ),
     (
         // Agent tasks carrying step text from before 0.4.10: none of them can
         // run on today's engine, and finished ones without a completion time
-        // were never swept.
+        // were never swept. Step results hold fetched content, so the text
+        // alone could match a current task; only tasks started before that
+        // release qualify.
         "agent tasks with Chinese step text",
         r#"
 DELETE FROM agent_tasks
-WHERE COALESCE(error, '') || ' ' || COALESCE(step_results::text, '') || ' ' || COALESCE(pending_question::text, '')
+WHERE started_at < '2026-09-16'
+  AND COALESCE(error, '') || ' ' || COALESCE(step_results::text, '') || ' ' || COALESCE(pending_question::text, '')
       ~ '执行超时|尝试了 .* 个源都无法订阅|需要人工确认|未经确认的高风险|不应被直接调用|未对普通用户开放|API Key 未配置|阅读列表|网络搜索|此操作将|将调用外部 MCP'
 "#,
     ),
@@ -131,6 +149,7 @@ UPDATE tapp_widgets w
   FROM tapps t
  WHERE t.tapp_id = w.tapp_id AND t.user_id = w.user_id
    AND (w.config IS NULL OR json_typeof(w.config) <> 'object' OR w.config ->> 'source' IS NULL)
+   AND COALESCE(strpos(w.config::text, '\u0000'), 0) = 0
    AND EXISTS (
        SELECT 1 FROM json_array_elements(
            CASE WHEN json_typeof(t.manifest -> 'widgets') = 'array'
@@ -140,13 +159,17 @@ UPDATE tapp_widgets w
     ),
     (
         // A runtime widget without an installation owner belongs to the
-        // installation of the user it was registered for.
+        // installation of the user it was registered for; one stored as a
+        // numeric string was read as that owner.
         "runtime widgets without an installation owner",
         r#"
 UPDATE tapp_widgets
-   SET config = (config::jsonb || jsonb_build_object('installationOwnerId', user_id))::json
+   SET config = (config::jsonb || jsonb_build_object('installationOwnerId',
+       CASE WHEN config ->> 'installationOwnerId' ~ '^[0-9]{1,9}$'
+            THEN (config ->> 'installationOwnerId')::int ELSE user_id END))::json
  WHERE json_typeof(config) = 'object' AND config ->> 'source' = 'runtime'
    AND json_typeof(config -> 'installationOwnerId') IS DISTINCT FROM 'number'
+   AND strpos(config::text, '\u0000') = 0
 "#,
     ),
     (
@@ -175,19 +198,24 @@ WHERE namespace IN ('qq_c2c_outbound', 'telegram_dm_outbound', 'discord_dm_outbo
     ),
     (
         // Messages that carried a recipe-level confirmation: its synthetic
-        // task id and question point at nothing. The column is `json`.
+        // task id and question point at nothing. The column is `json`, which
+        // keeps a `\u0000` that `jsonb` refuses: such rows are left alone
+        // rather than failing startup. The filter names only the retired
+        // keys, so a current `"questionType":"confirmation"` never gets here.
         "session messages carrying a retired confirmation",
         r#"
 UPDATE agent_messages a SET metadata = cleaned.m::json
 FROM (
     SELECT id, metadata::jsonb - 'confirmation' AS m0 FROM agent_messages
     WHERE json_typeof(metadata) = 'object'
-      AND metadata::text ~ '"confirmation"|"confirmationId"|"confirmation_id"|"confirmation:'
+      AND metadata::text ~ '"confirmation"\s*:|"confirmationId"|"confirmation_id"|"confirmation:'
+      AND strpos(metadata::text, '\u0000') = 0
 ) src
 CROSS JOIN LATERAL (
-    SELECT CASE WHEN COALESCE(src.m0 ->> 'taskId', '') LIKE 'confirmation:%'
-                  OR COALESCE(src.m0 ->> 'task_id', '') LIKE 'confirmation:%'
-                THEN src.m0 - 'taskId' - 'task_id' ELSE src.m0 END AS m1
+    SELECT CASE WHEN COALESCE(t.m ->> 'task_id', '') LIKE 'confirmation:%'
+                THEN t.m - 'task_id' ELSE t.m END AS m1
+    FROM (SELECT CASE WHEN COALESCE(src.m0 ->> 'taskId', '') LIKE 'confirmation:%'
+                      THEN src.m0 - 'taskId' ELSE src.m0 END AS m) t
 ) step1
 CROSS JOIN LATERAL (
     SELECT CASE WHEN jsonb_typeof(step1.m1 -> 'pendingQuestion') = 'object'
@@ -203,6 +231,11 @@ CROSS JOIN LATERAL (
 ) cleaned
 WHERE a.id = src.id AND cleaned.m IS DISTINCT FROM a.metadata::jsonb
 "#,
+    ),
+    (
+        // The same synthetic id was also stored in the message's own column.
+        "session messages bound to a retired confirmation",
+        r#"UPDATE agent_messages SET task_id = NULL WHERE task_id LIKE 'confirmation:%'"#,
     ),
     (
         "intentions without a known accept source",
@@ -324,7 +357,8 @@ mod tests {
                  ('tapp.com.ex.card', 'com.ex', 1, 'declared', '{"settings":{"a":1}}'),
                  ('tapp.com.ex.gone', 'com.ex', 1, 'undeclared', '{}'),
                  ('tapp.com.ex.mine', 'com.ex', 2, 'runtime', '{"source":"runtime"}'),
-                 ('tapp.com.ex.bound', 'com.ex', 2, 'bound', '{"source":"runtime","installationOwnerId":1}');
+                 ('tapp.com.ex.bound', 'com.ex', 2, 'bound', '{"source":"runtime","installationOwnerId":1}'),
+                 ('tapp.com.ex.text', 'com.ex', 2, 'text owner', '{"source":"runtime","installationOwnerId":"1"}');
                INSERT INTO runtime_registry (namespace, record_id, payload, expires_at) VALUES
                  ('telegram_dm_pending', 'no-id', '{"prompt":{"id":"","kind":{"Clarify":{"original_input":"x"}},"question":"q","options":[],"expires_at_unix":null}}', 9999999999),
                  ('telegram_dm_pending', 'confirm', '{"prompt":{"id":"ab12","kind":{"Confirm":{"confirmation_id":"c"}},"question":"q","options":[],"expires_at_unix":null}}', 9999999999),
@@ -332,9 +366,19 @@ mod tests {
                  ('telegram_dm_outbound', 'out', '{"run_id":"r","items":[],"next_index":0,"prompt":{"id":"ef56","kind":{"Confirm":{"confirmation_id":"c"}},"question":"q","options":[],"expires_at_unix":null}}', 9999999999);
                INSERT INTO agent_sessions (id, user_id, created_at, last_active_at)
                  VALUES ('s', 1, NOW(), NOW());
-               INSERT INTO agent_messages (session_id, role, content, metadata, created_at) VALUES
-                 ('s', 'assistant', 'old', '{"taskId":"confirmation:c1","pendingQuestion":{"question":"q","confirmationId":"c1"},"message":"x"}', NOW()),
-                 ('s', 'assistant', 'current', '{"taskId":"t1","task":{"pendingQuestion":{"question":"q","questionType":"confirmation","questionId":"q1"}}}', NOW())"#,
+               INSERT INTO agent_messages (session_id, role, content, metadata, task_id, created_at) VALUES
+                 ('s', 'assistant', 'old', '{"taskId":"confirmation:c1","pendingQuestion":{"question":"q","confirmationId":"c1"},"message":"x"}', 'confirmation:c1', NOW()),
+                 ('s', 'assistant', 'current', '{"taskId":"t1","task":{"pendingQuestion":{"question":"q","questionType":"confirmation","questionId":"q1"}}}', 't1', NOW()),
+                 ('s', 'assistant', 'nul', '{"confirmationId":"c2","output":"a\u0000b"}', NULL, NOW());
+               INSERT INTO agent_tasks (id, user_id, recipe_id, status, current_step, step_results, progress, started_at, updated_at) VALUES
+                 ('old-task', 1, 'r', 'completed', 1, '[{"output":"网络搜索 - x"}]', 100, '2026-09-01', '2026-09-01'),
+                 ('new-task', 1, 'r', 'running', 1, '[{"output":"网络搜索 - x"}]', 50, NOW(), NOW());
+               INSERT INTO agent_notifications (id, notification_type, priority, title, body, user_id, read, created_at) VALUES
+                 ('n-old-beat', 'heartbeat_result', 'low', '定时任务: 日报', 'ok', 1, false, '2026-09-01'),
+                 ('n-old-fail', 'tapp_notification', 'high', '定时任务失败: 签到', 'e', 1, false, '2026-09-01'),
+                 ('n-old-sync', 'system_info', 'high', 'bilibili 自动刷新失败', 'e', 1, false, '2026-09-01'),
+                 ('n-tapp', 'tapp_notification', 'normal', '定时任务: 签到', '自动刷新失败', 1, false, NOW()),
+                 ('n-new-fail', 'tapp_notification', 'high', '定时任务失败', 'e', 1, false, NOW())"#,
         )
         .await
         .unwrap();
@@ -365,6 +409,10 @@ mod tests {
             config("bound"),
             serde_json::json!({"source":"runtime","installationOwnerId":1})
         );
+        assert_eq!(
+            config("text owner"),
+            serde_json::json!({"source":"runtime","installationOwnerId":1})
+        );
         let registry = db
             .query_all_raw(Statement::from_string(
                 DatabaseBackend::Postgres,
@@ -386,7 +434,8 @@ mod tests {
         let messages = db
             .query_all_raw(Statement::from_string(
                 DatabaseBackend::Postgres,
-                "SELECT content, metadata::jsonb AS metadata FROM agent_messages ORDER BY content",
+                "SELECT content, metadata::jsonb AS metadata, task_id FROM agent_messages
+                  WHERE content <> 'nul' ORDER BY content",
             ))
             .await
             .unwrap();
@@ -398,9 +447,53 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(metadata("old"), serde_json::json!({"message":"x"}));
+        let task_ids = messages
+            .iter()
+            .map(|row| row.try_get::<Option<String>>("", "task_id").unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(task_ids, [Some("t1".to_string()), None], "current, old");
         assert_eq!(
             metadata("current"),
             serde_json::json!({"taskId":"t1","task":{"pendingQuestion":{"question":"q","questionType":"confirmation","questionId":"q1"}}})
+        );
+        // Rows the current code writes are never touched, whatever their text.
+        let tasks = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT id FROM agent_tasks ORDER BY id",
+            ))
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.try_get::<String>("", "id").unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(tasks, ["new-task"]);
+        let titles = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT id, title FROM agent_notifications ORDER BY id",
+            ))
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row.try_get::<String>("", "id").unwrap(),
+                    row.try_get::<String>("", "title").unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            titles,
+            [
+                ("n-new-fail".to_string(), "定时任务失败".to_string()),
+                ("n-old-beat".to_string(), "Scheduled task: 日报".to_string()),
+                (
+                    "n-old-fail".to_string(),
+                    "Scheduled task failed: 签到".to_string()
+                ),
+                ("n-tapp".to_string(), "定时任务: 签到".to_string()),
+            ]
         );
         // A second start finds nothing left to change.
         assert_eq!(super::rewrite_old_rows(&db).await.unwrap(), 0);

@@ -80,9 +80,12 @@ their tests:
   at startup, and the column constraints it adds to existing databases.
 - `src/services/media/retire.rs` and `REFUSE_UNFINISHED_MEDIA_UPGRADE_SQL` in
   `lib.rs`: the old media addresses and their two tables.
-- `rewrap_legacy_private_keys` (`src/federation/keys.rs`, called from
-  `main.rs`) and the `MYRIAD_MIGRATE_DATA_KEY_FROM_JWT` path in
-  `crates/myriad-data-key`: federation keys sealed under the JWT secret.
+
+Not on this list, whatever the floor: `rewrap_legacy_private_keys`
+(`src/federation/keys.rs`) and the `MYRIAD_MIGRATE_DATA_KEY_FROM_JWT` path in
+`crates/myriad-data-key`. They guard key material; a key sealed the old way
+that can no longer be opened is data or a federation identity lost for good,
+and a restored backup can still carry one.
 
 ## Applying migrations
 

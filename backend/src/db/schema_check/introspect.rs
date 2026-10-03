@@ -106,8 +106,7 @@ pub(crate) fn generate_add_column_ddl(table: &str, col: &ColumnDef) -> String {
 
 /// 生成 CREATE INDEX DDL
 pub(crate) fn generate_create_index_ddl(idx: &IndexDef) -> String {
-    // The feed's ordering and NULL placement are part of its index contract.
-    // Reuse the migration DDL when restoring it after an index is dropped.
+    // Column order alone is not this index's shape; its migration says it.
     if idx.name == "idx_phantasi_items_source_recent" {
         return migration::SOURCE_RECENT_INDEX_SQL.to_string();
     }

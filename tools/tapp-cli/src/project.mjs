@@ -31,8 +31,8 @@ const schemaEnum = (name) => schemaDefinitions[name].enum
 
 const TOP_LEVEL_FIELDS = new Set(Object.keys(contract.schema.properties))
 const CANONICAL_CATEGORIES = schemaEnum('TappCategory')
-const CATEGORY_ALIASES = new Set(contract.rules.tappCategoryAliases)
-const CATEGORIES = new Set([...CANONICAL_CATEGORIES, ...CATEGORY_ALIASES])
+const CATEGORY_ALIASES = new Map(Object.entries(contract.rules.tappCategoryAliases))
+const CATEGORIES = new Set([...CANONICAL_CATEGORIES, ...CATEGORY_ALIASES.keys()])
 const WIDGET_SIZES = new Set(contract.rules.widgetSizes)
 const BACKGROUND_REQUIREMENTS = new Set(contract.rules.backgroundRequirements)
 const WIDGET_CATEGORIES = new Set(schemaEnum('TappWidgetCategory'))

@@ -375,9 +375,9 @@ html[data-nav-layout='desktop'] .nav-group[data-animation='exit'] {
   transform: scale(0.88) translateY(8px) translateZ(0);
 }
 
-/* Covers [aria-current] cases navigation-island.css misses. */
+/* Covers [aria-current] cases navigation-island.css misses. 图标是前景，用可读色。 */
 .nav-item.active-secondary {
-  color: var(--color-primary);
+  color: var(--cfg-accent);
   background: color-mix(in srgb, var(--color-primary) 15%, white);
   box-shadow: 0 2px 10px
     color-mix(in srgb, var(--color-primary) 25%, transparent);

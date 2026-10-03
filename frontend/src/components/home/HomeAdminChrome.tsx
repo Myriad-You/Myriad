@@ -103,7 +103,7 @@ export function HomeStatusBarActions({
           data-tour="home-free-layout"
           onClick={handleLayoutModeToggle}
           className="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-          style={{ color: 'var(--color-primary)' }}
+          style={{ color: 'var(--cfg-accent)' }}
           aria-pressed={false}
           aria-label={t.home.switchToFreeLayout}
           title={t.home.switchToFreeLayout}
@@ -114,7 +114,7 @@ export function HomeStatusBarActions({
         <Suspense fallback={null}>
           <HomeLayoutTransferButtons
             buttonClassName="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-50"
-            buttonStyle={{ color: 'var(--color-primary)' }}
+            buttonStyle={{ color: 'var(--cfg-accent)' }}
             layouts={layouts}
             mode={resolvedLayoutMode}
             disabled={layoutFade !== null}
@@ -127,7 +127,7 @@ export function HomeStatusBarActions({
         type="button"
         onClick={() => navigate('/config')}
         className="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-        style={{ color: 'var(--color-primary)' }}
+        style={{ color: 'var(--cfg-accent)' }}
         title={t.nav.config}
         aria-label={t.nav.config}
       >

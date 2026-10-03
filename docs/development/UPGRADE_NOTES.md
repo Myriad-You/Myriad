@@ -1,5 +1,15 @@
 # 升级说明
 
+## 最低支持版本 0.6.1
+
+早于 0.6.1 的库不能直接升到本版本：`Migrator::up` 在任何改动之前拒绝启动，并提示先升到
+0.6.1、启动一次，再升级。更新器的发布清单同样把 `min_from_version` 定为 `v0.6.1`，预检就会
+拒绝。新装的库不受影响。
+
+设置项的环境变量（平台凭据、站点品牌、Tripo 等）只在库里还没有这项设置时作为初值写进库一次，
+之后只读库。原来 `TRIPO_*` 会在运行时覆盖库里的值，现在不会：变量与库里的值不同时，启动日志
+会列出变量名，到设置页改。
+
 ## 旧媒体地址退场（破坏性变更）
 
 `/media/federation/…`、`/api/brew/image-cache/…` 两条路由和 `media_url_aliases` /
@@ -51,7 +61,7 @@ Brew 内部名改为 Phantasi，用户界面改为 **手帐**（en: Journal）�
 - **RSS：** `/brew/notes.xml` 改为 `/journal/notes.xml`（另有 `/api/phantasi/notes.xml` 同一份）。默认关闭，管理员在工作台打开；关闭或手帐不对游客可见时 404。无 301。旧 `/phantasi/notes.xml` 不是用户地址。
 - **磁盘：** 启动时若存在 `data/brew` 且没有 `data/phantasi`，会改名过去。
 
-临时改名机制（`backend/migrations/phantasi_legacy_rename.rs` 与 `myriad_phantasi::legacy`）在全实例升完后删除。
+临时改名机制（`backend/migrations/phantasi_legacy_rename.rs` 与 `myriad_phantasi::legacy`）已在最低支持版本提到 0.6.1 时删除：更早的库须先升到 0.6.1 并启动一次。
 
 ## TAPP 旧权限清理与重新授权
 

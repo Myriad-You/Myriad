@@ -660,7 +660,7 @@ const ActivityItem = memo(
                       hasCover
                         ? undefined
                         : {
-                            color: 'var(--color-primary)',
+                            color: 'var(--cfg-accent)',
                             backgroundColor:
                               'color-mix(in srgb, var(--color-primary) 12%, transparent)',
                           }

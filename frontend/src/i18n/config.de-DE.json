@@ -731,6 +731,7 @@
   "restoreUnresolvedMediaSticker": "Dashboard-Sticker",
   "restoreUnresolvedMediaDismiss": "Schließen",
   "importConfigInvalid": "Ungültige Konfigurationsdatei. Bitte das JSON-Format prüfen.",
+  "importConfigTooOld": "Das Format dieser Sicherung ist zu alt für den Import.",
   "importConfirmMessage": "Einstellungen werden an die aktuelle Version angeglichen und die aktuellen Admin-Benachrichtigungspräferenzen wiederhergestellt. Neue Optionen bleiben, entfernte werden ignoriert. Nach dem Bestätigen wird die Seite vollständig neu geladen. Vorschau unten prüfen.",
   "frontendCacheTitle": "Erweiterte Werkzeuge",
   "frontendCacheDesc": "Lokale Diagnose- und Wartungswerkzeuge; ändert keine Servereinstellungen und meldet Sie nicht ab",

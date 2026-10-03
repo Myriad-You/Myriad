@@ -378,9 +378,9 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                 tracing::info!(db_target = %db_target, "✅ Database connection established");
 
                 // Run database migrations automatically on startup (idempotent).
-                // Extra `seaql_migrations` rows without files are deleted first;
-                // leftover `digital_life_*` tables are dropped. Remaining
-                // migration failure is fatal to full mode.
+                // A database below the support floor is refused; extra
+                // `seaql_migrations` rows without files are deleted first.
+                // Remaining migration failure is fatal to full mode.
                 tracing::debug!("Checking for pending database migrations...");
                 migration::Migrator::up(&db, None)
                     .await

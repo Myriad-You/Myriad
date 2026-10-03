@@ -699,7 +699,7 @@ export function TappListPage() {
                         navigate(TAPP_PLAYGROUND_PATH)
                       }}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-                      style={{ color: 'var(--color-primary)' }}
+                      style={{ color: 'var(--cfg-accent)' }}
                       title={t.tapp.playgroundTitle}
                       data-tour="tapp-open-playground"
                     >
@@ -712,7 +712,7 @@ export function TappListPage() {
                       type="button"
                       onClick={handleToggleListScope}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-                      style={{ color: 'var(--color-primary)' }}
+                      style={{ color: 'var(--cfg-accent)' }}
                       title={
                         listScope === 'mine'
                           ? t.tapp.listScopeSwitchToSite
@@ -734,7 +734,7 @@ export function TappListPage() {
                   <button
                     onClick={() => navigate(TAPP_STORE_PATH)}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-                    style={{ color: 'var(--color-primary)' }}
+                    style={{ color: 'var(--cfg-accent)' }}
                     data-tour="tapp-store-entry"
                   >
                     <MyriadStoreIcon className="w-4 h-4" />
@@ -744,7 +744,7 @@ export function TappListPage() {
                     <button
                       onClick={() => navigate(tappRunMultiPath())}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-                      style={{ color: 'var(--color-primary)' }}
+                      style={{ color: 'var(--cfg-accent)' }}
                       title={t.tapp.multiWindow}
                     >
                       <FaTh className="w-3 h-3" />
@@ -755,7 +755,7 @@ export function TappListPage() {
                     <button
                       onClick={(e) => openInstallDialog(e.currentTarget)}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer"
-                      style={{ color: 'var(--color-primary)' }}
+                      style={{ color: 'var(--cfg-accent)' }}
                       title={t.tapp.install}
                       data-tour="tapp-install"
                     >
@@ -783,12 +783,12 @@ export function TappListPage() {
                     {listScope === 'mine' ? (
                       <FaGlobe
                         className="w-5 h-5"
-                        style={{ color: 'var(--color-primary)' }}
+                        style={{ color: 'var(--cfg-accent)' }}
                       />
                     ) : (
                       <FaUser
                         className="w-5 h-5"
-                        style={{ color: 'var(--color-primary)' }}
+                        style={{ color: 'var(--cfg-accent)' }}
                       />
                     )}
                   </button>
@@ -801,7 +801,7 @@ export function TappListPage() {
                 >
                   <MyriadStoreIcon
                     className="w-5 h-5"
-                    style={{ color: 'var(--color-primary)' }}
+                    style={{ color: 'var(--cfg-accent)' }}
                   />
                 </button>
                 {isAdmin && (
@@ -813,7 +813,7 @@ export function TappListPage() {
                   >
                     <FaPlus
                       className="w-5 h-5"
-                      style={{ color: 'var(--color-primary)' }}
+                      style={{ color: 'var(--cfg-accent)' }}
                     />
                   </button>
                 )}
