@@ -83,7 +83,7 @@ export function storyCardInnerHtml(
     if (face.sourceIcon && !deferCover) {
       const icon = escapeStoryText(face.sourceIcon)
       mark =
-        `<img src="${icon}" data-src="${icon}" alt="" loading="lazy" decoding="async">`
+        `<img src="${icon}" data-src="${icon}" alt="" loading="lazy" decoding="async" draggable="false">`
     } else if (!face.sourceIcon && face.source) {
       mark =
         `<span class="phantasi-story__source-mark" aria-hidden>${escapeStoryText(face.source.slice(0, 1))}</span>`
@@ -109,7 +109,7 @@ export function storyCardInnerHtml(
     const held = deferCover ? ` data-src="${cover}"` : ''
     const img = deferCover
       ? ''
-      : `<img src="${cover}" data-src="${cover}" alt="" loading="lazy" decoding="async">`
+      : `<img src="${cover}" data-src="${cover}" alt="" loading="lazy" decoding="async" draggable="false">`
     thumb =
       `<span class="phantasi-story__thumb" aria-hidden${held}>${img}</span>`
   }

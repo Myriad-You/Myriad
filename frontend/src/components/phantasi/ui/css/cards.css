@@ -575,15 +575,28 @@ html.dark .phantasi-site__unread {
   cursor: pointer;
 }
 
-/* 可打开的文章卡是 <a>（右键复制链接、中键新开）；补上 button 那套重置。 */
+/*
+ * 可打开的文章卡是 <a>（右键复制链接、中键新开）；补上 button 那套重置：
+ * 文字不可拖选（按钮本来选不中，否则在拖不动的轨道上横拖会选中一片），
+ * 键盘聚焦用同一圈焦点环。
+ */
 .phantasi-skin a.phantasi-story__hit {
   text-decoration: none;
+  user-select: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: default;
 }
 
+.phantasi-skin a.phantasi-story__hit img {
+  -webkit-user-drag: none;
+}
+
 .phantasi-skin a.phantasi-story__hit:focus {
   outline: none;
+}
+
+.phantasi-skin a.phantasi-story__hit:focus-visible {
+  box-shadow: var(--phantasi-focus);
 }
 
 .phantasi-story:focus-visible:not(.is-picking, .phantasi-story--slot) {
@@ -605,7 +618,7 @@ html.dark .phantasi-site__unread {
   box-shadow: var(--phantasi-shadow-hover);
 }
 
-.phantasi-skin button.phantasi-story.is-picked {
+.phantasi-skin :is(button, a).phantasi-story.is-picked {
   border-color: var(--phantasi-accent-line);
   background: var(--phantasi-accent-fill);
   box-shadow: none;

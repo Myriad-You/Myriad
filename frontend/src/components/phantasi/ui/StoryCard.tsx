@@ -420,6 +420,7 @@ export const StoryCard = forwardRef<
             >
               {face.sourceIcon && !deferCover ? (
                 <img
+                  draggable={false}
                   key={face.sourceIcon}
                   src={face.sourceIcon}
                   data-src={face.sourceIcon}
@@ -456,6 +457,7 @@ export const StoryCard = forwardRef<
           >
             {deferCover ? null : (
               <img
+                draggable={false}
                 src={face.cover}
                 data-src={face.cover}
                 alt=""
@@ -513,12 +515,16 @@ export const StoryCard = forwardRef<
           showStar,
           deferCover,
         )
-  if (href && !picking) {
+  // 挑选（编辑）态也保持 <a>：元素类型一变整张卡会重挂，入场动画重播、封面重载。
+  // 挑选时它是个开关：任何点击都只切换选中，不跳转。
+  if (href) {
     return (
       <a
         ref={ref as Ref<HTMLAnchorElement>}
         href={href}
         draggable={false}
+        role={picking ? 'button' : undefined}
+        aria-pressed={picking ? picked : undefined}
         data-rail-id={railId}
         data-rail-col={railCol ?? place?.column}
         data-phantasi-surface="story"
@@ -526,6 +532,11 @@ export const StoryCard = forwardRef<
         className={className}
         style={style ?? undefined}
         onClick={(event) => {
+          if (picking) {
+            event.preventDefault()
+            onOpen?.()
+            return
+          }
           if (!onOpen || !isPlainClick(event)) return
           event.preventDefault()
           onOpen()
