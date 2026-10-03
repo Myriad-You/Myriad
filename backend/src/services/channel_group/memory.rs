@@ -5,21 +5,41 @@ use super::*;
 /// Keep a line in mind: in memory, and in the runtime registry so a restart
 /// does not wipe the group from her mind. The first line after a restart
 /// brings back what was kept before it.
-pub(super) async fn remember_line(venue: &str, line: Line) {
+/// Whether it was new: a line delivered again (after a restart the chat app
+/// sends its last batch again) is already there, and is not heard twice.
+pub(super) async fn remember_line(venue: &str, line: Line) -> bool {
     let db = crate::services::process_db::database().ok();
-    remember_line_on(db.as_ref(), venue, line).await;
+    remember_line_on(db.as_ref(), venue, line).await
 }
 
-pub(super) async fn remember_line_on(db: Option<&DatabaseConnection>, venue: &str, line: Line) {
+pub(super) async fn remember_line_on(
+    db: Option<&DatabaseConnection>,
+    venue: &str,
+    line: Line,
+) -> bool {
     if let Some(db) = db {
         restore(db, venue).await;
     }
     let lines = with_group(venue, |group| {
+        let again = line.message_id.as_ref().is_some_and(|id| {
+            group
+                .lines
+                .iter()
+                .any(|kept| kept.message_id.as_ref() == Some(id))
+        });
+        if again {
+            return None;
+        }
         push_line(group, line);
-        group.lines.iter().cloned().collect::<Vec<_>>()
+        Some(group.lines.iter().cloned().collect::<Vec<_>>())
     });
-    if let (Some(db), Some(lines)) = (db, lines) {
-        keep_lines(db, venue, lines).await;
+    match (db, lines) {
+        (_, Some(None)) => false,
+        (Some(db), Some(Some(lines))) => {
+            keep_lines(db, venue, lines).await;
+            true
+        }
+        _ => true,
     }
 }
 
@@ -302,8 +322,9 @@ pub(super) fn bounded(text: &str) -> String {
     text.chars().take(MAX_LINE_CHARS).collect()
 }
 
-/// Keep a group line in mind, whoever wrote it.
-pub async fn record(message: &GroupLine) {
+/// Keep a group line in mind, whoever wrote it. False when it was heard
+/// already (delivered again after a restart): nothing more to do with it.
+pub async fn record(message: &GroupLine) -> bool {
     heard_since_up();
     let line = Line {
         at: chrono::Utc::now(),
@@ -317,7 +338,9 @@ pub async fn record(message: &GroupLine) {
         seen: Vec::new(),
     };
     let venue = message.venue();
-    remember_line(&venue, line).await;
+    if !remember_line(&venue, line).await {
+        return false;
+    }
     keep_reach(message).await;
     let typed = myriad_merope::talk_shape::typed_by(
         &ledger_who(&message.from),
@@ -336,6 +359,7 @@ pub async fn record(message: &GroupLine) {
             *group.pictures.entry(image.key.clone()).or_default() += 1;
         }
     });
+    true
 }
 
 /// Once enough of the group's talk has gone by, take in what she heard in

@@ -332,7 +332,9 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                     // The lookup waits on this socket's read loop, so it runs here.
                     let group = resolve_reply(group, self_id).await;
                     let line = crate::services::channel_group::GroupLine::from(group);
-                    crate::services::channel_group::record(&line).await;
+                    if !crate::services::channel_group::record(&line).await {
+                        return;
+                    }
                     if line.addressed {
                         let Some(permit) =
                             bot_ingress::try_acquire(bot_ingress::Channel::OneBot, line.text.len())

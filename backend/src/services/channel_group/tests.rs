@@ -21,6 +21,16 @@ fn venue(chat_id: i64) -> String {
     format!("telegram:{chat_id}")
 }
 
+/// After a restart a chat app sends its last batch again: a line heard
+/// already is neither kept twice nor answered twice.
+#[tokio::test]
+async fn a_line_delivered_again_is_heard_once() {
+    let chat = -9_017;
+    assert!(record(&line(chat, 1, "阿明", "@bot 在吗")).await);
+    assert!(!record(&line(chat, 1, "阿明", "@bot 在吗")).await);
+    assert_eq!(transcript(&venue(chat), None).len(), 1);
+}
+
 #[tokio::test]
 async fn the_group_transcript_is_the_lines_before_the_one_she_answers() {
     let chat = -9_001;

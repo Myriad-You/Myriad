@@ -239,7 +239,9 @@ async fn run_session(
                             parse_telegram_group_messages(200, &body, &identity).unwrap_or_default();
                         for line in group_lines {
                             let line = crate::services::channel_group::GroupLine::from(line);
-                            crate::services::channel_group::record(&line).await;
+                            if !crate::services::channel_group::record(&line).await {
+                                continue;
+                            }
                             if !line.addressed {
                                 // Read with the rest of the talk.
                                 crate::services::channel_group::notice(line, token.to_string());
@@ -359,11 +361,33 @@ pub async fn send_outbound(
     if let Some(markup) = reply_markup {
         payload["reply_markup"] = markup;
     }
+    send_message_waiting_once(token, payload, "sendMessage").await
+}
+
+/// The longest Telegram's "retry after" she waits out before sending again.
+const RATE_LIMIT_WAIT_MAX: u64 = 30;
+
+/// `sendMessage`; rate-limited, it waits as long as Telegram asks (when that
+/// is short) and sends once more, rather than dropping what she said.
+async fn send_message_waiting_once(
+    token: &str,
+    payload: serde_json::Value,
+    what: &str,
+) -> Result<(), ConnectFailureKind> {
+    let (status, body) =
+        telegram_request(token, "sendMessage", Some(payload.clone()), HTTP_TIMEOUT).await?;
+    if status != 429 {
+        return parse_telegram_ok_payload(status, &body).map(|_| ());
+    }
+    let wait = telegram_retry_after(&body).unwrap_or(1);
+    warn!(retry_after = wait, what, "Telegram rate-limited");
+    if wait > RATE_LIMIT_WAIT_MAX {
+        return Err(ConnectFailureKind::Transient);
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
     let (status, body) =
         telegram_request(token, "sendMessage", Some(payload), HTTP_TIMEOUT).await?;
     if status == 429 {
-        let wait = telegram_retry_after(&body).unwrap_or(1);
-        warn!(retry_after = wait, "Telegram sendMessage rate-limited");
         return Err(ConnectFailureKind::Transient);
     }
     parse_telegram_ok_payload(status, &body).map(|_| ())
@@ -405,14 +429,7 @@ pub async fn send_group_reply(
     if !entities.is_empty() && payload["text"].as_str() == Some(text) {
         payload["entities"] = serde_json::json!(entities);
     }
-    let (status, body) =
-        telegram_request(token, "sendMessage", Some(payload), HTTP_TIMEOUT).await?;
-    if status == 429 {
-        let wait = telegram_retry_after(&body).unwrap_or(1);
-        warn!(retry_after = wait, "Telegram group reply rate-limited");
-        return Err(ConnectFailureKind::Transient);
-    }
-    parse_telegram_ok_payload(status, &body).map(|_| ())
+    send_message_waiting_once(token, payload, "group reply").await
 }
 
 /// Her reaction on a group message (`setMessageReaction`): one emoji from
