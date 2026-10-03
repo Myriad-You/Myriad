@@ -57,18 +57,14 @@ function normalizeMatch(raw: unknown): OpenUrlMatchMode {
 }
 
 function pathHasTraversal(pathname: string): boolean {
-  const segments = pathname.split('/')
-  for (const segment of segments) {
-    let decoded: string
-    try {
-      decoded = decodeURIComponent(segment)
-    } catch {
-      return true
-    }
-    if (decoded === '..') return true
-    if (decoded.includes('\\') || decoded.includes('\0')) return true
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    return true
   }
-  return false
+  // Decode before splitting so an encoded slash cannot hide a dot segment.
+  return decoded.split('/').includes('..') || /[\\\u0000-\u001F\u007F]/.test(decoded)
 }
 
 function looksLikeAbsoluteUrl(path: string): boolean {
@@ -152,6 +148,16 @@ function resolveSameOriginOpenUrl(
       error: 'Declared same-origin base must not be protocol-relative',
     }
   }
+  if (
+    !entry.url ||
+    entry.url.length > MAX_URL_LEN ||
+    /[\s\u0000-\u001F\u007F]/.test(entry.url) ||
+    entry.url.includes('#') ||
+    entry.url.includes('\\') ||
+    pathHasTraversal(entry.url.split('?')[0] ?? '')
+  ) {
+    return { ok: false, error: 'Declared same-origin base is invalid' }
+  }
   let base: URL
   try {
     base = new URL(entry.url, host.origin)
@@ -170,6 +176,11 @@ function resolveSameOriginOpenUrl(
   // The caller path is host-rooted (e.g. `/journal/notes/1`); the declared base
   // only bounds how far under the host origin it may go.
   const path = request.path
+  // WHATWG URL parsing removes literal and encoded dot segments. Reject them
+  // in the caller's raw path first, without interpreting query/fragment data.
+  if (path && pathHasTraversal(path.trim().split(/[?#]/, 1)[0] ?? '')) {
+    return { ok: false, error: 'openUrl path has traversal or invalid encoding' }
+  }
   let resolved: URL
   try {
     resolved = path && path.length > 0 ? new URL(path, host.origin) : new URL(base.href)

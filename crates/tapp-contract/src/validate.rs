@@ -1219,6 +1219,25 @@ mod tests {
     }
 
     #[test]
+    fn same_origin_open_urls_reject_encoded_traversal_at_install() {
+        let mut value = serde_json::to_value(manifest(&["ui:openUrl"])).unwrap();
+        value["openUrls"] = json!([{
+            "id": "self",
+            "url": "/journal/notes?next=/a/../b",
+            "match": "same-origin"
+        }]);
+        let valid: TappManifest = serde_json::from_value(value.clone()).unwrap();
+        assert!(validate_tapp_manifest(&valid, &current()).is_ok());
+
+        for path in ["/journal/%2e%2e/", "/journal/.%2e/", "/journal/%5cconfig"] {
+            value["openUrls"][0]["url"] = json!(path);
+            let invalid: TappManifest = serde_json::from_value(value.clone()).unwrap();
+            let err = validate_tapp_manifest(&invalid, &current()).unwrap_err();
+            assert!(err.contains("openUrls[0].url"), "{err}");
+        }
+    }
+
+    #[test]
     fn remote_media_pairs_with_its_permission() {
         let with_hosts = |permissions: &[&str], hosts: serde_json::Value| -> TappManifest {
             let mut value = serde_json::to_value(manifest(permissions)).unwrap();

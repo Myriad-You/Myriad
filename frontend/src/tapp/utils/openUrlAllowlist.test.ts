@@ -163,6 +163,89 @@ describe('openUrlAllowlist', () => {
     assert.equal(absoluteDecl.ok, false)
   })
 
+  it('rejects same-origin traversal before URL normalization', () => {
+    const self: OpenUrlDeclaration = { id: 'self', url: '/', match: 'same-origin' }
+    for (const path of [
+      '/journal/../config',
+      '/journal/%2e%2e/config',
+      '/journal/.%2e/config',
+      '/journal/%2E%2E/config',
+      '/journal/%2e%2e%2fconfig',
+      '/journal%2f..%2fconfig',
+      '../config',
+      '/journal/.. ',
+      '/journal/%5cconfig',
+      '/journal/%00',
+      '/journal/%0a',
+      '/journal/%7f',
+      '/journal/%',
+      '/journal/%zz',
+      '/journal/%ff',
+    ]) {
+      assert.equal(
+        resolveOpenUrl([self], { id: 'self', path }, 'https://host.example').ok,
+        false,
+        path,
+      )
+    }
+  })
+
+  it('rejects invalid same-origin declarations even with a safe caller path', () => {
+    for (const url of [
+      '/journal/../',
+      '/journal/%2e%2e/',
+      '/journal/.%2e/',
+      '/journal/%2e%2e%2fconfig',
+      '/journal/%5cconfig',
+      '/journal/%00',
+      '/journal/%zz',
+      '/journal/%ff',
+      '/journal#fragment',
+      '/journal notes',
+      '/journal/\nnotes',
+      `/${'a'.repeat(2048)}`,
+    ]) {
+      const entry: OpenUrlDeclaration = { id: 'self', url, match: 'same-origin' }
+      for (const request of [{ id: 'self' }, { id: 'self', path: '/' }]) {
+        assert.equal(resolveOpenUrl([entry], request, 'https://host.example').ok, false, url)
+      }
+    }
+  })
+
+  it('preserves same-origin prefix boundaries, safe encodings, and queries', () => {
+    const self: OpenUrlDeclaration = { id: 'self', url: '/journal', match: 'same-origin' }
+    const paths = [
+      '/journal',
+      '/journal/notes/1',
+      '/journal/%E7%AC%94%E8%AE%B0',
+      '/journal/100%25',
+      '/journal/v1..2',
+      '/journal/a%2Fb',
+      '/journal/notes?next=/a/../b&invalid=%zz',
+    ]
+    for (const path of paths) {
+      const result = resolveOpenUrl([self], { id: 'self', path }, 'https://host.example')
+      assert.equal(result.ok, true, path)
+      if (result.ok) assert.equal(result.url, `https://host.example${path}`)
+    }
+    for (const path of ['/config', '/journal-other', '/journalistic/notes']) {
+      assert.equal(resolveOpenUrl([self], { id: 'self', path }, 'https://host.example').ok, false, path)
+    }
+    const result = resolveOpenUrl(
+      [{ ...self, url: '/journal?from=manifest' }],
+      { id: 'self', query: { next: '/a/../b' } },
+      'http://localhost:5173',
+    )
+    assert.equal(result.ok, true)
+    if (result.ok) {
+      const url = new URL(result.url)
+      assert.equal(url.origin, 'http://localhost:5173')
+      assert.equal(url.pathname, '/journal')
+      assert.equal(url.searchParams.get('from'), 'manifest')
+      assert.equal(url.searchParams.get('next'), '/a/../b')
+    }
+  })
+
   it('rejects unknown ids', () => {
     const res = resolveOpenUrl([docs], { id: 'missing' })
     assert.equal(res.ok, false)

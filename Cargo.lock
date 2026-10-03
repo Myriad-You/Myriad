@@ -2922,6 +2922,7 @@ name = "myriad-tapp-contract"
 version = "0.1.0"
 dependencies = [
  "http",
+ "percent-encoding",
  "schemars",
  "semver",
  "serde",

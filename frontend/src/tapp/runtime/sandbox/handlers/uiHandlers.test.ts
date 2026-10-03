@@ -218,6 +218,36 @@ describe('registerUIHandlers openUrl', { concurrency: false }, () => {
     }
   })
 
+  it('does not open same-origin traversal paths or invalid declarations', async () => {
+    installDocument()
+    const originalWindow = (globalThis as { window?: unknown }).window
+    ;(globalThis as { window?: unknown }).window = {
+      location: { origin: 'https://host.example' },
+    }
+    try {
+      const bridge = new FakeBridge()
+      registerUIHandlers(
+        bridge as unknown as TappBridge,
+        instance('com.example.open-self-traversal', [
+          { id: 'self', url: '/', match: 'same-origin' },
+          { id: 'invalid', url: '/journal/%2e%2e/', match: 'same-origin' },
+        ]),
+      )
+      for (const request of [
+        { id: 'self', path: '/journal/../config' },
+        { id: 'self', path: '/journal/%2e%2e/config' },
+        { id: 'invalid', path: '/config' },
+      ]) {
+        const result = await invoke(bridge, 'ui.openUrl', [request])
+        assert.equal((result as { success: boolean }).success, false)
+      }
+      assert.equal(clicks.length, 0)
+    }
+    finally {
+      ;(globalThis as { window?: unknown }).window = originalWindow
+    }
+  })
+
   it('rate-limits openUrl per tapp without opening extras', async () => {
     installDocument()
     const bridge = new FakeBridge()

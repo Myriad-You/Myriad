@@ -84,12 +84,32 @@ pub fn validate_same_origin_open_url_path(value: &str, field: &str) -> Result<()
     if value.contains('#') {
         return Err(format!("Tapp {field} must not include a #fragment"));
     }
-    if value
-        .split('/')
-        .any(|segment| segment == ".." || segment.contains('\\'))
-    {
+    if value.contains('\\') {
         return Err(format!(
             "Tapp {field} for match=same-origin must not contain path traversal"
+        ));
+    }
+    // Inspect the raw path before URL parsing removes dot segments. Query
+    // values are data, so traversal-like text there does not change the path.
+    let path = value.split('?').next().unwrap_or(value);
+    let bytes = path.as_bytes();
+    if bytes.iter().enumerate().any(|(index, &byte)| {
+        byte == b'%'
+            && (index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit()
+                || !bytes[index + 2].is_ascii_hexdigit())
+    }) {
+        return Err(format!("Tapp {field} has invalid path encoding"));
+    }
+    let decoded = percent_encoding::percent_decode_str(path)
+        .decode_utf8()
+        .map_err(|_| format!("Tapp {field} has invalid path encoding"))?;
+    if decoded.split('/').any(|segment| segment == "..")
+        || decoded.contains('\\')
+        || decoded.chars().any(|ch| ch.is_ascii_control())
+    {
+        return Err(format!(
+            "Tapp {field} for match=same-origin must not contain path traversal or control characters"
         ));
     }
     Ok(())
@@ -186,7 +206,16 @@ mod tests {
 
     #[test]
     fn same_origin_open_url_accepts_rooted_paths_only() {
-        for ok in ["/", "/journal", "/journal/notes?x=1"] {
+        for ok in [
+            "/",
+            "/journal",
+            "/journal/notes?x=1",
+            "/journal/notes?next=/a/../b",
+            "/journal/%E7%AC%94%E8%AE%B0",
+            "/journal/100%25",
+            "/journal/v1..2",
+            "/journal/a%2Fb",
+        ] {
             assert!(
                 validate_same_origin_open_url_path(ok, "openUrls[0].url").is_ok(),
                 "{ok}"
@@ -199,7 +228,19 @@ mod tests {
             "https://example.com/journal",
             "/journal#frag",
             "/journal/../evil",
+            "/journal/%2e%2e/",
+            "/journal/.%2e/",
+            "/journal/%2E%2E/config",
+            "/journal/%2e%2e%2fconfig",
+            "/journal%2f..%2fconfig",
             "/journal\\evil",
+            "/journal/%5cconfig",
+            "/journal/%00",
+            "/journal/%0a",
+            "/journal/%7f",
+            "/journal/%",
+            "/journal/%zz",
+            "/journal/%ff",
             "/a b",
         ] {
             assert!(
