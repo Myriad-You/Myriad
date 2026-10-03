@@ -134,14 +134,16 @@ pub(super) fn without_reply_mark(reply: &str) -> String {
     reply.to_string()
 }
 
-/// Her reply, chunk by chunk; whether any of it reached the group.
-pub(super) async fn deliver(line: &GroupLine, token: &str, reply: &str, began: Instant) -> bool {
+/// Her reply, chunk by chunk; what of it reached the group (empty if
+/// nothing did): what she said there is what went out, not what she meant to.
+pub(super) async fn deliver(line: &GroupLine, token: &str, reply: &str, began: Instant) -> String {
     use crate::services::agent::merope::group::timing::typing;
     use myriad_agent_rules::channel::{as_messages, split_channel_text};
     let venue = line.venue();
     let people = people(&venue);
     let room = room(&venue);
     let mut sent = false;
+    let mut went_out: Vec<String> = Vec::new();
     // Most turns go as one message, and a few in a row when something grabs
     // her: typing each before it goes, typed the way people there type (or
     // chat apps usually do, until the group has said enough), and only the
@@ -181,17 +183,18 @@ pub(super) async fn deliver(line: &GroupLine, token: &str, reply: &str, began: I
                     );
                     note_said(&venue, typed, waited, Some(&chunk));
                     sent = true;
+                    went_out.push(chunk);
                 }
                 Err(kind) => {
                     warn!(?kind, venue = %line.venue(), "[Group] reply not sent");
                     keep_ledger(&venue).await;
-                    return sent;
+                    return went_out.join("\n");
                 }
             }
         }
     }
     keep_ledger(&venue).await;
-    sent
+    went_out.join("\n")
 }
 
 pub(super) async fn lookup(db: &DatabaseConnection, line: &GroupLine) -> Option<PairingLookup> {

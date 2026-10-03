@@ -56,6 +56,11 @@ const CUT_OFF_SEEN: &str = "partial";
 /// Spoken: the text ran ahead of her voice; how much they heard is unknown.
 const CUT_OFF_SPOKEN: &str = "unheard_end";
 
+/// Sent through a chat app, it never went out.
+pub const CUT_OFF_UNSENT: &str = "unsent";
+/// Sent through a chat app, only its first messages went out.
+pub const CUT_OFF_PART_SENT: &str = "part_sent";
+
 pub fn cut_off_kind(voice: bool) -> &'static str {
     if voice { CUT_OFF_SPOKEN } else { CUT_OFF_SEEN }
 }
@@ -69,6 +74,10 @@ fn cut_off_marker(role: &str, metadata: Option<&Value>) -> Option<&'static str> 
         CUT_OFF_SEEN => Some(" [cut off here: they spoke before you finished]"),
         CUT_OFF_SPOKEN => {
             Some(" [cut off while saying this: they spoke over you and may not have heard the end]")
+        }
+        CUT_OFF_UNSENT => Some(" [this never reached them: it did not go out]"),
+        CUT_OFF_PART_SENT => {
+            Some(" [only the start of this reached them: the rest did not go out]")
         }
         _ => None,
     }
@@ -574,6 +583,14 @@ mod tests {
         assert!(read("assistant", cut_off_kind(true)).ends_with("may not have heard the end]"));
         assert_eq!(read("user", cut_off_kind(false)), "我觉得海边挺好的，因为");
         assert_eq!(read("assistant", "other"), "我觉得海边挺好的，因为");
+        // Through a chat app: what never went out, or went out only in part.
+        assert!(
+            read("assistant", CUT_OFF_UNSENT)
+                .ends_with("[this never reached them: it did not go out]")
+        );
+        assert!(
+            read("assistant", CUT_OFF_PART_SENT).contains("only the start of this reached them")
+        );
     }
 
     #[test]

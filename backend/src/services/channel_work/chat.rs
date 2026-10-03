@@ -18,10 +18,11 @@ use std::time::{Duration, Instant};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures::StreamExt;
 use myriad_agent_rules::channel::{ChannelImageRef, split_channel_text};
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 use tracing::warn;
 
+use crate::services::agent::chat_prompt::{CUT_OFF_PART_SENT, CUT_OFF_UNSENT};
 use crate::services::agent::run::{ProcessContext, ProcessRequest};
 use crate::services::agent::types::ChannelChat;
 use crate::services::agent::{AgentInteractionMode, AgentProgressEvent};
@@ -31,7 +32,10 @@ use crate::services::runtime_registry::{self as shared_registry, RegistryIdentit
 use super::{ChannelSink, cache_inbound_images, is_active, load_session, put_session};
 
 /// Longest she takes over one reply before giving up on it.
+/// How long she shows typing while she thinks.
 const TURN_DEADLINE: Duration = Duration::from_secs(90);
+/// How long a slow reply is still worth sending: late, as anyone answers late.
+const LATE_REPLY: Duration = Duration::from_secs(600);
 const TYPING_EVERY: Duration = Duration::from_secs(4);
 /// What she handed off still counts as recent this long.
 const HANDED_OFF_FOR: chrono::Duration = chrono::Duration::hours(24);
@@ -348,6 +352,7 @@ async fn answer(
         let _ = sink.send_text("无法保存通道会话，请稍后重试。").await;
         return;
     };
+    let chat_session_id_for_mark = chat_session_id.clone();
     let cached = match cache_inbound_images(&db, user_id, &sink.transport, images).await {
         Ok(data) => data,
         Err(message) => {
@@ -395,7 +400,10 @@ async fn answer(
             return;
         }
     };
+    let run_id = run.run_id().to_string();
     let Some(response) = await_reply(run, &sink).await else {
+        // Whatever she ended up with did not go out: she should know.
+        mark_delivery(&db, &chat_session_id_for_mark, &run_id, CUT_OFF_UNSENT).await;
         return;
     };
     let message = response
@@ -407,6 +415,7 @@ async fn answer(
     // her, typed the way they type to her, typing each first.
     let lines = myriad_agent_rules::channel::as_messages(message);
     let most = myriad_merope::talk_shape::messages_this_turn(lines.len(), rand::random::<f64>());
+    let mut sent_any = false;
     for (index, line) in myriad_merope::talk_shape::goes_out_as(&lines, most, room.as_ref())
         .into_iter()
         .enumerate()
@@ -425,8 +434,15 @@ async fn answer(
         }
         for chunk in split_channel_text(&line, sink.text_limit()) {
             if sink.send_text(&chunk).await.is_err() {
+                let kind = if sent_any {
+                    CUT_OFF_PART_SENT
+                } else {
+                    CUT_OFF_UNSENT
+                };
+                mark_delivery(&db, &chat_session_id_for_mark, &run_id, kind).await;
                 return;
             }
+            sent_any = true;
         }
     }
     // A sticker she chose goes after her words; one she is making, when it
@@ -630,18 +646,44 @@ fn model_copy(bytes: &[u8]) -> Option<String> {
     Some(format!("data:image/jpeg;base64,{}", STANDARD.encode(out)))
 }
 
+/// What became of her reply in the chat app, kept on her line of it: she
+/// reads it back as said only if it went out.
+async fn mark_delivery(db: &DatabaseConnection, chat_session_id: &str, run_id: &str, kind: &str) {
+    let marked = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE agent_messages \
+             SET metadata = (COALESCE(metadata::jsonb, '{}'::jsonb) || jsonb_build_object($3::text, $4::text))::json \
+             WHERE session_id = $1 AND role = 'assistant' AND metadata ->> 'runId' = $2",
+            [
+                chat_session_id.into(),
+                run_id.into(),
+                crate::services::agent::chat_prompt::CUT_OFF_KEY.into(),
+                kind.into(),
+            ],
+        ))
+        .await;
+    if let Err(error) = marked {
+        warn!(%error, kind, "her reply did not go out, and that was not kept");
+    }
+}
+
 async fn await_reply(
     run: std::sync::Arc<crate::services::agent::run_hub::AgentRun>,
     sink: &ChannelSink,
 ) -> Option<Value> {
     let mut events = Box::pin(crate::services::agent::run::agent_run_envelopes(run));
     let mut typing = tokio::time::interval(TYPING_EVERY);
-    let deadline = tokio::time::sleep(TURN_DEADLINE);
+    let deadline = tokio::time::sleep(LATE_REPLY);
     tokio::pin!(deadline);
+    let began = Instant::now();
     loop {
         tokio::select! {
             _ = &mut deadline => return None,
-            _ = typing.tick() => sink.send_typing().await,
+            // Typing shows while she thinks; after that she is just slow.
+            _ = typing.tick() => if began.elapsed() < TURN_DEADLINE {
+                sink.send_typing().await;
+            },
             envelope = events.next() => match envelope?.event {
                 AgentProgressEvent::TaskCompleted { success, response, .. } => {
                     return success.then_some(*response);

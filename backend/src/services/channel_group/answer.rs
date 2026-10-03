@@ -153,9 +153,10 @@ pub(super) async fn say_and_send(
     let venue = message.venue();
     let mut sent = false;
     if !reply.trim().is_empty() {
-        sent = deliver(message, token, reply, began).await;
+        let went_out = deliver(message, token, reply, began).await;
+        sent = !went_out.is_empty();
         if sent {
-            record_hers(&venue, reply).await;
+            record_hers(&venue, &went_out).await;
         }
     }
     if let Some(chosen) = sticker {
