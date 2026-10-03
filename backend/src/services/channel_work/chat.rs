@@ -114,7 +114,7 @@ struct KeptImage {
     size: u64,
 }
 
-/// What came in a private chat while she was asleep.
+/// What came in a private chat that she has not answered yet.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Waiting {
     user_id: i32,
@@ -123,7 +123,8 @@ struct Waiting {
     images: Vec<KeptImage>,
 }
 
-/// Keep what she has not seen in this chat, while she sleeps.
+/// Keep what she has not answered in this chat, so a restart before she
+/// does (asleep, about to read it, or mid-reply) does not lose it.
 async fn keep_waiting(
     db: &DatabaseConnection,
     session_key: &str,
@@ -165,7 +166,7 @@ async fn keep_waiting(
     )
     .await
     {
-        warn!(%error, "[Channel] could not keep a message that came while she slept");
+        warn!(%error, "[Channel] could not keep a message she has not answered");
     }
 }
 
@@ -173,9 +174,9 @@ async fn forget_waiting(db: &DatabaseConnection, session_key: &str) {
     let _ = shared_registry::delete(db, WAITING_NS, session_key).await;
 }
 
-/// After a restart: what came in private chats while she slept, waited on
-/// again until she wakes, each in the chat it came in. A chat no longer
-/// paired, or a platform turned off, lets it go.
+/// After a restart: what came in private chats that she had not answered,
+/// waited on again (until she wakes, if she is asleep), each in the chat it
+/// came in. A chat no longer paired, or a platform turned off, lets it go.
 pub(crate) async fn take_back_waiting(db: &DatabaseConnection) {
     let rows = shared_registry::list(db, WAITING_NS, None, None)
         .await
@@ -222,7 +223,7 @@ pub(crate) async fn take_back_waiting(db: &DatabaseConnection) {
             .collect();
         let texts = waiting.texts.join("\n");
         let (db, user_id, work_session_id) = (db.clone(), waiting.user_id, waiting.work_session_id);
-        tracing::info!("[Channel] what came while she slept, waited on again after a restart");
+        tracing::info!("[Channel] what she had not answered, waited on again after a restart");
         tokio::spawn(async move {
             start_chat_turn(
                 db,
@@ -254,9 +255,11 @@ pub(super) async fn start_chat_turn(
 ) {
     use crate::services::agent::merope::group::timing;
     let may_sleep = can_answer_later(sink.platform());
+    // Where she can answer later, what she has not answered survives a
+    // restart: asleep or awake, before she reads it or while she answers.
     if !take_in(session_key, input, images) {
-        // Read with the first; kept with it while she sleeps.
-        if may_sleep && timing::asleep_now().is_some() {
+        // Read with the first; kept with it.
+        if may_sleep {
             keep_waiting(&db, session_key, user_id, &work_session_id).await;
         }
         return;
@@ -268,7 +271,7 @@ pub(super) async fn start_chat_turn(
         .is_some_and(|at| at.elapsed() < IN_TALK)
         || wrote_lately(&db, user_id).await;
     let at = timing::where_she_is(talking, may_sleep);
-    if matches!(at, myriad_merope::timing::Where::Asleep { .. }) {
+    if may_sleep {
         keep_waiting(&db, session_key, user_id, &work_session_id).await;
     }
     let wait = timing::until_read(at, input);
@@ -291,7 +294,6 @@ pub(super) async fn start_chat_turn(
             return;
         };
         drop(seeing);
-        forget_waiting(&db, &session_key).await;
         let input = seen
             .texts
             .iter()
@@ -302,7 +304,7 @@ pub(super) async fn start_chat_turn(
         super::runtime::with_chat_lock(
             &session_key,
             answer(
-                db,
+                db.clone(),
                 user_id,
                 work_session_id,
                 &input,
@@ -312,6 +314,14 @@ pub(super) async fn start_chat_turn(
             ),
         )
         .await;
+        // Answered (or given up on): no longer waiting. What came while she
+        // answered is waiting on its own turn, kept again as it came in.
+        if !UNSEEN
+            .lock()
+            .is_ok_and(|unseen| unseen.contains_key(&session_key))
+        {
+            forget_waiting(&db, &session_key).await;
+        }
         if let Ok(mut last) = LAST_REPLY.lock() {
             if last.len() >= CHATS_KEPT {
                 last.retain(|_, at| at.elapsed() < IN_TALK);
