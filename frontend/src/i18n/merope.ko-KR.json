@@ -469,6 +469,8 @@
       "proactive": "먼저 보낸 것",
       "proactiveCount": "{sent}개, 답장 {answered}개",
       "learned": "새로 알게 된 것",
+      "groups": "그룹에서 그녀가 말한 비율",
+      "groupsCount": "{lines}줄 중 {hers}줄이 그녀, 다른 {others}명",
       "alerts": {
         "unreadable": "그녀 자신의 기록 {count}건을 읽을 수 없음",
         "failedCalls": "호출 {calls}회 중 {failed}회 실패",

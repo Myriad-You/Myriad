@@ -783,6 +783,8 @@ export interface MindVitalsDay {
   proactiveAnswered?: number
   /** New things she learned that day; null on days counted before this was. */
   learned?: number | null
+  /** Each group that talked that day: lines, hers among them, others talking. */
+  groups?: { venue: string; lines: number; hers: number; others: number }[]
   alerts: MindAlert[]
 }
 

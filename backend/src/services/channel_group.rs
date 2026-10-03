@@ -83,6 +83,7 @@ use speaking_up::*;
 use transcript::*;
 use turns::*;
 
+pub(crate) use ledger::talk_between;
 pub use line::GroupLine;
 pub use memory::{catch_up, groups_lately, record, take_back_kept};
 pub use muting::muted;

@@ -224,6 +224,8 @@ pub async fn count(db: &DatabaseConnection, day: NaiveDate) -> Day {
     .filter_map(|row| row.try_get::<bool>("", "answered").ok())
     .collect();
     counted.learned = unified::learned_between(db, start, end).await.ok();
+    counted.groups =
+        crate::services::channel_group::talk_between(db, start.timestamp(), end.timestamp()).await;
     counted.proactive = first.len() as u64;
     counted.proactive_answered = first.iter().filter(|answered| **answered).count() as u64;
     counted

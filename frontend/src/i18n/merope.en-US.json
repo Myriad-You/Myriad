@@ -469,6 +469,8 @@
       "proactive": "Written first",
       "proactiveCount": "{sent}, {answered} answered",
       "learned": "Learned something new",
+      "groups": "Her share in groups",
+      "groupsCount": "{hers} of {lines} lines hers, {others} others talking",
       "alerts": {
         "unreadable": "{count} of her own records cannot be read back",
         "failedCalls": "{failed} of {calls} calls failed",

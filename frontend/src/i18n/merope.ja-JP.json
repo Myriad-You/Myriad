@@ -469,6 +469,8 @@
       "proactive": "自分から",
       "proactiveCount": "{sent} 件、返事 {answered} 件",
       "learned": "新しく知ったこと",
+      "groups": "グループでの発言の割合",
+      "groupsCount": "{lines} 行中 {hers} 行が彼女、ほかに {others} 人",
       "alerts": {
         "unreadable": "彼女自身の記録 {count} 件が読み戻せない",
         "failedCalls": "{calls} 回中 {failed} 回失敗",
