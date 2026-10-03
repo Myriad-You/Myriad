@@ -41,7 +41,14 @@ fn learned() -> sea_orm::Condition {
         .add(
             Condition::all()
                 .add(agent_memories::Column::UserId.is_not_null())
-                .add(agent_memories::Column::Source.is_in(LEARNED_ABOUT_SOMEONE)),
+                .add(agent_memories::Column::Source.is_in(LEARNED_ABOUT_SOMEONE))
+                // A sore she let go is kept among what she knows of them,
+                // but forgiving is not learning anything new.
+                .add(
+                    Condition::any()
+                        .add(agent_memories::Column::Evidence.is_null())
+                        .add(agent_memories::Column::Evidence.not_like("%\"letGo\"%")),
+                ),
         )
         .add(agent_memories::Column::Source.eq(LEARNED_HEARD))
         .add(
