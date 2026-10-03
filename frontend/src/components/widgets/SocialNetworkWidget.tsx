@@ -1454,6 +1454,16 @@ export const SocialNetworkWidget = memo(
     const isPopupType = popupPlatformData !== null
     const hasInteraction = !isEditMode && !!userId
 
+    // 跳外站的平台渲染成真链接：右键复制、中键新开、长按菜单都归浏览器。
+    const linkUrl = useMemo(() => {
+      if (!hasInteraction || popupPlatformData?.popupData.text) return null
+      if (userId === '__popup__') return null
+      const url = selectedPlatform.getUserUrl(
+        userId === '__direct_url__' ? '' : userId,
+      )
+      return url && url !== '#' ? url : null
+    }, [hasInteraction, popupPlatformData, selectedPlatform, userId])
+
     const handleClick = useCallback(async () => {
       // 长按打开设置时不要当点击跳转。
       if (isLongPressRef.current) {
@@ -1851,9 +1861,9 @@ export const SocialNetworkWidget = memo(
           }
           rootProps={{
             ...containerHoverProps,
-            role: hasInteraction ? 'button' : undefined,
-            tabIndex: hasInteraction ? 0 : undefined,
-            'aria-label': hasInteraction
+            role: hasInteraction && !linkUrl ? 'button' : undefined,
+            tabIndex: hasInteraction && !linkUrl ? 0 : undefined,
+            'aria-label': hasInteraction && !linkUrl
               ? `${selectedPlatform.name}: ${t.socialNetwork.clickToVisit}`
               : undefined,
             onClick: handleClick,
@@ -1868,6 +1878,18 @@ export const SocialNetworkWidget = memo(
           }}
         >
           {content}
+          {linkUrl && (
+            <a
+              href={linkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              draggable={false}
+              className="absolute inset-0 z-[2]"
+              aria-label={`${selectedPlatform.name}: ${t.socialNetwork.clickToVisit}`}
+              // 根节点的 onClick 会再 window.open 一次。
+              onClick={(event) => event.stopPropagation()}
+            />
+          )}
           <WidgetLongPressHint
             visible={isEditMode}
             title={t.socialNetwork.longPressToEdit}
