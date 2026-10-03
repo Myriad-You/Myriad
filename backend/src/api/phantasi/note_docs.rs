@@ -28,9 +28,7 @@ use crate::services::note_authors::{
     list_note_author_candidates as load_note_author_candidates, load_authors_for_docs,
     remove_note_author, sync_published_author_line,
 };
-use crate::services::note_publish::{
-    datetime_to_millis, millis_to_datetime, publish_doc_on,
-};
+use crate::services::note_publish::{datetime_to_millis, millis_to_datetime, publish_doc_on};
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct NoteDocWriteRequest {

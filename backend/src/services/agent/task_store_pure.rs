@@ -11,8 +11,8 @@
 pub use myriad_agent_rules::session_id_from_lane_key;
 pub use myriad_agent_rules::{
     is_cancellable_task_status, is_terminal_past_retention, is_waiting_input_timed_out,
-    session_id_from_lane_id, status_counts_from_iter,
-    task_status_from_db_str, task_status_to_db_str, waiting_input_timeout_error,
+    session_id_from_lane_id, status_counts_from_iter, task_status_from_db_str,
+    task_status_to_db_str, waiting_input_timeout_error,
 };
 
 #[cfg(test)]

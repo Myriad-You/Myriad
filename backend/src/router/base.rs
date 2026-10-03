@@ -520,7 +520,7 @@ mod config_mode_route_tests {
         let body = &src[start..];
         assert!(
             body.contains("public_media_routes"),
-            "web process must serve /media/federation and /media/assets"
+            "web process must serve /media/assets"
         );
     }
 }

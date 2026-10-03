@@ -58,7 +58,6 @@ Persona WebSocket upgrades are rejected (400). `/internal/*` is 404 at the edge.
 | `/nodeinfo/2.1` | NodeInfo document |
 | `/inbox` | Shared ActivityPub inbox |
 | `/users/*` | Actor documents and per-user inboxes |
-| `/media/federation/*` | Public Note attachment media (Image/Video); must not hit SPA |
 | `/activities/*` `/notes/*` `/reports/*` `/tapps/*` `/library/*` `/phantasi/articles/*` | ActivityPub object dereference (prefix longer than the SEO index path) |
 
 Exact `/reports` and `/library` stay on the SEO / SPA owners below. They are
@@ -110,13 +109,14 @@ small chat messages still work.
 Outer reverse proxies (Nginx/Caddy/CDN) must either pass the **whole site** to
 Myriad `proxy`, or explicitly allowlist the same ActivityPub **and media** paths
 above. Proxying only `/api` breaks remote WebFinger/inbox federation **and**
-federation Note attachment images/videos (upload may still succeed via `/api/federation/media`,
-but public GET `/media/federation/{userId}/{file}` never reaches the stack).
+site media (uploads may still succeed, but public GET
+`/media/assets/{uuid}/{file}` never reaches the stack; it is served by **web**,
+see [MEDIA.md](MEDIA.md)).
 
 Quick smoke (after deploy, replace host + a real uploaded file path):
 
 ```bash
-curl -sI "https://your.domain/media/federation/1/<uuid>.jpg" | head -5
+curl -sI "https://your.domain/media/assets/<uuid>/<file>.jpg" | head -5
 # expect: HTTP/2 200 (or 404 if file missing) — NOT text/html SPA shell
 
 # Transfer download (auth cookie required; expect attachment headers, not SPA HTML)
@@ -134,7 +134,7 @@ only when the proxy must listen on a non-default host port.
 
 | Service | Local port | Started by | Notes |
 | --- | --- | --- | --- |
-| frontend dev server | `1102` | `pnpm dev` in `frontend/` | Serves the app. Vite dev proxy matches production `is_backend_path` (`/api/*`, health/SEO, webfinger/inbox/`/users/*`/`/media/federation/*`). It does **not** upgrade WebSockets, does **not** split persona/federation onto workers, and does **not** claim ActivityPub object prefixes such as `/activities/*`. |
+| frontend dev server | `1102` | `pnpm dev` in `frontend/` | Serves the app. Vite dev proxy matches production `is_backend_path` (`/api/*`, health/SEO, webfinger/inbox/`/users/*`, site media `/media/assets/*`). It does **not** upgrade WebSockets, does **not** split persona/federation onto workers, and does **not** claim ActivityPub object prefixes such as `/activities/*`. |
 | backend | `1103` | `cargo run --bin myriad-backend` in `backend/` | Combined process (`MYRIAD_PROCESS_ROLE=all`). Production rejects `all`. |
 | postgres dev | `5432` | `docker compose -f docker-compose.dev.yml up -d postgres` | Uses the `postgres_dev_data` named volume. |
 | proxy | not started | n/a | Production-only in the normal dev loop. |

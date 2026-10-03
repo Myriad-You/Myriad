@@ -1591,9 +1591,8 @@ async fn postgres_retiring_old_addresses_rewrites_content_then_drops_the_tables(
     assert_eq!(rewritten, 3, "note body, note cover, wallpaper");
     let fed_url = federated.public_path.clone().unwrap();
     let cache_url = cached.public_path.clone().unwrap();
-    let note = f
-        .db
-        .query_one_raw(Statement::from_string(
+    let note =
+        f.db.query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT content_md, image FROM phantasi_note_docs WHERE id = 5",
         ))
@@ -1618,9 +1617,8 @@ async fn postgres_retiring_old_addresses_rewrites_content_then_drops_the_tables(
         .unwrap()
         .unwrap();
     assert_eq!(row.url, fed_url);
-    let leftovers = f
-        .db
-        .query_one_raw(Statement::from_string(
+    let leftovers =
+        f.db.query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT (SELECT count(*) FROM media_assets WHERE state IS NULL)::int AS unmigrated,
                     (SELECT count(*) FROM media_assets WHERE state = 'missing')::int AS missing,

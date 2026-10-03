@@ -1537,7 +1537,9 @@ async fn the_support_floor_refuses_an_unmarked_old_database() {
         .set_schema_search_path(&schema)
         .max_connections(1)
         .sqlx_logging(false);
-    let db = Database::connect(options).await.expect("connect test schema");
+    let db = Database::connect(options)
+        .await
+        .expect("connect test schema");
     db.execute_unprepared(
         "CREATE TABLE seaql_migrations (version varchar PRIMARY KEY, applied_at bigint NOT NULL);
          INSERT INTO seaql_migrations VALUES ('m20240101_000001_initial_schema', 0)",
@@ -1556,7 +1558,10 @@ async fn the_support_floor_refuses_an_unmarked_old_database() {
         .await
         .expect("drop test schema");
     let error = refused.expect_err("an unmarked old database is refused");
-    assert!(error.to_string().contains("upgrade to 0.6.1 first"), "{error}");
+    assert!(
+        error.to_string().contains("upgrade to 0.6.1 first"),
+        "{error}"
+    );
     fresh.expect("a new database migrates");
 }
 
@@ -1580,7 +1585,9 @@ async fn an_unfinished_media_upgrade_is_refused() {
         .set_schema_search_path(&schema)
         .max_connections(1)
         .sqlx_logging(false);
-    let db = Database::connect(options).await.expect("connect test schema");
+    let db = Database::connect(options)
+        .await
+        .expect("connect test schema");
     db.execute_unprepared(
         "CREATE TABLE media_migration_jobs (id SERIAL PRIMARY KEY, source_kind TEXT NOT NULL,
              source_key TEXT NOT NULL, cursor TEXT);

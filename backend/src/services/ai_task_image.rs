@@ -107,7 +107,6 @@ pub fn validate_task_input(
 
 fn is_local_media_reference(source: &str) -> bool {
     source.starts_with("/media/assets/")
-        || source.starts_with("/media/federation/")
         || (source.starts_with("/api/phantasi/image-cache/")
             && ImageCacheService::new()
                 .local_path_for_public_url(source)

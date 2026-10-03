@@ -75,10 +75,9 @@ client -> optional TLS entrypoint -> Myriad proxy:${HTTP_PORT:-80}
 | `/nodeinfo/2.1` | NodeInfo 文档（federation-worker） |
 | `/inbox` | 共享 Inbox（federation-worker） |
 | `/users/*` | Actor / outbox / followers / avatar（federation-worker） |
-| `/media/federation/*` | **Note 附件媒体（图片/视频公开 GET）**（federation-worker） |
 | `/activities/*` `/notes/*` `/reports/*` `/tapps/*` `/library/*` `/phantasi/articles/*` | ActivityPub 对象解引用（前缀长于 SEO 索引路径；federation-worker） |
 
-完整表见 [PORTS.md](./PORTS.md)。漏掉 `/media/federation/*` 时，联邦发帖可成功，但时间线图片会空白（请求落到 SPA）。这些路径由 proxy 交给 **federation-worker**，不是 web。
+完整表见 [PORTS.md](./PORTS.md)。这些路径由 proxy 交给 **federation-worker**，不是 web。站点媒体 `/media/assets/*` 由 **web** 提供，同样不能落到 SPA：漏掉时上传可成功，但图片会空白。
 只应信任实际代理节点，并在防火墙中限制 `HTTP_PORT` 不能被客户端绕过代理直连。
 
 ### Docker + 宿主反向代理（常见天气定位错误）
@@ -205,7 +204,7 @@ server {
 视角下的固定源地址或最窄 CIDR 写入 `PROXY_TRUSTED_UPSTREAMS`；保持为空时
 转发头会被忽略，定位和审计会使用 Docker 网桥对端地址。
 
-**不要**写成分路径只放行 `/api`（除非你完整复制 [PORTS.md](./PORTS.md) 的 proxy 分流表，且包含 `/media/federation/` 与 ActivityPub 对象路径）。
+**不要**写成分路径只放行 `/api`（除非你完整复制 [PORTS.md](./PORTS.md) 的 proxy 分流表，且包含 `/media/assets/` 与 ActivityPub 对象路径）。
 
 ## 验证
 
