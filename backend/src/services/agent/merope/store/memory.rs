@@ -51,7 +51,7 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<C: 
         kept |= apply_chat_memory_update_on(db, user_id, input_at, update, present).await?;
     }
     if (updates.said.is_empty() && updates.put_onto.is_empty())
-        || !chat_memory_input_is_current(db, user_id, input_at).await?
+        || !chat_memory_input_is_current(db, user_id, input_at, present).await?
     {
         return Ok(kept);
     }
@@ -98,6 +98,9 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_updates_on<C: 
         .await?;
         kept |= remembered.is_some();
     }
+    if kept {
+        mark_applied(db, user_id, input_at, present).await?;
+    }
     Ok(kept)
 }
 
@@ -114,7 +117,7 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     // Always acquire in this order. Event-memory writers only take the second.
     lock_addressee(db, user_id).await?;
     lock_persona_memory(db, user_id).await?;
-    if !chat_memory_input_is_current(db, user_id, input_at).await? {
+    if !chat_memory_input_is_current(db, user_id, input_at, present).await? {
         return Ok(false);
     }
     use crate::services::agent::memory::unified;
@@ -155,22 +158,74 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
         )
         .await?;
     }
-    Ok(!targets.is_empty() || insert.is_some())
+    let applied = !targets.is_empty() || insert.is_some();
+    if applied {
+        mark_applied(db, user_id, input_at, present).await?;
+    }
+    Ok(applied)
 }
 
+/// Where what they said was last gone over, per person and place.
+const APPLIED_NAMESPACE: &str = "merope_memory_applied";
+/// Longer than any memory job is kept: no older input can still arrive.
+const APPLIED_KEPT_SECS: i64 = 3 * 86_400;
+
+fn applied_key(
+    user_id: i32,
+    present: &crate::services::agent::memory::unified::Audience,
+) -> String {
+    format!("{user_id}:{}", present.venue())
+}
+
+/// Whether what they said at `input_at` may still change what she knows of
+/// them: nothing they said later has been gone over yet. They may well have
+/// said more since; that is gone over after this, never instead of it.
 pub(crate) async fn chat_memory_input_is_current<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
     input_at: chrono::DateTime<chrono::FixedOffset>,
+    present: &crate::services::agent::memory::unified::Audience,
 ) -> Result<bool, sea_orm::DbErr> {
     if user_id <= 0 {
         return Ok(false);
     }
-    Ok(agent_addressee_state::Entity::find_by_id(user_id)
-        .one(db)
-        .await?
-        .and_then(|state| state.last_user_message_at)
-        == Some(input_at))
+    let applied = crate::services::runtime_registry::get::<chrono::DateTime<chrono::FixedOffset>>(
+        db,
+        APPLIED_NAMESPACE,
+        &applied_key(user_id, present),
+    )
+    .await?;
+    Ok(applied.is_none_or(|applied| applied <= input_at))
+}
+
+/// What they said at `input_at` has been gone over: anything older that
+/// arrives late may no longer change what she knows.
+async fn mark_applied<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    input_at: chrono::DateTime<chrono::FixedOffset>,
+    present: &crate::services::agent::memory::unified::Audience,
+) -> Result<(), sea_orm::DbErr> {
+    use crate::services::runtime_registry as registry;
+    let key = applied_key(user_id, present);
+    let latest =
+        registry::get::<chrono::DateTime<chrono::FixedOffset>>(db, APPLIED_NAMESPACE, &key)
+            .await?
+            .map_or(input_at, |applied| applied.max(input_at));
+    registry::put(
+        db,
+        APPLIED_NAMESPACE,
+        &key,
+        registry::RegistryIdentity {
+            subject_id: Some(user_id),
+            owner_id: Some(user_id),
+            tapp_id: None,
+            runtime_id: None,
+        },
+        &latest,
+        chrono::Utc::now().timestamp() + APPLIED_KEPT_SECS,
+    )
+    .await
 }
 
 /// What the persona remembers about this person, most relevant to `query`

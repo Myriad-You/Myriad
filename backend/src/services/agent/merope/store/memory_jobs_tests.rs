@@ -37,6 +37,7 @@ async fn chat(db: &DatabaseConnection, id: &str, audience: Audience) {
             input_at: input,
             present: audience,
             turn: TurnContext::default(),
+            lines: vec![input],
         },
         None,
     )
@@ -50,6 +51,20 @@ fn fact() -> Effect {
                 fact: Some("养了一只猫叫年糕".into()),
                 supersedes: vec![],
                 evidence: Some("我养了一只猫叫年糕".into()),
+                concepts: vec![],
+            }],
+            said: vec![],
+            put_onto: vec![],
+        },
+    )
+}
+fn fact_of(fact: &str) -> Effect {
+    Effect::Chat(
+        crate::services::agent::merope::chat_remember::ChatMemoryUpdates {
+            updates: vec![ChatMemoryUpdate {
+                fact: Some(fact.into()),
+                supersedes: vec![],
+                evidence: Some(fact.into()),
                 concepts: vec![],
             }],
             said: vec![],
@@ -159,11 +174,7 @@ async fn durable_memory_retries_are_finite_and_revalidate_input_persona_and_sess
             .unwrap();
         assert!(loaded(db, id).await.data.is_none());
     }
-    chat(db, "old_input", Audience::private(7)).await;
-    let old = claim(db).await.unwrap().unwrap();
-    chat(db, "new_input", Audience::private(7)).await;
-    finish(db, &old, Ok(fact())).await.unwrap();
-    assert_eq!(facts(db).await, 0);
+    chat(db, "epoch", Audience::private(7)).await;
     let fresh = claim(db).await.unwrap().unwrap();
     db.execute_unprepared("UPDATE users SET token_version=token_version+1 WHERE id=7")
         .await
@@ -199,6 +210,111 @@ async fn durable_memory_retries_are_finite_and_revalidate_input_persona_and_sess
             .is_none()
     );
     assert_eq!(facts(db).await, 0);
+
+    // A later line does not cost an earlier one its fact. Once the later one
+    // has been gone over, an earlier one arriving late changes nothing.
+    chat(db, "earlier", Audience::private(7)).await;
+    let earlier = claim(db).await.unwrap().unwrap();
+    let Some(Payload::Chat {
+        input_at: earlier_at,
+        ..
+    }) = earlier.job.data.clone()
+    else {
+        panic!("chat job")
+    };
+    chat(db, "later", Audience::private(7)).await;
+    finish(db, &earlier, Ok(fact())).await.unwrap();
+    assert_eq!(facts(db).await, 1, "kept although they said more since");
+    let later = claim(db).await.unwrap().unwrap();
+    finish(db, &later, Ok(fact_of("养了一只狗叫豆豆")))
+        .await
+        .unwrap();
+    assert_eq!(facts(db).await, 2);
+    enqueue(
+        db,
+        "late",
+        7,
+        Payload::Chat {
+            user_text: "我养了一只鹦鹉".into(),
+            reply: "鹦鹉会说话吗".into(),
+            input_at: earlier_at,
+            present: Audience::private(7),
+            turn: TurnContext::default(),
+            lines: vec![earlier_at],
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let late = claim(db).await.unwrap().unwrap();
+    finish(db, &late, Ok(fact_of("养了一只鹦鹉")))
+        .await
+        .unwrap();
+    assert_eq!(facts(db).await, 2, "older than what was already gone over");
+    schema.drop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires MYRIAD_MEROPE_TEST_DATABASE_URL; isolated migrated schema"]
+async fn durable_memory_folds_a_persons_lines_and_keeps_those_said_meanwhile() {
+    let schema = fixture().await;
+    let db = &schema.db;
+    let at = |minutes: i64| chrono::Utc::now().fixed_offset() - chrono::Duration::minutes(minutes);
+    let line = |text: &str, reply: &str, at| Payload::Chat {
+        user_text: text.into(),
+        reply: reply.into(),
+        input_at: at,
+        present: Audience::private(7),
+        turn: TurnContext::default(),
+        lines: vec![at],
+    };
+    let (first, second, third) = (at(3), at(2), at(1));
+    // Held as it lands: not gone over before she answers.
+    enqueue(db, "person", 7, line("下周三我去大阪", "", first), None)
+        .await
+        .unwrap();
+    assert!(claim(db).await.unwrap().is_none(), "waits for her answer");
+    // They said more before she answered: it joins, and so does her answer.
+    enqueue(db, "person", 7, line("带什么好", "", second), None)
+        .await
+        .unwrap();
+    enqueue(db, "person", 7, line("带什么好", "带把伞", second), None)
+        .await
+        .unwrap();
+    let claimed = claim(db).await.unwrap().unwrap();
+    let Some(Payload::Chat {
+        user_text,
+        reply,
+        input_at,
+        lines,
+        ..
+    }) = &claimed.job.data
+    else {
+        panic!("chat job")
+    };
+    assert_eq!(user_text, "下周三我去大阪\n带什么好");
+    assert_eq!(reply, "带把伞");
+    assert_eq!(*input_at, second);
+    assert_eq!(lines.len(), 2);
+    // Said while it is gone over: kept for next, not folded into it.
+    enqueue(db, "person", 7, line("其实是周四", "那周四见", third), None)
+        .await
+        .unwrap();
+    assert!(loaded(db, "person").await.next.is_some());
+    finish(db, &claimed, Ok(fact_of("下周三去大阪")))
+        .await
+        .unwrap();
+    let job = loaded(db, "person").await;
+    assert!(job.next.is_none());
+    let Some(Payload::Chat { user_text, .. }) = &job.data else {
+        panic!("what was said meanwhile is next")
+    };
+    assert_eq!(user_text, "其实是周四");
+    let next = claim(db).await.unwrap().unwrap();
+    finish(db, &next, Ok(fact_of("下周四去大阪")))
+        .await
+        .unwrap();
+    assert_eq!(facts(db).await, 2);
     schema.drop().await;
 }
 

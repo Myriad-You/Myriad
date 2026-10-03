@@ -147,6 +147,14 @@ pub async fn note_user_turn(
     if !is_logged_in_addressee(user_id) {
         return None;
     }
+    // Her saying something first in a group: no one said anything to her.
+    if request
+        .context
+        .as_ref()
+        .is_some_and(|context| context.nobody_said)
+    {
+        return None;
+    }
     if !crate::GLOBAL_DYNAMIC_CONFIG
         .read()
         .await
@@ -163,6 +171,19 @@ pub async fn note_user_turn(
     let after = store::affect_from_state(&saved);
     if !praised && !scolded && !text.trim().is_empty() {
         appraisal::spawn(db.clone(), request, &saved);
+    }
+    // Held for what she keeps of them as they land: a line she does not get
+    // to answer (they said more first) is still gone over.
+    if let Some(input_at) = saved.last_user_message_at {
+        chat_remember::hold_chat_words(
+            db,
+            user_id,
+            text.clone(),
+            input_at,
+            audience_for(request),
+            turn_context(request),
+        )
+        .await;
     }
     // What to try to remember is thought of while the words land.
     if !text.trim().is_empty() {

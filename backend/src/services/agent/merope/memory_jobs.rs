@@ -6,12 +6,20 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum Payload {
+    /// What one person said to her in one place since it was last gone over:
+    /// every line, in order, with her replies so far. A line said while she
+    /// was still answering the one before is not lost; it joins the next.
     Chat {
         user_text: String,
         reply: String,
+        /// The newest line's.
         input_at: chrono::DateTime<chrono::FixedOffset>,
         present: crate::services::agent::memory::unified::Audience,
         turn: super::TurnContext,
+        /// When each line folded in here was said; one held twice (when it
+        /// lands, and again with her reply) is not repeated.
+        #[serde(default)]
+        lines: Vec<chrono::DateTime<chrono::FixedOffset>>,
     },
     Stranger {
         venue: String,
@@ -20,6 +28,73 @@ pub(super) enum Payload {
         count: i64,
     },
 }
+impl Payload {
+    /// Fold a later arrival for the same person and place into this one.
+    /// Their lines join in order; her reply, when there is one, is added.
+    pub(super) fn fold(&mut self, later: Payload) {
+        let (
+            Payload::Chat {
+                user_text,
+                reply,
+                input_at,
+                present,
+                turn,
+                lines,
+            },
+            Payload::Chat {
+                user_text: added_text,
+                reply: added_reply,
+                input_at: added_at,
+                turn: added_turn,
+                lines: added_lines,
+                ..
+            },
+        ) = (self, later)
+        else {
+            return;
+        };
+        let _ = present;
+        if lines.is_empty() {
+            lines.push(*input_at);
+        }
+        let added_lines = if added_lines.is_empty() {
+            vec![added_at]
+        } else {
+            added_lines
+        };
+        if !added_lines.iter().all(|at| lines.contains(at)) {
+            if !added_text.trim().is_empty() {
+                if !user_text.is_empty() {
+                    user_text.push('\n');
+                }
+                user_text.push_str(&added_text);
+            }
+            for at in added_lines {
+                if !lines.contains(&at) {
+                    lines.push(at);
+                }
+            }
+            // What came just before their first line is still what came
+            // before; where they are now is the latest.
+            let before = turn.before.take();
+            *turn = added_turn;
+            turn.before = before.or(turn.before.take());
+        }
+        if !added_reply.trim().is_empty() && !reply.contains(added_reply.trim()) {
+            if !reply.is_empty() {
+                reply.push('\n');
+            }
+            reply.push_str(&added_reply);
+        }
+        *input_at = (*input_at).max(added_at);
+    }
+
+    /// Held as it landed, before she has answered.
+    pub(super) fn awaits_reply(&self) -> bool {
+        matches!(self, Payload::Chat { reply, .. } if reply.trim().is_empty())
+    }
+}
+
 pub(super) enum Effect {
     Chat(chat_remember::ChatMemoryUpdates),
     Stranger {
@@ -122,6 +197,7 @@ async fn prepare(db: &DatabaseConnection, claim: &queue::Claim) -> Result<Effect
             input_at,
             present,
             turn,
+            ..
         } => {
             chat_remember::extract(
                 db,

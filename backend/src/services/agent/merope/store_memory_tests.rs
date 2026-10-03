@@ -63,6 +63,10 @@ async fn test_database() -> DatabaseConnection {
         table.if_not_exists();
         db.execute(&table).await.unwrap();
     }
+    // Where what each person said was last gone over.
+    db.execute_unprepared("CREATE TABLE IF NOT EXISTS runtime_registry (namespace TEXT NOT NULL, record_id TEXT NOT NULL, subject_id INTEGER, owner_id INTEGER, tapp_id TEXT, runtime_id TEXT, payload JSONB NOT NULL, expires_at BIGINT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(namespace,record_id))")
+        .await
+        .unwrap();
     db
 }
 
@@ -322,7 +326,8 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         "late old input cannot retract a newer assertion"
     );
 
-    // The stale check must happen after acquiring the lock, not before waiting.
+    // The check must happen after acquiring the lock, not before waiting: a
+    // newer input gone over while this one waited wins.
     let transaction = db.begin().await.unwrap();
     lock_addressee(&transaction, user_id).await.unwrap();
     let mut late = Box::pin(apply_chat_memory_update(
@@ -336,16 +341,23 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
             .await
             .is_err()
     );
-    let locked = get_or_create_state(&transaction, user_id).await.unwrap();
-    save_affect_on(
-        &transaction,
-        locked,
-        affect_from_state(&second),
-        true,
-        false,
-    )
-    .await
-    .unwrap();
+    let newer = ChatMemoryUpdate {
+        fact: Some("喜欢抹茶".into()),
+        supersedes: vec![],
+        evidence: Some("我喜欢抹茶".into()),
+        concepts: vec![],
+    };
+    assert!(
+        apply_chat_memory_update_on(
+            &transaction,
+            user_id,
+            second_input + chrono::Duration::seconds(1),
+            &newer,
+            &crate::services::agent::memory::unified::Audience::private(user_id),
+        )
+        .await
+        .unwrap()
+    );
     transaction.commit().await.unwrap();
     assert!(!late.await.unwrap());
     assert!(

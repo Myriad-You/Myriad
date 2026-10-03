@@ -307,6 +307,7 @@ impl ConfigService {
     /// without writing: the old AI settings a database still holds until then
     /// are read through the same upgrade. For read-only tools pointed at a
     /// site that has not restarted onto this version.
+    #[cfg(test)]
     pub async fn load_config_upgraded_on(db: &impl ConnectionTrait) -> Result<DynamicConfig> {
         let mut stored = Self::load_stored_on(db).await?;
         let upgraded = legacy_ai_settings::upgrade(&stored);

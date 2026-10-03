@@ -110,6 +110,10 @@ pub struct RequestContext {
     /// her about herself (see `merope::making_sense`). Server-set only.
     #[serde(skip)]
     pub making_sense: Option<String>,
+    /// Her saying something first in a group: the input stands in for words
+    /// no one said, so nothing is noted as theirs. Server-set only.
+    #[serde(skip)]
+    pub nobody_said: bool,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.

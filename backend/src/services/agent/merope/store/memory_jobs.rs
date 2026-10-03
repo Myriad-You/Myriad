@@ -11,6 +11,9 @@ const RETENTION: i64 = 86_400;
 const CAPACITY: i64 = 2048;
 pub(in crate::services::agent::merope) const MAX_ATTEMPTS: u8 = 3;
 const LEASE: i64 = 60;
+/// How long words held as they land wait for her answer before they are gone
+/// over without it.
+const HELD_FOR: i64 = 120;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(in crate::services::agent::merope) struct Job {
@@ -25,6 +28,10 @@ pub(in crate::services::agent::merope) struct Job {
     pub attempts: u8,
     pub claimed_count: usize,
     pub outcome: Option<String>,
+    /// What the same person said while this was being gone over: it is gone
+    /// over next, never dropped and never written ahead of what came before.
+    #[serde(default)]
+    pub next: Option<Payload>,
 }
 #[derive(Debug, Clone)]
 pub(in crate::services::agent::merope) struct Claim {
@@ -94,8 +101,11 @@ pub(in crate::services::agent::merope) async fn forget(
     Ok(())
 }
 
-/// Chat ids are immutable. Stranger ids name a batch; each delivered message
-/// has its own receipt so replay cannot inflate the exchange count.
+/// A chat id names one person in one place: their lines fold into one job
+/// until it is gone over (into `next` while it is). A line held as it lands
+/// waits a while for her reply; the reply makes it ready. Stranger ids name
+/// a batch; each delivered message has its own receipt so replay cannot
+/// inflate the exchange count.
 pub(in crate::services::agent::merope) async fn enqueue(
     db: &DatabaseConnection,
     id: &str,
@@ -116,9 +126,6 @@ pub(in crate::services::agent::merope) async fn enqueue(
         }
     }
     let mut existing = registry::get::<Job>(&tx, NAMESPACE, id).await?;
-    if matches!(data, Payload::Chat { .. }) && existing.is_some() {
-        return Ok(());
-    }
     if existing
         .as_ref()
         .is_some_and(|job| job.persona != persona || job.epoch != epoch || job.owner != owner)
@@ -131,7 +138,12 @@ pub(in crate::services::agent::merope) async fn enqueue(
             [NAMESPACE.into(), now.into()])).await?.unwrap().try_get("", "count")?;
         anyhow::ensure!(count < CAPACITY, "memory queue full");
     }
-    let mut job = existing.filter(|job| job.data.is_some()).unwrap_or(Job {
+    let in_flight = existing
+        .as_ref()
+        .is_some_and(|job| job.token.is_some() && job.lease > now);
+    let mut job = existing
+        .filter(|job| job.data.is_some() || job.next.is_some())
+        .unwrap_or(Job {
         owner,
         persona,
         epoch,
@@ -143,8 +155,31 @@ pub(in crate::services::agent::merope) async fn enqueue(
         attempts: 0,
         claimed_count: 0,
         outcome: None,
+        next: None,
     });
     job.last_arrival = now;
+    if let Payload::Chat { .. } = data {
+        let held = data.awaits_reply();
+        let slot = if in_flight { &mut job.next } else { &mut job.data };
+        match slot {
+            Some(earlier) => earlier.fold(data),
+            None => *slot = Some(data),
+        }
+        if !in_flight {
+            // Held as it lands: wait for her answer, but not forever. Her
+            // answer makes it ready; a failed attempt keeps its backoff.
+            job.ready = if held {
+                job.ready.max(now + HELD_FOR)
+            } else if job.attempts == 0 {
+                now
+            } else {
+                job.ready.max(now)
+            };
+        }
+        save(&tx, id, &job, now).await?;
+        tx.commit().await?;
+        return Ok(());
+    }
     match (&mut job.data, data) {
         (
             Some(Payload::Stranger {
@@ -244,6 +279,7 @@ pub(in crate::services::agent::merope) async fn claim(
             // batch; exchanges appended meanwhile still deserve a turn.
             let count = job.claimed_count;
             consume(&mut job, count, now, "attempts_exhausted");
+            promote_next(&mut job, now);
             save(&tx, &id, &job, now).await?;
             continue;
         }
@@ -283,11 +319,32 @@ pub(in crate::services::agent::merope) async fn current(
     {
         return Ok(false);
     }
-    if let Some(Payload::Chat { input_at, .. }) = &job.data {
-        return Ok(super::chat_memory_input_is_current(db, job.owner, *input_at).await?);
+    if let Some(Payload::Chat {
+        input_at, present, ..
+    }) = &job.data
+    {
+        return Ok(super::chat_memory_input_is_current(db, job.owner, *input_at, present).await?);
     }
     Ok(true)
 }
+/// Once what was gone over is done, what arrived meanwhile is next.
+fn promote_next(job: &mut Job, now: i64) {
+    let Some(next) = job.next.take() else {
+        return;
+    };
+    match &mut job.data {
+        Some(data) => data.fold(next),
+        None => {
+            job.ready = if next.awaits_reply() {
+                now + HELD_FOR
+            } else {
+                now
+            };
+            job.data = Some(next);
+        }
+    }
+}
+
 fn consume(job: &mut Job, count: usize, now: i64, outcome: &str) {
     if let Some(Payload::Stranger { exchanges, .. }) = &mut job.data {
         exchanges.drain(..count.min(exchanges.len()));
@@ -333,6 +390,9 @@ pub(in crate::services::agent::merope) async fn finish(
     match result {
         Err(failure) if failure.retryable() && job.attempts < MAX_ATTEMPTS => {
             outcome = failure.to_string();
+            if let (Some(data), Some(next)) = (&mut job.data, job.next.take()) {
+                data.fold(next);
+            }
             job.ready = now + if job.attempts == 1 { 5 } else { 30 };
             job.lease = 0;
             job.token = None;
@@ -386,6 +446,7 @@ pub(in crate::services::agent::merope) async fn finish(
                 _ => 0,
             };
             consume(&mut job, count, now, &outcome);
+            promote_next(&mut job, now);
         }
     }
     save(&tx, &claim.id, &job, now).await?;

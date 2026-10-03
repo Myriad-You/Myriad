@@ -260,6 +260,50 @@ pub async fn enqueue_chat_remember(
     present: crate::services::agent::memory::unified::Audience,
     turn: super::TurnContext,
 ) {
+    queue_chat_words(
+        db,
+        user_id,
+        user_text,
+        compact_summary(&reply),
+        input_at,
+        present,
+        turn,
+    )
+    .await;
+}
+
+/// Their words as they land, before she answers: held for what she keeps of
+/// them, so a line she is cut off from answering (they said more first) is
+/// still gone over, with the next.
+pub(super) async fn hold_chat_words(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    user_text: String,
+    input_at: chrono::DateTime<chrono::FixedOffset>,
+    present: crate::services::agent::memory::unified::Audience,
+    turn: super::TurnContext,
+) {
+    queue_chat_words(
+        db,
+        user_id,
+        user_text,
+        String::new(),
+        Some(input_at),
+        present,
+        turn,
+    )
+    .await;
+}
+
+async fn queue_chat_words(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    user_text: String,
+    reply: String,
+    input_at: Option<chrono::DateTime<chrono::FixedOffset>>,
+    present: crate::services::agent::memory::unified::Audience,
+    turn: super::TurnContext,
+) {
     let Some(input_at) = input_at else {
         return;
     };
@@ -269,18 +313,15 @@ pub async fn enqueue_chat_remember(
     if !is_logged_in_addressee(user_id) || !should_extract_chat_remember(&user_text) {
         return;
     }
-    let id = super::memory_jobs::key(&[
-        "chat",
-        &user_id.to_string(),
-        &input_at.to_rfc3339(),
-        &present.venue(),
-    ]);
+    // One job per person and place: their lines fold into it in order.
+    let id = super::memory_jobs::key(&["chat", &user_id.to_string(), &present.venue()]);
     let data = super::memory_jobs::Payload::Chat {
         user_text,
-        reply: compact_summary(&reply),
+        reply,
         input_at,
         present,
         turn,
+        lines: vec![input_at],
     };
     if !matches!(
         tokio::time::timeout(
