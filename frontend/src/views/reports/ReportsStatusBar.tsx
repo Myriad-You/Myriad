@@ -34,8 +34,8 @@ const MARQUEE_START_HOLD_MS = 1400
 const MARQUEE_END_HOLD_MS = 900
 const SLIDE_EASE = [0.32, 0.72, 0, 1] as const
 
-/** Signed-in viewer for own-report tips. Null when guest. */
-export interface ViewerIdentity {
+/** Site owner: the reports are theirs, whoever is viewing. */
+export interface OwnerIdentity {
   name?: string | null
   avatarUrl?: string | null
 }
@@ -53,8 +53,8 @@ interface Props {
   hasEnabledPlatforms: boolean
   isAdmin: boolean
   refreshingStage: boolean
-  /** Guests: empty-state tips have no glyph. */
-  viewer?: ViewerIdentity | null
+  /** Null until the owner profile loads: tips render without a glyph. */
+  owner?: OwnerIdentity | null
   highlights?: ReportHighlight[]
   copy: ReportsStatusCopy
   actionTitles: {
@@ -79,13 +79,13 @@ interface Props {
   onCloseStage: () => void
 }
 
-/** Viewer's face stays on their own report tips. */
-function TipGlyph({ viewer }: { viewer?: ViewerIdentity | null }) {
-  if (!viewer) return null
+/** The owner's face sits beside tips about their platforms. */
+function TipGlyph({ owner }: { owner?: OwnerIdentity | null }) {
+  if (!owner) return null
   return (
     <Avatar
-      src={viewer.avatarUrl}
-      name={viewer.name}
+      src={owner.avatarUrl}
+      name={owner.name}
       decorative
       className="rsb-portrait"
     />
@@ -199,7 +199,7 @@ export default function ReportsStatusBar({
   hasEnabledPlatforms,
   isAdmin,
   refreshingStage,
-  viewer,
+  owner,
   highlights,
   copy,
   actionTitles,
@@ -308,7 +308,7 @@ export default function ReportsStatusBar({
             role="status"
             aria-label={tip.sub ? `${tip.main}. ${tip.sub}` : tip.main}
           >
-            <TipGlyph viewer={viewer} />
+            <TipGlyph owner={owner} />
             <div className="rsb-stack">
               <AnimatePresence initial={false} mode="popLayout">
                 <motion.div

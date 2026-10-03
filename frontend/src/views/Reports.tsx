@@ -40,6 +40,7 @@ import { usePageReady } from '../hooks/animation'
 import { isExlight } from '../hooks/useAnimationLevel'
 import { useHorizontalStripScroll } from '../hooks/useHorizontalStripScroll'
 import { usePageSeo } from '../hooks/usePageSeo'
+import { useSiteOwnerProfile } from '../hooks/useSiteOwnerProfile'
 import {
   useResolvedTitleColor,
   useTitleFont,
@@ -683,8 +684,8 @@ export default function Reports() {
   const {
     isAdmin: authIsAdmin,
     isAuthenticated,
-    user,
   } = useAuth()
+  const { profile: ownerProfile } = useSiteOwnerProfile()
 
   useEffect(() => {
     let cancelled = false
@@ -906,12 +907,9 @@ export default function Reports() {
                     hasEnabledPlatforms={hasEnabledPlatforms}
                     isAdmin={isAdmin}
                     refreshingStage={refreshingStage}
-                    viewer={
-                      isAuthenticated
-                        ? {
-                            name: user?.display_name || user?.username,
-                            avatarUrl: user?.avatar_url,
-                          }
+                    owner={
+                      ownerProfile
+                        ? { name: ownerProfile.name, avatarUrl: ownerProfile.avatar }
                         : null
                     }
                     highlights={reportHighlights}
