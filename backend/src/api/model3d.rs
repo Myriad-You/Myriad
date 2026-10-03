@@ -87,23 +87,12 @@ pub async fn status(State(state): State<AppState>) -> Json<TripoStatusResponse> 
     let dynamic = state.dynamic_config.read().await;
     let enabled = is_enabled(&dynamic);
     let configured = is_configured(&dynamic);
-    let base_url = env_string("TRIPO_BASE_URL")
-        .unwrap_or_else(|| dynamic.tripo_base_url.clone())
-        .trim_end_matches('/')
-        .to_string();
-    let model = env_string("TRIPO_MODEL").unwrap_or_else(|| dynamic.tripo_model.clone());
-    let face_limit = env_i32("TRIPO_FACE_LIMIT")
-        .unwrap_or(dynamic.tripo_face_limit)
-        .clamp(50, 20_000) as u32;
-    let poll_interval_seconds = env_i32("TRIPO_POLL_INTERVAL_SECONDS")
-        .unwrap_or(dynamic.tripo_poll_interval_seconds)
-        .clamp(2, 60) as u64;
-    let task_timeout_seconds = env_i32("TRIPO_TASK_TIMEOUT_SECONDS")
-        .unwrap_or(dynamic.tripo_task_timeout_seconds)
-        .clamp(60, 3_600) as u64;
-    let max_download_mb = env_i32("TRIPO_MAX_DOWNLOAD_MB")
-        .unwrap_or(dynamic.tripo_max_download_mb)
-        .clamp(1, 150) as usize;
+    let base_url = dynamic.tripo_base_url.trim_end_matches('/').to_string();
+    let model = dynamic.tripo_model.clone();
+    let face_limit = dynamic.tripo_face_limit.clamp(50, 20_000) as u32;
+    let poll_interval_seconds = dynamic.tripo_poll_interval_seconds.clamp(2, 60) as u64;
+    let task_timeout_seconds = dynamic.tripo_task_timeout_seconds.clamp(60, 3_600) as u64;
+    let max_download_mb = dynamic.tripo_max_download_mb.clamp(1, 150) as usize;
 
     Json(TripoStatusResponse {
         enabled,
@@ -294,16 +283,6 @@ fn bad_request(message: impl Into<String>) -> (StatusCode, Json<Value>) {
         StatusCode::BAD_REQUEST,
         Json(AppError::public_json(message)),
     )
-}
-
-fn env_string(key: &str) -> Option<String> {
-    std::env::var(key)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-}
-
-fn env_i32(key: &str) -> Option<i32> {
-    env_string(key)?.parse().ok()
 }
 
 #[cfg(test)]

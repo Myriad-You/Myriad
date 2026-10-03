@@ -731,6 +731,7 @@
   "restoreUnresolvedMediaSticker": "대시보드 스티커",
   "restoreUnresolvedMediaDismiss": "닫기",
   "importConfigInvalid": "잘못된 설정 파일입니다. JSON 형식을 확인하세요.",
+  "importConfigTooOld": "이 백업은 형식이 오래되어 가져올 수 없습니다.",
   "importConfirmMessage": "현재 버전에 맞춰 설정을 합치고, 현재 관리자 알림 설정을 복원합니다. 새 옵션은 유지하고 빠진 옵션은 무시합니다. 확인 후 페이지를 완전히 다시 로드합니다. 아래 미리보기를 확인하세요.",
   "frontendCacheTitle": "고급 도구",
   "frontendCacheDesc": "이 기기의 점검·유지 도구. 서버 설정을 바꾸지 않고 로그아웃도 하지 않습니다",

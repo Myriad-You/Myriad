@@ -539,6 +539,8 @@ pub(crate) fn collect_database_updates_with_vendor(
                 | "aux_embedding_model"
                 // Cleared: judgments and embeddings go back to Lite's source.
                 | "aux_ai_source"
+                // Cleared: with Pro on, its work goes to Standard.
+                | "pro_ai_model"
                 | "pro_ai_source"
                 | "ai_image_source"
                 | "speech_source"

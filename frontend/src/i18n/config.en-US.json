@@ -731,6 +731,7 @@
   "restoreUnresolvedMediaSticker": "Dashboard sticker",
   "restoreUnresolvedMediaDismiss": "Dismiss",
   "importConfigInvalid": "Invalid configuration file. Please check the JSON format.",
+  "importConfigTooOld": "This backup's format is too old to import.",
   "importConfirmMessage": "Settings will be merged against the current version and the current administrator notification preferences restored. New options are preserved and removed options ignored. The page will fully reload after confirm. Review the preview below.",
   "frontendCacheTitle": "Advanced tools",
   "frontendCacheDesc": "Local troubleshooting and maintenance tools; does not change server settings or sign you out",

@@ -335,6 +335,13 @@ impl ConfigService {
     pub async fn seed_from_env(db: &DatabaseConnection) -> Result<usize> {
         let stored = Self::load_stored_on(db).await?;
         let seeds = env_seed::seeds(&stored, |name| std::env::var(name).ok());
+        let shadowed = env_seed::shadowed(&stored, |name| std::env::var(name).ok());
+        if !shadowed.is_empty() {
+            tracing::warn!(
+                variables = ?shadowed,
+                "These environment variables differ from the stored settings and are not used; change the settings in /config"
+            );
+        }
         let count = seeds.len();
         if count > 0 {
             let keys: Vec<&String> = seeds.keys().collect();

@@ -731,6 +731,7 @@
   "restoreUnresolvedMediaSticker": "面板貼紙",
   "restoreUnresolvedMediaDismiss": "知道了",
   "importConfigInvalid": "無效的配置檔案，請檢查 JSON 格式是否正確。",
+  "importConfigTooOld": "這份備份的格式太舊，已不能匯入。",
   "importConfirmMessage": "匯入會按當前版本合併設定，並恢復當前管理員通知偏好；新增項保留當前值，已廢棄項將忽略。確認後將整頁重新整理。請核對下方預檢結果。",
   "frontendCacheTitle": "高階工具",
   "frontendCacheDesc": "本機排查與維護工具；不會改伺服器配置，也不會退出登入",

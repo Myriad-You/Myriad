@@ -140,26 +140,50 @@ pub(crate) fn seeds(
         if !never_set {
             continue;
         }
-        let Some(raw) = names.iter().find_map(|name| {
-            env(name)
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-        }) else {
-            continue;
-        };
-        let value = match kind {
-            Text => Some(json!(raw)),
-            Bool => Some(json!(matches!(
-                raw.to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            ))),
-            Int => raw.parse::<i64>().ok().map(|number| json!(number)),
-        };
-        if let Some(value) = value {
+        if let Some((_, value)) = env_value(names, kind, &env) {
             out.insert(key.to_string(), value);
         }
     }
     out
+}
+
+/// Variables still set to something other than their stored setting: the
+/// stored one is used. Names only; a value may be a secret.
+pub(crate) fn shadowed(
+    stored: &HashMap<String, JsonValue>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Vec<&'static str> {
+    SEEDS
+        .iter()
+        .filter_map(|&(key, names, kind, _)| {
+            let stored = stored.get(key).filter(|value| !value.is_null())?;
+            let (name, value) = env_value(names, kind, &env)?;
+            (stored != &value).then_some(name)
+        })
+        .collect()
+}
+
+/// The first of `names` set to something, read as `kind`.
+fn env_value(
+    names: &'static [&'static str],
+    kind: Kind,
+    env: &impl Fn(&str) -> Option<String>,
+) -> Option<(&'static str, JsonValue)> {
+    let (name, raw) = names.iter().find_map(|name| {
+        env(name)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(|value| (*name, value))
+    })?;
+    let value = match kind {
+        Text => json!(raw),
+        Bool => json!(matches!(
+            raw.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )),
+        Int => json!(raw.parse::<i64>().ok()?),
+    };
+    Some((name, value))
 }
 
 #[cfg(test)]
@@ -214,6 +238,25 @@ mod tests {
             !out.contains_key("tripo_model"),
             "blank variables seed nothing"
         );
+    }
+
+    #[test]
+    fn a_variable_the_stored_setting_overrules_is_named() {
+        let stored = HashMap::from([
+            ("tripo_enabled".to_string(), json!(false)),
+            ("tripo_face_limit".to_string(), json!(8000)),
+            ("github_token".to_string(), JsonValue::Null),
+        ]);
+        let names = shadowed(
+            &stored,
+            env(&[
+                ("TRIPO_ENABLED", "true"),
+                ("TRIPO_FACE_LIMIT", "8000"),
+                ("GITHUB_TOKEN", "ghp_x"),
+            ]),
+        );
+        // Same value: nothing to say. Never stored: it is seeded instead.
+        assert_eq!(names, ["TRIPO_ENABLED"]);
     }
 
     #[test]

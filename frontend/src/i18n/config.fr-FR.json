@@ -731,6 +731,7 @@
   "restoreUnresolvedMediaSticker": "Autocollant du tableau de bord",
   "restoreUnresolvedMediaDismiss": "Fermer",
   "importConfigInvalid": "Fichier de configuration invalide. Vérifiez le JSON.",
+  "importConfigTooOld": "Le format de cette sauvegarde est trop ancien pour être importé.",
   "importConfirmMessage": "Les réglages seront fusionnés avec la version actuelle et les préférences de notification de l'admin actuel restaurées. Les options nouvelles sont conservées, les retirées ignorées. La page se rechargera après confirmation. Relisez l'aperçu ci-dessous.",
   "frontendCacheTitle": "Outils avancés",
   "frontendCacheDesc": "Dépannage local ; ne change pas les réglages serveur et ne vous déconnecte pas",

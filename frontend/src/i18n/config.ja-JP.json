@@ -731,6 +731,7 @@
   "restoreUnresolvedMediaSticker": "ダッシュボードのステッカー",
   "restoreUnresolvedMediaDismiss": "閉じる",
   "importConfigInvalid": "無効な設定ファイルです。JSON形式を確認してください。",
+  "importConfigTooOld": "このバックアップは形式が古いため、インポートできません。",
   "importConfirmMessage": "現在のバージョンに合わせて設定を統合し、現在の管理者の通知設定を復元します。新しい項目は維持し、廃止項目は無視します。確認後にページを再読み込みします。以下のプレビューを確認してください。",
   "frontendCacheTitle": "高度なツール",
   "frontendCacheDesc": "この端末向けの点検・メンテ用ツール。サーバー設定は変えず、ログアウトもしません",
