@@ -3,7 +3,7 @@
  *
  * - 悬停（鼠标）或键盘聚焦时暂停；手动拨过之后一段时间内不自动翻，免得刚拨过去就被抢走。
  * - 手动：横向滑动（触摸、鼠标拖）、触控板横向滚动 / Shift+滚轮、← →、页码点。
- * - 只接管横向：竖向滑动和滚轮仍归页面滚动。
+ * - 竖向滑动仍归页面滚动；滚轮默认只接管横向，组件可显式启用竖向滚轮翻页。
  */
 
 import type {
@@ -95,13 +95,17 @@ export function horizontalWheelDelta(event: {
   deltaMode: number
   shiftKey: boolean
 }): number {
-  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1
+  const unit = wheelDeltaUnit(event.deltaMode)
   // 鼠标 Shift+滚轮：有的浏览器已换成 deltaX，有的仍给 deltaY。
   const dx =
     event.shiftKey && event.deltaX === 0 ? event.deltaY : event.deltaX
   const dy = event.shiftKey && event.deltaX === 0 ? 0 : event.deltaY
   if (Math.abs(dx) <= Math.abs(dy)) return 0
   return dx * unit
+}
+
+function wheelDeltaUnit(mode: number): number {
+  return mode === 1 ? 16 : mode === 2 ? 400 : 1
 }
 
 export interface WidgetRotationOptions {
@@ -115,6 +119,8 @@ export interface WidgetRotationOptions {
   autoplay: boolean
   /** 翻一页：1 下一页，-1 上一页。组件自己决定怎么过渡。 */
   onStep: (delta: 1 | -1) => void
+  /** 同时用竖向滚轮翻页（游戏角色卡）；默认竖向滚轮仍滚页面。 */
+  verticalWheel?: boolean
   holdMs?: number
 }
 
@@ -159,6 +165,7 @@ export function useWidgetRotation({
   delay,
   autoplay,
   onStep,
+  verticalWheel = false,
   holdMs = ROTATION_HOLD_MS,
 }: WidgetRotationOptions): WidgetRotation {
   const [hovered, setHovered] = useState(false)
@@ -248,6 +255,9 @@ export function useWidgetRotation({
   const suppressClickRef = useRef(false)
   const releaseRef = useRef<(() => void) | null>(null)
   useEffect(() => () => releaseRef.current?.(), [])
+  useEffect(() => {
+    if (!active) releaseRef.current?.()
+  }, [active])
 
   const onPointerEnter = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
@@ -263,47 +273,8 @@ export function useWidgetRotation({
     [],
   )
 
-  const onPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      suppressClickRef.current = false
-      gestureRef.current = null
-      if (!active || !event.isPrimary || event.button !== 0) return
-      if (claimedEvents.has(event.nativeEvent)) return
-      // 先认领再看排除区：内层不接管的拖动（头像条、页码点）也不能让外层的面板翻页。
-      claimedEvents.add(event.nativeEvent)
-      if (ignoresGesture(event.target)) return
-      gestureRef.current = {
-        pointerId: event.pointerId,
-        x: event.clientX,
-        y: event.clientY,
-        intent: 'pending',
-      }
-      setPressing(true)
-      // 松手可能在小组件外面，挂在 window 上才收得到。
-      releaseRef.current?.()
-      const pointerId = event.pointerId
-      const onRelease = (ev: PointerEvent) => {
-        if (ev.pointerId === pointerId) releaseRef.current?.()
-      }
-      releaseRef.current = () => {
-        window.removeEventListener('pointerup', onRelease)
-        window.removeEventListener('pointercancel', onRelease)
-        releaseRef.current = null
-        setPressing(false)
-        // 滑动之后不一定有 click（触屏横滑、在组件外松手）：标记留着会吞掉之后的键盘激活。
-        // 等这次松手可能带来的 click 先走完再清。
-        setTimeout(() => {
-          suppressClickRef.current = false
-        }, 0)
-      }
-      window.addEventListener('pointerup', onRelease)
-      window.addEventListener('pointercancel', onRelease)
-    },
-    [active],
-  )
-
   const onPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
+    (event: Pick<PointerEvent, 'pointerId' | 'clientX' | 'clientY'>) => {
       const gesture = gestureRef.current
       if (!gesture || gesture.pointerId !== event.pointerId) return
       if (gesture.intent !== 'pending') return
@@ -320,6 +291,52 @@ export function useWidgetRotation({
       step(intent === 'next' ? 1 : -1)
     },
     [step],
+  )
+
+  const onPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      releaseRef.current?.()
+      suppressClickRef.current = false
+      gestureRef.current = null
+      if (!active || !event.isPrimary || event.button !== 0) return
+      if (claimedEvents.has(event.nativeEvent)) return
+      // 先认领再看排除区：内层不接管的拖动（头像条、页码点）也不能让外层的面板翻页。
+      claimedEvents.add(event.nativeEvent)
+      if (ignoresGesture(event.target)) return
+      gestureRef.current = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        intent: 'pending',
+      }
+      setPressing(true)
+      // 鼠标没有触摸的隐式捕获：移出卡片仍要跟踪位移与松手。
+      // 用 window 监听保留原本的点击目标，头像按钮和卡片链接照常可点。
+      const pointerId = event.pointerId
+      const onRelease = (ev: PointerEvent) => {
+        if (ev.pointerId === pointerId) releaseRef.current?.()
+      }
+      const onWindowBlur = () => releaseRef.current?.()
+      releaseRef.current = () => {
+        window.removeEventListener('pointermove', onPointerMove)
+        window.removeEventListener('pointerup', onRelease)
+        window.removeEventListener('pointercancel', onRelease)
+        window.removeEventListener('blur', onWindowBlur)
+        releaseRef.current = null
+        gestureRef.current = null
+        setPressing(false)
+        // 滑动之后不一定有 click（触屏横滑、在组件外松手）：标记留着会吞掉之后的键盘激活。
+        // 等这次松手可能带来的 click 先走完再清。
+        setTimeout(() => {
+          suppressClickRef.current = false
+        }, 0)
+      }
+      window.addEventListener('pointermove', onPointerMove)
+      window.addEventListener('pointerup', onRelease)
+      window.addEventListener('pointercancel', onRelease)
+      window.addEventListener('blur', onWindowBlur)
+    },
+    [active, onPointerMove],
   )
 
   const endGesture = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -377,9 +394,11 @@ export function useWidgetRotation({
     (event: WheelEvent) => {
       if (!activeRef.current || event.ctrlKey) return
       if (claimedEvents.has(event)) return
-      const dx = horizontalWheelDelta(event)
+      const dx = horizontalWheelDelta(event) ||
+        (verticalWheel ? event.deltaY * wheelDeltaUnit(event.deltaMode) : 0)
       if (dx === 0) return
       claimedEvents.add(event)
+      if (closestMatches(event.target, FORM_CONTROLS)) return
       // 排除区里真能往这个方向横滚的（头像条还没到头）：认领但不拦，让它原生滚。
       // 页码点、滚到头的条照常翻页——也顺带拦住 macOS 横扫后退。
       if (canScrollNatively(event.target, dx)) return
@@ -399,7 +418,7 @@ export function useWidgetRotation({
       state.stepped = true
       step(delta)
     },
-    [step],
+    [step, verticalWheel],
   )
   const rootRef = useCallback(
     (el: HTMLElement | null) => {
@@ -420,6 +439,8 @@ export function useWidgetRotation({
         })
       }
       state.acc = 0
+      state.stepped = false
+      state.lastAt = Number.NEGATIVE_INFINITY
       el?.addEventListener('wheel', handleWheel, { passive: false })
     },
     [handleWheel],

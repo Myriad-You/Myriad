@@ -148,6 +148,38 @@ describe('useWidgetRotation', () => {
     assert.deepEqual(steps, [])
   })
 
+  it('tracks a mouse drag outside the card and forgets it after release', async () => {
+    const el = await mount()
+    await act(async () => {
+      pointer(el, 'pointerdown', { clientX: 100, clientY: 100, pointerType: 'mouse' })
+      pointer(document.body, 'pointermove', { clientX: 40, clientY: 100, pointerType: 'mouse' })
+      pointer(document.body, 'pointerup', { pointerType: 'mouse' })
+    })
+    assert.deepEqual(steps, [1])
+    await act(async () => pointer(document.body, 'pointermove', { clientX: 160, clientY: 100, pointerType: 'mouse' }))
+    assert.deepEqual(steps, [1])
+  })
+
+  it('abandons a pending drag on blur, cancellation, disabling, or unmount', async () => {
+    for (const end of ['blur', 'cancel', 'disable', 'unmount']) {
+      const el = await mount()
+      await act(async () => pointer(el, 'pointerdown', { clientX: 100, clientY: 100, pointerType: 'mouse' }))
+      assert.equal(latest.paused, true)
+      await act(async () => {
+        if (end === 'blur') window.dispatchEvent(new dom.window.Event('blur'))
+        else if (end === 'cancel') pointer(document.body, 'pointercancel', { pointerType: 'mouse' })
+        else if (end === 'disable') root.render(createElement(Harness, { interactive: false }))
+        else root.render(null)
+      })
+      await act(async () => {
+        pointer(document.body, 'pointermove', { clientX: 40, clientY: 100, pointerType: 'mouse' })
+        pointer(document.body, 'pointerup', { pointerType: 'mouse' })
+      })
+      assert.deepEqual(steps, [], end)
+      if (end !== 'unmount') assert.equal(latest.paused, false, end)
+    }
+  })
+
   function wheelAt(el: Element, at: number, init: WheelEventInit) {
     const event = new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, ...init })
     Object.defineProperty(event, 'timeStamp', { value: at })
@@ -163,6 +195,17 @@ describe('useWidgetRotation', () => {
       wheelAt(el, 1032, { deltaX: 30 })
     })
     assert.deepEqual(steps, [1])
+  })
+
+  it('opts into vertical wheel, including line deltas, but preserves zoom and form controls', async () => {
+    const el = await mount({ verticalWheel: true })
+    await act(async () => {
+      assert.equal(wheelAt(el, 1000, { deltaY: 4, deltaMode: 1 }).defaultPrevented, true)
+      assert.equal(wheelAt(el, 1200, { deltaY: 80, ctrlKey: true }).defaultPrevented, false)
+      assert.equal(wheelAt(el.querySelector('input')!, 1400, { deltaY: 80 }).defaultPrevented, false)
+      wheelAt(el, 1600, { deltaY: -80 })
+    })
+    assert.deepEqual(steps, [1, -1])
   })
 
   it('turns one trackpad sweep, inertia included, into exactly one page', async () => {
