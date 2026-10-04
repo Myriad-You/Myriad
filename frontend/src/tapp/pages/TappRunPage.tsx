@@ -5,7 +5,6 @@ import type { TappCodeStructure, TappInstance } from '../types'
 
 import {
   FaCog,
-  FaComments,
   FaCompress,
   FaExclamationTriangle,
   FaExpand,
@@ -24,7 +23,6 @@ import { useI18n } from '../../contexts/I18nContext'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useBreakpoints } from '../../hooks/useBreakpoints'
 import { usePageSeo } from '../../hooks/usePageSeo'
-import { emitAppEvent } from '../../utils/appEvents'
 import {
   canAccessModuleVisibility,
   useModuleVisibilityPreferences,
@@ -570,20 +568,6 @@ function TappRunPageStandard({
                   <FaTh className="h-3.5 w-3.5" />
                 </motion.button>
               )}
-              <motion.button
-                onClick={() =>
-                  emitAppEvent('arael-open-session', { sessionId: '' })
-                }
-                className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
-                title={t.agentPanel.askArael}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.02 }}
-                whileHover={noAnimation ? undefined : { scale: 1.15 }}
-                whileTap={noAnimation ? undefined : { scale: 0.9 }}
-              >
-                <FaComments className="h-3.5 w-3.5" />
-              </motion.button>
               <motion.button
                 onClick={toggleFullscreen}
                 className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-neutral-700 dark:hover:text-gray-300"

@@ -90,6 +90,8 @@ pub async fn run() -> anyhow::Result<()> {
         db: db.clone(),
         configured: configured.clone(),
     };
+    #[cfg(feature = "hotpath")]
+    let domain = domain.layer(hotpath::AxumLayer::new());
     let address = format!("{}:{}", config.server_host, config.server_port);
     let listener = tokio::net::TcpListener::bind(&address).await?;
     let (shutdown, mut stopped) = watch::channel(false);

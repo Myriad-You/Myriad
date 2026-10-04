@@ -68,6 +68,15 @@ static ASKED: LazyLock<Mutex<RetainedCache<(String, String), Vector>>> =
 static KNOWN: LazyLock<Mutex<RetainedCache<(String, String), Vector>>> =
     LazyLock::new(|| Mutex::new(RetainedCache::new(4096, Duration::from_secs(3600))));
 
+/// Release expired vectors even when no recall request reaches the process.
+pub(crate) fn cleanup_embedding_caches() {
+    for cache in [&*ASKED, &*KNOWN] {
+        if let Ok(mut cache) = cache.lock() {
+            cache.purge_expired();
+        }
+    }
+}
+
 fn cached(
     cache: &Mutex<RetainedCache<(String, String), Vector>>,
     model: &str,
@@ -388,6 +397,25 @@ pub const FILL: usize = FILL_PER_ASK;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn idle_cleanup_releases_expired_question_and_memory_vectors() {
+        let expired: Vec<_> = [&*ASKED, &*KNOWN]
+            .into_iter()
+            .map(|cache| {
+                let vector = Arc::new(vec![1.0f32, 2.0]);
+                let released = Arc::downgrade(&vector);
+                cache.lock().unwrap().insert_with_ttl(
+                    ("idle-cleanup-test".into(), uuid::Uuid::new_v4().to_string()),
+                    vector,
+                    Duration::ZERO,
+                );
+                released
+            })
+            .collect();
+        cleanup_embedding_caches();
+        assert!(expired.iter().all(|vector| vector.upgrade().is_none()));
+    }
 
     #[test]
     fn a_vector_round_trips_and_closeness_is_the_angle() {

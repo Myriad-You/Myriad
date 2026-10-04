@@ -113,6 +113,7 @@ export function TappAppShell({
             onAnimationEnd={onShellAnimationEnd}
           >
             <div
+              data-tapp-titlebar
               className={`glass pointer-events-auto flex shrink-0 items-center justify-between gap-2 overflow-hidden rounded-t-xl px-3 shadow-sm transition-[opacity,height,padding,min-height] duration-200 ease-out ${
                 isFullscreen
                   ? 'pointer-events-none h-0 min-h-0 py-0 opacity-0'

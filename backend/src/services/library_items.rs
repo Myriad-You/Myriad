@@ -22,44 +22,130 @@ pub struct LibraryItem {
     pub metadata: Value,
 }
 
-pub type CachedLibraryItems = Arc<Vec<LibraryItem>>;
+/// Items and their preference-independent source counts share one cache lifetime.
+#[derive(Debug)]
+pub struct LibrarySnapshot {
+    items: Vec<LibraryItem>,
+    available_sources: HashMap<String, Vec<LibrarySourceOption>>,
+}
 
-struct LibraryAssemblyCache {
+impl LibrarySnapshot {
+    fn new(items: Vec<LibraryItem>) -> Self {
+        let available_sources = collect_library_source_options(&items);
+        Self {
+            items,
+            available_sources,
+        }
+    }
+
+    pub fn items(&self) -> &[LibraryItem] {
+        &self.items
+    }
+
+    pub fn available_sources(&self) -> &HashMap<String, Vec<LibrarySourceOption>> {
+        &self.available_sources
+    }
+}
+
+pub type CachedLibraryItems = Arc<LibrarySnapshot>;
+
+struct LibraryAssemblyEntry {
     user_id: i32,
     cached_at: Instant,
     items: CachedLibraryItems,
 }
 
-static LIBRARY_ASSEMBLY_CACHE: Lazy<RwLock<Option<LibraryAssemblyCache>>> =
-    Lazy::new(|| RwLock::new(None));
-const LIBRARY_ASSEMBLY_CACHE_TTL: Duration = Duration::from_secs(30);
-
-pub fn cached_library_items(user_id: i32) -> Option<CachedLibraryItems> {
-    let cache = LIBRARY_ASSEMBLY_CACHE
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    cache.as_ref().and_then(|entry| {
-        (entry.user_id == user_id && entry.cached_at.elapsed() < LIBRARY_ASSEMBLY_CACHE_TTL)
-            .then(|| Arc::clone(&entry.items))
-    })
+#[derive(Default)]
+struct LibraryCacheState {
+    entry: Option<LibraryAssemblyEntry>,
+    generation: u64,
 }
 
-pub fn store_library_items(user_id: i32, items: Vec<LibraryItem>) -> CachedLibraryItems {
-    // One pass: prefer_card_cover_url + slim_library_metadata.
-    let items = Arc::new(
+#[derive(Default)]
+struct LibraryAssemblyCache {
+    state: RwLock<LibraryCacheState>,
+    load_lock: tokio::sync::Mutex<()>,
+}
+
+static LIBRARY_ASSEMBLY_CACHE: Lazy<LibraryAssemblyCache> = Lazy::new(LibraryAssemblyCache::default);
+const LIBRARY_ASSEMBLY_CACHE_TTL: Duration = Duration::from_secs(30);
+
+impl LibraryAssemblyCache {
+    fn get(&self, user_id: i32) -> Option<CachedLibraryItems> {
+        let state = self.state.read().unwrap_or_else(|p| p.into_inner());
+        state.entry.as_ref().and_then(|entry| {
+            (entry.user_id == user_id && entry.cached_at.elapsed() < LIBRARY_ASSEMBLY_CACHE_TTL)
+                .then(|| Arc::clone(&entry.items))
+        })
+    }
+
+    async fn get_or_load<F, Fut>(&self, user_id: i32, load: F) -> CachedLibraryItems
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Vec<LibraryItem>>,
+    {
+        if let Some(items) = self.get(user_id) {
+            return items;
+        }
+        // Only one library is retained (the site owner's); coalesce cold reads.
+        let _guard = self.load_lock.lock().await;
+        if let Some(items) = self.get(user_id) {
+            return items;
+        }
+        let generation = self
+            .state
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .generation;
+        let items = Arc::new(LibrarySnapshot::new(
+            load()
+                .await
+                .into_iter()
+                .map(normalize_library_item_for_client)
+                .collect(),
+        ));
+        let mut state = self.state.write().unwrap_or_else(|p| p.into_inner());
+        // A refresh/delete during loading must not repopulate the stale cache.
+        if state.generation == generation {
+            state.entry = Some(LibraryAssemblyEntry {
+                user_id,
+                cached_at: Instant::now(),
+                items: Arc::clone(&items),
+            });
+        }
         items
-            .into_iter()
-            .map(normalize_library_item_for_client)
-            .collect::<Vec<_>>(),
-    );
-    *LIBRARY_ASSEMBLY_CACHE
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(LibraryAssemblyCache {
-        user_id,
-        cached_at: Instant::now(),
-        items: Arc::clone(&items),
-    });
-    items
+    }
+
+    fn invalidate(&self) {
+        let mut state = self.state.write().unwrap_or_else(|p| p.into_inner());
+        state.generation = state.generation.wrapping_add(1);
+        state.entry = None;
+    }
+
+    fn cleanup_at(&self, now: Instant) {
+        let mut state = self.state.write().unwrap_or_else(|p| p.into_inner());
+        if state.entry.as_ref().is_some_and(|entry| {
+            now.saturating_duration_since(entry.cached_at) >= LIBRARY_ASSEMBLY_CACHE_TTL
+        }) {
+            state.entry = None;
+        }
+    }
+}
+
+pub fn cached_library_items(user_id: i32) -> Option<CachedLibraryItems> {
+    LIBRARY_ASSEMBLY_CACHE.get(user_id)
+}
+
+pub async fn get_or_load_library_items<F, Fut>(user_id: i32, load: F) -> CachedLibraryItems
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Vec<LibraryItem>>,
+{
+    LIBRARY_ASSEMBLY_CACHE.get_or_load(user_id, load).await
+}
+
+pub(crate) fn cleanup_library_assembly_cache() {
+    LIBRARY_ASSEMBLY_CACHE.cleanup_at(Instant::now());
 }
 
 /// Prefer card-sized covers and drop bulk platform JSON before shipping to clients.
@@ -422,9 +508,7 @@ pub fn slim_library_metadata(metadata: &Value) -> Value {
 }
 
 pub fn invalidate_library_assembly_cache() {
-    *LIBRARY_ASSEMBLY_CACHE
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    LIBRARY_ASSEMBLY_CACHE.invalidate();
 }
 
 pub const LIBRARY_SOURCE_PREFERENCES_KEY: &str = "library_source_preferences";
@@ -479,6 +563,9 @@ pub struct LibrarySourceOption {
     pub source: String,
     pub count: usize,
 }
+
+static DEFAULT_LIBRARY_SOURCE_CATEGORIES: Lazy<HashMap<String, Vec<String>>> =
+    Lazy::new(default_library_source_categories);
 
 pub fn default_library_source_categories() -> HashMap<String, Vec<String>> {
     HashMap::from([
@@ -539,22 +626,34 @@ impl LibrarySourcePreferences {
         self
     }
 
-    pub fn enabled_sources_for(&self, item_type: &str) -> Vec<String> {
-        self.categories.get(item_type).cloned().unwrap_or_else(|| {
-            default_library_source_categories()
-                .get(item_type)
-                .cloned()
-                .unwrap_or_default()
-        })
+    fn enabled_sources(&self, item_type: &str) -> &[String] {
+        self.categories
+            .get(item_type)
+            .or_else(|| DEFAULT_LIBRARY_SOURCE_CATEGORIES.get(item_type))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     pub fn source_enabled(&self, item_type: &str, platform: &str) -> bool {
-        let platform = canonical_library_platform(platform);
-        self.enabled_sources_for(item_type).contains(&platform)
+        let platform = canonical_library_platform_ref(platform);
+        self.enabled_sources(item_type)
+            .iter()
+            .any(|source| source == platform)
     }
 }
 
 pub fn canonical_library_platform(platform: &str) -> String {
+    canonical_library_platform_ref(platform).to_string()
+}
+
+fn canonical_library_platform_ref(platform: &str) -> &str {
+    // Builders already use these canonical names; hot filtering need not allocate.
+    if matches!(
+        platform,
+        "Steam" | "Bilibili" | "Bangumi" | "X" | "Netease" | "MyAnimeList" | "Xbox" | "PlayStation"
+    ) {
+        return platform;
+    }
     let trimmed = platform.trim();
     let key = platform
         .chars()
@@ -563,15 +662,15 @@ pub fn canonical_library_platform(platform: &str) -> String {
         .collect::<String>();
 
     match key.as_str() {
-        "steam" => "Steam".to_string(),
-        "bilibili" | "bili" => "Bilibili".to_string(),
-        "bangumi" | "bgm" => "Bangumi".to_string(),
-        "x" | "twitter" | "xtwitter" => "X".to_string(),
-        "netease" | "neteasemusic" | "neteasecloudmusic" => "Netease".to_string(),
-        "mal" | "myanimelist" => "MyAnimeList".to_string(),
-        "xbox" => "Xbox".to_string(),
-        "psn" | "playstation" => "PlayStation".to_string(),
-        _ => trimmed.to_string(),
+        "steam" => "Steam",
+        "bilibili" | "bili" => "Bilibili",
+        "bangumi" | "bgm" => "Bangumi",
+        "x" | "twitter" | "xtwitter" => "X",
+        "netease" | "neteasemusic" | "neteasecloudmusic" => "Netease",
+        "mal" | "myanimelist" => "MyAnimeList",
+        "xbox" => "Xbox",
+        "psn" | "playstation" => "PlayStation",
+        _ => trimmed,
     }
 }
 
@@ -589,6 +688,7 @@ pub fn normalize_platform_list(sources: Vec<String>) -> Vec<String> {
     normalized
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn collect_library_source_options(
     items: &[LibraryItem],
 ) -> HashMap<String, Vec<LibrarySourceOption>> {
@@ -640,6 +740,7 @@ pub struct LibraryPage {
 pub const LIBRARY_DEFAULT_PAGE_LIMIT: usize = 120;
 
 /// Filter by item type before slicing, so a typed page can never become a false empty state.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn paginate_library_items(
     items: &[LibraryItem],
     preferences: Option<&LibrarySourcePreferences>,
@@ -653,28 +754,25 @@ pub fn paginate_library_items(
         }
     }
 
-    let filtered = items
-        .iter()
-        .filter(|item| {
-            preferences
-                .map(|preferences| preferences.source_enabled(&item.item_type, &item.platform))
-                .unwrap_or(true)
-        })
-        .filter(|item| {
-            item_type
-                .map(|item_type| item.item_type == item_type)
-                .unwrap_or(true)
-        })
-        .collect::<Vec<_>>();
-    let total = filtered.len();
-    let offset = offset.unwrap_or(0).min(total);
+    let requested_offset = offset.unwrap_or(0);
     let limit = limit.unwrap_or(LIBRARY_DEFAULT_PAGE_LIMIT).clamp(1, 200);
-    let items: Vec<LibraryItem> = filtered
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .cloned()
-        .collect();
+    let mut page_items = Vec::new();
+    let mut total = 0;
+    for item in items {
+        if !preferences
+            .map(|preferences| preferences.source_enabled(&item.item_type, &item.platform))
+            .unwrap_or(true)
+            || item_type.is_some_and(|item_type| item.item_type != item_type)
+        {
+            continue;
+        }
+        if total >= requested_offset && page_items.len() < limit {
+            page_items.push(item.clone());
+        }
+        total += 1;
+    }
+    let offset = requested_offset.min(total);
+    let items = page_items;
     let returned = items.len();
     let next = offset + returned;
     let has_more = next < total;
@@ -1487,11 +1585,10 @@ mod tests {
         assert_eq!(page.next_offset, Some(LIBRARY_DEFAULT_PAGE_LIMIT));
     }
 
-    #[test]
-    fn assembly_cache_reuses_arc_and_invalidates() {
-        invalidate_library_assembly_cache();
-        let cached = store_library_items(
-            42,
+    #[tokio::test]
+    async fn assembly_cache_reuses_arc_and_invalidates() {
+        let cache = LibraryAssemblyCache::default();
+        let cached = cache.get_or_load(42, || async {
             vec![LibraryItem {
                 id: "1".into(),
                 item_type: "game".into(),
@@ -1499,13 +1596,13 @@ mod tests {
                 cover: None,
                 platform: "Steam".into(),
                 metadata: json!({}),
-            }],
-        );
-        let hit = cached_library_items(42).expect("cache hit");
+            }]
+        }).await;
+        let hit = cache.get(42).expect("cache hit");
         assert!(Arc::ptr_eq(&cached, &hit));
-        assert!(cached_library_items(7).is_none());
-        invalidate_library_assembly_cache();
-        assert!(cached_library_items(42).is_none());
+        assert!(cache.get(7).is_none());
+        cache.invalidate();
+        assert!(cache.get(42).is_none());
     }
 
     #[test]
@@ -1557,3 +1654,11 @@ mod tests {
         assert_eq!(counts.values().copied().sum::<usize>(), 2);
     }
 }
+
+#[cfg(test)]
+#[path = "library_items/cache_tests.rs"]
+mod cache_tests;
+
+#[cfg(test)]
+#[path = "library_items/paging_tests.rs"]
+mod paging_tests;

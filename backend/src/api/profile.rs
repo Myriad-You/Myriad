@@ -45,7 +45,7 @@ async fn fresh_configured_platform_cache()
         configured_platform_ids(&config)
     };
     if required_platforms_are_fresh(&files, &required, Utc::now()) {
-        platform_cache_from_files(&files)
+        platform_cache_from_files(files)
     } else {
         None
     }
@@ -346,8 +346,8 @@ pub async fn get_platform_metadata_status(
 ///
 /// 两套来源可分别选定。文案 auto：`PLATFORM_ORDER` 上第一个有数据的平台；选定源缺失则回落 auto。
 async fn build_user_info(db: &DatabaseConnection) -> (StatusCode, Value) {
-    use crate::services::avatar::resolve_avatar;
-    use crate::services::profile_text::resolve_profile_text;
+    use crate::services::avatar::{ProfileReadContext, resolve_avatar_with_context};
+    use crate::services::profile_text::resolve_profile_text_with_context;
 
     let user_id = match site_owner_user_id(db).await {
         Ok(user_id) => user_id,
@@ -364,8 +364,9 @@ async fn build_user_info(db: &DatabaseConnection) -> (StatusCode, Value) {
         }
     };
 
-    let avatar = resolve_avatar(db, user_id).await;
-    let text = match resolve_profile_text(db, user_id).await {
+    let context = ProfileReadContext::new(db, user_id);
+    let avatar = resolve_avatar_with_context(&context).await;
+    let text = match resolve_profile_text_with_context(&context).await {
         Ok(text) => text,
         Err(error) => {
             tracing::warn!(%error, user_id, "Profile text resolve failed");
@@ -495,10 +496,9 @@ pub use crate::services::image_proxy_urls::{normalize_json_media_urls, proxy_ima
 
 // library_items：分页/组装缓存与平台条目组装（DB 与 raw 缓存共用）。
 pub use crate::services::library_items::{
-    CachedLibraryItems, LIBRARY_SOURCE_PREFERENCES_KEY, LibrarySourcePreferences,
-    assemble_library_items, cached_library_items, collect_library_source_options,
-    count_library_items_by_type, invalidate_library_assembly_cache, paginate_library_items,
-    store_library_items,
+    CachedLibraryItems, LIBRARY_SOURCE_PREFERENCES_KEY, LibraryItem, LibrarySourcePreferences,
+    assemble_library_items, cached_library_items, count_library_items_by_type,
+    get_or_load_library_items, invalidate_library_assembly_cache, paginate_library_items,
 };
 async fn load_library_source_preferences(db: &DatabaseConnection) -> LibrarySourcePreferences {
     let sql = "SELECT value FROM configurations WHERE key = $1";
@@ -597,10 +597,10 @@ async fn library_page_response(
     user_id: i32,
 ) -> (StatusCode, Json<Value>) {
     let preferences = load_library_source_preferences(db).await;
-    let raw_total = raw_items.len();
-    let available_sources = collect_library_source_options(&raw_items);
+    let raw_total = raw_items.items().len();
+    let available_sources = raw_items.available_sources();
     if query.counts_only {
-        let type_counts = count_library_items_by_type(raw_items.as_slice(), Some(&preferences));
+        let type_counts = count_library_items_by_type(raw_items.items(), Some(&preferences));
         let total: usize = type_counts.values().sum();
         tracing::info!(
             "📚 Library counts for user {user_id}: {total} items ({raw_total} raw before source filtering)"
@@ -632,7 +632,7 @@ async fn library_page_response(
         );
     }
     let page = match paginate_library_items(
-        raw_items.as_slice(),
+        raw_items.items(),
         Some(&preferences),
         query.item_type.as_deref(),
         query.offset,
@@ -704,6 +704,11 @@ pub async fn get_library_data(
         return library_page_response(&db, items, query, user_id).await;
     }
 
+    let items = get_or_load_library_items(user_id, || load_library_items(&db, user_id)).await;
+    library_page_response(&db, items, query, user_id).await
+}
+
+async fn load_library_items(db: &DatabaseConnection, user_id: i32) -> Vec<LibraryItem> {
     // 创建元数据服务
     let metadata_service = crate::services::metadata_service::MetadataService::new(db.clone());
 
@@ -739,10 +744,8 @@ pub async fn get_library_data(
         }
     }
 
-    // Empty library is valid. Cache the assembled shape, then reapply current
-    // preferences/type/pagination for every response.
-    let library_items = store_library_items(user_id, library_items);
-    library_page_response(&db, library_items, query, user_id).await
+    // Empty library is valid; the caller caches it and reapplies preferences/paging.
+    library_items
 }
 
 /// 批量获取站长公开资料：一次返回 user_info + 平台摘要。
@@ -773,43 +776,14 @@ pub async fn get_batch_user_info(
         }));
     }
 
-    // 2. 从 get_config 只保留平台 name/enabled/has_token/icon/description。
-    let (config_status, config_json) =
-        crate::api::config::get_config(crate::extract::Db(db.clone())).await;
-    if config_status == StatusCode::OK {
-        let full_config = config_json.0;
-        // 白名单字段；不返回 config_fields / ai_config / ui_config。
-        if let Some(platforms) = full_config.get("platforms").and_then(|p| p.as_array()) {
-            let safe_platforms: Vec<_> = platforms
-                .iter()
-                .map(|platform| {
-                    json!({
-                        "name": platform.get("name"),
-                        "enabled": platform.get("enabled"),
-                        "has_token": platform.get("has_token"),
-                        "icon": platform.get("icon"),
-                        "description": platform.get("description"),
-                        // 移除 config_fields - 不返回任何配置值
-                    })
-                })
-                .collect();
-
-            response.config = Some(json!({
-                "platforms": safe_platforms,
-                // 不返回其他配置部分（ai_config, ui_config 等）
-            }));
-        } else {
-            response.config = Some(json!({
-                "success": false,
-                "message": "Failed to parse config"
-            }));
-        }
-    } else {
-        response.config = Some(json!({
+    // 2. Build only public platform fields, using the same definitions as settings.
+    response.config = Some(match crate::api::config::load_public_platform_summaries(&db).await {
+        Ok(platforms) => json!({"platforms": platforms}),
+        Err(_) => json!({
             "success": false,
             "message": "Failed to fetch config"
-        }));
-    }
+        }),
+    });
 
     tracing::info!("✓ Batch user info fetched successfully (sanitized)");
 

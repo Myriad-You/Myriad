@@ -770,7 +770,6 @@
     "expand": "Gespräch öffnen",
     "accessDenied": "Dafür fehlen Ihnen die Rechte.",
     "answerFailed": "Antwort fehlgeschlagen: {error}",
-    "askArael": "Agent fragen",
     "cancelFailed": "Aufgabe ließ sich nicht abbrechen.",
     "errorWithDetail": "Fehler: {error}",
     "executionFailed": "Ausführung fehlgeschlagen",

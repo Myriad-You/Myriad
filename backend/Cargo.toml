@@ -96,6 +96,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 tract-onnx = "0.22.4"
 # Allocator that returns freed memory to the system (see the `mimalloc` feature)
 mimalloc = { version = "0.1", optional = true }
+# Local profiling only; normal builds do not compile the profiler.
+hotpath = { version = "0.28.3", optional = true }
 
 # Federation (MFP - Myriad Federation Protocol)
 rsa = { version = "0.10.0-rc.18", features = ["sha2"] }  # RSA keygen/signing (digest 0.11)
@@ -153,3 +155,6 @@ default = ["mimalloc"]
 # under the same load (2 CPU / 2 GiB): glibc with MALLOC_ARENA_MAX=4 held
 # 183 MiB after load and never gave it back; mimalloc settled at 145 MiB.
 mimalloc = ["dep:mimalloc"]
+hotpath = ["dep:hotpath", "hotpath/hotpath", "hotpath/axum-0-8"]
+hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
+hotpath-cpu = ["hotpath", "hotpath/hotpath-cpu"]

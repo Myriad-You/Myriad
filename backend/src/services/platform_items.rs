@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 /// Smart-filter caches store content under `raw_unknown_content` / `content_analysis`,
 /// not a top-level `items` array. Project those shapes into a uniform items[] for Tapps.
 /// Prefer existing `items` when present (e.g. tapp-written entries).
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn extract_platform_items(data: &Value, platform: &str) -> Vec<Value> {
     if let Some(items) = data.get("items").and_then(|v| v.as_array()) {
         if !items.is_empty() {
@@ -355,15 +356,15 @@ fn set_item_image_if_empty(item: &mut Value, url: &str) {
 }
 
 /// Netease: fill album cover + song id from liked_songs.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn enrich_netease_items(items: &mut [Value], raw: &Value) {
-    // title|artist → (id, picUrl, album, fee, is_vip)
-    let mut by_key: HashMap<String, (String, String, String, Option<i64>, bool)> = HashMap::new();
-    let mut by_title: HashMap<String, (String, String, String, Option<i64>, bool)> = HashMap::new();
+    let mut by_key: HashMap<String, &Value> = HashMap::new();
+    let mut by_title: HashMap<String, &Value> = HashMap::new();
 
     let songs = raw
         .get("liked_songs")
         .and_then(|v| v.as_array())
-        .cloned()
+        .map(Vec::as_slice)
         .unwrap_or_default();
 
     for s in songs {
@@ -385,39 +386,8 @@ fn enrich_netease_items(items: &mut [Value], raw: &Value) {
             .unwrap_or("")
             .trim()
             .to_ascii_lowercase();
-        let id = s
-            .get("id")
-            .map(|v| match v {
-                Value::String(s) => s.clone(),
-                Value::Number(n) => n.to_string(),
-                _ => String::new(),
-            })
-            .unwrap_or_default();
-        let pic = s
-            .get("al")
-            .and_then(|al| al.get("picUrl"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let album = s
-            .get("al")
-            .and_then(|al| al.get("name"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let fee = s.get("fee").and_then(|v| v.as_i64()).or_else(|| {
-            s.get("privilege")
-                .and_then(|p| p.get("fee"))
-                .and_then(|v| v.as_i64())
-        });
-        let is_vip = s
-            .get("isVip")
-            .and_then(|v| v.as_bool())
-            .or_else(|| s.get("is_vip").and_then(|v| v.as_bool()))
-            .unwrap_or_else(|| fee.map(|f| f == 1 || f == 4).unwrap_or(false));
-        let entry = (id, pic, album, fee, is_vip);
-        by_key.insert(format!("{title}|{artist}"), entry.clone());
-        by_title.entry(title).or_insert(entry);
+        by_key.insert(format!("{title}|{artist}"), s);
+        by_title.entry(title).or_insert(s);
     }
 
     if by_key.is_empty() && by_title.is_empty() {
@@ -449,9 +419,38 @@ fn enrich_netease_items(items: &mut [Value], raw: &Value) {
         let hit = by_key
             .get(&format!("{title}|{artist_key}"))
             .or_else(|| by_title.get(&title));
-        let Some((id, pic, album, fee, is_vip)) = hit else {
+        let Some(song) = hit else {
             continue;
         };
+
+        let id = song
+            .get("id")
+            .map(|v| match v {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+        let pic = song
+            .get("al")
+            .and_then(|al| al.get("picUrl"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let album = song
+            .get("al")
+            .and_then(|al| al.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let fee = song.get("fee").and_then(|v| v.as_i64()).or_else(|| {
+            song.get("privilege")
+                .and_then(|p| p.get("fee"))
+                .and_then(|v| v.as_i64())
+        });
+        let is_vip = song
+            .get("isVip")
+            .and_then(|v| v.as_bool())
+            .or_else(|| song.get("is_vip").and_then(|v| v.as_bool()))
+            .unwrap_or_else(|| fee.map(|f| f == 1 || f == 4).unwrap_or(false));
 
         set_item_image_if_empty(item, pic);
         item["type"] = json!("music");
@@ -481,13 +480,15 @@ fn enrich_netease_items(items: &mut [Value], raw: &Value) {
 }
 
 /// GitHub: fill html_url + opengraph image from raw repos.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn enrich_github_items(items: &mut [Value], raw: &Value) {
     let owner = raw
         .get("user")
         .and_then(|u| u.get("login"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let mut by_name: HashMap<String, Value> = HashMap::new();
+    // Index the existing document; only fields copied into output need ownership.
+    let mut by_name: HashMap<String, &Value> = HashMap::new();
     if let Some(repos) = raw.get("repos").and_then(|v| v.as_array()) {
         for r in repos {
             let name = r
@@ -499,7 +500,7 @@ fn enrich_github_items(items: &mut [Value], raw: &Value) {
             if name.is_empty() {
                 continue;
             }
-            by_name.insert(name, r.clone());
+            by_name.insert(name, r);
         }
     }
     if by_name.is_empty() {
@@ -574,12 +575,13 @@ fn enrich_github_items(items: &mut [Value], raw: &Value) {
 }
 
 /// Xbox: fill displayImage + titleId from raw achievements.titles.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn enrich_xbox_items(items: &mut [Value], raw: &Value) {
-    let mut by_name: HashMap<String, Value> = HashMap::new();
+    let mut by_name: HashMap<String, &Value> = HashMap::new();
     let titles = raw
         .pointer("/achievements/titles")
         .and_then(|v| v.as_array())
-        .cloned()
+        .map(Vec::as_slice)
         .unwrap_or_default();
     for t in titles {
         let name = t
@@ -641,14 +643,14 @@ fn enrich_xbox_items(items: &mut [Value], raw: &Value) {
 }
 
 /// Bangumi: ensure cover/subject_id from raw collections.subject.images.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn enrich_bangumi_items(items: &mut [Value], raw: &Value) {
-    let mut by_title: HashMap<String, Value> = HashMap::new();
+    let mut by_title: HashMap<String, &Value> = HashMap::new();
     if let Some(cols) = raw.get("collections").and_then(|v| v.as_array()) {
         for c in cols {
-            let subject = c.get("subject").cloned().unwrap_or(Value::Null);
+            let subject = c.get("subject");
             let title = subject
-                .get("name")
-                .or_else(|| subject.get("name_cn"))
+                .and_then(|s| s.get("name").or_else(|| s.get("name_cn")))
                 .or_else(|| c.get("title"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
@@ -656,16 +658,16 @@ fn enrich_bangumi_items(items: &mut [Value], raw: &Value) {
                 .to_ascii_lowercase();
             // Also index by Chinese/common name variants
             let title_cn = subject
-                .get("name_cn")
+                .and_then(|s| s.get("name_cn"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .trim()
                 .to_ascii_lowercase();
             if !title.is_empty() {
-                by_title.insert(title, c.clone());
+                by_title.insert(title, c);
             }
             if !title_cn.is_empty() {
-                by_title.insert(title_cn, c.clone());
+                by_title.insert(title_cn, c);
             }
         }
     }
@@ -733,14 +735,15 @@ fn enrich_bangumi_items(items: &mut [Value], raw: &Value) {
 }
 
 /// MAL: fill cover from node.main_picture when missing.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn enrich_mal_items(items: &mut [Value], raw: &Value) {
-    let mut by_title: HashMap<String, Value> = HashMap::new();
+    let mut by_title: HashMap<String, &Value> = HashMap::new();
     for key in ["anime_list", "manga_list"] {
         if let Some(list) = raw.get(key).and_then(|v| v.as_array()) {
             for entry in list {
-                let node = entry.get("node").cloned().unwrap_or(Value::Null);
+                let node = entry.get("node");
                 let title = node
-                    .get("title")
+                    .and_then(|node| node.get("title"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim()
@@ -748,7 +751,7 @@ fn enrich_mal_items(items: &mut [Value], raw: &Value) {
                 if title.is_empty() {
                     continue;
                 }
-                by_title.insert(title, entry.clone());
+                by_title.insert(title, entry);
             }
         }
     }
@@ -1378,6 +1381,10 @@ pub fn extract_platform_items_for_random(platform: &str, data: &Value) -> Vec<Va
             .unwrap_or_default(),
     }
 }
+
+#[cfg(test)]
+#[path = "platform_items/enrichment_tests.rs"]
+mod enrichment_tests;
 
 #[cfg(test)]
 mod tests {

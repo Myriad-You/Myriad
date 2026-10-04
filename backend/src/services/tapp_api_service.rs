@@ -76,25 +76,83 @@ static API_CACHE: Lazy<RwLock<HashMap<String, CacheEntry>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 const MAX_TAPP_HTTP_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+fn trim_response_cache(
+    cache: &mut HashMap<String, CacheEntry>,
+    now: Instant,
+    cap: usize,
+    byte_cap: usize,
+) {
+    let mut bytes = 0usize;
+    cache.retain(|_, entry| {
+        if entry.expires_at <= now {
+            return false;
+        }
+        bytes = bytes.saturating_add(entry.size_bytes);
+        true
+    });
+    if cache.len() <= cap && bytes <= byte_cap {
+        return;
+    }
+    // A normal insertion usually evicts just one entry; avoid sorting that path.
+    if let Some((key, size_bytes)) = cache
+        .iter()
+        .min_by_key(|(_, entry)| entry.cached_at)
+        .map(|(key, entry)| (key.clone(), entry.size_bytes))
+    {
+        cache.remove(&key);
+        bytes = bytes.saturating_sub(size_bytes);
+    }
+    if cache.len() <= cap && bytes <= byte_cap {
+        return;
+    }
+    // A lowered memory budget can evict thousands of entries. Order them once,
+    // accounting for bytes as we go, instead of rescanning for every eviction.
+    let mut candidates: Vec<_> = cache.iter().collect();
+    candidates.sort_by_key(|(_, entry)| entry.cached_at);
+    let mut retained = cache.len();
+    let mut victims = Vec::new();
+    for (key, entry) in &candidates {
+        if retained <= cap && bytes <= byte_cap {
+            break;
+        }
+        victims.push((*key).clone());
+        retained -= 1;
+        bytes = bytes.saturating_sub(entry.size_bytes);
+    }
+    drop(candidates);
+    for key in victims {
+        cache.remove(&key);
+    }
+}
+
+async fn cached_response_bytes(
+    cache: &RwLock<HashMap<String, CacheEntry>>,
+    key: &str,
+) -> Option<Arc<[u8]>> {
+    {
+        let entries = cache.read().await;
+        let entry = entries.get(key)?;
+        if entry.expires_at > Instant::now() {
+            return Some(Arc::clone(&entry.data));
+        }
+    }
+    let mut entries = cache.write().await;
+    // A refresh may have replaced the expired entry while the write lock waited.
+    let entry = entries.get(key)?;
+    if entry.expires_at > Instant::now() {
+        return Some(Arc::clone(&entry.data));
+    }
+    entries.remove(key);
+    None
+}
+
 /// Periodic maintenance also applies a newly lowered memory profile to idle caches.
 pub(crate) async fn cleanup_response_cache() {
     let mut cache = API_CACHE.write().await;
-    let now = Instant::now();
-    cache.retain(|_, entry| entry.expires_at > now);
     let cap = crate::services::memory_profile::max_api_cache_entries();
     let byte_cap = crate::services::memory_profile::max_api_cache_bytes();
-    while cache.len() > cap
-        || cache.values().map(|entry| entry.size_bytes).sum::<usize>() > byte_cap
-    {
-        let Some(oldest) = cache
-            .iter()
-            .min_by_key(|(_, entry)| entry.cached_at)
-            .map(|(key, _)| key.clone())
-        else {
-            break;
-        };
-        cache.remove(&oldest);
-    }
+    trim_response_cache(&mut cache, Instant::now(), cap, byte_cap);
     if cache.capacity() > cache.len().saturating_mul(4).max(64) {
         let retained_capacity = cache.len().max(64);
         cache.shrink_to(retained_capacity);
@@ -274,6 +332,7 @@ impl TappApiService {
     ///
     /// # 返回
     /// API 执行结果
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub async fn execute(
         tapp_id: &str,
         api_name: &str,
@@ -1295,21 +1354,15 @@ impl TappApiService {
     }
 
     /// 获取缓存
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     async fn get_cached(key: &str) -> Option<Value> {
-        let bytes = {
-            let mut cache = API_CACHE.write().await;
-            let entry = cache.get(key)?;
-            if entry.expires_at <= Instant::now() {
-                cache.remove(key);
-                return None;
-            }
-            Arc::clone(&entry.data)
-        };
+        let bytes = cached_response_bytes(&API_CACHE, key).await?;
         // Decoding is request-owned; no large Value clone or JSON work under the lock.
         serde_json::from_slice(&bytes).ok()
     }
 
     /// 设置缓存
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     async fn set_cached(key: &str, data: &Value, ttl: u32) {
         let api_cap = crate::services::memory_profile::max_api_cache_entries();
         let api_bytes_cap = crate::services::memory_profile::max_api_cache_bytes();
@@ -1338,25 +1391,6 @@ impl TappApiService {
         let data: Arc<[u8]> = writer.bytes.into_boxed_slice().into();
         let mut cache = API_CACHE.write().await;
         let now = Instant::now();
-        cache.retain(|_, entry| entry.expires_at > now);
-        cache.remove(key);
-        while cache.len() >= api_cap
-            || cache
-                .values()
-                .map(|e| e.size_bytes)
-                .sum::<usize>()
-                .saturating_add(size_bytes)
-                > api_bytes_cap
-        {
-            let Some(oldest) = cache
-                .iter()
-                .min_by_key(|(_, entry)| entry.cached_at)
-                .map(|(key, _)| key.clone())
-            else {
-                break;
-            };
-            cache.remove(&oldest);
-        }
         cache.insert(
             key.to_string(),
             CacheEntry {
@@ -1366,6 +1400,7 @@ impl TappApiService {
                 cached_at: now,
             },
         );
+        trim_response_cache(&mut cache, now, api_cap, api_bytes_cap);
     }
 }
 
@@ -2383,6 +2418,10 @@ mod tests {
         assert!(encoded.bytes.len() > MAX_TAPP_NON_JSON_HTTP_REQUEST_BYTES);
     }
 }
+
+#[cfg(test)]
+#[path = "tapp_api_service/cache_trim_tests.rs"]
+mod cache_trim_tests;
 
 #[cfg(test)]
 mod response_cache_tests {

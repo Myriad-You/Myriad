@@ -347,6 +347,7 @@
   "stopApp": "앱 중지",
   "back": "뒤로",
   "windowScheme": "창 구성",
+  "smartSplit": "스마트 분할",
   "scheme": "구성",
   "saveCurrentScheme": "현재 구성 저장",
   "schemeSaveFailed": "창 구성을 저장하지 못했어요.",

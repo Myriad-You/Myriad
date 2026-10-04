@@ -770,7 +770,6 @@
     "expand": "Ouvrir la conversation",
     "accessDenied": "Vous n'avez pas le droit de faire ça.",
     "answerFailed": "Réponse échouée : {error}",
-    "askArael": "Demander à Agent",
     "cancelFailed": "Impossible d'annuler cette tâche.",
     "errorWithDetail": "Erreur : {error}",
     "executionFailed": "Exécution échouée",

@@ -51,3 +51,9 @@ strip = true
 inherits = "release"
 lto = "thin"
 codegen-units = 16
+
+# Keep symbols for CPU attribution while profiling optimized backend code.
+[profile.profiling]
+inherits = "ci-release"
+debug = 1
+strip = false

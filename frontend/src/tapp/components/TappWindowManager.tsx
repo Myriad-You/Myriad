@@ -6,6 +6,7 @@ import {
   FaTh,
   FaTimes,
   FaTrash,
+  LuColumns2,
   LuMinus,
   LuSearch,
   LuX,
@@ -45,6 +46,10 @@ import {
 } from '../utils/tappCategories'
 import { getTappIconAccentColor, getTappIconStyle } from '../utils/tappColors'
 import { TappLoadGenerations } from '../utils/tappLoadGenerations'
+import {
+  getTappWindowTiles,
+  TAPP_DEFAULT_WINDOW_SIZE,
+} from '../utils/windowLayout'
 import { TappIcon } from './TappIcon'
 import { TappIconBadge } from './TappIconBadge'
 import { TappStore } from './TappStore'
@@ -82,7 +87,7 @@ const LAUNCHPAD_COLS = 7
 const LAUNCHPAD_ROWS = 3
 const LAUNCHPAD_PAGE_SIZE = LAUNCHPAD_COLS * LAUNCHPAD_ROWS
 
-const DEFAULT_WINDOW_SIZE = { width: 400, height: 600 }
+const DEFAULT_WINDOW_SIZE = TAPP_DEFAULT_WINDOW_SIZE
 
 type LaunchpadEntry = { kind: 'store' } | { kind: 'app'; tapp: TappInstance }
 
@@ -133,6 +138,7 @@ interface TappWindowComponentProps {
   isActive: boolean
   onClose: (windowId: string) => void
   onMinimize: (windowId: string) => void
+  onSmartSplit: () => void
   onFocus: (windowId: string) => void
   onMove: (windowId: string, position: { x: number; y: number }) => void
   onResize: (windowId: string, size: { width: number; height: number }) => void
@@ -145,6 +151,7 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
     isActive,
     onClose,
     onMinimize,
+    onSmartSplit,
     onFocus,
     onMove,
     onResize,
@@ -203,6 +210,7 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       (e: React.MouseEvent | React.TouchEvent) => {
         e.preventDefault()
         e.stopPropagation()
+        if ('button' in e && e.button !== 0) return
         setIsDragging(true)
         const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
         const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
@@ -434,6 +442,7 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
     return (
       <div
         ref={windowRef}
+        data-tapp-window={window.windowId}
         className="absolute flex flex-col overflow-visible rounded-xl"
         style={{
           top: 0,
@@ -452,10 +461,15 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
         aria-hidden={window.isMinimized || undefined}
       >
         <div
+          data-tapp-titlebar
           className={`flex items-center justify-between px-3 h-10 shrink-0 select-none rounded-t-xl ${isStorePanel ? 'glass glass-chrome-free' : 'glass-surface glass-80'} ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
           style={headerStyle}
           onMouseDown={handleDragStart}
           onTouchStart={handleDragStart}
+          onDoubleClick={(event) => {
+            if ((event.target as Element).closest('button')) return
+            onSmartSplit()
+          }}
         >
           <div className="flex items-center gap-2 min-w-0">
             <FaGripVertical
@@ -635,6 +649,7 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       prevProps.window.tapp === nextProps.window.tapp &&
       prevProps.window.code === nextProps.window.code &&
       prevProps.isActive === nextProps.isActive &&
+      prevProps.onSmartSplit === nextProps.onSmartSplit &&
       prevProps.containerBounds.width === nextProps.containerBounds.width &&
       prevProps.containerBounds.height === nextProps.containerBounds.height
     )
@@ -1129,6 +1144,21 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [],
   )
 
+  const tileWindows = useCallback(() => {
+    setWindows((prev) => {
+      const visible = prev.filter((w) => !w.isMinimized)
+      const tiles = getTappWindowTiles(visible.length, containerBounds)
+      if (tiles.length !== visible.length) return prev
+      let index = 0
+      return prev.map((w) => w.isMinimized
+        ? w
+        : {
+            ...w,
+            ...tiles[index++],
+          })
+    })
+  }, [containerBounds])
+
   const resizeWindow = useCallback(
     (windowId: string, size: { width: number; height: number }) => {
       setWindows((prev) =>
@@ -1600,6 +1630,26 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
             </motion.button>
           )}
 
+          <motion.button
+            type="button"
+            onClick={tileWindows}
+            disabled={
+              !windows.some((w) => !w.isMinimized) ||
+              containerBounds.width <= 0 || containerBounds.height <= 96
+            }
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors disabled:opacity-50 ${WINDOW_CONTROL_HOVER_CLASS}`}
+            style={{
+              ...WINDOW_CONTROL_HOVER_STYLE,
+              color: 'var(--text-secondary)',
+            }}
+            whileTap={noAnimation ? undefined : { scale: 0.95 }}
+            title={t.tapp.smartSplit}
+            aria-label={t.tapp.smartSplit}
+          >
+            <LuColumns2 className="h-4 w-4" />
+            <span className="text-xs font-medium">{t.tapp.smartSplit}</span>
+          </motion.button>
+
           {isAuthenticated && (
             <>
               {onBack && (
@@ -1761,6 +1811,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
               isActive={activeWindowId === window.windowId}
               onClose={closeWindow}
               onMinimize={minimizeWindow}
+              onSmartSplit={tileWindows}
               onFocus={focusWindow}
               onMove={moveWindow}
               onResize={resizeWindow}

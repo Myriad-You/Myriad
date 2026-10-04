@@ -347,6 +347,7 @@
   "stopApp": "Arrêter l’application",
   "back": "Retour",
   "windowScheme": "Disposition des fenêtres",
+  "smartSplit": "Répartition intelligente",
   "scheme": "Disposition",
   "saveCurrentScheme": "Enregistrer la disposition actuelle",
   "schemeSaveFailed": "Impossible d’enregistrer la disposition.",

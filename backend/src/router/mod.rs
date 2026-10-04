@@ -214,6 +214,9 @@ pub(crate) async fn start_unified_server(
         // agent EventSource and /api/proxy/image stay uncompressed.
         .layer(CompressionLayer::new());
 
+    #[cfg(feature = "hotpath")]
+    let api_router = api_router.layer(hotpath::AxumLayer::new());
+
     // SPA fallback vs API-only depending on frontend_dist_path.
     let app: Router = if std::path::Path::new(&config.frontend_dist_path).exists() {
         tracing::info!("Serving frontend from: {}", config.frontend_dist_path);

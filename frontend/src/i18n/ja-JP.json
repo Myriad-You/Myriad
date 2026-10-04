@@ -770,7 +770,6 @@
     "expand": "会話を開く",
     "accessDenied": "この操作を行う権限がありません。",
     "answerFailed": "回答失敗：{error}",
-    "askArael": "Agent に聞く",
     "cancelFailed": "そのタスクをキャンセルできませんでした。",
     "errorWithDetail": "エラー：{error}",
     "executionFailed": "実行失敗",

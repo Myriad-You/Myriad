@@ -60,14 +60,15 @@ pub fn load_platform_cache_files() -> Vec<PlatformCacheFile> {
     files
 }
 
-pub fn platform_cache_from_files(files: &[PlatformCacheFile]) -> Option<PlatformDataCache> {
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+pub fn platform_cache_from_files(files: Vec<PlatformCacheFile>) -> Option<PlatformDataCache> {
     if files.is_empty() {
         return None;
     }
     let fetched_at = files.iter().map(|file| file.fetched_at).min()?;
     let mut all_data = serde_json::Map::new();
     for file in files {
-        all_data.insert(file.platform.clone(), file.data.clone());
+        all_data.insert(file.platform, file.data);
     }
     Some(PlatformDataCache {
         data: Value::Object(all_data),
@@ -95,7 +96,7 @@ pub fn required_platforms_are_fresh(
 
 /// Merge base for fetches. Stale files stay available; callers decide freshness.
 pub fn load_platform_data_cache() -> Option<PlatformDataCache> {
-    platform_cache_from_files(&load_platform_cache_files())
+    platform_cache_from_files(load_platform_cache_files())
 }
 
 /// 保存平台数据缓存到磁盘（优化：只保存分平台数据，不再保存完整大文件）
@@ -181,6 +182,66 @@ mod atomic_replace_tests {
     use std::io::{Error, ErrorKind};
 
     #[test]
+    fn merged_cache_keeps_oldest_timestamp_and_last_platform_value() {
+        use super::{PlatformCacheFile, platform_cache_from_files};
+        use chrono::{Duration, Utc};
+        use serde_json::json;
+        let now = Utc::now();
+        let oldest = now - Duration::hours(13);
+        let files = vec![
+            PlatformCacheFile {
+                platform: "github".into(),
+                data: json!({"repos": ["old"]}),
+                fetched_at: oldest,
+            },
+            PlatformCacheFile {
+                platform: "bilibili".into(),
+                data: json!({"videos": ["video"]}),
+                fetched_at: now,
+            },
+            PlatformCacheFile {
+                platform: "github".into(),
+                data: json!({"repos": ["new"]}),
+                fetched_at: now,
+            },
+        ];
+        let cache = platform_cache_from_files(files).unwrap();
+        assert_eq!(cache.fetched_at, oldest);
+        assert_eq!(
+            cache.data,
+            json!({
+                "github": {"repos": ["new"]}, "bilibili": {"videos": ["video"]}
+            })
+        );
+        assert!(platform_cache_from_files(Vec::new()).is_none());
+    }
+
+    #[cfg(feature = "hotpath")]
+    #[test]
+    #[ignore = "manual profiling workload; run alone with --features hotpath-alloc --nocapture"]
+    fn profile_platform_cache_assembly() {
+        use super::{PlatformCacheFile, platform_cache_from_files};
+        use chrono::Utc;
+        use serde_json::json;
+        let padding = "x".repeat(2048);
+        let files: Vec<_> = (0..4)
+            .map(|id| PlatformCacheFile {
+                platform: format!("platform-{id}"),
+                data: json!({"rows": (0..1000).map(|row| json!({
+                    "id": row, "title": format!("Title {row}"), "unused": padding
+                })).collect::<Vec<_>>()}),
+                fetched_at: Utc::now(),
+            })
+            .collect();
+        let _profile = hotpath::HotpathGuardBuilder::new("platform_cache_assembly").build();
+        for _ in 0..20 {
+            // Each call gets an owned input; preparation is outside the measured function.
+            let input = files.clone();
+            std::hint::black_box(platform_cache_from_files(std::hint::black_box(input)));
+        }
+    }
+
+    #[test]
     fn rename_failure_is_error_and_does_not_copy_over_destination() {
         let root = std::env::temp_dir().join(format!(
             "myriad-plat-cache-{}",
@@ -201,7 +262,10 @@ mod atomic_replace_tests {
         .unwrap_err();
         assert_eq!(err.kind(), ErrorKind::CrossesDevices);
         assert_eq!(fs::read(&dest).unwrap(), b"original");
-        assert!(!temp.exists(), "failed temp file must be removed, not copied");
+        assert!(
+            !temp.exists(),
+            "failed temp file must be removed, not copied"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

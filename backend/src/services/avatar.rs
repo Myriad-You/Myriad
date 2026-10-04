@@ -202,6 +202,30 @@ pub struct PlatformProfile {
     pub bio: String,
 }
 
+/// One user's platform profiles, loaded lazily and retained only for one request.
+pub(crate) struct ProfileReadContext<'a> {
+    pub(crate) db: &'a DatabaseConnection,
+    pub(crate) user_id: i32,
+    profiles: tokio::sync::OnceCell<Vec<(String, PlatformProfile)>>,
+}
+
+impl<'a> ProfileReadContext<'a> {
+    pub(crate) fn new(db: &'a DatabaseConnection, user_id: i32) -> Self {
+        Self {
+            db,
+            user_id,
+            profiles: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    pub(crate) async fn owner_profiles(&self) -> &[(String, PlatformProfile)] {
+        self.profiles
+            .get_or_init(|| owner_platform_profiles(self.db, self.user_id))
+            .await
+            .as_slice()
+    }
+}
+
 fn str_field(value: &Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|k| value.get(*k).and_then(Value::as_str))
@@ -324,6 +348,49 @@ pub(crate) fn allow_platform_disk_cache_for_user(is_owner: bool) -> bool {
     is_owner
 }
 
+// Keep non-profile main rows as null markers: their presence still suppresses
+// disk fallback, just as loading the complete metadata did. JSON object keys
+// are selected without stripping nulls, so user/user_info precedence is intact.
+// Cast to JSON for JSON functions: production stores JSON, and JSONB must work too.
+const PROFILE_METADATA_SQL: &str = r#"
+SELECT platform_name,
+       CASE WHEN $2::jsonb ? platform_name THEN
+           COALESCE((
+               SELECT json_object_agg(field.key, field.value)
+               FROM json_each(CASE WHEN json_typeof(raw_data::json) = 'object'
+                                  THEN raw_data::json ELSE '{}'::json END) AS field
+               WHERE field.key IN ('user', 'user_info', 'channel')
+           ), '{}'::json)
+       ELSE 'null'::json END AS profile_data
+FROM platform_metadata
+WHERE user_id = $1
+ORDER BY fetched_at DESC
+"#;
+
+fn profile_metadata_statement(user_id: i32) -> Statement {
+    Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        PROFILE_METADATA_SQL,
+        vec![user_id.into(), json!(PLATFORM_ORDER).into()],
+    )
+}
+
+fn profile_metadata_rows(
+    rows: Vec<sea_orm::QueryResult>,
+) -> Result<HashMap<String, Value>, sea_orm::DbErr> {
+    let mut data = HashMap::new();
+    for row in rows {
+        let platform = row.try_get::<String>("", "platform_name")?;
+        if platform.contains("_chunk_") {
+            continue;
+        }
+        let profile = row.try_get::<Value>("", "profile_data")?;
+        // Descending fetch time: retain the same first (newest) main row.
+        data.entry(platform).or_insert(profile);
+    }
+    Ok(data)
+}
+
 async fn load_user_is_owner(db: &DatabaseConnection, user_id: i32) -> bool {
     db.query_one_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -337,17 +404,21 @@ async fn load_user_is_owner(db: &DatabaseConnection, user_id: i32) -> bool {
     .unwrap_or(false)
 }
 
-/// 站长的全部平台原始数据：优先数据库，空则回落磁盘缓存。
+/// 站长平台画像所需字段：优先数据库，空则回落磁盘缓存。
 /// 第二个返回值是 `"database"` / `"cache"` / `"none"`。
 ///
 /// Disk-cache fallback is **site-owner only**. For non-owners, empty DB → empty map
 /// (never the site-owner cache under another user_id).
-pub async fn owner_platform_data(
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+async fn owner_platform_profile_data(
     db: &DatabaseConnection,
     owner_id: i32,
 ) -> (HashMap<String, Value>, &'static str) {
-    let service = crate::services::metadata_service::MetadataService::new(db.clone());
-    match service.get_all_latest_metadata(owner_id).await {
+    let metadata = match db.query_all_raw(profile_metadata_statement(owner_id)).await {
+        Ok(rows) => profile_metadata_rows(rows),
+        Err(error) => Err(error),
+    };
+    match metadata {
         Ok(data) if !data.is_empty() => return (data, "database"),
         Ok(_) => {}
         Err(e) => tracing::warn!("Avatar: platform metadata unavailable ({e}), trying cache"),
@@ -360,7 +431,10 @@ pub async fn owner_platform_data(
     }
 
     crate::services::platform_refresh::load_platform_data_cache()
-        .and_then(|cache| cache.data.as_object().cloned())
+        .and_then(|cache| match cache.data {
+            serde_json::Value::Object(map) => Some(map),
+            _ => None,
+        })
         .map(|map| (map.into_iter().collect(), "cache"))
         .unwrap_or_else(|| (HashMap::new(), "none"))
 }
@@ -370,7 +444,7 @@ pub async fn owner_platform_snapshot(
     db: &DatabaseConnection,
     owner_id: i32,
 ) -> (Vec<(String, PlatformProfile)>, &'static str) {
-    let (data, source) = owner_platform_data(db, owner_id).await;
+    let (data, source) = owner_platform_profile_data(db, owner_id).await;
     let profiles = PLATFORM_ORDER
         .iter()
         .filter_map(|platform| {
@@ -505,6 +579,14 @@ async fn resolve_detail<C: ConnectionTrait>(
     platform_db: &DatabaseConnection,
     user_id: i32,
 ) -> ResolvedAvatar {
+    resolve_detail_with_context(user_row_db, &ProfileReadContext::new(platform_db, user_id)).await
+}
+
+async fn resolve_detail_with_context<C: ConnectionTrait>(
+    user_row_db: &C,
+    context: &ProfileReadContext<'_>,
+) -> ResolvedAvatar {
+    let user_id = context.user_id;
     let row = match load_user_avatar_row(user_row_db, user_id).await {
         Ok(Some(row)) => row,
         Ok(None) => {
@@ -526,15 +608,15 @@ async fn resolve_detail<C: ConnectionTrait>(
         if !row.is_owner {
             return None;
         }
-        let profiles = owner_platform_profiles(platform_db, user_id).await;
+        let profiles = context.owner_profiles().await;
         match platform {
             // 指定平台
             Some(want) => profiles
-                .into_iter()
+                .iter()
                 .find(|(name, _)| *name == want)
-                .and_then(|(_, profile)| profile.avatar),
+                .and_then(|(_, profile)| profile.avatar.clone()),
             // auto：按 PLATFORM_ORDER 取第一个有画像的
-            None => profiles.into_iter().find_map(|(_, profile)| profile.avatar),
+            None => profiles.iter().find_map(|(_, profile)| profile.avatar.clone()),
         }
     };
 
@@ -549,7 +631,7 @@ async fn resolve_detail<C: ConnectionTrait>(
             }
         }
         AvatarSourceKind::Platform => owner_platform_avatar(row.source_ref.clone()).await,
-        AvatarSourceKind::Persona => persona_sticker_avatar(platform_db).await,
+        AvatarSourceKind::Persona => persona_sticker_avatar(context.db).await,
     };
 
     // 选中的源失效时（平台数据被清、identity 解绑）回落隐式阶梯，而不是变成
@@ -567,6 +649,10 @@ async fn resolve_detail<C: ConnectionTrait>(
 /// 按用户选定的画像源解析出最终头像（已过站内代理）。
 pub async fn resolve_avatar(db: &DatabaseConnection, user_id: i32) -> Option<String> {
     proxied_avatar(resolve_detail(db, db, user_id).await.url)
+}
+
+pub(crate) async fn resolve_avatar_with_context(context: &ProfileReadContext<'_>) -> Option<String> {
+    proxied_avatar(resolve_detail_with_context(context.db, context).await.url)
 }
 
 /// 解析并写回 `avatar_resolved_url` 快照，让所有出口一次查询就拿到同一张脸。
@@ -588,7 +674,7 @@ pub async fn refresh_avatar_snapshot(db: &DatabaseConnection, user_id: i32) -> O
         Err(e) => {
             tracing::warn!("Avatar snapshot write failed for user {user_id}: {e}");
             // Best-effort resolve for callers that only need a display URL.
-            proxied_avatar(resolve_detail(db, db, user_id).await.url)
+            resolve_avatar(db, user_id).await
         }
     }
 }
@@ -1091,6 +1177,10 @@ async fn set_avatar_source_txn(
 
     Ok(avatar_url)
 }
+
+#[cfg(test)]
+#[path = "avatar/projection_tests.rs"]
+mod projection_tests;
 
 #[cfg(test)]
 mod tests {

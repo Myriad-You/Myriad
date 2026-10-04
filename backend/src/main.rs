@@ -125,9 +125,19 @@ pub static GLOBAL_CONFIG: once_cell::sync::Lazy<Arc<RwLock<AppConfig>>> =
 pub static GLOBAL_DYNAMIC_CONFIG: once_cell::sync::Lazy<Arc<RwLock<DynamicConfig>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(DynamicConfig::default())));
 
-#[cfg(feature = "mimalloc")]
+#[cfg(all(feature = "mimalloc", not(feature = "hotpath-alloc")))]
 #[global_allocator]
 static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+// Profile the same allocator used in production, including test workloads.
+#[cfg(all(feature = "mimalloc", feature = "hotpath-alloc"))]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: hotpath::CountingAllocator<mimalloc::MiMalloc> =
+    hotpath::CountingAllocator::with(mimalloc::MiMalloc);
+
+#[cfg(all(not(feature = "mimalloc"), feature = "hotpath-alloc"))]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: hotpath::CountingAllocator = hotpath::CountingAllocator::new();
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -141,6 +151,13 @@ async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::from_path(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
     // Docker: durable site origin (DATA_DIR/site_public.env) outlives compose-injected CORS.
     api::site_domain::load_durable_site_public_env();
+
+    // Keep the guard through graceful shutdown so worker activity is flushed.
+    // Pose subprocesses return above: model inference is a separate workload.
+    #[cfg(feature = "hotpath")]
+    let _profile = hotpath::HotpathGuardBuilder::new("myriad-backend")
+        .functions_limit(100)
+        .build();
 
     // sqlx enables rustls `ring`; reqwest enables `aws-lc-rs`. Both land in one
     // binary, so rustls will not auto-pick a CryptoProvider — WSS connect via

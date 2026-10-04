@@ -21,7 +21,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, V
 use serde_json::{Value, json};
 
 use crate::services::avatar::{
-    LAZY_BIO, PLATFORM_ORDER, PlatformProfile, identity_provider_platform_key,
+    LAZY_BIO, PLATFORM_ORDER, PlatformProfile, ProfileReadContext, identity_provider_platform_key,
     owner_platform_profiles, platform_display_label,
 };
 
@@ -255,19 +255,27 @@ pub async fn resolve_profile_text(
     db: &DatabaseConnection,
     user_id: i32,
 ) -> Result<ResolvedProfileText, String> {
+    resolve_profile_text_with_context(&ProfileReadContext::new(db, user_id)).await
+}
+
+pub(crate) async fn resolve_profile_text_with_context(
+    context: &ProfileReadContext<'_>,
+) -> Result<ResolvedProfileText, String> {
+    let db = context.db;
+    let user_id = context.user_id;
     let row = load_user_text_row(db, user_id)
         .await?
         .ok_or_else(|| "User not found".to_string())?;
     let current_ref = row.source_ref.clone().unwrap_or_default();
     let profiles = if row.is_owner {
-        owner_platform_profiles(db, user_id).await
+        context.owner_profiles().await
     } else {
-        Vec::new()
+        &[]
     };
     let identities = load_identities(db, user_id).await?;
 
     let selected = match row.kind {
-        ProfileTextSourceKind::Auto => Some(auto_resolved(&row, &profiles)),
+        ProfileTextSourceKind::Auto => Some(auto_resolved(&row, profiles)),
         ProfileTextSourceKind::Account => Some(account_resolved(&row)),
         ProfileTextSourceKind::Platform => {
             let want = current_ref.as_str();
@@ -295,7 +303,7 @@ pub async fn resolve_profile_text(
     };
 
     // 选中源失效（平台清了、identity 解绑）→ auto 阶梯，而不是空白
-    Ok(selected.unwrap_or_else(|| auto_resolved(&row, &profiles)))
+    Ok(selected.unwrap_or_else(|| auto_resolved(&row, profiles)))
 }
 
 /// 列出可选文案来源（同站 identity+platform 合并为一行，kind=platform）。

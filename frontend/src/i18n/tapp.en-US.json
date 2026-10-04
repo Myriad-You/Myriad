@@ -347,6 +347,7 @@
   "stopApp": "Stop app",
   "back": "Back",
   "windowScheme": "Window Scheme",
+  "smartSplit": "Smart split",
   "scheme": "Scheme",
   "saveCurrentScheme": "Save Current Scheme",
   "schemeSaveFailed": "Could not save the window scheme.",

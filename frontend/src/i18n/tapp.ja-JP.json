@@ -347,6 +347,7 @@
   "stopApp": "アプリを停止",
   "back": "戻る",
   "windowScheme": "ウィンドウスキーム",
+  "smartSplit": "スマート分割",
   "scheme": "スキーム",
   "saveCurrentScheme": "現在のスキームを保存",
   "schemeSaveFailed": "ウィンドウスキームを保存できませんでした。",

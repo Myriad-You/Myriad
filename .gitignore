@@ -140,6 +140,11 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/fixture/poseCorrectionEditor.tsx
 !/frontend/tests/browser/fixture/touchHandoff.tsx
 
+# TAPP title gestures, tiling and iframe continuity regressions
+!/frontend/tests/browser/tappWindows.spec.ts
+!/frontend/tests/browser/fixture/tappWindows.tsx
+!/frontend/tests/browser/fixture/tappWindows.css
+
 # Authenticated media preview lifecycle regressions
 !/frontend/tests/browser/mediaSource.spec.ts
 !/frontend/tests/browser/fixture/mediaSource.html

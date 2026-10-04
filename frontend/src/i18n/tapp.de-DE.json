@@ -347,6 +347,7 @@
   "stopApp": "App beenden",
   "back": "Zurück",
   "windowScheme": "Fensterlayout",
+  "smartSplit": "Intelligente Aufteilung",
   "scheme": "Layout",
   "saveCurrentScheme": "Aktuelles Layout speichern",
   "schemeSaveFailed": "Das Fensterlayout konnte nicht gespeichert werden.",

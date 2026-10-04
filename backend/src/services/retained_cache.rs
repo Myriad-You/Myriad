@@ -14,6 +14,8 @@ pub(crate) struct RetainedCache<K, V> {
     entries: HashMap<K, Entry<V>>,
     capacity: usize,
     ttl: Duration,
+    // Conservative lower bound: replacing or evicting a key may leave an earlier deadline.
+    next_expiry: Option<Instant>,
 }
 
 impl<K: Clone + Eq + Hash, V> RetainedCache<K, V> {
@@ -22,6 +24,7 @@ impl<K: Clone + Eq + Hash, V> RetainedCache<K, V> {
             entries: HashMap::new(),
             capacity,
             ttl,
+            next_expiry: None,
         }
     }
 
@@ -65,14 +68,16 @@ impl<K: Clone + Eq + Hash, V> RetainedCache<K, V> {
                 self.entries.remove(&oldest);
             }
         }
+        let expires = now + ttl;
         self.entries.insert(
             key,
             Entry {
                 value,
-                expires: now + ttl,
+                expires,
                 accessed: now,
             },
         );
+        self.next_expiry = Some(self.next_expiry.map_or(expires, |next| next.min(expires)));
     }
 
     #[cfg(test)]
@@ -85,7 +90,18 @@ impl<K: Clone + Eq + Hash, V> RetainedCache<K, V> {
     }
 
     fn purge_at(&mut self, now: Instant) {
-        self.entries.retain(|_, entry| entry.expires > now);
+        if self.next_expiry.is_none_or(|expires| expires > now) {
+            return;
+        }
+        let mut next_expiry: Option<Instant> = None;
+        self.entries.retain(|_, entry| {
+            if entry.expires <= now {
+                return false;
+            }
+            next_expiry = Some(next_expiry.map_or(entry.expires, |next| next.min(entry.expires)));
+            true
+        });
+        self.next_expiry = next_expiry;
     }
 }
 
@@ -132,5 +148,71 @@ mod tests {
         cache.purge_at(now + Duration::from_secs(1));
         assert_eq!(cache.entries.len(), 1);
         assert_eq!(cache.get_at("b", now + Duration::from_secs(1)), Some(&2));
+    }
+
+    #[test]
+    fn replacing_or_evicting_earliest_key_keeps_other_deadlines_exact() {
+        let now = Instant::now();
+        let second = Duration::from_secs(1);
+        let mut cache = RetainedCache::new(2, second * 10);
+        cache.insert_at("a", 1, second, now);
+        cache.insert_at("b", 2, second * 2, now);
+        cache.insert_at("a", 3, second * 10, now);
+        assert_eq!(cache.get_at("a", now + second), Some(&3));
+        assert_eq!(cache.get_at("b", now + second * 2), None);
+        assert_eq!(cache.get_at("a", now + second * 10), None);
+
+        cache.insert_at("a", 1, second, now);
+        cache.insert_at("b", 2, second * 2, now);
+        cache.get_at("b", now + second / 4);
+        cache.insert_at("c", 3, second * 3, now + second / 2);
+        assert!(!cache.entries.contains_key("a"));
+        assert_eq!(cache.get_at("b", now + second), Some(&2));
+        assert_eq!(cache.get_at("b", now + second * 2), None);
+        assert_eq!(cache.get_at("c", now + second * 3), Some(&3));
+    }
+
+    #[test]
+    fn an_earlier_insert_expires_and_releases_unrequested_values() {
+        use std::sync::Arc;
+        let now = Instant::now();
+        let second = Duration::from_secs(1);
+        let mut cache = RetainedCache::new(2, second * 60);
+        cache.insert_at("long", Arc::new(vec![1.0f32]), second * 60, now);
+        let short = Arc::new(vec![2.0f32]);
+        let released = Arc::downgrade(&short);
+        cache.insert_at("short", short, second, now);
+        assert!(released.upgrade().is_some());
+        assert!(cache.get_at("long", now + second).is_some());
+        assert!(released.upgrade().is_none());
+        assert_eq!(cache.len(), 1);
+        assert!(cache.get_at("long", now + second * 60).is_none());
+    }
+
+    #[test]
+    #[ignore = "manual cache-hit timing workload; run alone with --nocapture"]
+    fn profile_retained_cache_hits() {
+        let keys: Vec<_> = (0..4096)
+            .map(|id| ("embedding-model".to_string(), format!("{id:032x}")))
+            .collect();
+        let mut cache = RetainedCache::new(keys.len(), Duration::from_secs(3600));
+        for (id, key) in keys.iter().enumerate() {
+            cache.insert(key.clone(), id);
+        }
+        let iterations = 20_000;
+        let mut samples = Vec::new();
+        for _ in 0..5 {
+            let start = Instant::now();
+            for id in 0..iterations {
+                std::hint::black_box(cache.get(std::hint::black_box(&keys[id % keys.len()])));
+            }
+            samples.push(start.elapsed().as_nanos() / iterations as u128);
+        }
+        samples.sort_unstable();
+        println!(
+            "retained_cache_hits: entries={} iterations={iterations} samples_ns_per_hit={samples:?} median_ns_per_hit={}",
+            keys.len(),
+            samples[samples.len() / 2]
+        );
     }
 }

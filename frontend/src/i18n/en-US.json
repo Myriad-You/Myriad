@@ -770,7 +770,6 @@
     "expand": "Open conversation",
     "accessDenied": "You do not have permission to do that.",
     "answerFailed": "Answer failed: {error}",
-    "askArael": "Ask Agent",
     "cancelFailed": "Could not cancel that task.",
     "errorWithDetail": "Error: {error}",
     "executionFailed": "Execution failed",

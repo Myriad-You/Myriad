@@ -563,53 +563,16 @@ impl MetadataService {
         &self,
         user_id: i32,
     ) -> Result<HashMap<String, Value>, Box<dyn std::error::Error>> {
-        let all_metadata = platform_metadata::Entity::find()
+        let rows = platform_metadata::Entity::find()
+            .select_only()
+            .column(platform_metadata::Column::PlatformName)
+            .column(platform_metadata::Column::RawData)
             .filter(platform_metadata::Column::UserId.eq(user_id))
             .order_by_desc(platform_metadata::Column::FetchedAt)
+            .into_tuple::<(String, Value)>()
             .all(&self.db)
             .await?;
-
-        // 按平台分组，取最新的
-        let mut result = HashMap::new();
-        let mut seen_platforms = std::collections::HashSet::new();
-        // 收集分片数据以便后续合并
-        // Key: (base_platform, chunk_index) -> Value: raw_data (只保留最新的)
-        let mut chunk_data: HashMap<String, HashMap<i32, Value>> = HashMap::new();
-
-        for metadata in &all_metadata {
-            // 检查是否是分片记录 (如 netease_chunk_1)
-            if metadata.platform_name.contains("_chunk_") {
-                // 提取原始平台名称 (如 netease_chunk_1 -> netease)
-                if let Some(base_platform) = metadata.platform_name.split("_chunk_").next() {
-                    // 提取分片索引
-                    if let Some(idx_str) = metadata.platform_name.split("_chunk_").nth(1) {
-                        if let Ok(idx) = idx_str.parse::<i32>() {
-                            // 由于数据按 fetched_at DESC 排序，只保留每个 chunk_index 的第一条（最新）
-                            chunk_data
-                                .entry(base_platform.to_string())
-                                .or_default()
-                                .entry(idx)
-                                .or_insert_with(|| metadata.raw_data.clone());
-                        }
-                    }
-                }
-                continue;
-            }
-
-            if !seen_platforms.contains(&metadata.platform_name) {
-                result.insert(metadata.platform_name.clone(), metadata.raw_data.clone());
-                seen_platforms.insert(metadata.platform_name.clone());
-            }
-        }
-
-        // 合并分片数据到主记录
-        for (platform, chunks) in chunk_data {
-            if let Some(main_data) = result.get_mut(&platform) {
-                merge_chunk_rows(&platform, main_data, chunks);
-            }
-        }
-
-        Ok(result)
+        Ok(merge_latest_metadata(rows))
     }
 
     /// 只读取一个平台的最新元数据（含其 `*_chunk_*` 分片行并合并），不读其它平台。
@@ -667,6 +630,30 @@ impl MetadataService {
         merge_chunk_rows(platform, &mut main, chunks);
         Ok(Some(main))
     }
+}
+
+/// Rows are ordered newest first by the reader; move JSON rather than copying it.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+fn merge_latest_metadata(rows: Vec<(String, Value)>) -> HashMap<String, Value> {
+    let mut result = HashMap::new();
+    let mut chunk_data: HashMap<String, HashMap<i32, Value>> = HashMap::new();
+    for (platform, raw) in rows {
+        if platform.contains("_chunk_") {
+            let mut parts = platform.split("_chunk_");
+            let base = parts.next().unwrap_or_default();
+            if let Some(index) = parts.next().and_then(|index| index.parse::<i32>().ok()) {
+                chunk_data.entry(base.to_string()).or_default().entry(index).or_insert(raw);
+            }
+        } else {
+            result.entry(platform).or_insert(raw);
+        }
+    }
+    for (platform, chunks) in chunk_data {
+        if let Some(main) = result.get_mut(&platform) {
+            merge_chunk_rows(&platform, main, chunks);
+        }
+    }
+    result
 }
 
 /// 主记录标记 `_chunked` 时，把分片的 `songs` 按分片序号追加到 `liked_songs`。
@@ -829,3 +816,7 @@ mod platform_read_tests {
         isolated.drop().await;
     }
 }
+
+#[cfg(test)]
+#[path = "metadata_service/read_tests.rs"]
+mod read_tests;

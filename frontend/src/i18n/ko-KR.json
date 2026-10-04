@@ -770,7 +770,6 @@
     "expand": "대화 열기",
     "accessDenied": "그럴 권한이 없습니다.",
     "answerFailed": "답변하지 못했습니다: {error}",
-    "askArael": "Agent에게 묻기",
     "cancelFailed": "그 작업을 취소하지 못했습니다.",
     "errorWithDetail": "오류: {error}",
     "executionFailed": "실행에 실패했습니다",

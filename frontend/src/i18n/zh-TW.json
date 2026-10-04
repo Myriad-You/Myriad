@@ -770,7 +770,6 @@
     "expand": "展開對話",
     "accessDenied": "沒有權限執行這次操作。",
     "answerFailed": "回答失敗：{error}",
-    "askArael": "問 Agent",
     "cancelFailed": "沒能取消這個任務。",
     "errorWithDetail": "出錯了：{error}",
     "executionFailed": "執行失敗",

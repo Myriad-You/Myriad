@@ -347,6 +347,7 @@
   "stopApp": "停止应用",
   "back": "返回",
   "windowScheme": "窗口方案",
+  "smartSplit": "智能分屏",
   "scheme": "方案",
   "saveCurrentScheme": "保存当前方案",
   "schemeSaveFailed": "窗口方案没能保存。",

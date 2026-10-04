@@ -119,6 +119,7 @@ fn json_resident_bytes(value: &Value) -> usize {
     })
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn build_snapshot(platform: &str, data: Value) -> Arc<PlatformSnapshot> {
     let items = crate::services::platform_items::extract_platform_items(&data, platform);
     let size_bytes = json_resident_bytes(&data)
@@ -314,6 +315,7 @@ pub async fn get_cached_platform_items(platform: &str) -> Result<Arc<Vec<Value>>
     Ok(get_platform_snapshot(platform).await?.items.clone())
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 async fn get_platform_snapshot(platform: &str) -> Result<Arc<PlatformSnapshot>, String> {
     validate_platform_name(platform)?;
     ensure_cache_cleanup();

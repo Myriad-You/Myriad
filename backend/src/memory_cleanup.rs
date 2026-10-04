@@ -19,13 +19,16 @@ pub(crate) fn start() -> MemoryCleanup {
     ))
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 async fn reclaim() {
     use crate::services::{agent, ai_task_runtime, analyzer};
     crate::api::github_stars::cleanup_cache();
     crate::api::game_presence::cleanup_cache();
     analyzer::cleanup_shape_memo();
+    crate::services::library_items::cleanup_library_assembly_cache();
     crate::services::tapp_api_service::cleanup_response_cache().await;
     agent::consciousness::cleanup_attention();
+    agent::memory::meaning::cleanup_embedding_caches();
     crate::services::oauth::state::cleanup_used_nonces().await;
     crate::api::merope_rig::cleanup_verified_packages().await;
     if tokio::time::timeout(

@@ -19,6 +19,8 @@ This document provides detailed build and compilation instructions for the Myria
 
 ## Backend Build
 
+For backend resource measurements, see [Backend profiling](BACKEND_PROFILING.md).
+
 Myriad uses a **Cargo workspace** at the repo root for packages that share path
 dependencies (see [Cargo Workspaces](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html)):
 
