@@ -602,12 +602,13 @@ const GamePresenceWidget = memo(
       setFocusIndex(0)
     }, [accountId, game, showcaseLen])
 
-    // 头像条就是页码：点头像、在卡面上横滑都能换角色；悬停或刚手动换过时不自动轮。
+    // 头像条就是页码：点头像、横拖卡面或头像条、滚轮都能换角色。
     const rotation = useWidgetRotation({
       count: showcaseLen,
       interactive: !isPreview && !isEditMode,
       delay: 4000,
       autoplay: !isPreview && anim.loop && showcaseLen > 1,
+      verticalWheel: true,
       onStep: (delta) =>
         setFocusIndex((prev) => (prev + delta + showcaseLen) % showcaseLen),
     })
@@ -867,8 +868,8 @@ const GamePresenceWidget = memo(
               <>
                 <div
                   ref={queueRef}
-                  data-rotation-ignore=""
-                  className="scrollbar-hide w-full flex items-center gap-2 overflow-x-auto px-1.5 py-1.5 shrink-0"
+                  // 滚动容器的 touch-action 要设在条上，才能把横滑交给角色轮换。
+                  className={`scrollbar-hide w-full flex items-center gap-2 overflow-x-auto px-1.5 py-1.5 shrink-0 ${rotation.rootClassName}`}
                 >
                   {showcase.map((s, i) => (
                     <button
@@ -902,6 +903,7 @@ const GamePresenceWidget = memo(
                   {!isPreview && !isEditMode && anim.loop && showcaseLen > 1 ? (
                     <button
                       type="button"
+                      data-rotation-ignore=""
                       aria-label={rotation.stopped ? t.widgetGrid.resumeRotation : t.widgetGrid.pauseRotation}
                       aria-pressed={rotation.stopped}
                       className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-gray-400 outline-none transition-colors hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-[var(--cfg-accent)] dark:text-white/40 dark:hover:text-white/80 ml-auto"
@@ -988,6 +990,13 @@ const GamePresenceWidget = memo(
       meta,
       theme,
       focusIndex,
+      isPreview,
+      anim.loop,
+      showcaseLen,
+      rotation.hold,
+      rotation.stopped,
+      rotation.toggleStopped,
+      rotation.rootClassName,
     ])
 
     return (
@@ -1004,7 +1013,7 @@ const GamePresenceWidget = memo(
             size="md"
           />
         }
-        contentClassName={`flex flex-col ${!isEditMode && hasAccount ? 'cursor-pointer' : ''}`}
+        contentClassName={`flex flex-col ${rotation.active ? 'cursor-grab active:cursor-grabbing' : !isEditMode && hasAccount ? 'cursor-pointer' : ''}`}
         className={`select-none ${meta.fontClass} ${rotation.rootClassName}`}
         style={
           customFamily
