@@ -11,7 +11,7 @@ import { beginTappSubjectChange, finishTappSubjectChange, getTappSubjectSnapshot
 const require = createRequire(import.meta.url)
 const { JSDOM } = require(require.resolve('jsdom', { paths: [require.resolve('isomorphic-dompurify')] }))
 
-test('identity replacement drops old results and rebinds widget subscriptions', async () => {
+test('runtime import recovery binds events; identity replacement drops old results and rebinds subscriptions', async () => {
   const dom = new JSDOM('<div id="root"></div>')
   const globals = { window: dom.window, document: dom.window.document, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true }
   const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
@@ -20,18 +20,26 @@ test('identity replacement drops old results and rebinds widget subscriptions', 
   const declaration = source.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'useTappWidgets')!
   const makeRuntime = (name: string) => {
     const listeners = new Map<string, () => void>()
-    return { name, listeners, waitForSync: async () => {}, getRegisteredWidgets: () => [{ id: name }], on: (event: string, listener: () => void) => { listeners.set(event, listener); return () => listeners.delete(event) } }
+    return { name, listeners, waitForSync: async () => {}, syncFromBackend: async () => {}, getRegisteredWidgets: () => [{ id: name }], on: (event: string, listener: () => void) => { listeners.set(event, listener); return () => listeners.delete(event) } }
   }
   const old = makeRuntime('old-owner')
   const fresh = makeRuntime('new-owner')
   let current = old
-  const dependencies = { ...React, useTappSubject, getTappSubjectSnapshot, loadTappRuntimeModule: async () => ({ getTappRuntime: () => current }), createTappWidgetType: (widget: unknown) => widget, currentCopy: () => ({ errors: {} }), formatUserFacingError: async () => '' }
+  let failImport = true
+  let retry!: () => void
+  const dependencies = { ...React, useTappSubject, getTappSubjectSnapshot, loadTappRuntimeModule: async () => {
+    if (failImport) throw new Error('runtime import failed')
+    return { getTappRuntime: () => current }
+  }, setTimeout: (callback: () => void) => { retry = callback }, createTappWidgetType: (widget: unknown) => widget, currentCopy: () => ({ errors: {} }), formatUserFacingError: async () => '' }
   const hook = compileFunction(`${ts.transpile(declaration.getText(source).replace(/^export /, ''), { target: ts.ScriptTarget.ESNext })}; return useTappWidgets`, Object.keys(dependencies))(...Object.values(dependencies))
   let value: { tappWidgets: Array<{ id: string }>; refreshWidgets: () => Promise<void> }
   function Probe() { value = hook(); return null }
   const root = createRoot(document.getElementById('root')!)
   try {
     await act(async () => root.render(React.createElement(Probe)))
+    assert.equal(old.listeners.size, 0)
+    assert.deepEqual(value!.tappWidgets, [])
+    await act(async () => { failImport = false; retry() })
     assert.equal(old.listeners.size, 3)
     assert.deepEqual(value!.tappWidgets.map(widget => widget.id), ['old-owner'])
     const held = Promise.withResolvers<void>()

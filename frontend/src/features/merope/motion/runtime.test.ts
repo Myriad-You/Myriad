@@ -175,6 +175,17 @@ test('visible face consumers merge capabilities and select one mood authority', 
   assert.equal(runtime.summaryFacts().faceVisible, false)
 })
 
+test('full body controls do not truncate facial capabilities from the live summary', () => {
+  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const capabilities = ['head-body', 'torso-volume', 'left-arm', 'right-arm', 'blink',
+    'independent-eyes', 'dizzy-eye', 'squeeze-eye', 'cry-eye', 'silly-eye', 'lovestruck',
+    'cry-mouth', 'maniac-mouth', 'silly-mouth', 'mouth-shapes']
+  const consumer = runtime.attachLiveFaceConsumer({ ready: true, mood: 50, arousal: 50,
+    activity: 'idle', capabilities })
+  assert.deepEqual(runtime.summaryFacts().capabilities, capabilities)
+  consumer.release()
+})
+
 test('preview runtime ticks timed leases without a music sampler', async () => {
   const runtime = createPreviewMotionRuntime()
   const release = runtime.retain()

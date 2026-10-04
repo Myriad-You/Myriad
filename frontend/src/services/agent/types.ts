@@ -1,3 +1,13 @@
+import type performanceContract from '../../../../shared/merope_performance_contract.json'
+
+export type BodyControl = keyof typeof performanceContract.bodyControls
+export interface BodyPose {
+  targets: Partial<Record<BodyControl, number>>
+  transitionMs: number
+  /** Zero keeps the pose until revised or explicitly released. */
+  holdMs: number
+}
+
 export type RigMotionStyle = 'restrained' | 'even' | 'open'
 export type RigMusicEnergy = 'quiet' | 'soft' | 'present' | 'strong'
 export type RigBeatPhase = 'rest' | 'downbeat' | 'pulse' | 'hold'
@@ -153,6 +163,7 @@ export interface PerformanceBaseline {
   posture: 'closed' | 'neutral' | 'open'
   motionEnergy: number
   attention: number
+  pose?: BodyPose
 }
 
 export interface PerformanceCue {

@@ -21,7 +21,7 @@ import type {
   Anime25DTorsoYawState,
 } from './torsoDeformation'
 import type { Anime25DPlayback, Anime25DShellProfile } from './types'
-import { ArmChoreography } from './armChoreography'
+import { ArmChoreography, resolveDirectedArmIntent } from './armChoreography'
 import { ArmDrape, ArmPendulum, ArmSegment, FOREARM, HAND } from './armPendulum'
 import { applyBodyLift, BodyLiftResponse } from './bodyLift'
 import {
@@ -307,7 +307,7 @@ export class Anime25DBodyFrames {
   }
 
   /** Posture after the driver moved: torso yaw, the shell coming in, lift and pitch. */
-  stepPosture(dt: number, target: Readonly<Anime25DDriver>, time: number): void {
+  stepPosture(dt: number, time: number): void {
     this.shellActivation = Math.min(1, this.shellActivation + dt * 8)
     stepAnime25DTorsoShellRotation(
       this.torsoYaw,
@@ -316,15 +316,17 @@ export class Anime25DBodyFrames {
       dt,
       this.torsoShellRotation,
       anime25DTorsoYawFollow(this.shellProfile.torso, this.current.bodyYaw),
+      this.current.torsoTurn,
+      this.motion.directedBodyWeight('torsoTurn'),
     )
     // Explicit posture can be directed independently. Existing performances also
     // recruit the upper body, without adding an unrelated periodic oscillator.
     this.bodyLiftResponse.step(Math.max(-1, Math.min(1,
-      target.bodyLift + this.current.angleY * 0.45 + this.current.armY * 0.2 +
+      this.current.angleY * 0.45 + this.current.armY * 0.2 +
       (this.current.idle || this.current.talk || this.current.singing ? chestBreathResidual(time) * 0.7 : 0),
     )), dt)
     this.bodyPitchResponse.step(Math.max(-1, Math.min(1,
-      target.bodyPitch + this.current.angleY * 0.35,
+      this.current.angleY * 0.35,
     )), dt)
   }
 
@@ -398,8 +400,10 @@ export class Anime25DBodyFrames {
       centerX: anchors.neckPivot.x,
       upperY: anchors.neckBottom + Math.min(faceHeight * 0.65, span * 0.5),
       lowerY: anchors.bodyPivot.y,
-      amount: this.bodyLiftResponse.value * Math.min(faceHeight * 0.05, span * 0.035),
-      pitch: this.bodyPitchResponse.value * 0.18,
+      // Directed pose is already continuous in the composer: don't filter it
+      // a second time here. Only the automatic body recruitment has a spring.
+      amount: Math.max(-1, Math.min(1, e.bodyLift + this.bodyLiftResponse.value * (1 - this.motion.directedBodyWeight('torsoRise')))) * Math.min(faceHeight * 0.05, span * 0.035),
+      pitch: Math.max(-1, Math.min(1, e.bodyPitch + this.bodyPitchResponse.value * (1 - this.motion.directedBodyWeight('torsoPitch')))) * 0.18,
       depth: this.shellProfile.torso.enabled ? Math.min(this.shellProfile.torso.radiusZ, span * 0.45) : 0,
       shoulderY: anchors.neckBottom,
       groundY: this.standing?.groundY ?? anchors.bodyPivot.y,
@@ -602,12 +606,17 @@ export class Anime25DBodyFrames {
       shoulder.x = this.armJoint.x
       shoulder.y = this.armJoint.y
       const own = choreography[side]
-      const input = { open: own.open, sway: e.armPos, bodyRoll, dynamic: e.phys }
+      const raiseShare = this.motion.directedBodyWeight(side === 'L' ? 'leftArmRaise' : 'rightArmRaise')
+      const swingShare = this.motion.directedBodyWeight(side === 'L' ? 'leftArmSwing' : 'rightArmSwing')
+      const raised = side === 'L' ? e.armRaiseL : e.armRaiseR
+      const swung = side === 'L' ? e.armSwingL : e.armSwingR
+      const intent = resolveDirectedArmIntent(own, e.armPos, raised, swung, raiseShare, swingShare, this.armElbows[side])
+      const input = { open: intent.open, sway: intent.sway, bodyRoll, dynamic: e.phys }
       const angle = this.armPendulums[side].step(input, joint, dt)
       const drape = this.armDrapes[side].step(angle, input.bodyRoll, input.dynamic, dt)
       // Away from the body is the arm's own outward turn.
       const outward = side === 'L' ? 1 : -1
-      const forearm = this.forearms[side].step(angle, input.bodyRoll, input.dynamic, dt, outward * own.bend)
+      const forearm = this.forearms[side].step(angle, input.bodyRoll, input.dynamic, dt, outward * intent.bend)
       const hand = this.hands[side].step(angle + forearm, input.bodyRoll, input.dynamic, dt)
       if (side === 'L') {
         frame.armAngleL = angle

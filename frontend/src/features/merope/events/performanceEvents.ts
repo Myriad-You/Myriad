@@ -16,6 +16,7 @@ import {
   PERFORMANCE_CUE_INTENTS,
   PERFORMANCE_INTERRUPT_MODES,
   PERFORMANCE_POSTURES,
+  sanitizeBodyPose,
   sanitizeSpeechPhrases,
 } from './performanceContract'
 
@@ -244,6 +245,8 @@ function sanitizeMotionStyle(value: unknown): RigMotionStyle | null {
 }
 
 function sanitizeBaseline(value: unknown): PerformanceBaseline | null {
+  const pose = isRecord(value) && value.pose !== undefined ? sanitizeBodyPose(value.pose) : undefined
+  if (pose === null) return null
   if (!isRecord(value)) return null
   if (
     !PERFORMANCE_BASELINE_EXPRESSIONS.includes(
@@ -264,6 +267,7 @@ function sanitizeBaseline(value: unknown): PerformanceBaseline | null {
     posture: value.posture as PerformanceBaseline['posture'],
     motionEnergy: clamp(value.motionEnergy, 0.2, 1.4),
     attention: clamp(value.attention, 0, 1),
+    ...(pose ? { pose } : {}),
   }
 }
 

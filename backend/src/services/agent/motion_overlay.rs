@@ -492,6 +492,36 @@ pub(super) mod motion_refinement_tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    #[tokio::test]
+    async fn chat_refinement_preserves_independent_body_control_even_without_unanchored_cues() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let live = super::super::playback_direction::PlaybackDirection::default();
+        let (mut delivery, guard) = spawn_chat_motion_refinement_in(
+            context(),
+            tx.clone(),
+            |context| async move {
+                let mut performance =
+                    crate::services::agent::merope::local_directive(&context).unwrap();
+                performance.plan.baseline = myriad_merope::parse_performance_plan(r#"{"baseline":{"expression":"warm","posture":"open","pose":{"targets":{"headTurn":-0.8,"torsoTurn":0.7,"leftArmRaise":0.9,"rightArmRaise":0},"transitionMs":250,"holdMs":0}}}"#).unwrap().baseline;
+                Some(performance)
+            },
+            Some(live.clone()),
+        );
+        delivery.observe("我在听你说。", &tx);
+        let result = tokio::time::timeout(Duration::from_secs(1), live.read_after(0))
+            .await
+            .unwrap();
+        let performance = result.performance.unwrap();
+        assert!(performance.plan.cues.is_empty());
+        let pose = performance.plan.baseline.unwrap().pose.unwrap();
+        assert_eq!(pose.targets["headTurn"], -0.8);
+        assert_eq!(pose.targets["torsoTurn"], 0.7);
+        assert_eq!(pose.targets["rightArmRaise"], 0.0);
+        live.close();
+        drop(delivery);
+        guard.stop().await;
+    }
+
     pub(in crate::services::agent) fn context() -> MotionContext {
         MotionContext {
             user_id: 1,

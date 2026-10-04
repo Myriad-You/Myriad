@@ -343,3 +343,9 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/wallpaperMedia.spec.ts
 !/frontend/tests/browser/fixture/wallpaperMedia.html
 !/frontend/tests/browser/fixture/wallpaperMedia.tsx
+
+# Custom social icon lazy-loading regressions
+!/frontend/tests/browser/socialNetworkIcons.spec.ts
+!/frontend/tests/browser/fixture/socialNetworkIcons.html
+!/frontend/tests/browser/fixture/socialNetworkIcons.tsx
+!/frontend/tests/browser/fixture/socialNetworkIcons.css

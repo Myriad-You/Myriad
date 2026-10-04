@@ -137,6 +137,10 @@ export function projectAnime25DMotionEnvelope(
   }
 
   const originalBody = finite(target.body)
+  target.torsoTurn = softLimitSigned(finite(target.torsoTurn), profile.torso)
+  for (const key of ['armRaiseL', 'armRaiseR', 'armSwingL', 'armSwingR'] as const) {
+    target[key] = softLimitSigned(finite(target[key]), profile.rigidArm)
+  }
   const safeBody = softLimitSigned(originalBody, profile.torso)
   target.body = safeBody
   transferTorsoResidual(target, originalBody - safeBody, result)

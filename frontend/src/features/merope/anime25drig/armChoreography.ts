@@ -32,6 +32,29 @@ export interface ArmSideIntent {
   bend: number
 }
 
+/**
+ * Raise/swing are already weighted and response-filtered by the composer.
+ * Shares only suppress automatic recruitment; multiplying the directed
+ * contribution again would weaken attacks and prematurely erase releases.
+ */
+export function resolveDirectedArmIntent(
+  automatic: Readonly<ArmSideIntent>,
+  automaticSway: number,
+  raise: number,
+  swing: number,
+  raiseShare: number,
+  swingShare: number,
+  elbow: boolean,
+): ArmSideIntent & { sway: number } {
+  const directedOpen = raise * (elbow ? 1 - ELBOW_SHARE : 1)
+  const directedBend = elbow ? raise * ELBOW_FLEX : 0
+  return {
+    open: automatic.open * (1 - raiseShare) + directedOpen,
+    bend: automatic.bend * (1 - raiseShare) + directedBend,
+    sway: automaticSway * (1 - swingShare) + swing,
+  }
+}
+
 /** A lift this large is a gesture with a leading arm; below the release it is over. */
 const GESTURE_START = 0.08
 const GESTURE_RELEASE = 0.03

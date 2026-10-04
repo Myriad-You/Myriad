@@ -136,7 +136,7 @@ async fn direct_motion_inner(
         // then cannot spend the round's 0–2 cues on something the filter below
         // would delete.
         let offered = offered_cue_intents(rig_state.as_ref());
-        let schema = motion_schema(&offered);
+        let schema = motion_schema_for_state(&offered, rig_state.as_ref());
         let system_prompt = motion_system_prompt(&offered);
         let call = analyzer.analyze_json(&system_prompt, &input, MOTION_SCHEMA_NAME, Some(&schema));
         Some(

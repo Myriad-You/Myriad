@@ -141,6 +141,7 @@ pub(super) fn landing_baseline(_intent: &str) -> ChatPerformanceBaseline {
         posture: "neutral".to_string(),
         motion_energy: 1.0,
         attention: 0.65,
+        pose: None,
     }
 }
 
@@ -204,6 +205,13 @@ pub(super) fn apply_user_requested_cue(
     if plan.cues.len() > 3 {
         plan.cues.truncate(3);
     }
-    plan.baseline = Some(landing_baseline(intent));
+    // A requested face must not discard independently directed body targets.
+    let pose = plan
+        .baseline
+        .as_mut()
+        .and_then(|baseline| baseline.pose.take());
+    let mut baseline = landing_baseline(intent);
+    baseline.pose = pose;
+    plan.baseline = Some(baseline);
     plan
 }

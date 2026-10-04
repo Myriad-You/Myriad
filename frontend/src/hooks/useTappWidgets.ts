@@ -44,7 +44,10 @@ type TappRuntimeModule = typeof import('../tapp/runtime/TappRuntime')
 let runtimeModulePromise: Promise<TappRuntimeModule> | null = null
 
 function loadTappRuntimeModule(): Promise<TappRuntimeModule> {
-  runtimeModulePromise ||= import('../tapp/runtime/TappRuntime')
+  runtimeModulePromise ||= import('../tapp/runtime/TappRuntime').catch((error) => {
+    runtimeModulePromise = null
+    throw error
+  })
   return runtimeModulePromise
 }
 
@@ -148,6 +151,7 @@ export function useTappWidgets(enabled = true): {
   const [tappWidgets, setTappWidgets] = useState<TappWidgetType[]>([])
   const [isLoading, setIsLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
+  const [runtimeReady, setRuntimeReady] = useState(false)
 
   // 用函数读 mounted：TS 会把字面量比较收窄成 true/false，后续比较报 TS2367。
   const mountedRef = useRef<boolean>(true)
@@ -172,6 +176,7 @@ export function useTappWidgets(enabled = true): {
         setIsLoading(true)
         const { getTappRuntime } = await loadTappRuntimeModule()
         if (!isCurrent()) return
+        setRuntimeReady(true)
         const runtime = getTappRuntime()
 
         if (attempt === 0) {
@@ -228,7 +233,7 @@ export function useTappWidgets(enabled = true): {
   }, [enabled, loadWidgetsAsync, subject])
 
   useEffect(() => {
-    if (!enabled || !subject.ready) return
+    if (!enabled || !subject.ready || !runtimeReady) return
     let disposed = false
     const unsubs: Array<() => void> = []
 
@@ -268,7 +273,7 @@ export function useTappWidgets(enabled = true): {
       disposed = true
       unsubs.forEach((unsub) => unsub())
     }
-  }, [enabled, mapWidgets, subject])
+  }, [enabled, mapWidgets, subject, runtimeReady])
 
   return {
     tappWidgets,

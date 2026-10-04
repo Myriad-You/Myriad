@@ -305,56 +305,63 @@ const MAX_PLATFORM_INFO_CACHE = 50
 let customPlatformsData: CustomPlatformData[] = []
 let customPlatformsLoaded = false
 let customPlatformsLoadPromise: Promise<CustomPlatformData[]> | null = null
+let customPlatformsVersion = 0
+const customPlatformsListeners = new Set<() => void>()
+
+function subscribeCustomPlatforms(listener: () => void): () => void {
+  customPlatformsListeners.add(listener)
+  return () => {
+    customPlatformsListeners.delete(listener)
+  }
+}
+
+function getCustomPlatformsVersion(): number {
+  return customPlatformsVersion
+}
+
+function publishCustomPlatforms(platforms: CustomPlatformData[]): void {
+  customPlatformsData = platforms
+  customPlatformsLoaded = true
+  platformInfoCache.clear()
+  customPlatformsVersion += 1
+  customPlatformsListeners.forEach((listener) => listener())
+}
 
 function getCustomPlatformsData(): CustomPlatformData[] {
   return Array.isArray(customPlatformsData) ? customPlatformsData : []
 }
 
-function loadCustomPlatforms(): CustomPlatformData[] {
+function loadCustomPlatformsAsync(): Promise<CustomPlatformData[]> {
   if (customPlatformsLoaded) {
+    return Promise.resolve(getCustomPlatformsData())
+  }
+  if (customPlatformsLoadPromise) return customPlatformsLoadPromise
+
+  const requestVersion = customPlatformsVersion
+  customPlatformsLoadPromise = (async () => {
+    try {
+      const data = await getUIConfigDeduped()
+      // 保存期间到达的旧读取不能覆盖已经发布的新配置。
+      if (requestVersion === customPlatformsVersion) {
+        publishCustomPlatforms(parseCustomPlatforms(data?.custom_platforms) as CustomPlatformData[])
+      }
+    } catch (e) {
+      console.error('Failed to load custom platforms from API:', e)
+    } finally {
+      customPlatformsLoadPromise = null
+    }
     return getCustomPlatformsData()
-  }
-
-  if (!customPlatformsLoadPromise) {
-    customPlatformsLoadPromise = loadCustomPlatformsAsync()
-  }
-
-  return getCustomPlatformsData()
-}
-
-async function loadCustomPlatformsAsync(): Promise<CustomPlatformData[]> {
-  if (customPlatformsLoaded) {
-    return getCustomPlatformsData()
-  }
-
-  try {
-    const data = await getUIConfigDeduped()
-    customPlatformsData = parseCustomPlatforms(
-      data?.custom_platforms,
-    ) as CustomPlatformData[]
-  } catch (e) {
-    console.error('Failed to load custom platforms from API:', e)
-  }
-
-  customPlatformsLoaded = true
-  customPlatformsLoadPromise = null
-  return getCustomPlatformsData()
+  })()
+  return customPlatformsLoadPromise
 }
 
 // 必须 POST 并校验 ok；只 dispatch 的话刷新会丢。
 async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
-  const previous = getCustomPlatformsData()
-  customPlatformsData = platforms
-  customPlatformsLoaded = true
-  platformInfoCache.clear()
-
   try {
     await saveDashboardConfig({ custom_platforms: JSON.stringify(platforms) })
+    publishCustomPlatforms(platforms)
     emitAppEvent('custom-platforms-update', { platforms, persisted: true })
   } catch (err) {
-    // 失败则回滚内存，与服务器一致。
-    customPlatformsData = previous
-    platformInfoCache.clear()
     console.error('Failed to persist custom platforms:', err)
     throw err
   }
@@ -923,16 +930,18 @@ InfoTooltip.displayName = 'InfoTooltip'
 const GlobalSettingsModal = memo(() => {
   const [, forceUpdate] = useState({})
   const { t } = useI18n()
+  const iconVersion = useSyncExternalStore(
+    subscribeNamedIcons,
+    namedIconVersion,
+    namedIconVersion,
+  )
 
-  const [allPlatforms, setAllPlatforms] = useState<PlatformInfo[]>(() => {
-    return getAllPlatforms()
-  })
-
-  useEffect(() => {
-    loadCustomPlatformsAsync().then(() => {
-      setAllPlatforms(getAllPlatforms())
-    })
-  }, [])
+  const platformsVersion = useSyncExternalStore(
+    subscribeCustomPlatforms,
+    getCustomPlatformsVersion,
+    getCustomPlatformsVersion,
+  )
+  const allPlatforms = useMemo(getAllPlatforms, [platformsVersion, iconVersion])
 
   const [showCustomForm, setShowCustomForm] = useState(false)
   const [customFormData, setCustomFormData] = useState({
@@ -951,6 +960,11 @@ const GlobalSettingsModal = memo(() => {
   }, [])
 
   const { isOpen, selectedPlatformId, anchorRect, onSelect } = globalModalState
+
+  useEffect(() => {
+    // 首次读取失败时，重开设置仍能再试；已有数据由共享订阅刷新。
+    void loadCustomPlatformsAsync()
+  }, [isOpen])
 
   const handleSelect = useCallback(
     (platformId: string) => {
@@ -1067,8 +1081,6 @@ const GlobalSettingsModal = memo(() => {
 
       await addCustomPlatform(newPlatform)
 
-      setAllPlatforms(getAllPlatforms())
-
       setCustomFormData({
         name: '',
         username: '',
@@ -1097,7 +1109,6 @@ const GlobalSettingsModal = memo(() => {
       if (confirm(t.socialNetworkWidget.confirmDeleteCustomPlatform)) {
         try {
           await removeCustomPlatform(platformId)
-          setAllPlatforms(getAllPlatforms())
         } catch (error) {
           showError(
             userFacingError(
@@ -1283,7 +1294,7 @@ export const SocialNetworkWidget = memo(
     )
     const anim = useAnimationLevel()
     const { t } = useI18n()
-    useSyncExternalStore(
+    const iconVersion = useSyncExternalStore(
       subscribeNamedIcons,
       namedIconVersion,
       namedIconVersion,
@@ -1307,8 +1318,10 @@ export const SocialNetworkWidget = memo(
 
     const [showInfoTooltip, setShowInfoTooltip] = useState(false)
 
-    const [customPlatformsReady, setCustomPlatformsReady] = useState(
-      customPlatformsLoaded,
+    const platformsVersion = useSyncExternalStore(
+      subscribeCustomPlatforms,
+      getCustomPlatformsVersion,
+      getCustomPlatformsVersion,
     )
 
     const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1317,20 +1330,17 @@ export const SocialNetworkWidget = memo(
     const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     useEffect(() => {
-      if (!customPlatformsLoaded) {
-        loadCustomPlatformsAsync().then(() => {
-          setCustomPlatformsReady(true)
-        })
-      }
+      void loadCustomPlatformsAsync()
     }, [])
 
+    // 图标目录异步到达后，替换首屏暂用的占位图标。
     const selectedPlatform = useMemo(() => {
       const index = PLATFORM_INDEX_MAP[selectedPlatformId]
       if (index !== undefined) {
         return PLATFORMS[index]
       }
 
-      if (customPlatformsReady) {
+      if (customPlatformsLoaded) {
         const customPlatform = getCustomPlatformsData().find(
           (p) => p.id === selectedPlatformId,
         )
@@ -1340,7 +1350,7 @@ export const SocialNetworkWidget = memo(
       }
 
       return PLATFORMS[0]
-    }, [selectedPlatformId, customPlatformsReady])
+    }, [selectedPlatformId, platformsVersion, iconVersion])
 
     const userId = useMemo(() => {
       switch (selectedPlatformId) {
@@ -1361,7 +1371,7 @@ export const SocialNetworkWidget = memo(
         case 'x':
           return platformUserIds.x_username
         default: {
-          if (customPlatformsReady) {
+          if (customPlatformsLoaded) {
             const customPlatform = getCustomPlatformsData().find(
               (p) => p.id === selectedPlatformId,
             )
@@ -1383,7 +1393,7 @@ export const SocialNetworkWidget = memo(
           return undefined
         }
       }
-    }, [selectedPlatformId, platformUserIds, customPlatformsReady])
+    }, [selectedPlatformId, platformUserIds, platformsVersion])
 
     useEffect(() => {
       if (isPreview) return
@@ -1435,7 +1445,6 @@ export const SocialNetworkWidget = memo(
     }, [])
 
     const popupPlatformData = useMemo(() => {
-      loadCustomPlatforms()
       const customPlatform = getCustomPlatformsData().find(
         (p) => p.id === selectedPlatformId,
       )
@@ -1449,9 +1458,8 @@ export const SocialNetworkWidget = memo(
         }
       }
       return null
-      // customPlatformsReady：自定义平台是异步加载的，首屏渲染时还没到；
-      // 不跟着重算的话弹出型平台（QQ 等）会一直被当成普通平台，浮层永远出不来。
-    }, [selectedPlatformId, customPlatformsReady])
+      // 配置异步到达或被删除时，弹出内容也必须同步重算。
+    }, [selectedPlatformId, platformsVersion])
 
     const isPopupType = popupPlatformData !== null
     const hasInteraction = !isEditMode && !!userId

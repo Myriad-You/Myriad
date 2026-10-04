@@ -11,6 +11,7 @@ import { RigMotionCoordinator } from './coordinator'
 import { HumanPerformanceRuntime } from './humanPerformanceRuntime'
 import { MoodMotionSource } from './moodSource'
 import { PerformanceMotionSource } from './performanceSource'
+import { RIG_STATE_CAPABILITY_LIMIT } from './rigStateSummary'
 import { SpeechMotionSource } from './speechSource'
 import { TouchMotionSource } from './touchSource'
 
@@ -323,7 +324,7 @@ function currentNow(): number {
 }
 
 function uniqueCapabilities(capabilities: readonly string[]): string[] {
-  return Iterator.from(new Set(capabilities)).take(12).toArray()
+  return Iterator.from(new Set(capabilities)).take(RIG_STATE_CAPABILITY_LIMIT).toArray()
 }
 
 function normalizeFaceConsumer(

@@ -1,6 +1,7 @@
 import type { MotionChannelPolicy } from '../motion/policy'
 import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { ClosedEyePresentation } from './closedEyePresentation'
+import type { IndependentBodyControl } from './directedPose'
 import type { Anime25DDriver } from './driver'
 import type {
   Anime25DBlinkState,
@@ -13,6 +14,7 @@ import { allowsPointerGaze } from '../motion/policy'
 import { SingingGrooveController } from '../singing/singingGroove'
 import { AmbientMotionController } from './ambientMotion'
 import { Anime25DBehaviorMotionController } from './behaviorMotion'
+import { BODY_CONTROL_DRIVERS, DirectedPoseController, INDEPENDENT_BODY_CONTROLS } from './directedPose'
 import { IDENTITY_DRIVER } from './driver'
 import {
   applyAnime25DComposedPose,
@@ -75,6 +77,7 @@ export interface MotionComposerInput {
  * into `current`. Rendering reads `current` and the few outputs below.
  */
 export class Anime25DMotionComposer {
+  readonly directedPose = new DirectedPoseController()
   readonly performanceExpression = new PerformanceExpressionController()
   readonly behaviorMotion = new Anime25DBehaviorMotionController()
   readonly speechMotion = new AutoSpeechController()
@@ -95,7 +98,13 @@ export class Anime25DMotionComposer {
   jawEmphasis = 0
 
   private readonly workingTarget: Anime25DDriver = { ...IDENTITY_DRIVER }
+  private readonly expressionTarget: Anime25DDriver = { ...IDENTITY_DRIVER }
   private readonly poseResponse = new PoseResponseController()
+  // Geometry mixes its automatic posture with already-weighted drivers. Its
+  // remaining automatic share must follow the same response, not raw ownership.
+  private readonly directedAuthority = { ...IDENTITY_DRIVER }
+  private readonly directedAuthorityTarget = { ...IDENTITY_DRIVER }
+  private readonly directedAuthorityResponse = new PoseResponseController()
   private unblinkedEyeOpenL = 1
   private unblinkedEyeOpenR = 1
   private readonly blinkState: Anime25DBlinkState = {
@@ -144,6 +153,10 @@ export class Anime25DMotionComposer {
     this.standing = standing
   }
 
+  directedBodyWeight(control: IndependentBodyControl): number {
+    return this.directedAuthority[BODY_CONTROL_DRIVERS[control]]
+  }
+
   /** Blink soon, then resume the natural rhythm. */
   blinkNow(time: number): void {
     this.blinkState.activeSeconds = 0
@@ -152,6 +165,8 @@ export class Anime25DMotionComposer {
 
   step(dt: number, input: MotionComposerInput): void {
     const t = input.time
+    this.directedPose.setPolicy(input.policy)
+    this.directedPose.setTouchShare(this.performanceExpression.getTouchShare())
     const target = input.target
     const pointer =
       target.mouse && allowsPointerGaze(input.policy.gaze)
@@ -179,14 +194,21 @@ export class Anime25DMotionComposer {
     )
     this.controlTime = controlTime
     const behaviorMotion = this.behaviorMotion.sample(controlTime)
+    const speaking = input.speechActive || target.talk
+    const singing = target.singing
+    const vocalizing = speaking || (singing && (behaviorMotion.musicMode === 'sing' || behaviorMotion.musicMode === 'hum'))
+    this.directedPose.step(dt, t, tgt)
+    const expressionTarget = Object.assign(this.expressionTarget, tgt)
+    this.directedPose.write(expressionTarget, vocalizing)
     const semanticExpression = this.performanceExpression.sample(
       controlTime,
-      tgt,
+      expressionTarget,
       input.speechActive || target.talk,
     )
+    this.directedPose.setTransientMotion(semanticExpression, this.performanceExpression.getActiveLevel())
     const stylizedTargets = resolveAnime25DStylizedTargets(
       this.stylizedTargets,
-      tgt,
+      expressionTarget,
       semanticExpression,
     )
     const stylized = this.stylizedExpression.sample(
@@ -203,7 +225,6 @@ export class Anime25DMotionComposer {
     const pointerDriven = target.mouse && pointer.inside
     const speech = this.speechMotion.sample(controlTime, target.talk)
     this.jawEmphasis = speech.browAccent
-    const speaking = input.speechActive || target.talk
     const speechExpression = this.speechExpression.sample(
       controlTime,
       speaking,
@@ -214,12 +235,6 @@ export class Anime25DMotionComposer {
       behaviorMotion.coSpeechQuality,
       behaviorMotion.coSpeechGesture,
     )
-    const singing = target.singing
-    const vocalizing =
-      speaking ||
-      (singing &&
-        (behaviorMotion.musicMode === 'sing' ||
-          behaviorMotion.musicMode === 'hum'))
     const groove = this.singingGroove.sample(
       t,
       singing,
@@ -304,6 +319,8 @@ export class Anime25DMotionComposer {
       tgt,
       smoothAnime25DUnit(stylizedTargets.silly) * this.sillyMouthShare,
     )
+    this.directedPose.setTouchShare(this.performanceExpression.getTouchShare())
+    this.directedPose.write(tgt, vocalizing)
     projectAnime25DMotionEnvelope(
       tgt,
       input.motionEnvelopeProfile,
@@ -337,6 +354,12 @@ export class Anime25DMotionComposer {
       this.poseResponse,
       dt,
       this.responseScale,
+    )
+    for (const control of INDEPENDENT_BODY_CONTROLS) {
+      this.directedAuthorityTarget[BODY_CONTROL_DRIVERS[control]] = this.directedPose.weight(control)
+    }
+    this.directedAuthorityResponse.step(
+      this.directedAuthority, this.directedAuthorityTarget, dt, this.responseScale,
     )
     this.unblinkedEyeOpenL = this.current.eyeOpenL
     this.unblinkedEyeOpenR = this.current.eyeOpenR

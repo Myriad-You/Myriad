@@ -34,5 +34,8 @@ export function requestNamedIcon(name: string): void {
     cache.set(name, mod.getIconByName(name))
     pending.delete(name)
     notify()
+  }).catch(() => {
+    // 释放失败请求，让后续调用能再试；不触发重绘，避免失败时循环请求。
+    pending.delete(name)
   })
 }

@@ -24,6 +24,8 @@ export interface Anime25DDriver {
   mouthCY: number
   body: number
   bodyYaw: number
+  /** Actual torso turn; bodyYaw above is the automatic head-follow gain. */
+  torsoTurn: number
   /** Upper-body rise (+) / settle (-), independent of head pitch and physics. */
   bodyLift: number
   /** Forward/back torso orientation; independent of vertical lift. */
@@ -38,6 +40,10 @@ export interface Anime25DDriver {
   bangR: number
   armY: number
   armPos: number
+  armRaiseL: number
+  armRaiseR: number
+  armSwingL: number
+  armSwingR: number
   bust: number
   bustY: number
   irisScale: number
@@ -94,6 +100,7 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   mouthCY: 0,
   body: 0,
   bodyYaw: 1,
+  torsoTurn: 0,
   bodyLift: 0,
   bodyPitch: 0,
   physAmp: DEFAULT_REAR_HAIR_SWAY,
@@ -106,6 +113,10 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   bangR: 0,
   armY: 0,
   armPos: 0,
+  armRaiseL: 0,
+  armRaiseR: 0,
+  armSwingL: 0,
+  armSwingR: 0,
   bust: 2.5,
   bustY: 1,
   irisScale: 1,
@@ -169,6 +180,7 @@ const DRIVER_LIMITS: Partial<
   mouthCY: [-1, 1],
   body: [-1, 1],
   bodyYaw: [0, 1],
+  torsoTurn: [-1, 1],
   bodyLift: [-1, 1],
   bodyPitch: [-1, 1],
   physAmp: [0, 3],
@@ -181,6 +193,10 @@ const DRIVER_LIMITS: Partial<
   bangR: [-1, 1],
   armY: [-1, 1],
   armPos: [-1, 1],
+  armRaiseL: [-1, 1],
+  armRaiseR: [-1, 1],
+  armSwingL: [-1, 1],
+  armSwingR: [-1, 1],
   bust: [0, 4],
   bustY: [-3, 3],
   irisScale: [0.5, 1.3],

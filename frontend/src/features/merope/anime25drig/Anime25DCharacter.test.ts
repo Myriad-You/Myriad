@@ -27,11 +27,20 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
   let created = 0
   let disposed = 0
   class Player {
+    capabilities: readonly string[] = []
     constructor() { created += 1 }
     replaceLivePackage(_playback: unknown, _manifest: unknown, atlas: string) {
-      return new Promise<void>((resolve, reject) => packages.push({ atlas, resolve, reject }))
+      return new Promise<void>((resolve, reject) => packages.push({
+        atlas,
+        resolve: () => {
+          this.capabilities = atlas === 'fourth' ? ['head-body', 'right-arm'] : ['head-body', 'torso-volume']
+          resolve()
+        },
+        reject,
+      }))
     }
 
+    getMotionCapabilities() { return this.capabilities }
     setSpeechActive() {}
     setSpeechProsody() {}
     setSinging() {}
@@ -67,10 +76,14 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
   const manifest = {}
   const playback = {}
   let ready = 0
+  const capabilityReceipts: (readonly string[])[] = []
   const errors: string[] = []
   const render = (atlas: string, label: string) => root.render(createElement(Character, {
     activity: 'idle', mood: 0, manualControl: true, manifest, playback, atlasUrl: atlas,
-    onPlaybackReady: () => { ready += 1 },
+    onPlaybackReady: (capabilities: readonly string[]) => {
+      ready += 1
+      capabilityReceipts.push([...capabilities])
+    },
     onPlaybackError: () => { errors.push(label) },
   }))
   try {
@@ -84,6 +97,7 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
     assert.equal(ready, 0)
     await act(async () => packages[1]!.resolve())
     assert.equal(ready, 1)
+    assert.deepEqual(capabilityReceipts, [['head-body', 'torso-volume']])
     await act(async () => render('second', 'new callback'))
     assert.equal(packages.length, 2, 'callback-only rerender must not reload the atlas')
     await act(async () => render('third', 'third'))
@@ -91,6 +105,14 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
     assert.equal(created, 1, 'a failed hot swap keeps the previous live outfit')
     assert.equal(disposed, 0)
     assert.deepEqual(errors, [])
+    assert.equal(ready, 1, 'a failed outfit cannot publish replacement capabilities')
+    await act(async () => render('fourth', 'fourth'))
+    await act(async () => packages[3]!.resolve())
+    assert.equal(created, 1, 'a successful outfit swap reuses the same player')
+    assert.equal(ready, 2, 'the live replacement must refresh executable capabilities')
+    assert.deepEqual(capabilityReceipts, [
+      ['head-body', 'torso-volume'], ['head-body', 'right-arm'],
+    ])
     // Genuine GPU loss still recreates the player, with a bounded retry budget.
     for (let i = 0; i < 3; i++) {
       await act(async () => {
@@ -99,7 +121,7 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
     }
     assert.equal(created, 3)
     assert.equal(disposed, 2)
-    assert.deepEqual(errors, ['third'], 'terminal GPU errors call the latest owner')
+    assert.deepEqual(errors, ['fourth'], 'terminal GPU errors call the latest owner')
   } finally {
     await act(async () => root.unmount())
     dom.window.close()

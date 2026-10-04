@@ -20,6 +20,24 @@ const profile: Anime25DTorsoShellProfile = {
   radiusZ: 169.4,
 }
 
+test('a directed torso does not repeat authority or response filtering; automatic follow stays alive underneath', () => {
+  const state = { value: 0, velocity: 0 }
+  const rotation = { active: false, yawCosine: 1, yawSine: 0 }
+  for (let i = 0; i < 120; i++) stepAnime25DTorsoShellRotation(state, -1, 0, 1 / 120, rotation, 1, 0.8, 1)
+  assert.ok(Math.abs(state.value + 0.45) < 0.0001, 'the spring belongs only to natural following')
+  assert.equal(rotation.yawSine, Math.sin(0.8 * 0.45))
+  const natural = state.value
+  const authority = 0.5
+  stepAnime25DTorsoShellRotation(state, -1, 0, 0, rotation, 1, 0.8 * authority, authority)
+  assert.equal(state.value, natural)
+  assert.equal(rotation.yawSine, Math.sin(natural * (1 - authority) + 0.8 * authority * 0.45))
+  stepAnime25DTorsoShellRotation(state, -1, 0, 0, rotation, 1, 0, 0)
+  assert.equal(rotation.yawSine, Math.sin(natural))
+  // Already-filtered explicit turns reach geometry without another ~400ms follow.
+  stepAnime25DTorsoShellRotation(state, -1, 0, 0, rotation, 1, -0.7, 1)
+  assert.equal(rotation.yawSine, Math.sin(-0.7 * 0.45))
+})
+
 test('short turns retain more motion than the fork filter without exceeding the authored target', () => {
   const state = { value: 0, velocity: 0 }
   const rotation = { active: false, yawCosine: 1, yawSine: 0 }

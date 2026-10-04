@@ -39,7 +39,8 @@ function loadFramerMotion() {
     })
     .catch(() => {
       isLoading = false
-      // Stay static if motion fails to load.
+      loadPromise = null
+      // 本次保持静态；后续挂载或预热可以重新发起加载。
     })
 
   return loadPromise

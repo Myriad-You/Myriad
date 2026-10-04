@@ -31,32 +31,33 @@ import type { Anime25DPlayback } from './types'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { noteTurnTraceFrame } from '../events/turnTrace'
 import { IDLE_MOTION_POLICY } from '../motion/policy'
+import { boundRigCapabilities } from '../motion/rigStateSummary'
 import { resolveAnime25DLayerSemantics } from '../rig/anime25dLayerSemantics'
 import { Anime25DBodyFrames } from './bodyFrames'
+
 import { ClosedEyePresentation } from './closedEyePresentation'
 
 import {
   deformCollarClipMesh,
   uploadCollarClipMesh,
 } from './collarRuntime'
-
 import { IDENTITY_DRIVER, sanitizeDriverPatch } from './driver'
 import { ThinkingExpressionOwnership } from './expressionPresets'
-import { Anime25DFaceFrames } from './faceFrames'
 
+import { Anime25DFaceFrames } from './faceFrames'
 import {
   animationCatchupSeconds,
   animationElapsedSeconds,
   animationSubstepCount,
 } from './frameClock'
 import { Anime25DIrisRebound } from './irisRebound'
-import { deformLayers, settleDependentLayers } from './layerFrameDeformation'
 
+import { deformLayers, settleDependentLayers } from './layerFrameDeformation'
 import { Anime25DMotionComposer } from './motionComposer'
+
 import {
   deriveAnime25DMotionEnvelopeProfile,
 } from './motionEnvelope'
-
 import {
   bearingDriverPatch,
 } from './performanceExpression'
@@ -112,6 +113,7 @@ export class Anime25DPlayer {
   }
 
   private layers: Anime25DGpuLayer[] = []
+  private motionCapabilities: readonly string[] = []
   private atlasTexture: WebGLTexture | null = null
   private touchAtlas: TouchAtlas | null = null
   private touchLayers: TouchPaintLayer[] = []
@@ -248,6 +250,17 @@ export class Anime25DPlayer {
     this.collarClip = compiled.collarClip
     this.face.bindAtlas(this.gl, resolved, image, this.layers)
     this.body.bindLayers(this.layers, compiled.headSilhouette ?? null)
+    const shell = resolved.shellProfile
+    this.motionCapabilities = boundRigCapabilities(rigManifest, {
+      torsoVolume: shell.enabled && shell.blend > 0 && shell.torso.enabled && shell.torso.blend > 0,
+      arms: this.motionEnvelopeProfile.rigidArm.limit > 0
+        ? this.layers.flatMap(layer => {
+            const binding = layer.secondaryDeformation
+            return binding.arm && binding.armMesh && (binding.handwearSide === 'L' || binding.handwearSide === 'R')
+              ? [binding.handwearSide] : []
+          }) : [],
+    })
+    this.motion.directedPose.setCapabilities(this.motionCapabilities)
     this.touchAtlas = prepared.touchAtlas
     this.thinkingSticker.setLinePixels(prepared.linePixels)
     this.touchLayers = touchLayersFor(this.layers, this.collarClip)
@@ -322,6 +335,8 @@ export class Anime25DPlayer {
     this.body.bind(playback, this.motionEnvelopeProfile)
     this.face.bind(playback)
   }
+
+  getMotionCapabilities(): readonly string[] { return this.motionCapabilities }
 
   setTarget(partial: Partial<Anime25DDriver>): void {
     const patch = sanitizeDriverPatch(partial)
@@ -405,6 +420,7 @@ export class Anime25DPlayer {
   }
 
   setBearing(bearing: PerformanceBaseline | null): void {
+    this.motion.directedPose.set(bearing?.pose, this.time)
     this.motion.performanceExpression.setBearingAttention(bearing?.attention ?? null)
     this.setTarget({
       ...(bearing ? baselineDriverPatch(bearing) : restEnergyDriverPatch()),
@@ -537,7 +553,7 @@ export class Anime25DPlayer {
     input.musicSignal = this.musicSignal
     input.motionEnvelopeProfile = this.motionEnvelopeProfile
     this.motion.step(dt, input)
-    this.body.stepPosture(dt, this.target, this.time)
+    this.body.stepPosture(dt, this.time)
   }
 
   /**

@@ -102,7 +102,7 @@ async function persistTheme() {
   // The endpoint replaces the entire theme. Resolve untouched server fields
   // before taking the snapshot, while local preview remains immediate.
   await initGlobalState()
-  if (owner.aborted) return
+  if (owner.aborted || !isGlobalInitialized) return
   const widget_theme = JSON.stringify(globalState)
   const { saveDashboardAppearance } = await import('../services/dashboardAppearancePersistence')
   saveDashboardAppearance({ widget_theme }, 'widgetThemeSaveFailed', owner)
@@ -132,10 +132,10 @@ async function initGlobalState(): Promise<void> {
           // 配置损坏时保持默认主题。
         }
       }
+      isGlobalInitialized = true
     } catch (err) {
       console.error('加载小组件主题失败:', err)
     } finally {
-      isGlobalInitialized = true
       initPromise = null
     }
   })()

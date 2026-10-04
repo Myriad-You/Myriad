@@ -41,7 +41,7 @@ interface Props {
   manualControl?: boolean
   touchEnabled?: boolean
   onPlaybackError?: (error: unknown) => void
-  onPlaybackReady?: () => void
+  onPlaybackReady?: (capabilities: readonly string[]) => void
 }
 
 const GPU_RECOVERIES = 2
@@ -323,7 +323,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         if (cancelled || readyRef.current === next) return
         readyRef.current = next
         setReady(next)
-        if (next) onPlaybackReadyRef.current?.()
+        if (next) onPlaybackReadyRef.current?.(player.getMotionCapabilities())
       }
       presentLiveRef.current = presentLive
       const tick = (now: number) => {
@@ -413,7 +413,11 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
             const { width, height } = layoutBoxSize(wrapper)
             player.resize(width, height, window.devicePixelRatio || 1)
           }
+          const wasReady = readyRef.current
           syncAnimationRef.current()
+          // An outfit replacement retains the player and its visible readiness,
+          // but its executable body capabilities may have changed.
+          if (wasReady) onPlaybackReadyRef.current?.(player.getMotionCapabilities())
         })
         .catch((error: unknown) => {
           if (cancelled) return

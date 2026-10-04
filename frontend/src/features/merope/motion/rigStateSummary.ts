@@ -7,6 +7,7 @@ import type {
   RigMusicEnergy,
   RigStateSummary,
 } from '../../../services/agent/types'
+import type { Anime25DPlayback } from '../anime25drig/types'
 import type { MeropeRigManifest } from '../rig/types'
 import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { BehaviorSnapshot } from './behavior'
@@ -66,6 +67,35 @@ const CAPABILITY_MAP = [
   ['silly-mouth-variant', 'silly-mouth'],
   ['mouth-shapes', 'mouth-shapes'],
 ] as const
+const BODY_CAPABILITIES = ['head-body', 'torso-volume', 'left-arm', 'right-arm'] as const
+export const RIG_STATE_CAPABILITY_LIMIT = new Set<string>([
+  ...BODY_CAPABILITIES, ...CAPABILITY_MAP.map(([, semantic]) => semantic),
+]).size
+
+export function playbackBodyCapabilities(playback: Pick<Anime25DPlayback, 'layers' | 'shellProfile'>): string[] {
+  const result: string[] = ['head-body']
+  if (playback.shellProfile?.torso.enabled) result.push('torso-volume')
+  for (const side of ['L', 'R'] as const) {
+    if (playback.layers.some(layer => layer.role === 'handwear' && layer.side === side))
+      result.push(side === 'L' ? 'left-arm' : 'right-arm')
+  }
+  return result
+}
+
+/** Bound geometry, not the presence of a named layer, decides live body control. */
+export function boundRigCapabilities(
+  manifest: MeropeRigManifest | null | undefined,
+  body: { torsoVolume: boolean; arms: readonly ('L' | 'R')[] },
+): string[] {
+  const result = new Set(semanticRigCapabilities(manifest).filter(
+    capability => !BODY_CAPABILITIES.includes(capability as typeof BODY_CAPABILITIES[number]),
+  ))
+  result.add('head-body')
+  if (body.torsoVolume) result.add('torso-volume')
+  if (body.arms.includes('L')) result.add('left-arm')
+  if (body.arms.includes('R')) result.add('right-arm')
+  return [...result]
+}
 const MAX_RECENT = 6
 const MAX_ACTIVE_BEHAVIORS = 8
 export const BEHAVIOR_SOURCES = ['performance', 'coSpeech', 'music'] as const
@@ -107,6 +137,9 @@ export function semanticRigCapabilities(
     })) ?? []),
   ]
   const capabilities = new Set<string>(['head-body'])
+  if (manifest.anime25dPlayback) {
+    for (const capability of playbackBodyCapabilities(manifest.anime25dPlayback)) capabilities.add(capability)
+  }
   for (const [internal, semantic] of CAPABILITY_MAP) {
     if (hasAnime25DCapability(layers, internal)) capabilities.add(semantic)
   }
@@ -176,11 +209,9 @@ export function sanitizeRigStateSummary(
     ? value.capabilities
         .filter((item): item is string => typeof item === 'string')
         .filter((item) =>
-          CAPABILITY_MAP.some(
-            ([, semantic]) => semantic === item || item === 'head-body',
-          ),
+          BODY_CAPABILITIES.includes(item as typeof BODY_CAPABILITIES[number]) || CAPABILITY_MAP.some(([, semantic]) => semantic === item),
         )
-        .slice(0, 12)
+        .slice(0, RIG_STATE_CAPABILITY_LIMIT)
     : []
   const recentIntents = Array.isArray(value.recentIntents)
     ? value.recentIntents

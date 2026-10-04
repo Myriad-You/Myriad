@@ -1,8 +1,11 @@
+import type { MeropeRigManifest } from '../rig/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RigMotionCoordinator } from './coordinator'
 import {
+  boundRigCapabilities,
   captureRigStateSummary,
+  playbackBodyCapabilities,
   sanitizeRigStateSummary,
   semanticRigCapabilities,
 } from './rigStateSummary'
@@ -109,6 +112,37 @@ test('capture samples the runtime once and never includes per-frame driver keys'
 
 test('missing special-expression layers are not advertised as capabilities', () => {
   assert.deepEqual(semanticRigCapabilities(null), [])
+})
+
+test('body control capabilities reflect real torso volume and each drawn arm', () => {
+  const playback = { layers: [{ role: 'handwear', side: 'L' }], shellProfile: { torso: { enabled: true } } }
+  assert.deepEqual(playbackBodyCapabilities(playback as Parameters<typeof playbackBodyCapabilities>[0]), ['head-body', 'torso-volume', 'left-arm'])
+  const sanitized = sanitizeRigStateSummary({ capabilities: ['head-body', 'torso-volume', 'left-arm', 'right-arm', 'fake-fingers'] })!
+  assert.deepEqual(sanitized.capabilities, ['head-body', 'torso-volume', 'left-arm', 'right-arm'])
+})
+
+test('bound body capabilities replace optimistic layer names and preserve the face across outfit changes', () => {
+  const manifest = { parts: [
+    { id: 'eye-left', slot: 'eye-left', variant: 'open' },
+    { id: 'eye-right', slot: 'eye-right', variant: 'open' },
+  ], anime25dPlayback: { layers: [{ name: 'arm-L', role: 'handwear', side: 'L' },
+    { name: 'arm-R', role: 'handwear', side: 'R' }], shellProfile: { torso: { enabled: true } } } } as MeropeRigManifest
+  const named = semanticRigCapabilities(manifest)
+  assert.ok(named.includes('left-arm') && named.includes('right-arm') && named.includes('torso-volume'))
+  const linked = boundRigCapabilities(manifest, { torsoVolume: true, arms: [] })
+  assert.ok(linked.includes('independent-eyes') && linked.includes('torso-volume'))
+  assert.ok(!linked.includes('left-arm') && !linked.includes('right-arm'), 'linked/unbound sleeves are not independent arms')
+  const replaced = boundRigCapabilities(manifest, { torsoVolume: false, arms: ['R'] })
+  assert.ok(replaced.includes('right-arm') && replaced.includes('independent-eyes'))
+  assert.ok(!replaced.includes('left-arm') && !replaced.includes('torso-volume'))
+  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const face = runtime.attachLiveFaceConsumer({ ready: false, mood: 70, arousal: 48, activity: 'idle', capabilities: named })
+  assert.deepEqual(captureRigStateSummary(runtime).capabilities, [])
+  face.update({ ready: true, mood: 70, arousal: 48, activity: 'idle', capabilities: linked })
+  assert.deepEqual(captureRigStateSummary(runtime).capabilities, linked)
+  face.update({ ready: true, mood: 70, arousal: 48, activity: 'idle', capabilities: replaced })
+  assert.deepEqual(captureRigStateSummary(runtime).capabilities, replaced, 'a live outfit switch replaces, not unions, its old abilities')
+  face.release()
 })
 
 function cue(

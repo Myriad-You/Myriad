@@ -37,14 +37,16 @@ export async function refreshPersonaStickerAvatar(): Promise<string | null> {
   if (inFlight) return inFlight
   inFlight = (async () => {
     try {
-      return personaStickerAvatarFromConfig(await getPublicConfigDeduped())
+      const next = personaStickerAvatarFromConfig(await getPublicConfigDeduped())
+      publish(next)
+      return next
     } catch {
-      return null
+      // 失败时保留已有头像；只有成功读到空配置才清除它。
+      return cached
     }
   })()
   try {
     const next = await inFlight
-    publish(next)
     return next
   } finally {
     inFlight = null

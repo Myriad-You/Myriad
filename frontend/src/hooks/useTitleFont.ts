@@ -215,10 +215,10 @@ async function initGlobalState(): Promise<void> {
       if (Object.keys(updates).length > 0) {
         updateGlobalState(updates)
       }
+      isGlobalInitialized = true
     } catch (err) {
       console.error('加载标题样式设置失败:', err)
     } finally {
-      isGlobalInitialized = true
       initPromise = null
     }
   })()

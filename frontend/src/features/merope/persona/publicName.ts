@@ -72,10 +72,18 @@ export function personaPublicName(): string {
 
 export async function refreshPersonaPublicName(): Promise<string> {
   if (nameInFlight) return nameInFlight
-  nameInFlight = loadPublicPersonaName()
+  nameInFlight = (async () => {
+    try {
+      const next = publicPersonaNameFromConfig(await getPublicConfigDeduped())
+      publishPersonaPublicName(next)
+      return next
+    } catch {
+      // 无法读取不代表人设已关闭，保留上一次成功的名字。
+      return cachedName
+    }
+  })()
   try {
     const next = await nameInFlight
-    publishPersonaPublicName(next)
     return next
   } finally {
     nameInFlight = null

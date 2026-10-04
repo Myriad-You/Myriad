@@ -88,10 +88,15 @@ export function stepAnime25DTorsoShellRotation(
   deltaSeconds: number,
   target: Anime25DTorsoShellRotation,
   yawFollowScale = 1,
+  directedTurn = 0,
+  directedShare = 0,
 ): void {
   const follow = Number.isFinite(yawFollowScale)
     ? clamp(yawFollowScale, 0, 1)
     : 1
+  const share = clamp(Number.isFinite(directedShare) ? directedShare : 0, 0, 1)
+  // Only automatic head/body follow has this spring. The directed contribution
+  // already has authority and a continuous response in the composer.
   const yawTarget = angleX * HEAD_YAW_SHARE * follow + body * BODY_YAW_SHARE
   if (Number.isFinite(deltaSeconds) && deltaSeconds > 0 && Number.isFinite(yawTarget)) {
     // Exact critically damped response; see The Orange Duck's Spring-Roll-Call.
@@ -102,9 +107,11 @@ export function stepAnime25DTorsoShellRotation(
     state.value = yawTarget + (displacement + coefficient * deltaSeconds) * decay
     state.velocity = (state.velocity - YAW_ANGULAR_FREQUENCY * coefficient * deltaSeconds) * decay
   }
-  target.active = Math.abs(state.value) > 1e-7
-  target.yawCosine = Math.cos(state.value)
-  target.yawSine = Math.sin(state.value)
+  const yaw = state.value * (1 - share)
+    + clamp(Number.isFinite(directedTurn) ? directedTurn : 0, -1, 1) * HEAD_YAW_SHARE
+  target.active = Math.abs(yaw) > 1e-7
+  target.yawCosine = Math.cos(yaw)
+  target.yawSine = Math.sin(yaw)
 }
 
 /** Adds only rotated-minus-frontal cylinder projection, preserving the rest pose. */

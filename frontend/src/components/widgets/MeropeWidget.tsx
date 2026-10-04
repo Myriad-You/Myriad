@@ -25,7 +25,6 @@ import {
   FACE_UPDATED_EVENT,
   PERSONA_UPDATED_EVENT,
 } from '../../features/merope/events/updates'
-import { semanticRigCapabilities } from '../../features/merope/motion/rigStateSummary'
 import { useRigMotionLifecycle } from '../../features/merope/motion/useRigMotionLifecycle'
 import { agentStatusActivity } from '../../features/merope/persona/activity'
 import {
@@ -205,10 +204,7 @@ function LiveMeropeWidget({
   const rigRef = useRef<RigCharacterHandle>(null)
   const manifestRef = useRef(manifest)
   manifestRef.current = manifest
-  const capabilities = useMemo(
-    () => semanticRigCapabilities(manifest),
-    [manifest],
-  )
+  const [capabilities, setCapabilities] = useState<readonly string[]>([])
   const playsLive = useLiveFacePlayback(
     playbackId,
     true,
@@ -216,7 +212,6 @@ function LiveMeropeWidget({
   )
   const playableRig = hasPlayableRig(manifest)
   const motionReady = playsLive && playableRig && !rigFailed
-  const liveCapabilities = motionReady ? capabilities : []
   const packageKey = motionReady
     ? 'live'
     : !playableRig && portraitUrl && !rigFailed
@@ -224,6 +219,10 @@ function LiveMeropeWidget({
       : ''
   const wantLive = Boolean(packageKey)
   const ready = readyKey === packageKey && packageKey !== ''
+  const handlePlaybackReady = useCallback((nextCapabilities: readonly string[]) => {
+    setCapabilities(nextCapabilities)
+    setReadyKey(packageKey)
+  }, [packageKey])
   const handleRigPlaybackError = useCallback(() => setRigFailed(true), [])
   useEffect(() => {
     if (loading || !wantLive || ready) return
@@ -237,8 +236,8 @@ function LiveMeropeWidget({
     mood,
     arousal,
     activity,
-    capabilities: liveCapabilities,
-    ready: motionReady,
+    capabilities: motionReady && ready ? capabilities : [],
+    ready: motionReady && ready,
     priority: 1,
   })
 
@@ -406,7 +405,7 @@ function LiveMeropeWidget({
                 manifest={playsLive || mounted ? manifest : null}
                 mood={mood}
                 onPlaybackError={handleRigPlaybackError}
-                onPlaybackReady={() => setReadyKey(packageKey)}
+                onPlaybackReady={handlePlaybackReady}
               />
             ) : null
           }

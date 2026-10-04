@@ -1,5 +1,32 @@
 import { expect, test } from '@playwright/test'
 
+test('a failed theme read does not save unknown fields, and remount restores untouched server fields', async ({ page }) => {
+  let fail = true
+  await page.route('**/api/config/ui', route => route.fulfill({
+    status: fail ? 400 : 200,
+    json: fail ? { error: 'Read failed' } : { widget_theme: JSON.stringify({ surface: 'liquid', glow: 'primary' }) },
+  }))
+  await page.route('**/api/csrf-token', route => route.fulfill({ json: { csrf_token: null } }))
+  const saves: unknown[] = []
+  await page.route('**/api/config/dashboard', route => {
+    saves.push(route.request().postDataJSON())
+    return route.fulfill({ json: {} })
+  })
+  const failed = page.waitForEvent('console', { predicate: message => message.text().includes('加载小组件主题失败') })
+  await page.goto('/widgetTheme.html')
+  await failed
+  await page.getByRole('button', { name: 'Outline', exact: true }).click()
+  await expect(page.locator('[data-reader="early"]')).toHaveText('outline/identity')
+  await page.waitForTimeout(650)
+  expect(saves).toEqual([])
+  fail = false
+  await page.getByRole('button', { name: 'Toggle reader', exact: true }).click()
+  await expect(page.locator('[data-reader="early"]')).toHaveText('outline/primary')
+  await expect(page.locator('[data-reader="late"]')).toHaveText('outline/primary')
+  await page.getByRole('button', { name: 'Outline', exact: true }).click()
+  await expect.poll(() => saves).toEqual([{ widget_theme: JSON.stringify({ surface: 'outline', glow: 'primary' }) }])
+})
+
 test('widget appearance readers and root attributes stay in sync across subscription and remount', async ({ page }) => {
   await page.route('**/api/config/ui', route => route.fulfill({ json: {} }))
   await page.goto('/widgetTheme.html')

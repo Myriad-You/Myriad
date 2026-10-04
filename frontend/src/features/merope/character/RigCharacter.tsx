@@ -36,7 +36,7 @@ interface Props {
   manualControl?: boolean
   touchEnabled?: boolean
   onPlaybackError?: (error: unknown) => void
-  onPlaybackReady?: () => void
+  onPlaybackReady?: (capabilities: readonly string[]) => void
 }
 
 export interface RigCharacterHandle
@@ -254,13 +254,13 @@ function StaticFaceImage({
 }: {
   src: string
   onPlaybackError?: (error: unknown) => void
-  onPlaybackReady?: () => void
+  onPlaybackReady?: (capabilities: readonly string[]) => void
 }) {
   const imageRef = useRef<HTMLImageElement>(null)
   useLayoutEffect(() => {
     const image = imageRef.current
     if (image?.complete) {
-      if (image.naturalWidth > 0) onPlaybackReady?.()
+      if (image.naturalWidth > 0) onPlaybackReady?.([])
       else onPlaybackError?.(new Error('Persona portrait failed to load'))
     }
   }, [onPlaybackError, onPlaybackReady, src])
@@ -271,7 +271,7 @@ function StaticFaceImage({
         src={siteMediaUrl(src)}
         alt=""
         draggable={false}
-        onLoad={() => onPlaybackReady?.()}
+        onLoad={() => onPlaybackReady?.([])}
         onError={(event) =>
           onPlaybackError?.(event.nativeEvent ?? new Error('Persona portrait failed to load'))
         }

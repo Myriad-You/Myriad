@@ -65,6 +65,8 @@ test('a goal reversal also carries acceleration instead of introducing impulsive
 })
 
 test('all motion channels agree at 30/60/120Hz and remain bounded through repeated reversals', () => {
+  for (const key of ['torsoTurn', 'bodyLift', 'bodyPitch', 'armRaiseL', 'armRaiseR', 'armSwingL', 'armSwingR'] as const)
+    assert.ok((CONTINUOUS_POSE_KEYS as readonly string[]).includes(key), `${key} must not fall back to the frame-dependent linear filter`)
   const run = (fps: number) => {
     const response = new PoseResponseController()
     const current = { ...IDENTITY_DRIVER }

@@ -1,4 +1,6 @@
 import type {
+  BodyControl,
+  BodyPose,
   PerformanceBaseline,
   PerformanceCue,
   SpeechPhrase,
@@ -13,6 +15,34 @@ export const PERFORMANCE_CUE_INTENTS =
   contract.cueIntents as PerformanceCue['intent'][]
 export const PERFORMANCE_INTERRUPT_MODES =
   contract.interruptModes as PerformanceCue['interrupt'][]
+
+export const BODY_CONTROLS = contract.bodyControls
+export const BODY_POSE_TIMING = contract.bodyPoseTiming
+
+/** Full target restatement, including {} as an explicit release. */
+export function sanitizeBodyPose(value: unknown): BodyPose | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  if (Object.keys(raw).some(k => !['targets', 'transitionMs', 'holdMs'].includes(k))) return null
+  if (!raw.targets || typeof raw.targets !== 'object' || Array.isArray(raw.targets)) return null
+  const targets: BodyPose['targets'] = {}
+  for (const [key, value] of Object.entries(raw.targets)) {
+    if (!Object.hasOwn(BODY_CONTROLS, key) || typeof value !== 'number' || !Number.isFinite(value)) return null
+    const axis = key as BodyControl
+    const limits = BODY_CONTROLS[axis]
+    targets[axis] = Math.max(limits.min, Math.min(limits.max, value))
+  }
+  const transition = raw.transitionMs ?? BODY_POSE_TIMING.transitionMs
+  const hold = raw.holdMs ?? BODY_POSE_TIMING.holdMs
+  if (typeof transition !== 'number' || !Number.isInteger(transition) || transition < 0
+    || typeof hold !== 'number' || !Number.isInteger(hold) || hold < 0) { return null
+}
+  return {
+    targets,
+    transitionMs: Math.max(BODY_POSE_TIMING.minTransitionMs, Math.min(BODY_POSE_TIMING.maxTransitionMs, transition)),
+    holdMs: Math.min(BODY_POSE_TIMING.maxHoldMs, hold),
+  }
+}
 
 const PERFORMANCE_CUE_PRIORITIES = contract.cuePriorities as Record<
   PerformanceCue['intent'],

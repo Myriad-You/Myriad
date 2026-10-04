@@ -93,9 +93,12 @@ export async function fetchPlatformUserIds(): Promise<Record<string, string>> {
           if (field) map[pid] = field.value as string
         }
       }
+      cachedUserIds = map
     } catch {
+      // 读取失败不是“未配置账号”；下一次调用仍须尝试读取。
+    } finally {
+      userIdsPromise = null
     }
-    cachedUserIds = map
     return map
   })()
   return userIdsPromise

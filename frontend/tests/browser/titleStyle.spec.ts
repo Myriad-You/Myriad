@@ -7,6 +7,24 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/csrf-token', route => route.fulfill({ json: { csrf_token: CSRF_TOKEN, expires_in: 3600 } }))
 })
 
+test('a failed initial title read recovers on remount without reverting edits', async ({ page }) => {
+  let fail = true
+  await page.route('**/api/config/ui', route => route.fulfill({
+    status: fail ? 400 : 200,
+    json: fail ? { error: 'Read failed' } : { title_font_size: 0.8, title_color: 'accent' },
+  }))
+  await page.route('**/api/config/dashboard', route => route.fulfill({ json: {} }))
+  const failed = page.waitForEvent('console', { predicate: message => message.text().includes('加载标题样式设置失败') })
+  await page.goto('/titleStyle.html')
+  await failed
+  await page.getByRole('button', { name: 'Change size', exact: true }).click()
+  fail = false
+  await page.getByRole('button', { name: 'Toggle reader', exact: true }).click()
+  await expect(page.locator('[data-color]')).toHaveText('accent')
+  await expect(page.locator('[data-reader="early"]')).toHaveText('1.4')
+  await expect(page.locator('[data-reader="late"]')).toHaveText('1.4')
+})
+
 test('title readers observe updates before subscription and share current state on remount', async ({ page }) => {
   await page.route('**/api/config/ui', route => route.fulfill({ json: {} }))
   await page.goto('/titleStyle.html')

@@ -60,6 +60,9 @@ pub const RIG_STATE_CAPABILITIES: &[&str] = &[
     "silly-mouth",
     "mouth-shapes",
     "head-body",
+    "torso-volume",
+    "left-arm",
+    "right-arm",
 ];
 pub const RIG_STATE_MUSIC_ENERGIES: &[&str] = &["quiet", "soft", "present", "strong"];
 pub const RIG_STATE_BEAT_PHASES: &[&str] = &["rest", "downbeat", "pulse", "hold"];
@@ -519,6 +522,19 @@ pub fn refine_performance_plan(
 ) -> ChatPerformancePlan {
     plan.cues
         .retain(|cue| cue_survives_state(state, &cue.intent));
+    if let Some(pose) = plan
+        .baseline
+        .as_mut()
+        .and_then(|baseline| baseline.pose.as_mut())
+    {
+        pose.targets.retain(|key, _| {
+            crate::PERFORMANCE_BODY_CONTROLS.iter().any(|control| {
+                control.0 == key
+                    && has_cap(&state.capabilities, control.3)
+                    && !(key == "maniac" && (state.speaking || state.singing))
+            })
+        });
+    }
     plan
 }
 
@@ -575,6 +591,18 @@ fn capability_allows(capabilities: &[String], intent: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn directed_body_targets_follow_actual_asset_capabilities_without_erasing_release() {
+        let state = super::sanitize_rig_state(&serde_json::json!({"capabilities":["head-body", "left-arm", "torso-volume", "maniac-mouth"], "speaking":true})).unwrap();
+        let plan = crate::parse_performance_plan(r#"{"baseline":{"expression":"steady","posture":"neutral","pose":{"targets":{"headTurn":-0.9,"torsoTurn":0.8,"leftArmRaise":1,"rightArmRaise":1,"maniac":1},"transitionMs":300,"holdMs":0}}}"#).unwrap();
+        let filtered = super::refine_performance_plan(plan, &state);
+        let pose = filtered.baseline.unwrap().pose.unwrap();
+        assert_eq!(pose.targets.len(), 3);
+        assert_eq!(pose.targets["leftArmRaise"], 1.0);
+        assert!(!pose.targets.contains_key("rightArmRaise"));
+        assert!(!pose.targets.contains_key("maniac"));
+        assert!(super::RIG_STATE_CAPABILITIES.contains(&"torso-volume"));
+    }
     use super::*;
     use serde_json::json;
 
@@ -721,6 +749,7 @@ mod tests {
                 posture: "open".into(),
                 motion_energy: 1.0,
                 attention: 1.0,
+                pose: None,
             }),
             cues: vec![crate::ChatPerformanceCue {
                 intent: "listen".into(),
@@ -805,6 +834,7 @@ mod tests {
                 posture: "open".into(),
                 motion_energy: 1.0,
                 attention: 0.8,
+                pose: None,
             }),
             cues: vec![
                 crate::ChatPerformanceCue {

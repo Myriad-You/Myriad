@@ -291,6 +291,39 @@ fn main() {
         }
         generated.push_str("];\n");
     }
+    generated
+        .push_str("pub const PERFORMANCE_BODY_CONTROLS: &[(&str, f32, f32, &str, &str)] = &[\n");
+    for (name, control) in performance_contract["bodyControls"]
+        .as_object()
+        .expect("bodyControls")
+    {
+        let min = control["min"].as_f64().expect("body control min");
+        let max = control["max"].as_f64().expect("body control max");
+        assert!(min.is_finite() && max.is_finite() && min <= max);
+        generated.push_str(&format!(
+            "({}, {}, {}, {}, {}),\n",
+            serde_json::to_string(name).unwrap(),
+            f32_lit(min),
+            f32_lit(max),
+            control["capability"],
+            control["description"]
+        ));
+    }
+    generated.push_str("];\n");
+    for (key, name) in [
+        ("transitionMs", "BODY_POSE_TRANSITION_MS"),
+        ("holdMs", "BODY_POSE_HOLD_MS"),
+        ("minTransitionMs", "BODY_POSE_MIN_TRANSITION_MS"),
+        ("maxTransitionMs", "BODY_POSE_MAX_TRANSITION_MS"),
+        ("maxHoldMs", "BODY_POSE_MAX_HOLD_MS"),
+    ] {
+        generated.push_str(&format!(
+            "pub const {name}: u32 = {};\n",
+            performance_contract["bodyPoseTiming"][key]
+                .as_u64()
+                .expect(key)
+        ));
+    }
     let output =
         PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("merope_rig_contract.rs");
     fs::write(output, generated).expect("write generated rig contract");

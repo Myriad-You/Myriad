@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::rig_contract::{
-    PERFORMANCE_BASELINE_EXPRESSIONS, PERFORMANCE_CUE_INTENTS, PERFORMANCE_INTERRUPT_MODES,
+    BODY_POSE_HOLD_MS, BODY_POSE_MAX_HOLD_MS, BODY_POSE_MAX_TRANSITION_MS,
+    BODY_POSE_MIN_TRANSITION_MS, BODY_POSE_TRANSITION_MS, PERFORMANCE_BASELINE_EXPRESSIONS,
+    PERFORMANCE_BODY_CONTROLS, PERFORMANCE_CUE_INTENTS, PERFORMANCE_INTERRUPT_MODES,
     PERFORMANCE_POSTURES,
 };
 
@@ -21,6 +24,55 @@ pub struct ChatPerformanceBaseline {
     pub posture: String,
     pub motion_energy: f32,
     pub attention: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose: Option<BodyPose>,
+}
+
+/// Normalized semantic goals, not renderer drivers or per-frame commands.
+/// Each restatement replaces the targets; an empty target map releases them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BodyPose {
+    pub targets: BTreeMap<String, f32>,
+    pub transition_ms: u32,
+    /// Zero holds until revised/released. Nonzero expires locally.
+    pub hold_ms: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RawBodyPose {
+    targets: BTreeMap<String, f32>,
+    #[serde(default = "default_pose_transition")]
+    transition_ms: u32,
+    #[serde(default = "default_pose_hold")]
+    hold_ms: u32,
+}
+
+fn default_pose_transition() -> u32 {
+    BODY_POSE_TRANSITION_MS
+}
+fn default_pose_hold() -> u32 {
+    BODY_POSE_HOLD_MS
+}
+
+fn sanitize_pose(raw: RawBodyPose) -> Option<BodyPose> {
+    // Reject misspelled or unbounded axes rather than silently execute half a pose.
+    let mut targets = BTreeMap::new();
+    for (key, value) in raw.targets {
+        let (_, min, max, _, _) = PERFORMANCE_BODY_CONTROLS.iter().find(|c| c.0 == key)?;
+        if !value.is_finite() {
+            return None;
+        }
+        targets.insert(key, value.clamp(*min, *max));
+    }
+    Some(BodyPose {
+        targets,
+        transition_ms: raw
+            .transition_ms
+            .clamp(BODY_POSE_MIN_TRANSITION_MS, BODY_POSE_MAX_TRANSITION_MS),
+        hold_ms: raw.hold_ms.min(BODY_POSE_MAX_HOLD_MS),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -52,6 +104,8 @@ struct RawBaseline {
     motion_energy: f32,
     #[serde(default = "default_attention")]
     attention: f32,
+    #[serde(default)]
+    pose: Option<RawBodyPose>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,6 +158,10 @@ fn sanitize_plan(plan: RawPlan) -> Option<ChatPerformancePlan> {
 }
 
 fn sanitize_baseline(baseline: RawBaseline) -> Option<ChatPerformanceBaseline> {
+    let pose = match baseline.pose {
+        Some(raw) => Some(sanitize_pose(raw)?),
+        None => None,
+    };
     if !PERFORMANCE_BASELINE_EXPRESSIONS.contains(&baseline.expression.as_str())
         || !PERFORMANCE_POSTURES.contains(&baseline.posture.as_str())
         || !baseline.motion_energy.is_finite()
@@ -116,6 +174,7 @@ fn sanitize_baseline(baseline: RawBaseline) -> Option<ChatPerformanceBaseline> {
         posture: baseline.posture,
         motion_energy: baseline.motion_energy.clamp(0.2, 1.4),
         attention: baseline.attention.clamp(0.0, 1.0),
+        pose,
     })
 }
 
@@ -172,6 +231,22 @@ fn default_attention() -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn body_pose_is_a_bounded_full_restatement_and_empty_targets_release() {
+        let plan = parse_performance_plan(r#"{"baseline":{"expression":"steady","posture":"neutral","pose":{"targets":{"headTurn":9,"torsoRise":-9,"eyeOpenLeft":-1},"transitionMs":0,"holdMs":99999}}}"#).unwrap();
+        let pose = plan.baseline.unwrap().pose.unwrap();
+        assert_eq!(pose.targets["headTurn"], 1.0);
+        assert_eq!(pose.targets["torsoRise"], -1.0);
+        assert_eq!(pose.targets["eyeOpenLeft"], 0.0);
+        assert_eq!(pose.transition_ms, BODY_POSE_MIN_TRANSITION_MS);
+        assert_eq!(pose.hold_ms, BODY_POSE_MAX_HOLD_MS);
+        let release = parse_performance_plan(r#"{"baseline":{"expression":"steady","posture":"neutral","pose":{"targets":{},"holdMs":0}}}"#).unwrap();
+        let pose = release.baseline.unwrap().pose.unwrap();
+        assert!(pose.targets.is_empty());
+        assert_eq!(pose.hold_ms, 0);
+        assert!(parse_performance_plan(r#"{"baseline":{"expression":"steady","posture":"neutral","pose":{"targets":{"angleX":1}}}}"#).is_none());
+    }
 
     #[test]
     fn lite_plan_parser_bounds_out_of_range_cues() {

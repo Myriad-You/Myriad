@@ -188,8 +188,10 @@ test('live faces only show the master portrait when there is no playable rig', (
       source,
       /const motionReady = (?:playsLive && )?playableRig && !rigFailed/,
     )
-    assert.match(source, /ready: motionReady/)
-    assert.match(source, /motionReady \? capabilities : \[\]/)
+    assert.match(source, /ready: motionReady && ready/)
+    assert.match(source, /motionReady && ready \? capabilities : \[\]/)
+    assert.match(source, /onPlaybackReady=\{handlePlaybackReady\}/)
+    assert.doesNotMatch(source, /semanticRigCapabilities\(/)
   }
 })
 
