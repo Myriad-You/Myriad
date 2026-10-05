@@ -88,16 +88,39 @@ it('attaches after conditional mounting and removes listeners from replaced stri
   assert.equal(wheel(replacement).defaultPrevented, true)
 })
 
-it('steps one snap point per wheel notch on snapping strips instead of writing scrollLeft', async () => {
-  const el = await mount()
+/** 四张 180 宽的卡，间距 20：吸附点 0/200/400/500（最后一张受 maxScrollLeft=500 截断）。 */
+function withSnapCards(el: HTMLDivElement) {
+  el.replaceChildren()
+  for (let i = 0; i < 4; i++) {
+    const card = document.createElement('div')
+    card.dataset.snap = 'start'
+    card.getBoundingClientRect = () => {
+      const left = i * 200 - el.scrollLeft
+      return { left, right: left + 180, width: 180, top: 0, bottom: 100, height: 100, x: left, y: 0, toJSON: () => ({}) } as DOMRect
+    }
+    el.append(card)
+  }
   const calls: ScrollToOptions[] = []
-  el.scrollBy = ((options: ScrollToOptions) => { calls.push(options) }) as typeof el.scrollBy
+  el.scrollTo = ((options: ScrollToOptions) => { calls.push(options) }) as typeof el.scrollTo
   const getComputedStyle = dom.window.getComputedStyle
-  dom.window.getComputedStyle = ((node: Element) => ({ ...getComputedStyle(node), scrollSnapType: 'x mandatory' })) as typeof getComputedStyle
+  dom.window.getComputedStyle = ((node: Element) => ({
+    ...getComputedStyle(node),
+    scrollSnapType: 'x mandatory',
+    scrollSnapAlign: (node as HTMLElement).dataset?.snap ?? 'none',
+    scrollPaddingLeft: '0px',
+    scrollPaddingRight: '0px',
+  })) as typeof getComputedStyle
+  return { calls, restore: () => { dom.window.getComputedStyle = getComputedStyle } }
+}
+
+it('scrolls exactly to the next snap point instead of relying on scrollBy', async () => {
+  // #620：Firefox 把 scrollBy 一格滚轮的终点按最近吸附点处理，弹回原卡。
+  const el = await mount()
+  const { calls, restore } = withSnapCards(el)
   try {
     const first = wheel(el, { deltaY: 100 }, 1000)
     assert.equal(first.defaultPrevented, true)
-    assert.deepEqual(calls, [{ left: 100, behavior: 'smooth' }])
+    assert.deepEqual(calls, [{ left: 200, behavior: 'smooth' }])
     assert.equal(el.scrollLeft, 0)
     // Trackpad inertia (decaying deltas, over a second long) is swallowed, not paged again
     // and not turned into page scroll halfway through.
@@ -108,15 +131,37 @@ it('steps one snap point per wheel notch on snapping strips instead of writing s
     // A new gesture after a pause steps again; at the leading edge the page keeps the wheel.
     assert.equal(wheel(el, { deltaY: -100 }, 3000).defaultPrevented, false)
     assert.equal(wheel(el, { deltaY: 100 }, 3400).defaultPrevented, true)
-    assert.equal(calls.length, 2)
-    // A mouse spun continuously (equal notches) keeps stepping, one card per notch.
-    for (let i = 1; i <= 4; i++) wheel(el, { deltaY: 100 }, 3400 + i * 160)
-    assert.equal(calls.length, 6)
+    assert.deepEqual(calls.at(-1), { left: 200, behavior: 'smooth' })
+    // A mouse spun continuously (equal notches) keeps stepping, one card per notch,
+    // each from where the previous smooth scroll is headed, not from where it is so far.
+    wheel(el, { deltaY: 100 }, 3560)
+    wheel(el, { deltaY: 100 }, 3720)
+    assert.deepEqual(calls.slice(-2).map((c) => c.left), [400, 500])
+    // Reversing mid-flight steps back from the pending target.
+    el.scrollLeft = 350
+    wheel(el, { deltaY: -100 }, 3880)
+    assert.equal(calls.at(-1)?.left, 400)
     // At the far edge the wheel goes to the page even mid-gesture: no scroll trap.
     el.scrollLeft = 500
     assert.equal(wheel(el, { deltaY: 100 }, 4100).defaultPrevented, false)
   } finally {
-    dom.window.getComputedStyle = getComputedStyle
+    restore()
+  }
+})
+
+it('steps from the current position after the previous scroll has settled', async () => {
+  const el = await mount()
+  const { calls, restore } = withSnapCards(el)
+  try {
+    el.scrollLeft = 400
+    wheel(el, { deltaY: -100 }, 1000)
+    assert.equal(calls.at(-1)?.left, 200)
+    // 停了很久再滚：以实际位置为准（比如中间被拖动过）。
+    el.scrollLeft = 200
+    wheel(el, { deltaY: 100 }, 5000)
+    assert.equal(calls.at(-1)?.left, 400)
+  } finally {
+    restore()
   }
 })
 

@@ -17,6 +17,49 @@ const DRAG_THRESHOLD_PX = 6
  */
 const SNAP_GESTURE_IDLE_MS = 180
 const SNAP_REPEAT_MS = 150
+/** 上一步的平滑滚动多半还没走完；这段时间里下一步从上一步的落点接着算。 */
+const SNAP_PENDING_MS = 600
+
+function snapAlignInline(value: string): string {
+  const parts = value.trim().split(/\s+/)
+  return parts[1] ?? parts[0] ?? 'none'
+}
+
+/** 条内每张卡的横向吸附点（scrollLeft 值），已按 scroll-padding 与对齐方式换算并去重排序。 */
+export function stripSnapPositions(el: HTMLElement): number[] {
+  const style = window.getComputedStyle(el)
+  const padStart = Number.parseFloat(style.scrollPaddingLeft) || 0
+  const padEnd = Number.parseFloat(style.scrollPaddingRight) || 0
+  const max = el.scrollWidth - el.clientWidth
+  const box = el.getBoundingClientRect()
+  const port = el.clientWidth - padStart - padEnd
+  const positions = new Set<number>()
+  for (const child of Array.from(el.children)) {
+    const align = snapAlignInline(window.getComputedStyle(child).scrollSnapAlign || 'none')
+    if (align === 'none') continue
+    const rect = child.getBoundingClientRect()
+    const left = rect.left - box.left + el.scrollLeft
+    const pos =
+      align === 'end'
+        ? left + rect.width - padStart - port
+        : align === 'center'
+          ? left + rect.width / 2 - padStart - port / 2
+          : left - padStart
+    positions.add(Math.round(Math.min(max, Math.max(0, pos))))
+  }
+  return Array.from(positions).toSorted((a, b) => a - b)
+}
+
+/** 从 from 往 direction 走一格：下一个吸附点；没有吸附点就退回到条的两端。 */
+export function nextSnapLeft(
+  from: number,
+  direction: 1 | -1,
+  positions: readonly number[],
+  max: number,
+): number {
+  if (direction > 0) return positions.find((p) => p > from + 1) ?? max
+  return positions.findLast((p) => p < from - 1) ?? 0
+}
 
 export interface HorizontalStripScrollBind {
   ref: RefCallback<HTMLDivElement>
@@ -41,6 +84,7 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
     lastAt: Number.NEGATIVE_INFINITY,
     lastMagnitude: 0,
     lastStepAt: Number.NEGATIVE_INFINITY,
+    lastTarget: 0,
   })
 
   const dragRef = useRef({
@@ -135,8 +179,9 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
     const delta = e.deltaY * unit
     const snapType = window.getComputedStyle(el).scrollSnapType
     if (snapType && snapType !== 'none') {
-      // 直接写 scrollLeft 是「落点」滚动：一格滚轮不到半张卡，mandatory 吸附会弹回原位。
-      // scrollBy 是「方向」滚动，浏览器吸附到该方向的下一张卡。
+      // 直接写 scrollLeft 或 scrollBy 一格滚轮的距离，都要浏览器自己推断方向：
+      // Chromium 吸到该方向的下一张卡，Firefox 按最近的吸附点弹回原位（#620）。
+      // 所以自己算出下一张卡的吸附点，精确滚过去，各家都不会再吸走。
       const gesture = snapGestureRef.current
       const magnitude = Math.abs(delta)
       const fresh = e.timeStamp - gesture.lastAt >= SNAP_GESTURE_IDLE_MS
@@ -149,8 +194,19 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
       if (!fresh && (decaying || e.timeStamp - gesture.lastStepAt < SNAP_REPEAT_MS)) {
         return
       }
+      const pending = e.timeStamp - gesture.lastStepAt < SNAP_PENDING_MS
+      const from = pending ? gesture.lastTarget : el.scrollLeft
+      const target = nextSnapLeft(
+        from,
+        delta > 0 ? 1 : -1,
+        stripSnapPositions(el),
+        maxScrollLeft,
+      )
       gesture.lastStepAt = e.timeStamp
-      el.scrollBy({ left: delta, behavior: 'smooth' })
+      gesture.lastTarget = target
+      if (Math.abs(target - from) > 1) {
+        el.scrollTo({ left: target, behavior: 'smooth' })
+      }
       return
     }
     const next = Math.max(
