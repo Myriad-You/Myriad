@@ -1,6 +1,7 @@
 import type { MeropeRigManifest } from '../rig/types'
 import type { Anime25DDriver } from './driver'
 import type { Anime25DPlaybackLayer } from './types'
+import { HEAD_TURN_RADIANS } from './headTurn'
 
 export interface Anime25DMotionEnvelopeAxis {
   startsAt: number
@@ -15,6 +16,7 @@ export interface Anime25DMotionEnvelopeProfile {
   rigidArm: Anime25DMotionEnvelopeAxis
   /** Head turn and tilt; narrow only while a hand rests on the head. */
   headTurn: Anime25DMotionEnvelopeAxis
+  headTilt: Anime25DMotionEnvelopeAxis
 }
 
 /** What the arms' drawing allows. */
@@ -105,6 +107,9 @@ export function deriveAnime25DMotionEnvelopeProfile(
     torso: axisEnvelope(torsoLimit * 0.78, torsoLimit),
     rigidArm: axisEnvelope(rigidArmLimit * 0.78, rigidArmLimit),
     headTurn: hands.touchingHead
+      ? axisEnvelope(HEAD_CONTACT_TURN_STARTS_AT / HEAD_TURN_RADIANS, HEAD_CONTACT_TURN_LIMIT / HEAD_TURN_RADIANS)
+      : axisEnvelope(1, 1),
+    headTilt: hands.touchingHead
       ? axisEnvelope(HEAD_CONTACT_STARTS_AT, HEAD_CONTACT_LIMIT)
       : axisEnvelope(1, 1),
   }
@@ -145,14 +150,14 @@ export function projectAnime25DMotionEnvelope(
   target.body = safeBody
   transferTorsoResidual(target, originalBody - safeBody, result)
 
-  if (profile.headTurn.limit < 1) {
+  if (profile.headTurn.limit < 1 || profile.headTilt.limit < 1) {
     // Last, after every other transfer has landed on the head: the hand on
     // the head stays with the body, so the look turns with the eyes and torso.
     const yaw = finite(target.angleX)
     target.angleX = softLimitSigned(yaw, profile.headTurn)
     transferHeadTurnResidual(target, yaw - target.angleX, result)
     const roll = finite(target.angleZ)
-    target.angleZ = softLimitSigned(roll, profile.headTurn)
+    target.angleZ = softLimitSigned(roll, profile.headTilt)
     noteTransfer(result, Math.abs(roll - target.angleZ))
     target.body = softLimitSigned(addBounded(target.body, (roll - target.angleZ) * 0.3), profile.torso)
   }
@@ -242,6 +247,9 @@ function noteTransfer(
 /** With a hand on the head, the head keeps to about a third of its range. */
 const HEAD_CONTACT_STARTS_AT = 0.2
 const HEAD_CONTACT_LIMIT = 0.35
+/** And turns at most about 5°, in radians, however far a free head turns. */
+const HEAD_CONTACT_TURN_STARTS_AT = 0.052
+const HEAD_CONTACT_TURN_LIMIT = 0.091
 
 const SIDE_BLEND = 0.08
 

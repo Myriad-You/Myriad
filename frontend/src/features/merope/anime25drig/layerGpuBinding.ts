@@ -27,6 +27,7 @@ import { buildFrontCollarContactModel } from './collarContact'
 import { createCollarClipMesh, disposeCollarClipMesh } from './collarRuntime'
 
 import { headSilhouetteFromFace, headTurnFeatures } from './headTurn'
+import { trimHiddenNeck } from './hiddenNeck'
 import { buildAnime25DLayerBinding } from './layerBinding'
 import {
   bindCropBoundaries,
@@ -137,6 +138,20 @@ export function compileAnime25DGpuLayers(
       return { arm, armMesh: arm ? bindArmRigMesh(arm, rest) : null }
     }
     const atlasPatches = patchNeckOrnaments(playback, atlasImage, readBindingPixels, bindingPixels)
+    const neckLayer = playback.layers.find((layer) => layer.role === 'neck')
+    const neckPixels = neckLayer ? readBindingPixels(neckLayer) : null
+    const facePixels = face ? readBindingPixels(face) : null
+    const trimmedNeck = neckLayer && neckPixels && face && facePixels
+      ? trimHiddenNeck(neckLayer, neckPixels, face, facePixels)
+      : null
+    if (neckLayer && trimmedNeck) {
+      bindingPixels.set(neckLayer, trimmedNeck)
+      atlasPatches.push({
+        ...trimmedNeck,
+        x: Math.round(neckLayer.atlas.x * atlasImage.width),
+        y: Math.round(neckLayer.atlas.y * atlasImage.height),
+      })
+    }
     const duplicateAccessories = duplicateAccessoryLayers(
       playback.layers,
       readBindingPixels,

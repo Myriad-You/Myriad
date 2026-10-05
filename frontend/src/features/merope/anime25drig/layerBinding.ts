@@ -14,6 +14,8 @@ import {
 
 const NECK_MESH_CELL = 28
 const FRONT_COLLAR_MESH_CELL = 22
+/** A head drawing's mesh cell, as a share of the face's width. */
+const HEAD_TURN_CELL = 0.03
 
 export type Anime25DLayerBindingExtension =
   | 'neck-mesh-density'
@@ -22,6 +24,7 @@ export type Anime25DLayerBindingExtension =
   | 'mouth-mesh-density'
   | 'cry-eye-mesh-density'
   | 'eye-mesh-density'
+  | 'head-turn-mesh-density'
   | 'face-profile-grid'
   | 'hair-length-dynamics'
   | 'front-hair-upper-parallax'
@@ -96,10 +99,17 @@ export function buildAnime25DLayerBinding(
   const curvedLid = source.role === 'eyewhite' || source.role === 'eyelash'
   // Thin eye art needs enough horizontal samples to retain its curve during
   // yaw/pitch and closure. Canvas-sized cells can leave just two columns.
+  // The head turns as a curved surface, rendered vertex by vertex: canvas-sized
+  // cells would fold a drawn line into straight pieces at every cell edge.
+  // Hair keeps the upstream topology its strand dynamics are bound to; faded
+  // expression and mouth drawings have meshes of their own.
+  const headSurface = source.group === 'head' && !eyeFeature && !source.phys && !source.fade
   const cell = eyeFeature
     ? extension(extensions, 'eye-mesh-density', (curvedLid ? 4 : 12) * Math.max(0.25, (input.face.x1 - input.face.x0) / 333))
-    : (flexibleCell ?? (source.phys ? 30 : 42)) *
-      Math.max(0.6, input.canvasWidth / 768)
+    : headSurface
+      ? extension(extensions, 'head-turn-mesh-density', Math.max(4, (input.face.x1 - input.face.x0) * HEAD_TURN_CELL))
+      : (flexibleCell ?? (source.phys ? 30 : 42)) *
+        Math.max(0.6, input.canvasWidth / 768)
   const morphingMouth =
     source.fade === 'mouthOpen' ||
     source.fade === 'mouthWide' ||

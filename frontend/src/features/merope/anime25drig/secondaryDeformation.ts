@@ -31,7 +31,7 @@ import {
 } from './collarRuntime'
 import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
 import { hairChainOffset, hairChainTurn } from './hairChain'
-import { HEAD_TURN_SHARE } from './headTurn'
+import { HEAD_TURN_SHARE, headTurnNeckOffset } from './headTurn'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint } from './shellDeformation'
@@ -321,6 +321,7 @@ export function deformAnime25DSecondaryPoint(
         rotationY * rollCosine
       point.x += (rotatedX - rotationX) * headFollow
       point.y += (rotatedY - rotationY) * headFollow
+      const rolledX = point.x
       let depthOffset =
         (surfaceDepth - 1) *
         (binding.frontHairParallaxScale?.[vertex] ?? 1)
@@ -367,6 +368,10 @@ export function deformAnime25DSecondaryPoint(
       } else {
         point.x = legacyX
         point.y = legacyY
+        if (verticalNeckFollow && neckHeadBlend > 0 && frame.headTurn?.active) {
+          // The top of the neck twists with the turning head instead of the flat carry.
+          point.x += (headTurnNeckOffset(frame.headTurn, localX, restY) - (legacyX - rolledX)) * neckHeadBlend
+        }
       }
     }
     if (!binding.collarContact && frame.specialHeadOffset !== 0) {

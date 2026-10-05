@@ -41,8 +41,9 @@ const ANCHORS: Anime25DPlaybackAnchors = {
 
 test('unextended player mesh and atlas UVs preserve upstream binding values', () => {
   const source = playbackLayer({
-    name: 'face',
-    role: 'face',
+    name: 'topwear',
+    role: 'topwear',
+    group: 'body',
     x: 211.25,
     y: 82.75,
     w: 341.5,
@@ -93,7 +94,7 @@ test('face mesh resolves nonuniform depth landmarks without changing atlas cover
   }
   const input = { source, faceShell, canvasWidth: CANVAS_WIDTH, face: ANCHORS.face, layerZ: 1 }
   const mesh = buildAnime25DLayerBinding(input)
-  assert.deepEqual(mesh.extensions, ['face-profile-grid'])
+  assert.deepEqual(mesh.extensions, ['face-profile-grid', 'head-turn-mesh-density'])
   assert.ok(mesh.rest.includes(faceShell.head.centerX))
   for (const point of faceShell.faceProfile.points) {
     assert.ok(mesh.rest.includes(Math.fround(80 + point.v * 380)))
@@ -107,7 +108,7 @@ test('face mesh resolves nonuniform depth landmarks without changing atlas cover
     assert.ok(Math.abs(mesh.atlasUvs[i] - u) < 1e-7)
     assert.ok(Math.abs(mesh.atlasUvs[i + 1] - v) < 1e-7)
   }
-  assert.ok(mesh.rest.length / 2 < 1500, 'landmark refinement stays local and bounded for this fixture')
+  assert.ok(mesh.rest.length / 2 < 6000, 'landmark refinement stays local and bounded for this fixture')
   for (const role of ['neck', 'collar-front', 'front-hair', 'topwear']) {
     const layer = { ...source, role }
     const withProfile = buildAnime25DLayerBinding({ ...input, source: layer })
@@ -204,6 +205,14 @@ test('intentional mesh replacements are explicit rather than parity failures', (
   assert.deepEqual(mouth.extensions, ['mouth-mesh-density'])
   assert.ok(mouth.cols >= 6)
   assert.ok(mouth.rows >= 4)
+  const face = buildAnime25DLayerBinding({
+    source: playbackLayer({ name: 'face', role: 'face', x: 230, y: 96, w: 308, h: 309 }),
+    canvasWidth: CANVAS_WIDTH,
+    face: ANCHORS.face,
+    layerZ: 4,
+  })
+  assert.deepEqual(face.extensions, ['head-turn-mesh-density'])
+  assert.ok(face.cols >= 30 && face.rows >= 30, `${face.cols}x${face.rows}`)
   assert.deepEqual(collar.extensions, [
     'collar-mesh-density',
     'collar-contact-grid',

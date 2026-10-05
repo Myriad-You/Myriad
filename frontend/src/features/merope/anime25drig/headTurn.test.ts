@@ -6,6 +6,7 @@ import {
   headSilhouetteRow,
   headTurnFeatureKey,
   headTurnFeatures,
+  headTurnNeckOffset,
   headTurnOffset,
   moveHeadFeature,
   updateHeadTurn,
@@ -39,35 +40,36 @@ test('a head that does not turn does not move', () => {
   for (let u = -1.4; u <= 1.4; u += 0.1) assert.equal(slideAcross(turn, u), 0)
 })
 
-test('the far rim stays while the near rim comes in', () => {
+test('the far outline hardly moves while the face goes toward it, and the near side follows less', () => {
   const turn = createHeadTurn(silhouette())
   updateHeadTurn(turn, 1, 0)
-  assert.equal(slideAcross(turn, 1), 0)
-  assert.equal(slideAcross(turn, 1.3), 0)
+  const far = slideAcross(turn, 1)
+  const middle = slideAcross(turn, 0)
   const near = slideAcross(turn, -1)
-  assert.ok(near > 0.02 && near < 0.06, `near rim ${near}`)
-  assert.ok(Math.abs(slideAcross(turn, -1.3) - near) < 1e-9)
-  assert.ok(slideAcross(turn, 0) > 0.15, `middle ${slideAcross(turn, 0)}`)
+  assert.ok(far > -0.05 && far < 0.2, `far rim ${far}`)
+  assert.ok(middle > 0.4, `middle ${middle}`)
+  assert.ok(near > far && near < middle, `near rim ${near}`)
 })
 
-test('every point moves in step with the angle, none stopping early', () => {
+test('every point moves further as the head turns further, never back', () => {
   const turn = createHeadTurn(silhouette())
   for (const u of [-0.9, -0.4, 0, 0.4, 0.8]) {
-    updateHeadTurn(turn, 1, 0)
-    const full = slideAcross(turn, u)
-    for (const angle of [0.2, 0.5, 0.8]) {
+    let last = 0
+    for (const angle of [0.2, 0.4, 0.6, 0.8, 1]) {
       updateHeadTurn(turn, angle, 0)
-      assert.ok(Math.abs(slideAcross(turn, u) - full * angle) < 1e-9, `u ${u} angle ${angle}`)
+      const now = slideAcross(turn, u)
+      assert.ok(now > last, `u ${u} angle ${angle}: ${now} after ${last}`)
+      last = now
     }
   }
 })
 
-test('the skin never folds, and stretches or crowds only so far', () => {
+test('the skin never folds, and stretches only so far', () => {
   const turn = createHeadTurn(silhouette())
   updateHeadTurn(turn, 1, 0)
   for (let u = -0.99; u <= 0.99; u += 0.02) {
     const slope = 1 + (slideAcross(turn, u + 0.01) - slideAcross(turn, u - 0.01)) / 0.02
-    assert.ok(slope > 0.68 && slope < 1.32, `slope ${slope} at ${u}`)
+    assert.ok(slope > 0.1 && slope < 1.7, `slope ${slope} at ${u}`)
   }
 })
 
@@ -103,20 +105,29 @@ function turnedX(turn: ReturnType<typeof createHeadTurn>, x: number, y: number, 
   return headTurnOffset(turn, x, y, surface, lift, crown, { x: 0, y: 0 }).x
 }
 
-test('what stands off the face travels further, and the back of the head goes the other way', () => {
+test('the back of the head moves less than the face, its crown with the fringe', () => {
   const turn = createHeadTurn(headSilhouetteFromFace(face, ellipseFace(100, 120)))
   updateHeadTurn(turn, 1, 0)
   const skin = turnedX(turn, 200, 300, 'skin', 0, 0)
-  const nose = turnedX(turn, 200, 300, 'skin', 30, 0)
   const rear = turnedX(turn, 200, 300, 'back-hair', 0, 0)
-  const crown = turnedX(turn, 200, 300, 'back-hair', 0, 1)
-  assert.ok(skin > 12, `skin ${skin}`)
-  assert.ok(nose > skin + 5, `nose ${nose}`)
-  assert.ok(rear < -12, `rear ${rear}`)
-  assert.ok(crown > 12, `crown ${crown}`)
+  const fringe = turnedX(turn, 200, 220, 'front-hair', 0, 0)
+  const crown = turnedX(turn, 200, 220, 'back-hair', 0, 1)
+  assert.ok(skin > 30, `skin ${skin}`)
+  assert.ok(rear < skin - 10, `rear ${rear}`)
+  assert.ok(Math.abs(crown - fringe) < fringe * 0.4, `crown ${crown} fringe ${fringe}`)
   assert.equal(turnedX(turn, 200, 900, 'skin', 0, 0), 0)
   updateHeadTurn(turn, 0, 0)
   assert.equal(turnedX(turn, 200, 300, 'skin', 30, 0), 0)
+})
+
+test('the top of the neck goes with the jaw', () => {
+  const silhouette = headSilhouetteFromFace(face, ellipseFace(100, 120))!
+  const turn = createHeadTurn(silhouette)
+  updateHeadTurn(turn, 1, 0)
+  const chin = turnedX(turn, 200, silhouette.chinY, 'skin', 0, 0)
+  assert.equal(headTurnNeckOffset(turn, 200, silhouette.chinY + 20), chin)
+  updateHeadTurn(turn, 0, 0)
+  assert.equal(headTurnNeckOffset(turn, 200, silhouette.chinY + 20), 0)
 })
 
 test('a raised face slides toward the crown, which stays, while the chin comes up', () => {
@@ -162,10 +173,10 @@ test('every drawing of one eye turns as one piece', () => {
   assert.equal(features.size, 3)
 })
 
-test('a feature keeps its drawn shape as it rides the ball', () => {
+test('a feature turns with the face under it: the far one narrows, the near one does not', () => {
   const turn = createHeadTurn(headSilhouetteFromFace(face, ellipseFace(100, 120)))
   updateHeadTurn(turn, 1, 0)
-  const far = { centerX: 250, centerY: 290, halfWidth: 20, halfHeight: 10 }
+  const far = { centerX: 250, centerY: 290, halfWidth: 20, halfHeight: 10, kind: 'eye' }
   const near = { ...far, centerX: 150 }
   const width = (feature: typeof far) => {
     const left = { x: feature.centerX - 20, y: 290 }
@@ -176,14 +187,13 @@ test('a feature keeps its drawn shape as it rides the ball', () => {
   }
   const farWidth = width(far)
   const nearWidth = width(near)
-  assert.ok(farWidth < 1 && farWidth > 0.859, `far ${farWidth}`)
-  assert.ok(nearWidth > 1 && nearWidth <= 1.08, `near ${nearWidth}`)
-  // Top and bottom of the feature move together: it is not sheared.
-  const top = { x: 250, y: 280 }
-  const bottom = { x: 250, y: 300 }
-  moveHeadFeature(turn, top, far, 0)
-  moveHeadFeature(turn, bottom, far, 0)
-  assert.ok(Math.abs(top.x - bottom.x) < 1e-9)
+  assert.ok(farWidth < 0.9 && farWidth > 0.3, `far ${farWidth}`)
+  assert.ok(nearWidth >= 1 && nearWidth < 1.5, `near ${nearWidth}`)
+  // The nose stands off the face: it leads the skin under it.
+  const nose = { ...far, centerX: 200, kind: 'nose' }
+  const tip = { x: 200, y: 290 }
+  moveHeadFeature(turn, tip, nose, 0)
+  assert.ok(tip.x - 200 > turnedX(turn, 200, 290, 'skin', 0, 0) + 5, `nose ${tip.x - 200}`)
 })
 
 test('a raised face foreshortens: the mouth rises at least as far as the eyes, never left behind', () => {
