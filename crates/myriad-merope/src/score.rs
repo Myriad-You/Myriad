@@ -83,10 +83,10 @@ pub fn grounded_score(
                 None => continue,
             }
         }
-        if let Some(capabilities) = capabilities {
-            if !restrict_to_capabilities(&mut beat, capabilities) {
-                continue;
-            }
+        if let Some(capabilities) = capabilities
+            && !restrict_to_capabilities(&mut beat, capabilities)
+        {
+            continue;
         }
         beats.push(beat);
     }
@@ -147,7 +147,9 @@ fn sanitize_beat(item: &Value) -> Option<ScoreBeat> {
 fn sanitize_move(value: &Value) -> Option<ScoreMove> {
     let object = value.as_object()?;
     let kind = object.get("kind")?.as_str()?;
-    PERFORMANCE_SCORE_MOVES.iter().find(|(name, _, _)| *name == kind)?;
+    PERFORMANCE_SCORE_MOVES
+        .iter()
+        .find(|(name, _, _)| *name == kind)?;
     let word = |key: &str, allowed: &[&str]| -> Option<Option<String>> {
         match object.get(key) {
             None | Some(Value::Null) => Some(None),
@@ -168,7 +170,9 @@ fn sanitize_move(value: &Value) -> Option<ScoreMove> {
         side: word("side", PERFORMANCE_SCORE_SIDES)?,
         direction: word("direction", PERFORMANCE_SCORE_DIRECTIONS)?,
         amount: number("amount", 0.6)?.clamp(0.1, 1.0) as f32,
-        count: number("count", 1.0)?.round().clamp(1.0, SCORE_MAX_COUNT as f64) as u32,
+        count: number("count", 1.0)?
+            .round()
+            .clamp(1.0, SCORE_MAX_COUNT as f64) as u32,
         tempo: number("tempo", 1.0)?.clamp(SCORE_MIN_TEMPO as f64, SCORE_MAX_TEMPO as f64) as f32,
     })
 }
@@ -218,7 +222,11 @@ mod tests {
             Some(response),
             None,
         );
-        assert_eq!(beats.len(), 4, "a beat on words she does not say is dropped");
+        assert_eq!(
+            beats.len(),
+            4,
+            "a beat on words she does not say is dropped"
+        );
         assert_eq!(beats[0].motion.as_ref().unwrap().count, 2);
         assert_eq!(beats[1].offset_ms, -200);
         // The second 嗯嗯 is the one after 不过.
@@ -269,7 +277,11 @@ mod tests {
             None,
             Some(&capabilities),
         );
-        assert_eq!(beats.len(), 2, "a hand beat without arms has nothing to move");
+        assert_eq!(
+            beats.len(),
+            2,
+            "a hand beat without arms has nothing to move"
+        );
         assert_eq!(beats[0].pose.as_ref().unwrap().targets.len(), 1);
         // A shrug still lifts the chest and brows without arms.
         assert_eq!(beats[1].motion.as_ref().unwrap().kind, "shrug");

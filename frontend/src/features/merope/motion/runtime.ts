@@ -206,6 +206,7 @@ export class MotionRuntime {
       snapshot: this.coordinator.snapshot(now),
       bearing: this.performance.currentBearing() ?? this.mood.currentBearing(),
       score: this.performance.currentScore(),
+      standingScore: this.performance.currentStandingScore(),
       speech: hasSpeechIntent(speech)
         ? { ...speech, behaviors: speechBehaviors }
         : null,

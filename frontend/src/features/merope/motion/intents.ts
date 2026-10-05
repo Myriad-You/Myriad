@@ -45,6 +45,8 @@ export interface MotionFrame {
   bearing: RigBearing | null
   /** The director's score, placed on the clock so far. */
   score: ResolvedScore | null
+  /** Her standing acting, as the director last gave it. */
+  standingScore: ResolvedScore | null
   speech: SpeechIntent | null
   performance: PerformanceIntent | null
   music: SingingFrame | null

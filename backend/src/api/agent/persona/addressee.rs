@@ -121,6 +121,37 @@ pub async fn get_doing(
     })))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoingActingRequest {
+    /// The face's own summary of what it can play.
+    #[serde(default)]
+    pub rig_state: Option<Value>,
+    /// This viewer's player is on the song she is listening to.
+    #[serde(default)]
+    pub together: bool,
+}
+
+/// POST /api/agent/doing/acting — how she acts what she is doing on her own,
+/// for a face that is showing her while nobody talks with her. The director
+/// decides it, once for as long as she keeps doing that thing.
+pub async fn post_doing_acting(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<DoingActingRequest>,
+) -> Result<Json<Value>, HttpError> {
+    require_merope_enabled().await?;
+    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
+    let rig_state = body
+        .rig_state
+        .as_ref()
+        .and_then(myriad_merope::sanitize_rig_state)
+        .or_else(|| crate::services::agent::consciousness::last_live_presence(user_id).rig_state);
+    let performance =
+        merope::standing::standing_direction(&db, user_id, rig_state, body.together).await;
+    Ok(Json(json!({ "performance": performance })))
+}
+
 /// Her life as anyone in the community can see it: what she took in lately
 /// and how it landed, what she wants, and the turtle soups she made (never
 /// their truth), with whether this person has played each.

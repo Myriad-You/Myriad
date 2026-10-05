@@ -200,6 +200,8 @@ export class Anime25DMotionComposer {
     const speaking = input.speechActive || target.talk
     const singing = target.singing
     const vocalizing = speaking || (singing && (behaviorMotion.musicMode === 'sing' || behaviorMotion.musicMode === 'hum'))
+    // Her standing acting gives way to speaking by itself, as she is taken up.
+    this.directedPose.setSpeaking(vocalizing)
     this.directedPose.step(dt, t, tgt)
     const expressionTarget = Object.assign(this.expressionTarget, tgt)
     this.directedPose.write(expressionTarget, vocalizing)

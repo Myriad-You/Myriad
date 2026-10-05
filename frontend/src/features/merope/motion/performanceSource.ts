@@ -63,6 +63,10 @@ export class PerformanceMotionSource {
     return this.score.current()
   }
 
+  currentStandingScore(): ResolvedScore | null {
+    return this.score.currentStanding()
+  }
+
   /** An utterance's words and timing, to place the score's beats on words. */
   noteUtterance(utterance: SpokenUtterance, nowMs: number = currentNow()): void {
     if (this.score.noteUtterance(utterance, nowMs)) this.onChange(this.intent)
@@ -158,6 +162,7 @@ export class PerformanceMotionSource {
           ? speechMessageKey({ source: event.source, generation: event.generation, messageId: event.messageId })
           : null,
         startedAtMs,
+        performance.loopMs ? { loopMs: performance.loopMs } : undefined,
       )
     }
     this.bearing = bearingFromDirective(performance) ?? this.bearing

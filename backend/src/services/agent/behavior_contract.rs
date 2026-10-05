@@ -51,6 +51,7 @@ async fn parallel_director_reaches_wire_without_metadata_in_prose_or_global_pose
                 plan: Default::default(),
                 phrases,
                 score: Vec::new(),
+                loop_ms: None,
             })
         },
     );

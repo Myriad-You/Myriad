@@ -9,10 +9,12 @@ import type {
   MeropeHerResponse,
   MindSnapshot,
   MoodTransition,
+  PerformanceDirective,
   ProcessContext,
   ProcessRequest,
   ProgressCallback,
   QueueStatus,
+  RigStateSummary,
   SessionInfo,
   SessionMessage,
   SkillInfo,
@@ -1155,6 +1157,17 @@ class AgentService {
 
   async getDoing(): Promise<MeropeDoingResponse> {
     return apiService.get<MeropeDoingResponse>(`${this.baseUrl}/doing`)
+  }
+
+  /** How she acts what she is doing on her own, as the director decides it. */
+  async getDoingActing(body: {
+    rigState: RigStateSummary
+    together: boolean
+  }): Promise<{ performance: PerformanceDirective | null }> {
+    return apiService.post<{ performance: PerformanceDirective | null }>(
+      `${this.baseUrl}/doing/acting`,
+      body,
+    )
   }
 
   async creditMusicListening(listenedSeconds: number): Promise<{

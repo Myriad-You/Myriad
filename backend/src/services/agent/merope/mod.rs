@@ -57,6 +57,7 @@ mod sources;
 mod speaking_context;
 mod speaking_prompts;
 pub(in crate::services::agent) mod stage;
+pub mod standing;
 pub(in crate::services::agent) mod state;
 pub(in crate::services::agent) mod stickers;
 pub(in crate::services::agent) mod store;

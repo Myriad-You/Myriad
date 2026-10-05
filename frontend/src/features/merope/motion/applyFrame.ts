@@ -11,6 +11,7 @@ export interface MotionApplyState {
   behaviorPlanId: string | null
   bearing: RigBearing | null
   score: ResolvedScore | null
+  standingScore: ResolvedScore | null
   speechOwnedMouth: boolean
   speechProsodyKey: string | null
 }
@@ -22,6 +23,7 @@ export function createMotionApplyState(): MotionApplyState {
     behaviorPlanId: null,
     bearing: null,
     score: null,
+    standingScore: null,
     speechOwnedMouth: false,
     speechProsodyKey: null,
   }
@@ -68,6 +70,10 @@ function applyStanding(
   if (frame.score !== state.score) {
     rig.setScore?.(frame.score)
     state.score = frame.score
+  }
+  if (frame.standingScore !== state.standingScore) {
+    rig.setScore?.(frame.standingScore)
+    state.standingScore = frame.standingScore
   }
   if (frame.mood) rig.setMood(frame.mood.mood, frame.mood.activity)
 }

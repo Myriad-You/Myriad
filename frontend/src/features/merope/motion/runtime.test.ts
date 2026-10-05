@@ -411,3 +411,27 @@ test('a score alone reaches the frame: beats on time at once, beats on words onc
   assert.deepEqual(kinds?.toSorted(), ['glance', 'nod'])
   release()
 })
+
+test('her standing acting is kept apart: a reply score does not take its place', () => {
+  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const release = runtime.retain()
+  runtime.performance.handleForTest({
+    phase: 'presence', moodRevision: 0, motionStyle: 'even', plan: { cues: [] }, loopMs: 20000,
+    score: [
+      { atMs: 0, offsetMs: 0, pose: { targets: { gazeVertical: -0.5 }, transitionMs: 900, holdMs: 20000 } },
+      // A standing score is not about any words.
+      { text: '嗯', atMs: 0, offsetMs: 0, move: { kind: 'nod', amount: 0.3, count: 1, tempo: 1 } },
+    ],
+  }, { text: '', source: 'interaction' })
+  const standing = runtime.frame().standingScore
+  assert.deepEqual(standing?.standing, { loopMs: 20000 })
+  assert.equal(standing?.beats.length, 1)
+  runtime.performance.handleForTest({
+    phase: 'delivery', moodRevision: 0, motionStyle: 'even', plan: { cues: [] },
+    score: [{ atMs: 0, offsetMs: 0, move: { kind: 'nod', amount: 0.6, count: 1, tempo: 1 } }],
+  }, { text: '', source: 'reply', messageId: 'm-9' })
+  const frame = runtime.frame()
+  assert.equal(frame.standingScore, standing)
+  assert.equal(frame.score?.beats[0]?.move?.kind, 'nod')
+  release()
+})

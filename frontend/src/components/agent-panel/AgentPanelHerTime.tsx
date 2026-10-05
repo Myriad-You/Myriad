@@ -1,11 +1,12 @@
 import type { HerDoing, HerLazing } from './herTime'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { dispatchMeropePerformance } from '../../features/merope/events/performanceEvents'
+import { captureProductionRigStateSummary } from '../../features/merope/motion/runtimeHost'
 import { listenTogether } from '../../features/merope/music/listenTogether'
 import { getGlobalState } from '../../hooks/musicPlayer/globalState'
 import { agentService } from '../../services/agent/agentApi'
 import {
-  herTitle,
   listeningAlong,
   nextLookMs,
   UNAVAILABLE_RETRY_MS,
@@ -53,45 +54,42 @@ function useListeningAlong(doing: HerDoing | null): boolean {
   return along
 }
 
-/** "Listening to X · Listen together", beside the composer. */
+/**
+ * What she is doing, acted on her face rather than written beside it. The
+ * director decides how, once each time what she does (or who listens along)
+ * changes; the face plays it as long as nobody is talking with her.
+ */
+function useHerActing(doing: HerDoing | null, lazing: HerLazing | null, along: boolean): void {
+  const what = doing ? `doing:${doing.started}` : lazing ? `lazing:${lazing.started}` : null
+  useEffect(() => {
+    if (!what) return
+    let alive = true
+    void agentService
+      .getDoingActing({ rigState: captureProductionRigStateSummary(), together: along })
+      .then(({ performance }) => {
+        if (alive && performance) dispatchMeropePerformance({ text: '', source: 'interaction', performance })
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [what, along])
+}
+
+/** Listen together, beside the composer, while she is on a song. */
 export const AgentPanelHerTime: React.FC<{ open: boolean }> = ({ open }) => {
-  const { t, format } = useI18n()
+  const { t } = useI18n()
   const { doing, lazing } = useHerDoing(open)
   const along = useListeningAlong(doing)
+  useHerActing(doing, lazing, along)
   const [joining, setJoining] = useState(false)
   const join = useCallback(() => {
     setJoining(true)
     void listenTogether().finally(() => setJoining(false))
   }, [])
-  const label = doing
-    ? format(
-        doing.thing.kind === 'song'
-          ? t.agentPanel.herTime.listening
-          : t.agentPanel.herTime.reading,
-        { title: herTitle(doing) },
-      )
-    : ''
   const song = doing?.thing.kind === 'song'
   return (
     <>
-      <AgentPresence open={!doing && !!lazing} kind="chip" from="self">
-        {!doing && lazing ? (
-          <span className="agent-panel-tag">
-            <span className="agent-panel-tag-text">
-              {t.agentPanel.herTime[lazing.kind]}
-            </span>
-          </span>
-        ) : null}
-      </AgentPresence>
-      <AgentPresence open={!!doing} kind="chip" from="self">
-        {doing ? (
-          <span className="agent-panel-tag" data-tone="primary">
-            <span className="agent-panel-tag-text">
-              {along ? t.agentPanel.herTime.together : label}
-            </span>
-          </span>
-        ) : null}
-      </AgentPresence>
       <AgentPresence open={song && !along} kind="chip" from="self">
         {song && !along ? (
           <button

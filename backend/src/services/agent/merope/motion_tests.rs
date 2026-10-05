@@ -30,6 +30,7 @@ fn directive_wire_shape_is_camel_case_and_semantic_only() {
             intent: "check-in".to_string(),
         }],
         score: Vec::new(),
+        loop_ms: None,
         plan: ChatPerformancePlan {
             baseline: None,
             cues: vec![myriad_merope::ChatPerformanceCue {
@@ -564,8 +565,13 @@ fn a_score_alone_is_a_performance_and_its_moves_follow_the_body() {
         parse_motion_decision(r#"{"score":[{"atMs":300,"move":{"kind":"nod","count":2}}]}"#),
         Some(MotionDecision::Perform(_))
     ));
-    assert!(parse_motion_decision(r#"{"score":[{"atMs":300,"move":{"kind":"moonwalk"}}]}"#).is_none());
-    assert!(parse_motion_decision(r#"{"continue":true,"score":[{"atMs":0,"move":{"kind":"nod"}}]}"#).is_none());
+    assert!(
+        parse_motion_decision(r#"{"score":[{"atMs":300,"move":{"kind":"moonwalk"}}]}"#).is_none()
+    );
+    assert!(
+        parse_motion_decision(r#"{"continue":true,"score":[{"atMs":0,"move":{"kind":"nod"}}]}"#)
+            .is_none()
+    );
 
     let head_only = rig(&["head-body"], false);
     let schema = motion_schema_for_state(&offered_cue_intents(Some(&head_only)), Some(&head_only));
@@ -578,7 +584,10 @@ fn a_score_alone_is_a_performance_and_its_moves_follow_the_body() {
         .collect();
     assert!(kinds.contains(&"nod") && kinds.contains(&"shrug"));
     assert!(!kinds.contains(&"beat"), "no hand beat without arms");
-    assert!(!kinds.contains(&"glance"), "no eye glance without independent eyes");
+    assert!(
+        !kinds.contains(&"glance"),
+        "no eye glance without independent eyes"
+    );
     assert_eq!(
         schema.pointer("/properties/score/items/properties/pose"),
         schema.pointer("/properties/baseline/properties/pose"),
@@ -589,4 +598,25 @@ fn a_score_alone_is_a_performance_and_its_moves_follow_the_body() {
     for (kind, _, _) in myriad_merope::PERFORMANCE_SCORE_MOVES {
         assert!(prompt.contains(&format!("- {kind}: ")), "{kind}");
     }
+}
+
+#[test]
+fn standing_acting_is_directed_on_time_and_loops() {
+    assert_eq!(MotionPhase::Presence.as_str(), "presence");
+    assert_eq!(MotionPhase::Presence.activity(), "idle");
+    let prompt = motion_system_prompt(PERFORMANCE_CUE_INTENTS);
+    assert!(prompt.contains("presence means nobody is talking with her"));
+    let schema = motion_schema(PERFORMANCE_CUE_INTENTS);
+    assert_eq!(
+        schema
+            .pointer("/properties/loopMs/minimum")
+            .and_then(Value::as_u64),
+        Some(6_000)
+    );
+    assert_eq!(
+        schema
+            .pointer("/properties/loopMs/maximum")
+            .and_then(Value::as_u64),
+        Some(60_000)
+    );
 }

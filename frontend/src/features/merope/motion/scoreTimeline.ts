@@ -13,6 +13,11 @@ export interface ResolvedScoreBeat {
 export interface ResolvedScore {
   id: number
   beats: readonly ResolvedScoreBeat[]
+  /**
+   * Her standing acting, for while nothing else is going on: it plays as
+   * strongly as she is free for it, and with `loopMs` plays again each period.
+   */
+  standing?: { loopMs: number }
 }
 
 /** One spoken stretch of a reply, as the speech pipeline times it. */
@@ -58,12 +63,30 @@ interface Score {
  */
 export class ScoreTimeline {
   private score: Score | null = null
+  /** Her standing acting, kept apart: a reply's score does not take its place. */
+  private standing: ResolvedScore | null = null
   private nextId = 1
   private readonly utterances: SpokenUtterance[] = []
   private published: ResolvedScore | null = null
 
-  set(beats: readonly ScoreBeat[], messageKey: string | null, receivedAtMs: number): void {
+  set(
+    beats: readonly ScoreBeat[],
+    messageKey: string | null,
+    receivedAtMs: number,
+    standing?: { loopMs: number },
+  ): void {
     if (beats.length === 0) return
+    if (standing) {
+      // On time only: a standing score is not about any words.
+      const id = this.nextId++
+      this.standing = {
+        id,
+        standing,
+        beats: beats.flatMap((beat, index) =>
+          beat.text === undefined ? [resolvedBeat(id, index, beat, receivedAtMs + beat.atMs)] : []),
+      }
+      return
+    }
     const score: Score = {
       id: this.nextId++,
       messageKey,
@@ -105,6 +128,10 @@ export class ScoreTimeline {
 
   current(): ResolvedScore | null {
     return this.published
+  }
+
+  currentStanding(): ResolvedScore | null {
+    return this.standing
   }
 
   private place(utterance: SpokenUtterance, nowMs: number): void {

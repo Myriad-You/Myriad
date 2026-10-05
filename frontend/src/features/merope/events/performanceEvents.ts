@@ -211,6 +211,7 @@ export function sanitizePerformanceDirective(
     'outcome',
     'proactive',
     'mood',
+    'presence',
   ] as const
   if (!phases.includes(value.phase as (typeof phases)[number])) return null
   if (
@@ -238,6 +239,10 @@ export function sanitizePerformanceDirective(
     plan: { ...(baseline ? { baseline } : {}), cues },
     ...(phrases.length ? { phrases } : {}),
     ...(score.length ? { score } : {}),
+    // A standing score's period, within the contract's bounds.
+    ...(score.length && typeof value.loopMs === 'number' && Number.isFinite(value.loopMs)
+      ? { loopMs: Math.max(6_000, Math.min(60_000, Math.round(value.loopMs))) }
+      : {}),
   }
 }
 

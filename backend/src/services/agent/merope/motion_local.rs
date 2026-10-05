@@ -121,7 +121,7 @@ fn phase_attention(phase: MotionPhase) -> f32 {
         MotionPhase::Delivery => 0.72,
         MotionPhase::Outcome => 0.6,
         MotionPhase::Proactive => 0.55,
-        MotionPhase::Mood => 0.4,
+        MotionPhase::Mood | MotionPhase::Presence => 0.4,
     }
 }
 
@@ -178,7 +178,7 @@ fn local_cue(
             _ => "respond",
         },
         MotionPhase::Proactive => "notify",
-        MotionPhase::Mood => return None,
+        MotionPhase::Mood | MotionPhase::Presence => return None,
     };
     let energy = baseline.motion_energy;
     let semantic_scale: f32 = match intent {

@@ -118,6 +118,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     const manualRef = useRef(manualControl)
     const bearingRef = useRef<RigBearing | null>(null)
     const scoreRef = useRef<ResolvedScore | null>(null)
+    const standingScoreRef = useRef<ResolvedScore | null>(null)
     const behaviorPlanRef = useRef<BehaviorPlan | null>(null)
     const onPlaybackReadyRef = useRef(onPlaybackReady)
     onPlaybackReadyRef.current = onPlaybackReady
@@ -164,7 +165,8 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         playerRef.current?.setBearing(bearing)
       },
       setScore(score) {
-        scoreRef.current = score
+        if (score?.standing) standingScoreRef.current = score
+        else scoreRef.current = score
         playerRef.current?.setScore(score, performance.now())
       },
       setSpeechActive(active) {
@@ -293,6 +295,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       }
       pendingSpeechTextRef.current = []
       player.setBearing(bearingRef.current)
+      player.setScore(standingScoreRef.current, performance.now())
       player.setScore(scoreRef.current, performance.now())
       if (behaviorPlanRef.current) {
         const now = performance.now()

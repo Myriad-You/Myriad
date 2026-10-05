@@ -36,6 +36,10 @@ pub use requests::*;
 const MOTION_TIMEOUT: Duration = Duration::from_secs(9);
 const MOTION_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 const MOTION_SCHEMA_NAME: &str = "merope_motion";
+/// A standing score's period: long enough not to read as a loop, short enough to come round.
+pub(super) const STANDING_LOOP_MS: u32 = 20_000;
+pub(super) const STANDING_MIN_LOOP_MS: u32 = 6_000;
+pub(super) const STANDING_MAX_LOOP_MS: u32 = 60_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,6 +49,8 @@ pub enum MotionPhase {
     Outcome,
     Proactive,
     Mood,
+    /// Nobody is talking with her: how she acts what she is doing on her own.
+    Presence,
 }
 
 impl MotionPhase {
@@ -55,6 +61,7 @@ impl MotionPhase {
             Self::Outcome => "outcome",
             Self::Proactive => "proactive",
             Self::Mood => "mood",
+            Self::Presence => "presence",
         }
     }
 
@@ -62,7 +69,7 @@ impl MotionPhase {
         match self {
             Self::Reaction => "thinking",
             Self::Delivery | Self::Outcome | Self::Proactive => "talking",
-            Self::Mood => "idle",
+            Self::Mood | Self::Presence => "idle",
         }
     }
 }
@@ -102,6 +109,23 @@ pub struct PerformanceDirective {
     /// listening, thinking or idle alike.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub score: Vec<ScoreBeat>,
+    /// Standing acting only: the score plays again each this many milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_ms: Option<u32>,
+}
+
+/// The model that directs her acting: the judgment model, quick and thinking
+/// little, since acting is a small typed judgment that must land in time;
+/// Lite's own model when no judgment model is set.
+pub(in crate::services::agent) async fn director_analyzer(
+    timeout: Duration,
+) -> Option<crate::services::analyzer::AiAnalyzer> {
+    match crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(timeout)).await {
+        Some(judge) => Some(judge),
+        None => {
+            crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(timeout)).await
+        }
+    }
 }
 
 /// Runs exactly one Lite-tier call, falling back to the deterministic plan for
@@ -127,9 +151,7 @@ async fn direct_motion_inner(
         tracing::debug!(phase, "[MeropeMotion] Face hidden; ambient motion only");
         return None;
     }
-    let analyzer =
-        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(MOTION_TIMEOUT))
-            .await;
+    let analyzer = director_analyzer(MOTION_TIMEOUT).await;
     let result = if let Some(analyzer) = analyzer {
         let persona_row = match crate::services::process_db::database() {
             Ok(db) => get_persona(&db).await.ok().flatten(),
@@ -167,6 +189,7 @@ async fn direct_motion_inner(
     let elapsed_ms = started.elapsed().as_millis() as u64;
     let mut phrases = Vec::new();
     let mut score = Vec::new();
+    let mut loop_ms = None;
     let lite_plan = match result {
         None => None,
         Some(Ok(Ok(raw))) => match parse_motion_decision(&raw) {
@@ -190,8 +213,19 @@ async fn direct_motion_inner(
                     score = grounded_score(
                         &value["score"],
                         context.response_text.as_deref(),
-                        rig_state.as_ref().map(|state| state.capabilities.as_slice()),
+                        rig_state
+                            .as_ref()
+                            .map(|state| state.capabilities.as_slice()),
                     );
+                    if context.phase == MotionPhase::Presence && !score.is_empty() {
+                        loop_ms = Some(
+                            value["loopMs"]
+                                .as_u64()
+                                .unwrap_or(STANDING_LOOP_MS as u64)
+                                .clamp(STANDING_MIN_LOOP_MS as u64, STANDING_MAX_LOOP_MS as u64)
+                                as u32,
+                        );
+                    }
                 }
                 Some(parsed)
             }
@@ -270,6 +304,7 @@ async fn direct_motion_inner(
         plan,
         phrases,
         score,
+        loop_ms,
     })
 }
 
@@ -311,6 +346,7 @@ pub fn local_directive(context: &MotionContext) -> Option<PerformanceDirective> 
         plan,
         phrases: Vec::new(),
         score: Vec::new(),
+        loop_ms: None,
     })
 }
 

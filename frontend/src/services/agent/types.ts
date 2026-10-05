@@ -156,7 +156,7 @@ export type AgentResponseType =
   | 'error'
 
 export type PerformancePhase =
-  'reaction' | 'delivery' | 'outcome' | 'proactive' | 'mood'
+  'reaction' | 'delivery' | 'outcome' | 'proactive' | 'mood' | 'presence'
 
 export interface PerformanceBaseline {
   expression: 'withdrawn' | 'subdued' | 'steady' | 'warm' | 'tense'
@@ -196,6 +196,8 @@ export interface PerformanceDirective {
   phrases?: SpeechPhrase[]
   /** Beats on the reply's words or on time: acting that unfolds beat by beat. */
   score?: ScoreBeat[]
+  /** Standing acting only: the score plays again each this many milliseconds. */
+  loopMs?: number
   phase: PerformancePhase
   moodRevision: number
   motionStyle: RigMotionStyle

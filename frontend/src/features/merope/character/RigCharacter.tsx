@@ -71,6 +71,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
     >([])
     const bearingRef = useRef<RigBearing | null>(null)
     const scoreRef = useRef<ResolvedScore | null>(null)
+    const standingScoreRef = useRef<ResolvedScore | null>(null)
     const latestBehaviorPlanRef = useRef<BehaviorPlan | null>(null)
     const latestSpeechRef = useRef<
       | { kind: 'auto'; active: boolean }
@@ -122,6 +123,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
         animeRef.current?.setMotionPolicy(motionPolicyRef.current)
       }
       animeRef.current?.setBearing(bearingRef.current)
+      animeRef.current?.setScore?.(standingScoreRef.current)
       animeRef.current?.setScore?.(scoreRef.current)
       animeRef.current?.setMood(moodRef.current, activityRef.current)
       const latest = latestSpeechRef.current
@@ -147,7 +149,8 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
         animeRef.current?.setBearing(bearing)
       },
       setScore: (score) => {
-        scoreRef.current = score
+        if (score?.standing) standingScoreRef.current = score
+        else scoreRef.current = score
         animeRef.current?.setScore?.(score)
       },
       setSpeechActive: (active) => {

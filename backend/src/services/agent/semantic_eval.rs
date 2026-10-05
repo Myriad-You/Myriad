@@ -1877,14 +1877,25 @@ async fn run_semantic_suite() {
             .map(|resolved| resolved.model);
         model_info["judgeModel"] = json!(judge_model);
     }
-    let director = if mode == "live" {
-        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(Duration::from_secs(
-            diagnostic.unwrap_or(9),
-        )))
-        .await
-    } else {
+    // The director runs on the model production gives it; MEROPE_SEMANTIC_DIRECTOR=lite
+    // puts it on Lite's own model instead, to compare the two on the same cases.
+    let director_on_lite = std::env::var("MEROPE_SEMANTIC_DIRECTOR").as_deref() == Ok("lite");
+    let director_timeout = Duration::from_secs(diagnostic.unwrap_or(9));
+    let director = if mode != "live" {
         None
+    } else if director_on_lite {
+        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(director_timeout))
+            .await
+    } else {
+        super::merope::motion::director_analyzer(director_timeout).await
     };
+    if mode == "live" {
+        model_info["director"] = json!(if director_on_lite {
+            "lite"
+        } else {
+            "production"
+        });
+    }
     let mut rows = vec![];
     let probe = std::env::var("MEROPE_SEMANTIC_PROBE").ok();
     assert!(
@@ -2069,13 +2080,30 @@ async fn run_semantic_suite() {
             "consistencyGroup":case.consistency_group,
             "scope":"synthetic remaining-contact window; excludes transport/state lookup/render latency; disagreement is not proof of visual improvement"
         }));
+        // What the director's score asked for, and how much of it this reply can play.
+        let director_metrics = (case.kind == "motion" && outcome == "returned").then(|| {
+            let value = serde_json::from_str::<Value>(
+                output.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```"),
+            )
+            .unwrap_or(Value::Null);
+            let asked = value["score"].as_array().map_or(0, Vec::len);
+            let grounded = myriad_merope::grounded_score(&value["score"], Some(&case.reply), None);
+            json!({
+                "valid": super::merope::motion::semantic_valid(&output, &case.reply),
+                "scoreBeats": asked,
+                "playableBeats": grounded.len(),
+                "onWords": grounded.iter().filter(|beat| beat.text.is_some()).count(),
+                "moves": grounded.iter().filter_map(|beat| beat.motion.as_ref().map(|m| m.kind.clone())).collect::<Vec<_>>(),
+                "poseBeats": grounded.iter().filter(|beat| beat.pose.is_some()).count(),
+            })
+        });
         let typed_in = case.kind == "chat" && (case.in_group || case.in_chat_app);
         rows.push(
             json!({"id":case.id,"kind":case.kind,"requestHash":hash,"request":request,
             "typedIn":typed_in.then_some("chatApp"),
             "sent":typed_in.then(|| as_sent(&case.id, &output, case_room(&case).as_ref())),
             "rubric":case.rubric,"outcome":outcome,"output":output,"grade":grade,"review":review,
-            "latencyMs":latency,"firstTextMs":first_text_ms,"touchMetrics":touch_metrics,
+            "latencyMs":latency,"firstTextMs":first_text_ms,"touchMetrics":touch_metrics,"directorMetrics":director_metrics,
             "probeObservation": if mode == "replay" { replay.iter().find(|r| r["id"] == case.id).and_then(|r| r.get("probeObservation")).cloned().unwrap_or(Value::Null) } else if probe.is_some() { json!(observation) } else { Value::Null },
             "withinRequestBudget":latency.map(|ms| ms <= if case.kind == "motion" {9000} else if case.kind == "touch" {2000} else {4000})}),
         );
