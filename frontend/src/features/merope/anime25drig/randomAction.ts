@@ -325,7 +325,8 @@ export class RandomActionController {
         this.output.angleZ = -direction * 0.13 * following * intensity
         this.output.body = direction * 0.22 * leading * intensity
         this.output.eyeOpen = -0.035 * face * intensity
-        this.output.armY = 0.42 * gesture * intensity
+        // Arms stay nearly still at idle; they are kept for speech.
+        this.output.armY = 0.2 * gesture * intensity
         this.output.armPos = -direction * 0.18 * gesture * intensity
         this.output.ambientScale = 1 - 0.18 * motion
         break

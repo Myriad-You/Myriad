@@ -238,7 +238,7 @@ test('the handoff window is set by the residue, not by whoever arrives', () => {
     ambientScale: 1,
     ...overrides,
   })
-  // 窗口跟出段残留走：shoulderEase 的 armY≈0.42 要比 softBlink 的残渣更长。
+  // 窗口跟出段残留走：抬肩的大残留要比 softBlink 的残渣更长。
   const heavy = idleHandoffSeconds(residue({ armY: 0.42 }))
   const faint = idleHandoffSeconds(residue({ angleZ: 0.04 }))
   assert.ok(heavy > faint)

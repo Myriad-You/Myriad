@@ -29,6 +29,7 @@ import {
   stepAnime25DDriverResponse,
 } from './driverComposition'
 import { expressiveEyeOpenOffset } from './expressiveMotionEnvelope'
+import { GazeShiftBlink } from './gazeBlink'
 import { idleBreathOffset } from './idleBreath'
 import { projectAnime25DMotionEnvelope } from './motionEnvelope'
 import { monotonicControlTime } from './motionPrediction'
@@ -113,6 +114,8 @@ export class Anime25DMotionComposer {
   }
 
   private readonly ambientMotion = new AmbientMotionController()
+  /** A long look takes a blink with it. */
+  private readonly gazeBlink = new GazeShiftBlink()
   private responseScale = 1
   private controlTime = 0
   private readonly occupancy = new PoseOccupancyController()
@@ -363,13 +366,30 @@ export class Anime25DMotionComposer {
     )
     this.unblinkedEyeOpenL = this.current.eyeOpenL
     this.unblinkedEyeOpenR = this.current.eyeOpenR
+    const blinkSuppressed = stylizedTargets.maniac > 0.03 || stylizedTargets.silly > 0.03
+    if (
+      this.gazeBlink.step(
+        this.current.angleX,
+        this.current.angleY,
+        this.current.eyeX,
+        this.current.eyeY,
+        dt,
+        this.blinkState.activeSeconds >= 0,
+        Math.random,
+      ) &&
+      target.blink &&
+      !blinkSuppressed &&
+      this.blinkState.activeSeconds < 0
+    ) {
+      this.blinkNow(t)
+    }
     stepAnime25DBlink(
       this.current,
       this.blinkState,
       t,
       dt,
       target.blink,
-      stylizedTargets.maniac > 0.03 || stylizedTargets.silly > 0.03,
+      blinkSuppressed,
     )
     this.irisRebound.step(
       dt,

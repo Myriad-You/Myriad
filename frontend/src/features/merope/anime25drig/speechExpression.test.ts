@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { completeBehaviorQuality } from './behaviorMotion'
-import { CoSpeechExpressionController } from './speechExpression'
+import { CoSpeechExpressionController, SPEECH_ACCENT_ARM_LIFT } from './speechExpression'
 
 function envelopeOnly(
   expression: CoSpeechExpressionController,
@@ -22,7 +22,7 @@ function envelopeOnly(
 test('keeps co-speech expression neutral without a speech envelope', () => {
   assert.deepEqual(
     { ...envelopeOnly(new CoSpeechExpressionController(), 0, 0, 0) },
-    { brow: 0, eyeOpen: 0, angleY: 0, angleZ: 0, body: 0 },
+    { brow: 0, eyeOpen: 0, angleY: 0, angleZ: 0, body: 0, armY: 0, armPos: 0 },
   )
 })
 
@@ -37,6 +37,32 @@ test('carries a speech beat through face, head, and torso', () => {
   assert.ok(Math.abs(offset.angleZ) > 0.01)
   assert.ok(Math.abs(offset.body) > 0.07)
   assert.ok(Math.abs(offset.body) < 0.15)
+  // The hand beats with it, enough for one arm to lead.
+  assert.ok(offset.armY >= 0.08 && offset.armY <= SPEECH_ACCENT_ARM_LIFT * 1.4, `${offset.armY}`)
+})
+
+test('a planned accent beats the arms with the syllable, then lets them rest', () => {
+  const controller = new CoSpeechExpressionController()
+  controller.setProsody(
+    { startedAtMs: 0, durationMs: 2_000, accents: [{ offsetMs: 500, intensity: 1, gesture: 'beat' }] } as never,
+    0,
+    0,
+  )
+  const lifts: number[] = []
+  for (let frame = 0; frame <= 120; frame += 1) {
+    lifts.push(controller.sample(frame / 60, true, null, 0, 0, 0).armY)
+  }
+  const peak = Math.max(...lifts)
+  const peakAt = lifts.indexOf(peak) / 60
+  assert.ok(peak > 0.1, `${peak}`)
+  // It lands with the syllable, a little ahead of the head's beat.
+  assert.ok(peakAt > 0.5 && peakAt < 0.75, `${peakAt}`)
+  assert.ok(lifts[0] === 0 && lifts[120] < 0.01, `${lifts[120]}`)
+  // A question offers a hand even between beats.
+  const asking = new CoSpeechExpressionController().sample(0, true, null, 0, 0, 0, undefined, {
+    hesitate: 0, tease: 0, 'check-in': 0, question: 1, contrast: 0, laugh: 0, laughPulse: 0,
+  })
+  assert.ok(asking.armY > 0.2)
 })
 
 test('behavior quality changes conversational timing and weight transfer', () => {

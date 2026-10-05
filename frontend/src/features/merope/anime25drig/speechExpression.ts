@@ -9,6 +9,15 @@ export const SPEECH_ACCENT_BROW_RELEASE = 0.2
 export const SPEECH_ACCENT_HEAD_RELEASE = 0.22
 export const SPEECH_TEXT_ACCENT_ATTACK = 0.11
 export const SPEECH_TEXT_ACCENT_RELEASE = 0.18
+/**
+ * A beat of the hand lands with the stressed syllable, as the head's comes
+ * just after it; an arm is heavier, so it rises and settles more slowly.
+ */
+export const SPEECH_ACCENT_ARM_ATTACK = 0.16
+export const SPEECH_ACCENT_ARM_RELEASE = 0.34
+/** A full beat lifts the arms this much (`armY`): enough for one arm to lead it. */
+export const SPEECH_ACCENT_ARM_LIFT = 0.15
+const ARM_RELEASE_RATE = 4.2
 
 export interface CoSpeechExpressionOffset {
   brow: number
@@ -16,6 +25,8 @@ export interface CoSpeechExpressionOffset {
   angleY: number
   angleZ: number
   body: number
+  armY: number
+  armPos: number
 }
 
 const RELEASE_RATE = 6.2
@@ -27,6 +38,8 @@ export class CoSpeechExpressionController {
     angleY: 0,
     angleZ: 0,
     body: 0,
+    armY: 0,
+    armPos: 0,
   }
 
   private readonly targetOffset: CoSpeechExpressionOffset = {
@@ -35,6 +48,8 @@ export class CoSpeechExpressionController {
     angleY: 0,
     angleZ: 0,
     body: 0,
+    armY: 0,
+    armPos: 0,
   }
 
   private readonly rendered: CoSpeechExpressionOffset = { ...this.output }
@@ -147,6 +162,14 @@ export class CoSpeechExpressionController {
           SPEECH_ACCENT_HEAD_RELEASE,
         ) * this.accentIntensity
       : 0
+    const authoredArm = active
+      ? attackReleasePulse(
+          elapsed,
+          0,
+          SPEECH_ACCENT_ARM_ATTACK,
+          SPEECH_ACCENT_ARM_RELEASE,
+        ) * this.accentIntensity
+      : 0
     const resolvedHeadAccent = Math.max(headAccent, authoredHead)
     const headBeat = unitInterval(resolvedHeadAccent)
     if (headBeat > 0.12 && this.previousHeadBeat <= 0.12) {
@@ -158,6 +181,7 @@ export class CoSpeechExpressionController {
       Math.max(phraseActivity, authoredActivity),
       Math.max(browAccent, authoredBrow),
       resolvedHeadAccent,
+      Math.max(headAccent, authoredArm),
       now,
       this.gestureDirection,
       quality,
@@ -170,6 +194,8 @@ export class CoSpeechExpressionController {
       this.output.angleY = this.targetOffset.angleY
       this.output.angleZ = this.targetOffset.angleZ
       this.output.body = this.targetOffset.body
+      this.output.armY = this.targetOffset.armY
+      this.output.armPos = this.targetOffset.armPos
       return this.composeGesture(gesture)
     }
     this.output.brow = stepRelease(
@@ -201,6 +227,18 @@ export class CoSpeechExpressionController {
       this.targetOffset.body,
       dt,
       4.2 * responseScale,
+    )
+    this.output.armY = stepRelease(
+      this.output.armY,
+      this.targetOffset.armY,
+      dt,
+      ARM_RELEASE_RATE * responseScale,
+    )
+    this.output.armPos = stepPose(
+      this.output.armPos,
+      this.targetOffset.armPos,
+      dt,
+      ARM_RELEASE_RATE * responseScale,
     )
     return this.composeGesture(gesture)
   }
@@ -258,6 +296,20 @@ export class CoSpeechExpressionController {
       hesitate * 0.1 +
       tease * 0.18 +
       checkIn * 0.15
+    // A question offers a hand, a check-in half of one; a contrast sets
+    // something aside; hesitation draws the arms in. One arm leads each.
+    this.rendered.armY =
+      this.output.armY * generic +
+      question * 0.26 +
+      contrast * 0.1 +
+      laugh * 0.06 +
+      pulse * 0.1 -
+      hesitate * 0.08 +
+      tease * 0.06 +
+      checkIn * 0.16
+    this.rendered.armPos =
+      this.output.armPos * generic +
+      (contrast * 0.22 + tease * 0.1) * this.gestureDirection
     return this.rendered
   }
 }
@@ -267,6 +319,7 @@ function writeOffset(
   phraseActivity: number,
   browAccent: number,
   headAccent: number,
+  armAccent: number,
   timeSeconds: number,
   gestureDirection: number,
   quality?: Readonly<BehaviorQuality>,
@@ -297,6 +350,9 @@ function writeOffset(
     (0.22 * activity * carry * directness +
       0.2 * headBeat * gestureDirection * rebound) *
     density
+  // Beats are the hands' only part in plain speech: between them they rest.
+  output.armY = SPEECH_ACCENT_ARM_LIFT * unitInterval(armAccent) * density
+  output.armPos = 0
   return output
 }
 
