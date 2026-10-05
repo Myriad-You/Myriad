@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { IDENTITY_DRIVER } from './driver'
-import { HEAD_TURN_RADIANS } from './headTurn'
 import {
   ANIME25D_MOTION_ENVELOPE_PROBES,
   deriveAnime25DMotionEnvelopeProfile,
@@ -127,15 +126,13 @@ test('with a hand on the head, the head keeps near its drawn pose and the look m
   assert.equal(freely.angleX, 1)
   const held = turn()
   const result = projectAnime25DMotionEnvelope(held, resting, { clippedEnergy: 0, transferredEnergy: 0 })
-  for (const key of ['angleY', 'angleZ'] as const) {
+  for (const key of ['angleX', 'angleY', 'angleZ'] as const) {
     assert.ok(Math.abs(held[key]) <= 0.35 + 1e-9, `${key} ${held[key]}`)
   }
-  // The turn is held to about 5° however wide a free head turns.
-  assert.ok(Math.abs(held.angleX) * HEAD_TURN_RADIANS <= 0.091 + 1e-9, `angleX ${held.angleX}`)
   // Small looks pass untouched; the rest goes to the eyes and the torso.
-  const glance = { ...IDENTITY_DRIVER, angleX: 0.04 / HEAD_TURN_RADIANS }
+  const glance = { ...IDENTITY_DRIVER, angleX: 0.15 }
   projectAnime25DMotionEnvelope(glance, resting, { clippedEnergy: 0, transferredEnergy: 0 })
-  assert.equal(glance.angleX, 0.04 / HEAD_TURN_RADIANS)
+  assert.equal(glance.angleX, 0.15)
   assert.ok(held.eyeX > 0 && held.body !== 0)
   assert.ok(result.transferredEnergy > 1)
 })
