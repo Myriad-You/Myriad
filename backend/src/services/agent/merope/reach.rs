@@ -2,8 +2,11 @@
 //!
 //! Now and then she thinks of someone who is not with her: something they
 //! told her was coming up has come (see `threads`), something of hers she
-//! wanted to do with them, show or ask them, something of her own she would
-//! tell them, a turtle soup she made they have not tried, or days apart.
+//! wanted to do with them, show or ask them, something of her own that meets
+//! them (they asked for something like it, or are into it), a turtle soup
+//! she made they have not tried, or days apart. What only got to her is not
+//! a reason to write: nobody texts someone out of the blue about that; it
+//! comes up when they next talk.
 //! Where her words go depends on where they are:
 //! - on the site with her panel open: nothing; she is right there, and what
 //!   is on her mind comes up when they talk;

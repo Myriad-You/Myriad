@@ -2378,7 +2378,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 124;
+const MIND_CASES: usize = 125;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
