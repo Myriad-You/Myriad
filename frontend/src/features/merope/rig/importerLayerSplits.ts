@@ -162,11 +162,40 @@ export function stackNeckwearByReference(
   layers: RasterLayer[],
   reference: Readonly<Anime25DSourceReference>,
 ): RasterLayer[] {
+  return stackRoleByReference(layers, 'neckwear', ['neck', 'topwear'], reference)
+}
+
+/**
+ * In a full figure the sleeves and hands can be put behind the skirt and the
+ * legs; a hand hanging beside the skirt then slips behind it, and behind the
+ * thigh, as the arm swings in. Where the portrait shows which is in front it
+ * decides; where an arm barely touches them it goes in front. An arm partly
+ * in front and partly behind keeps its place.
+ */
+export function stackArmsByReference(
+  layers: RasterLayer[],
+  reference: Readonly<Anime25DSourceReference>,
+): RasterLayer[] {
+  return stackRoleByReference(layers, 'handwear', ['bottomwear', 'legwear'], reference, true)
+}
+
+/**
+ * Each layer of `role` against each layer of `unders`, in that order; with
+ * `inFront`, a pair that barely overlaps puts the `role` layer in front.
+ */
+function stackRoleByReference(
+  layers: RasterLayer[],
+  role: RasterLayer['role'],
+  unders: readonly RasterLayer['role'][],
+  reference: Readonly<Anime25DSourceReference>,
+  inFront = false,
+): RasterLayer[] {
   const output = [...layers]
-  for (const under of ['neck', 'topwear'] as const) {
-    for (const piece of output.filter((layer) => layer.role === 'neckwear')) {
-      const below = output.findIndex((layer) => layer.role === under)
-      if (below >= 0) stackPairByReference(output, below, output.indexOf(piece), reference)
+  for (const under of unders) {
+    for (const below of output.filter((layer) => layer.role === under)) {
+      for (const piece of output.filter((layer) => layer.role === role)) {
+        stackPairByReference(output, output.indexOf(below), output.indexOf(piece), reference, inFront)
+      }
     }
   }
   return output
@@ -174,15 +203,20 @@ export function stackNeckwearByReference(
 
 /**
  * Of two layers, moves the one the portrait shows in front just above the
- * other, if it is behind; anything else stays where it is.
+ * other, if it is behind. With `bInFront`, `b` goes in front when too little
+ * of their overlap shows to tell; a split verdict moves nothing.
  */
 function stackPairByReference(
   output: RasterLayer[],
   a: number,
   b: number,
   reference: Readonly<Anime25DSourceReference>,
+  bInFront = false,
 ): void {
-  const front = frontByReference(output[a], output[b], reference)
+  const votes = referenceVotes(output[a], output[b], reference)
+  const front =
+    frontByVotes(votes, output[a], output[b]) ??
+    (bInFront && votes.forA + votes.forB < STACK_MIN_DECIDED ? output[b] : null)
   // Removing the lower one shifts the upper one down a place, so the moved
   // layer lands just above it.
   if (front === output[b] && b < a) {
@@ -192,12 +226,26 @@ function stackPairByReference(
   }
 }
 
+interface ReferenceVotes {
+  forA: number
+  forB: number
+}
+
 /** Of two overlapping layers, the one whose overlap the portrait shows, if clear. */
-function frontByReference(
+function frontByVotes(votes: ReferenceVotes, a: RasterLayer, b: RasterLayer): RasterLayer | null {
+  const decided = votes.forA + votes.forB
+  if (decided < STACK_MIN_DECIDED) return null
+  if (votes.forA / decided >= STACK_MAJORITY) return a
+  if (votes.forB / decided >= STACK_MAJORITY) return b
+  return null
+}
+
+/** Pixels of the two layers' overlap where the portrait clearly matches one of them. */
+function referenceVotes(
   a: RasterLayer,
   b: RasterLayer,
   reference: Readonly<Anime25DSourceReference>,
-): RasterLayer | null {
+): ReferenceVotes {
   const x0 = Math.max(a.left, b.left, 0)
   const y0 = Math.max(a.top, b.top, 0)
   const x1 = Math.min(a.left + a.width, b.left + b.width, reference.width)
@@ -222,11 +270,7 @@ function frontByReference(
       else if (difference > STACK_DECISIVE_DISTANCE) forB += 1
     }
   }
-  const decided = forA + forB
-  if (decided < STACK_MIN_DECIDED) return null
-  if (forA / decided >= STACK_MAJORITY) return a
-  if (forB / decided >= STACK_MAJORITY) return b
-  return null
+  return { forA, forB }
 }
 
 /** Bottom to top: an open eye's white, then its iris, then its lashes. */

@@ -23,7 +23,7 @@ import { compensateSyntheticClosedEyeAngles } from './closedEyeCompensation'
 import { CHARACTER_ASSET_PROFILES, MAX_RIG_PARTS, RIG_IR_VERSION } from './contract'
 import { formatTemplate } from './formatTemplate'
 import { contentFrame, deriveAnchors, semanticAnchors, standingStance } from './importerAnchors'
-import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder } from './importerLayerSplits'
+import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder } from './importerLayerSplits'
 import { addHiddenArmFragments, anime25DShoulderSeeds } from './linkedHandwear'
 import { findMotionExposure } from './motionExposure'
 import { inferOutfitProfileFromPartIds } from './outfit'
@@ -98,6 +98,8 @@ export async function prepareAnime25DRigPsd(
   if (sourceReference) {
     layers = stackLowerLimbsByReference(layers, sourceReference)
     layers = stackNeckwearByReference(layers, sourceReference)
+    // A bust's arms are cut off above where a skirt would be.
+    if (profile === 'fullBody') layers = stackArmsByReference(layers, sourceReference)
   }
   layers = addHiddenArmFragments(layers, anime25DShoulderSeeds(layers), new Set(layers.map((layer) => layer.id)))
   layers = splitVariantEyesIfNeeded(layers, rig.anchors.face.cx, 'eye-dizzy')

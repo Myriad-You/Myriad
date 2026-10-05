@@ -1,7 +1,7 @@
 import type { RasterLayer } from './anime25dImportTypes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { stackLowerLimbsByReference, stackNeckwearByReference } from './importerLayerSplits'
+import { stackArmsByReference, stackLowerLimbsByReference, stackNeckwearByReference } from './importerLayerSplits'
 
 const SIZE = 20
 
@@ -98,4 +98,32 @@ test('neckwear the portrait shows under the top stays under it', () => {
   // A white top covering a pink scarf: where they overlap the portrait is white.
   const stacked = stackNeckwearByReference([neck, scarf, top], neckPortrait())
   assert.deepEqual(stacked.map((layer) => layer.id), ['neck', 'scarf', 'top'])
+})
+
+/** The portrait: a violet skirt over columns 4..16, white around it. */
+function skirtPortrait() {
+  const data = new Uint8ClampedArray(SIZE * SIZE * 4)
+  for (let y = 0; y < SIZE; y += 1) {
+    for (let x = 0; x < SIZE; x += 1) {
+      data.set(x >= 4 && x < 16 ? [120, 90, 200, 255] : [250, 250, 250, 255], (y * SIZE + x) * 4)
+    }
+  }
+  return { width: SIZE, height: SIZE, data }
+}
+
+test('an arm hanging beside the skirt goes in front of it and the legs', () => {
+  const skirt = solid('skirt', 'bottomwear', [120, 90, 200], { left: 4, top: 0, width: 12, height: 12 })
+  const leg = solid('leg', 'legwear', [245, 200, 190], { left: 6, top: 10, width: 8, height: 10 })
+  // The hand only grazes the skirt's edge: too little to tell.
+  const hand = solid('hand', 'handwear', [250, 250, 250], { left: 0, top: 0, width: 5, height: 12 })
+  const stacked = stackArmsByReference([hand, leg, skirt], skirtPortrait())
+  assert.deepEqual(stacked.map((layer) => layer.id), ['leg', 'skirt', 'hand'])
+})
+
+test('a sleeve the portrait shows tucked behind the skirt stays behind it', () => {
+  const skirt = solid('skirt', 'bottomwear', [120, 90, 200], { left: 4, top: 0, width: 12, height: 12 })
+  // The sleeve's hidden inner side runs under the skirt, where the portrait shows the skirt.
+  const sleeve = solid('sleeve', 'handwear', [250, 250, 250], { left: 0, top: 0, width: 10, height: 12 })
+  const stacked = stackArmsByReference([sleeve, skirt], skirtPortrait())
+  assert.deepEqual(stacked.map((layer) => layer.id), ['sleeve', 'skirt'])
 })
