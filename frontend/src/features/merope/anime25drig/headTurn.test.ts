@@ -45,9 +45,9 @@ test('the far rim stays while the near rim comes in', () => {
   assert.equal(slideAcross(turn, 1), 0)
   assert.equal(slideAcross(turn, 1.3), 0)
   const near = slideAcross(turn, -1)
-  assert.ok(near > 0.02 && near < 0.06, `near rim ${near}`)
+  assert.ok(near > 0.06 && near < 0.12, `near rim ${near}`)
   assert.ok(Math.abs(slideAcross(turn, -1.3) - near) < 1e-9)
-  assert.ok(slideAcross(turn, 0) > 0.15, `middle ${slideAcross(turn, 0)}`)
+  assert.ok(slideAcross(turn, 0) > 0.3, `middle ${slideAcross(turn, 0)}`)
 })
 
 test('every point moves in step with the angle, none stopping early', () => {
@@ -67,7 +67,7 @@ test('the skin never folds, and stretches or crowds only so far', () => {
   updateHeadTurn(turn, 1, 0)
   for (let u = -0.99; u <= 0.99; u += 0.02) {
     const slope = 1 + (slideAcross(turn, u + 0.01) - slideAcross(turn, u - 0.01)) / 0.02
-    assert.ok(slope > 0.68 && slope < 1.32, `slope ${slope} at ${u}`)
+    assert.ok(slope > 0.38 && slope < 1.62, `slope ${slope} at ${u}`)
   }
 })
 

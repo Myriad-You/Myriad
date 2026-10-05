@@ -37,16 +37,19 @@ export interface HeadSilhouette {
 }
 
 const OPAQUE = 128
-/** Head turn at full angleX, radians: how far what stands off the face travels. */
-export const HEAD_TURN_RADIANS = 0.26
+/**
+ * Head turn at full angleX, radians: how far what stands off the face travels.
+ * About 30°, the range a Live2D model's AngleX usually covers.
+ */
+export const HEAD_TURN_RADIANS = 0.52
 /** Head nod at full angleY, radians. */
 export const HEAD_NOD_RADIANS = 0.2
 /**
  * Slide of the middle of the face at a full turn or nod, as a share of the
- * slice's half width. At the far rim the skin then narrows to 0.7 of its
- * width and at the near rim widens to 1.3; a ball's would fold.
+ * slice's half width. At the far rim the skin then narrows to 0.4 of its
+ * width and at the near rim widens to 1.6; a ball's would fold.
  */
-const TURN_SLIDE = 0.22
+const TURN_SLIDE = 0.44
 const NOD_SLIDE = 0.17
 /** A ball's skin slides furthest a little to the near side of its middle. */
 const SLIDE_PEAK = -0.1
