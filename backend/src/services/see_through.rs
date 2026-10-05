@@ -1,7 +1,7 @@
-//! Remote client for a See-through Gradio Space: the public demo, or the
-//! owner's copy of it. A copy that also serves `decompose` fits the portrait on
-//! a canvas of its own shape instead of padding it to a square; the demo's
-//! square `inference` is used wherever that endpoint is missing.
+//! Remote client for a See-through Gradio Space: Myriad's own by default, or
+//! any other the owner names. A Space that serves `decompose` fits the portrait
+//! on a canvas of its own shape; one that does not (the public demo) pads it to
+//! a square through `inference`, as before.
 //!
 //! The model is deliberately never loaded by Myriad. Character pixels leave
 //! the host only after the site owner explicitly asks for decomposition, and
@@ -12,8 +12,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{sync::OnceLock, time::Duration};
 
-/// The public demo, used when the owner has not named a Space of their own.
-pub const DEFAULT_SPACE: &str = "24yearsold/see-through-demo";
+/// Myriad's copy of the demo, serving `decompose`: used unless the owner names
+/// another Space. Calls count against the caller's ZeroGPU quota, not its owner's.
+pub const DEFAULT_SPACE: &str = "SomekawaHitomi/see-through-demo";
+/// The public demo it was copied from: square `inference` only.
+pub const PUBLIC_DEMO_SPACE: &str = "24yearsold/see-through-demo";
 /// The canvas (width x height) a Space with `decompose` fits portraits on: one
 /// shape that bust (3:4) and full-body (9:16) portraits both fill well, at
 /// about the 1280x1280 pixels LayerDiff 3D was trained with.
@@ -117,7 +120,7 @@ impl Space {
     }
 }
 
-/// The Space the owner named, or the public demo.
+/// The Space the owner named, or Myriad's own.
 pub fn configured_space(config: &crate::config::DynamicConfig) -> Space {
     config
         .see_through_space
@@ -598,7 +601,7 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
         let TerminalEvent::Complete(data) = parse_terminal_event(complete).unwrap() else {
             panic!("complete event expected")
         };
-        let demo = Space::parse(DEFAULT_SPACE).unwrap();
+        let demo = Space::parse(PUBLIC_DEMO_SPACE).unwrap();
         let url = output_file_url(&demo, &data).unwrap();
         assert_eq!(url.host_str(), Some("24yearsold-see-through-demo.hf.space"));
 
@@ -610,7 +613,7 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
 
     #[test]
     fn output_download_is_pinned_to_the_space() {
-        let demo = Space::parse(DEFAULT_SPACE).unwrap();
+        let demo = Space::parse(PUBLIC_DEMO_SPACE).unwrap();
         let malicious = json!([{
             "url": "https://attacker.example/gradio_api/file=/tmp/gradio/a/output.psd"
         }]);
@@ -620,7 +623,7 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
             "url": "https://somekawahitomi-see-through-demo.hf.space/gradio_api/file=/tmp/gradio/a/output.psd"
         }]);
         assert!(output_file_url(&demo, &other).is_err());
-        let own = Space::parse("SomekawaHitomi/see-through-demo").unwrap();
+        let own = Space::parse(DEFAULT_SPACE).unwrap();
         assert!(output_file_url(&own, &other).is_ok());
         assert!(validate_remote_temp_path("/tmp/gradio/a/input.png").is_ok());
         assert!(validate_remote_temp_path("/tmp/gradio/../secret").is_err());

@@ -5,8 +5,8 @@ import { userFacingError } from '../../../utils/userFacingError'
 import { getSeeThroughStatus, updateSeeThroughSpace } from '../api'
 
 /**
- * Which See-through Space splits portraits: the public demo (left empty) or
- * the owner's copy. A copy serving the canvas endpoint splits at the
+ * Which See-through Space splits portraits: Myriad's own (left empty) or one
+ * the owner names. A Space serving the canvas endpoint splits at the
  * portrait's own proportions; the backend asks the Space each time.
  */
 export function SeeThroughSpaceField() {

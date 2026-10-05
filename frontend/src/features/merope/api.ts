@@ -38,12 +38,12 @@ export interface SeeThroughStatus {
   tokenConfigured: boolean
   defaultResolution: number
   splitArmsAndLegs: boolean
-  /** The Space decompositions run on: the owner's copy or the public demo. */
+  /** The Space decompositions run on: Myriad's own unless the owner named another. */
   space: string
   defaultSpace: string
 }
 
-const DEFAULT_SEE_THROUGH_SPACE = '24yearsold/see-through-demo'
+const DEFAULT_SEE_THROUGH_SPACE = 'SomekawaHitomi/see-through-demo'
 
 function readSeeThroughStatus(data: Partial<SeeThroughStatus>): SeeThroughStatus {
   const space =
@@ -237,8 +237,8 @@ export async function updateSeeThroughToken(
 
 /**
  * Names the See-through Space (`owner/name`) to decompose with; empty goes back
- * to the public demo. A copy serving `decompose` fits portraits on a canvas of
- * their own shape; any other Space pads them to a square as before.
+ * to Myriad's own. A Space serving `decompose` fits portraits on a canvas of
+ * their own shape; any other (the public demo) pads them to a square.
  */
 export async function updateSeeThroughSpace(
   space: string,

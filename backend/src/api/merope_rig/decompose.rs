@@ -1,5 +1,6 @@
 //! See-through 远程拆层：配置令牌和 Space，把当前立绘拆成 PSD 交给前端导入。
-//! 主人自己的 Space 若提供 `decompose`，立绘按自身比例放进画布拆；否则走官方演示的正方形。
+//! 默认用 Myriad 自己的 Space，它提供 `decompose`，立绘按自身比例放进画布拆；
+//! 主人也可以换成别的 Space，没有 `decompose` 的（如官方演示）走正方形。
 
 use axum::{
     Extension, Json,
@@ -78,7 +79,7 @@ pub struct UpdateSeeThroughTokenRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateSeeThroughSpaceRequest {
-    /// `owner/name`; empty or absent goes back to the public demo.
+    /// `owner/name`; empty or absent goes back to Myriad's own Space.
     #[serde(default)]
     space: Option<String>,
 }
@@ -147,8 +148,7 @@ pub async fn update_see_through_token(
     Ok(Json(status))
 }
 
-/// Names the Space to decompose with: the owner's copy of See-through, or none
-/// for the public demo.
+/// Names the Space to decompose with, or none for Myriad's own.
 pub async fn update_see_through_space(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
