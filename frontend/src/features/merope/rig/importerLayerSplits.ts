@@ -148,18 +148,48 @@ export function stackLowerLimbsByReference(
   for (const side of ['left', 'right'] as const) {
     const leg = output.findIndex((layer) => layer.role === 'legwear' && layer.side === side)
     const foot = output.findIndex((layer) => layer.role === 'footwear' && layer.side === side)
-    if (leg < 0 || foot < 0) continue
-    const front = frontByReference(output[leg], output[foot], reference)
-    // Only move the one the portrait shows in front, and only if it is behind.
-    // Removing the lower one shifts the upper one down a place, so the
-    // moved layer lands just above it.
-    if (front === output[foot] && foot < leg) {
-      output.splice(leg, 0, ...output.splice(foot, 1))
-    } else if (front === output[leg] && leg < foot) {
-      output.splice(foot, 0, ...output.splice(leg, 1))
+    if (leg >= 0 && foot >= 0) stackPairByReference(output, leg, foot, reference)
+  }
+  return output
+}
+
+/**
+ * The same depth guess, on a small head in a full figure, can put a choker
+ * and its pendant behind the neck and the top they lie on, leaving a faint
+ * band where the choker was. The portrait shows which is in front.
+ */
+export function stackNeckwearByReference(
+  layers: RasterLayer[],
+  reference: Readonly<Anime25DSourceReference>,
+): RasterLayer[] {
+  const output = [...layers]
+  for (const under of ['neck', 'topwear'] as const) {
+    for (const piece of output.filter((layer) => layer.role === 'neckwear')) {
+      const below = output.findIndex((layer) => layer.role === under)
+      if (below >= 0) stackPairByReference(output, below, output.indexOf(piece), reference)
     }
   }
   return output
+}
+
+/**
+ * Of two layers, moves the one the portrait shows in front just above the
+ * other, if it is behind; anything else stays where it is.
+ */
+function stackPairByReference(
+  output: RasterLayer[],
+  a: number,
+  b: number,
+  reference: Readonly<Anime25DSourceReference>,
+): void {
+  const front = frontByReference(output[a], output[b], reference)
+  // Removing the lower one shifts the upper one down a place, so the moved
+  // layer lands just above it.
+  if (front === output[b] && b < a) {
+    output.splice(a, 0, ...output.splice(b, 1))
+  } else if (front === output[a] && a < b) {
+    output.splice(b, 0, ...output.splice(a, 1))
+  }
 }
 
 /** Of two overlapping layers, the one whose overlap the portrait shows, if clear. */
