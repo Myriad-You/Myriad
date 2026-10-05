@@ -1,6 +1,7 @@
 import type { RigMotionPort } from '../rig/motionPort'
 import type { RigBearing } from './bearing'
 import type { MotionFrame } from './intents'
+import type { ResolvedScore } from './scoreTimeline'
 import { applySingingWrite } from './applySnapshot'
 import { policyFromOwners } from './policy'
 
@@ -9,6 +10,7 @@ export interface MotionApplyState {
   behaviorRevision: number | null
   behaviorPlanId: string | null
   bearing: RigBearing | null
+  score: ResolvedScore | null
   speechOwnedMouth: boolean
   speechProsodyKey: string | null
 }
@@ -19,6 +21,7 @@ export function createMotionApplyState(): MotionApplyState {
     behaviorRevision: null,
     behaviorPlanId: null,
     bearing: null,
+    score: null,
     speechOwnedMouth: false,
     speechProsodyKey: null,
   }
@@ -30,6 +33,7 @@ export function applyMotionFrame(
     RigMotionPort,
     | 'setMotionPolicy'
     | 'setBearing'
+    | 'setScore'
     | 'setMood'
     | 'setSpeechActive'
     | 'setAutoSpeech'
@@ -55,12 +59,16 @@ export function applyMotionFrame(
 }
 
 function applyStanding(
-  rig: Pick<RigMotionPort, 'setMotionPolicy' | 'setBearing' | 'setMood'>,
+  rig: Pick<RigMotionPort, 'setMotionPolicy' | 'setBearing' | 'setScore' | 'setMood'>,
   frame: MotionFrame,
   state: MotionApplyState,
 ): void {
   rig.setMotionPolicy(policyFromOwners(frame.snapshot.owners))
   applyBearing(rig, frame, state)
+  if (frame.score !== state.score) {
+    rig.setScore?.(frame.score)
+    state.score = frame.score
+  }
   if (frame.mood) rig.setMood(frame.mood.mood, frame.mood.activity)
 }
 

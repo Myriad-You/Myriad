@@ -75,5 +75,20 @@
     "silly": 3,
     "lovestruck": 3
   },
-  "interruptModes": ["replace", "queue", "if-lower"]
+  "interruptModes": ["replace", "queue", "if-lower"],
+  "scoreTiming": {"maxBeats": 16, "maxAtMs": 20000, "maxOffsetMs": 2000, "maxCount": 4, "minTempo": 0.5, "maxTempo": 1.8, "maxAnchorChars": 24},
+  "scoreSides": ["left", "right", "both"],
+  "scoreDirections": ["left", "right", "up", "down", "up-left", "up-right", "down-left", "down-right"],
+  "scoreMoves": {
+    "nod": {"controls": ["headNod"], "description": "Head dips and comes back up; count nods. Agreement, acknowledgement, a beat of understanding."},
+    "shake": {"controls": ["headTurn"], "description": "Head turns side to side; count shakes. Refusal, disbelief, a soft 'no no'."},
+    "glance": {"controls": ["gazeHorizontal", "gazeVertical"], "description": "Eyes flick toward direction and come back. A quick look, checking something, avoiding eyes."},
+    "blink": {"controls": ["eyeOpenLeft", "eyeOpenRight"], "description": "A deliberate blink; count for a flutter. Something registering, disbelief, resetting."},
+    "wink": {"controls": ["eyeOpenLeft", "eyeOpenRight"], "description": "One eye closes briefly; side picks the eye. Playful complicity."},
+    "beat": {"controls": ["leftArmRaise", "rightArmRaise"], "description": "A small hand beat on a stressed word; side picks the hand. Emphasis while explaining."},
+    "shrug": {"controls": ["leftArmRaise", "rightArmRaise", "torsoRise", "browLift"], "description": "Shoulders lift and drop with raised brows. 'Who knows', resignation, casual dismissal."},
+    "sigh": {"controls": ["torsoRise", "headNod", "eyeOpenLeft", "eyeOpenRight"], "description": "Chest settles slowly, head and lids lower a little. Tired, relieved, exasperated."},
+    "bounce": {"controls": ["torsoRise", "headNod"], "description": "A small springy bounce; count bounces. Delight, excitement, eagerness."},
+    "startle": {"controls": ["torsoRise", "eyeWide", "browLift", "headNod"], "description": "A quick flinch: body jolts up, eyes widen, brows rise. Caught off guard."}
+  }
 }

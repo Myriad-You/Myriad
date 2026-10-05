@@ -56,6 +56,13 @@ fn default_pose_hold() -> u32 {
     BODY_POSE_HOLD_MS
 }
 
+/// A pose as the director wrote it, bounded; None for an unknown or unbounded control.
+pub(crate) fn sanitize_body_pose(value: &serde_json::Value) -> Option<BodyPose> {
+    serde_json::from_value::<RawBodyPose>(value.clone())
+        .ok()
+        .and_then(sanitize_pose)
+}
+
 fn sanitize_pose(raw: RawBodyPose) -> Option<BodyPose> {
     // Reject misspelled or unbounded axes rather than silently execute half a pose.
     let mut targets = BTreeMap::new();

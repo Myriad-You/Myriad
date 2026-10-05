@@ -411,13 +411,21 @@ where
                         &serde_json::to_value(&performance.phrases).unwrap_or_default(),
                         Some(&observation.upcoming_text),
                     );
+                    // Beats on words already said are past; beats on time still play.
+                    performance.score = myriad_merope::grounded_score(
+                        &serde_json::to_value(&performance.score).unwrap_or_default(),
+                        Some(&observation.upcoming_text),
+                        None,
+                    );
                     if observation.upcoming_text.trim().is_empty() {
                         continue;
                     }
                 } else if playback_observed {
                     continue;
                 }
-                if myriad_merope::plan_is_empty(&performance.plan) && performance.phrases.is_empty()
+                if myriad_merope::plan_is_empty(&performance.plan)
+                    && performance.phrases.is_empty()
+                    && performance.score.is_empty()
                 {
                     continue;
                 }

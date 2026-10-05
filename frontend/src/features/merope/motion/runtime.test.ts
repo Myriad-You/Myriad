@@ -392,3 +392,22 @@ test('a mood-band change drops a stale performance bearing', () => {
   assert.equal(runtime.frame().bearing?.expression, 'tense')
   release()
 })
+
+test('a score alone reaches the frame: beats on time at once, beats on words once she says them', () => {
+  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const release = runtime.retain()
+  const event = { text: '', source: 'reply' as const, runId: 'run-7', messageId: 'message-7' }
+  runtime.performance.handleForTest({
+    phase: 'delivery', moodRevision: 0, motionStyle: 'even', plan: { cues: [] },
+    score: [
+      { atMs: 300, offsetMs: 0, move: { kind: 'glance', direction: 'up', amount: 0.6, count: 1, tempo: 1 } },
+      { text: '其实', atMs: 0, offsetMs: 0, move: { kind: 'nod', amount: 0.6, count: 1, tempo: 1 } },
+    ],
+  }, event)
+  assert.deepEqual(runtime.frame().score?.beats.map((beat) => beat.move?.kind), ['glance'])
+  runtime.speech.handleForTest({ phase: 'start', messageId: 'message-7', utteranceId: 'u-7', source: 'reply' })
+  runtime.speech.handleForTest({ phase: 'chunk', messageId: 'message-7', utteranceId: 'u-7', source: 'reply', text: '嗯，其实也可以。' })
+  const kinds = runtime.frame().score?.beats.map((beat) => beat.move?.kind)
+  assert.deepEqual(kinds?.toSorted(), ['glance', 'nod'])
+  release()
+})

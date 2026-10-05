@@ -10,8 +10,9 @@ use myriad_merope::{
     ChatPerformanceBaseline, ChatPerformanceCue, ChatPerformancePlan,
     PERFORMANCE_BASELINE_EXPRESSIONS, PERFORMANCE_CUE_INTENTS, PERFORMANCE_INTERRUPT_MODES,
     PERFORMANCE_PHRASE_INTENTS, PERFORMANCE_POSTURES, RIG_STATE_MOTION_STYLES, RigStateSummary,
-    SpeechPhrase, cue_is_playable, cue_survives_state, grounded_speech_phrases,
-    parse_performance_plan, plan_is_empty, refine_performance_plan, round_motion_style,
+    ScoreBeat, SpeechPhrase, cue_is_playable, cue_survives_state, grounded_score,
+    grounded_speech_phrases, parse_performance_plan, plan_is_empty, refine_performance_plan,
+    round_motion_style,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -97,6 +98,10 @@ pub struct PerformanceDirective {
     pub plan: ChatPerformancePlan,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub phrases: Vec<SpeechPhrase>,
+    /// Beats on the reply's words or on time, so she can act while speaking,
+    /// listening, thinking or idle alike.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub score: Vec<ScoreBeat>,
 }
 
 /// Runs exactly one Lite-tier call, falling back to the deterministic plan for
@@ -161,6 +166,7 @@ async fn direct_motion_inner(
 
     let elapsed_ms = started.elapsed().as_millis() as u64;
     let mut phrases = Vec::new();
+    let mut score = Vec::new();
     let lite_plan = match result {
         None => None,
         Some(Ok(Ok(raw))) => match parse_motion_decision(&raw) {
@@ -180,6 +186,11 @@ async fn direct_motion_inner(
                     phrases = grounded_speech_phrases(
                         &value["phrases"],
                         context.response_text.as_deref(),
+                    );
+                    score = grounded_score(
+                        &value["score"],
+                        context.response_text.as_deref(),
+                        rig_state.as_ref().map(|state| state.capabilities.as_slice()),
                     );
                 }
                 Some(parsed)
@@ -232,7 +243,7 @@ async fn direct_motion_inner(
         context.response_text.as_deref(),
         rig_state.as_ref(),
     );
-    if plan_is_empty(&plan) && phrases.is_empty() {
+    if plan_is_empty(&plan) && phrases.is_empty() && score.is_empty() {
         tracing::debug!(
             phase,
             elapsed_ms,
@@ -258,6 +269,7 @@ async fn direct_motion_inner(
         motion_style: context.motion_style,
         plan,
         phrases,
+        score,
     })
 }
 
@@ -298,6 +310,7 @@ pub fn local_directive(context: &MotionContext) -> Option<PerformanceDirective> 
         motion_style: context.motion_style.clone(),
         plan,
         phrases: Vec::new(),
+        score: Vec::new(),
     })
 }
 
@@ -363,6 +376,13 @@ fn parse_motion_decision(raw: &str) -> Option<MotionDecision> {
         && object
             .get("cues")
             .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty));
+    let valid_score = !grounded_score(
+        object.get("score").unwrap_or(&Value::Null),
+        // Words are checked against the reply later; here only the beat's shape.
+        Some(&scored_words(object)),
+        None,
+    )
+    .is_empty();
     let valid_phrase = object
         .get("phrases")
         .and_then(Value::as_array)
@@ -375,7 +395,23 @@ fn parse_motion_decision(raw: &str) -> Option<MotionDecision> {
                 .is_empty()
             })
         });
-    (empty_plan && valid_phrase).then(|| MotionDecision::Perform(ChatPerformancePlan::default()))
+    (empty_plan && (valid_phrase || valid_score))
+        .then(|| MotionDecision::Perform(ChatPerformancePlan::default()))
+}
+
+/// The words a score's beats name, so its shape can be checked without the reply.
+fn scored_words(object: &serde_json::Map<String, Value>) -> String {
+    object
+        .get("score")
+        .and_then(Value::as_array)
+        .map(|beats| {
+            beats
+                .iter()
+                .filter_map(|beat| beat.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
 }
 
 fn motion_payload_present(object: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -386,6 +422,10 @@ fn motion_payload_present(object: &serde_json::Map<String, serde_json::Value>) -
         .is_some_and(|cues| !cues.is_empty());
     has_baseline
         || has_cues
+        || object
+            .get("score")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
         || object
             .get("phrases")
             .and_then(Value::as_array)

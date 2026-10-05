@@ -3,6 +3,7 @@ import type { Anime25DWorkbenchPort } from '../anime25drig/workbenchPort'
 import type { RigBearing } from '../motion/bearing'
 import type { BehaviorPlan } from '../motion/behavior'
 import type { MotionChannelPolicy } from '../motion/policy'
+import type { ResolvedScore } from '../motion/scoreTimeline'
 import type { SpeechArticulation } from '../rig/articulation'
 import type { RigMotionPort } from '../rig/motionPort'
 import type { MeropeRigManifest } from '../rig/types'
@@ -69,6 +70,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
       Array<{ text: string; locale?: string }>
     >([])
     const bearingRef = useRef<RigBearing | null>(null)
+    const scoreRef = useRef<ResolvedScore | null>(null)
     const latestBehaviorPlanRef = useRef<BehaviorPlan | null>(null)
     const latestSpeechRef = useRef<
       | { kind: 'auto'; active: boolean }
@@ -120,6 +122,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
         animeRef.current?.setMotionPolicy(motionPolicyRef.current)
       }
       animeRef.current?.setBearing(bearingRef.current)
+      animeRef.current?.setScore?.(scoreRef.current)
       animeRef.current?.setMood(moodRef.current, activityRef.current)
       const latest = latestSpeechRef.current
       if (latest.kind === 'auto') {
@@ -142,6 +145,10 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
       setBearing: (bearing) => {
         bearingRef.current = bearing
         animeRef.current?.setBearing(bearing)
+      },
+      setScore: (score) => {
+        scoreRef.current = score
+        animeRef.current?.setScore?.(score)
       },
       setSpeechActive: (active) => {
         speechActiveRef.current = active

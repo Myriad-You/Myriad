@@ -394,6 +394,8 @@ export class Anime25DPlayer {
     this.musicSignal = drive
   }
 
+  setScore(score: import('../motion/scoreTimeline').ResolvedScore | null, nowMs: number): void { if (score) this.motion.directedPose.setScore(score, this.time, nowMs) }
+
   setSpeechProsody(plan: SpeechProsodyPlan | null): void {
     this.motion.speechExpression.setProsody(plan, this.time)
   }

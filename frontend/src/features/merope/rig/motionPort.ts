@@ -1,6 +1,7 @@
 import type { RigBearing } from '../motion/bearing'
 import type { BehaviorPlan, BehaviorRealizerReport } from '../motion/behavior'
 import type { MotionChannelPolicy } from '../motion/policy'
+import type { ResolvedScore } from '../motion/scoreTimeline'
 import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
@@ -9,6 +10,8 @@ import type { SpeechArticulation } from './articulation'
 export interface RigMotionPort {
   setMotionPolicy: (policy: MotionChannelPolicy) => void
   setBearing: (bearing: RigBearing | null) => void
+  /** The director's score, placed on the clock; a rig without one ignores it. */
+  setScore?: (score: ResolvedScore | null) => void
   setMood: (mood: number, activity: MeropeActivity) => void
   setSpeechActive: (active: boolean) => void
   setAutoSpeech: (active: boolean) => void

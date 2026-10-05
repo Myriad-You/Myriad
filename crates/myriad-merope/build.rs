@@ -324,6 +324,72 @@ fn main() {
                 .expect(key)
         ));
     }
+    for (field, constant) in [
+        ("scoreSides", "PERFORMANCE_SCORE_SIDES"),
+        ("scoreDirections", "PERFORMANCE_SCORE_DIRECTIONS"),
+    ] {
+        let values = performance_contract[field]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing performance {field}"));
+        generated.push_str(&format!("pub const {constant}: &[&str] = &[\n"));
+        for value in values {
+            generated.push_str(&format!(
+                "    {},\n",
+                serde_json::to_string(value.as_str().expect("score enum values must be strings"))
+                    .unwrap()
+            ));
+        }
+        generated.push_str("];\n");
+    }
+    let body_controls = performance_contract["bodyControls"]
+        .as_object()
+        .expect("bodyControls");
+    generated.push_str(
+        "pub const PERFORMANCE_SCORE_MOVES: &[(&str, &[&str], &str)] = &[\n",
+    );
+    for (name, scored) in performance_contract["scoreMoves"]
+        .as_object()
+        .expect("missing performance scoreMoves")
+    {
+        let controls = scored["controls"].as_array().expect("score move controls");
+        assert!(!controls.is_empty(), "score move {name} must move something");
+        let controls: Vec<String> = controls
+            .iter()
+            .map(|control| {
+                let control = control.as_str().expect("score move control must be a string");
+                assert!(
+                    body_controls.contains_key(control),
+                    "score move {name} uses unknown body control {control}"
+                );
+                serde_json::to_string(control).unwrap()
+            })
+            .collect();
+        generated.push_str(&format!(
+            "({}, &[{}], {}),\n",
+            serde_json::to_string(name).unwrap(),
+            controls.join(", "),
+            scored["description"]
+        ));
+    }
+    generated.push_str("];\n");
+    for (key, name) in [
+        ("maxBeats", "SCORE_MAX_BEATS"),
+        ("maxAtMs", "SCORE_MAX_AT_MS"),
+        ("maxOffsetMs", "SCORE_MAX_OFFSET_MS"),
+        ("maxCount", "SCORE_MAX_COUNT"),
+        ("maxAnchorChars", "SCORE_MAX_ANCHOR_CHARS"),
+    ] {
+        generated.push_str(&format!(
+            "pub const {name}: u32 = {};\n",
+            performance_contract["scoreTiming"][key].as_u64().expect(key)
+        ));
+    }
+    for (key, name) in [("minTempo", "SCORE_MIN_TEMPO"), ("maxTempo", "SCORE_MAX_TEMPO")] {
+        generated.push_str(&format!(
+            "pub const {name}: f32 = {};\n",
+            f32_lit(performance_contract["scoreTiming"][key].as_f64().expect(key))
+        ));
+    }
     let output =
         PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("merope_rig_contract.rs");
     fs::write(output, generated).expect("write generated rig contract");

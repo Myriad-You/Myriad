@@ -6,6 +6,7 @@ import type { RigBearing } from './bearing'
 import type { BehaviorPlan, BehaviorSnapshot } from './behavior'
 import type { MotionSnapshot } from './coordinator'
 import type { SingingFrame } from './musicSource'
+import type { ResolvedScore } from './scoreTimeline'
 
 export interface SpeechTextChunk {
   seq: number
@@ -42,6 +43,8 @@ export interface MoodIntent {
 export interface MotionFrame {
   snapshot: MotionSnapshot
   bearing: RigBearing | null
+  /** The director's score, placed on the clock so far. */
+  score: ResolvedScore | null
   speech: SpeechIntent | null
   performance: PerformanceIntent | null
   music: SingingFrame | null

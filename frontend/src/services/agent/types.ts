@@ -194,6 +194,8 @@ export interface PerformanceCue {
 
 export interface PerformanceDirective {
   phrases?: SpeechPhrase[]
+  /** Beats on the reply's words or on time: acting that unfolds beat by beat. */
+  score?: ScoreBeat[]
   phase: PerformancePhase
   moodRevision: number
   motionStyle: RigMotionStyle
@@ -201,6 +203,35 @@ export interface PerformanceDirective {
     baseline?: PerformanceBaseline
     cues: PerformanceCue[]
   }
+}
+
+export type ScoreMoveKind =
+  | 'nod' | 'shake' | 'glance' | 'blink' | 'wink' | 'beat' | 'shrug' | 'sigh' | 'bounce' | 'startle'
+export type ScoreSide = 'left' | 'right' | 'both'
+export type ScoreDirection =
+  | 'left' | 'right' | 'up' | 'down' | 'up-left' | 'up-right' | 'down-left' | 'down-right'
+
+/** A movement that goes and comes back by itself, such as a nod. */
+export interface ScoreMove {
+  kind: ScoreMoveKind
+  side?: ScoreSide
+  direction?: ScoreDirection
+  amount: number
+  count: number
+  tempo: number
+}
+
+/**
+ * One beat of the director's score: on words of the reply as they are
+ * spoken (`text`, shifted by `offsetMs`), or `atMs` after the score arrives.
+ */
+export interface ScoreBeat {
+  text?: string
+  atMs: number
+  offsetMs: number
+  /** Targets reached from this moment and held until revised or `holdMs` passes. */
+  pose?: BodyPose
+  move?: ScoreMove
 }
 
 export interface SpeechPhrase {

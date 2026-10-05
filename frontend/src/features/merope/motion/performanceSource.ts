@@ -5,6 +5,7 @@ import type { RigBearing } from './bearing'
 import type { BehaviorPlan, BehaviorSnapshot } from './behavior'
 import type { RigMotionCoordinator } from './coordinator'
 import type { PerformanceIntent } from './intents'
+import type { ResolvedScore, SpokenUtterance } from './scoreTimeline'
 import {
   currentMeropeState,
   MEROPE_PERFORMANCE_EVENT,
@@ -23,10 +24,14 @@ import {
 import { PerformanceMotionLeases } from './performanceLeases'
 import { PerformanceLifecycleController } from './performanceLifecycle'
 import { HumanReactionPolicy } from './reactionPolicy'
+import { ScoreTimeline } from './scoreTimeline'
+import { speechMessageKey } from './speechSource'
 
 export class PerformanceMotionSource {
   private readonly leases: PerformanceMotionLeases
   private readonly reactionPolicy = new HumanReactionPolicy()
+  /** The director's score, its beats placed on the clock as their moments become known. */
+  private readonly score = new ScoreTimeline()
   private controller: PerformanceLifecycleController | null = null
   private settleTimer: ReturnType<typeof setTimeout> | null = null
   private bearing: RigBearing | null = null
@@ -52,6 +57,15 @@ export class PerformanceMotionSource {
     ) => void = () => {},
   ) {
     this.leases = new PerformanceMotionLeases(coordinator)
+  }
+
+  currentScore(): ResolvedScore | null {
+    return this.score.current()
+  }
+
+  /** An utterance's words and timing, to place the score's beats on words. */
+  noteUtterance(utterance: SpokenUtterance, nowMs: number = currentNow()): void {
+    if (this.score.noteUtterance(utterance, nowMs)) this.onChange(this.intent)
   }
 
   current(_nowMs: number = currentNow()): PerformanceIntent {
@@ -132,9 +146,19 @@ export class PerformanceMotionSource {
     if (
       !performance.plan.baseline &&
       performance.plan.cues.length === 0 &&
-      !performance.phrases?.length
+      !performance.phrases?.length &&
+      !performance.score?.length
     ) {
       return false
+    }
+    if (performance.score?.length) {
+      this.score.set(
+        performance.score,
+        event?.messageId
+          ? speechMessageKey({ source: event.source, generation: event.generation, messageId: event.messageId })
+          : null,
+        startedAtMs,
+      )
     }
     this.bearing = bearingFromDirective(performance) ?? this.bearing
     const selection = this.reactionPolicy.select(

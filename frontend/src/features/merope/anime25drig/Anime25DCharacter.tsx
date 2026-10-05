@@ -1,6 +1,7 @@
 import type { RigBearing } from '../motion/bearing'
 import type { BehaviorPlan } from '../motion/behavior'
 import type { MotionChannelPolicy } from '../motion/policy'
+import type { ResolvedScore } from '../motion/scoreTimeline'
 import type { RigMotionPort } from '../rig/motionPort'
 import type { MeropeRigManifest } from '../rig/types'
 import type { MusicMotionSignal } from '../singing/musicSignal'
@@ -116,6 +117,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     >([])
     const manualRef = useRef(manualControl)
     const bearingRef = useRef<RigBearing | null>(null)
+    const scoreRef = useRef<ResolvedScore | null>(null)
     const behaviorPlanRef = useRef<BehaviorPlan | null>(null)
     const onPlaybackReadyRef = useRef(onPlaybackReady)
     onPlaybackReadyRef.current = onPlaybackReady
@@ -160,6 +162,10 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       setBearing(bearing) {
         bearingRef.current = bearing
         playerRef.current?.setBearing(bearing)
+      },
+      setScore(score) {
+        scoreRef.current = score
+        playerRef.current?.setScore(score, performance.now())
       },
       setSpeechActive(active) {
         speechActiveRef.current = active
@@ -287,6 +293,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       }
       pendingSpeechTextRef.current = []
       player.setBearing(bearingRef.current)
+      player.setScore(scoreRef.current, performance.now())
       if (behaviorPlanRef.current) {
         const now = performance.now()
         const realization = realizeAnime25DBehaviorPlan(

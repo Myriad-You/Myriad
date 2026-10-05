@@ -399,3 +399,56 @@ test('directed torso targets reach the production body shell and final-space vol
   step(1e-6)
   assert.ok(Math.abs(frame.bodyLift!.amount - amount) < 0.001, 'release does not snap the body field')
 })
+
+function sampleAt(value: DirectedPoseController, from: number, to: number, fps = 120) {
+  const samples: Array<{ time: number; target: typeof IDENTITY_DRIVER }> = []
+  for (let i = 1; i <= Math.round((to - from) * fps); i++) {
+    const target = { ...IDENTITY_DRIVER }
+    value.apply(1 / fps, from + i / fps, target, false)
+    samples.push({ time: from + i / fps, target })
+  }
+  return samples
+}
+
+test('score beats take over held controls on their moment, hold, and give back to the standing pose', () => {
+  const value = controller()
+  value.set(pose({ headTilt: 0.2 }), 0)
+  // Placed on the clock at 1000 ms; the player clock is at 0 s then.
+  value.setScore({ id: 1, beats: [
+    { id: '1:0', atMs: 1500, pose: pose({ headTilt: -0.6 }, 1000, 200) },
+    { id: '1:1', atMs: 2000, pose: pose({ gazeHorizontal: 0.8 }, 0, 200) },
+  ] }, 0, 1000)
+  const samples = sampleAt(value, 0, 3)
+  const at = (seconds: number) => samples.find((sample) => sample.time >= seconds)!.target
+  assert.ok(Math.abs(at(0.45).angleZ - 0.2) < 0.03, 'the standing pose before the beat')
+  assert.ok(at(0.95).angleZ < -0.5, 'the beat takes the tilt over')
+  assert.ok(at(1.4).eyeX > 0.7, 'a later beat on another control joins it')
+  assert.ok(Math.abs(at(2.9).angleZ - 0.2) < 0.05, 'after its hold the standing pose comes back')
+  assert.ok(at(2.9).eyeX > 0.7, 'a beat with no hold keeps going')
+})
+
+test('a move goes and comes back over what is held; a new score drops what the old had not begun', () => {
+  const value = controller()
+  value.setScore({ id: 1, beats: [
+    { id: '1:0', atMs: 0, move: { kind: 'nod', amount: 1, count: 1, tempo: 1 } },
+    { id: '1:1', atMs: 2000, move: { kind: 'shake', amount: 1, count: 1, tempo: 1 } },
+  ] }, 0, 0)
+  const nod = sampleAt(value, 0, 0.6)
+  assert.ok(Math.min(...nod.map((sample) => sample.target.angleY)) < -0.4, 'the head dips')
+  assert.ok(Math.abs(nod.at(-1)!.target.angleY) < 0.02, 'and comes back')
+  assert.ok(value.weight('headNod') === 0, 'a finished move no longer drives anything')
+  // A new score before 2 s replaces the shake that had not started.
+  value.setScore({ id: 2, beats: [{ id: '2:0', atMs: 2500, move: { kind: 'nod', amount: 1, count: 1, tempo: 1 } }] }, 1, 1000)
+  const later = sampleAt(value, 1, 3.2)
+  assert.ok(later.every((sample) => Math.abs(sample.target.angleX) < 1e-6), 'the old shake never plays')
+  assert.ok(Math.min(...later.map((sample) => sample.target.angleY)) < -0.4, 'the new nod does')
+})
+
+test('a hand beat drives its arm through the directed arm weight, then lets go', () => {
+  const value = controller()
+  value.setScore({ id: 1, beats: [{ id: '1:0', atMs: 0, move: { kind: 'beat', side: 'left', amount: 1, count: 1, tempo: 1 } }] }, 0, 0)
+  const samples = sampleAt(value, 0, 0.5)
+  const peak = samples.reduce((best, sample) => (sample.target.armRaiseL > best.target.armRaiseL ? sample : best))
+  assert.ok(peak.target.armRaiseL > 0.3 && peak.target.armRaiseR === 0)
+  assert.equal(value.weight('leftArmRaise'), 0)
+})

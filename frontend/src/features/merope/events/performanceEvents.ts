@@ -17,6 +17,7 @@ import {
   PERFORMANCE_INTERRUPT_MODES,
   PERFORMANCE_POSTURES,
   sanitizeBodyPose,
+  sanitizeScore,
   sanitizeSpeechPhrases,
 } from './performanceContract'
 
@@ -228,13 +229,15 @@ export function sanitizePerformanceDirective(
         .filter((cue): cue is PerformanceCue => cue !== null)
     : []
   const phrases = sanitizeSpeechPhrases(value.phrases)
-  if (!baseline && cues.length === 0 && phrases.length === 0) return null
+  const score = sanitizeScore(value.score)
+  if (!baseline && cues.length === 0 && phrases.length === 0 && score.length === 0) return null
   return {
     phase: value.phase as PerformanceDirective['phase'],
     moodRevision: Math.max(0, Math.trunc(value.moodRevision)),
     motionStyle,
     plan: { ...(baseline ? { baseline } : {}), cues },
     ...(phrases.length ? { phrases } : {}),
+    ...(score.length ? { score } : {}),
   }
 }
 

@@ -1,8 +1,10 @@
-import type { BodyControl, BodyPose } from '../../../services/agent/types'
+import type { BodyControl, BodyPose, ScoreMove } from '../../../services/agent/types'
 import type { MotionChannelPolicy } from '../motion/policy'
+import type { ResolvedScore } from '../motion/scoreTimeline'
 import type { Anime25DDriver } from './driver'
 import type { PerformanceExpressionOffset } from './performanceExpressionShared'
 import { BODY_CONTROLS, sanitizeBodyPose } from '../events/performanceContract'
+import { scoreMoveOffsets, scoreMoveSeconds } from './scoreMoves'
 
 // Semantic goals are mapped only here, never interpreted as arbitrary drivers.
 export const BODY_CONTROL_DRIVERS = {
@@ -25,6 +27,23 @@ export const INDEPENDENT_BODY_CONTROLS = [
 ] as const satisfies readonly BodyControl[]
 export type IndependentBodyControl = (typeof INDEPENDENT_BODY_CONTROLS)[number]
 
+/** One control's target from one beat of the score. */
+interface Keyframe {
+  id: string
+  scoreId: number
+  at: number
+  value: number
+  transitionSeconds: number
+  until: number
+}
+
+interface ScheduledMove {
+  id: string
+  scoreId: number
+  start: number
+  move: ScoreMove
+}
+
 interface Axis {
   value: number
   velocity: number
@@ -43,6 +62,16 @@ export class DirectedPoseController {
   private touchShare = 0
   private transientShare = 0
   private readonly transientAxes = new Set<BodyControl>()
+  /**
+   * The score over the standing pose: per control, targets that take over
+   * from their beat until a later beat revises them or they run out, and
+   * moves that go and come back over whatever is held.
+   */
+  private readonly keyframes = new Map<BodyControl, Keyframe[]>()
+  private moves: ScheduledMove[] = []
+  private scoreId = 0
+  private readonly moveOffsets = new Map<BodyControl, number>()
+  private readonly moveWeights = new Map<BodyControl, number>()
 
   setPolicy(policy: MotionChannelPolicy): void { this.policy = policy }
 
@@ -76,11 +105,88 @@ export class DirectedPoseController {
     this.expiresAt = next && next.holdMs > 0 ? time + next.holdMs / 1000 : Infinity
   }
 
+  /**
+   * Beats of the current score, moved from the clock (`nowMs`) onto the
+   * player's (`time`). A new score drops what an older one had not begun;
+   * anything under way finishes. A beat already known is only moved while it
+   * has not started.
+   */
+  setScore(score: Readonly<ResolvedScore>, time: number, nowMs: number): void {
+    const scoreId = score.id
+    const beats = score.beats.map((beat) => ({ ...beat, at: time + (beat.atMs - nowMs) / 1000 }))
+    if (scoreId !== this.scoreId) {
+      for (const [key, frames] of this.keyframes) this.keyframes.set(key, frames.filter((frame) => frame.at <= time))
+      this.moves = this.moves.filter((move) => move.start <= time)
+      this.scoreId = scoreId
+    }
+    for (const beat of beats) {
+      if (beat.pose) {
+        const transitionSeconds = beat.pose.transitionMs / 1000
+        const until = beat.pose.holdMs > 0 ? beat.at + beat.pose.holdMs / 1000 : Infinity
+        for (const [key, value] of Object.entries(beat.pose.targets) as Array<[BodyControl, number]>) {
+          const frames = this.keyframes.get(key) ?? []
+          const known = frames.find((frame) => frame.id === beat.id)
+          if (known) {
+            if (known.at > time) Object.assign(known, { at: beat.at, until })
+          } else {
+            frames.push({ id: beat.id, scoreId, at: beat.at, value: mappedValue(key, value), transitionSeconds, until })
+          }
+          frames.sort((a, b) => a.at - b.at)
+          this.keyframes.set(key, frames)
+        }
+      }
+      if (beat.move) {
+        const known = this.moves.find((move) => move.id === beat.id)
+        if (known) {
+          if (known.start > time) known.start = beat.at
+        } else {
+          this.moves.push({ id: beat.id, scoreId, start: beat.at, move: beat.move })
+        }
+      }
+    }
+  }
+
+  /** How much directed motion, held or moving, drives a control now. */
   weight(control: BodyControl): number {
     if (this.policy?.[controlChannel(control)] === 'preview') return 0
     const interruption = this.policy?.[controlChannel(control)] === 'performance'
       ? Math.max(this.touchShare, this.transientAxes.has(control) ? this.transientShare : 0) : 0
-    return (this.axes.get(control)?.weight ?? 0) * (1 - interruption)
+    return Math.max(this.axes.get(control)?.weight ?? 0, this.moveWeights.get(control) ?? 0) * (1 - interruption)
+  }
+
+  /** The score's current target for a control, if a beat holds it now. */
+  private scoreGoal(key: BodyControl, time: number): Keyframe | null {
+    const frames = this.keyframes.get(key)
+    if (!frames) return null
+    let current: Keyframe | null = null
+    for (const frame of frames) {
+      if (frame.at > time) break
+      current = frame
+    }
+    // Keep only the frame in force and those to come.
+    const kept = frames.filter((frame) => frame === current || frame.at > time)
+    if (kept.length !== frames.length) {
+      if (kept.length === 0) this.keyframes.delete(key)
+      else this.keyframes.set(key, kept)
+    }
+    return current && time < current.until ? current : null
+  }
+
+  private stepMoves(time: number): void {
+    this.moveOffsets.clear()
+    this.moveWeights.clear()
+    this.moves = this.moves.filter((scheduled) => time < scheduled.start + scoreMoveSeconds(scheduled.move))
+    const offsets: Partial<Record<BodyControl, number>> = {}
+    for (const scheduled of this.moves) {
+      if (time < scheduled.start) continue
+      for (const key of Object.keys(offsets) as BodyControl[]) delete offsets[key]
+      const envelope = scoreMoveOffsets(scheduled.move, time - scheduled.start, offsets)
+      for (const [key, offset] of Object.entries(offsets) as Array<[BodyControl, number]>) {
+        if (!this.capabilities.has(BODY_CONTROLS[key].capability)) continue
+        this.moveOffsets.set(key, (this.moveOffsets.get(key) ?? 0) + offset)
+        this.moveWeights.set(key, Math.max(this.moveWeights.get(key) ?? 0, envelope))
+      }
+    }
   }
 
   apply(dt: number, time: number, target: Anime25DDriver, vocalizing: boolean): void {
@@ -94,19 +200,27 @@ export class DirectedPoseController {
     if (!(dt > 0) || !Number.isFinite(dt)) return
     if (time >= this.expiresAt) this.pose = null
     const goals = this.pose?.targets ?? {}
-    for (const key of Object.keys(goals) as BodyControl[]) {
+    const scored = new Map<BodyControl, Keyframe>()
+    for (const key of this.keyframes.keys()) {
+      const goal = this.scoreGoal(key, time)
+      if (goal) scored.set(key, goal)
+    }
+    for (const key of [...Object.keys(goals) as BodyControl[], ...scored.keys()]) {
       if (!this.axes.has(key) && this.capabilities.has(BODY_CONTROLS[key].capability)) {
         this.axes.set(key, { value: target[BODY_CONTROL_DRIVERS[key]], velocity: 0, weight: 0, weightVelocity: 0 })
       }
     }
-    const omega = 6 / this.transitionSeconds
+    this.stepMoves(time)
     for (const [key, axis] of this.axes) {
       const driver = BODY_CONTROL_DRIVERS[key]
       if (this.policy?.[controlChannel(key)] === 'preview') continue
       const allowed = this.capabilities.has(BODY_CONTROLS[key].capability)
+      // A beat of the score takes over from the standing pose while it holds.
+      const beat = allowed ? scored.get(key) : undefined
       const goal = allowed ? goals[key] : undefined
-      const active = goal !== undefined
-      const value = active ? mappedValue(key, goal) : target[driver]
+      const active = beat !== undefined || goal !== undefined
+      const value = beat ? beat.value : goal !== undefined ? mappedValue(key, goal) : target[driver]
+      const omega = 6 / (beat ? beat.transitionSeconds : this.transitionSeconds)
       spring(axis, 'value', 'velocity', value, omega, dt)
       spring(axis, 'weight', 'weightVelocity', active ? 1 : 0, omega, dt)
       axis.weight = Math.max(0, Math.min(1, axis.weight))
@@ -124,10 +238,27 @@ export class DirectedPoseController {
       if (vocalizing && (key === 'maniac' || ['mouthOpen', 'mouthWide', 'mouthRound', 'mouthNarrow', 'mouthSeal'].includes(key))) continue
       // A held goal is not an interaction lock: immediate contact reactions
       // temporarily take their existing performance share, then the goal resumes.
-      const weight = this.weight(key)
+      const weight = this.heldWeight(key)
       target[driver] += (axis.value - target[driver]) * weight
       if (key === 'hairSway') target.physAmp += (axis.value * 0.5 - target.physAmp) * weight
     }
+    // Moves go and come back over whatever is held.
+    for (const [key, offset] of this.moveOffsets) {
+      if (this.policy?.[controlChannel(key)] === 'preview') continue
+      const interruption = this.policy?.[controlChannel(key)] === 'performance'
+        ? Math.max(this.touchShare, this.transientAxes.has(key) ? this.transientShare : 0) : 0
+      const driver = BODY_CONTROL_DRIVERS[key]
+      target[driver] += mappedValue(key, offset) * (1 - interruption)
+      if (key === 'eyeOpenLeft' || key === 'eyeOpenRight') target[driver] = Math.max(0, Math.min(1, target[driver]))
+    }
+  }
+
+  /** How much a held goal (standing pose or score) drives its control now. */
+  private heldWeight(control: BodyControl): number {
+    if (this.policy?.[controlChannel(control)] === 'preview') return 0
+    const interruption = this.policy?.[controlChannel(control)] === 'performance'
+      ? Math.max(this.touchShare, this.transientAxes.has(control) ? this.transientShare : 0) : 0
+    return (this.axes.get(control)?.weight ?? 0) * (1 - interruption)
   }
 }
 

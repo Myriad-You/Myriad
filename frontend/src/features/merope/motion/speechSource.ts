@@ -9,6 +9,7 @@ import type { BehaviorPlan, BehaviorSnapshot } from './behavior'
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
 import type { SpeechIntent, SpeechTextChunk } from './intents'
 import type { PhraseCoverage } from './phrasePlan'
+import type { SpokenUtterance } from './scoreTimeline'
 import type { SpeechLifecycleScheduler } from './speechLifecycle'
 import { markTurnTrace } from '../events/turnTrace'
 import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speech/speechEvents'
@@ -63,6 +64,9 @@ export class SpeechMotionSource {
   }
 
   private listening = false
+
+  /** Told each time an utterance's text or timing is known better. */
+  onUtterance: ((utterance: SpokenUtterance) => void) | null = null
 
   constructor(
     private readonly coordinator: RigMotionCoordinator,
@@ -328,6 +332,16 @@ export class SpeechMotionSource {
   private publishProsody(base: SpeechProsodyPlan, text: string): void {
     const previousUtterance = this.intent.prosody?.utteranceId
     this.rawProsody = base
+    if (this.messageKey) {
+      this.onUtterance?.({
+        messageKey: this.messageKey,
+        utteranceId: base.utteranceId,
+        text,
+        startedAtMs: base.startedAtMs,
+        durationMs: base.durationMs,
+        accents: base.accents,
+      })
+    }
     const direction = this.messageKey
       ? this.direction.get(this.messageKey)
       : undefined
@@ -423,7 +437,7 @@ export class SpeechMotionSource {
   }
 }
 
-function speechMessageKey(event: {
+export function speechMessageKey(event: {
   source: string
   messageId: string
   generation?: number

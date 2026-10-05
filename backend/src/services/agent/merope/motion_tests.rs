@@ -29,6 +29,7 @@ fn directive_wire_shape_is_camel_case_and_semantic_only() {
             text: "你觉得呢？".to_string(),
             intent: "check-in".to_string(),
         }],
+        score: Vec::new(),
         plan: ChatPerformancePlan {
             baseline: None,
             cues: vec![myriad_merope::ChatPerformanceCue {
@@ -554,4 +555,38 @@ fn hidden_face_skips_motion() {
     .unwrap();
     assert!(face_is_hidden(Some(&no_face)));
     assert!(!face_is_hidden(None));
+}
+
+#[test]
+fn a_score_alone_is_a_performance_and_its_moves_follow_the_body() {
+    // Only beats, no baseline: still new direction, e.g. while listening.
+    assert!(matches!(
+        parse_motion_decision(r#"{"score":[{"atMs":300,"move":{"kind":"nod","count":2}}]}"#),
+        Some(MotionDecision::Perform(_))
+    ));
+    assert!(parse_motion_decision(r#"{"score":[{"atMs":300,"move":{"kind":"moonwalk"}}]}"#).is_none());
+    assert!(parse_motion_decision(r#"{"continue":true,"score":[{"atMs":0,"move":{"kind":"nod"}}]}"#).is_none());
+
+    let head_only = rig(&["head-body"], false);
+    let schema = motion_schema_for_state(&offered_cue_intents(Some(&head_only)), Some(&head_only));
+    let kinds: Vec<&str> = schema
+        .pointer("/properties/score/items/properties/move/properties/kind/enum")
+        .and_then(|value| value.as_array())
+        .expect("move kinds")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect();
+    assert!(kinds.contains(&"nod") && kinds.contains(&"shrug"));
+    assert!(!kinds.contains(&"beat"), "no hand beat without arms");
+    assert!(!kinds.contains(&"glance"), "no eye glance without independent eyes");
+    assert_eq!(
+        schema.pointer("/properties/score/items/properties/pose"),
+        schema.pointer("/properties/baseline/properties/pose"),
+        "a beat's pose uses the same controls as the standing pose"
+    );
+
+    let prompt = motion_system_prompt(PERFORMANCE_CUE_INTENTS);
+    for (kind, _, _) in myriad_merope::PERFORMANCE_SCORE_MOVES {
+        assert!(prompt.contains(&format!("- {kind}: ")), "{kind}");
+    }
 }

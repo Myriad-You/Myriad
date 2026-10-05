@@ -47,6 +47,7 @@ test('outfit and callback changes keep the React player; stale loads cannot repo
     setSingingTrack() {}
     setMusicSignal() {}
     setBearing() {}
+    setScore() {}
     resize() {}
     tick() {}
     dispose() { disposed += 1 }

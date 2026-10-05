@@ -45,6 +45,7 @@ pub mod sore;
 pub mod soup;
 pub mod sources;
 pub mod speaking;
+mod score;
 mod speech_plan;
 mod sticker_avatar;
 pub mod stickers;
@@ -84,7 +85,9 @@ pub use rig_contract::{
     BODY_POSE_MAX_HOLD_MS, BODY_POSE_MAX_TRANSITION_MS, BODY_POSE_MIN_TRANSITION_MS,
     CharacterAssetProfile, CharacterAssetProfileContract, PERFORMANCE_BASELINE_EXPRESSIONS,
     PERFORMANCE_BODY_CONTROLS, PERFORMANCE_CUE_INTENTS, PERFORMANCE_INTERRUPT_MODES,
-    PERFORMANCE_PHRASE_INTENTS, PERFORMANCE_POSTURES,
+    PERFORMANCE_PHRASE_INTENTS, PERFORMANCE_POSTURES, PERFORMANCE_SCORE_DIRECTIONS,
+    PERFORMANCE_SCORE_MOVES, PERFORMANCE_SCORE_SIDES, SCORE_MAX_AT_MS, SCORE_MAX_BEATS,
+    SCORE_MAX_COUNT, SCORE_MAX_OFFSET_MS,
 };
 pub use rig_semantics::RigSemantics;
 pub use rig_spatial::RigSpatialProfile;
@@ -94,6 +97,7 @@ pub use rig_state::{
     motion_style_from_persona, motion_style_from_persona_json, plan_is_empty,
     refine_performance_plan, round_motion_style, sanitize_rig_state,
 };
+pub use score::{ScoreBeat, ScoreMove, grounded_score};
 pub use speech_plan::{SpeechPhrase, grounded_speech_phrases};
 pub use sticker_avatar::{
     MEROPE_STICKER_STYLE_REFERENCE_SHA256, STICKER_AVATAR_CONTRACT_VERSION, STICKER_AVATAR_SIZE,

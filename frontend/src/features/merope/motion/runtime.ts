@@ -92,6 +92,7 @@ export class MotionRuntime {
       (directive, event, plan) =>
         this.speech.applyDirector(directive, event, plan),
     )
+    this.speech.onUtterance = (utterance) => this.performance.noteUtterance(utterance)
     this.mood = new MoodMotionSource(coordinator, (intent, bandChanged) => {
       this.moodIntent = intent
       this.touch.setAffect(intent.mood, intent.arousal, currentNow())
@@ -204,6 +205,7 @@ export class MotionRuntime {
     return {
       snapshot: this.coordinator.snapshot(now),
       bearing: this.performance.currentBearing() ?? this.mood.currentBearing(),
+      score: this.performance.currentScore(),
       speech: hasSpeechIntent(speech)
         ? { ...speech, behaviors: speechBehaviors }
         : null,
