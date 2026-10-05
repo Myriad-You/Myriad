@@ -113,9 +113,17 @@
 
 html[data-perf-mode='light'] .toast-message,
 html[data-perf-mode='exlight'] .toast-message {
+  /* 关了模糊就得提高底色，否则 70% 的底色下页面内容清楚地透上来。 */
+  --chrome-fill: rgb(255 255 255 / 96%);
+
   /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 */
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+html.dark[data-perf-mode='light'] .toast-message,
+html.dark[data-perf-mode='exlight'] .toast-message {
+  --chrome-fill: rgb(26 26 26 / 96%);
 }
 
 .toast-message.toast-clickable {
