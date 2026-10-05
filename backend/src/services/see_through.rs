@@ -15,8 +15,6 @@ use std::{sync::OnceLock, time::Duration};
 /// Myriad's copy of the demo, serving `decompose`: used unless the owner names
 /// another Space. Calls count against the caller's ZeroGPU quota, not its owner's.
 pub const DEFAULT_SPACE: &str = "SomekawaHitomi/see-through-demo";
-/// The public demo it was copied from: square `inference` only.
-pub const PUBLIC_DEMO_SPACE: &str = "24yearsold/see-through-demo";
 /// The canvas (width x height) a Space with `decompose` fits portraits on: one
 /// shape that bust (3:4) and full-body (9:16) portraits both fill well, at
 /// about the 1280x1280 pixels LayerDiff 3D was trained with.
@@ -669,6 +667,9 @@ fn transport_error(error: reqwest::Error) -> SeeThroughError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The public demo Myriad's Space was copied from: square `inference` only.
+    const PUBLIC_DEMO_SPACE: &str = "24yearsold/see-through-demo";
 
     #[test]
     fn validates_space_options_and_token_shape() {
