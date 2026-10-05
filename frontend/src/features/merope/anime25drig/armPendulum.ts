@@ -188,6 +188,12 @@ export const FOREARM: ArmSegmentTuning = { hz: 1.6, damping: 0.4, sag: 0.3, maxB
 export const HAND: ArmSegmentTuning = { hz: 2.4, damping: 0.45, sag: 0.25, maxBend: 0.22 }
 
 /**
+ * A forearm coming forward is lifted, not swung: it rises with a little give
+ * and settles without wobbling. Driven by its `bend` target, 0 to 1.
+ */
+export const REACH: ArmSegmentTuning = { hz: 1.4, damping: 0.8, sag: 0, maxBend: 1 }
+
+/**
  * One segment of a hanging arm below a joint. It is driven by the turn of the
  * segment above it and returns its own turn relative to that one; `bend` is a
  * turn the joint is asked to make on top of hanging.

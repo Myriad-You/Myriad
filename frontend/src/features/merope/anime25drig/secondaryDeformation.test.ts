@@ -892,6 +892,12 @@ function secondaryFrame(
     faceScale: 0.82,
     armAngleL: Math.sin(progress * 5.9) * 0.3,
     armAngleR: Math.cos(progress * 5.3) * 0.3,
+    forearmL: 0,
+    forearmR: 0,
+    handL: 0,
+    handR: 0,
+    reachL: 0,
+    reachR: 0,
     armDrapeL: Math.sin(progress * 5.1) * 0.2,
     armDrapeR: Math.cos(progress * 4.7) * 0.2,
     headAngleY: Math.cos(progress * 5.4) * 0.9,
@@ -1369,6 +1375,38 @@ test('below a found wrist the hand turns about it, and is carried by its forearm
   const offset = { x: still.x - 70, y: still.y - 220 }
   const reach = Math.hypot(both.x - offset.x - carried.x, both.y - offset.y - carried.y)
   assert.ok(Math.abs(reach - 20) < 0.01, `the hand keeps its length from the wrist: ${reach}`)
+})
+
+test('a forearm reached towards the viewer is seen shorter, its hand nearer and larger, without tearing', () => {
+  const arm = { ...ARM, cutY: null, elbow: { x: 70, y: 150 }, wrist: { x: 70, y: 200 } }
+  const rest = new Float32Array([70, 90, 70, 130, 70, 150, 70, 175, 70, 200, 70, 230, 80, 230])
+  const binding = createAnime25DSecondaryDeformationBinding({
+    ...bodyBinding('handwear', 'L'),
+    arm,
+    armMesh: bindArmRigMesh(arm, rest),
+  })
+  const at = (vertex: number, x: number, y: number, reach: number) => {
+    const point = { x, y }
+    const frame = torsoTurnFrame(0, 0)
+    frame.reachL = reach
+    deformAnime25DSecondaryPoint(point, x, y, vertex, binding, frame)
+    return point
+  }
+  const still = (vertex: number, x: number, y: number) => at(vertex, x, y, 0)
+  const rise = (vertex: number, x: number, y: number) => still(vertex, x, y).y - at(vertex, x, y, 1).y
+  assert.ok(Math.abs(rise(1, 70, 130)) < 1e-6, 'the upper arm is not foreshortened')
+  // Down the forearm each point rises further, up to the shortening at the wrist.
+  assert.ok(rise(3, 70, 175) > 2 && rise(4, 70, 200) > rise(3, 70, 175))
+  assert.ok(Math.abs(rise(4, 70, 200) - 50 * 0.35) < 1, `${rise(4, 70, 200)}`)
+  // The hand past the wrist is carried up with it and drawn larger about it.
+  const fingertip = at(5, 70, 230, 1)
+  const wrist = at(4, 70, 200, 1)
+  assert.ok(fingertip.y - wrist.y > 30, `${fingertip.y - wrist.y}`)
+  const side = at(6, 80, 230, 1)
+  assert.ok(side.x - fingertip.x > 10, 'the hand is wider')
+  // Half a reach is between: continuous, nothing jumps.
+  const half = still(4, 70, 200).y - at(4, 70, 200, 0.5).y
+  assert.ok(half > 0 && half < rise(4, 70, 200))
 })
 
 function riggedSleeve(cutY: number | null = ARM.cutY, drape = false): Anime25DSecondaryDeformationBinding {

@@ -22,7 +22,7 @@ import type {
 } from './torsoDeformation'
 import type { Anime25DPlayback, Anime25DShellProfile } from './types'
 import { ArmChoreography, resolveDirectedArmIntent } from './armChoreography'
-import { ArmDrape, ArmPendulum, ArmSegment, FOREARM, HAND } from './armPendulum'
+import { ArmDrape, ArmPendulum, ArmSegment, FOREARM, HAND, REACH } from './armPendulum'
 import { applyBodyLift, BodyLiftResponse } from './bodyLift'
 import {
   chestBodyExcitationY,
@@ -117,6 +117,8 @@ export class Anime25DBodyFrames {
   private readonly forearms = { L: new ArmSegment(FOREARM), R: new ArmSegment(FOREARM) } as const
   /** A hand below a found wrist swings on after its forearm. */
   private readonly hands = { L: new ArmSegment(HAND), R: new ArmSegment(HAND) } as const
+  /** How far each forearm has come forward. */
+  private readonly reaches = { L: new ArmSegment(REACH), R: new ArmSegment(REACH) } as const
 
   private readonly armJoint = { x: 0, y: 0, reach: 0 }
   /** Each shoulder as the arm step last found it, for what else hangs there. */
@@ -231,6 +233,8 @@ export class Anime25DBodyFrames {
       forearmR: 0,
       handL: 0,
       handR: 0,
+      reachL: 0,
+      reachR: 0,
       chestCenterX: this.chestRegion.centerX,
       chestRegionCenterY: this.chestRegion.centerY,
       chestMotionCenterY: this.chestRegion.centerY,
@@ -618,16 +622,19 @@ export class Anime25DBodyFrames {
       const outward = side === 'L' ? 1 : -1
       const forearm = this.forearms[side].step(angle, input.bodyRoll, input.dynamic, dt, outward * intent.bend)
       const hand = this.hands[side].step(angle + forearm, input.bodyRoll, input.dynamic, dt)
+      const reach = Math.max(0, this.reaches[side].step(0, 0, input.dynamic, dt, intent.reach))
       if (side === 'L') {
         frame.armAngleL = angle
         frame.armDrapeL = drape
         frame.forearmL = forearm
         frame.handL = hand
+        frame.reachL = reach
       } else {
         frame.armAngleR = angle
         frame.armDrapeR = drape
         frame.forearmR = forearm
         frame.handR = hand
+        frame.reachR = reach
       }
     }
   }

@@ -30,6 +30,8 @@ export interface ArmSideIntent {
   open: number
   /** Extra turn of its forearm about the elbow, away from the body, in radians. */
   bend: number
+  /** How far its forearm comes up towards the viewer, 0 hanging to 1. */
+  reach: number
 }
 
 /**
@@ -48,9 +50,11 @@ export function resolveDirectedArmIntent(
 ): ArmSideIntent & { sway: number } {
   const directedOpen = raise * (elbow ? 1 - ELBOW_SHARE : 1)
   const directedBend = elbow ? raise * ELBOW_FLEX : 0
+  const directedReach = elbow ? forwardReach(raise) : 0
   return {
     open: automatic.open * (1 - raiseShare) + directedOpen,
     bend: automatic.bend * (1 - raiseShare) + directedBend,
+    reach: Math.min(1, automatic.reach * (1 - raiseShare) + directedReach),
     sway: automaticSway * (1 - swingShare) + swing,
   }
 }
@@ -70,13 +74,18 @@ const FOLLOW_SECONDS = 0.25
  * to the forearm, which turns out this far (radians) at a full lift.
  */
 export const ELBOW_SHARE = 0.4
-export const ELBOW_FLEX = 0.3
+export const ELBOW_FLEX = 0.18
+/**
+ * Most of an elbow's part in a lift goes forward, not out: a talking hand
+ * comes up in front, its forearm seen shorter. This much reach per lift.
+ */
+export const ELBOW_REACH = 0.8
 /** The hip under the weight pushes its arm out by this much of a full lift. */
 export const WEIGHT_OPEN = 0.2
 
 export class ArmChoreography {
-  readonly L: ArmSideIntent = { open: 0, bend: 0 }
-  readonly R: ArmSideIntent = { open: 0, bend: 0 }
+  readonly L: ArmSideIntent = { open: 0, bend: 0, reach: 0 }
+  readonly R: ArmSideIntent = { open: 0, bend: 0, reach: 0 }
   private lead: ArmSide | null = null
   /** The arm that trails; it keeps trailing after a gesture until the next one picks. */
   private follower: ArmSide = 'L'
@@ -110,9 +119,11 @@ export class ArmChoreography {
       if (elbows[side]) {
         out.open = lift * (1 - ELBOW_SHARE) + hip
         out.bend = lift * ELBOW_FLEX
+        out.reach = forwardReach(lift)
       } else {
         out.open = lift + hip
         out.bend = 0
+        out.reach = 0
       }
     }
   }
@@ -129,6 +140,11 @@ export class ArmChoreography {
     this.nextLead = lead === 'L' ? 'R' : 'L'
     return lead
   }
+}
+
+/** A lift brings the forearm forward; drawing the arms in does not push it back. */
+function forwardReach(lift: number): number {
+  return Math.max(0, Math.min(1, finite(lift) * ELBOW_REACH))
 }
 
 function finite(value: number): number {

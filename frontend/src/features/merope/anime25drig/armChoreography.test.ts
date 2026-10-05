@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ArmChoreography, ELBOW_FLEX, ELBOW_SHARE, FOLLOW_SHARE, resolveDirectedArmIntent, WEIGHT_OPEN } from './armChoreography'
+import { ArmChoreography, ELBOW_FLEX, ELBOW_REACH, ELBOW_SHARE, FOLLOW_SHARE, resolveDirectedArmIntent, WEIGHT_OPEN } from './armChoreography'
 import { ARM_MAX_RADIANS, ArmPendulum, ArmSegment, FOREARM } from './armPendulum'
 
 const DT = 1 / 60
@@ -8,11 +8,11 @@ const NO_ELBOWS = { L: false, R: false }
 const BUST = { open: 0, sway: 0, headTurn: 0, weight: null, dynamic: true }
 
 test('directed sides replace shared shoulder and elbow recruitment, and reach actual bounded arm physics', () => {
-  const automatic = { open: 0.5, bend: 0.2 }
+  const automatic = { open: 0.5, bend: 0.2, reach: 0.3 }
   const left = resolveDirectedArmIntent(automatic, 0.6, 1, 0, 1, 1, true)
   const right = resolveDirectedArmIntent(automatic, 0.6, 0, 0, 1, 1, true)
-  assert.deepEqual(left, { open: 1 - ELBOW_SHARE, bend: ELBOW_FLEX, sway: 0 })
-  assert.deepEqual(right, { open: 0, bend: 0, sway: 0 })
+  assert.deepEqual(left, { open: 1 - ELBOW_SHARE, bend: ELBOW_FLEX, reach: ELBOW_REACH, sway: 0 })
+  assert.deepEqual(right, { open: 0, bend: 0, reach: 0, sway: 0 })
   const shoulderL = new ArmPendulum(1)
   const shoulderR = new ArmPendulum(-1)
   const forearmL = new ArmSegment(FOREARM)
@@ -32,11 +32,11 @@ test('directed sides replace shared shoulder and elbow recruitment, and reach ac
   const released = resolveDirectedArmIntent(automatic, 0.6, 0, 0, 0, 0, true)
   assert.deepEqual(released, { ...automatic, sway: 0.6 })
   const sleeve = resolveDirectedArmIntent(automatic, 0.6, 1, 0, 1, 1, false)
-  assert.deepEqual(sleeve, { open: 1, bend: 0, sway: 0 }, 'a sleeve without an elbow uses only its real shoulder binding')
+  assert.deepEqual(sleeve, { open: 1, bend: 0, reach: 0, sway: 0 }, 'a sleeve without an elbow uses only its real shoulder binding')
 })
 
 test('a partial directed arm contribution is not multiplied by its authority twice', () => {
-  const automatic = { open: 0.4, bend: 0.2 }
+  const automatic = { open: 0.4, bend: 0.2, reach: 0.1 }
   const authority = 0.5
   // These are the composer's already-weighted drivers, not raw target values.
   const raise = 0.8 * authority
@@ -46,6 +46,7 @@ test('a partial directed arm contribution is not multiplied by its authority twi
     const split = elbow ? 1 - ELBOW_SHARE : 1
     assert.equal(intent.open, automatic.open * (1 - authority) + raise * split)
     assert.equal(intent.bend, automatic.bend * (1 - authority) + (elbow ? raise * ELBOW_FLEX : 0))
+    assert.equal(intent.reach, automatic.reach * (1 - authority) + (elbow ? raise * ELBOW_REACH : 0))
     assert.equal(intent.sway, 0.2 * (1 - authority) + swing)
   }
 })
@@ -95,6 +96,11 @@ test('an arm with an elbow lifts partly at the elbow; the hip under the weight p
   assert.ok(Math.abs(arms.R.open - (1 - ELBOW_SHARE)) < 1e-9)
   assert.equal(arms.R.bend, ELBOW_FLEX)
   assert.equal(arms.L.bend, 0)
+  // Most of the elbow's part comes forward: a full lift is a forearm well raised.
+  assert.equal(arms.R.reach, ELBOW_REACH)
+  assert.equal(arms.L.reach, 0)
+  arms.step({ ...BUST, open: -0.6, headTurn: 0.5, dynamic: false }, { L: false, R: true }, DT)
+  assert.equal(arms.R.reach, 0, 'drawing the arms in does not push the forearm back')
   const standing = new ArmChoreography()
   standing.step({ ...BUST, weight: 1, dynamic: false }, NO_ELBOWS, DT)
   assert.equal(standing.R.open, WEIGHT_OPEN)

@@ -98,6 +98,12 @@ export interface Anime25DSecondaryDeformationFrame {
   /** Each hand's turn about its wrist, relative to its forearm. */
   handL: number
   handR: number
+  /**
+   * How far each forearm is raised towards the viewer, 0 hanging to 1 fully
+   * reached: drawn shorter, with its hand nearer and larger.
+   */
+  reachL: number
+  reachR: number
   chestCenterX: number
   chestRegionCenterY: number
   chestMotionCenterY: number
@@ -464,16 +470,44 @@ export function deformAnime25DSecondaryPoint(
     // then turns about the shoulder, carrying the elbow with it.
     let armX = restX
     let armY = restY
+    // A forearm raised towards the viewer is seen end-on: shorter, its hand
+    // brought up the arm and nearer, so larger. The wrist moves with it.
+    let wristX = arm?.wrist?.x ?? 0
+    let wristY = arm?.wrist?.y ?? 0
+    const reach = arm?.wrist ? (left ? frame.reachL : frame.reachR) * arm.scale : 0
+    if (arm?.elbow && arm.wrist && reach > 0) {
+      const ux = arm.wrist.x - arm.elbow.x
+      const uy = arm.wrist.y - arm.elbow.y
+      const length = Math.hypot(ux, uy)
+      if (length > 0) {
+        const shorten = REACH_SHORTEN * reach
+        const grow = REACH_HAND_GROW * reach
+        const ax = ux / length
+        const ay = uy / length
+        const along = (restX - arm.elbow.x) * ax + (restY - arm.elbow.y) * ay
+        const across = (restX - arm.elbow.x) * -ay + (restY - arm.elbow.y) * ax
+        const wristAlong = length * (1 - shorten)
+        const inHand = handWeight(arm, restX, restY)
+        let seen = along <= length ? along * (1 - shorten) : along - shorten * length
+        seen += (seen - wristAlong) * grow * inHand
+        seen = along + (seen - along) * forearmWeight(arm, restX, restY)
+        const width = across * (1 + grow * inHand)
+        armX = arm.elbow.x + ax * seen - ay * width
+        armY = arm.elbow.y + ay * seen + ax * width
+        wristX = arm.elbow.x + ax * wristAlong
+        wristY = arm.elbow.y + ay * wristAlong
+      }
+    }
     const hand = arm?.wrist ? (left ? frame.handL : frame.handR) * arm.scale : 0
     if (arm?.wrist && hand !== 0) {
       const share = hand * handWeight(arm, restX, restY)
       if (share !== 0) {
-        const wx = restX - arm.wrist.x
-        const wy = restY - arm.wrist.y
+        const wx = armX - wristX
+        const wy = armY - wristY
         const cosine = Math.cos(share)
         const sine = Math.sin(share)
-        armX = arm.wrist.x + wx * cosine - wy * sine
-        armY = arm.wrist.y + wx * sine + wy * cosine
+        armX = wristX + wx * cosine - wy * sine
+        armY = wristY + wx * sine + wy * cosine
       }
     }
     const forearm = arm?.elbow ? (left ? frame.forearmL : frame.forearmR) * arm.scale : 0
@@ -536,6 +570,10 @@ function handWeight(arm: Readonly<ArmRig>, x: number, y: number): number {
   const along = ((x - wrist.x) * ux + (y - wrist.y) * uy) / length
   return smoothstep(along / Math.max(1, arm.radius * WRIST_SHARE) + 0.5)
 }
+
+/** A fully reached forearm is drawn this much shorter, and its hand this much larger. */
+const REACH_SHORTEN = 0.35
+const REACH_HAND_GROW = 0.15
 
 /** A wrist is this much of the arm's thickness at the shoulder. */
 const WRIST_SHARE = 0.6
