@@ -84,13 +84,14 @@ pub(super) async fn taste(db: &DatabaseConnection) -> myriad_merope::taste::Tast
         reaction: Option<Reaction>,
     }
     let since = Utc::now() - chrono::Duration::days(TASTE_DAYS);
+    // Faded is still hers; a row taken away (not faded) is not.
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT created_at, jsonb_build_object('thing', e->'thing', 'reaction', e->'reaction')::text AS taken \
              FROM (SELECT created_at, evidence::jsonb AS e FROM agent_memories \
                WHERE user_id IS NULL AND venue = $1 AND source = $2 AND created_at >= $3 \
-                 AND evidence IS JSON) own \
+                 AND evidence IS JSON AND (invalid_at IS NULL OR invalid_reason = 'faded')) own \
              ORDER BY created_at DESC LIMIT $4",
             [
                 unified::OWN_VENUE.into(),
