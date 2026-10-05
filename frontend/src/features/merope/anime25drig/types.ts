@@ -1,4 +1,5 @@
 import type { PoseCorrection } from './poseCorrections'
+import type { Anime25DTurnKeyforms } from './turnKeyforms'
 import {
   ANIME25D_COPYRIGHT,
   ANIME25D_LICENSE,
@@ -8,6 +9,7 @@ import {
   ANIME25D_PROJECT_URL,
 } from './credit'
 import { isPoseCorrections } from './poseCorrections'
+import { isAnime25DTurnKeyforms } from './turnKeyforms'
 
 export type Anime25DFade =
   | 'eyeOpen'
@@ -247,6 +249,8 @@ export interface Anime25DPlayback {
   mouthProfile: Anime25DMouthProfile
   chestProfile: Anime25DChestProfile
   shellProfile: Anime25DShellProfile
+  /** The head's turn as keyed shapes per part; absent, the turn is computed. */
+  turnKeyforms?: Anime25DTurnKeyforms
 }
 
 export function anime25DPlaybackSource(): Pick<
@@ -284,7 +288,8 @@ export function isAnime25DPlayback(value: unknown): value is Anime25DPlayback {
     typeof record.anchors === 'object' &&
     isAnime25DMouthProfile(mouthProfile, canvas.width, canvas.height) &&
     isAnime25DChestProfile(chestProfile, canvas.width, canvas.height) &&
-    isAnime25DShellProfile(shellProfile, canvas.width, canvas.height)
+    isAnime25DShellProfile(shellProfile, canvas.width, canvas.height) &&
+    (record.turnKeyforms === undefined || isAnime25DTurnKeyforms(record.turnKeyforms))
   )
 }
 

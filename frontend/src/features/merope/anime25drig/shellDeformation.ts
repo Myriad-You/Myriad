@@ -173,6 +173,7 @@ export function deformAnime25DShellPoint(
   depth: number,
   turn?: Readonly<HeadTurn>,
   feature?: Readonly<HeadTurnFeature> | null,
+  onSide = false,
 ): void {
   if (!profile.enabled || profile.blend <= 0 || !rotation.active) {
     return
@@ -220,7 +221,7 @@ export function deformAnime25DShellPoint(
       turn,
       point.x,
       point.y,
-      mode === 'head' ? 'skin' : mode,
+      onSide ? 'side' : mode === 'head' ? 'skin' : mode,
       mode === 'head'
         ? (normalizedDepth - radialDepth) * ellipsoid.radiusZ
         : profile.hair.frontGap * ellipsoid.radiusZ,
@@ -348,4 +349,11 @@ function smoothstep(value: number): number {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
+}
+
+/** How much of the shell a head point takes: one turning on its outline is all ball, no flat slide. */
+export function shellTurnBlend(
+  frame: { headTurn?: { silhouette: unknown } | null; shellActivation: number; shellBlend: number },
+): number {
+  return frame.headTurn?.silhouette ? frame.shellActivation : frame.shellBlend
 }

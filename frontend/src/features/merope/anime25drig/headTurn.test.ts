@@ -69,7 +69,7 @@ test('the skin never folds, and stretches only so far', () => {
   updateHeadTurn(turn, 1, 0)
   for (let u = -0.99; u <= 0.99; u += 0.02) {
     const slope = 1 + (slideAcross(turn, u + 0.01) - slideAcross(turn, u - 0.01)) / 0.02
-    assert.ok(slope > 0.1 && slope < 2, `slope ${slope} at ${u}`)
+    assert.ok(slope > -1e-6 && slope < 2.5, `slope ${slope} at ${u}`)
   }
 })
 

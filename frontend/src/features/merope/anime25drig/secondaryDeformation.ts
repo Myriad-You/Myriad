@@ -14,6 +14,7 @@ import type {
   Anime25DTorsoShellMode,
   Anime25DTorsoShellRotation,
 } from './torsoDeformation'
+import type { BoundTurnKeyform } from './turnKeyforms'
 import type {
   Anime25DPlaybackLayer,
   Anime25DShellProfile,
@@ -31,10 +32,9 @@ import {
 } from './collarRuntime'
 import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
 import { hairChainOffset, hairChainTurn } from './hairChain'
-import { HEAD_TURN_SHARE, headTurnNeckOffset } from './headTurn'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
-import { deformAnime25DShellPoint } from './shellDeformation'
+import { deformAnime25DShellPoint, shellTurnBlend } from './shellDeformation'
 import { applyStanding } from './standing'
 import {
   anime25DSleeveAnchorX,
@@ -42,6 +42,7 @@ import {
   deformAnime25DTorsoShellPoint,
   SLEEVE_TORSO_TRANSMISSION,
 } from './torsoDeformation'
+import { addKeyedTurn, neckTwist } from './turnKeyforms'
 
 type SecondaryDeformationDriver = Pick<
   Anime25DDriver,
@@ -149,6 +150,7 @@ export interface Anime25DSecondaryDeformationBinding {
   handwearSide: Anime25DPlaybackLayer['side']
   handwearAnchorX: number
   turnFeature?: HeadTurnFeature | null
+  turnKeyform?: BoundTurnKeyform | null
   arm: ArmRig | null
   armMesh: ArmRigMesh | null
   frontHair: boolean
@@ -190,8 +192,9 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   armMesh?: ArmRigMesh | null
   /** A shared torso carry point for arms that move as one piece. */
   handwearAnchorX?: number
-  /** The drawn feature this layer belongs to; it turns with the head as one piece. */
+  /** The drawn feature this layer belongs to, and its part's keyed turn per vertex. */
   turnFeature?: HeadTurnFeature | null
+  turnKeyform?: BoundTurnKeyform | null
   standing?: StandingBinding | null
 }): Anime25DSecondaryDeformationBinding {
   return {
@@ -343,8 +346,7 @@ export function deformAnime25DSecondaryPoint(
               (point.y - frame.faceCenterY) *
               0.05)
       if (binding.shellMode && frame.shellProfile.enabled) {
-        // Yaw/pitch deform the head in its own coordinates. Roll is its parent
-        // transform; sampling an unrotated shell with rolled points changes shape.
+        // Yaw/pitch deform the head in its own coordinates; roll is its parent transform.
         point.x = localX
         point.y = localY
         deformAnime25DShellPoint(
@@ -354,9 +356,11 @@ export function deformAnime25DSecondaryPoint(
           frame.shellProfile,
           frame.shellRotation,
           surfaceDepth,
-          frame.headTurn,
+          binding.turnKeyform ? frame.headTurn?.nodOnly ?? undefined : frame.headTurn,
           binding.turnFeature,
+          binding.baseRole === 'ears' || binding.baseRole === 'earwear',
         )
+        if (binding.turnKeyform && frame.headTurn) addKeyedTurn(point, binding.turnKeyform, vertex, frame.headTurn.amount)
         if (binding.poseCorrections) applyPoseCorrections(point, vertex, binding.poseCorrections)
         const shellX = point.x - frame.neckPivotX
         const shellY = point.y - frame.neckPivotY
@@ -368,10 +372,9 @@ export function deformAnime25DSecondaryPoint(
       } else {
         point.x = legacyX
         point.y = legacyY
-        if (verticalNeckFollow && neckHeadBlend > 0 && frame.headTurn?.active) {
-          // The top of the neck twists with the turning head instead of the flat carry.
-          point.x += (headTurnNeckOffset(frame.headTurn, localX, restY) - (legacyX - rolledX)) * neckHeadBlend
-        }
+        // The top of the neck twists with the turning head instead of the flat carry.
+        if (verticalNeckFollow && neckHeadBlend > 0 && frame.headTurn?.active)
+          point.x += (neckTwist(frame.headTurn, binding.turnKeyform, vertex, localX, restY) - (legacyX - rolledX)) * neckHeadBlend
       }
     }
     if (!binding.collarContact && frame.specialHeadOffset !== 0) {
@@ -658,12 +661,4 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
 }
 
-/**
- * How much of the shell, pose corrections included, a head point takes. A
- * head turning on its outline is all ball: none of the flat card slide.
- */
-export function shellTurnBlend(
-  frame: Pick<Anime25DSecondaryDeformationFrame, 'headTurn' | 'shellActivation' | 'shellBlend'>,
-): number {
-  return frame.headTurn?.silhouette ? frame.shellActivation * HEAD_TURN_SHARE : frame.shellBlend
-}
+export { shellTurnBlend } from './shellDeformation'

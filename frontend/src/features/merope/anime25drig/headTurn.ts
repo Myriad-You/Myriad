@@ -53,10 +53,14 @@ const OPAQUE = 128
 export const HEAD_TURN_RADIANS = 0.52
 /** Head nod at full angleY, radians. */
 export const HEAD_NOD_RADIANS = 0.2
-/** How far the front of the face stands ahead of the neck's axis, in head radii. */
-const FACE_DEPTH = 0.7
-/** The axis the head turns about stands this far behind the head's middle, in radii. */
-const TURN_PIVOT = 0.45
+/**
+ * The head is a ball this many of the face's half widths across, turning
+ * about its own middle: its outline, hair and all, stays where it is while
+ * what is on its front goes round.
+ */
+const HEAD_SPHERE = 1.25
+/** How far the front of the face stands ahead of the ball's middle, in the face's half widths. */
+const FACE_DEPTH = 1.15
 /** The chin stands this share of the face's depth forward. */
 const CHIN_DEPTH = 0.5
 /** The mouth's row, as a share of the way from the widest row to the chin. */
@@ -64,17 +68,19 @@ const MOUTH_AT = 0.77
 /** The jaw's hinge: the first row below the widest narrower than this share of it. */
 const HINGE_WIDTH = 0.9
 /**
- * Beyond the outline (ears, earrings) depth falls over this many half widths
- * to the outline's less EAR_BACK radii: the ears sit behind the cheek, so the
- * far one goes behind it.
+ * Beyond the face's outline (ears, earrings) depth eases over this many half
+ * widths to EAR_DEPTH of the ball's own there: the ears sit on the side of the
+ * head behind the cheek, so the near one comes in and the far one goes behind it.
  */
 const RIM_FADE = 0.35
-const EAR_BACK = 0.15
-/** Hair rides a larger head than the skin, a little ahead of it. */
-const HAIR_TURN_SCALE = 1.25
+const EAR_DEPTH = 0.6
+/** Hair stands a little off the ball. */
 const HAIR_GAP = 0.05
-/** Hair widens on the near side at most this much; past it the near side comes in. */
-const HAIR_MAX_STRETCH = 1.6
+/**
+ * The ball's outline stays put: on the near side the hair is pinned to it,
+ * easing in from this far across (−1 at the outline), and stretches between.
+ */
+const NEAR_PIN_FROM = -0.4
 /** The back hair's crown, above the widest row, is the top of the fringe's coiffure. */
 const CROWN_SPAN = 0.8
 /** How far each kind of feature stands off the face, in head radii. */
@@ -88,11 +94,9 @@ const NOD_NEAR_RIM_SLIDE = 1.1
 /** In a nod a feature shortens at most to this, and lengthens at most to that. */
 const FEATURE_SCALE_MIN = 0.86
 const FEATURE_SCALE_MAX = 1.08
-/**
- * Share of the head's motion that is the turn above; the rest is the old
- * flat carry. The turn above carries the whole head round the neck itself.
- */
-export const HEAD_TURN_SHARE = 1
+/** In a turn a feature narrows with the face down to this, and widens at most to that. */
+const FEATURE_TURN_MIN = 0.45
+const FEATURE_TURN_MAX = 1.08
 /** Below the chin the turn fades out over this share of the head's height. */
 const BELOW_CHIN_FADE = 0.4
 /**
@@ -246,10 +250,15 @@ export interface HeadTurn {
   silhouette: HeadSilhouette | null
   /** Changes whenever the turn does; what is worked out per feature is kept until then. */
   version: number
+  /** Share of the full turn, −1…1. */
+  amount: number
+  /** The same head nodding only: for parts whose turn is keyed (turnKeyforms). */
+  nodOnly: HeadTurn | null
 }
 
 export function createHeadTurn(silhouette: HeadSilhouette | null): HeadTurn {
-  return { active: false, cosine: 1, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0 }
+  const still = (): HeadTurn => ({ active: false, cosine: 1, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0, amount: 0, nodOnly: null })
+  return { ...still(), nodOnly: still() }
 }
 
 /** `angleX` turns toward +x; `angleY` raises the face. */
@@ -261,10 +270,18 @@ export function updateHeadTurn(turn: HeadTurn, angleX: number, angleY: number): 
   turn.sine = Math.sin(x * HEAD_TURN_RADIANS)
   turn.nodSlide = y * NOD_SLIDE
   turn.nodSine = Math.sin(y * HEAD_NOD_RADIANS)
+  turn.amount = x
   turn.version++
+  if (turn.nodOnly) {
+    turn.nodOnly.active = y !== 0
+    turn.nodOnly.nodSlide = turn.nodSlide
+    turn.nodOnly.nodSine = turn.nodSine
+    turn.nodOnly.version++
+  }
 }
 
-export type HeadTurnSurface = 'skin' | 'front-hair' | 'back-hair'
+/** `side`: the side of the head, where the ears are, behind the cheek. */
+export type HeadTurnSurface = 'skin' | 'side' | 'front-hair' | 'back-hair'
 
 export interface HeadTurnOffset {
   x: number
@@ -295,16 +312,21 @@ function rimShare(silhouette: Readonly<HeadSilhouette>, y: number): number {
 
 /** Where a point of depth `z` (pixels ahead of the head's middle) at `x` lands across. */
 function turned(turn: Readonly<HeadTurn>, x: number, z: number): number {
-  const silhouette = turn.silhouette!
-  const axisX = silhouette.centerAtWidest
-  return x + (x - axisX) * (turn.cosine - 1) + (z + TURN_PIVOT * silhouette.radius) * turn.sine
+  const axisX = turn.silhouette!.centerAtWidest
+  return x + (x - axisX) * (turn.cosine - 1) + z * turn.sine
+}
+
+/** Depth of the ball's own surface at `x`, in canvas pixels. */
+function ballDepth(silhouette: Readonly<HeadSilhouette>, x: number): number {
+  const radius = silhouette.radius * HEAD_SPHERE
+  const across = (x - silhouette.centerAtWidest) / radius
+  return radius * Math.sqrt(Math.max(0, 1 - across * across))
 }
 
 /** How much a point of depth `z` at `x` grows as the turn brings it nearer (below 1: further). */
 function nearer(turn: Readonly<HeadTurn>, x: number, z: number): number {
   const silhouette = turn.silhouette!
-  const pivot = TURN_PIVOT * silhouette.radius
-  const forward = -(x - silhouette.centerAtWidest) * turn.sine + (z + pivot) * (turn.cosine - 1)
+  const forward = -(x - silhouette.centerAtWidest) * turn.sine + z * (turn.cosine - 1)
   const distance = VIEW_DISTANCE * silhouette.radius
   return distance / Math.max(distance * 0.5, distance - forward)
 }
@@ -345,20 +367,11 @@ const ROUND_END = Math.sqrt(1 - SLICE_ROUND * SLICE_ROUND)
 const ROUND_SLOPE = -SLICE_ROUND / ROUND_END
 const EASE = (-SLICE_EDGE_SLOPE - ROUND_SLOPE) / (2 * (1 - SLICE_ROUND))
 
-/** Where along the slice (0…1) its fall reaches `slope` (negative); 1 if never. */
-function sliceWhereSlope(slope: number): number {
-  const k = -slope
-  const round = k / Math.sqrt(1 + k * k)
-  if (round <= SLICE_ROUND) return round
-  if (k >= SLICE_EDGE_SLOPE) return 1
-  return SLICE_ROUND + (slope - ROUND_SLOPE) / (2 * EASE)
-}
-
-/** Depth of the skin at `u` across its slice; beyond ±1, off the face, behind the outline. */
-function skinDepth(front: number, rim: number, depth: number, u: number, back: number): number {
+/** Depth of the skin at `u` across its slice; beyond ±1, off the face, easing to `side`. */
+function skinDepth(front: number, rim: number, depth: number, u: number, side: number): number {
   const onFace = depth * (rim + (front - rim) * slice(u))
   if (Math.abs(u) <= 1) return onFace
-  return onFace - back * smoothstep((Math.abs(u) - 1) / RIM_FADE)
+  return onFace + (side - onFace) * smoothstep((Math.abs(u) - 1) / RIM_FADE)
 }
 
 /** Where the skin at `x`, row `y`, lands across; what would turn past the far outline stays on it. */
@@ -367,63 +380,92 @@ function skinTurnedX(turn: Readonly<HeadTurn>, x: number, y: number): number {
   const slice = skinSlice(silhouette, y)
   const centerX = slice.centerX
   const halfWidth = Math.max(1, slice.halfWidth)
-  const depth = FACE_DEPTH * silhouette.radius
   const front = frontShare(silhouette, y)
   const rim = rimShare(silhouette, y)
   const side = turn.sine >= 0 ? 1 : -1
   let u = (x - centerX) / halfWidth
-  // Landing across the slice: h·u·cos + depth·(front − rim)·slice(u)·sin. It
-  // turns edge-on where that stops growing; past it everything is behind.
-  const relief = depth * (front - rim) * Math.abs(turn.sine)
-  if (relief > 1e-6 && side * u > 0 && side * u <= 1) {
-    const edgeOn = sliceWhereSlope(-(halfWidth * turn.cosine) / relief)
+  // Past the point where the slice turns edge-on, everything is behind it.
+  if (side * u > 0 && side * u <= 1) {
+    const edgeOn = edgeOnAt(turn, y, centerX, halfWidth, front, rim)
     if (side * u > edgeOn) u = side * edgeOn
   }
+  return skinLanding(turn, centerX, halfWidth, front, rim, u)
+}
+
+/** Where the skin at `u` across a slice lands, seen in perspective. */
+function skinLanding(turn: Readonly<HeadTurn>, centerX: number, halfWidth: number, front: number, rim: number, u: number): number {
+  const silhouette = turn.silhouette!
   const at = centerX + u * halfWidth
-  const z = skinDepth(front, rim, depth, u, EAR_BACK * silhouette.radius)
+  const z = skinDepth(front, rim, FACE_DEPTH * silhouette.radius, u, EAR_DEPTH * ballDepth(silhouette, at))
   landedScale = nearer(turn, at, z)
   const axisX = silhouette.centerAtWidest
   return axisX + (turned(turn, at, z) - axisX) * landedScale
 }
 
+/** Rows' edge-on points for the current turn, by whole canvas row. */
+const edgeOnRows = new WeakMap<Readonly<HeadTurn>, { version: number; rows: Map<number, number> }>()
+
 /**
- * Where hair at `x`, row `y`, lands across. `share` scales its depth: the
- * fringe rides fully ahead of the face, the back hair only at its crown. It
- * widens on the near side at most so far, and what turns past the far side
- * stays on it.
+ * How far toward the far side (0…1) the slice at row `y` turns edge-on: where
+ * its landing, perspective and all, stops moving further across.
  */
-function hairTurnedX(turn: Readonly<HeadTurn>, x: number, y: number, share: number): number {
+function edgeOnAt(turn: Readonly<HeadTurn>, y: number, centerX: number, halfWidth: number, front: number, rim: number): number {
+  let cache = edgeOnRows.get(turn)
+  if (!cache || cache.version !== turn.version) edgeOnRows.set(turn, (cache = { version: turn.version, rows: new Map() }))
+  const key = Math.round(y)
+  const known = cache.rows.get(key)
+  if (known !== undefined) return known
+  const side = turn.sine >= 0 ? 1 : -1
+  const landing = (v: number) => side * skinLanding(turn, centerX, halfWidth, front, rim, side * v)
+  // Golden-section search for the furthest landing over 0…1.
+  let a = 0
+  let b = 1
+  const r = (Math.sqrt(5) - 1) / 2
+  let c = b - r * (b - a)
+  let d = a + r * (b - a)
+  for (let i = 0; i < 24; i++) {
+    if (landing(c) > landing(d)) b = d
+    else a = c
+    c = b - r * (b - a)
+    d = a + r * (b - a)
+  }
+  const edgeOn = landing(1) >= landing((a + b) / 2) ? 1 : (a + b) / 2
+  cache.rows.set(key, edgeOn)
+  return edgeOn
+}
+
+/**
+ * Where hair at `x`, row `y`, lands across. It lies on the ball, a little off
+ * it: what turns past the far outline stays on it, and on the near side the
+ * hair is pinned to the outline and widens toward it, so the head's outline
+ * stays where it is as a turning ball's does.
+ */
+function hairTurnedX(turn: Readonly<HeadTurn>, x: number, y: number): number {
   const silhouette = turn.silhouette!
   const axisX = silhouette.centerAtWidest
-  const radius = silhouette.radius * HAIR_TURN_SCALE
-  const depth = FACE_DEPTH * radius * frontShare(silhouette, y) * share
-  const gap = HAIR_GAP * silhouette.radius * share
+  const radius = silhouette.radius * HEAD_SPHERE
+  const depth = radius * frontShare(silhouette, y)
+  const gap = HAIR_GAP * silhouette.radius
   const side = turn.sine >= 0 ? 1 : -1
-  const cosine = turn.cosine
   // In the turn's own direction: m > 0 toward the far side.
   const at = (m: number) => {
     const u = Math.max(-1, Math.min(1, m))
-    const z = depth * Math.sqrt(1 - u * u) + gap
-    return side * (turned(turn, axisX + side * m * radius, z) - axisX)
+    return side * (turned(turn, axisX + side * m * radius, depth * Math.sqrt(1 - u * u) + gap) - axisX)
   }
   const m = (side * (x - axisX)) / radius
   // Slope of the landing against the drawing: cosine − a·m/√(1−m²).
   const a = (depth * Math.abs(turn.sine)) / radius
-  if (a <= 1e-6) {
-    landedScale = nearer(turn, x, gap)
-    return axisX + side * at(m) * landedScale
-  }
-  const edgeOn = (cosine / a) / Math.sqrt(1 + (cosine / a) ** 2)
-  const stretch = (HAIR_MAX_STRETCH - cosine) / a
-  const widest = stretch / Math.sqrt(1 + stretch * stretch)
   let landed: number
+  const edgeOn = a > 1e-6 ? (turn.cosine / a) / Math.sqrt(1 + (turn.cosine / a) ** 2) : 1
   if (m > edgeOn) {
-    landed = at(edgeOn) + cosine * radius * Math.max(0, m - 1)
-  } else if (m < -widest) {
-    const inner = at(-widest)
-    landed = m >= -1
-      ? inner + HAIR_MAX_STRETCH * radius * (m + widest)
-      : inner + HAIR_MAX_STRETCH * radius * (widest - 1) + cosine * radius * (m + 1)
+    landed = at(edgeOn) + Math.max(0, m - 1) * radius
+  } else if (m < NEAR_PIN_FROM) {
+    if (m >= -1) {
+      const pin = smoothstep((NEAR_PIN_FROM - m) / (NEAR_PIN_FROM + 1))
+      landed = at(m) + (-radius - at(-1)) * pin
+    } else {
+      landed = -radius + (m + 1) * radius
+    }
   } else {
     landed = at(m)
   }
@@ -445,18 +487,24 @@ function turnAcross(turn: Readonly<HeadTurn>, surface: HeadTurnSurface, x: numbe
   const silhouette = turn.silhouette!
   const weight = headSilhouetteRow(silhouette, y, row).weight
   if (weight <= 0) return turnMove
+  // The crown of the back hair is the top of the fringe's coiffure; lower
+  // down the back hair is the back of the ball, behind the outline: it stays.
+  const share = surface === 'back-hair'
+    ? smoothstep((silhouette.widestY - y) / (CROWN_SPAN * silhouette.radius))
+    : 1
+  let landed: number
   if (surface === 'skin') {
-    turnMove.x = (skinTurnedX(turn, x, y) - x) * weight
+    landed = skinTurnedX(turn, x, y)
+  } else if (surface === 'side') {
+    const z = EAR_DEPTH * ballDepth(silhouette, x)
+    landedScale = nearer(turn, x, z)
+    landed = silhouette.centerAtWidest + (turned(turn, x, z) - silhouette.centerAtWidest) * landedScale
   } else {
-    // The crown of the back hair is the top of the fringe's coiffure;
-    // lower down only its sides and back show, about on the axis.
-    const share = surface === 'front-hair'
-      ? 1
-      : smoothstep((silhouette.widestY - y) / (CROWN_SPAN * silhouette.radius))
-    turnMove.x = (hairTurnedX(turn, x, y, share) - x) * weight
+    landed = hairTurnedX(turn, x, y)
   }
+  turnMove.x = (landed - x) * weight * share
   const middleY = (silhouette.crownY + silhouette.chinY) / 2
-  turnMove.y = (y - middleY) * (landedScale - 1) * weight
+  turnMove.y = (y - middleY) * (landedScale - 1) * weight * share
   return turnMove
 }
 
@@ -585,11 +633,11 @@ const featureTop: HeadTurnOffset = { x: 0, y: 0 }
 const featureBottom: HeadTurnOffset = { x: 0, y: 0 }
 
 /**
- * Moves a feature's point with the head. Across, a feature is drawn on the
- * face: each of its points turns with the skin under it, standing off it by
- * the feature's own height (the nose more than the eyes), so the far eye
- * narrows as the face does there and keeps to it. Up and down, in a nod, it
- * moves as one piece, keeping its drawn shape within bounds.
+ * Moves a feature's point with the head as one piece, keeping its drawn shape
+ * as a rigger does: its middle goes where the face under it goes, standing
+ * off it by the feature's own height (the nose more than the eyes), and it
+ * narrows as the face under it does, the far eye to half, but on the near
+ * side widens only a little. Up and down, in a nod, likewise.
  */
 export function moveHeadFeature(
   turn: Readonly<HeadTurn>,
@@ -599,36 +647,38 @@ export function moveHeadFeature(
 ): void {
   const silhouette = turn.silhouette
   if (!turn.active || !silhouette) return
-  // Every point of a feature nods alike: work its nod out once per turn.
+  // Every point of a feature moves alike: work its move out once per turn.
   let move = featureMoves.get(feature)
   if (!move || move.turn !== turn || move.version !== turn.version || move.lift !== lift) {
-    move = move ?? { turn, version: -1, lift, y: 0, scaleY: 1 }
-    const { centerX, centerY, halfHeight } = feature
+    move = move ?? { turn, version: -1, lift, x: 0, y: 0, scaleX: 1, scaleY: 1 }
+    const { centerX, centerY, halfWidth, halfHeight } = feature
     headTurnOffset(turn, centerX, centerY, 'skin', lift, 0, featureCenter)
-    headTurnOffset(turn, centerX, centerY + halfHeight, 'skin', lift, 0, featureBottom)
+    headTurnOffset(turn, centerX - halfWidth, centerY, 'skin', lift, 0, featureTop)
+    headTurnOffset(turn, centerX + halfWidth, centerY, 'skin', lift, 0, featureBottom)
+    move.scaleX = clamp(1 + (featureBottom.x - featureTop.x) / (2 * halfWidth), FEATURE_TURN_MIN, FEATURE_TURN_MAX)
     headTurnOffset(turn, centerX, centerY - halfHeight, 'skin', lift, 0, featureTop)
+    headTurnOffset(turn, centerX, centerY + halfHeight, 'skin', lift, 0, featureBottom)
     move.scaleY = clamp(1 + (featureBottom.y - featureTop.y) / (2 * halfHeight), FEATURE_SCALE_MIN, FEATURE_SCALE_MAX)
+    const standOff = (FEATURE_LIFT[feature.kind] ?? 0) * silhouette.radius * turn.sine *
+      headSilhouetteRow(silhouette, centerY, row).weight
+    move.x = featureCenter.x + standOff
     move.y = featureCenter.y
     move.turn = turn
     move.version = turn.version
     move.lift = lift
     featureMoves.set(feature, move)
   }
-  const restY = point.y
+  point.x += move.x + (point.x - feature.centerX) * (move.scaleX - 1)
   point.y += move.y + (point.y - feature.centerY) * (move.scaleY - 1)
-  if (turn.sine === 0) return
-  const standOff = (FEATURE_LIFT[feature.kind] ?? 0) * silhouette.radius * turn.sine *
-    headSilhouetteRow(silhouette, restY, row).weight
-  turnAcross(turn, 'skin', point.x, restY)
-  point.x += turnMove.x + standOff
-  point.y += turnMove.y
 }
 
 const featureMoves = new WeakMap<Readonly<HeadTurnFeature>, {
   turn: Readonly<HeadTurn>
   version: number
   lift: number
+  x: number
   y: number
+  scaleX: number
   scaleY: number
 }>()
 

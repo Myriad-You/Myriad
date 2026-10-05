@@ -18,6 +18,7 @@ import type { Anime25DMouthDeformationKind } from './mouthDeformation'
 import type { Anime25DRenderableLayer } from './renderer'
 import type { Anime25DSecondaryDeformationBinding } from './secondaryDeformation'
 import type { SurfaceContact } from './surfaceContact'
+import type { AttachmentTurn } from './turnKeyforms'
 import type { Anime25DPlayback, Anime25DShellProfile } from './types'
 import type { AtlasPixelPatch, CroppedLayerPixels } from './webglRuntime'
 import { splitPairedEarwear } from './accessoryComponents'
@@ -75,6 +76,8 @@ export interface Anime25DGpuLayer extends Anime25DRenderableLayer {
   deformationPlan: Anime25DLayerDeformationPlan
   geometryDirty: boolean
   attachment: Anime25DLayerAttachment | null
+  /** A keyed accessory's own turn, less what its host's key already carries it at the anchor. */
+  attachmentTurn?: AttachmentTurn | null
   earwearPhysics?: EarwearPhysics | null
   neckwearBridge?: Anime25DNeckwearBridge | null
   attachmentDependents?: Anime25DGpuLayer[]
@@ -168,7 +171,9 @@ export function compileAnime25DGpuLayers(
         const image = readBindingPixels(layer)
         return image ? [{ layer, image }] : []
       })
-    const shadedHair = backHair && backHairPixels ? shadeHiddenBackHair(backHair, backHairPixels, headCovers) : null
+    // A keyed head carries the material its turn uncovers, drawn; the generic fills stand in without it.
+    const drawnMaterial = Boolean(playback.turnKeyforms)
+    const shadedHair = !drawnMaterial && backHair && backHairPixels ? shadeHiddenBackHair(backHair, backHairPixels, headCovers) : null
     if (backHair && shadedHair) {
       bindingPixels.set(backHair, shadedHair)
       atlasPatches.push({
@@ -177,7 +182,7 @@ export function compileAnime25DGpuLayers(
         y: Math.round(backHair.atlas.y * atlasImage.height),
       })
     }
-    const plainSkin = face && facePixels ? fillHiddenSkin(face, facePixels, hairCovers) : null
+    const plainSkin = !drawnMaterial && face && facePixels ? fillHiddenSkin(face, facePixels, hairCovers) : null
     if (face && plainSkin) {
       bindingPixels.set(face, plainSkin)
       atlasPatches.push({

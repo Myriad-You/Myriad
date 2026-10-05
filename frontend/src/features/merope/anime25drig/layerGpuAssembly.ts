@@ -40,6 +40,7 @@ import { bindStanding } from './standing'
 import { bindSurfaceContact } from './surfaceContact'
 import { buildContactSurfaceMesh } from './surfaceMesh'
 import { anime25DTorsoShellModeForLayer } from './torsoDeformation'
+import { bindAttachmentTurn, bindTurnKeyform } from './turnKeyforms'
 import {
   createIndexedDeformableMesh,
 } from './webglRuntime'
@@ -253,6 +254,7 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
     torsoShellMode,
     handwearAnchorX: linkedArmAnchorX,
     turnFeature: turnFeatures.get(source) ?? null,
+    turnKeyform: bindTurnKeyform(playback.turnKeyforms, source, rest),
     standing,
     ...armBinding(source, rest),
   })
@@ -443,11 +445,17 @@ export function bindLayerAttachments(
       playback.pixelCanvas.width,
       readBindingPixels,
     )
+    if (layer.attachment) {
+      layer.attachmentTurn = bindAttachmentTurn(playback.turnKeyforms, layer.source, layer.rest,
+        layer.attachment.hostSource, layer.attachment)
+      if (layer.attachmentTurn) layer.deformed = layer.rest.slice()
+    }
     if (layer.source.role === 'earwear') {
       layer.earwearPhysics = bindEarwearPhysics(layer.source, layer.attachment,
         readBindingPixels(layer.source), playback.anchors.face.y1 - playback.anchors.face.y0)
     }
   }
+  shareEarringHosts(layers, playback, readBindingPixels)
   for (const child of layers) {
     const sources = new Set([
       child.attachment?.hostSource,
@@ -550,4 +558,39 @@ function anime25DRenderKind(
     return 'iris'
   }
   return 'ordinary'
+}
+
+/**
+ * One earring drawn as several layers (a cage under the face, its lines over
+ * the hair) hangs from one ear: every piece rides the piece hung on the ear,
+ * so a turning head never pulls them apart.
+ */
+function shareEarringHosts(
+  layers: Anime25DGpuLayer[],
+  playback: Readonly<Anime25DPlayback>,
+  readBindingPixels: ReadPixels,
+): void {
+  const earrings = layers.filter((layer) => layer.source.role === 'earwear' && layer.attachment)
+  const touches = (a: PlaybackLayer, b: PlaybackLayer) =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  const placed = new Set<Anime25DGpuLayer>()
+  for (const earring of earrings) {
+    if (placed.has(earring)) continue
+    const group = [earring]
+    for (let i = 0; i < group.length; i++) {
+      for (const other of earrings) {
+        if (!group.includes(other) && touches(group[i].source, other.source)) group.push(other)
+      }
+    }
+    for (const member of group) placed.add(member)
+    if (group.length < 2) continue
+    const lead = group.find((member) => member.attachment!.hostSource?.role === 'ears') ??
+      group.toSorted((a, b) => b.source.w * b.source.h - a.source.w * a.source.h)[0]
+    for (const member of group) {
+      if (member === lead) continue
+      member.attachment = { ...lead.attachment! }
+      member.earwearPhysics = bindEarwearPhysics(member.source, member.attachment,
+        readBindingPixels(member.source), playback.anchors.face.y1 - playback.anchors.face.y0)
+    }
+  }
 }

@@ -29,6 +29,7 @@ import {
   deformAnime25DSecondaryPoint,
 } from './secondaryDeformation'
 import { applySurfaceContact } from './surfaceContact'
+import { deformAttachmentTurn } from './turnKeyforms'
 
 /** A soft volume a layer's vertices sway and squash with. */
 export interface LayerJelly {
@@ -305,6 +306,8 @@ export function settleDependentLayers(
         layer.layerTransform,
       )
       layer.earwearPhysics?.apply(layer.attachment, layer.layerTransform, time, current.angleX, current.angleY, current.phys)
+      if (layer.attachmentTurn && deformAttachmentTurn(layer.attachmentTurn, secondaryDeformationFrame.headTurn?.amount ?? 0, layer.rest, layer.deformed))
+        layer.geometryDirty = true
     }
   }
   return savedUploadBytes

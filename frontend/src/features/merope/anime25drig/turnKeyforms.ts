@@ -1,0 +1,211 @@
+import type { HeadTurn } from './headTurn'
+import type { Anime25DPlaybackLayer } from './types'
+import { headTurnNeckOffset } from './headTurn'
+
+/**
+ * A head turn drawn, not computed: as a Live2D rigger keys a warp deformer at
+ * AngleX ±30, each part of the head has the shape it takes at the full turn
+ * either way, as a lattice over its bounds. A turn in between is the rest
+ * shape and the key mixed linearly by the angle.
+ */
+export interface Anime25DTurnLattice {
+  /** Canvas bounds the lattice spans in the turned drawing: x0, y0, x1, y1. */
+  box: [number, number, number, number]
+  /** Points per side. */
+  grid: number
+  /**
+   * For each point of the turned drawing, how far back to where it was at
+   * rest (x, y per point, row by row). Keyed this way round, a lattice point
+   * stands for one place in the turned picture; each rest vertex finds its
+   * place by inverting it.
+   */
+  back: number[]
+}
+
+/** A part's key at the full turn toward +x and toward −x. */
+export interface Anime25DTurnKey {
+  plus: Anime25DTurnLattice
+  minus: Anime25DTurnLattice
+}
+
+/** Keyed by part family (turnKeyformFamily). */
+export type Anime25DTurnKeyforms = Record<string, Anime25DTurnKey>
+
+/** Which keyed part a layer turns with: every drawing of one eye with that eye's key. */
+export function turnKeyformFamily(layer: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'>): string | null {
+  const { role, side } = layer
+  if (role === 'neck') return 'neck'
+  if (layer.group !== 'head') return null
+  if (role === 'back-hair' || role === 'front-hair' || role === 'headwear' || role === 'ears' || role === 'earwear') return role
+  if (role === 'nose') return 'nose'
+  if (role === 'eyebrow') return side ? `brow:${side}` : 'face'
+  if (side && /eye|iris|irides|lovestruck-heart/.test(role)) return `eye:${side}`
+  if (/mouth|drool/.test(role)) return 'mouth'
+  return 'face'
+}
+
+export interface BoundTurnKeyform {
+  plus: Float32Array
+  minus: Float32Array
+}
+
+/** Each vertex's offset at the full turn either way: where in the turned drawing its rest point went. */
+export function bindTurnKeyform(
+  keyforms: Readonly<Anime25DTurnKeyforms> | undefined,
+  layer: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'>,
+  rest: Float32Array,
+): BoundTurnKeyform | null {
+  const family = turnKeyformFamily(layer)
+  const key = family ? keyforms?.[family] : undefined
+  if (!key) return null
+  return { plus: invertLattice(key.plus, rest), minus: invertLattice(key.minus, rest) }
+}
+
+/** For each rest point q, the turned point t with t + back(t) = q, as t − q. */
+function invertLattice(lattice: Readonly<Anime25DTurnLattice>, rest: Float32Array): Float32Array {
+  const out = new Float32Array(rest.length)
+  const at = new Float32Array(2)
+  for (let i = 0; i < rest.length; i += 2) {
+    const qx = rest[i]
+    const qy = rest[i + 1]
+    let tx = qx
+    let ty = qy
+    for (let step = 0; step < 30; step++) {
+      sampleLattice(lattice, tx, ty, at)
+      const nx = qx - at[0]
+      const ny = qy - at[1]
+      const moved = Math.abs(nx - tx) + Math.abs(ny - ty)
+      tx = nx
+      ty = ny
+      if (moved < 0.01) break
+    }
+    out[i] = tx - qx
+    out[i + 1] = ty - qy
+  }
+  return out
+}
+
+/** The offset at `amount` of the full turn (−1…1), for vertex `vertex`. */
+export function turnKeyformOffset(
+  bound: Readonly<BoundTurnKeyform>,
+  vertex: number,
+  amount: number,
+  out: { x: number; y: number },
+): void {
+  const key = amount >= 0 ? bound.plus : bound.minus
+  const share = Math.min(1, Math.abs(amount))
+  out.x = key[vertex * 2] * share
+  out.y = key[vertex * 2 + 1] * share
+}
+
+export interface AttachmentTurn {
+  own: BoundTurnKeyform
+  /** The host's key at the anchor, one point. */
+  host: BoundTurnKeyform | null
+  amount: number
+}
+
+/** A keyed accessory's turn: its own key per vertex, and its host's at the anchor it rides. */
+export function bindAttachmentTurn(
+  keyforms: Readonly<Anime25DTurnKeyforms> | undefined,
+  layer: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'>,
+  rest: Float32Array,
+  host: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'> | undefined,
+  anchor: { x: number; y: number },
+): AttachmentTurn | null {
+  const own = bindTurnKeyform(keyforms, layer, rest)
+  if (!own) return null
+  return { own, host: host ? bindTurnKeyform(keyforms, host, new Float32Array([anchor.x, anchor.y])) : null, amount: Number.NaN }
+}
+
+/**
+ * Writes an accessory's vertices for the turn: each goes by its own key, less
+ * the host's at the anchor, which the rigid carry already brings. False when
+ * nothing changed since the last frame.
+ */
+export function deformAttachmentTurn(
+  turn: AttachmentTurn,
+  amount: number,
+  rest: Float32Array,
+  deformed: Float32Array,
+): boolean {
+  if (amount === turn.amount) return false
+  turn.amount = amount
+  let hostX = 0
+  let hostY = 0
+  if (turn.host) {
+    turnKeyformOffset(turn.host, 0, amount, keyed)
+    hostX = keyed.x
+    hostY = keyed.y
+  }
+  for (let i = 0; i < rest.length; i += 2) {
+    turnKeyformOffset(turn.own, i / 2, amount, keyed)
+    deformed[i] = rest[i] + keyed.x - hostX
+    deformed[i + 1] = rest[i + 1] + keyed.y - hostY
+  }
+  return true
+}
+
+const keyed = { x: 0, y: 0 }
+
+/** Adds the keyed turn at `amount` to a point of vertex `vertex`. */
+export function addKeyedTurn(
+  point: { x: number; y: number },
+  bound: Readonly<BoundTurnKeyform>,
+  vertex: number,
+  amount: number,
+): void {
+  turnKeyformOffset(bound, vertex, amount, keyed)
+  point.x += keyed.x
+  point.y += keyed.y
+}
+
+/** How far across the top of the neck goes with the head: keyed if it is, else as the jaw goes. */
+export function neckTwist(
+  turn: Readonly<HeadTurn>,
+  bound: Readonly<BoundTurnKeyform> | null | undefined,
+  vertex: number,
+  x: number,
+  restY: number,
+): number {
+  if (!bound) return headTurnNeckOffset(turn, x, restY)
+  turnKeyformOffset(bound, vertex, turn.amount, keyed)
+  return keyed.x
+}
+
+function sampleLattice(lattice: Readonly<Anime25DTurnLattice>, x: number, y: number, out: Float32Array): void {
+  const [x0, y0, x1, y1] = lattice.box
+  const last = lattice.grid - 1
+  const gx = Math.max(0, Math.min(last - 1e-6, ((x - x0) / Math.max(1e-6, x1 - x0)) * last))
+  const gy = Math.max(0, Math.min(last - 1e-6, ((y - y0) / Math.max(1e-6, y1 - y0)) * last))
+  const i = Math.floor(gx)
+  const j = Math.floor(gy)
+  const tx = gx - i
+  const ty = gy - j
+  const values = lattice.back
+  const corner = (ci: number, cj: number, c: number) => values[(cj * lattice.grid + ci) * 2 + c]
+  for (let c = 0; c < 2; c++) {
+    out[c] =
+      corner(i, j, c) * (1 - tx) * (1 - ty) +
+      corner(i + 1, j, c) * tx * (1 - ty) +
+      corner(i, j + 1, c) * (1 - tx) * ty +
+      corner(i + 1, j + 1, c) * tx * ty
+  }
+}
+
+export function isAnime25DTurnKeyforms(value: unknown): value is Anime25DTurnKeyforms {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return Object.values(value as Record<string, unknown>).every((key) => {
+    if (!key || typeof key !== 'object') return false
+    const { plus, minus } = key as Record<string, unknown>
+    return isLattice(plus) && isLattice(minus)
+  })
+}
+
+function isLattice(value: unknown): value is Anime25DTurnLattice {
+  if (!value || typeof value !== 'object') return false
+  const { box, grid, back } = value as Record<string, unknown>
+  if (!Array.isArray(box) || box.length !== 4 || !box.every(Number.isFinite)) return false
+  if (typeof grid !== 'number' || !Number.isInteger(grid) || grid < 2 || grid > 64) return false
+  return Array.isArray(back) && back.length === grid * grid * 2 && back.every(Number.isFinite)
+}
