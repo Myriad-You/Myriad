@@ -306,7 +306,7 @@ export function settleDependentLayers(
         layer.layerTransform,
       )
       layer.earwearPhysics?.apply(layer.attachment, layer.layerTransform, time, current.angleX, current.angleY, current.phys)
-      if (layer.attachmentTurn && deformAttachmentTurn(layer.attachmentTurn, secondaryDeformationFrame.headTurn?.amount ?? 0, layer.rest, layer.deformed))
+      if (layer.attachmentTurn && deformAttachmentTurn(layer.attachmentTurn, secondaryDeformationFrame.headTurn?.amount ?? 0, secondaryDeformationFrame.headTurn?.nodAmount ?? 0, layer.rest, layer.deformed))
         layer.geometryDirty = true
     }
   }

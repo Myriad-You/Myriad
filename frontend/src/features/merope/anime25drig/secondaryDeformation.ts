@@ -42,7 +42,7 @@ import {
   deformAnime25DTorsoShellPoint,
   SLEEVE_TORSO_TRANSMISSION,
 } from './torsoDeformation'
-import { addKeyedTurn, neckTwist } from './turnKeyforms'
+import { addKeyedTurn, neckTwist, unkeyedTurn } from './turnKeyforms'
 
 type SecondaryDeformationDriver = Pick<
   Anime25DDriver,
@@ -356,11 +356,11 @@ export function deformAnime25DSecondaryPoint(
           frame.shellProfile,
           frame.shellRotation,
           surfaceDepth,
-          binding.turnKeyform ? frame.headTurn?.nodOnly ?? undefined : frame.headTurn,
+          binding.turnKeyform ? unkeyedTurn(frame.headTurn, binding.turnKeyform) : frame.headTurn,
           binding.turnFeature,
           binding.baseRole === 'ears' || binding.baseRole === 'earwear',
         )
-        if (binding.turnKeyform && frame.headTurn) addKeyedTurn(point, binding.turnKeyform, vertex, frame.headTurn.amount)
+        if (binding.turnKeyform && frame.headTurn) addKeyedTurn(point, binding.turnKeyform, vertex, frame.headTurn.amount, frame.headTurn.nodAmount)
         if (binding.poseCorrections) applyPoseCorrections(point, vertex, binding.poseCorrections)
         const shellX = point.x - frame.neckPivotX
         const shellY = point.y - frame.neckPivotY

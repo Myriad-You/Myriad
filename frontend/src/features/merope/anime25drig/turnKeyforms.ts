@@ -26,6 +26,9 @@ export interface Anime25DTurnLattice {
 export interface Anime25DTurnKey {
   plus: Anime25DTurnLattice
   minus: Anime25DTurnLattice
+  /** At the full nod raising the face, and lowering it; without them the nod is computed. */
+  up?: Anime25DTurnLattice
+  down?: Anime25DTurnLattice
 }
 
 /** Keyed by part family (turnKeyformFamily). */
@@ -47,6 +50,8 @@ export function turnKeyformFamily(layer: Pick<Anime25DPlaybackLayer, 'group' | '
 export interface BoundTurnKeyform {
   plus: Float32Array
   minus: Float32Array
+  up: Float32Array | null
+  down: Float32Array | null
 }
 
 /** Each vertex's offset at the full turn either way: where in the turned drawing its rest point went. */
@@ -58,7 +63,12 @@ export function bindTurnKeyform(
   const family = turnKeyformFamily(layer)
   const key = family ? keyforms?.[family] : undefined
   if (!key) return null
-  return { plus: invertLattice(key.plus, rest), minus: invertLattice(key.minus, rest) }
+  return {
+    plus: invertLattice(key.plus, rest),
+    minus: invertLattice(key.minus, rest),
+    up: key.up && key.down ? invertLattice(key.up, rest) : null,
+    down: key.up && key.down ? invertLattice(key.down, rest) : null,
+  }
 }
 
 /** For each rest point q, the turned point t with t + back(t) = q, as t − q. */
@@ -85,17 +95,33 @@ function invertLattice(lattice: Readonly<Anime25DTurnLattice>, rest: Float32Arra
   return out
 }
 
-/** The offset at `amount` of the full turn (−1…1), for vertex `vertex`. */
+/**
+ * The offset at `amount` of the full turn (−1…1) and `nod` of the full nod,
+ * for vertex `vertex`. Turn and nod keys add, as Live2D fills a deformer's
+ * corner forms from its edge forms.
+ */
 export function turnKeyformOffset(
   bound: Readonly<BoundTurnKeyform>,
   vertex: number,
   amount: number,
   out: { x: number; y: number },
+  nod = 0,
 ): void {
   const key = amount >= 0 ? bound.plus : bound.minus
   const share = Math.min(1, Math.abs(amount))
   out.x = key[vertex * 2] * share
   out.y = key[vertex * 2 + 1] * share
+  const nodKey = nod >= 0 ? bound.up : bound.down
+  if (!nodKey || nod === 0) return
+  const nodShare = Math.min(1, Math.abs(nod))
+  out.x += nodKey[vertex * 2] * nodShare
+  out.y += nodKey[vertex * 2 + 1] * nodShare
+}
+
+/** The computed head a keyed part still takes: nodding only, or held still when the nod is keyed too. */
+export function unkeyedTurn(turn: Readonly<HeadTurn> | undefined, bound: Readonly<BoundTurnKeyform>): Readonly<HeadTurn> | undefined {
+  if (!turn) return undefined
+  return (bound.up ? turn.still : turn.nodOnly) ?? undefined
 }
 
 export interface AttachmentTurn {
@@ -103,6 +129,7 @@ export interface AttachmentTurn {
   /** The host's key at the anchor, one point. */
   host: BoundTurnKeyform | null
   amount: number
+  nod: number
 }
 
 /** A keyed accessory's turn: its own key per vertex, and its host's at the anchor it rides. */
@@ -115,7 +142,7 @@ export function bindAttachmentTurn(
 ): AttachmentTurn | null {
   const own = bindTurnKeyform(keyforms, layer, rest)
   if (!own) return null
-  return { own, host: host ? bindTurnKeyform(keyforms, host, new Float32Array([anchor.x, anchor.y])) : null, amount: Number.NaN }
+  return { own, host: host ? bindTurnKeyform(keyforms, host, new Float32Array([anchor.x, anchor.y])) : null, amount: Number.NaN, nod: Number.NaN }
 }
 
 /**
@@ -126,20 +153,22 @@ export function bindAttachmentTurn(
 export function deformAttachmentTurn(
   turn: AttachmentTurn,
   amount: number,
+  nod: number,
   rest: Float32Array,
   deformed: Float32Array,
 ): boolean {
-  if (amount === turn.amount) return false
+  if (amount === turn.amount && nod === turn.nod) return false
   turn.amount = amount
+  turn.nod = nod
   let hostX = 0
   let hostY = 0
   if (turn.host) {
-    turnKeyformOffset(turn.host, 0, amount, keyed)
+    turnKeyformOffset(turn.host, 0, amount, keyed, nod)
     hostX = keyed.x
     hostY = keyed.y
   }
   for (let i = 0; i < rest.length; i += 2) {
-    turnKeyformOffset(turn.own, i / 2, amount, keyed)
+    turnKeyformOffset(turn.own, i / 2, amount, keyed, nod)
     deformed[i] = rest[i] + keyed.x - hostX
     deformed[i + 1] = rest[i + 1] + keyed.y - hostY
   }
@@ -154,8 +183,9 @@ export function addKeyedTurn(
   bound: Readonly<BoundTurnKeyform>,
   vertex: number,
   amount: number,
+  nod = 0,
 ): void {
-  turnKeyformOffset(bound, vertex, amount, keyed)
+  turnKeyformOffset(bound, vertex, amount, keyed, nod)
   point.x += keyed.x
   point.y += keyed.y
 }
@@ -169,7 +199,7 @@ export function neckTwist(
   restY: number,
 ): number {
   if (!bound) return headTurnNeckOffset(turn, x, restY)
-  turnKeyformOffset(bound, vertex, turn.amount, keyed)
+  turnKeyformOffset(bound, vertex, turn.amount, keyed, turn.nodAmount)
   return keyed.x
 }
 
@@ -197,8 +227,8 @@ export function isAnime25DTurnKeyforms(value: unknown): value is Anime25DTurnKey
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   return Object.values(value as Record<string, unknown>).every((key) => {
     if (!key || typeof key !== 'object') return false
-    const { plus, minus } = key as Record<string, unknown>
-    return isLattice(plus) && isLattice(minus)
+    const { plus, minus, up, down } = key as Record<string, unknown>
+    return isLattice(plus) && isLattice(minus) && (up === undefined || isLattice(up)) && (down === undefined || isLattice(down))
   })
 }
 

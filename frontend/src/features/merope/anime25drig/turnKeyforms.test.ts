@@ -56,3 +56,27 @@ test('malformed keys are refused', () => {
   assert.equal(isAnime25DTurnKeyforms({ face: { plus: { box: [0, 0, 1, 1], grid: 3, back: [0] }, minus: lattice(3, () => [0, 0]) } }), false)
   assert.equal(isAnime25DTurnKeyforms([]), false)
 })
+
+test('a nod key adds to the turn key, as Live2D fills the corners from the edges', () => {
+  const still = lattice(5, () => [0, 0])
+  const keyforms = {
+    face: {
+      plus: lattice(5, () => [-10, 0]),
+      minus: lattice(5, () => [10, 0]),
+      up: lattice(5, () => [0, 6]),
+      down: lattice(5, () => [0, -4]),
+    },
+    nose: { plus: still, minus: still },
+  }
+  assert.ok(isAnime25DTurnKeyforms(keyforms))
+  const rest = new Float32Array([50, 50])
+  const bound = bindTurnKeyform(keyforms, { group: 'head', role: 'face', side: null }, rest)!
+  const out = { x: 0, y: 0 }
+  turnKeyformOffset(bound, 0, 1, out, 1)
+  assert.ok(Math.abs(out.x - 10) < 0.05 && Math.abs(out.y + 6) < 0.05, `${out.x} ${out.y}`)
+  turnKeyformOffset(bound, 0, 0, out, -0.5)
+  assert.ok(Math.abs(out.x) < 0.05 && Math.abs(out.y - 2) < 0.05, `${out.x} ${out.y}`)
+  // Without nod keys the nod is left to the computed head.
+  const nose = bindTurnKeyform(keyforms, { group: 'head', role: 'nose', side: null }, rest)!
+  assert.equal(nose.up, null)
+})

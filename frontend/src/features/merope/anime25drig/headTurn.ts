@@ -252,13 +252,17 @@ export interface HeadTurn {
   version: number
   /** Share of the full turn, −1…1. */
   amount: number
+  /** Share of the full nod, −1…1, raised positive. */
+  nodAmount: number
   /** The same head nodding only: for parts whose turn is keyed (turnKeyforms). */
   nodOnly: HeadTurn | null
+  /** The same head held still: for parts whose turn and nod are both keyed. */
+  still: HeadTurn | null
 }
 
 export function createHeadTurn(silhouette: HeadSilhouette | null): HeadTurn {
-  const still = (): HeadTurn => ({ active: false, cosine: 1, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0, amount: 0, nodOnly: null })
-  return { ...still(), nodOnly: still() }
+  const still = (): HeadTurn => ({ active: false, cosine: 1, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0, amount: 0, nodAmount: 0, nodOnly: null, still: null })
+  return { ...still(), nodOnly: still(), still: still() }
 }
 
 /** `angleX` turns toward +x; `angleY` raises the face. */
@@ -271,6 +275,7 @@ export function updateHeadTurn(turn: HeadTurn, angleX: number, angleY: number): 
   turn.nodSlide = y * NOD_SLIDE
   turn.nodSine = Math.sin(y * HEAD_NOD_RADIANS)
   turn.amount = x
+  turn.nodAmount = y
   turn.version++
   if (turn.nodOnly) {
     turn.nodOnly.active = y !== 0
