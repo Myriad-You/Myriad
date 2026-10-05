@@ -16,6 +16,10 @@ use crate::{
     services::{agent::merope, image_generation, merope_rig},
 };
 
+mod trim;
+
+const MAX_PORTRAIT_BYTES: usize = 10 * 1024 * 1024;
+
 pub(super) fn uploaded_portrait_reference(
     bytes: impl Into<axum::body::Bytes>,
 ) -> ApiResult<image_generation::ImageReference> {
@@ -30,7 +34,24 @@ pub(super) fn uploaded_portrait_reference(
         .map_err(|error| bad_request(&error.to_string()))
 }
 
-/// The one `image` field of a portrait upload, checked to be a supported picture.
+/// The picture with its blank margins cut away (see [`trim`]), or as
+/// uploaded when there is nothing to cut.
+async fn trimmed_portrait(
+    reference: image_generation::ImageReference,
+) -> image_generation::ImageReference {
+    let bytes = reference.bytes.clone();
+    match tokio::task::spawn_blocking(move || trim::trim_portrait(&bytes, MAX_PORTRAIT_BYTES)).await
+    {
+        Ok(Some(trimmed)) => {
+            image_generation::ImageReference::new(trimmed.bytes, trimmed.media_type)
+                .unwrap_or(reference)
+        }
+        _ => reference,
+    }
+}
+
+/// The one `image` field of a portrait upload, checked to be a supported
+/// picture and cut to what is drawn on it.
 pub(super) async fn read_portrait_upload(
     mut multipart: Multipart,
 ) -> ApiResult<image_generation::ImageReference> {
@@ -45,11 +66,11 @@ pub(super) async fn read_portrait_upload(
                     tracing::error!(%error, "Invalid portrait image");
                     bad_request("Invalid portrait image")
                 })?;
-                if bytes.len() > 10 * 1024 * 1024 {
+                if bytes.len() > MAX_PORTRAIT_BYTES {
                     return Err(bad_request("Portrait image exceeds 10 MB"));
                 }
                 let reference = uploaded_portrait_reference(bytes)?;
-                image_bytes = Some(reference);
+                image_bytes = Some(trimmed_portrait(reference).await);
             }
             Some("image") => {
                 return Err(bad_request("Portrait upload fields must not be duplicated"));
@@ -80,7 +101,7 @@ pub(super) async fn persist_uploaded_portrait(
                     bytes: reference.bytes,
                     claimed_mime: reference.media_type,
                     filename: "portrait".into(),
-                    max_bytes: 10 * 1024 * 1024,
+                    max_bytes: MAX_PORTRAIT_BYTES,
                     derived_from_id: None,
                     exposure: crate::services::media::MediaExposure::Private,
                 },
