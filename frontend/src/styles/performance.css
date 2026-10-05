@@ -114,7 +114,15 @@ html[data-perf-mode='exlight']:not([data-surface])
 /*
  * Floating chrome with hardcoded translucent fills does not read --surface-alpha.
  * Raise opacity only on default glass; a chosen surface theme follows theme.css.
+ * light also drops the blur on the island and the control bar (their own CSS), so
+ * they need the same fill there: a 70% fill with no blur lets the page show through
+ * sharply. Android Firefox lands in light even on the high tier, because it has no
+ * navigator.deviceMemory (#624).
  */
+html[data-perf-mode='light']:not([data-surface])
+  .dynamic-island,
+html[data-perf-mode='light']:not([data-surface])
+  .control-bar-trigger,
 html[data-perf-mode='exlight']:not([data-surface])
   .dynamic-island,
 html[data-perf-mode='exlight']:not([data-surface])
@@ -126,6 +134,14 @@ html[data-perf-mode='exlight']:not([data-surface])
   background: rgb(255 255 255 / 96%) !important;
 }
 
+html.dark[data-perf-mode='light']:not(
+    [data-surface]
+  )
+  .dynamic-island,
+html.dark[data-perf-mode='light']:not(
+    [data-surface]
+  )
+  .control-bar-trigger,
 html.dark[data-perf-mode='exlight']:not(
     [data-surface]
   )
