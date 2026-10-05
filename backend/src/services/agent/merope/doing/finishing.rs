@@ -26,7 +26,14 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         &alongside,
     );
     let soul = soul().await;
-    let what = format!("{} {}", done.thing.verb(), done.thing.describe());
+    let what = format!(
+        "{} {}",
+        done.thing.verb(),
+        intake
+            .called
+            .clone()
+            .unwrap_or_else(|| done.thing.describe())
+    );
     let system = digest_system(
         &soul,
         &what,

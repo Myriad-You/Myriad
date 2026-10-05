@@ -2,9 +2,8 @@
 //!
 //! The recording itself is fetched from where the site's player gets it
 //! (NetEase, or the site's local library) with its timed lyrics, and heard
-//! through `myriad_listening`: what happens in its sound, measured; the
-//! lyrics on its timeline; what listening research says moments like those
-//! tend to do. That sheet is what she feels from, in her own model, and
+//! through `myriad_listening`: what happens in its sound, measured, and the
+//! lyrics on its timeline. That sheet is what she feels from, in her own model, and
 //! what she can say about the song afterwards. Without the recording she has
 //! only its words, and knows it.
 //!

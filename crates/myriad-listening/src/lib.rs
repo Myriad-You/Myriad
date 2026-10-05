@@ -16,7 +16,9 @@
 //!
 //! The result is a [`ListeningSheet`]: facts anyone could check against the
 //! recording, and what they tend to do to a listener. Whoever listens (the
-//! persona) feels from it; nothing in it is felt for her.
+//! persona) feels from it; nothing in it is felt for her, and what she reads
+//! of it ([`ListeningSheet::describe`]) leaves the readings and brightness
+//! out.
 //!
 //! Thresholds are first estimates, to be tuned against real songs.
 

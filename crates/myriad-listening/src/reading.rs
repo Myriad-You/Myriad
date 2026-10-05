@@ -100,7 +100,7 @@ fn chills(sheet: &ListeningSheet) -> Vec<Reading> {
                 ),
                 MomentKind::OpensUp => (
                     (moment.amount - 1.0) * 10.0,
-                    format!("the sound opens up, {:.1}x brighter at once", moment.amount),
+                    "the sound opens up at once".to_string(),
                 ),
                 MomentKind::NewSection if moment.amount >= 6.0 => (
                     moment.amount,
@@ -174,9 +174,6 @@ fn chills(sheet: &ListeningSheet) -> Vec<Reading> {
         } else if louder > -3.0 {
             // Said, so that it is not heard as a burst.
             heard.push_str(", at about the same loudness as before");
-        }
-        if before.brightness > 0.0 && section.brightness / before.brightness >= 1.15 {
-            heard.push_str(", brighter than before");
         }
         if let Some(line) = line_at(sheet, section.start_s) {
             heard.push_str(&format!("; the line 「{line}」 is sung right there"));
@@ -489,11 +486,10 @@ pub(crate) mod tests {
                 .starts_with("At 0:30 the chorus comes in, at about the same loudness as before;")
         );
         assert!(entries[0].heard.contains("「就是现在」"));
-        assert!(
-            entries[1]
-                .heard
-                .starts_with("At 1:30 the chorus comes in again, at about the same loudness as before, brighter than before")
-        );
+        assert!(entries[1].heard.starts_with(
+            "At 1:30 the chorus comes in again, at about the same loudness as before"
+        ));
+        assert!(!entries[1].heard.contains("bright"));
         assert!(!entries[1].heard.contains("dB"));
     }
 

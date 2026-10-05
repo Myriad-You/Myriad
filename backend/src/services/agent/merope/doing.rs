@@ -380,8 +380,12 @@ pub(crate) fn digest_probe_contract(
     material: Option<&str>,
 ) -> (String, Value) {
     let intake = sources::probe_intake(what, material);
+    let what = match &intake.called {
+        Some(called) => format!("listening to {called}"),
+        None => what.to_string(),
+    };
     (
-        digest_system(soul, what, why, &intake.how),
+        digest_system(soul, &what, why, &intake.how),
         digest_schema(&intake.asks),
     )
 }
@@ -606,8 +610,8 @@ mod live {
             ),
         ] {
             let case = case(id);
-            let what = case["input"].as_str().unwrap();
             let material = case["material"].as_str();
+            let what = case["input"].as_str().unwrap();
             let (system, schema) = super::digest_probe_contract(&soul, what, why, material);
             let input = super::digest_probe_input(material, &[], &[], None);
             println!("\n[{id}] why: {why:?}");
@@ -633,5 +637,70 @@ mod live {
             }
         }
         println!("\n-- notes leaning on the name: {leaned}/{written}");
+    }
+
+    /// The words her song notes lean on: three heard songs (two with
+    /// words, one without), MEROPE_RUNS notes each (default 5), as she
+    /// writes them; how many notes use each of the words her notes on the
+    /// site came to lean on (2026-10-05: 亮 40%, 劲 40%, 撞 34%, 猛 29% of
+    /// 281). Read only.
+    #[tokio::test]
+    #[ignore = "reads the site's persona and asks its model"]
+    async fn song_notes_and_the_words_they_lean_on() {
+        let db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        crate::services::process_db::set_process_database(db.clone());
+        let runs: usize = std::env::var("MEROPE_RUNS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(5);
+        let cases: Vec<serde_json::Value> = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tests/merope/mind-cases.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let soul = super::soul().await;
+        let words = ["亮", "劲", "撞", "猛", "炸", "砸", "鸡皮疙瘩"];
+        let mut notes = Vec::new();
+        for id in [
+            "mind-doing-digest-heard",
+            "mind-doing-digest-not-its-name",
+            "mind-doing-digest-instrumental-named",
+        ] {
+            let case = cases.iter().find(|case| case["id"] == id).unwrap();
+            let what = case["input"].as_str().unwrap();
+            let material = case["material"].as_str();
+            let (system, schema) = super::digest_probe_contract(&soul, what, "", material);
+            let input = super::digest_probe_input(material, &[], &[], None);
+            println!("\n[{id}]");
+            for _ in 0..runs {
+                let Ok(raw) = super::call::Ask::new(super::Voice::Hers, 1, "doing_digest")
+                    .within(super::CALL_TIMEOUT)
+                    .json_raw(&system, &input, super::DIGEST_SCHEMA, &schema)
+                    .await
+                else {
+                    println!("  (no answer)");
+                    continue;
+                };
+                let Some((digest, _)) = super::read_digest(&raw, &[]) else {
+                    continue;
+                };
+                println!("  {}", digest.impression);
+                notes.push(digest.impression);
+            }
+        }
+        // Words inside quoted lyrics are the song's, not hers.
+        let quoted = regex::Regex::new(r"「[^」]*」|“[^”]*”|『[^』]*』|《[^》]*》").unwrap();
+        let hers: Vec<String> = notes
+            .iter()
+            .map(|note| quoted.replace_all(note, "").into_owned())
+            .collect();
+        println!("\n-- of {} notes, outside quoted lyrics:", hers.len());
+        for word in words {
+            let used = hers.iter().filter(|note| note.contains(word)).count();
+            println!("  {word} {used}");
+        }
     }
 }

@@ -44,6 +44,10 @@ pub struct Intake {
     pub reached: bool,
     /// What the kind needs again once she has written.
     pub carry: Carry,
+    /// What it was as she has it, when that is not by its name (a piece
+    /// without words, see `song`): she writes of it so, and its name is
+    /// kept with her note.
+    pub called: Option<String>,
 }
 
 impl Intake {
@@ -56,6 +60,7 @@ impl Intake {
             alongside: Vec::new(),
             reached: true,
             carry: Carry::Nothing,
+            called: None,
         }
     }
 }
@@ -242,7 +247,7 @@ pub(crate) fn probe_intake(what: &str, material: Option<&str>) -> Intake {
     } else if what.starts_with("reading ") {
         note::probe_intake(material)
     } else {
-        song::probe_intake(material)
+        song::probe_intake(what, material)
     };
     intake.material = material.map(str::to_string);
     intake

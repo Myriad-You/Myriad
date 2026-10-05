@@ -1,5 +1,9 @@
 //! The sheet as text a listener reads: the song from start to end, with
-//! its lyrics and moments in place, then the readings with their sources.
+//! its lyrics and moments in place. Not the readings: told what such
+//! moments tend to do to listeners, and how bright the sound is by the
+//! number, she wrote the measures back as feelings ("it lit up", "it burst
+//! open", "chills"), the same few for every song. What happens and what is
+//! sung is hers to make something of.
 
 use std::fmt::Write;
 
@@ -10,7 +14,7 @@ fn moment_text(moment: &Moment) -> Option<String> {
     Some(match moment.kind {
         MomentKind::Surge => format!("swells {:+.0} dB", moment.amount),
         MomentKind::Drop => format!("falls away {:.0} dB", moment.amount),
-        MomentKind::OpensUp => format!("the sound opens up ({:.1}x brighter)", moment.amount),
+        MomentKind::OpensUp => "the sound opens up".to_string(),
         MomentKind::Build => format!(
             "a build that began at {} peaks here ({:.0} s)",
             clock(moment.at_s - moment.amount),
@@ -88,9 +92,8 @@ impl ListeningSheet {
         }
         let _ = write!(
             out,
-            " Loudness range {:.0} dB; spectral centroid {:.0} Hz. {:.0}% of it is parts that come back.",
+            " Loudness range {:.0} dB. {:.0}% of it is parts that come back.",
             self.dynamic_range_db,
-            self.brightness_hz,
             self.repetition * 100.0 + 0.0
         );
         out
@@ -106,12 +109,11 @@ impl ListeningSheet {
             };
             let _ = writeln!(
                 out,
-                "{}–{} part {}{chorus} ({:+.0} dB against the song, brightness {:.2}x)",
+                "{}–{} part {}{chorus} ({:+.0} dB against the song)",
                 clock(section.start_s),
                 clock(section.end_s),
                 section.label,
-                section.loudness_db,
-                section.brightness
+                section.loudness_db
             );
             let inside = |at: f32| {
                 at >= section.start_s && at < section.end_s
@@ -132,24 +134,6 @@ impl ListeningSheet {
             events.sort_by(|a, b| a.0.total_cmp(&b.0));
             for (at, text) in events {
                 let _ = writeln!(out, "  {} {text}", clock(at));
-            }
-        }
-
-        if !self.readings.is_empty() {
-            out.push_str("\nWhat listening research says about things like these:\n");
-            // One finding once, with every place in the song it applies to.
-            let mut findings: Vec<(&str, &str, Vec<&str>)> = Vec::new();
-            for reading in &self.readings {
-                match findings
-                    .iter_mut()
-                    .find(|(tends_to, _, _)| *tends_to == reading.tends_to)
-                {
-                    Some((_, _, heard)) => heard.push(&reading.heard),
-                    None => findings.push((reading.tends_to, reading.source, vec![&reading.heard])),
-                }
-            }
-            for (tends_to, source, heard) in findings {
-                let _ = writeln!(out, "- {}. {tends_to} ({source})", heard.join(". "));
             }
         }
     }
@@ -233,14 +217,12 @@ mod tests {
         let surge = text.find("0:31 swells +9 dB").unwrap();
         let line = text.find("0:30 「就是现在」").unwrap();
         assert!(build < line && line < surge, "{text}");
-        assert!(text.contains("(Huron 2006"));
-        // A finding is given once, with all its places.
-        assert_eq!(
-            text.matches("where listeners most often report chills")
-                .count(),
-            1
+        // What moments tend to do, and how bright it is, are not hers to read.
+        assert!(
+            !text.contains("Huron") && !text.contains("chills"),
+            "{text}"
         );
-        assert!(text.contains("At 0:30 a section breaks in") && text.contains(". At 1:30"));
+        assert!(!text.contains("bright") && !text.contains("Hz"), "{text}");
         assert!(text.contains("come back.\n\nHow it goes:\n"), "{text}");
         let gist = sheet.gist();
         assert!(

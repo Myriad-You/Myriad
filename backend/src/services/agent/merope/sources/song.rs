@@ -1,9 +1,10 @@
 //! A song from the site's playlist, heard from its recording.
 //!
-//! The recording is heard through `hearing`: what happens in its sound,
-//! its lyrics on the timeline, and what listening research says such
-//! moments tend to do. She feels from that, and afterwards says of the song
-//! only what she heard in it. Without the recording she has only its words,
+//! The recording is heard through `hearing`: what happens in its sound and
+//! its lyrics on the timeline. She feels from that, and afterwards says of
+//! the song only what she heard in it. Not told what such moments tend to do
+//! to listeners, nor pushed to tell how it sounded each time: with both, every
+//! note came back as the same "it lit up, it burst open". Without the recording she has only its words,
 //! and knows it; without either, she heard nothing of it.
 
 use sea_orm::DatabaseConnection;
@@ -18,11 +19,24 @@ pub const OFFERED: usize = 6;
 const HEARD_CHARS: usize = 12_000;
 const WORDS_CHARS: usize = 2_500;
 
-const HEARD: &str = "You heard it: the material is what happens in its sound, measured from the recording, from start to end, with its lyrics where they are sung, and then what listening research says moments like those tend to do to listeners. \
-That is how the song went for you. Feel it as yourself: the research says what such moments tend to do, not what you must feel; they may get you where it says, somewhere else, or not at all, and you may like it or not. \
-You listened, not only read: let how it sounded carry part of what you write (its pace and pulse, where it lifted, opened up or went quiet, whether the sound goes with the words or against them), and do not just retell what the lyrics say. \
+const HEARD: &str = "You heard it: the material is what happens in its sound, measured from the recording, from start to end, with its lyrics where they are sung. \
+That is how the song went for you. \
 The measures are of the whole sound: they cannot tell a voice from the instruments, so say nothing of how it is sung or played, or by which. \
 Say it as a listener would, by the moment, the line or the feeling, not as a readout of the measures. ";
+/// Said with a heard song that has no words. Its name is then the only
+/// words about it, and what the name calls up came back as what she heard
+/// (a piece called "Ocean of Memories" heard as the sea), whatever she was
+/// told about names; so she writes of it as a piece without words by its
+/// artist, and its name is kept with her note.
+const WORDLESS: &str = "It has no words: what you have of it is how it went. Its name is kept with your note; you need not name it. ";
+
+/// A song without words, as she has it while she writes of it.
+fn wordless(by: Option<&str>) -> String {
+    match by {
+        Some(by) => format!("a piece without words by {by}"),
+        None => "a piece without words".to_string(),
+    }
+}
 const WORDS_ONLY: &str = "The recording would not load, so you only had its words; you did not hear how it sounds, and do not pretend to. ";
 const NOTHING: &str = "The recording would not load and it had no words to read: you neither heard nor read any of it, and do not pretend to. ";
 
@@ -193,7 +207,16 @@ async fn moved_by_lately(db: &DatabaseConnection, this: &str) -> Vec<String> {
 pub async fn intake(db: &DatabaseConnection, thing: &Thing) -> Intake {
     let hearing = crate::services::agent::merope::hearing::sheet_for(db, &thing.key(), thing).await;
     if let Some(sheet) = hearing {
-        let mut intake = Intake::plain(Some(sheet.describe()), HEARD_CHARS, HEARD);
+        let words = !sheet.lyrics.is_empty();
+        let how = if words {
+            HEARD.to_string()
+        } else {
+            format!("{HEARD}{WORDLESS}")
+        };
+        let mut intake = Intake::plain(Some(sheet.describe()), HEARD_CHARS, how);
+        if !words {
+            intake.called = Some(wordless(thing.by()));
+        }
         intake.carry = Carry::Heard(sheet);
         let moved = moved_by_lately(db, &thing.key()).await;
         if !moved.is_empty() {
@@ -255,8 +278,13 @@ pub fn player_line(thing: &Thing, music: Option<&Value>) -> Option<&'static str>
 }
 
 #[cfg(test)]
-pub(crate) fn probe_intake(material: Option<&str>) -> Intake {
+pub(crate) fn probe_intake(what: &str, material: Option<&str>) -> Intake {
     match material {
+        Some(material) if material.contains("How it goes:") && !material.contains('「') => {
+            let mut intake = Intake::plain(None, HEARD_CHARS, format!("{HEARD}{WORDLESS}"));
+            intake.called = Some(wordless(what.split_once("」 by ").map(|(_, by)| by)));
+            intake
+        }
         Some(material) if material.contains("How it goes:") => {
             Intake::plain(None, HEARD_CHARS, HEARD)
         }
@@ -296,12 +324,19 @@ mod tests {
         assert!(HEARD.contains("not as a readout"));
         assert!(WORDS_ONLY.contains("you only had its words"));
         assert!(NOTHING.contains("neither heard nor read"));
-        assert!(!probe_intake(None).reached);
-        assert!(
-            probe_intake(Some("How it goes:\n…"))
-                .how
-                .starts_with("You heard it")
+        let what = "listening to the song 「Ocean of Memories」 by 深澤秀行";
+        assert!(!probe_intake(what, None).reached);
+        let sung = probe_intake(what, Some("How it goes:\n  0:06 「凌晨四点」"));
+        assert!(sung.how.starts_with("You heard it") && sung.called.is_none());
+        // Without words, she has it as a piece by its artist, not by a name
+        // whose images would come back as what she heard.
+        let wordless = probe_intake(what, Some("How it goes:\n  1:20 swells +11 dB"));
+        assert!(wordless.how.contains("It has no words"));
+        assert_eq!(
+            wordless.called.as_deref(),
+            Some("a piece without words by 深澤秀行")
         );
+        assert!(!HEARD.contains("research") && !HEARD.contains("bright"));
     }
 
     #[test]
