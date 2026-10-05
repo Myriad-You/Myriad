@@ -1,6 +1,7 @@
 import type { AnnotationItem, PodcastDialogue } from '../../../services/phantasiaiApi'
 import type { CommentItem } from '../../../services/phantasiApi'
 import type { ArticleCacheResponse, TTSEngine, VoiceInfo } from '../../../services/speechApi'
+import type { ReaderTooltipAnchor } from './tooltipPlacement'
 
 const noop = () => undefined
 const asyncNoop = async () => undefined
@@ -15,11 +16,11 @@ export const idleAnnotations = {
   selectedAnnotation: null as AnnotationItem | null,
   showPhantasiaiPanel: false,
   hoveredAnnotation: null as AnnotationItem | null,
-  tooltipPosition: { x: 0, y: 0 },
+  tooltipPosition: { x: 0, top: 0, bottom: 0 } as ReaderTooltipAnchor,
   setSelectedAnnotation: noop as (annotation: AnnotationItem | null) => void,
   setShowPhantasiaiPanel: noop as (show: boolean) => void,
   setHoveredAnnotation: noop as (annotation: AnnotationItem | null) => void,
-  setTooltipPosition: noop as (position: { x: number; y: number }) => void,
+  setTooltipPosition: noop as (anchor: ReaderTooltipAnchor) => void,
   loadAnnotations: asyncNoop,
   regenerateAnnotations: asyncNoop,
   toggleAnnotations: noop,
@@ -82,7 +83,7 @@ export const idleComments = {
   replySubmitting: false,
   expandedComments: new Set<number>(),
   commentReplies: {} as Record<number, CommentItem[]>,
-  commentTooltip: null as { comment: CommentItem; x: number; y: number } | null,
+  commentTooltip: null as (ReaderTooltipAnchor & { comment: CommentItem }) | null,
   setShowCommentPopup: noop as (show: boolean) => void,
   setCommentPopupPosition: noop as (position: { x: number; y: number }) => void,
   setSelectedText: noop as (text: string) => void,
@@ -99,7 +100,7 @@ export const idleComments = {
   setReplyingTo: noop as (comment: CommentItem | null) => void,
   setReplyInput: noop as (input: string) => void,
   setCommentTooltip: noop as (
-    tooltip: { comment: CommentItem; x: number; y: number } | null,
+    tooltip: (ReaderTooltipAnchor & { comment: CommentItem }) | null,
   ) => void,
   loadComments: asyncNoop,
   submitComment: asyncNoop,

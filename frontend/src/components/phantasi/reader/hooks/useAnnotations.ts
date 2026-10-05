@@ -1,4 +1,5 @@
 import type { AnnotationItem } from '../../../../services/phantasiaiApi'
+import type { ReaderTooltipAnchor } from '../tooltipPlacement'
 import type { ReaderCopy } from '../types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
@@ -22,14 +23,14 @@ interface UseAnnotationsReturn {
   selectedAnnotation: AnnotationItem | null
   showPhantasiaiPanel: boolean
   hoveredAnnotation: AnnotationItem | null
-  tooltipPosition: { x: number; y: number }
+  tooltipPosition: ReaderTooltipAnchor
 
   setAnnotations: (annotations: AnnotationItem[]) => void
   setShowAnnotations: (show: boolean) => void
   setSelectedAnnotation: (annotation: AnnotationItem | null) => void
   setShowPhantasiaiPanel: (show: boolean) => void
   setHoveredAnnotation: (annotation: AnnotationItem | null) => void
-  setTooltipPosition: (position: { x: number; y: number }) => void
+  setTooltipPosition: (anchor: ReaderTooltipAnchor) => void
   loadAnnotations: () => Promise<void>
   regenerateAnnotations: () => Promise<void>
   toggleAnnotations: () => void
@@ -62,7 +63,11 @@ export function useAnnotations({
   const [showPhantasiaiPanel, setShowPhantasiaiPanel] = useState(false)
   const [hoveredAnnotation, setHoveredAnnotation] =
     useState<AnnotationItem | null>(null)
-  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+  const [tooltipPosition, setTooltipPosition] = useState<ReaderTooltipAnchor>({
+    x: 0,
+    top: 0,
+    bottom: 0,
+  })
 
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationsLoadingRef = useRef(false)

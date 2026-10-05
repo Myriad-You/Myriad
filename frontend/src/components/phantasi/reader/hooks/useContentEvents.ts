@@ -1,5 +1,6 @@
 import type { AnnotationItem, AnnotationType } from '../../../../services/phantasiaiApi'
 import type { CommentItem } from '../../../../services/phantasiApi'
+import type { ReaderTooltipAnchor } from '../tooltipPlacement'
 import type { ReaderCopy } from '../types'
 import { useCallback, useEffect, useRef } from 'react'
 import { playNeteaseSong } from '../../../../utils/embedProcessor'
@@ -17,11 +18,11 @@ interface UseContentEventsOptions {
   hoverTimeoutRef: React.RefObject<ReturnType<typeof setTimeout> | null>
   setLightboxImage: (src: string | null) => void
   setCommentTooltip: (
-    tooltip: { comment: CommentItem; x: number; y: number } | null,
+    tooltip: (ReaderTooltipAnchor & { comment: CommentItem }) | null,
   ) => void
   setShowCommentsPanel: (show: boolean) => void
   setHoveredAnnotation: (annotation: AnnotationItem | null) => void
-  setTooltipPosition: (position: { x: number; y: number }) => void
+  setTooltipPosition: (anchor: ReaderTooltipAnchor) => void
   setSelectedText: (text: string) => void
   setCommentPopupPosition: (position: { x: number; y: number }) => void
   setSelectionRange: (
@@ -200,7 +201,8 @@ export function useContentEvents({
             setCommentTooltip({
               comment,
               x: rect.left + rect.width / 2,
-              y: rect.top - 8,
+              top: rect.top,
+              bottom: rect.bottom,
             })
           }
         }
@@ -374,7 +376,8 @@ export function useContentEvents({
         const rect = target.getBoundingClientRect()
         setTooltipPosition({
           x: rect.left + rect.width / 2,
-          y: rect.top - 8,
+          top: rect.top,
+          bottom: rect.bottom,
         })
         setHoveredAnnotation({ term, explanation, type })
       } else {

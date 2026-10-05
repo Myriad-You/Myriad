@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
 
 import type { CommentItem } from '../../../services/phantasiApi'
+import type { ReaderTooltipAnchor } from './tooltipPlacement'
 import type { ReaderCopy, ThemeConfig } from './types'
 import {
   LuCheck as Check,
@@ -13,13 +14,45 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { showError } from '../../../utils/toastManager'
 import { Spinner } from '../../Spinner'
 import { annotationChrome } from './annotationChrome'
 import { DATE_FORMAT_SHORT } from './constants'
+import { placeReaderTooltip } from './tooltipPlacement'
+
+/** 按框的实际尺寸整块放进视口；尺寸在绘制前量出，首帧不会先落在错的位置。 */
+function useReaderTooltipPlacement(
+  anchor: ReaderTooltipAnchor | null,
+  gap: number,
+) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [size, setSize] = useState<{ width: number; height: number } | null>(
+    null,
+  )
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || !anchor) return
+    const width = el.offsetWidth
+    const height = el.offsetHeight
+    setSize((current) =>
+      current && current.width === width && current.height === height
+        ? current
+        : { width, height },
+    )
+  })
+  const placement = anchor
+    ? placeReaderTooltip(
+        anchor,
+        size ?? { width: Math.min(320, window.innerWidth - 32), height: 0 },
+        { width: window.innerWidth, height: window.innerHeight },
+        gap,
+      )
+    : null
+  return { ref, placement }
+}
 
 interface AnnotationTooltipProps {
   hoveredAnnotation: {
@@ -27,7 +60,7 @@ interface AnnotationTooltipProps {
     explanation: string
     type: string
   } | null
-  tooltipPosition: { x: number; y: number }
+  tooltipPosition: ReaderTooltipAnchor
   currentTheme: ThemeConfig
   isDark: boolean
   enableAnimations: boolean
@@ -45,23 +78,31 @@ export function AnnotationTooltip({
   const chrome = hoveredAnnotation
     ? annotationChrome(hoveredAnnotation.type)
     : null
+  const { ref, placement } = useReaderTooltipPlacement(
+    hoveredAnnotation ? tooltipPosition : null,
+    8,
+  )
+  // 从锚点那一侧浮出。
+  const enterY = placement?.side === 'below' ? -8 : 8
+  const arrowColor = isDark ? '#242424' : '#fff9f0'
   return (
     <AnimatePresence>
-      {hoveredAnnotation && chrome && (
+      {hoveredAnnotation && chrome && placement && (
         <motion.div
+          ref={ref}
           initial={
             enableAnimations
-              ? { opacity: 0, x: '-50%', y: 'calc(-100% + 8px)', scale: 0.96 }
+              ? { opacity: 0, y: enterY, scale: 0.96 }
               : false
           }
           animate={
             enableAnimations
-              ? { opacity: 1, x: '-50%', y: '-100%', scale: 1 }
+              ? { opacity: 1, y: 0, scale: 1 }
               : undefined
           }
           exit={
             enableAnimations
-              ? { opacity: 0, x: '-50%', y: 'calc(-100% + 8px)', scale: 0.96 }
+              ? { opacity: 0, y: enterY, scale: 0.96 }
               : undefined
           }
           transition={
@@ -71,13 +112,8 @@ export function AnnotationTooltip({
           }
           className={`fixed z-50 max-w-xs w-max min-w-0 px-3 py-2.5 rounded-xl shadow-xl border ${currentTheme.border} ${currentTheme.surfaceSolid}`}
           style={{
-            left: Math.max(
-              16,
-              Math.min(tooltipPosition.x, window.innerWidth - 320),
-            ),
-            top: Math.max(16, tooltipPosition.y),
-            x: '-50%',
-            y: '-100%',
+            left: placement.left,
+            top: placement.top,
             pointerEvents: 'none' as const,
             // 长词 / URL 不得撑破视口
             maxWidth: 'min(20rem, calc(100vw - 2rem))',
@@ -101,12 +137,17 @@ export function AnnotationTooltip({
           >
             {hoveredAnnotation.explanation}
           </p>
-          <div
-            className="absolute left-1/2 -translate-x-1/2 bottom-0 translate-y-full w-0 h-0 border-l-6 border-r-6 border-t-6 border-transparent"
-            style={{
-              borderTopColor: isDark ? '#242424' : '#fff9f0',
-            }}
-          />
+          {placement.side === 'above' ? (
+            <div
+              className="absolute -translate-x-1/2 bottom-0 translate-y-full w-0 h-0 border-l-6 border-r-6 border-t-6 border-transparent"
+              style={{ left: placement.arrowX, borderTopColor: arrowColor }}
+            />
+          ) : (
+            <div
+              className="absolute -translate-x-1/2 top-0 -translate-y-full w-0 h-0 border-l-6 border-r-6 border-b-6 border-transparent"
+              style={{ left: placement.arrowX, borderBottomColor: arrowColor }}
+            />
+          )}
         </motion.div>
       )}
     </AnimatePresence>
@@ -114,7 +155,7 @@ export function AnnotationTooltip({
 }
 
 interface CommentTooltipProps {
-  commentTooltip: { comment: CommentItem; x: number; y: number } | null
+  commentTooltip: (ReaderTooltipAnchor & { comment: CommentItem }) | null
   currentTheme: ThemeConfig
   isDark: boolean
   enableAnimations: boolean
@@ -133,25 +174,28 @@ export function CommentTooltip({
   onMouseLeave,
 }: CommentTooltipProps) {
   const { locale } = useI18n()
+  const { ref, placement } = useReaderTooltipPlacement(commentTooltip, 20)
+  const enterY = placement?.side === 'below' ? -10 : 10
   return (
     <AnimatePresence>
-      {commentTooltip && (
+      {commentTooltip && placement && (
         <motion.div
+          ref={ref}
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
           initial={
             enableAnimations
-              ? { opacity: 0, x: '-50%', y: 'calc(-100% + 10px)', scale: 0.95 }
+              ? { opacity: 0, y: enterY, scale: 0.95 }
               : false
           }
           animate={
             enableAnimations
-              ? { opacity: 1, x: '-50%', y: '-100%', scale: 1 }
+              ? { opacity: 1, y: 0, scale: 1 }
               : undefined
           }
           exit={
             enableAnimations
-              ? { opacity: 0, x: '-50%', y: 'calc(-100% + 10px)', scale: 0.95 }
+              ? { opacity: 0, y: enterY, scale: 0.95 }
               : undefined
           }
           transition={
@@ -161,10 +205,9 @@ export function CommentTooltip({
           }
           className={`comment-tooltip fixed z-80 max-w-xs rounded-lg shadow-xl border ${currentTheme.border} ${currentTheme.surfaceSolid}`}
           style={{
-            left: `${Math.max(16, Math.min(commentTooltip.x, window.innerWidth - 260))}px`,
-            top: `${Math.max(16, commentTooltip.y - 12)}px`,
-            x: '-50%',
-            y: '-100%',
+            left: placement.left,
+            top: placement.top,
+            maxWidth: 'min(20rem, calc(100vw - 2rem))',
           }}
         >
           <div

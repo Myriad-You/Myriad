@@ -2,6 +2,7 @@ import type {
   CommentItem,
   CreateCommentRequest,
 } from '../../../../services/phantasiApi'
+import type { ReaderTooltipAnchor } from '../tooltipPlacement'
 import type { ReaderCopy } from '../types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as phantasiApi from '../../../../services/phantasiApi'
@@ -45,7 +46,7 @@ interface UseCommentsReturn {
   expandedComments: Set<number>
   commentReplies: Record<number, CommentItem[]>
 
-  commentTooltip: { comment: CommentItem; x: number; y: number } | null
+  commentTooltip: (ReaderTooltipAnchor & { comment: CommentItem }) | null
 
   setComments: (comments: CommentItem[]) => void
   setShowCommentPopup: (show: boolean) => void
@@ -57,7 +58,7 @@ interface UseCommentsReturn {
   setReplyingTo: (comment: CommentItem | null) => void
   setReplyInput: (input: string) => void
   setCommentTooltip: (
-    tooltip: { comment: CommentItem; x: number; y: number } | null,
+    tooltip: (ReaderTooltipAnchor & { comment: CommentItem }) | null,
   ) => void
 
   loadComments: () => Promise<void>
@@ -118,11 +119,9 @@ export function useComments({
     Record<number, CommentItem[]>
   >({})
 
-  const [commentTooltip, setCommentTooltip] = useState<{
-    comment: CommentItem
-    x: number
-    y: number
-  } | null>(null)
+  const [commentTooltip, setCommentTooltip] = useState<
+    (ReaderTooltipAnchor & { comment: CommentItem }) | null
+  >(null)
 
   const commentsLoadingRef = useRef(false)
 
