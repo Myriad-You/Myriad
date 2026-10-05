@@ -27,7 +27,9 @@ import { buildFrontCollarContactModel } from './collarContact'
 import { createCollarClipMesh, disposeCollarClipMesh } from './collarRuntime'
 
 import { headSilhouetteFromFace, headTurnFeatures } from './headTurn'
+import { shadeHiddenBackHair } from './hiddenHair'
 import { trimHiddenNeck } from './hiddenNeck'
+import { fillHiddenSkin } from './hiddenSkin'
 import { buildAnime25DLayerBinding } from './layerBinding'
 import {
   bindCropBoundaries,
@@ -150,6 +152,38 @@ export function compileAnime25DGpuLayers(
         ...trimmedNeck,
         x: Math.round(neckLayer.atlas.x * atlasImage.width),
         y: Math.round(neckLayer.atlas.y * atlasImage.height),
+      })
+    }
+    const hairCovers = playback.layers
+      .filter((layer) => layer.group === 'head' && (layer.role === 'front-hair' || layer.role === 'headwear'))
+      .flatMap((layer) => {
+        const image = readBindingPixels(layer)
+        return image ? [{ layer, image }] : []
+      })
+    const backHair = playback.layers.find((layer) => layer.group === 'head' && layer.role === 'back-hair')
+    const backHairPixels = backHair ? readBindingPixels(backHair) : null
+    const headCovers = playback.layers
+      .filter((layer) => layer.role === 'face' || layer.role === 'ears' || layer.role === 'neck')
+      .flatMap((layer) => {
+        const image = readBindingPixels(layer)
+        return image ? [{ layer, image }] : []
+      })
+    const shadedHair = backHair && backHairPixels ? shadeHiddenBackHair(backHair, backHairPixels, headCovers) : null
+    if (backHair && shadedHair) {
+      bindingPixels.set(backHair, shadedHair)
+      atlasPatches.push({
+        ...shadedHair,
+        x: Math.round(backHair.atlas.x * atlasImage.width),
+        y: Math.round(backHair.atlas.y * atlasImage.height),
+      })
+    }
+    const plainSkin = face && facePixels ? fillHiddenSkin(face, facePixels, hairCovers) : null
+    if (face && plainSkin) {
+      bindingPixels.set(face, plainSkin)
+      atlasPatches.push({
+        ...plainSkin,
+        x: Math.round(face.atlas.x * atlasImage.width),
+        y: Math.round(face.atlas.y * atlasImage.height),
       })
     }
     const duplicateAccessories = duplicateAccessoryLayers(

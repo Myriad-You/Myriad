@@ -10,9 +10,9 @@ import type { CroppedLayerPixels } from './webglRuntime'
  * and reads flat however far it goes.
  *
  * Each row of the face is a slice of the head with the drawn outline as its
- * edge. A drawn face is flatter than a ball: the slice is a parabola, so the
- * near side widens only so far and no drawn line near the outline bends
- * sharply. Down to the jaw's hinge the outline is the side of the head; from
+ * edge. Over the face the slice is round like a ball, so the far eye narrows
+ * and the near one widens as a rigger draws them; near the outline it eases
+ * off instead of falling sheer, so no drawn line there bends sharply. Down to the jaw's hinge the outline is the side of the head; from
  * there to the chin it comes forward until the chin moves as one with the
  * front of the face, so the near jaw runs from the ear to the chin. Anything
  * the turn would carry round past the far outline stays on it.
@@ -95,6 +95,12 @@ const FEATURE_SCALE_MAX = 1.08
 export const HEAD_TURN_SHARE = 1
 /** Below the chin the turn fades out over this share of the head's height. */
 const BELOW_CHIN_FADE = 0.4
+/**
+ * The viewer stands this many head radii in front of the head's axis: what
+ * the turn brings nearer grows a little and what it takes away shrinks, across
+ * and up and down alike, as a ball's near side does.
+ */
+const VIEW_DISTANCE = 8
 
 /** The face drawing's outline row by row, or null when it has none to read. */
 export function headSilhouetteFromFace(
@@ -267,8 +273,16 @@ export interface HeadTurnOffset {
 
 const row: HeadSilhouetteRow = { centerX: 0, halfWidth: 1, weight: 1 }
 
-/** How far forward the face's front stands at row `y`, as a share of its depth. */
+/**
+ * How far forward the face's front stands at row `y`, as a share of its
+ * depth: above the widest row the head rounds back toward the crown like a
+ * ball, below the mouth the face falls back toward the chin.
+ */
 function frontShare(silhouette: Readonly<HeadSilhouette>, y: number): number {
+  if (y < silhouette.widestY) {
+    const up = (silhouette.widestY - y) / Math.max(1, silhouette.widestY - silhouette.crownY)
+    return Math.sqrt(Math.max(0, 1 - up * up))
+  }
   const t = (y - silhouette.mouthY) / Math.max(1, silhouette.chinY - silhouette.mouthY)
   return 1 - (1 - CHIN_DEPTH) * smoothstep(t)
 }
@@ -286,6 +300,18 @@ function turned(turn: Readonly<HeadTurn>, x: number, z: number): number {
   return x + (x - axisX) * (turn.cosine - 1) + (z + TURN_PIVOT * silhouette.radius) * turn.sine
 }
 
+/** How much a point of depth `z` at `x` grows as the turn brings it nearer (below 1: further). */
+function nearer(turn: Readonly<HeadTurn>, x: number, z: number): number {
+  const silhouette = turn.silhouette!
+  const pivot = TURN_PIVOT * silhouette.radius
+  const forward = -(x - silhouette.centerAtWidest) * turn.sine + (z + pivot) * (turn.cosine - 1)
+  const distance = VIEW_DISTANCE * silhouette.radius
+  return distance / Math.max(distance * 0.5, distance - forward)
+}
+
+/** Scale of the last point landed across, for its height as well. */
+let landedScale = 1
+
 /** The skin's slice at row `y`: above the widest row, the skull's full width. */
 function skinSlice(silhouette: Readonly<HeadSilhouette>, y: number): HeadSilhouetteRow {
   headSilhouetteRow(silhouette, y, row)
@@ -296,15 +322,41 @@ function skinSlice(silhouette: Readonly<HeadSilhouette>, y: number): HeadSilhoue
   return row
 }
 
+/** Where the slice stops being round and eases to the outline. */
+const SLICE_ROUND = 0.8
+/** The slice's steepest fall at the outline, in depth per half width. */
+const SLICE_EDGE_SLOPE = 2
+
 /**
- * Depth of the skin at `u` across its slice. A drawn face is flatter than a
- * ball: its slice is a parabola, falling to the outline with a finite slope,
- * so the near side widens only so far and nothing near the outline turns
- * sharply. Beyond ±1, off the face, it sits behind the outline.
+ * The face's slice, front 1, by position across it (0 middle, 1 outline). Round
+ * like a ball over the face, so the far eye narrows and the near one widens as
+ * a rigger draws them; near the outline it eases off instead of falling
+ * sheer, so the near side widens only so far and no drawn line there bends
+ * sharply.
  */
+function slice(u: number): number {
+  const a = Math.min(1, Math.abs(u))
+  if (a <= SLICE_ROUND) return Math.sqrt(1 - a * a)
+  const t = a - SLICE_ROUND
+  return ROUND_END + ROUND_SLOPE * t + EASE * t * t
+}
+
+const ROUND_END = Math.sqrt(1 - SLICE_ROUND * SLICE_ROUND)
+const ROUND_SLOPE = -SLICE_ROUND / ROUND_END
+const EASE = (-SLICE_EDGE_SLOPE - ROUND_SLOPE) / (2 * (1 - SLICE_ROUND))
+
+/** Where along the slice (0…1) its fall reaches `slope` (negative); 1 if never. */
+function sliceWhereSlope(slope: number): number {
+  const k = -slope
+  const round = k / Math.sqrt(1 + k * k)
+  if (round <= SLICE_ROUND) return round
+  if (k >= SLICE_EDGE_SLOPE) return 1
+  return SLICE_ROUND + (slope - ROUND_SLOPE) / (2 * EASE)
+}
+
+/** Depth of the skin at `u` across its slice; beyond ±1, off the face, behind the outline. */
 function skinDepth(front: number, rim: number, depth: number, u: number, back: number): number {
-  const across = Math.min(1, Math.abs(u))
-  const onFace = depth * (rim + (front - rim) * (1 - across * across))
+  const onFace = depth * (rim + (front - rim) * slice(u))
   if (Math.abs(u) <= 1) return onFace
   return onFace - back * smoothstep((Math.abs(u) - 1) / RIM_FADE)
 }
@@ -320,15 +372,18 @@ function skinTurnedX(turn: Readonly<HeadTurn>, x: number, y: number): number {
   const rim = rimShare(silhouette, y)
   const side = turn.sine >= 0 ? 1 : -1
   let u = (x - centerX) / halfWidth
-  // Landing across the slice: h·u·cos + depth·(front − rim)·(1 − u²)·sin. It
+  // Landing across the slice: h·u·cos + depth·(front − rim)·slice(u)·sin. It
   // turns edge-on where that stops growing; past it everything is behind.
   const relief = depth * (front - rim) * Math.abs(turn.sine)
   if (relief > 1e-6 && side * u > 0 && side * u <= 1) {
-    const edgeOn = (halfWidth * turn.cosine) / (2 * relief)
+    const edgeOn = sliceWhereSlope(-(halfWidth * turn.cosine) / relief)
     if (side * u > edgeOn) u = side * edgeOn
   }
   const at = centerX + u * halfWidth
-  return turned(turn, at, skinDepth(front, rim, depth, u, EAR_BACK * silhouette.radius))
+  const z = skinDepth(front, rim, depth, u, EAR_BACK * silhouette.radius)
+  landedScale = nearer(turn, at, z)
+  const axisX = silhouette.centerAtWidest
+  return axisX + (turned(turn, at, z) - axisX) * landedScale
 }
 
 /**
@@ -354,7 +409,10 @@ function hairTurnedX(turn: Readonly<HeadTurn>, x: number, y: number, share: numb
   const m = (side * (x - axisX)) / radius
   // Slope of the landing against the drawing: cosine − a·m/√(1−m²).
   const a = (depth * Math.abs(turn.sine)) / radius
-  if (a <= 1e-6) return axisX + side * at(m)
+  if (a <= 1e-6) {
+    landedScale = nearer(turn, x, gap)
+    return axisX + side * at(m) * landedScale
+  }
   const edgeOn = (cosine / a) / Math.sqrt(1 + (cosine / a) ** 2)
   const stretch = (HAIR_MAX_STRETCH - cosine) / a
   const widest = stretch / Math.sqrt(1 + stretch * stretch)
@@ -369,21 +427,37 @@ function hairTurnedX(turn: Readonly<HeadTurn>, x: number, y: number, share: numb
   } else {
     landed = at(m)
   }
-  return axisX + side * landed
+  const u = Math.max(-1, Math.min(1, m))
+  landedScale = nearer(turn, x, depth * Math.sqrt(1 - u * u) + gap)
+  return axisX + side * landed * landedScale
 }
 
-/** How far across a point at `x`, row `y`, travels on `surface`, weighted below the chin. */
-function turnAcross(turn: Readonly<HeadTurn>, surface: HeadTurnSurface, x: number, y: number): number {
+const turnMove: HeadTurnOffset = { x: 0, y: 0 }
+
+/**
+ * Where a point at `x`, row `y`, on `surface` goes in the turn, weighted
+ * below the chin: across as it turns, and up or down as it comes nearer or
+ * goes further.
+ */
+function turnAcross(turn: Readonly<HeadTurn>, surface: HeadTurnSurface, x: number, y: number): HeadTurnOffset {
+  turnMove.x = 0
+  turnMove.y = 0
   const silhouette = turn.silhouette!
   const weight = headSilhouetteRow(silhouette, y, row).weight
-  if (weight <= 0) return 0
-  if (surface === 'skin') return (skinTurnedX(turn, x, y) - x) * weight
-  // The crown of the back hair is the top of the fringe's coiffure;
-  // lower down only its sides and back show, about on the axis.
-  const share = surface === 'front-hair'
-    ? 1
-    : smoothstep((silhouette.widestY - y) / (CROWN_SPAN * silhouette.radius))
-  return (hairTurnedX(turn, x, y, share) - x) * weight
+  if (weight <= 0) return turnMove
+  if (surface === 'skin') {
+    turnMove.x = (skinTurnedX(turn, x, y) - x) * weight
+  } else {
+    // The crown of the back hair is the top of the fringe's coiffure;
+    // lower down only its sides and back show, about on the axis.
+    const share = surface === 'front-hair'
+      ? 1
+      : smoothstep((silhouette.widestY - y) / (CROWN_SPAN * silhouette.radius))
+    turnMove.x = (hairTurnedX(turn, x, y, share) - x) * weight
+  }
+  const middleY = (silhouette.crownY + silhouette.chinY) / 2
+  turnMove.y = (y - middleY) * (landedScale - 1) * weight
+  return turnMove
 }
 
 /**
@@ -408,7 +482,13 @@ export function headTurnOffset(
   headSilhouetteRow(silhouette, y, row)
   const weight = row.weight
   if (weight <= 0) return out
-  const dx = turn.sine !== 0 ? turnAcross(turn, surface, x, y) : 0
+  let dx = 0
+  let perspectiveY = 0
+  if (turn.sine !== 0) {
+    turnAcross(turn, surface, x, y)
+    dx = turnMove.x
+    perspectiveY = turnMove.y
+  }
   // The nod turns each column of the ball, narrower toward its sides.
   const scale = surface === 'skin' ? 1 : NOD_HAIR_SCALE
   const halfHeight = ((silhouette.chinY - silhouette.crownY) / 2) * scale
@@ -425,7 +505,7 @@ export function headTurnOffset(
     dy = rearY + (dy - rearY) * crown
   }
   out.x = dx
-  out.y = dy * weight
+  out.y = dy * weight + perspectiveY
   return out
 }
 
@@ -539,7 +619,9 @@ export function moveHeadFeature(
   if (turn.sine === 0) return
   const standOff = (FEATURE_LIFT[feature.kind] ?? 0) * silhouette.radius * turn.sine *
     headSilhouetteRow(silhouette, restY, row).weight
-  point.x += turnAcross(turn, 'skin', point.x, restY) + standOff
+  turnAcross(turn, 'skin', point.x, restY)
+  point.x += turnMove.x + standOff
+  point.y += turnMove.y
 }
 
 const featureMoves = new WeakMap<Readonly<HeadTurnFeature>, {
