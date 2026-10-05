@@ -21,6 +21,21 @@ function sig(partial: Partial<HardwareSignals>): HardwareSignals {
 }
 
 describe('evaluateHighHardware', () => {
+  it('marks a low verdict uncertain only when it rests on missing signals', () => {
+    // Firefox / Safari 没有 navigator.deviceMemory（#624）。
+    const firefoxAndroid = evaluateHighHardware(sig({ os: 'android', cores: 8 }))
+    assert.equal(firefoxAndroid.highHardware, false)
+    assert.equal(firefoxAndroid.uncertain, true)
+    const measuredLow = evaluateHighHardware(sig({ os: 'android', memoryGiB: 4, cores: 8 }))
+    assert.equal(measuredLow.uncertain, false)
+    assert.equal(evaluateHighHardware(sig({ os: 'ios' })).uncertain, true)
+    assert.equal(evaluateHighHardware(sig({ os: 'ios', iosMajor: 17 })).uncertain, false)
+    assert.equal(evaluateHighHardware(sig({ os: 'macos' })).uncertain, true)
+    assert.equal(evaluateHighHardware(sig({ os: 'macos', appleSilicon: false })).uncertain, false)
+    assert.equal(evaluateHighHardware(sig({ os: 'windows', cores: 4 })).uncertain, true)
+    assert.equal(evaluateHighHardware(sig({ os: 'windows', memoryGiB: 4, cores: 4 })).uncertain, false)
+  })
+
   it('android requires 8GB bucket and 8 cores', () => {
     assert.equal(
       evaluateHighHardware(sig({ os: 'android', memoryGiB: 8, cores: 8 }))

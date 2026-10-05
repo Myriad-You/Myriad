@@ -13,6 +13,8 @@ export interface PerformanceProfile {
   reduceMotion: boolean
 
   highHardware: boolean
+  /** 低配结论只因缺信号得出（见 HardwareTierResult.uncertain）。 */
+  hardwareUncertain: boolean
   os: OsKind
   hardwareConcurrency: number | null
   deviceMemory: number | null
@@ -24,6 +26,7 @@ const DEFAULT_PROFILE: PerformanceProfile = {
   isMobile: false,
   reduceMotion: false,
   highHardware: true,
+  hardwareUncertain: false,
   os: 'unknown',
   hardwareConcurrency: null,
   deviceMemory: null,
@@ -42,6 +45,7 @@ function buildProfile(
     isMobile,
     reduceMotion,
     highHardware: tier.highHardware,
+    hardwareUncertain: tier.uncertain,
     os: signals.os,
     hardwareConcurrency: signals.cores,
     deviceMemory: signals.memoryGiB,
@@ -120,6 +124,7 @@ function sameProfile(a: PerformanceProfile, b: PerformanceProfile): boolean {
     a.isMobile === b.isMobile &&
     a.reduceMotion === b.reduceMotion &&
     a.highHardware === b.highHardware &&
+    a.hardwareUncertain === b.hardwareUncertain &&
     a.os === b.os &&
     a.hardwareConcurrency === b.hardwareConcurrency &&
     a.deviceMemory === b.deviceMemory

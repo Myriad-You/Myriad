@@ -113,7 +113,11 @@ export function resolveAnimationConfig(
     wantHigh = autoWantHigh
   }
 
-  if (capable) {
+  // 只是读不到硬件信号（如 Firefox 没有 deviceMemory）时不替用户下结论：
+  // auto 仍按低配保守处理，用户明确选了高档就给高档。
+  const trusted =
+    capable || (userPref === 'standard' && perf.hardwareUncertain)
+  if (trusted) {
     return wantHigh ? CONFIG_STANDARD : CONFIG_LIGHT
   }
   return wantHigh ? CONFIG_LIGHT : CONFIG_EXLIGHT

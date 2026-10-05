@@ -19,6 +19,11 @@ export interface HardwareSignals {
 
 export interface HardwareTierResult {
   highHardware: boolean
+  /**
+   * 判成低配只是因为缺信号（读不到内存、芯片、系统版本），不是测出来低。
+   * 比如 Firefox、Safari 没有 navigator.deviceMemory。
+   */
+  uncertain: boolean
   signals: HardwareSignals
   reason: string
 }
@@ -219,12 +224,14 @@ export function evaluateHighHardware(
       if (memOk && cpuOk) {
         return {
           highHardware: true,
+          uncertain: false,
           signals,
           reason: `android high: mem=${memoryGiB} cores=${cores}`,
         }
       }
       return {
         highHardware: false,
+        uncertain: memoryGiB == null || cores == null,
         signals,
         reason: `android low: mem=${memoryGiB ?? 'n/a'} cores=${cores ?? 'n/a'} (need ≥8GB & ≥8 cores)`,
       }
@@ -234,6 +241,7 @@ export function evaluateHighHardware(
       if (iosMajor == null) {
         return {
           highHardware: false,
+          uncertain: true,
           signals,
           reason: 'ios low: version unknown',
         }
@@ -241,12 +249,14 @@ export function evaluateHighHardware(
       if (iosMajor >= 18) {
         return {
           highHardware: true,
+          uncertain: false,
           signals,
           reason: `ios high: iOS ${iosMajor}`,
         }
       }
       return {
         highHardware: false,
+        uncertain: false,
         signals,
         reason: `ios low: iOS ${iosMajor} < 18`,
       }
@@ -256,6 +266,7 @@ export function evaluateHighHardware(
       if (appleSilicon === true) {
         return {
           highHardware: true,
+          uncertain: false,
           signals,
           reason: 'macos high: Apple Silicon',
         }
@@ -263,12 +274,14 @@ export function evaluateHighHardware(
       if (appleSilicon === false) {
         return {
           highHardware: false,
+          uncertain: false,
           signals,
           reason: 'macos low: Intel',
         }
       }
       return {
         highHardware: false,
+        uncertain: true,
         signals,
         reason: 'macos low: chip unknown (conservative)',
       }
@@ -282,12 +295,14 @@ export function evaluateHighHardware(
         if (cores != null && cores >= 8) {
           return {
             highHardware: true,
+            uncertain: false,
             signals,
             reason: `${os} high: cores=${cores} (mem n/a, cores≥8)`,
           }
         }
         return {
           highHardware: false,
+          uncertain: true,
           signals,
           reason: `${os} low: mem n/a cores=${cores ?? 'n/a'}`,
         }
@@ -295,12 +310,14 @@ export function evaluateHighHardware(
       if (memOk && cpuOk) {
         return {
           highHardware: true,
+          uncertain: false,
           signals,
           reason: `${os} high: memBucket=${memoryGiB} cores=${cores}`,
         }
       }
       return {
         highHardware: false,
+        uncertain: false,
         signals,
         reason: `${os} low: memBucket=${memoryGiB} cores=${cores ?? 'n/a'} (need ~12GB+ & ≥6 cores)`,
       }
@@ -315,12 +332,14 @@ export function evaluateHighHardware(
       ) {
         return {
           highHardware: true,
+          uncertain: false,
           signals,
           reason: 'unknown high: mem≥8 cores≥8',
         }
       }
       return {
         highHardware: false,
+        uncertain: memoryGiB == null || cores == null,
         signals,
         reason: 'unknown low: conservative',
       }
