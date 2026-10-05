@@ -16,9 +16,12 @@ pose bones in the IR. `handwear` is the shared semantic parent; optional
 `a25d-handwear-left/right` children hold the two sleeve/partial-forearm/hand
 drawings, which swing within ±15 degrees. The only bending inside a drawing
 comes from joints a pose model found on the master portrait
-(`anchors.skeleton`): below a found elbow the forearm, and below a found wrist
-the hand, each trail the segment above them; a full figure's legs bend at their
-found hip, knee and ankle. Without a skeleton a sleeve stays one rigid piece.
+(`anchors.skeleton`): past a found elbow the forearm, and past a found wrist
+the hand, each turn after the segment above them; a full figure's legs bend at
+their found hip, knee and ankle. Without a skeleton a sleeve stays one rigid
+piece. The joints bind wherever the arm is posed, hanging, bent or raised:
+each vertex takes the forearm's and the hand's turns by which bone it lies
+nearer, blended across the joint.
 
 At bind time each split sleeve gets one shoulder joint, found on its own
 opaque pixels nearest the anatomical shoulder (never above the neck), and the

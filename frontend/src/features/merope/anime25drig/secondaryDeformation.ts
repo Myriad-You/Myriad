@@ -20,7 +20,7 @@ import type {
   Anime25DTorsoShellProfile,
 } from './types'
 import { anime25DLayerUsesFaceSurface } from '../rig/anime25dLayerSemantics'
-import { ARM_CUT_BAND, ARM_SHRUG, armDrapeWeight } from './armRig'
+import { ARM_CUT_BAND, ARM_SHRUG, armDrapeWeight, armSegmentShares } from './armRig'
 import { chestDeformationWeight } from './chestPhysics'
 import {
   BODY_HEAD_FOLLOW,
@@ -470,6 +470,9 @@ export function deformAnime25DSecondaryPoint(
     // then turns about the shoulder, carrying the elbow with it.
     let armX = restX
     let armY = restY
+    const shares = arm?.elbow ? armShares(arm, binding.armMesh, vertex, restX, restY) : null
+    const foreShare = shares?.fore ?? 0
+    const handShare = shares?.hand ?? 0
     // A forearm raised towards the viewer is seen end-on: shorter, its hand
     // brought up the arm and nearer, so larger. The wrist moves with it.
     let wristX = arm?.wrist?.x ?? 0
@@ -487,10 +490,10 @@ export function deformAnime25DSecondaryPoint(
         const along = (restX - arm.elbow.x) * ax + (restY - arm.elbow.y) * ay
         const across = (restX - arm.elbow.x) * -ay + (restY - arm.elbow.y) * ax
         const wristAlong = length * (1 - shorten)
-        const inHand = handWeight(arm, restX, restY)
+        const inHand = handShare
         let seen = along <= length ? along * (1 - shorten) : along - shorten * length
         seen += (seen - wristAlong) * grow * inHand
-        seen = along + (seen - along) * forearmWeight(arm, restX, restY)
+        seen = along + (seen - along) * foreShare
         const width = across * (1 + grow * inHand)
         armX = arm.elbow.x + ax * seen - ay * width
         armY = arm.elbow.y + ay * seen + ax * width
@@ -500,7 +503,7 @@ export function deformAnime25DSecondaryPoint(
     }
     const hand = arm?.wrist ? (left ? frame.handL : frame.handR) * arm.scale : 0
     if (arm?.wrist && hand !== 0) {
-      const share = hand * handWeight(arm, restX, restY)
+      const share = hand * handShare
       if (share !== 0) {
         const wx = armX - wristX
         const wy = armY - wristY
@@ -512,7 +515,7 @@ export function deformAnime25DSecondaryPoint(
     }
     const forearm = arm?.elbow ? (left ? frame.forearmL : frame.forearmR) * arm.scale : 0
     if (arm?.elbow && forearm !== 0) {
-      const share = forearm * forearmWeight(arm, restX, restY)
+      const share = forearm * foreShare
       if (share !== 0) {
         const ex = armX - arm.elbow.x
         const ey = armY - arm.elbow.y
@@ -556,41 +559,20 @@ export function deformAnime25DSecondaryPoint(
   if (binding.standing && frame.standing) applyStanding(point, binding.standing, restX, restY, frame.standing)
 }
 
-/**
- * How much of its hand's own turn a point takes: none above the wrist, all of
- * it past it, blended across the narrower joint.
- */
-function handWeight(arm: Readonly<ArmRig>, x: number, y: number): number {
-  const { elbow, wrist } = arm
-  if (!elbow || !wrist) return 0
-  const ux = wrist.x - elbow.x
-  const uy = wrist.y - elbow.y
-  const length = Math.hypot(ux, uy)
-  if (!(length > 0)) return 0
-  const along = ((x - wrist.x) * ux + (y - wrist.y) * uy) / length
-  return smoothstep(along / Math.max(1, arm.radius * WRIST_SHARE) + 0.5)
-}
-
 /** A fully reached forearm is drawn this much shorter, and its hand this much larger. */
 const REACH_SHORTEN = 0.35
 const REACH_HAND_GROW = 0.15
 
-/** A wrist is this much of the arm's thickness at the shoulder. */
-const WRIST_SHARE = 0.6
-
-/**
- * How much of its forearm's own turn a sleeve point takes: none above the
- * elbow, all of it past it, blended across the arm's thickness at the joint.
- */
-function forearmWeight(arm: Readonly<ArmRig>, x: number, y: number): number {
-  const elbow = arm.elbow
-  if (!elbow) return 0
-  const ux = elbow.x - arm.pivotX
-  const uy = elbow.y - arm.pivotY
-  const length = Math.hypot(ux, uy)
-  if (!(length > 0)) return 0
-  const along = ((x - elbow.x) * ux + (y - elbow.y) * uy) / length
-  return smoothstep(along / Math.max(1, arm.radius) + 0.5)
+/** The shares bound with the mesh, or worked out for a point bound without one. */
+const segmentShares = { fore: 0, hand: 0 }
+function armShares(arm: Readonly<ArmRig>, mesh: ArmRigMesh | null, vertex: number, x: number, y: number) {
+  if (mesh && vertex >= 0 && vertex < mesh.fore.length) {
+    segmentShares.fore = mesh.fore[vertex]
+    segmentShares.hand = mesh.hand[vertex]
+  } else {
+    armSegmentShares(arm, x, y, segmentShares)
+  }
+  return segmentShares
 }
 
 const chainPoint = { x: 0, y: 0 }

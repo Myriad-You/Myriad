@@ -1409,6 +1409,37 @@ test('a forearm reached towards the viewer is seen shorter, its hand nearer and 
   assert.ok(half > 0 && half < rise(4, 70, 200))
 })
 
+test('a folded forearm turns about its elbow, carrying its hand; the upper arm stays', () => {
+  // The upper arm hangs to the elbow; the forearm folds back up and in, the hand past the wrist.
+  const arm = { ...ARM, cutY: null, radius: 12, pivotX: 70, pivotY: 90, elbow: { x: 70, y: 170 }, wrist: { x: 120, y: 130 } }
+  const rest = new Float32Array([70, 120, 95, 150, 140, 114])
+  const binding = createAnime25DSecondaryDeformationBinding({
+    ...bodyBinding('handwear', 'L'),
+    arm,
+    armMesh: bindArmRigMesh(arm, rest),
+  })
+  const at = (vertex: number, forearm: number) => {
+    const x = rest[vertex * 2]
+    const y = rest[vertex * 2 + 1]
+    const point = { x, y }
+    const frame = torsoTurnFrame(0, 0)
+    frame.forearmL = forearm
+    deformAnime25DSecondaryPoint(point, x, y, vertex, binding, frame)
+    return point
+  }
+  const moved = (vertex: number) => {
+    const a = at(vertex, 0)
+    const b = at(vertex, 0.3)
+    return { dx: b.x - a.x, dy: b.y - a.y, distance: Math.hypot(b.x - a.x, b.y - a.y) }
+  }
+  assert.ok(moved(0).distance < 1e-6, 'the upper arm does not take the forearm turn')
+  // The forearm and hand swing about the elbow: each moves by its distance from it.
+  for (const vertex of [1, 2]) {
+    const radius = Math.hypot(rest[vertex * 2] - 70, rest[vertex * 2 + 1] - 170)
+    assert.ok(Math.abs(moved(vertex).distance - 2 * radius * Math.sin(0.15)) < 0.5, `${vertex}: ${moved(vertex).distance}`)
+  }
+})
+
 function riggedSleeve(cutY: number | null = ARM.cutY, drape = false): Anime25DSecondaryDeformationBinding {
   const arm = { ...ARM, cutY, drape }
   const rest = new Float32Array([

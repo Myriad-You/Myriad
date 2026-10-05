@@ -21,13 +21,14 @@ export interface ArmRig {
   /** A drawing already raised across the body swings less. */
   scale: number
   /**
-   * The elbow found on the portrait, when the drawing shows it: the forearm
-   * below it swings on its own after the upper arm.
+   * The elbow found on the portrait, when the drawing shows it and goes on
+   * past it: the forearm turns about it after the upper arm. A hanging arm,
+   * a bent one or a raised one alike.
    */
   elbow: { x: number; y: number } | null
   /**
-   * The wrist found on the portrait, below a found elbow with a hand showing
-   * beyond it: the hand swings on its own after the forearm.
+   * The wrist found on the portrait, past a found elbow with a hand showing
+   * beyond it: the hand turns about it after the forearm.
    */
   wrist: { x: number; y: number } | null
   /** The canvas cut this drawing runs into, if any; a swing slides along it. */
@@ -158,32 +159,47 @@ export function bindArmRig(
       if (isSkinTone(pixels[i], pixels[i + 1], pixels[i + 2])) skin++
     }
   }
-  // The elbow, when the drawing reaches past it: well below the shoulder and
-  // inside the sleeve's box. A forearm the frame cuts off is left to the cut,
-  // which keeps its edge on the frame.
-  const elbowJoint = anchors.skeleton?.joints[`elbow${arm.side}`]
-  const elbow =
-    !posed &&
-    !cut &&
-    elbowJoint &&
-    elbowJoint.y > pivotY + radius * 1.5 &&
-    elbowJoint.y < arm.y + arm.h - radius * 0.5 &&
-    elbowJoint.x >= arm.x &&
-    elbowJoint.x <= arm.x + arm.w
-      ? { x: elbowJoint.x, y: elbowJoint.y }
-      : null
+  // The elbow and wrist, wherever the arm is posed: inside the sleeve's box,
+  // a bone's length apart, with drawing going on past each. A forearm the
+  // frame cuts off is left to the cut, which keeps its edge on the frame.
   const drape = !posed && lower > 0 && skin / lower < DRAPE_SKIN
-  // The wrist, when a hand hangs out of the sleeve below it. A hand hidden in
-  // a draped sleeve is cloth, which trails on its own.
+  const inBox = (joint: { x: number; y: number }) =>
+    joint.x >= arm.x - radius * 0.5 &&
+    joint.x <= arm.x + arm.w + radius * 0.5 &&
+    joint.y >= arm.y - radius * 0.5 &&
+    joint.y <= arm.y + arm.h + radius * 0.5
+  // Opaque drawing this far past a joint, along a bone's direction from it.
+  const pastJoint = (joint: { x: number; y: number }, dx: number, dy: number, beyond: number) => {
+    const length = Math.hypot(dx, dy)
+    if (!(length > 0)) return 0
+    let count = 0
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (!opaque(x, y)) continue
+        const along = ((arm.x + (x + 0.5) * scaleX - joint.x) * dx + (arm.y + (y + 0.5) * scaleY - joint.y) * dy) / length
+        if (along > beyond) count++
+      }
+    }
+    return count
+  }
+  const elbowJoint = anchors.skeleton?.joints[`elbow${arm.side}`]
   const wristJoint = anchors.skeleton?.joints[`wrist${arm.side}`]
+  const shown = (pixels: number) => pixels * scaleX * scaleY >= radius * radius * 0.5
+  let elbow: { x: number; y: number } | null = null
+  if (!cut && elbowJoint && inBox(elbowJoint) && Math.hypot(elbowJoint.x - pivotX, elbowJoint.y - pivotY) > radius * 1.5) {
+    const ahead = wristJoint
+      ? [wristJoint.x - elbowJoint.x, wristJoint.y - elbowJoint.y]
+      : [elbowJoint.x - pivotX, elbowJoint.y - pivotY]
+    if (shown(pastJoint(elbowJoint, ahead[0], ahead[1], radius * 0.5))) elbow = { x: elbowJoint.x, y: elbowJoint.y }
+  }
+  // A hand hidden in a draped sleeve is cloth, which trails on its own.
   const wrist =
     elbow &&
     !drape &&
     wristJoint &&
-    wristJoint.y > elbow.y + radius &&
-    wristJoint.y < arm.y + arm.h - radius * 0.5 &&
-    wristJoint.x >= arm.x &&
-    wristJoint.x <= arm.x + arm.w
+    inBox(wristJoint) &&
+    Math.hypot(wristJoint.x - elbow.x, wristJoint.y - elbow.y) > radius &&
+    shown(pastJoint(wristJoint, wristJoint.x - elbow.x, wristJoint.y - elbow.y, radius * 0.25))
       ? { x: wristJoint.x, y: wristJoint.y }
       : null
   return {
@@ -217,10 +233,68 @@ export interface ArmRigMesh {
   weights: Float32Array
   /** The vertex nearest the joint; its motion is the shoulder's. */
   jointVertex: number
+  /** Each vertex's share of its forearm's and its hand's own turns. */
+  fore: Float32Array
+  hand: Float32Array
+}
+
+/** A wrist is this much of the arm's thickness at the shoulder. */
+const WRIST_SHARE = 0.6
+
+/**
+ * How much of the forearm's and the hand's own turns a point of the sleeve
+ * takes: by which bone it lies nearer, the upper arm or the forearm and all
+ * past it, then the forearm or the hand past the wrist, blended across the
+ * joint's thickness. It holds for an arm hanging straight or folded back on
+ * itself.
+ */
+export function armSegmentShares(
+  rig: Readonly<ArmRig>,
+  x: number,
+  y: number,
+  out: { fore: number; hand: number },
+): void {
+  out.fore = 0
+  out.hand = 0
+  const { elbow, wrist } = rig
+  if (!elbow) return
+  const aheadX = wrist ? wrist.x - elbow.x : elbow.x - rig.pivotX
+  const aheadY = wrist ? wrist.y - elbow.y : elbow.y - rig.pivotY
+  const band = Math.max(1, rig.radius)
+  const upper = segmentDistance(x, y, rig.pivotX, rig.pivotY, elbow.x, elbow.y)
+  out.fore = smoothstep((upper - rayDistance(x, y, elbow.x, elbow.y, aheadX, aheadY)) / band + 0.5)
+  if (!wrist) return
+  const forearm = segmentDistance(x, y, elbow.x, elbow.y, wrist.x, wrist.y)
+  out.hand = smoothstep(
+    (forearm - rayDistance(x, y, wrist.x, wrist.y, aheadX, aheadY)) / Math.max(1, band * WRIST_SHARE) + 0.5,
+  )
+}
+
+function segmentDistance(x: number, y: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax
+  const dy = by - ay
+  const length2 = dx * dx + dy * dy
+  const t = length2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length2)) : 0
+  return Math.hypot(x - ax - dx * t, y - ay - dy * t)
+}
+
+/** Distance to the ray from (ax, ay) along (dx, dy). */
+function rayDistance(x: number, y: number, ax: number, ay: number, dx: number, dy: number): number {
+  const length2 = dx * dx + dy * dy
+  const t = length2 > 0 ? Math.max(0, ((x - ax) * dx + (y - ay) * dy) / length2) : 0
+  return Math.hypot(x - ax - dx * t, y - ay - dy * t)
+}
+
+function smoothstep(value: number): number {
+  const t = Math.max(0, Math.min(1, value))
+  return t * t * (3 - 2 * t)
 }
 
 export function bindArmRigMesh(rig: ArmRig, rest: Float32Array): ArmRigMesh {
   const weights = new Float32Array(rest.length / 2)
+  const fore = new Float32Array(weights.length)
+  const hand = new Float32Array(weights.length)
+  const shares = { fore: 0, hand: 0 }
   const inner = rig.radius * 0.25
   const outer = rig.radius * 1.5
   let jointVertex = 0
@@ -229,12 +303,15 @@ export function bindArmRigMesh(rig: ArmRig, rest: Float32Array): ArmRigMesh {
     const d = Math.hypot(rest[i * 2] - rig.pivotX, rest[i * 2 + 1] - rig.pivotY)
     const t = Math.max(0, Math.min(1, (d - inner) / (outer - inner)))
     weights[i] = t * t * (3 - 2 * t)
+    armSegmentShares(rig, rest[i * 2], rest[i * 2 + 1], shares)
+    fore[i] = shares.fore
+    hand[i] = shares.hand
     if (d < nearest) {
       nearest = d
       jointVertex = i
     }
   }
-  return { weights, jointVertex }
+  return { weights, jointVertex, fore, hand }
 }
 
 /** Contact shorter than this is two arms brushing, not hands holding each other. */

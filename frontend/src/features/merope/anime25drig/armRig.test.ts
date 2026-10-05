@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { anime25DArmsTouch, anime25DHandTouchesHead, armDrapeWeight, bindArmRig, bindArmRigMesh } from './armRig'
+import { anime25DArmsTouch, anime25DHandTouchesHead, armDrapeWeight, armSegmentShares, bindArmRig, bindArmRigMesh } from './armRig'
 
 const ANCHORS = {
   face: { x0: 300, y0: 150, x1: 700, y1: 650, cx: 500, cy: 400 },
@@ -174,6 +174,63 @@ test('a wrist is kept below a found elbow when a hand hangs out past it', () => 
   const { elbowL: _elbow, ...elbowless } = joints
   const rig = bindArmRig(arm, sleeve(arm, paint, bare), { ...ANCHORS, skeleton: { model: 'dwpose', joints: elbowless } }, 1320)!
   assert.equal(rig.wrist, null)
+})
+
+// A hand brought up to the chest: the upper arm hangs, the forearm folds back
+// up and in towards the body, the hand beyond the wrist.
+const BENT = { x: 120, y: 780, w: 320, h: 330, side: 'L' as const }
+const BENT_JOINTS = {
+  shoulderL: { x: 232, y: 812, score: 0.95 },
+  elbowL: { x: 228, y: 1060, score: 0.9 },
+  wristL: { x: 350, y: 960, score: 0.9 },
+}
+function nearSegment(x: number, y: number, a: { x: number; y: number }, b: { x: number; y: number }, r: number) {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy)))
+  return Math.hypot(x - a.x - dx * t, y - a.y - dy * t) <= r
+}
+const HAND_TIP = { x: 400, y: 919 }
+const bent: Paint = (x, y) =>
+  nearSegment(x, y, BENT_JOINTS.shoulderL, BENT_JOINTS.elbowL, 42) ||
+  nearSegment(x, y, BENT_JOINTS.elbowL, BENT_JOINTS.wristL, 34) ||
+  nearSegment(x, y, BENT_JOINTS.wristL, HAND_TIP, 24)
+const bentColor = (x: number, y: number) => (nearSegment(x, y, BENT_JOINTS.wristL, HAND_TIP, 24) ? SKIN : FABRIC)
+
+test('a bent arm binds its elbow and wrist, and each bone takes the drawing nearest it', () => {
+  const rig = bindArmRig(BENT, sleeve(BENT, bent, bentColor), { ...ANCHORS, skeleton: { model: 'dwpose', joints: BENT_JOINTS } }, 1320)!
+  assert.deepEqual(rig.elbow, { x: 228, y: 1060 })
+  assert.deepEqual(rig.wrist, { x: 350, y: 960 })
+  const shares = { fore: 0, hand: 0 }
+  // Halfway up the upper arm: the shoulder's alone.
+  armSegmentShares(rig, 230, 930, shares)
+  assert.ok(shares.fore < 0.01 && shares.hand < 0.01, JSON.stringify(shares))
+  // Halfway along the folded forearm, beside the upper arm: the forearm's.
+  armSegmentShares(rig, 289, 1010, shares)
+  assert.ok(shares.fore > 0.99 && shares.hand < 0.01, JSON.stringify(shares))
+  // Past the wrist: the hand's, carried by the forearm.
+  armSegmentShares(rig, 385, 931, shares)
+  assert.ok(shares.fore > 0.99 && shares.hand > 0.99, JSON.stringify(shares))
+  // The mesh binds the same shares.
+  const mesh = bindArmRigMesh(rig, new Float32Array([230, 930, 289, 1010, 385, 931]))
+  assert.deepEqual(Array.from(mesh.fore).map((v) => Math.round(v)), [0, 1, 1])
+  assert.deepEqual(Array.from(mesh.hand).map((v) => Math.round(v)), [0, 0, 1])
+})
+
+test('a straight hanging arm shares as before: by how far past the joint along the arm', () => {
+  const arm = { x: 120, y: 780, w: 220, h: 500, side: 'L' as const }
+  const paint: Paint = (x, y) => x >= 150 && x < 310 && y >= 790 && y < 1270
+  const rig = bindArmRig(arm, sleeve(arm, paint, (_x, y) => (y > 1150 ? SKIN : FABRIC)), {
+    ...ANCHORS,
+    skeleton: { model: 'dwpose', joints: { shoulderL: { x: 232, y: 812, score: 0.95 }, elbowL: { x: 230, y: 1040, score: 0.9 }, wristL: { x: 230, y: 1180, score: 0.9 } } },
+  }, 1320)!
+  const shares = { fore: 0, hand: 0 }
+  armSegmentShares(rig, 230, 1040, shares)
+  assert.ok(Math.abs(shares.fore - 0.5) < 1e-6)
+  armSegmentShares(rig, 230, 1040 - rig.radius, shares)
+  assert.equal(shares.fore, 0)
+  armSegmentShares(rig, 230, 1040 + rig.radius, shares)
+  assert.equal(shares.fore, 1)
 })
 
 test('a forearm the frame cuts off is left to the cut, without an elbow', () => {
