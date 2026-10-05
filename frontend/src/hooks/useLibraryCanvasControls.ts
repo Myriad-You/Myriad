@@ -2,7 +2,6 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
-  RefObject,
 } from 'react'
 import type { LibraryCanvasTransform } from '../utils/libraryCanvas'
 
@@ -78,7 +77,8 @@ interface LibraryCanvasControlsOptions {
   defaultScale: number
   maxScale: number
   minScale: number
-  surfaceRef: RefObject<HTMLDivElement | null>
+  /** 画布节点本身。换分类时它会卸载重建，监听要跟着节点走，所以不传 ref。 */
+  surface: HTMLDivElement | null
 
   /** 每帧已提交的视觉。世界变换/焦点/标签写这里，不得走 React。 */
   onPaint?: (transform: LibraryCanvasTransform) => void
@@ -95,7 +95,7 @@ export function useLibraryCanvasControls({
   defaultScale,
   maxScale,
   minScale,
-  surfaceRef,
+  surface,
   onPaint,
   shouldCommit,
 }: LibraryCanvasControlsOptions) {
@@ -492,10 +492,9 @@ export function useLibraryCanvasControls({
   const handleWheel = useCallback(
     (event: WheelEvent) => {
       event.preventDefault()
-      const surface = surfaceRef.current
-      if (!surface) return
+      const target = event.currentTarget as HTMLElement
       if (event.ctrlKey || event.metaKey) {
-        const rect = surface.getBoundingClientRect()
+        const rect = target.getBoundingClientRect()
         const pointerX = event.clientX - rect.left - rect.width / 2
         const pointerY = event.clientY - rect.top - rect.height / 2
         const factor = Math.exp(-event.deltaY * 0.002)
@@ -519,27 +518,37 @@ export function useLibraryCanvasControls({
         }))
       }
     },
-    [maxScale, minScale, scheduleTransform, surfaceRef],
+    [maxScale, minScale, scheduleTransform],
   )
 
   useEffect(() => {
-    if (!active) return
-    const surface = surfaceRef.current
-    if (!surface) return
+    if (!active || !surface) return
     surface.addEventListener('wheel', handleWheel, { passive: false })
     return () => surface.removeEventListener('wheel', handleWheel)
-  }, [active, handleWheel, surfaceRef])
+  }, [active, handleWheel, surface])
 
+  const focusedSinceActiveRef = useRef(false)
   useEffect(() => {
-    if (!active) return
+    if (!active) {
+      focusedSinceActiveRef.current = false
+      return
+    }
+    if (!surface) return
     const frame = requestAnimationFrame(() => {
-      surfaceRef.current?.focus({ preventScroll: true })
+      // 进入画布时接管焦点；之后节点重建（换分类）只在焦点随旧节点丢到 body 时接回，
+      // 用户已经点到别处（比如分类按钮）就不抢。
+      const lost =
+        document.activeElement == null || document.activeElement === document.body
+      if (!focusedSinceActiveRef.current || lost) {
+        surface.focus({ preventScroll: true })
+      }
+      focusedSinceActiveRef.current = true
 
       // 即使还没有手势，也要画出第一帧画布。
       applyFrame(transformRef.current, true)
     })
     return () => cancelAnimationFrame(frame)
-  }, [active, applyFrame, surfaceRef])
+  }, [active, applyFrame, surface])
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {

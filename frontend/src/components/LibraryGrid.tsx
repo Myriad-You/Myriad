@@ -193,6 +193,12 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   const libraryFetchGenerationRef = useRef(0)
   const loadNextLibraryPageRef = useRef<() => Promise<void>>(async () => {})
   const containerRef = useRef<HTMLDivElement>(null)
+  // 换分类先显示 Spinner，容器会卸载重建；画布的原生监听要绑到新节点上。
+  const [canvasSurface, setCanvasSurface] = useState<HTMLDivElement | null>(null)
+  const bindContainer = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+    setCanvasSurface(node)
+  }, [])
   const canvasDefaultScaleRef = useRef(readCanvasDefaultScale())
   const worldRef = useRef<HTMLDivElement | null>(null)
   const canvasViewportRef = useRef({ width: 0, height: 0 })
@@ -342,7 +348,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     defaultScale: canvasDefaultScaleRef.current,
     maxScale: CANVAS_MAX_SCALE,
     minScale: CANVAS_MIN_SCALE,
-    surfaceRef: containerRef,
+    surface: canvasSurface,
     onPaint: paintCanvasTransform,
     shouldCommit: shouldCommitCanvasTransform,
   })
@@ -886,7 +892,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
         <div className={layoutMode === 'canvas' ? '' : 'space-y-8'}>
           <QuickTransition transitioning={isTransitioning}>
             <div
-              ref={containerRef}
+              ref={bindContainer}
               className={
                 layoutMode === 'canvas'
                   ?
