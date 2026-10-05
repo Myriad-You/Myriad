@@ -27,16 +27,17 @@ interface Props extends RigImportSource {
   outfitLead?: ReactNode
   outfitRig?: boolean
   personaLead?: ReactNode
+  /** Sits beside the persona page's title. */
+  personaTitleExtra?: ReactNode
   overviewLead?: ReactNode
   motionEnabled?: boolean
-  /** Shown under the managed outfit's page. */
-  outfitTrailing?: ReactNode
-  /** Shown above the motion controls. */
-  motionLead?: ReactNode
+  /** Sits after the tabs; picks which figure the stage plays. */
+  stageSwitch?: ReactNode
   /** Changes when the stage plays another figure; the controls are re-sent to it. */
   stageKey?: string
   correctionPlayback?: Anime25DPlayback | null
   correctionAssetId?: string | null
+  correctionTarget?: string
   onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
 }
 
@@ -49,13 +50,14 @@ export default function Anime25DWorkbench({
   outfitLead = null,
   outfitRig = true,
   personaLead = null,
+  personaTitleExtra = null,
   overviewLead = null,
   motionEnabled = false,
-  outfitTrailing = null,
-  motionLead = null,
+  stageSwitch = null,
   stageKey = '',
   correctionPlayback,
   correctionAssetId,
+  correctionTarget,
   onSavePoseCorrections,
   ...source
 }: Props) {
@@ -95,6 +97,7 @@ export default function Anime25DWorkbench({
           value={panel}
           options={panels}
           onChange={setUserPanel}
+          trailing={stageSwitch}
         />
       )}
       </div>
@@ -114,6 +117,7 @@ export default function Anime25DWorkbench({
         <SettingGroup
           title={labels.personaGroup}
           description={labels.personaGroupDescription}
+          titleExtra={personaTitleExtra}
           id="merope-motion-persona"
         >
           {personaLead}
@@ -154,7 +158,6 @@ export default function Anime25DWorkbench({
           )}
         </SettingGroup>
       ) : null}
-      {panel === 'wardrobe' && outfitLead ? outfitTrailing : null}
       </div>
       <div data-tour="config-persona-motion">
       {panel === 'motion' ? (
@@ -162,9 +165,9 @@ export default function Anime25DWorkbench({
           characterRef={characterRef}
           motion={motion}
           motionEnabled={motionEnabled}
-          lead={motionLead}
           correctionPlayback={correctionPlayback}
           correctionAssetId={correctionAssetId}
+          correctionTarget={correctionTarget}
           onSavePoseCorrections={onSavePoseCorrections}
         />
       ) : null}

@@ -73,6 +73,12 @@ saved geometry without losing drafts, and changing outfit identity clears the
 old draft. Only the character handle and save boundary are spies; this test does
 not claim to verify rendered correction pixels.
 
+`poseCorrectionStage.spec.ts` puts the same editor beside a real stage. With
+`MEROPE_POSE_ASSET` (a bust) and/or `MEROPE_POSE_FULL_BODY_ASSET` (a full body)
+set to a local `manifest.json` + `atlas.png` directory, it poses the head, adds
+a spot, drags it and checks that the drawn point follows the pointer, picks a
+second spot on the stage, holds the before view, and saves.
+
 The opt-in real-artwork replays use `MEROPE_SHOULDER_ASSET` and
 `MEROPE_COLLAR_ASSET`, each pointing to a local directory containing
 `manifest.json` and `atlas.png`. Run `shoulderFusion.spec.ts`, `hairFollow.spec.ts`,

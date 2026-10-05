@@ -237,11 +237,14 @@
   overflow: visible;
 }
 
-/* 没配语音时右侧整颗进出：槽宽跟输入框对挤，不能先占 96px 再从 0.72 放大。 */
+/* 没配语音时右侧整颗进出：槽宽跟输入框对挤，不能先占 96px 再从 0.72 放大。
+   槽不裁切，进出全程都不：裁切会把按钮的阴影切出一道直边。按钮去掉左右内边距，
+   宽度就始终等于槽宽，从 0 长成圆再长成胶囊，不会溢出槽；图标由按钮自己裁，
+   元素自己的 overflow 不裁它自己的阴影。 */
 .agent-panel-composer-row > .agent-panel-presence[data-kind='chip'] {
   flex: 0 0 auto;
   width: 96px;
-  overflow: hidden;
+  overflow: visible;
   transform-origin: 100% 50%;
   transition-duration: var(--agent-swap, 320ms);
 }
@@ -256,6 +259,11 @@
   .agent-panel-control {
   width: 100%;
   min-width: 0;
+  padding: 0;
+  overflow: clip;
+
+  /* 按住时的环有一点外发光，留出来。 */
+  overflow-clip-margin: 6px;
 }
 
 /* 入场用 @starting-style，不用 JS enter。退场 data-presence=out，与入场同一组。
@@ -336,7 +344,6 @@
   .agent-panel-composer-row > .agent-panel-presence[data-kind='chip'] {
     width: 0;
     margin-left: -12px;
-    overflow: hidden;
     opacity: 0;
     scale: 1;
     translate: 0 0;
@@ -411,7 +418,6 @@
   > .agent-panel-presence[data-kind='chip'][data-presence='out'] {
   width: 0;
   margin-left: -12px;
-  overflow: hidden;
   opacity: 0;
   scale: 1;
   translate: 0 0;
@@ -442,8 +448,118 @@
   margin-right: 6px;
 }
 
+/* 换下来的那份在 AGENT_SWAP_MS 后就卸掉，淡出必须在这之前走完；
+   按 --agent-move 走会在半途被剪掉，看起来是一下跳没。 */
 .agent-panel-swap > .agent-panel-presence {
   grid-area: stack;
+  transition-duration: var(--agent-swap, 320ms);
+}
+
+/* 按钮里的图标换手（语音、发送、停止）：先走后来，不在原地交叉淡化。
+   退场曲线前段几乎不动，两枚 22px 图标会以近乎不透明的样子叠成一团。
+   先走的那枚 110ms 内缩小、虚化着退；新来的晚 90ms，从模糊里带一点回弹长出来。
+   这里的特异度要低于开合阶段的那条复位规则，所以写在它前面。 */
+.agent-panel-control .agent-panel-swap > .agent-panel-presence {
+  --agent-glyph-in: 90ms;
+
+  filter: blur(0);
+  transition:
+    opacity 200ms var(--agent-ease) var(--agent-glyph-in),
+    scale 340ms cubic-bezier(0.34, 1.4, 0.64, 1) var(--agent-glyph-in),
+    filter 200ms var(--agent-ease) var(--agent-glyph-in);
+}
+
+.agent-panel-control
+  .agent-panel-swap
+  > .agent-panel-presence[data-presence='out'] {
+  opacity: 0;
+  scale: 0.45;
+  filter: blur(3px);
+  transition:
+    opacity 110ms cubic-bezier(0.4, 0, 1, 1),
+    scale 130ms cubic-bezier(0.4, 0, 1, 1),
+    filter 110ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+@starting-style {
+  .agent-panel-control .agent-panel-swap > .agent-panel-presence {
+    opacity: 0;
+    scale: 0.45;
+    filter: blur(3px);
+  }
+}
+
+/* 字形自己的走向：箭头从下面升上来，删空了沉回去，真发出去就往上飞走；
+   停止的方块转进来。 */
+.agent-panel-control [data-glyph] {
+  translate: 0 0;
+  rotate: 0deg;
+  transition:
+    translate 340ms var(--agent-ease) var(--agent-glyph-in, 90ms),
+    rotate 340ms var(--agent-ease) var(--agent-glyph-in, 90ms);
+}
+
+@starting-style {
+  .agent-panel-control [data-glyph='send'] {
+    translate: 0 7px;
+  }
+
+  .agent-panel-control [data-glyph='stop'] {
+    rotate: -90deg;
+  }
+}
+
+.agent-panel-control
+  .agent-panel-presence[data-presence='out']
+  [data-glyph] {
+  transition:
+    translate 130ms cubic-bezier(0.4, 0, 1, 1),
+    rotate 130ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.agent-panel-control
+  .agent-panel-presence[data-presence='out']
+  [data-glyph='send'] {
+  translate: 0 6px;
+}
+
+.agent-panel-control
+  .agent-panel-presence[data-presence='out']
+  [data-glyph='stop'] {
+  rotate: 90deg;
+}
+
+/* 发出去的箭头不缩不糊，一按下就整枚往上飞出按钮，先亮着飞一小段再淡，
+   看得见去向；200ms 内走完。停止要等它飞开再进来，不然又叠在一处。 */
+.agent-panel-control[data-flung='true']
+  .agent-panel-swap
+  > .agent-panel-presence[data-presence='out']:has([data-glyph='send']) {
+  scale: 1;
+  filter: blur(0);
+  transition: opacity 140ms cubic-bezier(0.4, 0, 1, 1) 60ms;
+}
+
+.agent-panel-control[data-flung='true']
+  .agent-panel-presence[data-presence='out']
+  [data-glyph='send'] {
+  translate: 0 -16px;
+  transition: translate 200ms cubic-bezier(0.4, 0, 0.9, 0.6);
+}
+
+.agent-panel-control[data-flung='true']
+  .agent-panel-swap
+  > .agent-panel-presence[data-presence='in'] {
+  --agent-glyph-in: 150ms;
+}
+
+html[data-perf-mode='exlight']
+  .agent-panel-control
+  .agent-panel-swap
+  > .agent-panel-presence,
+html[data-perf-mode='exlight'] .agent-panel-control [data-glyph] {
+  filter: none;
+  transition-duration: 0.01ms;
+  transition-delay: 0ms;
 }
 
 .agent-panel-overlay-anchor[data-phase='opening']
@@ -589,6 +705,13 @@
 .agent-panel-tag[data-icon='true'] svg {
   width: 16px;
   height: 16px;
+}
+
+/* 文字贴前面的小图标，跟字一起走 */
+.agent-panel-tag-glyph {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
 }
 
 /* 独占一行的贴高度跟着字走 */
@@ -1311,10 +1434,25 @@ button.agent-panel-tag:disabled {
   height: 11px;
 }
 
+/* 语音、发送、停止三态的底色只改这两个颜色。注册成 <color> 才能插值，
+   整段渐变底色是插不了值的，切换会在图标还在交叉淡入时就跳色。 */
+@property --agent-control-tint-top {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --agent-control-tint-bottom {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
 .agent-panel-control {
   --agent-voice-hold: 500ms;
   --agent-voice-hold-lead: 80ms;
 
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1329,11 +1467,22 @@ button.agent-panel-tag:disabled {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition:
-    color 180ms ease,
-    background 300ms cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    color var(--agent-swap, 320ms) var(--agent-ease),
+    --agent-control-tint-top var(--agent-swap, 320ms) var(--agent-ease),
+    --agent-control-tint-bottom var(--agent-swap, 320ms) var(--agent-ease),
+    border-color var(--agent-swap, 320ms) var(--agent-ease),
     transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1),
     filter 180ms ease-out;
+}
+
+/* 压过 .glass 令牌底，所以要两层类名。玻璃底一直在，三态只叠色。 */
+.agent-panel-composer .agent-panel-control {
+  background:
+    linear-gradient(
+      var(--agent-control-tint-top),
+      var(--agent-control-tint-bottom)
+    ),
+    var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
 }
 
 .agent-panel-control svg {
@@ -1370,19 +1519,23 @@ button.agent-panel-tag:disabled {
   outline-offset: 2px;
 }
 
-/* 在听时一直亮。压过 .glass 令牌底，所以要两层类名。 */
+/* 在听时一直亮。 */
 .agent-panel-composer .agent-panel-mic[data-on='true'] {
-  background:
-    linear-gradient(
-      color-mix(in srgb, var(--color-error, #ef4444) 26%, transparent),
-      color-mix(in srgb, var(--color-error, #ef4444) 18%, transparent)
-    ),
-    var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  --agent-control-tint-top: color-mix(
+    in srgb,
+    var(--color-error, #ef4444) 26%,
+    transparent
+  );
+  --agent-control-tint-bottom: color-mix(
+    in srgb,
+    var(--color-error, #ef4444) 18%,
+    transparent
+  );
+
   color: var(--color-error, #ef4444);
 }
 
 .agent-panel-mic {
-  position: relative;
   overflow: visible;
   user-select: none;
   -webkit-touch-callout: none;
@@ -1471,12 +1624,17 @@ button.agent-panel-tag:disabled {
 }
 
 .agent-panel-composer .agent-panel-mic[data-conversation='true'] {
-  background:
-    linear-gradient(
-      color-mix(in srgb, var(--color-primary, #10b981) 26%, transparent),
-      color-mix(in srgb, var(--color-primary, #10b981) 18%, transparent)
-    ),
-    var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  --agent-control-tint-top: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 26%,
+    transparent
+  );
+  --agent-control-tint-bottom: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 18%,
+    transparent
+  );
+
   color: var(--cfg-accent, #10b981);
 }
 
@@ -1507,12 +1665,17 @@ button.agent-panel-tag:disabled {
 /* 发送才叠主色。空着保持普通玻璃，不要一枚褪色的绿点。
    主色叠在 --surface-bg 上；换掉整块底会丢掉高光。 */
 .agent-panel-composer .agent-panel-send:not(:disabled) {
-  background:
-    linear-gradient(
-      color-mix(in srgb, var(--color-primary, #10b981) 92%, transparent),
-      color-mix(in srgb, var(--color-primary, #10b981) 78%, transparent)
-    ),
-    var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  --agent-control-tint-top: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 92%,
+    transparent
+  );
+  --agent-control-tint-bottom: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 78%,
+    transparent
+  );
+
   color: #fff;
 }
 
@@ -1522,16 +1685,36 @@ button.agent-panel-tag:disabled {
   }
 }
 
-/* 停止键用不透明淡红。叠在玻璃令牌上只会透出壁纸。 */
+/* 停止键用不透明淡红盖满玻璃：半透明的红叠在玻璃上只会透出壁纸。 */
 .agent-panel-composer .agent-panel-stop {
-  background: color-mix(in srgb, var(--color-error, #ef4444) 42%, white);
+  --agent-control-tint-top: color-mix(
+    in srgb,
+    var(--color-error, #ef4444) 42%,
+    white
+  );
+  --agent-control-tint-bottom: color-mix(
+    in srgb,
+    var(--color-error, #ef4444) 42%,
+    white
+  );
+
   color: #fff;
   backdrop-filter: none;
 }
 
 @media (hover: hover) {
   .agent-panel-composer .agent-panel-stop:not(:disabled):hover {
-    background: color-mix(in srgb, var(--color-error, #ef4444) 52%, white);
+    --agent-control-tint-top: color-mix(
+      in srgb,
+      var(--color-error, #ef4444) 52%,
+      white
+    );
+    --agent-control-tint-bottom: color-mix(
+      in srgb,
+      var(--color-error, #ef4444) 52%,
+      white
+    );
+
     color: #fff;
   }
 }
@@ -1831,7 +2014,8 @@ button.agent-panel-tag:disabled {
   .agent-panel-swap,
   .agent-panel-mic-hold,
   .agent-panel-mic-hold-ring,
-  .agent-panel-mic[data-conversation='true'] {
+  .agent-panel-mic[data-conversation='true'],
+  .agent-panel-control [data-glyph] {
     transition-duration: 0.01ms !important;
     transition-delay: 0ms !important;
     animation: none !important;
@@ -2254,78 +2438,6 @@ html .agent-panel-session.glass {
   .agent-panel-manage-knob {
     transition-duration: 0.01ms !important;
   }
-}
-
-/* 她最近：读了听了什么、想要的、她出的汤。 */
-
-.agent-panel-her {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.agent-panel-her-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.agent-panel-her-heading {
-  margin: 0;
-  color: var(--text-secondary, #6b7280);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.agent-panel-her-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
-  box-shadow: var(--surface-shadow);
-}
-
-.agent-panel-her-text {
-  margin: 0;
-  color: var(--text-primary, #111827);
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.agent-panel-her-said {
-  margin: 0;
-  color: var(--text-secondary, #6b7280);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.agent-panel-her-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 10px;
-  color: var(--text-muted, #9ca3af);
-  font-size: 12px;
-}
-
-.agent-panel-her-what {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-primary, #111827);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-panel-her-note {
-  margin: 0;
-  color: var(--text-muted, #9ca3af);
-  font-size: 13px;
 }
 
 /* 思考在答案胶囊里面。正文一出来就卸掉，不必另做一颗气泡。 */

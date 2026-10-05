@@ -10,7 +10,7 @@ const puzzle: HerPuzzle = {
   yours: false,
 }
 
-describe('her life in the panel', () => {
+describe('her life in agent settings', () => {
   it('asks for her puzzle by its surface, so she brings out that one', () => {
     const asked = askToPlay(puzzle, '来玩你出的这道汤：{surface}')
     // The server knows a puzzle by the start of its surface.

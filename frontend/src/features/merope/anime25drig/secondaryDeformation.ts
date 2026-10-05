@@ -361,8 +361,7 @@ export function deformAnime25DSecondaryPoint(
         const shellY = point.y - frame.neckPivotY
         point.x += (shellX * rollCosine - shellY * rollSine - shellX) * headFollow
         point.y += (shellX * rollSine + shellY * rollCosine - shellY) * headFollow
-        // A head turning on its outline is all ball: none of the flat card slide.
-        const turnBlend = frame.headTurn?.silhouette ? frame.shellActivation * HEAD_TURN_SHARE : frame.shellBlend
+        const turnBlend = shellTurnBlend(frame)
         point.x = legacyX + (point.x - legacyX) * turnBlend
         point.y = legacyY + (point.y - legacyY) * turnBlend
       } else {
@@ -652,4 +651,14 @@ function smoothstep(value: number): number {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
+}
+
+/**
+ * How much of the shell, pose corrections included, a head point takes. A
+ * head turning on its outline is all ball: none of the flat card slide.
+ */
+export function shellTurnBlend(
+  frame: Pick<Anime25DSecondaryDeformationFrame, 'headTurn' | 'shellActivation' | 'shellBlend'>,
+): number {
+  return frame.headTurn?.silhouette ? frame.shellActivation * HEAD_TURN_SHARE : frame.shellBlend
 }

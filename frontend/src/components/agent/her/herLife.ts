@@ -1,4 +1,4 @@
-import type { MeropeHerResponse } from '../../services/agent/types'
+import type { MeropeHerResponse } from '../../../services/agent/types'
 
 export type HerLately = MeropeHerResponse['lately'][number]
 export type HerPuzzle = MeropeHerResponse['puzzles'][number]

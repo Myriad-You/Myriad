@@ -1,16 +1,20 @@
+import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { beginIdentityChange, settleIdentity } from '../../utils/identity'
 import {
   agentPanelOpenSessionCount,
   agentPanelSubmitDetail,
+  askAgentPanel,
   attachAgentPanelOpenQueue,
   attachAgentSessionOpenQueue,
   clearQueuedAgentOpens,
   hasQueuedAgentPanelOpen,
   queueAgentPanelOpen,
   queueAgentSessionOpen,
+  takeQueuedAgentSubmit,
 } from './agentPanelEvents'
+import { getAgentPanelMode, setAgentPanelMode } from './agentPanelMode'
 
 test('accepted intention stays attached to an explicit Work submit', () => {
   const event = {
@@ -82,4 +86,36 @@ test('denied access discards pending opens', () => {
   const engine = attachAgentSessionOpenQueue()
   assert.equal(engine.queued, null)
   engine.detach()
+})
+
+function withWindow(t: TestContext, target: EventTarget): void {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: target })
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'window', original)
+    else Reflect.deleteProperty(globalThis, 'window')
+  })
+}
+
+test('asking from outside the panel keeps the words until the engine can send', (t) => {
+  const opened: string[] = []
+  const target = new EventTarget()
+  target.addEventListener('agent-panel-open', (event) => {
+    opened.push((event as CustomEvent<{ view: string }>).detail.view)
+  })
+  withWindow(t, target)
+  setAgentPanelMode('work')
+  askAgentPanel('  来玩你出的这道汤：暴雪夜  ', 'chat')
+  assert.equal(getAgentPanelMode(), 'chat')
+  assert.deepEqual(takeQueuedAgentSubmit(), { text: '来玩你出的这道汤：暴雪夜', mode: 'chat' })
+  assert.equal(takeQueuedAgentSubmit(), null)
+  assert.deepEqual(opened, ['messages'])
+})
+
+test('an identity change discards words asked for the previous subject', (t) => {
+  withWindow(t, new EventTarget())
+  askAgentPanel('来一局', 'chat')
+  beginIdentityChange()
+  settleIdentity({ id: 3 })
+  assert.equal(takeQueuedAgentSubmit(), null)
 })

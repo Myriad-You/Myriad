@@ -1,9 +1,10 @@
+import type { ReactNode } from 'react'
 import type { SiteFace } from '../api'
-import type { RigAssetPreflight } from '../assets/pipeline'
-import type { MeropeRigManifest } from '../rig/types'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { RigAssetCompileEvent } from '../assets/pipeline'
+import type { RigPath } from './RigImportPanel'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
-import { SettingsButton } from '../../../components/settings'
+import { SettingGroup, SettingsButton } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { userFacingError } from '../../../utils/userFacingError'
@@ -14,36 +15,50 @@ import {
   uploadFullBodyPortrait,
 } from '../api'
 import { commitFullBodyPsdAsset, preflightFullBodyPsdAsset } from '../assets/pipeline'
-import RigCharacter from '../character/RigCharacter'
+import { RigImportPanel } from './RigImportPanel'
+import { useRigImport } from './useRigImport'
 
 interface Props {
   /** The full-body set in the wardrobe. */
   outfitId: string
   seeThroughTokenConfigured: boolean
+  onSaveSeeThroughToken: (token: string) => Promise<void>
   /** The set's picture was redrawn, replaced or its figure saved. */
   onChanged?: () => void
+  onDownload?: (url: string) => void
+  /** The set is the full body worn. */
+  wearing: boolean
+  onWear: () => Promise<void>
+  /** Sits between the picture and the actions. */
+  children?: ReactNode
+  /** Sits between the actions and the rig. */
+  trailing?: ReactNode
 }
 
-type Operation = 'generate' | 'upload' | 'decompose' | 'save'
+type Operation = 'generate' | 'upload' | 'wear'
 
 /**
- * A full-body set's figure: its picture drawn or uploaded, split by
- * See-through, previewed, then saved into the set. The panel keeps playing
- * the bust.
+ * A full-body set's page: its picture drawn or uploaded, then split into
+ * a rig the way the bust's is. The panel keeps playing the bust.
  */
 export function FullBodyPanel({
   outfitId,
   seeThroughTokenConfigured,
+  onSaveSeeThroughToken,
   onChanged,
+  onDownload,
+  wearing,
+  onWear,
+  children,
+  trailing,
 }: Props) {
   const { t } = useI18n()
   const labels = t.merope
   const copy = labels.fullBody
   const [face, setFace] = useState<SiteFace | null>(null)
   const [operation, setOperation] = useState<Operation | null>(null)
-  const [preflight, setPreflight] = useState<RigAssetPreflight | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
+  const [rigPath, setRigPath] = useState<RigPath>('upload')
   const uploadRef = useRef<HTMLInputElement>(null)
 
   const reload = useCallback(async () => {
@@ -51,32 +66,42 @@ export function FullBodyPanel({
   }, [outfitId])
 
   useEffect(() => {
-    setPreflight(null)
-    setSaved(false)
     setError(null)
     reload().catch(() => setFace(null))
   }, [reload])
 
-  // A preflight has no stored atlas yet; play it from the packed one.
-  const previewAtlas = useMemo(
-    () => (preflight ? URL.createObjectURL(preflight.prepared.atlas) : null),
-    [preflight],
-  )
-  useEffect(
-    () => () => {
-      if (previewAtlas) URL.revokeObjectURL(previewAtlas)
+  const portrait = face?.portraitUrl ?? null
+  const fingerprint = face?.generationFingerprint ?? undefined
+  const rig = useRigImport({
+    sourceMasterAssetId: portrait ?? '',
+    sourceGenerationFingerprint: fingerprint,
+    seeThroughTokenConfigured,
+    onSaveSeeThroughToken,
+    onDecomposeRigPsd: () =>
+      decomposeFullBodyWithSeeThrough(outfitId, {
+        sourceMasterAssetId: portrait ?? '',
+        sourceGenerationFingerprint: fingerprint,
+      }),
+    onPreflightRigPsd: (
+      file: File,
+      onStage: (event: RigAssetCompileEvent) => void,
+      signal?: AbortSignal,
+    ) =>
+      preflightFullBodyPsdAsset(
+        outfitId,
+        file,
+        portrait ?? '',
+        fingerprint,
+        onStage,
+        signal,
+      ),
+    onCommitRigPsd: async (preflight, onStage) => {
+      const imported = await commitFullBodyPsdAsset(outfitId, preflight, onStage)
+      await reload()
+      onChanged?.()
+      return { partCount: imported.partCount, score: imported.report.score }
     },
-    [previewAtlas],
-  )
-  const manifest: MeropeRigManifest | null =
-    preflight && previewAtlas
-      ? {
-          ...preflight.manifest,
-          textures: preflight.manifest.textures.map((texture, index) =>
-            index === 0 ? { ...texture, url: previewAtlas } : texture,
-          ),
-        }
-      : (face?.manifest ?? null)
+  })
 
   const run = async (
     next: Operation,
@@ -86,7 +111,6 @@ export function FullBodyPanel({
     if (operation) return
     setOperation(next)
     setError(null)
-    setSaved(false)
     try {
       await task()
     } catch (reason) {
@@ -96,13 +120,6 @@ export function FullBodyPanel({
             reason,
             fallback,
             labels.motionSeeThroughTimeout,
-            {
-              see_through_token_required: labels.motionSeeThroughTokenRequired,
-              see_through_busy: labels.motionSeeThroughBusy,
-              see_through_auth_failed: labels.motionSeeThroughAuthFailed,
-              see_through_quota_unavailable: labels.motionSeeThroughQuota,
-              see_through_timeout: labels.motionSeeThroughTimeout,
-            },
           ),
           fallback,
         ),
@@ -117,86 +134,47 @@ export function FullBodyPanel({
       'generate',
       async () => {
         await generateFullBodyPortrait(outfitId)
-        setPreflight(null)
         await reload()
         onChanged?.()
       },
       copy.failed,
     )
 
+  const wear = () => run('wear', onWear, labels.wardrobeApplyFailed)
+
   const upload = (file: File) =>
     run(
       'upload',
       async () => {
         await uploadFullBodyPortrait(outfitId, file)
-        setPreflight(null)
         await reload()
         onChanged?.()
       },
       labels.portraitUploadFailed,
     )
 
-  const decompose = () =>
-    run(
-      'decompose',
-      async () => {
-        const portrait = face?.portraitUrl
-        if (!portrait) return
-        const fingerprint = face.generationFingerprint ?? undefined
-        const file = await decomposeFullBodyWithSeeThrough(outfitId, {
-          sourceMasterAssetId: portrait,
-          sourceGenerationFingerprint: fingerprint,
-        })
-        setPreflight(
-          await preflightFullBodyPsdAsset(outfitId, file, portrait, fingerprint),
-        )
-      },
-      labels.motionSeeThroughUpstream,
-    )
-
-  const save = () =>
-    run(
-      'save',
-      async () => {
-        if (!preflight) return
-        await commitFullBodyPsdAsset(outfitId, preflight)
-        setPreflight(null)
-        setSaved(true)
-        await reload()
-        onChanged?.()
-      },
-      labels.motionSeeThroughUpstream,
-    )
-
-  const portrait = face?.portraitUrl ?? null
   return (
     <div className="merope-motion-rig merope-full-body">
-      <div className="merope-full-body__figures">
-        {portrait ? (
-          <figure className="merope-full-body__figure">
-            <div className="merope-full-body__frame">
-              <img src={siteMediaUrl(portrait)} alt={copy.portrait} />
-            </div>
-            <figcaption>{copy.portrait}</figcaption>
-          </figure>
-        ) : (
-          <p className="merope-motion-rig__hint">{copy.none}</p>
-        )}
-        {manifest ? (
-          <figure className="merope-full-body__figure">
-            <div className="merope-full-body__frame">
-              <RigCharacter
-                activity="idle"
-                mood={0}
-                manifest={manifest}
-                fallbackUrl={portrait}
-              />
-            </div>
-            <figcaption>{copy.preview}</figcaption>
-          </figure>
+      {portrait ? (
+        <div className="merope-wardrobe-page__portrait merope-wardrobe-page__portrait--standing">
+          <img src={siteMediaUrl(portrait)} alt={copy.portrait} draggable={false} />
+        </div>
+      ) : (
+        <p className="merope-motion-rig__hint">{copy.none}</p>
+      )}
+      {children}
+      <div className="merope-motion-asset__actions">
+        {portrait && !wearing ? (
+          <SettingsButton
+            type="button"
+            size="sm"
+            disabled={operation !== null}
+            loading={operation === 'wear'}
+            onClick={() => void wear()}
+          >
+            {labels.wardrobeWear}
+          </SettingsButton>
         ) : null}
-      </div>
-      <div className="merope-full-body__actions">
         <SettingsButton
           type="button"
           size="sm"
@@ -221,26 +199,15 @@ export function FullBodyPanel({
         >
           {operation === 'upload' ? copy.uploading : copy.upload}
         </SettingsButton>
-        {portrait ? (
+        {portrait && onDownload ? (
           <SettingsButton
             type="button"
             size="sm"
-            disabled={operation !== null || !seeThroughTokenConfigured}
-            loading={operation === 'decompose'}
-            onClick={() => void decompose()}
-          >
-            {operation === 'decompose' ? copy.decomposing : copy.decompose}
-          </SettingsButton>
-        ) : null}
-        {preflight ? (
-          <SettingsButton
-            type="button"
-            size="sm"
+            variant="secondary"
             disabled={operation !== null}
-            loading={operation === 'save'}
-            onClick={() => void save()}
+            onClick={() => onDownload(portrait)}
           >
-            {operation === 'save' ? copy.saving : copy.save}
+            {copy.download}
           </SettingsButton>
         ) : null}
       </div>
@@ -255,14 +222,28 @@ export function FullBodyPanel({
           if (file) void upload(file)
         }}
       />
-      {portrait && !seeThroughTokenConfigured ? (
-        <p className="merope-motion-rig__hint">{copy.needsToken}</p>
-      ) : null}
-      {saved ? <p className="merope-motion-rig__hint">{copy.saved}</p> : null}
       {error ? (
         <p className="merope-motion-rig__hint" role="alert">
           {error}
         </p>
+      ) : null}
+      {trailing}
+      {portrait ? (
+        <SettingGroup
+          title={labels.rigGroup}
+          description={labels.rigGroupDescription}
+          id="merope-motion-full-body-rig"
+        >
+          <RigImportPanel
+            rig={rig}
+            rigPath={rigPath}
+            onRigPathChange={setRigPath}
+            seeThroughTokenConfigured={seeThroughTokenConfigured}
+            aiExpressions={[]}
+            canGenerateAiExpressions={false}
+            motionEnabled={false}
+          />
+        </SettingGroup>
       ) : null}
     </div>
   )

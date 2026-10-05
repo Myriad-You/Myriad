@@ -166,6 +166,27 @@ export function useAgentStatus(): AgentStatusState {
   )
 }
 
+function getAgentStatusKindSnapshot(): AgentStatusState['status'] {
+  return published.status
+}
+
+function getServerAgentStatusKindSnapshot(): AgentStatusState['status'] {
+  return IDLE_AGENT_STATUS.status
+}
+
+/**
+ * Just the status. Progress and detail change many times a run; readers
+ * that only show the status (face, composer buttons, aurora) should not
+ * re-render for them.
+ */
+export function useAgentStatusKind(): AgentStatusState['status'] {
+  return useSyncExternalStore(
+    subscribeAgentStatus,
+    getAgentStatusKindSnapshot,
+    getServerAgentStatusKindSnapshot,
+  )
+}
+
 export function setAgentLaneLoading(
   mode: AgentPanelMode,
   loading: boolean,

@@ -4,7 +4,7 @@ import type {
   UpperBodyVisualIdentity,
 } from '../../../components/agent/onboarding/onboardingTypes'
 import type { WardrobeItem } from '../persona/wardrobe'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import {
   CLOTHING_STYLE_OPTIONS,
@@ -29,6 +29,7 @@ import {
   sortWardrobe,
   wardrobeItemLabel,
 } from '../persona/wardrobe'
+import { ChoiceRow } from './ChoiceRow'
 import '../../../components/agent/PersonaOnboarding.css'
 
 interface Props {
@@ -37,6 +38,8 @@ interface Props {
   language: string
   items: WardrobeItem[]
   activeId: string | null
+  /** The full-body set worn, apart from the bust. */
+  activeFullBodyId?: string | null
   portraitUrl?: string | null
   busy: boolean
   filling?: boolean
@@ -45,6 +48,8 @@ interface Props {
   onManage: (item: WardrobeItem) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onCreated: (item: WardrobeItem, identity: UpperBodyVisualIdentity) => Promise<void>
+  /** Adds a set from the owner's own picture instead of a generated one. */
+  onUpload: (item: WardrobeItem, file: File) => Promise<void>
 }
 
 export default function OutfitWardrobe({
@@ -53,6 +58,7 @@ export default function OutfitWardrobe({
   language,
   items,
   activeId,
+  activeFullBodyId = null,
   portraitUrl = null,
   busy,
   filling = false,
@@ -61,6 +67,7 @@ export default function OutfitWardrobe({
   onManage,
   onDelete,
   onCreated,
+  onUpload,
 }: Props) {
   const { t } = useI18n()
   const labels = t.merope
@@ -69,6 +76,8 @@ export default function OutfitWardrobe({
   const [composing, setComposing] = useState(false)
   const [style, setStyle] = useState<ClothingStyle | null>(null)
   const [fullBody, setFullBody] = useState(false)
+  const [source, setSource] = useState<'generate' | 'upload'>('generate')
+  const uploadRef = useRef<HTMLInputElement>(null)
   const [referenceId, setReferenceId] = useState<string | null>(null)
   const [itemName, setItemName] = useState('')
   const [requirements, setRequirements] = useState('')
@@ -82,7 +91,8 @@ export default function OutfitWardrobe({
       !isFullBodyItem(item) &&
       (item.portraitAssetId || (item.id === activeId && portraitUrl)),
   )
-  const reference = fullBody
+  const uploadMode = source === 'upload'
+  const reference = fullBody && !uploadMode
     ? (references.find((item) => item.id === referenceId) ?? null)
     : null
   const canGenerate =
@@ -131,9 +141,43 @@ export default function OutfitWardrobe({
     setComposing(false)
     setStyle(null)
     setFullBody(false)
+    setSource('generate')
     setReferenceId(null)
     setItemName('')
     setRequirements('')
+  }
+
+  const upload = async (file: File) => {
+    if (!identity || blocked || full) return
+    // The design is a stand-in: a bust's is read from the picture once it is
+    // in, and a full-body set's can be edited on its page.
+    const name =
+      parseWardrobeName(itemName) ??
+      parseWardrobeName(file.name.replace(/\.[^.]+$/, ''))
+    const item: WardrobeItem = {
+      id: newWardrobeId(),
+      clothingStyle: current?.clothingStyle ?? 'everyday',
+      outfit: identity.outfit,
+      ...(fullBody ? { profile: 'fullBody' as const } : {}),
+      ...(name ? { name } : {}),
+    }
+    setGenerating(true)
+    try {
+      await onUpload(item, file)
+      resetDrawer()
+    } catch (reason) {
+      showStickyToast({
+        message: generationFailureMessage(
+          reason,
+          labels.portraitUploadFailed,
+          o.generationTimeout,
+        ),
+        type: 'error',
+        replaceKey: 'merope-wardrobe',
+      })
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const generate = async () => {
@@ -273,13 +317,18 @@ export default function OutfitWardrobe({
             {others.map((item) => {
               const picture = item.portraitAssetId || null
               const standing = isFullBodyItem(item)
+              const worn = standing && item.id === activeFullBodyId
               return (
-                <div key={item.id} className="merope-wardrobe__set" role="listitem">
+                <div
+                  key={item.id}
+                  className={`merope-wardrobe__set${worn ? ' is-on' : ''}`}
+                  role="listitem"
+                >
                   <button
                     type="button"
                     className={`merope-wardrobe__garment${picture ? '' : ' merope-wardrobe__garment--fold'}${standing ? ' merope-wardrobe__garment--full-body' : ''}`}
                     disabled={blocked}
-                    aria-pressed={false}
+                    aria-pressed={worn}
                     aria-label={labelOf(item)}
                     onClick={() => manageItem(item)}
                   >
@@ -296,6 +345,11 @@ export default function OutfitWardrobe({
                     {standing ? (
                       <i className="merope-wardrobe__kind">
                         {labels.fullBody.badge}
+                      </i>
+                    ) : null}
+                    {worn ? (
+                      <i className="merope-wardrobe__wearing">
+                        {labels.wardrobeWearing}
                       </i>
                     ) : null}
                     {isDefaultWardrobeItem(item) ? null : (
@@ -354,34 +408,33 @@ export default function OutfitWardrobe({
       ) : null}
       {composing ? (
         <div className="merope-wardrobe__drawer">
-          <p className="merope-wardrobe__drawer-label">{labels.fullBody.kind}</p>
-          <div
-            className="merope-wardrobe__kinds"
-            role="radiogroup"
-            aria-label={labels.fullBody.kind}
-          >
-            {[false, true].map((standing) => (
-              <button
-                key={String(standing)}
-                type="button"
-                role="radio"
-                aria-checked={fullBody === standing}
-                className={`merope-wardrobe__family${fullBody === standing ? ' is-on' : ''}`}
-                disabled={blocked}
-                onClick={() => {
-                  setFullBody(standing)
-                  setReferenceId(null)
-                }}
-              >
-                <span>
-                  {standing
-                    ? labels.fullBody.kindFullBody
-                    : labels.fullBody.kindBust}
-                </span>
-              </button>
-            ))}
-          </div>
-          {fullBody ? (
+          <ChoiceRow
+            label={labels.fullBody.kind}
+            value={fullBody ? 'fullBody' : 'bust'}
+            disabled={blocked}
+            options={[
+              { value: 'bust', label: labels.fullBody.kindBust },
+              { value: 'fullBody', label: labels.fullBody.kindFullBody },
+            ]}
+            onChange={(value) => {
+              setFullBody(value === 'fullBody')
+              setReferenceId(null)
+            }}
+          />
+          <ChoiceRow
+            label={labels.wardrobeSource}
+            value={source}
+            disabled={blocked}
+            options={[
+              { value: 'generate', label: labels.wardrobeSourceGenerate },
+              { value: 'upload', label: labels.wardrobeSourceUpload },
+            ]}
+            onChange={(value) => {
+              setSource(value)
+              setReferenceId(null)
+            }}
+          />
+          {fullBody && !uploadMode ? (
             <>
               <p className="merope-wardrobe__drawer-label">
                 {labels.fullBody.reference}
@@ -429,7 +482,7 @@ export default function OutfitWardrobe({
               </p>
             </>
           ) : null}
-          {reference ? null : (
+          {reference || uploadMode ? null : (
           <>
           <p className="merope-wardrobe__drawer-label">{o.clothingStyleLabel}</p>
           <div
@@ -482,7 +535,7 @@ export default function OutfitWardrobe({
               onChange={(event) => setItemName(event.target.value)}
             />
           </Field>
-          {reference ? null : (
+          {reference || uploadMode ? null : (
           <Field
             label={labels.wardrobeRequirements}
             optional
@@ -501,16 +554,46 @@ export default function OutfitWardrobe({
             />
           </Field>
           )}
+          {uploadMode ? (
+            <p className="merope-motion-home__help">
+              {fullBody
+                ? labels.wardrobeUploadHintFullBody
+                : labels.wardrobeUploadHintBust}
+            </p>
+          ) : null}
+          <input
+            ref={uploadRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            hidden
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0]
+              event.currentTarget.value = ''
+              if (file) void upload(file)
+            }}
+          />
           <div className="merope-wardrobe__actions">
-            <SettingsButton
-              type="button"
-              size="sm"
-              disabled={!canGenerate}
-              loading={generating}
-              onClick={() => void generate()}
-            >
-              {generating ? o.visualDesignGenerating : labels.wardrobeGenerate}
-            </SettingsButton>
+            {uploadMode ? (
+              <SettingsButton
+                type="button"
+                size="sm"
+                disabled={blocked || !identity || full}
+                loading={generating}
+                onClick={() => uploadRef.current?.click()}
+              >
+                {generating ? labels.wardrobeUploadAdding : labels.wardrobeUploadAdd}
+              </SettingsButton>
+            ) : (
+              <SettingsButton
+                type="button"
+                size="sm"
+                disabled={!canGenerate}
+                loading={generating}
+                onClick={() => void generate()}
+              >
+                {generating ? o.visualDesignGenerating : labels.wardrobeGenerate}
+              </SettingsButton>
+            )}
             <SettingsButton
               type="button"
               size="sm"

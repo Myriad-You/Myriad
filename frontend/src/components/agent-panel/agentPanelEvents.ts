@@ -2,7 +2,11 @@ import type { AgentAttachment } from './agentAttachments'
 import type { AgentPanelMode } from './agentPanelMode'
 import { authSubject } from '../../utils/authSubject'
 import { createStore, patchStore } from '../../utils/store'
-import { getAgentPanelMode, isAgentPanelMode } from './agentPanelMode'
+import {
+  getAgentPanelMode,
+  isAgentPanelMode,
+  setAgentPanelMode,
+} from './agentPanelMode'
 
 export const AGENT_PANEL_SUBMIT_EVENT = 'agent-panel-submit'
 
@@ -109,11 +113,13 @@ const panelQueue = createStore<{ open: QueuedAgentPanelOpen | null, attached: bo
   attached: false,
 })
 let queuedAgentSessionOpen: QueuedAgentSessionOpen | null = null
+let queuedAgentSubmit: AgentPanelSubmitDetail | null = null
 let engineAttached = false
 
-// 排队的会话 id 属于排队时的主体；换号后交给新主体的引擎会打开别人的会话。
+// 排队的会话 id 与要说的话都属于排队时的主体；换号后不能替新主体发出去。
 authSubject.subscribe(() => {
   queuedAgentSessionOpen = null
+  queuedAgentSubmit = null
 })
 
 /** Fires when a panel open is queued, consumed or discarded, or the panel attaches/detaches. */
@@ -173,9 +179,30 @@ export function attachAgentSessionOpenQueue(): {
   }
 }
 
+/**
+ * 面板之外（Agent 设置里的「她最近」）让她开口：切到该模式、发出这句、打开面板。
+ * 引擎还没挂时提交事件没人听，先记下，由挂上的引擎用 takeQueuedAgentSubmit 兑现。
+ */
+export function askAgentPanel(text: string, mode: AgentPanelMode): void {
+  const trimmed = text.trim()
+  if (!trimmed) return
+  setAgentPanelMode(mode)
+  if (engineAttached) dispatchAgentPanelSubmit(trimmed, undefined, mode)
+  else queuedAgentSubmit = { text: trimmed, mode }
+  dispatchAgentPanelOpen('messages')
+}
+
+/** 引擎能发送之后取走排队的那句话。 */
+export function takeQueuedAgentSubmit(): AgentPanelSubmitDetail | null {
+  const queued = queuedAgentSubmit
+  queuedAgentSubmit = null
+  return queued
+}
+
 /** 访问被拒时丢弃未兑现的请求，避免之后获准时突然弹出。 */
 export function clearQueuedAgentOpens(): void {
   queuedAgentSessionOpen = null
+  queuedAgentSubmit = null
   patchStore(panelQueue, { open: null })
 }
 

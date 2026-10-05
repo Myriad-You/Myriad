@@ -17,10 +17,16 @@ export async function mountPoseEditor() {
   const playback = {
     anchors: { face: { y1: 450 }, eyeL: { icx: 210, closeY: 260 }, mouth: { cx: 300, cy: 380 } },
     layers: [{ role: 'face' }],
+    pixelCanvas: { width: 600, height: 800 },
     shellProfile: { head: { centerX: 300, centerY: 250, radiusX: 180, radiusY: 240 } },
   } as Anime25DPlayback
   const characterRef = { current: {
     previewPoseCorrections: (value: PoseCorrection[] | null) => calls.push(structuredClone(value)),
+    pickPoseCorrectionPoint: () => null,
+    projectPoseCorrectionPatch: () => null,
+    poseCorrectionDelta: () => null,
+    poseCorrectionStageRect: () => null,
+    zoomPoseCorrectionHead: () => {},
   } as unknown as RigCharacterHandle }
   const render = (key: string) => root.render(
 <I18nProvider><I18nNamespace names={['merope']}><PoseCorrectionEditor
@@ -28,6 +34,7 @@ export async function mountPoseEditor() {
   playback={playback}
   characterRef={characterRef}
   driver={{ ...WORKBENCH_DRIVER, angleX: 0.8, angleY: -0.6 }}
+  target="the worn bust"
   onDriver={() => {}}
   onSave={async value => { saves.push(structuredClone(value)) }}
                                                 /></I18nNamespace></I18nProvider>,

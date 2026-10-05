@@ -13,6 +13,7 @@ import {
   configChangesNeedPwaReload,
   configChangesNeedRuntimeReload,
   configChangesNeedSpeechPipelineReload,
+  configChangesNeedSpeechStatusRefresh,
   configChangesNeedWallpaperReload,
   PERSONA_PUBLIC_NAME_UI_BAG_KEYS,
   RUNTIME_RELOAD_UI_BAG_KEYS,
@@ -234,5 +235,27 @@ describe('uiBagOwnership', () => {
       '2',
     )
     assert.ok(RUNTIME_RELOAD_UI_BAG_KEYS.length > 0)
+  })
+
+  it('asks speech status again when any AI setting changes', () => {
+    const ai = (fields: Array<{ key: string; value: string }>) => ({
+      ai_config: { config_fields: fields },
+    })
+    const base = [
+      { key: 'speech_source', value: 'tencent' },
+      { key: 'ai_vendor_sources', value: '[]' },
+    ]
+    assert.equal(configChangesNeedSpeechStatusRefresh(ai(base), ai(base)), false)
+    assert.equal(
+      configChangesNeedSpeechStatusRefresh(
+        ai([base[0], { key: 'ai_vendor_sources', value: '[{"kind":"tencent"}]' }]),
+        ai(base),
+      ),
+      true,
+    )
+    assert.equal(
+      configChangesNeedSpeechStatusRefresh(ai([base[0]]), ai(base)),
+      true,
+    )
   })
 })

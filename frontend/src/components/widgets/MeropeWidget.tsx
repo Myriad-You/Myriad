@@ -42,7 +42,7 @@ import {
 import { useMeropeWidgetFaceSlot } from '../../features/merope/presence/widgetFaceSlot'
 import { sameLiveFaceRuntime } from '../../features/merope/rig/manifestValidation'
 import { agentService } from '../../services/agent'
-import { useAgentStatus } from '../agent-panel/agentStatusStore'
+import { useAgentStatusKind } from '../agent-panel/agentStatusStore'
 import { ADDRESSEE_UPDATED_EVENT, moodBand } from '../agent/meropeVitals'
 import {
   nameplateHidden,
@@ -192,7 +192,7 @@ function LiveMeropeWidget({
   const [agentName, setAgentName] = useState<string | null>(null)
   const [mood, setMood] = useState(DEFAULT_MOOD)
   const [arousal, setArousal] = useState(DEFAULT_AROUSAL)
-  const { status } = useAgentStatus()
+  const status = useAgentStatusKind()
   const activity = agentStatusActivity(status)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)

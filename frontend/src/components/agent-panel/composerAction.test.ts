@@ -125,3 +125,44 @@ describe('composerActionKind', () => {
     )
   })
 })
+
+describe('composerActionKind right after a send', () => {
+  it('goes straight to stop while the run has not been reported yet', () => {
+    for (const speechAvailable of [true, false]) {
+      assert.equal(
+        composerActionKind({
+          hasText: false,
+          busy: false,
+          sending: true,
+          speechAvailable,
+          voiceLocked: false,
+        }),
+        'stop',
+      )
+    }
+  })
+
+  it('still lets typing win, and a live conversation keep the mic', () => {
+    assert.equal(
+      composerActionKind({
+        hasText: true,
+        busy: false,
+        sending: true,
+        speechAvailable: true,
+        voiceLocked: false,
+      }),
+      'send',
+    )
+    assert.equal(
+      composerActionKind({
+        hasText: false,
+        busy: false,
+        sending: true,
+        speechAvailable: true,
+        voiceLocked: true,
+        conversation: true,
+      }),
+      'voice',
+    )
+  })
+})

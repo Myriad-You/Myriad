@@ -2,14 +2,19 @@
 
 use axum::{
     Extension, Json,
-    extract::{Multipart, State},
+    extract::{Multipart, Path, State},
+    http::StatusCode,
 };
+use myriad_merope::BustPortraitRefusal;
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde_json::{Value, json};
 
 use super::{
-    ApiResult, bad_request, internal_error, portrait::bind_worn_portrait, require_merope_enabled,
-    require_owner,
+    ApiResult, bad_request,
+    full_body::{finish, lock_persona, save_visual_profile},
+    internal_error, not_found,
+    portrait::bind_worn_portrait,
+    require_merope_enabled, require_owner,
 };
 use crate::{
     middleware::auth::Claims,
@@ -210,6 +215,60 @@ pub async fn upload_portrait(
         "portraitUrl": public_url,
         "portraitAssetId": public_url,
     })))
+}
+
+/// The owner's picture for a bust set that is not worn, so a set can be made
+/// from ready-made art without putting it on. The worn set's picture is the
+/// master portrait and goes through [`upload_portrait`].
+pub async fn upload_outfit_portrait(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(outfit_id): Path<String>,
+    multipart: Multipart,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    let user_id = require_owner(&claims, &db).await?;
+    let reference = read_portrait_upload(multipart).await?;
+    let url = persist_uploaded_portrait(&db, user_id, reference).await?;
+    let transaction = db.begin().await.map_err(internal_error)?;
+    let written = async {
+        let row = lock_persona(&transaction).await?;
+        let public_url = crate::services::media::normalize_local_url(
+            &transaction,
+            &url,
+            &crate::services::media::configured_origins().await,
+        )
+        .await
+        .map_err(|error| internal_error(error.to_string()))?;
+        let mut profile = row.visual_profile.clone().unwrap_or_else(|| json!({}));
+        myriad_merope::bind_bust_outfit_portrait(&mut profile, &outfit_id, &public_url).map_err(
+            |refusal| match refusal {
+                BustPortraitRefusal::Missing => not_found("The outfit is missing"),
+                BustPortraitRefusal::Worn => (
+                    StatusCode::CONFLICT,
+                    Json(json!({
+                        "error": "The worn outfit's picture is the master portrait",
+                        "code": "outfit_is_worn"
+                    })),
+                ),
+                BustPortraitRefusal::Invalid => bad_request("Invalid portrait image"),
+            },
+        )?;
+        crate::services::media::bind_persona(
+            &transaction,
+            row.portrait_asset_id.as_deref(),
+            row.avatar_asset_id.as_deref(),
+            Some(&profile),
+            &crate::services::media::configured_origins().await,
+        )
+        .await
+        .map_err(|error| internal_error(error.to_string()))?;
+        save_visual_profile(&transaction, row, profile, user_id).await?;
+        Ok(public_url)
+    }
+    .await;
+    let public_url = finish(transaction, written).await?;
+    Ok(Json(json!({ "portraitUrl": public_url })))
 }
 
 #[cfg(test)]

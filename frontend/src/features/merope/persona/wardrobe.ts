@@ -411,3 +411,16 @@ export function hydrateWardrobe(
     matched?.id ?? saved,
   )
 }
+
+/** The full-body set worn, when the profile names one still in the wardrobe. */
+export function activeFullBodyIdFromProfile(
+  profile: unknown,
+  items: readonly WardrobeItem[],
+): string | null {
+  const id =
+    profile && typeof profile === 'object' && !Array.isArray(profile)
+      ? (profile as Record<string, unknown>).activeFullBodyOutfitId
+      : null
+  if (typeof id !== 'string') return null
+  return items.some((item) => item.id === id && isFullBodyItem(item)) ? id : null
+}

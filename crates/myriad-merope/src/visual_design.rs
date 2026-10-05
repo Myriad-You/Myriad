@@ -769,6 +769,47 @@ pub fn bind_full_body_outfit_portrait(
     true
 }
 
+/// Why a bust set's own picture could not be stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BustPortraitRefusal {
+    /// No bust set has this id.
+    Missing,
+    /// The set is the one worn: its picture is the master portrait.
+    Worn,
+    /// The picture is not a site asset.
+    Invalid,
+}
+
+/// Store the owner's picture for a bust set that is not worn. Its fingerprint
+/// and any rig compiled from an earlier picture no longer match it.
+pub fn bind_bust_outfit_portrait(
+    profile: &mut Value,
+    id: &str,
+    portrait_asset_id: &str,
+) -> Result<(), BustPortraitRefusal> {
+    let Some(portrait) = sanitize_wardrobe_portrait(portrait_asset_id) else {
+        return Err(BustPortraitRefusal::Invalid);
+    };
+    let worn = profile.get("activeOutfitId").and_then(Value::as_str) == Some(id);
+    let item = profile
+        .get_mut("wardrobe")
+        .and_then(Value::as_array_mut)
+        .and_then(|items| {
+            items
+                .iter_mut()
+                .find(|item| wardrobe_item_id(item) == Some(id) && !is_full_body_item(item))
+        })
+        .and_then(Value::as_object_mut)
+        .ok_or(BustPortraitRefusal::Missing)?;
+    if worn {
+        return Err(BustPortraitRefusal::Worn);
+    }
+    item.insert("portraitAssetId".into(), json!(portrait));
+    item.remove("generationFingerprint");
+    item.remove("rigAssetId");
+    Ok(())
+}
+
 /// Bind a compiled full-body package to the set its picture belongs to.
 pub fn bind_full_body_outfit_rig(profile: &mut Value, id: &str, rig_asset_id: &str) -> bool {
     let Some(rig) = sanitize_wardrobe_hex_id(rig_asset_id) else {
@@ -1454,6 +1495,50 @@ mod tests {
         assert_eq!(legacy["wardrobe"][0]["id"], DEFAULT_WARDROBE_ID);
         assert!(legacy["wardrobe"][0].get("name").is_none());
         assert_eq!(legacy["activeOutfitId"], DEFAULT_WARDROBE_ID);
+    }
+
+    #[test]
+    fn a_bust_set_that_is_not_worn_takes_the_owners_picture() {
+        let mut profile = json!({
+            "activeOutfitId": "default",
+            "wardrobe": [
+                { "id": "default", "portraitAssetId": "/media/worn.png" },
+                {
+                    "id": "w-coat",
+                    "portraitAssetId": "/media/old.png",
+                    "generationFingerprint": "a".repeat(64),
+                    "rigAssetId": "b".repeat(64),
+                },
+                { "id": "w-full", "profile": "fullBody" },
+            ],
+        });
+        assert_eq!(
+            bind_bust_outfit_portrait(&mut profile, "default", "/media/x.png"),
+            Err(BustPortraitRefusal::Worn)
+        );
+        assert_eq!(
+            bind_bust_outfit_portrait(&mut profile, "w-full", "/media/x.png"),
+            Err(BustPortraitRefusal::Missing)
+        );
+        assert_eq!(
+            bind_bust_outfit_portrait(&mut profile, "w-none", "/media/x.png"),
+            Err(BustPortraitRefusal::Missing)
+        );
+        assert_eq!(
+            bind_bust_outfit_portrait(&mut profile, "w-coat", "https://elsewhere/x.png"),
+            Err(BustPortraitRefusal::Invalid)
+        );
+        assert_eq!(profile["wardrobe"][1]["portraitAssetId"], "/media/old.png");
+
+        assert_eq!(
+            bind_bust_outfit_portrait(&mut profile, "w-coat", "/media/new.png"),
+            Ok(())
+        );
+        let coat = &profile["wardrobe"][1];
+        assert_eq!(coat["portraitAssetId"], "/media/new.png");
+        assert!(coat.get("generationFingerprint").is_none());
+        assert!(coat.get("rigAssetId").is_none());
+        assert_eq!(profile["wardrobe"][0]["portraitAssetId"], "/media/worn.png");
     }
 
     #[test]

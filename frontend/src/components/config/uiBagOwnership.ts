@@ -181,6 +181,27 @@ export function configChangesNeedSpeechPipelineReload(
   )
 }
 
+/**
+ * AI settings decide what speech can do: its source, the vendor keys, Lite
+ * (Omni hears with it). Any change there asks /speech/status again; the
+ * keys involved move too often to list.
+ */
+export function configChangesNeedSpeechStatusRefresh(
+  next: {
+    ai_config?: { config_fields?: Array<{ key: string; value: string }> }
+  },
+  prev: {
+    ai_config?: { config_fields?: Array<{ key: string; value: string }> }
+  },
+): boolean {
+  const before = new Map(
+    (prev.ai_config?.config_fields ?? []).map((field) => [field.key, field.value]),
+  )
+  const after = next.ai_config?.config_fields ?? []
+  if (after.length !== before.size) return true
+  return after.some((field) => before.get(field.key) !== field.value)
+}
+
 /** platform save: invalidate library caches */
 export function configChangesNeedPlatformsCacheInvalidation(
   next: { platforms: unknown },

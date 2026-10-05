@@ -22,6 +22,7 @@ import { userFacingError } from '../../../utils/userFacingError'
 import { generateSitePortrait } from '../api'
 import { notifyFaceUpdated } from '../events/updates'
 import {
+  activeFullBodyIdFromProfile,
   applyOutfit,
   bindPortrait,
   hydrateWardrobe,
@@ -53,6 +54,8 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
   const { clearPortrait, loadFace, portraitUrl } = face
   const [wardrobeItems, setWardrobeItems] = useState<WardrobeItem[]>([])
   const [activeOutfitId, setActiveOutfitId] = useState<string | null>(null)
+  // The full body worn is kept apart from the bust worn on the panel.
+  const [activeFullBodyId, setActiveFullBodyId] = useState<string | null>(null)
   const [managingOutfitId, setManagingOutfitId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [visualIdentity, setVisualIdentity] =
@@ -76,6 +79,9 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
     )
     setWardrobeItems(hydrated.items)
     setActiveOutfitId(hydrated.activeId)
+    setActiveFullBodyId(
+      activeFullBodyIdFromProfile(persona?.visualProfile, hydrated.items),
+    )
   }, [])
 
   /** The persona as first loaded. */
@@ -94,6 +100,7 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
     setVisualIdentity(null)
     setWardrobeItems([])
     setActiveOutfitId(null)
+    setActiveFullBodyId(null)
   }, [])
 
   /** Re-read the persona after the server changed it. */
@@ -108,6 +115,8 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
       items: WardrobeItem[]
       activeId: string | null
       portraitAssetId?: string | null
+      /** Wear this full-body set; `null` takes it off. Left out, it stays. */
+      activeFullBodyId?: string | null
     }) => {
       if (!personaSnapshot) return
       const persisted = persistWardrobeState(patch.items, patch.activeId)
@@ -131,9 +140,16 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
             : {}),
           wardrobe: items,
           activeOutfitId: persisted.activeId,
+          ...(Object.hasOwn(patch, 'activeFullBodyId')
+            ? { activeFullBodyOutfitId: patch.activeFullBodyId }
+            : {}),
         },
       })
       setPersonaSnapshot(saved)
+      // The server clears a worn full body whose set was deleted.
+      setActiveFullBodyId(
+        activeFullBodyIdFromProfile(saved.visualProfile, items),
+      )
       setVisualIdentity(patch.identity)
       setWardrobeItems(items)
       setActiveOutfitId(persisted.activeId)
@@ -455,6 +471,16 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
   const wearOutfit = useCallback(
     async (item: WardrobeItem) => {
       if (!visualIdentity) return
+      if (isFullBodyItem(item)) {
+        // A full body is worn without touching the bust or the master portrait.
+        await saveVisualProfile({
+          identity: visualIdentity,
+          items: wardrobeItems,
+          activeId: activeOutfitId,
+          activeFullBodyId: item.id,
+        })
+        return
+      }
       const nextIdentity = applyOutfit(visualIdentity, item)
       if (item.portraitAssetId) {
         await saveVisualProfile({
@@ -495,6 +521,7 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
       }
     },
     [
+      activeOutfitId,
       saveVisualProfile,
       t.merope.visualFailed,
       visualIdentity,
@@ -557,6 +584,21 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
     setManagingOutfitId(item.id)
   }
 
+  /**
+   * Adds a set that already has its picture coming: the set is saved, and
+   * worn when the picture will replace the master portrait. Opening it is the
+   * caller's, once the picture is in.
+   */
+  const addOutfit = async (item: WardrobeItem, options: { wear: boolean }) => {
+    if (!visualIdentity) return
+    await saveVisualProfile({
+      identity: options.wear ? applyOutfit(visualIdentity, item) : visualIdentity,
+      ...(options.wear ? { clothingStyle: item.clothingStyle } : {}),
+      items: [...wardrobeItems, item],
+      activeId: options.wear ? item.id : activeOutfitId,
+    })
+  }
+
   return {
     personaSnapshot,
     setPersonaSnapshot,
@@ -565,6 +607,7 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
     wardrobeItems,
     setWardrobeItems,
     activeOutfitId,
+    activeFullBodyId,
     managingOutfitId,
     setManagingOutfitId,
     generating,
@@ -581,5 +624,6 @@ export function usePersonaWardrobe({ face, onPortraitReplaced }: Options) {
     renameOutfit,
     deleteOutfit,
     createOutfit,
+    addOutfit,
   }
 }

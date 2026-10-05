@@ -70,7 +70,7 @@ test('Work interrupt cannot abort Chat SSE, and session ids stay per mode', () =
     new URL('./AgentPanel.tsx', import.meta.url),
     'utf8',
   )
-  assert.match(panel, /agentStatusForLane\(island\.status, laneLoading\)/)
+  assert.match(panel, /agentStatusForLane\(island, laneLoading\)/)
   assert.doesNotMatch(engine, /if \(mode === 'chat'\) return/)
   assert.match(engine, /mode !== 'chat'/)
   assert.match(engine, /chatPagePayload\(/)

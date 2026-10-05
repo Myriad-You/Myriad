@@ -56,7 +56,7 @@ import {
 import { writeAnime25DLayerGlobalTransform } from './layerTransform'
 import { writePoseCorrectionWeights } from './poseCorrections'
 import { BODY_ROLL_RADIANS, HEAD_ROLL_RADIANS } from './poseScale'
-import { deformAnime25DSecondaryPoint } from './secondaryDeformation'
+import { deformAnime25DSecondaryPoint, shellTurnBlend } from './secondaryDeformation'
 import { writeAnime25DShellRotation } from './shellDeformation'
 import { Anime25DStanding } from './standing'
 import {
@@ -288,6 +288,17 @@ export class Anime25DBodyFrames {
   }
 
   /** How far the jaw has dropped, in pixels, and how open it is. */
+  /** The pose corrections are weighed against this frame. */
+  poseCorrectionDriver(): Readonly<Anime25DDriver> {
+    return this.current
+  }
+
+  /** The share of a pose correction's push the head shows this frame. */
+  poseCorrectionGain(): number {
+    const frame = this.secondaryDeformationFrame
+    return frame.shellProfile.enabled ? shellTurnBlend(frame) : 0
+  }
+
   jawDrop(): number {
     return this.jaw.value * this.jawTravel
   }

@@ -5,6 +5,7 @@ import {
   getSpeechStatus,
   getVoiceList,
   invalidateSpeechStatusCache,
+  subscribeSpeechStatus,
 } from './speechApi.ts'
 
 describe('speech guest contract', () => {
@@ -51,5 +52,17 @@ describe('speech guest contract', () => {
     const status = await getSpeechStatus()
     assert.equal(status.available, true)
     assert.equal(called, 1)
+  })
+})
+
+describe('speech status readers', () => {
+  it('hears when settings drop the cached status, until they stop listening', () => {
+    let heard = 0
+    const stop = subscribeSpeechStatus(() => heard++)
+    invalidateSpeechStatusCache()
+    assert.equal(heard, 1)
+    stop()
+    invalidateSpeechStatusCache()
+    assert.equal(heard, 1)
   })
 })

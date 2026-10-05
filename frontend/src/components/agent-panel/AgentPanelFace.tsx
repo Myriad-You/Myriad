@@ -42,7 +42,7 @@ import { sameLiveFaceRuntime } from '../../features/merope/rig/manifestValidatio
 import { agentService } from '../../services/agent'
 import { ADDRESSEE_UPDATED_EVENT } from '../agent/meropeVitals'
 import { useAgentPanelMode } from './agentPanelMode'
-import { useAgentStatus } from './agentStatusStore'
+import { useAgentStatusKind } from './agentStatusStore'
 
 const DEFAULT_MOOD = 70
 const DEFAULT_AROUSAL = 48
@@ -79,7 +79,7 @@ export function AgentPanelFace({
   const [agentName, setAgentName] = useState(PERSONA_DEFAULT_NAME)
   const [mood, setMood] = useState(DEFAULT_MOOD)
   const [arousal, setArousal] = useState(DEFAULT_AROUSAL)
-  const { status } = useAgentStatus()
+  const status = useAgentStatusKind()
   const activity = agentStatusActivity(status)
   const [personaOn, setPersonaOn] = useState(true)
   const [loading, setLoading] = useState(true)

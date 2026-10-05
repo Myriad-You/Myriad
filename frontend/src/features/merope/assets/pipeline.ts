@@ -66,6 +66,8 @@ export async function preflightFullBodyPsdAsset(
   file: File,
   sourceMasterAssetId: string,
   sourceGenerationFingerprint?: string,
+  onStage?: (event: RigAssetCompileEvent) => void,
+  signal?: AbortSignal,
 ): Promise<RigAssetPreflight> {
   const skeleton = await getFullBodySkeleton(outfitId)
   return preflightRigAsset(
@@ -85,14 +87,16 @@ export async function preflightFullBodyPsdAsset(
         ),
       preview: fullBodyRigImport(outfitId).preview,
     },
-    undefined,
+    onStage,
     sourceGenerationFingerprint,
+    signal,
   )
 }
 
 export async function commitFullBodyPsdAsset(
   outfitId: string,
   preflight: RigAssetPreflight,
+  onStage?: (event: RigAssetCompileEvent) => void,
 ): Promise<ImportedRigAsset> {
-  return persistRigAsset(preflight, fullBodyRigImport(outfitId).commit)
+  return persistRigAsset(preflight, fullBodyRigImport(outfitId).commit, onStage)
 }

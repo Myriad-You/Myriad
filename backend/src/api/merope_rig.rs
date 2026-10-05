@@ -77,6 +77,11 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             post(expressions::generate_expression),
         )
         .route(
+            "/outfits/{outfit_id}/portrait/upload",
+            post(portrait_upload::upload_outfit_portrait)
+                .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
+        )
+        .route(
             "/portrait/upload",
             post(portrait_upload::upload_portrait).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
@@ -95,6 +100,11 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/see-through/decompose",
             post(decompose::decompose_with_see_through),
+        )
+        .route(
+            "/full-body/{outfit_id}/pose-corrections",
+            patch(pose::save_full_body_pose_corrections)
+                .layer(DefaultBodyLimit::max(64 * 1024)),
         )
         .route(
             "/pose-corrections",

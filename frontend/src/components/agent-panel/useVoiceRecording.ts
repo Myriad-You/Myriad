@@ -28,6 +28,7 @@ import {
   getSpeechStatus,
   omniHear,
   speechToText,
+  subscribeSpeechStatus,
 } from '../../services/speechApi'
 import {
   getAgentPanelMode,
@@ -147,21 +148,31 @@ export function useVoiceRecording(
     })
   }
 
+  // Asked at mount and again whenever settings drop the cached status: the
+  // panel stays mounted, so an answer from mount would keep the mic after
+  // speech is turned off.
   useEffect(() => {
+    let asked = 0
     let disposed = false
-    getSpeechStatus()
-      .then((s) => {
-        if (disposed) return
-        const convo = !!s.convo_enabled
-        convoRtcRef.current = convo
-        omniRef.current = s.persona_voice === 'omni'
-        setSpeechAvailable(
-          Boolean(s.available && (s.asr_enabled || convo || omniRef.current)),
-        )
-      })
-      .catch(() => {})
+    const load = () => {
+      const ask = ++asked
+      getSpeechStatus()
+        .then((s) => {
+          if (disposed || ask !== asked) return
+          const convo = !!s.convo_enabled
+          convoRtcRef.current = convo
+          omniRef.current = s.persona_voice === 'omni'
+          setSpeechAvailable(
+            Boolean(s.available && (s.asr_enabled || convo || omniRef.current)),
+          )
+        })
+        .catch(() => {})
+    }
+    load()
+    const stop = subscribeSpeechStatus(load)
     return () => {
       disposed = true
+      stop()
     }
   }, [])
 

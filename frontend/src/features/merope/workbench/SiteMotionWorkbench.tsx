@@ -1,6 +1,7 @@
 import type { UpperBodyVisualIdentityKey } from '../../../components/agent/onboarding/onboardingTypes'
 import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { RigCharacterHandle } from '../character/RigCharacter'
+import type { WardrobeItem } from '../persona/wardrobe'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { activityKey, moodBand } from '../../../components/agent/meropeVitals'
@@ -8,7 +9,7 @@ import { genderFromProfile } from '../../../components/agent/onboarding/onboardi
 import PersonaIdentityView from '../../../components/agent/onboarding/ui/PersonaIdentityView'
 import PersonaImportPanel from '../../../components/agent/onboarding/ui/PersonaImportPanel'
 import VisualIdentityView from '../../../components/agent/onboarding/ui/VisualIdentityView'
-import { SettingGroup } from '../../../components/settings'
+import { SettingTitleTag } from '../../../components/settings'
 import {
   getTourSnapshot,
   subscribeTour,
@@ -19,7 +20,10 @@ import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { isAnime25DPlayback } from '../anime25drig/types'
 import {
   decomposeSitePortraitWithSeeThrough,
+  saveFullBodyPoseCorrections,
   saveRigPoseCorrections,
+  uploadFullBodyPortrait,
+  uploadOutfitPortrait,
 } from '../api'
 import { commitRigPsdAsset, preflightRigPsdAsset } from '../assets/pipeline'
 import RigCharacter from '../character/RigCharacter'
@@ -27,7 +31,6 @@ import { notifyFaceUpdated } from '../events/updates'
 import { useRigPreviewMotionLifecycle } from '../motion/useRigMotionLifecycle'
 import { applyOutfit, isFullBodyItem, sortWardrobe, wardrobeItemLabel } from '../persona/wardrobe'
 import Anime25DWorkbench from './Anime25DWorkbench'
-import { FullBodyPanel } from './FullBodyPanel'
 import { FullBodyStageSwitch } from './FullBodyStageSwitch'
 import { OutfitDetail } from './OutfitDetail'
 import OutfitWardrobe from './OutfitWardrobe'
@@ -94,10 +97,11 @@ export default function SiteMotionWorkbench({
   const seeThrough = useSeeThroughToken(t.merope.seeThroughStatusFailed)
   const aiExpressions = useAiExpressions(portraitUrl)
   // The stage plays the worn bust, or any full-body set in the wardrobe.
-  const fullBody = useFullBodyStage(wardrobeItems)
+  const fullBody = useFullBodyStage(wardrobeItems, persona.activeFullBodyId)
   const staged = fullBody.staged
   const managingId = personaTouring ? null : managingOutfitId
   const [studioHost, setStudioHost] = useState<HTMLDivElement | null>(null)
+  const [importingPersona, setImportingPersona] = useState(false)
   const rigCharacterRef = useRef<RigCharacterHandle>(null)
   useRigPreviewMotionLifecycle(rigCharacterRef, {
     mood,
@@ -205,6 +209,21 @@ export default function SiteMotionWorkbench({
     setWardrobeItems(items => items.map(item => item.id === activeOutfitId ? { ...item, rigAssetId: saved.assetId } : item))
   }, [rigAssetId, rigManifest, activeOutfitId, manifestRef, setRigAssetId, setRigManifest, setWardrobeItems, t.merope.poseCorrection.failed])
 
+  const stagedSet = staged
+    ? (fullBody.sets.find((item) => item.id === fullBody.stagedId) ?? null)
+    : null
+  const wornItem = wardrobeItems.find((item) => item.id === activeOutfitId)
+  const wornLabel = wornItem
+    ? wardrobeItemLabel(wornItem, o.clothingStyle, t.merope.wardrobeDefault)
+    : t.merope.wardrobeDefault
+  const saveFullBodyCorrections = async (corrections: PoseCorrection[]) => {
+    const assetId = staged?.assetId
+    if (!stagedSet || !assetId) throw new Error(t.merope.poseCorrection.conflict)
+    await saveFullBodyPoseCorrections(stagedSet.id, assetId, corrections)
+    // The set now names its new package; the stage loads it.
+    await reload()
+  }
+
   /** The owner uploaded a new master portrait for the worn outfit. */
   const adoptUploadedPortrait = async (url: string) => {
     reportMeropeError('')
@@ -217,6 +236,16 @@ export default function SiteMotionWorkbench({
       await loadFace()
     }
     notifyFaceUpdated()
+  }
+
+  /** A new set made from the owner's own picture instead of a generated one. */
+  const createOutfitFromUpload = async (item: WardrobeItem, file: File) => {
+    // Added without being worn: a bust keeps the master portrait it has.
+    await persona.addOutfit(item, { wear: false })
+    if (isFullBodyItem(item)) await uploadFullBodyPortrait(item.id, file)
+    else await uploadOutfitPortrait(item.id, file)
+    await reload()
+    persona.setManagingOutfitId(item.id)
   }
 
   const motionEnabled = Boolean(
@@ -297,16 +326,21 @@ export default function SiteMotionWorkbench({
     />
   )
 
+  // With a persona already, the import box opens from the page title.
+  const importFolded = Boolean(structuredPersona) && !importingPersona
   const personaCard = (
     <div className="merope-motion-persona">
-      <PersonaImportPanel
-        appearance="settings"
-        name={personaSnapshot?.name.trim() || 'Arael'}
-        disabled={generating}
-        onImported={(next) =>
-          void persona.saveStructuredPersona(next, { resetVisual: true })
-        }
-      />
+      {importFolded ? null : (
+        <PersonaImportPanel
+          appearance="settings"
+          name={personaSnapshot?.name.trim() || 'Arael'}
+          disabled={generating}
+          onImported={async (next) => {
+            await persona.saveStructuredPersona(next, { resetVisual: true })
+            setImportingPersona(false)
+          }}
+        />
+      )}
       {structuredPersona ? (
         <PersonaIdentityView
           persona={structuredPersona}
@@ -342,6 +376,7 @@ export default function SiteMotionWorkbench({
       }
       items={wardrobeItems}
       activeId={activeOutfitId}
+      activeFullBodyId={persona.activeFullBodyId}
       portraitUrl={portraitUrl}
       busy={generating}
       filling={generating && !visualIdentity}
@@ -352,6 +387,7 @@ export default function SiteMotionWorkbench({
       }}
       onDelete={persona.deleteOutfit}
       onCreated={persona.createOutfit}
+      onUpload={createOutfitFromUpload}
     />
     {visualIdentityView('character')}
     </div>
@@ -361,13 +397,18 @@ export default function SiteMotionWorkbench({
     (item) => item.id === managingId,
   )
   const wearingManaged = managingOutfit?.id === activeOutfitId
+  // A full body is worn apart from the bust.
+  const wearingNow =
+    managingOutfit && isFullBodyItem(managingOutfit)
+      ? managingOutfit.id === persona.activeFullBodyId
+      : wearingManaged
   const managingReference = managingOutfit?.referenceOutfitId
     ? wardrobeItems.find((item) => item.id === managingOutfit.referenceOutfitId)
     : undefined
   const outfitCard = managingOutfit ? (
     <OutfitDetail
       outfit={managingOutfit}
-      wearing={wearingManaged}
+      wearing={wearingNow}
       reference={
         !managingOutfit.referenceOutfitId
           ? t.merope.fullBody.referenceNoneNote
@@ -397,6 +438,10 @@ export default function SiteMotionWorkbench({
       onWear={() => persona.wearOutfit(managingOutfit)}
       onGenerate={() => void persona.generatePortrait(managingOutfit)}
       onDownload={(url) => void downloadPicture(siteMediaUrl(url))}
+      seeThroughTokenConfigured={seeThrough.configured}
+      onSaveSeeThroughToken={seeThrough.save}
+      // The server wrote the set's picture or rig.
+      onFullBodyChanged={() => void persona.reload()}
       onUploaded={adoptUploadedPortrait}
       onDesign={(next) => void persona.saveOutfitDesign(managingOutfit.id, next)}
     />
@@ -435,6 +480,16 @@ export default function SiteMotionWorkbench({
         <Anime25DWorkbench
           overviewLead={overviewCard}
           personaLead={personaCard}
+          personaTitleExtra={
+            structuredPersona ? (
+              <SettingTitleTag
+                disabled={generating}
+                onClick={() => setImportingPersona((open) => !open)}
+              >
+                {importingPersona ? t.common.cancel : o.importPersona}
+              </SettingTitleTag>
+            ) : null
+          }
           wardrobeLead={closetCard}
           outfitLead={outfitCard}
           outfitRig={wearingManaged}
@@ -449,23 +504,7 @@ export default function SiteMotionWorkbench({
           aiExpressions={aiExpressions.ready}
           onGenerateAiExpressions={portraitUrl ? aiExpressions.generate : undefined}
           motionEnabled={motionEnabled}
-          outfitTrailing={
-            managingOutfit && isFullBodyItem(managingOutfit) ? (
-              <SettingGroup
-                title={t.merope.fullBody.title}
-                description={t.merope.fullBody.description}
-                id="merope-motion-full-body"
-              >
-                <FullBodyPanel
-                  outfitId={managingOutfit.id}
-                  seeThroughTokenConfigured={seeThrough.configured}
-                  // The server wrote the set's picture or rig.
-                  onChanged={() => void persona.reload()}
-                />
-              </SettingGroup>
-            ) : null
-          }
-          motionLead={
+          stageSwitch={
             fullBody.sets.length > 0 ? (
               <FullBodyStageSwitch
                 sets={fullBody.sets}
@@ -475,10 +514,13 @@ export default function SiteMotionWorkbench({
             ) : null
           }
           stageKey={staged ? (fullBody.stagedId ?? '') : 'bust'}
-          // Pose corrections are the bust rig's.
-          correctionPlayback={staged ? null : (rigManifest?.anime25dPlayback ?? null)}
-          correctionAssetId={staged ? null : rigAssetId}
-          onSavePoseCorrections={savePoseCorrections}
+          // Corrections follow the figure on stage: the worn bust or a full body.
+          correctionPlayback={staged ? (staged.manifest.anime25dPlayback ?? null) : (rigManifest?.anime25dPlayback ?? null)}
+          correctionAssetId={staged ? staged.assetId : rigAssetId}
+          correctionTarget={stagedSet
+            ? format(t.merope.poseCorrection.targetFullBody, { name: wardrobeItemLabel(stagedSet, o.clothingStyle) })
+            : format(t.merope.poseCorrection.targetBust, { name: wornLabel })}
+          onSavePoseCorrections={stagedSet ? saveFullBodyCorrections : savePoseCorrections}
         />
       </div>
       {portraitUrl && motionEnabled && studioHost

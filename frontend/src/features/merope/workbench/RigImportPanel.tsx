@@ -107,11 +107,6 @@ export function RigImportPanel({
         </section>
       ) : (
         <section className="merope-motion-rig__path">
-          {seeThroughTokenConfigured ? (
-            <p className="merope-motion-rig__token-ready">
-              {labels.rigTokenReady}
-            </p>
-          ) : null}
           <InputItem
             itemKey="see-through-hf-token"
             label={labels.motionSeeThroughToken}

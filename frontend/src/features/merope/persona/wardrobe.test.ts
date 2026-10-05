@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { workbenchSource, workbenchSources } from '../workbench/sources.test-support'
 import {
+  activeFullBodyIdFromProfile,
   applyOutfit,
   bindPortrait,
   DEFAULT_WARDROBE_ID,
@@ -436,4 +437,26 @@ test('the wardrobe lives in settings, not in the onboarding wizard', () => {
   assert.doesNotMatch(tabs, /onOutfitBack/)
   assert.doesNotMatch(tabs, /value: 'portrait'/)
   assert.doesNotMatch(tabs, /value: 'rig'/)
+})
+
+test('the worn full body is read only when it is a full-body set in the wardrobe', () => {
+  const items = [
+    { id: 'w-bust', clothingStyle: 'everyday', outfit: outfitA },
+    { id: 'w-full', clothingStyle: 'everyday', outfit: outfitA, profile: 'fullBody' },
+  ] as ReturnType<typeof parseWardrobe>
+  assert.equal(
+    activeFullBodyIdFromProfile({ activeFullBodyOutfitId: 'w-full' }, items),
+    'w-full',
+  )
+  assert.equal(
+    activeFullBodyIdFromProfile({ activeFullBodyOutfitId: 'w-bust' }, items),
+    null,
+    'a bust is no full body to wear',
+  )
+  assert.equal(
+    activeFullBodyIdFromProfile({ activeFullBodyOutfitId: 'w-gone' }, items),
+    null,
+  )
+  assert.equal(activeFullBodyIdFromProfile({}, items), null)
+  assert.equal(activeFullBodyIdFromProfile(null, items), null)
 })

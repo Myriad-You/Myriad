@@ -1,5 +1,5 @@
 //! 全身套装：衣柜里独立的一套，有自己的立绘、拆层和骨骼。可以照选定的半身那套重画，
-//! 也可以直接按设计画；不能穿上，面板始终播半身。全身只读写自己那一套，
+//! 也可以直接按设计画；穿着的全身另记一处，面板始终播半身。全身只读写自己那一套，
 //! 不碰半身的形象，也不碰面板正在播的那份。
 
 use axum::{
@@ -46,7 +46,7 @@ fn set_missing() -> (StatusCode, Json<Value>) {
     not_found("The full-body set is missing")
 }
 
-fn full_body_set(
+pub(super) fn full_body_set(
     persona: Option<&agent_persona::Model>,
     id: &str,
 ) -> ApiResult<myriad_merope::FullBodyOutfit> {
@@ -239,18 +239,26 @@ async fn store_full_body_portrait(
     finish(transaction, written).await
 }
 
-/// Binds an imported package to its full-body set, if that set's picture is
-/// still the one it was compiled from.
-async fn bind_full_body_rig(
+/// Binds a package to its full-body set, if that set's picture is still the
+/// one it was compiled from and, when a rewrite names one, its rig is still
+/// the one rewritten.
+pub(super) async fn bind_full_body_rig(
     db: &DatabaseConnection,
     user_id: i32,
     outfit_id: &str,
     asset_id: &str,
     expected: &MasterProvenance,
+    expected_rig: Option<&str>,
 ) -> ApiResult<()> {
     let transaction = db.begin().await.map_err(internal_error)?;
     let written = async {
         let row = lock_persona(&transaction).await?;
+        if let Some(rig) = expected_rig {
+            let current = full_body_set(Some(&row), outfit_id)?.rig_asset_id;
+            if current.as_deref() != Some(rig) {
+                return Err(super::package::rig_revision_conflict());
+            }
+        }
         if master_for(&row, MasterSlot::FullBody(outfit_id)).as_ref() != Some(expected) {
             return Err((
                 StatusCode::CONFLICT,
@@ -272,7 +280,9 @@ async fn bind_full_body_rig(
 
 /// The persona row, locked until the transaction ends so a concurrent
 /// portrait or outfit change cannot slip between the check and the write.
-async fn lock_persona(transaction: &DatabaseTransaction) -> ApiResult<agent_persona::Model> {
+pub(super) async fn lock_persona(
+    transaction: &DatabaseTransaction,
+) -> ApiResult<agent_persona::Model> {
     merope::api::store::lock_persona_on(transaction)
         .await
         .map_err(internal_error)?;
@@ -284,7 +294,7 @@ async fn lock_persona(transaction: &DatabaseTransaction) -> ApiResult<agent_pers
         .ok_or_else(set_missing)
 }
 
-async fn save_visual_profile(
+pub(super) async fn save_visual_profile(
     transaction: &DatabaseTransaction,
     row: agent_persona::Model,
     profile: Value,
@@ -306,7 +316,10 @@ async fn save_visual_profile(
     Ok(())
 }
 
-async fn finish<T>(transaction: DatabaseTransaction, written: ApiResult<T>) -> ApiResult<T> {
+pub(super) async fn finish<T>(
+    transaction: DatabaseTransaction,
+    written: ApiResult<T>,
+) -> ApiResult<T> {
     match written {
         Ok(value) => {
             transaction.commit().await.map_err(internal_error)?;
@@ -366,6 +379,7 @@ pub async fn import_full_body_rig(
         &outfit_id,
         &imported.asset_id,
         &imported.master,
+        None,
     )
     .await?;
     Ok(Json(

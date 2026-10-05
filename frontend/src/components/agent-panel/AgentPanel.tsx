@@ -50,7 +50,7 @@ import { agentStatusForLane } from './agentStatus'
 import {
   clearAgentUndoOffer,
   useAgentLaneLoading,
-  useAgentStatus,
+  useAgentStatusKind,
   useAgentUndoOffer,
 } from './agentStatusStore'
 import { useAgentAuroraPrism } from './useAgentAuroraPrism'
@@ -63,9 +63,9 @@ const AgentPanelAurora: React.FC<{
   stage: AgentPanelStage
 }> = ({ phase, stage }) => {
   const mode = useAgentPanelMode()
-  const island = useAgentStatus()
+  const island = useAgentStatusKind()
   const laneLoading = useAgentLaneLoading(mode)
-  const status = agentStatusForLane(island.status, laneLoading)
+  const status = agentStatusForLane(island, laneLoading)
   const auroraRef = useRef<HTMLDivElement>(null)
   const prismARef = useRef<HTMLSpanElement>(null)
   const prismBRef = useRef<HTMLSpanElement>(null)
@@ -297,7 +297,6 @@ export const AgentPanel: React.FC = () => {
                 onView={setFullView}
                 onSubmit={submit}
                 onWorkOffer={(input) => submit(input, undefined, 'work')}
-                onPlay={(text) => submit(text, undefined, 'chat')}
                 showChrome={fullView === 'manage'}
               />
             ) : null}

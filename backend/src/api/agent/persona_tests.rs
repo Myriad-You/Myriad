@@ -117,6 +117,89 @@ fn a_full_body_set_is_never_the_worn_one() {
     assert_eq!(worn["wardrobe"][1]["referenceOutfitId"], "w-urban");
 }
 
+fn wardrobe_with_a_full_body_set() -> Value {
+    json!([
+        { "id": "w-urban", "clothingStyle": "urban", "outfit": test_outfit() },
+        {
+            "id": "w-full",
+            "clothingStyle": "urban",
+            "outfit": test_outfit(),
+            "profile": "fullBody"
+        },
+    ])
+}
+
+#[test]
+fn a_full_body_set_is_worn_apart_from_the_bust() {
+    let previous = json!({
+        "gender": "female",
+        "clothingStyle": "urban",
+        "wardrobe": wardrobe_with_a_full_body_set(),
+        "activeOutfitId": "w-urban"
+    });
+    // A save names the wardrobe it wears from, as the workbench's always do.
+    let worn = merge_visual_profile(
+        sanitize_visual_profile(&json!({
+            "gender": "female",
+            "wardrobe": wardrobe_with_a_full_body_set(),
+            "activeFullBodyOutfitId": "w-full"
+        }))
+        .unwrap(),
+        Some(&previous),
+    );
+    assert_eq!(worn["activeFullBodyOutfitId"], "w-full");
+    assert_eq!(worn["activeOutfitId"], "w-urban");
+
+    // A bust is no full body to wear, and a full body is no bust to wear.
+    let crossed = merge_visual_profile(
+        sanitize_visual_profile(&json!({
+            "gender": "female",
+            "wardrobe": wardrobe_with_a_full_body_set(),
+            "activeOutfitId": "w-full",
+            "activeFullBodyOutfitId": "w-urban"
+        }))
+        .unwrap(),
+        Some(&previous),
+    );
+    assert_eq!(crossed["activeOutfitId"], Value::Null);
+    assert_eq!(crossed["activeFullBodyOutfitId"], Value::Null);
+}
+
+#[test]
+fn the_worn_full_body_outlasts_other_saves_and_ends_with_its_set() {
+    let previous = json!({
+        "gender": "female",
+        "clothingStyle": "urban",
+        "wardrobe": wardrobe_with_a_full_body_set(),
+        "activeOutfitId": "w-urban",
+        "activeFullBodyOutfitId": "w-full"
+    });
+    // A save that does not mention it keeps it.
+    let kept = merge_visual_profile(
+        sanitize_visual_profile(&json!({ "gender": "female" })).unwrap(),
+        Some(&previous),
+    );
+    assert_eq!(kept["activeFullBodyOutfitId"], "w-full");
+    // Taking it off is explicit.
+    let off = merge_visual_profile(
+        sanitize_visual_profile(&json!({ "activeFullBodyOutfitId": null })).unwrap(),
+        Some(&previous),
+    );
+    assert_eq!(off["activeFullBodyOutfitId"], Value::Null);
+    // Deleting the set takes it off too.
+    let deleted = merge_visual_profile(
+        sanitize_visual_profile(&json!({
+            "wardrobe": [
+                { "id": "w-urban", "clothingStyle": "urban", "outfit": test_outfit() },
+            ],
+        }))
+        .unwrap(),
+        Some(&previous),
+    );
+    assert_eq!(deleted["activeFullBodyOutfitId"], Value::Null);
+    assert_eq!(deleted["activeOutfitId"], "w-urban");
+}
+
 #[test]
 fn empty_wardrobe_with_identity_becomes_the_default_outfit() {
     let identity = json!({

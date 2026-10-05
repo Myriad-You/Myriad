@@ -19,6 +19,8 @@ import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import { siteMediaUrl } from '../../utils/siteMediaUrl'
 import { showStickyToast } from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
+import { askAgentPanel } from '../agent-panel/agentPanelEvents'
+import { HerRecent } from '../agent/her/HerRecent'
 import {
   activityKey,
   ADDRESSEE_UPDATED_EVENT,
@@ -550,6 +552,10 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
           ) : null}
         </AgentNestedSection>
       </SettingGroup>
+      {meropeOn && hasSavedPersona ? (
+        // 来一局总是跟她聊天，不是让 Agent 办事。
+        <HerRecent onPlay={(text) => askAgentPanel(text, 'chat')} />
+      ) : null}
       <SettingGroup
         title={t.config.agentChannelsTitle}
         icon={<LuMessageSquare />}

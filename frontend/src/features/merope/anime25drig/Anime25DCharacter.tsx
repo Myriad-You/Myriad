@@ -24,6 +24,7 @@ import { realizeAnime25DBehaviorPlan } from './behaviorRealizer'
 import { activityExpressionDriverPatch } from './expressionPresets'
 import { idleSpeechDriverPatch } from './performanceMotion'
 import { Anime25DPlayer } from './player'
+import { clientDeltaToPoseCorrection, pickPoseCorrectionAtClient, poseCorrectionStageRect, projectPoseCorrectionToClient } from './poseCorrectionStage'
 import {
   intersectionKeepsAnime25DVisible,
   shouldAnimateAnime25D,
@@ -125,6 +126,8 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     const onPlaybackErrorRef = useRef(onPlaybackError)
     onPlaybackErrorRef.current = onPlaybackError
     manualRef.current = manualControl || manualRef.current
+    // A workbench zoom onto the head renders at the zoomed resolution.
+    const zoomRef = useRef(1)
     const playbackRef = useRef(playback)
     const manifestRef = useRef(manifest)
     playbackRef.current = playback
@@ -236,6 +239,56 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         posePreviewRef.current = corrections === null ? null : { playback: playbackRef.current, corrections: structuredClone(corrections) }
         playerRef.current?.previewPoseCorrections(corrections)
       },
+      pickPoseCorrectionPoint(clientX, clientY) {
+        const stage = playerRef.current?.poseStage()
+        return stage ? pickPoseCorrectionAtClient(stage, clientX, clientY) : null
+      },
+      projectPoseCorrectionPatch(correction, patch) {
+        const stage = playerRef.current?.poseStage()
+        return stage ? projectPoseCorrectionToClient(stage, correction, patch) : null
+      },
+      poseCorrectionDelta(surface, dx, dy) {
+        const stage = playerRef.current?.poseStage()
+        return stage ? clientDeltaToPoseCorrection(stage, surface, dx, dy) : null
+      },
+      poseCorrectionStageRect() {
+        const stage = playerRef.current?.poseStage()
+        const canvas = stage && poseCorrectionStageRect(stage)
+        const frame = wrapperRef.current?.getBoundingClientRect()
+        if (!canvas || !frame) return null
+        // A zoomed canvas overflows its frame; only the part on show counts.
+        const left = Math.max(canvas.left, frame.left)
+        const top = Math.max(canvas.top, frame.top)
+        const right = Math.min(canvas.right, frame.right)
+        const bottom = Math.min(canvas.bottom, frame.bottom)
+        return right > left && bottom > top ? new DOMRect(left, top, right - left, bottom - top) : null
+      },
+      zoomPoseCorrectionHead(on) {
+        const canvas = canvasRef.current
+        const wrapper = wrapperRef.current
+        if (!canvas || !wrapper) return
+        const { head } = playbackRef.current.shellProfile
+        const { width, height } = playbackRef.current.pixelCanvas
+        // Enough to put the head at about half the stage's height.
+        const scale = Math.min(4, Math.max(1, 0.55 / (2 * head.radiusY / height)))
+        const zoom = on && scale >= 1.2 ? scale : 1
+        if (zoom !== zoomRef.current) {
+          zoomRef.current = zoom
+          const box = layoutBoxSize(wrapper)
+          playerRef.current?.resize(box.width, box.height, (window.devicePixelRatio || 1) * zoom)
+        }
+        if (zoom === 1) {
+          canvas.style.transform = ''
+          canvas.style.transformOrigin = ''
+          return
+        }
+        // The head's centre moves to the middle of the stage, a little high.
+        const x = (0.5 - zoom * head.centerX / width) * 100
+        const y = (0.45 - zoom * head.centerY / height) * 100
+        canvas.style.transition = 'transform 0.25s ease'
+        canvas.style.transformOrigin = '0 0'
+        canvas.style.transform = `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%) scale(${zoom.toFixed(3)})`
+      },
       replaceDriver(driver) {
         enterManualControl()
         playerRef.current?.replaceTarget(driver)
@@ -327,7 +380,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       canvas.addEventListener('pointerleave', onPointerLeave)
       const resize = () => {
         const { width, height } = layoutBoxSize(wrapper)
-        player.resize(width, height, window.devicePixelRatio || 1)
+        player.resize(width, height, (window.devicePixelRatio || 1) * zoomRef.current)
       }
       const presentLive = (next: boolean) => {
         if (cancelled || readyRef.current === next) return
@@ -421,7 +474,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
           recoveriesRef.current = 0
           if (wrapper) {
             const { width, height } = layoutBoxSize(wrapper)
-            player.resize(width, height, window.devicePixelRatio || 1)
+            player.resize(width, height, (window.devicePixelRatio || 1) * zoomRef.current)
           }
           const wasReady = readyRef.current
           syncAnimationRef.current()

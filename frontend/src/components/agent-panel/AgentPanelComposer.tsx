@@ -32,10 +32,13 @@ import { agentStatusForLane } from './agentStatus'
 import {
   setAgentStatusRecording,
   useAgentLaneLoading,
-  useAgentStatus,
+  useAgentStatusKind,
 } from './agentStatusStore'
 import { attachOrbDriftSpeed, startAttachOrbDrift } from './attachOrbDrift'
-import { composerActionKind } from './composerAction'
+import {
+  COMPOSER_SEND_SETTLE_MS,
+  composerActionKind,
+} from './composerAction'
 import {
   forgetComposerFavorite,
   loadComposerFavorites,
@@ -71,16 +74,16 @@ export interface AgentPanelComposerProps {
   trailing?: React.ReactNode
 }
 
-function ComposerAttach({
+const ComposerAttach = React.memo(({
   fileRef,
   errorLabel,
 }: {
   fileRef: RefObject<HTMLInputElement | null>
   errorLabel: string | null
-}) {
+}) => {
   const { t } = useI18n()
   const mode = useAgentPanelMode()
-  const { status: island } = useAgentStatus()
+  const island = useAgentStatusKind()
   const laneLoading = useAgentLaneLoading(mode)
   const status = agentStatusForLane(island, laneLoading)
   const orbRef = useRef<HTMLSpanElement>(null)
@@ -118,13 +121,16 @@ function ComposerAttach({
       </span>
     </button>
   )
-}
+})
 
 function ComposerAction({
   hasText,
   hasAttachments,
   value,
   submit,
+  sending,
+  flung,
+  onSendSettled,
   speechAvailable,
   isRecording,
   isProcessingVoice,
@@ -136,6 +142,10 @@ function ComposerAction({
   hasAttachments: boolean
   value: string
   submit: (text: string) => void
+  sending: boolean
+  /** Just sent: the arrow leaves upward instead of sinking back. */
+  flung: boolean
+  onSendSettled: () => void
   speechAvailable: boolean
   isRecording: boolean
   isProcessingVoice: boolean
@@ -145,7 +155,7 @@ function ComposerAction({
 }) {
   const { t } = useI18n()
   const mode = useAgentPanelMode()
-  const { status } = useAgentStatus()
+  const status = useAgentStatusKind()
   const laneLoading = useAgentLaneLoading(mode)
   const display = agentStatusForLane(status, laneLoading)
   const busy = display === 'thinking' || display === 'working'
@@ -185,10 +195,21 @@ function ComposerAction({
 
   useEffect(() => () => clearHold(), [clearHold])
 
+  // Hold stop from the send until the run shows up, or give up after a while.
+  useEffect(() => {
+    if (sending && busy) onSendSettled()
+  }, [busy, onSendSettled, sending])
+  useEffect(() => {
+    if (!sending) return
+    const timer = window.setTimeout(onSendSettled, COMPOSER_SEND_SETTLE_MS)
+    return () => window.clearTimeout(timer)
+  }, [onSendSettled, sending])
+
   const kind = composerActionKind({
     hasText,
     hasAttachments,
     busy,
+    sending,
     speechAvailable,
     voiceLocked: isRecording || isProcessingVoice,
     conversation,
@@ -232,7 +253,9 @@ function ComposerAction({
           ]
             .filter(Boolean)
             .join(' ')}
+          data-action={kind}
           data-on={kind === 'voice' && isRecording ? 'true' : 'false'}
+          data-flung={flung ? 'true' : undefined}
           data-conversation={
             kind === 'voice' && conversation ? 'true' : undefined
           }
@@ -291,31 +314,37 @@ function ComposerAction({
           aria-label={actionLabel}
           aria-pressed={kind === 'voice' ? isRecording : undefined}
         >
-          {kind === 'voice' ? (
-            <span className="agent-panel-mic-fx" aria-hidden="true">
-              <span className="agent-panel-mic-hold">
-                <svg viewBox="0 0 96 56" preserveAspectRatio="none">
-                  <path
-                    className="agent-panel-mic-hold-track"
-                    pathLength="100"
-                    d="M48 3 H68 A25 25 0 0 1 68 53 H28 A25 25 0 0 1 28 3 H48"
-                  />
-                  <path
-                    className="agent-panel-mic-hold-ring"
-                    pathLength="100"
-                    d="M48 3 H68 A25 25 0 0 1 68 53 H28 A25 25 0 0 1 28 3 H48"
-                  />
-                </svg>
-              </span>
+          {/* Stays mounted across voice/send/stop so the ring fades out
+              instead of vanishing with the swap. */}
+          <span className="agent-panel-mic-fx" aria-hidden="true">
+            <span className="agent-panel-mic-hold">
+              <svg viewBox="0 0 96 56" preserveAspectRatio="none">
+                <path
+                  className="agent-panel-mic-hold-track"
+                  pathLength="100"
+                  d="M48 3 H68 A25 25 0 0 1 68 53 H28 A25 25 0 0 1 28 3 H48"
+                />
+                <path
+                  className="agent-panel-mic-hold-ring"
+                  pathLength="100"
+                  d="M48 3 H68 A25 25 0 0 1 68 53 H28 A25 25 0 0 1 28 3 H48"
+                />
+              </svg>
             </span>
-          ) : null}
+          </span>
           <AgentSwap id={kind} from="self">
             {kind === 'stop' ? (
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <svg
+                data-glyph="stop"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
                 <rect x="7" y="7" width="10" height="10" rx="2" />
               </svg>
             ) : kind === 'send' ? (
               <svg
+                data-glyph="send"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -329,6 +358,7 @@ function ComposerAction({
               </svg>
             ) : (
               <svg
+                data-glyph="voice"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -390,14 +420,28 @@ function MoodTag({ band }: { band: MoodBand }) {
   )
 }
 
-export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
-  onSubmit,
-  autoFocus = true,
+/**
+ * The row above the field. Its own component so typing, which only changes
+ * the field and the action button, does not re-render every tag in it.
+ */
+const ComposerTags = React.memo(({
+  mode,
   leading,
   trailing,
+  onSubmit,
+  attachments,
+  removeAttachment,
+  attachErrorLabel,
+}: {
+  mode: AgentPanelMode
+  leading?: React.ReactNode
+  trailing?: React.ReactNode
+  onSubmit: AgentPanelComposerProps['onSubmit']
+  attachments: readonly AgentAttachment[]
+  removeAttachment: (id: string) => void
+  attachErrorLabel: string | null
 }) => {
-  const { t, format, locale } = useI18n()
-  const mode = useAgentPanelMode()
+  const { t, format } = useI18n()
   const chatting = mode === 'chat'
   const moodBandValue = useAddresseeMoodBand()
   const { pathname } = useLocation()
@@ -411,6 +455,287 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     canMute,
     setContextConsent,
   } = useAgentPanelContext(pathname)
+  const [favorites, setFavorites] = useState<ComposerFavorite[]>([])
+  const tagScrollRef = useTagStripScroll(favorites.length)
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    let cancelled = false
+    const load = () => {
+      void (async () => {
+        try {
+          const next = await loadComposerFavorites()
+          if (!cancelled) setFavorites(next)
+        } catch {
+          /* favorites are optional */
+        }
+      })()
+    }
+    load()
+    const stop = subscribeComposerFavorites(load)
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [isAuthenticated])
+
+  return (
+    <div className="agent-panel-composer-tags">
+      <ModeTag mode={mode} />
+      <div className="agent-panel-tag-mid">
+        <div
+          className="agent-panel-work-chrome"
+          ref={tagScrollRef}
+          inert={chatting}
+        >
+          {leading}
+          <span className="agent-panel-work-tags">
+            <AgentSwap
+              id={`${canMute ? 'mute' : 'label'}:${context.kind}`}
+              from="self"
+            >
+              {canMute ? (
+                <button
+                  type="button"
+                  className="agent-panel-tag"
+                  data-tone={contextConsent ? 'neutral' : 'alert'}
+                  title={
+                    contextConsent
+                      ? t.agentPanel.context.muteHint
+                      : t.agentPanel.context.allowHint
+                  }
+                  aria-label={label}
+                  aria-pressed={contextConsent}
+                  onClick={() => setContextConsent(!contextConsent)}
+                >
+                  <span className="agent-panel-tag-kicker">{kicker}</span>
+                  <span className="agent-panel-tag-text">{contextText}</span>
+                </button>
+              ) : (
+                <span
+                  className="agent-panel-tag"
+                  data-tone={
+                    context.kind === 'selection' ? 'primary' : 'neutral'
+                  }
+                >
+                  <span className="agent-panel-tag-kicker">{kicker}</span>
+                  <span className="agent-panel-tag-text">{contextText}</span>
+                </span>
+              )}
+            </AgentSwap>
+            <AgentPresence
+              open={context.kind === 'selection'}
+              kind="chip"
+              from="context"
+            >
+              <button
+                type="button"
+                className="agent-panel-tag"
+                onClick={() =>
+                  onSubmit(
+                    format(t.agentPanel.prompts.explainSelection, {
+                      text: context.selection ?? '',
+                    }),
+                  )
+                }
+              >
+                <span className="agent-panel-tag-text">
+                  {t.agentPanel.actions.explain}
+                </span>
+              </button>
+            </AgentPresence>
+            <AgentPresence
+              open={context.kind === 'selection'}
+              kind="chip"
+              from="context"
+            >
+              <button
+                type="button"
+                className="agent-panel-tag"
+                onClick={() =>
+                  onSubmit(
+                    format(t.agentPanel.prompts.translateSelection, {
+                      text: context.selection ?? '',
+                    }),
+                  )
+                }
+              >
+                <span className="agent-panel-tag-text">
+                  {t.agentPanel.actions.translate}
+                </span>
+              </button>
+            </AgentPresence>
+            <AgentPresence
+              open={context.kind === 'content'}
+              kind="chip"
+              from="context"
+            >
+              <button
+                type="button"
+                className="agent-panel-tag"
+                data-tone={chatting ? 'primary' : undefined}
+                onClick={() =>
+                  onSubmit(t.agentPanel.prompts.summarize, undefined, 'work')
+                }
+              >
+                {chatting ? (
+                  <span className="agent-panel-tag-kicker">
+                    {t.agentPanel.mode.work}
+                  </span>
+                ) : null}
+                <span className="agent-panel-tag-text">
+                  {t.agentPanel.actions.summarize}
+                </span>
+              </button>
+            </AgentPresence>
+            <AgentPresence
+              open={context.kind === 'content'}
+              kind="chip"
+              from="context"
+            >
+              <button
+                type="button"
+                className="agent-panel-tag"
+                data-tone={chatting ? 'primary' : undefined}
+                onClick={() =>
+                  onSubmit(t.agentPanel.prompts.translate, undefined, 'work')
+                }
+              >
+                {chatting ? (
+                  <span className="agent-panel-tag-kicker">
+                    {t.agentPanel.mode.work}
+                  </span>
+                ) : null}
+                <span className="agent-panel-tag-text">
+                  {t.agentPanel.actions.translate}
+                </span>
+              </button>
+            </AgentPresence>
+            <AgentPresenceList
+              items={favorites}
+              keyOf={(preset) => String(preset.id)}
+              kind="chip"
+              from="self"
+            >
+              {(preset) => (
+                <span className="agent-panel-tag agent-panel-tag-saved">
+                  <button
+                    type="button"
+                    className="agent-panel-saved-open"
+                    title={preset.input}
+                    onClick={() => onSubmit(preset.input)}
+                  >
+                    <span className="agent-panel-tag-text">
+                      {preset.title?.trim() || preset.input}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="agent-panel-tag-dismiss"
+                    title={t.agentPanel.unsave}
+                    aria-label={t.agentPanel.unsave}
+                    onClick={() => {
+                      forgetComposerFavorite(preset.id)
+                      setFavorites((current) =>
+                        current.filter((item) => item.id !== preset.id),
+                      )
+                      void agentService
+                        .toggleFavorite(preset.id)
+                        .catch(() => {})
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M6 6l12 12M18 6l-12 12" />
+                    </svg>
+                  </button>
+                </span>
+              )}
+            </AgentPresenceList>
+          </span>
+        </div>
+        <AgentPresenceList
+          items={attachments}
+          keyOf={(item) => item.id}
+          kind="chip"
+          from="attach"
+        >
+          {(item) => (
+            <span className="agent-panel-tag">
+              {item.previewUrl ? <img src={item.previewUrl} alt="" /> : null}
+              <span className="agent-panel-tag-kicker">
+                {t.agentPanel.attach.kind}
+              </span>
+              <span className="agent-panel-tag-text">{item.name}</span>
+              <button
+                type="button"
+                className="agent-panel-tag-dismiss"
+                title={t.agentPanel.attach.remove}
+                aria-label={t.agentPanel.attach.remove}
+                onClick={() => removeAttachment(item.id)}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 6l12 12M18 6l-12 12" />
+                </svg>
+              </button>
+            </span>
+          )}
+        </AgentPresenceList>
+        <AgentPresence open={!!attachErrorLabel} kind="chip" from="attach">
+          <span className="agent-panel-tag" data-tone="alert" role="status">
+            <span className="agent-panel-tag-text">{attachErrorLabel}</span>
+          </span>
+        </AgentPresence>
+      </div>
+      <div className="agent-panel-tag-actions">
+        <div className="agent-panel-end-slot">
+          <div
+            className="agent-panel-end-layer"
+            data-on={chatting ? 'false' : 'true'}
+            inert={chatting}
+          >
+            {trailing ? (
+              <span className="agent-panel-tag-cluster">{trailing}</span>
+            ) : null}
+          </div>
+          <div
+            className="agent-panel-end-layer"
+            data-on={chatting ? 'true' : 'false'}
+            inert={!chatting}
+          >
+            {moodBandValue ? <MoodTag band={moodBandValue} /> : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+})
+
+/** Typing re-renders the composer; the face must not re-render with it. */
+const ComposerFace = React.memo(AgentPanelFace)
+
+export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
+  onSubmit,
+  autoFocus = true,
+  leading,
+  trailing,
+}) => {
+  const { t, locale } = useI18n()
+  const mode = useAgentPanelMode()
+  const chatting = mode === 'chat'
   const fieldRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
@@ -419,8 +744,16 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
   attachmentsRef.current = attachments
   const [attachError, setAttachError] = useState<AttachError | null>(null)
   const [dropping, setDropping] = useState(false)
-  const [favorites, setFavorites] = useState<ComposerFavorite[]>([])
-  const tagScrollRef = useTagStripScroll(favorites.length)
+  const [sending, setSending] = useState(false)
+  const settleSend = useCallback(() => setSending(false), [])
+  // Outlives `sending`, which can clear within a frame once the run shows up:
+  // the arrow's flight must not be cut short by that.
+  const [flung, setFlung] = useState(false)
+  useEffect(() => {
+    if (!flung) return
+    const timer = window.setTimeout(setFlung, AGENT_SWAP_MS, false)
+    return () => window.clearTimeout(timer)
+  }, [flung])
 
   const submit = useCallback(
     (text: string) => {
@@ -430,6 +763,9 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
       setAttachments([])
       attachmentsRef.current = []
       setAttachError(null)
+      // Same batch as clearing the field: the button goes send -> stop.
+      setSending(true)
+      setFlung(true)
       onSubmit(text, files.length ? files : undefined)
     },
     [onSubmit],
@@ -456,27 +792,6 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
   useLayoutEffect(() => {
     fitComposerField(fieldRef.current)
   }, [value])
-
-  useEffect(() => {
-    if (!isAuthenticated) return
-    let cancelled = false
-    const load = () => {
-      void (async () => {
-        try {
-          const next = await loadComposerFavorites()
-          if (!cancelled) setFavorites(next)
-        } catch {
-          /* favorites are optional */
-        }
-      })()
-    }
-    load()
-    const stop = subscribeComposerFavorites(load)
-    return () => {
-      cancelled = true
-      stop()
-    }
-  }, [isAuthenticated])
 
   useEffect(() => {
     if (!attachError) return
@@ -548,247 +863,15 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
 
   return (
     <div className="agent-panel-composer" data-mode={mode}>
-      <div className="agent-panel-composer-tags">
-        <ModeTag mode={mode} />
-        <div className="agent-panel-tag-mid">
-          <div
-            className="agent-panel-work-chrome"
-            ref={tagScrollRef}
-            inert={chatting}
-          >
-            {leading}
-            <span className="agent-panel-work-tags">
-              <AgentSwap
-                id={`${canMute ? 'mute' : 'label'}:${context.kind}`}
-                from="self"
-              >
-                {canMute ? (
-                  <button
-                    type="button"
-                    className="agent-panel-tag"
-                    data-tone={contextConsent ? 'neutral' : 'alert'}
-                    title={
-                      contextConsent
-                        ? t.agentPanel.context.muteHint
-                        : t.agentPanel.context.allowHint
-                    }
-                    aria-label={label}
-                    aria-pressed={contextConsent}
-                    onClick={() => setContextConsent(!contextConsent)}
-                  >
-                    <span className="agent-panel-tag-kicker">{kicker}</span>
-                    <span className="agent-panel-tag-text">{contextText}</span>
-                  </button>
-                ) : (
-                  <span
-                    className="agent-panel-tag"
-                    data-tone={
-                      context.kind === 'selection' ? 'primary' : 'neutral'
-                    }
-                  >
-                    <span className="agent-panel-tag-kicker">{kicker}</span>
-                    <span className="agent-panel-tag-text">{contextText}</span>
-                  </span>
-                )}
-              </AgentSwap>
-              <AgentPresence
-                open={context.kind === 'selection'}
-                kind="chip"
-                from="context"
-              >
-                <button
-                  type="button"
-                  className="agent-panel-tag"
-                  onClick={() =>
-                    onSubmit(
-                      format(t.agentPanel.prompts.explainSelection, {
-                        text: context.selection ?? '',
-                      }),
-                    )
-                  }
-                >
-                  <span className="agent-panel-tag-text">
-                    {t.agentPanel.actions.explain}
-                  </span>
-                </button>
-              </AgentPresence>
-              <AgentPresence
-                open={context.kind === 'selection'}
-                kind="chip"
-                from="context"
-              >
-                <button
-                  type="button"
-                  className="agent-panel-tag"
-                  onClick={() =>
-                    onSubmit(
-                      format(t.agentPanel.prompts.translateSelection, {
-                        text: context.selection ?? '',
-                      }),
-                    )
-                  }
-                >
-                  <span className="agent-panel-tag-text">
-                    {t.agentPanel.actions.translate}
-                  </span>
-                </button>
-              </AgentPresence>
-              <AgentPresence
-                open={context.kind === 'content'}
-                kind="chip"
-                from="context"
-              >
-                <button
-                  type="button"
-                  className="agent-panel-tag"
-                  data-tone={chatting ? 'primary' : undefined}
-                  onClick={() =>
-                    onSubmit(t.agentPanel.prompts.summarize, undefined, 'work')
-                  }
-                >
-                  {chatting ? (
-                    <span className="agent-panel-tag-kicker">
-                      {t.agentPanel.mode.work}
-                    </span>
-                  ) : null}
-                  <span className="agent-panel-tag-text">
-                    {t.agentPanel.actions.summarize}
-                  </span>
-                </button>
-              </AgentPresence>
-              <AgentPresence
-                open={context.kind === 'content'}
-                kind="chip"
-                from="context"
-              >
-                <button
-                  type="button"
-                  className="agent-panel-tag"
-                  data-tone={chatting ? 'primary' : undefined}
-                  onClick={() =>
-                    onSubmit(t.agentPanel.prompts.translate, undefined, 'work')
-                  }
-                >
-                  {chatting ? (
-                    <span className="agent-panel-tag-kicker">
-                      {t.agentPanel.mode.work}
-                    </span>
-                  ) : null}
-                  <span className="agent-panel-tag-text">
-                    {t.agentPanel.actions.translate}
-                  </span>
-                </button>
-              </AgentPresence>
-              <AgentPresenceList
-                items={favorites}
-                keyOf={(preset) => String(preset.id)}
-                kind="chip"
-                from="self"
-              >
-                {(preset) => (
-                  <span className="agent-panel-tag agent-panel-tag-saved">
-                    <button
-                      type="button"
-                      className="agent-panel-saved-open"
-                      title={preset.input}
-                      onClick={() => onSubmit(preset.input)}
-                    >
-                      <span className="agent-panel-tag-text">
-                        {preset.title?.trim() || preset.input}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="agent-panel-tag-dismiss"
-                      title={t.agentPanel.unsave}
-                      aria-label={t.agentPanel.unsave}
-                      onClick={() => {
-                        forgetComposerFavorite(preset.id)
-                        setFavorites((current) =>
-                          current.filter((item) => item.id !== preset.id),
-                        )
-                        void agentService
-                          .toggleFavorite(preset.id)
-                          .catch(() => {})
-                      }}
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M6 6l12 12M18 6l-12 12" />
-                      </svg>
-                    </button>
-                  </span>
-                )}
-              </AgentPresenceList>
-            </span>
-          </div>
-          <AgentPresenceList
-            items={attachments}
-            keyOf={(item) => item.id}
-            kind="chip"
-            from="attach"
-          >
-            {(item) => (
-              <span className="agent-panel-tag">
-                {item.previewUrl ? <img src={item.previewUrl} alt="" /> : null}
-                <span className="agent-panel-tag-kicker">
-                  {t.agentPanel.attach.kind}
-                </span>
-                <span className="agent-panel-tag-text">{item.name}</span>
-                <button
-                  type="button"
-                  className="agent-panel-tag-dismiss"
-                  title={t.agentPanel.attach.remove}
-                  aria-label={t.agentPanel.attach.remove}
-                  onClick={() => removeAttachment(item.id)}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M6 6l12 12M18 6l-12 12" />
-                  </svg>
-                </button>
-              </span>
-            )}
-          </AgentPresenceList>
-          <AgentPresence open={!!attachErrorLabel} kind="chip" from="attach">
-            <span className="agent-panel-tag" data-tone="alert" role="status">
-              <span className="agent-panel-tag-text">{attachErrorLabel}</span>
-            </span>
-          </AgentPresence>
-        </div>
-        <div className="agent-panel-tag-actions">
-          <div className="agent-panel-end-slot">
-            <div
-              className="agent-panel-end-layer"
-              data-on={chatting ? 'false' : 'true'}
-              inert={chatting}
-            >
-              {trailing ? (
-                <span className="agent-panel-tag-cluster">{trailing}</span>
-              ) : null}
-            </div>
-            <div
-              className="agent-panel-end-layer"
-              data-on={chatting ? 'true' : 'false'}
-              inert={!chatting}
-            >
-              {moodBandValue ? <MoodTag band={moodBandValue} /> : null}
-            </div>
-          </div>
-        </div>
-      </div>
+      <ComposerTags
+        mode={mode}
+        leading={leading}
+        trailing={trailing}
+        onSubmit={onSubmit}
+        attachments={attachments}
+        removeAttachment={removeAttachment}
+        attachErrorLabel={attachErrorLabel}
+      />
 
       <div className="agent-panel-composer-row">
         <div
@@ -796,7 +879,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
           aria-hidden={!chatting}
           inert={!chatting}
         >
-          <AgentPanelFace playbackEnabled={chatting} />
+          <ComposerFace playbackEnabled={chatting} />
         </div>
         <div className="agent-panel-field-stage">
           <div
@@ -851,6 +934,9 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
           hasAttachments={hasAttachments}
           value={value}
           submit={submit}
+          sending={sending}
+          flung={flung}
+          onSendSettled={settleSend}
           speechAvailable={speechAvailable}
           isRecording={isRecording}
           isProcessingVoice={isProcessingVoice}

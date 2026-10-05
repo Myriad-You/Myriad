@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react'
+import type { RefObject } from 'react'
 import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../character/RigCharacter'
@@ -26,10 +26,10 @@ interface Props {
   characterRef: RefObject<RigCharacterHandle | null>
   motion: WorkbenchDriver
   motionEnabled: boolean
-  /** Shown above the controls. */
-  lead?: ReactNode
   correctionPlayback?: Anime25DPlayback | null
   correctionAssetId?: string | null
+  /** Where corrections save, in words. */
+  correctionTarget?: string
   onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
 }
 
@@ -38,9 +38,9 @@ export function MotionPanel({
   characterRef,
   motion,
   motionEnabled,
-  lead = null,
   correctionPlayback,
   correctionAssetId,
+  correctionTarget = '',
   onSavePoseCorrections,
 }: Props) {
   const { t } = useI18n()
@@ -74,7 +74,6 @@ export function MotionPanel({
 
   return (
     <>
-      {lead}
       <SettingGroup
         title={labels.expressionGroup}
         description={
@@ -255,6 +254,7 @@ export function MotionPanel({
           playback={correctionPlayback}
           characterRef={characterRef}
           driver={driver}
+          target={correctionTarget}
           onDriver={applyDriver}
           onSave={onSavePoseCorrections}
         />

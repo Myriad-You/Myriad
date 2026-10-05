@@ -21,6 +21,7 @@ import {
   configChangesNeedPwaReload,
   configChangesNeedRuntimeReload,
   configChangesNeedSpeechPipelineReload,
+  configChangesNeedSpeechStatusRefresh,
   configChangesNeedWallpaperReload,
 } from '../uiBagOwnership'
 
@@ -93,7 +94,14 @@ export function configBagEffects(
   }
   if (configChangesNeedPlatformsCacheInvalidation(next, previous, deepEqual))
     effects.push({ id: 'platforms', run: clearLibraryDataCache })
-  if (configChangesNeedSpeechPipelineReload(next, previous)) {
+  const speechPipelineReload = configChangesNeedSpeechPipelineReload(
+    next,
+    previous,
+  )
+  if (
+    speechPipelineReload ||
+    configChangesNeedSpeechStatusRefresh(next, previous)
+  ) {
     effects.push({
       id: 'speech',
       after: ['runtime'],
@@ -101,7 +109,8 @@ export function configBagEffects(
         invalidateSpeechStatusCache()
         const { getSpeechPipeline } =
           await import('../../../features/merope/speech/speechPipelineHost')
-        getSpeechPipeline().cancel()
+        // Only a change to her voice cuts off what she is saying now.
+        if (speechPipelineReload) getSpeechPipeline().cancel()
         await getSpeechPipeline().refreshStatus()
       },
     })

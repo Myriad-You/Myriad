@@ -249,10 +249,25 @@ const GUEST_SPEECH_STATUS: SpeechStatus = {
   persona_speech_enabled: false,
 }
 
+const speechStatusListeners = new Set<() => void>()
+
+/**
+ * Fires when the cached status is dropped. Long-lived readers (the panel's
+ * mic stays mounted once opened) ask again on it instead of keeping the
+ * answer they got at mount.
+ */
+export function subscribeSpeechStatus(listener: () => void): () => void {
+  speechStatusListeners.add(listener)
+  return () => {
+    speechStatusListeners.delete(listener)
+  }
+}
+
 /** Invalidate /status cache after settings save. */
 export function invalidateSpeechStatusCache(): void {
   speechStatusCache = null
   speechStatusInflight = null
+  for (const listener of speechStatusListeners) listener()
 }
 
 /**

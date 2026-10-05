@@ -93,6 +93,67 @@ html.dark .merope-motion-page {
     color-mix(in srgb, var(--border-color, #d8dbe6) 68%, transparent);
 }
 
+.merope-motion-page__tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin: 0 0 16px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--border-color, #d8dbe6) 68%, transparent);
+}
+
+.merope-motion-page__tabs.is-bare {
+  flex: 0 1 auto;
+  margin: 0 0 -1px;
+  border-bottom: 0;
+}
+
+.merope-motion-page__stage-cycle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0 0 4px;
+  padding: 4px 10px;
+  border: 1px solid
+    color-mix(in srgb, var(--border-color, #d8dbe6) 68%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-secondary, #667085);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.merope-motion-page__stage-cycle svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.merope-motion-page__stage-cycle span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merope-motion-page__stage-cycle:hover {
+  color: var(--text-primary, #171923);
+  background: transparent;
+}
+
+.merope-motion-page__stage-cycle:focus-visible {
+  outline: 2px solid
+    color-mix(in srgb, var(--cfg-accent, #7c6ee6) 48%, transparent);
+  outline-offset: 2px;
+}
+
 .merope-motion-page__tab {
   appearance: none;
   position: relative;
@@ -250,48 +311,6 @@ html.dark .merope-motion-page {
   min-width: 0;
 }
 
-.merope-full-body__figures {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 200px));
-  gap: 12px;
-}
-
-.merope-full-body__figure {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  min-width: 0;
-}
-
-.merope-full-body__frame {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 9 / 16;
-  overflow: hidden;
-  border-radius: 12px;
-  background: rgb(var(--merope-surface-rgb, 255 255 255) / 36%);
-}
-
-.merope-full-body__frame > img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.merope-full-body__figure figcaption {
-  color: var(--merope-muted, #667085);
-  font-size: 12px;
-  text-align: center;
-}
-
-.merope-full-body__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .merope-motion-rig__tabs {
   margin: 0;
 }
@@ -428,17 +447,11 @@ html.dark .merope-motion-page {
   line-height: 1.5;
 }
 
-.merope-motion-rig__hint,
-.merope-motion-rig__token-ready {
+.merope-motion-rig__hint {
   margin: 0;
   color: var(--merope-muted, #667085);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.merope-motion-rig__token-ready {
-  color: var(--merope-ink, inherit);
-  font-weight: 620;
 }
 
 .merope-motion-rig__issues {
@@ -740,6 +753,23 @@ html.dark .merope-motion-page {
   object-position: center 12%;
 }
 
+.merope-wardrobe-page__portrait--standing {
+  position: relative;
+  width: min(100%, 200px);
+  aspect-ratio: 9 / 16;
+}
+
+.merope-wardrobe-page__portrait--standing img {
+  position: absolute;
+  inset: 0;
+  object-fit: contain;
+  object-position: center;
+}
+
+.merope-wardrobe-page .merope-full-body {
+  gap: 16px;
+}
+
 .merope-wardrobe {
   --ob-liq-sheen: linear-gradient(
     180deg,
@@ -936,6 +966,30 @@ html.dark .merope-wardrobe {
   color: var(--merope-muted);
 }
 
+.merope-wardrobe__caption--kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.merope-wardrobe__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--merope-accent-ink, #7c6ee6) 14%, transparent);
+  color: var(--merope-accent-ink, #7c6ee6);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+.merope-wardrobe__chip.is-worn {
+  background: color-mix(in srgb, var(--merope-accent-ink, #7c6ee6) 26%, transparent);
+}
+
 .merope-wardrobe__kinds {
   display: flex;
   flex-wrap: wrap;
@@ -1098,4 +1152,292 @@ html.dark .merope-wardrobe {
   font-weight: 650;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+/* Combined pose fixes: three steps, then the poses fixed so far. */
+.merope-pose {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.merope-pose__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.merope-pose__target {
+  margin: 0;
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+}
+
+.merope-pose__step {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.merope-pose__step > h4 {
+  margin: 0;
+  color: var(--merope-ink, inherit);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.merope-pose__hint,
+.merope-pose__notice,
+.merope-pose__status {
+  margin: 0;
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.merope-pose__status.is-ready {
+  color: var(--merope-ink, inherit);
+}
+
+.merope-pose__notice {
+  color: var(--color-warning, #b54708);
+}
+
+.merope-pose__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.merope-pose__fine > summary {
+  color: var(--merope-ink, inherit);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.merope-pose__fine[open] > summary {
+  margin-bottom: 8px;
+}
+
+.merope-pose__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.merope-pose__corner {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color, #d8dbe6) 68%, transparent);
+  border-radius: 12px;
+}
+
+.merope-pose__corner.is-on {
+  border-color: var(--cfg-accent, #7c6ee6);
+}
+
+.merope-pose__corner-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.merope-pose__corner-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--merope-ink, inherit);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.merope-pose__corner-name > b {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.merope-pose__corner-name > span {
+  color: var(--merope-muted, #667085);
+  font-size: 11.5px;
+}
+
+.merope-pose__remove {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--merope-muted, #667085);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.merope-pose__remove:hover:not(:disabled) {
+  color: var(--color-danger, #d92d20);
+}
+
+.merope-pose__patches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.merope-pose__patch {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-color, #d8dbe6) 68%, transparent);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.merope-pose__patch.is-on {
+  border-color: var(--cfg-accent, #7c6ee6);
+  background: color-mix(in srgb, var(--cfg-accent, #7c6ee6) 14%, transparent);
+}
+
+.merope-pose__patch > button {
+  padding: 3px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--merope-ink, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+
+.merope-pose__patch > button + button {
+  padding-left: 2px;
+  color: var(--merope-muted, #667085);
+}
+
+.merope-pose__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.merope-pose__changes {
+  flex: 1 1 auto;
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+}
+
+.merope-pose__compare {
+  padding: 5px 12px;
+  border: 1px dashed color-mix(in srgb, var(--border-color, #d8dbe6) 90%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--merope-ink, inherit);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+}
+
+.merope-pose__compare:active {
+  background: color-mix(in srgb, var(--cfg-accent, #7c6ee6) 14%, transparent);
+}
+
+/* Drawn over the live stage; only the grips take the pointer. */
+.merope-pose-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  width: 100vw;
+  height: 100vh;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.merope-pose-overlay__patch ellipse {
+  fill: color-mix(in srgb, var(--cfg-accent, #7c6ee6) 8%, transparent);
+  stroke: var(--cfg-accent, #7c6ee6);
+  stroke-dasharray: 4 4;
+  stroke-width: 1.2;
+  opacity: 0.55;
+}
+
+.merope-pose-overlay__patch line {
+  stroke: var(--cfg-accent, #7c6ee6);
+  stroke-width: 1.5;
+  opacity: 0.8;
+}
+
+.merope-pose-overlay__patch.is-on ellipse {
+  opacity: 1;
+}
+
+.merope-pose-overlay__push,
+.merope-pose-overlay__origin,
+.merope-pose-overlay__reach {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.merope-pose-overlay__push {
+  fill: var(--cfg-accent, #7c6ee6);
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.merope-pose-overlay__push:focus-visible {
+  outline: none;
+  stroke: var(--cfg-accent, #7c6ee6);
+  stroke-width: 4;
+}
+
+.merope-pose-overlay__origin {
+  fill: rgb(255 255 255 / 70%);
+  stroke: var(--cfg-accent, #7c6ee6);
+  stroke-width: 2;
+  cursor: move;
+}
+
+.merope-pose-overlay__reach {
+  fill: #fff;
+  stroke: var(--cfg-accent, #7c6ee6);
+  stroke-width: 1.5;
+  cursor: ew-resize;
+}
+
+.merope-pose-overlay__reach.is-y {
+  cursor: ns-resize;
+}
+
+.merope-pose-overlay__pick {
+  position: fixed;
+  z-index: 40;
+  outline: 2px dashed var(--cfg-accent, #7c6ee6);
+  outline-offset: -2px;
+  cursor: crosshair;
+}
+
+.merope-pose-overlay__pick-hint {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  max-width: calc(100% - 16px);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 62%);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+  pointer-events: none;
 }

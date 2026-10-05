@@ -371,6 +371,21 @@ export async function saveRigPoseCorrections(assetId: string, corrections: PoseC
   }
 }
 
+/** A full-body set's corrections, saved into a new package for that set. */
+export async function saveFullBodyPoseCorrections(outfitId: string, assetId: string, corrections: PoseCorrection[]): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
+  try {
+    const data = await apiService.patch<{ manifest: unknown; assetId: unknown }>(`${PREFIX}${fullBodyPath(outfitId)}/pose-corrections`, { assetId, corrections })
+    if (!isRigManifest(data.manifest) || typeof data.assetId !== 'string' || !/^[0-9a-f]{64}$/u.test(data.assetId)) {
+      throw new Error(currentCopy().merope.poseCorrection.failed)
+    }
+    return { manifest: data.manifest, assetId: data.assetId }
+  } catch (reason) {
+    const error = meropeError(reason, currentCopy().merope.poseCorrection.failed)
+    if (error.status === 409) throw new Error(currentCopy().merope.poseCorrection.conflict)
+    throw error
+  }
+}
+
 export async function previewMeropeRigImport(
   source: MeropeRigImportSource,
   atlas: Blob,
@@ -433,6 +448,36 @@ export async function uploadSitePortrait(image: Blob): Promise<{
       {
         timeout: RIG_MUTATION_TIMEOUT_MS,
       },
+    )
+    const portraitUrl = readPortraitUrl(data)
+    if (!portraitUrl) {
+      throw new MeropeApiError(currentCopy().merope.portraitUploadFailed, 502)
+    }
+    return { portraitUrl }
+  } catch (reason) {
+    if (reason instanceof MeropeApiError) throw reason
+    throw meropeError(reason, currentCopy().merope.portraitUploadFailed)
+  }
+}
+
+/** The owner's own picture for a bust set that is not worn. */
+export async function uploadOutfitPortrait(
+  outfitId: string,
+  image: Blob,
+): Promise<{
+  portraitUrl: string
+}> {
+  const body = new FormData()
+  body.append(
+    'image',
+    image,
+    image instanceof File ? image.name : 'uploaded-portrait.png',
+  )
+  try {
+    const data = await apiService.post<{ portraitUrl?: unknown }>(
+      `${PREFIX}/outfits/${encodeURIComponent(outfitId)}/portrait/upload`,
+      body,
+      { timeout: RIG_MUTATION_TIMEOUT_MS },
     )
     const portraitUrl = readPortraitUrl(data)
     if (!portraitUrl) {

@@ -91,6 +91,11 @@ export function isPoseCorrections(value: unknown): value is PoseCorrection[] {
   })
 }
 
+/** Compact C2 radial brush: zero displacement AND slope at its boundary. */
+export function poseCorrectionInfluence(r: number): number {
+  return r >= 1 ? 0 : (1 - r) ** 4 * (1 + 4 * r)
+}
+
 export interface BoundPoseCorrection {
   axes: Array<readonly [PoseCorrectionAxis, number]>
   offsets: Float32Array
@@ -118,8 +123,7 @@ export function bindPoseCorrections(
           (y - patch.y) / patch.radiusY,
         )
         if (r >= 1) continue
-        // Compact C2 radial brush: zero displacement AND slope at its boundary.
-        const influence = (1 - r) ** 4 * (1 + 4 * r)
+        const influence = poseCorrectionInfluence(r)
         offsets[i] += patch.dx * head.radiusX * influence
         offsets[i + 1] += patch.dy * head.radiusY * influence
       }
@@ -138,29 +142,35 @@ export function bindPoseCorrections(
   return result.length ? result : undefined
 }
 
-type CorrectionDriver = Pick<
+export type CorrectionDriver = Pick<
   Anime25DDriver,
   'angleX' | 'angleY' | 'eyeOpenL' | 'eyeOpenR' | 'mouthOpen'
 >
+
+/** How much of a corner a pose holds: each axis eased in on its way to the corner. */
+export function poseCorrectionWeight(
+  axes: ReadonlyArray<readonly [PoseCorrectionAxis, number]>,
+  driver: Readonly<CorrectionDriver>,
+): number {
+  let weight = 1
+  for (const [axis, target] of axes) {
+    const value =
+      axis === 'eyeCloseL'
+        ? 1 - driver.eyeOpenL
+        : axis === 'eyeCloseR'
+          ? 1 - driver.eyeOpenR
+          : driver[axis]
+    const t = Math.max(0, Math.min(1, value / target))
+    weight *= t * t * (3 - 2 * t)
+  }
+  return weight
+}
 
 export function writePoseCorrectionWeights(
   bindings: BoundPoseCorrection[],
   driver: Readonly<CorrectionDriver>,
 ): void {
-  for (const binding of bindings) {
-    let weight = 1
-    for (const [axis, target] of binding.axes) {
-      const value =
-        axis === 'eyeCloseL'
-          ? 1 - driver.eyeOpenL
-          : axis === 'eyeCloseR'
-            ? 1 - driver.eyeOpenR
-            : driver[axis]
-      const t = Math.max(0, Math.min(1, value / target))
-      weight *= t * t * (3 - 2 * t)
-    }
-    binding.weight = weight
-  }
+  for (const binding of bindings) binding.weight = poseCorrectionWeight(binding.axes, driver)
 }
 
 export function applyPoseCorrections(

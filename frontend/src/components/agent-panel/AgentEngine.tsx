@@ -109,6 +109,7 @@ import {
   agentPanelSubmitDetail,
   attachAgentSessionOpenQueue,
   dispatchAgentPanelOpen, dispatchHistoryAnswerResult,
+  takeQueuedAgentSubmit,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
 import { turnSelectionText } from './agentSelection'
@@ -1610,6 +1611,12 @@ export const AgentEngine: React.FC = () => {
   useEffect(() => {
     handleSendRef.current = handleSend
   }, [handleSend])
+
+  // 引擎挂上之前从面板外让她开口的那句（见 askAgentPanel）。
+  useEffect(() => {
+    const queued = takeQueuedAgentSubmit()
+    if (queued) void handleSendRef.current?.(queued.text, undefined, queued.mode)
+  }, [])
 
   const handleAgentResponse = useCallback(
     async (

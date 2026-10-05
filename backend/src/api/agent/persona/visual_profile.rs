@@ -82,6 +82,61 @@ pub(super) fn required_visual_language(value: &str) -> Option<&'static str> {
     }
 }
 
+/// A worn set's id as sent: absent keeps what was stored, `null` takes the
+/// set off, anything else must be a plain id.
+fn sanitize_active_set(
+    source: &Map<String, Value>,
+    key: &'static str,
+    profile: &mut Map<String, Value>,
+) -> Result<(), HttpError> {
+    let Some(active) = source.get(key) else {
+        return Ok(());
+    };
+    if active.is_null() {
+        profile.insert(key.into(), Value::Null);
+    } else {
+        let id = match active.as_str().map(str::trim) {
+            None => {
+                return Err(visual_profile_issue(
+                    myriad_merope::VisualProfileIssue::new(
+                        key,
+                        myriad_merope::VisualProfileReason::Invalid,
+                    ),
+                ));
+            }
+            Some("") => {
+                return Err(visual_profile_issue(
+                    myriad_merope::VisualProfileIssue::new(
+                        key,
+                        myriad_merope::VisualProfileReason::Empty,
+                    ),
+                ));
+            }
+            Some(id) if id.chars().count() > myriad_merope::MAX_WARDROBE_ID_CHARS => {
+                return Err(visual_profile_issue(
+                    myriad_merope::VisualProfileIssue::new(
+                        key,
+                        myriad_merope::VisualProfileReason::TooLong {
+                            max_chars: myriad_merope::MAX_WARDROBE_ID_CHARS,
+                        },
+                    ),
+                ));
+            }
+            Some(id) if id.chars().any(char::is_control) => {
+                return Err(visual_profile_issue(
+                    myriad_merope::VisualProfileIssue::new(
+                        key,
+                        myriad_merope::VisualProfileReason::ControlChar,
+                    ),
+                ));
+            }
+            Some(id) => id,
+        };
+        profile.insert(key.into(), json!(id));
+    }
+    Ok(())
+}
+
 pub(super) fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
     let source = value.as_object().ok_or_else(|| {
         visual_profile_issue(myriad_merope::VisualProfileIssue::new(
@@ -152,57 +207,15 @@ pub(super) fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError>
             profile.insert("wardrobe".into(), json!(items));
         }
     }
-    if let Some(active) = source.get("activeOutfitId") {
-        if active.is_null() {
-            profile.insert("activeOutfitId".into(), Value::Null);
-        } else {
-            let id = match active.as_str().map(str::trim) {
-                None => {
-                    return Err(visual_profile_issue(
-                        myriad_merope::VisualProfileIssue::new(
-                            "activeOutfitId",
-                            myriad_merope::VisualProfileReason::Invalid,
-                        ),
-                    ));
-                }
-                Some("") => {
-                    return Err(visual_profile_issue(
-                        myriad_merope::VisualProfileIssue::new(
-                            "activeOutfitId",
-                            myriad_merope::VisualProfileReason::Empty,
-                        ),
-                    ));
-                }
-                Some(id) if id.chars().count() > myriad_merope::MAX_WARDROBE_ID_CHARS => {
-                    return Err(visual_profile_issue(
-                        myriad_merope::VisualProfileIssue::new(
-                            "activeOutfitId",
-                            myriad_merope::VisualProfileReason::TooLong {
-                                max_chars: myriad_merope::MAX_WARDROBE_ID_CHARS,
-                            },
-                        ),
-                    ));
-                }
-                Some(id) if id.chars().any(char::is_control) => {
-                    return Err(visual_profile_issue(
-                        myriad_merope::VisualProfileIssue::new(
-                            "activeOutfitId",
-                            myriad_merope::VisualProfileReason::ControlChar,
-                        ),
-                    ));
-                }
-                Some(id) => id,
-            };
-            profile.insert("activeOutfitId".into(), json!(id));
-        }
-    }
+    sanitize_active_set(source, "activeOutfitId", &mut profile)?;
+    sanitize_active_set(source, "activeFullBodyOutfitId", &mut profile)?;
     if let Some(identity) = source.get("visualIdentity") {
         if identity.is_null() {
             profile.insert("visualIdentity".into(), Value::Null);
             profile.entry("wardrobe".to_string()).or_insert(json!([]));
-            profile
-                .entry("activeOutfitId".to_string())
-                .or_insert(Value::Null);
+            for key in ["activeOutfitId", "activeFullBodyOutfitId"] {
+                profile.entry(key.to_string()).or_insert(Value::Null);
+            }
             drop_stale_active_outfit(&mut profile);
             return Ok(Value::Object(profile));
         }
@@ -236,23 +249,26 @@ pub(super) fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError>
     Ok(Value::Object(profile))
 }
 
-/// The worn set must be one in the wardrobe, and a bust: a full-body set is
-/// never worn on the panel.
+/// The worn bust must be a bust in the wardrobe, and the worn full body a
+/// full-body set there: the two are worn apart, and a full-body set is never
+/// worn on the panel.
 pub(super) fn drop_stale_active_outfit(profile: &mut Map<String, Value>) {
-    let Some(id) = profile.get("activeOutfitId").and_then(Value::as_str) else {
-        return;
-    };
-    let known = profile
-        .get("wardrobe")
-        .and_then(Value::as_array)
-        .is_some_and(|items| {
-            items.iter().any(|item| {
-                item.get("id").and_then(Value::as_str) == Some(id)
-                    && !myriad_merope::is_full_body_item(item)
-            })
-        });
-    if !known {
-        profile.insert("activeOutfitId".into(), Value::Null);
+    for (key, full_body) in [("activeOutfitId", false), ("activeFullBodyOutfitId", true)] {
+        let Some(id) = profile.get(key).and_then(Value::as_str) else {
+            continue;
+        };
+        let known = profile
+            .get("wardrobe")
+            .and_then(Value::as_array)
+            .is_some_and(|items| {
+                items.iter().any(|item| {
+                    item.get("id").and_then(Value::as_str) == Some(id)
+                        && myriad_merope::is_full_body_item(item) == full_body
+                })
+            });
+        if !known {
+            profile.insert(key.into(), Value::Null);
+        }
     }
 }
 
@@ -284,11 +300,16 @@ pub(super) fn merge_visual_profile(incoming: Value, previous: Option<&Value>) ->
         "clothingStyle",
         "wardrobe",
         "activeOutfitId",
+        "activeFullBodyOutfitId",
     ] {
         if key == "visualIdentity" && identity_context_changed {
             continue;
         }
-        if (key == "wardrobe" || key == "activeOutfitId") && identity_cleared {
+        if matches!(
+            key,
+            "wardrobe" | "activeOutfitId" | "activeFullBodyOutfitId"
+        ) && identity_cleared
+        {
             continue;
         }
         if merged.get(key).is_none() {

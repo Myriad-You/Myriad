@@ -20,8 +20,9 @@ import type {
 } from './performanceTelemetry'
 import type { Anime25DDebugSnapshot } from './playerDebug'
 import type { PoseCorrection } from './poseCorrections'
-
+import type { PoseCorrectionStageSource } from './poseCorrectionStage'
 import type { Anime25DRendererBindings, Anime25DRenderFrame } from './renderer'
+
 import type {
   TouchAtlas,
   TouchPaintLayer,
@@ -280,6 +281,12 @@ export class Anime25DPlayer {
         corrections ?? profile.poseCorrections, layer.secondaryDeformation.shellMode, layer.rest, profile.head,
       )
     }
+  }
+
+  /** Workbench-only: what correction picking reads of the live frame; null once disposed. */
+  poseStage(): PoseCorrectionStageSource | null {
+    return this.disposed ? null : { canvas: this.gl.canvas, frame: this.renderFrame, layers: this.layers,
+      head: this.playback.shellProfile.head, atlas: this.touchAtlas, gain: this.body.poseCorrectionGain(), driver: this.body.poseCorrectionDriver() }
   }
 
   hitTestTouch(clientX: number, clientY: number): VisibleTouchHit | null {
