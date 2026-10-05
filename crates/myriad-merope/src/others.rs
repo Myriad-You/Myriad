@@ -95,12 +95,16 @@ pub fn hurt(petty: usize, hurt: usize, deep: usize, let_go: usize) -> Option<(St
 pub const IN_STORY: &str = "Records that begin \"how others took you\" are how you came across to people: whether they answered when you wrote first, whether anyone took it up when you spoke up unasked in a group, what they told you about yourself, how often someone hurt you and whether you let it go. What people told you is how they saw you, not the truth about you: take it, doubt it, or push back, as you would. These records never say who or where, and neither does any claim: what is between you and someone stays there.";
 
 /// The last times she wrote to someone first, and whether they answered:
-/// `(how long ago, answered)`, where `None` is not a day yet.
+/// `(how long ago, answered)`, where `None` is not a day yet and no answer
+/// so far, read as "not yet" rather than as nothing known.
 pub fn first_words_view(entries: &[(String, Option<bool>)]) -> Value {
     Value::Array(
         entries
             .iter()
-            .map(|(ago, answered)| json!({ "ago": ago, "answered": answered }))
+            .map(|(ago, answered)| {
+                let answered = answered.map_or(json!("not yet"), Value::Bool);
+                json!({ "ago": ago, "answered": answered })
+            })
             .collect(),
     )
 }
@@ -136,7 +140,7 @@ mod tests {
             ]),
             json!([
                 { "ago": "2 days ago", "answered": false },
-                { "ago": "an hour ago", "answered": null }
+                { "ago": "an hour ago", "answered": "not yet" }
             ])
         );
     }

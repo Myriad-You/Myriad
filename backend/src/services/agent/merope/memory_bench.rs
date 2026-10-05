@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use crate::models::entities::agent_addressee_state;
 use crate::services::agent::memory::unified::{Audience, Priming};
 
+mod apart;
 mod chinese;
 mod days;
 mod full_size;

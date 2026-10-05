@@ -181,7 +181,8 @@ async fn first_words(db: &DatabaseConnection, user_id: i32) -> Option<(Reason, S
     let talk = recent_talk(db, user_id).await;
     let about = would_write(db, user_id, &reason, &talk).await?;
     let own = puzzle.as_ref().map(|made| made.surface.as_str());
-    let line = compose(db, user_id, &about, own, &talk).await?;
+    let last_talked = last.map(|last| myriad_merope::doing::ago_text(now - last));
+    let line = compose(db, user_id, &about, own, &talk, last_talked.as_deref()).await?;
     Some((reason, about, line))
 }
 
@@ -343,6 +344,7 @@ async fn compose(
     about: &str,
     own: Option<&str>,
     talk: &[crate::services::agent::ConversationMessage],
+    last_talked: Option<&str>,
 ) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -360,7 +362,7 @@ async fn compose(
             .map(|(at, line)| (myriad_merope::doing::ago_text(now - at), line))
             .collect();
     sections.extend(myriad_merope::reach::wrote_before(&before));
-    sections.push(writing_first(about));
+    sections.push(writing_first(about, last_talked));
     let prompt = crate::services::agent::chat_prompt::build_chat_lite_prompt_with_perception(
         &soul,
         &sections.join("\n\n"),
@@ -391,7 +393,7 @@ pub(crate) fn judge_verdict(raw: &str) -> Option<Option<String>> {
 
 #[cfg(test)]
 pub(crate) fn writing_first_section(about: &str) -> String {
-    writing_first(about)
+    writing_first(about, None)
 }
 
 #[cfg(test)]
@@ -405,7 +407,10 @@ mod tests {
             Some("考完了没？\n怎么样")
         );
         assert!(as_text("（笑）").is_none());
-        assert!(writing_first("考试").contains("no actions or descriptions in brackets"));
+        let first = writing_first("考试", Some("5 days ago"));
+        assert!(first.contains("no actions or descriptions in brackets"));
+        assert!(first.contains("You last talked 5 days ago"));
+        assert!(!writing_first("考试", None).contains("You last talked"));
         assert!(
             judge_system("你是小灯。")
                 .contains("Never just to be present, and never to push them.")

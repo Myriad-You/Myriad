@@ -36,6 +36,7 @@ const LIVES = [
   'her_day_in_a_group_a_stretch_at_a_time',
   'her_own_puzzle',
   'her_wish_toward_someone',
+  'her_first_words_after_days_apart',
   'her_real_talk_answered_again',
 ].filter((name) => !only || name === only)
 
