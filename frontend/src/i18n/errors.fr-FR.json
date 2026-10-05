@@ -692,6 +692,8 @@
     "see_through_auth_failed": "Hugging Face a refusé ce jeton. Vérifiez ses autorisations et réessayez.",
     "see_through_quota_unavailable": "See-through ZeroGPU est indisponible. Vérifiez le jeton et le quota.",
     "see_through_timeout": "L’inférence See-through a dépassé le délai. Réessayez.",
+    "see_through_space_waking": "Le Space See-through démarre encore après quelques minutes. Réessayez dans un instant.",
+    "see_through_space_unavailable": "Le Space See-through est en pause ou en erreur. Vérifiez-le sur Hugging Face.",
     "see_through_upstream_failed": "See-through a renvoyé un résultat invalide ou indisponible.",
     "see_through_invalid_input": "See-through a renvoyé un résultat invalide ou indisponible.",
     "GAME_CONFIG_INVALID": "Ce salon de jeu n’est pas correctement configuré.",

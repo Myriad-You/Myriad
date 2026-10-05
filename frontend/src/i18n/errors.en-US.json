@@ -692,6 +692,8 @@
     "see_through_auth_failed": "Hugging Face rejected this token. Check its permissions and try again.",
     "see_through_quota_unavailable": "See-through ZeroGPU is unavailable. Check the token and quota.",
     "see_through_timeout": "See-through inference timed out. Try again.",
+    "see_through_space_waking": "The See-through Space is still starting after a few minutes. Try again shortly.",
+    "see_through_space_unavailable": "The See-through Space is paused or failed. Check it on Hugging Face.",
     "see_through_upstream_failed": "See-through returned an invalid or unavailable result.",
     "see_through_invalid_input": "See-through returned an invalid or unavailable result.",
     "GAME_CONFIG_INVALID": "This game room is not set up correctly.",

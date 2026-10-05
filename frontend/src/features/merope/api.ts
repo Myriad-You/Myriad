@@ -11,7 +11,8 @@ const PREFIX = '/merope/rig'
 const RIG_MUTATION_TIMEOUT_MS = 6 * 60 * 1000
 /** Keep in sync with MEROPE_PROXY_TIMEOUT_MS and get_long_running_client. */
 const PORTRAIT_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
-const SEE_THROUGH_TIMEOUT_MS = 360_000
+// A sleeping Space can take minutes to wake before the split itself starts.
+const SEE_THROUGH_TIMEOUT_MS = 15 * 60 * 1000
 /** The first look also downloads the pose model on the server. */
 const SKELETON_TIMEOUT_MS = 180_000
 

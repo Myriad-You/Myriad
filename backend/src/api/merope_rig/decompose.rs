@@ -58,6 +58,16 @@ fn see_through_error(error: see_through::SeeThroughError) -> ApiError {
             "see_through_timeout",
             "See-through inference timed out",
         ),
+        SeeThroughError::Waking => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "see_through_space_waking",
+            "The See-through Space is still starting; try again in a few minutes",
+        ),
+        SeeThroughError::SpaceUnavailable(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "see_through_space_unavailable",
+            "The See-through Space is paused or failed; check it on Hugging Face",
+        ),
         SeeThroughError::Transport(_)
         | SeeThroughError::Upstream { .. }
         | SeeThroughError::InvalidOutput(_) => (

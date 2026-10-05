@@ -692,6 +692,8 @@
     "see_through_auth_failed": "Hugging Face 拒絕了這個 Token，請檢查權限後重試。",
     "see_through_quota_unavailable": "See-through 額度或 ZeroGPU 不可用，請檢查 Token 和配額。",
     "see_through_timeout": "See-through 推理超時，請再試一次。",
+    "see_through_space_waking": "See-through Space 正在啟動，等了幾分鐘還沒好。稍後再試。",
+    "see_through_space_unavailable": "See-through Space 已暫停或出錯，請到 Hugging Face 查看它的狀態。",
     "see_through_upstream_failed": "See-through 返回了無效或不可用的結果。",
     "see_through_invalid_input": "See-through 返回了無效或不可用的結果。",
     "GAME_CONFIG_INVALID": "這個遊戲房間的設定不對。",

@@ -42,6 +42,8 @@ const HOST_GENERATION_CODES = new Set([
   'see_through_auth_failed',
   'see_through_quota_unavailable',
   'see_through_timeout',
+  'see_through_space_waking',
+  'see_through_space_unavailable',
   'see_through_upstream_failed',
   'see_through_invalid_input',
   'QUEUE_FULL',

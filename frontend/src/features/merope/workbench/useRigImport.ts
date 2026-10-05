@@ -60,6 +60,8 @@ export function useRigImport({
     see_through_timeout: labels.motionSeeThroughTimeout,
     see_through_upstream_failed: labels.motionSeeThroughUpstream,
     see_through_invalid_input: labels.motionSeeThroughUpstream,
+    see_through_space_waking: t.errors.byCode.see_through_space_waking,
+    see_through_space_unavailable: t.errors.byCode.see_through_space_unavailable,
   }
   const [stage, setStage] = useState<RigAssetCompileEvent | null>(null)
   const [steps, setSteps] = useState<RigImportStepState>({})

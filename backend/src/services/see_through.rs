@@ -25,6 +25,10 @@ const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 const MAX_CONTROL_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_PSD_BYTES: usize = 32 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+/// A ZeroGPU Space sleeps after two idle days and cannot be kept awake; how
+/// long a decomposition waits for one to wake, and how often it looks.
+const WAKE_TIMEOUT: Duration = Duration::from_secs(8 * 60);
+const WAKE_POLL: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DecomposeOptions {
@@ -118,6 +122,33 @@ impl Space {
     fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base.as_str().trim_end_matches('/'))
     }
+
+    fn runtime_url(&self) -> String {
+        format!("https://huggingface.co/api/spaces/{}/runtime", self.name)
+    }
+}
+
+/// What a Space's stage on the Hub means for a decomposition about to start.
+#[derive(Debug, PartialEq, Eq)]
+enum Readiness {
+    Running,
+    /// Asleep: a request wakes it.
+    Asleep,
+    /// Building or starting: wait.
+    Starting,
+    /// Paused by its owner, or broken: waiting will not help.
+    Unavailable,
+}
+
+fn readiness(stage: &str) -> Readiness {
+    match stage {
+        "RUNNING" => Readiness::Running,
+        "SLEEPING" => Readiness::Asleep,
+        "BUILDING" | "RUNNING_BUILDING" | "APP_STARTING" | "RUNNING_APP_STARTING" | "STOPPED" => {
+            Readiness::Starting
+        }
+        _ => Readiness::Unavailable,
+    }
 }
 
 /// The Space the owner named, or Myriad's own.
@@ -138,9 +169,16 @@ pub enum SeeThroughError {
     Quota,
     Timeout,
     Transport(String),
-    Upstream { stage: &'static str, status: u16 },
+    Upstream {
+        stage: &'static str,
+        status: u16,
+    },
     Rejected,
     InvalidOutput(String),
+    /// Still starting after `WAKE_TIMEOUT`.
+    Waking,
+    /// Paused, failed to build, or crashed: its stage on the Hub.
+    SpaceUnavailable(String),
 }
 
 impl std::fmt::Display for SeeThroughError {
@@ -160,6 +198,10 @@ impl std::fmt::Display for SeeThroughError {
             Self::Rejected => formatter.write_str(
                 "See-through ZeroGPU rejected the job; check the Hugging Face token and quota",
             ),
+            Self::Waking => formatter.write_str("The See-through Space is still starting"),
+            Self::SpaceUnavailable(stage) => {
+                write!(formatter, "The See-through Space cannot run ({stage})")
+            }
         }
     }
 }
@@ -244,6 +286,7 @@ impl SeeThroughClient {
         let options = options.validate()?;
         validate_image(&image, media_type)?;
 
+        self.wait_until_running().await?;
         let canvas = self.serves_canvas().await?;
         let remote_path = self.upload(image, media_type).await?;
         let endpoint = if canvas { "decompose" } else { "inference" };
@@ -278,6 +321,61 @@ impl SeeThroughClient {
             event_id,
             canvas,
         })
+    }
+
+    /// Wakes the Space if it sleeps and waits while it builds or starts. A
+    /// stage the Hub will not tell (a private Space this token cannot read)
+    /// is left to the calls that follow.
+    async fn wait_until_running(&self) -> Result<(), SeeThroughError> {
+        let deadline = tokio::time::Instant::now() + WAKE_TIMEOUT;
+        let mut woken = false;
+        loop {
+            let Some(stage) = self.stage().await else {
+                return Ok(());
+            };
+            match readiness(&stage) {
+                Readiness::Running => return Ok(()),
+                Readiness::Unavailable => return Err(SeeThroughError::SpaceUnavailable(stage)),
+                Readiness::Asleep if !woken => {
+                    woken = true;
+                    tracing::info!(space = self.space.name(), "waking the See-through Space");
+                    // Any request to a sleeping Space starts it; the answer does not matter.
+                    let _ = self
+                        .authenticated(self.client.get(self.space.url("/")))
+                        .timeout(Duration::from_secs(30))
+                        .send()
+                        .await;
+                }
+                Readiness::Asleep | Readiness::Starting => {}
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(SeeThroughError::Waking);
+            }
+            tokio::time::sleep(WAKE_POLL).await;
+        }
+    }
+
+    async fn stage(&self) -> Option<String> {
+        let response = self
+            .authenticated(self.client.get(self.space.runtime_url()))
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        let body = crate::services::outbound_security::read_limited_body(
+            response,
+            MAX_CONTROL_RESPONSE_BYTES,
+        )
+        .await
+        .ok()?;
+        let runtime: Value = serde_json::from_slice(&body).ok()?;
+        runtime
+            .get("stage")
+            .and_then(Value::as_str)
+            .map(str::to_string)
     }
 
     /// Whether the Space serves `decompose`, Myriad's canvas endpoint.
@@ -662,6 +760,34 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
         assert!(!serves_endpoint(&demo, "decompose"));
         assert!(serves_endpoint(&own, "decompose"));
         assert!(!serves_endpoint(&json!({}), "decompose"));
+    }
+
+    #[test]
+    fn a_sleeping_space_is_woken_and_a_starting_one_waited_for() {
+        assert_eq!(readiness("RUNNING"), Readiness::Running);
+        assert_eq!(readiness("SLEEPING"), Readiness::Asleep);
+        for starting in [
+            "BUILDING",
+            "RUNNING_BUILDING",
+            "APP_STARTING",
+            "RUNNING_APP_STARTING",
+        ] {
+            assert_eq!(readiness(starting), Readiness::Starting, "{starting}");
+        }
+        for broken in [
+            "PAUSED",
+            "BUILD_ERROR",
+            "RUNTIME_ERROR",
+            "CONFIG_ERROR",
+            "NO_APP_FILE",
+            "DELETING",
+        ] {
+            assert_eq!(readiness(broken), Readiness::Unavailable, "{broken}");
+        }
+        assert_eq!(
+            Space::parse(DEFAULT_SPACE).unwrap().runtime_url(),
+            "https://huggingface.co/api/spaces/SomekawaHitomi/see-through-demo/runtime"
+        );
     }
 
     #[test]

@@ -692,6 +692,8 @@
     "see_through_auth_failed": "Hugging Face がこの Token を拒否しました。権限を確認して再試行してください。",
     "see_through_quota_unavailable": "See-through の ZeroGPU が使えません。Token と枠を確認してください。",
     "see_through_timeout": "See-through の推論がタイムアウトしました。再試行してください。",
+    "see_through_space_waking": "See-through の Space はまだ起動中です（数分待ちました）。少ししてから再試行してください。",
+    "see_through_space_unavailable": "See-through の Space が一時停止中かエラーです。Hugging Face で状態を確認してください。",
     "see_through_upstream_failed": "See-through が無効または利用できない結果を返しました。",
     "see_through_invalid_input": "See-through が無効または利用できない結果を返しました。",
     "GAME_CONFIG_INVALID": "このゲームルームの設定が正しくありません。",

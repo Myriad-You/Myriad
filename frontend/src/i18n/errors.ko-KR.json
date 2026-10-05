@@ -692,6 +692,8 @@
     "see_through_auth_failed": "Hugging Face가 이 토큰을 거절했어요. 권한을 확인하고 다시 시도하세요.",
     "see_through_quota_unavailable": "See-through ZeroGPU를 쓸 수 없어요. 토큰과 할당량을 확인하세요.",
     "see_through_timeout": "See-through 추론이 시간 초과됐어요. 다시 시도하세요.",
+    "see_through_space_waking": "See-through Space가 아직 시작 중이에요(몇 분 기다렸어요). 잠시 후 다시 시도하세요.",
+    "see_through_space_unavailable": "See-through Space가 일시 중지되었거나 오류 상태예요. Hugging Face에서 상태를 확인하세요.",
     "see_through_upstream_failed": "See-through가 잘못됐거나 쓸 수 없는 결과를 돌려줬어요.",
     "see_through_invalid_input": "See-through가 잘못됐거나 쓸 수 없는 결과를 돌려줬어요.",
     "GAME_CONFIG_INVALID": "이 게임 방이 올바르게 설정되지 않았어요.",
