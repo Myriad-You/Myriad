@@ -27,7 +27,12 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     );
     let soul = soul().await;
     let what = format!("{} {}", done.thing.verb(), done.thing.describe());
-    let system = digest_system(&soul, &what, &done.why, &intake.how);
+    let system = digest_system(
+        &soul,
+        &what,
+        picked_for(&done.thing, &done.why),
+        &intake.how,
+    );
     let schema = digest_schema(&intake.asks);
     let ask = || {
         call::Ask::new(Voice::Hers, owner, "doing_digest")
@@ -113,6 +118,18 @@ pub(super) async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         super::super::background::spawn("share_first", async move {
             crate::services::channel_group::share_first(owner, what).await;
         });
+    }
+}
+
+/// Why she picked it, as she goes by it when she writes what stayed with
+/// her. A song is picked by its name alone, so why she picked it is a
+/// guess from the name; given back as she writes, the note reads the name
+/// instead of the song (a wordless piece called "Ocean of Memories" comes
+/// back as the sea). What she heard is what she goes by.
+pub(super) fn picked_for<'a>(thing: &Thing, why: &'a str) -> &'a str {
+    match thing {
+        Thing::Song { .. } => "",
+        _ => why,
     }
 }
 

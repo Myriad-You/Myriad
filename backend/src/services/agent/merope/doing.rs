@@ -558,4 +558,80 @@ mod live {
             }
         }
     }
+
+    /// A song's name is only its name: what she writes of a song should
+    /// come from its words and sound, not from what the name suggests. The
+    /// title-trap cases of the mind suite (a name whose image is nowhere in
+    /// the song's words, and a piece without words), as she writes them (no
+    /// reason for picking it, see `finishing::picked_for`) and as she would
+    /// with a reason drawn from the name, MEROPE_RUNS each (default 4): her
+    /// notes printed, and how many lean on the name. Read only.
+    #[tokio::test]
+    #[ignore = "reads the site's persona and asks its model"]
+    async fn song_notes_are_not_their_names() {
+        let db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        crate::services::process_db::set_process_database(db.clone());
+        let runs: usize = std::env::var("MEROPE_RUNS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(4);
+        let cases: Vec<serde_json::Value> = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tests/merope/mind-cases.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let case = |id: &str| cases.iter().find(|case| case["id"] == id).unwrap().clone();
+        let soul = super::soul().await;
+        let mut leaned = 0;
+        let mut written = 0;
+        for (id, why, name_words) in [
+            ("mind-doing-digest-not-its-name", "", &["雪", "钟", "時計", "时计", "秒针", "冻"][..]),
+            (
+                "mind-doing-digest-not-its-name",
+                "名字挺好听，想听听雪和钟能唱成什么样",
+                &["雪", "钟", "時計", "时计", "秒针", "冻"][..],
+            ),
+            (
+                "mind-doing-digest-instrumental-named",
+                "",
+                &["海", "浪", "潮", "水", "回忆", "记忆"][..],
+            ),
+            (
+                "mind-doing-digest-instrumental-named",
+                "名字像片海，想听听",
+                &["海", "浪", "潮", "水", "回忆", "记忆"][..],
+            ),
+        ] {
+            let case = case(id);
+            let what = case["input"].as_str().unwrap();
+            let material = case["material"].as_str();
+            let (system, schema) = super::digest_probe_contract(&soul, what, why, material);
+            let input = super::digest_probe_input(material, &[], &[], None);
+            println!("\n[{id}] why: {why:?}");
+            for _ in 0..runs {
+                let Ok(raw) = super::call::Ask::new(super::Voice::Hers, 1, "doing_digest")
+                    .within(super::CALL_TIMEOUT)
+                    .json_raw(&system, &input, super::DIGEST_SCHEMA, &schema)
+                    .await
+                else {
+                    println!("  (no answer)");
+                    continue;
+                };
+                let note = super::read_digest(&raw, &[])
+                    .map(|(digest, _)| digest.impression)
+                    .unwrap_or_default();
+                // Naming the song is not leaning on its name.
+                let title = what.split('「').nth(1).and_then(|rest| rest.split('」').next());
+                let rest = title.map_or(note.clone(), |title| note.replace(title, ""));
+                let on_the_name = name_words.iter().any(|word| rest.contains(word));
+                written += 1;
+                leaned += usize::from(on_the_name);
+                println!("  {} {note}", if on_the_name { "✗" } else { "✓" });
+            }
+        }
+        println!("\n-- notes leaning on the name: {leaned}/{written}");
+    }
 }

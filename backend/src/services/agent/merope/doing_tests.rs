@@ -189,3 +189,14 @@ fn where_she_is_in_it_reads_plainly() {
         "yesterday"
     );
 }
+
+#[test]
+fn a_song_she_writes_of_is_what_she_heard_not_why_she_picked_it() {
+    let picked = "名字像片海，想听听";
+    assert_eq!(finishing::picked_for(&song("1", "Ocean of Memories"), picked), "");
+    let note = Thing::Note {
+        item_id: 1,
+        title: "灯塔".into(),
+    };
+    assert_eq!(finishing::picked_for(&note, picked), picked);
+}
