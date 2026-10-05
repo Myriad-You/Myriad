@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../../contexts/I18nContext'
 import { useAnimationLevel } from '../../../hooks/useAnimationLevel'
+import { isPlainClick } from '../../../utils/plainClick'
 import {
   coerceReportVisuals,
   hasRenderableCardVisuals,
@@ -292,28 +293,34 @@ export const ReportCardWidget = memo(
       }
     }, [])
 
+    // 长按打开设置后松手的那次点击不算数；打开主页/报告页交给下面的链接。
     const handleCardClick = useCallback(() => {
-      if (isLongPressRef.current) {
-        isLongPressRef.current = false
-        return
+      isLongPressRef.current = false
+    }, [])
+
+    // 卡片是真链接：右键复制、中键新开、长按菜单都归浏览器。
+    const cardLink = useMemo(() => {
+      if (!interactive || isEditMode) return null
+      const social = PLATFORM_SOCIAL[platformId]
+      if (clickAction === 'social' && socialUserId && social) {
+        return {
+          href: social.getUserUrl(socialUserId),
+          external: true,
+          label: `${social.publicName}: ${t.platformCard.clickToSocial}`,
+        }
       }
-      if (!interactive || isEditMode) return
-      if (clickAction === 'social' && socialUserId) {
-        window.open(
-          PLATFORM_SOCIAL[platformId]?.getUserUrl(socialUserId) || '#',
-          '_blank',
-          'noopener,noreferrer',
-        )
-        return
+      return {
+        href: '/reports',
+        external: false,
+        label: t.platformCard.clickToReport,
       }
-      navigate('/reports')
     }, [
       interactive,
       isEditMode,
       clickAction,
       socialUserId,
       platformId,
-      navigate,
+      t.platformCard,
     ])
 
     const handleMouseLeave = useCallback(() => {
@@ -386,6 +393,23 @@ export const ReportCardWidget = memo(
 
         {reportData ? (
           <CardLogoPill platformId={platformId} cardContent={cardContent} />
+        ) : null}
+
+        {cardLink ? (
+          <a
+            href={cardLink.href}
+            target={cardLink.external ? '_blank' : undefined}
+            rel={cardLink.external ? 'noopener noreferrer' : undefined}
+            draggable={false}
+            className="absolute inset-0 z-20"
+            aria-label={cardLink.label}
+            onClick={(event) => {
+              event.stopPropagation()
+              if (cardLink.external || !isPlainClick(event)) return
+              event.preventDefault()
+              navigate(cardLink.href)
+            }}
+          />
         ) : null}
 
         {reportData && rotation.active ? (
