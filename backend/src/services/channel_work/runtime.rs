@@ -310,7 +310,7 @@ pub(crate) async fn run_recovery_worker() {
         // Once a process: what came in private chats while she slept.
         if !waiting_taken_back {
             waiting_taken_back = true;
-            super::chat::take_back_waiting(&db).await;
+            super::chat_waiting::take_back_waiting(&db).await;
         }
         for platform in ChannelPlatform::ALL {
             let Ok(rows) = shared_registry::list(&db, platform.session_ns(), None, None).await

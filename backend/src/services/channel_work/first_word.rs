@@ -153,7 +153,7 @@ mod tests {
         for platform in ChannelPlatform::ALL {
             assert_eq!(
                 first.contains(&platform),
-                super::chat::can_answer_later(platform),
+                super::chat_waiting::can_answer_later(platform),
                 "{platform:?}"
             );
         }

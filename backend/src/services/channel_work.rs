@@ -43,6 +43,7 @@ const TYPING_REFRESH: Duration = Duration::from_secs(4);
 
 mod chat;
 mod chat_images;
+mod chat_waiting;
 mod transport;
 use crate::services::channel_pairing::ChannelBinding;
 pub use transport::ChannelTransport;
