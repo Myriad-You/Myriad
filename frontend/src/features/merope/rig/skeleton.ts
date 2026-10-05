@@ -1,4 +1,5 @@
 import type { Anime25DJointName, Anime25DSkeleton } from '../anime25drig/types'
+import { psdPlacement } from './psdPlacement'
 
 /**
  * The joints the backend found on a master portrait (DWPose, COCO-WholeBody):
@@ -54,28 +55,19 @@ const FACING = {
 } as const
 
 /**
- * The PSD is the portrait padded to a square and scaled: its keypoints take
- * the same padding and scale. A PSD that is not square was not split from
- * this portrait, so it has no skeleton.
+ * The PSD is the portrait as See-through placed it (padded to a square, or
+ * fitted on a canvas of its own shape): its keypoints take the same placement.
  */
 export function alignSkeletonToPsd(
   skeleton: Readonly<DetectedSkeleton>,
   width: number,
   height: number,
 ): PsdSkeleton | null {
-  if (width !== height || !(skeleton.width > 0 && skeleton.height > 0)) return null
-  const edge = Math.max(skeleton.width, skeleton.height)
-  const paddingX = Math.floor((edge - skeleton.width) / 2)
-  const paddingY = Math.floor((edge - skeleton.height) / 2)
-  const scaleX = width / edge
-  const scaleY = height / edge
+  if (!(skeleton.width > 0 && skeleton.height > 0)) return null
+  const placement = psdPlacement(skeleton, width, height)
   return {
     model: skeleton.model,
-    keypoints: skeleton.keypoints.map(([x, y, score]) => [
-      (x + paddingX) * scaleX,
-      (y + paddingY) * scaleY,
-      score,
-    ]),
+    keypoints: skeleton.keypoints.map(([x, y, score]) => [...placement.map(x, y), score]),
   }
 }
 

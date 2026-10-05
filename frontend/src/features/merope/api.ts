@@ -38,6 +38,32 @@ export interface SeeThroughStatus {
   tokenConfigured: boolean
   defaultResolution: number
   splitArmsAndLegs: boolean
+  /** The Space decompositions run on: the owner's copy or the public demo. */
+  space: string
+  defaultSpace: string
+}
+
+const DEFAULT_SEE_THROUGH_SPACE = '24yearsold/see-through-demo'
+
+function readSeeThroughStatus(data: Partial<SeeThroughStatus>): SeeThroughStatus {
+  const space =
+    typeof data.space === 'string' && data.space
+      ? data.space
+      : typeof data.provider === 'string' && data.provider
+        ? data.provider
+        : DEFAULT_SEE_THROUGH_SPACE
+  return {
+    provider: space,
+    tokenConfigured: data.tokenConfigured === true,
+    defaultResolution:
+      typeof data.defaultResolution === 'number' ? data.defaultResolution : 1280,
+    splitArmsAndLegs: data.splitArmsAndLegs !== false,
+    space,
+    defaultSpace:
+      typeof data.defaultSpace === 'string' && data.defaultSpace
+        ? data.defaultSpace
+        : DEFAULT_SEE_THROUGH_SPACE,
+  }
 }
 
 function payloadCode(payload: Record<string, unknown>): string | undefined {
@@ -196,18 +222,7 @@ export async function getSeeThroughStatus(): Promise<SeeThroughStatus> {
   const data = await apiService.get<Partial<SeeThroughStatus>>(
     `${PREFIX}/see-through/status`,
   )
-  return {
-    provider:
-      typeof data.provider === 'string'
-        ? data.provider
-        : '24yearsold/see-through-demo',
-    tokenConfigured: data.tokenConfigured === true,
-    defaultResolution:
-      typeof data.defaultResolution === 'number'
-        ? data.defaultResolution
-        : 1280,
-    splitArmsAndLegs: data.splitArmsAndLegs !== false,
-  }
+  return readSeeThroughStatus(data)
 }
 
 export async function updateSeeThroughToken(
@@ -217,15 +232,22 @@ export async function updateSeeThroughToken(
     `${PREFIX}/see-through/token`,
     { token },
   )
-  return {
-    provider:
-      typeof data.provider === 'string'
-        ? data.provider
-        : '24yearsold/see-through-demo',
-    tokenConfigured: data.tokenConfigured === true,
-    defaultResolution: 1280,
-    splitArmsAndLegs: true,
-  }
+  return readSeeThroughStatus(data)
+}
+
+/**
+ * Names the See-through Space (`owner/name`) to decompose with; empty goes back
+ * to the public demo. A copy serving `decompose` fits portraits on a canvas of
+ * their own shape; any other Space pads them to a square as before.
+ */
+export async function updateSeeThroughSpace(
+  space: string,
+): Promise<SeeThroughStatus> {
+  const data = await apiService.patch<Partial<SeeThroughStatus>>(
+    `${PREFIX}/see-through/space`,
+    { space: space.trim() || null },
+  )
+  return readSeeThroughStatus(data)
 }
 
 /** The PSD endpoint's failures carry no useful HTTP status text; prefer the domain fallback. */

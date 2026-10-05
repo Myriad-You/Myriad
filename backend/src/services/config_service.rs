@@ -166,6 +166,7 @@ standard_fields! {
         psn_online_id,
         psn_npsso,
         see_through_hf_token,
+        see_through_space,
         qq_bot_app_secret,
         telegram_bot_token,
         discord_bot_token,
@@ -1358,6 +1359,26 @@ mod tests {
             json!("  "),
         )]));
         assert_eq!(empty.see_through_hf_token, None);
+    }
+
+    #[test]
+    fn parses_see_through_space_from_database_config() {
+        assert!(!crate::services::data_key::is_sensitive_config_key(
+            "see_through_space"
+        ));
+        let configured = ConfigService::parse_config(HashMap::from([(
+            "see_through_space".into(),
+            json!("SomekawaHitomi/see-through-demo"),
+        )]));
+        assert_eq!(
+            configured.see_through_space.as_deref(),
+            Some("SomekawaHitomi/see-through-demo")
+        );
+        let empty = ConfigService::parse_config(HashMap::from([(
+            "see_through_space".into(),
+            json!(""),
+        )]));
+        assert_eq!(empty.see_through_space, None);
     }
 
     #[test]

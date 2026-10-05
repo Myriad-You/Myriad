@@ -1,4 +1,7 @@
-//! Remote client for the public See-through Gradio Space.
+//! Remote client for a See-through Gradio Space: the public demo, or the
+//! owner's copy of it. A copy that also serves `decompose` fits the portrait on
+//! a canvas of its own shape instead of padding it to a square; the demo's
+//! square `inference` is used wherever that endpoint is missing.
 //!
 //! The model is deliberately never loaded by Myriad. Character pixels leave
 //! the host only after the site owner explicitly asks for decomposition, and
@@ -9,8 +12,12 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{sync::OnceLock, time::Duration};
 
-pub const SPACE_BASE_URL: &str = "https://24yearsold-see-through-demo.hf.space";
-pub const SPACE_NAME: &str = "24yearsold/see-through-demo";
+/// The public demo, used when the owner has not named a Space of their own.
+pub const DEFAULT_SPACE: &str = "24yearsold/see-through-demo";
+/// The canvas (width x height) a Space with `decompose` fits portraits on: one
+/// shape that bust (3:4) and full-body (9:16) portraits both fill well, at
+/// about the 1280x1280 pixels LayerDiff 3D was trained with.
+pub const CANVAS: &str = "1088x1664";
 const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 const MAX_CONTROL_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_PSD_BYTES: usize = 32 * 1024 * 1024;
@@ -58,6 +65,65 @@ impl DecomposeOptions {
 pub struct DecomposeOutput {
     pub psd: Vec<u8>,
     pub event_id: String,
+    /// Fitted on `CANVAS` rather than padded to a square.
+    pub canvas: bool,
+}
+
+/// A Hugging Face Space running See-through, by its `owner/name`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Space {
+    name: String,
+    base: Url,
+}
+
+impl Space {
+    pub fn parse(name: &str) -> Result<Self, SeeThroughError> {
+        let name = name.trim();
+        let invalid = || {
+            SeeThroughError::InvalidInput(
+                "See-through Space must be an owner/name Hugging Face Space id".to_string(),
+            )
+        };
+        let (owner, repo) = name.split_once('/').ok_or_else(invalid)?;
+        let part = |value: &str| {
+            !value.is_empty()
+                && value.len() <= 96
+                && value
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                && !value.starts_with(['-', '.'])
+                && !value.ends_with(['-', '.'])
+        };
+        if !part(owner) || !part(repo) {
+            return Err(invalid());
+        }
+        // Spaces are served at owner-name.hf.space, lower case, with `_` and `.` as `-`.
+        let subdomain = format!("{owner}-{repo}")
+            .to_ascii_lowercase()
+            .replace(['_', '.'], "-");
+        let base = Url::parse(&format!("https://{subdomain}.hf.space")).map_err(|_| invalid())?;
+        Ok(Self {
+            name: name.to_string(),
+            base,
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base.as_str().trim_end_matches('/'))
+    }
+}
+
+/// The Space the owner named, or the public demo.
+pub fn configured_space(config: &crate::config::DynamicConfig) -> Space {
+    config
+        .see_through_space
+        .as_deref()
+        .and_then(|name| Space::parse(name).ok())
+        .unwrap_or_else(|| Space::parse(DEFAULT_SPACE).expect("the default Space id is valid"))
 }
 
 #[derive(Debug)]
@@ -136,10 +202,11 @@ fn inference_gate() -> &'static tokio::sync::Semaphore {
 pub struct SeeThroughClient {
     client: Client,
     token: String,
+    space: Space,
 }
 
 impl SeeThroughClient {
-    pub async fn new(token: String) -> Result<Self, SeeThroughError> {
+    pub async fn new(token: String, space: Space) -> Result<Self, SeeThroughError> {
         let token = validate_hf_token(&token)?;
         let proxy = crate::services::http_client::ProxyConfig::from_dynamic_config().await;
         let builder = Client::builder()
@@ -151,7 +218,11 @@ impl SeeThroughClient {
             .map_err(|error| SeeThroughError::Transport(error.to_string()))?
             .build()
             .map_err(|error| SeeThroughError::Transport(error.to_string()))?;
-        Ok(Self { client, token })
+        Ok(Self {
+            client,
+            token,
+            space,
+        })
     }
 
     fn authenticated(&self, request: RequestBuilder) -> RequestBuilder {
@@ -170,11 +241,55 @@ impl SeeThroughClient {
         let options = options.validate()?;
         validate_image(&image, media_type)?;
 
+        let canvas = self.serves_canvas().await?;
         let remote_path = self.upload(image, media_type).await?;
-        let event_id = self.start_inference(&remote_path, options).await?;
-        let output_url = self.await_output(&event_id).await?;
+        let endpoint = if canvas { "decompose" } else { "inference" };
+        let file = json!({
+            "path": remote_path,
+            "orig_name": "character.png",
+            "meta": { "_type": "gradio.FileData" }
+        });
+        let data = if canvas {
+            // Canvas, seed, left/right split, output scale, SDXL size condition.
+            json!([
+                file,
+                CANVAS,
+                options.seed,
+                options.split_arms_and_legs,
+                1,
+                "trained"
+            ])
+        } else {
+            json!([
+                file,
+                options.resolution,
+                options.seed,
+                options.split_arms_and_legs
+            ])
+        };
+        let event_id = self.start(endpoint, data).await?;
+        let output_url = self.await_output(endpoint, &event_id).await?;
         let psd = self.download_psd(output_url).await?;
-        Ok(DecomposeOutput { psd, event_id })
+        Ok(DecomposeOutput {
+            psd,
+            event_id,
+            canvas,
+        })
+    }
+
+    /// Whether the Space serves `decompose`, Myriad's canvas endpoint.
+    async fn serves_canvas(&self) -> Result<bool, SeeThroughError> {
+        let response = self
+            .authenticated(self.client.get(self.space.url("/gradio_api/info")))
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let body =
+            successful_body(response, "endpoint listing", MAX_CONTROL_RESPONSE_BYTES).await?;
+        let info: Value = serde_json::from_slice(&body).map_err(|_| {
+            SeeThroughError::InvalidOutput("See-through endpoint listing is invalid".to_string())
+        })?;
+        Ok(serves_endpoint(&info, "decompose"))
     }
 
     async fn upload(
@@ -199,10 +314,7 @@ impl SeeThroughClient {
             .mime_str(media_type)
             .map_err(|error| SeeThroughError::InvalidInput(error.to_string()))?;
         let response = self
-            .authenticated(
-                self.client
-                    .post(format!("{SPACE_BASE_URL}/gradio_api/upload")),
-            )
+            .authenticated(self.client.post(self.space.url("/gradio_api/upload")))
             .multipart(multipart::Form::new().part("files", part))
             .send()
             .await
@@ -222,28 +334,13 @@ impl SeeThroughClient {
         Ok(path)
     }
 
-    async fn start_inference(
-        &self,
-        remote_path: &str,
-        options: DecomposeOptions,
-    ) -> Result<String, SeeThroughError> {
+    async fn start(&self, endpoint: &str, data: Value) -> Result<String, SeeThroughError> {
         let response = self
             .authenticated(
                 self.client
-                    .post(format!("{SPACE_BASE_URL}/gradio_api/call/inference")),
+                    .post(self.space.url(&format!("/gradio_api/call/{endpoint}"))),
             )
-            .json(&json!({
-                "data": [
-                    {
-                        "path": remote_path,
-                        "orig_name": "character.png",
-                        "meta": { "_type": "gradio.FileData" }
-                    },
-                    options.resolution,
-                    options.seed,
-                    options.split_arms_and_legs
-                ]
-            }))
+            .json(&json!({ "data": data }))
             .send()
             .await
             .map_err(transport_error)?;
@@ -257,24 +354,27 @@ impl SeeThroughClient {
         Ok(response.event_id)
     }
 
-    async fn await_output(&self, event_id: &str) -> Result<Url, SeeThroughError> {
+    async fn await_output(&self, endpoint: &str, event_id: &str) -> Result<Url, SeeThroughError> {
         let response = self
-            .authenticated(self.client.get(format!(
-                "{SPACE_BASE_URL}/gradio_api/call/inference/{event_id}"
-            )))
+            .authenticated(
+                self.client.get(
+                    self.space
+                        .url(&format!("/gradio_api/call/{endpoint}/{event_id}")),
+                ),
+            )
             .send()
             .await
             .map_err(transport_error)?;
         let body = successful_body(response, "event stream", MAX_CONTROL_RESPONSE_BYTES).await?;
         let terminal = parse_terminal_event(&body)?;
         match terminal {
-            TerminalEvent::Complete(data) => output_file_url(&data),
+            TerminalEvent::Complete(data) => output_file_url(&self.space, &data),
             TerminalEvent::Error => Err(SeeThroughError::Rejected),
         }
     }
 
     async fn download_psd(&self, url: Url) -> Result<Vec<u8>, SeeThroughError> {
-        validate_output_url(&url)?;
+        validate_output_url(&self.space, &url)?;
         let response = self
             .authenticated(self.client.get(url))
             .send()
@@ -372,7 +472,14 @@ fn parse_terminal_event(body: &[u8]) -> Result<TerminalEvent, SeeThroughError> {
     ))
 }
 
-fn output_file_url(data: &Value) -> Result<Url, SeeThroughError> {
+/// Whether a Gradio `/gradio_api/info` listing names `endpoint`.
+fn serves_endpoint(info: &Value, endpoint: &str) -> bool {
+    info.get("named_endpoints")
+        .and_then(Value::as_object)
+        .is_some_and(|named| named.contains_key(&format!("/{endpoint}")))
+}
+
+fn output_file_url(space: &Space, data: &Value) -> Result<Url, SeeThroughError> {
     let file = data
         .as_array()
         .and_then(|values| values.first())
@@ -388,7 +495,7 @@ fn output_file_url(data: &Value) -> Result<Url, SeeThroughError> {
         })?
     } else if let Some(path) = file.get("path").and_then(Value::as_str) {
         validate_remote_temp_path(path)?;
-        Url::parse(&format!("{SPACE_BASE_URL}/gradio_api/file={path}")).map_err(|_| {
+        Url::parse(&space.url(&format!("/gradio_api/file={path}"))).map_err(|_| {
             SeeThroughError::InvalidOutput("See-through returned an invalid PSD path".to_string())
         })?
     } else {
@@ -396,14 +503,13 @@ fn output_file_url(data: &Value) -> Result<Url, SeeThroughError> {
             "See-through result did not expose a PSD download".to_string(),
         ));
     };
-    validate_output_url(&url)?;
+    validate_output_url(space, &url)?;
     Ok(url)
 }
 
-fn validate_output_url(url: &Url) -> Result<(), SeeThroughError> {
-    let expected = Url::parse(SPACE_BASE_URL).expect("constant See-through URL is valid");
+fn validate_output_url(space: &Space, url: &Url) -> Result<(), SeeThroughError> {
     let valid = url.scheme() == "https"
-        && url.host_str() == expected.host_str()
+        && url.host_str() == space.base.host_str()
         && url.port().is_none()
         && url.username().is_empty()
         && url.password().is_none()
@@ -492,7 +598,8 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
         let TerminalEvent::Complete(data) = parse_terminal_event(complete).unwrap() else {
             panic!("complete event expected")
         };
-        let url = output_file_url(&data).unwrap();
+        let demo = Space::parse(DEFAULT_SPACE).unwrap();
+        let url = output_file_url(&demo, &data).unwrap();
         assert_eq!(url.host_str(), Some("24yearsold-see-through-demo.hf.space"));
 
         assert!(matches!(
@@ -503,12 +610,55 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
 
     #[test]
     fn output_download_is_pinned_to_the_space() {
+        let demo = Space::parse(DEFAULT_SPACE).unwrap();
         let malicious = json!([{
             "url": "https://attacker.example/gradio_api/file=/tmp/gradio/a/output.psd"
         }]);
-        assert!(output_file_url(&malicious).is_err());
+        assert!(output_file_url(&demo, &malicious).is_err());
+        // Another Space's file is not this Space's output either.
+        let other = json!([{
+            "url": "https://somekawahitomi-see-through-demo.hf.space/gradio_api/file=/tmp/gradio/a/output.psd"
+        }]);
+        assert!(output_file_url(&demo, &other).is_err());
+        let own = Space::parse("SomekawaHitomi/see-through-demo").unwrap();
+        assert!(output_file_url(&own, &other).is_ok());
         assert!(validate_remote_temp_path("/tmp/gradio/a/input.png").is_ok());
         assert!(validate_remote_temp_path("/tmp/gradio/../secret").is_err());
+    }
+
+    #[test]
+    fn a_space_id_names_its_host() {
+        let own = Space::parse(" SomekawaHitomi/see-through-demo ").unwrap();
+        assert_eq!(own.name(), "SomekawaHitomi/see-through-demo");
+        assert_eq!(
+            own.url("/gradio_api/info"),
+            "https://somekawahitomi-see-through-demo.hf.space/gradio_api/info"
+        );
+        assert_eq!(
+            Space::parse("Some_One/see.through").unwrap().url(""),
+            "https://some-one-see-through.hf.space"
+        );
+        for invalid in [
+            "",
+            "no-slash",
+            "a/b/c",
+            "owner/",
+            "/name",
+            "evil.com/x?y",
+            "a/-b",
+        ] {
+            assert!(Space::parse(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn the_canvas_endpoint_is_used_only_where_the_space_serves_it() {
+        let demo = json!({ "named_endpoints": { "/inference": {} }, "unnamed_endpoints": {} });
+        let own =
+            json!({ "named_endpoints": { "/inference": {}, "/decompose": {}, "/refine": {} } });
+        assert!(!serves_endpoint(&demo, "decompose"));
+        assert!(serves_endpoint(&own, "decompose"));
+        assert!(!serves_endpoint(&json!({}), "decompose"));
     }
 
     #[test]

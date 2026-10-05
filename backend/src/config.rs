@@ -613,6 +613,10 @@ pub struct DynamicConfig {
     /// Hugging Face token used only by the backend when invoking the remote
     /// See-through ZeroGPU Space. This is a write-only host credential.
     pub see_through_hf_token: Option<String>,
+    /// The See-through Space (`owner/name`) to decompose with; None is the
+    /// public demo. A copy serving Myriad's `decompose` endpoint fits
+    /// portraits on a canvas of their own shape.
+    pub see_through_space: Option<String>,
 
     // 3D 模型生成配置（独立于 AI 图片 Provider）
     pub tripo_enabled: bool,
@@ -900,6 +904,7 @@ impl Default for DynamicConfig {
             merope_voice_voice: String::new(),
             agent_rig_asset_id: None,
             see_through_hf_token: None,
+            see_through_space: None,
             // Tripo 3D（低模 Web 角色默认预算）
             tripo_enabled: false,
             tripo_api_key: None,

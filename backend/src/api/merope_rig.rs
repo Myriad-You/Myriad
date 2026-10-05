@@ -89,6 +89,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             patch(decompose::update_see_through_token),
         )
         .route(
+            "/see-through/space",
+            patch(decompose::update_see_through_space),
+        )
+        .route(
             "/see-through/decompose",
             post(decompose::decompose_with_see_through),
         )

@@ -23,11 +23,19 @@ test('a portrait\'s joints land where the portrait was padded and scaled onto th
   assert.equal(x, ((576 + 192) * 1280) / 1536)
   assert.equal(y, (300 * 1280) / 1536)
   assert.equal(score, 0.9)
-  assert.equal(
-    alignSkeletonToPsd({ sourceMasterAssetId: '/m.png', model: 'dwpose', width: 10, height: 10, keypoints: [] }, 100, 80),
-    null,
-    'a PSD that is not square was not split from the portrait',
-  )
+  // The same portrait fitted on a 1088×1664 canvas: 1088×1451 at (0, 106).
+  const fitted = alignSkeletonToPsd(
+    {
+      sourceMasterAssetId: '/m.png',
+      model: 'dwpose',
+      width: 1152,
+      height: 1536,
+      keypoints: keypoints({ 0: [576, 300, 0.9] }),
+    },
+    1088,
+    1664,
+  )!
+  assert.deepEqual(fitted.keypoints[0], [544, 106 + 300 * (1451 / 1536), 0.9])
 })
 
 test('joints are named by side of the picture and kept only when seen inside the frame', () => {

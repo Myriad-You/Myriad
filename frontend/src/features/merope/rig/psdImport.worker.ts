@@ -3,6 +3,7 @@ import type { AuthoredExpressionReference } from './authoredExpression'
 import type { RigPsdImportReply, RigPsdImportRequest } from './psdImportClient'
 import { prepareAnime25DRigPsd } from './anime25dImporter'
 import { decodeRigPsd } from './psdDecode'
+import { psdPlacement } from './psdPlacement'
 import { alignSkeletonToPsd } from './skeleton'
 
 const reply = (data: RigPsdImportReply) => globalThis.postMessage(data)
@@ -75,7 +76,6 @@ async function alignSourceMaster(
   height: number,
   failure: string,
 ): Promise<{ reference: Anime25DSourceReference; size: ImageSize } | undefined> {
-  if (width !== height) return undefined
   const response = await fetch(url)
   if (!response.ok) throw new Error(failure)
   const bitmap = await createImageBitmap(await response.blob())
@@ -126,11 +126,7 @@ function drawIntoPsd(
   width: number,
   height: number,
 ): Anime25DSourceReference | null {
-  const squareEdge = Math.max(frame.width, frame.height)
-  const paddingX = Math.floor((squareEdge - frame.width) / 2)
-  const paddingY = Math.floor((squareEdge - frame.height) / 2)
-  const scaleX = width / squareEdge
-  const scaleY = height / squareEdge
+  const placement = psdPlacement(frame, width, height)
   const canvas = new OffscreenCanvas(width, height)
   const context = canvas.getContext('2d')
   if (!context) return null
@@ -138,10 +134,10 @@ function drawIntoPsd(
   context.imageSmoothingQuality = 'high'
   context.drawImage(
     bitmap,
-    paddingX * scaleX,
-    paddingY * scaleY,
-    frame.width * scaleX,
-    frame.height * scaleY,
+    placement.x,
+    placement.y,
+    placement.width,
+    placement.height,
   )
   return {
     width,

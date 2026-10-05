@@ -20,6 +20,7 @@ import {
   SEE_THROUGH_PROJECT_NAME,
   SEE_THROUGH_PROJECT_URL,
 } from './seeThroughProject'
+import { SeeThroughSpaceField } from './SeeThroughSpaceField'
 
 export type RigPath = 'upload' | 'seeThrough'
 
@@ -145,6 +146,7 @@ export function RigImportPanel({
             error={rig.tokenError}
             clearable={false}
           />
+          <SeeThroughSpaceField />
           <SettingsButton
             type="button"
             size="sm"

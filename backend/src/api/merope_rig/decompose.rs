@@ -1,4 +1,5 @@
-//! See-through 远程拆层：配置令牌，把当前立绘拆成 PSD 交给前端导入。
+//! See-through 远程拆层：配置令牌和 Space，把当前立绘拆成 PSD 交给前端导入。
+//! 主人自己的 Space 若提供 `decompose`，立绘按自身比例放进画布拆；否则走官方演示的正方形。
 
 use axum::{
     Extension, Json,
@@ -76,6 +77,22 @@ pub struct UpdateSeeThroughTokenRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateSeeThroughSpaceRequest {
+    /// `owner/name`; empty or absent goes back to the public demo.
+    #[serde(default)]
+    space: Option<String>,
+}
+
+fn space_status(space: &see_through::Space) -> Value {
+    json!({
+        "provider": space.name(),
+        "space": space.name(),
+        "defaultSpace": see_through::DEFAULT_SPACE,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SeeThroughDecomposeRequest {
     source_master_asset_id: String,
     #[serde(default)]
@@ -94,16 +111,18 @@ pub async fn get_see_through_status(
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     require_owner(&claims, &db).await?;
-    let token_configured = {
+    let (token_configured, space) = {
         let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
-        see_through::configured_hf_token(&config).is_some()
+        (
+            see_through::configured_hf_token(&config).is_some(),
+            see_through::configured_space(&config),
+        )
     };
-    Ok(Json(json!({
-        "provider": see_through::SPACE_NAME,
-        "tokenConfigured": token_configured,
-        "defaultResolution": see_through::DecomposeOptions::default().resolution,
-        "splitArmsAndLegs": true,
-    })))
+    let mut status = space_status(&space);
+    status["tokenConfigured"] = json!(token_configured);
+    status["defaultResolution"] = json!(see_through::DecomposeOptions::default().resolution);
+    status["splitArmsAndLegs"] = json!(true);
+    Ok(Json(status))
 }
 
 pub async fn update_see_through_token(
@@ -122,10 +141,48 @@ pub async fn update_see_through_token(
         .write()
         .await
         .see_through_hf_token = Some(token);
-    Ok(Json(json!({
-        "provider": see_through::SPACE_NAME,
-        "tokenConfigured": true,
-    })))
+    let space = see_through::configured_space(&*crate::GLOBAL_DYNAMIC_CONFIG.read().await);
+    let mut status = space_status(&space);
+    status["tokenConfigured"] = json!(true);
+    Ok(Json(status))
+}
+
+/// Names the Space to decompose with: the owner's copy of See-through, or none
+/// for the public demo.
+pub async fn update_see_through_space(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<UpdateSeeThroughSpaceRequest>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    require_owner(&claims, &db).await?;
+    let space = payload
+        .space
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(see_through::Space::parse)
+        .transpose()
+        .map_err(see_through_error)?;
+    let stored = space.as_ref().map(|space| space.name().to_string());
+    crate::services::config_service::ConfigService::new(db)
+        .update_config(
+            "see_through_space",
+            json!(stored.clone().unwrap_or_default()),
+        )
+        .await
+        .map_err(internal_error)?;
+    let (token_configured, space) = {
+        let mut config = crate::GLOBAL_DYNAMIC_CONFIG.write().await;
+        config.see_through_space = stored;
+        (
+            see_through::configured_hf_token(&config).is_some(),
+            see_through::configured_space(&config),
+        )
+    };
+    let mut status = space_status(&space);
+    status["tokenConfigured"] = json!(token_configured);
+    Ok(Json(status))
 }
 
 pub async fn decompose_with_see_through(
@@ -164,11 +221,15 @@ pub(super) async fn decompose_master(
         source_generation_fingerprint.as_deref(),
     )
     .await?;
-    let token = {
+    let (token, space) = {
         let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
-        see_through::configured_hf_token(&config)
-    }
-    .ok_or_else(|| see_through_error(see_through::SeeThroughError::NotConfigured))?;
+        (
+            see_through::configured_hf_token(&config),
+            see_through::configured_space(&config),
+        )
+    };
+    let token =
+        token.ok_or_else(|| see_through_error(see_through::SeeThroughError::NotConfigured))?;
     // Uploaded portraits live in the media store, not the image cache.
     let image = image_generation::load_local_reference(&master.asset_id)
         .await
@@ -183,7 +244,7 @@ pub(super) async fn decompose_master(
     }
     .validate()
     .map_err(see_through_error)?;
-    let client = see_through::SeeThroughClient::new(token)
+    let client = see_through::SeeThroughClient::new(token, space)
         .await
         .map_err(see_through_error)?;
     let output = client
@@ -222,6 +283,14 @@ pub(super) async fn decompose_master(
             HeaderValue::from_static("no-store, private"),
         )
         .header("x-see-through-event-id", event_header)
+        .header(
+            "x-see-through-canvas",
+            HeaderValue::from_static(if output.canvas {
+                see_through::CANVAS
+            } else {
+                "square"
+            }),
+        )
         .body(Body::from(output.psd))
         .map_err(internal_error)
 }
