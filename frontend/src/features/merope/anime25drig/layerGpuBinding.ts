@@ -171,7 +171,8 @@ export function compileAnime25DGpuLayers(
         const image = readBindingPixels(layer)
         return image ? [{ layer, image }] : []
       })
-    // A keyed head carries the material its turn uncovers, drawn; the generic fills stand in without it.
+    // A keyed head carries the hair its turn uncovers, drawn; the generic shade stands in without it.
+    // The face under the hair is plain skin either way, as a rigger paints it.
     const drawnMaterial = Boolean(playback.turnKeyforms)
     const shadedHair = !drawnMaterial && backHair && backHairPixels ? shadeHiddenBackHair(backHair, backHairPixels, headCovers) : null
     if (backHair && shadedHair) {
@@ -182,7 +183,7 @@ export function compileAnime25DGpuLayers(
         y: Math.round(backHair.atlas.y * atlasImage.height),
       })
     }
-    const plainSkin = !drawnMaterial && face && facePixels ? fillHiddenSkin(face, facePixels, hairCovers) : null
+    const plainSkin = face && facePixels ? fillHiddenSkin(face, facePixels, hairCovers) : null
     if (face && plainSkin) {
       bindingPixels.set(face, plainSkin)
       atlasPatches.push({
