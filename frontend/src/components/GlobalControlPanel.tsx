@@ -578,6 +578,20 @@ const GlobalControlPanel: React.FC = () => {
               if (isHoverCapablePointer(e.pointerType)) setIsHovering(true)
             }}
             onPointerLeave={() => setIsHovering(false)}
+            onClick={(event) => {
+              // 收起时内容条只占胶囊中间一截，四周内边距也要能点开。
+              // 只认直接点在胶囊本身上的：子元素各有处理，展开后的面板也不归这里。
+              if (event.target !== event.currentTarget || isExpandedRef.current) {
+                return
+              }
+              handleTogglePanel(
+                islandPanelTabForClick({
+                  affordance: 'control',
+                  carouselType: currentContent?.type,
+                  viewport: navLayout,
+                }),
+              )
+            }}
           >
             {hasValidContent && currentContent && (
               <div
