@@ -5,6 +5,7 @@ import {
   homeGridPixelHeight,
   resolveHomeGridMetrics,
   widgetContentMaxRow,
+  widgetsInReadingOrder,
 } from './widgetGridMetrics'
 
 function tile(
@@ -96,5 +97,37 @@ describe('homeGridPixelHeight', () => {
     assert.equal(homeGridPixelHeight(1600, 16, 4, false), 400)
     assert.equal(homeGridPixelHeight(0, 16, 4, false), undefined)
     assert.equal(homeGridPixelHeight(1600, 16, 8, true), undefined)
+  })
+})
+
+describe('widgetsInReadingOrder', () => {
+  // 数组顺序是添加先后，和摆放位置无关（#627）。
+  const added = [
+    tile('bottom-left', '2x2', 0, 2),
+    tile('top-right', '2x2', 8, 0),
+    tile('top-left', '2x2', 0, 0),
+    tile('bottom-right', '2x2', 8, 2),
+    tile('top-middle', '2x2', 4, 0),
+  ]
+
+  it('orders rows top to bottom, then left to right', () => {
+    assert.deepEqual(
+      widgetsInReadingOrder(added).map((w) => w.id),
+      ['top-left', 'top-middle', 'top-right', 'bottom-left', 'bottom-right'],
+    )
+  })
+
+  it('keeps a frozen order and appends new tiles in reading order', () => {
+    const frozen = ['top-right', 'top-left']
+    assert.deepEqual(
+      widgetsInReadingOrder(added, frozen).map((w) => w.id),
+      ['top-right', 'top-left', 'top-middle', 'bottom-left', 'bottom-right'],
+    )
+  })
+
+  it('does not mutate the saved array', () => {
+    const copy = added.map((w) => w.id)
+    widgetsInReadingOrder(added)
+    assert.deepEqual(added.map((w) => w.id), copy)
   })
 })

@@ -63,3 +63,22 @@ export function homeGridPixelHeight(
   if (isFreeLayout || containerWidth <= 0) return undefined
   return (containerWidth * currentGridHeight) / currentGridWidth
 }
+
+/**
+ * 小组件绝对定位，DOM 顺序就是 Tab 顺序：按格子的阅读顺序（先上后下、同行从左到右）排。
+ * 给了 frozenIds 时沿用这个顺序，不在里面的（新加的）按阅读顺序接在后面——
+ * 编辑时拖来拖去不重排，免得移动 DOM 让 tapp 的 iframe 重新加载。
+ */
+export function widgetsInReadingOrder<
+  T extends { id: string; position: { x: number; y: number } },
+>(widgets: readonly T[], frozenIds?: readonly string[] | null): T[] {
+  const sorted = widgets.toSorted(
+    (a, b) => a.position.y - b.position.y || a.position.x - b.position.x,
+  )
+  if (!frozenIds) return sorted
+  const rank = new Map(frozenIds.map((id, i) => [id, i]))
+  const kept = sorted
+    .filter((w) => rank.has(w.id))
+    .toSorted((a, b) => rank.get(a.id)! - rank.get(b.id)!)
+  return [...kept, ...sorted.filter((w) => !rank.has(w.id))]
+}

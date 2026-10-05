@@ -41,6 +41,7 @@ import { STICKER_WIDGET_TYPE, WidgetGridItem } from './WidgetGridItem'
 import {
   homeGridPixelHeight,
   resolveHomeGridMetrics,
+  widgetsInReadingOrder,
 } from './widgetGridMetrics'
 import { homeSlotAnchor } from './widgetGridStickerPick'
 import { coveringWidgetId, heldWidgetId } from './widgetPlacementPreview'
@@ -157,6 +158,17 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
     })
     const { isCompact, currentWidgets, currentGridWidth, currentGridHeight } =
       metrics
+    // 编辑期间沿用进入编辑时的 DOM 顺序，退出编辑再按位置重排（见 widgetsInReadingOrder）。
+    const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null)
+    if (isEditMode && frozenOrder === null) {
+      setFrozenOrder(widgetsInReadingOrder(currentWidgets).map((w) => w.id))
+    } else if (!isEditMode && frozenOrder !== null) {
+      setFrozenOrder(null)
+    }
+    const orderedWidgets = widgetsInReadingOrder(
+      currentWidgets,
+      isEditMode ? frozenOrder : null,
+    )
     const [containerWidth, setContainerWidth] = useState(0)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const gridRectRef = useRef<DOMRect | null>(null)
@@ -443,7 +455,7 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
                   stickerPickActive ? ' pointer-events-none' : ''
                 }`}
               >
-                {currentWidgets.map((rawWidget, index) => {
+                {orderedWidgets.map((rawWidget, index) => {
                   const widget =
                     resizingWidget?.widgetId === rawWidget.id &&
                     resizingWidget.draftSize !== rawWidget.size
