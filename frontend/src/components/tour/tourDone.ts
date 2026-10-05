@@ -67,6 +67,23 @@ export function subscribeTourDone(onStoreChange: () => void): () => void {
   }
 }
 
+/** 登出要清空 localStorage；引导看没看过和登录无关，跨过清空留在这台设备上。 */
+export function clearStorageKeepingTourDone(
+  storage: Pick<Storage, 'getItem' | 'setItem' | 'clear'>,
+): void {
+  let raw: string | null = null
+  try {
+    raw = storage.getItem(STORAGE_KEY)
+  } catch {
+  }
+  storage.clear()
+  if (raw === null) return
+  try {
+    storage.setItem(STORAGE_KEY, raw)
+  } catch {
+  }
+}
+
 export function getTourDoneSnapshot(): string {
   if (!persistDone()) return JSON.stringify(sessionDone)
   return readRaw() ?? ''

@@ -20,6 +20,7 @@ import { getCSRFToken } from '../../utils/csrf'
 import { clearPlaylistCache } from '../../utils/musicPlayer'
 import { lockScroll } from '../../utils/scrollLock'
 import { Avatar } from '../Avatar'
+import { clearStorageKeepingTourDone } from '../tour/tourDone'
 import './UserSection.css'
 
 const loadUserModalEntrance = () => import('./UserModalEntrance')
@@ -185,7 +186,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       } catch {
       }
 
-      localStorage.clear()
+      clearStorageKeepingTourDone(localStorage)
       sessionStorage.clear()
 
       clearPlaylistCache()
