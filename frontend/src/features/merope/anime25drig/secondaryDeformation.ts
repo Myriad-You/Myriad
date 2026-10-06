@@ -32,7 +32,7 @@ import {
 } from './collarRuntime'
 import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
 import { hairChainOffset, hairChainTurn } from './hairChain'
-import { headTurnNeckOffset } from './headTurn'
+import { followHeadBelow } from './neckFollow'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint, shellTurnBlend } from './shellDeformation'
@@ -152,6 +152,12 @@ export interface Anime25DSecondaryDeformationBinding {
   handwearAnchorX: number
   turnFeature?: HeadTurnFeature | null
   turnKeyform?: BoundTurnKeyform | null
+  /**
+   * Where a neck stops going with the head, if not at the neck's bottom: the
+   * top of the strip that fades into the skin drawn on the body below, which
+   * belongs to the body.
+   */
+  neckFollowBottom?: number
   arm: ArmRig | null
   armMesh: ArmRigMesh | null
   frontHair: boolean
@@ -233,8 +239,9 @@ export function deformAnime25DSecondaryPoint(
     const contourCollar =
       binding.rearCollar || (binding.frontCollar && binding.collarContact)
     const verticalNeckFollow = binding.baseRole === 'neck' || contourCollar
+    const followBottom = binding.neckFollowBottom ?? frame.neckBottom
     const neckFollowProgress = verticalNeckFollow
-      ? clamp((frame.neckBottom - restY) / frame.neckFollowSpan, 0, 1)
+      ? clamp((followBottom - restY) / Math.max(1, followBottom - frame.neckBottom + frame.neckFollowSpan), 0, 1)
       : 0
     const neckHeadBlend =
       verticalNeckFollow && frame.highCollar
@@ -325,7 +332,6 @@ export function deformAnime25DSecondaryPoint(
         rotationY * rollCosine
       point.x += (rotatedX - rotationX) * headFollow
       point.y += (rotatedY - rotationY) * headFollow
-      const rolledX = point.x
       let depthOffset =
         (surfaceDepth - 1) *
         (binding.frontHairParallaxScale?.[vertex] ?? 1)
@@ -370,17 +376,8 @@ export function deformAnime25DSecondaryPoint(
         const turnBlend = shellTurnBlend(frame)
         point.x = legacyX + (point.x - legacyX) * turnBlend
         point.y = legacyY + (point.y - legacyY) * turnBlend
-      } else if (binding.turnKeyform && frame.headTurn) {
-        // A keyed neck takes the shape measured on the turned pictures, across
-        // and up and down, instead of the computed carry; the roll above and
-        // the body below still carry it.
-        addKeyedTurn(point, binding.turnKeyform, vertex, frame.headTurn.amount, frame.headTurn.nodAmount)
       } else {
-        point.x = legacyX
-        point.y = legacyY
-        // The top of the neck twists with the turning head instead of the flat carry.
-        if (verticalNeckFollow && neckHeadBlend > 0 && frame.headTurn?.active)
-          point.x += (headTurnNeckOffset(frame.headTurn, localX, restY) - (legacyX - rolledX)) * neckHeadBlend
+        followHeadBelow(point, binding.turnKeyform, frame.headTurn, vertex, localX, restY, legacyX, legacyY, verticalNeckFollow ? neckHeadBlend : 0)
       }
     }
     if (!binding.collarContact && frame.specialHeadOffset !== 0) {

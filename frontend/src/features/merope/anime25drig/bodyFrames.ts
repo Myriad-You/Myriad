@@ -269,6 +269,7 @@ export class Anime25DBodyFrames {
       torsoShellBlend: 0,
       torsoNeckOffsetX: 0,
       torsoShellRotation: this.torsoShellRotation,
+      headTurn: null,
     }
     this.hairSpringFrame = {
       enabled: true,
@@ -284,6 +285,7 @@ export class Anime25DBodyFrames {
   bindLayers(layers: readonly Anime25DGpuLayer[], headSilhouette: HeadSilhouette | null): void {
     this.headTurn = createHeadTurn(headSilhouette)
     this.secondaryDeformationFrame.headTurn = this.headTurn
+    this.collarMotion.headTurn = this.headTurn
     this.bindJelly(layers)
   }
 

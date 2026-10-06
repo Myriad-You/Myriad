@@ -342,6 +342,14 @@ export function liftNeckOverBody(
       end: neckSurface.fadeEnd,
       contour: neckSurface.contour,
     }
+    // What fades into the body's skin stays with the body: the neck goes with
+    // the head only above it, and over at least a third of its follow span.
+    const { neckBottom } = playback.anchors
+    const followTop = neckBottom - Math.max(1, neckBottom - Math.max(playback.anchors.neckTop, playback.anchors.face.y1))
+    const fadeTop = neckSurface.neck.y + neckSurface.fadeStart * neckSurface.neck.h
+    if (neckLayer.secondaryDeformation && fadeTop < neckBottom) {
+      neckLayer.secondaryDeformation.neckFollowBottom = Math.max(fadeTop, followTop + (neckBottom - followTop) / 3)
+    }
     if (neckIndex < bodyIndex) {
       layers = layers.toSpliced(neckIndex, 1)
       layers = layers.toSpliced(bodyIndex, 0, neckLayer)

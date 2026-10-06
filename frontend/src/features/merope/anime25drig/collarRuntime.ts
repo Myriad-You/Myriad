@@ -1,7 +1,9 @@
 import type { FrontCollarContactModel } from './collarContact'
+import type { HeadTurn } from './headTurn'
 import type { Anime25DTorsoShellRotation } from './torsoDeformation'
 import type { Anime25DPlaybackLayer, Anime25DTorsoShellProfile } from './types'
 import { localToAtlasUv } from './atlasUv'
+import { headTurnNeckMove } from './headTurn'
 import { anime25DTorsoShellOffsetX } from './torsoDeformation'
 import {
   createIndexedDeformableMesh,
@@ -43,6 +45,8 @@ export interface CollarMotionPose {
   torsoShellRotation: Readonly<Anime25DTorsoShellRotation>
   torsoShellBlend: number
   torsoNeckOffsetX: number
+  /** The computed head, which the top of the neck follows at the jaw. */
+  headTurn: Readonly<HeadTurn> | null
 }
 
 export function collarNeckHeadBlend(
@@ -80,16 +84,24 @@ function transformCollarPoint(
   y += (rotatedY - rotationY) * headFollow
   let depthOffset = depth - 1
   if (attachedToNeck) depthOffset *= 1 - neckHeadBlend
-  x +=
+  const carryX =
     headFollow *
     pose.faceScale *
     (pose.angleX * (14 + 40 * depthOffset) +
       pose.angleX * (pose.neckPivotY - y) * 0.028)
-  y +=
+  const carryY =
     headFollow *
     pose.faceScale *
     (-pose.angleY * (9 + 30 * depthOffset) -
       pose.angleY * depthOffset * (y - pose.faceCenterY) * 0.05)
+  x += carryX
+  y += carryY
+  // The top of the neck goes with the chin, as the neck's own mesh does.
+  if (attachedToNeck && neckHeadBlend > 0 && pose.headTurn?.active) {
+    const jaw = headTurnNeckMove(pose.headTurn, restX, restY)
+    x += (jaw.x - carryX) * neckHeadBlend
+    y += (jaw.y - carryY) * neckHeadBlend
+  }
   const breathOffset = attachedToNeck
     ? pose.bodyBreathOffset +
       (pose.headBreathOffset - pose.bodyBreathOffset) * neckHeadBlend

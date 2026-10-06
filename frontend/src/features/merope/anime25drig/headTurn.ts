@@ -565,14 +565,24 @@ export function headTurnOffset(
 const neckOffset: HeadTurnOffset = { x: 0, y: 0 }
 
 /**
- * How far across the top of the neck goes with the turn: as the skin at the
- * chin's row does, so the jaw does not leave the neck behind. The caller
- * fades it down the neck.
+ * How far the top of the neck goes with the turn and the nod: as the skin at
+ * the chin's row does, so the jaw does not leave the neck behind, and the
+ * shadow drawn under the chin rises and falls with it. The caller fades it
+ * down the neck. The result is shared; read it before the next call.
  */
-export function headTurnNeckOffset(turn: Readonly<HeadTurn>, x: number, y: number): number {
+export function headTurnNeckMove(turn: Readonly<HeadTurn>, x: number, y: number): Readonly<HeadTurnOffset> {
   const silhouette = turn.silhouette
-  if (!turn.active || !silhouette) return 0
-  return headTurnOffset(turn, x, Math.min(y, silhouette.chinY), 'skin', 0, 0, neckOffset).x
+  if (!turn.active || !silhouette) {
+    neckOffset.x = 0
+    neckOffset.y = 0
+    return neckOffset
+  }
+  return headTurnOffset(turn, x, Math.min(y, silhouette.chinY), 'skin', 0, 0, neckOffset)
+}
+
+/** How far across the top of the neck goes with the turn (headTurnNeckMove's x). */
+export function headTurnNeckOffset(turn: Readonly<HeadTurn>, x: number, y: number): number {
+  return headTurnNeckMove(turn, x, y).x
 }
 
 export interface HeadTurnFeature {

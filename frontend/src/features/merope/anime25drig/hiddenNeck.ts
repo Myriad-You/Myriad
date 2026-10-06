@@ -6,6 +6,8 @@ type Box = Pick<Anime25DPlaybackLayer, 'x' | 'y' | 'w' | 'h'>
 const OPAQUE = 128
 /** Rows of the neck read for its sides: the top of what shows below the chin. */
 const SIDE_ROWS = 0.3
+/** A row shows the neck whole when it is at least this share of the neck's typical width. */
+const WHOLE_SHARE = 0.7
 /** The sides carried up may spread at most this much wider than where they were read. */
 const MAX_SPREAD = 1.3
 /** Canvas pixels over which the kept neck fades out at its sides. */
@@ -56,7 +58,13 @@ export function trimHiddenNeck(
     if (right - left > 2) spans.push({ y, left, right })
   }
   if (!hidden || spans.length < 3) return null
-  const read = spans.slice(0, Math.max(3, Math.round(spans.length * SIDE_ROWS)))
+  // Read the sides where the neck shows whole. Beside the jaw a sliver of it
+  // can peek out rows before the chin ends; those few pixels are not its sides.
+  const widths = spans.map((span) => span.right - span.left).sort((a, b) => a - b)
+  const typical = widths[Math.floor(widths.length / 2)]
+  const whole = spans.filter((span) => span.right - span.left >= WHOLE_SHARE * typical)
+  if (whole.length < 3) return null
+  const read = whole.slice(0, Math.max(3, Math.round(whole.length * SIDE_ROWS)))
   const leftSide = fitLine(read.map((span) => [span.y, span.left]))
   const rightSide = fitLine(read.map((span) => [span.y, span.right]))
   const topY = read[0].y
