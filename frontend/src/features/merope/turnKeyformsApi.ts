@@ -15,6 +15,10 @@ export interface TurnKeyformsStatus {
 }
 
 const TURN_KEYFORMS_POLL_MS = 5000
+/** The server lost the job (it restarted): start it again; what was already made is kept. */
+const TURN_KEYFORMS_RESTARTS = 3
+/** Polls that may fail in a row (a dropped connection, the server restarting) before giving up. */
+const TURN_KEYFORMS_POLL_FAILURES = 24
 /** Four drawings, five decompositions and a fit: well under an hour. */
 const TURN_KEYFORMS_LIMIT_MS = 90 * 60 * 1000
 
@@ -30,16 +34,38 @@ export async function decomposeWithTurnKeyforms(
   const start = options.outfitId
     ? `${PREFIX}${fullBodyPath(options.outfitId)}/see-through/turn-keyforms`
     : `${PREFIX}/see-through/turn-keyforms`
-  try {
+  const begin = async () => {
     const { jobId } = await apiService.post<{ jobId: string }>(start, {
       sourceMasterAssetId: input.sourceMasterAssetId,
       ...(input.sourceGenerationFingerprint ? { sourceGenerationFingerprint: input.sourceGenerationFingerprint } : {}),
     })
-    const job = `${PREFIX}/see-through/turn-keyforms/${encodeURIComponent(jobId)}`
+    return `${PREFIX}/see-through/turn-keyforms/${encodeURIComponent(jobId)}`
+  }
+  try {
+    let job = await begin()
+    let restarts = 0
+    let failures = 0
     const deadline = Date.now() + TURN_KEYFORMS_LIMIT_MS
     for (;;) {
       options.signal?.throwIfAborted()
-      const status = await apiService.get<TurnKeyformsStatus>(job)
+      let status: TurnKeyformsStatus
+      try {
+        status = await apiService.get<TurnKeyformsStatus>(job)
+        failures = 0
+      } catch (reason) {
+        if (!(reason instanceof ApiError) || Date.now() > deadline) throw reason
+        if (reason.status === 404 && restarts < TURN_KEYFORMS_RESTARTS) {
+          restarts += 1
+          job = await begin()
+          continue
+        }
+        // Not reachable for a moment (a dropped connection, the server restarting): keep asking.
+        if ((reason.status === 0 || reason.status >= 500) && ++failures <= TURN_KEYFORMS_POLL_FAILURES) {
+          await new Promise((resolve) => setTimeout(resolve, TURN_KEYFORMS_POLL_MS))
+          continue
+        }
+        throw reason
+      }
       options.onStatus?.(status)
       if (status.stage === 'done') break
       if (status.stage === 'failed') {
