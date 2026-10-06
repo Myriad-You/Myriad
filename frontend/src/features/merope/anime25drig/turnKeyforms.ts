@@ -33,8 +33,10 @@ export interface Anime25DTurnKey {
 /** Keyed by part family (turnKeyformFamily). */
 export type Anime25DTurnKeyforms = Record<string, Anime25DTurnKey>
 
+type KeyedLayer = Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'> & { name?: string }
+
 /** Which keyed part a layer turns with: every drawing of one eye with that eye's key. */
-export function turnKeyformFamily(layer: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'>): string | null {
+export function turnKeyformFamily(layer: KeyedLayer): string | null {
   const { role, side } = layer
   if (role === 'neck' || role === 'neckwear') return role
   if (layer.group !== 'head') return null
@@ -44,6 +46,17 @@ export function turnKeyformFamily(layer: Pick<Anime25DPlaybackLayer, 'group' | '
   if (side && /eye|iris|irides|lovestruck-heart/.test(role)) return `eye:${side}`
   if (/mouth|drool/.test(role)) return 'mouth'
   return 'face'
+}
+
+/**
+ * A lock of front hair cut into its own layer ('front-hair-N') turns by its
+ * own key ('front-hair:N') where one was measured, else with the whole front hair.
+ */
+function turnKeyFor(keyforms: Readonly<Anime25DTurnKeyforms> | undefined, layer: KeyedLayer): Anime25DTurnKey | undefined {
+  const family = turnKeyformFamily(layer)
+  if (!family || !keyforms) return undefined
+  const lock = family === 'front-hair' ? /^front-hair-(\d+)$/.exec(layer.name ?? '') : null
+  return (lock ? keyforms[`front-hair:${lock[1]}`] : undefined) ?? keyforms[family]
 }
 
 export interface BoundTurnKeyform {
@@ -56,11 +69,10 @@ export interface BoundTurnKeyform {
 /** Each vertex's offset at the full turn either way: where in the turned drawing its rest point went. */
 export function bindTurnKeyform(
   keyforms: Readonly<Anime25DTurnKeyforms> | undefined,
-  layer: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'>,
+  layer: KeyedLayer,
   rest: Float32Array,
 ): BoundTurnKeyform | null {
-  const family = turnKeyformFamily(layer)
-  const key = family ? keyforms?.[family] : undefined
+  const key = turnKeyFor(keyforms, layer)
   if (!key) return null
   return {
     plus: invertLattice(key.plus, rest),
@@ -135,9 +147,9 @@ export interface AttachmentTurn {
 /** A keyed accessory's turn: its own key per vertex, and its host's at the anchor it rides. */
 export function bindAttachmentTurn(
   keyforms: Readonly<Anime25DTurnKeyforms> | undefined,
-  layer: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'>,
+  layer: KeyedLayer,
   rest: Float32Array,
-  host: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'> | undefined,
+  host: KeyedLayer | undefined,
   anchor: { x: number; y: number },
 ): AttachmentTurn | null {
   const own = bindTurnKeyform(keyforms, layer, rest)

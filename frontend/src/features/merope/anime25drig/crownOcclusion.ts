@@ -62,6 +62,36 @@ export function deriveCrownOcclusionBand(
   }
 }
 
+/**
+ * Front hair cut into locks, one layer each, covers the scalp together: one
+ * drawing over their joint box whose alpha is the highest of theirs.
+ */
+export function unionDrawing(
+  parts: readonly { drawing: Drawing; pixels: CroppedLayerPixels | null }[],
+): { drawing: Drawing; pixels: CroppedLayerPixels | null } | null {
+  const present = parts.filter((part) => part.pixels)
+  if (present.length === 0) return null
+  if (present.length === 1) return present[0]
+  const x0 = Math.min(...present.map(({ drawing }) => drawing.x))
+  const y0 = Math.min(...present.map(({ drawing }) => drawing.y))
+  const x1 = Math.max(...present.map(({ drawing }) => drawing.x + drawing.w))
+  const y1 = Math.max(...present.map(({ drawing }) => drawing.y + drawing.h))
+  const scale = Math.max(...present.map(({ drawing, pixels }) => pixels!.width / Math.max(1e-6, drawing.w)))
+  const width = Math.max(1, Math.round((x1 - x0) * scale))
+  const height = Math.max(1, Math.round((y1 - y0) * scale))
+  const pixels = new Uint8ClampedArray(width * height * 4)
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      const x = x0 + (column + 0.5) / scale
+      const y = y0 + (row + 0.5) / scale
+      let alpha = 0
+      for (const { drawing, pixels: image } of present) alpha = Math.max(alpha, alphaAt(drawing, image!, x, y))
+      pixels[(row * width + column) * 4 + 3] = alpha
+    }
+  }
+  return { drawing: { role: present[0].drawing.role, x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, pixels: { pixels, width, height } }
+}
+
 function alphaAt(layer: Drawing, image: CroppedLayerPixels, x: number, y: number): number {
   const px = Math.floor((x - layer.x) / layer.w * image.width)
   const py = Math.floor((y - layer.y) / layer.h * image.height)

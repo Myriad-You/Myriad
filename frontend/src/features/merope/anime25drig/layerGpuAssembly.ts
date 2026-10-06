@@ -12,7 +12,7 @@ import { isAnime25DRigidAttachment } from '../rig/anime25dLayerSemantics'
 import { removeDuplicatedNeckComponents } from './accessoryComponents'
 import { sampleChestWeight } from './chestPhysics'
 import { bindCropBoundary } from './cropBoundary'
-import { deriveCrownOcclusionBand } from './crownOcclusion'
+import { deriveCrownOcclusionBand, unionDrawing } from './crownOcclusion'
 import {
   createAnime25DLayerDeformationPlan,
   resolveAnime25DDeformationDependencies,
@@ -305,11 +305,14 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
 export function linkCrownOcclusion(layers: Anime25DGpuLayer[], playback: Readonly<Anime25DPlayback>, readBindingPixels: ReadPixels): void {
   const scalpFace = layers.find(layer => layer.source.role === 'face')
   const scalpHair = layers.find(layer => layer.source.role === 'back-hair')
-  const fringe = layers.find(layer => layer.source.role === 'front-hair')
+  // Front hair cut into locks covers the scalp together.
+  const fringe = unionDrawing(layers
+    .filter(layer => layer.source.role === 'front-hair')
+    .map(layer => ({ drawing: layer.source, pixels: readBindingPixels(layer.source) })))
   const eyeTop = Math.min(playback.anchors.eyeL?.y0 ?? Infinity, playback.anchors.eyeR?.y0 ?? Infinity)
   if (scalpFace && scalpHair && fringe && layers.indexOf(scalpHair) < layers.indexOf(scalpFace)) {
-    const band = deriveCrownOcclusionBand(scalpFace.source, fringe.source, scalpHair.source, eyeTop,
-      readBindingPixels(scalpFace.source), readBindingPixels(fringe.source), readBindingPixels(scalpHair.source))
+    const band = deriveCrownOcclusionBand(scalpFace.source, fringe.drawing, scalpHair.source, eyeTop,
+      readBindingPixels(scalpFace.source), fringe.pixels, readBindingPixels(scalpHair.source))
     if (band) scalpFace.crownOccluders = [{ layer: scalpHair, ...band }]
   }
 }

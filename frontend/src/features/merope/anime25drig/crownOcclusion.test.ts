@@ -2,7 +2,7 @@ import type { Anime25DPlaybackLayer } from './types'
 import type { CroppedLayerPixels } from './webglRuntime'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { deriveCrownOcclusionBand } from './crownOcclusion'
+import { deriveCrownOcclusionBand, unionDrawing } from './crownOcclusion'
 
 const drawing = (role: Anime25DPlaybackLayer['role']) => ({ role, x: 0, y: 0, w: 100, h: 100 })
 function raster(alpha = 255): CroppedLayerPixels {
@@ -61,4 +61,17 @@ test('a normal lower fringe opening keeps the existing cap band', () => {
     for (let x = 60; x < 69; x++) fringe.pixels[(y * 100 + x) * 4 + 3] = 0
   }
   assert.deepEqual(deriveCrownOcclusionBand(face, front, back, 60, solid, fringe, solid), { start: 0.39, end: 0.51 })
+})
+
+test('front hair cut into locks covers the scalp together', () => {
+  const solid = { pixels: new Uint8ClampedArray(10 * 10 * 4).fill(255), width: 10, height: 10 }
+  const left = { drawing: { role: 'front-hair', x: 0, y: 0, w: 50, h: 100 }, pixels: solid }
+  const right = { drawing: { role: 'front-hair', x: 50, y: 0, w: 50, h: 100 }, pixels: solid }
+  const joint = unionDrawing([left, right])!
+  assert.deepEqual(joint.drawing, { role: 'front-hair', x: 0, y: 0, w: 100, h: 100 })
+  // Every sample of the joint box is covered by one lock or the other.
+  assert.ok(joint.pixels!.pixels.filter((_, i) => i % 4 === 3).every((a) => a === 255))
+  // One layer stands as it is.
+  assert.equal(unionDrawing([left]), left)
+  assert.equal(unionDrawing([{ ...left, pixels: null }]), null)
 })

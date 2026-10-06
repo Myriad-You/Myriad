@@ -104,3 +104,18 @@ test('an accessory keyed like its host stays put on it: the carry brings the hos
   for (let i = 0; i < rest.length; i++) assert.ok(Math.abs(deformed[i] - rest[i]) < 0.05, `${i}: ${deformed[i]} vs ${rest[i]}`)
   assert.equal(deformAttachmentTurn(turn, 1, 0, rest, deformed), false)
 })
+
+test('a lock of front hair turns by its own key, else with the whole front hair', () => {
+  const keyforms = {
+    'front-hair': { plus: lattice(5, () => [-10, 0]), minus: lattice(5, () => [10, 0]) },
+    'front-hair:2': { plus: lattice(5, () => [-4, 0]), minus: lattice(5, () => [4, 0]) },
+  }
+  const rest = new Float32Array([50, 50])
+  const out = { x: 0, y: 0 }
+  const own = bindTurnKeyform(keyforms, { group: 'head', role: 'front-hair', side: null, name: 'front-hair-2' }, rest)!
+  turnKeyformOffset(own, 0, 1, out)
+  assert.ok(Math.abs(out.x - 4) < 0.05, `${out.x}`)
+  const whole = bindTurnKeyform(keyforms, { group: 'head', role: 'front-hair', side: null, name: 'front-hair-3' }, rest)!
+  turnKeyformOffset(whole, 0, 1, out)
+  assert.ok(Math.abs(out.x - 10) < 0.05, `${out.x}`)
+})
