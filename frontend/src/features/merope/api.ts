@@ -7,12 +7,12 @@ import { ApiError, apiService } from '../../services/api'
 import { AUTHORED_EXPRESSION_KINDS } from './rig/authoredExpression'
 import { isLiveMeropeManifest, isRigManifest } from './rig/manifestValidation'
 
-const PREFIX = '/merope/rig'
+export const PREFIX = '/merope/rig'
 const RIG_MUTATION_TIMEOUT_MS = 6 * 60 * 1000
 /** Keep in sync with MEROPE_PROXY_TIMEOUT_MS and get_long_running_client. */
 const PORTRAIT_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
 // A sleeping Space can take minutes to wake before the split itself starts.
-const SEE_THROUGH_TIMEOUT_MS = 15 * 60 * 1000
+export const SEE_THROUGH_TIMEOUT_MS = 15 * 60 * 1000
 /** The first look also downloads the pose model on the server. */
 const SKELETON_TIMEOUT_MS = 180_000
 
@@ -79,7 +79,7 @@ function readPortraitUrl(data: { portraitUrl?: unknown }): string | null {
     : null
 }
 
-function meropeError(
+export function meropeError(
   reason: unknown,
   fallback: string,
   status = 500,
@@ -113,7 +113,7 @@ export async function getSiteFace(): Promise<SiteFace> {
   return siteFaceInflight
 }
 
-function fullBodyPath(outfitId: string): string {
+export function fullBodyPath(outfitId: string): string {
   return `/full-body/${encodeURIComponent(outfitId)}`
 }
 
@@ -252,7 +252,7 @@ export async function updateSeeThroughSpace(
 }
 
 /** The PSD endpoint's failures carry no useful HTTP status text; prefer the domain fallback. */
-function seeThroughError(status: number, body: unknown, fallback: string): MeropeApiError {
+export function seeThroughError(status: number, body: unknown, fallback: string): MeropeApiError {
   const payload =
     body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
   return new MeropeApiError(
@@ -266,7 +266,7 @@ function seeThroughError(status: number, body: unknown, fallback: string): Merop
   )
 }
 
-interface SeeThroughDecomposeInput {
+export interface SeeThroughDecomposeInput {
   sourceMasterAssetId: string
   sourceGenerationFingerprint?: string
   resolution?: number

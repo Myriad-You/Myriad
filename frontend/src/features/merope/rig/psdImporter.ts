@@ -6,6 +6,7 @@ import { API_URL } from '../../../config'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { anime25DImportCopy } from './anime25dImportCopy'
 import { importRigPsdInWorker } from './psdImportClient'
+import { placeTurnKeyforms, turnKeyformsFor } from './turnKeyformImport'
 
 const MAX_PSD_BYTES = 32 * 1024 * 1024
 
@@ -32,7 +33,7 @@ export async function prepareRigPsdImport(
   }
   const buffer = await file.arrayBuffer()
   signal?.throwIfAborted()
-  return importRigPsdInWorker(
+  const prepared = await importRigPsdInWorker(
     {
       buffer,
       sourceMasterAssetId,
@@ -50,4 +51,9 @@ export async function prepareRigPsdImport(
     signal,
     onStage,
   )
+  // Keys measured on this decomposition ride into the playback, cut as it is.
+  const keys = turnKeyformsFor(file)
+  const turnKeyforms = keys && placeTurnKeyforms(keys, prepared.documentFrame, prepared.documentFrame)
+  if (turnKeyforms && prepared.source.anime25dPlayback) prepared.source.anime25dPlayback.turnKeyforms = turnKeyforms
+  return prepared
 }

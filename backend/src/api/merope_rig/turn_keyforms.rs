@@ -1,0 +1,493 @@
+//! 转头关键形：照 Live2D 在角度 X / Y ±30 两端给每个部件定形状的做法，
+//! 以立绘为参考生成头向画面右、左转和抬头、低头约 30° 的四张图（身体不动、
+//! 与立绘逐像素对齐），连同立绘一起拆层，在 See-through Space 上把立绘的每个
+//! 部件拟合到四张图的同一部件上，得到关键形；转头露出的后发、耳朵、脖子从
+//! 四张图里烘焙进立绘的拆层。
+//!
+//! 整个过程要几十分钟（四次生图、五次拆层、一次拟合），在后台跑；前端轮询
+//! 进度，完成后取回烘焙过的拆层与关键形，照常导入。同一时间只跑一个。
+
+use std::{
+    io::Cursor,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+
+use axum::{
+    Json,
+    body::Body,
+    extract::{Extension, Path, State},
+    http::{HeaderValue, StatusCode, header},
+    response::Response,
+};
+use sea_orm::DatabaseConnection;
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use super::{
+    ApiError, ApiResult, bad_request,
+    decompose::see_through_error,
+    internal_error,
+    master::{MasterSlot, require_master_match, valid_generation_fingerprint},
+    portrait_generation_config_error, portrait_generation_provider_error, require_merope_enabled,
+    require_owner,
+};
+use crate::{
+    middleware::auth::Claims,
+    services::{image_generation, see_through},
+};
+
+const KEEP: &str = "Edit this exact illustration. Keep the canvas size, framing, body, shoulders, \
+neck base, outfit, colors, line style and shading exactly the same and pixel-aligned with the \
+original, on the same background.";
+const HEAD_ALONE: &str = "The head stays the same size and stays attached at the same neck \
+position; the hair and every hair accessory and earring move with the head and keep their exact \
+design, every lock of hair the same lock seen from the new angle. Same facial expression. Clean \
+finished art in the original's style.";
+
+/// The four turned drawings, in the Space's order: toward image right and
+/// left (Myriad's angleX ±1), raised and lowered (angleY ±1).
+fn turn_prompts() -> [String; 4] {
+    let turn = |side: &str| {
+        format!(
+            "{KEEP} Change only the head: the character turns the head about 30 degrees toward \
+             the viewer's {side}, a natural three-quarter view, the eyes looking where the face \
+             points. {HEAD_ALONE}"
+        )
+    };
+    let nod = |motion: &str| {
+        format!(
+            "{KEEP} Change only the head: the character {motion} about 30 degrees, facing \
+             straight toward the viewer with no turn to either side and no tilt, the eyes looking \
+             where the face points. {HEAD_ALONE}"
+        )
+    };
+    [
+        turn("right"),
+        turn("left"),
+        nod("tilts the head back, the face looking upward,"),
+        nod("lowers the head, the face looking downward,"),
+    ]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage {
+    Generating,
+    Decomposing,
+    Fitting,
+    Done,
+    Failed,
+}
+
+impl Stage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Generating => "generating",
+            Self::Decomposing => "decomposing",
+            Self::Fitting => "fitting",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+struct Job {
+    id: String,
+    /// None: the worn bust; Some: a full-body set.
+    outfit_id: Option<String>,
+    master_asset_id: String,
+    stage: Stage,
+    done: u8,
+    total: u8,
+    error: Option<Value>,
+    psd: Option<Arc<Vec<u8>>>,
+    keyforms: Option<Arc<Vec<u8>>>,
+    started: Instant,
+}
+
+static JOB: Mutex<Option<Job>> = Mutex::new(None);
+
+fn update(id: &str, change: impl FnOnce(&mut Job)) {
+    let mut job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(job) = job.as_mut().filter(|job| job.id == id) {
+        change(job);
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TurnKeyformsRequest {
+    source_master_asset_id: String,
+    #[serde(default)]
+    source_generation_fingerprint: Option<String>,
+}
+
+pub async fn start_turn_keyforms(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<TurnKeyformsRequest>,
+) -> ApiResult<Json<Value>> {
+    start(db, &claims, None, payload).await
+}
+
+pub async fn start_full_body_turn_keyforms(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(outfit_id): Path<String>,
+    Json(payload): Json<TurnKeyformsRequest>,
+) -> ApiResult<Json<Value>> {
+    start(db, &claims, Some(outfit_id), payload).await
+}
+
+async fn start(
+    db: DatabaseConnection,
+    claims: &Claims,
+    outfit_id: Option<String>,
+    payload: TurnKeyformsRequest,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    let user_id = require_owner(claims, &db).await?;
+    let fingerprint = payload
+        .source_generation_fingerprint
+        .as_deref()
+        .map(str::to_ascii_lowercase);
+    if fingerprint
+        .as_deref()
+        .is_some_and(|value| !valid_generation_fingerprint(value))
+    {
+        return Err(bad_request(
+            "Source generation fingerprint must be a SHA-256 hex digest",
+        ));
+    }
+    let slot = match outfit_id.as_deref() {
+        Some(outfit) => MasterSlot::FullBody(outfit),
+        None => MasterSlot::WornBust,
+    };
+    let master = require_master_match(
+        &db,
+        slot,
+        &payload.source_master_asset_id,
+        fingerprint.as_deref(),
+    )
+    .await?;
+    let (token, space, dynamic) = {
+        let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+        (
+            see_through::configured_hf_token(&config),
+            see_through::configured_space(&config),
+            config.clone(),
+        )
+    };
+    let token =
+        token.ok_or_else(|| see_through_error(see_through::SeeThroughError::NotConfigured))?;
+    let generation = image_generation::config_from_dynamic(&dynamic)
+        .map_err(portrait_generation_config_error)?;
+    let reference = image_generation::load_local_reference(&master.asset_id)
+        .await
+        .map_err(|_| bad_request("The current master portrait is not available"))?;
+    let client = see_through::SeeThroughClient::new(token, space)
+        .await
+        .map_err(see_through_error)?;
+
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    {
+        let mut job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if job
+            .as_ref()
+            .is_some_and(|job| !matches!(job.stage, Stage::Done | Stage::Failed))
+        {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "Turn keys are already being made",
+                    "code": "turn_keyforms_in_progress"
+                })),
+            ));
+        }
+        *job = Some(Job {
+            id: id.clone(),
+            outfit_id: outfit_id.clone(),
+            master_asset_id: master.asset_id.clone(),
+            stage: Stage::Generating,
+            done: 0,
+            total: 4,
+            error: None,
+            psd: None,
+            keyforms: None,
+            started: Instant::now(),
+        });
+    }
+    tracing::info!(job = %id, outfit = ?outfit_id, "turn keyforms started");
+    let task_id = id.clone();
+    tokio::spawn(async move {
+        let result = run(&task_id, user_id, &generation, reference, &client).await;
+        let still_current = {
+            let slot = match outfit_id.as_deref() {
+                Some(outfit) => MasterSlot::FullBody(outfit),
+                None => MasterSlot::WornBust,
+            };
+            require_master_match(
+                &db,
+                slot,
+                &payload.source_master_asset_id,
+                fingerprint.as_deref(),
+            )
+            .await
+        };
+        match (result, still_current) {
+            (Ok((psd, keyforms)), Ok(_)) => update(&task_id, |job| {
+                job.stage = Stage::Done;
+                job.psd = Some(Arc::new(psd));
+                job.keyforms = Some(Arc::new(keyforms));
+                tracing::info!(job = %job.id, seconds = job.started.elapsed().as_secs(), "turn keyforms done");
+            }),
+            (Err((_, Json(error))), _) | (_, Err((_, Json(error)))) => update(&task_id, |job| {
+                tracing::warn!(job = %job.id, ?error, "turn keyforms failed");
+                job.stage = Stage::Failed;
+                job.error = Some(error);
+            }),
+        }
+    });
+    Ok(Json(json!({ "jobId": id })))
+}
+
+/// Four turned drawings, five decompositions, one fit.
+async fn run(
+    id: &str,
+    user_id: i32,
+    generation: &image_generation::ImageGenerationConfig,
+    reference: image_generation::ImageReference,
+    client: &see_through::SeeThroughClient,
+) -> ApiResult<(Vec<u8>, Vec<u8>)> {
+    let (width, height) = image::ImageReader::new(Cursor::new(reference.bytes.as_ref()))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok())
+        .ok_or_else(|| bad_request("The current master portrait is not available"))?;
+    let mut turned = Vec::with_capacity(4);
+    for prompt in turn_prompts() {
+        let generated = crate::services::ai_cost_ledger::with_site_ai_ledger(
+            user_id,
+            "merope",
+            "turn-reference",
+            image_generation::generate_image(generation, &prompt, width, height, Some(&reference)),
+        )
+        .await
+        .map_err(portrait_generation_provider_error)?;
+        let (bytes, _) = image_generation::load_generated_bytes(generated)
+            .await
+            .map_err(portrait_generation_provider_error)?;
+        // The provider may answer at its own size; lined up means the master's.
+        turned.push(fit_to(&bytes, width, height)?);
+        update(id, |job| job.done += 1);
+    }
+
+    update(id, |job| {
+        job.stage = Stage::Decomposing;
+        job.done = 0;
+        job.total = 5;
+    });
+    let options = see_through::DecomposeOptions::default();
+    let mut decompositions = Vec::with_capacity(5);
+    let front = (reference.bytes.clone(), reference.media_type.clone());
+    let inputs: Vec<_> = std::iter::once(front)
+        .chain(
+            turned
+                .into_iter()
+                .map(|png| (axum::body::Bytes::from(png), "image/png".to_string())),
+        )
+        .collect();
+    for (bytes, media_type) in &inputs {
+        decompositions.push(decompose_waiting(client, bytes.clone(), media_type, options).await?);
+        update(id, |job| job.done += 1);
+    }
+    // The fit also matches its keys against the drawings themselves.
+    let pictures: [(Vec<u8>, String); 5] = inputs
+        .into_iter()
+        .map(|(bytes, media_type)| (bytes.to_vec(), media_type))
+        .collect::<Vec<_>>()
+        .try_into()
+        .expect("five pictures");
+
+    update(id, |job| {
+        job.stage = Stage::Fitting;
+        job.done = 0;
+        job.total = 1;
+    });
+    let mut decompositions = decompositions.into_iter();
+    let front = decompositions.next().expect("front decomposition");
+    let turned: [Vec<u8>; 4] = [
+        decompositions.next().expect("right"),
+        decompositions.next().expect("left"),
+        decompositions.next().expect("up"),
+        decompositions.next().expect("down"),
+    ];
+    let output = client
+        .turn_keyforms(front, turned, pictures)
+        .await
+        .map_err(see_through_error)?;
+    Ok((output.psd, output.keyforms))
+}
+
+/// A decomposition, waiting its turn while another one holds the Space.
+async fn decompose_waiting(
+    client: &see_through::SeeThroughClient,
+    image: axum::body::Bytes,
+    media_type: &str,
+    options: see_through::DecomposeOptions,
+) -> ApiResult<Vec<u8>> {
+    let deadline = Instant::now() + std::time::Duration::from_secs(30 * 60);
+    loop {
+        match client.decompose(image.clone(), media_type, options).await {
+            Ok(output) => return Ok(output.psd),
+            Err(see_through::SeeThroughError::Busy) if Instant::now() < deadline => {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+            Err(error) => return Err(see_through_error(error)),
+        }
+    }
+}
+
+/// Resized to exactly `width` x `height`, as PNG.
+fn fit_to(bytes: &[u8], width: u32, height: u32) -> ApiResult<Vec<u8>> {
+    let image = image::load_from_memory(bytes).map_err(internal_error)?;
+    let image = if image.width() == width && image.height() == height {
+        image
+    } else {
+        image.resize_exact(width, height, image::imageops::FilterType::Lanczos3)
+    };
+    let mut png = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+        .map_err(internal_error)?;
+    Ok(png)
+}
+
+pub async fn get_turn_keyforms(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    require_owner(&claims, &db).await?;
+    let job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let job = job
+        .as_ref()
+        .filter(|job| job.id == id)
+        .ok_or_else(missing_job)?;
+    Ok(Json(json!({
+        "jobId": job.id,
+        "outfitId": job.outfit_id,
+        "sourceMasterAssetId": job.master_asset_id,
+        "stage": job.stage.as_str(),
+        "done": job.done,
+        "total": job.total,
+        "seconds": job.started.elapsed().as_secs(),
+        "error": job.error,
+    })))
+}
+
+pub async fn get_turn_keyforms_psd(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> ApiResult<Response> {
+    let psd = finished(&db, &claims, &id, |job| job.psd.clone()).await?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("image/vnd.adobe.photoshop"),
+        )
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, private"),
+        )
+        .header(
+            "x-see-through-canvas",
+            HeaderValue::from_static(see_through::CANVAS),
+        )
+        .body(Body::from(psd.as_ref().clone()))
+        .map_err(internal_error)
+}
+
+pub async fn get_turn_keyforms_keys(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> ApiResult<Response> {
+    let keys = finished(&db, &claims, &id, |job| job.keyforms.clone()).await?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        )
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, private"),
+        )
+        .body(Body::from(keys.as_ref().clone()))
+        .map_err(internal_error)
+}
+
+async fn finished(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    id: &str,
+    pick: impl FnOnce(&Job) -> Option<Arc<Vec<u8>>>,
+) -> ApiResult<Arc<Vec<u8>>> {
+    require_merope_enabled().await?;
+    require_owner(claims, db).await?;
+    let job = JOB.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let job = job
+        .as_ref()
+        .filter(|job| job.id == id)
+        .ok_or_else(missing_job)?;
+    pick(job).ok_or_else(|| {
+        (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "The turn keys are not ready",
+                "code": "turn_keyforms_not_ready"
+            })),
+        )
+    })
+}
+
+fn missing_job() -> ApiError {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": "No such turn keys job", "code": "turn_keyforms_missing" })),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prompts_turn_right_left_then_raise_and_lower() {
+        let prompts = turn_prompts();
+        assert!(prompts[0].contains("viewer's right"));
+        assert!(prompts[1].contains("viewer's left"));
+        assert!(prompts[2].contains("upward"));
+        assert!(prompts[3].contains("downward"));
+        for prompt in &prompts {
+            assert!(prompt.contains("pixel-aligned"));
+            assert!(prompt.len() < 2000);
+        }
+    }
+
+    #[test]
+    fn a_turned_drawing_comes_back_at_the_master_size() {
+        let image = image::RgbaImage::new(64, 80);
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let fitted = fit_to(&png, 60, 75).unwrap();
+        let back = image::load_from_memory(&fitted).unwrap();
+        assert_eq!((back.width(), back.height()), (60, 75));
+    }
+}

@@ -9,12 +9,12 @@ import { useI18n } from '../../../contexts/I18nContext'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { userFacingError } from '../../../utils/userFacingError'
 import {
-  decomposeFullBodyWithSeeThrough,
   generateFullBodyPortrait,
   getFullBodyFace,
   uploadFullBodyPortrait,
 } from '../api'
 import { commitFullBodyPsdAsset, preflightFullBodyPsdAsset } from '../assets/pipeline'
+import { decomposeWithTurnKeyforms } from '../turnKeyformsApi'
 import { RigImportPanel } from './RigImportPanel'
 import { useRigImport } from './useRigImport'
 
@@ -77,11 +77,11 @@ export function FullBodyPanel({
     sourceGenerationFingerprint: fingerprint,
     seeThroughTokenConfigured,
     onSaveSeeThroughToken,
-    onDecomposeRigPsd: () =>
-      decomposeFullBodyWithSeeThrough(outfitId, {
-        sourceMasterAssetId: portrait ?? '',
-        sourceGenerationFingerprint: fingerprint,
-      }),
+    onDecomposeRigPsd: (onStatus, signal) =>
+      decomposeWithTurnKeyforms(
+        { sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint },
+        { outfitId, onStatus, signal },
+      ),
     onPreflightRigPsd: (
       file: File,
       onStage: (event: RigAssetCompileEvent) => void,

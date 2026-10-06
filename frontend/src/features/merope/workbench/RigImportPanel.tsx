@@ -14,7 +14,7 @@ import {
   PERSONA_UPSTREAM_THANKS,
 } from '../anime25drig/credit'
 import { FaceTabs } from './FaceTabs'
-import { aiExpressionLabel } from './rigImportCopy'
+import { aiExpressionLabel, turnKeysProgress } from './rigImportCopy'
 import { RigImportProgress } from './RigImportProgress'
 import {
   SEE_THROUGH_PROJECT_NAME,
@@ -150,7 +150,7 @@ export function RigImportPanel({
             onClick={() => void rig.decomposePsd()}
           >
             {operation === 'decompose'
-              ? labels.motionSeeThroughGenerating
+              ? (rig.decomposeStatus ? turnKeysProgress(labels, rig.decomposeStatus) : labels.motionSeeThroughGenerating)
               : labels.motionSeeThroughGenerate}
           </SettingsButton>
         </section>

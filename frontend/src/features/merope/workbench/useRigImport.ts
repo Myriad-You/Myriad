@@ -2,6 +2,7 @@ import type {
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from '../assets/pipeline'
+import type { TurnKeyformsStatus } from '../turnKeyformsApi'
 import { useEffect, useRef, useState } from 'react'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -23,7 +24,7 @@ export interface RigImportSource {
   sourceGenerationFingerprint?: string
   seeThroughTokenConfigured: boolean
   onSaveSeeThroughToken: (token: string) => Promise<void>
-  onDecomposeRigPsd: () => Promise<File>
+  onDecomposeRigPsd: (onStatus: (status: TurnKeyformsStatus) => void, signal: AbortSignal) => Promise<File>
   onPreflightRigPsd: (
     file: File,
     onStage: (event: RigAssetCompileEvent) => void,
@@ -64,6 +65,8 @@ export function useRigImport({
     see_through_space_unavailable: t.errors.byCode.see_through_space_unavailable,
   }
   const [stage, setStage] = useState<RigAssetCompileEvent | null>(null)
+  // Where a decomposition with keyed turns stands, while it runs.
+  const [decomposeStatus, setDecomposeStatus] = useState<TurnKeyformsStatus | null>(null)
   const [steps, setSteps] = useState<RigImportStepState>({})
   const [result, setResult] = useState<RigImportSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -188,12 +191,17 @@ export function useRigImport({
     const controller = new AbortController()
     importAbortRef.current = controller
     setOperation('decompose')
+    setDecomposeStatus(null)
     setStage(null)
     setSteps({})
     setResult(null)
     setError(null)
     try {
-      const file = await onDecomposeRigPsd()
+      const file = await onDecomposeRigPsd(
+        (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
+        controller.signal,
+      )
+      setDecomposeStatus(null)
       controller.signal.throwIfAborted()
       lastRigPsdRef.current = file
       const imported = await onPreflightRigPsd(file,
@@ -286,6 +294,7 @@ export function useRigImport({
 
   return {
     stage,
+    decomposeStatus,
     steps,
     result,
     error,

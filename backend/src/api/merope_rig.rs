@@ -32,6 +32,7 @@ mod portrait;
 mod portrait_upload;
 mod pose;
 mod skeleton;
+mod turn_keyforms;
 
 pub(crate) use package::{cleanup_verified_packages, wardrobe_outfit_face};
 
@@ -100,6 +101,26 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/see-through/decompose",
             post(decompose::decompose_with_see_through),
+        )
+        .route(
+            "/see-through/turn-keyforms",
+            post(turn_keyforms::start_turn_keyforms),
+        )
+        .route(
+            "/full-body/{outfit_id}/see-through/turn-keyforms",
+            post(turn_keyforms::start_full_body_turn_keyforms),
+        )
+        .route(
+            "/see-through/turn-keyforms/{job_id}",
+            get(turn_keyforms::get_turn_keyforms),
+        )
+        .route(
+            "/see-through/turn-keyforms/{job_id}/psd",
+            get(turn_keyforms::get_turn_keyforms_psd),
+        )
+        .route(
+            "/see-through/turn-keyforms/{job_id}/keyforms",
+            get(turn_keyforms::get_turn_keyforms_keys),
         )
         .route(
             "/full-body/{outfit_id}/pose-corrections",

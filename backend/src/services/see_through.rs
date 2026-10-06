@@ -23,6 +23,9 @@ const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 const MAX_CONTROL_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_PSD_BYTES: usize = 32 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+/// Fitting the turn keys runs on the Space's CPU for many minutes.
+const KEYFORMS_TIMEOUT: Duration = Duration::from_secs(60 * 60);
+const MAX_KEYFORMS_JSON_BYTES: usize = 32 * 1024 * 1024;
 /// A ZeroGPU Space sleeps after two idle days and cannot be kept awake; how
 /// long a decomposition waits for one to wake, and how often it looks.
 const WAKE_TIMEOUT: Duration = Duration::from_secs(8 * 60);
@@ -321,6 +324,82 @@ impl SeeThroughClient {
         })
     }
 
+    /// The Space's `keyforms`: each part of the front decomposition fitted onto
+    /// four decompositions of the head turned toward image right and left,
+    /// raised and lowered. Returns the keys (JSON) and the front decomposition
+    /// with what the turns uncover baked in. Waits its turn behind a running
+    /// decomposition rather than refusing.
+    /// Keys for the turned decompositions. `pictures` are the five drawings
+    /// that were decomposed (front, then as `turned`): the fit matches the
+    /// keys against them, not only against the decompositions.
+    pub async fn turn_keyforms(
+        &self,
+        front: Vec<u8>,
+        turned: [Vec<u8>; 4],
+        pictures: [(Vec<u8>, String); 5],
+    ) -> Result<TurnKeyformsOutput, SeeThroughError> {
+        let _permit = inference_gate()
+            .acquire()
+            .await
+            .map_err(|_| SeeThroughError::Busy)?;
+        for psd in std::iter::once(&front).chain(turned.iter()) {
+            validate_psd(psd)?;
+        }
+        for (picture, media_type) in &pictures {
+            if picture.is_empty()
+                || picture.len() > MAX_IMAGE_BYTES
+                || image_extension(media_type).is_none()
+            {
+                return Err(SeeThroughError::InvalidInput(
+                    "A picture for the turn keys must be a PNG, JPEG, or WebP up to 10 MB"
+                        .to_string(),
+                ));
+            }
+        }
+        self.wait_until_running().await?;
+        let mut files = Vec::with_capacity(10);
+        for (index, psd) in std::iter::once(front).chain(turned).enumerate() {
+            let path = self
+                .upload_file(
+                    psd,
+                    &format!("decomposition-{index}.psd"),
+                    "image/vnd.adobe.photoshop",
+                )
+                .await?;
+            files.push(json!({
+                "path": path,
+                "orig_name": format!("decomposition-{index}.psd"),
+                "meta": { "_type": "gradio.FileData" }
+            }));
+        }
+        for (index, (picture, media_type)) in pictures.into_iter().enumerate() {
+            let name = format!(
+                "picture-{index}.{}",
+                image_extension(&media_type).unwrap_or("png")
+            );
+            let path = self.upload_file(picture, &name, &media_type).await?;
+            files.push(json!({
+                "path": path,
+                "orig_name": name,
+                "meta": { "_type": "gradio.FileData" }
+            }));
+        }
+        let event_id = self.start("keyforms", Value::Array(files)).await?;
+        let data = self
+            .await_data("keyforms", &event_id, KEYFORMS_TIMEOUT)
+            .await?;
+        let keys_url = output_file_url_at(&self.space, &data, 0)?;
+        let psd_url = output_file_url_at(&self.space, &data, 1)?;
+        let keyforms = self
+            .download(keys_url, "keyforms download", MAX_KEYFORMS_JSON_BYTES)
+            .await?;
+        serde_json::from_slice::<Value>(&keyforms).map_err(|_| {
+            SeeThroughError::InvalidOutput("See-through returned invalid keyforms".to_string())
+        })?;
+        let psd = self.download_psd(psd_url).await?;
+        Ok(TurnKeyformsOutput { keyforms, psd })
+    }
+
     /// Wakes the Space if it sleeps and waits while it builds or starts. A
     /// stage the Hub will not tell (a private Space this token cannot read)
     /// is left to the calls that follow.
@@ -396,16 +475,11 @@ impl SeeThroughClient {
         image: axum::body::Bytes,
         media_type: &str,
     ) -> Result<String, SeeThroughError> {
-        let extension = match media_type {
-            "image/png" => "png",
-            "image/jpeg" => "jpg",
-            "image/webp" => "webp",
-            _ => {
-                return Err(SeeThroughError::InvalidInput(
-                    "See-through accepts PNG, JPEG, or WebP portraits".to_string(),
-                ));
-            }
-        };
+        let extension = image_extension(media_type).ok_or_else(|| {
+            SeeThroughError::InvalidInput(
+                "See-through accepts PNG, JPEG, or WebP portraits".to_string(),
+            )
+        })?;
         // Hand the shared buffer to the request body; no copy of the portrait.
         let length = image.len() as u64;
         let part = multipart::Part::stream_with_length(reqwest::Body::from(image), length)
@@ -431,6 +505,78 @@ impl SeeThroughClient {
         })?;
         validate_remote_temp_path(&path)?;
         Ok(path)
+    }
+
+    async fn upload_file(
+        &self,
+        bytes: Vec<u8>,
+        name: &str,
+        media_type: &str,
+    ) -> Result<String, SeeThroughError> {
+        let length = bytes.len() as u64;
+        let part = multipart::Part::stream_with_length(reqwest::Body::from(bytes), length)
+            .file_name(name.to_string())
+            .mime_str(media_type)
+            .map_err(|error| SeeThroughError::InvalidInput(error.to_string()))?;
+        let response = self
+            .authenticated(self.client.post(self.space.url("/gradio_api/upload")))
+            .multipart(multipart::Form::new().part("files", part))
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let body = successful_body(response, "upload", MAX_CONTROL_RESPONSE_BYTES).await?;
+        let paths: Vec<String> = serde_json::from_slice(&body).map_err(|_| {
+            SeeThroughError::InvalidOutput(
+                "See-through upload returned an invalid response".to_string(),
+            )
+        })?;
+        let path = paths.into_iter().next().ok_or_else(|| {
+            SeeThroughError::InvalidOutput(
+                "See-through upload did not return a file path".to_string(),
+            )
+        })?;
+        validate_remote_temp_path(&path)?;
+        Ok(path)
+    }
+
+    /// The finished call's output values, waiting up to `timeout` for them.
+    async fn await_data(
+        &self,
+        endpoint: &str,
+        event_id: &str,
+        timeout: Duration,
+    ) -> Result<Value, SeeThroughError> {
+        let response = self
+            .authenticated(
+                self.client.get(
+                    self.space
+                        .url(&format!("/gradio_api/call/{endpoint}/{event_id}")),
+                ),
+            )
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let body = successful_body(response, "event stream", MAX_CONTROL_RESPONSE_BYTES).await?;
+        match parse_terminal_event(&body)? {
+            TerminalEvent::Complete(data) => Ok(data),
+            TerminalEvent::Error => Err(SeeThroughError::Rejected),
+        }
+    }
+
+    async fn download(
+        &self,
+        url: Url,
+        stage: &'static str,
+        limit: usize,
+    ) -> Result<Vec<u8>, SeeThroughError> {
+        validate_output_url(&self.space, &url)?;
+        let response = self
+            .authenticated(self.client.get(url))
+            .send()
+            .await
+            .map_err(transport_error)?;
+        successful_body(response, stage, limit).await
     }
 
     async fn start(&self, endpoint: &str, data: Value) -> Result<String, SeeThroughError> {
@@ -485,6 +631,13 @@ impl SeeThroughClient {
     }
 }
 
+/// Turn keys measured on the Space, and the front decomposition they go with.
+pub struct TurnKeyformsOutput {
+    /// `{ canvas: [w, h], keyforms: { family: { plus, minus, up?, down? } }, fit, baked }`.
+    pub keyforms: Vec<u8>,
+    pub psd: Vec<u8>,
+}
+
 #[derive(Debug, Deserialize)]
 struct EventCreated {
     event_id: String,
@@ -493,6 +646,15 @@ struct EventCreated {
 enum TerminalEvent {
     Complete(Value),
     Error,
+}
+
+fn image_extension(media_type: &str) -> Option<&'static str> {
+    match media_type {
+        "image/png" => Some("png"),
+        "image/jpeg" => Some("jpg"),
+        "image/webp" => Some("webp"),
+        _ => None,
+    }
 }
 
 fn validate_image(image: &[u8], media_type: &str) -> Result<(), SeeThroughError> {
@@ -579,9 +741,13 @@ fn serves_endpoint(info: &Value, endpoint: &str) -> bool {
 }
 
 fn output_file_url(space: &Space, data: &Value) -> Result<Url, SeeThroughError> {
+    output_file_url_at(space, data, 0)
+}
+
+fn output_file_url_at(space: &Space, data: &Value, index: usize) -> Result<Url, SeeThroughError> {
     let file = data
         .as_array()
-        .and_then(|values| values.first())
+        .and_then(|values| values.get(index))
         .and_then(Value::as_object)
         .ok_or_else(|| {
             SeeThroughError::InvalidOutput(

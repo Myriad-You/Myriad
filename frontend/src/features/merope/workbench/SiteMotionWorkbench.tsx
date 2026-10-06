@@ -2,6 +2,7 @@ import type { UpperBodyVisualIdentityKey } from '../../../components/agent/onboa
 import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { WardrobeItem } from '../persona/wardrobe'
+import type { TurnKeyformsStatus } from '../turnKeyformsApi'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { activityKey, moodBand } from '../../../components/agent/meropeVitals'
@@ -19,7 +20,6 @@ import { agentService } from '../../../services/agent'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { isAnime25DPlayback } from '../anime25drig/types'
 import {
-  decomposeSitePortraitWithSeeThrough,
   saveFullBodyPoseCorrections,
   saveRigPoseCorrections,
   uploadFullBodyPortrait,
@@ -30,6 +30,7 @@ import RigCharacter from '../character/RigCharacter'
 import { notifyFaceUpdated } from '../events/updates'
 import { useRigPreviewMotionLifecycle } from '../motion/useRigMotionLifecycle'
 import { applyOutfit, isFullBodyItem, sortWardrobe, wardrobeItemLabel } from '../persona/wardrobe'
+import { decomposeWithTurnKeyforms } from '../turnKeyformsApi'
 import Anime25DWorkbench from './Anime25DWorkbench'
 import { FullBodyStageSwitch } from './FullBodyStageSwitch'
 import { OutfitDetail } from './OutfitDetail'
@@ -167,15 +168,15 @@ export default function SiteMotionWorkbench({
     [expressionReferences, generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait],
   )
 
-  const decomposeRigPsd = useCallback(async () => {
+  const decomposeRigPsd = useCallback(async (
+    onStatus: (status: TurnKeyformsStatus) => void,
+    signal: AbortSignal,
+  ) => {
     if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
-    return decomposeSitePortraitWithSeeThrough({
-      sourceMasterAssetId: portraitUrl,
-      sourceGenerationFingerprint: generationFingerprint || undefined,
-      resolution: 1280,
-      seed: 42,
-      splitArmsAndLegs: true,
-    })
+    return decomposeWithTurnKeyforms(
+      { sourceMasterAssetId: portraitUrl, sourceGenerationFingerprint: generationFingerprint || undefined },
+      { onStatus, signal },
+    )
   }, [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait])
 
   const { reload } = persona

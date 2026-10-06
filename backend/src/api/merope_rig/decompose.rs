@@ -23,7 +23,7 @@ use crate::{
     services::{image_generation, see_through},
 };
 
-fn see_through_error(error: see_through::SeeThroughError) -> ApiError {
+pub(super) fn see_through_error(error: see_through::SeeThroughError) -> ApiError {
     use see_through::SeeThroughError;
 
     let (status, code, message) = match &error {

@@ -43,6 +43,8 @@ export interface PreparedAnime25DRigImport {
   reconciliation: Anime25DPsdReconciliation | null
   /** Holes a blink or a spoken vowel would open in the face. */
   motionExposure: MotionExposureFinding[]
+  /** The document and where the playback frame cuts it, for keys measured on the document. */
+  documentFrame: { width: number; height: number; x: number; y: number }
 }
 export {
   anime25DBaseRole,
@@ -212,6 +214,7 @@ export async function prepareAnime25DRigPsd(
     partCount: prepared.length,
     reconciliation,
     motionExposure,
+    documentFrame: { width: psd.width, height: psd.height, x: frame.x, y: frame.y },
     source: {
       rigIrVersion: RIG_IR_VERSION,
       characterAssetContractVersion: CHARACTER_ASSET_PROFILES[profile].contractVersion,
