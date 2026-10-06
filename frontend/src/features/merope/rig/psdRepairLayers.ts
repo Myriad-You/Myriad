@@ -194,19 +194,35 @@ function hangsFrom(
   return -1
 }
 
+/**
+ * Pieces merged to fit the layer budget: those of one body part and one role
+ * share a layer that keeps the role (recovered hair clips stay headwear, and
+ * so turn by the head's keys); when even that is over budget, one plain rigid
+ * layer per body part.
+ */
 export function mergeByGroup(
   pieces: readonly RecoveredPiece[],
   maxLayers: number,
 ): RecoveredPiece[] {
-  const merged = new Map<Group, RecoveredPiece>()
+  const byRole = mergeBy(pieces, (piece) => `${piece.group}:${piece.role}`, null)
+  return byRole.length <= maxLayers ? byRole : mergeBy(pieces, (piece) => piece.group, 'objects', maxLayers)
+}
+
+function mergeBy(
+  pieces: readonly RecoveredPiece[],
+  key: (piece: RecoveredPiece) => string,
+  role: RasterLayer['role'] | null,
+  maxLayers = Number.POSITIVE_INFINITY,
+): RecoveredPiece[] {
+  const merged = new Map<string, RecoveredPiece>()
   for (const piece of pieces) {
-    const existing = merged.get(piece.group)
+    const existing = merged.get(key(piece))
     if (!existing) {
       if (merged.size >= maxLayers) continue
-      merged.set(piece.group, {
+      merged.set(key(piece), {
         ...piece,
         pixels: new Map(piece.pixels),
-        role: 'objects',
+        role: role ?? piece.role,
       })
       continue
     }
