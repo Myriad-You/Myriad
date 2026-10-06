@@ -400,6 +400,50 @@ impl SeeThroughClient {
         Ok(TurnKeyformsOutput { keyforms, psd })
     }
 
+    /// The Space's `check`: whether the fit can key from a decomposition (one
+    /// whose face took in the hair at its sides, whose headwear took in the
+    /// outfit, or whose ears took in the head cannot). A Space without the
+    /// endpoint (an older deployment) passes every decomposition.
+    pub async fn check_decomposition(
+        &self,
+        psd: Vec<u8>,
+    ) -> Result<DecompositionCheck, SeeThroughError> {
+        validate_psd(&psd)?;
+        self.wait_until_running().await?;
+        let response = self
+            .authenticated(self.client.get(self.space.url("/gradio_api/info")))
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let body =
+            successful_body(response, "endpoint listing", MAX_CONTROL_RESPONSE_BYTES).await?;
+        let info: Value = serde_json::from_slice(&body).map_err(|_| {
+            SeeThroughError::InvalidOutput("See-through endpoint listing is invalid".to_string())
+        })?;
+        if !serves_endpoint(&info, "check") {
+            return Ok(DecompositionCheck::unchecked());
+        }
+        let path = self
+            .upload_file(psd, "decomposition.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let file = json!({
+            "path": path,
+            "orig_name": "decomposition.psd",
+            "meta": { "_type": "gradio.FileData" }
+        });
+        let event_id = self.start("check", json!([file])).await?;
+        let data = self.await_data("check", &event_id, REQUEST_TIMEOUT).await?;
+        data.as_array()
+            .and_then(|values| values.first())
+            .cloned()
+            .and_then(|check| serde_json::from_value(check).ok())
+            .ok_or_else(|| {
+                SeeThroughError::InvalidOutput(
+                    "See-through returned an invalid decomposition check".to_string(),
+                )
+            })
+    }
+
     /// Wakes the Space if it sleeps and waits while it builds or starts. A
     /// stage the Hub will not tell (a private Space this token cannot read)
     /// is left to the calls that follow.
@@ -636,6 +680,27 @@ pub struct TurnKeyformsOutput {
     /// `{ canvas: [w, h], keyforms: { family: { plus, minus, up?, down? } }, fit, baked }`.
     pub keyforms: Vec<u8>,
     pub psd: Vec<u8>,
+}
+
+/// Whether the fit can key from a decomposition, and why not.
+#[derive(Debug, Deserialize)]
+pub struct DecompositionCheck {
+    pub ok: bool,
+    #[serde(default)]
+    pub faults: Vec<String>,
+    /// How far past its limits the decomposition is at worst: over 1 when faulty.
+    #[serde(default)]
+    pub badness: Option<f64>,
+}
+
+impl DecompositionCheck {
+    fn unchecked() -> Self {
+        Self {
+            ok: true,
+            faults: Vec::new(),
+            badness: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
