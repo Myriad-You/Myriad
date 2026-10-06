@@ -445,7 +445,11 @@ export function bindLayerAttachments(
       playback.pixelCanvas.width,
       readBindingPixels,
     )
-    if (layer.attachment) {
+    if (layer.neckwearBridge) {
+      // A keyed bridge rides the neck at its upper anchor.
+      const { upper } = layer.neckwearBridge
+      layer.attachmentTurn = bindAttachmentTurn(playback.turnKeyforms, layer.source, layer.rest, upper.hostSource, upper)
+    } else if (layer.attachment) {
       layer.attachmentTurn = bindAttachmentTurn(playback.turnKeyforms, layer.source, layer.rest,
         layer.attachment.hostSource, layer.attachment)
       if (layer.attachmentTurn) layer.deformed = layer.rest.slice()

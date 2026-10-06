@@ -32,6 +32,7 @@ import {
 } from './collarRuntime'
 import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
 import { hairChainOffset, hairChainTurn } from './hairChain'
+import { headTurnNeckOffset } from './headTurn'
 import { applyPoseCorrections } from './poseCorrections'
 import { bodyLeanShare } from './poseScale'
 import { deformAnime25DShellPoint, shellTurnBlend } from './shellDeformation'
@@ -42,7 +43,7 @@ import {
   deformAnime25DTorsoShellPoint,
   SLEEVE_TORSO_TRANSMISSION,
 } from './torsoDeformation'
-import { addKeyedTurn, neckTwist, unkeyedTurn } from './turnKeyforms'
+import { addKeyedTurn, unkeyedTurn } from './turnKeyforms'
 
 type SecondaryDeformationDriver = Pick<
   Anime25DDriver,
@@ -369,12 +370,17 @@ export function deformAnime25DSecondaryPoint(
         const turnBlend = shellTurnBlend(frame)
         point.x = legacyX + (point.x - legacyX) * turnBlend
         point.y = legacyY + (point.y - legacyY) * turnBlend
+      } else if (binding.turnKeyform && frame.headTurn) {
+        // A keyed neck takes the shape measured on the turned pictures, across
+        // and up and down, instead of the computed carry; the roll above and
+        // the body below still carry it.
+        addKeyedTurn(point, binding.turnKeyform, vertex, frame.headTurn.amount, frame.headTurn.nodAmount)
       } else {
         point.x = legacyX
         point.y = legacyY
         // The top of the neck twists with the turning head instead of the flat carry.
         if (verticalNeckFollow && neckHeadBlend > 0 && frame.headTurn?.active)
-          point.x += (neckTwist(frame.headTurn, binding.turnKeyform, vertex, localX, restY) - (legacyX - rolledX)) * neckHeadBlend
+          point.x += (headTurnNeckOffset(frame.headTurn, localX, restY) - (legacyX - rolledX)) * neckHeadBlend
       }
     }
     if (!binding.collarContact && frame.specialHeadOffset !== 0) {

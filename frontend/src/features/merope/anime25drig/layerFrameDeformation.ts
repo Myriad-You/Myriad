@@ -293,6 +293,7 @@ export function settleDependentLayers(
         secondaryDeformationFrame,
         layer.rest,
         layer.deformed,
+        layer.attachmentTurn,
       )
       layer.layerTransform.fill(0)
       layer.layerTransform[0] =

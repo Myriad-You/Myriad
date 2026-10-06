@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { bindTurnKeyform, isAnime25DTurnKeyforms, turnKeyformFamily, turnKeyformOffset } from './turnKeyforms'
+import { bindAttachmentTurn, bindTurnKeyform, deformAttachmentTurn, isAnime25DTurnKeyforms, turnKeyformFamily, turnKeyformOffset } from './turnKeyforms'
 
 function lattice(grid: number, back: (x: number, y: number) => [number, number]) {
   const box: [number, number, number, number] = [0, 0, 100, 100]
@@ -18,6 +18,7 @@ test('every drawing of one eye turns with that eye', () => {
   assert.equal(turnKeyformFamily({ group: 'head', role: 'eyebrow', side: 'R' }), 'brow:R')
   assert.equal(turnKeyformFamily({ group: 'head', role: 'anger-mark', side: null }), 'face')
   assert.equal(turnKeyformFamily({ group: 'body', role: 'neck', side: null }), 'neck')
+  assert.equal(turnKeyformFamily({ group: 'body', role: 'neckwear', side: null }), 'neckwear')
   assert.equal(turnKeyformFamily({ group: 'body', role: 'topwear', side: null }), null)
 })
 
@@ -79,4 +80,27 @@ test('a nod key adds to the turn key, as Live2D fills the corners from the edges
   // Without nod keys the nod is left to the computed head.
   const nose = bindTurnKeyform(keyforms, { group: 'head', role: 'nose', side: null }, rest)!
   assert.equal(nose.up, null)
+})
+
+test('an accessory keyed like its host stays put on it: the carry brings the host turning, once', () => {
+  // The host turns 0.1 rad about (50, 50) and moves (4, -3); backward: where each turned point came from.
+  const angle = 0.1
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  const back = (x: number, y: number): [number, number] => {
+    const rx = x - 50 - 4
+    const ry = y - 50 + 3
+    return [50 + rx * cos + ry * sin - x, 50 - rx * sin + ry * cos - y]
+  }
+  const keyforms = {
+    ears: { plus: lattice(9, back), minus: lattice(9, () => [0, 0]) },
+    earwear: { plus: lattice(9, back), minus: lattice(9, () => [0, 0]) },
+  }
+  const rest = new Float32Array([50, 70, 60, 80])
+  const turn = bindAttachmentTurn(keyforms, { group: 'head', role: 'earwear', side: null }, rest,
+    { group: 'head', role: 'ears', side: null }, { x: 50, y: 50 })!
+  const deformed = new Float32Array(rest.length)
+  assert.equal(deformAttachmentTurn(turn, 1, 0, rest, deformed), true)
+  for (let i = 0; i < rest.length; i++) assert.ok(Math.abs(deformed[i] - rest[i]) < 0.05, `${i}: ${deformed[i]} vs ${rest[i]}`)
+  assert.equal(deformAttachmentTurn(turn, 1, 0, rest, deformed), false)
 })

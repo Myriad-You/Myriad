@@ -146,7 +146,9 @@ export function compileAnime25DGpuLayers(
     const neckLayer = playback.layers.find((layer) => layer.role === 'neck')
     const neckPixels = neckLayer ? readBindingPixels(neckLayer) : null
     const facePixels = face ? readBindingPixels(face) : null
-    const trimmedNeck = neckLayer && neckPixels && face && facePixels
+    // A keyed neck carries what its turns uncover, drawn from the turned
+    // pictures; only a computed turn needs the hidden field cut back to the neck.
+    const trimmedNeck = !playback.turnKeyforms?.neck && neckLayer && neckPixels && face && facePixels
       ? trimHiddenNeck(neckLayer, neckPixels, face, facePixels)
       : null
     if (neckLayer && trimmedNeck) {

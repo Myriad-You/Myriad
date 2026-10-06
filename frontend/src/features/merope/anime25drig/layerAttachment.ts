@@ -4,11 +4,13 @@ import type {
   Anime25DSecondaryDeformationBinding,
   Anime25DSecondaryDeformationFrame,
 } from './secondaryDeformation'
+import type { AttachmentTurn, HostKeyMove } from './turnKeyforms'
 import type { Anime25DPlaybackAnchors, Anime25DPlaybackLayer } from './types'
 import { isAnime25DRigidAttachment } from '../rig/anime25dLayerSemantics'
 import { bindAttachmentMesh, offsetAttachmentMeshSample, sampleAttachmentMesh } from './attachmentMesh'
 import { sampleChestWeight } from './chestPhysics'
 import { deformAnime25DSecondaryPoint } from './secondaryDeformation'
+import { hostKeyMove, turnKeyformOffset, undoHostKey } from './turnKeyforms'
 
 interface AttachmentHost {
   source: Anime25DPlaybackLayer
@@ -181,26 +183,48 @@ export function bindNeckwearBridge(
   }
 }
 
+const keyed = { x: 0, y: 0 }
+const upperRest = { x: 0, y: 0 }
+const neckKey: HostKeyMove = { x: 0, y: 0, cosine: 1, sine: 0 }
+
+/**
+ * A keyed bridge (a choker and its pendant) goes by its own key; its upper
+ * share rides the neck's carry with the neck's own key at the anchor taken
+ * off, as an attachment does.
+ */
 export function deformNeckwearBridge(
   bridge: Anime25DNeckwearBridge,
   frame: Readonly<Anime25DSecondaryDeformationFrame>,
   rest: Float32Array,
   output: Float32Array,
+  turn?: Readonly<AttachmentTurn> | null,
 ): boolean {
   writeAnime25DAttachmentTransform(bridge.upper, frame, bridge.upperMatrix)
   writeAnime25DAttachmentTransform(bridge.lower, frame, bridge.lowerMatrix)
   const a = bridge.upperMatrix
     const b = bridge.lowerMatrix
+  const amount = frame.headTurn?.amount ?? 0
+  const nod = frame.headTurn?.nodAmount ?? 0
+  if (turn) hostKeyMove(turn, amount, nod, neckKey)
   let changed = false
   for (let i = 0; i < bridge.weights.length; i++) {
     const x = rest[i * 2]
       const y = rest[i * 2 + 1]
       const w = bridge.weights[i]
+    keyed.x = keyed.y = 0
+    upperRest.x = x
+    upperRest.y = y
+    if (turn) {
+      turnKeyformOffset(turn.own, i, amount, keyed, nod)
+      undoHostKey(turn, neckKey, x, y, upperRest)
+    }
+    const ux = upperRest.x
+    const uy = upperRest.y
     const nextX = Math.fround(
-      (a[0] * x + a[3] * y + a[6]) * (1 - w) + (b[0] * x + b[3] * y + b[6]) * w,
+      (a[0] * ux + a[3] * uy + a[6]) * (1 - w) + (b[0] * x + b[3] * y + b[6]) * w + keyed.x,
     )
     const nextY = Math.fround(
-      (a[1] * x + a[4] * y + a[7]) * (1 - w) + (b[1] * x + b[4] * y + b[7]) * w,
+      (a[1] * ux + a[4] * uy + a[7]) * (1 - w) + (b[1] * x + b[4] * y + b[7]) * w + keyed.y,
     )
     if (output[i * 2] !== nextX || output[i * 2 + 1] !== nextY) {
       output[i * 2] = nextX

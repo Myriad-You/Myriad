@@ -1,6 +1,5 @@
 import type { HeadTurn } from './headTurn'
 import type { Anime25DPlaybackLayer } from './types'
-import { headTurnNeckOffset } from './headTurn'
 
 /**
  * A head turn drawn, not computed: as a Live2D rigger keys a warp deformer at
@@ -37,7 +36,7 @@ export type Anime25DTurnKeyforms = Record<string, Anime25DTurnKey>
 /** Which keyed part a layer turns with: every drawing of one eye with that eye's key. */
 export function turnKeyformFamily(layer: Pick<Anime25DPlaybackLayer, 'group' | 'role' | 'side'>): string | null {
   const { role, side } = layer
-  if (role === 'neck') return 'neck'
+  if (role === 'neck' || role === 'neckwear') return role
   if (layer.group !== 'head') return null
   if (role === 'back-hair' || role === 'front-hair' || role === 'headwear' || role === 'ears' || role === 'earwear') return role
   if (role === 'nose') return 'nose'
@@ -126,8 +125,9 @@ export function unkeyedTurn(turn: Readonly<HeadTurn> | undefined, bound: Readonl
 
 export interface AttachmentTurn {
   own: BoundTurnKeyform
-  /** The host's key at the anchor, one point. */
+  /** The host's key at the anchor and one pixel across from it. */
   host: BoundTurnKeyform | null
+  anchor: { x: number; y: number }
   amount: number
   nod: number
 }
@@ -142,12 +142,65 @@ export function bindAttachmentTurn(
 ): AttachmentTurn | null {
   const own = bindTurnKeyform(keyforms, layer, rest)
   if (!own) return null
-  return { own, host: host ? bindTurnKeyform(keyforms, host, new Float32Array([anchor.x, anchor.y])) : null, amount: Number.NaN, nod: Number.NaN }
+  return {
+    own,
+    host: host ? bindTurnKeyform(keyforms, host, new Float32Array([anchor.x, anchor.y, anchor.x + 1, anchor.y])) : null,
+    anchor: { x: anchor.x, y: anchor.y },
+    amount: Number.NaN,
+    nod: Number.NaN,
+  }
+}
+
+/** The host's key at the anchor as a rigid move: how far the anchor went and how far it turned there. */
+export interface HostKeyMove {
+  x: number
+  y: number
+  cosine: number
+  sine: number
+}
+
+export function hostKeyMove(turn: Readonly<AttachmentTurn>, amount: number, nod: number, out: HostKeyMove): HostKeyMove {
+  out.x = 0
+  out.y = 0
+  out.cosine = 1
+  out.sine = 0
+  if (!turn.host) return out
+  turnKeyformOffset(turn.host, 0, amount, keyed, nod)
+  out.x = keyed.x
+  out.y = keyed.y
+  turnKeyformOffset(turn.host, 1, amount, keyed, nod)
+  const dx = 1 + keyed.x - out.x
+  const dy = keyed.y - out.y
+  const length = Math.hypot(dx, dy)
+  if (length > 1e-6) {
+    out.cosine = dx / length
+    out.sine = dy / length
+  }
+  return out
 }
 
 /**
- * Writes an accessory's vertices for the turn: each goes by its own key, less
- * the host's at the anchor, which the rigid carry already brings. False when
+ * Takes the host's key at the anchor back off a point. The rigid carry brings
+ * the host's whole motion at the anchor, its key included, turn and all; a
+ * keyed accessory's own key already holds where it goes, so the carry must not
+ * bring the host's key a second time.
+ */
+export function undoHostKey(
+  turn: Readonly<AttachmentTurn>,
+  move: Readonly<HostKeyMove>,
+  x: number,
+  y: number,
+  out: { x: number; y: number },
+): void {
+  const rx = x - turn.anchor.x - move.x
+  const ry = y - turn.anchor.y - move.y
+  out.x = turn.anchor.x + rx * move.cosine + ry * move.sine
+  out.y = turn.anchor.y - rx * move.sine + ry * move.cosine
+}
+
+/**
+ * Writes an accessory's vertices for the turn: each goes by its own key, with
+ * the host's at the anchor taken off, which the rigid carry brings. False when
  * nothing changed since the last frame.
  */
 export function deformAttachmentTurn(
@@ -160,22 +213,18 @@ export function deformAttachmentTurn(
   if (amount === turn.amount && nod === turn.nod) return false
   turn.amount = amount
   turn.nod = nod
-  let hostX = 0
-  let hostY = 0
-  if (turn.host) {
-    turnKeyformOffset(turn.host, 0, amount, keyed, nod)
-    hostX = keyed.x
-    hostY = keyed.y
-  }
+  hostKeyMove(turn, amount, nod, move)
   for (let i = 0; i < rest.length; i += 2) {
     turnKeyformOffset(turn.own, i / 2, amount, keyed, nod)
-    deformed[i] = rest[i] + keyed.x - hostX
-    deformed[i + 1] = rest[i + 1] + keyed.y - hostY
+    undoHostKey(turn, move, rest[i] + keyed.x, rest[i + 1] + keyed.y, keyed)
+    deformed[i] = keyed.x
+    deformed[i + 1] = keyed.y
   }
   return true
 }
 
 const keyed = { x: 0, y: 0 }
+const move: HostKeyMove = { x: 0, y: 0, cosine: 1, sine: 0 }
 
 /** Adds the keyed turn at `amount` to a point of vertex `vertex`. */
 export function addKeyedTurn(
@@ -188,19 +237,6 @@ export function addKeyedTurn(
   turnKeyformOffset(bound, vertex, amount, keyed, nod)
   point.x += keyed.x
   point.y += keyed.y
-}
-
-/** How far across the top of the neck goes with the head: keyed if it is, else as the jaw goes. */
-export function neckTwist(
-  turn: Readonly<HeadTurn>,
-  bound: Readonly<BoundTurnKeyform> | null | undefined,
-  vertex: number,
-  x: number,
-  restY: number,
-): number {
-  if (!bound) return headTurnNeckOffset(turn, x, restY)
-  turnKeyformOffset(bound, vertex, turn.amount, keyed, turn.nodAmount)
-  return keyed.x
 }
 
 function sampleLattice(lattice: Readonly<Anime25DTurnLattice>, x: number, y: number, out: Float32Array): void {
