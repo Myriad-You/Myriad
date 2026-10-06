@@ -191,6 +191,14 @@ export function hostKeyMove(turn: Readonly<AttachmentTurn>, amount: number, nod:
   return out
 }
 
+/** The rotation of the host's key at the anchor (radians), which a keyed accessory's vertices take off. */
+export function hostKeyRoll(turn: Readonly<AttachmentTurn>, amount: number, nod: number): number {
+  hostKeyMove(turn, amount, nod, roll)
+  return Math.atan2(roll.sine, roll.cosine)
+}
+
+const roll: HostKeyMove = { x: 0, y: 0, cosine: 1, sine: 0 }
+
 /**
  * Takes the host's key at the anchor back off a point. The rigid carry brings
  * the host's whole motion at the anchor, its key included, turn and all; a

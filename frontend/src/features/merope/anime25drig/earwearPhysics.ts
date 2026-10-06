@@ -76,7 +76,13 @@ export class EarwearPhysics {
     private readonly side: number,
   ) {}
 
-  /** Called after the host's final mesh; matrix must be freshly written each frame. */
+  /**
+   * Called after the host's final mesh; matrix must be freshly written each frame.
+   * `keyRoll`, for a keyed earring: the rotation of the host's key at the
+   * anchor, which its vertices have taken off (the carry is to bring it back).
+   * The pendulum swings about the keyed pose: it hangs from the host's carry
+   * without that rotation, gives it back, and leaves foreshortening to the key.
+   */
   apply(
     a: Pick<Anime25DLayerAttachment, 'x' | 'y'>,
     m: Float32Array,
@@ -84,6 +90,7 @@ export class EarwearPhysics {
     yaw: number,
     nod: number,
     enabled: boolean,
+    keyRoll: number | null = null,
   ): void {
     const x = m[0] * a.x + m[3] * a.y + m[6]
     const y = m[1] * a.x + m[4] * a.y + m[7]
@@ -91,7 +98,7 @@ export class EarwearPhysics {
     // pose-derived proxy, not a second application of its screen-space translation.
     const z = this.faceHeight * (this.side * yaw * 0.12 + nod * 0.08)
     const dt = this.time === null ? 0 : time - this.time
-    const hostRoll = Math.atan2(m[1], m[0])
+    const hostRoll = Math.atan2(m[1], m[0]) - (keyRoll ?? 0)
     if (
       !enabled ||
       this.time === null ||
@@ -161,15 +168,22 @@ export class EarwearPhysics {
     const s = Math.sin(this.roll)
     const cp = Math.cos(this.pitch)
     const sp = Math.sin(this.pitch)
-    const twist = clamp(yaw * 0.4, -0.45, 0.45)
+    const twist = keyRoll === null ? clamp(yaw * 0.4, -0.45, 0.45) : 0
     const ct = Math.cos(twist)
     const st = Math.sin(twist)
     // XY projection of Rz(roll) Rx(pitch) Ry(twist): no stretching in 3D,
     // no invented back-face texture and no modification of draw order.
-    m[0] = c * ct - s * sp * st
-    m[1] = s * ct + c * sp * st
-    m[3] = -s * cp
-    m[4] = c * cp
+    const m0 = c * ct - s * sp * st
+    const m1 = s * ct + c * sp * st
+    const m3 = -s * cp
+    const m4 = c * cp
+    // Then Rz(keyRoll), the key's rotation the vertices took off.
+    const kc = Math.cos(keyRoll ?? 0)
+    const ks = Math.sin(keyRoll ?? 0)
+    m[0] = m0 * kc + m3 * ks
+    m[1] = m1 * kc + m4 * ks
+    m[3] = m3 * kc - m0 * ks
+    m[4] = m4 * kc - m1 * ks
     m[6] = x - m[0] * a.x - m[3] * a.y
     m[7] = y - m[1] * a.x - m[4] * a.y
   }

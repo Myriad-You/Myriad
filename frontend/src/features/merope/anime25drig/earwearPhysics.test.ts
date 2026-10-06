@@ -125,3 +125,15 @@ test('depth changes foreshorten without flipping; pause resets energy and repeat
   p.apply(anchor, m, 20, 0, 0, true)
   assert.deepEqual(m, matrix())
 })
+
+test('a keyed earring held still hangs in its keyed pose: the key rotation it took off comes back, unsqueezed', () => {
+  // The host carries only its key, turned 0.3 rad at the anchor; the head is held turned.
+  const p = new EarwearPhysics(100, 450, -1)
+  let m = matrix()
+  for (let i = 0; i < 300; i++) {
+    m = matrix(0, 0.3)
+    p.apply(anchor, m, i / 60, -1, 0, true, 0.3)
+  }
+  const host = matrix(0, 0.3)
+  for (let k = 0; k < 9; k++) assert.ok(Math.abs(m[k] - host[k]) < 1e-4, `matrix[${k}] ${m[k]} vs ${host[k]}`)
+})
