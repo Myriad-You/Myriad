@@ -251,6 +251,7 @@ pub(super) async fn decompose_master(
         split_arms_and_legs: payload
             .split_arms_and_legs
             .unwrap_or(defaults.split_arms_and_legs),
+        ..defaults
     }
     .validate()
     .map_err(see_through_error)?;

@@ -36,6 +36,10 @@ pub struct DecomposeOptions {
     pub resolution: u16,
     pub seed: u16,
     pub split_arms_and_legs: bool,
+    /// The hair from a pass of its own (the Space's `decompose_hair`): the body
+    /// tags run again on the hair's box at the head pass's scale. A Space
+    /// without it decomposes plainly.
+    pub hair_pass: bool,
 }
 
 impl Default for DecomposeOptions {
@@ -49,6 +53,7 @@ impl Default for DecomposeOptions {
             // limb layers may be returned too, but the upper-body compiler
             // deliberately ignores them.
             split_arms_and_legs: true,
+            hair_pass: false,
         }
     }
 }
@@ -289,14 +294,30 @@ impl SeeThroughClient {
 
         self.wait_until_running().await?;
         let canvas = self.serves_canvas().await?;
+        let hair_pass = canvas && options.hair_pass && self.serves("decompose_hair").await?;
         let remote_path = self.upload(image, media_type).await?;
-        let endpoint = if canvas { "decompose" } else { "inference" };
+        let endpoint = if hair_pass {
+            "decompose_hair"
+        } else if canvas {
+            "decompose"
+        } else {
+            "inference"
+        };
         let file = json!({
             "path": remote_path,
             "orig_name": "character.png",
             "meta": { "_type": "gradio.FileData" }
         });
-        let data = if canvas {
+        let data = if hair_pass {
+            // Canvas, seed, left/right split, the hair pass on the head's scale.
+            json!([
+                file,
+                CANVAS,
+                options.seed,
+                options.split_arms_and_legs,
+                "head"
+            ])
+        } else if canvas {
             // Canvas, seed, left/right split, output scale, SDXL size condition.
             json!([
                 file,
@@ -410,17 +431,7 @@ impl SeeThroughClient {
     ) -> Result<DecompositionCheck, SeeThroughError> {
         validate_psd(&psd)?;
         self.wait_until_running().await?;
-        let response = self
-            .authenticated(self.client.get(self.space.url("/gradio_api/info")))
-            .send()
-            .await
-            .map_err(transport_error)?;
-        let body =
-            successful_body(response, "endpoint listing", MAX_CONTROL_RESPONSE_BYTES).await?;
-        let info: Value = serde_json::from_slice(&body).map_err(|_| {
-            SeeThroughError::InvalidOutput("See-through endpoint listing is invalid".to_string())
-        })?;
-        if !serves_endpoint(&info, "check") {
+        if !self.serves("check").await? {
             return Ok(DecompositionCheck::unchecked());
         }
         let path = self
@@ -501,6 +512,11 @@ impl SeeThroughClient {
 
     /// Whether the Space serves `decompose`, Myriad's canvas endpoint.
     async fn serves_canvas(&self) -> Result<bool, SeeThroughError> {
+        self.serves("decompose").await
+    }
+
+    /// Whether the Space serves the named endpoint.
+    async fn serves(&self, endpoint: &str) -> Result<bool, SeeThroughError> {
         let response = self
             .authenticated(self.client.get(self.space.url("/gradio_api/info")))
             .send()
@@ -511,7 +527,7 @@ impl SeeThroughClient {
         let info: Value = serde_json::from_slice(&body).map_err(|_| {
             SeeThroughError::InvalidOutput("See-through endpoint listing is invalid".to_string())
         })?;
-        Ok(serves_endpoint(&info, "decompose"))
+        Ok(serves_endpoint(&info, endpoint))
     }
 
     async fn upload(

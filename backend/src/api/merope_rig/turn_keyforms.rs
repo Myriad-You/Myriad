@@ -438,19 +438,16 @@ async fn run(
         let name = format!("decomposition-{index}.psd");
         let checked = format!("decomposition-{index}.checked");
         let cached = cache.read(&name).await;
+        let redos: &[(bool, u16)] = if index == 0 {
+            &FRONT_REDOS
+        } else {
+            &TURNED_REDOS
+        };
         let psd = match cached {
-            // The front decomposition is the rig's own layers: checked, and
-            // redone when faulty. A turned one only guides the fit, which the
-            // pictures correct; a new seed did not mend one.
-            Some(psd) if index > 0 || cache.read(&checked).await.is_some() => psd,
-            None if index > 0 => {
-                let psd = decompose_waiting(client, bytes.clone(), media_type, options).await?;
-                cache.write(&name, &psd).await;
-                psd
-            }
+            Some(psd) if cache.read(&checked).await.is_some() => psd,
             cached => {
                 let (psd, settled) =
-                    decompose_checked(client, bytes, media_type, options, cached).await?;
+                    decompose_checked(client, bytes, media_type, options, redos, cached).await?;
                 cache.write(&name, &psd).await;
                 if settled {
                     cache.write(&checked, b"checked").await;
@@ -500,26 +497,36 @@ async fn run(
     Ok((output.psd, output.keyforms))
 }
 
-/// Seeds a faulty decomposition is redone with, in turn.
-const RESEEDS: [u16; 2] = [7, 1234];
+/// How a faulty decomposition is redone, in turn (hair pass, seed). The
+/// front one is the rig's own layers: other seeds first, as a decomposition
+/// with the hair from a pass of its own keeps the picture less closely at
+/// rest. A turned one only guides the fit: the hair pass first, which mended
+/// every turned one so far where new seeds did not.
+const FRONT_REDOS: [(bool, u16); 3] = [(false, 7), (false, 1234), (true, 42)];
+const TURNED_REDOS: [(bool, u16); 2] = [(true, 42), (true, 7)];
 
 /// A decomposition the fit can key from. One the Space's check finds faulty
-/// (the face took in the hair, the headwear the outfit) is redone with
-/// another seed; when none passes, the least faulty. Settled when the check
-/// had its say (a check that could not run is asked again next time).
+/// (the face took in the hair, the headwear the outfit) is redone (`redos`);
+/// when none passes, the least faulty. Settled when the check had its say (a
+/// check that could not run is asked again next time).
 async fn decompose_checked(
     client: &see_through::SeeThroughClient,
     image: &axum::body::Bytes,
     media_type: &str,
     options: see_through::DecomposeOptions,
+    redos: &[(bool, u16)],
     mut cached: Option<Vec<u8>>,
 ) -> ApiResult<(Vec<u8>, bool)> {
     let mut best: Option<(f64, Vec<u8>)> = None;
-    for seed in std::iter::once(options.seed).chain(RESEEDS) {
+    for &(hair_pass, seed) in std::iter::once(&(options.hair_pass, options.seed)).chain(redos) {
         let psd = match cached.take() {
             Some(psd) => psd,
             None => {
-                let options = see_through::DecomposeOptions { seed, ..options };
+                let options = see_through::DecomposeOptions {
+                    hair_pass,
+                    seed,
+                    ..options
+                };
                 decompose_waiting(client, image.clone(), media_type, options).await?
             }
         };
@@ -534,7 +541,7 @@ async fn decompose_checked(
             // A Space without the check passes everything unmeasured.
             return Ok((psd, check.badness.is_some()));
         }
-        tracing::warn!(seed, faults = ?check.faults, badness = ?check.badness, "faulty decomposition");
+        tracing::warn!(seed, hair_pass, faults = ?check.faults, badness = ?check.badness, "faulty decomposition");
         let fault = check.badness.unwrap_or(f64::INFINITY);
         if best.as_ref().is_none_or(|(least, _)| fault < *least) {
             best = Some((fault, psd));
