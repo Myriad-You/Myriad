@@ -13,7 +13,7 @@ import {
   ANIME25D_IMPORT_FIXES_REVISION,
   ANIME25D_UPSTREAM_REVISION,
 } from './revision'
-import { rigger as port } from './rigger'
+import { lockStrands, rigger as port } from './rigger'
 
 function image(
   width: number,
@@ -635,4 +635,17 @@ test('build edge cases match the corrected import fingerprint', () => {
     assert.equal(port.normName(value), normalized)
     assert.equal(port.baseName(value), base)
   }
+})
+
+test('a numbered lock hangs every strand from its top and drops the corners of it', () => {
+  // A lock slanting down to the right from y = 10 to y = 210: the column at
+  // its root corner holds only y 10..24, the one at its tip y 60..210.
+  const strands = [
+    { x: 5, rootY: 10, tipY: 24 },
+    { x: 90, rootY: 60, tipY: 210 },
+  ]
+  assert.deepEqual(lockStrands(strands, { y0: 10, y1: 210 }), [{ x: 90, rootY: 10, tipY: 210 }])
+  // With no long strand, the one reaching lowest stays.
+  assert.deepEqual(lockStrands([{ x: 5, rootY: 10, tipY: 24 }, { x: 9, rootY: 12, tipY: 40 }], { y0: 10, y1: 210 }),
+    [{ x: 9, rootY: 10, tipY: 40 }])
 })

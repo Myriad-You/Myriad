@@ -759,6 +759,27 @@ export function detectStrands(
   return strands
 }
 
+/** A strand shorter than this share of its lock is a corner of it, not a strand. */
+const LOCK_STRAND_MIN_SHARE = 0.4
+
+/**
+ * A numbered hair part is one lock, hanging from its top: every strand of it
+ * runs from the lock's top to the strand's own bottom. A lock slanting away
+ * from the crown has columns near its root that hold only a short corner of
+ * it; those are not strands, and a lock with none longer keeps the one that
+ * reaches lowest.
+ */
+export function lockStrands(
+  strands: readonly UpstreamHairStrand[],
+  bounds: { y0: number; y1: number },
+): UpstreamHairStrand[] {
+  const height = Math.max(1, bounds.y1 - bounds.y0)
+  const hanging = strands.map((strand) => ({ ...strand, rootY: Math.min(strand.rootY, bounds.y0) }))
+  const kept = hanging.filter((strand) => strand.tipY - strand.rootY >= LOCK_STRAND_MIN_SHARE * height)
+  if (kept.length > 0 || hanging.length === 0) return kept
+  return [hanging.reduce((lowest, strand) => (strand.tipY > lowest.tipY ? strand : lowest))]
+}
+
 function makePart(
   name: string,
   layer: UpstreamPsdLayer & { imageData: UpstreamPixelImage },
@@ -966,13 +987,14 @@ export function buildRig(
         30,
         Math.round(pixelWidth / (wanted * 1.6)),
       )
-      const strands = detectStrands(
+      const detected = detectStrands(
         entry.alpha,
         canvasWidth,
         canvasHeight,
         minSeparation,
         wanted,
       )
+      const strands = isPart && bounds ? lockStrands(detected, bounds) : detected
       const record = makePart(
         entry.name,
         entry.layer,

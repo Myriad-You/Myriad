@@ -8,7 +8,13 @@ const FRONT_HAIR_UPPER_RELEASE_START = 0.45
 const FRONT_HAIR_UPPER_RELEASE_END = 0.75
 const MIN_STRAND_LENGTH_RATIO = 0.5
 const MAX_STRAND_LENGTH_RATIO = 2.5
-const LENGTH_RESPONSE_EXPONENT = -0.25
+// A lock swings as a pendulum: its frequency goes as one over the root of its length.
+const LENGTH_RESPONSE_EXPONENT = -0.5
+/** Locks of one front hair are not tuned alike: each is off by up to this share, by its number. */
+const LOCK_DETUNE = 0.12
+/** A tuft standing above the head (an ahoge) is light and springy: quicker, and it bounces. */
+const TUFT_FREQUENCY = 1.5
+const TUFT_DAMPING = 0.8
 
 interface LayerVerticalBounds {
   y: number
@@ -39,6 +45,9 @@ export interface Anime25DHairSpringBinding {
   amplitudeScale: number
   stiffnessScale: number
   dampingScale: number
+  /** The lock's own tuning, beyond its length: a share of the frequency and of the damping ratio. */
+  frequencyScale?: number
+  dampingRatioScale?: number
 }
 
 export interface Anime25DHairSpringLayer {
@@ -64,7 +73,7 @@ export const HAIR_CHAIN_LINKS = 5
  * far the head went and are still within 0.8 s. Long rear hair is heavier
  * and slower, swings back about a third and drifts more in idle air.
  */
-const FRONT_HAIR_CHAIN: Readonly<HairChainTuning> = { omega: 24, damping: 1.1, carry: 0.8, tipStiffness: 0.8, drag: 10 }
+const FRONT_HAIR_CHAIN: Readonly<HairChainTuning> = { omega: 24, damping: 0.7, carry: 0.8, tipStiffness: 0.8, drag: 10 }
 const REAR_HAIR_CHAIN: Readonly<HairChainTuning> = { omega: 12, damping: 0.9, carry: 0.55, tipStiffness: 0.6, drag: 3 }
 /**
  * Idle air holds a lock aside by the same few pixels however stiff it is, in
@@ -73,6 +82,25 @@ const REAR_HAIR_CHAIN: Readonly<HairChainTuning> = { omega: 12, damping: 0.9, ca
  */
 const FRONT_WIND_SWAY = 0.2
 const REAR_WIND_SWAY = 0.4
+
+/**
+ * How one lock of front hair is tuned apart from its length. Locks cut from
+ * one front hair (front-hair-N) are each detuned by their number, spread by
+ * the golden ratio so neighbours differ, and do not swing in step; a tuft
+ * standing wholly above the face is quicker and bouncier.
+ */
+export function hairLockCharacter(
+  layer: { name: string; y: number; h: number },
+  face: FaceVerticalBounds,
+): { frequencyScale: number; dampingRatioScale: number } {
+  const lock = /^front-hair-(\d+)$/.exec(layer.name)
+  const detune = lock ? 1 + LOCK_DETUNE * (2 * ((Number(lock[1]) * 0.6180339887) % 1) - 1) : 1
+  const tuft = layer.y + layer.h < face.y0 + (face.y1 - face.y0) * 0.1
+  return {
+    frequencyScale: detune * (tuft ? TUFT_FREQUENCY : 1),
+    dampingRatioScale: tuft ? TUFT_DAMPING : 1,
+  }
+}
 
 export function hairStrandDynamics(
   rootY: number,
@@ -125,8 +153,8 @@ export function stepAnime25DHairLayerSprings(
         (1.8 * Math.sin(frame.time * 0.8 + spring.phase) +
           Math.sin(frame.time * 1.9 + spring.phase * 2.3))
       // Longer locks swing slower, as a pendulum does.
-      chainTuning.omega = base.omega * Math.sqrt(spring.stiffnessScale)
-      chainTuning.damping = base.damping
+      chainTuning.omega = base.omega * Math.sqrt(spring.stiffnessScale) * (spring.frequencyScale ?? 1)
+      chainTuning.damping = base.damping * (spring.dampingRatioScale ?? 1)
       chainTuning.carry = base.carry
       chainTuning.drag = base.drag
       chainTuning.tipStiffness = base.tipStiffness / (1 + 0.3 * soft)

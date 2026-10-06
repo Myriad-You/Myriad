@@ -4,6 +4,7 @@ import { createHairChain } from './hairChain'
 import {
   frontHairUpperParallaxScale,
   HAIR_CHAIN_LINKS,
+  hairLockCharacter,
   hairStrandDynamics,
   stepAnime25DHairLayerSprings,
 } from './hairPhysics'
@@ -183,3 +184,15 @@ function springLayers() {
     { frontHair: false, springs: [strand(2.8, 0.64)] },
   ]
 }
+
+test('locks of one front hair are each tuned apart, and a tuft above the face is springier', () => {
+  const face = { y0: 100, y1: 500 }
+  const scales = [1, 2, 3, 4, 5, 6].map((n) => hairLockCharacter({ name: `front-hair-${n}`, y: 120, h: 300 }, face).frequencyScale)
+  // Neighbours differ, and none by more than the detune.
+  for (let i = 1; i < scales.length; i++) assert.ok(Math.abs(scales[i] - scales[i - 1]) > 0.03, `${scales}`)
+  assert.ok(scales.every((scale) => scale >= 0.88 && scale <= 1.12), `${scales}`)
+  // A layer not cut into locks keeps the shared tuning.
+  assert.deepEqual(hairLockCharacter({ name: 'front-hair', y: 120, h: 300 }, face), { frequencyScale: 1, dampingRatioScale: 1 })
+  const tuft = hairLockCharacter({ name: 'front-hair-7', y: 20, h: 70 }, face)
+  assert.ok(tuft.frequencyScale > 1.3 && tuft.dampingRatioScale < 1)
+})
