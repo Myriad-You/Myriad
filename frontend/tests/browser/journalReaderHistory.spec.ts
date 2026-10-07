@@ -176,3 +176,20 @@ test('Back restores the search snapshot despite an owned article having the same
   await page.goBack()
   await expect(page.getByTestId('title')).toHaveText('search A')
 })
+
+test('Back restores search while the owned route commit is deferred', async ({ page }) => {
+  const fixture = `/@fs${fileURLToPath(new URL('./fixture/journalReaderHistory.tsx', import.meta.url))}`
+  await page.evaluate(
+    async (fixture) => (await import(fixture)).deferOwnedArticleRoute(),
+    fixture,
+  )
+  await page.getByRole('button', { name: 'search A', exact: true }).click()
+  await expect(page.getByTestId('title')).toHaveText('search A')
+  const before = await page.evaluate(() => history.length)
+  await page.getByRole('button', { name: 'own one', exact: true }).click()
+  await expect(page).toHaveURL(/\/journal\/articles\/1$/)
+  expect(await page.evaluate(() => history.length)).toBe(before + 1)
+  await page.goBack()
+  await expect(page.getByTestId('title')).toHaveText('search A')
+  await expect(page).toHaveURL(/\/journal\/notes$/)
+})
