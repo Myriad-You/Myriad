@@ -71,13 +71,17 @@ export function useArticleOpen(
     [loadFailed, setError, queue],
   )
 
-  const closeArticle = useCallback(() => {
+  const cancelOpen = useCallback(() => {
     turns.current.cancel()
     cancelArticlePrefetch()
     setOpening(false)
-    setSelectedItem(null)
-    setQueue(null)
   }, [])
 
-  return { selectedItem, setSelectedItem, opening, openArticle, closeArticle, queue }
+  const closeArticle = useCallback(() => {
+    cancelOpen()
+    setSelectedItem(null)
+    setQueue(null)
+  }, [cancelOpen])
+
+  return { selectedItem, setSelectedItem, opening, openArticle, cancelOpen, closeArticle, queue }
 }

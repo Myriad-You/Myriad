@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { it } from 'node:test'
 import { makeItem } from './fixtures'
 import {
+  phantasiItemIdentity,
   phantasiItemNavigateMode,
   phantasiItemParamId,
+  phantasiOpenedItemIdentity,
   phantasiOpenedItemState,
   phantasiOpenedWebItem,
   restoreAfterFailedOpen,
@@ -59,4 +61,18 @@ it('restores search results only for the same subject generation', () => {
   assert.equal(phantasiOpenedWebItem(state, { ...subject, generation: 3 }), null)
   assert.equal(phantasiOpenedWebItem(undefined, subject), undefined)
   assert.equal(shouldPopOpenedItem(phantasiOpenedItemState(1, false), 1), false)
+})
+
+it('search reader identity survives history cloning and distinguishes reused IDs', () => {
+  const subject = { key: 'user:1:admin', generation: 2 }
+  const first = makeItem({ id: 1, source_id: 0, fromWebSearch: true })
+  const second = { ...first }
+  const database = makeItem({ id: 1 })
+  assert.notEqual(phantasiItemIdentity(first), phantasiItemIdentity(second))
+  assert.notEqual(phantasiItemIdentity(first), phantasiItemIdentity(database))
+  assert.equal(phantasiItemIdentity(database), phantasiItemIdentity({ ...database }))
+  const state = structuredClone(phantasiOpenedItemState(1, true, first, subject))
+  const restored = phantasiOpenedWebItem(state, subject)!
+  assert.equal(phantasiItemIdentity(restored), phantasiItemIdentity(first))
+  assert.equal(phantasiOpenedItemIdentity(state), phantasiItemIdentity(first))
 })

@@ -6,6 +6,29 @@ interface ReaderSubject {
   generation: number
 }
 
+const webIdentities = new WeakMap<PhantasiItem, string>()
+let nextWebIdentity = 0
+
+/** Search result IDs belong to a result list, not the database namespace. */
+export function phantasiItemIdentity(item: PhantasiItem): string {
+  if (!item.fromWebSearch) return `db:${item.id}`
+  let identity = webIdentities.get(item)
+  if (!identity) {
+    identity = `web:${Date.now()}:${++nextWebIdentity}:${Math.random()}`
+    webIdentities.set(item, identity)
+  }
+  return identity
+}
+
+export function phantasiOpenedItemIdentity(state: unknown): string | undefined {
+  const id = phantasiOpenedItemId(state)
+  if (id == null) return
+  const identity = (state as { phantasiReaderIdentity?: unknown }).phantasiReaderIdentity
+  return typeof identity === 'string' && identity.startsWith('web:')
+    ? identity
+    : `db:${id}`
+}
+
 export function phantasiOpenedItemState(
   id: number,
   pushed = true,
@@ -15,6 +38,7 @@ export function phantasiOpenedItemState(
   return {
     phantasiOpenedItem: id,
     phantasiReaderPushed: pushed,
+    ...(item?.fromWebSearch ? { phantasiReaderIdentity: phantasiItemIdentity(item) } : {}),
     // Search results have no database item to reload on browser Forward.
     ...(item?.fromWebSearch && subject
       ? {
@@ -50,13 +74,16 @@ export function phantasiOpenedWebItem(
   if (!Object.hasOwn(state, 'phantasiWebSearchItem')) return
   const item = state.phantasiWebSearchItem
   const owner = state.phantasiWebSearchSubject
-  return owner?.key === subject.key &&
+  const identity = phantasiOpenedItemIdentity(locationState)
+  const valid = owner?.key === subject.key &&
     owner.generation === subject.generation &&
     item?.id === id &&
     item.fromWebSearch &&
-    item.source_id === 0
-    ? item
-    : null
+    item.source_id === 0 &&
+    identity?.startsWith('web:')
+  if (!valid || !item || !identity) return null
+  webIdentities.set(item, identity)
+  return item
 }
 
 export function shouldPopOpenedItem(

@@ -7,6 +7,7 @@ import {
 } from '../../../src/components/phantasi/logic/fixtures'
 import { usePhantasiItemRoute } from '../../../src/components/phantasi/usePhantasiItemRoute'
 import * as phantasiApi from '../../../src/services/phantasiApi'
+import { requestCache } from '../../../src/utils/requestCache'
 
 const sources = [makeSource(), makeSource({ id: 2, source_type: 'note' })]
 
@@ -28,6 +29,7 @@ function Harness() {
   )
   return (
     <>
+      <button onClick={() => requestCache.clear()}>expire cache</button>
       <button onClick={() => navigate('/journal/notes')}>notes</button>
       <button onClick={() => navigate('/journal/friends')}>friends</button>
       <button
@@ -56,6 +58,14 @@ function Harness() {
       >
         search result
       </button>
+      <button onClick={() => void item.openArticle(makeItem({ id: 1, source_id: 2, title: 'owned one' }))}>
+        own one
+      </button>
+      {['search A', 'search B'].map((title) => (
+        <button key={title} onClick={() => void item.openArticle(makeItem({ id: 1, source_id: 0, fromWebSearch: true, title }))}>
+          {title}
+        </button>
+      ))}
       <button onClick={() => navigate('/journal/articles/1')}>
         external deep link
       </button>
@@ -64,6 +74,7 @@ function Harness() {
       {item.selectedItem && (
         <div role="dialog" aria-label="reader">
           <output data-testid="item">{item.selectedItem.id}</output>
+          <output data-testid="title">{item.selectedItem.title}</output>
           <button onClick={item.closeReader}>close reader</button>
         </div>
       )}
