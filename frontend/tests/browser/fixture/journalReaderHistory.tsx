@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -10,6 +10,18 @@ import * as phantasiApi from '../../../src/services/phantasiApi'
 import { requestCache } from '../../../src/utils/requestCache'
 
 const sources = [makeSource(), makeSource({ id: 2, source_type: 'note' })]
+
+let deferOwnedRoute = false
+const pendingRoute = new Promise<never>(() => {})
+
+export function deferOwnedArticleRoute() {
+  deferOwnedRoute = true
+}
+
+function DeferredOwnedRoute({ pathname }: { pathname: string }) {
+  if (deferOwnedRoute && pathname.startsWith('/journal/articles/')) throw pendingRoute
+  return null
+}
 
 function Harness() {
   const location = useLocation()
@@ -29,6 +41,7 @@ function Harness() {
   )
   return (
     <>
+      <DeferredOwnedRoute pathname={location.pathname} />
       <button onClick={() => requestCache.clear()}>expire cache</button>
       <button onClick={() => navigate('/journal/notes')}>notes</button>
       <button onClick={() => navigate('/journal/friends')}>friends</button>
@@ -85,7 +98,9 @@ function Harness() {
 export function mountReaderHistory() {
   createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
-      <Harness />
+      <Suspense fallback={<span>pending route</span>}>
+        <Harness />
+      </Suspense>
     </BrowserRouter>,
   )
 }

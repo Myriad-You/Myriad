@@ -1,7 +1,7 @@
 import type { NavigateFunction } from 'react-router-dom'
 import type { PhantasiSource } from '../../types/phantasi'
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as phantasiApi from '../../services/phantasiApi'
 import { phantasiSubject } from '../../utils/phantasiSubject'
 import { JOURNAL_ROOT, journalItemPath } from './logic/journalRoutes'
@@ -59,8 +59,19 @@ export function usePhantasiItemRoute(
   const previousRoute = useRef(routeKey)
   const expectedRoute = useRef<string | null>(null)
   const initial = useRef(true)
+  const [historyTraversal, setHistoryTraversal] = useState(0)
+  const previousTraversal = useRef(historyTraversal)
   useEffect(() => {
-    const changed = initial.current || previousRoute.current !== routeKey
+    // BrowserRouter can defer a pushed route until after a rapid Back. The
+    // restored route may equal the last committed route, but must still win
+    // over the selected article that initiated the uncommitted push.
+    const onPopState = () => setHistoryTraversal((revision) => revision + 1)
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+  useEffect(() => {
+    const changed = initial.current || previousRoute.current !== routeKey || previousTraversal.current !== historyTraversal
+    previousTraversal.current = historyTraversal
     initial.current = false
     previousRoute.current = routeKey
     if (changed) {
@@ -140,6 +151,9 @@ export function usePhantasiItemRoute(
       }
       return
     }
+    // A pending router transition must not push the same article again when
+    // another session update renders against the previous committed route.
+    if (expectedRoute.current !== null) return
     if (!selectedItem || selectedItemOwnState === 'unknown' || session.opening)
       return
     const target =
@@ -178,6 +192,7 @@ export function usePhantasiItemRoute(
     webItem,
     routeKey,
     location?.state,
+    historyTraversal,
     selectedItem,
     selectedItemOwnState,
     session.opening,
