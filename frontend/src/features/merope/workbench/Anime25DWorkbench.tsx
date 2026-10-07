@@ -29,6 +29,8 @@ interface Props extends RigImportSource {
   personaLead?: ReactNode
   /** Sits beside the persona page's title. */
   personaTitleExtra?: ReactNode
+  /** Her mind, read only; the tab shows only when given. */
+  mindLead?: ReactNode
   overviewLead?: ReactNode
   motionEnabled?: boolean
   /** Sits after the tabs; picks which figure the stage plays. */
@@ -41,7 +43,7 @@ interface Props extends RigImportSource {
   onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
 }
 
-type FacePanel = 'overview' | 'persona' | 'wardrobe' | 'motion'
+type FacePanel = 'overview' | 'persona' | 'mind' | 'wardrobe' | 'motion'
 
 export default function Anime25DWorkbench({
   characterRef,
@@ -51,6 +53,7 @@ export default function Anime25DWorkbench({
   outfitRig = true,
   personaLead = null,
   personaTitleExtra = null,
+  mindLead = null,
   overviewLead = null,
   motionEnabled = false,
   stageSwitch = null,
@@ -78,6 +81,7 @@ export default function Anime25DWorkbench({
   const panels: Array<{ value: FacePanel; label: string }> = [
     { value: 'overview', label: labels.overviewGroup },
     { value: 'persona', label: labels.personaGroup },
+    ...(mindLead ? [{ value: 'mind' as const, label: labels.mind.title }] : []),
     { value: 'wardrobe', label: labels.wardrobeTitle },
     { value: 'motion', label: labels.anime25dDebug },
   ]
@@ -124,6 +128,7 @@ export default function Anime25DWorkbench({
         </SettingGroup>
       ) : null}
       </div>
+      {panel === 'mind' ? mindLead : null}
       <div data-tour="config-persona-wardrobe">
       {panel === 'wardrobe' && !outfitLead ? (
         <SettingGroup

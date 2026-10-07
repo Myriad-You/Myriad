@@ -5,7 +5,7 @@ import test from 'node:test'
 import { compileFunction } from 'node:vm'
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import merope from '../i18n/merope.zh-CN.json'
+import merope from '../../../i18n/merope.zh-CN.json'
 
 const require = createRequire(import.meta.url)
 const { JSDOM } = require(require.resolve('jsdom', { paths: [require.resolve('isomorphic-dompurify')] }))
@@ -89,18 +89,13 @@ test('her mind shows herself, each person and each group, with how each changed'
     : fixture
   let loads = 0
   const bundle = await build({
-    entryPoints: [new URL('./AgentMind.tsx', import.meta.url).pathname], bundle: true, write: false,
+    entryPoints: [new URL('./AgentMindPanel.tsx', import.meta.url).pathname], bundle: true, write: false,
     platform: 'node', format: 'cjs', packages: 'external', define: { 'import.meta.env': '{}' },
     plugins: [{ name: 'boundaries', setup(builder) {
-      builder.onResolve({ filter: /(components\/AnimatedView|components\/settings|contexts\/(AuthContext|I18nContext)|hooks\/usePageSeo|services\/agent|utils\/modulePageSeo)$/ }, ({ path }) => ({ path, external: true }))
+      builder.onResolve({ filter: /(\/settings|contexts\/I18nContext|services\/agent)$/ }, ({ path }) => ({ path, external: true }))
     } }],
   })
   const mockRequire = (path: string) => {
-    if (path.endsWith('/AnimatedView')) {
-      // Bundled for node, a default import is the module itself.
-      const AnimatedView = ({ children }: { children: React.ReactNode }) => createElement('div', null, children)
-      return Object.assign(AnimatedView, { default: AnimatedView })
-    }
     if (path.endsWith('/settings')) {
       return {
         SettingGroup: ({ title, description, children }: { title?: string; description?: string; children?: React.ReactNode }) =>
@@ -110,15 +105,11 @@ test('her mind shows herself, each person and each group, with how each changed'
           createElement('div', null, options.map(option => createElement('button', { key: option.value, 'data-tab': option.value, onClick: () => onChange(option.value) }, option.label))),
       }
     }
-    if (path.endsWith('/AuthContext')) return { useAuth: () => ({ isAdmin: true, isAuthenticated: true, hasChecked: true }) }
     if (path.endsWith('/I18nContext')) return { useI18n: () => ({ t: { merope }, locale: 'zh-CN' }) }
-    if (path.endsWith('/usePageSeo')) return { usePageSeo: () => {} }
-    if (path.endsWith('/modulePageSeo')) return { buildPrivatePageSeo: () => ({}) }
     if (path.endsWith('/services/agent')) return { agentService: { getMind: async () => { loads++; return snapshot } } }
-    if (path === 'react-router-dom') return { useNavigate: () => () => {} }
     return require(path)
   }
-  const module = { exports: {} as typeof import('./AgentMind') }
+  const module = { exports: {} as typeof import('./AgentMindPanel') }
   compileFunction(bundle.outputFiles[0].text, ['require', 'module', 'exports'])(mockRequire, module, module.exports)
   const root = createRoot(dom.window.document.getElementById('root'))
   const text = () => dom.window.document.body.textContent as string

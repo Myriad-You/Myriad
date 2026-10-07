@@ -10,17 +10,11 @@ import type {
   MindVitalsDay,
   MindVoiceWeek,
   MindWant,
-} from '../services/agent'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { AGENT_MIND_PATH } from '../components/agent/settings/agentMindPath'
-import AnimatedView from '../components/AnimatedView'
-import { SegmentedControl, SettingGroup, SettingsButton } from '../components/settings'
-import { useAuth } from '../contexts/AuthContext'
-import { useI18n } from '../contexts/I18nContext'
-import { usePageSeo } from '../hooks/usePageSeo'
-import { agentService } from '../services/agent'
-import { buildPrivatePageSeo } from '../utils/modulePageSeo'
+} from '../../../services/agent'
+import { useCallback, useEffect, useState } from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
+import { agentService } from '../../../services/agent'
+import { SegmentedControl, SettingGroup, SettingsButton } from '../../settings'
 
 type Tab = 'her' | 'people' | 'groups'
 
@@ -34,29 +28,16 @@ function fill(template: string, values: Record<string, string | number>): string
  * Looking into her, for the site admin: who she has been lately, what she
  * wants and thinks, what she holds about each person and each group, and
  * how each of those changed. Read only; meant to be looked at a little each
- * week, since what she is for is presence over weeks.
+ * week, since what she is for is presence over weeks. A tab of her persona
+ * workbench, which only the admin reaches.
  */
-export default function AgentMind() {
-  const navigate = useNavigate()
+export default function AgentMindPanel() {
   const { t, locale } = useI18n()
   const copy = t.merope.mind
-  const { isAdmin, isAuthenticated, hasChecked } = useAuth()
   const [tab, setTab] = useState<Tab>('her')
   const [mind, setMind] = useState<MindSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
-
-  usePageSeo(
-    useMemo(
-      () =>
-        buildPrivatePageSeo({
-          label: copy.title,
-          path: AGENT_MIND_PATH,
-          description: copy.desc,
-        }),
-      [copy],
-    ),
-  )
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -70,16 +51,10 @@ export default function AgentMind() {
     }
   }, [])
 
+  // Loaded when the tab opens; again only on refresh.
   useEffect(() => {
-    if (!hasChecked) return
-    if (!isAuthenticated) navigate('/login', { replace: true })
-    else if (!isAdmin) navigate('/', { replace: true })
-  }, [hasChecked, isAdmin, isAuthenticated, navigate])
-
-  // Loaded once the viewer is known to be the admin; again only on refresh.
-  useEffect(() => {
-    if (hasChecked && isAuthenticated && isAdmin) void load()
-  }, [hasChecked, isAuthenticated, isAdmin, load])
+    void load()
+  }, [load])
 
   const date = useCallback(
     (at?: string | null) => (at ? new Date(at).toLocaleDateString(locale) : ''),
@@ -87,8 +62,6 @@ export default function AgentMind() {
   )
   const endedWhy = (why?: string | null) =>
     (why && (copy.ended as Record<string, string>)[why]) || copy.ended.other
-
-  if (!hasChecked || !isAdmin) return null
 
   const empty = <p className="text-sm text-secondary">{copy.empty}</p>
 
@@ -458,100 +431,97 @@ export default function AgentMind() {
   )
 
   return (
-    <AnimatedView className="min-h-screen px-4 sm:px-6 pt-20 pb-24 md:pb-12">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <header className="space-y-2">
-          <h1 className="text-2xl font-semibold">{copy.title}</h1>
-          <p className="text-sm text-secondary">{copy.desc}</p>
-          <div className="flex items-center gap-3">
-            <SettingsButton size="sm" loading={loading} onClick={() => void load()}>
-              {copy.refresh}
-            </SettingsButton>
-            {mind && (
-              <span className="text-xs text-secondary">
-                {fill(copy.updated, {
-                  time: new Date(mind.generatedAt).toLocaleString(locale),
-                })}
-              </span>
-            )}
-          </div>
-          <SegmentedControl<Tab>
-            size="md"
-            columns={3}
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: 'her', label: copy.tabs.her },
-              { value: 'people', label: copy.tabs.people, count: mind?.people.length },
-              { value: 'groups', label: copy.tabs.groups, count: mind?.groups.length },
-            ]}
-          />
-        </header>
+    <div className="space-y-6">
+      <header className="space-y-2">
+        <p className="text-sm text-secondary">{copy.desc}</p>
+        <div className="flex items-center gap-3">
+          <SettingsButton size="sm" loading={loading} onClick={() => void load()}>
+            {copy.refresh}
+          </SettingsButton>
+          {mind && (
+            <span className="text-xs text-secondary">
+              {fill(copy.updated, {
+                time: new Date(mind.generatedAt).toLocaleString(locale),
+              })}
+            </span>
+          )}
+        </div>
+        <SegmentedControl<Tab>
+          size="md"
+          columns={3}
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: 'her', label: copy.tabs.her },
+            { value: 'people', label: copy.tabs.people, count: mind?.people.length },
+            { value: 'groups', label: copy.tabs.groups, count: mind?.groups.length },
+          ]}
+        />
+      </header>
 
-        {failed && <p className="text-sm">{copy.error}</p>}
-        {!mind && !failed && <p className="text-sm text-secondary">{copy.loading}</p>}
+      {failed && <p className="text-sm">{copy.error}</p>}
+      {!mind && !failed && <p className="text-sm text-secondary">{copy.loading}</p>}
 
-        {mind && tab === 'her' && (
-          <div className="space-y-4">
-            <SettingGroup title={copy.her.selfStory} toc={false}>
-              {history(mind.her.selfStory)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.wants} toc={false}>
-              {wants(mind.her.wants)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.wantsEnded} toc={false}>
-              {history(mind.her.wantsEnded)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.views} toc={false}>
-              {history(mind.her.views)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.questions} toc={false}>
-              {history(mind.her.questions)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.doing} toc={false}>
-              {history(mind.her.doingThisWeek.map((done) => ({ ...done, current: true })))}
-            </SettingGroup>
-            <SettingGroup title={copy.her.vitals} description={copy.vitals.desc} descriptionVisible toc={false}>
-              {vitalsView(mind.her.vitals)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.pace} description={copy.pace.desc} descriptionVisible toc={false}>
-              {paceView(mind.her.pace)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.taste} description={copy.taste.desc} descriptionVisible toc={false}>
-              {tasteView(mind.her.taste)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.voice} description={copy.voice.desc} descriptionVisible toc={false}>
-              {voice(mind.her.voice)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.days} toc={false}>
-              {history(mind.her.days)}
-            </SettingGroup>
-            <SettingGroup title={copy.her.corrected} toc={false}>
-              {history(mind.her.corrected)}
-            </SettingGroup>
-          </div>
-        )}
+      {mind && tab === 'her' && (
+        <div className="space-y-4">
+          <SettingGroup title={copy.her.selfStory} toc={false}>
+            {history(mind.her.selfStory)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.wants} toc={false}>
+            {wants(mind.her.wants)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.wantsEnded} toc={false}>
+            {history(mind.her.wantsEnded)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.views} toc={false}>
+            {history(mind.her.views)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.questions} toc={false}>
+            {history(mind.her.questions)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.doing} toc={false}>
+            {history(mind.her.doingThisWeek.map((done) => ({ ...done, current: true })))}
+          </SettingGroup>
+          <SettingGroup title={copy.her.vitals} description={copy.vitals.desc} descriptionVisible toc={false}>
+            {vitalsView(mind.her.vitals)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.pace} description={copy.pace.desc} descriptionVisible toc={false}>
+            {paceView(mind.her.pace)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.taste} description={copy.taste.desc} descriptionVisible toc={false}>
+            {tasteView(mind.her.taste)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.voice} description={copy.voice.desc} descriptionVisible toc={false}>
+            {voice(mind.her.voice)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.days} toc={false}>
+            {history(mind.her.days)}
+          </SettingGroup>
+          <SettingGroup title={copy.her.corrected} toc={false}>
+            {history(mind.her.corrected)}
+          </SettingGroup>
+        </div>
+      )}
 
-        {mind && tab === 'people' && (
-          <div className="space-y-4">
-            {mind.people.length === 0 ? (
-              <p className="text-sm text-secondary">{copy.noPeople}</p>
-            ) : (
-              mind.people.map(person)
-            )}
-          </div>
-        )}
+      {mind && tab === 'people' && (
+        <div className="space-y-4">
+          {mind.people.length === 0 ? (
+            <p className="text-sm text-secondary">{copy.noPeople}</p>
+          ) : (
+            mind.people.map(person)
+          )}
+        </div>
+      )}
 
-        {mind && tab === 'groups' && (
-          <div className="space-y-4">
-            {mind.groups.length === 0 ? (
-              <p className="text-sm text-secondary">{copy.noGroups}</p>
-            ) : (
-              mind.groups.map(group)
-            )}
-          </div>
-        )}
-      </div>
-    </AnimatedView>
+      {mind && tab === 'groups' && (
+        <div className="space-y-4">
+          {mind.groups.length === 0 ? (
+            <p className="text-sm text-secondary">{copy.noGroups}</p>
+          ) : (
+            mind.groups.map(group)
+          )}
+        </div>
+      )}
+    </div>
   )
 }

@@ -399,7 +399,6 @@
   "mind": {
     "title": "Son intérieur",
     "desc": "Qui elle est ces temps-ci, ce qu'elle veut, comment elle voit chaque personne et chaque groupe, et comment cela a évolué. Lecture seule.",
-    "open": "Regarder dans son intérieur",
     "loading": "Chargement…",
     "error": "Chargement impossible",
     "refresh": "Actualiser",

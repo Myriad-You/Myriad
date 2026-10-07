@@ -6,6 +6,7 @@ import type { TurnKeyformsStatus } from '../turnKeyformsApi'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { activityKey, moodBand } from '../../../components/agent/meropeVitals'
+import AgentMindPanel from '../../../components/agent/mind/AgentMindPanel'
 import { genderFromProfile } from '../../../components/agent/onboarding/onboardingTypes'
 import PersonaIdentityView from '../../../components/agent/onboarding/ui/PersonaIdentityView'
 import PersonaImportPanel from '../../../components/agent/onboarding/ui/PersonaImportPanel'
@@ -491,6 +492,7 @@ export default function SiteMotionWorkbench({
               </SettingTitleTag>
             ) : null
           }
+          mindLead={<AgentMindPanel />}
           wardrobeLead={closetCard}
           outfitLead={outfitCard}
           outfitRig={wearingManaged}

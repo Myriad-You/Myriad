@@ -75,7 +75,6 @@ const {
   reports: Reports,
   config: Config,
   agentSettings: AgentSettings,
-  agentMind: AgentMind,
   login: Login,
   register: Register,
   setup: Setup,
@@ -622,16 +621,6 @@ function AppRoutes() {
             <RequireAuth requiresAdmin>
               <NamespacedPage names={['merope', 'agentCaps']}>
                 <AgentSettings />
-              </NamespacedPage>
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/agent/mind"
-          element={
-            <RequireAuth requiresAdmin>
-              <NamespacedPage names={['merope']}>
-                <AgentMind />
               </NamespacedPage>
             </RequireAuth>
           }

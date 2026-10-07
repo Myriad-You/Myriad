@@ -399,7 +399,6 @@
   "mind": {
     "title": "Her mind",
     "desc": "Who she has been lately, what she wants, how she sees each person and group, and how all of it changed. Read only.",
-    "open": "Look into her mind",
     "loading": "Loading…",
     "error": "Could not load",
     "refresh": "Refresh",
