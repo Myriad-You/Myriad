@@ -36,7 +36,11 @@ overrides:
   nanoid: 3.3.18
   postcss: '>=8.5.28'
   semver: '>=7.8.5'
+  # GHSA-68fv-2mgg-jv7q: reject malformed indexed source-map offsets.
+  source-map-js: ^1.2.2
   svgo: '>=4.1.0'
+  # GHSA-5gmw-xhrv-c9v3 / GHSA-85c8-ppgw-ccpr: worker option hardening.
+  tinypool: ^2.1.2
   ua-parser-js: 0.7.41
 # React 19: motion.div 把 [MeasureLayout, html] 无 key 塞进 Context，开发态会报
 # "Each child in a list should have a unique key" / <Context> ← ForwardRef(motion.div)。
