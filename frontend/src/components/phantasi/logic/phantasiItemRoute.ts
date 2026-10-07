@@ -1,23 +1,73 @@
+import type { PhantasiItem } from '../../../types/phantasi'
 import { JOURNAL_ROOT, journalItemPath } from './journalRoutes'
 
-export function phantasiOpenedItemState(id: number): { phantasiOpenedItem: number } {
-  return { phantasiOpenedItem: id }
+interface ReaderSubject {
+  key: string
+  generation: number
+}
+
+export function phantasiOpenedItemState(
+  id: number,
+  pushed = true,
+  item?: PhantasiItem,
+  subject?: ReaderSubject,
+) {
+  return {
+    phantasiOpenedItem: id,
+    phantasiReaderPushed: pushed,
+    // Search results have no database item to reload on browser Forward.
+    ...(item?.fromWebSearch && subject
+      ? {
+          phantasiWebSearchItem: item,
+          phantasiWebSearchSubject: {
+            key: subject.key,
+            generation: subject.generation,
+          },
+        }
+      : {}),
+  }
+}
+
+export function phantasiOpenedItemId(
+  locationState: unknown,
+): number | undefined {
+  if (typeof locationState !== 'object' || locationState === null) return
+  const id = (locationState as { phantasiOpenedItem?: unknown })
+    .phantasiOpenedItem
+  return typeof id === 'number' && Number.isSafeInteger(id) ? id : undefined
+}
+
+export function phantasiOpenedWebItem(
+  locationState: unknown,
+  subject: ReaderSubject,
+): PhantasiItem | null | undefined {
+  const id = phantasiOpenedItemId(locationState)
+  if (id == null) return
+  const state = locationState as {
+    phantasiWebSearchItem?: PhantasiItem
+    phantasiWebSearchSubject?: ReaderSubject
+  }
+  if (!Object.hasOwn(state, 'phantasiWebSearchItem')) return
+  const item = state.phantasiWebSearchItem
+  const owner = state.phantasiWebSearchSubject
+  return owner?.key === subject.key &&
+    owner.generation === subject.generation &&
+    item?.id === id &&
+    item.fromWebSearch &&
+    item.source_id === 0
+    ? item
+    : null
 }
 
 export function shouldPopOpenedItem(
   locationState: unknown,
   itemId: number | undefined,
 ): boolean {
-  if (
-    !itemId ||
-    typeof locationState !== 'object' ||
-    locationState === null ||
-    !Object.hasOwn(locationState, 'phantasiOpenedItem')
-  ) {
-    return false
-  }
   return (
-    (locationState as { phantasiOpenedItem: unknown }).phantasiOpenedItem === itemId
+    itemId != null &&
+    phantasiOpenedItemId(locationState) === itemId &&
+    (locationState as { phantasiReaderPushed?: boolean })
+      .phantasiReaderPushed !== false
   )
 }
 

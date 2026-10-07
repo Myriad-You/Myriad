@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { it } from 'node:test'
+import { makeItem } from './fixtures'
 import {
   phantasiItemNavigateMode,
   phantasiItemParamId,
   phantasiOpenedItemState,
+  phantasiOpenedWebItem,
   restoreAfterFailedOpen,
   shouldLeaveFailedItemRoute,
   shouldPopOpenedItem,
@@ -46,4 +48,15 @@ it('leaves a failed deep link only while still on that item URL', () => {
     { path: '/journal/notes', param: undefined },
   )
   assert.equal(restoreAfterFailedOpen('9', '10', undefined, null), null)
+})
+
+it('restores search results only for the same subject generation', () => {
+  const subject = { key: 'user:1:admin', generation: 2 }
+  const item = makeItem({ id: -1, source_id: 0, fromWebSearch: true })
+  const state = phantasiOpenedItemState(item.id, true, item, subject)
+  assert.equal(phantasiOpenedWebItem(state, subject), item)
+  assert.equal(phantasiOpenedWebItem(state, { ...subject, key: 'guest' }), null)
+  assert.equal(phantasiOpenedWebItem(state, { ...subject, generation: 3 }), null)
+  assert.equal(phantasiOpenedWebItem(undefined, subject), undefined)
+  assert.equal(shouldPopOpenedItem(phantasiOpenedItemState(1, false), 1), false)
 })

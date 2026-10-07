@@ -34,7 +34,6 @@ import {
   journalItemPath,
   journalSourceScope,
 } from '../components/phantasi/logic/journalRoutes'
-import { shouldPopOpenedItem } from '../components/phantasi/logic/phantasiItemRoute'
 import { topicDisplayName } from '../components/phantasi/logic/topics'
 import PhantasiFilterLane from '../components/phantasi/PhantasiFilterLane'
 import PhantasiSourceGrid from '../components/phantasi/PhantasiSourceGrid'
@@ -212,6 +211,7 @@ function PhantasiSubjectPage() {
     setError,
     t.phantasi.loadArticlesFailed,
     route.listPath,
+    location,
   )
 
   usePhantasiAgentOpen({
@@ -272,20 +272,7 @@ function PhantasiSubjectPage() {
     starred.exitEdit()
   }, [route.backToFeeds, starred.exitEdit])
 
-  const handleCloseReader = useCallback(() => {
-    const openedId = item.selectedItem?.id
-    item.closeArticle()
-    if (!itemIdParam) return
-    if (shouldPopOpenedItem(location.state, openedId)) navigate(-1)
-    else navigate(route.listPath, { replace: true })
-  }, [
-    itemIdParam,
-    item.selectedItem?.id,
-    item.closeArticle,
-    location.state,
-    navigate,
-    route.listPath,
-  ])
+  const handleCloseReader = item.closeReader
 
   const boardScroll = useRef<BoardScroll | null>(null)
   const selectedId = item.selectedItem?.id

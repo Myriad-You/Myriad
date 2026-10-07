@@ -154,6 +154,10 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/navigationIsland.spec.ts
 !/frontend/tests/browser/fixture/navigationIsland.tsx
 
+# Journal reader browser history regressions
+!/frontend/tests/browser/journalReaderHistory.spec.ts
+!/frontend/tests/browser/fixture/journalReaderHistory.tsx
+
 # Liquid glass browser integration regressions
 !/frontend/tests/browser/liquidGlass.spec.ts
 !/frontend/tests/browser/fixture/liquidGlass.html
