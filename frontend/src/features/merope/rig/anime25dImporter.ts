@@ -21,6 +21,7 @@ import { buildAnime25DBonesAndHandles, buildAnime25DLayerSources } from './anime
 import { addAuthoredExpressionLayers } from './authoredExpression'
 import { compensateSyntheticClosedEyeAngles } from './closedEyeCompensation'
 import { CHARACTER_ASSET_PROFILES, MAX_RIG_PARTS, RIG_IR_VERSION } from './contract'
+import { raiseEarwearOverFrontHair } from './earwearOrder'
 import { formatTemplate } from './formatTemplate'
 import { contentFrame, deriveAnchors, semanticAnchors, standingStance } from './importerAnchors'
 import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder } from './importerLayerSplits'
@@ -139,7 +140,7 @@ export async function prepareAnime25DRigPsd(
       sourceReference,
       Math.max(0, MAX_RIG_PARTS - layers.length),
     )
-    layers = repair.layers
+    layers = raiseEarwearOverFrontHair(repair.layers)
     reconciliation = repair.reconciliation
     layers.forEach((layer, index) => {
       layer.order = index
