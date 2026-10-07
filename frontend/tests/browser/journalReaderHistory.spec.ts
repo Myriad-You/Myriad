@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
+import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/phantasi/items/*', async (route) => {
