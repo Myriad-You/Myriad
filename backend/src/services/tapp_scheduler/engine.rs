@@ -5,8 +5,8 @@ use cron::Schedule;
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::Set,
-    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, FromQueryResult,
-    QueryFilter, QueryOrder, QuerySelect, Statement, TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait,
+    FromQueryResult, QueryFilter, QueryOrder, QuerySelect, Statement, TransactionTrait,
     sea_query::{Expr, OnConflict},
 };
 use serde_json::json;
@@ -187,20 +187,21 @@ impl TappSchedulerEngine {
             .begin()
             .await
             .map_err(|error| scheduler_store_failed("begin claim", error))?;
-        let current = tapp_scheduled_tasks::Model::find_by_statement(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"SELECT * FROM tapp_scheduled_tasks
+        let current =
+            tapp_scheduled_tasks::Model::find_by_statement(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"SELECT * FROM tapp_scheduled_tasks
                WHERE enabled = TRUE
                  AND next_run_at IS NOT NULL
                  AND next_run_at <= $1
                ORDER BY next_run_at ASC
                LIMIT 1
                FOR UPDATE SKIP LOCKED"#,
-            [due_cutoff.into()],
-        ))
-        .one(&txn)
-        .await
-        .map_err(|error| scheduler_store_failed("lock due task", error))?;
+                [due_cutoff.into()],
+            ))
+            .one(&txn)
+            .await
+            .map_err(|error| scheduler_store_failed("lock due task", error))?;
         let Some(current) = current else {
             txn.rollback().await.ok();
             return Ok(None);
@@ -542,13 +543,23 @@ impl TappSchedulerEngine {
             match Self::enqueue_frontend_message(db, task, &message).await {
                 Ok(deliveries) if deliveries > 0 => awaiting_frontend = true,
                 Ok(_) => {
-                    tracing::warn!(
+                    tracing::info!(
                         task_id = %task.task_id,
                         tapp_id = %task.tapp_id,
-                        "[TappScheduler] No live frontend scheduler audience"
+                        "[TappScheduler] Skipped frontend execution: no live scheduler audience"
                     );
-                    error = Some("No frontend scheduler subscribers".to_string());
-                    status = ExecutionStatus::Failed;
+                    // No audience is expected when every browser is closed. Keep any
+                    // successful backend result, but do not retry the occurrence or
+                    // treat its unexecuted frontend phase as an execution failure.
+                    result = Some(json!({
+                        "reason": "no_audience",
+                        "backend": result.map(|value| json!({
+                            "status": "success",
+                            "result": value,
+                        })),
+                        "frontend": { "status": "skipped", "reason": "no_audience" },
+                    }));
+                    status = ExecutionStatus::Skipped;
                 }
                 Err(dispatch_error) => {
                     tracing::error!(
@@ -596,7 +607,7 @@ impl TappSchedulerEngine {
             &status,
             result,
             error.clone(),
-            status == ExecutionStatus::Success || final_attempt,
+            matches!(status, ExecutionStatus::Success | ExecutionStatus::Skipped) || final_attempt,
         )
         .await?;
 
@@ -614,8 +625,8 @@ impl TappSchedulerEngine {
         task: &tapp_scheduled_tasks::Model,
         message: &FrontendTaskMessage,
     ) -> Result<usize, String> {
-        let recipients = Self::frontend_recipients(db, task, message.target_users.as_deref())
-            .await?;
+        let recipients =
+            Self::frontend_recipients(db, task, message.target_users.as_deref()).await?;
         let mut deliveries = 0usize;
         let mut first_error = None;
         for record_id in recipients {
@@ -1586,6 +1597,7 @@ ORDER BY r.updated_at, r.record_id
         match status {
             ExecutionStatus::Success => stats.success_runs += 1,
             ExecutionStatus::Failed | ExecutionStatus::Timeout => stats.failed_runs += 1,
+            ExecutionStatus::Skipped => stats.missed_runs += 1,
             _ => {}
         }
 
@@ -1600,7 +1612,7 @@ ORDER BY r.updated_at, r.record_id
         let mut active: tapp_scheduled_tasks::ActiveModel = current.into();
         active.last_run_at = Set(Some(now.into()));
         active.last_run_result = Set(Some(json!({
-            "status": format!("{:?}", status),
+            "status": format!("{:?}", status).to_lowercase(),
             "result": result,
             "error": error,
         })));
@@ -2494,6 +2506,208 @@ mod frontend_recipient_db_tests {
             TappSchedulerEngine::frontend_recipients(&db, &global, None)
                 .await
                 .is_err()
+        );
+        drop_schema(&admin, &schema_name).await;
+    }
+
+    /// Exercise the real execution/retry path and persisted history/stats, not
+    /// just the recipient query. Offline must not repeat successful backend
+    /// actions; once tasks must finish even on the first of several attempts.
+    #[tokio::test]
+    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
+    async fn no_audience_skips_occurrences_but_live_dispatch_and_errors_still_work() {
+        use crate::models::entities::tapps;
+        use sea_orm::Schema;
+
+        let (admin, db, schema_name) = isolated_db("offline_scheduler").await;
+        forget_principals(&[1]);
+        db.execute_unprepared(
+            "INSERT INTO users (id, is_admin, is_owner) VALUES (1, true, true);
+             CREATE TABLE configurations (key TEXT PRIMARY KEY, value JSONB NOT NULL);
+             DROP TABLE tapps",
+        )
+        .await
+        .unwrap();
+        let schema = Schema::new(DatabaseBackend::Postgres);
+        db.execute(&schema.create_table_from_entity(tapps::Entity))
+            .await
+            .unwrap();
+        db.execute(&schema.create_table_from_entity(tapp_scheduled_tasks::Entity))
+            .await
+            .unwrap();
+        db.execute(&schema.create_table_from_entity(tapp_task_executions::Entity))
+            .await
+            .unwrap();
+        let now = Utc::now().fixed_offset();
+        tapps::ActiveModel {
+            tapp_id: Set("offline.app".into()),
+            user_id: Set(1),
+            name: Set("Offline test".into()),
+            version: Set("1.0.0".into()),
+            manifest: Set(json!({})),
+            status: Set(tapps::TappStatus::Installed),
+            approved_permissions: Set(json!(["scheduler:register"])),
+            needs_reauthorization: Set(false),
+            approved_remote_media: Set(json!([])),
+            file_path: Set("test.tapp".into()),
+            code_path: Set("test.js".into()),
+            installed_at: Set(now),
+            updated_at: Set(now),
+            visibility: Set("all".into()),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+
+        let mut frontend_task = None;
+        for (id, target, schedule_type) in [
+            (1, ExecutionTarget::Frontend, ScheduleType::Interval),
+            (2, ExecutionTarget::Frontend, ScheduleType::Once),
+            (3, ExecutionTarget::Both, ScheduleType::Interval),
+        ] {
+            let mut task = task(TaskScope::User, "offline.app", 1);
+            task.id = id;
+            task.task_id = format!("offline-{id}");
+            task.execution_target = target.clone();
+            task.schedule_type = schedule_type.clone();
+            task.schedule_config = json!({ "interval": 60_000, "at": now.timestamp_millis() });
+            task.next_run_at = Some(now);
+            task.retry_config = Some(json!({ "max_retries": 2, "retry_delay": 1000 }));
+            if target == ExecutionTarget::Both {
+                task.backend_actions = Some(json!([{ "action": "transform", "input": "_taskId" }]));
+            }
+            let active: tapp_scheduled_tasks::ActiveModel = task.into();
+            let task = active.insert(&db).await.unwrap();
+
+            TappSchedulerEngine::execute_task_with_retry(&db, &task, false)
+                .await
+                .expect("offline is a completed skip, not a retryable failure");
+            let executions = tapp_task_executions::Entity::find()
+                .filter(tapp_task_executions::Column::ScheduledTaskId.eq(id))
+                .all(&db)
+                .await
+                .unwrap();
+            assert_eq!(executions.len(), 1, "no retry after skipping");
+            let execution = &executions[0];
+            assert_eq!(execution.status, ExecutionStatus::Skipped);
+            assert!(execution.completed_at.is_some());
+            assert!(execution.error.is_none());
+            assert_eq!(execution.retry_count, 0);
+            let result = execution.result.as_ref().unwrap();
+            assert_eq!(result["reason"], "no_audience");
+            assert_eq!(result["frontend"]["status"], "skipped");
+            if target == ExecutionTarget::Both {
+                assert_eq!(result["backend"]["status"], "success");
+                assert_eq!(
+                    result["backend"]["result"]["actions"][0]["result"],
+                    task.task_id
+                );
+            } else {
+                assert!(result["backend"].is_null());
+            }
+            let current = tapp_scheduled_tasks::Entity::find_by_id(id)
+                .one(&db)
+                .await
+                .unwrap()
+                .unwrap();
+            let stats: TaskStats = serde_json::from_value(current.stats.clone()).unwrap();
+            assert_eq!(
+                (
+                    stats.total_runs,
+                    stats.missed_runs,
+                    stats.failed_runs,
+                    stats.success_runs
+                ),
+                (1, 1, 0, 0)
+            );
+            assert_eq!(
+                current.last_run_result.as_ref().unwrap()["status"],
+                "skipped"
+            );
+            if schedule_type == ScheduleType::Once {
+                assert!(!current.enabled);
+                assert!(current.next_run_at.is_none());
+            } else {
+                assert!(current.enabled);
+                assert!(current.next_run_at.unwrap() > now);
+            }
+            if id == 1 {
+                frontend_task = Some(current);
+            }
+        }
+
+        // Reopening a frontend allows the next occurrence to dispatch and
+        // complete successfully; the previous skip remains in missedRuns.
+        db.execute_unprepared(&format!(
+            "INSERT INTO runtime_registry (namespace, record_id, subject_id, payload, expires_at)
+             VALUES ('{SCHEDULER_PRESENCE_NAMESPACE}', 'online', 1, '{{}}', {})",
+            Utc::now().timestamp() + 600,
+        ))
+        .await
+        .unwrap();
+        let task = frontend_task.unwrap();
+        TappSchedulerEngine::execute_task_with_retry(&db, &task, false)
+            .await
+            .unwrap();
+        let execution = tapp_task_executions::Entity::find()
+            .filter(tapp_task_executions::Column::ScheduledTaskId.eq(task.id))
+            .filter(tapp_task_executions::Column::Status.eq(ExecutionStatus::Running))
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            drain_frontend_messages(&db, "online").await.unwrap().len(),
+            1
+        );
+        TappSchedulerEngine::finalize_frontend_execution(
+            &db,
+            execution,
+            ExecutionStatus::Success,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // An actual registry failure must still fail, even if no browser is
+        // online. Permission revocation must also be checked before skipping.
+        db.execute_unprepared("DROP TABLE runtime_registry")
+            .await
+            .unwrap();
+        assert!(
+            TappSchedulerEngine::execute_task(&db, &task, false, 0, true)
+                .await
+                .is_err()
+        );
+        tapps::Entity::update_many()
+            .col_expr(tapps::Column::ApprovedPermissions, Expr::value(json!([])))
+            .exec(&db)
+            .await
+            .unwrap();
+        assert!(
+            TappSchedulerEngine::execute_task(&db, &task, false, 0, true)
+                .await
+                .is_err()
+        );
+        let current = tapp_scheduled_tasks::Entity::find_by_id(task.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        let stats: TaskStats = serde_json::from_value(current.stats).unwrap();
+        assert_eq!(
+            (
+                stats.total_runs,
+                stats.missed_runs,
+                stats.success_runs,
+                stats.failed_runs
+            ),
+            (4, 1, 1, 2)
+        );
+        assert_eq!(
+            current.last_run_result.as_ref().unwrap()["status"],
+            "failed"
         );
         drop_schema(&admin, &schema_name).await;
     }

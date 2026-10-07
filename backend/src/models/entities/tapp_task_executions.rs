@@ -15,6 +15,9 @@ pub enum ExecutionStatus {
     Running,
     #[sea_orm(string_value = "success")]
     Success,
+    /// 本次未完整执行（例如 frontend 阶段没有在线受众）。
+    #[sea_orm(string_value = "skipped")]
+    Skipped,
     #[sea_orm(string_value = "failed")]
     Failed,
     #[sea_orm(string_value = "timeout")]

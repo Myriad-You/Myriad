@@ -434,6 +434,11 @@ sequenceDiagram
   执行；回调注册保存为栈，接管者卸载后恢复前一个实例，而不是把任务回调永久删除。
 - 收到执行推送但没有存活回调时立即向后端报告失败，不能让执行记录一直停在运行中。
 - `executionTarget=frontend` 依赖运行中的 Page/Widget/headless core 注册回调。
+- 关闭所有站点标签页等导致无在线受众时，本次执行记为 `skipped`，结果原因是
+  `no_audience`，计入 total/missed 而非 failed；不重试、不发失败通知。`both` 保留
+  已成功执行的后端结果并标明前端 skipped，整体记 skipped。跳过会推进到下一周期，
+  once 任务禁用；前端重新上线不会自动补跑这次执行。结果字段见
+  [定时任务 API](API_REFERENCE.md#定时任务-api)。
 - `executionTarget=backend|both` 必须声明并通过后端校验 `backendActions`。
 - global scope 仅管理员可注册；所有注册仍检查 Tapp 所有权和
   `scheduler:register`。

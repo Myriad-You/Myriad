@@ -12,7 +12,7 @@ export type MissedPolicy = 'skip' | 'run-once' | 'run-all'
 export type TaskScope = 'user' | 'tapp' | 'tapp-per-user' | 'global'
 
 export type TaskExecutionStatus =
-  'pending' | 'running' | 'success' | 'failed' | 'cancelled'
+  'pending' | 'running' | 'success' | 'skipped' | 'failed' | 'timeout'
 
 export interface ScheduleConfig {
   cron?: string
