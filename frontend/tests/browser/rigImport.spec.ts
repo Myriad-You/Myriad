@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { expect, test } from '@playwright/test'
 
 for (const event of ['blur', 'auth-state-changed']) {
@@ -422,6 +423,23 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/**', (route) => route.abort())
   await page.goto('/rigImport.html')
   await page.waitForFunction(() => 'rigImportTest' in window)
+  // The importer now reads the portrait for every PSD shape. Serve a real
+  // portrait for the replay fixtures instead of Vite's HTML fallback.
+  const portrait = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 192
+    canvas.height = 256
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#efcdbc'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/png').split(',')[1]
+  })
+  await page.route('**/unused*.png', (route) =>
+    route.fulfill({
+      contentType: 'image/png',
+      body: Buffer.from(portrait, 'base64'),
+    }),
+  )
 })
 
 for (const kind of ['ordinary', 'collar', 'necklace', 'alternate-eyes']) {
