@@ -270,6 +270,7 @@ export class Anime25DBodyFrames {
       torsoNeckOffsetX: 0,
       torsoShellRotation: this.torsoShellRotation,
       headTurn: null,
+      keyedHead: false,
     }
     this.hairSpringFrame = {
       enabled: true,
@@ -282,10 +283,12 @@ export class Anime25DBodyFrames {
   }
 
   /** Bind the new package's layers: the head turn's silhouette and the soft volumes. */
-  bindLayers(layers: readonly Anime25DGpuLayer[], headSilhouette: HeadSilhouette | null): void {
+  bindLayers(layers: readonly Anime25DGpuLayer[], headSilhouette: HeadSilhouette | null, keyedHead = false): void {
     this.headTurn = createHeadTurn(headSilhouette)
     this.secondaryDeformationFrame.headTurn = this.headTurn
+    this.secondaryDeformationFrame.keyedHead = keyedHead
     this.collarMotion.headTurn = this.headTurn
+    this.collarMotion.keyedHead = keyedHead
     this.bindJelly(layers)
   }
 

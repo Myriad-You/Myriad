@@ -124,6 +124,12 @@ export interface Anime25DSecondaryDeformationFrame {
   shellRotation: Readonly<Anime25DShellRotation>
   /** Turns and nods the head on its drawn outline; without one the ellipsoid does. */
   headTurn?: Readonly<HeadTurn>
+  /**
+   * The head turns and nods by keys measured on pictures in which the body,
+   * collar and all, holds still: a collar then takes no part of the turn or
+   * the nod (the roll, which the keys do not hold, still carries it).
+   */
+  keyedHead?: boolean
   torsoProfile: Readonly<Anime25DTorsoShellProfile>
   torsoChestShape: Anime25DTorsoChestShape | null
   torsoShellBlend: number
@@ -337,15 +343,18 @@ export function deformAnime25DSecondaryPoint(
         (binding.frontHairParallaxScale?.[vertex] ?? 1)
       if (verticalNeckFollow) depthOffset *= 1 - neckHeadBlend
       else if (binding.frontCollar) depthOffset *= 1 - frontCollarHeadBlend
+      // A collar under a keyed head holds still in turns and nods.
+      const collarStill = frame.keyedHead === true && (binding.rearCollar || binding.frontCollar)
+      const turnFollow = collarStill ? 0 : headFollow
       const legacyX =
         point.x +
-        headFollow *
+        turnFollow *
           frame.faceScale *
           (frame.expression.angleX * (14 + 40 * depthOffset) +
             frame.expression.angleX * (frame.neckPivotY - point.y) * 0.028)
       const legacyY =
         point.y +
-        headFollow *
+        turnFollow *
           frame.faceScale *
           (-frame.headAngleY * (9 + 30 * depthOffset) -
             frame.headAngleY *
@@ -377,7 +386,7 @@ export function deformAnime25DSecondaryPoint(
         point.x = legacyX + (point.x - legacyX) * turnBlend
         point.y = legacyY + (point.y - legacyY) * turnBlend
       } else {
-        followHeadBelow(point, binding.turnKeyform, frame.headTurn, vertex, localX, restY, legacyX, legacyY, verticalNeckFollow ? neckHeadBlend : 0)
+        followHeadBelow(point, binding.turnKeyform, frame.headTurn, vertex, localX, restY, legacyX, legacyY, verticalNeckFollow && !collarStill ? neckHeadBlend : 0)
       }
     }
     if (!binding.collarContact && frame.specialHeadOffset !== 0) {

@@ -250,7 +250,7 @@ export class Anime25DPlayer {
     this.layers = compiled.layers
     this.collarClip = compiled.collarClip
     this.face.bindAtlas(this.gl, resolved, image, this.layers)
-    this.body.bindLayers(this.layers, compiled.headSilhouette ?? null)
+    this.body.bindLayers(this.layers, compiled.headSilhouette ?? null, Boolean(playback.turnKeyforms))
     const shell = resolved.shellProfile
     this.motionCapabilities = boundRigCapabilities(rigManifest, {
       torsoVolume: shell.enabled && shell.blend > 0 && shell.torso.enabled && shell.torso.blend > 0,
