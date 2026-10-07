@@ -212,6 +212,27 @@ test('the high collar beside the neck joins the front collar, so a neck sliding 
   assert.equal(alpha(rest, 12, 85), 255)
 })
 
+test('what the face hides at rest stays under the neck, so a raised chin shows neck, not the guessed garment', () => {
+  const neck = raster('neck', 20, 20, 40, 50, () => [245, 205, 190, 255])
+  const topwear = raster('topwear', 0, 0, 80, 100, (_x, y) =>
+    y >= 20 && y <= 35 ? [42, 45, 62, 255] : [184, 176, 196, 255],
+  )
+  const face = { ...raster('neck', 20, 0, 40, 30, () => [250, 225, 215, 255]), id: 'face', role: 'face' as const, group: 'head' as const }
+  const output = splitHighCollarOcclusion([topwear, neck, face], anchors)
+  const front = output.find((layer) => layer.role === 'collar-front')
+  const at = (layer: RasterLayer | undefined, x: number, y: number) => {
+    if (!layer) return 0
+    const lx = x - layer.left
+    const ly = y - layer.top
+    if (lx < 0 || ly < 0 || lx >= layer.width || ly >= layer.height) return 0
+    return layer.data[(ly * layer.width + lx) * 4 + 3]
+  }
+  // Under the face (y < 30): never the front collar; below it, as before.
+  assert.equal(at(front, 40, 25), 0)
+  assert.equal(at(front, 25, 25), 0)
+  assert.ok(output.some((layer) => layer.role === 'collar-front' && at(layer, 12, 40) > 0))
+})
+
 function raster(
   role: 'neck' | 'topwear',
   left: number,

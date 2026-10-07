@@ -6,8 +6,24 @@ import { COLLAR_REFERENCE_FRONT, COLLAR_REFERENCE_REAR, copyRasterPixel, cropRas
 import { hasHighCollarEvidence, sourceReferenceAgreesWithLayers } from './collarEvidence'
 import { buildCollarReferenceMask, collarReferenceMaskAt } from './collarReferenceMask'
 
+/** A garment pixel this far from the picture (RGB distance) is the decomposition's guess. */
+const GUESSED_GARMENT_DISTANCE = 60
+
 /** How far a turning neck can slide inside a high collar, as a share of its width. */
 const COLLAR_SIDE_REACH = 0.5
+
+/** The colour distance of a layer's pixel at canvas (x, y) from a reference pixel; infinite off the layer. */
+function colorDistanceAt(layer: RasterLayer, x: number, y: number, reference: Uint8ClampedArray, at: number): number {
+  const localX = x - Math.round(layer.left)
+  const localY = y - Math.round(layer.top)
+  if (localX < 0 || localY < 0 || localX >= layer.width || localY >= layer.height) return Number.POSITIVE_INFINITY
+  const pixel = (localY * layer.width + localX) * 4
+  return Math.hypot(
+    layer.data[pixel] - reference[at],
+    layer.data[pixel + 1] - reference[at + 1],
+    layer.data[pixel + 2] - reference[at + 2],
+  )
+}
 
 export function splitHighCollarOcclusion(
   layers: RasterLayer[],
@@ -42,6 +58,18 @@ export function splitHighCollarOcclusion(
       ? sourceReference
       : undefined
 
+  // What the face hides at rest is the garment's guessed inside, never a
+  // collar in front of the neck: a raised chin would show it over the neck.
+  // Where the garment there is what the picture shows (lace the face was
+  // drawn over by mistake, which the import's repair erases), it is no guess.
+  const face = layers.find((layer) => layer.role === 'face')
+  const hiddenByFace = (x: number, y: number) => {
+    if (!face || rasterAlphaAt(face, x, y) < 128) return false
+    if (!sourceReference) return true
+    if (x < 0 || y < 0 || x >= sourceReference.width || y >= sourceReference.height) return true
+    const at = (y * sourceReference.width + x) * 4
+    return colorDistanceAt(topwear, x, y, sourceReference.data, at) > GUESSED_GARMENT_DISTANCE
+  }
   const remainingTopwear = {
     ...topwear,
     data: new Uint8ClampedArray(topwear.data),
@@ -131,7 +159,7 @@ export function splitHighCollarOcclusion(
         fallbackRearAmount,
       )
       const semanticFrontAmount =
-        definitiveRearAmount > 0
+        definitiveRearAmount > 0 || hiddenByFace(x, y)
           ? 0
           : Math.max(
               referenceFrontAmount,
@@ -177,7 +205,7 @@ export function splitHighCollarOcclusion(
   const reach = Math.round(neck.width * COLLAR_SIDE_REACH)
   for (let y = exposedTop; y <= exposedBottom; y += 1) {
     for (let x = Math.ceil(neck.left) - reach; x < neck.left + neck.width + reach; x += 1) {
-      if (rasterAlphaAt(neck, x, y) > 0) continue
+      if (rasterAlphaAt(neck, x, y) > 0 || hiddenByFace(x, y)) continue
       const localX = x - Math.round(topwear.left)
       const localY = y - Math.round(topwear.top)
       if (localX < 0 || localY < 0 || localX >= topwear.width || localY >= topwear.height) continue
