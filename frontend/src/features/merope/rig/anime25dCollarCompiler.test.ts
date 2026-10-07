@@ -189,6 +189,29 @@ function alphaAt(layer: RasterLayer, x: number, y: number): number {
     : layer.data[(y * layer.width + x) * 4 + 3]
 }
 
+test('the high collar beside the neck joins the front collar, so a neck sliding with a turn goes behind it', () => {
+  const neck = raster('neck', 20, 20, 40, 50, () => [245, 205, 190, 255])
+  const topwear = raster('topwear', 0, 0, 80, 100, (_x, y) =>
+    y >= 20 && y <= 35 ? [42, 45, 62, 255] : [184, 176, 196, 255],
+  )
+  const output = splitHighCollarOcclusion([topwear, neck], anchors)
+  const front = output.find((layer) => layer.role === 'collar-front')!
+  const rest = output.find((layer) => layer.role === 'topwear')!
+  const alpha = (layer: RasterLayer, x: number, y: number) => {
+    const lx = x - layer.left
+    const ly = y - layer.top
+    if (lx < 0 || ly < 0 || lx >= layer.width || ly >= layer.height) return 0
+    return layer.data[(ly * layer.width + lx) * 4 + 3]
+  }
+  // Half the neck's width (20 px) out on either side, within the collar's height.
+  assert.equal(alpha(front, 12, 40), 255)
+  assert.equal(alpha(rest, 12, 40), 0)
+  assert.equal(alpha(front, 68, 40), 255)
+  // Below the collar the garment stays where it was.
+  assert.equal(alpha(front, 12, 85), 0)
+  assert.equal(alpha(rest, 12, 85), 255)
+})
+
 function raster(
   role: 'neck' | 'topwear',
   left: number,

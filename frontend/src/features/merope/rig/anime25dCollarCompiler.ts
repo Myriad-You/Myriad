@@ -6,6 +6,9 @@ import { COLLAR_REFERENCE_FRONT, COLLAR_REFERENCE_REAR, copyRasterPixel, cropRas
 import { hasHighCollarEvidence, sourceReferenceAgreesWithLayers } from './collarEvidence'
 import { buildCollarReferenceMask, collarReferenceMaskAt } from './collarReferenceMask'
 
+/** How far a turning neck can slide inside a high collar, as a share of its width. */
+const COLLAR_SIDE_REACH = 0.5
+
 export function splitHighCollarOcclusion(
   layers: RasterLayer[],
   anchors: Anime25DRiggerAnchors,
@@ -168,6 +171,27 @@ export function splitHighCollarOcclusion(
     }
   }
   if (maximumX < minimumX || maximumY < minimumY) return layers
+  // A neck turning with the head slides sideways inside the collar. The collar
+  // beside it at rest is in front of where it goes (the inner back seen
+  // through the opening lies within the neck), so it joins the front collar.
+  const reach = Math.round(neck.width * COLLAR_SIDE_REACH)
+  for (let y = exposedTop; y <= exposedBottom; y += 1) {
+    for (let x = Math.ceil(neck.left) - reach; x < neck.left + neck.width + reach; x += 1) {
+      if (rasterAlphaAt(neck, x, y) > 0) continue
+      const localX = x - Math.round(topwear.left)
+      const localY = y - Math.round(topwear.top)
+      if (localX < 0 || localY < 0 || localX >= topwear.width || localY >= topwear.height) continue
+      const pixel = (localY * topwear.width + localX) * 4
+      const sourceAlpha = remainingTopwear.data[pixel + 3]
+      if (sourceAlpha === 0) continue
+      copyRasterPixel(topwear.data, frontPixels, pixel, sourceAlpha)
+      frontMinimumX = Math.min(frontMinimumX, localX)
+      frontMinimumY = Math.min(frontMinimumY, localY)
+      frontMaximumX = Math.max(frontMaximumX, localX)
+      frontMaximumY = Math.max(frontMaximumY, localY)
+      remainingTopwear.data[pixel + 3] = 0
+    }
+  }
 
   const rearWidth = maximumX - minimumX + 1
   const rearHeight = maximumY - minimumY + 1
