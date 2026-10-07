@@ -2,7 +2,7 @@ import type { Anime25DSourceReference, RasterLayer } from './anime25dImportTypes
 import type { Anime25DPsdReconciliation } from './psdReconciliation'
 import type { RecoveredPiece } from './psdRepairLayers'
 import { analyzeAnime25DPsd, reportAnime25DPsdAnalysis } from './psdReconciliation'
-import { hasExpressionVariants, mergeByGroup, mountFor, overlayLayer, revealableBelow, withPixels } from './psdRepairLayers'
+import { hairHolder, hasExpressionVariants, mergeByGroup, mountFor, overlayLayer, revealableBelow, withPixels } from './psdRepairLayers'
 import { addAntialiasedRim, alphaAt, closeMask, components, fillSmallHoles, meanCoveredDistance } from './psdRepairMasks'
 
 export interface Anime25DPsdRepair {
@@ -27,6 +27,11 @@ const RECOVER_CLOSING = 3
 const RECOVER_MAX_HOLE_SHARE = 0.004
 /** Larger recoveries would pin garment-sized static art onto moving layers. */
 const RECOVER_MAX_SHARE = 0.02
+/**
+ * Above the chin no garment lies: what hangs from the hair there can be as big
+ * as a bow with its long ribbons (7.2% of one figure) and still ride the head.
+ */
+const RECOVER_MAX_HEAD_SHARE = 0.1
 
 /**
  * Repairs what reconciliation can prove from the source illustration:
@@ -198,13 +203,32 @@ export function repairAnime25DPsd(
       Math.max(64, Math.round(before.compared * RECOVER_MAX_HOLE_SHARE)),
     )
     const maxArea = Math.round(before.compared * RECOVER_MAX_SHARE)
+    const maxHeadArea = Math.round(before.compared * RECOVER_MAX_HEAD_SHARE)
+    const chin = Math.max(
+      -1,
+      ...visible
+        .filter((layer) => layer.role === 'face')
+        .map((layer) => layer.top + layer.height),
+    )
     for (const members of components(mask, bounds.width, bounds.height)) {
       if (!members.some((target) => seeds[target])) continue
       const shown = members.filter((target) => {
         const { x, y } = at(target)
         return reference.data[(y * reference.width + x) * 4 + 3] >= 250
       })
-      if (shown.length < before.minArea || shown.length > maxArea) continue
+      if (shown.length < before.minArea || shown.length > maxHeadArea) continue
+      let mount = mountFor(before, shown, visible)
+      if (shown.length > maxArea) {
+        // Ribbons hanging over the garment still hang from the hair.
+        const middle =
+          shown.reduce((sum, target) => sum + at(target).y, 0) / shown.length
+        if (middle >= chin) continue
+        if (mount.group !== 'head') {
+          const holder = hairHolder(before, shown, visible)
+          if (holder < 0) continue
+          mount = { group: 'head', neighbour: holder, owner: -1, role: 'headwear' }
+        }
+      }
       if (
         shown.some((target) => {
           const { x, y } = at(target)
@@ -233,7 +257,7 @@ export function repairAnime25DPsd(
         above = Math.max(above, before.top[target])
       }
       addAntialiasedRim(before, shown, reference, pixels)
-      pieces.push({ pixels, above, ...mountFor(before, shown, visible) })
+      pieces.push({ pixels, above, ...mount })
     }
   }
   // A piece of an existing accessory, e.g. the tassel under a hair ornament,

@@ -158,6 +158,20 @@ export function mountFor(
   return { group: main.group, neighbour, owner: -1, role: 'objects' }
 }
 
+/** The hair layer a piece's top end hangs from, or -1. */
+export function hairHolder(
+  analysis: Readonly<Anime25DPsdAnalysis>,
+  members: readonly number[],
+  visible: readonly RasterLayer[],
+): number {
+  return hangsFrom(
+    analysis,
+    members,
+    visible,
+    (layer) => layer.role === 'front-hair' || layer.role === 'back-hair',
+  )
+}
+
 /** The first layer matching `accepts` that the piece's top end reaches. */
 function hangsFrom(
   analysis: Readonly<Anime25DPsdAnalysis>,

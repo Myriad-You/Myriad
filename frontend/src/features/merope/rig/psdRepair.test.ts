@@ -239,6 +239,29 @@ test('missing art is lifted from the source into a group layer above its neighbo
   assert.equal(result.reconciliation?.repairs.recovered, 1)
 })
 
+test('a bow as big as a garment piece is recovered when it hangs from the hair above the chin', () => {
+  const face = layer('face', FACE, SKIN, 'head')
+  const hair = layer('back-hair', [40, 10, 20, 60], HAIR, 'head')
+  const result = repairAnime25DPsd(
+    [hair, face, layer('topwear', TORSO, CLOTH)],
+    allVisible,
+    reference((fill) => {
+      portrait(fill)
+      fill([40, 10, 20, 60], HAIR)
+      // 600 px: past 2% of the 16400 compared, within 10%.
+      fill([20, 20, 20, 30], GEM)
+    }),
+    2,
+  )
+  const recovered = result.layers.find((candidate) =>
+    candidate.id.startsWith('recovered-'),
+  )
+  assert.ok(recovered, 'the bow is lifted')
+  assert.equal(recovered.group, 'head')
+  assert.equal(recovered.role, 'headwear')
+  assert.deepEqual(pixel(recovered, 30, 35), [...GEM, 255])
+})
+
 test('an accessory broken into thin parts is recovered whole', () => {
   const hair = layer('back-hair', [40, 20, 120, 80], HAIR, 'head')
   const result = repairAnime25DPsd(
