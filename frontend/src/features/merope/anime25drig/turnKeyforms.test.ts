@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { bindAttachmentTurn, bindTurnKeyform, deformAttachmentTurn, isAnime25DTurnKeyforms, turnKeyformFamily, turnKeyformOffset } from './turnKeyforms'
+import { bindAttachmentTurn, bindTurnKeyform, deformAttachmentTurn, isAnime25DTurnKeyforms, turnKeyformFamily, turnKeyformMultiply, turnKeyformOffset } from './turnKeyforms'
 
 function lattice(grid: number, back: (x: number, y: number) => [number, number]) {
   const box: [number, number, number, number] = [0, 0, 100, 100]
@@ -118,4 +118,28 @@ test('a lock of front hair turns by its own key, else with the whole front hair'
   const whole = bindTurnKeyform(keyforms, { group: 'head', role: 'front-hair', side: null, name: 'front-hair-3' }, rest)!
   turnKeyformOffset(whole, 0, 1, out)
   assert.ok(Math.abs(out.x - 10) < 0.05, `${out.x}`)
+})
+
+test('a keyed multiply colour mixes from white by the turn and the nod, and a key without one stays white', () => {
+  const still = lattice(2, () => [0, 0])
+  const neck = { group: 'body' as const, role: 'neck' as const, side: null }
+  const rest = new Float32Array([50, 50])
+  const bound = bindTurnKeyform({
+    neck: {
+      plus: { ...still, multiply: [1.2, 1.1, 1] },
+      minus: still,
+      up: { ...still, multiply: [1.3, 1.3, 1.3] },
+      down: { ...still, multiply: [0.8, 0.8, 0.9] },
+    },
+  }, neck, rest)!
+  const out = new Float32Array(3)
+  turnKeyformMultiply(bound, 0.5, 0, out)
+  assert.deepEqual([...out].map((v) => +v.toFixed(3)), [1.1, 1.05, 1])
+  turnKeyformMultiply(bound, -1, -1, out)
+  assert.deepEqual([...out].map((v) => +v.toFixed(3)), [0.8, 0.8, 0.9])
+  turnKeyformMultiply(bound, 1, 1, out)
+  assert.deepEqual([...out].map((v) => +v.toFixed(3)), [1.5, 1.4, 1.3])
+  const plain = bindTurnKeyform({ neck: { plus: still, minus: still } }, neck, rest)!
+  turnKeyformMultiply(plain, 1, 0, out)
+  assert.deepEqual([...out], [1, 1, 1])
 })

@@ -19,6 +19,12 @@ export interface Anime25DTurnLattice {
    * place by inverting it.
    */
   back: number[]
+  /**
+   * The part's colour at the full turn, as a multiple of its colour at rest
+   * (r, g, b): the light on it changes as it turns (a neck the raised chin
+   * no longer shades). Cubism keys a multiply colour the same way.
+   */
+  multiply?: [number, number, number]
 }
 
 /** A part's key at the full turn toward +x and toward −x. */
@@ -64,6 +70,8 @@ export interface BoundTurnKeyform {
   minus: Float32Array
   up: Float32Array | null
   down: Float32Array | null
+  /** The multiply colour at each full key (r, g, b), when the keys hold one. */
+  multiply: { plus: Float32Array; minus: Float32Array; up: Float32Array | null; down: Float32Array | null } | null
 }
 
 /** Each vertex's offset at the full turn either way: where in the turned drawing its rest point went. */
@@ -74,11 +82,49 @@ export function bindTurnKeyform(
 ): BoundTurnKeyform | null {
   const key = turnKeyFor(keyforms, layer)
   if (!key) return null
+  const nod = Boolean(key.up && key.down)
   return {
     plus: invertLattice(key.plus, rest),
     minus: invertLattice(key.minus, rest),
-    up: key.up && key.down ? invertLattice(key.up, rest) : null,
-    down: key.up && key.down ? invertLattice(key.down, rest) : null,
+    up: nod ? invertLattice(key.up!, rest) : null,
+    down: nod ? invertLattice(key.down!, rest) : null,
+    multiply: key.plus.multiply || key.minus.multiply || (nod && (key.up!.multiply || key.down!.multiply))
+      ? {
+          plus: multiplyOf(key.plus),
+          minus: multiplyOf(key.minus),
+          up: nod ? multiplyOf(key.up!) : null,
+          down: nod ? multiplyOf(key.down!) : null,
+        }
+      : null,
+  }
+}
+
+/** A key's multiply colour, white without one; held to a sane range. */
+function multiplyOf(lattice: Readonly<Anime25DTurnLattice>): Float32Array {
+  const m = lattice.multiply
+  return Float32Array.from([0, 1, 2], (i) =>
+    m && Number.isFinite(m[i]) ? Math.max(MULTIPLY_MIN, Math.min(MULTIPLY_MAX, m[i])) : 1)
+}
+
+const MULTIPLY_MIN = 0.5
+const MULTIPLY_MAX = 1.5
+
+/** The multiply colour at a turn and a nod: rest's white, mixed toward each key by its share. */
+export function turnKeyformMultiply(
+  bound: Readonly<BoundTurnKeyform>,
+  amount: number,
+  nod: number,
+  out: Float32Array,
+): void {
+  out[0] = out[1] = out[2] = 1
+  const m = bound.multiply
+  if (!m) return
+  const key = amount >= 0 ? m.plus : m.minus
+  const share = Math.min(1, Math.abs(amount))
+  const nodKey = nod >= 0 ? m.up : m.down
+  const nodShare = nodKey ? Math.min(1, Math.abs(nod)) : 0
+  for (let i = 0; i < 3; i++) {
+    out[i] = 1 + (key[i] - 1) * share + (nodKey ? (nodKey[i] - 1) * nodShare : 0)
   }
 }
 

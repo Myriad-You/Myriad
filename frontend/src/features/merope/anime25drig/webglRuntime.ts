@@ -46,6 +46,7 @@ in vec2 v_uv;
 uniform sampler2D u_texture;
 uniform float u_cut;
 uniform float u_opacity;
+uniform vec3 u_multiply;
 uniform float u_cry_time;
 uniform float u_cry;
 uniform vec4 u_atlas_rect;
@@ -179,6 +180,7 @@ void main() {
     ? 1.0
     : dot(texelFetch(u_eye_mask, ivec2(gl_FragCoord.xy), 0).rg, u_eye_mask_channel);
   out_color = color * (u_opacity * neck_opacity * crown_opacity * eye_mask);
+  out_color.rgb *= u_multiply;
 }`
 
 export interface CroppedLayerPixels {

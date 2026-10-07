@@ -29,7 +29,7 @@ import {
   deformAnime25DSecondaryPoint,
 } from './secondaryDeformation'
 import { applySurfaceContact } from './surfaceContact'
-import { deformAttachmentTurn, hostKeyRoll } from './turnKeyforms'
+import { deformAttachmentTurn, hostKeyRoll, turnKeyformMultiply } from './turnKeyforms'
 
 /** A soft volume a layer's vertices sway and squash with. */
 export interface LayerJelly {
@@ -343,6 +343,13 @@ export function deformLayers(
         )
       : true
     if (!visible) continue
+    // The keyed multiply colour, whether or not the vertices move this frame.
+    const keyform = layer.secondaryDeformation.turnKeyform
+    const turn = context.secondaryDeformationFrame.headTurn
+    if (keyform?.multiply && turn) {
+      layer.frameMultiply ??= new Float32Array([1, 1, 1])
+      turnKeyformMultiply(keyform, turn.amount, turn.nodAmount, layer.frameMultiply)
+    }
     const deformed = layer.surfaceContact?.unconstrained ?? layer.hairSurface?.candidate ?? layer.deformed
     const vertexCount = layer.rest.length / 2
     if (!layer.attachment && layer.shaderGlobalTransform) {

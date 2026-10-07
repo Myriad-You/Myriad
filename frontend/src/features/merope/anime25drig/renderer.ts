@@ -22,6 +22,8 @@ export interface Anime25DRenderableLayer {
   indexCount: number
   layerTransform: Float32Array
   frameOpacity: number
+  /** The keyed multiply colour this frame (r, g, b); white without one. */
+  frameMultiply?: Float32Array
   renderKind: Anime25DRenderKind
   retainWhenHidden: boolean
   cryDirection: number
@@ -54,6 +56,7 @@ export interface Anime25DRendererBindings {
   bodyPitch: WebGLUniformLocation
   bodyStance: WebGLUniformLocation
   opacity: WebGLUniformLocation
+  multiply: WebGLUniformLocation
   cut: WebGLUniformLocation
   cryTime: WebGLUniformLocation
   cry: WebGLUniformLocation
@@ -107,6 +110,7 @@ export function createAnime25DRendererBindings(
     bodyPitch: requiredUniform(gl, program, 'u_body_pitch'),
     bodyStance: requiredUniform(gl, program, 'u_body_stance'),
     opacity: requiredUniform(gl, program, 'u_opacity'),
+    multiply: requiredUniform(gl, program, 'u_multiply'),
     cut: requiredUniform(gl, program, 'u_cut'),
     cryTime: requiredUniform(gl, program, 'u_cry_time'),
     cry: requiredUniform(gl, program, 'u_cry'),
@@ -359,6 +363,8 @@ function bindLayerUniforms(
 ): void {
   gl.uniformMatrix3fv(bindings.layerTransform, false, layer.layerTransform)
   gl.uniform1f(bindings.opacity, layer.frameOpacity)
+  const multiply = layer.frameMultiply
+  gl.uniform3f(bindings.multiply, multiply ? multiply[0] : 1, multiply ? multiply[1] : 1, multiply ? multiply[2] : 1)
   gl.uniform2f(bindings.crownBand, 0, 0)
   gl.uniform2f(
     bindings.neckSurfaceFade,
