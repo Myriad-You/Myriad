@@ -708,10 +708,34 @@ async function bodyReplay(kind: string, fps: number) {
     const data = layer.imageData!.data
     for (let i = 0; i < data.length; i += 4) data.set(color, i)
   }
+  // The portrait must contain this fixture's blue clothing and green
+  // necklace; a solid unrelated portrait would reorder/repair its real art.
+  const portrait = document.createElement('canvas')
+  portrait.width = psd.width
+  portrait.height = psd.height
+  const portraitContext = portrait.getContext('2d')!
+  // The decomposed neck is beneath the garment in the original portrait.
+  const portraitLayers = [...psd.children!.filter((layer) => layer.name === 'neck'), ...psd.children!.filter((layer) => layer.name !== 'neck')]
+  for (const layer of portraitLayers) {
+    const pixels = layer.imageData!
+    const canvas = document.createElement('canvas')
+    canvas.width = pixels.width
+    canvas.height = pixels.height
+    canvas.getContext('2d')!.putImageData(
+      new ImageData(new Uint8ClampedArray(pixels.data), pixels.width, pixels.height),
+      0,
+      0,
+    )
+    portraitContext.drawImage(canvas, layer.left ?? 0, layer.top ?? 0)
+  }
+  const portraitBlob = await new Promise<Blob>((resolve) =>
+    portrait.toBlob((blob) => resolve(blob!)),
+  )
+  const portraitUrl = URL.createObjectURL(portraitBlob)
   const prepared = await prepareRigPsdImport(
     new File([writePsd(psd, { generateThumbnail: false })], 'body-replay.psd'),
-    '/unused-master.png',
-  )
+    portraitUrl,
+  ).finally(() => URL.revokeObjectURL(portraitUrl))
   const canvas = document.createElement('canvas')
   const playback = prepared.source.anime25dPlayback!
   const player = new Anime25DPlayer(canvas, playback)
@@ -779,6 +803,8 @@ async function bodyReplay(kind: string, fps: number) {
     for (let i = 0; i < fps; i++) player.tick(1 / fps)
     const warmupError = gl.getError()
     const initial = positions()
+    const minimum = initial.slice()
+    const maximum = initial.slice()
     let previous = initial
     // Reverse before settling, stop at the current pose, then reverse again.
     // The driver path is deliberate here; this does not claim director coverage.
@@ -810,7 +836,11 @@ async function bodyReplay(kind: string, fps: number) {
         points.forEach((v, i) => {
           if (!Number.isFinite(v)) invalid++
           maxStep = Math.max(maxStep, Math.abs(v - previous[i]))
-          excursion = Math.max(excursion, Math.abs(v - initial[i]))
+          minimum[i] = Math.min(minimum[i], v)
+          maximum[i] = Math.max(maximum[i], v)
+          // Full replay excursion is peak-to-peak, including both sides of
+          // a reversal; distance from the neutral pose is only half its span.
+          excursion = Math.max(excursion, maximum[i] - minimum[i])
         })
         previous = points
         for (const layer of state.layers) {
@@ -828,9 +858,13 @@ async function bodyReplay(kind: string, fps: number) {
               continue
             }
             const i = vertex * 2
+            // Secondary motion is measured against this frame's projected
+            // head surface, as in constrainHairSurface. The neutral drawing
+            // also includes turn foreshortening, which is not spring collapse.
+            const base = layer.hairSurface?.base ?? layer.rest
             const restLength = Math.hypot(
-              layer.rest[i + 2] - layer.rest[i],
-              layer.rest[i + 3] - layer.rest[i + 1],
+              base[i + 2] - base[i],
+              base[i + 3] - base[i + 1],
             )
             if (restLength < 0.001) continue
             const stretch =
