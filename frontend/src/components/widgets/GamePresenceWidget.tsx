@@ -866,39 +866,41 @@ const GamePresenceWidget = memo(
 
             {showcase.length > 0 ? (
               <>
-                <div
-                  ref={queueRef}
-                  // 滚动容器的 touch-action 要设在条上，才能把横滑交给角色轮换。
-                  className={`scrollbar-hide w-full flex items-center gap-2 overflow-x-auto px-1.5 py-1.5 shrink-0 ${rotation.rootClassName}`}
-                >
-                  {showcase.map((s, i) => (
-                    <button
-                      key={`${s.name}-${i}`}
-                      type="button"
-                      title={s.level != null ? `${s.name} · Lv.${s.level}` : s.name}
-                      aria-label={s.name}
-                      aria-pressed={i === focusIndex}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setFocusIndex(i)
-                        rotation.hold()
-                      }}
-                      className="rounded-full transition-all duration-300 shrink-0"
-                      style={{
-                        opacity: i === focusIndex ? 1 : 0.45,
-                        transform: i === focusIndex ? 'scale(1.1)' : 'scale(1)',
-                      }}
-                    >
-                      {roundAvatar(
-                        s,
-                        30,
-                        i === focusIndex
-                          ? theme.primary
-                          : rarityRing(s.rarity, theme.border),
-                        i === focusIndex ? 2 : 1.5,
-                      )}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2 shrink-0 min-w-0">
+                  <div
+                    ref={queueRef}
+                    // 滚动容器的 touch-action 要设在条上，才能把横滑交给角色轮换。
+                    className={`scrollbar-hide min-w-0 flex-1 flex items-center gap-2 overflow-x-auto px-1.5 py-1.5 ${rotation.rootClassName}`}
+                  >
+                    {showcase.map((s, i) => (
+                      <button
+                        key={`${s.name}-${i}`}
+                        type="button"
+                        title={s.level != null ? `${s.name} · Lv.${s.level}` : s.name}
+                        aria-label={s.name}
+                        aria-pressed={i === focusIndex}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setFocusIndex(i)
+                          rotation.hold()
+                        }}
+                        className="rounded-full transition-all duration-300 shrink-0"
+                        style={{
+                          opacity: i === focusIndex ? 1 : 0.45,
+                          transform: i === focusIndex ? 'scale(1.1)' : 'scale(1)',
+                        }}
+                      >
+                        {roundAvatar(
+                          s,
+                          30,
+                          i === focusIndex
+                            ? theme.primary
+                            : rarityRing(s.rarity, theme.border),
+                          i === focusIndex ? 2 : 1.5,
+                        )}
+                      </button>
+                    ))}
+                  </div>
                   {/* 自动轮换要能一直停住（WCAG 2.2.2），不只是悬停时暂停。 */}
                   {!isPreview && !isEditMode && anim.loop && showcaseLen > 1 ? (
                     <button
@@ -906,16 +908,17 @@ const GamePresenceWidget = memo(
                       data-rotation-ignore=""
                       aria-label={rotation.stopped ? t.widgetGrid.resumeRotation : t.widgetGrid.pauseRotation}
                       aria-pressed={rotation.stopped}
-                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-gray-400 outline-none transition-colors hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-[var(--cfg-accent)] dark:text-white/40 dark:hover:text-white/80 ml-auto"
+                      title={rotation.stopped ? t.widgetGrid.resumeRotation : t.widgetGrid.pauseRotation}
+                      className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-500 outline-none transition-colors hover:bg-black/5 hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-[var(--cfg-accent)] aria-pressed:bg-black/5 dark:text-white/60 dark:hover:bg-white/10 dark:hover:text-white/90 dark:aria-pressed:bg-white/10"
                       onClick={(e) => {
                         e.stopPropagation()
                         rotation.toggleStopped()
                       }}
                     >
                       {rotation.stopped ? (
-                        <LuPlay className="h-2.5 w-2.5" aria-hidden />
+                        <LuPlay className="h-3 w-3" aria-hidden />
                       ) : (
-                        <LuPause className="h-2.5 w-2.5" aria-hidden />
+                        <LuPause className="h-3 w-3" aria-hidden />
                       )}
                     </button>
                   ) : null}
@@ -992,6 +995,7 @@ const GamePresenceWidget = memo(
       focusIndex,
       isPreview,
       anim.loop,
+      t.widgetGrid,
       showcaseLen,
       rotation.hold,
       rotation.stopped,

@@ -150,31 +150,48 @@ test.describe('autoplay controls', () => {
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/144.0.0.0 Safari/537.36',
   })
 
-  test('the avatar strip still lets the user stop and resume automatic rotation', async ({ page }) => {
-    await page.addInitScript(() => {
-      Object.defineProperties(navigator, {
-        hardwareConcurrency: { get: () => 16 },
-        deviceMemory: { get: () => 8 },
+  for (const width of [400, 240]) {
+    test(`the avatar strip keeps stop and resume reachable at ${width}px`, async ({ page }) => {
+      await page.addInitScript(() => {
+        Object.defineProperties(navigator, {
+          hardwareConcurrency: { get: () => 16 },
+          deviceMemory: { get: () => 8 },
+        })
+        localStorage.setItem('animation-preference', 'standard')
       })
-      localStorage.setItem('animation-preference', 'standard')
+      await page.clock.install()
+      await mount(page, `?width=${width}`)
+      const toggle = page.locator('#widget button[data-rotation-ignore]')
+      const widgetBox = (await page.locator('#widget').boundingBox())!
+      const toggleBox = (await toggle.boundingBox())!
+      expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(widgetBox.x + widgetBox.width)
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      const initialLabel = await toggle.getAttribute('aria-label')
+      await expect(toggle).toHaveAttribute('title', initialLabel!)
+      expect(toggleBox.width).toBeGreaterThanOrEqual(24)
+      expect(toggleBox.height).toBeGreaterThanOrEqual(24)
+      await test.info().attach('rotation-running', { body: await page.locator('#widget').screenshot(), contentType: 'image/png' })
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+      await expect(toggle).not.toHaveAttribute('aria-label', initialLabel!)
+      await expect(toggle).toHaveAttribute('title', (await toggle.getAttribute('aria-label'))!)
+      await page.mouse.move(600, 500)
+      await page.clock.runFor(8000)
+      await expect(page.getByRole('button', { name: 'Character 1', exact: true })).toHaveAttribute('aria-pressed', 'true')
+      await test.info().attach('rotation-paused', { body: await page.locator('#widget').screenshot(), contentType: 'image/png' })
+      // Selecting the last avatar scrolls the strip without moving its control.
+      await page.getByRole('button', { name: 'Character 6', exact: true }).click()
+      expect(await toggle.boundingBox()).toEqual(toggleBox)
+      await page.mouse.move(600, 500)
+      await page.clock.runFor(16000)
+      await expect(page.getByRole('button', { name: 'Character 6', exact: true })).toHaveAttribute('aria-pressed', 'true')
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      await expect(toggle).toHaveAttribute('aria-label', initialLabel!)
+      await page.mouse.move(600, 500)
+      await page.clock.runFor(4000)
+      await expect(page.getByRole('button', { name: 'Character 1', exact: true })).toHaveAttribute('aria-pressed', 'true')
+      expect(await openedProfiles(page)).toBe(0)
     })
-    await page.clock.install()
-    await mount(page)
-    const toggle = page.locator('#widget button[data-rotation-ignore]')
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-    const initialLabel = await toggle.getAttribute('aria-label')
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    await expect(toggle).not.toHaveAttribute('aria-label', initialLabel!)
-    await page.mouse.move(600, 500)
-    await page.clock.runFor(8000)
-    await expect(page.getByRole('button', { name: 'Character 1', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-    await expect(toggle).toHaveAttribute('aria-label', initialLabel!)
-    await page.mouse.move(600, 500)
-    await page.clock.runFor(4000)
-    await expect(page.getByRole('button', { name: 'Character 2', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    expect(await openedProfiles(page)).toBe(0)
-  })
+  }
 })
