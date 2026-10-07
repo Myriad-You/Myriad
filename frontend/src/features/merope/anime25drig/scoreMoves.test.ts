@@ -4,8 +4,9 @@ import test from 'node:test'
 import { SCORE_MOVES } from '../events/performanceContract'
 import { scoreMoveOffsets, scoreMoveSeconds } from './scoreMoves'
 
-const move = (kind: ScoreMove['kind'], fields: Partial<ScoreMove> = {}): ScoreMove =>
-  ({ kind, amount: 0.8, count: 1, tempo: 1, ...fields })
+function move(kind: ScoreMove['kind'], fields: Partial<ScoreMove> = {}): ScoreMove {
+  return { kind, amount: 0.8, count: 1, tempo: 1, ...fields }
+}
 
 function sample(m: ScoreMove, at: number) {
   const out: Partial<Record<BodyControl, number>> = {}
