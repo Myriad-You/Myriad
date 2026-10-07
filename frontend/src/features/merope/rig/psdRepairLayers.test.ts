@@ -3,14 +3,16 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { mergeByGroup } from './psdRepairLayers'
 
-const piece = (key: number, role: RecoveredPiece['role'], group: RecoveredPiece['group'] = 'head'): RecoveredPiece => ({
+function piece(key: number, role: RecoveredPiece['role'], group: RecoveredPiece['group'] = 'head'): RecoveredPiece {
+  return {
   pixels: new Map([[key, [255, 0, 0, 255] as const]]),
   above: key,
   neighbour: -1,
   owner: -1,
   group,
   role,
-})
+}
+}
 
 test('merged to fit the budget, recovered clips keep their role so they still turn with the head', () => {
   const merged = mergeByGroup([piece(1, 'headwear'), piece(2, 'headwear'), piece(3, 'headwear')], 1)
