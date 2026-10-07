@@ -1647,6 +1647,21 @@ await Tapp.dynamicContent.remove();
 
 **权限**: `scheduler:register`
 
+`executionTarget: "frontend"`（以及 `"both"` 的前端阶段）需要运行中的在线前端注册
+`onTask` / `onAnyTask` 回调；仅注册任务不会建立调度 WebSocket，关闭所有站点标签页后也不会有
+在线受众。无受众时，本次执行记录和 `lastRunResult.status` 为 `skipped`，
+`lastRunResult.result.reason` 为 `no_audience`，统计增加 `totalRuns` / `missedRuns`，
+不增加 `failedRuns`，不重试、不发送失败通知。`both` 已完成的后端结果保留在
+`lastRunResult.result.backend`（`status: "success"`），前端结果为
+`lastRunResult.result.frontend`（`status: "skipped", reason: "no_audience"`）。
+
+跳过后推进到下一调度周期；`once` 任务结束并禁用。当前 `missedPolicy` 处理调度器停机等导致的
+过期调度，不会在前端重新上线时补跑已记录为 `skipped` 的执行。展示状态时可使用
+「本次跳过（无在线前端）」，该状态不表示任务正在排队等待上线。
+需要刷新后继续接收任务的应用，应在 `backgroundRequirements` 中声明 `scheduler`，并在 core
+中注册回调；这仍需要至少一个站点标签页运行。详见
+[架构文档的调度器说明](ARCHITECTURE.md#调度器)。
+
 ```javascript
 // 注册定时任务
 await Tapp.scheduler.register({

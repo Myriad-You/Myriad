@@ -373,6 +373,10 @@ jobs:
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
         run: cargo test --workspace --locked federation_outbox_and_delivery_lease_db_contracts -- --nocapture
+      - name: Tapp scheduler frontend audience and completion contracts
+        env:
+          MYRIAD_RUNTIME_ISOLATION_TEST_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
+        run: cargo test --workspace --locked services::tapp_scheduler::engine::frontend_ -- --ignored --test-threads=1 --nocapture
       # --workspace (not -p myriad-backend) keeps the feature set identical to
       # the step above; -p re-resolved features and rebuilt a third of the
       # graph. The test-path filters already scope these to the backend.
