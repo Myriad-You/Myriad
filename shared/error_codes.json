@@ -1572,6 +1572,7 @@
     "onebot_already_paired",
     "onebot_not_paired",
     "onebot_pairing_failed",
+    "outfit_is_worn",
     "page_fetch_failed",
     "password_failed",
     "password_needs_letter_and_digit",
