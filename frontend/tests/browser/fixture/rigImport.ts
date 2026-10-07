@@ -728,6 +728,20 @@ async function bodyReplay(kind: string, fps: number) {
     )
     portraitContext.drawImage(canvas, layer.left ?? 0, layer.top ?? 0)
   }
+  if (kind === 'collar') {
+    // Draw the exposed skin inside the U-shaped high collar. The PSD neck
+    // remains whole underneath the garment, as a See-through cut does.
+    portraitContext.fillStyle = 'rgb(180, 80, 80)'
+    portraitContext.beginPath()
+    portraitContext.moveTo(111, 142)
+    portraitContext.lineTo(145, 142)
+    portraitContext.lineTo(142, 166)
+    portraitContext.lineTo(134, 178)
+    portraitContext.lineTo(122, 178)
+    portraitContext.lineTo(114, 166)
+    portraitContext.closePath()
+    portraitContext.fill()
+  }
   const portraitBlob = await new Promise<Blob>((resolve) =>
     portrait.toBlob((blob) => resolve(blob!)),
   )
