@@ -334,9 +334,9 @@ for (const kind of ['ordinary', 'collar', 'necklace']) {
       expect(result.hairLayers).toBeGreaterThan(0)
       expect(result.warmupError).toBe(0)
       expect(result.rootEdges).toBeGreaterThan(0)
-      // Gross root collapse/stretch guard, not a claim of artistic acceptance.
-      expect(result.minRootStretch).toBeGreaterThan(0.5)
-      expect(result.maxRootStretch).toBeLessThan(1.5)
+      // Gross secondary-motion collapse/stretch against the projected pose.
+      expect(result.minRootStretch, JSON.stringify(result)).toBeGreaterThan(0.5)
+      expect(result.maxRootStretch, JSON.stringify(result)).toBeLessThan(1.5)
       expect(result.checkedFrames).toBe(2.5 * fps)
       expect(result.invalid).toBe(0)
       expect(result.excursion).toBeGreaterThan(1)
