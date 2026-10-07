@@ -47,7 +47,7 @@ function fixture(kind: string) {
   if (kind === 'missing-face')
     psd.children = psd.children!.filter((l) => l.name !== 'face')
   if (kind === 'collar' || kind === 'necklace') {
-    // Non-square PSDs do not ask for a See-through square reference.
+    // Portrait placement is fitted to this non-square PSD canvas.
     psd.height = 300
     const data = new Uint8ClampedArray(40 * 50 * 4)
     for (let i = 0; i < data.length; i += 4) data.set([245, 205, 190, 255], i)
@@ -122,18 +122,20 @@ async function run(kind: string, cancel = false) {
       controller.signal,
     )
     const reference = document.createElement('canvas')
-    reference.width = reference.height = 256
+    reference.width = psd.width
+    reference.height = psd.height
     const referenceCtx = reference.getContext('2d')!
-    referenceCtx.drawImage(master, 32, 0)
+    // 192×256 portrait: square padding is 32px; the 256×300 canvas
+    // fits it to 225×300, centred at x=15 (half-up sizes, floor offsets).
+    if (psd.width === psd.height) referenceCtx.drawImage(master, 32, 0)
+    else referenceCtx.drawImage(master, 15, 0, 225, 300)
     const expected = await prepareAnime25DRigPsd(
       decodeRigPsd(bytes),
       url,
       anime25DImportCopy(),
       undefined,
       'fixture-generation',
-      psd.width === psd.height
-        ? referenceCtx.getImageData(0, 0, 256, 256)
-        : undefined,
+      referenceCtx.getImageData(0, 0, psd.width, psd.height),
     )
     return {
       stages,
