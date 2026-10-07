@@ -46,8 +46,9 @@ neck base, outfit, colors, line style and shading exactly the same and pixel-ali
 original, on the same background.";
 const HEAD_ALONE: &str = "The head stays the same size and stays attached at the same neck \
 position; the hair and every hair accessory and earring move with the head and keep their exact \
-design, every lock of hair the same lock seen from the new angle. Same facial expression. Clean \
-finished art in the original's style.";
+design, every lock of hair the same lock seen from the new angle: the bangs are not restyled, \
+tucked or parted anew, and hair covering an eye still covers it. Same facial expression and the \
+same eye openness. Clean finished art in the original's style.";
 
 /// The four turned drawings, in the Space's order: toward image right and
 /// left (Myriad's angleX ±1), raised and lowered (angleY ±1).
