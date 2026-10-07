@@ -7,9 +7,11 @@ import { phantasiSubject } from '../../utils/phantasiSubject'
 import { JOURNAL_ROOT, journalItemPath } from './logic/journalRoutes'
 import { ownItemState } from './logic/ownState'
 import {
+  phantasiItemIdentity,
   phantasiItemNavigateMode,
   phantasiItemParamId,
   phantasiOpenedItemId,
+  phantasiOpenedItemIdentity,
   phantasiOpenedItemState,
   phantasiOpenedWebItem,
   restoreAfterFailedOpen,
@@ -46,7 +48,14 @@ export function usePhantasiItemRoute(
   const pathname =
     location?.pathname ??
     (itemIdParam ? journalItemPath(Number(itemIdParam)) : listPath)
-  const routeKey = JSON.stringify([pathname, itemIdParam, openedId])
+  const webItem = itemIdParam
+    ? undefined
+    : phantasiOpenedWebItem(location?.state, phantasiSubject.getSnapshot())
+  const openedIdentity = itemIdParam
+    ? `db:${phantasiItemParamId(itemIdParam)}`
+    : phantasiOpenedItemIdentity(location?.state)
+  const selectedIdentity = selectedItem ? phantasiItemIdentity(selectedItem) : undefined
+  const routeKey = JSON.stringify([pathname, itemIdParam, openedIdentity])
   const previousRoute = useRef(routeKey)
   const expectedRoute = useRef<string | null>(null)
   const initial = useRef(true)
@@ -60,6 +69,7 @@ export function usePhantasiItemRoute(
         return
       }
       expectedRoute.current = null
+      session.cancelOpen()
       if (itemIdParam || openedId != null) {
         const id = itemIdParam ? phantasiItemParamId(itemIdParam) : openedId!
         const kept =
@@ -86,19 +96,13 @@ export function usePhantasiItemRoute(
             ])
             navigate(restore.path, { replace: true })
           }
-        } else if (selectedItem?.id !== id) {
+        } else if (selectedIdentity !== openedIdentity || webItem === null) {
           const requested = routeKey
           let requestSignal: AbortSignal | undefined
           void session
             .openArticle(
               (signal) => {
                 requestSignal = signal
-                const webItem = itemIdParam
-                  ? undefined
-                  : phantasiOpenedWebItem(
-                      location?.state,
-                      phantasiSubject.getSnapshot(),
-                    )
                 return webItem !== undefined
                   ? Promise.resolve(webItem)
                   : phantasiApi.getItem(id, undefined, { signal })
@@ -112,7 +116,7 @@ export function usePhantasiItemRoute(
                 item?.id === id
               ) {
                 return
-}
+              }
               const restore = itemIdParam
                 ? restoreAfterFailedOpen(
                     itemIdParam,
@@ -141,12 +145,12 @@ export function usePhantasiItemRoute(
     const target =
       selectedItemOwnState === 'own' ? String(selectedItem.id) : undefined
     let mode = phantasiItemNavigateMode(itemIdParam, target)
-    if (!target && !itemIdParam && openedId !== selectedItem.id) {
+    if (!target && !itemIdParam && openedIdentity !== selectedIdentity) {
       mode = openedId == null ? 'push' : 'replace'
     }
     if (mode !== 'none') {
       const path = target ? journalItemPath(selectedItem.id) : listPath
-      expectedRoute.current = JSON.stringify([path, target, selectedItem.id])
+      expectedRoute.current = JSON.stringify([path, target, selectedIdentity])
       if (target) {
         navigate(journalItemPath(selectedItem.id), {
           replace: mode === 'replace',
@@ -169,6 +173,9 @@ export function usePhantasiItemRoute(
   }, [
     itemIdParam,
     openedId,
+    openedIdentity,
+    selectedIdentity,
+    webItem,
     routeKey,
     location?.state,
     selectedItem,
@@ -176,6 +183,7 @@ export function usePhantasiItemRoute(
     session.opening,
     session.openArticle,
     session.closeArticle,
+    session.cancelOpen,
     navigate,
     setError,
     loadFailed,

@@ -131,3 +131,48 @@ test('a cancelled deep-link request cannot roll back a newer article', async ({ 
   await page.waitForTimeout(750)
   await expect(page.getByTestId('item')).toHaveText('3')
 })
+
+test('Forward cancels an in-flight Back restoration while retaining the current article', async ({ page }) => {
+  let requests = 0
+  let finishRestoration!: () => void
+  const restoration = new Promise<void>((resolve) => { finishRestoration = resolve })
+  await page.route('**/api/phantasi/items/1', async (route) => {
+    if (++requests > 1) await restoration
+    await route.fulfill({ json: { item: { id: 1, source_id: 1, title: 'external', content: 'body' } } })
+  })
+  await page.getByRole('button', { name: 'external', exact: true }).click()
+  await expect(page.getByTestId('item')).toHaveText('1')
+  await expect.poll(() => page.evaluate(() => history.state?.usr?.phantasiOpenedItem)).toBe(1)
+  await page.getByRole('button', { name: 'own', exact: true }).click()
+  await expect(page.getByTestId('item')).toHaveText('2')
+  await expect(page).toHaveURL(/\/journal\/articles\/2$/)
+  await page.getByRole('button', { name: 'expire cache' }).click()
+  await page.goBack()
+  await expect(page.getByTestId('opening')).toHaveText('true')
+  await page.goForward()
+  await expect(page.getByTestId('opening')).toHaveText('false')
+  finishRestoration()
+  await page.waitForTimeout(250)
+  await expect(page.getByTestId('item')).toHaveText('2')
+  await expect(page).toHaveURL(/\/journal\/articles\/2$/)
+})
+
+test('same-ID search results replace the snapshot restored by Forward', async ({ page }) => {
+  await page.getByRole('button', { name: 'search A', exact: true }).click()
+  await expect(page.getByTestId('title')).toHaveText('search A')
+  await page.getByRole('button', { name: 'search B', exact: true }).click()
+  await expect(page.getByTestId('title')).toHaveText('search B')
+  await page.goBack()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.goForward()
+  await expect(page.getByTestId('title')).toHaveText('search B')
+})
+
+test('Back restores the search snapshot despite an owned article having the same ID', async ({ page }) => {
+  await page.getByRole('button', { name: 'search A', exact: true }).click()
+  await expect(page.getByTestId('title')).toHaveText('search A')
+  await page.getByRole('button', { name: 'own one', exact: true }).click()
+  await expect(page).toHaveURL(/\/journal\/articles\/1$/)
+  await page.goBack()
+  await expect(page.getByTestId('title')).toHaveText('search A')
+})
