@@ -1,0 +1,483 @@
+/* Her mind, a tab of the persona workbench: reads inside .merope-motion-page. */
+.merope-mind {
+  --mind-ink: var(--merope-ink, var(--text-primary, #171923));
+  --mind-muted: var(--merope-muted, var(--text-secondary, #667085));
+  --mind-line: var(--merope-line, var(--border-color, #d8dbe6));
+  --mind-accent: var(--merope-accent-ink, var(--color-primary, #7c6ee6));
+  --mind-warn: var(--color-danger, #d9534f);
+  --mind-soft: color-mix(in srgb, var(--mind-line) 34%, transparent);
+
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  color: var(--mind-ink);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.merope-mind__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.merope-mind__header > :first-child {
+  flex: 1 1 28em;
+  min-width: 0;
+}
+
+.merope-mind__toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.merope-mind__stamp {
+  display: grid;
+  color: var(--mind-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.merope-mind__stamp time {
+  color: var(--mind-ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.merope-mind__status {
+  margin: 0;
+  color: var(--mind-muted);
+}
+
+.merope-mind__status[role='alert'] {
+  color: var(--mind-warn);
+}
+
+.merope-mind__body {
+  display: grid;
+  gap: 26px;
+  min-width: 0;
+}
+
+.merope-mind__muted {
+  color: var(--mind-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* --- sections ------------------------------------------------------------ */
+
+.merope-mind__section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.merope-mind__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.merope-mind__count {
+  color: var(--mind-muted);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.merope-mind__none {
+  color: var(--mind-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.merope-mind__section.is-empty .merope-mind__heading {
+  color: var(--mind-muted);
+  font-weight: 620;
+}
+
+.merope-mind__note {
+  margin: -4px 0 0;
+  color: var(--mind-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* --- dated rows ---------------------------------------------------------- */
+
+.merope-mind__list,
+.merope-mind__notes,
+.merope-mind__cards,
+.merope-mind__kept,
+.merope-mind__alerts {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.merope-mind__list {
+  gap: 8px;
+}
+
+.merope-mind__list + .merope-mind__list {
+  margin-top: 4px;
+}
+
+.merope-mind__row {
+  display: grid;
+  grid-template-columns: 3.6em minmax(0, 1fr);
+  gap: 10px;
+}
+
+.merope-mind__row.is-ended .merope-mind__text {
+  color: var(--mind-muted);
+}
+
+.merope-mind__date {
+  color: var(--mind-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.merope-mind__row > .merope-mind__date {
+  padding-top: 1px;
+}
+
+.merope-mind__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.merope-mind__more {
+  appearance: none;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--mind-accent) 70%, var(--mind-ink));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.merope-mind__more:hover {
+  text-decoration: underline;
+}
+
+.merope-mind__more.is-quiet {
+  color: var(--mind-muted);
+  font-weight: 500;
+}
+
+.merope-mind__folds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+/* --- tags ---------------------------------------------------------------- */
+
+.merope-mind__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.merope-mind__tags.is-inline {
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.merope-mind__tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid var(--mind-line);
+  border-radius: 999px;
+  color: var(--mind-ink);
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.merope-mind__text > .merope-mind__tag,
+.merope-mind__entity-head h3 > .merope-mind__tag {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.merope-mind__tag.is-muted {
+  color: var(--mind-muted);
+  font-weight: 500;
+}
+
+.merope-mind__tag.is-accent {
+  border-color: color-mix(in srgb, var(--mind-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--mind-accent) 12%, transparent);
+  color: var(--mind-accent);
+}
+
+.merope-mind__tag.is-warn {
+  border-color: color-mix(in srgb, var(--mind-warn) 45%, transparent);
+  color: var(--mind-warn);
+}
+
+/* --- self story ---------------------------------------------------------- */
+
+.merope-mind__story {
+  margin: 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid color-mix(in srgb, var(--mind-accent) 60%, transparent);
+}
+
+.merope-mind__story p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.85;
+}
+
+.merope-mind__story footer {
+  margin-top: 6px;
+  color: var(--mind-muted);
+  font-size: 12px;
+}
+
+/* --- cards: wants, things she did ------------------------------------------ */
+
+.merope-mind__cards {
+  gap: 10px;
+}
+
+.merope-mind__card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--mind-line);
+  border-radius: 12px;
+  background: var(--mind-soft);
+}
+
+.merope-mind__card-title {
+  font-weight: 680;
+}
+
+.merope-mind__why {
+  margin: 0;
+  color: var(--mind-muted);
+}
+
+.merope-mind__notes {
+  gap: 4px;
+  margin-top: 2px;
+  padding-left: 10px;
+  border-left: 1px solid var(--mind-line);
+  font-size: 12px;
+}
+
+.merope-mind__doing-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.merope-mind__doing-title {
+  flex: 1 1 12em;
+  min-width: 0;
+  font-weight: 640;
+  overflow-wrap: anywhere;
+}
+
+.merope-mind__doing-side {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.merope-mind__reaction {
+  font-size: 12px;
+  font-weight: 640;
+  white-space: nowrap;
+}
+
+.merope-mind__reaction.is-moved {
+  color: var(--mind-accent);
+}
+
+.merope-mind__reaction.is-liked {
+  color: var(--mind-ink);
+}
+
+.merope-mind__reaction.is-fine,
+.merope-mind__reaction.is-not_for_me {
+  color: var(--mind-muted);
+}
+
+.merope-mind__said {
+  margin: 0;
+}
+
+.merope-mind__kept {
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--mind-line);
+  color: var(--mind-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.merope-mind__kept b {
+  margin-right: 6px;
+  color: var(--mind-ink);
+  font-weight: 640;
+}
+
+.merope-mind__kept b.merope-mind__held {
+  color: var(--mind-ink);
+}
+
+.merope-mind__kept b.merope-mind__held.is-yes {
+  color: var(--mind-accent);
+}
+
+.merope-mind__kept b.merope-mind__held.is-no {
+  color: var(--mind-warn);
+}
+
+/* --- people and groups --------------------------------------------------- */
+
+.merope-mind__entity {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--mind-line);
+}
+
+.merope-mind__entity:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.merope-mind__entity-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.merope-mind__entity-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.merope-mind__none-of {
+  margin: 0;
+  color: var(--mind-muted);
+  font-size: 12px;
+}
+
+.merope-mind__bit {
+  display: grid;
+  gap: 1px;
+}
+
+.merope-mind__bit.is-ended {
+  opacity: 0.6;
+}
+
+/* --- numbers ------------------------------------------------------------- */
+
+.merope-mind__alerts {
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--mind-warn) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mind-warn) 8%, transparent);
+  color: var(--mind-warn);
+}
+
+.merope-mind__list.is-alerts {
+  gap: 4px;
+  color: var(--mind-muted);
+}
+
+.merope-mind__table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.merope-mind__table {
+  width: auto;
+  min-width: min(100%, 26em);
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.merope-mind__table th {
+  padding: 4px 28px 6px 0;
+  border-bottom: 1px solid var(--mind-line);
+  color: var(--mind-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.merope-mind__table td {
+  padding: 5px 28px 5px 0;
+  border-bottom: 1px solid var(--mind-soft);
+  white-space: nowrap;
+}
+
+.merope-mind__table tbody tr:first-child td {
+  font-weight: 640;
+}
+
+.merope-mind__failed {
+  color: var(--mind-warn);
+}
+
+.merope-mind__pairs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.merope-mind__pairs > div {
+  display: contents;
+}
+
+.merope-mind__pairs dt {
+  color: var(--mind-muted);
+  font-size: 12px;
+}
+
+.merope-mind__pairs dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.merope-mind__pairs > .is-blank dd {
+  color: var(--mind-muted);
+}

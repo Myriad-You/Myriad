@@ -398,15 +398,15 @@
   "personaLabelSpeech": "表达",
   "mind": {
     "title": "她心里",
-    "desc": "她这阵子是什么样、想要什么、怎么看每个人和每个群，以及这些是怎么变过来的。只读。",
     "loading": "读取中…",
     "error": "读取失败",
     "refresh": "刷新",
-    "updated": "更新于 {time}",
+    "updatedAt": "更新于",
     "tabs": {
       "her": "她自己",
       "people": "每个人",
-      "groups": "每个群"
+      "groups": "每个群",
+      "signs": "体征"
     },
     "her": {
       "selfStory": "这阵子的她",
@@ -468,6 +468,9 @@
       "forgiven": "放下了",
       "taken_up": "聊过了",
       "deleted": "删除了",
+      "explored": "查过了",
+      "changed_mind": "改主意了",
+      "tic_loop": "成了口头禅，清掉了",
       "other": "结束了"
     },
     "empty": "还没有",
@@ -542,6 +545,50 @@
         "manyCalls": "调用 {calls} 次，超过平常（{usual}）两倍",
         "nothingLearned": "连着 {days} 天没学到任何新东西"
       }
+    },
+    "more": "展开其余 {count} 条",
+    "less": "收起",
+    "endedFold": "已结束的 {count} 条",
+    "earlierFold": "以前的 {count} 版",
+    "earlierAlerts": "前几天的提醒 {count} 条",
+    "noneOf": "还没有：{names}",
+    "since": "{date} 起",
+    "doing": {
+      "kind": {
+        "song": "听歌",
+        "note": "读笔记",
+        "chapter": "读书",
+        "inquiry": "查问题"
+      },
+      "part": "第 {index}/{total} 部分",
+      "unopened": "还没打开",
+      "reaction": {
+        "moved": "打动了她",
+        "liked": "喜欢",
+        "fine": "一般",
+        "not_for_me": "不合口味"
+      },
+      "guessed": "她猜",
+      "remembered": "她记得",
+      "held": {
+        "yes": "说中了",
+        "partly": "说中一部分",
+        "no": "没说中",
+        "not_yet": "还看不出"
+      },
+      "ended": {
+        "finished": "读完了这本",
+        "let_go": "在这里放下了"
+      },
+      "thought": "原先以为",
+      "fromMemory": "凭记忆想了想",
+      "answered": {
+        "yes": "找到了答案",
+        "partly": "找到一部分",
+        "no": "没找到答案"
+      },
+      "newToHer": "新知道的",
+      "knewIt": "其实早就知道"
     }
   },
   "fullBody": {

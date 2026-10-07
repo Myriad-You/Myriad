@@ -60,6 +60,20 @@ pub(in crate::services::agent::merope) fn experience_record(
     ))
 }
 
+/// A row of her own experience as the site's owner looks into it: what it
+/// was, how it landed, and what its kind kept (her guess and how it went,
+/// what she found out), each as itself rather than run into one line.
+pub(in crate::services::agent::merope) fn experience_view(
+    row: &unified_row::Model,
+) -> Option<Value> {
+    let experience = Experience::of(row)?;
+    Some(json!({
+        "thing": experience.thing,
+        "reaction": experience.reaction,
+        "kept": experience.kept,
+    }))
+}
+
 impl Experience {
     pub(super) fn of(row: &unified_row::Model) -> Option<Self> {
         serde_json::from_str(row.evidence.as_deref()?).ok()

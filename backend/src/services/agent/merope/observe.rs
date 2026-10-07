@@ -191,8 +191,10 @@ pub async fn snapshot(db: &DatabaseConnection) -> Value {
         .iter()
         .filter(|row| now - row.created_at.with_timezone(&Utc) < THIS_WEEK)
         .filter_map(|row| {
-            let (line, _) = super::doing::experience_record(row)?;
-            Some(json!({ "at": when(&row.created_at), "text": line }))
+            let mut view = super::doing::experience_view(row)?;
+            view["at"] = json!(when(&row.created_at));
+            view["text"] = json!(row.content);
+            Some(view)
         })
         .collect();
     let her = json!({

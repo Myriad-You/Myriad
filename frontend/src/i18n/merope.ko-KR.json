@@ -398,15 +398,15 @@
   "personaLabelSpeech": "목소리",
   "mind": {
     "title": "그녀의 마음",
-    "desc": "요즘의 그녀, 원하는 것, 한 사람 한 사람과 각 그룹을 어떻게 보는지, 그리고 그것이 어떻게 변해 왔는지. 읽기 전용.",
     "loading": "불러오는 중…",
     "error": "불러오지 못했습니다",
     "refresh": "새로고침",
-    "updated": "{time}에 업데이트",
+    "updatedAt": "업데이트",
     "tabs": {
       "her": "그녀 자신",
       "people": "사람들",
-      "groups": "그룹"
+      "groups": "그룹",
+      "signs": "바이탈"
     },
     "her": {
       "selfStory": "요즘의 그녀",
@@ -468,6 +468,9 @@
       "forgiven": "내려놓음",
       "taken_up": "이야기함",
       "deleted": "삭제됨",
+      "explored": "알아봤다",
+      "changed_mind": "생각이 바뀌었다",
+      "tic_loop": "입버릇이 되어 정리됨",
       "other": "끝남"
     },
     "empty": "아직 없음",
@@ -542,6 +545,50 @@
         "manyCalls": "호출 {calls}회, 평소({usual})의 2배 초과",
         "nothingLearned": "{days}일째 새로 알게 된 것이 없음"
       }
+    },
+    "more": "나머지 {count}개 펼치기",
+    "less": "접기",
+    "endedFold": "끝난 것 {count}개",
+    "earlierFold": "이전 {count}개 버전",
+    "earlierAlerts": "이전 날의 알림 {count}개",
+    "noneOf": "아직 없음: {names}",
+    "since": "{date}부터",
+    "doing": {
+      "kind": {
+        "song": "노래",
+        "note": "노트",
+        "chapter": "책",
+        "inquiry": "알아보기"
+      },
+      "part": "{index}/{total}부",
+      "unopened": "아직 안 펼침",
+      "reaction": {
+        "moved": "마음이 움직였다",
+        "liked": "좋았다",
+        "fine": "그저 그랬다",
+        "not_for_me": "취향이 아니었다"
+      },
+      "guessed": "추측",
+      "remembered": "기억한 것",
+      "held": {
+        "yes": "맞았다",
+        "partly": "일부 맞았다",
+        "no": "틀렸다",
+        "not_yet": "아직 모름"
+      },
+      "ended": {
+        "finished": "다 읽었다",
+        "let_go": "여기서 놓았다"
+      },
+      "thought": "처음 생각",
+      "fromMemory": "기억으로 생각해 봄",
+      "answered": {
+        "yes": "답을 찾았다",
+        "partly": "일부 찾았다",
+        "no": "답을 못 찾았다"
+      },
+      "newToHer": "새로 안 것",
+      "knewIt": "사실 알고 있었다"
     }
   },
   "fullBody": {

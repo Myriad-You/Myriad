@@ -789,6 +789,32 @@ export interface MindWant {
   notes: { at: string; note: string }[]
 }
 
+/** Something she did on her own, how it landed, and what its kind kept. */
+export interface MindDoing {
+  at: string
+  /** What she wrote after, in her own words. */
+  text: string
+  thing:
+    | { kind: 'song'; name: string; artist: string }
+    | { kind: 'note'; title: string }
+    /** `index` is 0-based; `total` 0 for a book not yet opened. */
+    | { kind: 'chapter'; title: string; author: string; index: number; total: number }
+    | { kind: 'inquiry'; question: string }
+  reaction?: 'moved' | 'liked' | 'fine' | 'not_for_me' | null
+  kept: {
+    heard?: string
+    /** Her guess after the part before (or what she remembered of a book she knew), and how it went. */
+    guessed?: { said: string; held: 'yes' | 'partly' | 'no' | 'not_yet'; happened: string; remembered?: boolean }
+    ended?: 'finished' | 'let_go'
+    explored?: {
+      thought: string
+      sure?: string
+      sources: string[]
+      compared?: { surprise: string; new: string; alreadyKnown: boolean; answered: string } | null
+    }
+  }
+}
+
 /** Something in a day of hers worth raising. */
 export type MindAlert =
   | { kind: 'unreadable'; count: number }
@@ -920,7 +946,7 @@ export interface MindSnapshot {
     questions: MindEntry[]
     corrected: MindEntry[]
     days: MindEntry[]
-    doingThisWeek: { at: string; text: string }[]
+    doingThisWeek: MindDoing[]
     /** Her way of typing week by week, against people's (see the page). */
     voice: MindVoiceWeek[]
     pace?: MindPace

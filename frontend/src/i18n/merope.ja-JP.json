@@ -398,15 +398,15 @@
   "personaLabelSpeech": "話し方",
   "mind": {
     "title": "彼女の心",
-    "desc": "この頃の彼女、欲しいもの、一人ひとりと各グループへの思い、そしてそれがどう変わってきたか。閲覧のみ。",
     "loading": "読み込み中…",
     "error": "読み込めませんでした",
     "refresh": "更新",
-    "updated": "{time} 更新",
+    "updatedAt": "更新",
     "tabs": {
       "her": "彼女自身",
       "people": "一人ひとり",
-      "groups": "グループ"
+      "groups": "グループ",
+      "signs": "バイタル"
     },
     "her": {
       "selfStory": "この頃の彼女",
@@ -468,6 +468,9 @@
       "forgiven": "水に流した",
       "taken_up": "話した",
       "deleted": "削除",
+      "explored": "調べた",
+      "changed_mind": "考えが変わった",
+      "tic_loop": "口癖になって整理された",
       "other": "終わった"
     },
     "empty": "まだない",
@@ -542,6 +545,50 @@
         "manyCalls": "呼び出し {calls} 回、普段（{usual}）の2倍超",
         "nothingLearned": "{days} 日続けて何も新しく知っていない"
       }
+    },
+    "more": "残り {count} 件を表示",
+    "less": "閉じる",
+    "endedFold": "終わったもの {count} 件",
+    "earlierFold": "以前の {count} 版",
+    "earlierAlerts": "前日までの注意 {count} 件",
+    "noneOf": "まだない：{names}",
+    "since": "{date} から",
+    "doing": {
+      "kind": {
+        "song": "曲",
+        "note": "ノート",
+        "chapter": "本",
+        "inquiry": "調べもの"
+      },
+      "part": "{index}/{total} 部",
+      "unopened": "未開封",
+      "reaction": {
+        "moved": "心を動かされた",
+        "liked": "気に入った",
+        "fine": "まあまあ",
+        "not_for_me": "合わなかった"
+      },
+      "guessed": "予想",
+      "remembered": "覚えていたこと",
+      "held": {
+        "yes": "当たった",
+        "partly": "一部当たった",
+        "no": "外れた",
+        "not_yet": "まだ分からない"
+      },
+      "ended": {
+        "finished": "読み終えた",
+        "let_go": "ここで手放した"
+      },
+      "thought": "最初の考え",
+      "fromMemory": "記憶から考えた",
+      "answered": {
+        "yes": "答えが見つかった",
+        "partly": "一部見つかった",
+        "no": "答えは見つからなかった"
+      },
+      "newToHer": "新しく知ったこと",
+      "knewIt": "実は知っていた"
     }
   },
   "fullBody": {

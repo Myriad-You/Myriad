@@ -398,15 +398,15 @@
   "personaLabelSpeech": "Voice",
   "mind": {
     "title": "Her mind",
-    "desc": "Who she has been lately, what she wants, how she sees each person and group, and how all of it changed. Read only.",
     "loading": "Loading…",
     "error": "Could not load",
     "refresh": "Refresh",
-    "updated": "Updated {time}",
+    "updatedAt": "Updated",
     "tabs": {
       "her": "Herself",
       "people": "People",
-      "groups": "Groups"
+      "groups": "Groups",
+      "signs": "Vitals"
     },
     "her": {
       "selfStory": "Who she has been lately",
@@ -468,6 +468,9 @@
       "forgiven": "let go",
       "taken_up": "talked about",
       "deleted": "deleted",
+      "explored": "looked into",
+      "changed_mind": "changed her mind",
+      "tic_loop": "cleared as a verbal tic",
       "other": "ended"
     },
     "empty": "Nothing yet",
@@ -542,6 +545,50 @@
         "manyCalls": "{calls} calls, over twice the usual {usual}",
         "nothingLearned": "Nothing new learned for {days} days running"
       }
+    },
+    "more": "Show {count} more",
+    "less": "Show less",
+    "endedFold": "{count} ended",
+    "earlierFold": "{count} earlier versions",
+    "earlierAlerts": "{count} alerts from earlier days",
+    "noneOf": "Nothing yet: {names}",
+    "since": "since {date}",
+    "doing": {
+      "kind": {
+        "song": "Song",
+        "note": "Note",
+        "chapter": "Book",
+        "inquiry": "Question"
+      },
+      "part": "part {index}/{total}",
+      "unopened": "not opened yet",
+      "reaction": {
+        "moved": "moved her",
+        "liked": "liked it",
+        "fine": "it was fine",
+        "not_for_me": "not for her"
+      },
+      "guessed": "Guessed",
+      "remembered": "Remembered",
+      "held": {
+        "yes": "held",
+        "partly": "partly held",
+        "no": "didn't hold",
+        "not_yet": "too soon to tell"
+      },
+      "ended": {
+        "finished": "Finished the book",
+        "let_go": "Let the book go here"
+      },
+      "thought": "Thought first",
+      "fromMemory": "Thought it over from memory",
+      "answered": {
+        "yes": "answered",
+        "partly": "partly answered",
+        "no": "no answer found"
+      },
+      "newToHer": "New to her",
+      "knewIt": "knew it already"
     }
   },
   "fullBody": {

@@ -26,11 +26,19 @@ const fixture = {
     views: [
       { text: '以前觉得电子乐太吵', at: day(1), current: false, endedAt: day(5), endedWhy: 'superseded' },
       { text: '电子乐也能很安静', at: day(5), current: true },
+      { text: '慢歌要有一下亮起来才算数', at: day(6), current: true },
     ],
     questions: [],
     corrected: [],
     days: [{ text: '今天和两个人聊了天。', at: day(9), current: true }],
-    doingThisWeek: [{ at: day(9), text: 'listening 「夜航」 (moved you)' }],
+    doingThisWeek: [
+      { at: day(8), text: '前面压着，后面一下全炸开。', thing: { kind: 'song', name: '夜航', artist: 'ヨルシカ' }, reaction: 'moved', kept: {} },
+      {
+        at: day(9), text: '盲乞丐的拐杖声太吓人了。', reaction: 'liked',
+        thing: { kind: 'chapter', title: 'Treasure Island', author: 'Robert Louis Stevenson', index: 4, total: 38 },
+        kept: { guessed: { said: '他们得赶在十点前打开箱子', held: 'partly', happened: '打开了箱子但没拿完钱' } },
+      },
+    ],
     voice: [
       { week: '2026-09-14', lines: 80, peopleLines: 60, drift: null, peopleDrift: null, fromPeople: 0.91 },
       { week: '2026-09-21', lines: 120, peopleLines: 70, drift: 0.58, peopleDrift: 0.54, fromPeople: 0.8 },
@@ -92,10 +100,11 @@ test('her mind shows herself, each person and each group, with how each changed'
     entryPoints: [new URL('./AgentMindPanel.tsx', import.meta.url).pathname], bundle: true, write: false,
     platform: 'node', format: 'cjs', packages: 'external', define: { 'import.meta.env': '{}' },
     plugins: [{ name: 'boundaries', setup(builder) {
-      builder.onResolve({ filter: /(\/settings|contexts\/I18nContext|services\/agent)$/ }, ({ path }) => ({ path, external: true }))
+      builder.onResolve({ filter: /(\/settings|contexts\/I18nContext|services\/agent|\.css)$/ }, ({ path }) => ({ path, external: true }))
     } }],
   })
   const mockRequire = (path: string) => {
+    if (path.endsWith('.css')) return {}
     if (path.endsWith('/settings')) {
       return {
         SettingGroup: ({ title, description, children }: { title?: string; description?: string; children?: React.ReactNode }) =>
@@ -113,6 +122,8 @@ test('her mind shows herself, each person and each group, with how each changed'
   compileFunction(bundle.outputFiles[0].text, ['require', 'module', 'exports'])(mockRequire, module, module.exports)
   const root = createRoot(dom.window.document.getElementById('root'))
   const text = () => dom.window.document.body.textContent as string
+  const button = (label: string) =>
+    [...dom.window.document.querySelectorAll('button')].find(element => element.textContent === label) as HTMLButtonElement
   const tab = (name: string) => act(async () => dom.window.document.querySelector(`[data-tab="${name}"]`).click())
   try {
     await act(async () => root.render(createElement(module.exports.default)))
@@ -122,25 +133,39 @@ test('her mind shows herself, each person and each group, with how each changed'
       assert.ok(text().includes('把一张专辑从头听完'))
       assert.ok(text().includes(merope.mind.reach.on_your_own))
       assert.ok(text().includes('听到第三首了'))
-      // A view she changed her mind about stays, marked as rewritten.
+      assert.ok(text().includes(merope.mind.longing))
+      // A view she changed her mind about stays, folded away and marked as rewritten.
+      assert.ok(text().includes('慢歌要有一下亮起来才算数'))
+      assert.ok(!text().includes('以前觉得电子乐太吵'))
+      await act(async () => button(merope.mind.endedFold.replace('{count}', '1')).click())
       assert.ok(text().includes('以前觉得电子乐太吵'))
       assert.ok(text().includes(merope.mind.ended.superseded))
+      // What she did, newest first, as itself: what it was, how it landed, how her guess went.
+      assert.ok(text().indexOf('Treasure Island') < text().indexOf('夜航'))
+      assert.ok(text().includes(merope.mind.doing.reaction.moved) && text().includes('盲乞丐的拐杖声太吓人了'))
+      assert.ok(text().includes('5/38') && text().includes(merope.mind.doing.held.partly))
+      assert.ok(text().includes(merope.mind.her.taste) && text().includes('ヨルシカ 的歌'))
+    }
+    await tab('signs')
+    if (snapshot === fixture) {
       // Her voice, week by week.
       assert.ok(text().includes(merope.mind.her.voice))
       assert.ok(text().includes('0.58') && text().includes('0.80'))
-      // Her pace, and a longing marked as one.
+      // Her pace.
       assert.ok(text().includes(merope.mind.her.pace) && text().includes(merope.mind.pace.tone.flat))
       assert.ok(text().includes('6.5') && text().includes('8.0'))
-      assert.ok(text().includes(merope.mind.longing))
-      assert.ok(text().includes(merope.mind.her.taste) && text().includes('ヨルシカ 的歌'))
       // Her vital signs, with what is worth raising.
       assert.ok(text().includes(merope.mind.her.vitals) && text().includes('doing_choice 81'))
       assert.ok(text().includes('有 2 条她自己的经历读不出来') && text().includes('心得里 36% 出现「不是这个」'))
       assert.ok(text().includes('72% 的回复以问句收尾'))
       assert.ok(text().includes('这一周主动发了 6 条，只有 1 条有回应') && text().includes('3 条，1 条有回应'))
-      assert.ok(text().includes('学到新东西：0') && text().includes('连着 2 天没学到任何新东西'))
+      assert.ok(text().includes(`${merope.mind.vitals.learned}0`) && text().includes('连着 2 天没学到任何新东西'))
     }
     await tab('people')
+    // What stopped holding is folded away; open all of it.
+    await act(async () => {
+      for (const more of dom.window.document.querySelectorAll('[aria-expanded="false"]')) (more as HTMLButtonElement).click()
+    })
     if (snapshot === fixture) {
       assert.ok(text().includes('阿明'))
       assert.ok(text().includes(merope.mind.person.us))
@@ -155,7 +180,8 @@ test('her mind shows herself, each person and each group, with how each changed'
     }
     await tab('groups')
     if (snapshot === fixture) {
-      assert.ok(text().includes('onebot:123'))
+      // A group's id, with the platform beside it.
+      assert.ok(text().includes('123onebot'))
       assert.ok(text().includes('大家在吵海带汤算不算韩国风'))
       assert.ok(text().includes('路人甲 可能是 阿明'))
       assert.ok(text().includes(merope.mind.group.lands) && text().includes('刷屏时插话没人理'))
@@ -163,7 +189,7 @@ test('her mind shows herself, each person and each group, with how each changed'
       assert.ok(text().includes('阿明：'))
       assert.ok(text().includes(merope.mind.status.open))
     } else {
-      for (const group of snapshot.groups) assert.ok(text().includes(group.venue))
+      for (const group of snapshot.groups) assert.ok(text().includes(group.venue.split(':').pop()))
     }
     await act(async () => dom.window.document.querySelector('[data-refresh]').click())
     assert.equal(loads, 2)

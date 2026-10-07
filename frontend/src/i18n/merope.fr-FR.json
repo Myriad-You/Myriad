@@ -398,15 +398,15 @@
   "personaLabelSpeech": "Voix",
   "mind": {
     "title": "Son intérieur",
-    "desc": "Qui elle est ces temps-ci, ce qu'elle veut, comment elle voit chaque personne et chaque groupe, et comment cela a évolué. Lecture seule.",
     "loading": "Chargement…",
     "error": "Chargement impossible",
     "refresh": "Actualiser",
-    "updated": "Mis à jour {time}",
+    "updatedAt": "Mis à jour",
     "tabs": {
       "her": "Elle-même",
       "people": "Personnes",
-      "groups": "Groupes"
+      "groups": "Groupes",
+      "signs": "Signes vitaux"
     },
     "her": {
       "selfStory": "Qui elle est ces temps-ci",
@@ -468,6 +468,9 @@
       "forgiven": "pardonné",
       "taken_up": "abordé",
       "deleted": "supprimé",
+      "explored": "recherché",
+      "changed_mind": "a changé d’avis",
+      "tic_loop": "retiré, devenu un tic",
       "other": "terminé"
     },
     "empty": "Rien pour l'instant",
@@ -542,6 +545,50 @@
         "manyCalls": "{calls} appels, plus du double de l'habitude ({usual})",
         "nothingLearned": "Rien appris de nouveau depuis {days} jours"
       }
+    },
+    "more": "Afficher {count} de plus",
+    "less": "Afficher moins",
+    "endedFold": "{count} terminés",
+    "earlierFold": "{count} versions précédentes",
+    "earlierAlerts": "{count} alertes des jours précédents",
+    "noneOf": "Rien pour l’instant : {names}",
+    "since": "depuis le {date}",
+    "doing": {
+      "kind": {
+        "song": "Chanson",
+        "note": "Note",
+        "chapter": "Livre",
+        "inquiry": "Question"
+      },
+      "part": "partie {index}/{total}",
+      "unopened": "pas encore ouvert",
+      "reaction": {
+        "moved": "l’a émue",
+        "liked": "a aimé",
+        "fine": "sans plus",
+        "not_for_me": "pas pour elle"
+      },
+      "guessed": "Deviné",
+      "remembered": "Souvenu",
+      "held": {
+        "yes": "juste",
+        "partly": "en partie juste",
+        "no": "faux",
+        "not_yet": "trop tôt pour dire"
+      },
+      "ended": {
+        "finished": "Livre terminé",
+        "let_go": "Livre laissé ici"
+      },
+      "thought": "Pensait d’abord",
+      "fromMemory": "Réfléchi de mémoire",
+      "answered": {
+        "yes": "réponse trouvée",
+        "partly": "réponse partielle",
+        "no": "pas de réponse"
+      },
+      "newToHer": "Nouveau pour elle",
+      "knewIt": "le savait déjà"
     }
   },
   "fullBody": {

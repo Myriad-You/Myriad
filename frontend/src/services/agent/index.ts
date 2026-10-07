@@ -31,6 +31,7 @@ export type {
   ManagedMemory,
   MeropeStateChangedEvent,
   MindAlert,
+  MindDoing,
   MindEntry,
   MindGroup,
   MindPace,

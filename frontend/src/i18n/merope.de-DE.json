@@ -398,15 +398,15 @@
   "personaLabelSpeech": "Stimme",
   "mind": {
     "title": "Ihr Inneres",
-    "desc": "Wie sie in letzter Zeit ist, was sie sich wünscht, wie sie jede Person und jede Gruppe sieht und wie sich das verändert hat. Nur lesen.",
     "loading": "Wird geladen…",
     "error": "Konnte nicht geladen werden",
     "refresh": "Aktualisieren",
-    "updated": "Aktualisiert {time}",
+    "updatedAt": "Aktualisiert",
     "tabs": {
       "her": "Sie selbst",
       "people": "Personen",
-      "groups": "Gruppen"
+      "groups": "Gruppen",
+      "signs": "Vitalwerte"
     },
     "her": {
       "selfStory": "Wie sie in letzter Zeit ist",
@@ -468,6 +468,9 @@
       "forgiven": "losgelassen",
       "taken_up": "besprochen",
       "deleted": "gelöscht",
+      "explored": "nachgeschlagen",
+      "changed_mind": "Meinung geändert",
+      "tic_loop": "als Floskel entfernt",
       "other": "beendet"
     },
     "empty": "Noch nichts",
@@ -542,6 +545,50 @@
         "manyCalls": "{calls} Aufrufe, mehr als doppelt so viele wie üblich ({usual})",
         "nothingLearned": "Seit {days} Tagen nichts Neues gelernt"
       }
+    },
+    "more": "{count} weitere anzeigen",
+    "less": "Weniger anzeigen",
+    "endedFold": "{count} beendet",
+    "earlierFold": "{count} frühere Fassungen",
+    "earlierAlerts": "{count} Hinweise von früheren Tagen",
+    "noneOf": "Noch nichts: {names}",
+    "since": "seit {date}",
+    "doing": {
+      "kind": {
+        "song": "Lied",
+        "note": "Notiz",
+        "chapter": "Buch",
+        "inquiry": "Frage"
+      },
+      "part": "Teil {index}/{total}",
+      "unopened": "noch nicht geöffnet",
+      "reaction": {
+        "moved": "hat sie bewegt",
+        "liked": "gefiel ihr",
+        "fine": "ganz okay",
+        "not_for_me": "nicht ihr Ding"
+      },
+      "guessed": "Vermutet",
+      "remembered": "Erinnert",
+      "held": {
+        "yes": "traf zu",
+        "partly": "traf teilweise zu",
+        "no": "traf nicht zu",
+        "not_yet": "noch offen"
+      },
+      "ended": {
+        "finished": "Buch zu Ende gelesen",
+        "let_go": "Buch hier losgelassen"
+      },
+      "thought": "Zuerst gedacht",
+      "fromMemory": "Aus dem Gedächtnis überlegt",
+      "answered": {
+        "yes": "beantwortet",
+        "partly": "teilweise beantwortet",
+        "no": "keine Antwort gefunden"
+      },
+      "newToHer": "Neu für sie",
+      "knewIt": "wusste es schon"
     }
   },
   "fullBody": {
