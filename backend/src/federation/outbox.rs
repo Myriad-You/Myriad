@@ -376,9 +376,9 @@ async fn get_public_object(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             format!(
-                "SELECT a.object_json {} \\
-                 AND p.content_type = $1 \\
-                 AND (a.object_json -> 'object' ->> 'id') = $2 \\
+                "SELECT a.object_json {} \
+                 AND p.content_type = $1 \
+                 AND (a.object_json -> 'object' ->> 'id') = $2 \
                  LIMIT 1",
                 PUBLIC_CONTENT_PROJECTION
             ),
@@ -568,5 +568,113 @@ mod tests {
             &stale_cross_type,
             id
         ));
+    }
+
+    #[tokio::test]
+    async fn federation_outbox_and_delivery_lease_db_contracts_public_objects() {
+        use axum::{Router, body::Body, http::Request, routing::get};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new().await else {
+            return;
+        };
+        let db = &fixture.db;
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (1, 'alice')")
+            .await
+            .unwrap();
+        let app = Router::new()
+            .route("/notes/{id}", get(get_note))
+            .route("/reports/{id}", get(get_report))
+            .route("/phantasi/articles/{id}", get(get_phantasi_article))
+            .route("/tapps/{id}", get(get_tapp))
+            .route("/library/{id}", get(get_library))
+            .with_state(db.clone());
+        let base = get_base_url().await;
+
+        for (kind, path) in [
+            (ContentKind::Note, "/notes"),
+            (ContentKind::Report, "/reports"),
+            (ContentKind::PhantasiArticle, "/phantasi/articles"),
+            (ContentKind::Tapp, "/tapps"),
+            (ContentKind::Library, "/library"),
+        ] {
+            for visibility in ["public", "followers", "unpublished"] {
+                let id = format!("{}-{visibility}", kind.as_str());
+                let object_id = kind.object_url(&base, &id);
+                let activity_id = format!("{base}/activities/{id}");
+                let object = json!({
+                    "id": object_id,
+                    "type": kind.ap_type(),
+                    "mfp:contentType": kind.as_str(),
+                    "content": "public object route regression",
+                });
+                db.execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "INSERT INTO federation_activities \
+                     (activity_id, user_id, activity_type, object_json, is_local) \
+                     VALUES ($1, 1, 'Create', $2, true)",
+                    [
+                        activity_id.clone().into(),
+                        json!({"type": "Create", "object": object}).into(),
+                    ],
+                ))
+                .await
+                .unwrap();
+                if visibility != "unpublished" {
+                    db.execute_raw(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        "INSERT INTO federation_published_content \
+                         (user_id, content_type, content_id, activity_id, visibility) \
+                         VALUES (1, $1, $2, $3, $4)",
+                        [
+                            kind.as_str().into(),
+                            id.clone().into(),
+                            activity_id.into(),
+                            visibility.into(),
+                        ],
+                    ))
+                    .await
+                    .unwrap();
+                }
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!("{path}/{id}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                if visibility == "public" {
+                    assert_eq!(response.status(), StatusCode::OK, "{kind:?}");
+                    let body = response.into_body().collect().await.unwrap().to_bytes();
+                    let actual: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    assert_eq!(
+                        actual, object,
+                        "returns the object, not its Create envelope"
+                    );
+                } else {
+                    assert_eq!(
+                        response.status(),
+                        StatusCode::NOT_FOUND,
+                        "{kind:?} {visibility}"
+                    );
+                }
+            }
+            let missing = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("{path}/missing"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(missing.status(), StatusCode::NOT_FOUND, "{kind:?} missing");
+        }
+        fixture.close().await;
     }
 }
