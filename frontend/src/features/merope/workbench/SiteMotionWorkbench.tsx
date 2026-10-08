@@ -21,6 +21,7 @@ import { agentService } from '../../../services/agent'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { isAnime25DPlayback } from '../anime25drig/types'
 import {
+  decomposeSitePortraitWithSeeThrough,
   saveFullBodyPoseCorrections,
   saveRigPoseCorrections,
   uploadFullBodyPortrait,
@@ -155,6 +156,7 @@ export default function SiteMotionWorkbench({
       file: File,
       onStage: NonNullable<Parameters<typeof preflightRigPsdAsset>[2]>,
       signal?: AbortSignal,
+      options?: { aiExpressions?: boolean },
     ) => {
       if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
       return preflightRigPsdAsset(
@@ -163,7 +165,8 @@ export default function SiteMotionWorkbench({
         onStage,
         generationFingerprint || undefined,
         signal,
-        expressionReferences(),
+        // The redrawn expressions belong to the enhanced rig only.
+        options?.aiExpressions ? expressionReferences() : [],
       )
     },
     [expressionReferences, generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait],
@@ -179,6 +182,14 @@ export default function SiteMotionWorkbench({
       { sourceMasterAssetId: portraitUrl, sourceGenerationFingerprint: generationFingerprint || undefined },
       { fromArchive, onStatus, signal },
     )
+  }, [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait])
+
+  const decomposePlainRigPsd = useCallback(async () => {
+    if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
+    return decomposeSitePortraitWithSeeThrough({
+      sourceMasterAssetId: portraitUrl,
+      sourceGenerationFingerprint: generationFingerprint || undefined,
+    })
   }, [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait])
 
   const { reload } = persona
@@ -503,10 +514,12 @@ export default function SiteMotionWorkbench({
           seeThroughTokenConfigured={seeThrough.configured}
           onSaveSeeThroughToken={seeThrough.save}
           onDecomposeRigPsd={decomposeRigPsd}
+          onDecomposePlainPsd={decomposePlainRigPsd}
           onPreflightRigPsd={preflightRigPsd}
           onCommitRigPsd={commitRigPsd}
           aiExpressions={aiExpressions.ready}
           onGenerateAiExpressions={portraitUrl ? aiExpressions.generate : undefined}
+          aiExpressionsReady={aiExpressions.ready.length > 0}
           motionEnabled={motionEnabled}
           stageSwitch={
             fullBody.sets.length > 0 ? (

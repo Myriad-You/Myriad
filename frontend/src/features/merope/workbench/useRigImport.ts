@@ -19,6 +19,14 @@ export interface RigImportSummary {
   activated: boolean
 }
 
+/**
+ * The plain rig: an uploaded PSD or one decomposition, its turn worked out
+ * from the front drawing (about 15°). The enhanced one adds what is generated:
+ * turn keys fitted to four turned drawings (about 30°) and, for the bust, the
+ * AI-redrawn expressions; each can be chosen on its own.
+ */
+export type RigMode = 'plain' | 'enhanced'
+
 export interface RigImportSource {
   sourceMasterAssetId: string
   sourceGenerationFingerprint?: string
@@ -30,16 +38,22 @@ export interface RigImportSource {
     signal: AbortSignal,
     fromArchive?: string,
   ) => Promise<File>
+  /** Splits the portrait once, without turn keys. */
+  onDecomposePlainPsd: (signal: AbortSignal) => Promise<File>
   onPreflightRigPsd: (
     file: File,
     onStage: (event: RigAssetCompileEvent) => void,
     signal?: AbortSignal,
+    options?: { aiExpressions?: boolean },
   ) => Promise<RigAssetPreflight>
   onCommitRigPsd: (
     preflight: RigAssetPreflight,
     onStage: (event: RigAssetCompileEvent) => void,
   ) => Promise<{ partCount: number; score: number }>
+  /** Redraws the expressions with the image model; absent where they are not offered (full body). */
   onGenerateAiExpressions?: () => Promise<void>
+  /** Whether redrawn expressions exist for the current portrait already. */
+  aiExpressionsReady?: boolean
 }
 
 /**
@@ -52,9 +66,11 @@ export function useRigImport({
   seeThroughTokenConfigured,
   onSaveSeeThroughToken,
   onDecomposeRigPsd,
+  onDecomposePlainPsd,
   onPreflightRigPsd,
   onCommitRigPsd,
   onGenerateAiExpressions,
+  aiExpressionsReady = false,
 }: RigImportSource) {
   const { t } = useI18n()
   const labels = t.merope
@@ -86,8 +102,15 @@ export function useRigImport({
   const [aiExpressionsError, setAiExpressionsError] = useState<string | null>(
     null,
   )
-  // The PSD last preflighted here, so fresh expressions can be tried on it at once.
+  const [mode, setMode] = useState<RigMode>('plain')
+  // What the enhanced rig adds; expressions only where they are offered.
+  const [enhanceTurn, setEnhanceTurn] = useState(true)
+  const [enhanceExpressions, setEnhanceExpressions] = useState(Boolean(onGenerateAiExpressions))
+  const expressionsOffered = Boolean(onGenerateAiExpressions)
+  // The PSD last preflighted here, and whether with the redrawn expressions,
+  // so fresh expressions can be tried on it at once.
   const lastRigPsdRef = useRef<File | null>(null)
+  const lastWithExpressionsRef = useRef(false)
   const importAbortRef = useRef<AbortController | null>(null)
   const failRigImport = (message: string) => {
     setError(message)
@@ -144,9 +167,10 @@ export function useRigImport({
     }))
   }
 
-  const preflightPsd = async (file: File) => {
+  const preflightPsd = async (file: File, aiExpressions = false) => {
     if (importing || !sourceMasterAssetId) return
     lastRigPsdRef.current = file
+    lastWithExpressionsRef.current = aiExpressions
     const controller = new AbortController()
     importAbortRef.current = controller
     setOperation('manual')
@@ -160,6 +184,7 @@ export function useRigImport({
           if (!controller.signal.aborted) recordStage(event)
         },
         controller.signal,
+        { aiExpressions },
       )
       controller.signal.throwIfAborted()
       setPreflight(imported)
@@ -189,10 +214,19 @@ export function useRigImport({
     }
   }
 
+  /**
+   * Splits the portrait and preflights it. The plain rig splits it once; the
+   * enhanced one fits turn keys (or refits a kept job) and redraws the
+   * expressions as chosen, the two at once, then uses what was made.
+   */
   const decomposePsd = async (fromArchive?: string) => {
     if (importing || !sourceMasterAssetId || !seeThroughTokenConfigured) {
       return
     }
+    const enhanced = mode === 'enhanced' || fromArchive !== undefined
+    const turn = enhanced && (enhanceTurn || fromArchive !== undefined)
+    const expressions = enhanced && expressionsOffered && enhanceExpressions
+    if (enhanced && !turn && !expressions) return
     const controller = new AbortController()
     importAbortRef.current = controller
     setOperation('decompose')
@@ -202,19 +236,28 @@ export function useRigImport({
     setResult(null)
     setError(null)
     try {
-      const file = await onDecomposeRigPsd(
-        (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
-        controller.signal,
-        fromArchive,
-      )
+      const split = turn
+        ? onDecomposeRigPsd(
+            (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
+            controller.signal,
+            fromArchive,
+          )
+        : onDecomposePlainPsd(controller.signal)
+      // Redrawn once per portrait; kept ones are used as they are.
+      const redraw = expressions && !aiExpressionsReady && onGenerateAiExpressions
+        ? onGenerateAiExpressions()
+        : Promise.resolve()
+      const [file] = await Promise.all([split, redraw])
       setDecomposeStatus(null)
       controller.signal.throwIfAborted()
       lastRigPsdRef.current = file
+      lastWithExpressionsRef.current = expressions
       const imported = await onPreflightRigPsd(file,
         (event) => {
           if (!controller.signal.aborted) recordStage(event)
         },
         controller.signal,
+        { aiExpressions: expressions },
       )
       controller.signal.throwIfAborted()
       setPreflight(imported)
@@ -259,8 +302,9 @@ export function useRigImport({
     setAiExpressionsError(null)
     try {
       await onGenerateAiExpressions()
+      // Tried at once on the PSD last preflighted with expressions.
       const file = lastRigPsdRef.current
-      if (file && !importing) void preflightPsd(file)
+      if (file && lastWithExpressionsRef.current && !importing) void preflightPsd(file, true)
     } catch (reason) {
       setAiExpressionsError(userFacingError(reason, labels.aiExpressionsFailed))
     } finally {
@@ -299,6 +343,13 @@ export function useRigImport({
   }
 
   return {
+    mode,
+    setMode,
+    enhanceTurn,
+    setEnhanceTurn,
+    enhanceExpressions,
+    setEnhanceExpressions,
+    expressionsOffered,
     stage,
     decomposeStatus,
     steps,

@@ -9,6 +9,7 @@ import { useI18n } from '../../../contexts/I18nContext'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { userFacingError } from '../../../utils/userFacingError'
 import {
+  decomposeFullBodyWithSeeThrough,
   generateFullBodyPortrait,
   getFullBodyFace,
   uploadFullBodyPortrait,
@@ -82,6 +83,11 @@ export function FullBodyPanel({
         { sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint },
         { outfitId, fromArchive, onStatus, signal },
       ),
+    onDecomposePlainPsd: () =>
+      decomposeFullBodyWithSeeThrough(outfitId, {
+        sourceMasterAssetId: portrait ?? '',
+        sourceGenerationFingerprint: fingerprint,
+      }),
     onPreflightRigPsd: (
       file: File,
       onStage: (event: RigAssetCompileEvent) => void,
@@ -243,6 +249,7 @@ export function FullBodyPanel({
             canGenerateAiExpressions={false}
             motionEnabled={false}
             archiveOutfitId={outfitId}
+            figure="fullBody"
           />
         </SettingGroup>
       ) : null}

@@ -1,7 +1,8 @@
 import type { AuthoredExpressionKind } from '../rig/authoredExpression'
-import type { RigImport } from './useRigImport'
+import type { RigImport, RigMode } from './useRigImport'
 import { useRef } from 'react'
 import {
+  CheckboxItem,
   GitHubProjectBadge,
   InputItem,
   SettingsButton,
@@ -36,6 +37,8 @@ interface Props {
   motionEnabled: boolean
   /** Whose kept turn-keys jobs to list: null (default) the worn bust, else that outfit. */
   archiveOutfitId?: string | null
+  /** Names the two modes: bust / bust enhanced, or full body / full body enhanced. */
+  figure?: 'bust' | 'fullBody'
 }
 
 /** The worn outfit's rig: get a layered PSD in, check it, and put it on. */
@@ -48,6 +51,7 @@ export function RigImportPanel({
   canGenerateAiExpressions,
   motionEnabled,
   archiveOutfitId = null,
+  figure = 'bust',
 }: Props) {
   const { t, format } = useI18n()
   const labels = t.merope
@@ -57,15 +61,86 @@ export function RigImportPanel({
     { value: 'seeThrough', label: labels.rigPathSeeThrough },
   ]
   const { importing, operation } = rig
+  const modes: Array<{ value: RigMode; label: string }> = [
+    { value: 'plain', label: figure === 'bust' ? labels.rigModeBust : labels.rigModeFullBody },
+    { value: 'enhanced', label: figure === 'bust' ? labels.rigModeBustEnhanced : labels.rigModeFullBodyEnhanced },
+  ]
+  const enhancing = rig.mode === 'enhanced'
+  const nothingChosen = enhancing && !rig.enhanceTurn && !(rig.expressionsOffered && rig.enhanceExpressions)
+  const decomposeLabel = operation === 'decompose'
+    ? (rig.decomposeStatus ? turnKeysProgress(labels, rig.decomposeStatus) : labels.motionSeeThroughGenerating)
+    : enhancing ? labels.rigEnhanceGenerate : labels.motionSeeThroughGenerate
+  const seeThroughSetup = (
+    <>
+      <InputItem
+        itemKey="see-through-hf-token"
+        label={labels.motionSeeThroughToken}
+        labelAccessory={
+          <SettingTitleTag
+            onClick={() =>
+              window.open(
+                'https://huggingface.co/settings/tokens',
+                '_blank',
+                'noopener,noreferrer',
+              )
+            }
+          >
+            {labels.motionSeeThroughTokenCreate}
+          </SettingTitleTag>
+        }
+        description={labels.motionSeeThroughTokenDescription}
+        value={
+          rig.tokenDraft ||
+          (seeThroughTokenConfigured ? '••••••••' : '')
+        }
+        onChange={rig.editToken}
+        inputType="password"
+        autoComplete="off"
+        placeholder="hf_…"
+        variant="clickToEdit"
+        emptyLabel={labels.motionSeeThroughTokenMissing}
+        editLabel={labels.motionSeeThroughTokenEdit}
+        saveLabel={labels.motionSeeThroughTokenSave}
+        cancelLabel={labels.motionSeeThroughTokenCancel}
+        onCommit={rig.saveToken}
+        error={rig.tokenError}
+        clearable={false}
+      />
+      <SeeThroughSpaceField />
+    </>
+  )
+  const decomposeButton = (
+    <SettingsButton
+      type="button"
+      size="sm"
+      disabled={importing || !seeThroughTokenConfigured || nothingChosen}
+      loading={operation === 'decompose'}
+      onClick={() => void rig.decomposePsd()}
+    >
+      {nothingChosen ? labels.rigEnhanceNone : decomposeLabel}
+    </SettingsButton>
+  )
   return (
     <div className="merope-motion-rig">
       <FaceTabs
         className="merope-motion-rig__tabs"
         ariaLabel={labels.rigGroup}
-        value={rigPath}
-        options={rigPaths}
-        onChange={onRigPathChange}
+        value={rig.mode}
+        options={modes}
+        onChange={(mode) => { if (!importing) rig.setMode(mode) }}
       />
+      <p className="merope-motion-rig__hint">
+        {enhancing ? labels.rigModeEnhancedHint : labels.rigModePlainHint}
+      </p>
+      {enhancing ? null : (
+        <FaceTabs
+          className="merope-motion-rig__tabs"
+          ariaLabel={labels.rigGroup}
+          value={rigPath}
+          options={rigPaths}
+          onChange={onRigPathChange}
+        />
+      )}
       <div className="merope-character-home__credit">
         <p className="merope-character-home__credit-line">
           <GitHubProjectBadge
@@ -95,7 +170,69 @@ export function RigImportPanel({
           ))}
         </p>
       </div>
-      {rigPath === 'upload' ? (
+      {enhancing ? (
+        <section className="merope-motion-rig__path">
+          {seeThroughSetup}
+          <CheckboxItem
+            itemKey="rig-enhance-turn"
+            label={labels.rigEnhanceTurn}
+            description={labels.rigEnhanceTurnHint}
+            value={rig.enhanceTurn}
+            onChange={rig.setEnhanceTurn}
+            disabled={importing}
+          />
+          {rig.expressionsOffered ? (
+            <CheckboxItem
+              itemKey="rig-enhance-expressions"
+              label={labels.rigEnhanceExpressions}
+              description={labels.rigEnhanceExpressionsHint}
+              value={rig.enhanceExpressions}
+              onChange={rig.setEnhanceExpressions}
+              disabled={importing}
+            />
+          ) : null}
+          {rig.expressionsOffered && rig.enhanceExpressions ? (
+            <p className="merope-motion-rig__hint">
+              {aiExpressions.length > 0
+                ? format(labels.aiExpressionsReady, {
+                    kinds: aiExpressions
+                      .map((kind) => aiExpressionLabel(labels, kind))
+                      .join(' / '),
+                  })
+                : labels.aiExpressionsNone}
+            </p>
+          ) : null}
+          {rig.aiExpressionsError ? (
+            <p className="merope-motion-rig__hint" role="alert">
+              {rig.aiExpressionsError}
+            </p>
+          ) : null}
+          <span className="merope-turn-archives__actions">
+            {decomposeButton}
+            {canGenerateAiExpressions && rig.enhanceExpressions && aiExpressions.length > 0 ? (
+              <SettingsButton
+                type="button"
+                size="sm"
+                disabled={rig.aiExpressionsBusy || importing}
+                loading={rig.aiExpressionsBusy}
+                confirm={labels.aiExpressionsConfirm}
+                onClick={() => void rig.generateAiExpressions()}
+              >
+                {rig.aiExpressionsBusy
+                  ? labels.aiExpressionsGenerating
+                  : labels.aiExpressionsRegenerate}
+              </SettingsButton>
+            ) : null}
+          </span>
+          {seeThroughTokenConfigured ? (
+            <TurnArchiveList
+              outfitId={archiveOutfitId}
+              busy={importing}
+              onRefit={(archiveId) => void rig.decomposePsd(archiveId)}
+            />
+          ) : null}
+        </section>
+      ) : rigPath === 'upload' ? (
         <section className="merope-motion-rig__path">
           <SettingsButton
             type="button"
@@ -111,97 +248,10 @@ export function RigImportPanel({
         </section>
       ) : (
         <section className="merope-motion-rig__path">
-          <InputItem
-            itemKey="see-through-hf-token"
-            label={labels.motionSeeThroughToken}
-            labelAccessory={
-              <SettingTitleTag
-                onClick={() =>
-                  window.open(
-                    'https://huggingface.co/settings/tokens',
-                    '_blank',
-                    'noopener,noreferrer',
-                  )
-                }
-              >
-                {labels.motionSeeThroughTokenCreate}
-              </SettingTitleTag>
-            }
-            description={labels.motionSeeThroughTokenDescription}
-            value={
-              rig.tokenDraft ||
-              (seeThroughTokenConfigured ? '••••••••' : '')
-            }
-            onChange={rig.editToken}
-            inputType="password"
-            autoComplete="off"
-            placeholder="hf_…"
-            variant="clickToEdit"
-            emptyLabel={labels.motionSeeThroughTokenMissing}
-            editLabel={labels.motionSeeThroughTokenEdit}
-            saveLabel={labels.motionSeeThroughTokenSave}
-            cancelLabel={labels.motionSeeThroughTokenCancel}
-            onCommit={rig.saveToken}
-            error={rig.tokenError}
-            clearable={false}
-          />
-          <SeeThroughSpaceField />
-          <SettingsButton
-            type="button"
-            size="sm"
-            disabled={importing || !seeThroughTokenConfigured}
-            loading={operation === 'decompose'}
-            onClick={() => void rig.decomposePsd()}
-          >
-            {operation === 'decompose'
-              ? (rig.decomposeStatus ? turnKeysProgress(labels, rig.decomposeStatus) : labels.motionSeeThroughGenerating)
-              : labels.motionSeeThroughGenerate}
-          </SettingsButton>
-          {seeThroughTokenConfigured ? (
-            <TurnArchiveList
-              outfitId={archiveOutfitId}
-              busy={importing}
-              onRefit={(archiveId) => void rig.decomposePsd(archiveId)}
-            />
-          ) : null}
+          {seeThroughSetup}
+          {decomposeButton}
         </section>
       )}
-      {canGenerateAiExpressions ? (
-        <section className="merope-motion-rig__status">
-          <strong>{labels.aiExpressionsTitle}</strong>
-          <p className="merope-motion-rig__hint">
-            {labels.aiExpressionsHint}
-          </p>
-          <p className="merope-motion-rig__hint">
-            {aiExpressions.length > 0
-              ? format(labels.aiExpressionsReady, {
-                  kinds: aiExpressions
-                    .map((kind) => aiExpressionLabel(labels, kind))
-                    .join(' / '),
-                })
-              : labels.aiExpressionsNone}
-          </p>
-          {rig.aiExpressionsError ? (
-            <p className="merope-motion-rig__hint" role="alert">
-              {rig.aiExpressionsError}
-            </p>
-          ) : null}
-          <SettingsButton
-            type="button"
-            size="sm"
-            disabled={rig.aiExpressionsBusy}
-            loading={rig.aiExpressionsBusy}
-            confirm={labels.aiExpressionsConfirm}
-            onClick={() => void rig.generateAiExpressions()}
-          >
-            {rig.aiExpressionsBusy
-              ? labels.aiExpressionsGenerating
-              : aiExpressions.length > 0
-                ? labels.aiExpressionsRegenerate
-                : labels.aiExpressionsGenerate}
-          </SettingsButton>
-        </section>
-      ) : null}
       <input
         ref={rigPsdInputRef}
         type="file"
