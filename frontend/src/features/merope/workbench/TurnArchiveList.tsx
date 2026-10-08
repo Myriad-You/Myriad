@@ -7,6 +7,8 @@ import { deleteTurnArchive, downloadTurnArchive, listTurnArchives } from '../tur
 interface Props {
   /** null: the worn bust's archives; else that outfit's. */
   outfitId: string | null
+  /** The portrait whose archives are shown; others' are not this one's to refit or keep. */
+  masterAssetId: string
   /** Another rig action is running: nothing can be refitted meanwhile. */
   busy: boolean
   onRefit: (archiveId: string) => void
@@ -16,7 +18,7 @@ interface Props {
  * The slot's kept turn-keys jobs: download one whole, fit one again with the
  * Space's current fit (no drawing, no decomposing), or delete it.
  */
-export function TurnArchiveList({ outfitId, busy, onRefit }: Props) {
+export function TurnArchiveList({ outfitId, masterAssetId, busy, onRefit }: Props) {
   const { t, format } = useI18n()
   const labels = t.merope
   const [archives, setArchives] = useState<TurnArchive[] | null>(null)
@@ -32,7 +34,8 @@ export function TurnArchiveList({ outfitId, busy, onRefit }: Props) {
     listTurnArchives().then(
       (found) => {
         if (!live) return
-        setArchives(found.archives.filter((archive) => (archive.outfitId ?? null) === outfitId))
+        setArchives(found.archives.filter((archive) =>
+          (archive.outfitId ?? null) === outfitId && archive.sourceMasterAssetId === masterAssetId))
         setKeep(found.keepPerMaster)
       },
       () => {
@@ -42,7 +45,7 @@ export function TurnArchiveList({ outfitId, busy, onRefit }: Props) {
     return () => {
       live = false
     }
-  }, [busy, outfitId, revision, labels.turnArchiveError])
+  }, [busy, outfitId, masterAssetId, revision, labels.turnArchiveError])
 
   const act = async (id: string, action: () => Promise<void>) => {
     setWorking(id)
@@ -67,8 +70,6 @@ export function TurnArchiveList({ outfitId, busy, onRefit }: Props) {
         <div key={archive.id} className="merope-turn-archives__row">
           <span className="merope-turn-archives__label">
             {new Date(archive.createdAt).toLocaleString()}
-            {' · '}
-            {archive.current ? labels.turnArchiveCurrent : labels.turnArchiveOld}
             {archive.parent ? ` · ${labels.turnArchiveRefitted}` : ''}
             {archive.redrawn.length > 0 ? ` · ${format(labels.turnArchiveRedrawn, { count: String(archive.redrawn.length) })}` : ''}
             {` · ${(archive.bytes / 1024 / 1024).toFixed(0)} MB`}

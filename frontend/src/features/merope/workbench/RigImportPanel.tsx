@@ -232,6 +232,7 @@ export function RigImportPanel({
           {seeThroughTokenConfigured ? (
             <TurnArchiveList
               outfitId={archiveOutfitId}
+              masterAssetId={rig.sourceMasterAssetId}
               busy={importing}
               onRefit={(archiveId) => void rig.decomposePsd(archiveId)}
             />

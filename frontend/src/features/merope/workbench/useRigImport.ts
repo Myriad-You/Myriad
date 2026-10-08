@@ -343,6 +343,7 @@ export function useRigImport({
   }
 
   return {
+    sourceMasterAssetId,
     mode,
     setMode,
     enhanceTurn,
