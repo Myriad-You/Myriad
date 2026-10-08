@@ -210,7 +210,7 @@ test('clipped energy changes sides continuously instead of snapping across', () 
 test('a hand on the head holds the turn to the same angle whatever the rig\'s full turn', () => {
   const plain = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }] }, undefined, { touchingHead: true })
   const keyed = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }], turnKeyforms: {} }, undefined, { touchingHead: true })
-  // In radians the limits match; as a share of the full turn the unkeyed rig (about 15°) allows twice as much.
+  // In radians the limits match; as a share of the full turn the unkeyed rig (11°) allows more.
   assert.ok(Math.abs(plain.headTurn.limit * PLAIN_HEAD_TURN_RADIANS - keyed.headTurn.limit * HEAD_TURN_RADIANS) < 1e-9)
   assert.ok(plain.headTurn.limit > keyed.headTurn.limit)
 })

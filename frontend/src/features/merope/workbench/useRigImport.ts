@@ -21,7 +21,7 @@ export interface RigImportSummary {
 
 /**
  * The plain rig: an uploaded PSD or one decomposition, its turn worked out
- * from the front drawing (about 15°). The enhanced one adds what is generated:
+ * from the front drawing (11°). The enhanced one adds what is generated:
  * turn keys fitted to four turned drawings (about 30°) and, for the bust, the
  * AI-redrawn expressions; each can be chosen on its own.
  */

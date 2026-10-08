@@ -56,9 +56,12 @@ const OPAQUE = 128
 export const HEAD_TURN_RADIANS = 0.52
 /**
  * Without turn keys the whole turn is worked out from the front drawing
- * (depth per vertex): about 15°, as far as one drawing carries a turn.
+ * (depth per vertex): 11°, as far as one drawing carries a turn. The depth
+ * model moves the features further than the slide in the outline that ran at
+ * 15° before it (face middle 0.30 half widths at 15°, 0.21 then); at 11° it is
+ * 0.22, the turn that was.
  */
-export const PLAIN_HEAD_TURN_RADIANS = 0.26
+export const PLAIN_HEAD_TURN_RADIANS = (11 * Math.PI) / 180
 
 /** The full turn of a rig, by whether its turn is keyed. */
 export function headTurnRadians(keyed: boolean): number {

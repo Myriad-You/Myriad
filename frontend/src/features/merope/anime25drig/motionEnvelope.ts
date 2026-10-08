@@ -73,7 +73,7 @@ export type Anime25DMotionEnvelopeProbeId =
 
 interface MotionEnvelopePlayback {
   layers: readonly Pick<Anime25DPlaybackLayer, 'role'>[]
-  /** Keyed turns go to about 30°, others about 15° (headTurnRadians). */
+  /** Keyed turns go to about 30°, others 11° (headTurnRadians). */
   turnKeyforms?: unknown
 }
 type MotionEnvelopeManifest = Pick<MeropeRigManifest, 'outfitProfile'>

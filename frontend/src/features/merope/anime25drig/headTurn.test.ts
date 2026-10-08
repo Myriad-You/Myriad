@@ -213,7 +213,7 @@ test('a raised face foreshortens: the mouth rises at least as far as the eyes, n
   }
 })
 
-test('a rig without turn keys turns about 15° at full angleX, a keyed one about 30°', () => {
+test('a rig without turn keys turns 11° at full angleX, a keyed one about 30°', () => {
   const plain = createHeadTurn(silhouette(), headTurnRadians(false))
   const keyed = createHeadTurn(silhouette(), headTurnRadians(true))
   updateHeadTurn(plain, 1, 0)
