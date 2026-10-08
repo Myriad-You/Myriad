@@ -1,10 +1,11 @@
+import type { MouseEvent } from 'react'
 import type {
   UpperBodyVisualIdentity,
   UpperBodyVisualIdentityKey,
 } from '../../../components/agent/onboarding/onboardingTypes'
 import type { WardrobeItem } from '../persona/wardrobe'
-import { useRef, useState } from 'react'
-import { LuChevronLeft, LuDownload, LuPencil } from 'react-icons/lu'
+import { useEffect, useRef, useState } from 'react'
+import { LuCheck, LuChevronLeft, LuDownload, LuPencil, LuX } from 'react-icons/lu'
 import PortraitImportButton from '../../../components/agent/onboarding/ui/PortraitImportButton'
 import VisualIdentityView from '../../../components/agent/onboarding/ui/VisualIdentityView'
 import { SettingsButton, SettingTitleTag } from '../../../components/settings'
@@ -95,46 +96,83 @@ export function OutfitDetail({
   // The name is the page's title; a named outfit renames in place.
   const renameable = !isDefaultWardrobeItem(outfit)
   const fallbackName = wardrobeItemLabel({ clothingStyle: outfit.clothingStyle }, o.clothingStyle)
-  const title = renameable ? outfit.name?.trim() || fallbackName : t.merope.wardrobeDefault
   const [renaming, setRenaming] = useState(false)
-  const cancelRename = useRef(false)
-  const commitRename = (raw: string) => {
-    setRenaming(false)
-    if (cancelRename.current) {
-      cancelRename.current = false
-      return
-    }
-    if ((parseWardrobeName(raw) ?? '') === (outfit.name ?? '')) return
-    void onRename(outfit.id, raw).catch((reason) => {
-      reportMeropeError(userFacingError(reason, t.merope.wardrobeRenameFailed))
-    })
+  // The name being saved, shown until the saved one comes back (or the save fails).
+  const [pendingName, setPendingName] = useState<string | null>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
+  // Ends the edit once: Enter, the buttons and the blur that follows them all end it.
+  const renameSettled = useRef(false)
+  const shownName = pendingName ?? outfit.name
+  const title = renameable ? shownName?.trim() || fallbackName : t.merope.wardrobeDefault
+  // The field opens with its name selected, ready to be typed over.
+  useEffect(() => {
+    if (renaming) nameInput.current?.select()
+  }, [renaming])
+  const startRename = () => {
+    renameSettled.current = false
+    setRenaming(true)
   }
+  const finishRename = (save: boolean) => {
+    if (renameSettled.current) return
+    renameSettled.current = true
+    const raw = nameInput.current?.value ?? ''
+    setRenaming(false)
+    if (!save) return
+    const next = parseWardrobeName(raw) ?? ''
+    if (next === (outfit.name ?? '')) return
+    setPendingName(next)
+    void onRename(outfit.id, raw)
+      .catch((reason) => {
+        reportMeropeError(userFacingError(reason, t.merope.wardrobeRenameFailed))
+      })
+      .finally(() => setPendingName(null))
+  }
+  // The buttons act without first taking the focus, so the field's blur does not save over a cancel.
+  const keepFocus = (event: MouseEvent) => event.preventDefault()
   const titleNode = renaming ? (
-    <input
-      key={outfit.id}
-      className="merope-wardrobe-page__name-input"
-      // Renaming starts from a click on the title: the field takes the focus it asked for.
-      autoFocus
-      defaultValue={outfit.name ?? ''}
-      maxLength={MAX_WARDROBE_NAME_CHARS}
-      placeholder={fallbackName}
-      aria-label={t.merope.wardrobeName}
-      onBlur={(event) => commitRename(event.currentTarget.value)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur()
-        if (event.key === 'Escape') {
-          cancelRename.current = true
-          event.currentTarget.blur()
-        }
-      }}
-    />
+    <span className="merope-wardrobe-page__rename">
+      <input
+        ref={nameInput}
+        key={outfit.id}
+        className="merope-wardrobe-page__name-input"
+        defaultValue={shownName ?? ''}
+        maxLength={MAX_WARDROBE_NAME_CHARS}
+        placeholder={fallbackName}
+        aria-label={t.merope.wardrobeName}
+        onBlur={() => finishRename(true)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') finishRename(true)
+          if (event.key === 'Escape') finishRename(false)
+        }}
+      />
+      <button
+        type="button"
+        className="merope-wardrobe-page__rename-action is-save"
+        aria-label={t.common.save}
+        title={t.common.save}
+        onMouseDown={keepFocus}
+        onClick={() => finishRename(true)}
+      >
+        <LuCheck size={14} aria-hidden />
+      </button>
+      <button
+        type="button"
+        className="merope-wardrobe-page__rename-action"
+        aria-label={t.common.cancel}
+        title={t.common.cancel}
+        onMouseDown={keepFocus}
+        onClick={() => finishRename(false)}
+      >
+        <LuX size={14} aria-hidden />
+      </button>
+    </span>
   ) : renameable ? (
     <button
       type="button"
       className="merope-wardrobe-page__name"
-      disabled={generating}
+      disabled={generating || pendingName !== null}
       title={t.merope.wardrobeName}
-      onClick={() => setRenaming(true)}
+      onClick={startRename}
     >
       <span>{title}</span>
       <LuPencil size={13} aria-hidden />

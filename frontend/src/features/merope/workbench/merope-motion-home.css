@@ -763,15 +763,63 @@ html.dark .merope-motion-page {
   cursor: default;
 }
 
-.merope-wardrobe-page__name-input {
+/* Renaming: the title itself becomes the field, underlined, as wide as its text. */
+.merope-wardrobe-page__rename {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
   min-width: 0;
-  width: min(16em, 60vw);
-  padding: 0.1rem 0.4rem;
-  border: 1px solid var(--cfg-accent-ink, var(--merope-line));
-  border-radius: 0.5rem;
+}
+
+.merope-wardrobe-page__name-input {
+  field-sizing: content;
+  min-width: 4em;
+  max-width: min(20em, 60vw);
+  margin: 0;
+  padding: 0 0.1em;
+  border: none;
+  border-bottom: 1.5px solid var(--cfg-accent-ink, var(--merope-accent-ink, #7c6ee6));
+  border-radius: 0;
   background: transparent;
   color: inherit;
   font: inherit;
+  line-height: inherit;
+  outline: none;
+}
+
+.merope-wardrobe-page__name-input::placeholder {
+  color: var(--cfg-text-3, var(--merope-muted));
+  font-weight: 500;
+}
+
+@supports not (field-sizing: content) {
+  .merope-wardrobe-page__name-input {
+    width: 10em;
+  }
+}
+
+.merope-wardrobe-page__rename-action {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--cfg-text-2, var(--merope-muted));
+  cursor: pointer;
+}
+
+.merope-wardrobe-page__rename-action:hover,
+.merope-wardrobe-page__rename-action:focus-visible {
+  background: var(--cfg-accent-fill, rgb(124 110 230 / 14%));
+  color: var(--cfg-accent-ink, var(--merope-accent-ink, #7c6ee6));
+}
+
+.merope-wardrobe-page__rename-action.is-save {
+  color: var(--cfg-accent-ink, var(--merope-accent-ink, #7c6ee6));
 }
 
 /* The picture's actions at the row's end; below the title on a narrow page. */
