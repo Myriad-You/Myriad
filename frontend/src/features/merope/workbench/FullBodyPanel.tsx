@@ -4,6 +4,7 @@ import type { RigAssetCompileEvent } from '../assets/pipeline'
 import type { RigPath } from './RigImportPanel'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { LuDownload } from 'react-icons/lu'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import { SettingGroup, SettingsButton } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -171,6 +172,7 @@ export function FullBodyPanel({
         <SettingsButton
           type="button"
           size="sm"
+          variant="primary"
           disabled={operation !== null}
           loading={operation === 'wear'}
           onClick={() => void wear()}
@@ -206,12 +208,13 @@ export function FullBodyPanel({
         <SettingsButton
           type="button"
           size="sm"
-          variant="secondary"
+          variant="icon"
+          icon={<LuDownload size={16} />}
+          aria-label={copy.download}
+          title={copy.download}
           disabled={operation !== null}
           onClick={() => onDownload(portrait)}
-        >
-          {copy.download}
-        </SettingsButton>
+        />
       ) : null}
     </>
   )

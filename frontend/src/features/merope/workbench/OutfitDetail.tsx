@@ -3,12 +3,11 @@ import type {
   UpperBodyVisualIdentityKey,
 } from '../../../components/agent/onboarding/onboardingTypes'
 import type { WardrobeItem } from '../persona/wardrobe'
-import { useState } from 'react'
-import { LuChevronLeft } from 'react-icons/lu'
-import { Field, TextInput } from '../../../components/agent/onboarding/ui/Field'
+import { useRef, useState } from 'react'
+import { LuChevronLeft, LuDownload, LuPencil } from 'react-icons/lu'
 import PortraitImportButton from '../../../components/agent/onboarding/ui/PortraitImportButton'
 import VisualIdentityView from '../../../components/agent/onboarding/ui/VisualIdentityView'
-import { SettingsButton } from '../../../components/settings'
+import { SettingsButton, SettingTitleTag } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { userFacingError } from '../../../utils/userFacingError'
@@ -93,76 +92,93 @@ export function OutfitDetail({
       onIdentity={onDesign}
     />
   ) : null
-  const kindRow = (
-    <p className="merope-wardrobe__caption merope-wardrobe__caption--kind">
-      <span className="merope-wardrobe__chip">
-        {standing ? t.merope.fullBody.badge : t.merope.fullBody.kindBust}
-      </span>
-      {standing && wearing ? (
-        <span className="merope-wardrobe__chip is-worn">
-          {t.merope.wardrobeWearing}
-        </span>
-      ) : null}
-      {standing && reference ? <span>{reference}</span> : null}
-    </p>
-  )
-  const nameField = (
-    <>
-      {isDefaultWardrobeItem(outfit) ? (
-        <p className="merope-wardrobe__caption">{t.merope.wardrobeDefault}</p>
-      ) : (
-      <Field
-        label={t.merope.wardrobeName}
-        optional
-        optionalLabel={o.optional}
-      >
-        <TextInput
-          key={outfit.id}
-          defaultValue={outfit.name ?? ''}
-          maxLength={MAX_WARDROBE_NAME_CHARS}
-          disabled={generating}
-          placeholder={wardrobeItemLabel(
-            { clothingStyle: outfit.clothingStyle },
-            o.clothingStyle,
-          )}
-          onBlur={(event) => {
-            const next = parseWardrobeName(event.currentTarget.value)
-            if ((next ?? '') === (outfit.name ?? '')) return
-            void onRename(outfit.id, event.currentTarget.value).catch(
-              (reason) => {
-                reportMeropeError(userFacingError(reason, t.merope.wardrobeRenameFailed))
-              },
-            )
-          }}
-        />
-      </Field>
-      )}
-    </>
+  // The name is the page's title; a named outfit renames in place.
+  const renameable = !isDefaultWardrobeItem(outfit)
+  const fallbackName = wardrobeItemLabel({ clothingStyle: outfit.clothingStyle }, o.clothingStyle)
+  const title = renameable ? outfit.name?.trim() || fallbackName : t.merope.wardrobeDefault
+  const [renaming, setRenaming] = useState(false)
+  const cancelRename = useRef(false)
+  const commitRename = (raw: string) => {
+    setRenaming(false)
+    if (cancelRename.current) {
+      cancelRename.current = false
+      return
+    }
+    if ((parseWardrobeName(raw) ?? '') === (outfit.name ?? '')) return
+    void onRename(outfit.id, raw).catch((reason) => {
+      reportMeropeError(userFacingError(reason, t.merope.wardrobeRenameFailed))
+    })
+  }
+  const titleNode = renaming ? (
+    <input
+      key={outfit.id}
+      className="merope-wardrobe-page__name-input"
+      // Renaming starts from a click on the title: the field takes the focus it asked for.
+      autoFocus
+      defaultValue={outfit.name ?? ''}
+      maxLength={MAX_WARDROBE_NAME_CHARS}
+      placeholder={fallbackName}
+      aria-label={t.merope.wardrobeName}
+      onBlur={(event) => commitRename(event.currentTarget.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur()
+        if (event.key === 'Escape') {
+          cancelRename.current = true
+          event.currentTarget.blur()
+        }
+      }}
+    />
+  ) : renameable ? (
+    <button
+      type="button"
+      className="merope-wardrobe-page__name"
+      disabled={generating}
+      title={t.merope.wardrobeName}
+      onClick={() => setRenaming(true)}
+    >
+      <span>{title}</span>
+      <LuPencil size={13} aria-hidden />
+    </button>
+  ) : (
+    <span>{title}</span>
   )
   return (
     <div className="merope-wardrobe-page">
-      <header className="merope-wardrobe-page__head">
-        <button
-          type="button"
-          className="section-header-back"
-          onClick={onBack}
-          aria-label={t.common.back}
-        >
-          <LuChevronLeft size={18} aria-hidden />
-          <span>{t.common.back}</span>
-        </button>
-        <div className="merope-wardrobe-page__meta">
-          {kindRow}
-          {nameField}
+      <header className="section-header merope-wardrobe-page__head">
+        <div className="section-header-left">
+          <div className="section-header-leading">
+            <button
+              type="button"
+              className="section-header-back"
+              onClick={onBack}
+              aria-label={t.common.back}
+            >
+              <LuChevronLeft size={18} aria-hidden />
+              <span>{t.common.back}</span>
+            </button>
+          </div>
+          <div className="section-header-text">
+            <h2 className="section-title">
+              {titleNode}
+              <span className="section-title-extra">
+                <SettingTitleTag variant="muted">
+                  {standing ? t.merope.fullBody.badge : t.merope.fullBody.kindBust}
+                </SettingTitleTag>
+                {wearing ? <SettingTitleTag>{t.merope.wardrobeWearing}</SettingTitleTag> : null}
+              </span>
+            </h2>
+            {standing && reference ? <div className="section-description">{reference}</div> : null}
+          </div>
         </div>
-        {/* The picture's buttons: the bust's here, the full body's sent here by its panel. */}
-        <div ref={setActionsHost} className="merope-motion-asset__actions merope-wardrobe-page__actions">
+        {/* The picture's actions: the bust's here, the full body's sent here by its panel. */}
+        <div ref={setActionsHost} className="section-header-right merope-wardrobe-page__actions">
           {!standing && hasActions ? (
             <>
               {showWear ? (
                 <SettingsButton
                   type="button"
                   size="sm"
+                  variant="primary"
                   disabled={generating || !canDress}
                   loading={generating}
                   onClick={() => {
@@ -193,23 +209,24 @@ export function OutfitDetail({
                       : t.merope.visualGenerate}
                 </SettingsButton>
               ) : null}
-              {showDownload && picture ? (
-                <SettingsButton
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={generating}
-                  onClick={() => onDownload(picture)}
-                >
-                  {t.merope.visualDownload}
-                </SettingsButton>
-              ) : null}
               {wearing ? (
                 <PortraitImportButton
                   appearance="settings"
                   disabled={generating}
                   onError={reportMeropeError}
                   onUploaded={onUploaded}
+                />
+              ) : null}
+              {showDownload && picture ? (
+                <SettingsButton
+                  type="button"
+                  size="sm"
+                  variant="icon"
+                  icon={<LuDownload size={16} />}
+                  aria-label={t.merope.visualDownload}
+                  title={t.merope.visualDownload}
+                  disabled={generating}
+                  onClick={() => onDownload(picture)}
                 />
               ) : null}
             </>

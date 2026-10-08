@@ -727,33 +727,72 @@ html.dark .merope-motion-page {
 }
 
 .merope-wardrobe-page__head {
-  display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
   margin: 0;
 }
 
-/* Beside "back": what the outfit is, then its name. */
-.merope-wardrobe-page__meta {
-  display: flex;
-  flex-wrap: wrap;
+/* The outfit's name is the title; a named one renames in place. */
+.merope-wardrobe-page__name {
+  display: inline-flex;
   align-items: center;
-  gap: 6px 10px;
+  gap: 0.35rem;
   min-width: 0;
-}
-
-.merope-wardrobe-page__meta > p {
   margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: text;
 }
 
-/* The picture's buttons, at the row's end. */
+.merope-wardrobe-page__name > svg {
+  flex: none;
+  color: var(--cfg-text-3, var(--merope-muted));
+  opacity: 0.55;
+  transition: opacity var(--sm-dur-fast, 0.15s) var(--sm-ease-standard, ease);
+}
+
+.merope-wardrobe-page__name:hover > svg,
+.merope-wardrobe-page__name:focus-visible > svg {
+  opacity: 1;
+}
+
+.merope-wardrobe-page__name:disabled {
+  cursor: default;
+}
+
+.merope-wardrobe-page__name-input {
+  min-width: 0;
+  width: min(16em, 60vw);
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--cfg-accent-ink, var(--merope-line));
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+/* The picture's actions at the row's end; below the title on a narrow page. */
 .merope-wardrobe-page__actions {
-  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .merope-wardrobe-page__actions:empty {
   display: none;
+}
+
+@media (width < 640px) {
+  .merope-wardrobe-page__actions {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    max-width: none;
+    margin-left: 0;
+  }
 }
 
 .merope-wardrobe-page__portrait {
