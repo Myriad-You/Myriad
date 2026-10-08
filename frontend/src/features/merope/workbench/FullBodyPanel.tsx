@@ -3,6 +3,7 @@ import type { SiteFace } from '../api'
 import type { RigAssetCompileEvent } from '../assets/pipeline'
 import type { RigPath } from './RigImportPanel'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import { SettingGroup, SettingsButton } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -33,6 +34,8 @@ interface Props {
   onWear: () => Promise<void>
   /** Sits between the picture and the actions. */
   children?: ReactNode
+  /** Where the picture's buttons go (the page's header row); beside the picture when absent. */
+  actionsHost?: HTMLElement | null
   /** Sits between the actions and the rig. */
   trailing?: ReactNode
 }
@@ -52,6 +55,7 @@ export function FullBodyPanel({
   wearing,
   onWear,
   children,
+  actionsHost,
   trailing,
 }: Props) {
   const { t } = useI18n()
@@ -161,6 +165,57 @@ export function FullBodyPanel({
       labels.portraitUploadFailed,
     )
 
+  const actions = (
+    <>
+      {portrait && !wearing ? (
+        <SettingsButton
+          type="button"
+          size="sm"
+          disabled={operation !== null}
+          loading={operation === 'wear'}
+          onClick={() => void wear()}
+        >
+          {labels.wardrobeWear}
+        </SettingsButton>
+      ) : null}
+      <SettingsButton
+        type="button"
+        size="sm"
+        disabled={operation !== null}
+        loading={operation === 'generate'}
+        confirm={portrait ? copy.generateConfirm : undefined}
+        onClick={() => void generate()}
+      >
+        {operation === 'generate'
+          ? copy.generating
+          : portrait
+            ? copy.regenerate
+            : copy.generate}
+      </SettingsButton>
+      <SettingsButton
+        type="button"
+        size="sm"
+        disabled={operation !== null}
+        loading={operation === 'upload'}
+        confirm={portrait ? copy.generateConfirm : undefined}
+        onClick={() => uploadRef.current?.click()}
+      >
+        {operation === 'upload' ? copy.uploading : copy.upload}
+      </SettingsButton>
+      {portrait && onDownload ? (
+        <SettingsButton
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={operation !== null}
+          onClick={() => onDownload(portrait)}
+        >
+          {copy.download}
+        </SettingsButton>
+      ) : null}
+    </>
+  )
+
   return (
     <div className="merope-motion-rig merope-full-body">
       {portrait ? (
@@ -171,54 +226,9 @@ export function FullBodyPanel({
         <p className="merope-motion-rig__hint">{copy.none}</p>
       )}
       {children}
-      <div className="merope-motion-asset__actions">
-        {portrait && !wearing ? (
-          <SettingsButton
-            type="button"
-            size="sm"
-            disabled={operation !== null}
-            loading={operation === 'wear'}
-            onClick={() => void wear()}
-          >
-            {labels.wardrobeWear}
-          </SettingsButton>
-        ) : null}
-        <SettingsButton
-          type="button"
-          size="sm"
-          disabled={operation !== null}
-          loading={operation === 'generate'}
-          confirm={portrait ? copy.generateConfirm : undefined}
-          onClick={() => void generate()}
-        >
-          {operation === 'generate'
-            ? copy.generating
-            : portrait
-              ? copy.regenerate
-              : copy.generate}
-        </SettingsButton>
-        <SettingsButton
-          type="button"
-          size="sm"
-          disabled={operation !== null}
-          loading={operation === 'upload'}
-          confirm={portrait ? copy.generateConfirm : undefined}
-          onClick={() => uploadRef.current?.click()}
-        >
-          {operation === 'upload' ? copy.uploading : copy.upload}
-        </SettingsButton>
-        {portrait && onDownload ? (
-          <SettingsButton
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={operation !== null}
-            onClick={() => onDownload(portrait)}
-          >
-            {copy.download}
-          </SettingsButton>
-        ) : null}
-      </div>
+      {actionsHost ? createPortal(actions, actionsHost) : (
+        <div className="merope-motion-asset__actions">{actions}</div>
+      )}
       <input
         ref={uploadRef}
         type="file"

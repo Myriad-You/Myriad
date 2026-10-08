@@ -3,6 +3,7 @@ import type {
   UpperBodyVisualIdentityKey,
 } from '../../../components/agent/onboarding/onboardingTypes'
 import type { WardrobeItem } from '../persona/wardrobe'
+import { useState } from 'react'
 import { LuChevronLeft } from 'react-icons/lu'
 import { Field, TextInput } from '../../../components/agent/onboarding/ui/Field'
 import PortraitImportButton from '../../../components/agent/onboarding/ui/PortraitImportButton'
@@ -77,6 +78,7 @@ export function OutfitDetail({
   // A full-body set downloads its picture from its own panel.
   const showDownload = !standing && Boolean(picture)
   const hasActions = showWear || showGenerate || showDownload || wearing
+  const [actionsHost, setActionsHost] = useState<HTMLDivElement | null>(null)
   const design = identity ? (
     <VisualIdentityView
       identity={identity}
@@ -149,6 +151,70 @@ export function OutfitDetail({
           <LuChevronLeft size={18} aria-hidden />
           <span>{t.common.back}</span>
         </button>
+        <div className="merope-wardrobe-page__meta">
+          {kindRow}
+          {nameField}
+        </div>
+        {/* The picture's buttons: the bust's here, the full body's sent here by its panel. */}
+        <div ref={setActionsHost} className="merope-motion-asset__actions merope-wardrobe-page__actions">
+          {!standing && hasActions ? (
+            <>
+              {showWear ? (
+                <SettingsButton
+                  type="button"
+                  size="sm"
+                  disabled={generating || !canDress}
+                  loading={generating}
+                  onClick={() => {
+                    void onWear().catch((reason) => {
+                      reportMeropeError(
+                        userFacingError(reason, t.merope.wardrobeApplyFailed),
+                      )
+                    })
+                  }}
+                >
+                  {generating
+                    ? t.merope.visualGenerating
+                    : t.merope.wardrobeWear}
+                </SettingsButton>
+              ) : null}
+              {showGenerate ? (
+                <SettingsButton
+                  type="button"
+                  size="sm"
+                  disabled={generating || !canDress}
+                  loading={generating}
+                  onClick={onGenerate}
+                >
+                  {generating
+                    ? t.merope.visualGenerating
+                    : picture
+                      ? t.merope.visualRegenerate
+                      : t.merope.visualGenerate}
+                </SettingsButton>
+              ) : null}
+              {showDownload && picture ? (
+                <SettingsButton
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={generating}
+                  onClick={() => onDownload(picture)}
+                >
+                  {t.merope.visualDownload}
+                </SettingsButton>
+              ) : null}
+              {wearing ? (
+                <PortraitImportButton
+                  appearance="settings"
+                  disabled={generating}
+                  onError={reportMeropeError}
+                  onUploaded={onUploaded}
+                />
+              ) : null}
+            </>
+          ) : null}
+        </div>
       </header>
       {standing ? (
         <>
@@ -168,10 +234,8 @@ export function OutfitDetail({
                 </p>
               </>
             }
-          >
-            {kindRow}
-            {nameField}
-          </FullBodyPanel>
+            actionsHost={actionsHost}
+          />
         </>
       ) : (
         <>
@@ -182,68 +246,7 @@ export function OutfitDetail({
           ) : (
             <p className="merope-wardrobe__caption">{t.merope.assetEmpty}</p>
           )}
-          {kindRow}
-          <div className="merope-motion-asset__make">
-            {nameField}
-      {hasActions ? (
-      <div className="merope-motion-asset__actions">
-        {showWear ? (
-          <SettingsButton
-            type="button"
-            size="sm"
-            disabled={generating || !canDress}
-            loading={generating}
-            onClick={() => {
-              void onWear().catch((reason) => {
-                reportMeropeError(
-                  userFacingError(reason, t.merope.wardrobeApplyFailed),
-                )
-              })
-            }}
-          >
-            {generating
-              ? t.merope.visualGenerating
-              : t.merope.wardrobeWear}
-          </SettingsButton>
-        ) : null}
-        {showGenerate ? (
-          <SettingsButton
-            type="button"
-            size="sm"
-            disabled={generating || !canDress}
-            loading={generating}
-            onClick={onGenerate}
-          >
-            {generating
-              ? t.merope.visualGenerating
-              : picture
-                ? t.merope.visualRegenerate
-                : t.merope.visualGenerate}
-          </SettingsButton>
-        ) : null}
-        {showDownload && picture ? (
-          <SettingsButton
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={generating}
-            onClick={() => onDownload(picture)}
-          >
-            {t.merope.visualDownload}
-          </SettingsButton>
-        ) : null}
-        {wearing ? (
-          <PortraitImportButton
-            appearance="settings"
-            disabled={generating}
-            onError={reportMeropeError}
-            onUploaded={onUploaded}
-          />
-        ) : null}
-      </div>
-      ) : null}
-      {design}
-          </div>
+          {design ? <div className="merope-motion-asset__make">{design}</div> : null}
         </>
       )}
     </div>

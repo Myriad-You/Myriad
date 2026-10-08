@@ -728,8 +728,32 @@ html.dark .merope-motion-page {
 
 .merope-wardrobe-page__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 8px 14px;
   margin: 0;
+}
+
+/* Beside "back": what the outfit is, then its name. */
+.merope-wardrobe-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.merope-wardrobe-page__meta > p {
+  margin: 0;
+}
+
+/* The picture's buttons, at the row's end. */
+.merope-wardrobe-page__actions {
+  margin-left: auto;
+}
+
+.merope-wardrobe-page__actions:empty {
+  display: none;
 }
 
 .merope-wardrobe-page__portrait {
