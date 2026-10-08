@@ -250,7 +250,6 @@ export function FullBodyPanel({
             seeThroughTokenConfigured={seeThroughTokenConfigured}
             aiExpressions={[]}
             canGenerateAiExpressions={false}
-            motionEnabled={false}
             archiveOutfitId={outfitId}
             figure="fullBody"
             activeMode={activeMode}

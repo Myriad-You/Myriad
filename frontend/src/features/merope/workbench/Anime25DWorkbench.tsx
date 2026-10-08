@@ -146,7 +146,7 @@ export default function Anime25DWorkbench({
       {panel === 'wardrobe' && outfitLead && outfitRig ? (
         <SettingGroup
           title={labels.rigGroup}
-          titleExtra={<RigModeTags rig={rig} activeMode={activeRigMode} />}
+          titleExtra={<RigModeTags rig={rig} activeMode={activeRigMode} ready={motionEnabled} />}
           description={labels.rigGroupDescription}
           id="merope-motion-asset"
         >
@@ -163,7 +163,6 @@ export default function Anime25DWorkbench({
               aiExpressions={aiExpressions}
               canGenerateAiExpressions={Boolean(source.onGenerateAiExpressions)}
               activeMode={activeRigMode}
-              motionEnabled={motionEnabled}
             />
           )}
         </SettingGroup>

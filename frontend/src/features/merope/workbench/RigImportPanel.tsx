@@ -34,30 +34,42 @@ function modeLabel(labels: MeropeLabels, figure: 'bust' | 'fullBody', mode: RigM
 }
 
 /**
- * Beside the rig group's title: the mode the active rig was made in, and a
- * tag that opens the other one. Nothing while this portrait has no rig.
+ * Beside the rig group's title: whether the rig is active, the mode it was
+ * made in, and a tag that opens the other mode. The mode tags only while this
+ * portrait has a rig.
  */
 export function RigModeTags({
   rig,
   activeMode,
   figure = 'bust',
+  ready = false,
 }: {
   rig: RigImport
   activeMode: RigMode | null
   figure?: 'bust' | 'fullBody'
+  /** The rig plays: its motion can be checked in the preview. */
+  ready?: boolean
 }) {
   const { t, format } = useI18n()
   const labels = t.merope
-  if (!activeMode) return null
   const other: RigMode = rig.mode === 'enhanced' ? 'plain' : 'enhanced'
   return (
     <>
-      <SettingTitleTag variant="muted">
-        {format(labels.rigModeActive, { mode: modeLabel(labels, figure, activeMode) })}
-      </SettingTitleTag>
-      <SettingTitleTag disabled={rig.importing} onClick={() => rig.setMode(other)}>
-        {format(labels.rigModeSwitch, { mode: modeLabel(labels, figure, other) })}
-      </SettingTitleTag>
+      {ready ? (
+        <SettingTitleTag variant="muted" title={labels.rigReadyHint}>
+          {labels.rigReadyTitle}
+        </SettingTitleTag>
+      ) : null}
+      {activeMode ? (
+        <>
+          <SettingTitleTag variant="muted">
+            {format(labels.rigModeActive, { mode: modeLabel(labels, figure, activeMode) })}
+          </SettingTitleTag>
+          <SettingTitleTag disabled={rig.importing} onClick={() => rig.setMode(other)}>
+            {format(labels.rigModeSwitch, { mode: modeLabel(labels, figure, other) })}
+          </SettingTitleTag>
+        </>
+      ) : null}
     </>
   )
 }
@@ -70,7 +82,6 @@ interface Props {
   /** Expressions the image model has redrawn for the current portrait. */
   aiExpressions: readonly AuthoredExpressionKind[]
   canGenerateAiExpressions: boolean
-  motionEnabled: boolean
   /** Whose kept turn-keys jobs to list: null (default) the worn bust, else that outfit. */
   archiveOutfitId?: string | null
   /** Names the two modes: bust / bust enhanced, or full body / full body enhanced. */
@@ -87,7 +98,6 @@ export function RigImportPanel({
   seeThroughTokenConfigured,
   aiExpressions,
   canGenerateAiExpressions,
-  motionEnabled,
   archiveOutfitId = null,
   figure = 'bust',
   activeMode = null,
@@ -326,14 +336,6 @@ export function RigImportPanel({
         </SettingsButton>
       )}
       <RigImportProgress rig={rig} />
-      {motionEnabled ? (
-        <section className="merope-motion-rig__status">
-          <strong>{labels.rigReadyTitle}</strong>
-          <p className="merope-motion-rig__hint">
-            {labels.rigReadyHint}
-          </p>
-        </section>
-      ) : null}
     </div>
   )
 }
