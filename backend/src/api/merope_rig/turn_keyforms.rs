@@ -294,19 +294,7 @@ async fn run(
             update(id, |job| job.done += 1);
             continue;
         }
-        let generated = crate::services::ai_cost_ledger::with_site_ai_ledger(
-            user_id,
-            "merope",
-            "turn-reference",
-            image_generation::generate_image(generation, &prompt, width, height, Some(&reference)),
-        )
-        .await
-        .map_err(portrait_generation_provider_error)?;
-        let (bytes, _) = image_generation::load_generated_bytes(generated)
-            .await
-            .map_err(portrait_generation_provider_error)?;
-        // The provider may answer at its own size; lined up means the master's.
-        let png = fit_to(&bytes, width, height)?;
+        let png = draw_turn(user_id, generation, &prompt, &reference, width, height).await?;
         cache.write(&name, &png).await;
         turned.push(png);
         update(id, |job| job.done += 1);
@@ -318,8 +306,21 @@ async fn run(
         job.total = 5;
     });
     let options = see_through::DecomposeOptions::default();
-    let mut decompositions = Vec::with_capacity(5);
     let front = (reference.bytes.clone(), reference.media_type.clone());
+    let front_psd = decomposition(client, cache, 0, &front.0, &front.1, options).await?;
+    update(id, |job| job.done += 1);
+    // A turn drawn past what the front drawing's keys can follow is drawn once more.
+    let turned = redraw_bad_turns(
+        user_id,
+        generation,
+        &reference,
+        (width, height),
+        client,
+        cache,
+        &front_psd,
+        turned,
+    )
+    .await;
     let inputs: Vec<_> = std::iter::once(front)
         .chain(
             turned
@@ -327,28 +328,10 @@ async fn run(
                 .map(|png| (axum::body::Bytes::from(png), "image/png".to_string())),
         )
         .collect();
-    for (index, (bytes, media_type)) in inputs.iter().enumerate() {
-        let name = format!("decomposition-{index}.psd");
-        let checked = format!("decomposition-{index}.checked");
-        let cached = cache.read(&name).await;
-        let redos: &[(bool, u16)] = if index == 0 {
-            &FRONT_REDOS
-        } else {
-            &TURNED_REDOS
-        };
-        let psd = match cached {
-            Some(psd) if cache.read(&checked).await.is_some() => psd,
-            cached => {
-                let (psd, settled) =
-                    decompose_checked(client, bytes, media_type, options, redos, cached).await?;
-                cache.write(&name, &psd).await;
-                if settled {
-                    cache.write(&checked, b"checked").await;
-                }
-                psd
-            }
-        };
-        decompositions.push(psd);
+    let mut decompositions = Vec::with_capacity(5);
+    decompositions.push(front_psd);
+    for (index, (bytes, media_type)) in inputs.iter().enumerate().skip(1) {
+        decompositions.push(decomposition(client, cache, index, bytes, media_type, options).await?);
         update(id, |job| job.done += 1);
     }
     // The fit also matches its keys against the drawings themselves.
@@ -388,6 +371,137 @@ async fn run(
         }
     };
     Ok((output.psd, output.keyforms))
+}
+
+/// One turned drawing of the master, at the master's size.
+async fn draw_turn(
+    user_id: i32,
+    generation: &image_generation::ImageGenerationConfig,
+    prompt: &str,
+    reference: &image_generation::ImageReference,
+    width: u32,
+    height: u32,
+) -> ApiResult<Vec<u8>> {
+    let generated = crate::services::ai_cost_ledger::with_site_ai_ledger(
+        user_id,
+        "merope",
+        "turn-reference",
+        image_generation::generate_image(generation, prompt, width, height, Some(reference)),
+    )
+    .await
+    .map_err(portrait_generation_provider_error)?;
+    let (bytes, _) = image_generation::load_generated_bytes(generated)
+        .await
+        .map_err(portrait_generation_provider_error)?;
+    // The provider may answer at its own size; lined up means the master's.
+    fit_to(&bytes, width, height)
+}
+
+/// The sides of the turned drawings, in their order.
+const TURN_SIDES: [&str; 4] = ["plus", "minus", "up", "down"];
+
+/// Draws again, once each, the turned drawings the Space's `check_turns`
+/// finds redrawn past what keys of the front drawing can follow (a restyled
+/// fringe, a moved clip). A check or a drawing that fails keeps what there is:
+/// the turn is then fitted as drawn.
+#[allow(clippy::too_many_arguments)]
+async fn redraw_bad_turns(
+    user_id: i32,
+    generation: &image_generation::ImageGenerationConfig,
+    reference: &image_generation::ImageReference,
+    (width, height): (u32, u32),
+    client: &see_through::SeeThroughClient,
+    cache: &TurnCache,
+    front_psd: &[u8],
+    mut turned: Vec<Vec<u8>>,
+) -> Vec<Vec<u8>> {
+    let pictures: [(Vec<u8>, String); 5] =
+        std::iter::once((reference.bytes.to_vec(), reference.media_type.clone()))
+            .chain(
+                turned
+                    .iter()
+                    .map(|png| (png.clone(), "image/png".to_string())),
+            )
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("five pictures");
+    let check = match client
+        .check_turned_pictures(front_psd.to_vec(), pictures)
+        .await
+    {
+        Ok(check) => check,
+        Err(error) => {
+            tracing::warn!(%error, "turned drawings check failed; keeping the drawings");
+            return turned;
+        }
+    };
+    let prompts = turn_prompts();
+    for side in &check.bad {
+        let Some(index) = TURN_SIDES.iter().position(|known| known == side) else {
+            continue;
+        };
+        let redrawn = format!("turned-{index}.redrawn");
+        if cache.read(&redrawn).await.is_some() {
+            continue;
+        }
+        tracing::info!(side, residual = ?check.residual, "turned drawing drawn again");
+        match draw_turn(
+            user_id,
+            generation,
+            &prompts[index],
+            reference,
+            width,
+            height,
+        )
+        .await
+        {
+            Ok(png) => {
+                cache.write(&format!("turned-{index}.png"), &png).await;
+                // Its decomposition was of the drawing it replaces (an empty entry reads as none).
+                cache
+                    .write(&format!("decomposition-{}.psd", index + 1), b"")
+                    .await;
+                cache
+                    .write(&format!("decomposition-{}.checked", index + 1), b"")
+                    .await;
+                cache.write(&redrawn, b"redrawn").await;
+                turned[index] = png;
+            }
+            Err(error) => tracing::warn!(side, ?error, "turned drawing could not be drawn again"),
+        }
+    }
+    turned
+}
+
+/// A drawing's decomposition, checked (decompose_checked) and kept in the cache.
+async fn decomposition(
+    client: &see_through::SeeThroughClient,
+    cache: &TurnCache,
+    index: usize,
+    bytes: &axum::body::Bytes,
+    media_type: &str,
+    options: see_through::DecomposeOptions,
+) -> ApiResult<Vec<u8>> {
+    let name = format!("decomposition-{index}.psd");
+    let checked = format!("decomposition-{index}.checked");
+    let cached = cache.read(&name).await;
+    let redos: &[(bool, u16)] = if index == 0 {
+        &FRONT_REDOS
+    } else {
+        &TURNED_REDOS
+    };
+    Ok(match cached {
+        Some(psd) if cache.read(&checked).await.is_some() => psd,
+        cached => {
+            let (psd, settled) =
+                decompose_checked(client, bytes, media_type, options, redos, cached).await?;
+            cache.write(&name, &psd).await;
+            if settled {
+                cache.write(&checked, b"checked").await;
+            }
+            psd
+        }
+    })
 }
 
 /// How a faulty decomposition is redone, in turn (hair pass, seed). The

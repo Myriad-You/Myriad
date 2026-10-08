@@ -455,6 +455,56 @@ impl SeeThroughClient {
             })
     }
 
+    /// The Space's `check_turns`: which generated turns redraw the character
+    /// beyond what keys of the front drawing can follow, so are worth drawing
+    /// again before they are decomposed. `pictures` are the front drawing and
+    /// the turned ones (right, left, raised, lowered). A Space without the
+    /// endpoint finds none bad.
+    pub async fn check_turned_pictures(
+        &self,
+        front: Vec<u8>,
+        pictures: [(Vec<u8>, String); 5],
+    ) -> Result<TurnedPicturesCheck, SeeThroughError> {
+        validate_psd(&front)?;
+        self.wait_until_running().await?;
+        if !self.serves("check_turns").await? {
+            return Ok(TurnedPicturesCheck::default());
+        }
+        let path = self
+            .upload_file(front, "decomposition-0.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let mut files = vec![json!({
+            "path": path,
+            "orig_name": "decomposition-0.psd",
+            "meta": { "_type": "gradio.FileData" }
+        })];
+        for (index, (picture, media_type)) in pictures.into_iter().enumerate() {
+            let name = format!(
+                "picture-{index}.{}",
+                image_extension(&media_type).unwrap_or("png")
+            );
+            let path = self.upload_file(picture, &name, &media_type).await?;
+            files.push(json!({
+                "path": path,
+                "orig_name": name,
+                "meta": { "_type": "gradio.FileData" }
+            }));
+        }
+        let event_id = self.start("check_turns", Value::Array(files)).await?;
+        let data = self
+            .await_data("check_turns", &event_id, REQUEST_TIMEOUT)
+            .await?;
+        data.as_array()
+            .and_then(|values| values.first())
+            .cloned()
+            .and_then(|check| serde_json::from_value(check).ok())
+            .ok_or_else(|| {
+                SeeThroughError::InvalidOutput(
+                    "See-through returned an invalid turned pictures check".to_string(),
+                )
+            })
+    }
+
     /// Wakes the Space if it sleeps and waits while it builds or starts. A
     /// stage the Hub will not tell (a private Space this token cannot read)
     /// is left to the calls that follow.
@@ -696,6 +746,17 @@ pub struct TurnKeyformsOutput {
     /// `{ canvas: [w, h], keyforms: { family: { plus, minus, up?, down? } }, fit, baked }`.
     pub keyforms: Vec<u8>,
     pub psd: Vec<u8>,
+}
+
+/// Which generated turns to draw again before decomposing them.
+#[derive(Debug, Default, Deserialize)]
+pub struct TurnedPicturesCheck {
+    /// The sides ("plus", "minus", "up", "down") to draw again.
+    #[serde(default)]
+    pub bad: Vec<String>,
+    /// Per side, how far a smooth warp of the front drawing stays from it (px).
+    #[serde(default)]
+    pub residual: std::collections::BTreeMap<String, f64>,
 }
 
 /// Whether the fit can key from a decomposition, and why not.
@@ -1008,6 +1069,19 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
         assert!(!serves_endpoint(&demo, "decompose"));
         assert!(serves_endpoint(&own, "decompose"));
         assert!(!serves_endpoint(&json!({}), "decompose"));
+    }
+
+    #[test]
+    fn the_turned_pictures_check_reads_as_the_space_answers_it() {
+        let answer = json!({
+            "residual": { "plus": 4.3, "minus": 2.09, "up": 3.36, "down": 2.22 },
+            "bad": ["plus"]
+        });
+        let check: TurnedPicturesCheck = serde_json::from_value(answer).unwrap();
+        assert_eq!(check.bad, ["plus"]);
+        assert_eq!(check.residual["minus"], 2.09);
+        // A Space without the check finds none bad.
+        assert!(TurnedPicturesCheck::default().bad.is_empty());
     }
 
     #[test]
