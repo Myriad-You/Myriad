@@ -16,7 +16,7 @@ import {
 } from '../api'
 import { commitFullBodyPsdAsset, preflightFullBodyPsdAsset } from '../assets/pipeline'
 import { decomposeWithTurnKeyforms } from '../turnKeyformsApi'
-import { RigImportPanel } from './RigImportPanel'
+import { RigImportPanel, RigModeTags } from './RigImportPanel'
 import { activeRigMode } from './rigMode'
 import { useRigImport } from './useRigImport'
 
@@ -74,6 +74,7 @@ export function FullBodyPanel({
 
   const portrait = face?.portraitUrl ?? null
   const fingerprint = face?.generationFingerprint ?? undefined
+  const activeMode = activeRigMode(face?.manifest, portrait)
   const rig = useRigImport({
     sourceMasterAssetId: portrait ?? '',
     sourceGenerationFingerprint: fingerprint,
@@ -238,6 +239,7 @@ export function FullBodyPanel({
       {portrait ? (
         <SettingGroup
           title={labels.rigGroup}
+          titleExtra={<RigModeTags rig={rig} activeMode={activeMode} figure="fullBody" />}
           description={labels.rigGroupDescription}
           id="merope-motion-full-body-rig"
         >
@@ -251,7 +253,7 @@ export function FullBodyPanel({
             motionEnabled={false}
             archiveOutfitId={outfitId}
             figure="fullBody"
-            activeMode={activeRigMode(face?.manifest, portrait)}
+            activeMode={activeMode}
           />
         </SettingGroup>
       ) : null}

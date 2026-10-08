@@ -26,6 +26,42 @@ import { TurnArchiveList } from './TurnArchiveList'
 
 export type RigPath = 'upload' | 'seeThrough'
 
+type MeropeLabels = ReturnType<typeof useI18n>['t']['merope']
+
+function modeLabel(labels: MeropeLabels, figure: 'bust' | 'fullBody', mode: RigMode): string {
+  if (figure === 'bust') return mode === 'plain' ? labels.rigModeBust : labels.rigModeBustEnhanced
+  return mode === 'plain' ? labels.rigModeFullBody : labels.rigModeFullBodyEnhanced
+}
+
+/**
+ * Beside the rig group's title: the mode the active rig was made in, and a
+ * tag that opens the other one. Nothing while this portrait has no rig.
+ */
+export function RigModeTags({
+  rig,
+  activeMode,
+  figure = 'bust',
+}: {
+  rig: RigImport
+  activeMode: RigMode | null
+  figure?: 'bust' | 'fullBody'
+}) {
+  const { t, format } = useI18n()
+  const labels = t.merope
+  if (!activeMode) return null
+  const other: RigMode = rig.mode === 'enhanced' ? 'plain' : 'enhanced'
+  return (
+    <>
+      <SettingTitleTag variant="muted">
+        {format(labels.rigModeActive, { mode: modeLabel(labels, figure, activeMode) })}
+      </SettingTitleTag>
+      <SettingTitleTag disabled={rig.importing} onClick={() => rig.setMode(other)}>
+        {format(labels.rigModeSwitch, { mode: modeLabel(labels, figure, other) })}
+      </SettingTitleTag>
+    </>
+  )
+}
+
 interface Props {
   rig: RigImport
   rigPath: RigPath
@@ -65,15 +101,14 @@ export function RigImportPanel({
   ]
   const { importing, operation } = rig
   const modes: Array<{ value: RigMode; label: string }> = [
-    { value: 'plain', label: figure === 'bust' ? labels.rigModeBust : labels.rigModeFullBody },
-    { value: 'enhanced', label: figure === 'bust' ? labels.rigModeBustEnhanced : labels.rigModeFullBodyEnhanced },
+    { value: 'plain', label: modeLabel(labels, figure, 'plain') },
+    { value: 'enhanced', label: modeLabel(labels, figure, 'enhanced') },
   ]
   const { setMode } = rig
   // Opens on the mode the active rig was made in; the other one is a switch away.
   useEffect(() => {
     if (activeMode) setMode(activeMode)
   }, [activeMode, setMode])
-  const modeLabel = (mode: RigMode) => modes.find((option) => option.value === mode)?.label ?? mode
   const enhancing = rig.mode === 'enhanced'
   // The plain bust is an uploaded PSD only; See-through is the enhanced path's.
   const uploadOnly = !enhancing && figure === 'bust'
@@ -134,11 +169,8 @@ export function RigImportPanel({
   )
   return (
     <div className="merope-motion-rig">
-      {activeMode ? (
-        <p className="merope-motion-rig__hint">
-          <strong>{format(labels.rigModeActive, { mode: modeLabel(activeMode) })}</strong>
-        </p>
-      ) : (
+      {/* With a rig, its mode's tags sit beside the group's title (RigModeTags). */}
+      {activeMode ? null : (
         <FaceTabs
           className="merope-motion-rig__tabs"
           ariaLabel={labels.rigGroup}
@@ -294,17 +326,6 @@ export function RigImportPanel({
         </SettingsButton>
       )}
       <RigImportProgress rig={rig} />
-      {activeMode ? (
-        <SettingsButton
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={importing}
-          onClick={() => rig.setMode(enhancing ? 'plain' : 'enhanced')}
-        >
-          {format(labels.rigModeSwitch, { mode: modeLabel(enhancing ? 'plain' : 'enhanced') })}
-        </SettingsButton>
-      ) : null}
       {motionEnabled ? (
         <section className="merope-motion-rig__status">
           <strong>{labels.rigReadyTitle}</strong>

@@ -15,7 +15,7 @@ import { personaTourPanel } from '../../../components/tour/tourLogic'
 import { useI18n } from '../../../contexts/I18nContext'
 import { FaceTabs } from './FaceTabs'
 import { MotionPanel } from './MotionPanel'
-import { RigImportPanel } from './RigImportPanel'
+import { RigImportPanel, RigModeTags } from './RigImportPanel'
 import { useRigImport } from './useRigImport'
 import { useWorkbenchDriver } from './useWorkbenchDriver'
 
@@ -146,6 +146,7 @@ export default function Anime25DWorkbench({
       {panel === 'wardrobe' && outfitLead && outfitRig ? (
         <SettingGroup
           title={labels.rigGroup}
+          titleExtra={<RigModeTags rig={rig} activeMode={activeRigMode} />}
           description={labels.rigGroupDescription}
           id="merope-motion-asset"
         >
