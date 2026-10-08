@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { IDENTITY_DRIVER } from './driver'
-import { HEAD_TURN_RADIANS } from './headTurn'
+import { HEAD_TURN_RADIANS, PLAIN_HEAD_TURN_RADIANS } from './headTurn'
 import {
   ANIME25D_MOTION_ENVELOPE_PROBES,
   deriveAnime25DMotionEnvelopeProfile,
@@ -119,8 +119,10 @@ test('arms whose hands hold each other take no arm gesture; the body carries it'
 })
 
 test('with a hand on the head, the head keeps near its drawn pose and the look moves elsewhere', () => {
-  const free = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }] })
-  const resting = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }] }, undefined, { touchingHead: true })
+  // A keyed rig: its full turn is about 30°.
+  const keyed = { layers: [{ role: 'handwear' as const }], turnKeyforms: {} }
+  const free = deriveAnime25DMotionEnvelopeProfile(keyed)
+  const resting = deriveAnime25DMotionEnvelopeProfile(keyed, undefined, { touchingHead: true })
   const turn = () => ({ ...IDENTITY_DRIVER, angleX: 1, angleY: 0.8, angleZ: -1 })
   const freely = turn()
   projectAnime25DMotionEnvelope(freely, free, { clippedEnergy: 0, transferredEnergy: 0 })
@@ -203,4 +205,12 @@ test('clipped energy changes sides continuously instead of snapping across', () 
     previous = target.angleX
   }
   assert.ok(worst <= step, `yaw moved ${worst} for a roll step of ${step}`)
+})
+
+test('a hand on the head holds the turn to the same angle whatever the rig\'s full turn', () => {
+  const plain = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }] }, undefined, { touchingHead: true })
+  const keyed = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }], turnKeyforms: {} }, undefined, { touchingHead: true })
+  // In radians the limits match; as a share of the full turn the unkeyed rig (about 15°) allows twice as much.
+  assert.ok(Math.abs(plain.headTurn.limit * PLAIN_HEAD_TURN_RADIANS - keyed.headTurn.limit * HEAD_TURN_RADIANS) < 1e-9)
+  assert.ok(plain.headTurn.limit > keyed.headTurn.limit)
 })

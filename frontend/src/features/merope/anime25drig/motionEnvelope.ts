@@ -1,7 +1,7 @@
 import type { MeropeRigManifest } from '../rig/types'
 import type { Anime25DDriver } from './driver'
 import type { Anime25DPlaybackLayer } from './types'
-import { HEAD_TURN_RADIANS } from './headTurn'
+import { headTurnRadians } from './headTurn'
 
 export interface Anime25DMotionEnvelopeAxis {
   startsAt: number
@@ -73,6 +73,8 @@ export type Anime25DMotionEnvelopeProbeId =
 
 interface MotionEnvelopePlayback {
   layers: readonly Pick<Anime25DPlaybackLayer, 'role'>[]
+  /** Keyed turns go to about 30°, others about 15° (headTurnRadians). */
+  turnKeyforms?: unknown
 }
 type MotionEnvelopeManifest = Pick<MeropeRigManifest, 'outfitProfile'>
 
@@ -85,6 +87,7 @@ export function deriveAnime25DMotionEnvelopeProfile(
     (layer) => layer.role === 'collar-back' || layer.role === 'collar-front',
   )
   const armMotion = playback.layers.some((layer) => layer.role === 'handwear')
+  const turnRadians = headTurnRadians(Boolean(playback.turnKeyforms))
   const torsoLimit = clamp(
     finiteOr(manifest?.outfitProfile?.torsoTwistScale, 1),
     0.25,
@@ -107,7 +110,7 @@ export function deriveAnime25DMotionEnvelopeProfile(
     torso: axisEnvelope(torsoLimit * 0.78, torsoLimit),
     rigidArm: axisEnvelope(rigidArmLimit * 0.78, rigidArmLimit),
     headTurn: hands.touchingHead
-      ? axisEnvelope(HEAD_CONTACT_TURN_STARTS_AT / HEAD_TURN_RADIANS, HEAD_CONTACT_TURN_LIMIT / HEAD_TURN_RADIANS)
+      ? axisEnvelope(HEAD_CONTACT_TURN_STARTS_AT / turnRadians, HEAD_CONTACT_TURN_LIMIT / turnRadians)
       : axisEnvelope(1, 1),
     headTilt: hands.touchingHead
       ? axisEnvelope(HEAD_CONTACT_STARTS_AT, HEAD_CONTACT_LIMIT)

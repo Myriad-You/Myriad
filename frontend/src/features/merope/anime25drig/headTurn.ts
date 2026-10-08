@@ -49,8 +49,21 @@ export interface HeadSilhouette {
 }
 
 const OPAQUE = 128
-/** Head turn at full angleX, radians: about 30°, the range of a Live2D model's AngleX. */
+/**
+ * Head turn at full angleX, radians, for a rig with turn keys: about 30°, the
+ * range of a Live2D model's AngleX, which the keys were fitted to.
+ */
 export const HEAD_TURN_RADIANS = 0.52
+/**
+ * Without turn keys the whole turn is worked out from the front drawing
+ * (depth per vertex): about 15°, as far as one drawing carries a turn.
+ */
+export const PLAIN_HEAD_TURN_RADIANS = 0.26
+
+/** The full turn of a rig, by whether its turn is keyed. */
+export function headTurnRadians(keyed: boolean): number {
+  return keyed ? HEAD_TURN_RADIANS : PLAIN_HEAD_TURN_RADIANS
+}
 /** Head nod at full angleY, radians. */
 export const HEAD_NOD_RADIANS = 0.2
 /**
@@ -252,6 +265,8 @@ export interface HeadTurn {
   version: number
   /** Share of the full turn, −1…1. */
   amount: number
+  /** The full turn, radians (headTurnRadians). */
+  radians: number
   /** Share of the full nod, −1…1, raised positive. */
   nodAmount: number
   /** The same head nodding only: for parts whose turn is keyed (turnKeyforms). */
@@ -260,8 +275,8 @@ export interface HeadTurn {
   still: HeadTurn | null
 }
 
-export function createHeadTurn(silhouette: HeadSilhouette | null): HeadTurn {
-  const still = (): HeadTurn => ({ active: false, cosine: 1, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0, amount: 0, nodAmount: 0, nodOnly: null, still: null })
+export function createHeadTurn(silhouette: HeadSilhouette | null, radians = HEAD_TURN_RADIANS): HeadTurn {
+  const still = (): HeadTurn => ({ active: false, cosine: 1, sine: 0, nodSlide: 0, nodSine: 0, silhouette, version: 0, amount: 0, radians, nodAmount: 0, nodOnly: null, still: null })
   return { ...still(), nodOnly: still(), still: still() }
 }
 
@@ -270,8 +285,8 @@ export function updateHeadTurn(turn: HeadTurn, angleX: number, angleY: number): 
   const x = turn.silhouette && Number.isFinite(angleX) ? Math.max(-1, Math.min(1, angleX)) : 0
   const y = turn.silhouette && Number.isFinite(angleY) ? Math.max(-1, Math.min(1, angleY)) : 0
   turn.active = x !== 0 || y !== 0
-  turn.cosine = Math.cos(x * HEAD_TURN_RADIANS)
-  turn.sine = Math.sin(x * HEAD_TURN_RADIANS)
+  turn.cosine = Math.cos(x * turn.radians)
+  turn.sine = Math.sin(x * turn.radians)
   turn.nodSlide = y * NOD_SLIDE
   turn.nodSine = Math.sin(y * HEAD_NOD_RADIANS)
   turn.amount = x

@@ -2,13 +2,16 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   createHeadTurn,
+  HEAD_TURN_RADIANS,
   headSilhouetteFromFace,
   headSilhouetteRow,
   headTurnFeatureKey,
   headTurnFeatures,
   headTurnNeckOffset,
   headTurnOffset,
+  headTurnRadians,
   moveHeadFeature,
+  PLAIN_HEAD_TURN_RADIANS,
   updateHeadTurn,
 } from './headTurn'
 
@@ -208,4 +211,14 @@ test('a raised face foreshortens: the mouth rises at least as far as the eyes, n
     // Raised, both rise and the gap between them closes; lowered, it closes too.
     assert.ok(angle > 0 ? mouth <= eye && eye < 0 : mouth >= 0, `angle ${angle}: eye ${eye} mouth ${mouth}`)
   }
+})
+
+test('a rig without turn keys turns about 15° at full angleX, a keyed one about 30°', () => {
+  const plain = createHeadTurn(silhouette(), headTurnRadians(false))
+  const keyed = createHeadTurn(silhouette(), headTurnRadians(true))
+  updateHeadTurn(plain, 1, 0)
+  updateHeadTurn(keyed, 1, 0)
+  assert.ok(Math.abs(Math.asin(plain.sine) - PLAIN_HEAD_TURN_RADIANS) < 1e-9)
+  assert.ok(Math.abs(Math.asin(keyed.sine) - HEAD_TURN_RADIANS) < 1e-9)
+  assert.equal(plain.amount, keyed.amount, 'both at the full turn')
 })
