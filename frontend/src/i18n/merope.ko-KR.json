@@ -375,6 +375,7 @@
   "rigModeFullBody": "전신",
   "rigModeFullBodyEnhanced": "전신 강화",
   "rigModePlainHint": "PSD를 올리거나 See-through로 한 번 분리합니다. 고개는 약 15° 돌며 정면 그림 한 장에서 계산합니다. 이미지를 생성하지 않습니다.",
+  "rigModePlainBustHint": "레이어가 나뉜 PSD를 올립니다. 고개는 약 15° 돌며 정면 그림 한 장에서 계산합니다. 이미지를 생성하지 않습니다.",
   "rigModeEnhancedHint": "생성한 그림으로 강화합니다. 항목별로 고를 수 있고, 고른 것만 생성합니다.",
   "rigEnhanceTurn": "30° 고개 돌림",
   "rigEnhanceTurnHint": "고개 돌린 그림 4장을 생성하고 초상화와 함께 5번 분리해 키폼을 맞춥니다. 약 30분.",

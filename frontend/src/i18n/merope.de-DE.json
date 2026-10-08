@@ -375,6 +375,7 @@
   "rigModeFullBody": "Ganzkörper",
   "rigModeFullBodyEnhanced": "Ganzkörper, erweitert",
   "rigModePlainHint": "PSD hochladen oder einmal mit See-through teilen. Der Kopf dreht sich etwa 15°, berechnet aus der Frontzeichnung; nichts wird generiert.",
+  "rigModePlainBustHint": "Ein PSD mit Ebenen hochladen. Der Kopf dreht sich etwa 15°, berechnet aus der Frontzeichnung; nichts wird generiert.",
   "rigModeEnhancedHint": "Mit generierten Bildern erweitert: jeder Teil ist wählbar; nur Angehaktes wird generiert.",
   "rigEnhanceTurn": "30°-Drehung",
   "rigEnhanceTurnHint": "Zeichnet 4 gedrehte Bilder, teilt 5-mal mit dem Porträt und passt Drehschlüssel an; etwa 30 Minuten.",

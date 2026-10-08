@@ -66,6 +66,9 @@ export function RigImportPanel({
     { value: 'enhanced', label: figure === 'bust' ? labels.rigModeBustEnhanced : labels.rigModeFullBodyEnhanced },
   ]
   const enhancing = rig.mode === 'enhanced'
+  // The plain bust is an uploaded PSD only; See-through is the enhanced path's.
+  const uploadOnly = !enhancing && figure === 'bust'
+  const path: RigPath = uploadOnly ? 'upload' : rigPath
   const nothingChosen = enhancing && !rig.enhanceTurn && !(rig.expressionsOffered && rig.enhanceExpressions)
   const decomposeLabel = operation === 'decompose'
     ? (rig.decomposeStatus ? turnKeysProgress(labels, rig.decomposeStatus) : labels.motionSeeThroughGenerating)
@@ -130,9 +133,11 @@ export function RigImportPanel({
         onChange={(mode) => { if (!importing) rig.setMode(mode) }}
       />
       <p className="merope-motion-rig__hint">
-        {enhancing ? labels.rigModeEnhancedHint : labels.rigModePlainHint}
+        {enhancing
+          ? labels.rigModeEnhancedHint
+          : uploadOnly ? labels.rigModePlainBustHint : labels.rigModePlainHint}
       </p>
-      {enhancing ? null : (
+      {enhancing || uploadOnly ? null : (
         <FaceTabs
           className="merope-motion-rig__tabs"
           ariaLabel={labels.rigGroup}
@@ -232,7 +237,7 @@ export function RigImportPanel({
             />
           ) : null}
         </section>
-      ) : rigPath === 'upload' ? (
+      ) : path === 'upload' ? (
         <section className="merope-motion-rig__path">
           <SettingsButton
             type="button"

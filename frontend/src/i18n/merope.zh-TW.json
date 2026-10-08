@@ -375,6 +375,7 @@
   "rigModeFullBody": "全身",
   "rigModeFullBodyEnhanced": "全身增強",
   "rigModePlainHint": "上傳 PSD，或用 See-through 拆一次層。轉頭約 15°，由正面一張畫推算，不生圖。",
+  "rigModePlainBustHint": "上傳分層 PSD。轉頭約 15°，由正面一張畫推算，不生圖。",
   "rigModeEnhancedHint": "用生成的圖增強：可分別勾選，勾選的部分才生成。",
   "rigEnhanceTurn": "30° 轉頭",
   "rigEnhanceTurnHint": "生成 4 張轉頭圖，連立繪拆 5 次層，擬合出轉頭關鍵形，約 30 分鐘。",

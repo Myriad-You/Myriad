@@ -375,6 +375,7 @@
   "rigModeFullBody": "Full body",
   "rigModeFullBodyEnhanced": "Full body, enhanced",
   "rigModePlainHint": "Upload a PSD, or split it once with See-through. The head turns about 15°, worked out from the front drawing; nothing is generated.",
+  "rigModePlainBustHint": "Upload a layered PSD. The head turns about 15°, worked out from the front drawing; nothing is generated.",
   "rigModeEnhancedHint": "Enhanced with generated drawings: choose each part; only what is ticked is generated.",
   "rigEnhanceTurn": "30° turn",
   "rigEnhanceTurnHint": "Draws 4 turned pictures, splits 5 times with the portrait and fits turn keys; about 30 minutes.",

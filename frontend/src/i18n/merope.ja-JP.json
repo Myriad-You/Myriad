@@ -375,6 +375,7 @@
   "rigModeFullBody": "全身",
   "rigModeFullBodyEnhanced": "全身（強化）",
   "rigModePlainHint": "PSD をアップロードするか、See-through で一度だけ分解します。振り向きは約 15° で、正面の一枚から推定します。画像生成はしません。",
+  "rigModePlainBustHint": "レイヤー分けした PSD をアップロードします。振り向きは約 15° で、正面の一枚から推定します。画像生成はしません。",
   "rigModeEnhancedHint": "生成した画像で強化します。項目ごとに選べ、選んだものだけ生成します。",
   "rigEnhanceTurn": "30° の振り向き",
   "rigEnhanceTurnHint": "振り向き画像を 4 枚生成し、立ち絵と合わせて 5 回分解してキーフォームを合わせます。約 30 分。",
