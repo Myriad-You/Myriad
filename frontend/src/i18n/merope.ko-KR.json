@@ -374,6 +374,8 @@
   "rigModeBustEnhanced": "상반신 강화",
   "rigModeFullBody": "전신",
   "rigModeFullBodyEnhanced": "전신 강화",
+  "rigModeActive": "사용 중: {mode}",
+  "rigModeSwitch": "{mode}(으)로 바꾸기",
   "rigModePlainHint": "PSD를 올리거나 See-through로 한 번 분리합니다. 고개는 약 15° 돌며 정면 그림 한 장에서 계산합니다. 이미지를 생성하지 않습니다.",
   "rigModePlainBustHint": "레이어가 나뉜 PSD를 올립니다. 고개는 약 15° 돌며 정면 그림 한 장에서 계산합니다. 이미지를 생성하지 않습니다.",
   "rigModeEnhancedHint": "생성한 그림으로 강화합니다. 항목별로 고를 수 있고, 고른 것만 생성합니다.",

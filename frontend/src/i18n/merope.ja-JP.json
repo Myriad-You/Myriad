@@ -374,6 +374,8 @@
   "rigModeBustEnhanced": "バストアップ（強化）",
   "rigModeFullBody": "全身",
   "rigModeFullBodyEnhanced": "全身（強化）",
+  "rigModeActive": "使用中：{mode}",
+  "rigModeSwitch": "{mode}に切り替える",
   "rigModePlainHint": "PSD をアップロードするか、See-through で一度だけ分解します。振り向きは約 15° で、正面の一枚から推定します。画像生成はしません。",
   "rigModePlainBustHint": "レイヤー分けした PSD をアップロードします。振り向きは約 15° で、正面の一枚から推定します。画像生成はしません。",
   "rigModeEnhancedHint": "生成した画像で強化します。項目ごとに選べ、選んだものだけ生成します。",

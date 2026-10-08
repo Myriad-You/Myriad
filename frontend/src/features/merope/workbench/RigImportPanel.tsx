@@ -1,6 +1,6 @@
 import type { AuthoredExpressionKind } from '../rig/authoredExpression'
 import type { RigImport, RigMode } from './useRigImport'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   CheckboxItem,
   GitHubProjectBadge,
@@ -39,6 +39,8 @@ interface Props {
   archiveOutfitId?: string | null
   /** Names the two modes: bust / bust enhanced, or full body / full body enhanced. */
   figure?: 'bust' | 'fullBody'
+  /** The mode the active rig was made in (activeRigMode); null when there is none for this portrait. */
+  activeMode?: RigMode | null
 }
 
 /** The worn outfit's rig: get a layered PSD in, check it, and put it on. */
@@ -52,6 +54,7 @@ export function RigImportPanel({
   motionEnabled,
   archiveOutfitId = null,
   figure = 'bust',
+  activeMode = null,
 }: Props) {
   const { t, format } = useI18n()
   const labels = t.merope
@@ -65,6 +68,12 @@ export function RigImportPanel({
     { value: 'plain', label: figure === 'bust' ? labels.rigModeBust : labels.rigModeFullBody },
     { value: 'enhanced', label: figure === 'bust' ? labels.rigModeBustEnhanced : labels.rigModeFullBodyEnhanced },
   ]
+  const { setMode } = rig
+  // Opens on the mode the active rig was made in; the other one is a switch away.
+  useEffect(() => {
+    if (activeMode) setMode(activeMode)
+  }, [activeMode, setMode])
+  const modeLabel = (mode: RigMode) => modes.find((option) => option.value === mode)?.label ?? mode
   const enhancing = rig.mode === 'enhanced'
   // The plain bust is an uploaded PSD only; See-through is the enhanced path's.
   const uploadOnly = !enhancing && figure === 'bust'
@@ -125,13 +134,19 @@ export function RigImportPanel({
   )
   return (
     <div className="merope-motion-rig">
-      <FaceTabs
-        className="merope-motion-rig__tabs"
-        ariaLabel={labels.rigGroup}
-        value={rig.mode}
-        options={modes}
-        onChange={(mode) => { if (!importing) rig.setMode(mode) }}
-      />
+      {activeMode ? (
+        <p className="merope-motion-rig__hint">
+          <strong>{format(labels.rigModeActive, { mode: modeLabel(activeMode) })}</strong>
+        </p>
+      ) : (
+        <FaceTabs
+          className="merope-motion-rig__tabs"
+          ariaLabel={labels.rigGroup}
+          value={rig.mode}
+          options={modes}
+          onChange={(mode) => { if (!importing) rig.setMode(mode) }}
+        />
+      )}
       <p className="merope-motion-rig__hint">
         {enhancing
           ? labels.rigModeEnhancedHint
@@ -279,6 +294,17 @@ export function RigImportPanel({
         </SettingsButton>
       )}
       <RigImportProgress rig={rig} />
+      {activeMode ? (
+        <SettingsButton
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={importing}
+          onClick={() => rig.setMode(enhancing ? 'plain' : 'enhanced')}
+        >
+          {format(labels.rigModeSwitch, { mode: modeLabel(enhancing ? 'plain' : 'enhanced') })}
+        </SettingsButton>
+      ) : null}
       {motionEnabled ? (
         <section className="merope-motion-rig__status">
           <strong>{labels.rigReadyTitle}</strong>

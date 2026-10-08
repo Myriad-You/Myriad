@@ -37,6 +37,7 @@ import Anime25DWorkbench from './Anime25DWorkbench'
 import { FullBodyStageSwitch } from './FullBodyStageSwitch'
 import { OutfitDetail } from './OutfitDetail'
 import OutfitWardrobe from './OutfitWardrobe'
+import { activeRigMode } from './rigMode'
 import { useAddressee } from './useAddressee'
 import { useAiExpressions } from './useAiExpressions'
 import { useFullBodyStage } from './useFullBodyStage'
@@ -520,6 +521,7 @@ export default function SiteMotionWorkbench({
           aiExpressions={aiExpressions.ready}
           onGenerateAiExpressions={portraitUrl ? aiExpressions.generate : undefined}
           aiExpressionsReady={aiExpressions.ready.length > 0}
+          activeRigMode={activeRigMode(rigManifest, portraitUrl)}
           motionEnabled={motionEnabled}
           stageSwitch={
             fullBody.sets.length > 0 ? (

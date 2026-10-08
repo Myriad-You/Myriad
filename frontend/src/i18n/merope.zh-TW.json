@@ -374,6 +374,8 @@
   "rigModeBustEnhanced": "半身增強",
   "rigModeFullBody": "全身",
   "rigModeFullBodyEnhanced": "全身增強",
+  "rigModeActive": "使用中：{mode}",
+  "rigModeSwitch": "改用{mode}",
   "rigModePlainHint": "上傳 PSD，或用 See-through 拆一次層。轉頭約 15°，由正面一張畫推算，不生圖。",
   "rigModePlainBustHint": "上傳分層 PSD。轉頭約 15°，由正面一張畫推算，不生圖。",
   "rigModeEnhancedHint": "用生成的圖增強：可分別勾選，勾選的部分才生成。",

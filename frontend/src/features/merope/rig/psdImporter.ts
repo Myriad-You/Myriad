@@ -54,6 +54,11 @@ export async function prepareRigPsdImport(
   // Keys measured on this decomposition ride into the playback, cut as it is.
   const keys = turnKeyformsFor(file)
   const turnKeyforms = keys && placeTurnKeyforms(keys, prepared.documentFrame, prepared.documentFrame)
-  if (turnKeyforms && prepared.source.anime25dPlayback) prepared.source.anime25dPlayback.turnKeyforms = turnKeyforms
+  const playback = prepared.source.anime25dPlayback
+  if (playback) {
+    if (turnKeyforms) playback.turnKeyforms = turnKeyforms
+    // Kept with the rig, so its page shows the mode it was made in.
+    playback.enhancement = { turn: Boolean(turnKeyforms), expressions: expressions.length > 0 }
+  }
   return prepared
 }

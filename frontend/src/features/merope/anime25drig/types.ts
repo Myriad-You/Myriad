@@ -251,6 +251,18 @@ export interface Anime25DPlayback {
   shellProfile: Anime25DShellProfile
   /** The head's turn as keyed shapes per part; absent, the turn is computed. */
   turnKeyforms?: Anime25DTurnKeyforms
+  /**
+   * What generated drawings this rig was enhanced with when imported; absent
+   * on rigs imported before it was recorded (then turn keys alone tell).
+   */
+  enhancement?: Anime25DEnhancement
+}
+
+export interface Anime25DEnhancement {
+  /** Turn keys fitted to generated turned drawings (about 30°). */
+  turn: boolean
+  /** Expressions redrawn by the image model. */
+  expressions: boolean
 }
 
 export function anime25DPlaybackSource(): Pick<

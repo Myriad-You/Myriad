@@ -4,7 +4,7 @@ import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { AuthoredExpressionKind } from '../rig/authoredExpression'
 import type { RigPath } from './RigImportPanel'
-import type { RigImportSource } from './useRigImport'
+import type { RigImportSource, RigMode } from './useRigImport'
 import { useState, useSyncExternalStore } from 'react'
 import { SettingGroup } from '../../../components/settings'
 import {
@@ -23,6 +23,8 @@ interface Props extends RigImportSource {
   characterRef: RefObject<RigCharacterHandle | null>
   /** Expressions the image model has redrawn for the current portrait. */
   aiExpressions?: readonly AuthoredExpressionKind[]
+  /** The mode the worn rig was made in; null when this portrait has none yet. */
+  activeRigMode?: RigMode | null
   wardrobeLead?: ReactNode
   outfitLead?: ReactNode
   outfitRig?: boolean
@@ -48,6 +50,7 @@ type FacePanel = 'overview' | 'persona' | 'mind' | 'wardrobe' | 'motion'
 export default function Anime25DWorkbench({
   characterRef,
   aiExpressions = [],
+  activeRigMode = null,
   wardrobeLead = null,
   outfitLead = null,
   outfitRig = true,
@@ -158,6 +161,7 @@ export default function Anime25DWorkbench({
               seeThroughTokenConfigured={source.seeThroughTokenConfigured}
               aiExpressions={aiExpressions}
               canGenerateAiExpressions={Boolean(source.onGenerateAiExpressions)}
+              activeMode={activeRigMode}
               motionEnabled={motionEnabled}
             />
           )}

@@ -374,6 +374,8 @@
   "rigModeBustEnhanced": "Brustbild, erweitert",
   "rigModeFullBody": "Ganzkörper",
   "rigModeFullBodyEnhanced": "Ganzkörper, erweitert",
+  "rigModeActive": "In Verwendung: {mode}",
+  "rigModeSwitch": "Wechseln zu: {mode}",
   "rigModePlainHint": "PSD hochladen oder einmal mit See-through teilen. Der Kopf dreht sich etwa 15°, berechnet aus der Frontzeichnung; nichts wird generiert.",
   "rigModePlainBustHint": "Ein PSD mit Ebenen hochladen. Der Kopf dreht sich etwa 15°, berechnet aus der Frontzeichnung; nichts wird generiert.",
   "rigModeEnhancedHint": "Mit generierten Bildern erweitert: jeder Teil ist wählbar; nur Angehaktes wird generiert.",

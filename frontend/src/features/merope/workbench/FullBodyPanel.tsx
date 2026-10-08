@@ -17,6 +17,7 @@ import {
 import { commitFullBodyPsdAsset, preflightFullBodyPsdAsset } from '../assets/pipeline'
 import { decomposeWithTurnKeyforms } from '../turnKeyformsApi'
 import { RigImportPanel } from './RigImportPanel'
+import { activeRigMode } from './rigMode'
 import { useRigImport } from './useRigImport'
 
 interface Props {
@@ -250,6 +251,7 @@ export function FullBodyPanel({
             motionEnabled={false}
             archiveOutfitId={outfitId}
             figure="fullBody"
+            activeMode={activeRigMode(face?.manifest, portrait)}
           />
         </SettingGroup>
       ) : null}
