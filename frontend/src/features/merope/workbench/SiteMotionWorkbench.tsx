@@ -172,11 +172,12 @@ export default function SiteMotionWorkbench({
   const decomposeRigPsd = useCallback(async (
     onStatus: (status: TurnKeyformsStatus) => void,
     signal: AbortSignal,
+    fromArchive?: string,
   ) => {
     if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
     return decomposeWithTurnKeyforms(
       { sourceMasterAssetId: portraitUrl, sourceGenerationFingerprint: generationFingerprint || undefined },
-      { onStatus, signal },
+      { fromArchive, onStatus, signal },
     )
   }, [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait])
 

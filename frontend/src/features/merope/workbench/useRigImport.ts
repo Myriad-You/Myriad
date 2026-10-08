@@ -24,7 +24,12 @@ export interface RigImportSource {
   sourceGenerationFingerprint?: string
   seeThroughTokenConfigured: boolean
   onSaveSeeThroughToken: (token: string) => Promise<void>
-  onDecomposeRigPsd: (onStatus: (status: TurnKeyformsStatus) => void, signal: AbortSignal) => Promise<File>
+  /** Splits the portrait with turn keys; with `fromArchive`, fits that kept job again instead. */
+  onDecomposeRigPsd: (
+    onStatus: (status: TurnKeyformsStatus) => void,
+    signal: AbortSignal,
+    fromArchive?: string,
+  ) => Promise<File>
   onPreflightRigPsd: (
     file: File,
     onStage: (event: RigAssetCompileEvent) => void,
@@ -184,7 +189,7 @@ export function useRigImport({
     }
   }
 
-  const decomposePsd = async () => {
+  const decomposePsd = async (fromArchive?: string) => {
     if (importing || !sourceMasterAssetId || !seeThroughTokenConfigured) {
       return
     }
@@ -200,6 +205,7 @@ export function useRigImport({
       const file = await onDecomposeRigPsd(
         (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
         controller.signal,
+        fromArchive,
       )
       setDecomposeStatus(null)
       controller.signal.throwIfAborted()

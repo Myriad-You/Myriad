@@ -21,6 +21,7 @@ import {
   SEE_THROUGH_PROJECT_URL,
 } from './seeThroughProject'
 import { SeeThroughSpaceField } from './SeeThroughSpaceField'
+import { TurnArchiveList } from './TurnArchiveList'
 
 export type RigPath = 'upload' | 'seeThrough'
 
@@ -33,6 +34,8 @@ interface Props {
   aiExpressions: readonly AuthoredExpressionKind[]
   canGenerateAiExpressions: boolean
   motionEnabled: boolean
+  /** Whose kept turn-keys jobs to list: null (default) the worn bust, else that outfit. */
+  archiveOutfitId?: string | null
 }
 
 /** The worn outfit's rig: get a layered PSD in, check it, and put it on. */
@@ -44,6 +47,7 @@ export function RigImportPanel({
   aiExpressions,
   canGenerateAiExpressions,
   motionEnabled,
+  archiveOutfitId = null,
 }: Props) {
   const { t, format } = useI18n()
   const labels = t.merope
@@ -153,6 +157,13 @@ export function RigImportPanel({
               ? (rig.decomposeStatus ? turnKeysProgress(labels, rig.decomposeStatus) : labels.motionSeeThroughGenerating)
               : labels.motionSeeThroughGenerate}
           </SettingsButton>
+          {seeThroughTokenConfigured ? (
+            <TurnArchiveList
+              outfitId={archiveOutfitId}
+              busy={importing}
+              onRefit={(archiveId) => void rig.decomposePsd(archiveId)}
+            />
+          ) : null}
         </section>
       )}
       {canGenerateAiExpressions ? (

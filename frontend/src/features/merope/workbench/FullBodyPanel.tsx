@@ -77,10 +77,10 @@ export function FullBodyPanel({
     sourceGenerationFingerprint: fingerprint,
     seeThroughTokenConfigured,
     onSaveSeeThroughToken,
-    onDecomposeRigPsd: (onStatus, signal) =>
+    onDecomposeRigPsd: (onStatus, signal, fromArchive) =>
       decomposeWithTurnKeyforms(
         { sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint },
-        { outfitId, onStatus, signal },
+        { outfitId, fromArchive, onStatus, signal },
       ),
     onPreflightRigPsd: (
       file: File,
@@ -242,6 +242,7 @@ export function FullBodyPanel({
             aiExpressions={[]}
             canGenerateAiExpressions={false}
             motionEnabled={false}
+            archiveOutfitId={outfitId}
           />
         </SettingGroup>
       ) : null}

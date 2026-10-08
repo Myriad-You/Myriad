@@ -12,7 +12,27 @@ export interface TurnKeyformsStatus {
   total: number
   seconds: number
   error?: { error?: string; code?: string } | null
+  /** The archive the finished job was kept as. */
+  archiveId?: string | null
 }
+
+/** A finished turn-keys job kept on the server: its drawings, decompositions and keys. */
+export interface TurnArchive {
+  id: string
+  createdAt: string
+  /** null: the worn bust. */
+  outfitId: string | null
+  sourceMasterAssetId: string
+  /** The archive this one was refitted from. */
+  parent: string | null
+  /** Turned drawings drawn again after the Space's check. */
+  redrawn: string[]
+  bytes: number
+  /** Whether its portrait is still the slot's current one (only then can it be refitted and imported). */
+  current: boolean
+}
+
+const ARCHIVES = `${PREFIX}/see-through/turn-archives`
 
 const TURN_KEYFORMS_POLL_MS = 5000
 /** The server lost the job (it restarted): start it again; what was already made is kept. */
@@ -29,13 +49,21 @@ const TURN_KEYFORMS_LIMIT_MS = 90 * 60 * 1000
  */
 export async function decomposeWithTurnKeyforms(
   input: Pick<SeeThroughDecomposeInput, 'sourceMasterAssetId' | 'sourceGenerationFingerprint'>,
-  options: { outfitId?: string; onStatus?: (status: TurnKeyformsStatus) => void; signal?: AbortSignal } = {},
+  options: {
+    outfitId?: string
+    /** Fit this kept job again instead of drawing and decomposing anew. */
+    fromArchive?: string
+    onStatus?: (status: TurnKeyformsStatus) => void
+    signal?: AbortSignal
+  } = {},
 ): Promise<File> {
-  const start = options.outfitId
-    ? `${PREFIX}${fullBodyPath(options.outfitId)}/see-through/turn-keyforms`
-    : `${PREFIX}/see-through/turn-keyforms`
+  const start = options.fromArchive
+    ? `${ARCHIVES}/${encodeURIComponent(options.fromArchive)}/refit`
+    : options.outfitId
+      ? `${PREFIX}${fullBodyPath(options.outfitId)}/see-through/turn-keyforms`
+      : `${PREFIX}/see-through/turn-keyforms`
   const begin = async () => {
-    const { jobId } = await apiService.post<{ jobId: string }>(start, {
+    const { jobId } = await apiService.post<{ jobId: string }>(start, options.fromArchive ? {} : {
       sourceMasterAssetId: input.sourceMasterAssetId,
       ...(input.sourceGenerationFingerprint ? { sourceGenerationFingerprint: input.sourceGenerationFingerprint } : {}),
     })
@@ -92,4 +120,29 @@ export async function decomposeWithTurnKeyforms(
     }
     throw meropeError(reason, currentCopy().merope.motionSeeThroughUpstream)
   }
+}
+
+/** The kept turn-keys jobs, newest first. */
+export async function listTurnArchives(): Promise<{ archives: TurnArchive[]; keepPerMaster: number }> {
+  return apiService.get(ARCHIVES)
+}
+
+/** Saves a kept job as a zip. */
+export async function downloadTurnArchive(id: string): Promise<void> {
+  const zip = await apiService.get<Blob>(`${ARCHIVES}/${encodeURIComponent(id)}/zip`, {
+    responseType: 'blob',
+    timeout: SEE_THROUGH_TIMEOUT_MS,
+  })
+  const objectUrl = URL.createObjectURL(zip)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = `turn-keys-${id}.zip`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
+}
+
+export async function deleteTurnArchive(id: string): Promise<void> {
+  await apiService.delete(`${ARCHIVES}/${encodeURIComponent(id)}`)
 }

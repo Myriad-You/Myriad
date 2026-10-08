@@ -1441,3 +1441,26 @@ html.dark .merope-wardrobe {
   transform: translateX(-50%);
   pointer-events: none;
 }
+
+.merope-turn-archives__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.merope-turn-archives__label {
+  min-width: 0;
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.merope-turn-archives__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
