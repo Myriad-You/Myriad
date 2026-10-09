@@ -157,6 +157,9 @@ export function useSecondaryNav(config: {
   routePath: string
   items: SecondaryNavItem[]
   defaultActiveId: string
+  /** URL 等外部状态控制选中项时，与 onChange 配合使用。 */
+  activeId?: string
+  onChange?: (id: string) => void
   expandHint?: string
 }) {
   const {
@@ -170,9 +173,11 @@ export function useSecondaryNav(config: {
   const existingExpanded = isSameGroup
     ? (secondaryNav.expanded ?? false)
     : false
-  const [activeId, setActiveIdLocal] = useState(
+  const [localActiveId, setActiveIdLocal] = useState(
     existingActiveId ?? config.defaultActiveId,
   )
+  const activeId = config.activeId ?? localActiveId
+  const controlled = config.activeId !== undefined
   const [expanded, setExpandedLocal] = useState(existingExpanded)
 
   // updater 内再调 updateSecondaryNav 会触发 React 18 "setState during render"
@@ -185,10 +190,13 @@ export function useSecondaryNav(config: {
     (value: string | ((prev: string) => string)) => {
       const next =
         typeof value === 'function' ? value(activeIdRef.current) : value
-      setActiveIdLocal(next)
-      updateSecondaryNav({ activeId: next })
+      if (!controlled) {
+        setActiveIdLocal(next)
+        updateSecondaryNav({ activeId: next })
+      }
+      config.onChange?.(next)
     },
-    [updateSecondaryNav],
+    [controlled, config.onChange, updateSecondaryNav],
   )
 
   const setExpanded = useCallback(
@@ -238,6 +246,10 @@ export function useSecondaryNav(config: {
     registerSecondaryNav,
     unregisterSecondaryNav,
   ])
+
+  useEffect(() => {
+    if (controlled) updateSecondaryNav({ activeId })
+  }, [controlled, activeId, updateSecondaryNav])
 
   return {
     activeId,

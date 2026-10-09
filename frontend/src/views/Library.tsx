@@ -8,8 +8,8 @@ import {
   subscribeLibraryCanvasTourSurface,
 } from '../components/tour/tourLogic'
 import { useI18n } from '../contexts/I18nContext'
-import { useSecondaryNav } from '../contexts/NavigationContext'
 import { useLibraryScheduler } from '../hooks/animation'
+import { useLibraryNavigation } from '../hooks/useLibraryNavigation'
 import { usePageSeo } from '../hooks/usePageSeo'
 import { buildModulePageSeo } from '../utils/modulePageSeo'
 import {
@@ -132,9 +132,6 @@ const FilterIcons = {
   ),
 }
 
-type FilterType =
-  'all' | 'game' | 'video' | 'music' | 'anime' | 'tv_series' | 'book'
-
 export default function Library() {
   useLibraryScheduler()
   const canvasTour = useSyncExternalStore(
@@ -218,12 +215,7 @@ export default function Library() {
     [t],
   )
 
-  const { activeId, setExpanded } = useSecondaryNav({
-    routePath: '/library',
-    items: navItems,
-    defaultActiveId: 'all',
-    expandHint: t.nav.expandFilters,
-  })
+  const { filter, setExpanded } = useLibraryNavigation(navItems, t.nav.expandFilters)
 
   useEffect(() => {
     const handleExpandSecondary = (e: CustomEvent<{ path: string }>) => {
@@ -246,16 +238,16 @@ export default function Library() {
 
   // Filter chips are not a new pageview; SPA stays on /library.
   useEffect(() => {
-    if (!activeId || activeId === 'all') return
+    if (filter === 'all') return
     void import('../utils/analyticsEvents').then(
       ({ trackProductEvent, AnalyticsEvents }) => {
         trackProductEvent(AnalyticsEvents.LIBRARY_FILTER, {
-          target: activeId,
+          target: filter,
           throttleMs: 2000,
         })
       },
     )
-  }, [activeId])
+  }, [filter])
 
   return (
     <AnimatedView className="min-h-screen px-3 xs:px-4 sm:px-6 pt-20 pb-28 sm:pb-24 md:pb-12">
@@ -266,7 +258,7 @@ export default function Library() {
           canvasTour ? undefined : '.library-card-container, .library-empty'
         }
       >
-        <LibraryGrid filter={activeId as FilterType} />
+        <LibraryGrid filter={filter} />
       </div>
     </AnimatedView>
   )
