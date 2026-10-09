@@ -373,7 +373,9 @@ git push origin v0.4.0
 | `-p` | 打包 backend/frontend；proxy/updater 仅路径变动时加入 |
 | `-full` | 打包，并强制编 proxy/updater |
 
-部署机：业务更新只看 backend/frontend；proxy/updater 自更新会在 channel 内查找最近仍带 `images.proxy` / `images.updater` 的 release，否则回退 Docker Hub tip。
+部署机：业务更新使用 backend/frontend；目标清单带 `images.proxy` 时一并更新 proxy。更新器自更新在 release 模式下优先扫描 GitHub 返回的最近 20 个 release，在当前 channel 内查找最近仍带 `images.updater` 的清单，并使用镜像 ref 中的不可变 tag（可能与业务 release tag 不同）。沿用 `COSIGN_VERIFY` 策略；清单无效、签名验证失败或镜像 ref 不合法时直接失败，不回退 Docker Hub。清单不可获取或扫描范围内没有 updater 镜像时才回退 Docker Hub tip；commit 模式仍使用 Docker Hub 的不可变 tag。
+
+自更新交接保持兼容旧 Guard：请求只携带 tag 与原有 `trust_path`，不传入仓库或 digest。Guard 独立从固定的官方 updater 仓库拉取镜像，解析并锁定 digest 后替换 TCB；本路径尚不对照 `images.updater.digest` 做相等性校验。版本发现走 GitHub 时无需请求 Hub API，但镜像拉取仍需 Docker daemon 能访问仓库（可使用 daemon 的镜像加速或代理配置）。
 
 tag 命名约定：
 

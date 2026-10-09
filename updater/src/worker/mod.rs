@@ -250,16 +250,46 @@ impl Worker {
         DockerHubClient::new()
     }
 
-    async fn component_target(&self, repo: &str, requested: Option<String>) -> Result<String> {
+    async fn component_target(
+        &self,
+        component: &str,
+        repo: &str,
+        requested: Option<String>,
+    ) -> Result<String> {
         if let Some(tag) = requested {
             crate::version::validate_image_tag(&tag).map_err(UpdaterError::InvalidInput)?;
             return Ok(tag);
+        }
+        let release_mode = self.effective_mode()? == UpdateMode::Release;
+        if release_mode {
+            let channel =
+                crate::version::release_channel_name_for_self_update(&self.effective_channel())
+                    .parse()?;
+            let target = match self.github_client() {
+                Ok(github) => {
+                    github
+                        .latest_component_tag_for_channel(channel, component, repo)
+                        .await
+                }
+                Err(error) => Err(error),
+            };
+            match target {
+                Ok(Some(tag)) => return Ok(tag),
+                Ok(None) => info!(
+                    component,
+                    "no release manifest ships the component; trying Docker Hub"
+                ),
+                Err(error) if GithubClient::is_release_json_unavailable(&error) => {
+                    warn!(component, %error, "component release discovery unavailable; trying Docker Hub");
+                }
+                Err(error) => return Err(error),
+            }
         }
         let tags = self
             .dockerhub_client()?
             .list_immutable_tags(repo, 25)
             .await?;
-        crate::release::select_component_tip(&tags, self.effective_mode()? == UpdateMode::Release)
+        crate::release::select_component_tip(&tags, release_mode)
             .map(|target| target.tag.clone())
             .ok_or_else(|| {
                 UpdaterError::Precondition(format!("No component image available in {repo}"))

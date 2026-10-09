@@ -214,6 +214,50 @@ impl GithubClient {
             .collect())
     }
 
+    /// Find the newest release in the channel that actually ships this component.
+    /// Missing assets may be skipped; invalid manifests and signature failures must
+    /// stop discovery rather than silently downgrading trust to Docker Hub.
+    pub async fn latest_component_tag_for_channel(
+        &self,
+        channel: Channel,
+        component: &str,
+        repository: &str,
+    ) -> Result<Option<String>> {
+        let releases = self.list_releases_for_channel(channel, 50).await?;
+        self.component_tag_from_releases(&releases, component, repository)
+            .await
+    }
+
+    async fn component_tag_from_releases(
+        &self,
+        releases: &[Release],
+        component: &str,
+        repository: &str,
+    ) -> Result<Option<String>> {
+        for release in releases {
+            // Releases may omit infrastructure images, or even release.json.
+            if !release
+                .assets
+                .iter()
+                .any(|asset| asset.name == "release.json")
+            {
+                continue;
+            }
+            let manifest = match self.fetch_release_manifest(release).await {
+                Ok(manifest) => manifest,
+                Err(error) if Self::is_release_json_unavailable(&error) => {
+                    tracing::warn!(tag = %release.tag_name, %error, "component release.json unavailable");
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            if let Some(image) = manifest.image(component) {
+                return component_image_tag(image, repository).map(Some);
+            }
+        }
+        Ok(None)
+    }
+
     /// Resolve any git ref (branch, tag, full/short sha) to a commit.
     pub async fn resolve_commit(&self, rev: &str) -> Result<CommitInfo> {
         let rev = rev.trim();
@@ -433,6 +477,11 @@ impl GithubClient {
     /// Uses ETag/If-None-Match cache for the manifest blob.
     pub async fn fetch_manifest(&self, tag: &str) -> Result<Manifest> {
         let release = self.get_release_by_tag(tag).await?;
+        self.fetch_release_manifest(&release).await
+    }
+
+    async fn fetch_release_manifest(&self, release: &Release) -> Result<Manifest> {
+        let tag = &release.tag_name;
         let manifest_asset = release
             .assets
             .iter()
@@ -447,7 +496,7 @@ impl GithubClient {
 
         // 2) cosign verification (governed by policy)
         if !matches!(self.cosign_policy, CosignPolicy::Off) {
-            let outcome = self.verify_cosign(tag, &release, &bytes).await;
+            let outcome = self.verify_cosign(tag, release, &bytes).await;
             if let Err(e) = cosign::enforce(&outcome, self.cosign_policy) {
                 return Err(UpdaterError::Precondition(format!("cosign: {e}")));
             }
@@ -597,6 +646,36 @@ impl GithubClient {
         }
         Ok(bytes)
     }
+}
+
+fn component_image_tag(image: &crate::release::ImageRef, repository: &str) -> Result<String> {
+    let invalid = || {
+        UpdaterError::Precondition(format!(
+            "release.json component image must use an immutable tag in {repository}: {}",
+            image.r#ref
+        ))
+    };
+    // Digest-only refs have no tag to hand to older Guards. Mutable branch tags
+    // must not be selected by a release manifest either.
+    if image.r#ref.contains('@') {
+        return Err(invalid());
+    }
+    let (image_repo, tag) = image.r#ref.rsplit_once(':').ok_or_else(invalid)?;
+    let normalize = |repo: &str| {
+        repo.strip_prefix("docker.io/")
+            .or_else(|| repo.strip_prefix("index.docker.io/"))
+            .or_else(|| repo.strip_prefix("registry-1.docker.io/"))
+            .unwrap_or(repo)
+            .to_owned()
+    };
+    if normalize(image_repo) != normalize(repository) {
+        return Err(invalid());
+    }
+    let parsed = crate::version::DeployTag::parse(tag).map_err(|_| invalid())?;
+    if parsed.kind() == crate::version::DeployTagKind::Branch || parsed.as_str() != tag {
+        return Err(invalid());
+    }
+    Ok(tag.to_owned())
 }
 
 fn is_marked(tag: &str, marker: &str) -> bool {
@@ -824,4 +903,222 @@ struct GhCompare {
 #[derive(Debug, Deserialize)]
 struct GhCommitSha {
     sha: String,
+}
+
+#[cfg(test)]
+mod component_discovery_tests {
+    use super::*;
+    use axum::{Router, body::Body, http::StatusCode, response::Response, routing::get};
+    use serde_json::{Value, json};
+    use std::sync::{Arc, Mutex};
+
+    const REPOSITORY: &str = "docker.io/somekawahitomi/myriad-updater";
+
+    fn manifest(updater_tag: Option<&str>) -> Value {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let mut value = json!({
+            "schema_version": 1, "version": "v0.6.3", "channel": "stable",
+            "released_at": "2026-10-07T00:00:00Z",
+            "images": {
+                "backend": {"ref": "example/backend:v0.6.3", "digest": digest},
+                "frontend": {"ref": "example/frontend:v0.6.3", "digest": digest}
+            },
+            "env": {},
+            "migrations": {"irreversible": false, "estimated_seconds": 0},
+            "updater": {"min_updater_version": "v0.5.8"},
+            "postgres": {"min_pg_version": "16"}, "notes_url": ""
+        });
+        if let Some(tag) = updater_tag {
+            value["images"]["updater"] = json!({
+                "ref": format!("{REPOSITORY}:{tag}"), "digest": digest
+            });
+        }
+        value
+    }
+
+    struct Fixture {
+        _cache: tempfile::TempDir,
+        server: tokio::task::JoinHandle<()>,
+        github: GithubClient,
+        releases: Vec<Release>,
+        requests: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.server.abort();
+        }
+    }
+
+    async fn fixture(payloads: Vec<(&str, Option<Value>)>, policy: CosignPolicy) -> Fixture {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let mut router = Router::new();
+        let mut releases = Vec::new();
+        for (tag, payload) in payloads {
+            let requested = requests.clone();
+            let path = format!("/{tag}");
+            let tag_copy = tag.to_owned();
+            router = router.route(
+                &path,
+                get(move || {
+                    let requested = requested.clone();
+                    let payload = payload.clone();
+                    let tag_copy = tag_copy.clone();
+                    async move {
+                        requested.lock().unwrap().push(tag_copy);
+                        match payload {
+                            Some(value) => Response::new(Body::from(value.to_string())),
+                            None => Response::builder()
+                                .status(StatusCode::SERVICE_UNAVAILABLE)
+                                .body(Body::empty())
+                                .unwrap(),
+                        }
+                    }
+                }),
+            );
+            releases.push(Release {
+                tag_name: tag.into(),
+                name: None,
+                draft: false,
+                prerelease: false,
+                assets: vec![Asset {
+                    name: "release.json".into(),
+                    url: format!("{base}{path}"),
+                    browser_download_url: String::new(),
+                    size: 0,
+                }],
+            });
+        }
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let cache = tempfile::tempdir().unwrap();
+        let github = GithubClient::new("unused/repo", None, cache.path().into(), policy).unwrap();
+        Fixture {
+            _cache: cache,
+            server,
+            github,
+            releases,
+            requests,
+        }
+    }
+
+    async fn discover(f: &Fixture) -> Result<Option<String>> {
+        f.github
+            .component_tag_from_releases(&f.releases, "updater", REPOSITORY)
+            .await
+    }
+
+    #[tokio::test]
+    async fn release_discovery_uses_image_tag_without_docker_hub() {
+        let f = fixture(
+            vec![
+                ("v0.6.3", Some(manifest(Some("v0.6.2")))),
+                ("v0.6.1", Some(manifest(Some("v0.6.1")))),
+            ],
+            CosignPolicy::Off,
+        )
+        .await;
+        assert_eq!(discover(&f).await.unwrap().as_deref(), Some("v0.6.2"));
+        assert_eq!(*f.requests.lock().unwrap(), ["v0.6.3"]);
+    }
+
+    #[tokio::test]
+    async fn release_discovery_skips_releases_without_infrastructure() {
+        let mut f = fixture(
+            vec![
+                ("v0.6.3", Some(manifest(None))),
+                ("v0.6.2", Some(manifest(Some("v0.6.2")))),
+            ],
+            CosignPolicy::Off,
+        )
+        .await;
+        let mut no_asset = f.releases[0].clone();
+        no_asset.tag_name = "v0.6.4".into();
+        no_asset.assets.clear();
+        f.releases.insert(0, no_asset);
+        assert_eq!(discover(&f).await.unwrap().as_deref(), Some("v0.6.2"));
+        assert_eq!(*f.requests.lock().unwrap(), ["v0.6.3", "v0.6.2"]);
+    }
+
+    #[tokio::test]
+    async fn release_discovery_can_skip_an_unavailable_asset() {
+        let f = fixture(
+            vec![("v0.6.3", None), ("v0.6.2", Some(manifest(Some("v0.6.2"))))],
+            CosignPolicy::Off,
+        )
+        .await;
+        assert_eq!(discover(&f).await.unwrap().as_deref(), Some("v0.6.2"));
+    }
+
+    #[tokio::test]
+    async fn release_discovery_all_missing_allows_hub_fallback() {
+        let f = fixture(vec![("v0.6.3", Some(manifest(None)))], CosignPolicy::Off).await;
+        assert!(discover(&f).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn release_discovery_invalid_manifest_stops_without_fallback() {
+        let f = fixture(
+            vec![
+                ("v0.6.3", Some(json!("invalid manifest"))),
+                ("v0.6.2", Some(manifest(Some("v0.6.2")))),
+            ],
+            CosignPolicy::Off,
+        )
+        .await;
+        let error = discover(&f).await.unwrap_err();
+        assert!(!GithubClient::is_release_json_unavailable(&error));
+        assert_eq!(*f.requests.lock().unwrap(), ["v0.6.3"]);
+    }
+
+    #[tokio::test]
+    async fn release_discovery_signature_failure_stops_without_fallback() {
+        let f = fixture(
+            vec![
+                ("v0.6.3", Some(manifest(Some("v0.6.3")))),
+                ("v0.6.2", Some(manifest(Some("v0.6.2")))),
+            ],
+            CosignPolicy::Strict,
+        )
+        .await;
+        let error = discover(&f).await.unwrap_err();
+        assert!(error.to_string().contains("cosign:"));
+        assert!(!GithubClient::is_release_json_unavailable(&error));
+        assert_eq!(*f.requests.lock().unwrap(), ["v0.6.3"]);
+    }
+
+    #[test]
+    fn component_image_ref_rejects_mutable_foreign_or_untagged_refs() {
+        for reference in [
+            format!("{REPOSITORY}:latest"),
+            format!("{REPOSITORY}:preview"),
+            format!("{REPOSITORY}@sha256:{}", "a".repeat(64)),
+            REPOSITORY.into(),
+            "docker.io/attacker/updater:v0.6.3".into(),
+            format!("{REPOSITORY}:v0.6.3;id"),
+            format!("{REPOSITORY}:v0.6.3 "),
+            format!("{REPOSITORY}:abcdef0"),
+        ] {
+            let image = crate::release::ImageRef {
+                r#ref: reference,
+                digest: String::new(),
+            };
+            assert!(component_image_tag(&image, REPOSITORY).is_err());
+        }
+        for prefix in [
+            "",
+            "docker.io/",
+            "index.docker.io/",
+            "registry-1.docker.io/",
+        ] {
+            let image = crate::release::ImageRef {
+                r#ref: format!("{prefix}somekawahitomi/myriad-updater:v0.6.3"),
+                digest: String::new(),
+            };
+            assert_eq!(component_image_tag(&image, REPOSITORY).unwrap(), "v0.6.3");
+        }
+    }
 }

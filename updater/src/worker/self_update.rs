@@ -105,7 +105,7 @@ async fn request_handoff(worker: &Worker, actor: Option<String>) -> Result<()> {
     };
     if pending.target_tag.is_empty() {
         let repo = worker.updater_image_repo()?;
-        pending.target_tag = worker.component_target(&repo, None).await?;
+        pending.target_tag = worker.component_target("updater", &repo, None).await?;
         write_status(
             &worker.state().root().join("self-update-last.json"),
             &pending,
