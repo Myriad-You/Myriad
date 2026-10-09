@@ -1,7 +1,7 @@
 import type { RasterLayer } from './anime25dImportTypes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { stackArmsByReference, stackLowerLimbsByReference, stackNeckwearByReference } from './importerLayerSplits'
+import { stackArmsByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference } from './importerLayerSplits'
 
 const SIZE = 20
 
@@ -126,4 +126,35 @@ test('a sleeve the portrait shows tucked behind the skirt stays behind it', () =
   const sleeve = solid('sleeve', 'handwear', [250, 250, 250], { left: 0, top: 0, width: 10, height: 12 })
   const stacked = stackArmsByReference([sleeve, skirt], skirtPortrait())
   assert.deepEqual(stacked.map((layer) => layer.id), ['sleeve', 'skirt'])
+})
+
+/** The portrait: pink hair, with a gold clip over columns 6..14 of rows 4..10. */
+function clipPortrait() {
+  const data = new Uint8ClampedArray(SIZE * SIZE * 4)
+  for (let y = 0; y < SIZE; y += 1) {
+    for (let x = 0; x < SIZE; x += 1) {
+      const clip = x >= 6 && x < 14 && y >= 4 && y < 10
+      data.set(clip ? [220, 180, 90, 255] : [250, 170, 190, 255], (y * SIZE + x) * 4)
+    }
+  }
+  return { width: SIZE, height: SIZE, data }
+}
+
+test('a hair clip the portrait shows over the front hair is stacked above it', () => {
+  const clip = solid('clip', 'headwear', [220, 180, 90], { left: 6, top: 4, width: 8, height: 6 })
+  const hair = solid('hair', 'front-hair', [250, 170, 190], { left: 0, top: 0, width: SIZE, height: SIZE })
+  const stacked = stackHeadwearByReference([clip, hair], clipPortrait())
+  assert.deepEqual(stacked.map((layer) => layer.id), ['hair', 'clip'])
+})
+
+test('a hat brim the portrait shows under the bangs stays under them', () => {
+  const brim = solid('brim', 'headwear', [220, 180, 90], { left: 0, top: 0, width: SIZE, height: SIZE })
+  // Bangs fall over the brim's middle: there the portrait is hair.
+  const bangs = solid('bangs', 'front-hair', [250, 170, 190], { left: 0, top: 10, width: SIZE, height: 10 })
+  const portrait = clipPortrait()
+  for (let y = 10; y < SIZE; y += 1) {
+    for (let x = 0; x < SIZE; x += 1) portrait.data.set([250, 170, 190, 255], (y * SIZE + x) * 4)
+  }
+  const stacked = stackHeadwearByReference([brim, bangs], portrait)
+  assert.deepEqual(stacked.map((layer) => layer.id), ['brim', 'bangs'])
 })

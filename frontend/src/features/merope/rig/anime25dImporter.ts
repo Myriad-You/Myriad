@@ -11,6 +11,7 @@ import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
 import { buildAnime25DPlayback, remapRiggerAnchors } from '../anime25drig/playback'
 import { rigger as Rigger } from '../anime25drig/upstream/rigger'
 import { estimateAnime25DMouthAnchor, resolveAnime25DFaceFrame } from '../expressionShapes/faceFrame'
+import { paintAccessoriesFromReference } from './accessoryPaint'
 import { validateAnime25DCharacterLayers } from './anime25dAssetValidation'
 import { packAnime25DAtlas, visibleInAnalysisReference } from './anime25dAtlasCompiler'
 import { splitHighCollarOcclusion } from './anime25dCollarCompiler'
@@ -24,7 +25,7 @@ import { CHARACTER_ASSET_PROFILES, MAX_RIG_PARTS, RIG_IR_VERSION } from './contr
 import { raiseEarwearOverFrontHair } from './earwearOrder'
 import { formatTemplate } from './formatTemplate'
 import { contentFrame, deriveAnchors, semanticAnchors, standingStance } from './importerAnchors'
-import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder } from './importerLayerSplits'
+import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder } from './importerLayerSplits'
 import { addHiddenArmFragments, anime25DShoulderSeeds } from './linkedHandwear'
 import { findMotionExposure } from './motionExposure'
 import { inferOutfitProfileFromPartIds } from './outfit'
@@ -101,6 +102,7 @@ export async function prepareAnime25DRigPsd(
   if (sourceReference) {
     layers = stackLowerLimbsByReference(layers, sourceReference)
     layers = stackNeckwearByReference(layers, sourceReference)
+    layers = stackHeadwearByReference(layers, sourceReference)
     // A bust's arms are cut off above where a skirt would be.
     if (profile === 'fullBody') layers = stackArmsByReference(layers, sourceReference)
   }
@@ -140,7 +142,11 @@ export async function prepareAnime25DRigPsd(
       sourceReference,
       Math.max(0, MAX_RIG_PARTS - layers.length),
     )
-    layers = raiseEarwearOverFrontHair(repair.layers)
+    layers = paintAccessoriesFromReference(
+      raiseEarwearOverFrontHair(repair.layers),
+      visibleInAnalysisReference,
+      sourceReference,
+    )
     reconciliation = repair.reconciliation
     layers.forEach((layer, index) => {
       layer.order = index

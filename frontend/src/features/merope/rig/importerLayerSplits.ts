@@ -166,6 +166,19 @@ export function stackNeckwearByReference(
 }
 
 /**
+ * The decomposer can put a hair clip under the front hair it is pinned to,
+ * where the hair then hides it whole (a small head in a full figure: both
+ * clips gone). The portrait shows which is on top; a hat brim the bangs fall
+ * over stays under them.
+ */
+export function stackHeadwearByReference(
+  layers: RasterLayer[],
+  reference: Readonly<Anime25DSourceReference>,
+): RasterLayer[] {
+  return stackRoleByReference(layers, 'headwear', ['front-hair'], reference)
+}
+
+/**
  * In a full figure the sleeves and hands can be put behind the skirt and the
  * legs; a hand hanging beside the skirt then slips behind it, and behind the
  * thigh, as the arm swings in. Where the portrait shows which is in front it
