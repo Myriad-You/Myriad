@@ -3060,6 +3060,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "myriad-core-ffi"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "myriad-agent-rules",
+ "myriad-merope",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "myriad-data-key"
 version = "0.1.0"
 dependencies = [

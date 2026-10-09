@@ -45,6 +45,7 @@ dependencies (see [Cargo Workspaces](https://doc.rust-lang.org/book/ch14-03-carg
 | `crates/myriad-runtime-registry/` | `myriad-runtime-registry` (runtime registry/mailbox) |
 | `crates/tapp-contract/` | `myriad-tapp-contract` |
 | `crates/myriad-agent-rules/` | `myriad-agent-rules` (pure Agent caps and projections) |
+| `crates/myriad-core-ffi/` | `myriad-core-ffi` (shared core: the pure crates as one static library with a JSON C ABI for other platforms, see [SHARED_CORE.md](SHARED_CORE.md)) |
 | `crates/myriad-tapp-rules/` | `myriad-tapp-rules` (HMAC, transform, package plan, feed) |
 | `tools/tapp-contract-export/` | `myriad-tapp-contract-export` (prints `export_tapp_contract()`) |
 

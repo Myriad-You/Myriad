@@ -1,0 +1,23 @@
+[package]
+name = "myriad-core-ffi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "The shared core: Myriad's pure persona rules behind one JSON C ABI, for platforms other than the site."
+authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
+
+# One static library for every pure crate another platform links: two Rust
+# static libraries in one binary clash on std symbols. Only pure crates go
+# in (no tokio, reqwest or sea-orm).
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
+myriad-agent-rules = { path = "../myriad-agent-rules" }
+myriad-merope = { path = "../myriad-merope" }
+serde = { version = "1", features = ["derive"] }
+# Numbers cross the ABI as JSON: parse them back to the exact same bits.
+serde_json = { version = "1", features = ["float_roundtrip"] }

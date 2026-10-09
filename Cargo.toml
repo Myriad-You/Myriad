@@ -25,6 +25,7 @@ members = [
     "crates/myriad-listening",
     "crates/myriad-phantasi-notes",
     "crates/myriad-agent-rules",
+    "crates/myriad-core-ffi",
     "crates/myriad-tapp-rules",
     "crates/tapp-contract",
     "tools/tapp-contract-export",

@@ -53,6 +53,7 @@ docs/
 | --- | --- |
 | [ARCHITECTURE.md](development/ARCHITECTURE.md) | 组件与拓扑 |
 | [AGENT_CHANNELS.md](development/AGENT_CHANNELS.md) | 私聊通道授权、撤销、投递与恢复边界 |
+| [SHARED_CORE.md](development/SHARED_CORE.md) | 共用核心：纯规则静态库与 JSON C ABI，别的平台怎么链接 |
 | [BUILD.md](development/BUILD.md) | 工具链与构建 |
 | [API.md](API.md) | HTTP API 入口 |
 | [OAUTH.md](development/OAUTH.md) | 本地登录与 OAuth/OIDC |
