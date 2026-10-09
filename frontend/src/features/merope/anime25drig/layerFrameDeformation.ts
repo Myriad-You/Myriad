@@ -14,6 +14,7 @@ import { markAnime25DLayerGeometryUpdated, shouldUpdateAnime25DLayerGeometry } f
 import { deformAnime25DExpressionPoint } from './expressionDeformation'
 import { constrainHairSurface } from './hairSurface'
 import { jellyDisplacement } from './jellyVolume'
+import { keyedGazeShift } from './keyedGaze'
 import { deformNeckwearBridge, writeAnime25DAttachmentTransform } from './layerAttachment'
 import { deformAnime25DUpstreamFeaturePoint } from './layerDeformation'
 import { writeAnime25DLayerGlobalTransform } from './layerTransform'
@@ -137,6 +138,11 @@ export function deformLayerVertices(
   const mouthDeformation = layer.mouthDeformation
   if (layer.secondaryDeformation.poseCorrections) {
     writePoseCorrectionWeights(layer.secondaryDeformation.poseCorrections, e)
+  }
+  const keyedGaze = upstreamFeature?.keyedGaze
+  if (keyedGaze) {
+    const turn = secondaryDeformationFrame.headTurn
+    keyedGazeShift(keyedGaze, turn?.amount ?? 0, turn?.nodAmount ?? 0, e.eyeX, e.eyeY, fs)
   }
   let geometryChanged = false
   for (let vertex = 0; vertex < vertexCount; vertex += 1) {

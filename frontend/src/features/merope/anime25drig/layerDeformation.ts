@@ -1,5 +1,7 @@
 import type { Anime25DDriver } from './driver'
+import type { KeyedGaze } from './keyedGaze'
 import type { Anime25DEyeAnchor, Anime25DPlaybackLayer } from './types'
+import { GAZE_REACH_X, GAZE_REACH_Y } from './keyedGaze'
 
 export type Anime25DUpstreamFeatureKind =
   'eye-close' | 'eye-open-iris' | 'eye-open-lid' | 'eyebrow'
@@ -36,6 +38,8 @@ export interface Anime25DUpstreamFeatureInput {
   centerY: number
   faceScale: number
   expression: Readonly<UpstreamFeatureExpression>
+  /** An iris of a keyed head: its gaze move this frame, kept inside the white (keyedGaze). */
+  keyedGaze?: KeyedGaze
 }
 
 /** Identify only local feature branches that remain unchanged from upstream. */
@@ -119,8 +123,13 @@ export function deformAnime25DUpstreamFeaturePoint(
     const scaleY = 1 + ((irisRebound?.y ?? 1) - 1) * visible
     point.x = eye.icx + (point.x - eye.icx) * expression.irisScale * scaleX
     point.y = eye.icy + (point.y - eye.icy) * expression.irisScale * scaleY
-    point.x += expression.eyeX * 11 * input.faceScale
-    point.y += expression.eyeY * 6 * input.faceScale
+    if (input.keyedGaze) {
+      point.x += input.keyedGaze.shift.x
+      point.y += input.keyedGaze.shift.y
+    } else {
+      point.x += expression.eyeX * GAZE_REACH_X * input.faceScale
+      point.y += expression.eyeY * GAZE_REACH_Y * input.faceScale
+    }
     const closing = smoothstep((0.32 - eyeOpen) / 0.32)
     point.y = eye.closeY + (point.y - eye.closeY) * (1 - 0.8 * closing)
     // The iris only rides up a little; the rising lid, not a squash, hides its lower part.

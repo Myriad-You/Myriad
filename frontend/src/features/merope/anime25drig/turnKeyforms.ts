@@ -56,13 +56,18 @@ export function turnKeyformFamily(layer: KeyedLayer): string | null {
 
 /**
  * A lock of front hair cut into its own layer ('front-hair-N') turns by its
- * own key ('front-hair:N') where one was measured, else with the whole front hair.
+ * own key ('front-hair:N') where one was measured, else with the whole front
+ * hair. An iris (and what is drawn in its place) turns by its own key
+ * ('iris:L'/'iris:R') where one was measured, moving inside the white, else
+ * with the whole eye.
  */
 function turnKeyFor(keyforms: Readonly<Anime25DTurnKeyforms> | undefined, layer: KeyedLayer): Anime25DTurnKey | undefined {
   const family = turnKeyformFamily(layer)
   if (!family || !keyforms) return undefined
   const lock = family === 'front-hair' ? /^front-hair-(\d+)$/.exec(layer.name ?? '') : null
-  return (lock ? keyforms[`front-hair:${lock[1]}`] : undefined) ?? keyforms[family]
+  const iris = family.startsWith('eye:') && /iris|irides|lovestruck-heart/.test(layer.role) ? `iris:${layer.side}` : null
+  const own = lock ? `front-hair:${lock[1]}` : iris
+  return (own ? keyforms[own] : undefined) ?? keyforms[family]
 }
 
 export interface BoundTurnKeyform {

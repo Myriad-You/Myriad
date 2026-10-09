@@ -21,6 +21,7 @@ import { bindEarwearPhysics } from './earwearPhysics'
 import { resolveAnime25DExpressionDeformation } from './expressionDeformation'
 import { bindHairRootMotion } from './hairRootMotion'
 import { bindHairSurface } from './hairSurface'
+import { bindKeyedGaze } from './keyedGaze'
 import { bindAnime25DLayerAttachment, bindNeckwearBridge } from './layerAttachment'
 import { bindAnime25DUpstreamFeature } from './layerDeformation'
 import { resolveAnime25DLayerDeformationPolicy } from './layerDeformationPolicy'
@@ -221,6 +222,9 @@ export function buildGpuLayer(source: PlaybackLayer, context: GpuLayerBuildConte
     playback.anchors.faceScale,
     current,
   )
+  if (upstreamFeature?.kind === 'eye-open-iris' && eye) {
+    upstreamFeature.keyedGaze = bindKeyedGaze(playback.turnKeyforms, source, eye) ?? undefined
+  }
   const mouthDeformation = resolveAnime25DMouthDeformation(source.fade)
   const deformationPlan = createAnime25DLayerDeformationPlan(
     deformationPolicy.shaderGlobalTransform &&

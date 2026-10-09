@@ -22,6 +22,23 @@ test('every drawing of one eye turns with that eye', () => {
   assert.equal(turnKeyformFamily({ group: 'body', role: 'topwear', side: null }), null)
 })
 
+test('an iris turns by its own key where one was measured, else with its eye', () => {
+  const eye = { plus: lattice(3, () => [1, 0]), minus: lattice(3, () => [1, 0]) }
+  const iris = { plus: lattice(3, () => [5, 0]), minus: lattice(3, () => [5, 0]) }
+  const rest = new Float32Array([50, 50])
+  const offset = (keyforms: Record<string, typeof eye>, role: string) => {
+    const bound = bindTurnKeyform(keyforms, { group: 'head', role, side: 'L' }, rest)!
+    const out = { x: 0, y: 0 }
+    turnKeyformOffset(bound, 0, 1, out)
+    return out.x
+  }
+  assert.equal(offset({ 'eye:L': eye, 'iris:L': iris }, 'irides'), -5)
+  assert.equal(offset({ 'eye:L': eye, 'iris:L': iris }, 'iris-silly'), -5)
+  assert.equal(offset({ 'eye:L': eye, 'iris:L': iris }, 'eyewhite'), -1)
+  assert.equal(offset({ 'eye:L': eye, 'iris:R': iris }, 'irides'), -1)
+  assert.equal(offset({ 'eye:L': eye }, 'irides'), -1)
+})
+
 test('a rest point goes where the turned drawing says it came from', () => {
   // Turned toward +x, everything came from 10 px to its left and was squeezed
   // to 80% about x = 50: back(t) = (50 + (t − 50) / 0.8 − 10) − t.
