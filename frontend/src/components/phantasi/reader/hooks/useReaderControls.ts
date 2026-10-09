@@ -39,6 +39,13 @@ interface UseReaderControlsReturn {
   recoverRemoteProgress: () => Promise<void>
 }
 
+function scrollProgress(el: HTMLElement): number {
+  const max = el.scrollHeight - el.clientHeight
+  return max <= 0
+    ? 100
+    : Math.max(0, Math.min(100, Math.round((el.scrollTop / max) * 100)))
+}
+
 export function useReaderControls({
   articleRef,
   contentRef,
@@ -57,6 +64,7 @@ export function useReaderControls({
   const readingProgress = useRef(createReadingProgress()).current
   const [syncPaused, setSyncPaused] = useState(false)
   const progressRafRef = useRef<number | null>(null)
+  const pinnedScrollTopRef = useRef<number | null>(null)
   const syncRef = useRef<ProgressSync | null>(null)
   const expectedRevisionRef = useRef(stateRevision)
   const conflictNoticeRef = useRef(() => {})
@@ -105,8 +113,11 @@ export function useReaderControls({
   }, [itemId, isAuthenticated])
   const pinProgress = useCallback((value: number) => {
     const el = articleRef.current
-    readingProgress.set(value)
     if (!el) return
+    if (progressRafRef.current !== null) {
+      cancelAnimationFrame(progressRafRef.current)
+      progressRafRef.current = null
+    }
     const prevBehavior = el.style.scrollBehavior
     el.style.scrollBehavior = 'auto'
     if (value > 0 && value < 100) {
@@ -116,6 +127,9 @@ export function useReaderControls({
       el.scrollTo({ top: 0, behavior: 'auto' })
     }
     el.style.scrollBehavior = prevBehavior
+    // 定位只更新显示；浏览器随后发出的 scroll 不能把已读完的 100 写成 0。
+    pinnedScrollTopRef.current = el.scrollTop
+    readingProgress.set(scrollProgress(el))
   }, [articleRef])
   const recoverLocalProgress = useCallback(async () => {
     const isCurrent = captureTask()
@@ -166,33 +180,18 @@ export function useReaderControls({
       typeof readProgress === 'number' && readProgress > 0
         ? Math.min(100, Math.round(readProgress))
         : 0
-    readingProgress.set(saved)
-    const pin = () => {
-      const el = articleRef.current
-      if (!el) return
-      // 复位必须瞬间完成：容器有 scroll-behavior:smooth，直接赋 scrollTop 也会平滑滚。
-      const prevBehavior = el.style.scrollBehavior
-      el.style.scrollBehavior = 'auto'
-      if (saved > 0 && saved < 100) {
-        const max = el.scrollHeight - el.clientHeight
-        if (max > 0) el.scrollTop = (saved / 100) * max
-      } else {
-        el.scrollTo({ top: 0, behavior: 'auto' })
-      }
-      el.style.scrollBehavior = prevBehavior
-    }
-    const frame = requestAnimationFrame(pin)
+    readingProgress.set(saved < 100 ? saved : 0)
+    if (!contentReady) return
+    const frame = requestAnimationFrame(() => pinProgress(saved))
     return () => cancelAnimationFrame(frame)
   }, [itemId, contentReady])
 
   const updateReadingProgress = useCallback(() => {
     const el = articleRef.current
     if (!el || !contentReady) return
-    const denom = el.scrollHeight - el.clientHeight
-    const progress =
-      denom <= 0
-        ? 100
-        : Math.max(0, Math.min(100, Math.round((el.scrollTop / denom) * 100)))
+    if (pinnedScrollTopRef.current === el.scrollTop) return
+    pinnedScrollTopRef.current = null
+    const progress = scrollProgress(el)
     if (!Number.isFinite(progress)) return
     // Capture before RAF: close may happen before the next paint.
     if (isAuthenticated) syncRef.current?.record(progress)

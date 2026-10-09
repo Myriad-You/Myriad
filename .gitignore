@@ -158,6 +158,10 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/journalReaderHistory.spec.ts
 !/frontend/tests/browser/fixture/journalReaderHistory.tsx
 
+# Journal reader progress restoration regressions
+!/frontend/tests/browser/readerProgress.spec.ts
+!/frontend/tests/browser/fixture/readerProgress.tsx
+
 # Liquid glass browser integration regressions
 !/frontend/tests/browser/liquidGlass.spec.ts
 !/frontend/tests/browser/fixture/liquidGlass.html
