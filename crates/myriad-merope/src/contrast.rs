@@ -150,11 +150,14 @@ pub fn overused(hers: &Counts, theirs: &Counts) -> Vec<Overused> {
             })
         })
         .collect();
+    // Exact ties go by the piece itself: the counts are a hash map, and its
+    // order is not the same twice.
     found.sort_by(|left, right| {
         right
             .z
             .total_cmp(&left.z)
             .then_with(|| right.piece.chars().count().cmp(&left.piece.chars().count()))
+            .then_with(|| left.piece.cmp(&right.piece))
     });
     let mut told: Vec<Overused> = Vec::new();
     for candidate in found {
@@ -268,5 +271,19 @@ mod tests {
         many.keep_within(1);
         assert_eq!(many.messages, 1);
         assert_eq!(many.pieces.get("whole:好的"), Some(&1));
+    }
+
+    #[test]
+    fn pieces_as_telling_as_each_other_are_told_in_one_order() {
+        // 「呀」 and 「嘛」 end as many of her lines and none of theirs: the
+        // same z, the same length.
+        let hers = Counts::of(["好呀", "去呀", "来呀", "行嘛", "说嘛", "看嘛"]);
+        let theirs: Vec<String> = (0..30).map(|index| format!("第{index}句")).collect();
+        let theirs = Counts::of(theirs.iter().map(String::as_str));
+        let told: Vec<String> = overused(&hers, &theirs)
+            .into_iter()
+            .map(|item| item.piece)
+            .collect();
+        assert_eq!(told, ["end:呀", "end:嘛"]);
     }
 }

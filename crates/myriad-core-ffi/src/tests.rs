@@ -5,6 +5,12 @@ use serde_json::{Value, json};
 
 use super::*;
 
+mod books;
+mod games;
+mod habits;
+mod mood;
+mod own;
+
 /// Through the C ABI, as a platform calls it: status and decoded JSON.
 fn ffi(name: &str, input: &Value) -> (i32, Value) {
     let name = CString::new(name).unwrap();
@@ -89,6 +95,11 @@ fn every_call_is_tested_and_version_lists_them() {
         "vitals.leaned_on",
     ]
     .into_iter()
+    .chain(books::TESTED.iter().copied())
+    .chain(games::TESTED.iter().copied())
+    .chain(habits::TESTED.iter().copied())
+    .chain(mood::TESTED.iter().copied())
+    .chain(own::TESTED.iter().copied())
     .collect();
     let names = call_names();
     assert!(
