@@ -34,7 +34,9 @@ pub enum UpdaterError {
     /// The on-disk compose differs from the updater's baseline (or there is none)
     /// and the operator has not acknowledged the overwrite.
     #[error(
-        "precondition failed: the deployment compose will be overwritten; \
+        "precondition failed: the deployment compose will be replaced with the target version's template; \
+         custom environment variables (including proxies) and other compose edits are not merged, \
+         and additional compose files will be emptied; original files are backed up to state/compose-backup/; \
          re-submit with allow_compose_override=true (or allow_risk=true)"
     )]
     ComposeOverrideRequired,

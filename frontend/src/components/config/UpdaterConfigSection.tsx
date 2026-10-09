@@ -429,17 +429,17 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       }
       const current = status?.current_version ?? '—'
       if (opts.composeOverride) {
-        if (!confirm(u.updaterConfirmComposeOverride)) return
+        if (!confirm(`${u.updaterConfirmComposeOverride}\n\n${u.updaterComposeOverwriteWarning}`)) return
       } else if (opts.isDowngrade) {
         if (
           !confirm(
-            format(u.updaterConfirmDowngrade, { version: target, current }),
+            `${format(u.updaterConfirmDowngrade, { version: target, current })}\n\n${u.updaterComposeOverwriteWarning}`,
           )
         ) {
           return
         }
       } else if (opts.needsRisk) {
-        if (!confirm(u.updaterConfirmRisk)) return
+        if (!confirm(`${u.updaterConfirmRisk}\n\n${u.updaterComposeOverwriteWarning}`)) return
       } else if (
         !confirm(format(u.updaterConfirmUpgrade, { version: target }))
       ) {
@@ -857,7 +857,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                 to: status.last_failed_update.to_version ?? '—',
                 reason:
                   status.last_failed_update.code === 'compose_override_required'
-                    ? u.updaterLastFailedComposeReason
+                    ? `${u.updaterLastFailedComposeReason} ${u.updaterComposeOverwriteWarning}`
                     : status.last_failed_update.reason,
               })}
             </span>

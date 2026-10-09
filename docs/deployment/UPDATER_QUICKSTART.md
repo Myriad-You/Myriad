@@ -83,6 +83,10 @@ updater、updater-gateway）的定义都随版本走。
 preflight 阶段要求 `allow_compose_override` 确认；确认后、覆盖前，把原文件备份到
 `state/compose-backup/`。未改动则直接覆盖。
 
+确认覆盖意味着接受目标版本模板整体替换 Compose：自定义环境变量（包括代理）等修改不会
+自动合并，额外的 Compose 分片会置空。风险更新和降级确认也包含这一授权。请先保存需要
+保留的配置；只有模板实际引用的 `.env` 变量才会生效，不能仅把任意环境变量移入 `.env`。
+
 挂载仍由 `docker-guard` 校验：只接受模板自带的 `*_backend_data` / `*_backend_cache` 卷及
 其固定容器路径（例如 `federation-worker` 的 `/app/data/media` 子挂载）。宿主自加的绑定挂载
 或第三方卷会被 Guard 拒绝，容器在停服切换后无法启动。
