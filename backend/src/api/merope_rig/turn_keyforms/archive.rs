@@ -1,7 +1,10 @@
 //! Every finished turn keys job kept whole: the master, the four turned
 //! drawings, the five decompositions, the keys and the baked front PSD, with
 //! what they were made with. A kept job can be downloaded, or fitted again
-//! with the Space's current fit without drawing or decomposing anything.
+//! with the Space's current fit without drawing or decomposing anything. A
+//! standing figure's job keyed its head as a bust: the master and the rest are
+//! the head's, and the figure's own picture and decomposition are kept beside
+//! them to put the head back into.
 
 use std::path::{Path, PathBuf};
 
@@ -26,6 +29,18 @@ pub(super) const DECOMPOSITIONS: [&str; 5] = [
 ];
 pub(super) const KEYFORMS: &str = "keyforms.json";
 pub(super) const BAKED: &str = "baked.psd";
+pub(super) const FIGURE_DECOMPOSITION: &str = "figure.psd";
+
+/// A standing figure whose head was keyed as a bust.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct FigureMeta {
+    /// The figure's picture in the archive.
+    pub master: String,
+    pub master_media_type: String,
+    /// The head's box in the figure picture's pixels (x0, y0, x1, y1).
+    pub crop_box: [i32; 4],
+}
 
 /// What a kept job was made from and with.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -51,6 +66,9 @@ pub(super) struct ArchiveMeta {
     /// Bytes on disk, all files together.
     #[serde(default)]
     pub bytes: u64,
+    /// A standing figure keyed by its head: the figure it goes back into.
+    #[serde(default)]
+    pub figure: Option<FigureMeta>,
 }
 
 /// One job's files, in memory.
@@ -60,6 +78,13 @@ pub(super) struct ArchiveFiles {
     pub decompositions: [Vec<u8>; 5],
     pub keyforms: Vec<u8>,
     pub baked: Vec<u8>,
+    /// A standing figure keyed by its head: its picture and decomposition.
+    pub figure: Option<FigureFiles>,
+}
+
+pub(super) struct FigureFiles {
+    pub master: Vec<u8>,
+    pub decomposition: Vec<u8>,
 }
 
 pub(super) fn archive_root() -> PathBuf {
@@ -94,6 +119,14 @@ fn master_file(media_type: &str) -> &'static str {
     }
 }
 
+fn figure_file(media_type: &str) -> &'static str {
+    match media_type {
+        "image/jpeg" => "figure.jpg",
+        "image/webp" => "figure.webp",
+        _ => "figure.png",
+    }
+}
+
 /// Writes a job whole (into a temporary directory, then renamed) and drops
 /// the oldest jobs of the same master past KEEP_PER_MASTER.
 pub(super) async fn save(mut meta: ArchiveMeta, files: &ArchiveFiles) -> std::io::Result<String> {
@@ -121,6 +154,11 @@ async fn save_in(
     );
     entries.push((KEYFORMS, &files.keyforms));
     entries.push((BAKED, &files.baked));
+    if let (Some(figure), Some(kept)) = (meta.figure.as_mut(), files.figure.as_ref()) {
+        figure.master = figure_file(&figure.master_media_type).to_string();
+        entries.push((figure.master.as_str(), &kept.master));
+        entries.push((FIGURE_DECOMPOSITION, &kept.decomposition));
+    }
     meta.bytes = entries.iter().map(|(_, bytes)| bytes.len() as u64).sum();
 
     tokio::fs::create_dir_all(root).await?;
@@ -205,12 +243,20 @@ async fn read_files_in(root: &Path, meta: &ArchiveMeta) -> std::io::Result<Archi
     for (slot, name) in decompositions.iter_mut().zip(DECOMPOSITIONS) {
         *slot = read(name).await?;
     }
+    let figure = match &meta.figure {
+        Some(figure) => Some(FigureFiles {
+            master: read(&figure.master).await?,
+            decomposition: read(FIGURE_DECOMPOSITION).await?,
+        }),
+        None => None,
+    };
     Ok(ArchiveFiles {
         master: read(&meta.master).await?,
         turned,
         decompositions,
         keyforms: read(KEYFORMS).await?,
         baked: read(BAKED).await?,
+        figure,
     })
 }
 
@@ -265,6 +311,7 @@ mod tests {
             decompositions: std::array::from_fn(|i| vec![tag, 10 + i as u8]),
             keyforms: b"{\"canvas\":[1,1],\"keyforms\":{}}".to_vec(),
             baked: vec![tag; 5],
+            figure: None,
         }
     }
 
@@ -284,6 +331,7 @@ mod tests {
             space: "owner/space".into(),
             redrawn: vec![],
             bytes: 0,
+            figure: None,
         }
     }
 
@@ -315,6 +363,31 @@ mod tests {
             "master, 4 drawings, 5 decompositions, keys, baked, meta"
         );
         assert!(archive.by_name(&format!("{id}/baked.psd")).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_figure_keyed_by_its_head_keeps_the_figure_beside_it() {
+        let root = scratch();
+        let mut kept = meta("/media/assets/a/figure.png", 1);
+        kept.figure = Some(FigureMeta {
+            master: String::new(),
+            master_media_type: "image/webp".into(),
+            crop_box: [-4, 2, 371, 502],
+        });
+        let mut made = files(7);
+        made.figure = Some(FigureFiles {
+            master: vec![9; 4],
+            decomposition: vec![9; 6],
+        });
+        let id = save_in(&root, &mut kept, &made).await.unwrap();
+        let read = read_meta_in(&root, &id).await.unwrap();
+        let figure = read.figure.clone().unwrap();
+        assert_eq!(figure.master, "figure.webp");
+        assert_eq!(figure.crop_box, [-4, 2, 371, 502]);
+        assert_eq!(read.bytes, 3 + 4 * 2 + 5 * 2 + 30 + 5 + 4 + 6);
+        let back = read_files_in(&root, &read).await.unwrap().figure.unwrap();
+        assert_eq!((back.master, back.decomposition), (vec![9; 4], vec![9; 6]));
         std::fs::remove_dir_all(root).unwrap();
     }
 

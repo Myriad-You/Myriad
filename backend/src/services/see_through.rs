@@ -505,6 +505,93 @@ impl SeeThroughClient {
             })
     }
 
+    /// The Space's `figure_head`: where a standing figure's head is, framed
+    /// as a bust (from its decomposition), and that crop of the picture at a
+    /// bust's size, to key as a bust. None when the Space has no such endpoint
+    /// or the head is big enough already.
+    pub async fn figure_head(
+        &self,
+        figure: Vec<u8>,
+        (picture, media_type): (Vec<u8>, String),
+    ) -> Result<Option<FigureHead>, SeeThroughError> {
+        validate_psd(&figure)?;
+        self.wait_until_running().await?;
+        if !self.serves("figure_head").await? {
+            return Ok(None);
+        }
+        let figure = self
+            .upload_file(figure, "figure.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let name = format!("figure.{}", image_extension(&media_type).unwrap_or("png"));
+        let picture = self.upload_file(picture, &name, &media_type).await?;
+        let files = json!([
+            { "path": figure, "orig_name": "figure.psd", "meta": { "_type": "gradio.FileData" } },
+            { "path": picture, "orig_name": name, "meta": { "_type": "gradio.FileData" } },
+        ]);
+        let event_id = self.start("figure_head", files).await?;
+        let data = self
+            .await_data("figure_head", &event_id, REQUEST_TIMEOUT)
+            .await?;
+        let found = data
+            .as_array()
+            .and_then(|values| values.first())
+            .and_then(|found| found.get("box"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        if found.is_null() {
+            return Ok(None);
+        }
+        let crop_box: [i32; 4] = serde_json::from_value(found).map_err(|_| {
+            SeeThroughError::InvalidOutput("See-through returned an invalid head box".to_string())
+        })?;
+        let crop_url = output_file_url_at(&self.space, &data, 1)?;
+        let crop = self
+            .download(crop_url, "head picture download", MAX_IMAGE_BYTES)
+            .await?;
+        Ok(Some(FigureHead { crop_box, crop }))
+    }
+
+    /// The Space's `figure_keys`: turn keys fitted on a standing figure's head
+    /// framed as a bust (`figure_head`), placed on the figure's canvas to move
+    /// the figure's own head parts.
+    pub async fn figure_keys(
+        &self,
+        (picture, media_type): (Vec<u8>, String),
+        figure: Vec<u8>,
+        head_keyforms: Vec<u8>,
+        crop_box: [i32; 4],
+    ) -> Result<Vec<u8>, SeeThroughError> {
+        validate_psd(&figure)?;
+        self.wait_until_running().await?;
+        let name = format!("figure.{}", image_extension(&media_type).unwrap_or("png"));
+        let picture = self.upload_file(picture, &name, &media_type).await?;
+        let figure = self
+            .upload_file(figure, "figure.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let keys = self
+            .upload_file(head_keyforms, "keyforms.json", "application/json")
+            .await?;
+        let [x0, y0, x1, y1] = crop_box;
+        let data = json!([
+            { "path": picture, "orig_name": name, "meta": { "_type": "gradio.FileData" } },
+            { "path": figure, "orig_name": "figure.psd", "meta": { "_type": "gradio.FileData" } },
+            { "path": keys, "orig_name": "keyforms.json", "meta": { "_type": "gradio.FileData" } },
+            format!("{x0},{y0},{x1},{y1}"),
+        ]);
+        let event_id = self.start("figure_keys", data).await?;
+        let data = self
+            .await_data("figure_keys", &event_id, REQUEST_TIMEOUT)
+            .await?;
+        let keys_url = output_file_url_at(&self.space, &data, 0)?;
+        let keyforms = self
+            .download(keys_url, "keyforms download", MAX_KEYFORMS_JSON_BYTES)
+            .await?;
+        serde_json::from_slice::<Value>(&keyforms).map_err(|_| {
+            SeeThroughError::InvalidOutput("See-through returned invalid keyforms".to_string())
+        })?;
+        Ok(keyforms)
+    }
+
     /// Wakes the Space if it sleeps and waits while it builds or starts. A
     /// stage the Hub will not tell (a private Space this token cannot read)
     /// is left to the calls that follow.
@@ -746,6 +833,14 @@ pub struct TurnKeyformsOutput {
     /// `{ canvas: [w, h], keyforms: { family: { plus, minus, up?, down? } }, fit, baked }`.
     pub keyforms: Vec<u8>,
     pub psd: Vec<u8>,
+}
+
+/// A standing figure's head framed as a bust (figure_head).
+pub struct FigureHead {
+    /// x0, y0, x1, y1 in the figure picture's pixels; may run past its edges.
+    pub crop_box: [i32; 4],
+    /// That box of the picture at a bust's size (PNG), white past the edges.
+    pub crop: Vec<u8>,
 }
 
 /// Which generated turns to draw again before decomposing them.

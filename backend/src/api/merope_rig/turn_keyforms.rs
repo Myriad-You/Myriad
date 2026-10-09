@@ -81,7 +81,7 @@ fn turn_prompts() -> [String; 4] {
 
 mod archive;
 mod cache;
-use archive::{ArchiveFiles, ArchiveMeta};
+use archive::{ArchiveFiles, ArchiveMeta, FigureFiles, FigureMeta};
 use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,6 +183,8 @@ struct Made {
     files: ArchiveFiles,
     master_media_type: String,
     redrawn: Vec<String>,
+    /// A standing figure keyed by its head.
+    figure: Option<FigureMeta>,
 }
 
 /// Ends a job: kept in the archive and handed out when the master is still
@@ -205,6 +207,7 @@ async fn finish(
             let meta = ArchiveMeta {
                 master_media_type: made.master_media_type.clone(),
                 redrawn: made.redrawn.clone(),
+                figure: made.figure.clone(),
                 ..meta
             };
             let archive_id = match archive::save(meta, &made.files).await {
@@ -319,10 +322,25 @@ async fn start(
         space: space_name.clone(),
         redrawn: Vec::new(),
         bytes: 0,
+        figure: None,
     };
     let task_id = id.clone();
+    let standing = outfit_id.is_some();
     tokio::spawn(async move {
-        let result = run(&task_id, user_id, &generation, reference, &client, &cache).await;
+        let result = if standing {
+            run_figure(
+                &task_id,
+                user_id,
+                &generation,
+                reference,
+                &client,
+                &cache,
+                &space_name,
+            )
+            .await
+        } else {
+            run(&task_id, user_id, &generation, reference, &client, &cache).await
+        };
         prune_cache(cache_root(), CACHE_KEEP).await;
         finish(&db, &task_id, result, meta).await;
     });
@@ -426,9 +444,99 @@ async fn run(
             decompositions,
             keyforms: output.keyforms,
             baked: output.psd,
+            figure: None,
         },
         master_media_type,
         redrawn,
+        figure: None,
+    })
+}
+
+/// A standing figure's head is a couple of hundred pixels in it, too small to
+/// fit turn keys well. The figure is decomposed, its head framed as a bust
+/// (the Space's `figure_head`) and keyed as one (`run`, on its own cache), and
+/// the keys placed on the figure (`figure_keys`), which keeps its own
+/// decomposition. A Space without `figure_head`, or a head big enough
+/// already, keys the figure whole.
+async fn run_figure(
+    id: &str,
+    user_id: i32,
+    generation: &image_generation::ImageGenerationConfig,
+    reference: image_generation::ImageReference,
+    client: &see_through::SeeThroughClient,
+    cache: &TurnCache,
+    space_name: &str,
+) -> ApiResult<Made> {
+    update(id, |job| {
+        job.stage = Stage::Decomposing;
+        job.done = 0;
+        job.total = 1;
+    });
+    let options = see_through::DecomposeOptions::default();
+    // The same as the whole figure's front decomposition, so a fallback reuses it.
+    let figure_psd = decomposition(
+        client,
+        cache,
+        0,
+        &reference.bytes,
+        &reference.media_type,
+        options,
+    )
+    .await?;
+    let picture = (reference.bytes.to_vec(), reference.media_type.clone());
+    let head = client
+        .figure_head(figure_psd.clone(), picture.clone())
+        .await
+        .map_err(see_through_error)?;
+    let Some(head) = head else {
+        return run(id, user_id, generation, reference, client, cache).await;
+    };
+    tracing::info!(job = %id, crop = ?head.crop_box, "figure keyed by its head");
+    let crop = image_generation::ImageReference {
+        bytes: axum::body::Bytes::from(head.crop),
+        media_type: "image/png".to_string(),
+    };
+    let head_cache = TurnCache::for_master(&crop.bytes, generation, space_name, options);
+    let made = run(id, user_id, generation, crop, client, &head_cache).await?;
+    prune_cache(cache_root(), CACHE_KEEP).await;
+    let figure = FigureMeta {
+        master: String::new(),
+        master_media_type: picture.1.clone(),
+        crop_box: head.crop_box,
+    };
+    let kept = FigureFiles {
+        master: picture.0,
+        decomposition: figure_psd,
+    };
+    put_back(client, made, figure, kept).await
+}
+
+/// The head's keys placed on the figure (`figure_keys`), with the figure's
+/// own decomposition: the head's parts were only what the keys were fitted on.
+async fn put_back(
+    client: &see_through::SeeThroughClient,
+    made: Made,
+    figure: FigureMeta,
+    kept: FigureFiles,
+) -> ApiResult<Made> {
+    let keyforms = client
+        .figure_keys(
+            (kept.master.clone(), figure.master_media_type.clone()),
+            kept.decomposition.clone(),
+            made.files.keyforms,
+            figure.crop_box,
+        )
+        .await
+        .map_err(see_through_error)?;
+    Ok(Made {
+        files: ArchiveFiles {
+            keyforms,
+            baked: kept.decomposition.clone(),
+            figure: Some(kept),
+            ..made.files
+        },
+        figure: Some(figure),
+        ..made
     })
 }
 
@@ -934,17 +1042,25 @@ pub async fn refit_turn_archive(
                 .collect::<Vec<_>>()
                 .try_into()
                 .expect("five pictures");
+        let figure = files.figure;
         let result = fit(&client, &files.decompositions, &pictures)
             .await
             .map(|output| Made {
                 files: ArchiveFiles {
                     keyforms: output.keyforms,
                     baked: output.psd,
+                    figure: None,
                     ..files
                 },
                 master_media_type: kept.master_media_type.clone(),
                 redrawn: kept.redrawn.clone(),
+                figure: None,
             });
+        // A figure keyed by its head goes back into the figure it was kept with.
+        let result = match (result, kept.figure.clone(), figure) {
+            (Ok(made), Some(meta), Some(files)) => put_back(&client, made, meta, files).await,
+            (result, _, _) => result,
+        };
         finish(&db, &task_id, result, meta).await;
     });
     Ok(Json(json!({ "jobId": job_id })))
