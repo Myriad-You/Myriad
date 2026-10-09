@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::LazyLock;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 
 use crate::sources::Thing;
 
@@ -72,10 +72,11 @@ pub struct Following {
 }
 
 impl Following {
-    /// Parts out by `now`: one a day from the day she started.
-    pub fn out(&self, now: DateTime<Utc>) -> usize {
-        let days = (now.with_timezone(&chrono::Local).date_naive()
-            - self.started.with_timezone(&chrono::Local).date_naive())
+    /// Parts out by `now`: one a day from the day she started, the days
+    /// counted on the calendar of `zone` (hers).
+    pub fn out<Z: TimeZone>(&self, now: DateTime<Utc>, zone: &Z) -> usize {
+        let days = (now.with_timezone(zone).date_naive()
+            - self.started.with_timezone(zone).date_naive())
         .num_days()
         .max(0) as usize;
         (days + 1).min(self.total)
@@ -421,6 +422,27 @@ pub struct Judged {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_part_comes_out_at_midnight_on_her_clock() {
+        // Started 23:30 in Shanghai; an hour later it is the next day there,
+        // still the same day in UTC.
+        let started: DateTime<Utc> = "2026-09-20T15:30:00Z".parse().unwrap();
+        let following = Following {
+            id: "pg-2852".into(),
+            next: 0,
+            total: 5,
+            started,
+            guess: None,
+            knew_it: false,
+        };
+        let shanghai = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let later = started + chrono::Duration::hours(1);
+        assert_eq!(following.out(started, &shanghai), 1);
+        assert_eq!(following.out(later, &shanghai), 2);
+        assert_eq!(following.out(later, &Utc), 1);
+        assert_eq!(following.out(started + chrono::Duration::days(30), &Utc), 5);
+    }
 
     #[test]
     fn she_follows_several_books_each_on_its_own() {

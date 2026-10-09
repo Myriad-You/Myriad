@@ -108,8 +108,17 @@ pub fn weekday_zh(weekday: chrono::Weekday) -> &'static str {
 ///
 /// Accepts IANA names (`Asia/Shanghai`), `UTC`/`Z`, `local`, and fixed offsets
 /// (`+08:00`, `UTC+8`). Unknown zones fail instead of echoing UTC fields.
-pub fn project_time_info(now: DateTime<Utc>, timezone: &str) -> Result<Value, String> {
-    use chrono::{Datelike, Local, TimeZone, Timelike};
+/// `local` is the zone the caller says is local (the site's); nothing here
+/// reads the process clock's zone.
+pub fn project_time_info<L: chrono::TimeZone>(
+    now: DateTime<Utc>,
+    timezone: &str,
+    local: &L,
+) -> Result<Value, String>
+where
+    L::Offset: std::fmt::Display,
+{
+    use chrono::{Datelike, TimeZone, Timelike};
     use chrono_tz::Tz;
     use std::str::FromStr;
 
@@ -139,7 +148,7 @@ pub fn project_time_info(now: DateTime<Utc>, timezone: &str) -> Result<Value, St
         return Ok(pack(now, now, "UTC"));
     }
     if label.eq_ignore_ascii_case("local") {
-        return Ok(pack(now, now.with_timezone(&Local), "local"));
+        return Ok(pack(now, now.with_timezone(local), "local"));
     }
     if let Ok(offset) = parse_fixed_offset(label) {
         return Ok(pack(now, now.with_timezone(&offset), label));
@@ -195,7 +204,7 @@ mod time_tests {
     fn project_time_info_uses_supplied_clock_not_hidden_now() {
         use chrono::{TimeZone, Utc};
         let now = Utc.with_ymd_and_hms(2026, 7, 31, 12, 30, 0).unwrap();
-        let out = project_time_info(now, "Asia/Shanghai").expect("valid zone");
+        let out = project_time_info(now, "Asia/Shanghai", &Utc).expect("valid zone");
         assert_eq!(out["timezone"], "Asia/Shanghai");
         assert_eq!(out["year"], 2026);
         assert_eq!(out["month"], 7);
@@ -211,11 +220,22 @@ mod time_tests {
                 .unwrap()
                 .starts_with("2026-07-31T20:30:00")
         );
-        assert!(project_time_info(now, "Not/AZone").is_err());
-        let utc = project_time_info(now, "UTC").expect("utc");
+        assert!(project_time_info(now, "Not/AZone", &Utc).is_err());
+        let utc = project_time_info(now, "UTC", &Utc).expect("utc");
         assert_eq!(utc["hour"], 12);
-        let offset = project_time_info(now, "UTC+8").expect("offset");
+        let offset = project_time_info(now, "UTC+8", &Utc).expect("offset");
         assert_eq!(offset["hour"], 20);
+        // "local" is the zone the caller passes, not the process's.
+        let shanghai = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let local = project_time_info(now, "local", &shanghai).expect("local");
+        assert_eq!(
+            (local["timezone"].as_str(), local["hour"].as_i64()),
+            (Some("local"), Some(20))
+        );
+        assert_eq!(
+            project_time_info(now, "local", &Utc).expect("local")["hour"],
+            12
+        );
     }
 }
 

@@ -447,11 +447,13 @@ pub(super) async fn between_them(
         let due = open.iter().any(|thread| thread.is_due(now));
         let block = if group {
             (due || touched)
-                .then(|| myriad_merope::threads::group_section(&open, now))
+                .then(|| {
+                    myriad_merope::threads::group_section(&open, now, &super::super::clock::zone())
+                })
                 .flatten()
         } else {
             (opening || touched)
-                .then(|| threads::section(&open, now))
+                .then(|| threads::section(&open, now, &super::super::clock::zone()))
                 .flatten()
         };
         sections.extend(block);

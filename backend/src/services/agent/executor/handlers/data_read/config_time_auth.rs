@@ -51,7 +51,12 @@ pub(super) async fn execute_time_info(params: &HashMap<String, Value>) -> Result
         .get("timezone")
         .and_then(|v| v.as_str())
         .unwrap_or("Asia/Shanghai");
-    crate::services::agent::data_read_pure::project_time_info(chrono::Utc::now(), timezone)
+    // "local" is the site's zone: the process's own (`TZ`).
+    crate::services::agent::data_read_pure::project_time_info(
+        chrono::Utc::now(),
+        timezone,
+        &chrono::Local,
+    )
 }
 
 pub(super) async fn execute_auth_status(ctx: &HandlerContext<'_>) -> Result<Value, String> {

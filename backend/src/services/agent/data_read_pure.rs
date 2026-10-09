@@ -10,7 +10,7 @@ mod tests {
     fn project_time_info_uses_supplied_clock_not_hidden_now() {
         use chrono::{TimeZone, Utc};
         let now = Utc.with_ymd_and_hms(2026, 7, 31, 12, 30, 0).unwrap();
-        let out = project_time_info(now, "Asia/Shanghai").expect("valid zone");
+        let out = project_time_info(now, "Asia/Shanghai", &Utc).expect("valid zone");
         assert_eq!(out["timezone"], "Asia/Shanghai");
         assert_eq!(out["year"], 2026);
         assert_eq!(out["month"], 7);
@@ -25,10 +25,10 @@ mod tests {
                 .unwrap()
                 .starts_with("2026-07-31T20:30:00")
         );
-        assert!(project_time_info(now, "Not/AZone").is_err());
-        let utc = project_time_info(now, "UTC").expect("utc");
+        assert!(project_time_info(now, "Not/AZone", &Utc).is_err());
+        let utc = project_time_info(now, "UTC", &Utc).expect("utc");
         assert_eq!(utc["hour"], 12);
-        let offset = project_time_info(now, "UTC+8").expect("offset");
+        let offset = project_time_info(now, "UTC+8", &Utc).expect("offset");
         assert_eq!(offset["hour"], 20);
     }
 }

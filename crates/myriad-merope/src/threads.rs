@@ -3,7 +3,7 @@
 //! come back to (an exam, a move), or something of hers toward them (a song
 //! she wants them to hear, something she wants to ask them).
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 /// Open threads kept per person; the oldest go first.
 pub const MAX_OPEN: usize = 8;
 
@@ -31,26 +31,47 @@ impl Thread {
     }
 }
 
-/// What is on her mind about them, for a conversation with them.
-pub fn section(threads: &[Thread], now: DateTime<Utc>) -> Option<String> {
+/// What is on her mind about them, for a conversation with them. Times
+/// are told on the clock of `zone` (hers).
+pub fn section<Z: TimeZone>(threads: &[Thread], now: DateTime<Utc>, zone: &Z) -> Option<String>
+where
+    Z::Offset: std::fmt::Display,
+{
     listed(
         threads,
         now,
+        zone,
         "## On your mind about them\nThings you meant to come back to with them.",
     )
 }
 
 /// What is on her mind in a group, for its talk: things someone there was
 /// about to do or face, or left unfinished there.
-pub fn group_section(threads: &[Thread], now: DateTime<Utc>) -> Option<String> {
+pub fn group_section<Z: TimeZone>(
+    threads: &[Thread],
+    now: DateTime<Utc>,
+    zone: &Z,
+) -> Option<String>
+where
+    Z::Offset: std::fmt::Display,
+{
     listed(
         threads,
         now,
+        zone,
         "## On your mind in this group\nThings from this group you meant to come back to here.",
     )
 }
 
-fn listed(threads: &[Thread], now: DateTime<Utc>, heading: &str) -> Option<String> {
+fn listed<Z: TimeZone>(
+    threads: &[Thread],
+    now: DateTime<Utc>,
+    zone: &Z,
+    heading: &str,
+) -> Option<String>
+where
+    Z::Offset: std::fmt::Display,
+{
     if threads.is_empty() {
         return None;
     }
@@ -61,7 +82,7 @@ fn listed(threads: &[Thread], now: DateTime<Utc>, heading: &str) -> Option<Strin
                 Some(due) if due <= now => "now".to_string(),
                 Some(due) => format!(
                     "later, around {}",
-                    due.with_timezone(&chrono::Local).format("%m-%d %H:%M")
+                    due.with_timezone(zone).format("%m-%d %H:%M")
                 ),
                 None => "whenever it fits".to_string(),
             };
@@ -106,13 +127,16 @@ mod tests {
             ..due.clone()
         };
         assert!(due.is_due(now) && !later.is_due(now) && !whenever.is_due(now));
-        let section = section(&[due, later.clone(), whenever], now).unwrap();
+        let shanghai = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let section = section(&[due, later.clone(), whenever], now, &shanghai).unwrap();
         assert!(section.contains("考试: 问他考得怎么样 (now)"));
-        assert!(section.contains("搬家") && section.contains("later, around"));
+        // Due 2026-09-27 08:00 UTC, told on her clock.
+        assert!(section.contains("搬家") && section.contains("later, around 09-27 16:00"));
         assert!(section.contains("(something you wanted to do with them; whenever it fits)"));
         assert!(section.contains("never as a list"));
-        assert!(super::section(&[], now).is_none());
-        let group = group_section(&[later], now).unwrap();
+        assert!(super::section(&[], now, &shanghai).is_none());
+        let group = group_section(&[later], now, &Utc).unwrap();
+        assert!(group.contains("later, around 09-27 08:00"));
         assert!(group.starts_with("## On your mind in this group"));
         assert!(group.contains("搬家") && group.contains("never as a list"));
     }

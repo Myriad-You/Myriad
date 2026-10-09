@@ -15,9 +15,16 @@ pub fn now() -> DateTime<Utc> {
     AT.try_with(|at| *at).unwrap_or_else(|_| Utc::now())
 }
 
+/// The zone her day runs in: the site's, which is the process's own (`TZ`).
+/// The rules in `myriad_merope` take it as an input and never read the
+/// process zone themselves.
+pub fn zone() -> Local {
+    Local
+}
+
 /// [`now`], on the site's clock.
 pub fn local_now() -> DateTime<Local> {
-    now().with_timezone(&Local)
+    now().with_timezone(&zone())
 }
 
 /// Put `work` together as of `at`.

@@ -619,7 +619,11 @@ fn mind_chat_prompt(case: &Case) -> String {
         super::merope::format_own_days_section(&case.own_days),
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, case.in_group),
-        super::merope::threads::section(&eval_threads(case), chrono::Utc::now()),
+        super::merope::threads::section(
+            &eval_threads(case),
+            chrono::Utc::now(),
+            &super::merope::clock::zone(),
+        ),
         case.writing_first
             .as_deref()
             .map(super::merope::reach::writing_first_section),

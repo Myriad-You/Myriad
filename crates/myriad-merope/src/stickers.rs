@@ -300,9 +300,13 @@ pub fn parse_joke(raw: &str, jokes: usize) -> Option<Option<(String, String)>> {
     Some((known && !shows.is_empty() && !means.is_empty()).then_some((shows, means)))
 }
 
-/// The month a sticker was made in, for the monthly count.
-pub fn month_of(at: chrono::DateTime<chrono::Utc>) -> String {
-    at.with_timezone(&chrono::Local).format("%Y-%m").to_string()
+/// The month a sticker was made in, for the monthly count, on the calendar
+/// of `zone` (hers).
+pub fn month_of<Z: chrono::TimeZone>(at: chrono::DateTime<chrono::Utc>, zone: &Z) -> String
+where
+    Z::Offset: std::fmt::Display,
+{
+    at.with_timezone(zone).format("%Y-%m").to_string()
 }
 
 #[cfg(test)]
@@ -405,6 +409,10 @@ mod tests {
         assert_eq!(key, identity_key(" 若泉 绮羽 ", &profile, "asset-1"));
         assert_ne!(key, identity_key("若泉 绮羽", &profile, "asset-2"));
         let at: chrono::DateTime<chrono::Utc> = "2026-09-28T10:00:00Z".parse().unwrap();
-        assert_eq!(month_of(at).len(), 7);
+        assert_eq!(month_of(at, &chrono::Utc), "2026-09");
+        let late: chrono::DateTime<chrono::Utc> = "2026-09-30T20:00:00Z".parse().unwrap();
+        let shanghai = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        assert_eq!(month_of(late, &chrono::Utc), "2026-09");
+        assert_eq!(month_of(late, &shanghai), "2026-10");
     }
 }

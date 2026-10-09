@@ -226,7 +226,7 @@ pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
     let now = Utc::now();
     let mut options = Vec::new();
     for following in &following {
-        if following.next >= following.out(now) {
+        if following.next >= following.out(now, &super::clock::zone()) {
             continue;
         }
         if let Some(work) = known(db, &following.id).await {
@@ -581,9 +581,13 @@ mod tests {
             guess: None,
             knew_it: false,
         };
-        assert_eq!(following.out(started), 1);
-        assert_eq!(following.out(started + chrono::Duration::days(2)), 3);
-        assert_eq!(following.out(started + chrono::Duration::days(30)), 5);
+        let zone = super::super::clock::zone();
+        assert_eq!(following.out(started, &zone), 1);
+        assert_eq!(following.out(started + chrono::Duration::days(2), &zone), 3);
+        assert_eq!(
+            following.out(started + chrono::Duration::days(30), &zone),
+            5
+        );
     }
 
     #[test]

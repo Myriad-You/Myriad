@@ -458,8 +458,12 @@ pub fn format_playing_section(line: &str) -> Option<String> {
 }
 
 /// The date and time where she is: the day of the week and the date as well
-/// as the clock, so "tomorrow" and "last weekend" mean something.
-pub fn format_now_section(now: chrono::DateTime<chrono::Local>) -> String {
+/// as the clock, so "tomorrow" and "last weekend" mean something. `now` is
+/// on her clock: the zone it carries is hers.
+pub fn format_now_section<Z: chrono::TimeZone>(now: chrono::DateTime<Z>) -> String
+where
+    Z::Offset: std::fmt::Display,
+{
     format!(
         "## Now\nIt is {}, {}, where you are.",
         now.format("%A"),
@@ -1101,12 +1105,18 @@ mod tests {
     #[test]
     fn she_knows_the_day_and_how_long_they_were_away() {
         use chrono::TimeZone;
-        let now = chrono::Local
-            .with_ymd_and_hms(2026, 9, 25, 21, 10, 0)
-            .unwrap();
+        let shanghai = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let now = shanghai.with_ymd_and_hms(2026, 9, 25, 21, 10, 0).unwrap();
         assert_eq!(
             format_now_section(now),
             "## Now\nIt is Friday, 2026-09-25 21:10, where you are."
+        );
+        // The same moment on another clock is another day.
+        assert_eq!(
+            format_now_section(
+                now.with_timezone(&chrono::FixedOffset::west_opt(5 * 3600).unwrap())
+            ),
+            "## Now\nIt is Friday, 2026-09-25 08:10, where you are."
         );
         assert!(format_since_section(12).is_none(), "a flowing conversation");
         assert!(
