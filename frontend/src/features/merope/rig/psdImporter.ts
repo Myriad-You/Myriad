@@ -8,7 +8,8 @@ import { anime25DImportCopy } from './anime25dImportCopy'
 import { importRigPsdInWorker } from './psdImportClient'
 import { placeTurnKeyforms, turnKeyformsFor } from './turnKeyformImport'
 
-const MAX_PSD_BYTES = 32 * 1024 * 1024
+/** The worker's psdDecode MAX_PSD_BYTES, kept here so the page needs no PSD reader. */
+const MAX_PSD_BYTES = 96 * 1024 * 1024
 
 export type PreparedRigPsdImport = PreparedAnime25DRigImport
 
@@ -25,6 +26,8 @@ export async function prepareRigPsdImport(
   expressions: ReadonlyArray<{ kind: AuthoredExpressionKind; url: string }> = [],
   profile: CharacterAssetProfile = 'bust',
   skeleton?: DetectedSkeleton,
+  /** The picture the decomposition was cut from when it is not the master itself (an enlarged figure's). */
+  referenceUrl?: string,
 ): Promise<PreparedRigPsdImport> {
   signal?.throwIfAborted()
   if (!sourceMasterAssetId) throw new Error(currentCopy().merope.psdNeedAsset)
@@ -38,7 +41,7 @@ export async function prepareRigPsdImport(
       buffer,
       sourceMasterAssetId,
       // Resolve against the page, not the worker chunk URL.
-      sourceMasterUrl: sourceMasterFetchUrl(sourceMasterAssetId, document.baseURI),
+      sourceMasterUrl: referenceUrl ?? sourceMasterFetchUrl(sourceMasterAssetId, document.baseURI),
       sourceGenerationFingerprint,
       expressions: expressions.map(({ kind, url }) => ({
         kind,

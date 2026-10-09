@@ -39,7 +39,7 @@ test('PSD preflight rejects oversized/header/metadata hazards before pixel decod
   new DataView(oversized).setUint32(18, 100_000)
   assert.throws(() => validateRigPsdHeader(oversized), /psdSpecInvalid/)
   assert.throws(() => validateRigPsdHeader(new ArrayBuffer(10)))
-  const layer = { left: 0, top: 0, right: 2048, bottom: 2048 }
+  const layer = { left: 0, top: 0, right: 4096, bottom: 4096 }
   assert.throws(
     () =>
       validateRigPsdStructure({

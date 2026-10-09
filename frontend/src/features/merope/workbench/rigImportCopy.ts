@@ -116,10 +116,14 @@ export function aiExpressionLabel(
 /** What a decomposition with keyed turns is doing now. */
 export function turnKeysProgress(labels: Labels, status: TurnKeyformsStatus): string {
   const counts = { done: String(status.done), total: String(status.total) }
-  const template = status.stage === 'generating'
-    ? labels.motionTurnKeysGenerating
-    : status.stage === 'decomposing'
-      ? labels.motionTurnKeysDecomposing
-      : labels.motionTurnKeysFitting
+  const template = {
+    upscaling: labels.motionTurnKeysUpscaling,
+    generating: labels.motionTurnKeysGenerating,
+    decomposing: labels.motionTurnKeysDecomposing,
+    fitting: labels.motionTurnKeysFitting,
+    stitching: labels.motionTurnKeysStitching,
+    done: labels.motionTurnKeysFitting,
+    failed: labels.motionTurnKeysFitting,
+  }[status.stage]
   return template.replace(/\{(done|total)\}/g, (_, key: 'done' | 'total') => counts[key])
 }

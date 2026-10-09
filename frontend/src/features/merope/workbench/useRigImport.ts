@@ -38,8 +38,11 @@ export interface RigImportSource {
     signal: AbortSignal,
     fromArchive?: string,
   ) => Promise<File>
-  /** Splits the portrait once, without turn keys. */
-  onDecomposePlainPsd: (signal: AbortSignal) => Promise<File>
+  /** Splits the portrait without turn keys (a standing figure's in tiles, as a job it reports on). */
+  onDecomposePlainPsd: (
+    signal: AbortSignal,
+    onStatus: (status: TurnKeyformsStatus) => void,
+  ) => Promise<File>
   onPreflightRigPsd: (
     file: File,
     onStage: (event: RigAssetCompileEvent) => void,
@@ -242,7 +245,10 @@ export function useRigImport({
             controller.signal,
             fromArchive,
           )
-        : onDecomposePlainPsd(controller.signal)
+        : onDecomposePlainPsd(
+            controller.signal,
+            (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
+          )
       // Redrawn once per portrait; kept ones are used as they are.
       const redraw = expressions && !aiExpressionsReady && onGenerateAiExpressions
         ? onGenerateAiExpressions()

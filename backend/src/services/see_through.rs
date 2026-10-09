@@ -8,7 +8,7 @@
 //! the Hugging Face credential is resolved only for these outbound requests.
 
 use reqwest::{Client, RequestBuilder, StatusCode, Url, multipart};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{sync::OnceLock, time::Duration};
 
@@ -19,10 +19,14 @@ pub const DEFAULT_SPACE: &str = "SomekawaHitomi/see-through-demo";
 /// shape that bust (3:4) and full-body (9:16) portraits both fill well, at
 /// about the 1280x1280 pixels LayerDiff 3D was trained with.
 pub const CANVAS: &str = "1088x1664";
-const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+/// A standing figure's picture is enlarged to 4096 px tall before it is decomposed in tiles.
+const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CONTROL_RESPONSE_BYTES: usize = 512 * 1024;
-const MAX_PSD_BYTES: usize = 32 * 1024 * 1024;
+/// A figure stitched from tiles is a PSD at its enlarged picture's size.
+const MAX_PSD_BYTES: usize = 96 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+/// Super-resolution runs on the Space's CPUs: minutes for a large picture.
+const UPSCALE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Fitting the turn keys runs on the Space's CPU for many minutes.
 const KEYFORMS_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const MAX_KEYFORMS_JSON_BYTES: usize = 32 * 1024 * 1024;
@@ -179,12 +183,28 @@ pub enum SeeThroughError {
         stage: &'static str,
         status: u16,
     },
-    Rejected,
+    /// The Space ended the job with an error: its message, when it gave one
+    /// (a ZeroGPU quota or GPU shortage, or an exception in the Space).
+    Rejected(Option<String>),
     InvalidOutput(String),
     /// Still starting after `WAKE_TIMEOUT`.
     Waking,
     /// Paused, failed to build, or crashed: its stage on the Hub.
     SpaceUnavailable(String),
+}
+
+impl SeeThroughError {
+    /// Whether the Space said it could not get a GPU for this caller (ZeroGPU quota or none free).
+    pub fn is_gpu_shortage(&self) -> bool {
+        match self {
+            Self::Quota => true,
+            Self::Rejected(Some(message)) => {
+                let message = message.to_ascii_lowercase();
+                message.contains("quota") || message.contains("zerogpu") || message.contains("gpu")
+            }
+            _ => false,
+        }
+    }
 }
 
 impl std::fmt::Display for SeeThroughError {
@@ -201,8 +221,9 @@ impl std::fmt::Display for SeeThroughError {
             Self::Upstream { stage, status } => {
                 write!(formatter, "See-through {stage} returned HTTP {status}")
             }
-            Self::Rejected => formatter.write_str(
-                "See-through ZeroGPU rejected the job; check the Hugging Face token and quota",
+            Self::Rejected(Some(message)) => write!(formatter, "See-through rejected the job: {message}"),
+            Self::Rejected(None) => formatter.write_str(
+                "See-through rejected the job without a reason; check the Hugging Face token and quota",
             ),
             Self::Waking => formatter.write_str("The See-through Space is still starting"),
             Self::SpaceUnavailable(stage) => {
@@ -505,50 +526,127 @@ impl SeeThroughClient {
             })
     }
 
-    /// The Space's `figure_head`: where a standing figure's head is, framed
-    /// as a bust (from its decomposition), and that crop of the picture at a
-    /// bust's size, to key as a bust. None when the Space has no such endpoint
-    /// or the head is big enough already.
-    pub async fn figure_head(
+    /// The Space's `upscale`: a standing figure's picture enlarged to 4096 px
+    /// tall by super-resolution (as it is when near that already). None when
+    /// the Space has no such endpoint.
+    pub async fn upscale(
         &self,
-        figure: Vec<u8>,
         (picture, media_type): (Vec<u8>, String),
-    ) -> Result<Option<FigureHead>, SeeThroughError> {
-        validate_psd(&figure)?;
+    ) -> Result<Option<Vec<u8>>, SeeThroughError> {
         self.wait_until_running().await?;
-        if !self.serves("figure_head").await? {
+        if !self.serves("upscale").await? {
             return Ok(None);
         }
-        let figure = self
-            .upload_file(figure, "figure.psd", "image/vnd.adobe.photoshop")
+        let name = format!("figure.{}", image_extension(&media_type).unwrap_or("png"));
+        let picture = self.upload_file(picture, &name, &media_type).await?;
+        let data = json!([
+            { "path": picture, "orig_name": name, "meta": { "_type": "gradio.FileData" } },
+        ]);
+        let event_id = self.start("upscale", data).await?;
+        let data = self
+            .await_data("upscale", &event_id, UPSCALE_TIMEOUT)
+            .await?;
+        let url = output_file_url_at(&self.space, &data, 0)?;
+        Ok(Some(
+            self.download(url, "upscaled picture download", MAX_IMAGE_BYTES)
+                .await?,
+        ))
+    }
+
+    /// The Space's `figure_plan`: a standing figure's three tiles (head and
+    /// chest as a bust, waist, legs) from its whole decomposition, and each
+    /// tile's picture to decompose. None when the Space has no such endpoint
+    /// or the head is big enough already.
+    pub async fn figure_plan(
+        &self,
+        whole: Vec<u8>,
+        (picture, media_type): (Vec<u8>, String),
+    ) -> Result<Option<FigurePlan>, SeeThroughError> {
+        validate_psd(&whole)?;
+        self.wait_until_running().await?;
+        if !self.serves("figure_plan").await? {
+            return Ok(None);
+        }
+        let whole = self
+            .upload_file(whole, "figure.psd", "image/vnd.adobe.photoshop")
             .await?;
         let name = format!("figure.{}", image_extension(&media_type).unwrap_or("png"));
         let picture = self.upload_file(picture, &name, &media_type).await?;
         let files = json!([
-            { "path": figure, "orig_name": "figure.psd", "meta": { "_type": "gradio.FileData" } },
+            { "path": whole, "orig_name": "figure.psd", "meta": { "_type": "gradio.FileData" } },
             { "path": picture, "orig_name": name, "meta": { "_type": "gradio.FileData" } },
         ]);
-        let event_id = self.start("figure_head", files).await?;
+        let event_id = self.start("figure_plan", files).await?;
         let data = self
-            .await_data("figure_head", &event_id, REQUEST_TIMEOUT)
+            .await_data("figure_plan", &event_id, REQUEST_TIMEOUT)
             .await?;
-        let found = data
+        let tiles = data
             .as_array()
             .and_then(|values| values.first())
-            .and_then(|found| found.get("box"))
+            .and_then(|plan| plan.get("tiles"))
             .cloned()
             .unwrap_or(Value::Null);
-        if found.is_null() {
+        if tiles.is_null() {
             return Ok(None);
         }
-        let crop_box: [i32; 4] = serde_json::from_value(found).map_err(|_| {
-            SeeThroughError::InvalidOutput("See-through returned an invalid head box".to_string())
+        let tiles: FigureTiles = serde_json::from_value(tiles).map_err(|_| {
+            SeeThroughError::InvalidOutput(
+                "See-through returned an invalid figure plan".to_string(),
+            )
         })?;
-        let crop_url = output_file_url_at(&self.space, &data, 1)?;
-        let crop = self
-            .download(crop_url, "head picture download", MAX_IMAGE_BYTES)
+        let mut crops = Vec::with_capacity(3);
+        for index in 1..=3 {
+            let url = output_file_url_at(&self.space, &data, index)?;
+            crops.push(
+                self.download(url, "tile picture download", MAX_IMAGE_BYTES)
+                    .await?,
+            );
+        }
+        let crops: [Vec<u8>; 3] = crops.try_into().expect("three tiles");
+        Ok(Some(FigurePlan { tiles, crops }))
+    }
+
+    /// The Space's `figure_stitch`: the figure's PSD at its picture's size,
+    /// from its tiles' decompositions on its whole one.
+    pub async fn figure_stitch(
+        &self,
+        (picture, media_type): (Vec<u8>, String),
+        whole: Vec<u8>,
+        tiles: [Vec<u8>; 3],
+        plan: &FigureTiles,
+    ) -> Result<Vec<u8>, SeeThroughError> {
+        validate_psd(&whole)?;
+        for tile in &tiles {
+            validate_psd(tile)?;
+        }
+        self.wait_until_running().await?;
+        let name = format!("figure.{}", image_extension(&media_type).unwrap_or("png"));
+        let picture = self.upload_file(picture, &name, &media_type).await?;
+        let mut files = vec![
+            json!({ "path": picture, "orig_name": name, "meta": { "_type": "gradio.FileData" } }),
+        ];
+        for (label, psd) in ["figure", "upper", "middle", "lower"]
+            .into_iter()
+            .zip(std::iter::once(whole).chain(tiles))
+        {
+            let file = format!("{label}.psd");
+            let path = self
+                .upload_file(psd, &file, "image/vnd.adobe.photoshop")
+                .await?;
+            files.push(
+                json!({ "path": path, "orig_name": file, "meta": { "_type": "gradio.FileData" } }),
+            );
+        }
+        files.push(Value::String(
+            serde_json::to_string(&json!({ "tiles": plan }))
+                .map_err(|error| SeeThroughError::InvalidInput(error.to_string()))?,
+        ));
+        let event_id = self.start("figure_stitch", Value::Array(files)).await?;
+        let data = self
+            .await_data("figure_stitch", &event_id, REQUEST_TIMEOUT)
             .await?;
-        Ok(Some(FigureHead { crop_box, crop }))
+        let url = output_file_url_at(&self.space, &data, 0)?;
+        self.download_psd(url).await
     }
 
     /// The Space's `figure_keys`: turn keys fitted on a standing figure's head
@@ -757,7 +855,10 @@ impl SeeThroughClient {
         let body = successful_body(response, "event stream", MAX_CONTROL_RESPONSE_BYTES).await?;
         match parse_terminal_event(&body)? {
             TerminalEvent::Complete(data) => Ok(data),
-            TerminalEvent::Error => Err(SeeThroughError::Rejected),
+            TerminalEvent::Error(message) => {
+                tracing::warn!(endpoint, ?message, "See-through rejected a job");
+                Err(SeeThroughError::Rejected(message))
+            }
         }
     }
 
@@ -811,7 +912,10 @@ impl SeeThroughClient {
         let terminal = parse_terminal_event(&body)?;
         match terminal {
             TerminalEvent::Complete(data) => output_file_url(&self.space, &data),
-            TerminalEvent::Error => Err(SeeThroughError::Rejected),
+            TerminalEvent::Error(message) => {
+                tracing::warn!(endpoint, ?message, "See-through rejected a job");
+                Err(SeeThroughError::Rejected(message))
+            }
         }
     }
 
@@ -835,12 +939,20 @@ pub struct TurnKeyformsOutput {
     pub psd: Vec<u8>,
 }
 
-/// A standing figure's head framed as a bust (figure_head).
-pub struct FigureHead {
-    /// x0, y0, x1, y1 in the figure picture's pixels; may run past its edges.
-    pub crop_box: [i32; 4],
-    /// That box of the picture at a bust's size (PNG), white past the edges.
-    pub crop: Vec<u8>,
+/// A standing figure's tiles, x0, y0, x1, y1 in its picture's pixels (may run past its edges).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct FigureTiles {
+    /// The head and chest framed as a bust: also the head keyed as one.
+    pub upper: [i32; 4],
+    pub middle: [i32; 4],
+    pub lower: [i32; 4],
+}
+
+/// A standing figure's tiles and the pictures to decompose them from (PNG):
+/// the upper one at a bust's size, the others as cut.
+pub struct FigurePlan {
+    pub tiles: FigureTiles,
+    pub crops: [Vec<u8>; 3],
 }
 
 /// Which generated turns to draw again before decomposing them.
@@ -882,7 +994,8 @@ struct EventCreated {
 
 enum TerminalEvent {
     Complete(Value),
-    Error,
+    /// The Space's message, when the event carries one.
+    Error(Option<String>),
 }
 
 fn image_extension(media_type: &str) -> Option<&'static str> {
@@ -961,7 +1074,17 @@ fn parse_terminal_event(body: &[u8]) -> Result<TerminalEvent, SeeThroughError> {
                 })?;
                 return Ok(TerminalEvent::Complete(value));
             }
-            Some("error") => return Ok(TerminalEvent::Error),
+            Some("error") => {
+                let message = serde_json::from_str::<Value>(&data.join("\n"))
+                    .ok()
+                    .and_then(|value| match value {
+                        Value::String(text) => Some(text),
+                        Value::Null => None,
+                        other => Some(other.to_string()),
+                    })
+                    .filter(|text| !text.trim().is_empty());
+                return Ok(TerminalEvent::Error(message));
+            }
             _ => {}
         }
     }
@@ -1109,7 +1232,11 @@ data: [{"url":"https://24yearsold-see-through-demo.hf.space/gradio_api/file=/tmp
 
         assert!(matches!(
             parse_terminal_event(b"event: error\ndata: null\n\n").unwrap(),
-            TerminalEvent::Error
+            TerminalEvent::Error(None)
+        ));
+        assert!(matches!(
+            parse_terminal_event(b"event: error\ndata: \"You have exceeded your GPU quota\"\n\n").unwrap(),
+            TerminalEvent::Error(Some(message)) if message.contains("GPU quota")
         ));
     }
 

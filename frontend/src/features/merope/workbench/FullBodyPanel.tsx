@@ -11,7 +11,6 @@ import { useI18n } from '../../../contexts/I18nContext'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { userFacingError } from '../../../utils/userFacingError'
 import {
-  decomposeFullBodyWithSeeThrough,
   generateFullBodyPortrait,
   getFullBodyFace,
   uploadFullBodyPortrait,
@@ -90,11 +89,12 @@ export function FullBodyPanel({
         { sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint },
         { outfitId, fromArchive, onStatus, signal },
       ),
-    onDecomposePlainPsd: () =>
-      decomposeFullBodyWithSeeThrough(outfitId, {
-        sourceMasterAssetId: portrait ?? '',
-        sourceGenerationFingerprint: fingerprint,
-      }),
+    // Enlarged, decomposed in tiles and stitched on the server, as a job.
+    onDecomposePlainPsd: (signal, onStatus) =>
+      decomposeWithTurnKeyforms(
+        { sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint },
+        { outfitId, plain: true, onStatus, signal },
+      ),
     onPreflightRigPsd: (
       file: File,
       onStage: (event: RigAssetCompileEvent) => void,

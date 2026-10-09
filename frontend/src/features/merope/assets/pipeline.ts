@@ -5,6 +5,7 @@ import type {
 } from './compiler'
 import {
   fullBodyRigImport,
+  getFullBodyFigurePicture,
   getFullBodySkeleton,
   getSiteSkeleton,
   importMeropeRig,
@@ -69,28 +70,38 @@ export async function preflightFullBodyPsdAsset(
   onStage?: (event: RigAssetCompileEvent) => void,
   signal?: AbortSignal,
 ): Promise<RigAssetPreflight> {
-  const skeleton = await getFullBodySkeleton(outfitId)
-  return preflightRigAsset(
-    file,
-    sourceMasterAssetId,
-    {
-      prepare: (psd, master, onStage, fingerprint, signal) =>
-        prepareRigPsdImport(
-          psd,
-          master,
-          onStage,
-          fingerprint,
-          signal,
-          [],
-          'fullBody',
-          skeleton ?? undefined,
-        ),
-      preview: fullBodyRigImport(outfitId).preview,
-    },
-    onStage,
-    sourceGenerationFingerprint,
-    signal,
-  )
+  const [skeleton, picture] = await Promise.all([
+    getFullBodySkeleton(outfitId),
+    getFullBodyFigurePicture(outfitId),
+  ])
+  // A figure decomposed in tiles was cut from its enlarged picture: checked against that.
+  const referenceUrl = picture ? URL.createObjectURL(picture) : undefined
+  try {
+    return await preflightRigAsset(
+      file,
+      sourceMasterAssetId,
+      {
+        prepare: (psd, master, onStage, fingerprint, signal) =>
+          prepareRigPsdImport(
+            psd,
+            master,
+            onStage,
+            fingerprint,
+            signal,
+            [],
+            'fullBody',
+            skeleton ?? undefined,
+            referenceUrl,
+          ),
+        preview: fullBodyRigImport(outfitId).preview,
+      },
+      onStage,
+      sourceGenerationFingerprint,
+      signal,
+    )
+  } finally {
+    if (referenceUrl) URL.revokeObjectURL(referenceUrl)
+  }
 }
 
 export async function commitFullBodyPsdAsset(

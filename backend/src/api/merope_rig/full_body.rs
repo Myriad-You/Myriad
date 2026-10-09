@@ -6,7 +6,6 @@ use axum::{
     Extension, Json,
     extract::{Multipart, Path, State},
     http::StatusCode,
-    response::Response,
 };
 use myriad_merope::{
     CharacterAssetProfile, FullBodySource, build_full_body_asset_contract,
@@ -22,7 +21,6 @@ use uuid::Uuid;
 
 use super::{
     ApiResult, bad_request,
-    decompose::{SeeThroughDecomposeRequest, decompose_master},
     import::{import_rig, preview_rig},
     internal_error,
     master::{MasterProvenance, MasterSlot, master_for},
@@ -346,15 +344,6 @@ pub async fn get_full_body(
         .as_ref()
         .and_then(|row| master_for(row, MasterSlot::FullBody(&outfit_id)));
     figure_json(master, set.rig_asset_id).await
-}
-
-pub async fn decompose_full_body(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path(outfit_id): Path<String>,
-    Json(payload): Json<SeeThroughDecomposeRequest>,
-) -> ApiResult<Response> {
-    decompose_master(&db, &claims, MasterSlot::FullBody(&outfit_id), payload).await
 }
 
 pub async fn preview_full_body_rig(

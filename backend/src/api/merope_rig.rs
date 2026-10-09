@@ -59,10 +59,6 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
         .route(
-            "/full-body/{outfit_id}/see-through/decompose",
-            post(full_body::decompose_full_body),
-        )
-        .route(
             "/full-body/{outfit_id}/import",
             post(full_body::import_full_body_rig).layer(DefaultBodyLimit::max(24 * 1024 * 1024)),
         )
@@ -109,6 +105,14 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/full-body/{outfit_id}/see-through/turn-keyforms",
             post(turn_keyforms::start_full_body_turn_keyforms),
+        )
+        .route(
+            "/full-body/{outfit_id}/see-through/figure",
+            post(turn_keyforms::start_full_body_figure),
+        )
+        .route(
+            "/full-body/{outfit_id}/see-through/figure/picture",
+            get(turn_keyforms::get_full_body_figure_picture),
         )
         .route(
             "/see-through/turn-keyforms/{job_id}",

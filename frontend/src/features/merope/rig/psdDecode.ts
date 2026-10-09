@@ -1,10 +1,11 @@
 import type { Layer, Psd } from 'ag-psd'
 import { initializeCanvas, readPsd } from 'ag-psd'
 
-export const MAX_PSD_BYTES = 32 * 1024 * 1024
-const MAX_EDGE = 2048
+export const MAX_PSD_BYTES = 96 * 1024 * 1024
+/** A standing figure decomposed in tiles is stitched at up to 4096 px tall. */
+const MAX_EDGE = 4096
 const MAX_LAYERS = 64
-const MAX_PIXELS = 32 * 1024 * 1024
+const MAX_PIXELS = 128 * 1024 * 1024
 
 export function validateRigPsdHeader(buffer: ArrayBuffer): void {
   if (buffer.byteLength < 26 || buffer.byteLength > MAX_PSD_BYTES)
@@ -62,7 +63,7 @@ export function decodeRigPsd(buffer: ArrayBuffer): Psd {
     skipCompositeImageData: true,
     skipThumbnail: true,
     skipLinkedFilesData: true,
-    totalMemoryLimit: 128 * 1024 * 1024,
+    totalMemoryLimit: 512 * 1024 * 1024,
   }
   const metadata = readPsd(buffer, { ...options, skipLayerImageData: true })
   validateRigPsdStructure(metadata)

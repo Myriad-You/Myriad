@@ -4,10 +4,14 @@ import { ApiError, apiService } from '../../services/api'
 import { fullBodyPath, MeropeApiError, meropeError, PREFIX, SEE_THROUGH_TIMEOUT_MS, seeThroughError } from './api'
 import { attachTurnKeyforms, isDocumentTurnKeyforms } from './rig/turnKeyformImport'
 
-/** Where a turn-keys job stands: generating the four turned drawings, decomposing all five, fitting. */
+/**
+ * Where a turn-keys job stands: generating the four turned drawings,
+ * decomposing all five, fitting. A standing figure's is enlarged first and
+ * stitched from its tiles last (a plain figure's only that).
+ */
 export interface TurnKeyformsStatus {
   jobId: string
-  stage: 'generating' | 'decomposing' | 'fitting' | 'done' | 'failed'
+  stage: 'upscaling' | 'generating' | 'decomposing' | 'fitting' | 'stitching' | 'done' | 'failed'
   done: number
   total: number
   seconds: number
@@ -39,7 +43,7 @@ const TURN_KEYFORMS_POLL_MS = 5000
 const TURN_KEYFORMS_RESTARTS = 3
 /** Polls that may fail in a row (a dropped connection, the server restarting) before giving up. */
 const TURN_KEYFORMS_POLL_FAILURES = 24
-/** Four drawings, five decompositions and a fit: well under an hour. */
+/** Four drawings, a figure's eight decompositions and a fit: well under an hour and a half. */
 const TURN_KEYFORMS_LIMIT_MS = 90 * 60 * 1000
 
 /**
@@ -53,6 +57,8 @@ export async function decomposeWithTurnKeyforms(
     outfitId?: string
     /** Fit this kept job again instead of drawing and decomposing anew. */
     fromArchive?: string
+    /** A full-body set decomposed in tiles without turn keys (needs outfitId). */
+    plain?: boolean
     onStatus?: (status: TurnKeyformsStatus) => void
     signal?: AbortSignal
   } = {},
@@ -60,7 +66,7 @@ export async function decomposeWithTurnKeyforms(
   const start = options.fromArchive
     ? `${ARCHIVES}/${encodeURIComponent(options.fromArchive)}/refit`
     : options.outfitId
-      ? `${PREFIX}${fullBodyPath(options.outfitId)}/see-through/turn-keyforms`
+      ? `${PREFIX}${fullBodyPath(options.outfitId)}/see-through/${options.plain ? 'figure' : 'turn-keyforms'}`
       : `${PREFIX}/see-through/turn-keyforms`
   const begin = async () => {
     const { jobId } = await apiService.post<{ jobId: string }>(start, options.fromArchive ? {} : {

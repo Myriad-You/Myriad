@@ -48,11 +48,29 @@ pub(super) fn see_through_error(error: see_through::SeeThroughError) -> ApiError
             "see_through_auth_failed",
             "Hugging Face rejected the configured API token",
         ),
-        SeeThroughError::Quota | SeeThroughError::Rejected => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "see_through_quota_unavailable",
-            "See-through ZeroGPU is unavailable; check the Hugging Face token and quota",
-        ),
+        error if error.is_gpu_shortage() => {
+            tracing::warn!(%error, "See-through could not get a GPU");
+            // The Space's own words (how much quota is left, when it renews) go to the owner.
+            let detail = match error {
+                SeeThroughError::Rejected(Some(message)) => message.as_str(),
+                _ => "See-through ZeroGPU is unavailable; check the Hugging Face token and quota",
+            };
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": detail, "code": "see_through_quota_unavailable" })),
+            );
+        }
+        SeeThroughError::Quota => unreachable!("a quota error is a GPU shortage"),
+        SeeThroughError::Rejected(message) => {
+            tracing::warn!(?message, "See-through rejected a job");
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "error": message.as_deref().unwrap_or("See-through rejected the job without a reason"),
+                    "code": "see_through_upstream_failed"
+                })),
+            );
+        }
         SeeThroughError::Timeout => (
             StatusCode::GATEWAY_TIMEOUT,
             "see_through_timeout",
@@ -204,7 +222,7 @@ pub async fn decompose_with_see_through(
 }
 
 /// Splits a master portrait into a PSD for the importer.
-pub(super) async fn decompose_master(
+async fn decompose_master(
     db: &DatabaseConnection,
     claims: &Claims,
     slot: MasterSlot<'_>,

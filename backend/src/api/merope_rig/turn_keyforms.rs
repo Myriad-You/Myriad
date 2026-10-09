@@ -81,14 +81,19 @@ fn turn_prompts() -> [String; 4] {
 
 mod archive;
 mod cache;
+mod figure_picture;
 use archive::{ArchiveFiles, ArchiveMeta, FigureFiles, FigureMeta};
 use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
+    /// A standing figure's picture enlarged before it is decomposed in tiles.
+    Upscaling,
     Generating,
     Decomposing,
     Fitting,
+    /// A standing figure's tiles stitched into one decomposition.
+    Stitching,
     Done,
     Failed,
 }
@@ -96,9 +101,11 @@ enum Stage {
 impl Stage {
     fn as_str(self) -> &'static str {
         match self {
+            Self::Upscaling => "upscaling",
             Self::Generating => "generating",
             Self::Decomposing => "decomposing",
             Self::Fitting => "fitting",
+            Self::Stitching => "stitching",
             Self::Done => "done",
             Self::Failed => "failed",
         }
@@ -185,6 +192,9 @@ struct Made {
     redrawn: Vec<String>,
     /// A standing figure keyed by its head.
     figure: Option<FigureMeta>,
+    /// Kept in the archive: a job with turn keys. A plain figure's
+    /// decomposition is handed out only.
+    keep: bool,
 }
 
 /// Ends a job: kept in the archive and handed out when the master is still
@@ -210,12 +220,15 @@ async fn finish(
                 figure: made.figure.clone(),
                 ..meta
             };
-            let archive_id = match archive::save(meta, &made.files).await {
-                Ok(id) => Some(id),
-                Err(error) => {
-                    tracing::warn!(%error, job = %task_id, "turn keys could not be archived");
-                    None
-                }
+            let archive_id = match made.keep.then_some(()) {
+                Some(()) => match archive::save(meta, &made.files).await {
+                    Ok(id) => Some(id),
+                    Err(error) => {
+                        tracing::warn!(%error, job = %task_id, "turn keys could not be archived");
+                        None
+                    }
+                },
+                None => None,
             };
             let ArchiveFiles {
                 keyforms, baked, ..
@@ -249,7 +262,7 @@ pub async fn start_turn_keyforms(
     Extension(claims): Extension<Claims>,
     Json(payload): Json<TurnKeyformsRequest>,
 ) -> ApiResult<Json<Value>> {
-    start(db, &claims, None, payload).await
+    start(db, &claims, None, payload, true).await
 }
 
 pub async fn start_full_body_turn_keyforms(
@@ -258,7 +271,57 @@ pub async fn start_full_body_turn_keyforms(
     Path(outfit_id): Path<String>,
     Json(payload): Json<TurnKeyformsRequest>,
 ) -> ApiResult<Json<Value>> {
-    start(db, &claims, Some(outfit_id), payload).await
+    start(db, &claims, Some(outfit_id), payload, true).await
+}
+
+/// A full-body set's picture decomposed in tiles, without turn keys: the
+/// plain figure (`run_figure`). Polled and fetched as a turn keys job; its
+/// keys are `null`.
+pub async fn start_full_body_figure(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(outfit_id): Path<String>,
+    Json(payload): Json<TurnKeyformsRequest>,
+) -> ApiResult<Json<Value>> {
+    start(db, &claims, Some(outfit_id), payload, false).await
+}
+
+/// A full-body set's picture as its tiles were cut from (enlarged), for the
+/// importer to check its decomposition against; 404 while there is none.
+pub async fn get_full_body_figure_picture(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(outfit_id): Path<String>,
+) -> ApiResult<Response> {
+    require_merope_enabled().await?;
+    require_owner(&claims, &db).await?;
+    let master = super::master::current_master(&db, MasterSlot::FullBody(&outfit_id))
+        .await?
+        .ok_or_else(missing_picture)?;
+    let reference = image_generation::load_local_reference(&master.asset_id)
+        .await
+        .map_err(|_| missing_picture())?;
+    let picture = figure_picture::read(&reference.bytes)
+        .await
+        .ok_or_else(missing_picture)?;
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, HeaderValue::from_static("image/png"))
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, private"),
+        )
+        .body(Body::from(picture))
+        .map_err(internal_error)
+}
+
+fn missing_picture() -> ApiError {
+    (
+        StatusCode::NOT_FOUND,
+        Json(
+            json!({ "error": "No enlarged picture for this set", "code": "figure_picture_missing" }),
+        ),
+    )
 }
 
 async fn start(
@@ -266,6 +329,7 @@ async fn start(
     claims: &Claims,
     outfit_id: Option<String>,
     payload: TurnKeyformsRequest,
+    turn: bool,
 ) -> ApiResult<Json<Value>> {
     require_merope_enabled().await?;
     let user_id = require_owner(claims, &db).await?;
@@ -302,7 +366,12 @@ async fn start(
         see_through::DecomposeOptions::default(),
     );
 
-    let (id, new) = claim_job(&outfit_id, &master.asset_id, Stage::Generating, 4)?;
+    let (stage, total) = if outfit_id.is_some() {
+        (Stage::Upscaling, 1)
+    } else {
+        (Stage::Generating, 4)
+    };
+    let (id, new) = claim_job(&outfit_id, &master.asset_id, stage, total)?;
     if !new {
         return Ok(Json(json!({ "jobId": id })));
     }
@@ -334,8 +403,8 @@ async fn start(
                 &generation,
                 reference,
                 &client,
-                &cache,
                 &space_name,
+                turn,
             )
             .await
         } else {
@@ -449,66 +518,193 @@ async fn run(
         master_media_type,
         redrawn,
         figure: None,
+        keep: true,
     })
 }
 
-/// A standing figure's head is a couple of hundred pixels in it, too small to
-/// fit turn keys well. The figure is decomposed, its head framed as a bust
-/// (the Space's `figure_head`) and keyed as one (`run`, on its own cache), and
-/// the keys placed on the figure (`figure_keys`), which keeps its own
-/// decomposition. A Space without `figure_head`, or a head big enough
-/// already, keys the figure whole.
+/// A standing figure's head is a couple of hundred pixels on a decomposition's
+/// canvas: too little for a figure's detail, too small to fit turn keys well.
+/// Its picture is enlarged (the Space's `upscale`), decomposed whole, planned
+/// into three tiles (`figure_plan`: head and chest framed as a bust, waist,
+/// legs), each tile decomposed on its own canvas, and the tiles stitched on
+/// the whole (`figure_stitch`). With `turn`, the upper tile is keyed as a bust
+/// (`run`, on its own cache, its front decomposition the tile's) and the keys
+/// placed on the stitched figure (`figure_keys`). A Space without these
+/// endpoints, or a head big enough already, has the figure decomposed whole.
+#[allow(clippy::too_many_arguments)]
 async fn run_figure(
     id: &str,
     user_id: i32,
     generation: &image_generation::ImageGenerationConfig,
     reference: image_generation::ImageReference,
     client: &see_through::SeeThroughClient,
-    cache: &TurnCache,
     space_name: &str,
+    turn: bool,
 ) -> ApiResult<Made> {
+    let options = see_through::DecomposeOptions::default();
     update(id, |job| {
-        job.stage = Stage::Decomposing;
+        job.stage = Stage::Upscaling;
         job.done = 0;
         job.total = 1;
     });
-    let options = see_through::DecomposeOptions::default();
-    // The same as the whole figure's front decomposition, so a fallback reuses it.
-    let figure_psd = decomposition(
+    let picture = enlarged(client, &reference).await;
+    let cache = TurnCache::for_master(&picture.bytes, generation, space_name, options);
+    update(id, |job| {
+        job.stage = Stage::Decomposing;
+        job.done = 0;
+        job.total = if turn { 3 } else { 4 };
+    });
+    let whole = decomposition(
         client,
-        cache,
+        &cache,
         0,
-        &reference.bytes,
-        &reference.media_type,
+        &picture.bytes,
+        &picture.media_type,
         options,
     )
     .await?;
-    let picture = (reference.bytes.to_vec(), reference.media_type.clone());
-    let head = client
-        .figure_head(figure_psd.clone(), picture.clone())
+    update(id, |job| job.done += 1);
+    let drawn = (picture.bytes.to_vec(), picture.media_type.clone());
+    let plan = client
+        .figure_plan(whole.clone(), drawn.clone())
         .await
         .map_err(see_through_error)?;
-    let Some(head) = head else {
-        return run(id, user_id, generation, reference, client, cache).await;
+    let Some(plan) = plan else {
+        tracing::info!(job = %id, "figure decomposed whole");
+        return if turn {
+            run(id, user_id, generation, picture, client, &cache).await
+        } else {
+            Ok(plain(whole, drawn.1))
+        };
     };
-    tracing::info!(job = %id, crop = ?head.crop_box, "figure keyed by its head");
-    let crop = image_generation::ImageReference {
-        bytes: axum::body::Bytes::from(head.crop),
+    tracing::info!(job = %id, tiles = ?plan.tiles, "figure decomposed in tiles");
+    let [upper, middle, lower] = plan.crops;
+    let middle = tile_decomposition(client, &cache, "middle", middle).await?;
+    update(id, |job| job.done += 1);
+    let lower = tile_decomposition(client, &cache, "lower", lower).await?;
+    update(id, |job| job.done += 1);
+    let upper = image_generation::ImageReference {
+        bytes: axum::body::Bytes::from(upper),
         media_type: "image/png".to_string(),
     };
-    let head_cache = TurnCache::for_master(&crop.bytes, generation, space_name, options);
-    let made = run(id, user_id, generation, crop, client, &head_cache).await?;
+    let head_cache = TurnCache::for_master(&upper.bytes, generation, space_name, options);
+    let (upper_psd, made) = if turn {
+        // The bust's front decomposition is the upper tile's.
+        let made = run(id, user_id, generation, upper, client, &head_cache).await?;
+        (made.files.decompositions[0].clone(), Some(made))
+    } else {
+        let psd = decomposition(
+            client,
+            &head_cache,
+            0,
+            &upper.bytes,
+            &upper.media_type,
+            options,
+        )
+        .await?;
+        update(id, |job| job.done += 1);
+        (psd, None)
+    };
     prune_cache(cache_root(), CACHE_KEEP).await;
+    update(id, |job| {
+        job.stage = Stage::Stitching;
+        job.done = 0;
+        job.total = 1;
+    });
+    let stitched = client
+        .figure_stitch(
+            drawn.clone(),
+            whole,
+            [upper_psd, middle, lower],
+            &plan.tiles,
+        )
+        .await
+        .map_err(see_through_error)?;
+    update(id, |job| job.done += 1);
+    let Some(made) = made else {
+        return Ok(plain(stitched, drawn.1));
+    };
     let figure = FigureMeta {
         master: String::new(),
-        master_media_type: picture.1.clone(),
-        crop_box: head.crop_box,
+        master_media_type: drawn.1.clone(),
+        crop_box: plan.tiles.upper,
     };
     let kept = FigureFiles {
-        master: picture.0,
-        decomposition: figure_psd,
+        master: drawn.0,
+        decomposition: stitched,
     };
     put_back(client, made, figure, kept).await
+}
+
+/// A plain figure: its decomposition, no keys (`null`), nothing kept.
+fn plain(psd: Vec<u8>, media_type: String) -> Made {
+    Made {
+        files: ArchiveFiles {
+            master: Vec::new(),
+            turned: Default::default(),
+            decompositions: Default::default(),
+            keyforms: b"null".to_vec(),
+            baked: psd,
+            figure: None,
+        },
+        master_media_type: media_type,
+        redrawn: Vec::new(),
+        figure: None,
+        keep: false,
+    }
+}
+
+/// The figure's picture enlarged (kept by the master, `figure_picture`); the
+/// master as it is when the Space cannot enlarge it.
+async fn enlarged(
+    client: &see_through::SeeThroughClient,
+    reference: &image_generation::ImageReference,
+) -> image_generation::ImageReference {
+    let png = |bytes: Vec<u8>| image_generation::ImageReference {
+        bytes: axum::body::Bytes::from(bytes),
+        media_type: "image/png".to_string(),
+    };
+    if let Some(kept) = figure_picture::read(&reference.bytes).await {
+        return png(kept);
+    }
+    match client
+        .upscale((reference.bytes.to_vec(), reference.media_type.clone()))
+        .await
+    {
+        Ok(Some(bytes)) => {
+            figure_picture::write(&reference.bytes, &bytes).await;
+            png(bytes)
+        }
+        Ok(None) => reference.clone(),
+        Err(error) => {
+            tracing::warn!(%error, "figure picture could not be enlarged; decomposed as drawn");
+            reference.clone()
+        }
+    }
+}
+
+/// A tile without a head (waist, legs) decomposed once, kept in the figure's
+/// cache. Not checked: the check is of a face.
+async fn tile_decomposition(
+    client: &see_through::SeeThroughClient,
+    cache: &TurnCache,
+    name: &str,
+    picture: Vec<u8>,
+) -> ApiResult<Vec<u8>> {
+    let file = format!("tile-{name}.psd");
+    if let Some(psd) = cache.read(&file).await.filter(|psd| !psd.is_empty()) {
+        return Ok(psd);
+    }
+    let output = client
+        .decompose(
+            axum::body::Bytes::from(picture),
+            "image/png",
+            see_through::DecomposeOptions::default(),
+        )
+        .await
+        .map_err(see_through_error)?;
+    cache.write(&file, &output.psd).await;
+    Ok(output.psd)
 }
 
 /// The head's keys placed on the figure (`figure_keys`), with the figure's
@@ -1055,6 +1251,7 @@ pub async fn refit_turn_archive(
                 master_media_type: kept.master_media_type.clone(),
                 redrawn: kept.redrawn.clone(),
                 figure: None,
+                keep: true,
             });
         // A figure keyed by its head goes back into the figure it was kept with.
         let result = match (result, kept.figure.clone(), figure) {
@@ -1112,7 +1309,7 @@ mod tests {
             status: 404
         }));
         assert!(!transient(&Quota));
-        assert!(!transient(&Rejected));
+        assert!(!transient(&Rejected(None)));
         assert!(!transient(&Authentication));
         assert!(!transient(&SpaceUnavailable("PAUSED".into())));
     }

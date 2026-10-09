@@ -164,6 +164,22 @@ export function getFullBodySkeleton(outfitId: string): Promise<DetectedSkeleton 
   return getSkeleton(`${fullBodyPath(outfitId)}/skeleton`)
 }
 
+/**
+ * The picture a full-body set's tiles were cut from (its master enlarged),
+ * or null while it has none (not decomposed in tiles yet).
+ */
+export async function getFullBodyFigurePicture(outfitId: string): Promise<Blob | null> {
+  try {
+    const picture = await apiService.get<Blob>(`${PREFIX}${fullBodyPath(outfitId)}/see-through/figure/picture`, {
+      responseType: 'blob',
+      timeout: SEE_THROUGH_TIMEOUT_MS,
+    })
+    return picture instanceof Blob && picture.size > 0 ? picture : null
+  } catch {
+    return null
+  }
+}
+
 /** A full-body set's picture and package, for the owner's workbench. */
 export async function getFullBodyFace(outfitId: string): Promise<SiteFace> {
   return loadFace(`${PREFIX}${fullBodyPath(outfitId)}`)
@@ -278,17 +294,6 @@ export async function decomposeSitePortraitWithSeeThrough(
   input: SeeThroughDecomposeInput,
 ): Promise<File> {
   return decomposeWithSeeThrough('/see-through/decompose', input)
-}
-
-/** Splits a full-body set's picture, as the bust's portrait is split. */
-export async function decomposeFullBodyWithSeeThrough(
-  outfitId: string,
-  input: SeeThroughDecomposeInput,
-): Promise<File> {
-  return decomposeWithSeeThrough(
-    `${fullBodyPath(outfitId)}/see-through/decompose`,
-    input,
-  )
 }
 
 async function decomposeWithSeeThrough(
