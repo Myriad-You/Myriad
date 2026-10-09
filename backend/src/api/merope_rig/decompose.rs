@@ -26,6 +26,18 @@ use crate::{
 pub(super) fn see_through_error(error: see_through::SeeThroughError) -> ApiError {
     use see_through::SeeThroughError;
 
+    if error.is_gpu_shortage() {
+        tracing::warn!(%error, "See-through could not get a GPU");
+        // The Space's own words (how much quota is left, when it renews) go to the owner.
+        let detail = match &error {
+            SeeThroughError::Rejected(Some(message)) => message.as_str(),
+            _ => "See-through ZeroGPU is unavailable; check the Hugging Face token and quota",
+        };
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": detail, "code": "see_through_quota_unavailable" })),
+        );
+    }
     let (status, code, message) = match &error {
         SeeThroughError::NotConfigured => (
             StatusCode::PRECONDITION_REQUIRED,
@@ -48,20 +60,11 @@ pub(super) fn see_through_error(error: see_through::SeeThroughError) -> ApiError
             "see_through_auth_failed",
             "Hugging Face rejected the configured API token",
         ),
-        error if error.is_gpu_shortage() => {
-            tracing::warn!(%error, "See-through could not get a GPU");
-            // The Space's own words (how much quota is left, when it renews) go to the owner.
-            let detail = match error {
-                SeeThroughError::Rejected(Some(message)) => message.as_str(),
-                _ => "See-through ZeroGPU is unavailable; check the Hugging Face token and quota",
+        SeeThroughError::Quota | SeeThroughError::Rejected(_) => {
+            let message = match &error {
+                SeeThroughError::Rejected(message) => message.clone(),
+                _ => None,
             };
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "error": detail, "code": "see_through_quota_unavailable" })),
-            );
-        }
-        SeeThroughError::Quota => unreachable!("a quota error is a GPU shortage"),
-        SeeThroughError::Rejected(message) => {
             tracing::warn!(?message, "See-through rejected a job");
             return (
                 StatusCode::BAD_GATEWAY,
