@@ -486,7 +486,7 @@ pub(crate) async fn build_config(
             // UI        → wallpaper_*, evocative_*, site_*, google_site_verification, cloud_sponsors, pwa_enabled（不含 base_url）
             // Platforms → analytics_enabled, ga_*, umami_*
             // Modules   → music_*, island_show_*
-            // Advanced  → memory_saver_enabled, precise_location_enabled, proxy_*, gemini_base_url, github_api_base_url
+            // Advanced  → memory_saver_enabled, precise_location_enabled, proxy_*, allow_rfc2544_benchmark_range, gemini_base_url, github_api_base_url
             // AI        → merope_*
             // base_url 不进 RESET；OAuth 只读拼回调，编辑走 SiteUrlField
             config_fields: vec![
@@ -892,6 +892,14 @@ pub(crate) async fn build_config(
                     value: stored.proxy_bypass.clone()
                         .unwrap_or_default(),
                     placeholder: "localhost,127.0.0.1,.local".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "allow_rfc2544_benchmark_range".to_string(),
+                    label: "Allow fake-IP DNS answers (198.18.0.0/15)".to_string(),
+                    field_type: "checkbox".to_string(),
+                    value: stored.allow_rfc2544_benchmark_range.to_string(),
+                    placeholder: "false".to_string(),
                     required: false,
                 },
                 ConfigField {

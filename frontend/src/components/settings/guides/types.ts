@@ -172,6 +172,7 @@ export interface SettingGuidesCatalog {
     proxyEnable: SettingGuideEntry
     proxyUrl: SettingGuideEntry
     proxyBypass: SettingGuideEntry
+    allowRfc2544BenchmarkRange: SettingGuideEntry
     geminiBaseUrl: SettingGuideEntry
     githubApiBaseUrl: SettingGuideEntry
     backup: SettingGuideEntry

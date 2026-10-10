@@ -768,6 +768,9 @@ pub struct DynamicConfig {
     pub proxy_url: Option<String>,
     /// 不使用代理的域名列表（逗号分隔，如 localhost,127.0.0.1,bilibili.com）
     pub proxy_bypass: Option<String>,
+    /// 出站 SSRF 防护放行 DNS 解析到 198.18.0.0/15（RFC 2544）的结果。
+    /// 给 Clash 等 fake-ip 模式的宿主用；默认关。URL 里直接写的 IP 不受影响。
+    pub allow_rfc2544_benchmark_range: bool,
     /// Gemini API Base URL（用于使用第三方代理服务）
     pub gemini_base_url: Option<String>,
     /// GitHub API Base URL（用于使用 GitHub 镜像服务）
@@ -993,6 +996,7 @@ impl Default for DynamicConfig {
             proxy_enabled: false, // 默认关闭代理
             proxy_url: None,
             proxy_bypass: None,
+            allow_rfc2544_benchmark_range: false,
             gemini_base_url: None,     // 默认使用官方 API
             github_api_base_url: None, // 默认使用官方 API
         }

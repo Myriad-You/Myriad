@@ -938,6 +938,8 @@
   "proxyUrlPlaceholder": "http://127.0.0.1:7890 或 socks5://127.0.0.1:1080",
   "proxyBypass": "代理绕过列表",
   "proxyBypassHint": "不使用代理的域名，用逗号分隔。国内服务（如 Bilibili）建议添加到绕过列表",
+  "allowRfc2544BenchmarkRange": "放行 fake-ip 网段（198.18.0.0/15）",
+  "allowRfc2544BenchmarkRangeHint": "服务器走 Clash、Mihomo 等 fake-ip 模式时，域名都会解析到这个网段，图片代理等出站请求会被当成内网拦下。打开后放行这类解析结果，真实目标交给本机代理去解析。URL 里直接写的 IP 仍会被拦截。",
   "geminiBaseUrl": "Gemini API 基础地址",
   "geminiBaseUrlHint": "留空使用官方地址，可填写第三方代理服务地址",
   "githubApiBaseUrl": "GitHub API 基础地址",
@@ -2002,7 +2004,6 @@
   "onebotBotGroupsHint": "默认关闭。打开后她会读这个号所在的群：被 @ 或回复时回答，其余时候自己判断要不要插话。可以用下面的群号名单只留指定的群。",
   "onebotBotGroupIds": "只接收这些群",
   "onebotBotGroupIdsHint": "群号，用逗号或空格分隔。留空表示这个号所在的所有群。名单外的群不记录、不应答。",
-
   "onebotBotHint": "token 只写，读回是掩码。空值清除。地址可清空。关掉或 token 不对时机器人不在线。",
   "onebotBotPhaseOffline": "离线",
   "onebotBotPhaseConnecting": "连接中",
@@ -2070,3 +2071,4 @@
   "localMusicPlaylistsEmpty": "还没有歌单",
   "localMusicGeneratePlaylist": "生成歌单"
 }
+

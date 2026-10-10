@@ -277,6 +277,8 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     getUiFieldValue('memory_saver_enabled') === 'true'
   const isPreciseLocationEnabled =
     getUiFieldValue('precise_location_enabled') === 'true'
+  const isRfc2544BenchmarkRangeAllowed =
+    getUiFieldValue('allow_rfc2544_benchmark_range') === 'true'
   const closeImportConfirm = useCallback(() => {
     setImportConfirmOpen(false)
     setPendingImportData(null)
@@ -533,6 +535,20 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           }
           {...bindGuide('advanced.proxyBypass', g.advanced.proxyBypass)}
           layout="vertical"
+        />
+        <SwitchItem
+          itemKey="allow_rfc2544_benchmark_range"
+          label={t.config.allowRfc2544BenchmarkRange}
+          description={t.config.allowRfc2544BenchmarkRangeHint}
+          {...bindGuide(
+            'advanced.allowRfc2544BenchmarkRange',
+            g.advanced.allowRfc2544BenchmarkRange,
+          )}
+          value={isRfc2544BenchmarkRangeAllowed}
+          onChange={(v) =>
+            updateUiFieldValue('allow_rfc2544_benchmark_range', v.toString())
+          }
+          layout="horizontal"
         />
         <InputItem
           itemKey="gemini_base_url"

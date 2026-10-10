@@ -878,6 +878,12 @@
       "frontend": "None. Smoother domestic platform sync may be thanks to this.",
       "notes": "Separate multiple entries with commas; can include local addresses."
     },
+    "allowRfc2544BenchmarkRange": {
+      "what": "Whether outbound safety checks accept domains that resolve into 198.18.0.0/15.",
+      "chain": "① Before fetching an external URL the server resolves the domain and only allows public addresses.\n② In fake-IP mode every domain resolves to 198.18.x.x and is rejected as internal.\n③ When on, these answers are accepted and the connection is handed to the local proxy. Takes effect on save.",
+      "frontend": "The image proxy stops returning \"Cannot proxy unsafe URLs\".",
+      "notes": "When on, the local proxy decides where a domain really connects; the platform's DNS pinning can no longer prove the target is public. Keep off unless you use fake-IP."
+    },
     "geminiBaseUrl": {
       "what": "Root URL for Google Gemini API calls (most people leave empty).",
       "chain": "1) Used when AI config selects Gemini-related models.\n2) Empty = official URL.\n3) Fill only for your own proxy/mirror; wrong values break Gemini calls.\n4) Separate from per-provider Base URL fields on the AI page — this is the advanced global default.",

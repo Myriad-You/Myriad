@@ -57,8 +57,9 @@ pub async fn run() -> anyhow::Result<()> {
     );
     crate::SCHEMA_READY.store(true, Ordering::Release);
     crate::services::process_db::set_process_database(db.clone());
-    *crate::GLOBAL_DYNAMIC_CONFIG.write().await =
-        ConfigService::new(db.clone()).load_config().await?;
+    let dynamic_config = ConfigService::new(db.clone()).load_config().await?;
+    crate::services::outbound_security::apply_dynamic_config(&dynamic_config);
+    *crate::GLOBAL_DYNAMIC_CONFIG.write().await = dynamic_config;
     crate::services::agent::notifications::init_notifications(db.clone()).await;
     super::start(db.clone()).await?;
 
@@ -122,6 +123,7 @@ pub async fn run() -> anyhow::Result<()> {
             *crate::GLOBAL_CONFIG.write().await = core;
             match ConfigService::new(db.clone()).load_config().await {
                 Ok(config) => {
+                    crate::services::outbound_security::apply_dynamic_config(&config);
                     *crate::GLOBAL_DYNAMIC_CONFIG.write().await = config;
                     configured.store(true, Ordering::Release);
                 }

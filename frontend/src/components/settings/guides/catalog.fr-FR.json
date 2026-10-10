@@ -878,6 +878,12 @@
       "frontend": "Aucun. Une synchronisation de plateforme nationale plus fluide peut venir de ceci.",
       "notes": "Séparez plusieurs entrées par des virgules ; peut inclure des adresses locales."
     },
+    "allowRfc2544BenchmarkRange": {
+      "what": "Si les contrôles de sécurité sortants acceptent les domaines qui se résolvent dans 198.18.0.0/15.",
+      "chain": "① Avant de récupérer une URL externe, le serveur résout le domaine et n'autorise que les adresses publiques.\n② En mode fake-IP, chaque domaine se résout en 198.18.x.x et est rejeté comme interne.\n③ Activé, ces réponses sont acceptées et la connexion est confiée au proxy local. Effet immédiat à l'enregistrement.",
+      "frontend": "Le proxy d'images ne renvoie plus « Cannot proxy unsafe URLs ».",
+      "notes": "Activé, c'est le proxy local qui décide où un domaine se connecte réellement ; l'épinglage DNS de la plateforme ne prouve plus que la cible est publique. Laissez désactivé sans fake-IP."
+    },
     "geminiBaseUrl": {
       "what": "URL racine des appels API Google Gemini (la plupart des gens laissent vide).",
       "chain": "1) Utilisée quand la config IA choisit des modèles liés à Gemini.\n2) Vide = URL officielle.\n3) Ne remplissez que pour votre propre proxy/miroir ; de mauvaises valeurs cassent les appels Gemini.\n4) Distinct des champs URL de base par fournisseur sur la page IA — c’est le défaut global avancé.",

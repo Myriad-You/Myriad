@@ -938,6 +938,8 @@
   "proxyUrlPlaceholder": "http://127.0.0.1:7890 oder socks5://127.0.0.1:1080",
   "proxyBypass": "Proxy-Ausnahmeliste",
   "proxyBypassHint": "Domains, die den Proxy umgehen sollen, kommagetrennt. Empfohlen für lokale Dienste wie Bilibili",
+  "allowRfc2544BenchmarkRange": "Fake-IP-DNS-Antworten zulassen (198.18.0.0/15)",
+  "allowRfc2544BenchmarkRangeHint": "Läuft der Server hinter Clash, Mihomo oder einem anderen Fake-IP-Proxy, löst jede Domain in diesen Bereich auf, und ausgehende Anfragen wie der Bild-Proxy werden als intern blockiert. Einschalten, um diese Antworten zuzulassen und das echte Ziel vom lokalen Proxy auflösen zu lassen. Direkt in URLs angegebene IP-Adressen bleiben blockiert.",
   "geminiBaseUrl": "Gemini-API-Basis-URL",
   "geminiBaseUrlHint": "Leer für den offiziellen Endpunkt oder URL eines Drittanbieter-Proxys",
   "githubApiBaseUrl": "GitHub-API-Basis-URL",

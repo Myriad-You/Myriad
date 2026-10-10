@@ -878,6 +878,12 @@
       "frontend": "Keine. Glatterer inländischer Plattform-Sync kann daran liegen.",
       "notes": "Mehrere Einträge durch Kommas trennen; lokale Adressen können enthalten sein."
     },
+    "allowRfc2544BenchmarkRange": {
+      "what": "Ob die Sicherheitsprüfung für ausgehende Anfragen Domains akzeptiert, die in 198.18.0.0/15 auflösen.",
+      "chain": "① Vor dem Abruf einer externen URL löst der Server die Domain auf und lässt nur öffentliche Adressen zu.\n② Im Fake-IP-Modus löst jede Domain auf 198.18.x.x auf und wird als intern abgelehnt.\n③ Eingeschaltet werden diese Antworten akzeptiert und die Verbindung dem lokalen Proxy überlassen. Wirkt sofort nach dem Speichern.",
+      "frontend": "Der Bild-Proxy liefert kein „Cannot proxy unsafe URLs“ mehr.",
+      "notes": "Eingeschaltet entscheidet der lokale Proxy, wohin eine Domain wirklich verbindet; das DNS-Pinning der Plattform kann nicht mehr belegen, dass das Ziel öffentlich ist. Ohne Fake-IP ausgeschaltet lassen."
+    },
     "geminiBaseUrl": {
       "what": "Stamm-URL für Google-Gemini-API-Aufrufe (die meisten lassen leer).",
       "chain": "1) Genutzt, wenn die KI-Konfiguration Gemini-bezogene Modelle wählt.\n2) Leer = offizielle URL.\n3) Nur für Ihr eigenes Proxy/Spiegel ausfüllen; falsche Werte lassen Gemini-Aufrufe scheitern.\n4) Getrennt von den Base-URL-Feldern je Anbieter auf der KI-Seite — das ist die erweiterte globale Vorgabe.",

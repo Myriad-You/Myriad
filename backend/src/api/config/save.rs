@@ -75,6 +75,7 @@ pub async fn update_config(
         Ok(new_config) => {
             // 内存节约档：立即收紧并发/缓存/Argon2；DB 池在下次建连/重启后生效
             crate::services::memory_profile::apply_from_saver_flag(new_config.memory_saver_enabled);
+            crate::services::outbound_security::apply_dynamic_config(&new_config);
             *dynamic_config.write().await = new_config;
             crate::services::ai_config::invalidate_ai_config_cache().await;
             tracing::info!("✅ Dynamic configuration cache updated");
@@ -831,6 +832,10 @@ pub(crate) fn collect_database_updates_with_vendor(
             "precise_location_enabled" => {
                 let enabled = field.value == "true";
                 ("precise_location_enabled", JsonValue::Bool(enabled))
+            }
+            "allow_rfc2544_benchmark_range" => {
+                let enabled = field.value == "true";
+                ("allow_rfc2544_benchmark_range", JsonValue::Bool(enabled))
             }
             "merope_enabled" => {
                 let enabled = field.value == "true";
