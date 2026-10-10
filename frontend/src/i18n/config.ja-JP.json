@@ -938,6 +938,8 @@
   "proxyUrlPlaceholder": "http://127.0.0.1:7890 または socks5://127.0.0.1:1080",
   "proxyBypass": "プロキシバイパスリスト",
   "proxyBypassHint": "プロキシを使用しないドメインをカンマ区切りで指定。Bilibiliなどの国内サービスに推奨",
+  "allowRfc2544BenchmarkRange": "fake-IP 範囲（198.18.0.0/15）の DNS 応答を許可",
+  "allowRfc2544BenchmarkRangeHint": "サーバーが Clash や Mihomo などの fake-IP モード下にあると、すべてのドメインがこの範囲に解決され、画像プロキシなどの外向きリクエストが内部宛てとしてブロックされます。オンにするとこれらの応答を許可し、実際の宛先はローカルのプロキシが解決します。URL に直接書かれた IP は引き続きブロックされます。",
   "geminiBaseUrl": "Gemini APIベースURL",
   "geminiBaseUrlHint": "空欄の場合は公式エンドポイント、またはサードパーティプロキシサービスURLを入力",
   "githubApiBaseUrl": "GitHub APIベースURL",

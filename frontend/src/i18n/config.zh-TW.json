@@ -938,6 +938,8 @@
   "proxyUrlPlaceholder": "http://127.0.0.1:7890 或 socks5://127.0.0.1:1080",
   "proxyBypass": "代理繞過列表",
   "proxyBypassHint": "不使用代理的域名，用逗號分隔。國內服務（如 Bilibili）建議新增到繞過列表",
+  "allowRfc2544BenchmarkRange": "放行 fake-ip 網段（198.18.0.0/15）",
+  "allowRfc2544BenchmarkRangeHint": "伺服器走 Clash、Mihomo 等 fake-ip 模式時，網域都會解析到這個網段，圖片代理等出站請求會被當成內網攔下。開啟後放行這類解析結果，真實目標交給本機代理去解析。URL 裡直接寫的 IP 仍會被攔截。",
   "geminiBaseUrl": "Gemini API 基礎地址",
   "geminiBaseUrlHint": "留空使用官方地址，可填寫第三方代理服務地址",
   "githubApiBaseUrl": "GitHub API 基礎地址",

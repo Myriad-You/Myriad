@@ -335,6 +335,7 @@ async fn reload_config_if_requested() {
                     let config_service = ConfigService::new(db);
                     match config_service.load_config().await {
                         Ok(dynamic_config) => {
+                            services::outbound_security::apply_dynamic_config(&dynamic_config);
                             *GLOBAL_DYNAMIC_CONFIG.write().await = dynamic_config;
                             tracing::info!("✅ Dynamic configuration reloaded from database");
                         }
@@ -368,6 +369,7 @@ async fn reload_config_if_requested() {
                         let config_service = ConfigService::new(db);
                         match config_service.load_config().await {
                             Ok(dynamic_config) => {
+                                services::outbound_security::apply_dynamic_config(&dynamic_config);
                                 *GLOBAL_DYNAMIC_CONFIG.write().await = dynamic_config;
                                 tracing::info!("✅ Dynamic configuration reloaded from database");
                             }

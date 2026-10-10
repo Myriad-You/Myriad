@@ -453,6 +453,7 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                         services::memory_profile::apply_from_saver_flag(
                             dynamic_config.memory_saver_enabled,
                         );
+                        services::outbound_security::apply_dynamic_config(&dynamic_config);
                         if dynamic_config.merope_needs_lite() {
                             tracing::warn!(
                                 "⚠️  Merope is on without Lite; proactive speech uses a short \

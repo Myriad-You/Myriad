@@ -938,6 +938,8 @@
   "proxyUrlPlaceholder": "http://127.0.0.1:7890 or socks5://127.0.0.1:1080",
   "proxyBypass": "Proxy Bypass List",
   "proxyBypassHint": "Domains that should bypass the proxy, separated by commas. Recommended for domestic services like Bilibili",
+  "allowRfc2544BenchmarkRange": "Allow fake-IP DNS answers (198.18.0.0/15)",
+  "allowRfc2544BenchmarkRangeHint": "When the server runs behind Clash, Mihomo or another fake-IP proxy, every domain resolves into this range and outbound requests such as the image proxy are blocked as internal. Turn on to accept these answers and let the local proxy resolve the real target. IP addresses written directly in URLs are still blocked.",
   "geminiBaseUrl": "Gemini API Base URL",
   "geminiBaseUrlHint": "Leave empty for official endpoint, or enter a third-party proxy service URL",
   "githubApiBaseUrl": "GitHub API Base URL",
@@ -1916,7 +1918,6 @@
   "onebotBotGroupsHint": "Off by default. When on, she reads the groups this account is in: she answers when @-mentioned or replied to, and otherwise decides for herself whether to join in. Use the list below to keep her to specific groups.",
   "onebotBotGroupIds": "Only these groups",
   "onebotBotGroupIdsHint": "Group numbers, separated by commas or spaces. Empty means every group this account is in. Groups outside the list are neither recorded nor answered.",
-
   "onebotBotHint": "The token is write-only; reads come back masked. Empty clears it. The URL can be cleared. Off or a bad token stays offline.",
   "onebotBotPhaseOffline": "Offline",
   "onebotBotPhaseConnecting": "Connecting",
@@ -1984,3 +1985,4 @@
   "localMusicPlaylistsEmpty": "No playlists yet",
   "localMusicGeneratePlaylist": "Generate playlist"
 }
+

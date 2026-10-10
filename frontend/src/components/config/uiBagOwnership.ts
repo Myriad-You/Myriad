@@ -76,6 +76,7 @@ export const ADVANCED_RESET_KEYS: readonly string[] = Object.freeze([
   'proxy_enabled',
   'proxy_url',
   'proxy_bypass',
+  'allow_rfc2544_benchmark_range',
   'gemini_base_url',
   'github_api_base_url',
 ])

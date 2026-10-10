@@ -938,6 +938,8 @@
   "proxyUrlPlaceholder": "http://127.0.0.1:7890 또는 socks5://127.0.0.1:1080",
   "proxyBypass": "프록시 우회 목록",
   "proxyBypassHint": "프록시를 타지 않을 도메인, 쉼표로 구분. Bilibili 같은 국내 서비스에 권장",
+  "allowRfc2544BenchmarkRange": "fake-IP 대역(198.18.0.0/15) DNS 응답 허용",
+  "allowRfc2544BenchmarkRangeHint": "서버가 Clash, Mihomo 등 fake-IP 모드 뒤에 있으면 모든 도메인이 이 대역으로 해석되어 이미지 프록시 같은 외부 요청이 내부망으로 간주되어 차단됩니다. 켜면 이런 응답을 허용하고 실제 대상은 로컬 프록시가 해석합니다. URL에 직접 적은 IP는 계속 차단됩니다.",
   "geminiBaseUrl": "Gemini API Base URL",
   "geminiBaseUrlHint": "비우면 공식 엔드포인트. 아니면 외부 프록시 URL",
   "githubApiBaseUrl": "GitHub API Base URL",

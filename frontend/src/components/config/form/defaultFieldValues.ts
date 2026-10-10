@@ -85,6 +85,7 @@ export function defaultUiFieldValue(key: string): string {
   if (key === 'merope_voice_mode') return 'tts'
   if (key === 'proxy_url') return ''
   if (key === 'proxy_bypass') return ''
+  if (key === 'allow_rfc2544_benchmark_range') return 'false'
   if (key === 'gemini_base_url') return ''
   if (key === 'github_api_base_url') return ''
   return ''

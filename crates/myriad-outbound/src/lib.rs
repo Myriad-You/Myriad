@@ -12,11 +12,14 @@
 //! - response bodies read with an explicit byte cap
 //!
 //! Lab-only: `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND` may allow private/loopback.
+//! Fake-IP proxies: [`set_allow_rfc2544_benchmark_range`] may admit 198.18.0.0/15
+//! DNS answers (never IP literals).
 #![deny(tail_expr_drop_order)]
 
 use reqwest::{Client, ClientBuilder, redirect::Policy};
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use url::{Host, Url};
@@ -139,6 +142,31 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
+static ALLOW_RFC2544_BENCHMARK_RANGE: AtomicBool = AtomicBool::new(false);
+
+/// Accept DNS answers in 198.18.0.0/15 (RFC 2544 benchmarking range).
+///
+/// Clash/Mihomo/Surge fake-IP mode answers every lookup from that range and
+/// resolves the real name inside the proxy, so without this every outbound
+/// target looks non-public. Enabling it trusts the local proxy to route: the
+/// local DNS pin no longer proves where the connection lands. IP literals in
+/// URLs stay rejected either way.
+pub fn set_allow_rfc2544_benchmark_range(allowed: bool) {
+    ALLOW_RFC2544_BENCHMARK_RANGE.store(allowed, Ordering::Relaxed);
+}
+
+pub fn rfc2544_benchmark_range_allowed() -> bool {
+    ALLOW_RFC2544_BENCHMARK_RANGE.load(Ordering::Relaxed)
+}
+
+fn is_rfc2544_benchmark(ip: IpAddr) -> bool {
+    let IpAddr::V4(ip) = ip else {
+        return false;
+    };
+    let [a, b, _, _] = ip.octets();
+    a == 198 && (b == 18 || b == 19)
+}
+
 /// `Url::host_str()` wraps IPv6 in brackets (`[::1]`), which `IpAddr` will not
 /// parse — that skipped the public-address check on the proxy path.
 fn literal_ip(host: Host<&str>) -> Option<IpAddr> {
@@ -239,17 +267,20 @@ pub async fn build_public_http_client(
         .port_or_known_default()
         .ok_or_else(|| "URL has no usable port".to_string())?;
 
-    let addresses: Vec<SocketAddr> = match parsed.host() {
-        Some(Host::Ipv4(ip)) => vec![SocketAddr::new(IpAddr::V4(ip), port)],
-        Some(Host::Ipv6(ip)) => vec![SocketAddr::new(IpAddr::V6(ip), port)],
-        Some(Host::Domain(_)) => tokio::net::lookup_host((host, port))
-            .await
-            .map_err(|_| "DNS resolution failed".to_string())?
-            .collect(),
+    let (addresses, from_dns): (Vec<SocketAddr>, bool) = match parsed.host() {
+        Some(Host::Ipv4(ip)) => (vec![SocketAddr::new(IpAddr::V4(ip), port)], false),
+        Some(Host::Ipv6(ip)) => (vec![SocketAddr::new(IpAddr::V6(ip), port)], false),
+        Some(Host::Domain(_)) => (
+            tokio::net::lookup_host((host, port))
+                .await
+                .map_err(|_| "DNS resolution failed".to_string())?
+                .collect(),
+            true,
+        ),
         None => return Err("URL has no host".to_string()),
     };
 
-    let mut addresses = select_outbound_addresses(addresses)?;
+    let mut addresses = select_outbound_addresses(addresses, from_dns)?;
 
     // Stable order for cache key equality.
     addresses.sort_unstable();
@@ -278,16 +309,25 @@ pub async fn build_public_http_client(
 /// The previous "any non-public address fails the whole request" check broke
 /// declared-API egress in China: polluted A/AAAA answers often include one
 /// loopback/CGN/6to4 record alongside a real Cloudflare/AWS address.
-fn select_outbound_addresses(addresses: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, String> {
+///
+/// `from_dns` gates the fake-IP allowance: only resolver answers may land in
+/// 198.18.0.0/15, never a literal the URL author chose.
+fn select_outbound_addresses(
+    addresses: Vec<SocketAddr>,
+    from_dns: bool,
+) -> Result<Vec<SocketAddr>, String> {
     if addresses.is_empty() {
         return Err("DNS resolution returned no addresses".to_string());
     }
     if federation_lab_private_outbound_enabled() {
         return Ok(addresses);
     }
+    let allow_fake_ip = from_dns && rfc2544_benchmark_range_allowed();
     let public: Vec<SocketAddr> = addresses
         .into_iter()
-        .filter(|address| is_public_ip(address.ip()))
+        .filter(|address| {
+            is_public_ip(address.ip()) || (allow_fake_ip && is_rfc2544_benchmark(address.ip()))
+        })
         .collect();
     if public.is_empty() {
         return Err("Target resolves to no public addresses".to_string());
@@ -612,7 +652,7 @@ mod tests {
             "100.64.0.1:443".parse().unwrap(),
             "[2606:4700:4700::1111]:443".parse().unwrap(),
         ];
-        let selected = select_outbound_addresses(mixed).expect("public addrs");
+        let selected = select_outbound_addresses(mixed, true).expect("public addrs");
         let ips: Vec<IpAddr> = selected.into_iter().map(|addr| addr.ip()).collect();
         assert_eq!(
             ips,
@@ -631,8 +671,51 @@ mod tests {
             "127.0.0.1:443".parse().unwrap(),
             "10.0.0.1:443".parse().unwrap(),
         ];
-        let error = select_outbound_addresses(private).expect_err("private-only");
+        let error = select_outbound_addresses(private, true).expect_err("private-only");
         assert!(error.contains("no public addresses"));
+    }
+
+    #[tokio::test]
+    async fn fake_ip_answers_need_the_benchmark_range_switch() {
+        let _guard = tests_lab_env_lock().await;
+        unsafe { std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND") };
+        let fake_ip = || {
+            vec![
+                "198.18.0.7:443".parse().unwrap(),
+                "198.19.255.1:443".parse().unwrap(),
+                "127.0.0.1:443".parse().unwrap(),
+            ]
+        };
+
+        set_allow_rfc2544_benchmark_range(false);
+        assert!(select_outbound_addresses(fake_ip(), true).is_err());
+
+        set_allow_rfc2544_benchmark_range(true);
+        let selected = select_outbound_addresses(fake_ip(), true);
+        let literal = select_outbound_addresses(fake_ip(), false);
+        let literal_url =
+            build_public_http_client("http://198.18.0.7/", Duration::from_secs(1), None).await;
+        set_allow_rfc2544_benchmark_range(false);
+
+        let ips: Vec<IpAddr> = selected
+            .expect("fake-ip answers admitted")
+            .into_iter()
+            .map(|addr| addr.ip())
+            .collect();
+        assert_eq!(
+            ips,
+            vec![
+                "198.18.0.7".parse::<IpAddr>().unwrap(),
+                "198.19.255.1".parse::<IpAddr>().unwrap(),
+            ],
+            "only the benchmark range is admitted, not other private answers"
+        );
+        assert!(literal.is_err(), "IP literals never use the allowance");
+        assert!(
+            literal_url.is_err(),
+            "IP literal URLs never use the allowance"
+        );
+        assert!(!is_public_ip("198.18.0.7".parse().unwrap()));
     }
 
     #[tokio::test]

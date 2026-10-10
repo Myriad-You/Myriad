@@ -790,6 +790,15 @@ impl ConfigService {
             }
         }
 
+        // fake-ip 网段放行（高级设置 · 网络）：缺省 false。
+        if let Some(v) = map.get("allow_rfc2544_benchmark_range") {
+            if let Some(b) = v.as_bool() {
+                config.allow_rfc2544_benchmark_range = b;
+            } else if let Some(s) = v.as_str() {
+                config.allow_rfc2544_benchmark_range = s == "true" || s == "1";
+            }
+        }
+
         config
     }
 
@@ -1273,6 +1282,30 @@ mod tests {
 
         let missing = ConfigService::parse_config(HashMap::new());
         assert!(!missing.precise_location_enabled);
+    }
+
+    #[test]
+    fn parses_rfc2544_benchmark_range_flag_from_database_config() {
+        let on = ConfigService::parse_config(HashMap::from([(
+            "allow_rfc2544_benchmark_range".into(),
+            json!(true),
+        )]));
+        assert!(on.allow_rfc2544_benchmark_range);
+
+        let from_str = ConfigService::parse_config(HashMap::from([(
+            "allow_rfc2544_benchmark_range".into(),
+            json!("true"),
+        )]));
+        assert!(from_str.allow_rfc2544_benchmark_range);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "allow_rfc2544_benchmark_range".into(),
+            json!(false),
+        )]));
+        assert!(!off.allow_rfc2544_benchmark_range);
+
+        let missing = ConfigService::parse_config(HashMap::new());
+        assert!(!missing.allow_rfc2544_benchmark_range);
     }
 
     #[test]

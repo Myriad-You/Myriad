@@ -785,6 +785,7 @@ pub async fn restore_settings(
 
     // The configuration just proven to load inside the committed transaction.
     // Same Arc as AppState.dynamic_config after from_shared — write via State.
+    crate::services::outbound_security::apply_dynamic_config(&new_config);
     *dynamic_config.write().await = new_config;
     crate::services::http_client::reload_global_client().await;
     crate::services::oauth::registry::REGISTRY.reload().await;
@@ -1493,6 +1494,21 @@ mod settings_backup_tests {
         config.ui_config.config_fields = vec![ui_field("precise_location_enabled", "false")];
         let off = collect_database_updates(&config).expect("valid config");
         assert_eq!(off.get("precise_location_enabled"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn ui_rfc2544_benchmark_range_flag_persists_bool() {
+        let mut config = empty_config();
+        config.ui_config.config_fields = vec![ui_field("allow_rfc2544_benchmark_range", "true")];
+        let on = collect_database_updates(&config).expect("valid config");
+        assert_eq!(on.get("allow_rfc2544_benchmark_range"), Some(&json!(true)));
+
+        config.ui_config.config_fields = vec![ui_field("allow_rfc2544_benchmark_range", "false")];
+        let off = collect_database_updates(&config).expect("valid config");
+        assert_eq!(
+            off.get("allow_rfc2544_benchmark_range"),
+            Some(&json!(false))
+        );
     }
 
     #[test]
