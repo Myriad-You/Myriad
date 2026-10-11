@@ -882,7 +882,7 @@
       "what": "Ob die Sicherheitsprüfung für ausgehende Anfragen Domains akzeptiert, die in 198.18.0.0/15 auflösen.",
       "chain": "① Vor dem Abruf einer externen URL löst der Server die Domain auf und lässt nur öffentliche Adressen zu.\n② Im Fake-IP-Modus löst jede Domain auf 198.18.x.x auf und wird als intern abgelehnt.\n③ Eingeschaltet werden diese Antworten akzeptiert und die Verbindung dem lokalen Proxy überlassen. Wirkt sofort nach dem Speichern.",
       "frontend": "Der Bild-Proxy liefert kein „Cannot proxy unsafe URLs“ mehr.",
-      "notes": "Eingeschaltet entscheidet der lokale Proxy, wohin eine Domain wirklich verbindet; das DNS-Pinning der Plattform kann nicht mehr belegen, dass das Ziel öffentlich ist. Ohne Fake-IP ausgeschaltet lassen."
+      "notes": "Eingeschaltet entscheidet der lokale Proxy, wohin eine Domain wirklich verbindet; das DNS-Pinning der Plattform kann nicht mehr belegen, dass das Ziel öffentlich ist. Ohne Fake-IP ausgeschaltet lassen. Nur IPv4-Fake-IP (198.18.0.0/15) wird unterstützt; IPv6-Fake-IP wird nicht unterstützt."
     },
     "geminiBaseUrl": {
       "what": "Stamm-URL für Google-Gemini-API-Aufrufe (die meisten lassen leer).",

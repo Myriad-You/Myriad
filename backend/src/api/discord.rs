@@ -142,7 +142,7 @@ async fn reload_global_config(
     let svc = ConfigService::new(db.clone());
     match svc.load_config().await {
         Ok(cfg) => {
-            *dynamic_config.write().await = cfg;
+            crate::services::config_service::install_dynamic_config(dynamic_config, cfg).await;
         }
         Err(e) => {
             tracing::warn!("Failed to reload dynamic config after Discord OAuth: {}", e);

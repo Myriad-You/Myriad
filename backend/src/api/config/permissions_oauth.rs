@@ -246,7 +246,8 @@ pub async fn update_permissions(
     // 刷新全局配置缓存
     match config_service.load_config().await {
         Ok(new_config) => {
-            *dynamic_config.write().await = new_config;
+            crate::services::config_service::install_dynamic_config(&dynamic_config, new_config)
+                .await;
             tracing::info!("✅ Global dynamic config refreshed after permission update");
         }
         Err(e) => {
@@ -492,7 +493,8 @@ pub async fn update_oauth_providers(
     // 刷新全局配置缓存
     match config_service.load_config().await {
         Ok(new_config) => {
-            *dynamic_config.write().await = new_config;
+            crate::services::config_service::install_dynamic_config(&dynamic_config, new_config)
+                .await;
             tracing::info!("✅ Global dynamic config refreshed (oauth providers)");
         }
         Err(e) => {

@@ -896,7 +896,7 @@ pub(crate) async fn build_config(
                 },
                 ConfigField {
                     key: "allow_rfc2544_benchmark_range".to_string(),
-                    label: "Allow fake-IP DNS answers (198.18.0.0/15)".to_string(),
+                    label: "Allow IPv4 fake-IP DNS answers (198.18.0.0/15)".to_string(),
                     field_type: "checkbox".to_string(),
                     value: stored.allow_rfc2544_benchmark_range.to_string(),
                     placeholder: "false".to_string(),

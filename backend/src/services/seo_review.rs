@@ -95,7 +95,11 @@ pub async fn apply_site_seo_fields(
     }
     match service.load_config().await {
         Ok(config) => {
-            *crate::GLOBAL_DYNAMIC_CONFIG.write().await = config;
+            crate::services::config_service::install_dynamic_config(
+                &crate::GLOBAL_DYNAMIC_CONFIG,
+                config,
+            )
+            .await;
         }
         Err(error) => {
             tracing::warn!(%error, "seo apply saved but could not reload dynamic config");

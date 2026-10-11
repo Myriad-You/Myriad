@@ -684,6 +684,9 @@ mod tests {
                 "198.18.0.7:443".parse().unwrap(),
                 "198.19.255.1:443".parse().unwrap(),
                 "127.0.0.1:443".parse().unwrap(),
+                "10.0.0.1:443".parse().unwrap(),
+                "100.64.0.1:443".parse().unwrap(),
+                "[fdfe:dcba:9876::1]:443".parse().unwrap(),
             ]
         };
 
@@ -696,6 +699,7 @@ mod tests {
         let literal_url =
             build_public_http_client("http://198.18.0.7/", Duration::from_secs(1), None).await;
         set_allow_rfc2544_benchmark_range(false);
+        assert!(select_outbound_addresses(fake_ip(), true).is_err());
 
         let ips: Vec<IpAddr> = selected
             .expect("fake-ip answers admitted")

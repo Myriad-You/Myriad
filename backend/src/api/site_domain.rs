@@ -524,7 +524,8 @@ pub async fn change_site_domain(
     // Same Arc as AppState.dynamic_config after from_shared — write via State.
     match config_service.load_config().await {
         Ok(new_config) => {
-            *dynamic_config.write().await = new_config;
+            crate::services::config_service::install_dynamic_config(&dynamic_config, new_config)
+                .await;
             tracing::info!("✅ Global dynamic configuration cache updated after domain change");
         }
         Err(e) => {

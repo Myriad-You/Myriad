@@ -90,8 +90,8 @@ impl FromRef<AppState> for Arc<TokioRwLock<DynamicConfig>> {
 /// after [`AppState::from_shared`]).
 ///
 /// **HTTP handlers (full mode):** use `State<Arc<tokio::sync::RwLock<DynamicConfig>>>` /
-/// `AppState` and write with `*dynamic_config.write().await = …`. Do not call
-/// these helpers from request paths.
+/// `AppState` and pass that handle to `config_service::install_dynamic_config`.
+/// Do not call this accessor from request paths.
 ///
 /// **Allowed callers:** bootstrap (`main` / router reload), CONFIG_MODE setup
 /// routes (no AppState), and non-HTTP background services that still use the

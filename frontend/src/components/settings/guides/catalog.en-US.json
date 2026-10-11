@@ -882,7 +882,7 @@
       "what": "Whether outbound safety checks accept domains that resolve into 198.18.0.0/15.",
       "chain": "① Before fetching an external URL the server resolves the domain and only allows public addresses.\n② In fake-IP mode every domain resolves to 198.18.x.x and is rejected as internal.\n③ When on, these answers are accepted and the connection is handed to the local proxy. Takes effect on save.",
       "frontend": "The image proxy stops returning \"Cannot proxy unsafe URLs\".",
-      "notes": "When on, the local proxy decides where a domain really connects; the platform's DNS pinning can no longer prove the target is public. Keep off unless you use fake-IP."
+      "notes": "When on, the local proxy decides where a domain really connects; the platform's DNS pinning can no longer prove the target is public. Keep off unless you use fake-IP. Only IPv4 fake-IP (198.18.0.0/15) is supported; IPv6 fake-IP is not supported."
     },
     "geminiBaseUrl": {
       "what": "Root URL for Google Gemini API calls (most people leave empty).",

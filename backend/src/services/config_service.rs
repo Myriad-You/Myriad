@@ -7,6 +7,19 @@ use std::collections::HashMap;
 pub(crate) mod env_seed;
 pub(crate) mod legacy_ai_settings;
 
+/// Install a complete config and its process-wide policies under the same
+/// write lock. HTTP callers pass the config handle extracted from AppState;
+/// bootstrap and background services pass the process-shared handle.
+pub async fn install_dynamic_config(
+    target: &tokio::sync::RwLock<DynamicConfig>,
+    config: DynamicConfig,
+) {
+    let mut current = target.write().await;
+    crate::services::memory_profile::apply_from_saver_flag(config.memory_saver_enabled);
+    crate::services::outbound_security::apply_dynamic_config(&config);
+    *current = config;
+}
+
 /// Optional config string: null / "" / whitespace → None.
 /// Empty `Some("")` must not reach outbound auth headers.
 fn opt_nonempty_string(v: &JsonValue) -> Option<String> {
@@ -892,6 +905,48 @@ async fn upsert_configuration(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn installing_dynamic_config_updates_and_revokes_process_policies() {
+        use crate::services::{memory_profile, outbound_security};
+
+        let _guard = memory_profile::test_profile_lock();
+        let previous_profile = memory_profile::active_profile();
+        let previous_outbound = outbound_security::rfc2544_benchmark_range_allowed();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (enabled, disabled) = runtime.block_on(async {
+            let target = tokio::sync::RwLock::new(crate::config::DynamicConfig::default());
+            let config = crate::config::DynamicConfig {
+                memory_saver_enabled: true,
+                allow_rfc2544_benchmark_range: true,
+                ..Default::default()
+            };
+            super::install_dynamic_config(&target, config).await;
+            let enabled = (
+                target.read().await.allow_rfc2544_benchmark_range,
+                outbound_security::rfc2544_benchmark_range_allowed(),
+                memory_profile::active_profile(),
+            );
+            super::install_dynamic_config(&target, Default::default()).await;
+            let disabled = (
+                target.read().await.allow_rfc2544_benchmark_range,
+                outbound_security::rfc2544_benchmark_range_allowed(),
+                memory_profile::active_profile(),
+            );
+            (enabled, disabled)
+        });
+        memory_profile::apply(previous_profile);
+        outbound_security::set_allow_rfc2544_benchmark_range(previous_outbound);
+
+        assert_eq!(enabled, (true, true, memory_profile::resolve_profile(true)));
+        assert_eq!(
+            disabled,
+            (false, false, memory_profile::resolve_profile(false))
+        );
+    }
+
     /// CLAUDE.md: a configuration key the settings form saves must be read
     /// back from the database, or the saved value silently does nothing.
     #[test]

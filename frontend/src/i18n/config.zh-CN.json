@@ -973,7 +973,7 @@
   "proxyBypass": "代理绕过列表",
   "proxyBypassHint": "不使用代理的域名，用逗号分隔。国内服务（如 Bilibili）建议添加到绕过列表",
   "allowRfc2544BenchmarkRange": "放行 fake-ip 网段（198.18.0.0/15）",
-  "allowRfc2544BenchmarkRangeHint": "服务器走 Clash、Mihomo 等 fake-ip 模式时，域名都会解析到这个网段，图片代理等出站请求会被当成内网拦下。打开后放行这类解析结果，真实目标交给本机代理去解析。URL 里直接写的 IP 仍会被拦截。",
+  "allowRfc2544BenchmarkRangeHint": "服务器走 Clash、Mihomo 等 fake-ip 模式时，域名都会解析到这个网段，图片代理等出站请求会被当成内网拦下。打开后放行这类解析结果，真实目标交给本机代理去解析。URL 里直接写的该网段 IP 仍会被拦截。仅支持 IPv4 fake-ip（198.18.0.0/15），不支持 IPv6 fake-ip。",
   "geminiBaseUrl": "Gemini API 基础地址",
   "geminiBaseUrlHint": "留空使用官方地址，可填写第三方代理服务地址",
   "githubApiBaseUrl": "GitHub API 基础地址",
@@ -2105,4 +2105,3 @@
   "localMusicPlaylistsEmpty": "还没有歌单",
   "localMusicGeneratePlaylist": "生成歌单"
 }
-

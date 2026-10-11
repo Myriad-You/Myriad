@@ -785,8 +785,7 @@ pub async fn restore_settings(
 
     // The configuration just proven to load inside the committed transaction.
     // Same Arc as AppState.dynamic_config after from_shared — write via State.
-    crate::services::outbound_security::apply_dynamic_config(&new_config);
-    *dynamic_config.write().await = new_config;
+    crate::services::config_service::install_dynamic_config(&dynamic_config, new_config).await;
     crate::services::http_client::reload_global_client().await;
     crate::services::oauth::registry::REGISTRY.reload().await;
 
