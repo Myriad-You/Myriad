@@ -4,23 +4,23 @@
 //! without depending on each other. Policy:
 //! - only `http`/`https`
 //! - no URL credentials
-//! - resolve + pin DNS to public (globally routable) addresses
-//! - mixed DNS: drop non-public records, fail only when none remain
+//! - resolve + pin DNS to public addresses or configured fake-IP CIDRs
+//! - mixed DNS: drop disallowed records, fail only when none remain
 //! - optional trusted-proxy path skips local DNS pin
 //! - client-level redirects disabled; callers that must follow 3xx use
 //!   [`get_public_following_redirects`] so every hop is re-validated
 //! - response bodies read with an explicit byte cap
 //!
 //! Lab-only: `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND` may allow private/loopback.
-//! Fake-IP proxies: [`set_allow_rfc2544_benchmark_range`] may admit 198.18.0.0/15
-//! DNS answers (never IP literals).
+//! Fake-IP proxies: [`set_fake_ip_ranges`] may admit configured IPv4/IPv6 CIDRs
+//! in DNS answers (never IP literals).
 #![deny(tail_expr_drop_order)]
 
+use ipnet::IpNet;
 use reqwest::{Client, ClientBuilder, redirect::Policy};
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use url::{Host, Url};
 
@@ -142,29 +142,81 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
-static ALLOW_RFC2544_BENCHMARK_RANGE: AtomicBool = AtomicBool::new(false);
-
-/// Accept DNS answers in 198.18.0.0/15 (RFC 2544 benchmarking range).
-///
-/// Clash/Mihomo/Surge fake-IP mode answers every lookup from that range and
-/// resolves the real name inside the proxy, so without this every outbound
-/// target looks non-public. Enabling it trusts the local proxy to route: the
-/// local DNS pin no longer proves where the connection lands. IP literals in
-/// URLs stay rejected either way.
-pub fn set_allow_rfc2544_benchmark_range(allowed: bool) {
-    ALLOW_RFC2544_BENCHMARK_RANGE.store(allowed, Ordering::Relaxed);
+fn configured_fake_ip_ranges() -> &'static RwLock<Vec<IpNet>> {
+    static RANGES: OnceLock<RwLock<Vec<IpNet>>> = OnceLock::new();
+    RANGES.get_or_init(|| RwLock::new(Vec::new()))
 }
 
-pub fn rfc2544_benchmark_range_allowed() -> bool {
-    ALLOW_RFC2544_BENCHMARK_RANGE.load(Ordering::Relaxed)
+fn parse_fake_ip_ranges(ranges: &[String]) -> Result<Vec<IpNet>, String> {
+    if ranges.len() > 64 {
+        return Err("Fake-IP ranges must contain at most 64 CIDRs".into());
+    }
+    // Never let a broad CIDR reopen loopback, link-local metadata, multicast,
+    // reserved IPv4, or IPv4-embedded IPv6 addresses. Overlap checks also reject
+    // 0.0.0.0/0 and ::/0. A proxy should allocate fake IPs from unicast ranges.
+    const FORBIDDEN: &[&str] = &[
+        "0.0.0.0/8",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "224.0.0.0/4",
+        "240.0.0.0/4",
+        "::/96",
+        "::ffff:0:0/96",
+        "fe80::/10",
+        "fec0::/10",
+        "ff00::/8",
+    ];
+    let forbidden: Vec<IpNet> = FORBIDDEN
+        .iter()
+        .map(|cidr| cidr.parse().expect("static CIDR"))
+        .collect();
+    let mut parsed = Vec::with_capacity(ranges.len());
+    for (index, raw) in ranges.iter().enumerate() {
+        let net = raw
+            .trim()
+            .parse::<IpNet>()
+            .map_err(|_| format!("Fake-IP range {} must be an IPv4 or IPv6 CIDR", index + 1))?
+            .trunc();
+        if forbidden
+            .iter()
+            .any(|blocked| net.contains(&blocked.network()) || blocked.contains(&net.network()))
+        {
+            return Err(format!(
+                "Fake-IP range {} overlaps a forbidden local or reserved range",
+                index + 1
+            ));
+        }
+        parsed.push(net);
+    }
+    parsed.sort_unstable();
+    parsed.dedup();
+    Ok(parsed)
 }
 
-fn is_rfc2544_benchmark(ip: IpAddr) -> bool {
-    let IpAddr::V4(ip) = ip else {
-        return false;
-    };
-    let [a, b, _, _] = ip.octets();
-    a == 198 && (b == 18 || b == 19)
+/// Validate and canonicalize the administrator's fake-IP CIDRs.
+pub fn normalize_fake_ip_ranges(ranges: &[String]) -> Result<Vec<String>, String> {
+    parse_fake_ip_ranges(ranges).map(|nets| nets.into_iter().map(|net| net.to_string()).collect())
+}
+
+/// Accept DNS answers in the configured fake-IP CIDRs; an empty list disables
+/// all exceptions. This trusts the local proxy to route to the real target:
+/// DNS pinning no longer proves that these connections land on public hosts.
+/// Non-public IP literals in URLs remain rejected. Invalid updates are atomic:
+/// they leave the current policy intact.
+pub fn set_fake_ip_ranges(ranges: &[String]) -> Result<(), String> {
+    let parsed = parse_fake_ip_ranges(ranges)?;
+    let mut current = configured_fake_ip_ranges()
+        .write()
+        .map_err(|_| "Fake-IP policy lock is unavailable".to_string())?;
+    *current = parsed;
+    Ok(())
+}
+
+pub fn fake_ip_ranges() -> Vec<String> {
+    configured_fake_ip_ranges()
+        .read()
+        .map(|nets| nets.iter().map(ToString::to_string).collect())
+        .unwrap_or_default()
 }
 
 /// `Url::host_str()` wraps IPv6 in brackets (`[::1]`), which `IpAddr` will not
@@ -303,15 +355,15 @@ pub async fn build_public_http_client(
     Ok((parsed, client))
 }
 
-/// Keep public addresses when DNS returns a mix of routable and poisoned/private
-/// records. Fail only when nothing public remains.
+/// Keep public addresses and configured fake-IP DNS answers when DNS returns a
+/// mix of routable and poisoned/private records. Fail when none are permitted.
 ///
 /// The previous "any non-public address fails the whole request" check broke
 /// declared-API egress in China: polluted A/AAAA answers often include one
 /// loopback/CGN/6to4 record alongside a real Cloudflare/AWS address.
 ///
-/// `from_dns` gates the fake-IP allowance: only resolver answers may land in
-/// 198.18.0.0/15, never a literal the URL author chose.
+/// `from_dns` gates the fake-IP allowance: only resolver answers may use the
+/// configured CIDRs, never a non-public literal the URL author chose.
 fn select_outbound_addresses(
     addresses: Vec<SocketAddr>,
     from_dns: bool,
@@ -322,17 +374,21 @@ fn select_outbound_addresses(
     if federation_lab_private_outbound_enabled() {
         return Ok(addresses);
     }
-    let allow_fake_ip = from_dns && rfc2544_benchmark_range_allowed();
-    let public: Vec<SocketAddr> = addresses
+    let fake_ip = configured_fake_ip_ranges().read().ok();
+    let permitted: Vec<SocketAddr> = addresses
         .into_iter()
         .filter(|address| {
-            is_public_ip(address.ip()) || (allow_fake_ip && is_rfc2544_benchmark(address.ip()))
+            is_public_ip(address.ip())
+                || (from_dns
+                    && fake_ip.as_ref().is_some_and(|ranges| {
+                        ranges.iter().any(|range| range.contains(&address.ip()))
+                    }))
         })
         .collect();
-    if public.is_empty() {
+    if permitted.is_empty() {
         return Err("Target resolves to no public addresses".to_string());
     }
-    Ok(public)
+    Ok(permitted)
 }
 
 /// Build a client that sends through a trusted egress proxy.
@@ -676,30 +732,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fake_ip_answers_need_the_benchmark_range_switch() {
+    async fn fake_ip_dns_uses_only_configured_ipv4_and_ipv6_cidrs() {
         let _guard = tests_lab_env_lock().await;
         unsafe { std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND") };
         let fake_ip = || {
             vec![
                 "198.18.0.7:443".parse().unwrap(),
                 "198.19.255.1:443".parse().unwrap(),
+                "198.20.0.1:443".parse().unwrap(),
                 "127.0.0.1:443".parse().unwrap(),
                 "10.0.0.1:443".parse().unwrap(),
+                "10.64.0.1:443".parse().unwrap(),
                 "100.64.0.1:443".parse().unwrap(),
                 "[fdfe:dcba:9876::1]:443".parse().unwrap(),
+                "[fdfe:dcba:9877::1]:443".parse().unwrap(),
+                "1.1.1.1:443".parse().unwrap(),
             ]
         };
 
-        set_allow_rfc2544_benchmark_range(false);
-        assert!(select_outbound_addresses(fake_ip(), true).is_err());
+        set_fake_ip_ranges(&[]).unwrap();
+        assert_eq!(select_outbound_addresses(fake_ip(), true).unwrap().len(), 2);
 
-        set_allow_rfc2544_benchmark_range(true);
+        set_fake_ip_ranges(&[
+            "198.19.0.0/16".into(),
+            "10.64.0.0/16".into(),
+            "fdfe:dcba:9876::/48".into(),
+        ])
+        .unwrap();
         let selected = select_outbound_addresses(fake_ip(), true);
         let literal = select_outbound_addresses(fake_ip(), false);
-        let literal_url =
-            build_public_http_client("http://198.18.0.7/", Duration::from_secs(1), None).await;
-        set_allow_rfc2544_benchmark_range(false);
-        assert!(select_outbound_addresses(fake_ip(), true).is_err());
+        let literal_v4 =
+            build_public_http_client("http://198.19.0.7/", Duration::from_secs(1), None).await;
+        let literal_v6 =
+            build_public_http_client("http://[fdfe:dcba:9876::1]/", Duration::from_secs(1), None)
+                .await;
+        let invalid = set_fake_ip_ranges(&["0.0.0.0/0".into()]);
+        let policy_after_invalid_update = fake_ip_ranges();
+        set_fake_ip_ranges(&[]).unwrap();
+        assert_eq!(select_outbound_addresses(fake_ip(), true).unwrap().len(), 2);
 
         let ips: Vec<IpAddr> = selected
             .expect("fake-ip answers admitted")
@@ -709,17 +779,73 @@ mod tests {
         assert_eq!(
             ips,
             vec![
-                "198.18.0.7".parse::<IpAddr>().unwrap(),
                 "198.19.255.1".parse::<IpAddr>().unwrap(),
+                "198.20.0.1".parse::<IpAddr>().unwrap(),
+                "10.64.0.1".parse::<IpAddr>().unwrap(),
+                "fdfe:dcba:9876::1".parse::<IpAddr>().unwrap(),
+                "1.1.1.1".parse::<IpAddr>().unwrap(),
             ],
-            "only the benchmark range is admitted, not other private answers"
+            "only configured CIDRs and public addresses are admitted"
         );
-        assert!(literal.is_err(), "IP literals never use the allowance");
+        assert_eq!(
+            literal.unwrap(),
+            vec![
+                "198.20.0.1:443".parse().unwrap(),
+                "1.1.1.1:443".parse().unwrap()
+            ]
+        );
         assert!(
-            literal_url.is_err(),
-            "IP literal URLs never use the allowance"
+            literal_v4.is_err(),
+            "non-public IPv4 literals remain blocked"
         );
-        assert!(!is_public_ip("198.18.0.7".parse().unwrap()));
+        assert!(
+            literal_v6.is_err(),
+            "non-public IPv6 literals remain blocked"
+        );
+        assert!(invalid.is_err());
+        assert_eq!(policy_after_invalid_update.len(), 3);
+        assert!(!is_public_ip("198.19.0.7".parse().unwrap()));
+        assert!(!is_public_ip("fdfe:dcba:9876::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn fake_ip_cidrs_are_canonicalized_and_forbidden_overlaps_rejected() {
+        assert_eq!(
+            normalize_fake_ip_ranges(&[
+                " fdfe:dcba:9876::123/48 ".into(),
+                "198.19.12.3/15".into(),
+                "198.18.0.0/15".into(),
+            ])
+            .unwrap(),
+            ["198.18.0.0/15", "fdfe:dcba:9876::/48"]
+        );
+        for invalid in [
+            "",
+            "198.18.0.1",
+            "198.18.0.0/33",
+            "fd00::/129",
+            "host.test/24",
+            "0.0.0.0/0",
+            "0.0.0.0/8",
+            "127.0.0.1/32",
+            "126.0.0.0/7",
+            "169.254.169.254/32",
+            "224.0.0.0/4",
+            "255.255.255.255/32",
+            "::/0",
+            "::/128",
+            "::1/128",
+            "::ffff:198.18.0.0/111",
+            "fe80::1/128",
+            "fec0::/10",
+            "ff02::1/128",
+        ] {
+            assert!(
+                normalize_fake_ip_ranges(&[invalid.into()]).is_err(),
+                "accepted {invalid}"
+            );
+        }
+        assert!(normalize_fake_ip_ranges(&vec!["198.18.0.0/15".into(); 65]).is_err());
     }
 
     #[tokio::test]

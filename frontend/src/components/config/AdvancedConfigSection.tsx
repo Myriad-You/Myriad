@@ -277,8 +277,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     getUiFieldValue('memory_saver_enabled') === 'true'
   const isPreciseLocationEnabled =
     getUiFieldValue('precise_location_enabled') === 'true'
-  const isRfc2544BenchmarkRangeAllowed =
-    getUiFieldValue('allow_rfc2544_benchmark_range') === 'true'
   const closeImportConfirm = useCallback(() => {
     setImportConfirmOpen(false)
     setPendingImportData(null)
@@ -536,19 +534,22 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           {...bindGuide('advanced.proxyBypass', g.advanced.proxyBypass)}
           layout="vertical"
         />
-        <SwitchItem
-          itemKey="allow_rfc2544_benchmark_range"
-          label={t.config.allowRfc2544BenchmarkRange}
-          description={t.config.allowRfc2544BenchmarkRangeHint}
+        <InputItem
+          itemKey="outbound_fake_ip_ranges"
+          label={t.config.outboundFakeIpRanges}
+          hint={t.config.outboundFakeIpRangesHint}
           {...bindGuide(
-            'advanced.allowRfc2544BenchmarkRange',
-            g.advanced.allowRfc2544BenchmarkRange,
+            'advanced.outboundFakeIpRanges',
+            g.advanced.outboundFakeIpRanges,
           )}
-          value={isRfc2544BenchmarkRangeAllowed}
+          value={getUiFieldValue('outbound_fake_ip_ranges')}
           onChange={(v) =>
-            updateUiFieldValue('allow_rfc2544_benchmark_range', v.toString())
+            updateUiFieldValue('outbound_fake_ip_ranges', v)
           }
-          layout="horizontal"
+          placeholder={'198.18.0.0/15\nfdfe:dcba:9876::/48'}
+          multiline
+          rows={3}
+          layout="vertical"
         />
         <InputItem
           itemKey="gemini_base_url"

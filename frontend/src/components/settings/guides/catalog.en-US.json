@@ -878,11 +878,11 @@
       "frontend": "None. Smoother domestic platform sync may be thanks to this.",
       "notes": "Separate multiple entries with commas; can include local addresses."
     },
-    "allowRfc2544BenchmarkRange": {
-      "what": "Whether outbound safety checks accept domains that resolve into 198.18.0.0/15.",
-      "chain": "① Before fetching an external URL the server resolves the domain and only allows public addresses.\n② In fake-IP mode every domain resolves to 198.18.x.x and is rejected as internal.\n③ When on, these answers are accepted and the connection is handed to the local proxy. Takes effect on save.",
+    "outboundFakeIpRanges": {
+      "what": "Custom fake-IP DNS ranges accepted by outbound safety checks.",
+      "chain": "1) Enter the IPv4/IPv6 CIDRs allocated by your proxy, one per line or separated by commas.\n2) Only matching DNS answers are admitted; unlisted non-public addresses remain blocked.\n3) Saving applies immediately; clearing restores the default public-address checks.",
       "frontend": "The image proxy stops returning \"Cannot proxy unsafe URLs\".",
-      "notes": "When on, the local proxy decides where a domain really connects; the platform's DNS pinning can no longer prove the target is public. Keep off unless you use fake-IP. Only IPv4 fake-IP (198.18.0.0/15) is supported; IPv6 fake-IP is not supported."
+      "notes": "A trusted proxy must handle these ranges. The platform cannot prove the final destination; leave empty without a fake-IP proxy. Loopback, link-local, multicast, reserved addresses and ranges overlapping them are rejected. Non-public IP literals remain blocked."
     },
     "geminiBaseUrl": {
       "what": "Root URL for Google Gemini API calls (most people leave empty).",

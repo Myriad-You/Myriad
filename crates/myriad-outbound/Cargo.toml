@@ -8,6 +8,7 @@ authors = ["Myriad Contributors"]
 license = "AGPL-3.0-only"
 
 [dependencies]
+ipnet = "2"
 reqwest = { version = "0.13", default-features = false, features = [
     "json",
     "rustls",

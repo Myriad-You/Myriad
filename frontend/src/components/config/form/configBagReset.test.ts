@@ -32,6 +32,7 @@ function config(): Config {
         'base_url',
         'site_title',
         'proxy_url',
+        'outbound_fake_ip_ranges',
         'music_source',
         'merope_enabled',
         'analytics_enabled',
@@ -108,11 +109,20 @@ describe('config bag reset ownership', () => {
     assert.ok(reset)
     assert.equal(value(reset, 'ui_config', 'base_url'), 'custom')
     assert.equal(value(reset, 'ui_config', 'merope_enabled'), 'custom')
+    assert.equal(value(reset, 'ui_config', 'outbound_fake_ip_ranges'), '')
     assert.equal(value(reset, 'ai_config', 'qq_bot_enabled'), 'custom')
     assert.equal(reset.platforms[0].enabled, false)
     assert.equal(reset.platforms[0].config_fields[0].value, '')
     assert.equal(value(initial, 'ui_config', 'site_title'), 'custom')
     assert.equal(initial.platforms[0].enabled, true)
+  })
+  it('advanced reset clears fake-IP exceptions while other pages preserve them', () => {
+    const initial = config()
+    const advanced = resetConfigBag(initial, 'advanced')!
+    assert.equal(value(advanced, 'ui_config', 'outbound_fake_ip_ranges'), '')
+    const basic = resetConfigBag(initial, 'basic')!
+    assert.equal(value(basic, 'ui_config', 'outbound_fake_ip_ranges'), 'custom')
+    assert.equal(value(initial, 'ui_config', 'outbound_fake_ip_ranges'), 'custom')
   })
   it('actual bag arrays retain another page’s unsaved fields after page reset', async () => {
     const initial = config()

@@ -180,6 +180,23 @@ fn merge_settings_backup_entries(
         .map(|entry| (entry.key.clone(), entry))
         .collect();
 
+    // The first version of this PR stored a boolean. Restore it through the
+    // CIDR key so it cannot silently revive after the new list is cleared.
+    if let Some(mut legacy) = entries.remove("allow_rfc2544_benchmark_range") {
+        let enabled = legacy.value.as_bool() == Some(true)
+            || legacy
+                .value
+                .as_str()
+                .is_some_and(|v| v == "true" || v == "1");
+        legacy.key = "outbound_fake_ip_ranges".into();
+        legacy.value = if enabled {
+            json!(["198.18.0.0/15"])
+        } else {
+            json!([])
+        };
+        entries.entry(legacy.key.clone()).or_insert(legacy);
+    }
+
     // Old text-model settings come back in their new keys; the old keys are
     // retired and never restored as they are.
     for (key, value) in legacy_ai_tier_values(backup) {
@@ -276,6 +293,10 @@ fn normalize_registered_setting_value(key: &str, value: Value) -> Result<Value, 
     }
 
     match key {
+        "outbound_fake_ip_ranges" => {
+            crate::services::outbound_security::parse_configured_fake_ip_ranges(&value)
+                .map(|ranges| json!(ranges))
+        }
         MODULE_VISIBILITY_PREFERENCES_KEY => {
             normalize::<ModuleVisibilityPreferences>(value, ModuleVisibilityPreferences::normalized)
         }
@@ -1496,18 +1517,81 @@ mod settings_backup_tests {
     }
 
     #[test]
-    fn ui_rfc2544_benchmark_range_flag_persists_bool() {
+    fn ui_fake_ip_cidrs_persist_normalized_arrays_and_can_be_cleared() {
         let mut config = empty_config();
-        config.ui_config.config_fields = vec![ui_field("allow_rfc2544_benchmark_range", "true")];
+        config.ui_config.config_fields = vec![ui_field(
+            "outbound_fake_ip_ranges",
+            "198.19.1.2/15, fdfe:dcba:9876::1/48\n198.18.0.0/15",
+        )];
         let on = collect_database_updates(&config).expect("valid config");
-        assert_eq!(on.get("allow_rfc2544_benchmark_range"), Some(&json!(true)));
-
-        config.ui_config.config_fields = vec![ui_field("allow_rfc2544_benchmark_range", "false")];
-        let off = collect_database_updates(&config).expect("valid config");
         assert_eq!(
-            off.get("allow_rfc2544_benchmark_range"),
-            Some(&json!(false))
+            on.get("outbound_fake_ip_ranges"),
+            Some(&json!(["198.18.0.0/15", "fdfe:dcba:9876::/48"]))
         );
+
+        config.ui_config.config_fields = vec![ui_field("outbound_fake_ip_ranges", "")];
+        let off = collect_database_updates(&config).expect("valid config");
+        assert_eq!(off.get("outbound_fake_ip_ranges"), Some(&json!([])));
+
+        for invalid in ["198.18.0.0/15,bad", "127.0.0.0/8", "0.0.0.0/0", "fe80::/10"] {
+            config.ui_config.config_fields = vec![ui_field("outbound_fake_ip_ranges", invalid)];
+            assert!(
+                collect_database_updates(&config).is_err(),
+                "accepted {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn backup_fake_ip_ranges_use_the_same_validation_as_the_settings_form() {
+        assert_eq!(
+            super::normalize_registered_setting_value(
+                "outbound_fake_ip_ranges",
+                json!(["198.19.1.2/15", "fdfe:dcba:9876::1/48"])
+            )
+            .unwrap(),
+            json!(["198.18.0.0/15", "fdfe:dcba:9876::/48"])
+        );
+        for invalid in [
+            json!(["198.18.0.0/15", "::/0"]),
+            json!([false]),
+            json!(true),
+        ] {
+            assert!(
+                super::normalize_registered_setting_value("outbound_fake_ip_ranges", invalid)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn restore_plan_migrates_legacy_fake_ip_and_preserves_explicit_cidr_policy() {
+        let legacy = entry("allow_rfc2544_benchmark_range");
+        let plan = build_settings_restore_plan(&backup_with_entries(vec![legacy.clone()]));
+        assert_eq!(plan.entries.len(), 1);
+        assert_eq!(plan.entries[0].key, "outbound_fake_ip_ranges");
+        assert_eq!(plan.entries[0].value, json!(["198.18.0.0/15"]));
+
+        for value in [json!([]), json!(["fdfe:dcba:9876::/48"])] {
+            let plan = build_settings_restore_plan(&backup_with_entries(vec![
+                legacy.clone(),
+                SettingsBackupEntry {
+                    value: value.clone(),
+                    ..entry("outbound_fake_ip_ranges")
+                },
+            ]));
+            assert_eq!(plan.entries.len(), 1);
+            assert_eq!(plan.entries[0].value, value);
+        }
+        let invalid = build_settings_restore_plan(&backup_with_entries(vec![
+            legacy,
+            SettingsBackupEntry {
+                value: json!(["198.18.0.0/15", "::/0"]),
+                ..entry("outbound_fake_ip_ranges")
+            },
+        ]));
+        assert!(invalid.entries.is_empty());
+        assert_eq!(invalid.preview.invalid_keys, ["outbound_fake_ip_ranges"]);
     }
 
     #[test]

@@ -803,12 +803,21 @@ impl ConfigService {
             }
         }
 
-        // fake-ip 网段放行（高级设置 · 网络）：缺省 false。
-        if let Some(v) = map.get("allow_rfc2544_benchmark_range") {
-            if let Some(b) = v.as_bool() {
-                config.allow_rfc2544_benchmark_range = b;
-            } else if let Some(s) = v.as_str() {
-                config.allow_rfc2544_benchmark_range = s == "true" || s == "1";
+        // fake-IP DNS 例外（高级设置 · 网络）：缺省空；坏数据整体关闭。
+        if let Some(value) = map.get("outbound_fake_ip_ranges") {
+            match crate::services::outbound_security::parse_configured_fake_ip_ranges(value) {
+                Ok(ranges) => config.outbound_fake_ip_ranges = ranges,
+                Err(error) => {
+                    tracing::error!(%error, "Invalid stored fake-IP ranges; DNS exceptions disabled");
+                }
+            }
+        } else if let Some(value) = map.get("allow_rfc2544_benchmark_range") {
+            // Preserve the original PR's enabled switch until the CIDR field is
+            // first saved. An explicit empty new list always wins over it.
+            if value.as_bool() == Some(true)
+                || value.as_str().is_some_and(|v| v == "true" || v == "1")
+            {
+                config.outbound_fake_ip_ranges = vec!["198.18.0.0/15".into()];
             }
         }
 
@@ -911,7 +920,7 @@ mod tests {
 
         let _guard = memory_profile::test_profile_lock();
         let previous_profile = memory_profile::active_profile();
-        let previous_outbound = outbound_security::rfc2544_benchmark_range_allowed();
+        let previous_outbound = outbound_security::fake_ip_ranges();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -920,30 +929,45 @@ mod tests {
             let target = tokio::sync::RwLock::new(crate::config::DynamicConfig::default());
             let config = crate::config::DynamicConfig {
                 memory_saver_enabled: true,
-                allow_rfc2544_benchmark_range: true,
+                outbound_fake_ip_ranges: vec!["198.18.0.0/15".into(), "fdfe:dcba:9876::/48".into()],
                 ..Default::default()
             };
             super::install_dynamic_config(&target, config).await;
             let enabled = (
-                target.read().await.allow_rfc2544_benchmark_range,
-                outbound_security::rfc2544_benchmark_range_allowed(),
+                target.read().await.outbound_fake_ip_ranges.clone(),
+                outbound_security::fake_ip_ranges(),
                 memory_profile::active_profile(),
             );
             super::install_dynamic_config(&target, Default::default()).await;
             let disabled = (
-                target.read().await.allow_rfc2544_benchmark_range,
-                outbound_security::rfc2544_benchmark_range_allowed(),
+                target.read().await.outbound_fake_ip_ranges.clone(),
+                outbound_security::fake_ip_ranges(),
                 memory_profile::active_profile(),
             );
             (enabled, disabled)
         });
         memory_profile::apply(previous_profile);
-        outbound_security::set_allow_rfc2544_benchmark_range(previous_outbound);
+        outbound_security::set_fake_ip_ranges(&previous_outbound).unwrap();
 
-        assert_eq!(enabled, (true, true, memory_profile::resolve_profile(true)));
+        let ranges = vec![
+            "198.18.0.0/15".to_string(),
+            "fdfe:dcba:9876::/48".to_string(),
+        ];
+        assert_eq!(
+            enabled,
+            (
+                ranges.clone(),
+                ranges,
+                memory_profile::resolve_profile(true)
+            )
+        );
         assert_eq!(
             disabled,
-            (false, false, memory_profile::resolve_profile(false))
+            (
+                Vec::new(),
+                Vec::new(),
+                memory_profile::resolve_profile(false)
+            )
         );
     }
 
@@ -1340,27 +1364,49 @@ mod tests {
     }
 
     #[test]
-    fn parses_rfc2544_benchmark_range_flag_from_database_config() {
-        let on = ConfigService::parse_config(HashMap::from([(
-            "allow_rfc2544_benchmark_range".into(),
-            json!(true),
-        )]));
-        assert!(on.allow_rfc2544_benchmark_range);
-
-        let from_str = ConfigService::parse_config(HashMap::from([(
-            "allow_rfc2544_benchmark_range".into(),
-            json!("true"),
-        )]));
-        assert!(from_str.allow_rfc2544_benchmark_range);
-
-        let off = ConfigService::parse_config(HashMap::from([(
-            "allow_rfc2544_benchmark_range".into(),
-            json!(false),
-        )]));
-        assert!(!off.allow_rfc2544_benchmark_range);
-
-        let missing = ConfigService::parse_config(HashMap::new());
-        assert!(!missing.allow_rfc2544_benchmark_range);
+    fn parses_fake_ip_cidrs_and_migrates_the_original_switch() {
+        for value in [
+            json!(["198.19.1.2/15", "fdfe:dcba:9876::1/48", "198.18.0.0/15"]),
+            json!("198.19.1.2/15, fdfe:dcba:9876::1/48\n198.18.0.0/15"),
+        ] {
+            let config = ConfigService::parse_config(HashMap::from([(
+                "outbound_fake_ip_ranges".into(),
+                value,
+            )]));
+            assert_eq!(
+                config.outbound_fake_ip_ranges,
+                ["198.18.0.0/15", "fdfe:dcba:9876::/48"]
+            );
+        }
+        for value in [json!(true), json!("true"), json!("1")] {
+            let config = ConfigService::parse_config(HashMap::from([(
+                "allow_rfc2544_benchmark_range".into(),
+                value,
+            )]));
+            assert_eq!(config.outbound_fake_ip_ranges, ["198.18.0.0/15"]);
+        }
+        for value in [
+            json!([]),
+            json!(""),
+            json!(["198.18.0.0/15", "bad"]),
+            json!(null),
+            json!([1]),
+            json!(["::/0"]),
+        ] {
+            let config = ConfigService::parse_config(HashMap::from([
+                ("allow_rfc2544_benchmark_range".into(), json!(true)),
+                ("outbound_fake_ip_ranges".into(), value),
+            ]));
+            assert!(
+                config.outbound_fake_ip_ranges.is_empty(),
+                "new empty/invalid data must not revive the legacy switch"
+            );
+        }
+        assert!(
+            ConfigService::parse_config(HashMap::new())
+                .outbound_fake_ip_ranges
+                .is_empty()
+        );
     }
 
     #[test]

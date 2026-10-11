@@ -3170,6 +3170,7 @@ dependencies = [
 name = "myriad-outbound"
 version = "0.1.0"
 dependencies = [
+ "ipnet",
  "reqwest",
  "tokio",
  "url",

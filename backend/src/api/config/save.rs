@@ -831,9 +831,14 @@ pub(crate) fn collect_database_updates_with_vendor(
                 let enabled = field.value == "true";
                 ("precise_location_enabled", JsonValue::Bool(enabled))
             }
-            "allow_rfc2544_benchmark_range" => {
-                let enabled = field.value == "true";
-                ("allow_rfc2544_benchmark_range", JsonValue::Bool(enabled))
+            "outbound_fake_ip_ranges" => {
+                let ranges = crate::services::outbound_security::parse_configured_fake_ip_ranges(
+                    &JsonValue::String(field.value.clone()),
+                )?;
+                // Empty is meaningful: clear the exceptions rather than keep
+                // the previous list (or revive the legacy enabled switch).
+                updates.insert("outbound_fake_ip_ranges".to_string(), json!(ranges));
+                continue;
             }
             "merope_enabled" => {
                 let enabled = field.value == "true";

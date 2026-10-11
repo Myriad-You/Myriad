@@ -878,11 +878,11 @@
       "frontend": "Aucun. Une synchronisation de plateforme nationale plus fluide peut venir de ceci.",
       "notes": "Séparez plusieurs entrées par des virgules ; peut inclure des adresses locales."
     },
-    "allowRfc2544BenchmarkRange": {
-      "what": "Si les contrôles de sécurité sortants acceptent les domaines qui se résolvent dans 198.18.0.0/15.",
-      "chain": "① Avant de récupérer une URL externe, le serveur résout le domaine et n'autorise que les adresses publiques.\n② En mode fake-IP, chaque domaine se résout en 198.18.x.x et est rejeté comme interne.\n③ Activé, ces réponses sont acceptées et la connexion est confiée au proxy local. Effet immédiat à l'enregistrement.",
+    "outboundFakeIpRanges": {
+      "what": "Plages DNS fake-IP personnalisées admises par les contrôles des requêtes sortantes.",
+      "chain": "1) Saisissez les CIDR IPv4/IPv6 attribués par votre proxy, un par ligne ou séparés par des virgules.\n2) Seules les réponses DNS correspondantes sont admises ; les adresses non publiques non listées restent bloquées.\n3) L’enregistrement prend effet immédiatement ; vider la liste rétablit les contrôles par défaut.",
       "frontend": "Le proxy d'images ne renvoie plus « Cannot proxy unsafe URLs ».",
-      "notes": "Activé, c'est le proxy local qui décide où un domaine se connecte réellement ; l'épinglage DNS de la plateforme ne prouve plus que la cible est publique. Laissez désactivé sans fake-IP. Seul le fake-IP IPv4 (198.18.0.0/15) est pris en charge ; le fake-IP IPv6 ne l’est pas."
+      "notes": "Un proxy de confiance doit gérer ces plages. La plateforme ne peut pas vérifier la destination finale ; laissez vide sans proxy fake-IP. Les plages chevauchant les adresses de bouclage, locales au lien, de multidiffusion ou réservées sont refusées. Les IP non publiques dans les URL restent bloquées."
     },
     "geminiBaseUrl": {
       "what": "URL racine des appels API Google Gemini (la plupart des gens laissent vide).",
