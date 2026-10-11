@@ -101,8 +101,7 @@ async fn wonder_and_find_out(
     let Ok(db) = crate::services::process_db::database() else {
         return;
     };
-    match super::store::curiosity::available(&db, user_id, chrono::Local::now().date_naive()).await
-    {
+    match super::store::curiosity::available(&db, user_id, super::clock::today()).await {
         Ok(true) => {}
         Ok(false) => return,
         Err(error) => {
@@ -160,9 +159,7 @@ async fn wonder_and_find_out(
     {
         return;
     }
-    match super::store::curiosity::claim(&db, user_id, &query, chrono::Local::now().date_naive())
-        .await
-    {
+    match super::store::curiosity::claim(&db, user_id, &query, super::clock::today()).await {
         Ok(true) => {}
         Ok(false) => return,
         Err(error) => {

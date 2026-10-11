@@ -1358,6 +1358,15 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   letter-spacing: 0.04em;
 }
 
+/* A group title with a button beside it (her history of the group). */
+.merope-ob-persona-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .merope-ob-visual .merope-ob-persona-view__row {
   display: grid;
   gap: 4px;

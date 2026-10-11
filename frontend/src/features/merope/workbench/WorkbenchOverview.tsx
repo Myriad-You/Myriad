@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react'
 import type { AgentPersona } from '../../../services/agent/agentApi'
 import type { Addressee } from './useAddressee'
-import { LuRefreshCw, LuSparkles } from '@lib/icons'
+import { LuClock, LuRefreshCw, LuSparkles } from '@lib/icons'
+import { useState } from 'react'
 import { SettingsButton, ToggleSwitch } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
 import { siteMediaUrl } from '../../../utils/siteMediaUrl'
@@ -12,6 +14,8 @@ interface Props {
   sticker: { url: string | null; busy: boolean; make: () => Promise<void> }
   hasPortrait: boolean
   addressee: Addressee
+  /** The names she had before, shown under hers while open; no button without it. */
+  renderNameHistory?: (close: () => void) => ReactNode
 }
 
 /** Overview tab: sticker avatar, her status, and do-not-disturb. */
@@ -22,8 +26,10 @@ export function WorkbenchOverview({
   sticker,
   hasPortrait,
   addressee,
+  renderNameHistory,
 }: Props) {
   const { t } = useI18n()
+  const [nameHistoryOpen, setNameHistoryOpen] = useState(false)
   if (!persona) {
     return <p className="merope-motion-home__help">{t.merope.overviewEmpty}</p>
   }
@@ -73,10 +79,27 @@ export function WorkbenchOverview({
           aria-label={t.merope.statusGroup}
         >
           <div className="merope-motion-avatar__field">
-            <h2 className="merope-ob-persona-group__title">
-              {t.merope.overviewName}
-            </h2>
+            <div className="merope-ob-persona-group__head">
+              <h2 className="merope-ob-persona-group__title">
+                {t.merope.overviewName}
+              </h2>
+              {renderNameHistory ? (
+                <button
+                  type="button"
+                  className="merope-ob-persona-view__edit"
+                  title={t.merope.personaHistory}
+                  aria-label={`${t.merope.personaHistory} · ${t.merope.overviewName}`}
+                  aria-expanded={nameHistoryOpen}
+                  onClick={() => setNameHistoryOpen((open) => !open)}
+                >
+                  <LuClock aria-hidden />
+                </button>
+              ) : null}
+            </div>
             <p className="merope-motion-avatar__value">{status.name}</p>
+            {nameHistoryOpen && renderNameHistory
+              ? renderNameHistory(() => setNameHistoryOpen(false))
+              : null}
           </div>
           <div className="merope-motion-avatar__field">
             <h2 className="merope-ob-persona-group__title">

@@ -331,11 +331,13 @@ async function decomposeWithSeeThrough(
   }
 }
 
+/** The composite goes along: the moving parts are looked for from it after the import. */
 export async function importMeropeRig(
   source: MeropeRigImportSource,
   atlas: Blob,
+  analysisReference?: Blob,
 ): Promise<MeropeRigManifest> {
-  return submitMeropeRigImport('/import', source, atlas, 'import')
+  return submitMeropeRigImport('/import', source, atlas, 'import', analysisReference)
 }
 
 /** Previews and stores packages for one full-body set. */
@@ -354,11 +356,13 @@ export function fullBodyRigImport(outfitId: string) {
         'preview',
         analysisReference,
       ),
+    // The composite goes along: the moving parts are looked for from it after the import.
     commit: (
       source: MeropeRigImportSource,
       atlas: Blob,
+      analysisReference?: Blob,
     ): Promise<MeropeRigManifest> =>
-      submitMeropeRigImport(`${path}/import`, source, atlas, 'import'),
+      submitMeropeRigImport(`${path}/import`, source, atlas, 'import', analysisReference),
   }
 }
 
@@ -391,6 +395,19 @@ export async function saveFullBodyPoseCorrections(outfitId: string, assetId: str
   }
 }
 
+/** A full-body set's stance, saved into its rig as a new package (figureFloat). */
+export async function saveFullBodyStance(outfitId: string, assetId: string, stance: 'ground' | 'float'): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
+  try {
+    const data = await apiService.patch<{ manifest: unknown; assetId: unknown }>(`${PREFIX}${fullBodyPath(outfitId)}/stance`, { assetId, stance })
+    if (!isRigManifest(data.manifest) || typeof data.assetId !== 'string' || !/^[0-9a-f]{64}$/u.test(data.assetId)) {
+      throw new Error(currentCopy().merope.fullBody.stanceFailed)
+    }
+    return { manifest: data.manifest, assetId: data.assetId }
+  } catch (reason) {
+    throw meropeError(reason, currentCopy().merope.fullBody.stanceFailed)
+  }
+}
+
 export async function previewMeropeRigImport(
   source: MeropeRigImportSource,
   atlas: Blob,
@@ -403,6 +420,22 @@ export async function previewMeropeRigImport(
     'preview',
     analysisReference,
   )
+}
+
+/**
+ * Looks for a package's moving parts again, in the background (the worn bust,
+ * or a full-body set): for a package made before they were looked for, or
+ * when that failed. The new package takes over when it is done.
+ */
+export async function findMovingParts(assetId: string, analysisReference: Blob, outfitId?: string): Promise<void> {
+  const body = new FormData()
+  body.append('assetId', assetId)
+  body.append('analysisReference', analysisReference, 'rig-analysis.png')
+  try {
+    await apiService.post(`${PREFIX}${outfitId ? fullBodyPath(outfitId) : ''}/parts`, body, { timeout: RIG_MUTATION_TIMEOUT_MS })
+  } catch (reason) {
+    throw meropeError(reason, currentCopy().merope.rigPartsRefreshFailed)
+  }
 }
 
 async function submitMeropeRigImport(

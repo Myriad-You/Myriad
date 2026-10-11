@@ -487,6 +487,19 @@ fn absent_portrait_keeps_and_null_clears() {
 }
 
 #[test]
+fn her_zone_is_kept_when_absent_and_null_is_the_sites_own() {
+    let keep: PutPersonaRequest =
+        serde_json::from_value(json!({ "name": "瞳", "personality": "认真" })).unwrap();
+    assert_eq!(keep.zone, None);
+    let site: PutPersonaRequest =
+        serde_json::from_value(json!({ "name": "瞳", "zone": null })).unwrap();
+    assert_eq!(site.zone, Some(None));
+    let named: PutPersonaRequest =
+        serde_json::from_value(json!({ "name": "瞳", "zone": "Europe/Berlin" })).unwrap();
+    assert_eq!(named.zone, Some(Some("Europe/Berlin".to_string())));
+}
+
+#[test]
 fn visual_profile_keeps_generation_inputs_separate_from_spoken_persona() {
     let profile = sanitize_visual_profile(&json!({
         "gender": "nonbinary",

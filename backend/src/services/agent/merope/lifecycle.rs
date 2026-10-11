@@ -25,6 +25,10 @@ pub mod reach {
     pub(crate) use crate::services::agent::merope::reach::tick;
 }
 
+pub mod upkeep {
+    pub(crate) use crate::services::agent::merope::upkeep::tick;
+}
+
 pub mod wander {
     pub(crate) use crate::services::agent::merope::wander::tick;
 }

@@ -520,6 +520,8 @@
     "structured_persona_required": "Vervollständigen Sie die Persona, bevor Sie ihr Aussehen gestalten.",
     "visual_gender_required": "Wählen Sie vor dem Porträt eine Geschlechterdarstellung.",
     "portrait_not_site_asset": "Das Porträt muss ein auf dieser Website gespeichertes Bild sein. Laden Sie es hier hoch.",
+    "invalid_zone": "Unbekannte Zeitzone. Verwenden Sie einen IANA-Namen wie Europe/Berlin.",
+    "persona_field_required": "Geben Sie an, welches Feld gemeint ist.",
     "character_asset_provenance_changed": "Figur oder Outfit haben sich inzwischen geändert. Neu laden und erneut versuchen.",
     "rig_asset_changed": "Das getragene Rig hat sich geändert. Laden Sie neu, bevor Sie speichern.",
     "merope_rig_failed": "Das Figuren-Rig konnte nicht aktualisiert werden. Bitte erneut versuchen.",

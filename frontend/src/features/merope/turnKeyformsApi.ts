@@ -7,7 +7,7 @@ import { attachTurnKeyforms, isDocumentTurnKeyforms } from './rig/turnKeyformImp
 /**
  * Where a turn-keys job stands: generating the four turned drawings,
  * decomposing all five, fitting. A standing figure's is enlarged first and
- * stitched from its tiles last (a plain figure's only that).
+ * stitched from its tiles last, its body's keys made alongside (`body`).
  */
 export interface TurnKeyformsStatus {
   jobId: string
@@ -18,6 +18,19 @@ export interface TurnKeyformsStatus {
   error?: { error?: string; code?: string } | null
   /** The archive the finished job was kept as. */
   archiveId?: string | null
+  /**
+   * Which part of the work the stage belongs to: the worn bust's, a standing
+   * figure's own or its head's, waiting on its body, a refit, a loaded archive.
+   * Absent from a server before it was reported.
+   */
+  phase?: 'bust' | 'figure' | 'head' | 'body' | 'refit' | 'load'
+  /** A standing figure's body keys, made alongside its head's: none until they start. */
+  body?: {
+    motion: 'turn' | 'weight'
+    stage: 'generating' | 'decomposing' | 'fitting' | 'done' | 'failed'
+    done: number
+    total: number
+  } | null
 }
 
 /** A finished turn-keys job kept on the server: its drawings, decompositions and keys. */
@@ -32,8 +45,16 @@ export interface TurnArchive {
   /** Turned drawings drawn again after the Space's check. */
   redrawn: string[]
   bytes: number
+  /** A figure's body motions keyed beside its head; null for a bust or a figure kept before they were recorded. */
+  bodyMotions?: Array<'turn' | 'weight'> | null
   /** Whether its portrait is still the slot's current one (only then can it be refitted and imported). */
   current: boolean
+}
+
+/** A kept job to use: fitted again with the Space's current fit, or loaded as it was. */
+export interface TurnArchiveUse {
+  id: string
+  refit: boolean
 }
 
 const ARCHIVES = `${PREFIX}/see-through/turn-archives`
@@ -55,23 +76,24 @@ export async function decomposeWithTurnKeyforms(
   input: Pick<SeeThroughDecomposeInput, 'sourceMasterAssetId' | 'sourceGenerationFingerprint'>,
   options: {
     outfitId?: string
-    /** Fit this kept job again instead of drawing and decomposing anew. */
-    fromArchive?: string
-    /** A full-body set decomposed in tiles without turn keys (needs outfitId). */
-    plain?: boolean
+    /** Use this kept job (fitted again, or as it was) instead of drawing and decomposing anew. */
+    fromArchive?: TurnArchiveUse
+    /** A full-body set's parts to key: its head's turn, its body's turn and weight shift (both when absent). */
+    parts?: { head: boolean; body: boolean }
     onStatus?: (status: TurnKeyformsStatus) => void
     signal?: AbortSignal
   } = {},
 ): Promise<File> {
   const start = options.fromArchive
-    ? `${ARCHIVES}/${encodeURIComponent(options.fromArchive)}/refit`
+    ? `${ARCHIVES}/${encodeURIComponent(options.fromArchive.id)}/${options.fromArchive.refit ? 'refit' : 'load'}`
     : options.outfitId
-      ? `${PREFIX}${fullBodyPath(options.outfitId)}/see-through/${options.plain ? 'figure' : 'turn-keyforms'}`
+      ? `${PREFIX}${fullBodyPath(options.outfitId)}/see-through/turn-keyforms`
       : `${PREFIX}/see-through/turn-keyforms`
   const begin = async () => {
     const { jobId } = await apiService.post<{ jobId: string }>(start, options.fromArchive ? {} : {
       sourceMasterAssetId: input.sourceMasterAssetId,
       ...(input.sourceGenerationFingerprint ? { sourceGenerationFingerprint: input.sourceGenerationFingerprint } : {}),
+      ...(options.outfitId && options.parts ? options.parts : {}),
     })
     return `${PREFIX}/see-through/turn-keyforms/${encodeURIComponent(jobId)}`
   }
@@ -116,7 +138,14 @@ export async function decomposeWithTurnKeyforms(
       throw new MeropeApiError(currentCopy().merope.motionSeeThroughUpstream, 502)
     }
     const file = new File([psd], 'see-through.psd', { type: 'image/vnd.adobe.photoshop' })
-    if (isDocumentTurnKeyforms(keys)) attachTurnKeyforms(file, { canvas: keys.canvas, keyforms: keys.keyforms })
+    if (isDocumentTurnKeyforms(keys)) {
+      attachTurnKeyforms(file, {
+        canvas: keys.canvas,
+        keyforms: keys.keyforms,
+        ...(keys.bodyKeyforms ? { bodyKeyforms: keys.bodyKeyforms } : {}),
+        ...(keys.weightKeyforms ? { weightKeyforms: keys.weightKeyforms } : {}),
+      })
+    }
     return file
   } catch (reason) {
     if (reason instanceof MeropeApiError) throw reason

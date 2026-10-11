@@ -9,6 +9,7 @@ import type { Anime25DPlaybackAnchors, Anime25DPlaybackLayer } from './types'
 import { isAnime25DRigidAttachment } from '../rig/anime25dLayerSemantics'
 import { bindAttachmentMesh, offsetAttachmentMeshSample, sampleAttachmentMesh } from './attachmentMesh'
 import { sampleChestWeight } from './chestPhysics'
+import { cutFrom } from './partSplit'
 import { deformAnime25DSecondaryPoint } from './secondaryDeformation'
 import { hostKeyMove, turnKeyformOffset, undoHostKey } from './turnKeyforms'
 
@@ -245,6 +246,8 @@ export function bindAnime25DLayerAttachment(
   readPixels?: ReadAttachmentPixels,
 ): Anime25DLayerAttachment | null {
   if (!isAnime25DRigidAttachment(source)) return null
+  // A piece cut out of a layer (partSplit) hangs from that layer, whatever its role.
+  const cutHostName = cutFrom(source)
   const samples = attachmentFootprint(source, readPixels?.(source) ?? null)
   const totalWeight = samples.reduce((sum, point) => sum + point.weight, 0)
   let x =
@@ -257,8 +260,10 @@ export function bindAnime25DLayerAttachment(
       ? samples.reduce((sum, point) => sum + point.y * point.weight, 0) /
         totalWeight
       : source.y + source.h * (source.role === 'earwear' ? 0.12 : 0.5)
-  const roles =
-    source.group === 'head'
+  const cutHost = cutHostName ? hosts.find((candidate) => candidate.source.name === cutHostName) : undefined
+  const roles = cutHost
+    ? [cutHost.source.role]
+    : source.group === 'head'
       ? source.role === 'headwear'
         ? ['front-hair', 'back-hair', 'face']
         : source.role === 'earwear'
@@ -266,7 +271,8 @@ export function bindAnime25DLayerAttachment(
           : ['face']
       : source.role === 'neckwear' && y < anchors.neckBottom
         ? ['neck', 'topwear', 'bottomwear']
-        : ['topwear', 'bottomwear', 'neck']
+        // A charm on a stocking or a shoe of a standing figure rides its leg.
+        : ['topwear', 'bottomwear', 'neck', 'legwear', 'footwear']
   let host: AttachmentHost | undefined
   let fallbackHost: AttachmentHost | undefined
   let bestCoverage = -1
@@ -276,7 +282,7 @@ export function bindAnime25DLayerAttachment(
     let fallbackDistance = Number.POSITIVE_INFINITY
     let roleFallback: AttachmentHost | undefined
     for (const candidate of hosts) {
-      if (candidate.source === source || candidate.source.role !== role)
+      if (candidate.source === source || candidate.source.role !== role || (cutHost && candidate !== cutHost))
         continue
       if (
         source.side &&

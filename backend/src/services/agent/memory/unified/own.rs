@@ -39,6 +39,8 @@ pub async fn write_own_day<C: ConnectionTrait>(
         invalid_reason: Set(None),
         created_at: Set(at),
         updated_at: Set(Utc::now().fixed_offset()),
+        superseded_by: Set(None),
+        origin: Set(super::ORIGIN_SITE.into()),
     };
     let inserted = agent_memories::Entity::insert(row)
         .on_conflict(
@@ -96,6 +98,8 @@ pub async fn remember_own<C: ConnectionTrait>(
         invalid_reason: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
+        superseded_by: Set(None),
+        origin: Set(super::ORIGIN_SITE.into()),
     };
     agent_memories::Entity::insert(row)
         .exec_without_returning(db)
@@ -210,11 +214,23 @@ pub async fn own_experiences_since<C: ConnectionTrait>(
 /// Retire something of her own (a view she no longer holds). Kept, not
 /// deleted: what she used to think is part of her.
 pub async fn retire_own<C: ConnectionTrait>(db: &C, id: &str, reason: &str) -> Result<bool, DbErr> {
+    retire_own_in_favor_of(db, id, reason, None).await
+}
+
+/// [`retire_own`], naming the row that took its place (`by`) in the same
+/// update.
+pub async fn retire_own_in_favor_of<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    reason: &str,
+    by: Option<&str>,
+) -> Result<bool, DbErr> {
     let now = Utc::now().fixed_offset();
     let result = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             invalid_at: Set(Some(now)),
             invalid_reason: Set(Some(reason.chars().take(16).collect())),
+            superseded_by: Set(by.map(str::to_string)),
             updated_at: Set(now),
             ..Default::default()
         })

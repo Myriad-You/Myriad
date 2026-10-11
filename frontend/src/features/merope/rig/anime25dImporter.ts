@@ -32,6 +32,7 @@ import { inferOutfitProfileFromPartIds } from './outfit'
 import { repairAnime25DPsd } from './psdRepair'
 import { flattenPsdForRigger, flattenVisibleLayers, genericCloseParts, rasterFromRiggerPart } from './riggerBridge'
 import { skeletonInFrame } from './skeleton'
+import { tuckLiningBehindLegs } from './skirtLining'
 
 export { ANIME25D_LAYER_DEPTH, type Anime25DLayerRole } from './anime25d'
 export type { Anime25DSourceReference } from './anime25dImportTypes'
@@ -148,6 +149,15 @@ export async function prepareAnime25DRigPsd(
       sourceReference,
     )
     reconciliation = repair.reconciliation
+    layers.forEach((layer, index) => {
+      layer.order = index
+    })
+  }
+  // Behind the legs goes what the skirt shows between them once repair has
+  // cut it to the portrait.
+  const tucked = tuckLiningBehindLegs(layers)
+  if (tucked !== layers) {
+    layers = tucked
     layers.forEach((layer, index) => {
       layer.order = index
     })

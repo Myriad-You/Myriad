@@ -15,11 +15,10 @@ use crate::models::entities::{
 };
 use crate::services::agent::memory::unified::Priming;
 
-use super::state::{
-    Affect, AffectBaseline, apply_music_listening, clamp, persona_affect_baseline, settle,
-};
+use super::state::{Affect, AffectBaseline, clamp, persona_affect_baseline, settle};
 
 mod addressee;
+mod affect_fold;
 mod diary;
 mod generation;
 mod memory;
@@ -27,6 +26,7 @@ mod persona;
 mod proactive;
 
 pub use addressee::*;
+pub use affect_fold::*;
 pub use diary::*;
 pub use generation::*;
 pub use memory::*;

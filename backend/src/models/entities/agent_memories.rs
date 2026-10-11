@@ -34,6 +34,11 @@ pub struct Model {
     pub invalid_reason: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
+    /// The memory that took this one's place, written with its retirement:
+    /// on the old row, so several old rows can point at one new one.
+    pub superseded_by: Option<String>,
+    /// The side that wrote it: `site`, or the device it came from.
+    pub origin: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

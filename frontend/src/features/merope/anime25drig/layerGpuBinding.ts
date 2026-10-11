@@ -15,7 +15,7 @@ import type { Anime25DUpstreamFeatureInput } from './layerDeformation'
 import type { Anime25DLayerDeformationExtension } from './layerDeformationPolicy'
 import type { GpuLayerBuildContext } from './layerGpuAssembly'
 import type { Anime25DMouthDeformationKind } from './mouthDeformation'
-import type { Anime25DRenderableLayer } from './renderer'
+import type { Anime25DOwnTexture, Anime25DRenderableLayer } from './renderer'
 import type { Anime25DSecondaryDeformationBinding } from './secondaryDeformation'
 import type { SurfaceContact } from './surfaceContact'
 import type { AttachmentTurn } from './turnKeyforms'
@@ -42,6 +42,7 @@ import {
   linkCrownOcclusion,
   patchNeckOrnaments,
 } from './layerGpuAssembly'
+import { createCutTexture, splitHangingParts } from './partSplit'
 
 import {
   disposeIndexedDeformableMesh,
@@ -79,6 +80,10 @@ export interface Anime25DGpuLayer extends Anime25DRenderableLayer {
   /** A keyed accessory's own turn, less what its host's key already carries it at the anchor. */
   attachmentTurn?: AttachmentTurn | null
   earwearPhysics?: EarwearPhysics | null
+  /** A piece cut out of its host bends from its cut by its swing: each vertex's share (bindHangBend). */
+  hangBend?: Float32Array | null
+  /** A hanging piece cut out of the layer it shared draws its own pixels (partSplit); released with the layer. */
+  cutTexture?: Anime25DOwnTexture | null
   neckwearBridge?: Anime25DNeckwearBridge | null
   attachmentDependents?: Anime25DGpuLayer[]
   surfaceContact?: SurfaceContact
@@ -194,6 +199,13 @@ export function compileAnime25DGpuLayers(
         y: Math.round(face.atlas.y * atlasImage.height),
       })
     }
+    // Hanging pieces drawn into a layer they share swing on layers of their own (partSplit).
+    const cuts = splitHangingParts(playback.layers, playback.partProfile, playback.pixelCanvas, readBindingPixels)
+    for (const cut of cuts) {
+      bindingPixels.set(cut.host, cut.hostPixels)
+      bindingPixels.set(cut.source, cut.pixels)
+      atlasPatches.push({ ...cut.hostPixels, x: Math.round(cut.host.atlas.x * atlasImage.width), y: Math.round(cut.host.atlas.y * atlasImage.height) })
+    }
     const duplicateAccessories = duplicateAccessoryLayers(
       playback.layers,
       readBindingPixels,
@@ -202,7 +214,8 @@ export function compileAnime25DGpuLayers(
       if (duplicateAccessories.has(source)) return []
       const parts = source.role === 'earwear'
         ? splitPairedEarwear(source, readBindingPixels(source), playback.anchors.face.cx) : null
-      return parts?.map(part => ({ ...part, z: source.z ?? index })) ?? [source]
+      const own = parts?.map(part => ({ ...part, z: source.z ?? index })) ?? [source]
+      return [...own, ...cuts.filter((cut) => cut.host === source).map((cut) => cut.source)]
     })
     const torsos = playback.layers.filter((layer) => layer.role === 'topwear')
     const torso = torsos.length === 1 ? torsos[0] : null
@@ -278,6 +291,10 @@ export function compileAnime25DGpuLayers(
       armBinding,
     }
     for (const source of renderSources) layers.push(buildGpuLayer(source, context))
+    for (const layer of layers) {
+      const cut = cuts.find((piece) => piece.source.name === layer.source.name)
+      if (cut) layer.cutTexture = layer.ownTexture = createCutTexture(gl, cut.pixels)
+    }
     linkCrownOcclusion(layers, playback, readBindingPixels)
     layers = liftNeckOverBody(layers, playback, readBindingPixels)
     bindShoulderContacts(layers, torso, torsoPixels, readBindingPixels)
@@ -302,6 +319,7 @@ export function disposeAnime25DGpuLayers(
       uvBuffer: layer.uvBuffer,
       indexBuffer: layer.indexBuffer,
     })
+    if (layer.cutTexture) gl.deleteTexture(layer.cutTexture.texture)
   }
   if (compiled.collarClip) disposeCollarClipMesh(gl, compiled.collarClip)
 }

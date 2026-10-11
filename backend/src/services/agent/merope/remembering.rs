@@ -28,7 +28,7 @@ pub const THOROUGH: usize = 24;
 /// What she would try to remember before answering `message`; billed to
 /// `owner`.
 async fn think(owner: i32, message: String) -> Option<Cues> {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let today = super::clock::today().format("%Y-%m-%d").to_string();
     let raw = call::Ask::new(Voice::Judge, owner, "remembering")
         .within(THINK_WITHIN)
         .json_raw(
@@ -452,7 +452,7 @@ mod live {
             .ok()
             .and_then(|n| n.parse().ok())
             .unwrap_or(6);
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let today = super::super::clock::today().format("%Y-%m-%d").to_string();
         let said = [
             "你好呀",
             "上次那个海龟汤的汤底是什么",

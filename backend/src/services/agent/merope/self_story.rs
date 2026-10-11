@@ -255,7 +255,7 @@ pub async fn look_back(db: &DatabaseConnection, owner: i32) {
     }
     // Once a night: a look back that gives no story that holds is tried
     // again the next night, not every half hour of this one.
-    let today = chrono::Local::now().date_naive();
+    let today = super::clock::today();
     match TRIED_ON.lock() {
         Ok(mut tried) if *tried != Some(today) => *tried = Some(today),
         _ => return,
@@ -301,9 +301,10 @@ pub async fn look_back(db: &DatabaseConnection, owner: i32) {
         .collect::<Vec<_>>()
         .join("\n");
     let evidence = json!({ "claims": claims, "since": since, "until": now }).to_string();
-    if let Ok(Some(_)) = unified::remember_own(db, &content, &evidence, Vec::new(), SOURCE).await {
+    if let Ok(Some(new)) = unified::remember_own(db, &content, &evidence, Vec::new(), SOURCE).await
+    {
         if let Some((id, ..)) = last {
-            let _ = unified::retire_own(db, &id, "superseded").await;
+            let _ = unified::retire_own_in_favor_of(db, &id, "superseded", Some(&new)).await;
         }
         tracing::info!(
             claims = claims.len(),

@@ -7,7 +7,7 @@
 
 use std::sync::{LazyLock, Mutex};
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDate, TimeZone};
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use sea_orm::DatabaseConnection;
 
 use crate::services::agent::memory::unified;
@@ -44,16 +44,10 @@ fn lazed_key(day: NaiveDate) -> String {
     format!("lazed:{day}")
 }
 
-/// The day on the host clock, as a span.
-fn bounds(day: NaiveDate) -> Option<(DateTime<FixedOffset>, DateTime<FixedOffset>)> {
-    let start = Local
-        .from_local_datetime(&day.and_hms_opt(0, 0, 0)?)
-        .earliest()?
-        .fixed_offset();
-    let end = Local
-        .from_local_datetime(&day.succ_opt()?.and_hms_opt(0, 0, 0)?)
-        .earliest()?
-        .fixed_offset();
+/// The day in her zone, as a span.
+pub(super) fn bounds(day: NaiveDate) -> Option<(DateTime<FixedOffset>, DateTime<FixedOffset>)> {
+    let start = super::clock::day_start(day)?;
+    let end = super::clock::day_start(day.succ_opt()?)?;
     Some((start, end))
 }
 

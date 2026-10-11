@@ -69,6 +69,10 @@ pub(super) struct ArchiveMeta {
     /// A standing figure keyed by its head: the figure it goes back into.
     #[serde(default)]
     pub figure: Option<FigureMeta>,
+    /// A figure's: the body motions keyed beside its head ("turn", "weight").
+    /// None for a bust, and for figures kept before it was recorded.
+    #[serde(default)]
+    pub body_motions: Option<Vec<String>>,
 }
 
 /// One job's files, in memory.
@@ -260,6 +264,15 @@ async fn read_files_in(root: &Path, meta: &ArchiveMeta) -> std::io::Result<Archi
     })
 }
 
+/// What a kept job hands the importer: its decomposition and its keys.
+pub(super) async fn read_result(meta: &ArchiveMeta) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
+    let dir = archive_root().join(&meta.id);
+    Ok((
+        tokio::fs::read(dir.join(BAKED)).await?,
+        tokio::fs::read(dir.join(KEYFORMS)).await?,
+    ))
+}
+
 pub(super) async fn delete(id: &str) -> std::io::Result<bool> {
     if !valid_id(id) {
         return Ok(false);
@@ -332,6 +345,7 @@ mod tests {
             redrawn: vec![],
             bytes: 0,
             figure: None,
+            body_motions: None,
         }
     }
 

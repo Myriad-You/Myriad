@@ -43,6 +43,7 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
     })
 }
 
+mod devices;
 mod discord_pairing;
 mod discord_status;
 mod feishu_pairing;
@@ -62,6 +63,7 @@ mod qq_pairing;
 mod qq_status;
 mod routes;
 mod sessions;
+mod sync;
 mod telegram_pairing;
 mod telegram_status;
 

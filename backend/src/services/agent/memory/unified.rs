@@ -39,6 +39,8 @@ pub use venue::*;
 /// Active rows kept per person. Past this, the least important and least
 /// recently used rows fade: excluded from recall, free to be learned again.
 pub const MAX_ACTIVE_PER_USER: u64 = 1000;
+/// The side a row comes from when this site writes it (`origin`).
+pub const ORIGIN_SITE: &str = "site";
 /// Stored text is a single fact, not a transcript.
 pub const MAX_CONTENT_CHARS: usize = 400;
 /// A memory is about a few things, not a topic list.
@@ -398,16 +400,97 @@ pub async fn remember<C: ConnectionTrait>(
     if memory.user_id <= 0 || content.is_empty() {
         return Ok(None);
     }
-    // The same thing said privately and again in a group is two memories:
-    // one for the person, one the group shares.
-    let venue = memory.audience.venue();
-    let duplicate = active_rows(db, memory.user_id, &[])
+    if held_already(db, &memory, &content, |_| false)
         .await?
-        .iter()
-        .any(|row| row.venue == venue && normalize_content(&row.content) == content);
-    if duplicate {
+        .is_some()
+    {
         return Ok(None);
     }
+    let user_id = memory.user_id;
+    let id = insert_new(db, memory, content).await?;
+    fade_excess(db, user_id).await?;
+    Ok(Some(id))
+}
+
+/// The rows a new memory takes the place of: `ids`, kept under `user_id`,
+/// retired as `reason`.
+#[derive(Debug, Clone, Copy)]
+pub struct InPlaceOf<'a> {
+    pub user_id: i32,
+    pub ids: &'a [String],
+    pub reason: &'a str,
+}
+
+/// What [`remember_in_place_of`] did: the new row's id (none when it was
+/// empty or already held), and how many old rows it retired.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Replaced {
+    pub id: Option<String>,
+    pub retired: u64,
+}
+
+/// Store `memory` in place of the rows `old`: each old row is retired in the
+/// same update that names the row holding now what it held
+/// (`superseded_by`): the new row, or the row that already said these words
+/// (they are not written twice), or none when there is nothing to write.
+///
+/// The outcome is that of retiring the old rows first and then
+/// [`remember`]ing: the rows being replaced are not duplicates of the new one
+/// and do not count toward the limit. A caller whose write depends on an old
+/// row still being there runs this in a transaction and rolls back when
+/// `retired` is 0.
+pub async fn remember_in_place_of<C: ConnectionTrait>(
+    db: &C,
+    memory: NewMemory,
+    old: InPlaceOf<'_>,
+) -> Result<Replaced, DbErr> {
+    let content = normalize_content(&memory.content);
+    if memory.user_id <= 0 || content.is_empty() {
+        let retired = retire_in_favor_of(db, old.user_id, old.ids, old.reason, None).await?;
+        return Ok(Replaced { id: None, retired });
+    }
+    // Rows this retires are gone by the time a duplicate would be looked for.
+    let same_keeper = old.user_id == memory.user_id;
+    if let Some(held) = held_already(db, &memory, &content, |row| {
+        same_keeper && old.ids.contains(&row.id)
+    })
+    .await?
+    {
+        let retired = retire_in_favor_of(db, old.user_id, old.ids, old.reason, Some(&held)).await?;
+        return Ok(Replaced { id: None, retired });
+    }
+    let user_id = memory.user_id;
+    let id = insert_new(db, memory, content).await?;
+    let retired = retire_in_favor_of(db, old.user_id, old.ids, old.reason, Some(&id)).await?;
+    fade_excess(db, user_id).await?;
+    Ok(Replaced {
+        id: Some(id),
+        retired,
+    })
+}
+
+/// The active row of the same person, in the same place, that already says
+/// `content`, leaving out the rows `going`. The same thing said privately and
+/// again in a group is two memories: one for the person, one the group shares.
+async fn held_already<C: ConnectionTrait>(
+    db: &C,
+    memory: &NewMemory,
+    content: &str,
+    going: impl Fn(&agent_memories::Model) -> bool,
+) -> Result<Option<String>, DbErr> {
+    let venue = memory.audience.venue();
+    Ok(active_rows(db, memory.user_id, &[])
+        .await?
+        .into_iter()
+        .find(|row| !going(row) && row.venue == venue && normalize_content(&row.content) == content)
+        .map(|row| row.id))
+}
+
+async fn insert_new<C: ConnectionTrait>(
+    db: &C,
+    memory: NewMemory,
+    content: String,
+) -> Result<String, DbErr> {
     let now = Utc::now().fixed_offset();
     let id = format!("mem_{}", uuid::Uuid::new_v4().simple());
     agent_memories::ActiveModel {
@@ -418,7 +501,7 @@ pub async fn remember<C: ConnectionTrait>(
         evidence: Set(memory.evidence.as_deref().map(bounded_evidence)),
         speaker: Set(memory.speaker.as_str().into()),
         source: Set(memory.source.into()),
-        venue: Set(venue),
+        venue: Set(memory.audience.venue()),
         audience: Set(json!(memory.audience.members())),
         concepts: Set(json!(clean_concepts(memory.concepts))),
         importance: Set(memory.importance.clamp(0.0, 1.0)),
@@ -429,11 +512,12 @@ pub async fn remember<C: ConnectionTrait>(
         invalid_reason: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
+        superseded_by: Set(None),
+        origin: Set(ORIGIN_SITE.into()),
     }
     .insert(db)
     .await?;
-    fade_excess(db, memory.user_id).await?;
-    Ok(Some(id))
+    Ok(id)
 }
 
 /// A person's active memories of `kinds` (all when empty), newest first,
@@ -491,6 +575,18 @@ pub async fn retire<C: ConnectionTrait>(
     ids: &[String],
     reason: &str,
 ) -> Result<u64, DbErr> {
+    retire_in_favor_of(db, user_id, ids, reason, None).await
+}
+
+/// Retire rows by id, naming on each the row that took its place (`by`), in
+/// the same update: retirement and edge cross to other sides together.
+pub async fn retire_in_favor_of<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    ids: &[String],
+    reason: &str,
+    by: Option<&str>,
+) -> Result<u64, DbErr> {
     if ids.is_empty() {
         return Ok(0);
     }
@@ -499,6 +595,7 @@ pub async fn retire<C: ConnectionTrait>(
         .set(agent_memories::ActiveModel {
             invalid_at: Set(Some(now)),
             invalid_reason: Set(Some(reason.chars().take(16).collect())),
+            superseded_by: Set(by.map(str::to_string)),
             updated_at: Set(now),
             ..Default::default()
         })

@@ -75,6 +75,41 @@ pub(super) fn reason(raw: &[u8]) -> Result<Value, Failure> {
     }))
 }
 
+pub(super) fn key(raw: &[u8]) -> Result<Value, Failure> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct In {
+        /// The ids of the threads come due and wished, in that order.
+        due: Vec<String>,
+        wished: Vec<String>,
+        #[serde(default)]
+        days_since: Option<i64>,
+        to_tell: Vec<String>,
+        #[serde(default)]
+        to_try: Option<String>,
+    }
+    let req: In = input(raw)?;
+    let threads = |ids: Vec<String>| -> Vec<myriad_merope::threads::Thread> {
+        ids.into_iter()
+            .map(|id| myriad_merope::threads::Thread {
+                id,
+                about: String::new(),
+                then: String::new(),
+                due: None,
+                hers: false,
+            })
+            .collect()
+    };
+    let reason = reach::Reason {
+        due: threads(req.due),
+        wished: threads(req.wished),
+        days_since: req.days_since,
+        to_tell: req.to_tell,
+        to_try: req.to_try,
+    };
+    Ok(json!({ "key": reason.key() }))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Soul {

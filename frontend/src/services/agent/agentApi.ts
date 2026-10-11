@@ -47,6 +47,29 @@ export type AgentIntentionStatus =
   | 'abandoned'
   | 'expired'
 
+/** A device that syncs her with this site (`/api/agent/devices`). */
+export interface SyncDevice {
+  id: string
+  name: string
+  /** `mys_` and the first 8 characters, to tell tokens apart. */
+  tokenHint: string
+  /** The parent end is where her own life happens. */
+  role: 'parent' | 'child'
+  createdAt: string
+  lastSeenAt: string | null
+  revokedAt: string | null
+  revokedReason: 'owner_revoked' | 'owner_changed' | 'device_left' | null
+  /** Live and not seen for 30 days. Never removed for it. */
+  stale: boolean
+}
+
+export interface SyncDeviceList {
+  devices: SyncDevice[]
+  /** `site`, or the id of the live device that is the parent end. */
+  parent: string
+  limit: number
+}
+
 export interface AgentWorkProposal {
   title: string
   instruction: string
@@ -181,6 +204,18 @@ export interface McpConfigSnapshot {
   runtimePolicy?: { localStdioAllowed: boolean; gatewayConfigured: boolean }
 }
 
+/** A value a persona field held until an edit replaced it. */
+export interface PersonaFieldHistoryEntry {
+  id: number
+  field: string
+  value: unknown
+  rev: string
+  /** `site`, or the device that wrote it. */
+  origin: string
+  replacedAt: string
+  reason: string
+}
+
 export interface AgentPersona {
   name: string
   portraitAssetId: string | null
@@ -190,6 +225,8 @@ export interface AgentPersona {
   persona?: Record<string, unknown> | null
   visualProfile?: Record<string, unknown> | null
   portraitGeneration?: Record<string, unknown> | null
+  /** Her zone, an IANA name; empty is the site's own. Owner only. */
+  zone?: string
   mood?: number
   moodRevision?: number
   arousal?: number
@@ -391,6 +428,37 @@ class AgentService {
     pairing: QqPairingStatus
   }> {
     return apiService.post(`${this.baseUrl}/qq/pairing`)
+  }
+
+  async listSyncDevices(): Promise<SyncDeviceList> {
+    return apiService.get(`${this.baseUrl}/devices`)
+  }
+
+  /** The token comes back this once only. */
+  async addSyncDevice(
+    name: string,
+  ): Promise<{ device: SyncDevice; token: string }> {
+    return apiService.post(`${this.baseUrl}/devices`, { name })
+  }
+
+  async removeSyncDevice(id: string): Promise<{ device: SyncDevice }> {
+    return apiService.delete(
+      `${this.baseUrl}/devices/${encodeURIComponent(id)}`,
+    )
+  }
+
+  /**
+   * `parent` makes the device her parent end; `child` on the parent device
+   * gives it back to the site. Answers the whole list.
+   */
+  async setSyncDeviceRole(
+    id: string,
+    role: SyncDevice['role'],
+  ): Promise<SyncDeviceList> {
+    return apiService.put(
+      `${this.baseUrl}/devices/${encodeURIComponent(id)}/role`,
+      { role },
+    )
   }
 
   async unpairQq(): Promise<{ success: boolean }> {
@@ -1127,8 +1195,18 @@ class AgentService {
     portraitAssetId?: string | null
     persona?: Record<string, unknown> | null
     visualProfile?: Record<string, unknown> | null
+    /** Absent keeps it; null or empty is the site's own zone. */
+    zone?: string | null
   }): Promise<AgentPersona> {
     return apiService.put(`${this.baseUrl}/persona`, body)
+  }
+
+  /** Values one field of her persona held before edits replaced them, newest first. */
+  async getPersonaHistory(field: string): Promise<PersonaFieldHistoryEntry[]> {
+    const body = await apiService.get<{ entries: PersonaFieldHistoryEntry[] }>(
+      `${this.baseUrl}/persona/history?field=${encodeURIComponent(field)}`,
+    )
+    return Array.isArray(body.entries) ? body.entries : []
   }
 
   async deletePersona(): Promise<void> {

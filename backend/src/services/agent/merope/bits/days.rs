@@ -42,7 +42,8 @@ pub async fn go_over_stretch(
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .and_then(|midnight| {
-            chrono::TimeZone::from_local_datetime(&chrono::Local, &midnight).earliest()
+            chrono::TimeZone::from_local_datetime(&super::super::clock::zone(), &midnight)
+                .earliest()
         })
         .map(|midnight| midnight.fixed_offset());
     let Some(today) = today else {
@@ -168,22 +169,27 @@ pub(super) async fn put_day(
         return;
     }
     // One line a day: what she writes of a day later replaces what she wrote
-    // of it earlier.
+    // of it earlier, each earlier line pointing at the new one.
     let marker = format!("\"day\":\"{}\"", day.format("%Y-%m-%d"));
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
+    let earlier: Vec<String> = db
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE agent_memories SET invalid_at = now(), invalid_reason = 'superseded' \
-             WHERE source = $1 AND venue = $2 AND invalid_at IS NULL \
-               AND evidence LIKE '%' || $3 || '%'",
+            "SELECT id FROM agent_memories \
+             WHERE user_id = $1 AND source = $2 AND venue = $3 AND invalid_at IS NULL \
+               AND evidence LIKE '%' || $4 || '%'",
             [
+                circle.keeper().into(),
                 DAY_SOURCE.into(),
                 circle.audience().venue().into(),
                 marker.into(),
             ],
         ))
-        .await;
-    let _ = unified::remember(
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| row.try_get::<String>("", "id").ok())
+        .collect();
+    let _ = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: circle.keeper(),
@@ -196,6 +202,11 @@ pub(super) async fn put_day(
             audience: circle.audience(),
             importance: 0.5,
             concepts: Vec::new(),
+        },
+        unified::InPlaceOf {
+            user_id: circle.keeper(),
+            ids: &earlier,
+            reason: "superseded",
         },
     )
     .await;

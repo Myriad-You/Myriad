@@ -8,6 +8,7 @@ import {
 } from '@lib/icons'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../../contexts/AuthContext'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
 import {
   FACE_UPDATED_EVENT,
@@ -44,6 +45,7 @@ import {
   AgentChannelAddTrigger,
   AgentChannelSources,
 } from './AgentChannelSources'
+import { AgentDevicesGroup } from './AgentDevicesGroup'
 import AgentOptionsPanel, {
   AgentNestedSection,
 } from './AgentOptionsPanel'
@@ -86,6 +88,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
   leaveLabel,
 }) => {
   const { t } = useI18n()
+  const { user } = useAuth()
   const { catalog: g, bindGuide } = useSettingGuide()
   const [personaChrome, setPersonaChrome] = useState<OnboardingPageChrome | null>(
     null,
@@ -556,6 +559,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
         // 来一局总是跟她聊天，不是让 Agent 办事。
         <HerRecent onPlay={(text) => askAgentPanel(text, 'chat')} />
       ) : null}
+      {meropeOn && user?.is_owner ? <AgentDevicesGroup /> : null}
       <SettingGroup
         title={t.config.agentChannelsTitle}
         icon={<LuMessageSquare />}

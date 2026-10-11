@@ -19,7 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::unified::Concept;
+use crate::Concept;
 
 const K1: f64 = 1.2;
 const B: f64 = 0.75;

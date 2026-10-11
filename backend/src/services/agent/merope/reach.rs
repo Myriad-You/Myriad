@@ -296,7 +296,7 @@ async fn would_write(
     };
     let input = json!({
         "name": super::resolve_addressee_label(db, user_id).await,
-        "localTime": chrono::Local::now().format("%A %H:%M").to_string(),
+        "localTime": super::clock::local_now().format("%A %H:%M").to_string(),
         "daysSinceYouTalked": reason.days_since,
         "dueNow": reason.due.iter().map(|thread| json!({"about": thread.about, "then": thread.then})).collect::<Vec<_>>(),
         "youWantedTo": reason.wished.iter().map(|thread| json!({"about": thread.about, "then": thread.then})).collect::<Vec<_>>(),

@@ -59,7 +59,7 @@ export function turnKeyformFamily(layer: KeyedLayer): string | null {
  * own key ('front-hair:N') where one was measured, else with the whole front
  * hair. An iris (and what is drawn in its place) turns by its own key
  * ('iris:L'/'iris:R') where one was measured, moving inside the white, else
- * with the whole eye.
+ * with the whole eye. A mouth, nose or brow without a key turns with the face.
  */
 function turnKeyFor(keyforms: Readonly<Anime25DTurnKeyforms> | undefined, layer: KeyedLayer): Anime25DTurnKey | undefined {
   const family = turnKeyformFamily(layer)
@@ -67,8 +67,15 @@ function turnKeyFor(keyforms: Readonly<Anime25DTurnKeyforms> | undefined, layer:
   const lock = family === 'front-hair' ? /^front-hair-(\d+)$/.exec(layer.name ?? '') : null
   const iris = family.startsWith('eye:') && /iris|irides|lovestruck-heart/.test(layer.role) ? `iris:${layer.side}` : null
   const own = lock ? `front-hair:${lock[1]}` : iris
-  return (own ? keyforms[own] : undefined) ?? keyforms[family]
+  return (own ? keyforms[own] : undefined) ?? keyforms[family] ?? (ON_THE_FACE.test(family) ? keyforms.face : undefined)
 }
+
+/**
+ * Features drawn on the face turn with it when they have no key of their own:
+ * a mouth too small to be found in every turned decomposition is not fitted
+ * at all, and turned by the computed head it slides off a keyed face.
+ */
+const ON_THE_FACE = /^(mouth|nose|brow:[LR])$/
 
 export interface BoundTurnKeyform {
   plus: Float32Array
@@ -86,7 +93,11 @@ export function bindTurnKeyform(
   rest: Float32Array,
 ): BoundTurnKeyform | null {
   const key = turnKeyFor(keyforms, layer)
-  if (!key) return null
+  return key ? bindTurnKey(key, rest) : null
+}
+
+/** A key's offsets at each rest point (x, y per point). */
+export function bindTurnKey(key: Readonly<Anime25DTurnKey>, rest: Float32Array): BoundTurnKeyform {
   const nod = Boolean(key.up && key.down)
   return {
     plus: invertLattice(key.plus, rest),

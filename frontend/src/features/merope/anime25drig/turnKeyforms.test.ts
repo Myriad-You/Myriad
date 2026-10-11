@@ -160,3 +160,19 @@ test('a keyed multiply colour mixes from white by the turn and the nod, and a ke
   turnKeyformMultiply(plain, 1, 0, out)
   assert.deepEqual([...out], [1, 1, 1])
 })
+
+test('a mouth without a key of its own turns with the face', () => {
+  const face = { plus: shiftedLattice(6), minus: shiftedLattice(-6) }
+  const keyforms = { face }
+  const rest = Float32Array.of(100, 100)
+  const mouth = bindTurnKeyform(keyforms, { group: 'head', role: 'mouth-close', side: null }, rest)!
+  assert.ok(Math.abs(mouth.plus[0] - 6) < 1e-3 && Math.abs(mouth.minus[0] + 6) < 1e-3)
+  // Its own key, where there is one, still wins; hair has no such fallback.
+  const own = bindTurnKeyform({ face, mouth: { plus: shiftedLattice(2), minus: shiftedLattice(-2) } }, { group: 'head', role: 'mouth-close', side: null }, rest)!
+  assert.ok(Math.abs(own.plus[0] - 2) < 1e-3)
+  assert.equal(bindTurnKeyform(keyforms, { group: 'head', role: 'back-hair', side: null }, rest), null)
+})
+
+function shiftedLattice(dx: number) {
+  return { box: [0, 0, 200, 200] as [number, number, number, number], grid: 2, back: [-dx, 0, -dx, 0, -dx, 0, -dx, 0] }
+}

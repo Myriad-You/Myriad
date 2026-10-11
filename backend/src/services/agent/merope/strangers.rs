@@ -129,7 +129,7 @@ pub async fn reply(
         super::group_speaking_section(&stranger.name),
         myriad_merope::speaking::chat_app_section().to_string(),
         section(&stranger.name, note.as_deref()),
-        super::speaking_prompts::format_now_section(chrono::Local::now()),
+        super::speaking_prompts::format_now_section(super::clock::local_now()),
     ];
     // Whom she takes them for, if anyone: a guess, nothing more.
     if let Some(block) = super::recognizing::guess_section(db, venue, stranger).await {
@@ -310,14 +310,25 @@ pub(super) async fn apply_note(
         }
         (None, None) => {}
         (Some(note), kept) => {
-            if let Some(row) = kept {
-                if unified::normalize_content(&row.content) == unified::normalize_content(note) {
-                    unified::refresh_unowned(db, &group, &row.id).await?;
-                    return Ok(());
-                }
-                unified::retire_unowned(db, &group, &row.id, "superseded").await?;
+            if let Some(row) = &kept
+                && unified::normalize_content(&row.content) == unified::normalize_content(note)
+            {
+                unified::refresh_unowned(db, &group, &row.id).await?;
+                return Ok(());
             }
-            unified::remember_in_venue(db, &group, note, &evidence_of(stranger), SOURCE).await?;
+            // The new note takes the old one's place.
+            let new = unified::remember_in_venue(db, &group, note, &evidence_of(stranger), SOURCE)
+                .await?;
+            if let Some(row) = kept {
+                unified::retire_unowned_in_favor_of(
+                    db,
+                    &group,
+                    &row.id,
+                    "superseded",
+                    new.as_deref(),
+                )
+                .await?;
+            }
         }
     }
     Ok(())

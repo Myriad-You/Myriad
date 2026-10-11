@@ -520,6 +520,8 @@
     "structured_persona_required": "Finish the persona details before designing its appearance.",
     "visual_gender_required": "Choose a gender presentation before generating the portrait.",
     "portrait_not_site_asset": "The portrait must be an image stored on this site. Upload it here and try again.",
+    "invalid_zone": "Unknown time zone. Use an IANA name such as Europe/Berlin.",
+    "persona_field_required": "Say which persona field.",
     "character_asset_provenance_changed": "The character or outfit changed in the meantime. Reload and try again.",
     "rig_asset_changed": "The worn rig changed. Reload before saving your corrections.",
     "merope_rig_failed": "Couldn’t update the character rig. Please try again.",

@@ -20,6 +20,7 @@ import {
   presetLabel,
   PRESETS,
 } from './motionControls'
+import { MovingPartsPanel } from './MovingPartsPanel'
 import { PoseCorrectionEditor } from './PoseCorrectionEditor'
 
 interface Props {
@@ -31,6 +32,8 @@ interface Props {
   /** Where corrections save, in words. */
   correctionTarget?: string
   onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
+  /** Looks for the staged figure's moving parts again. */
+  onFindMovingParts?: () => Promise<void>
 }
 
 /** The motion tab: expression presets, hand-set drivers, and the rig inspector. */
@@ -42,6 +45,7 @@ export function MotionPanel({
   correctionAssetId,
   correctionTarget = '',
   onSavePoseCorrections,
+  onFindMovingParts,
 }: Props) {
   const { t } = useI18n()
   const labels = t.merope
@@ -258,6 +262,9 @@ export function MotionPanel({
           onDriver={applyDriver}
           onSave={onSavePoseCorrections}
         />
+      ) : null}
+      {correctionPlayback && onFindMovingParts ? (
+        <MovingPartsPanel key={correctionAssetId ?? ''} playback={correctionPlayback} target={correctionTarget} onFind={onFindMovingParts} />
       ) : null}
     </>
   )

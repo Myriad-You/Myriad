@@ -42,3 +42,14 @@ pub(super) fn alerts(raw: &[u8]) -> Result<Value, Failure> {
     let req: In = input(raw)?;
     Ok(json!({ "alerts": vitals::alerts(&req.today, &req.before) }))
 }
+
+pub(super) fn quantile(raw: &[u8]) -> Result<Value, Failure> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct In {
+        values: Vec<f64>,
+        quantile: f64,
+    }
+    let req: In = input(raw)?;
+    Ok(json!({ "value": vitals::quantile(&req.values, req.quantile) }))
+}

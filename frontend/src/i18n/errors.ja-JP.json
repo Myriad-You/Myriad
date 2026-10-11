@@ -520,6 +520,8 @@
     "structured_persona_required": "外見をデザインする前にペルソナの詳細を仕上げてください。",
     "visual_gender_required": "立ち絵を生成する前に性別の見た目を選んでください。",
     "portrait_not_site_asset": "立ち絵はこのサイトに保存された画像である必要があります。ここにアップロードしてから再試行してください。",
+    "invalid_zone": "このタイムゾーンは認識できません。Asia/Tokyo のような IANA 名で入力してください。",
+    "persona_field_required": "どの項目かを指定してください。",
     "character_asset_provenance_changed": "キャラクターか衣装が途中で変更されました。再読み込みしてから再試行してください。",
     "rig_asset_changed": "着用中のリグが変更されました。再読み込みしてから修正を保存してください。",
     "merope_rig_failed": "キャラクターのリグを更新できませんでした。再試行してください。",

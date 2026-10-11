@@ -11,7 +11,9 @@ import { BODY_HEAD_FOLLOW } from './collarRuntime'
 import { applyCropBoundary } from './cropBoundary'
 import { cryTearHorizontalOffset, cryTearVerticalOffset } from './cryMotion'
 import { markAnime25DLayerGeometryUpdated, shouldUpdateAnime25DLayerGeometry } from './deformationDependencies'
+import { bendHanging } from './earwearPhysics'
 import { deformAnime25DExpressionPoint } from './expressionDeformation'
+import { figureAffineAt, multiplyAffine } from './figureSkeleton'
 import { constrainHairSurface } from './hairSurface'
 import { jellyDisplacement } from './jellyVolume'
 import { keyedGazeShift } from './keyedGaze'
@@ -104,7 +106,17 @@ export function writeRigidLayerTransform(
     m[6] += m[0] * shift.x + m[3] * shift.y
     m[7] += m[1] * shift.x + m[4] * shift.y
   }
+  const figure = secondaryDeformationFrame.figure
+  const skin = layer.secondaryDeformation.figureSkin
+  if (figure && skin) {
+    // Then the bones carry it, as drawn at its middle.
+    figureAffineAt(source.y + source.h / 2, skin, figure.rest, figure.pose, figureCarry)
+    multiplyAffine(layer.layerTransform, figureCarry, layer.layerTransform)
+  }
 }
+
+const figureCarry = new Float32Array(9)
+const hostCarry = new Float32Array(9)
 
 /**
  * Run every vertex of one layer through the deformation chain: face features,
@@ -312,8 +324,14 @@ export function settleDependentLayers(
         secondaryDeformationFrame,
         layer.layerTransform,
       )
+      if (layer.hangBend) hostCarry.set(layer.layerTransform)
       layer.earwearPhysics?.apply(layer.attachment, layer.layerTransform, time, current.angleX, current.angleY, current.phys,
         layer.attachmentTurn ? hostKeyRoll(layer.attachmentTurn, secondaryDeformationFrame.headTurn?.amount ?? 0, secondaryDeformationFrame.headTurn?.nodAmount ?? 0) : null)
+      if (layer.hangBend && layer.deformed) {
+        // A cut piece stays on its host at its cut and bends by its swing below.
+        layer.geometryDirty = bendHanging(layer.hangBend, hostCarry, layer.layerTransform, layer.rest, layer.deformed) || layer.geometryDirty
+        layer.layerTransform.set(hostCarry)
+      }
       if (layer.attachmentTurn && deformAttachmentTurn(layer.attachmentTurn, secondaryDeformationFrame.headTurn?.amount ?? 0, secondaryDeformationFrame.headTurn?.nodAmount ?? 0, layer.rest, layer.deformed))
         layer.geometryDirty = true
     }

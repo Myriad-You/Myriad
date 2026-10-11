@@ -444,7 +444,7 @@ mod live {
             .ok()
             .and_then(|n| n.parse().ok())
             .unwrap_or(8);
-        let day = chrono::Local::now().date_naive();
+        let day = super::super::clock::today();
         let fresh = myriad_merope::pace::Pace {
             day,
             usual_minutes: 240.0,

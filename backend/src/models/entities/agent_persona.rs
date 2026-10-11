@@ -27,6 +27,14 @@ pub struct Model {
     #[sea_orm(nullable)]
     pub updated_by: Option<i32>,
     pub updated_at: DateTimeWithTimeZone,
+    /// Her zone, an IANA name (`Asia/Shanghai`); empty is the site's own
+    /// (the process zone, `TZ`). See `merope::clock::zone`.
+    pub zone: String,
+    /// Each persona field's last edit, `{field: {rev, origin}}`
+    /// (`myriad_persona_sync::FieldRev`); a field missing here was last
+    /// written before revisions were kept, at `updated_at`.
+    #[sea_orm(column_type = "JsonBinary")]
+    pub field_revs: Json,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

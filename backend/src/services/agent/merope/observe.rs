@@ -32,9 +32,9 @@ async fn voice(db: &DatabaseConnection, now: DateTime<Utc>) -> Vec<Value> {
     let lines = super::store::chat_lines_since(db, since, 60_000)
         .await
         .unwrap_or_default();
-    // Weeks from Monday, local.
+    // Weeks from Monday, in her zone.
     let week_of = |at: &DateTime<FixedOffset>| {
-        let day = at.with_timezone(&chrono::Local).date_naive();
+        let day = super::clock::date_of(at);
         day - chrono::Days::new(u64::from(day.weekday().num_days_from_monday()))
     };
     let mut weeks: BTreeMap<chrono::NaiveDate, (Vec<String>, Vec<String>)> = BTreeMap::new();

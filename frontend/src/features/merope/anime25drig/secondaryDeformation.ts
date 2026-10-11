@@ -1,8 +1,10 @@
 import type { ArmRig, ArmRigMesh } from './armRig'
 import type { ChestSpatialField } from './chestPhysics'
 import type { Anime25DDriver } from './driver'
+import type { FigureFrame, FigureSkin } from './figureSkeleton'
 import type { HeadTurn, HeadTurnFeature } from './headTurn'
 import type { Anime25DLayerSpringBinding } from './layerBinding'
+import type { PartSwayBinding } from './partSway'
 import type { BoundPoseCorrection } from './poseCorrections'
 import type {
   Anime25DShellMode,
@@ -22,6 +24,8 @@ import type {
 } from './types'
 import { anime25DLayerUsesFaceSurface } from '../rig/anime25dLayerSemantics'
 import { ARM_CUT_BAND, ARM_SHRUG, armDrapeWeight, armSegmentShares } from './armRig'
+import { addBodyTurn, weightShift } from './bodyTurnKeyforms'
+import { clamp, smoothstep } from './chestField'
 import { chestDeformationWeight } from './chestPhysics'
 import {
   BODY_HEAD_FOLLOW,
@@ -31,6 +35,7 @@ import {
   FRONT_COLLAR_INNER_REGION,
 } from './collarRuntime'
 import { DEFAULT_FRONT_HAIR_SWAY, DEFAULT_REAR_HAIR_SWAY } from './driver'
+import { carryOnFigure } from './figureSkeleton'
 import { hairChainOffset, hairChainTurn } from './hairChain'
 import { followHeadBelow } from './neckFollow'
 import { applyPoseCorrections } from './poseCorrections'
@@ -135,8 +140,15 @@ export interface Anime25DSecondaryDeformationFrame {
   torsoShellBlend: number
   torsoNeckOffsetX: number
   torsoShellRotation: Readonly<Anime25DTorsoShellRotation>
+  /** How far through its keyed turn the body is (−1…1), where the body is keyed (bodyTurnKeyforms). */
+  bodyTurn?: number
   /** A standing figure's stance; a bust has none. */
   standing?: Readonly<Anime25DStandingFrame> | null
+  /**
+   * A standing figure's bones and this frame's pose: they carry every layer
+   * after its own deformation, in place of the shader's lean and stance.
+   */
+  figure?: FigureFrame | null
 }
 
 export interface Anime25DSecondaryDeformationBinding {
@@ -158,6 +170,10 @@ export interface Anime25DSecondaryDeformationBinding {
   handwearAnchorX: number
   turnFeature?: HeadTurnFeature | null
   turnKeyform?: BoundTurnKeyform | null
+  /** The part's keyed body turn per vertex; it then takes no torso cylinder. */
+  bodyTurnKeyform?: BoundTurnKeyform | null
+  /** The part's keyed weight shift per vertex; a leg then takes no computed bend. */
+  weightKeyform?: BoundTurnKeyform | null
   /**
    * Where a neck stops going with the head, if not at the neck's bottom: the
    * top of the strip that fades into the skin drawn on the body below, which
@@ -178,6 +194,9 @@ export interface Anime25DSecondaryDeformationBinding {
   torsoShellMode: Anime25DTorsoShellMode | null
   /** How a standing figure's skirt or leg follows its stance. */
   standing: StandingBinding | null
+  /** Which of a standing figure's bones carry this layer, and the regions of it that sway on their own. */
+  figureSkin?: FigureSkin | null
+  partSways?: PartSwayBinding[] | null
 }
 
 export interface Anime25DMutableSecondaryPoint {
@@ -208,8 +227,10 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   /** The drawn feature this layer belongs to, and its part's keyed turn per vertex. */
   turnFeature?: HeadTurnFeature | null
   turnKeyform?: BoundTurnKeyform | null
+  bodyTurnKeyform?: BoundTurnKeyform | null
+  weightKeyform?: BoundTurnKeyform | null
   standing?: StandingBinding | null
-}): Anime25DSecondaryDeformationBinding {
+} & Pick<Anime25DSecondaryDeformationBinding, 'figureSkin' | 'partSways'>): Anime25DSecondaryDeformationBinding {
   return {
     ...input,
     head: input.source.group === 'head',
@@ -449,28 +470,20 @@ export function deformAnime25DSecondaryPoint(
       point.y += (restY - frame.chestMotionCenterY) * (scale - 1)
     }
   }
-  if (binding.torsoShellMode === 'sleeve') {
+  // The neck and collar take the body's share of the torso's turn.
+  const torsoWeight = binding.torsoShellMode === 'collar' || binding.torsoShellMode === 'neck' ? collarBodyWeight : 1
+  if (binding.weightKeyform && frame.standing) addBodyTurn(point, binding.weightKeyform, vertex, weightShift(frame.standing))
+  if (binding.bodyTurnKeyform) {
+    // Measured, not projected.
+    addBodyTurn(point, binding.bodyTurnKeyform, vertex, (frame.bodyTurn ?? 0) * torsoWeight)
+  } else if (binding.torsoShellMode === 'sleeve') {
     // A sleeve is one rigid drawing hanging beside the cylinder, not a patch of its surface.
-    point.x += anime25DTorsoShellOffsetX(
-      anime25DSleeveAnchorX(binding.handwearAnchorX, frame.torsoProfile),
-      frame.torsoProfile,
-      frame.torsoShellRotation,
-      frame.torsoShellBlend * SLEEVE_TORSO_TRANSMISSION,
-    )
+    point.x += anime25DTorsoShellOffsetX(anime25DSleeveAnchorX(binding.handwearAnchorX, frame.torsoProfile),
+      frame.torsoProfile, frame.torsoShellRotation, frame.torsoShellBlend * SLEEVE_TORSO_TRANSMISSION)
   } else if (binding.torsoShellMode) {
-    const torsoWeight =
-      binding.torsoShellMode === 'collar' || binding.torsoShellMode === 'neck'
-        ? collarBodyWeight
-        : 1
-    deformAnime25DTorsoShellPoint(
-      point,
-      frame.torsoProfile,
-      frame.torsoShellRotation,
-      frame.torsoShellBlend * torsoWeight,
-      binding.topwear ? frame.torsoChestShape : null,
-      binding.topwear ? (binding.chestWeights?.[vertex] ?? 1) : 1,
-      frame.chestVolumeScale,
-    )
+    deformAnime25DTorsoShellPoint(point, frame.torsoProfile, frame.torsoShellRotation, frame.torsoShellBlend * torsoWeight,
+      binding.topwear ? frame.torsoChestShape : null, binding.topwear ? (binding.chestWeights?.[vertex] ?? 1) : 1,
+      frame.chestVolumeScale)
   }
   if (binding.handwear) {
     // Lifting rolls the shoulder up a little; the rest of the lift is rotation.
@@ -575,7 +588,11 @@ export function deformAnime25DSecondaryPoint(
   // The neck's lower part already receives its cylinder projection above;
   // only its head-follow share inherits the root, avoiding double travel.
   point.x += frame.torsoNeckOffsetX * torsoNeckFollow
-  if (binding.standing && frame.standing) applyStanding(point, binding.standing, restX, restY, frame.standing)
+  // With bones, they stand the figure (figureSkeleton).
+  if (frame.figure) return carryOnFigure(point, binding, restX, restY, frame)
+  // A keyed leg bends as drawn; a skirt keeps its swing.
+  const stands = binding.standing && !(binding.weightKeyform && binding.standing.kind === 'leg')
+  if (stands && frame.standing) applyStanding(point, binding.standing!, restX, restY, frame.standing)
 }
 
 /** A fully reached forearm is drawn this much shorter, and its hand this much larger. */
@@ -662,15 +679,6 @@ export function deformAnime25DHairPoint(
   // into this CPU mesh's coordinates; the shader rotates it exactly once.
   point.x += (offsetX * frame.bodyRotationCosine + offsetY * frame.bodyRotationSine) * scale
   point.y += (-offsetX * frame.bodyRotationSine + offsetY * frame.bodyRotationCosine) * scale
-}
-
-function smoothstep(value: number): number {
-  const bounded = clamp(value, 0, 1)
-  return bounded * bounded * (3 - 2 * bounded)
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
 }
 
 export { shellTurnBlend } from './shellDeformation'

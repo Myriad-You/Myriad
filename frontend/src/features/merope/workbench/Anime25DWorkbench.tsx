@@ -3,7 +3,6 @@ import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { Anime25DPlayback } from '../anime25drig/types'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { AuthoredExpressionKind } from '../rig/authoredExpression'
-import type { RigPath } from './RigImportPanel'
 import type { RigImportSource, RigMode } from './useRigImport'
 import { useState, useSyncExternalStore } from 'react'
 import { SettingGroup } from '../../../components/settings'
@@ -43,6 +42,8 @@ interface Props extends RigImportSource {
   correctionAssetId?: string | null
   correctionTarget?: string
   onSavePoseCorrections?: (corrections: PoseCorrection[]) => Promise<void>
+  /** Looks for the staged figure's moving parts again (MovingPartsPanel). */
+  onFindMovingParts?: () => Promise<void>
 }
 
 type FacePanel = 'overview' | 'persona' | 'mind' | 'wardrobe' | 'motion'
@@ -65,6 +66,7 @@ export default function Anime25DWorkbench({
   correctionAssetId,
   correctionTarget,
   onSavePoseCorrections,
+  onFindMovingParts,
   ...source
 }: Props) {
   const { t } = useI18n()
@@ -80,7 +82,6 @@ export default function Anime25DWorkbench({
     () => undefined,
   )
   const panel = tourPanel ?? userPanel
-  const [rigPath, setRigPath] = useState<RigPath>('upload')
   const panels: Array<{ value: FacePanel; label: string }> = [
     { value: 'overview', label: labels.overviewGroup },
     { value: 'persona', label: labels.personaGroup },
@@ -157,8 +158,6 @@ export default function Anime25DWorkbench({
           ) : (
             <RigImportPanel
               rig={rig}
-              rigPath={rigPath}
-              onRigPathChange={setRigPath}
               seeThroughTokenConfigured={source.seeThroughTokenConfigured}
               aiExpressions={aiExpressions}
               canGenerateAiExpressions={Boolean(source.onGenerateAiExpressions)}
@@ -178,6 +177,7 @@ export default function Anime25DWorkbench({
           correctionAssetId={correctionAssetId}
           correctionTarget={correctionTarget}
           onSavePoseCorrections={onSavePoseCorrections}
+          onFindMovingParts={onFindMovingParts}
         />
       ) : null}
       </div>

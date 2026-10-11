@@ -521,17 +521,24 @@ pub async fn remove_persisted_generated(
 /// only ready public assets or the image cache. Unpublished or deleting
 /// assets must not leak into generation just because their UUID is known.
 pub(crate) async fn read_public_local_media(url: &str) -> Option<(Vec<u8>, String)> {
-    let path = crate::services::media::registered_local_path(url)?;
     let db = crate::services::process_db::database().ok()?;
     let store = MediaStore::new(paths().media.clone());
+    read_public_local_media_on(&db, &store, url).await
+}
+
+/// [`read_public_local_media`] against a given database and media store.
+pub(crate) async fn read_public_local_media_on(
+    db: &impl sea_orm::ConnectionTrait,
+    store: &MediaStore,
+    url: &str,
+) -> Option<(Vec<u8>, String)> {
+    let path = crate::services::media::registered_local_path(url)?;
     let outcome = if let Some(rest) = path.strip_prefix("/media/assets/") {
         let (id, file) = rest.split_once('/')?;
         let public_id = uuid::Uuid::parse_str(id).ok()?;
-        resolve_public_asset(&db, &store, public_id, file)
-            .await
-            .ok()?
+        resolve_public_asset(db, store, public_id, file).await.ok()?
     } else {
-        resolve_cached_image(&db, &store, &path).await.ok()?
+        resolve_cached_image(db, store, &path).await.ok()?
     };
     let ServeOutcome::File(file) = outcome else {
         return None;

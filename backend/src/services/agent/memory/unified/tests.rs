@@ -174,6 +174,8 @@ fn row(id: &str, content: &str, importance: f64, age_secs: i64) -> agent_memorie
         invalid_reason: None,
         created_at: at,
         updated_at: at,
+        superseded_by: None,
+        origin: super::ORIGIN_SITE.into(),
     }
 }
 
@@ -490,4 +492,128 @@ fn content_is_collapsed_and_capped() {
             .count(),
         MAX_CONTENT_CHARS
     );
+}
+
+/// A new memory in place of old ones: each old row retired in the same update
+/// that names the row holding now what it held; the outcome is that of
+/// retiring first and then remembering. On a real database (an isolated
+/// schema; skipped without a test database).
+#[tokio::test]
+async fn a_memory_in_place_of_others_names_what_took_their_place() {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        return;
+    };
+    let isolated = crate::db::IsolatedSchema::migrated(&url, "in_place_of").await;
+    let db = isolated.db.clone();
+    let user_id: i32 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "INSERT INTO users (username) VALUES ('in-place-test') RETURNING id",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "id")
+        .unwrap();
+    let fact = |content: &str| NewMemory {
+        user_id,
+        kind: MemoryKind::Fact,
+        content: content.into(),
+        evidence: None,
+        speaker: Speaker::User,
+        source: "chat",
+        audience: Audience::private(user_id),
+        importance: 0.5,
+        concepts: Vec::new(),
+    };
+    let row = |id: &str| {
+        let db = db.clone();
+        let id = id.to_string();
+        async move {
+            agent_memories::Entity::find_by_id(id)
+                .one(&db)
+                .await
+                .unwrap()
+                .unwrap()
+        }
+    };
+    let in_place = |ids| InPlaceOf {
+        user_id,
+        ids,
+        reason: "superseded",
+    };
+
+    // One for one: the old row points at the new one.
+    let north = remember(&db, fact("住在北边")).await.unwrap().unwrap();
+    let old = vec![north.clone()];
+    let south = remember_in_place_of(&db, fact("搬到南边了"), in_place(&old))
+        .await
+        .unwrap();
+    assert_eq!(south.retired, 1);
+    let south = south.id.unwrap();
+    let north_row = row(&north).await;
+    assert_eq!(north_row.invalid_reason.as_deref(), Some("superseded"));
+    assert_eq!(north_row.superseded_by.as_deref(), Some(south.as_str()));
+    assert_eq!(north_row.origin, ORIGIN_SITE);
+    assert!(row(&south).await.superseded_by.is_none());
+
+    // The same words again in place of themselves: written anew, as when the
+    // old row was retired first; it is not a duplicate of what it replaces.
+    let old = vec![south.clone()];
+    let again = remember_in_place_of(&db, fact("搬到南边了"), in_place(&old))
+        .await
+        .unwrap();
+    let again = again.id.expect("written anew");
+    assert_eq!(
+        row(&south).await.superseded_by.as_deref(),
+        Some(again.as_str())
+    );
+
+    // Several in place of one, and words another row already says: nothing
+    // new, the old rows point at the row that says it.
+    let a = remember(&db, fact("养了一只猫")).await.unwrap().unwrap();
+    let b = remember(&db, fact("猫叫年糕")).await.unwrap().unwrap();
+    let held = remember(&db, fact("养了一只叫年糕的猫"))
+        .await
+        .unwrap()
+        .unwrap();
+    let old = vec![a.clone(), b.clone()];
+    let merged = remember_in_place_of(&db, fact("养了一只叫年糕的猫"), in_place(&old))
+        .await
+        .unwrap();
+    assert_eq!(
+        merged,
+        Replaced {
+            id: None,
+            retired: 2
+        }
+    );
+    for id in [&a, &b] {
+        assert_eq!(row(id).await.superseded_by.as_deref(), Some(held.as_str()));
+    }
+
+    // Taken back with nothing in its place: retired, no edge.
+    let gone = remember(&db, fact("在学钢琴")).await.unwrap().unwrap();
+    let old = vec![gone.clone()];
+    let none = remember_in_place_of(&db, fact("  "), in_place(&old))
+        .await
+        .unwrap();
+    assert_eq!(
+        none,
+        Replaced {
+            id: None,
+            retired: 1
+        }
+    );
+    let gone_row = row(&gone).await;
+    assert!(gone_row.invalid_at.is_some() && gone_row.superseded_by.is_none());
+
+    // A row already retired is not retired again, nor re-pointed.
+    let late = remember_in_place_of(&db, fact("在学吉他"), in_place(&old))
+        .await
+        .unwrap();
+    assert_eq!(late.retired, 0);
+    assert!(row(&gone).await.superseded_by.is_none());
+    isolated.drop().await;
 }

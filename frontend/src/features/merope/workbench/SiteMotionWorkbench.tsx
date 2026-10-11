@@ -2,7 +2,7 @@ import type { UpperBodyVisualIdentityKey } from '../../../components/agent/onboa
 import type { PoseCorrection } from '../anime25drig/poseCorrections'
 import type { RigCharacterHandle } from '../character/RigCharacter'
 import type { WardrobeItem } from '../persona/wardrobe'
-import type { TurnKeyformsStatus } from '../turnKeyformsApi'
+import type { TurnArchiveUse, TurnKeyformsStatus } from '../turnKeyformsApi'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { activityKey, moodBand } from '../../../components/agent/meropeVitals'
@@ -22,29 +22,36 @@ import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { isAnime25DPlayback } from '../anime25drig/types'
 import {
   decomposeSitePortraitWithSeeThrough,
+  findMovingParts,
   saveFullBodyPoseCorrections,
   saveRigPoseCorrections,
   uploadFullBodyPortrait,
   uploadOutfitPortrait,
 } from '../api'
 import { commitRigPsdAsset, preflightRigPsdAsset } from '../assets/pipeline'
+import { composeRestReference } from '../assets/restReference'
 import RigCharacter from '../character/RigCharacter'
 import { notifyFaceUpdated } from '../events/updates'
 import { useRigPreviewMotionLifecycle } from '../motion/useRigMotionLifecycle'
 import { applyOutfit, isFullBodyItem, sortWardrobe, wardrobeItemLabel } from '../persona/wardrobe'
 import { decomposeWithTurnKeyforms } from '../turnKeyformsApi'
 import Anime25DWorkbench from './Anime25DWorkbench'
+import FieldHistory from './FieldHistory'
 import { FullBodyStageSwitch } from './FullBodyStageSwitch'
 import { OutfitDetail } from './OutfitDetail'
 import OutfitWardrobe from './OutfitWardrobe'
+import PersonaFieldHistory from './PersonaFieldHistory'
+import PersonaZoneField from './PersonaZoneField'
 import { activeRigMode } from './rigMode'
 import { useAddressee } from './useAddressee'
 import { useAiExpressions } from './useAiExpressions'
 import { useFullBodyStage } from './useFullBodyStage'
+import { usePersonaRestore } from './usePersonaRestore'
 import { usePersonaWardrobe } from './usePersonaWardrobe'
 import { useSeeThroughToken } from './useSeeThroughToken'
 import { useSiteFace } from './useSiteFace'
 import { useStickerAvatar } from './useStickerAvatar'
+import VisualHistory from './VisualHistory'
 import { wardrobeOverview } from './wardrobeOverview'
 import { WorkbenchOverview } from './WorkbenchOverview'
 import { downloadPicture, reportMeropeError, toMeropeActivity } from './workbenchShared'
@@ -94,6 +101,12 @@ export default function SiteMotionWorkbench({
     setManagingOutfitId,
     generating,
   } = persona
+  const restore = usePersonaRestore({
+    persona: personaSnapshot,
+    setPersona: persona.setPersonaSnapshot,
+    reload: persona.reload,
+    loadFace,
+  })
   const addressee = useAddressee(
     persona.setPersonaSnapshot,
     t.errors.addresseeSaveFailed,
@@ -176,7 +189,7 @@ export default function SiteMotionWorkbench({
   const decomposeRigPsd = useCallback(async (
     onStatus: (status: TurnKeyformsStatus) => void,
     signal: AbortSignal,
-    fromArchive?: string,
+    fromArchive?: TurnArchiveUse,
   ) => {
     if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
     return decomposeWithTurnKeyforms(
@@ -237,6 +250,16 @@ export default function SiteMotionWorkbench({
     await saveFullBodyPoseCorrections(stagedSet.id, assetId, corrections)
     // The set now names its new package; the stage loads it.
     await reload()
+  }
+
+  // The figure on stage's moving parts, looked for again in the background.
+  const findStagedMovingParts = async () => {
+    const manifest = staged ? staged.manifest : rigManifest
+    const assetId = staged ? staged.assetId : rigAssetId
+    const playback = manifest?.anime25dPlayback
+    const atlasUrl = manifest?.textures[0]?.url
+    if (!assetId || !playback || !isAnime25DPlayback(playback) || !atlasUrl) throw new Error(t.merope.rigPartsRefreshFailed)
+    await findMovingParts(assetId, await composeRestReference(playback, atlasUrl), stagedSet?.id)
   }
 
   /** The owner uploaded a new master portrait for the worn outfit. */
@@ -301,6 +324,18 @@ export default function SiteMotionWorkbench({
         saveLabel={o.doneEditing}
         busy={generating}
         onIdentity={(next) => void persona.saveCharacter(next)}
+        historyLabel={t.merope.personaHistory}
+        renderHistory={(close) => (
+          <VisualHistory
+            profile={personaSnapshot?.visualProfile}
+            identity={visualIdentity}
+            labels={visualLabels}
+            busy={generating}
+            onIdentity={(next) => void persona.saveCharacter(next)}
+            onKey={(key, value) => void restore.restoreVisual(key, value)}
+            onClose={close}
+          />
+        )}
       />
     ) : null
 
@@ -338,6 +373,26 @@ export default function SiteMotionWorkbench({
       sticker={sticker}
       hasPortrait={Boolean(portraitUrl)}
       addressee={addressee}
+      renderNameHistory={(close) => (
+        <FieldHistory
+          fields={['name']}
+          busy={generating}
+          display={(entry) =>
+            typeof entry.value === 'string' ? entry.value : null
+          }
+          canRestore={(entry) =>
+            typeof entry.value === 'string' &&
+            entry.value.trim() !== '' &&
+            entry.value.trim() !== personaSnapshot?.name.trim()
+          }
+          onRestore={(entry) => {
+            if (typeof entry.value === 'string') {
+              void restore.restoreName(entry.value)
+            }
+          }}
+          onClose={close}
+        />
+      )}
     />
   )
 
@@ -372,10 +427,31 @@ export default function SiteMotionWorkbench({
           saveLabel={o.doneEditing}
           groupLabel={t.merope.personaGroup}
           onPersona={(next) => void persona.saveStructuredPersona(next)}
+          historyLabel={t.merope.personaHistory}
+          renderHistory={(field, close) => (
+            <PersonaFieldHistory
+              field={field}
+              persona={structuredPersona}
+              busy={generating}
+              onPersona={(next) => void persona.saveStructuredPersona(next)}
+              onClose={close}
+            />
+          )}
         />
       ) : (
         <p className="merope-motion-home__help">{t.merope.personaEmpty}</p>
       )}
+      {personaSnapshot ? (
+        <PersonaZoneField
+          persona={personaSnapshot}
+          busy={generating}
+          onSaved={(zone) =>
+            persona.setPersonaSnapshot((current) =>
+              current ? { ...current, zone } : current,
+            )
+          }
+        />
+      ) : null}
     </div>
   )
 
@@ -540,6 +616,7 @@ export default function SiteMotionWorkbench({
             ? format(t.merope.poseCorrection.targetFullBody, { name: wardrobeItemLabel(stagedSet, o.clothingStyle) })
             : format(t.merope.poseCorrection.targetBust, { name: wornLabel })}
           onSavePoseCorrections={stagedSet ? saveFullBodyCorrections : savePoseCorrections}
+          onFindMovingParts={findStagedMovingParts}
         />
       </div>
       {portraitUrl && motionEnabled && studioHost

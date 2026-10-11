@@ -526,7 +526,11 @@ async fn configured_lite_appraises_synthetic_scenarios_without_state_writes() {
         if path == "local" {
             super::super::state::apply_user_utterance(&mut after, 0, praised, scolded);
         } else if let Some(hint) = hint.filter(|hint| !hint.is_neutral()) {
-            apply_appraisal(&mut after, lite_appraisal(hint.valence, hint.arousal), 1.0);
+            super::super::state::apply_appraisal(
+                &mut after,
+                lite_appraisal(hint.valence, hint.arousal),
+                1.0,
+            );
         }
         let semantic_ok = if path == "local" {
             praised

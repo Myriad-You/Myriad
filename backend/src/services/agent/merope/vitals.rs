@@ -2,7 +2,7 @@
 //! from what was kept, without any model, and kept for looking back; the
 //! night after a day counts it once, today is counted when looked at.
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDate, TimeZone};
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::Value;
 
@@ -33,16 +33,12 @@ fn key(day: NaiveDate) -> String {
     format!("day:{day}")
 }
 
-fn bounds(
+/// From the start of `from` to the end of `to`, in her zone.
+pub(super) fn bounds(
     from: NaiveDate,
     to: NaiveDate,
 ) -> Option<(DateTime<FixedOffset>, DateTime<FixedOffset>)> {
-    let at = |day: NaiveDate| {
-        Local
-            .from_local_datetime(&day.and_hms_opt(0, 0, 0)?)
-            .earliest()
-            .map(|at| at.fixed_offset())
-    };
+    let at = super::clock::day_start;
     Some((at(from)?, at(to.succ_opt()?)?))
 }
 
@@ -256,7 +252,7 @@ async fn count_with_alerts(db: &DatabaseConnection, day: NaiveDate) -> Day {
 
 /// At night: yesterday counted and kept, once.
 pub async fn go_over(db: &DatabaseConnection) {
-    let Some(yesterday) = Local::now().date_naive().pred_opt() else {
+    let Some(yesterday) = super::clock::today().pred_opt() else {
         return;
     };
     if let Ok(Some(_)) =
@@ -285,7 +281,7 @@ pub async fn go_over(db: &DatabaseConnection) {
 
 /// The last week of her, oldest first: the days kept, and today so far.
 pub async fn week(db: &DatabaseConnection) -> Vec<Day> {
-    let today = Local::now().date_naive();
+    let today = super::clock::today();
     let mut days = kept_before(db, today, USUAL_DAYS - 1).await;
     days.push(count_with_alerts(db, today).await);
     days

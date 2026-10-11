@@ -1,0 +1,19 @@
+[package]
+name = "myriad-persona-sync"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Her data across the site and other platforms: the sync format, its canonical bytes, the clock and the comparison of two of her."
+authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
+
+# Pure: no I/O, no clock, no randomness. The site links it directly and the
+# shared core (`myriad-core-ffi`) links it for every other platform, so both
+# sides write the same bytes.
+[dependencies]
+myriad-merope = { path = "../myriad-merope" }
+serde = { version = "1", features = ["derive"] }
+# Both sides parse numbers back to the exact same bits, so a body's digest
+# does not depend on which side read it.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.11"

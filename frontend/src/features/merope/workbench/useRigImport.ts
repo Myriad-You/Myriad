@@ -2,7 +2,7 @@ import type {
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from '../assets/pipeline'
-import type { TurnKeyformsStatus } from '../turnKeyformsApi'
+import type { TurnArchiveUse, TurnKeyformsStatus } from '../turnKeyformsApi'
 import { useEffect, useRef, useState } from 'react'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -20,29 +20,42 @@ export interface RigImportSummary {
 }
 
 /**
- * The plain rig: an uploaded PSD or one decomposition, its turn worked out
- * from the front drawing (11°). The enhanced one adds what is generated:
- * turn keys fitted to four turned drawings (about 30°) and, for the bust, the
+ * The plain rig: an uploaded PSD, its turn worked out from the front drawing
+ * (11°). The enhanced one is split by See-through and adds what is
+ * generated: turn keys fitted to four turned drawings (about 30°), for a
+ * standing figure its body's turn and weight shift, for the bust the
  * AI-redrawn expressions; each can be chosen on its own.
  */
 export type RigMode = 'plain' | 'enhanced'
+
+/** What a standing figure's enhancement keys: its head's turn, its body's turn and weight shift. */
+export interface EnhanceParts {
+  head: boolean
+  body: boolean
+}
 
 export interface RigImportSource {
   sourceMasterAssetId: string
   sourceGenerationFingerprint?: string
   seeThroughTokenConfigured: boolean
   onSaveSeeThroughToken: (token: string) => Promise<void>
-  /** Splits the portrait with turn keys; with `fromArchive`, fits that kept job again instead. */
+  /**
+   * Splits the portrait with turn keys; with `fromArchive`, uses that kept job
+   * instead (fitted again, or as it was). A standing figure keys the `parts` chosen.
+   */
   onDecomposeRigPsd: (
     onStatus: (status: TurnKeyformsStatus) => void,
     signal: AbortSignal,
-    fromArchive?: string,
+    fromArchive?: TurnArchiveUse,
+    parts?: EnhanceParts,
   ) => Promise<File>
-  /** Splits the portrait without turn keys (a standing figure's in tiles, as a job it reports on). */
-  onDecomposePlainPsd: (
+  /** Splits the portrait once without keys: the base the bust's redrawn expressions go on when its turn is not keyed. */
+  onDecomposePlainPsd?: (
     signal: AbortSignal,
     onStatus: (status: TurnKeyformsStatus) => void,
   ) => Promise<File>
+  /** A standing figure: its body's turn and weight shift can be keyed beside its head. */
+  bodyKeysOffered?: boolean
   onPreflightRigPsd: (
     file: File,
     onStage: (event: RigAssetCompileEvent) => void,
@@ -70,6 +83,7 @@ export function useRigImport({
   onSaveSeeThroughToken,
   onDecomposeRigPsd,
   onDecomposePlainPsd,
+  bodyKeysOffered = false,
   onPreflightRigPsd,
   onCommitRigPsd,
   onGenerateAiExpressions,
@@ -106,10 +120,13 @@ export function useRigImport({
     null,
   )
   const [mode, setMode] = useState<RigMode>('plain')
-  // What the enhanced rig adds; expressions only where they are offered.
+  // What the enhanced rig adds; the body's keys and the expressions only where they are offered.
   const [enhanceTurn, setEnhanceTurn] = useState(true)
+  const [enhanceBody, setEnhanceBody] = useState(true)
   const [enhanceExpressions, setEnhanceExpressions] = useState(Boolean(onGenerateAiExpressions))
   const expressionsOffered = Boolean(onGenerateAiExpressions)
+  const enhanceParts: EnhanceParts = { head: enhanceTurn, body: bodyKeysOffered && enhanceBody }
+  const enhanceChosen = enhanceParts.head || enhanceParts.body || (expressionsOffered && enhanceExpressions)
   // The PSD last preflighted here, and whether with the redrawn expressions,
   // so fresh expressions can be tried on it at once.
   const lastRigPsdRef = useRef<File | null>(null)
@@ -218,18 +235,19 @@ export function useRigImport({
   }
 
   /**
-   * Splits the portrait and preflights it. The plain rig splits it once; the
-   * enhanced one fits turn keys (or refits a kept job) and redraws the
-   * expressions as chosen, the two at once, then uses what was made.
+   * Splits the portrait and preflights it, enhanced: fits the keys chosen (or
+   * refits a kept job) and redraws the expressions as chosen, the two at
+   * once, then uses what was made. Only the expressions: one plain split.
    */
-  const decomposePsd = async (fromArchive?: string) => {
+  const decomposePsd = async (fromArchive?: TurnArchiveUse) => {
     if (importing || !sourceMasterAssetId || !seeThroughTokenConfigured) {
       return
     }
     const enhanced = mode === 'enhanced' || fromArchive !== undefined
     const turn = enhanced && (enhanceTurn || fromArchive !== undefined)
+    const body = enhanced && enhanceParts.body && fromArchive === undefined
     const expressions = enhanced && expressionsOffered && enhanceExpressions
-    if (enhanced && !turn && !expressions) return
+    if (!enhanced || (!turn && !body && !expressions)) return
     const controller = new AbortController()
     importAbortRef.current = controller
     setOperation('decompose')
@@ -239,11 +257,12 @@ export function useRigImport({
     setResult(null)
     setError(null)
     try {
-      const split = turn
+      const split = turn || body || !onDecomposePlainPsd
         ? onDecomposeRigPsd(
             (status) => { if (!controller.signal.aborted) setDecomposeStatus(status) },
             controller.signal,
             fromArchive,
+            { head: turn, body },
           )
         : onDecomposePlainPsd(
             controller.signal,
@@ -354,6 +373,11 @@ export function useRigImport({
     setMode,
     enhanceTurn,
     setEnhanceTurn,
+    enhanceBody,
+    setEnhanceBody,
+    bodyKeysOffered,
+    enhanceParts,
+    enhanceChosen,
     enhanceExpressions,
     setEnhanceExpressions,
     expressionsOffered,

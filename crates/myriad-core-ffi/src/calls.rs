@@ -18,6 +18,8 @@ use serde_json::{Value, json};
 use crate::Failure;
 
 mod affect;
+mod chat;
+mod memory;
 mod outfit;
 mod own;
 mod reach;
@@ -25,6 +27,7 @@ mod serial;
 mod soup;
 mod speaking;
 mod style;
+mod sync;
 mod timing;
 mod vitals;
 
@@ -43,9 +46,16 @@ const CALLS: &[(&str, Call)] = &[
     ("affect.settle", affect::settle),
     ("affect.transition", affect::transition),
     ("affect.user_utterance", affect::user_utterance),
+    ("chat.history_lines", chat::history_lines),
+    ("chat.history_text", chat::history_text),
+    ("chat.pause_text", chat::pause_text),
+    ("chat.safe_content", chat::safe_content),
     ("contrast.describe", style::describe),
     ("contrast.overused", style::overused),
     ("contrast.pieces", style::pieces),
+    ("diary.compact_summary", memory::compact_summary),
+    ("diary.redact", memory::redact),
+    ("diary.should_write_chat", memory::should_write_chat_diary),
     ("library.csv_records", serial::csv_records),
     ("library.from_aozora", serial::from_aozora),
     ("library.from_gutenberg", serial::from_gutenberg),
@@ -60,6 +70,13 @@ const CALLS: &[(&str, Call)] = &[
     ("making.untried_at", soup::untried_at),
     ("making.writing_about_own", soup::writing_about_own),
     ("making_sense.told_section", speaking::told_section),
+    ("memory.base_level", memory::base_level),
+    ("memory.gap_in", memory::gap_in),
+    ("memory.of_row", memory::of_row),
+    ("memory.overlap", memory::overlap),
+    ("memory.readiness", memory::readiness),
+    ("memory.score_all", memory::score_all),
+    ("memory.spread", memory::spread),
     ("meta.version", version),
     ("outfit.after_reply", outfit::after_reply),
     ("outfit.hold_wear", outfit::hold_wear),
@@ -71,6 +88,7 @@ const CALLS: &[(&str, Call)] = &[
     ("prompt.untrusted_block", speaking::untrusted_block),
     ("reach.as_text", reach::as_text),
     ("reach.judge_system", reach::judge_system),
+    ("reach.key", reach::key),
     ("reach.parse_judged", reach::parse_judged),
     ("reach.reason", reach::reason),
     ("reach.route", reach::route),
@@ -138,16 +156,33 @@ const CALLS: &[(&str, Call)] = &[
     ("speaking.taste_section", own::taste_section),
     ("speaking.us_section", own::us_section),
     ("speaking.views_section", own::views_section),
+    ("style.distance", style::distance),
     ("style.noticed", style::noticed),
     ("style.unlike", style::unlike),
+    ("sync.affect_fold", sync::affect_fold),
+    ("sync.affect_replay", sync::affect_replay),
+    ("sync.canonicalize", sync::canonicalize),
+    ("sync.check_rev", sync::check_rev),
+    ("sync.compare", sync::compare),
+    ("sync.hlc_next", sync::hlc_next),
+    ("sync.hlc_observe", sync::hlc_observe),
+    ("sync.is_empty", sync::is_empty),
+    ("sync.legacy_rev", sync::legacy_rev),
+    ("sync.persona_diff", sync::persona_diff),
+    ("sync.rig_package_id", sync::rig_package_id),
     ("threads.section", own::threads_section),
+    ("timing.asleep_at", timing::asleep_at),
     ("timing.asleep_for", timing::asleep_for),
     ("timing.day_at", timing::day_at),
+    ("timing.her_date_at", timing::her_date_at),
+    ("timing.her_day_at", timing::her_day_at),
     ("timing.past_bedtime", timing::past_bedtime),
+    ("timing.past_bedtime_at", timing::past_bedtime_at),
     ("timing.sleep", timing::sleep),
     ("vitals.alerts", vitals::alerts),
     ("vitals.ends_asking", vitals::ends_asking),
     ("vitals.leaned_on", vitals::leaned_on),
+    ("vitals.quantile", vitals::quantile),
 ];
 
 pub(crate) fn names() -> Vec<&'static str> {

@@ -12,9 +12,11 @@ pub(super) const TESTED: &[&str] = &[
     "contrast.describe",
     "contrast.overused",
     "contrast.pieces",
+    "style.distance",
     "style.noticed",
     "style.unlike",
     "vitals.alerts",
+    "vitals.quantile",
 ];
 
 fn overused_json(found: &[contrast::Overused]) -> Value {
@@ -63,9 +65,14 @@ fn her_lines_beside_theirs_match_the_crate() {
     let theirs = contrast::Counts::of(theirs.iter().map(String::as_str));
     let want = contrast::overused(&hers, &theirs);
     assert!(!want.is_empty());
+    let counts = |counts: &contrast::Counts| {
+        let mut pieces: Vec<(&String, &u32)> = counts.pieces.iter().collect();
+        pieces.sort();
+        json!({ "messages": counts.messages, "pieces": pieces })
+    };
     let got = ok(
         "contrast.overused",
-        json!({ "hers": hers, "theirs": theirs }),
+        json!({ "hers": counts(&hers), "theirs": counts(&theirs) }),
     );
     assert_eq!(got["overused"], overused_json(&want));
     for (got, want) in got["overused"].as_array().unwrap().iter().zip(&want) {
@@ -97,9 +104,7 @@ fn how_unlike_them_matches_the_crate() {
         "style.unlike",
         json!({ "history": history, "recent": recent }),
     );
-    // Gram weights are summed in hash order: equal to rounding.
-    let (got, want) = (got["z"].as_f64().unwrap(), want.unwrap());
-    assert!((got - want).abs() <= want.abs() * 1e-12, "{got} {want}");
+    assert_eq!(bits(&got["z"]), want.unwrap().to_bits());
     assert_eq!(
         ok(
             "style.unlike",
@@ -107,6 +112,10 @@ fn how_unlike_them_matches_the_crate() {
         )["z"],
         Value::Null
     );
+    let theirs = &history[..60];
+    let got = ok("style.distance", json!({ "left": recent, "right": theirs }));
+    let want = style::distance(&style::profile(&recent), &style::profile(theirs));
+    assert_eq!(bits(&got["distance"]), want.to_bits());
     assert_eq!(
         ok("style.noticed", json!({})),
         json!({
@@ -152,4 +161,17 @@ fn alerts_match_the_crate() {
     assert!(want.len() > 5);
     let got = ok("vitals.alerts", json!({ "today": today, "before": before }));
     assert_eq!(got["alerts"], json!(want));
+    for (values, at) in [
+        (vec![], 0.5),
+        (vec![3.0, -1.5, 9.25, 4.0], 0.5),
+        (vec![1.0, 2.0], 1.7),
+    ] {
+        assert_eq!(
+            ok(
+                "vitals.quantile",
+                json!({ "values": values, "quantile": at })
+            )["value"],
+            json!(vitals::quantile(&values, at))
+        );
+    }
 }

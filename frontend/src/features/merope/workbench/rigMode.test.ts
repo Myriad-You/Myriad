@@ -17,4 +17,6 @@ test('the mode the rig was made in, for its own portrait only', () => {
   assert.equal(activeRigMode(manifest('/a.png', { turnKeyforms: {} }), '/a.png'), 'enhanced', 'keyed before the record')
   assert.equal(activeRigMode(manifest('/a.png', { enhancement: { turn: false, expressions: true } }), '/a.png'), 'enhanced')
   assert.equal(activeRigMode(manifest('/a.png', { enhancement: { turn: false, expressions: false } }), '/a.png'), 'plain')
+  // A figure keyed by its body alone.
+  assert.equal(activeRigMode(manifest('/a.png', { enhancement: { turn: false, expressions: false, body: true } }), '/a.png'), 'enhanced')
 })

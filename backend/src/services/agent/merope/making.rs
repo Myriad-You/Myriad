@@ -72,7 +72,12 @@ pub(super) async fn maybe_make(
         .await
         .unwrap_or_default()
         .iter()
-        .filter(|row| row.created_at.with_timezone(&chrono::Local).date_naive() == today)
+        .filter(|row| {
+            row.created_at
+                .with_timezone(&super::clock::zone())
+                .date_naive()
+                == today
+        })
         .count();
     let unplayed = made.iter().filter(|made| made.tried.is_empty()).count();
     let soul: String = crate::services::agent::identity::get_speaking_soul()

@@ -44,8 +44,11 @@ compiler, renderer, motion clocks, and Merope UI.
 4. Topwear breathing/chest response and depth-separated head turn.
 5. rigid left/right `handwear` follow, quiet idle preview, and ±15° action limit.
 
-Humanoid clip/IK/gesture coverage is **outside Rig IR v4**, not a dormant
-alternate profile. Existing assets must pass the v4 migration/diagnostic path
+A standing figure's bones (spine, legs with planted feet, solved hip to ankle)
+are built at playback from the found joints (`figureSkeleton`); they are not
+stored in the IR. Gesture poses remain outside it: large poses are drawn
+variants, not bigger bone turns. Humanoid clip coverage is **outside Rig IR
+v4**, not a dormant alternate profile. Existing assets must pass the v4 migration/diagnostic path
 or fall back to their portrait; new imports cannot declare limb chains. In
 particular, no work in this mainline adds salute, pointing, open-palm, hand
 contact, wrist rotation, locomotion, or gesture constraints.

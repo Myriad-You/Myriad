@@ -24,6 +24,7 @@ use crate::models::entities::agent_addressee_state;
 use crate::services::agent::consciousness::last_live_presence;
 use crate::services::agent::run_hub;
 
+pub use myriad_merope::diary::{compact_summary, redact_event_text};
 pub use produce::{spawn, spawn_presence};
 pub use redeem::tick_speak_intents;
 
@@ -110,78 +111,9 @@ pub(crate) async fn persist_persona_remember(
     }
 }
 
-pub fn compact_summary(summary: &str) -> String {
-    redact_event_text(summary)
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(240)
-        .collect()
-}
-
-pub fn redact_event_text(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        return String::new();
-    }
-    let mut skip_next = false;
-    let mut out = Vec::new();
-    for token in trimmed.split_whitespace() {
-        if skip_next {
-            skip_next = false;
-            continue;
-        }
-        let lower = token.to_ascii_lowercase();
-        if lower == "bearer" || lower.starts_with("bearer") {
-            skip_next = lower == "bearer";
-            continue;
-        }
-        if let Some(cleaned) = redact_token(token) {
-            out.push(cleaned);
-        }
-    }
-    out.join(" ")
-}
-
-fn redact_token(token: &str) -> Option<String> {
-    let stripped = if let Some(scheme) = token.find("://") {
-        let after_scheme = &token[scheme + 3..];
-        if let Some(query) = after_scheme.find('?') {
-            token[..scheme + 3 + query].to_string()
-        } else {
-            token.to_string()
-        }
-    } else {
-        token.to_string()
-    };
-    let lower = stripped.to_ascii_lowercase();
-    if lower.contains("api_key=")
-        || lower.contains("access_token=")
-        || lower.contains("refresh_token=")
-        || lower.contains("secret=")
-        || lower.contains("password=")
-        || lower.starts_with("bearer")
-    {
-        return None;
-    }
-    Some(stripped)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn compact_summary_drops_json_and_secret_shaped_tokens() {
-        assert!(compact_summary("{\"token\":\"abc\"}").is_empty());
-        assert_eq!(
-            compact_summary("Steam 刷新失败 https://api.example/sync?access_token=abcd"),
-            "Steam 刷新失败 https://api.example/sync"
-        );
-        assert_eq!(compact_summary("抓取失败 Bearer eyJhbGciOi"), "抓取失败");
-        assert_eq!(compact_summary("  Steam  解锁了成就  "), "Steam 解锁了成就");
-    }
 
     #[test]
     fn persona_remember_insert_skips_empty_and_duplicate_compact_text() {

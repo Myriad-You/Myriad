@@ -1,20 +1,10 @@
 //! Chat Lite prompt reconstruction. Chat (`for_chat`) drops Work artifacts;
 //! Work (`!for_chat`) still appends planner extras from metadata.
 
+use myriad_merope::chat_history::{HISTORY_MESSAGES, HistoryMessage};
 use serde_json::Value;
 
 use super::types::ConversationMessage;
-
-const WORK_ARTIFACT_PREFIXES: &[&str] = &[
-    "[输出数据:",
-    "[展示类型:",
-    "[前端动作:",
-    "[确认",
-    "[output data:",
-    "[display type:",
-    "[frontend action:",
-    "[confirm:",
-];
 
 /// Rebuild a stored session row for a model prompt.
 ///
@@ -83,25 +73,7 @@ fn cut_off_marker(role: &str, metadata: Option<&Value>) -> Option<&'static str> 
     }
 }
 
-/// Drop Work task metadata / confirmation / frontend-action injections that
-/// may already be sitting on an assistant line.
-pub fn chat_safe_content(content: &str) -> String {
-    let spoken = myriad_merope::split_chat_wear_directive(content).0;
-    let spoken = super::chat_music::split_chat_music_directive(&spoken).0;
-    let spoken = myriad_merope::stickers::split_sticker_directive(&spoken).0;
-    spoken
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim_start();
-            !WORK_ARTIFACT_PREFIXES
-                .iter()
-                .any(|prefix| trimmed.starts_with(prefix))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
-}
+pub use myriad_merope::chat_history::chat_safe_content;
 
 /// Closer for Chat Lite. Tone follows the persona; do not flatten everyone
 /// into a short, warm assistant.
@@ -414,27 +386,6 @@ fn string_field(value: Option<&Value>, max_chars: usize) -> String {
         .to_string()
 }
 
-/// The conversation as far back as she would still have it in front of
-/// her: the latest messages, up to this many or this much text.
-const HISTORY_MESSAGES: usize = 40;
-const HISTORY_CHARS: usize = 5000;
-
-/// A pause in a conversation this long is marked, so what was said days
-/// ago does not read as if just said.
-const MARKED_PAUSE_SECS: i64 = 3 * 3600;
-
-/// How long a pause was, plainly: "13 hours", "3 days".
-fn pause_text(seconds: i64) -> String {
-    let hours = seconds / 3600;
-    match hours {
-        ..=23 => format!("{} hours", hours.max(1)),
-        _ => match hours / 24 {
-            1 => "1 day".to_string(),
-            days => format!("{days} days"),
-        },
-    }
-}
-
 fn sent_at(message: &ConversationMessage) -> Option<chrono::DateTime<chrono::Utc>> {
     message
         .created_at
@@ -443,48 +394,19 @@ fn sent_at(message: &ConversationMessage) -> Option<chrono::DateTime<chrono::Utc
         .map(|at| at.with_timezone(&chrono::Utc))
 }
 
-/// One message per line, each with who said it: a message sent as several
-/// lines reads as one. Long pauses between them are marked; how long since
-/// the last of them is told apart (see `format_since_section`), so the whole
-/// stands against now.
+/// [`myriad_merope::chat_history::chat_history_text`] over stored messages:
+/// the latest of them, each with when it was sent if that reads as a time.
 fn chat_history_text(history: &[ConversationMessage]) -> String {
-    let mut kept: Vec<(String, Option<chrono::DateTime<chrono::Utc>>)> = Vec::new();
-    let mut chars = 0;
-    for message in history.iter().rev().take(HISTORY_MESSAGES) {
-        let said = chat_safe_content(&message.content)
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .collect::<Vec<_>>()
-            .join(" / ");
-        if said.is_empty() {
-            continue;
-        }
-        let line = format!("{}：{said}", message.role);
-        chars += line.chars().count();
-        if chars > HISTORY_CHARS && !kept.is_empty() {
-            break;
-        }
-        kept.push((line, sent_at(message)));
-    }
-    kept.reverse();
-    let mut lines = Vec::with_capacity(kept.len() + 2);
-    let mut previous: Option<chrono::DateTime<chrono::Utc>> = None;
-    for (line, at) in kept {
-        if let (Some(before), Some(at)) = (previous, at)
-            && (at - before).num_seconds() >= MARKED_PAUSE_SECS
-        {
-            lines.push(format!(
-                "（{} later）",
-                pause_text((at - before).num_seconds())
-            ));
-        }
-        if at.is_some() {
-            previous = at;
-        }
-        lines.push(line);
-    }
-    lines.join("\n")
+    let latest = &history[history.len().saturating_sub(HISTORY_MESSAGES)..];
+    let latest: Vec<HistoryMessage> = latest
+        .iter()
+        .map(|message| HistoryMessage {
+            role: &message.role,
+            content: &message.content,
+            sent_at: sent_at(message),
+        })
+        .collect();
+    myriad_merope::chat_history::chat_history_text(&latest)
 }
 
 fn work_artifact_extras(metadata: Option<&Value>) -> Option<String> {
@@ -522,6 +444,7 @@ fn work_artifact_extras(metadata: Option<&Value>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use myriad_merope::chat_history::HISTORY_CHARS;
     use serde_json::json;
 
     use super::*;

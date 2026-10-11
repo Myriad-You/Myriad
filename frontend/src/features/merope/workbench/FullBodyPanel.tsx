@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import type { SiteFace } from '../api'
 import type { RigAssetCompileEvent } from '../assets/pipeline'
-import type { RigPath } from './RigImportPanel'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { LuDownload } from 'react-icons/lu'
@@ -13,10 +12,12 @@ import { userFacingError } from '../../../utils/userFacingError'
 import {
   generateFullBodyPortrait,
   getFullBodyFace,
+  saveFullBodyStance,
   uploadFullBodyPortrait,
 } from '../api'
 import { commitFullBodyPsdAsset, preflightFullBodyPsdAsset } from '../assets/pipeline'
 import { decomposeWithTurnKeyforms } from '../turnKeyformsApi'
+import { FaceTabs } from './FaceTabs'
 import { RigImportPanel, RigModeTags } from './RigImportPanel'
 import { activeRigMode } from './rigMode'
 import { useRigImport } from './useRigImport'
@@ -40,7 +41,7 @@ interface Props {
   trailing?: ReactNode
 }
 
-type Operation = 'generate' | 'upload' | 'wear'
+type Operation = 'generate' | 'upload' | 'wear' | 'stance'
 
 /**
  * A full-body set's page: its picture drawn or uploaded, then split into
@@ -64,7 +65,6 @@ export function FullBodyPanel({
   const [face, setFace] = useState<SiteFace | null>(null)
   const [operation, setOperation] = useState<Operation | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [rigPath, setRigPath] = useState<RigPath>('upload')
   const uploadRef = useRef<HTMLInputElement>(null)
 
   const reload = useCallback(async () => {
@@ -84,17 +84,13 @@ export function FullBodyPanel({
     sourceGenerationFingerprint: fingerprint,
     seeThroughTokenConfigured,
     onSaveSeeThroughToken,
-    onDecomposeRigPsd: (onStatus, signal, fromArchive) =>
+    // Enlarged, decomposed in tiles and stitched on the server, as a job keying the parts chosen.
+    onDecomposeRigPsd: (onStatus, signal, fromArchive, parts) =>
       decomposeWithTurnKeyforms(
         { sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint },
-        { outfitId, fromArchive, onStatus, signal },
+        { outfitId, fromArchive, parts, onStatus, signal },
       ),
-    // Enlarged, decomposed in tiles and stitched on the server, as a job.
-    onDecomposePlainPsd: (signal, onStatus) =>
-      decomposeWithTurnKeyforms(
-        { sourceMasterAssetId: portrait ?? '', sourceGenerationFingerprint: fingerprint },
-        { outfitId, plain: true, onStatus, signal },
-      ),
+    bodyKeysOffered: true,
     onPreflightRigPsd: (
       file: File,
       onStage: (event: RigAssetCompileEvent) => void,
@@ -154,6 +150,18 @@ export function FullBodyPanel({
     )
 
   const wear = () => run('wear', onWear, labels.wardrobeApplyFailed)
+
+  // How the figure holds itself, kept in its rig: standing on its soles, or floating.
+  const stance = face?.manifest?.anime25dPlayback?.figureStance ?? 'ground'
+  const setStance = (next: 'ground' | 'float') => {
+    const assetId = face?.assetId
+    if (!assetId || next === stance) return
+    void run('stance', async () => {
+      await saveFullBodyStance(outfitId, assetId, next)
+      await reload()
+      onChanged?.()
+    }, copy.stanceFailed)
+  }
 
   const upload = (file: File) =>
     run(
@@ -252,14 +260,27 @@ export function FullBodyPanel({
       {portrait ? (
         <SettingGroup
           title={labels.rigGroup}
-          titleExtra={<RigModeTags rig={rig} activeMode={activeMode} figure="fullBody" />}
+          titleExtra={<RigModeTags rig={rig} activeMode={activeMode} figure="fullBody" ready={activeMode !== null} />}
           description={labels.rigGroupDescription}
           id="merope-motion-full-body-rig"
         >
+          {activeMode ? (
+            <div className="merope-motion-rig">
+              <FaceTabs
+                className="merope-motion-rig__tabs"
+                ariaLabel={copy.stance}
+                value={stance}
+                options={[
+                  { value: 'ground', label: copy.stanceGround },
+                  { value: 'float', label: copy.stanceFloat },
+                ]}
+                onChange={(next) => { if (!operation) setStance(next) }}
+              />
+              <p className="merope-motion-rig__hint">{stance === 'float' ? copy.stanceFloatHint : copy.stanceGroundHint}</p>
+            </div>
+          ) : null}
           <RigImportPanel
             rig={rig}
-            rigPath={rigPath}
-            onRigPathChange={setRigPath}
             seeThroughTokenConfigured={seeThroughTokenConfigured}
             aiExpressions={[]}
             canGenerateAiExpressions={false}

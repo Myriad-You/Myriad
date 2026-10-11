@@ -418,6 +418,8 @@ fn persona_soul(name: &str, personality: &str) -> String {
         avatar_generation: None,
         updated_by: None,
         updated_at: "2026-01-01T00:00:00Z".parse().unwrap(),
+        zone: String::new(),
+        field_revs: serde_json::json!({}),
     };
     super::merope::format_persona(&persona).unwrap()
 }
@@ -435,6 +437,8 @@ fn contract_soul() -> String {
         avatar_generation: None,
         updated_by: None,
         updated_at: "2026-01-01T00:00:00Z".parse().unwrap(),
+        zone: String::new(),
+        field_revs: serde_json::json!({}),
     };
     super::merope::format_persona(&persona).unwrap()
 }

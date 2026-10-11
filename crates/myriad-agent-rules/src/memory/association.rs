@@ -14,11 +14,11 @@
 //! sender's fan-out, so a concept half of all memories share (a hub) passes on
 //! little. Activation is capped at 1.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, FixedOffset};
 
-use super::unified::Concept;
+use crate::Concept;
 
 const DECAY: f64 = 0.5;
 const SPREAD: f64 = 0.8;
@@ -142,8 +142,11 @@ pub fn wander(
     (at != start).then_some(at)
 }
 
-fn concept_members(nodes: &[Node]) -> HashMap<String, Vec<usize>> {
-    let mut members: HashMap<String, Vec<usize>> = HashMap::new();
+/// Each shared concept's members, in the concepts' own order: activation is
+/// summed concept by concept, and a fixed order keeps the sum the same on
+/// every run and every platform.
+fn concept_members(nodes: &[Node]) -> BTreeMap<String, Vec<usize>> {
+    let mut members: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (index, node) in nodes.iter().enumerate() {
         for concept in node.concepts {
             let entry = members.entry(concept.name.to_lowercase()).or_default();

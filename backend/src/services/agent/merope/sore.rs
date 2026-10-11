@@ -12,7 +12,7 @@
 //! group when she answers them there, and in private with them.
 
 use chrono::{DateTime, Utc};
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde_json::{Value, json};
 
 use crate::services::agent::memory::unified::{self, Audience};
@@ -126,17 +126,20 @@ pub async fn open_in_group(
     sores
 }
 
+/// Keep a sore spot, in place of the rows `replacing` (retired as
+/// superseded, pointing at it).
 #[allow(clippy::too_many_arguments)]
-async fn put(
-    db: &DatabaseConnection,
+async fn put<C: sea_orm::ConnectionTrait>(
+    db: &C,
     user_id: i32,
     audience: Audience,
     what: &str,
     weight: Weight,
     since: DateTime<Utc>,
     mended: Option<DateTime<Utc>>,
-) {
-    let _ = unified::remember(
+    replacing: &[String],
+) -> Result<unified::Replaced, sea_orm::DbErr> {
+    unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id,
@@ -160,8 +163,13 @@ async fn put(
             },
             concepts: Vec::new(),
         },
+        unified::InPlaceOf {
+            user_id,
+            ids: replacing,
+            reason: "superseded",
+        },
     )
-    .await;
+    .await
 }
 
 /// Something they did got to her, where it happened (`audience`). Past the
@@ -186,7 +194,7 @@ pub async fn keep(
             .collect();
         let _ = unified::retire(db, user_id, &oldest, "faded").await;
     }
-    put(db, user_id, audience, &what, weight, Utc::now(), None).await;
+    let _ = put(db, user_id, audience, &what, weight, Utc::now(), None, &[]).await;
 }
 
 /// They apologized or made it right: it may still sting, and she knows.
@@ -195,22 +203,26 @@ pub async fn mend(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) {
         if sore.mended.is_some() {
             continue;
         }
-        if unified::retire(db, sore.user_id, &[sore.id.clone()], "superseded")
-            .await
-            .unwrap_or(0)
-            > 0
-        {
-            put(
-                db,
-                sore.user_id,
-                audience_of(sore.user_id, &sore.venue),
-                &sore.what,
-                sore.weight,
-                sore.since,
-                Some(Utc::now()),
-            )
-            .await;
-        }
+        // Only while the sore is still there: the mended one takes its place,
+        // or nothing is written.
+        let Ok(transaction) = db.begin().await else {
+            continue;
+        };
+        let mended = put(
+            &transaction,
+            sore.user_id,
+            audience_of(sore.user_id, &sore.venue),
+            &sore.what,
+            sore.weight,
+            sore.since,
+            Some(Utc::now()),
+            std::slice::from_ref(&sore.id),
+        )
+        .await;
+        let _ = match mended {
+            Ok(replaced) if replaced.retired > 0 => transaction.commit().await,
+            _ => transaction.rollback().await,
+        };
     }
 }
 
@@ -219,15 +231,13 @@ pub async fn mend(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) {
 pub async fn let_go(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) {
     for sore in indexes.iter().filter_map(|index| sores.get(*index)) {
         let user_id = sore.user_id;
-        if unified::retire(db, user_id, &[sore.id.clone()], "forgiven")
-            .await
-            .unwrap_or(0)
-            == 0
-        {
+        // Only while the sore is still there: what is behind them now takes
+        // its place, or nothing is written.
+        let Ok(transaction) = db.begin().await else {
             continue;
-        }
-        let _ = unified::remember(
-            db,
+        };
+        let let_go = unified::remember_in_place_of(
+            &transaction,
             unified::NewMemory {
                 user_id,
                 kind: unified::MemoryKind::Fact,
@@ -242,8 +252,23 @@ pub async fn let_go(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) 
                 importance: 0.3,
                 concepts: Vec::new(),
             },
+            unified::InPlaceOf {
+                user_id,
+                ids: std::slice::from_ref(&sore.id),
+                reason: "forgiven",
+            },
         )
         .await;
+        let committed = match let_go {
+            Ok(replaced) if replaced.retired > 0 => transaction.commit().await.is_ok(),
+            _ => {
+                let _ = transaction.rollback().await;
+                false
+            }
+        };
+        if !committed {
+            continue;
+        }
         tracing::info!(user_id, "[Merope] she let something go");
     }
 }

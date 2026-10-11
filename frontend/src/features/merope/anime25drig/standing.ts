@@ -138,28 +138,45 @@ export class Anime25DStanding {
   private constructor(
     readonly groundY: number,
     private readonly hipsY: number,
+    /**
+     * The hips go with the lean, the figure swaying from its feet as one
+     * (a figure with bones), rather than against it.
+     */
+    private readonly withLean: boolean,
+    /** The skirt's trail as its material sets it (partPhysics). */
+    private readonly skirtSpring: Readonly<{ frequency: number; damping: number }>,
   ) {}
 
   /** A standing figure's stance, or none for a bust. */
-  static of(anchors: Readonly<Anime25DPlaybackAnchors>): Anime25DStanding | null {
+  static of(
+    anchors: Readonly<Anime25DPlaybackAnchors>,
+    withLean = false,
+    skirt: Readonly<{ frequency: number; damping: number }> | null = null,
+  ): Anime25DStanding | null {
     return anchors.groundY === undefined
       ? null
-      : new Anime25DStanding(anchors.groundY, anchors.bodyPivot.y)
+      : new Anime25DStanding(anchors.groundY, anchors.bodyPivot.y, withLean,
+        skirt ?? { frequency: SKIRT_FREQUENCY, damping: SKIRT_DAMPING })
   }
 
   /** How far the hips move at a lean of `body`. */
   shift(body: number): number {
-    return -body * STANCE_SHIFT * (this.groundY - this.hipsY)
+    return (this.withLean ? body : -body) * STANCE_SHIFT * (this.groundY - this.hipsY)
+  }
+
+  /** Which leg the hips are over at a lean of `body`: +1 the one on the right of the picture. */
+  weight(body: number): number {
+    return Math.max(-1, Math.min(1, this.withLean ? body : -body))
   }
 
   /**
-   * Steps the stance after the lean. The hips go against it, so the weight
-   * lands on the leg they move over: that leg straightens, the other relaxes.
+   * Steps the stance after the lean. The weight lands on the leg the hips
+   * move over: that leg straightens, the other relaxes.
    */
   step(dt: number, body: number, phys: boolean): Readonly<Anime25DStandingFrame> {
     const hips = this.shift(body)
     // +1 with the hips fully over the leg on the right of the picture.
-    const weight = Math.max(-1, Math.min(1, -body))
+    const weight = this.weight(body)
     const free = { L: Math.max(0, weight), R: Math.max(0, -weight) }
     const frame = this.frame
     frame.pelvisTilt = weight * PELVIS_TILT
@@ -168,7 +185,7 @@ export class Anime25DStanding {
       settle(this.knees.L, free.L)
       settle(this.knees.R, free.R)
     } else {
-      stepSpring(this.skirt, hips, dt, SKIRT_FREQUENCY, SKIRT_DAMPING)
+      stepSpring(this.skirt, hips, dt, this.skirtSpring.frequency, this.skirtSpring.damping)
       stepSpring(this.knees.L, free.L, dt, LEG_FREQUENCY, LEG_DAMPING)
       stepSpring(this.knees.R, free.R, dt, LEG_FREQUENCY, LEG_DAMPING)
     }
@@ -277,6 +294,21 @@ const NOT_ON_LEGS = new Set(['handwear', 'topwear', 'bottomwear', 'neckwear', 'h
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
+}
+
+/**
+ * A skirt's own trail behind the hips, without the pelvis tilt: on a figure
+ * with bones (figureSkeleton) the pelvis carries the rest.
+ */
+export function applySkirtTrail(
+  point: { x: number; y: number },
+  binding: Readonly<StandingBinding>,
+  restY: number,
+  frame: Readonly<Anime25DStandingFrame>,
+): void {
+  if (binding.kind !== 'skirt') return
+  const along = clamp01((restY - binding.topY) / Math.max(1, binding.bottomY - binding.topY))
+  point.x += frame.skirtSwing * along * along
 }
 
 /** Moves one rest point of a standing figure's layer with its stance. */

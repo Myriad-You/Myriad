@@ -305,6 +305,81 @@ html.dark .merope-motion-page {
   gap: 16px;
 }
 
+.merope-motion-persona__zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+
+.merope-motion-persona__zone > .merope-ob-field {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.merope-persona-history {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--merope-accent, #6b7cff) 6%, transparent);
+}
+
+.merope-persona-history__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.merope-persona-history__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.merope-persona-history__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.merope-persona-history__copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.merope-persona-history__copy small {
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+}
+
+.merope-persona-history__value {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.merope-persona-history__value dl {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.merope-persona-history__value dt {
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+}
+
+.merope-persona-history__value dd {
+  margin: 0 0 4px;
+}
+
 .merope-motion-rig {
   display: grid;
   gap: 12px;
@@ -445,6 +520,52 @@ html.dark .merope-motion-page {
   color: var(--merope-muted, #667085);
   font-size: 11px;
   line-height: 1.5;
+}
+
+/* An enhancement job's progress: time so far and left, a bar, then the steps. */
+.merope-enhance-progress__summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  color: var(--merope-muted, #667085);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.merope-enhance-progress__summary span:last-child {
+  color: var(--merope-accent-ink);
+  font-weight: 650;
+}
+
+.merope-enhance-progress__bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--merope-line) 70%, transparent);
+}
+
+.merope-enhance-progress__bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--merope-accent);
+  transition: width 0.6s ease;
+}
+
+.merope-motion-rig__step.is-parallel .merope-motion-rig__step-marker {
+  border-style: dashed;
+}
+
+.merope-motion-rig__step-copy .merope-enhance-progress__now {
+  color: var(--merope-accent-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .merope-enhance-progress__bar span {
+    transition: none;
+  }
 }
 
 .merope-motion-rig__hint {

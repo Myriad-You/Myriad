@@ -103,6 +103,79 @@ async fn rewrite_pose_corrections(
     master: &MasterProvenance,
     corrections: &Value,
 ) -> ApiResult<(RigManifest, String)> {
+    rewrite_playback(previous, master, |playback| {
+        myriad_merope::replace_anime25d_pose_corrections(playback, corrections)
+            .then_some(())
+            .ok_or_else(|| bad_request("Invalid pose corrections"))
+    })
+    .await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveFigureStanceRequest {
+    asset_id: String,
+    stance: FigureStance,
+}
+
+/// How a full figure holds itself: on its soles, or floating with its legs hanging.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum FigureStance {
+    Ground,
+    Float,
+}
+
+/// A full-body set's stance, kept in its package's playback (`figureStance`).
+pub async fn save_full_body_stance(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(outfit_id): Path<String>,
+    Json(payload): Json<SaveFigureStanceRequest>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    let user_id = require_owner(&claims, &db).await?;
+    let previous = merope_rig::normalize_asset_id(&payload.asset_id)
+        .ok_or_else(|| bad_request("Invalid rig asset id"))?;
+    let persona = merope::get_persona(&db).await.map_err(internal_error)?;
+    let set = full_body_set(persona.as_ref(), &outfit_id)?;
+    if set.rig_asset_id.as_deref() != Some(previous.as_str()) {
+        return Err(rig_revision_conflict());
+    }
+    let master = persona
+        .as_ref()
+        .and_then(|row| master_for(row, MasterSlot::FullBody(&outfit_id)))
+        .ok_or_else(|| not_found("The full-body set has no picture"))?;
+    let stance = match payload.stance {
+        FigureStance::Ground => "ground",
+        FigureStance::Float => "float",
+    };
+    let (manifest, asset_id) = rewrite_playback(&previous, &master, |playback| {
+        let object = playback
+            .as_object_mut()
+            .ok_or_else(|| bad_request("Anime2.5D playback is missing"))?;
+        object.insert("figureStance".to_string(), json!(stance));
+        Ok(())
+    })
+    .await?;
+    bind_full_body_rig(
+        &db,
+        user_id,
+        &outfit_id,
+        &asset_id,
+        &master,
+        Some(&previous),
+    )
+    .await?;
+    Ok(Json(json!({ "manifest": manifest, "assetId": asset_id })))
+}
+
+/// The stored package with its playback edited, saved as a new package.
+pub(super) async fn rewrite_playback(
+    previous: &str,
+    master: &MasterProvenance,
+    edit: impl FnOnce(&mut Value) -> ApiResult<()>,
+) -> ApiResult<(RigManifest, String)> {
     let mut manifest = load_stored_manifest(previous).await?;
     if !manifest_matches_master(&manifest, master)
         || !package_identity_matches(previous, &manifest).await?
@@ -113,9 +186,7 @@ async fn rewrite_pose_corrections(
         .anime25d_playback
         .as_mut()
         .ok_or_else(|| bad_request("Anime2.5D playback is missing"))?;
-    if !myriad_merope::replace_anime25d_pose_corrections(playback, corrections) {
-        return Err(bad_request("Invalid pose corrections"));
-    }
+    edit(playback)?;
     let atlas = merope_rig::read_atlas_bytes(previous)
         .await
         .map_err(internal_error)?;
@@ -149,6 +220,18 @@ mod pose_correction_tests {
         profile["activeOutfitId"] = json!("one");
         profile["wardrobe"][0]["rigAssetId"] = json!(b);
         assert!(!rig_revision_matches(Some(&profile), Some(&a)));
+    }
+
+    #[test]
+    fn a_stance_is_ground_or_float() {
+        let request = |stance: &str| {
+            serde_json::from_value::<SaveFigureStanceRequest>(
+                json!({ "assetId": "a".repeat(64), "stance": stance }),
+            )
+        };
+        assert_eq!(request("float").unwrap().stance, FigureStance::Float);
+        assert_eq!(request("ground").unwrap().stance, FigureStance::Ground);
+        assert!(request("fly").is_err());
     }
 
     #[test]

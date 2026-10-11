@@ -1,6 +1,8 @@
 //! Her state with each person: affect, appraisal, music credit, do-not-disturb and activity.
 
 use super::*;
+pub use myriad_persona_sync::AffectImpulse;
+use myriad_persona_sync::{affect::Change, entity::AffectAnchorBody};
 
 pub const MUSIC_MOOD_CREDIT_COOLDOWN_SECS: i64 = 30 * 60;
 
@@ -43,21 +45,33 @@ pub fn affect_from_state(state: &agent_addressee_state::Model) -> Affect {
     }
 }
 
-pub(super) fn hours_since(at: chrono::DateTime<chrono::FixedOffset>) -> f64 {
-    let secs = (super::super::clock::now() - at.with_timezone(&Utc)).num_seconds();
+/// Whole seconds from `at` to `now`, in hours, never negative: how far her
+/// affect settles between two moments, the same way on every side
+/// (`myriad_persona_sync::affect::settle_hours`).
+fn hours_between(at: chrono::DateTime<chrono::FixedOffset>, now: chrono::DateTime<Utc>) -> f64 {
+    let secs = (now - at.with_timezone(&Utc)).num_seconds();
     (secs.max(0) as f64) / 3600.0
 }
 
 /// Overlay mood/emotion regression in memory. Does not write; activity staleness uses `activity_updated_at`.
 pub(super) fn overlay_settled(
+    state: agent_addressee_state::Model,
+    base: AffectBaseline,
+) -> agent_addressee_state::Model {
+    overlay_settled_at(state, base, super::super::clock::now())
+}
+
+/// [`overlay_settled`], settled to `now`.
+fn overlay_settled_at(
     mut state: agent_addressee_state::Model,
     base: AffectBaseline,
+    now: chrono::DateTime<Utc>,
 ) -> agent_addressee_state::Model {
     let settled = settle(
         affect_from_state(&state),
         base,
-        hours_since(state.mood_settled_at),
-        hours_since(state.emotion_settled_at),
+        hours_between(state.mood_settled_at, now),
+        hours_between(state.emotion_settled_at, now),
     );
     state.mood = settled.mood;
     state.arousal = settled.arousal;
@@ -89,11 +103,39 @@ where
     C: ConnectionTrait,
 {
     let base = baseline_toward(db, user_id).await?;
+    Ok(match stored_or_created(db, user_id, base).await? {
+        Stored::Existing(existing) => overlay_settled(existing, base),
+        Stored::Created(created) => created,
+    })
+}
+
+/// Her stored state with someone, as written, or a new one at rest.
+enum Stored {
+    Existing(agent_addressee_state::Model),
+    Created(agent_addressee_state::Model),
+}
+
+impl Stored {
+    fn row(&self) -> &agent_addressee_state::Model {
+        match self {
+            Stored::Existing(row) | Stored::Created(row) => row,
+        }
+    }
+}
+
+async fn stored_or_created<C>(
+    db: &C,
+    user_id: i32,
+    base: AffectBaseline,
+) -> Result<Stored, anyhow::Error>
+where
+    C: ConnectionTrait,
+{
     if let Some(existing) = agent_addressee_state::Entity::find_by_id(user_id)
         .one(db)
         .await?
     {
-        return Ok(overlay_settled(existing, base));
+        return Ok(Stored::Existing(existing));
     }
     let rest = Affect::at_rest(base);
     let now = super::super::clock::now().into();
@@ -116,19 +158,40 @@ where
         updated_at: Set(now),
     };
     match active.insert(db).await {
-        Ok(model) => Ok(model),
+        Ok(model) => Ok(Stored::Created(model)),
         Err(err) if is_unique_conflict(&err) => {
             let existing = agent_addressee_state::Entity::find_by_id(user_id)
                 .one(db)
                 .await?
                 .ok_or_else(|| anyhow::Error::from(err))?;
-            Ok(overlay_settled(existing, base))
+            Ok(Stored::Existing(existing))
         }
         Err(err) => Err(err.into()),
     }
 }
 
-/// `state` is the row the caller already read (settled) under the addressee lock.
+/// The moment a write to `state` is stamped with: now, but always after the
+/// row's last write. Revisions travel as milliseconds. Consecutive writes
+/// must remain ordered even within one clock tick (and across replicas
+/// under the same DB lock).
+fn stamp_after(
+    state: &agent_addressee_state::Model,
+    now: chrono::DateTime<Utc>,
+) -> chrono::DateTime<Utc> {
+    now.max(
+        state
+            .updated_at
+            .max(state.mood_settled_at)
+            .with_timezone(&Utc)
+            + chrono::Duration::milliseconds(1),
+    )
+}
+
+/// `state` is the row the caller already read (settled) under the addressee
+/// lock. Writes the row only: every change the site makes goes through
+/// [`apply_change_on`], which also records it; tests use this to write
+/// behind a waiting change's back.
+#[cfg(test)]
 pub(super) async fn save_affect_on<C>(
     db: &C,
     state: agent_addressee_state::Model,
@@ -139,17 +202,30 @@ pub(super) async fn save_affect_on<C>(
 where
     C: ConnectionTrait,
 {
-    // Revisions travel as milliseconds. Consecutive writes must remain ordered
-    // even within one clock tick (and across replicas under the same DB lock).
-    let now = super::super::clock::now()
-        .max(
-            state
-                .updated_at
-                .max(state.mood_settled_at)
-                .with_timezone(&Utc)
-                + chrono::Duration::milliseconds(1),
-        )
-        .into();
+    let now = stamp_after(&state, super::super::clock::now());
+    write_affect_on(
+        db,
+        state,
+        affect,
+        now,
+        touch_user_message,
+        touch_music_credit,
+    )
+    .await
+}
+
+async fn write_affect_on<C>(
+    db: &C,
+    state: agent_addressee_state::Model,
+    affect: Affect,
+    now: chrono::DateTime<Utc>,
+    touch_user_message: bool,
+    touch_music_credit: bool,
+) -> Result<agent_addressee_state::Model, anyhow::Error>
+where
+    C: ConnectionTrait,
+{
+    let now: chrono::DateTime<chrono::FixedOffset> = now.into();
     let mut active: agent_addressee_state::ActiveModel = state.into();
     active.mood = Set(clamp(affect.mood));
     active.arousal = Set(clamp(affect.arousal));
@@ -167,42 +243,195 @@ where
     Ok(active.update(db).await?)
 }
 
-/// Apply one affect delta to the latest row under a per-addressee database
-/// lock. Chat turns, async appraisal and task outcomes can arrive from
-/// different sessions or backend replicas; serializing the read-modify-write
-/// keeps every delta instead of letting the last absolute write erase one.
-pub async fn update_affect<F>(
+/// What moved her and why, as one change of her affect is recorded
+/// (`myriad_persona_sync::affect`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AffectChange {
+    /// `user_turn`, `user_praise`, `user_scold`, `user_appraisal`, `task_ok`,
+    /// `task_fail`, `music_listening`.
+    pub cause: &'static str,
+    pub impulse: AffectImpulse,
+}
+
+impl AffectChange {
+    /// One turn of their words: praise or scolding lands less the more turns
+    /// came before it in the session; otherwise she only settles.
+    pub fn utterance(utterance_index: u32, praised: bool, scolded: bool) -> Self {
+        Self {
+            cause: if scolded {
+                "user_scold"
+            } else if praised {
+                "user_praise"
+            } else {
+                "user_turn"
+            },
+            impulse: AffectImpulse::utterance(utterance_index, praised, scolded),
+        }
+    }
+
+    /// How their words read to her, appraised after the turn.
+    pub fn appraisal(appraisal: myriad_merope::affect::Appraisal) -> Self {
+        Self {
+            cause: "user_appraisal",
+            impulse: AffectImpulse::appraisal(appraisal, 1.0),
+        }
+    }
+
+    /// A task she did for them, done or failed.
+    pub fn task(success: bool) -> Self {
+        Self {
+            cause: if success { "task_ok" } else { "task_fail" },
+            impulse: AffectImpulse::task(success),
+        }
+    }
+
+    fn music(listened_seconds: u32) -> Self {
+        Self {
+            cause: "music_listening",
+            impulse: AffectImpulse::Music {
+                listened_seconds: i64::from(listened_seconds),
+            },
+        }
+    }
+}
+
+/// Apply one change to the row read under the addressee lock and record it,
+/// in the caller's transaction: her state settles toward `base` to the moment
+/// the write is stamped with, the impulse moves her, the row is written, and
+/// the change is appended to `agent_affect_events` (the first one also
+/// anchors replay). Replaying the anchor and the changes gives the row.
+async fn apply_change_on<C>(
+    db: &C,
+    row: agent_addressee_state::Model,
+    base: AffectBaseline,
+    change: &AffectChange,
+    now: chrono::DateTime<Utc>,
+    touch_user_message: bool,
+    touch_music_credit: bool,
+) -> Result<(Affect, agent_addressee_state::Model), anyhow::Error>
+where
+    C: ConnectionTrait,
+{
+    let stamp = stamp_after(&row, now);
+    let user_id = row.user_id;
+    let state = overlay_settled_at(row, base, stamp);
+    let before = affect_from_state(&state);
+    let mut after = before;
+    change.impulse.apply(&mut after);
+    let saved = write_affect_on(
+        db,
+        state,
+        after,
+        stamp,
+        touch_user_message,
+        touch_music_credit,
+    )
+    .await?;
+    record_change_on(db, user_id, change, base, before, &saved).await?;
+    Ok((before, saved))
+}
+
+/// Appends one change, and anchors replay at it when nothing does yet.
+async fn record_change_on<C>(
+    db: &C,
+    user_id: i32,
+    change: &AffectChange,
+    base: AffectBaseline,
+    before: Affect,
+    saved: &agent_addressee_state::Model,
+) -> Result<(), anyhow::Error>
+where
+    C: ConnectionTrait,
+{
+    let crossed = |affect: Affect| myriad_persona_sync::entity::Affect {
+        mood: affect.mood,
+        arousal: affect.arousal,
+        emotion: affect.emotion,
+        emotion_arousal: affect.emotion_arousal,
+    };
+    let after = affect_from_state(saved);
+    let id = Uuid::new_v4().to_string();
+    let at = saved.mood_settled_at;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_affect_events (id, user_id, at, cause, impulse, baseline_mood, \
+         baseline_arousal, before, after, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())",
+        vec![
+            id.clone().into(),
+            user_id.into(),
+            at.into(),
+            change.cause.into(),
+            serde_json::to_value(&change.impulse)?.into(),
+            base.mood.into(),
+            base.arousal.into(),
+            serde_json::to_value(crossed(before))?.into(),
+            serde_json::to_value(crossed(after))?.into(),
+        ],
+    ))
+    .await?;
+    let rev = myriad_persona_sync::hlc::legacy(at.timestamp_micros(), None)
+        .map_err(|error| anyhow::anyhow!("anchor revision: {error}"))?
+        .to_string();
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO agent_affect_anchor (user_id, mood, arousal, emotion, emotion_arousal, at, \
+         through_event, rev) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+         ON CONFLICT (user_id) DO NOTHING",
+        vec![
+            user_id.into(),
+            after.mood.into(),
+            after.arousal.into(),
+            after.emotion.into(),
+            after.emotion_arousal.into(),
+            at.into(),
+            id.into(),
+            rev.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Apply one change to the latest row under a per-addressee database lock,
+/// and record it. Chat turns, async appraisal and task outcomes can arrive
+/// from different sessions or backend replicas; serializing the
+/// read-modify-write keeps every change instead of letting the last absolute
+/// write erase one.
+pub async fn update_affect(
     db: &DatabaseConnection,
     user_id: i32,
     touch_user_message: bool,
-    update: F,
-) -> Result<(Affect, agent_addressee_state::Model), anyhow::Error>
-where
-    F: FnOnce(&mut Affect) + Send,
-{
+    change: AffectChange,
+) -> Result<(Affect, agent_addressee_state::Model), anyhow::Error> {
     let transaction = db.begin().await?;
     lock_addressee(&transaction, user_id).await?;
-    let state = get_or_create_state(&transaction, user_id).await?;
-    let before = affect_from_state(&state);
-    let mut after = before;
-    update(&mut after);
-    let saved = save_affect_on(&transaction, state, after, touch_user_message, false).await?;
+    let base = baseline_toward(&transaction, user_id).await?;
+    let now = super::super::clock::now();
+    let row = stored_or_created(&transaction, user_id, base).await?;
+    let applied = apply_change_on(
+        &transaction,
+        row.row().clone(),
+        base,
+        &change,
+        now,
+        touch_user_message,
+        false,
+    )
+    .await?;
     transaction.commit().await?;
-    Ok((before, saved))
+    Ok(applied)
 }
 
 /// A delayed interpretation belongs to one persisted input, not whichever
 /// input happens to be current when the model finishes. The check and write
 /// share the ordinary affect lock; an activity write is not a new input.
-pub async fn update_utterance_appraisal<F>(
+pub async fn update_utterance_appraisal(
     db: &DatabaseConnection,
     user_id: i32,
     input_at: chrono::DateTime<chrono::FixedOffset>,
-    update: F,
-) -> Result<Option<(Affect, agent_addressee_state::Model)>, anyhow::Error>
-where
-    F: FnOnce(&mut Affect) + Send,
-{
+    change: AffectChange,
+) -> Result<Option<(Affect, agent_addressee_state::Model)>, anyhow::Error> {
     let transaction = db.begin().await?;
     lock_addressee(&transaction, user_id).await?;
     let Some(state) = agent_addressee_state::Entity::find_by_id(user_id)
@@ -211,17 +440,72 @@ where
     else {
         return Ok(None);
     };
-    if !appraisal_is_current(state.last_user_message_at, input_at, super::super::clock::now()) {
+    let now = super::super::clock::now();
+    if !appraisal_is_current(state.last_user_message_at, input_at, now) {
         return Ok(None);
     }
     let base = baseline_toward(&transaction, user_id).await?;
-    let state = overlay_settled(state, base);
-    let before = affect_from_state(&state);
-    let mut after = before;
-    update(&mut after);
-    let saved = save_affect_on(&transaction, state, after, false, false).await?;
+    let applied = apply_change_on(&transaction, state, base, &change, now, false, false).await?;
     transaction.commit().await?;
-    Ok(Some((before, saved)))
+    Ok(Some(applied))
+}
+
+/// Where replaying her affect toward someone starts, and the changes recorded
+/// after it, `upto` (inclusive) when given; none before her first change.
+pub(crate) async fn affect_log_on<C>(
+    db: &C,
+    user_id: i32,
+    upto: Option<chrono::DateTime<Utc>>,
+) -> Result<Option<(AffectAnchorBody, Vec<Change>)>, anyhow::Error>
+where
+    C: ConnectionTrait,
+{
+    let Some(anchor) = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT mood, arousal, emotion, emotion_arousal, at, through_event \
+             FROM agent_affect_anchor WHERE user_id = $1",
+            vec![user_id.into()],
+        ))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let anchor_at: chrono::DateTime<chrono::FixedOffset> = anchor.try_get("", "at")?;
+    let anchor = AffectAnchorBody {
+        affect: myriad_persona_sync::entity::Affect {
+            mood: anchor.try_get("", "mood")?,
+            arousal: anchor.try_get("", "arousal")?,
+            emotion: anchor.try_get("", "emotion")?,
+            emotion_arousal: anchor.try_get("", "emotion_arousal")?,
+        },
+        at: anchor_at.timestamp_micros(),
+        through_event: anchor.try_get("", "through_event")?,
+    };
+    let upto: Option<chrono::DateTime<chrono::FixedOffset>> = upto.map(|at| at.fixed_offset());
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id, at, impulse, baseline_mood, baseline_arousal FROM agent_affect_events \
+             WHERE user_id = $1 AND at >= $2 AND ($3::timestamptz IS NULL OR at <= $3) \
+             ORDER BY at, id COLLATE \"C\"",
+            vec![user_id.into(), anchor_at.into(), upto.into()],
+        ))
+        .await?;
+    let mut changes = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let at: chrono::DateTime<chrono::FixedOffset> = row.try_get("", "at")?;
+        changes.push(Change {
+            id: row.try_get("", "id")?,
+            at: at.timestamp_micros(),
+            baseline: myriad_persona_sync::entity::Baseline {
+                mood: row.try_get("", "baseline_mood")?,
+                arousal: row.try_get("", "baseline_arousal")?,
+            },
+            impulse: serde_json::from_value(row.try_get::<Value>("", "impulse")?)?,
+        });
+    }
+    Ok(Some((anchor, changes)))
 }
 
 pub(in crate::services::agent::merope) fn appraisal_is_current(
@@ -244,16 +528,20 @@ pub async fn credit_music_listening(
 ) -> Result<MusicMoodCredit, anyhow::Error> {
     let transaction = db.begin().await?;
     lock_addressee(&transaction, user_id).await?;
-    let state = get_or_create_state(&transaction, user_id).await?;
-    let before = affect_from_state(&state);
+    let base = baseline_toward(&transaction, user_id).await?;
     let now = super::super::clock::now();
+    let row = stored_or_created(&transaction, user_id, base).await?;
 
-    if let Some(last) = state.music_mood_credited_at {
+    if let Some(last) = row.row().music_mood_credited_at {
         let elapsed = (now - last.with_timezone(&Utc)).num_seconds().max(0);
         if elapsed < MUSIC_MOOD_CREDIT_COOLDOWN_SECS {
+            let state = match row {
+                Stored::Existing(existing) => overlay_settled_at(existing, base, now),
+                Stored::Created(created) => created,
+            };
             transaction.commit().await?;
             return Ok(MusicMoodCredit {
-                before,
+                before: affect_from_state(&state),
                 state,
                 credited: false,
                 next_credit_in_seconds: MUSIC_MOOD_CREDIT_COOLDOWN_SECS - elapsed,
@@ -261,9 +549,16 @@ pub async fn credit_music_listening(
         }
     }
 
-    let mut after = before;
-    apply_music_listening(&mut after, listened_seconds);
-    let saved = save_affect_on(&transaction, state, after, false, true).await?;
+    let (before, saved) = apply_change_on(
+        &transaction,
+        row.row().clone(),
+        base,
+        &AffectChange::music(listened_seconds),
+        now,
+        false,
+        true,
+    )
+    .await?;
     transaction.commit().await?;
     Ok(MusicMoodCredit {
         before,

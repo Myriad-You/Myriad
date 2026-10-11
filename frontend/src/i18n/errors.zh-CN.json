@@ -520,6 +520,8 @@
     "structured_persona_required": "请先完善人设信息，再设计形象。",
     "visual_gender_required": "生成立绘前请先选择性别呈现。",
     "portrait_not_site_asset": "立绘必须是本站保存的图片。请先上传到本站再试。",
+    "invalid_zone": "不认识这个时区。请填写 IANA 名称，例如 Asia/Shanghai。",
+    "persona_field_required": "请指明人设里的哪一项。",
     "character_asset_provenance_changed": "角色或服装刚刚有变动。请刷新后重试。",
     "rig_asset_changed": "当前穿戴的骨骼模型已变动。请刷新后再保存修改。",
     "merope_rig_failed": "角色骨骼模型更新失败。请重试。",

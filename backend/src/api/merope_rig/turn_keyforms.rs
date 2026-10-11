@@ -11,6 +11,9 @@
 //! 重启，或同一张立绘再导入一次，已经花钱做完的生图与拆层直接取用，只把缺的
 //! 补上；拟合（Space 上只用 CPU）每次重做，拟合改进后再导入一次就能用上。
 //!
+//! 站立全身的增强另外画整个人左右转身的两张图、拆两次层，在 Space 上拟合出
+//! 身体各部件的转身关键形（`body_turn`），和头部关键形放在同一份 JSON 里。
+//!
 //! 每个完成的任务整套存档（`archive`）：立绘、四张图、五份拆层、关键形与烘焙后的
 //! 拆层，每张立绘留最近两份。存档可以打包下载，也可以不再生图、拆层，只用 Space
 //! 现在的拟合重做一次，照常导入。
@@ -80,8 +83,11 @@ fn turn_prompts() -> [String; 4] {
 }
 
 mod archive;
+mod body_turn;
 mod cache;
 mod figure_picture;
+mod hair_misfit;
+mod judge;
 use archive::{ArchiveFiles, ArchiveMeta, FigureFiles, FigureMeta};
 use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
 
@@ -112,12 +118,57 @@ impl Stage {
     }
 }
 
+/// Which part of a job's work its stage belongs to, so a page can tell where
+/// the whole stands (a figure's decomposing and its head's are both
+/// `decomposing`) and how long is left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Phase {
+    /// The worn bust's turn keys.
+    Bust,
+    /// A standing figure: enlarging, decomposing whole and in tiles, stitching.
+    Figure,
+    /// A standing figure's head, keyed as a bust.
+    Head,
+    /// A standing figure's head done, its body's keys still being made.
+    Body,
+    /// A kept job fitted again.
+    Refit,
+    /// A kept job handed over as it was.
+    Load,
+}
+
+impl Phase {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Bust => "bust",
+            Self::Figure => "figure",
+            Self::Head => "head",
+            Self::Body => "body",
+            Self::Refit => "refit",
+            Self::Load => "load",
+        }
+    }
+}
+
+/// Where a standing figure's body keys stand, made alongside its head's.
+#[derive(Clone, Copy, Debug)]
+struct BodyProgress {
+    /// "turn" or "weight".
+    motion: &'static str,
+    stage: Stage,
+    done: u8,
+    total: u8,
+}
+
 struct Job {
     id: String,
     /// None: the worn bust; Some: a full-body set.
     outfit_id: Option<String>,
     master_asset_id: String,
     stage: Stage,
+    phase: Phase,
+    /// A standing figure's body keys, made alongside: none until they start.
+    body: Option<BodyProgress>,
     done: u8,
     total: u8,
     error: Option<Value>,
@@ -174,6 +225,12 @@ fn claim_job(
         outfit_id: outfit_id.clone(),
         master_asset_id: master_asset_id.to_owned(),
         stage,
+        phase: if outfit_id.is_some() {
+            Phase::Figure
+        } else {
+            Phase::Bust
+        },
+        body: None,
         done: 0,
         total,
         error: None,
@@ -218,6 +275,10 @@ async fn finish(
                 master_media_type: made.master_media_type.clone(),
                 redrawn: made.redrawn.clone(),
                 figure: made.figure.clone(),
+                body_motions: made
+                    .figure
+                    .is_some()
+                    .then(|| body_turn::motions_of(&made.files.keyforms)),
                 ..meta
             };
             let archive_id = match made.keep.then_some(()) {
@@ -255,6 +316,25 @@ pub struct TurnKeyformsRequest {
     source_master_asset_id: String,
     #[serde(default)]
     source_generation_fingerprint: Option<String>,
+    /// A figure's head keyed for its turn; a bust's always is.
+    #[serde(default = "keyed")]
+    head: bool,
+    /// A figure's body keyed for its turn and weight shift.
+    #[serde(default = "keyed")]
+    body: bool,
+}
+
+fn keyed() -> bool {
+    true
+}
+
+/// What a figure's job keys: its head's turn, its body's turn and weight
+/// shift, each made only when chosen. Neither is not a job: a figure
+/// without keys is an uploaded PSD.
+#[derive(Clone, Copy, Debug)]
+struct FigureKeys {
+    head: bool,
+    body: bool,
 }
 
 pub async fn start_turn_keyforms(
@@ -262,7 +342,10 @@ pub async fn start_turn_keyforms(
     Extension(claims): Extension<Claims>,
     Json(payload): Json<TurnKeyformsRequest>,
 ) -> ApiResult<Json<Value>> {
-    start(db, &claims, None, payload, true).await
+    if !payload.head {
+        return Err(bad_request("A bust's enhancement keys its head"));
+    }
+    start(db, &claims, None, payload).await
 }
 
 pub async fn start_full_body_turn_keyforms(
@@ -271,19 +354,10 @@ pub async fn start_full_body_turn_keyforms(
     Path(outfit_id): Path<String>,
     Json(payload): Json<TurnKeyformsRequest>,
 ) -> ApiResult<Json<Value>> {
-    start(db, &claims, Some(outfit_id), payload, true).await
-}
-
-/// A full-body set's picture decomposed in tiles, without turn keys: the
-/// plain figure (`run_figure`). Polled and fetched as a turn keys job; its
-/// keys are `null`.
-pub async fn start_full_body_figure(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Path(outfit_id): Path<String>,
-    Json(payload): Json<TurnKeyformsRequest>,
-) -> ApiResult<Json<Value>> {
-    start(db, &claims, Some(outfit_id), payload, false).await
+    if !payload.head && !payload.body {
+        return Err(bad_request("Choose the head, the body or both to key"));
+    }
+    start(db, &claims, Some(outfit_id), payload).await
 }
 
 /// A full-body set's picture as its tiles were cut from (enlarged), for the
@@ -329,8 +403,11 @@ async fn start(
     claims: &Claims,
     outfit_id: Option<String>,
     payload: TurnKeyformsRequest,
-    turn: bool,
 ) -> ApiResult<Json<Value>> {
+    let keys = FigureKeys {
+        head: payload.head,
+        body: payload.body,
+    };
     require_merope_enabled().await?;
     let user_id = require_owner(claims, &db).await?;
     let fingerprint = payload
@@ -392,6 +469,7 @@ async fn start(
         redrawn: Vec::new(),
         bytes: 0,
         figure: None,
+        body_motions: None,
     };
     let task_id = id.clone();
     let standing = outfit_id.is_some();
@@ -404,7 +482,7 @@ async fn start(
                 reference,
                 &client,
                 &space_name,
-                turn,
+                keys,
             )
             .await
         } else {
@@ -502,8 +580,42 @@ async fn run(
             redrawn.push((*side).to_string());
         }
     }
-    let decompositions: [Vec<u8>; 5] = decompositions.try_into().expect("five decompositions");
+    let mut decompositions: [Vec<u8>; 5] = decompositions.try_into().expect("five decompositions");
+    let mut pictures = pictures;
+    // A turn that redrew what a turn keeps is drawn once more before the fit.
+    let judged = judge::judge_turns(
+        id,
+        user_id,
+        generation,
+        &reference,
+        (width, height),
+        client,
+        cache,
+        options,
+        &mut decompositions,
+        &mut pictures,
+        &mut redrawn,
+    )
+    .await?;
+    update(id, |job| job.stage = Stage::Fitting);
     let output = fit(client, &decompositions, &pictures).await?;
+    let (decompositions, pictures, output) = redraw_misfit(
+        id,
+        user_id,
+        generation,
+        &reference,
+        (width, height),
+        client,
+        cache,
+        options,
+        (decompositions, pictures, output),
+        &mut redrawn,
+    )
+    .await?;
+    let output = see_through::TurnKeyformsOutput {
+        keyforms: judge::with_judgements(output.keyforms, &judged),
+        ..output
+    };
     let [front, turned @ ..] = pictures;
     let master_media_type = front.1.clone();
     Ok(Made {
@@ -527,10 +639,12 @@ async fn run(
 /// Its picture is enlarged (the Space's `upscale`), decomposed whole, planned
 /// into three tiles (`figure_plan`: head and chest framed as a bust, waist,
 /// legs), each tile decomposed on its own canvas, and the tiles stitched on
-/// the whole (`figure_stitch`). With `turn`, the upper tile is keyed as a bust
-/// (`run`, on its own cache, its front decomposition the tile's) and the keys
-/// placed on the stitched figure (`figure_keys`). A Space without these
-/// endpoints, or a head big enough already, has the figure decomposed whole.
+/// the whole (`figure_stitch`). With the head keyed, the upper tile is keyed
+/// as a bust (`run`, on its own cache, its front decomposition the tile's)
+/// and the keys placed on the stitched figure (`figure_keys`); with the body
+/// keyed, its turn and weight shift are made alongside (`body_turn`). A Space
+/// without these endpoints, or a head big enough already, has the figure
+/// decomposed whole.
 #[allow(clippy::too_many_arguments)]
 async fn run_figure(
     id: &str,
@@ -539,7 +653,7 @@ async fn run_figure(
     reference: image_generation::ImageReference,
     client: &see_through::SeeThroughClient,
     space_name: &str,
-    turn: bool,
+    keys: FigureKeys,
 ) -> ApiResult<Made> {
     let options = see_through::DecomposeOptions::default();
     update(id, |job| {
@@ -552,7 +666,7 @@ async fn run_figure(
     update(id, |job| {
         job.stage = Stage::Decomposing;
         job.done = 0;
-        job.total = if turn { 3 } else { 4 };
+        job.total = if keys.head { 3 } else { 4 };
     });
     let whole = decomposition(
         client,
@@ -569,71 +683,143 @@ async fn run_figure(
         .figure_plan(whole.clone(), drawn.clone())
         .await
         .map_err(see_through_error)?;
+    // The body's keys are made alongside the head's work: their drawings and
+    // fit need only the figure's whole decomposition (body_turn).
+    let body = async {
+        if keys.body {
+            Some(
+                body_turn::body_turn_keys(
+                    id, user_id, generation, &reference, &picture, &whole, client, &cache,
+                )
+                .await,
+            )
+        } else {
+            None
+        }
+    };
     let Some(plan) = plan else {
         tracing::info!(job = %id, "figure decomposed whole");
-        return if turn {
-            run(id, user_id, generation, picture, client, &cache).await
-        } else {
-            Ok(plain(whole, drawn.1))
+        let head = async {
+            if keys.head {
+                update(id, |job| job.phase = Phase::Head);
+                run(id, user_id, generation, picture.clone(), client, &cache).await
+            } else {
+                Ok(plain(whole.clone(), drawn.1.clone()))
+            }
         };
+        return with_body(id, head, body).await;
     };
     tracing::info!(job = %id, tiles = ?plan.tiles, "figure decomposed in tiles");
     let [upper, middle, lower] = plan.crops;
-    let middle = tile_decomposition(client, &cache, "middle", middle).await?;
-    update(id, |job| job.done += 1);
-    let lower = tile_decomposition(client, &cache, "lower", lower).await?;
-    update(id, |job| job.done += 1);
-    let upper = image_generation::ImageReference {
-        bytes: axum::body::Bytes::from(upper),
-        media_type: "image/png".to_string(),
-    };
-    let head_cache = TurnCache::for_master(&upper.bytes, generation, space_name, options);
-    let (upper_psd, made) = if turn {
-        // The bust's front decomposition is the upper tile's.
-        let made = run(id, user_id, generation, upper, client, &head_cache).await?;
-        (made.files.decompositions[0].clone(), Some(made))
-    } else {
-        let psd = decomposition(
-            client,
-            &head_cache,
-            0,
-            &upper.bytes,
-            &upper.media_type,
-            options,
-        )
-        .await?;
+    let tiles = plan.tiles;
+    let head = async {
+        let middle = tile_decomposition(client, &cache, "middle", middle).await?;
         update(id, |job| job.done += 1);
-        (psd, None)
+        let lower = tile_decomposition(client, &cache, "lower", lower).await?;
+        update(id, |job| job.done += 1);
+        let upper = image_generation::ImageReference {
+            bytes: axum::body::Bytes::from(upper),
+            media_type: "image/png".to_string(),
+        };
+        let head_cache = TurnCache::for_master(&upper.bytes, generation, space_name, options);
+        let (upper_psd, made) = if keys.head {
+            // The bust's front decomposition is the upper tile's.
+            update(id, |job| job.phase = Phase::Head);
+            let made = run(id, user_id, generation, upper, client, &head_cache).await?;
+            (made.files.decompositions[0].clone(), Some(made))
+        } else {
+            let psd = decomposition(
+                client,
+                &head_cache,
+                0,
+                &upper.bytes,
+                &upper.media_type,
+                options,
+            )
+            .await?;
+            update(id, |job| job.done += 1);
+            (psd, None)
+        };
+        prune_cache(cache_root(), CACHE_KEEP).await;
+        update(id, |job| {
+            job.phase = Phase::Figure;
+            job.stage = Stage::Stitching;
+            job.done = 0;
+            job.total = 1;
+        });
+        let stitched = client
+            .figure_stitch(
+                drawn.clone(),
+                whole.clone(),
+                [upper_psd, middle, lower],
+                &tiles,
+            )
+            .await
+            .map_err(see_through_error)?;
+        update(id, |job| job.done += 1);
+        let Some(made) = made else {
+            return Ok(plain(stitched, drawn.1.clone()));
+        };
+        let figure = FigureMeta {
+            master: String::new(),
+            master_media_type: drawn.1.clone(),
+            crop_box: tiles.upper,
+        };
+        let kept = FigureFiles {
+            master: drawn.0.clone(),
+            decomposition: stitched,
+        };
+        put_back(client, made, figure, kept).await
     };
-    prune_cache(cache_root(), CACHE_KEEP).await;
-    update(id, |job| {
-        job.stage = Stage::Stitching;
-        job.done = 0;
-        job.total = 1;
-    });
-    let stitched = client
-        .figure_stitch(
-            drawn.clone(),
-            whole,
-            [upper_psd, middle, lower],
-            &plan.tiles,
-        )
-        .await
-        .map_err(see_through_error)?;
-    update(id, |job| job.done += 1);
-    let Some(made) = made else {
-        return Ok(plain(stitched, drawn.1));
+    with_body(id, head, body).await
+}
+
+/// The head's work with the body's keys made alongside (`alongside`) and
+/// put beside the head's in its keys JSON.
+async fn with_body(
+    id: &str,
+    head: impl Future<Output = ApiResult<Made>>,
+    body: impl Future<Output = Option<body_turn::BodyKeys>>,
+) -> ApiResult<Made> {
+    let (made, body) = alongside(id, head, body).await;
+    let mut made = made?;
+    made.files.keyforms = body_turn::with_body_keys(made.files.keyforms, body.flatten().as_ref());
+    Ok(made)
+}
+
+/// The head's work and the body's turn, run together. The job reports the
+/// head's stages; done first, it then waits on the body as fitting. A failed
+/// head does not wait: the body is dropped with it.
+async fn alongside<B: Future>(
+    id: &str,
+    head: impl Future<Output = ApiResult<Made>>,
+    body: B,
+) -> (ApiResult<Made>, Option<B::Output>) {
+    tokio::pin!(head);
+    tokio::pin!(body);
+    let mut body_out = None;
+    let head_out = loop {
+        tokio::select! {
+            out = &mut body, if body_out.is_none() => body_out = Some(out),
+            out = &mut head => break out,
+        }
     };
-    let figure = FigureMeta {
-        master: String::new(),
-        master_media_type: drawn.1.clone(),
-        crop_box: plan.tiles.upper,
+    if head_out.is_err() {
+        return (head_out, None);
+    }
+    let body_out = match body_out {
+        Some(out) => out,
+        None => {
+            update(id, |job| {
+                job.phase = Phase::Body;
+                job.stage = Stage::Fitting;
+                job.done = 0;
+                job.total = 1;
+            });
+            body.await
+        }
     };
-    let kept = FigureFiles {
-        master: drawn.0,
-        decomposition: stitched,
-    };
-    put_back(client, made, figure, kept).await
+    (head_out, Some(body_out))
 }
 
 /// A plain figure: its decomposition, no keys (`null`), nothing kept.
@@ -695,20 +881,20 @@ async fn tile_decomposition(
     if let Some(psd) = cache.read(&file).await.filter(|psd| !psd.is_empty()) {
         return Ok(psd);
     }
-    let output = client
-        .decompose(
-            axum::body::Bytes::from(picture),
-            "image/png",
-            see_through::DecomposeOptions::default(),
-        )
-        .await
-        .map_err(see_through_error)?;
-    cache.write(&file, &output.psd).await;
-    Ok(output.psd)
+    let psd = decompose_waiting(
+        client,
+        axum::body::Bytes::from(picture),
+        "image/png",
+        see_through::DecomposeOptions::default(),
+    )
+    .await?;
+    cache.write(&file, &psd).await;
+    Ok(psd)
 }
 
 /// The head's keys placed on the figure (`figure_keys`), with the figure's
-/// own decomposition: the head's parts were only what the keys were fitted on.
+/// own decomposition but the head's hair (`figure_hair`): the head's other
+/// parts were only what the keys were fitted on.
 async fn put_back(
     client: &see_through::SeeThroughClient,
     made: Made,
@@ -724,6 +910,27 @@ async fn put_back(
         )
         .await
         .map_err(see_through_error)?;
+    // The keys were fitted on the head's hair as the head's decomposition
+    // split it (side locks in the front hair, the front hair in locks): the
+    // figure takes that hair. Should the Space not manage, the figure keeps
+    // its own, as before.
+    let kept = match client
+        .figure_hair(
+            kept.decomposition.clone(),
+            made.files.baked.clone(),
+            keyforms.clone(),
+        )
+        .await
+    {
+        Ok(decomposition) => FigureFiles {
+            decomposition,
+            ..kept
+        },
+        Err(error) => {
+            tracing::warn!(%error, "the figure keeps its own hair");
+            kept
+        }
+    };
     Ok(Made {
         files: ArchiveFiles {
             keyforms,
@@ -859,6 +1066,114 @@ async fn redraw_bad_turns(
         }
     }
     turned
+}
+
+/// Draws once more the turn whose front hair the fit could not follow
+/// (hair_misfit), decomposes and fits it again, and keeps whichever fit
+/// follows that turn's front hair better. Once per drawing set: a cache
+/// marker keeps a rerun from drawing it yet again.
+#[allow(clippy::too_many_arguments)]
+async fn redraw_misfit(
+    id: &str,
+    user_id: i32,
+    generation: &image_generation::ImageGenerationConfig,
+    reference: &image_generation::ImageReference,
+    (width, height): (u32, u32),
+    client: &see_through::SeeThroughClient,
+    cache: &TurnCache,
+    options: see_through::DecomposeOptions,
+    (decompositions, pictures, output): (
+        [Vec<u8>; 5],
+        [(Vec<u8>, String); 5],
+        see_through::TurnKeyformsOutput,
+    ),
+    redrawn: &mut Vec<String>,
+) -> ApiResult<(
+    [Vec<u8>; 5],
+    [(Vec<u8>, String); 5],
+    see_through::TurnKeyformsOutput,
+)> {
+    let Some(index) = hair_misfit::misfit_side(&output.keyforms) else {
+        return Ok((decompositions, pictures, output));
+    };
+    let side = TURN_SIDES[index];
+    let marker = format!("turned-{index}.hair-retried");
+    if cache.read(&marker).await.is_some() {
+        return Ok((decompositions, pictures, output));
+    }
+    cache.write(&marker, b"retried").await;
+    let before = hair_misfit::hair_outline(&output.keyforms, side).unwrap_or(f64::INFINITY);
+    tracing::info!(
+        side,
+        before,
+        "turned drawing's front hair not followed; drawing it again"
+    );
+    let png = match draw_turn(
+        user_id,
+        generation,
+        &turn_prompts()[index],
+        reference,
+        width,
+        height,
+    )
+    .await
+    {
+        Ok(png) => png,
+        Err(error) => {
+            tracing::warn!(side, ?error, "turned drawing could not be drawn again");
+            return Ok((decompositions, pictures, output));
+        }
+    };
+    update(id, |job| {
+        job.stage = Stage::Decomposing;
+        job.done = 0;
+        job.total = 1;
+    });
+    // Decomposed apart from the cached one, which stays the drawing's until this one wins.
+    let bytes = axum::body::Bytes::from(png.clone());
+    let psd = decompose_checked(client, &bytes, "image/png", options, &TURNED_REDOS, None)
+        .await?
+        .0;
+    let mut retried_decompositions = decompositions.clone();
+    retried_decompositions[index + 1] = psd.clone();
+    let mut retried_pictures = pictures.clone();
+    retried_pictures[index + 1] = (png.clone(), "image/png".to_string());
+    update(id, |job| {
+        job.stage = Stage::Fitting;
+        job.done = 0;
+        job.total = 1;
+    });
+    let retried = fit(client, &retried_decompositions, &retried_pictures).await?;
+    let after = hair_misfit::hair_outline(&retried.keyforms, side).unwrap_or(f64::INFINITY);
+    if after >= before {
+        tracing::info!(
+            side,
+            before,
+            after,
+            "the turn drawn again was no better; kept the first"
+        );
+        return Ok((decompositions, pictures, output));
+    }
+    tracing::info!(
+        side,
+        before,
+        after,
+        "the turn drawn again is followed better; kept it"
+    );
+    cache.write(&format!("turned-{index}.png"), &png).await;
+    cache
+        .write(&format!("decomposition-{}.psd", index + 1), &psd)
+        .await;
+    cache
+        .write(&format!("decomposition-{}.checked", index + 1), b"checked")
+        .await;
+    cache
+        .write(&format!("turned-{index}.redrawn"), b"redrawn")
+        .await;
+    if !redrawn.iter().any(|known| known == side) {
+        redrawn.push(side.to_string());
+    }
+    Ok((retried_decompositions, retried_pictures, retried))
 }
 
 /// A drawing's decomposition, checked (decompose_checked) and kept in the cache.
@@ -1020,6 +1335,13 @@ pub async fn get_turn_keyforms(
         "outfitId": job.outfit_id,
         "sourceMasterAssetId": job.master_asset_id,
         "stage": job.stage.as_str(),
+        "phase": job.phase.as_str(),
+        "body": job.body.map(|body| json!({
+            "motion": body.motion,
+            "stage": body.stage.as_str(),
+            "done": body.done,
+            "total": body.total,
+        })),
         "done": job.done,
         "total": job.total,
         "seconds": job.started.elapsed().as_secs(),
@@ -1187,6 +1509,44 @@ pub async fn delete_turn_archive(
     Ok(Json(json!({ "deleted": id })))
 }
 
+/// A kept job handed to the importer again as it was: a finished job made of
+/// its decomposition and keys, fetched as any job. For a job whose page went
+/// away before it was imported; its master must still be the slot's current one.
+pub async fn load_turn_archive(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    require_owner(&claims, &db).await?;
+    let kept = archive::read_meta(&id).await.ok_or_else(missing_archive)?;
+    require_master_match(
+        &db,
+        slot_of(kept.outfit_id.as_deref()),
+        &kept.source_master_asset_id,
+        kept.source_generation_fingerprint.as_deref(),
+    )
+    .await?;
+    let (baked, keyforms) = archive::read_result(&kept).await.map_err(internal_error)?;
+    let (job_id, new) = claim_job(
+        &kept.outfit_id,
+        &kept.source_master_asset_id,
+        Stage::Done,
+        1,
+    )?;
+    if new {
+        update(&job_id, |job| {
+            job.phase = Phase::Load;
+            job.done = 1;
+            job.psd = Some(Arc::new(baked));
+            job.keyforms = Some(Arc::new(keyforms));
+            job.archive_id = Some(kept.id.clone());
+        });
+        tracing::info!(job = %job_id, archive = %kept.id, "turn keyforms loaded from an archive");
+    }
+    Ok(Json(json!({ "jobId": job_id })))
+}
+
 /// Fits a kept job again with the Space's current fit: no drawing, no
 /// decomposition. Its master must still be the slot's current one, as the
 /// import requires; the result is kept as a new archive and fetched as any job.
@@ -1216,6 +1576,7 @@ pub async fn refit_turn_archive(
     if !new {
         return Ok(Json(json!({ "jobId": job_id })));
     }
+    update(&job_id, |job| job.phase = Phase::Refit);
     tracing::info!(job = %job_id, archive = %kept.id, "turn keyforms fitted again from an archive");
     let meta = ArchiveMeta {
         id: archive::new_id(),
@@ -1239,6 +1600,8 @@ pub async fn refit_turn_archive(
                 .try_into()
                 .expect("five pictures");
         let figure = files.figure;
+        // The body's keys are not fitted again: they go along as they were.
+        let body = body_turn::body_of(&files.keyforms);
         let result = fit(&client, &files.decompositions, &pictures)
             .await
             .map(|output| Made {
@@ -1257,7 +1620,11 @@ pub async fn refit_turn_archive(
         let result = match (result, kept.figure.clone(), figure) {
             (Ok(made), Some(meta), Some(files)) => put_back(&client, made, meta, files).await,
             (result, _, _) => result,
-        };
+        }
+        .map(|mut made| {
+            made.files.keyforms = body_turn::with_body_keys(made.files.keyforms, body.as_ref());
+            made
+        });
         finish(&db, &task_id, result, meta).await;
     });
     Ok(Json(json!({ "jobId": job_id })))
@@ -1280,6 +1647,40 @@ fn missing_job() -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn made() -> Made {
+        plain(Vec::new(), "image/png".to_string())
+    }
+
+    #[tokio::test]
+    async fn the_body_turn_runs_alongside_the_head_and_is_waited_for() {
+        let (id, _) = claim_job(&Some("alongside-a".into()), "m", Stage::Decomposing, 3).unwrap();
+        // The head is done first: the job then waits on the body as fitting.
+        let body = async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            7
+        };
+        let (head, body) = alongside(&id, async { Ok(made()) }, body).await;
+        assert!(head.is_ok());
+        assert_eq!(body, Some(7));
+        let stage = JOB.lock().unwrap().as_ref().map(|job| job.stage);
+        assert_eq!(stage, Some(Stage::Fitting));
+        update(&id, |job| job.stage = Stage::Done);
+        // The body is done first: kept until the head is.
+        let head = async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            Ok(made())
+        };
+        let (head, body) = alongside(&id, head, async { 8 }).await;
+        assert!(head.is_ok());
+        assert_eq!(body, Some(8));
+        // A failed head does not wait for the body.
+        let failed = async { Err::<Made, ApiError>(missing_job()) };
+        let (head, body) = alongside(&id, failed, std::future::pending::<u8>()).await;
+        assert!(head.is_err());
+        assert_eq!(body, None);
+        update(&id, |job| job.stage = Stage::Done);
+    }
 
     #[test]
     fn prompts_turn_right_left_then_raise_and_lower() {

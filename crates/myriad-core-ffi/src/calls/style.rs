@@ -56,16 +56,34 @@ impl From<Overused> for contrast::Overused {
     }
 }
 
+/// How many messages, and how many had each piece: `[piece, count]` pairs,
+/// so that pieces a platform's own strings would take for equal (another
+/// normalization of the same characters) stay apart, as they do here.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Counts {
+    messages: u32,
+    pieces: Vec<(String, u32)>,
+}
+
+impl From<Counts> for contrast::Counts {
+    fn from(value: Counts) -> Self {
+        Self {
+            messages: value.messages,
+            pieces: value.pieces.into_iter().collect(),
+        }
+    }
+}
+
 pub(super) fn overused(raw: &[u8]) -> Result<Value, Failure> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct In {
-        /// `{messages, pieces: {piece: count}}`, as `contrast::Counts`.
-        hers: contrast::Counts,
-        theirs: contrast::Counts,
+        hers: Counts,
+        theirs: Counts,
     }
     let req: In = input(raw)?;
-    let found: Vec<Overused> = contrast::overused(&req.hers, &req.theirs)
+    let found: Vec<Overused> = contrast::overused(&req.hers.into(), &req.theirs.into())
         .into_iter()
         .map(Overused::from)
         .collect();
@@ -93,6 +111,20 @@ pub(super) fn unlike(raw: &[u8]) -> Result<Value, Failure> {
     }
     let req: In = input(raw)?;
     Ok(json!({ "z": style::unlike(&req.history, &req.recent) }))
+}
+
+pub(super) fn distance(raw: &[u8]) -> Result<Value, Failure> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct In {
+        /// Two sets of lines, each read as one way of typing.
+        left: Vec<String>,
+        right: Vec<String>,
+    }
+    let req: In = input(raw)?;
+    Ok(json!({
+        "distance": style::distance(&style::profile(&req.left), &style::profile(&req.right)),
+    }))
 }
 
 pub(super) fn noticed(raw: &[u8]) -> Result<Value, Failure> {

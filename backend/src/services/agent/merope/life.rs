@@ -32,7 +32,7 @@ use myriad_merope::life::{
     day_label, own_day_prompt,
 };
 
-/// Her night, on the host clock like the do-not-disturb window.
+/// Her night, in her zone.
 const NIGHT: std::ops::RangeInclusive<u32> = 3..=5;
 /// Memories filled in per person per night, and people per night.
 const FILL_PER_PERSON: u64 = 20;
@@ -75,8 +75,8 @@ pub async fn tick(db: DatabaseConnection) {
             }
         }
     }
-    let now = chrono::Local::now();
-    if !NIGHT.contains(&now.hour()) || !super::is_enabled().await {
+    let now = super::clock::local_now();
+    if !is_night(&now) || !super::is_enabled().await {
         return;
     }
     let Some(owner) = super::call::site_owner().await else {
@@ -139,13 +139,19 @@ pub async fn tick(db: DatabaseConnection) {
     fill_old_concepts(&db, owner).await;
 }
 
-fn day_bounds(
+/// Whether it is her night at `now`.
+pub(super) fn is_night<Tz: chrono::TimeZone>(now: &chrono::DateTime<Tz>) -> bool {
+    NIGHT.contains(&now.hour())
+}
+
+/// `day` in her zone: from its midnight, a day long.
+pub(super) fn day_bounds(
     day: NaiveDate,
 ) -> Option<(
     chrono::DateTime<chrono::FixedOffset>,
     chrono::DateTime<chrono::FixedOffset>,
 )> {
-    let start = chrono::Local
+    let start = super::clock::zone()
         .from_local_datetime(&day.and_hms_opt(0, 0, 0)?)
         .earliest()?;
     let end = start + Duration::days(1);
@@ -305,7 +311,7 @@ pub(crate) fn own_day_probe_contract(soul: &str) -> String {
 /// Each line says which day it was: undated lines read as one blur, and in
 /// testing the model told an older day as the latest.
 pub async fn recent_days(db: &DatabaseConnection, limit: u64) -> Vec<String> {
-    let today = chrono::Local::now().date_naive();
+    let today = super::clock::today();
     let mut days: Vec<String> = unified::own_days(db, limit)
         .await
         .unwrap_or_default()

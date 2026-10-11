@@ -8,7 +8,7 @@ use super::super::gates::{decide_ingest, is_valuable_event};
 use super::super::store::{
     affect_from_state, get_or_create_state, recently_spoke_event, update_affect,
 };
-use super::super::{apply_task_outcome, is_extremely_low, is_logged_in_addressee};
+use super::super::{is_extremely_low, is_logged_in_addressee};
 use super::{
     SAME_EVENT_MINUTES, compact_summary, current_sight, is_enabled, is_trivial_line, log_skip,
     persist_persona_remember,
@@ -74,7 +74,8 @@ pub fn spawn_presence(user_id: i32) {
         // Her day, on the site's clock: it turns when she gets up, not at
         // midnight UTC.
         let first_today = state.last_user_message_at.is_none_or(|at| {
-            at.with_timezone(&chrono::Local).date_naive() < super::super::timing::her_date()
+            at.with_timezone(&super::super::clock::zone()).date_naive()
+                < super::super::timing::her_date()
         });
         if !first_today && gap_hours < 12.0 {
             return;
@@ -306,9 +307,12 @@ async fn apply_task_mood(db: &DatabaseConnection, user_id: i32, event_key: &str)
     let Some(succeeded) = task_mood_outcome(event_key) else {
         return;
     };
-    let Ok((previous, saved)) = update_affect(db, user_id, false, |affect| {
-        apply_task_outcome(affect, succeeded);
-    })
+    let Ok((previous, saved)) = update_affect(
+        db,
+        user_id,
+        false,
+        super::super::store::AffectChange::task(succeeded),
+    )
     .await
     else {
         return;

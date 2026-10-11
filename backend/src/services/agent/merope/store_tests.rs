@@ -101,14 +101,27 @@ async fn appraisal_commit_rechecks_input_after_waiting_for_the_database_lock() {
         statement.if_not_exists();
         db.execute(&statement).await.unwrap();
     }
-    let (_, first) = super::update_affect(&db, 7001, true, |_| {}).await.unwrap();
+    // Each change of her affect is recorded beside it.
+    db.execute_unprepared(&affect_log_ddl()).await.unwrap();
+    let (_, first) = super::update_affect(
+        &db,
+        7001,
+        true,
+        super::AffectChange::utterance(0, false, false),
+    )
+    .await
+    .unwrap();
     let input_at = first.last_user_message_at.unwrap();
     super::set_activity(&db, 7001, "talking").await.unwrap();
-    let (_, applied) =
-        super::update_utterance_appraisal(&db, 7001, input_at, |affect| affect.mood += 1.0)
-            .await
-            .unwrap()
-            .expect("activity is not a new input");
+    let (_, applied) = super::update_utterance_appraisal(
+        &db,
+        7001,
+        input_at,
+        super::AffectChange::appraisal(myriad_merope::affect::lite_appraisal(2, 0)),
+    )
+    .await
+    .unwrap()
+    .expect("activity is not a new input");
     assert!(applied.updated_at.timestamp_millis() > first.updated_at.timestamp_millis());
     assert_eq!(applied.last_user_message_at, Some(input_at));
 
@@ -118,7 +131,7 @@ async fn appraisal_commit_rechecks_input_after_waiting_for_the_database_lock() {
         &db,
         7001,
         input_at,
-        |affect| affect.mood = 0.0,
+        super::AffectChange::task(false),
     ));
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(30), &mut late)
@@ -148,7 +161,14 @@ async fn appraisal_commit_rechecks_input_after_waiting_for_the_database_lock() {
 
     let mut previous = second;
     for _ in 0..16 {
-        let (_, current) = super::update_affect(&db, 7001, true, |_| {}).await.unwrap();
+        let (_, current) = super::update_affect(
+            &db,
+            7001,
+            true,
+            super::AffectChange::utterance(0, false, false),
+        )
+        .await
+        .unwrap();
         assert!(current.updated_at.timestamp_millis() > previous.updated_at.timestamp_millis());
         assert!(current.last_user_message_at > previous.last_user_message_at);
         previous = current;
@@ -207,6 +227,8 @@ fn changing_generation_inputs_invalidates_portrait_contract() {
         avatar_generation: None,
         updated_by: Some(1),
         updated_at: Utc::now().into(),
+        zone: String::new(),
+        field_revs: serde_json::json!({}),
     };
     let active = apply_persona_update(
         existing,
@@ -271,6 +293,8 @@ fn changing_spoken_persona_keeps_confirmed_visual_assets() {
         avatar_generation: None,
         updated_by: Some(1),
         updated_at: Utc::now().into(),
+        zone: String::new(),
+        field_revs: serde_json::json!({}),
     };
     let active = apply_persona_update(
         existing,
@@ -330,6 +354,8 @@ fn persona_with_avatar() -> agent_persona::Model {
         avatar_generation: Some(json!({ "fingerprint": "b".repeat(64) })),
         updated_by: Some(1),
         updated_at: Utc::now().into(),
+        zone: String::new(),
+        field_revs: serde_json::json!({}),
     }
 }
 
@@ -444,6 +470,8 @@ fn onboarding_seeds_do_not_invalidate_portrait() {
         avatar_generation: None,
         updated_by: Some(1),
         updated_at: Utc::now().into(),
+        zone: String::new(),
+        field_revs: serde_json::json!({}),
     };
     let active = apply_persona_update(
         existing,
@@ -499,6 +527,8 @@ async fn portrait_generation_lease_preserves_concurrent_persona_and_rejects_visu
         avatar_generation: Set(None),
         updated_by: Set(None),
         updated_at: Set(Utc::now().into()),
+        zone: Set(String::new()),
+        field_revs: Set(serde_json::json!({})),
     }
     .insert(&transaction)
     .await
@@ -600,4 +630,286 @@ fn in_a_group_what_is_about_someone_else_says_whose_it_is() {
         super::about_someone_else("[2026-09-28] 周五要加班", "老周"),
         "[2026-09-28] 周五要加班 (this is about 老周, not the one talking to you)"
     );
+}
+
+/// Her zone is stored as named, kept by a save that does not name one, and
+/// empty again (the site's own) when cleared. On a real database (an isolated
+/// schema; skipped without a test database).
+#[tokio::test]
+async fn her_zone_is_kept_until_named_otherwise() {
+    let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    let db = &fixture.db;
+    sea_orm::ConnectionTrait::execute_unprepared(
+        db,
+        "INSERT INTO users (id, username) VALUES (1, 'owner1')",
+    )
+    .await
+    .unwrap();
+    let save = |zone: Option<&str>| {
+        upsert_persona_on(
+            db,
+            "Nova".to_string(),
+            "curious".to_string(),
+            PortraitUpdate::Keep,
+            PersonaContractUpdate {
+                zone: zone.map(str::to_string),
+                ..PersonaContractUpdate::default()
+            },
+            1,
+        )
+    };
+    assert_eq!(save(None).await.unwrap().zone, "");
+    // The process zone in tests is Asia/Shanghai, so naming it changes
+    // nothing else running alongside.
+    assert_eq!(
+        save(Some(" Asia/Shanghai ")).await.unwrap().zone,
+        "Asia/Shanghai"
+    );
+    assert_eq!(save(None).await.unwrap().zone, "Asia/Shanghai");
+    let read = get_persona_on(db).await.unwrap().unwrap();
+    assert_eq!(
+        super::super::clock::Zone::named(&read.zone),
+        Some(super::super::clock::Zone::Named(chrono_tz::Asia::Shanghai))
+    );
+    assert_eq!(save(Some("")).await.unwrap().zone, "");
+    fixture.close().await;
+}
+
+/// The tables her affect's changes are recorded in, without the users table
+/// they refer to (for databases that have only the tables a test makes).
+pub(super) fn affect_log_ddl() -> String {
+    include_str!("../../../../migrations/persona_sync.sql")
+        .replace("REFERENCES users(id) ON DELETE CASCADE", "")
+        .replace("REFERENCES agent_sync_devices(id) ON DELETE CASCADE", "")
+}
+
+/// Her affect toward someone, replayed from the anchor and the changes
+/// recorded with each write (`myriad_persona_sync::affect::replay`), is to the
+/// bit what the site reads from the row, through every kind of change; and
+/// still is after old changes are folded into the anchor and dropped. On a
+/// real database (an isolated schema; skipped without a test database).
+#[tokio::test]
+async fn her_affect_replayed_from_its_changes_is_what_she_feels() {
+    use super::super::clock::as_of;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+        return;
+    };
+    let isolated = crate::db::IsolatedSchema::migrated(&url, "affect_replay").await;
+    let db = isolated.db.clone();
+    let user_id: i32 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "INSERT INTO users (username) VALUES ('affect-replay-test') RETURNING id",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "id")
+        .unwrap();
+    // A persona whose usual mood is not the default, so the baseline counts.
+    db.execute_unprepared(
+        "INSERT INTO agent_persona (id, name, personality, updated_at) \
+         VALUES ('site', 'Nova', '安静，容易低落', NOW())",
+    )
+    .await
+    .unwrap();
+    let t0 = Utc::now() - chrono::Duration::days(60);
+    let at = |secs: i64, micros: i64| {
+        t0 + chrono::Duration::seconds(secs) + chrono::Duration::microseconds(micros)
+    };
+    let feels = |now: chrono::DateTime<Utc>| {
+        let db = db.clone();
+        async move {
+            as_of(now, async {
+                affect_from_state(&get_or_create_state(&db, user_id).await.unwrap())
+            })
+            .await
+        }
+    };
+    let replayed = |now: chrono::DateTime<Utc>| {
+        let db = db.clone();
+        async move {
+            let (anchor, changes) = affect_log_on(&db, user_id, None).await.unwrap().unwrap();
+            let base = load_affect_baseline(&db).await.unwrap();
+            let affect = myriad_persona_sync::affect::replay(
+                &anchor,
+                &changes,
+                now.timestamp_micros(),
+                myriad_persona_sync::entity::Baseline {
+                    mood: base.mood,
+                    arousal: base.arousal,
+                },
+            )
+            .unwrap();
+            Affect {
+                mood: affect.mood,
+                arousal: affect.arousal,
+                emotion: affect.emotion,
+                emotion_arousal: affect.emotion_arousal,
+            }
+        }
+    };
+
+    // Praised on the first turn (the row is made), then turns that only let
+    // her settle, a failed task, music, and an appraisal of their words, at
+    // uneven moments (part seconds included).
+    as_of(
+        at(0, 0),
+        update_affect(&db, user_id, true, AffectChange::utterance(0, true, false)),
+    )
+    .await
+    .unwrap();
+    as_of(
+        at(90, 250_000),
+        update_affect(&db, user_id, true, AffectChange::utterance(1, false, false)),
+    )
+    .await
+    .unwrap();
+    as_of(
+        at(7_200, 999_999),
+        update_affect(&db, user_id, false, AffectChange::task(false)),
+    )
+    .await
+    .unwrap();
+    let credit = as_of(at(10_800, 1), credit_music_listening(&db, user_id, 1_500))
+        .await
+        .unwrap();
+    assert!(credit.credited);
+    // Within the cooldown: nothing is written, nothing recorded.
+    let again = as_of(at(10_900, 0), credit_music_listening(&db, user_id, 1_500))
+        .await
+        .unwrap();
+    assert!(!again.credited);
+    let (_, turn) = as_of(
+        at(18_000, 500_000),
+        update_affect(&db, user_id, true, AffectChange::utterance(2, false, true)),
+    )
+    .await
+    .unwrap();
+    let input_at = turn.last_user_message_at.unwrap();
+    let appraised = as_of(
+        at(18_003, 0),
+        update_utterance_appraisal(
+            &db,
+            user_id,
+            input_at,
+            AffectChange::appraisal(myriad_merope::affect::lite_appraisal(-2, 1)),
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(appraised.is_some());
+    let recorded: i64 = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            format!("SELECT count(*) AS n FROM agent_affect_events WHERE user_id = {user_id}"),
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "n")
+        .unwrap();
+    assert_eq!(recorded, 6);
+
+    for now in [at(18_003, 0), at(18_004, 999_999), at(32_400, 123_456)] {
+        assert_eq!(replayed(now).await, feels(now).await, "at {now}");
+    }
+
+    // Weeks later the old changes fold into the anchor and go; replaying from
+    // there is still what she feels, and what she feels did not change.
+    let later = at(40 * 86_400, 0);
+    let before_fold = feels(later).await;
+    let folded = as_of(later, fold_old_affect_changes(&db, Some(user_id)))
+        .await
+        .unwrap();
+    assert_eq!(folded, 6);
+    let (anchor, changes) = affect_log_on(&db, user_id, None).await.unwrap().unwrap();
+    assert!(changes.is_empty());
+    assert!(anchor.through_event.is_some());
+    assert_eq!(replayed(later).await, before_fold);
+    assert_eq!(feels(later).await, before_fold);
+    // And a change after the fold replays on top of the moved anchor.
+    as_of(
+        later,
+        update_affect(&db, user_id, false, AffectChange::task(true)),
+    )
+    .await
+    .unwrap();
+    let after = at(40 * 86_400 + 3_600, 0);
+    assert_eq!(replayed(after).await, feels(after).await);
+    isolated.drop().await;
+}
+
+/// Each write of her persona gives the fields it changed a new revision and
+/// keeps the values they held; a field it did not touch keeps its revision;
+/// putting an old value back is one more edit. On a real database (an
+/// isolated schema; skipped without a test database).
+#[tokio::test]
+async fn her_persona_edits_keep_each_fields_revision_and_what_it_replaced() {
+    use crate::services::persona_sync::fields;
+    let Some(fixture) = crate::federation::test_db::SchemaDb::new_or_media().await else {
+        return;
+    };
+    let db = &fixture.db;
+    sea_orm::ConnectionTrait::execute_unprepared(
+        db,
+        "INSERT INTO users (id, username) VALUES (1, 'owner1')",
+    )
+    .await
+    .unwrap();
+    let save = |summary: &str| {
+        upsert_persona_on(
+            db,
+            "Nova".to_string(),
+            "curious".to_string(),
+            PortraitUpdate::Keep,
+            PersonaContractUpdate {
+                persona: JsonDocumentUpdate::Set(json!({
+                    "summary": summary,
+                    "likes": ["雨天"],
+                })),
+                ..PersonaContractUpdate::default()
+            },
+            1,
+        )
+    };
+    let first = save("住在站点上").await.unwrap();
+    let revs = fields::revs(&first);
+    assert!(revs.contains_key("summary") && revs.contains_key("name"));
+    assert!(fields::history(db, "summary", 10).await.unwrap().is_empty());
+
+    let second = save("搬到了海边").await.unwrap();
+    let after = fields::revs(&second);
+    assert!(after["summary"].rev > revs["summary"].rev);
+    assert_eq!(
+        after["likes"], revs["likes"],
+        "untouched fields keep theirs"
+    );
+    assert_eq!(after["name"], revs["name"]);
+    let kept = fields::history(db, "summary", 10).await.unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].value, json!("住在站点上"));
+    assert_eq!(kept[0].rev, revs["summary"].rev.to_string());
+    assert_eq!(kept[0].reason, "edit");
+    // Read back as stored, too.
+    assert_eq!(
+        fields::revs(&get_persona_on(db).await.unwrap().unwrap()),
+        after
+    );
+
+    // Putting the old value back is an edit like any other.
+    let third = save("住在站点上").await.unwrap();
+    assert!(fields::revs(&third)["summary"].rev > after["summary"].rev);
+    let kept = fields::history(db, "summary", 10).await.unwrap();
+    assert_eq!(kept.len(), 2);
+    assert_eq!(kept[0].value, json!("搬到了海边"));
+
+    // The same write again changes nothing.
+    let same = save("住在站点上").await.unwrap();
+    assert_eq!(fields::revs(&same), fields::revs(&third));
+    assert_eq!(fields::history(db, "summary", 10).await.unwrap().len(), 2);
+    fixture.close().await;
 }

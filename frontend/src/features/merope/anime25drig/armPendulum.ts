@@ -24,6 +24,13 @@ export const ARM_PENDULUM_DAMPING = 0.55
  * moves the arm in depth; the drawn shoulder's acceleration under-reads it.
  */
 export const ARM_INERTIA_GAIN = 4.5
+/** A figure's bones move its drawn shoulder as far as the body goes: nothing to make up. */
+export const FIGURE_ARM_INERTIA_GAIN = 1
+/**
+ * How far a figure's arm swings away from its body past where it means to be,
+ * on its own: further, and what was never drawn under it shows.
+ */
+export const FIGURE_ARM_SLACK = 0.02
 
 /** Shoulder acceleration above this is a discontinuity, not motion. */
 const MAX_SUPPORT_ACCELERATION = 20_000
@@ -40,6 +47,10 @@ export interface ArmPendulumInput {
   bodyRoll: number
   /** False freezes dynamics: arms sit exactly on their intent. */
   dynamic: boolean
+  /** How much the shoulder's acceleration swings the arm; ARM_INERTIA_GAIN when unset. */
+  inertiaGain?: number
+  /** How far it swings away from the body past its target on its own, softly; unbounded when unset. */
+  slack?: number
 }
 
 export interface ArmSupport {
@@ -76,7 +87,7 @@ export class ArmPendulum {
       this.velocity = 0
       this.state = target
       this.forgetSupport(support)
-      return this.output()
+      return this.output(target, input.slack)
     }
     let accelerationX = 0
     let accelerationY = 0
@@ -100,7 +111,7 @@ export class ArmPendulum {
     const world = this.state + roll
     // A pendulum on a moving support: the hand lags the shoulder's acceleration.
     const inertia =
-      (ARM_INERTIA_GAIN * (accelerationX * Math.cos(world) + accelerationY * Math.sin(world))) / reach
+      ((input.inertiaGain ?? ARM_INERTIA_GAIN) * (accelerationX * Math.cos(world) + accelerationY * Math.sin(world))) / reach
     const acceleration =
       -omega * omega * (this.state - target) - 2 * ARM_PENDULUM_DAMPING * omega * this.velocity + inertia
     this.velocity += acceleration * step
@@ -109,11 +120,14 @@ export class ArmPendulum {
       this.state = target
       this.velocity = 0
     }
-    return this.output()
+    return this.output(target, input.slack)
   }
 
-  private output(): number {
-    this.angle = ARM_MAX_RADIANS * Math.tanh(this.state / ARM_MAX_RADIANS)
+  private output(target: number, slack: number | undefined): number {
+    let state = this.state
+    const away = (state - target) * this.outward
+    if (slack !== undefined && slack > 0 && away > 0) state = target + this.outward * slack * Math.tanh(away / slack)
+    this.angle = ARM_MAX_RADIANS * Math.tanh(state / ARM_MAX_RADIANS)
     return this.angle
   }
 

@@ -52,7 +52,7 @@ pub async fn look(
     if let Some(seen) = known(db, key).await {
         return Some(seen);
     }
-    let month = chrono::Local::now().format("%Y-%m").to_string();
+    let month = super::clock::local_now().format("%Y-%m").to_string();
     let until = (chrono::Utc::now() + chrono::Duration::days(40)).timestamp();
     let looked = registry::increment(db, LOOKS, &month, until).await.ok()?;
     if looked as usize > MONTHLY {

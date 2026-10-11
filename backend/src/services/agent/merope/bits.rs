@@ -275,10 +275,9 @@ async fn review(
             let _ = unified::refresh(db, kept_with(row), &row.id).await;
             continue;
         }
-        if let Some(row) = existing {
-            let _ = unified::retire(db, kept_with(row), &[row.id.clone()], "superseded").await;
-        }
-        let remembered = unified::remember(
+        // The bit as it went before goes with the new one, pointing at it.
+        let replaced: Vec<String> = existing.iter().map(|row| row.id.clone()).collect();
+        let remembered = unified::remember_in_place_of(
             db,
             unified::NewMemory {
                 user_id: circle.keeper(),
@@ -295,8 +294,14 @@ async fn review(
                     aliases: Vec::new(),
                 }],
             },
+            unified::InPlaceOf {
+                user_id: existing.map_or(circle.keeper(), kept_with),
+                ids: &replaced,
+                reason: "superseded",
+            },
         )
-        .await;
+        .await
+        .map(|replaced| replaced.id);
         if matches!(remembered, Ok(Some(_))) {
             kept += 1;
         }
@@ -444,6 +449,8 @@ mod tests {
             invalid_reason: None,
             created_at: at,
             updated_at: at,
+            superseded_by: None,
+            origin: crate::services::agent::memory::unified::ORIGIN_SITE.into(),
         }
     }
 
@@ -575,24 +582,86 @@ mod tests {
 mod live {
     use super::*;
 
+    /// A group's day written again replaces only the line its keeper kept of
+    /// that day, which points at the new one and is marked changed.
+    #[tokio::test]
+    async fn a_groups_day_written_again_replaces_its_keepers_line() {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "group_days").await;
+        let db = isolated.db.clone();
+        let user = |name: &str| {
+            let db = db.clone();
+            let sql = format!("INSERT INTO users (username) VALUES ('{name}') RETURNING id");
+            async move {
+                db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .try_get::<i32>("", "id")
+                    .unwrap()
+            }
+        };
+        let (keeper, other) = (user("day-keeper").await, user("day-other").await);
+        let venue = "telegram:-1004";
+        let day = chrono::Utc::now().fixed_offset();
+        let circle = |keeper| Circle::Group {
+            venue: venue.to_string(),
+            keeper,
+        };
+        let line = |keeper: i32| {
+            let db = db.clone();
+            async move {
+                let rows = unified::venue_source_rows(
+                    &db,
+                    Some(keeper),
+                    &circle(keeper).audience().venue(),
+                    DAY_SOURCE,
+                    10,
+                )
+                .await
+                .unwrap();
+                assert_eq!(rows.len(), 1, "one live line a day");
+                rows.into_iter().next().unwrap()
+            }
+        };
+        put_day(&db, &circle(keeper), "上午大家在聊考试", day).await;
+        put_day(&db, &circle(other), "别人记的这一天", day).await;
+        let first = line(keeper).await;
+        let theirs = line(other).await;
+        put_day(&db, &circle(keeper), "上午聊考试，晚上聊游戏", day).await;
+        let second = line(keeper).await;
+        assert_ne!(second.id, first.id);
+        let first = crate::models::entities::agent_memories::Entity::find_by_id(first.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.invalid_reason.as_deref(), Some("superseded"));
+        assert_eq!(first.superseded_by.as_deref(), Some(second.id.as_str()));
+        assert!(first.updated_at > first.created_at);
+        // Another keeper's line of the day is not this one's to replace.
+        assert_eq!(line(other).await.id, theirs.id);
+        isolated.drop().await;
+    }
+
     /// One night's going over, on a real day from the site's database, read
     /// only, printed and never kept: MEROPE_NIGHT_USER (default 1) for a
     /// private day; MEROPE_NIGHT_DAY
-    /// (YYYY-MM-DD, local, default yesterday).
+    /// (YYYY-MM-DD in her zone, default yesterday).
     #[tokio::test]
     #[ignore = "reads the site's database and asks its model"]
     async fn a_night_on_the_site() {
         let db = crate::services::agent::semantic_eval::load_configured_lite().await;
+        // Her zone, as her persona names it.
+        let _ = super::super::get_persona(&db).await;
         let day = std::env::var("MEROPE_NIGHT_DAY")
             .ok()
             .and_then(|day| chrono::NaiveDate::parse_from_str(&day, "%Y-%m-%d").ok())
-            .unwrap_or_else(|| chrono::Local::now().date_naive() - chrono::Duration::days(1));
-        let start = day
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_local_timezone(chrono::Local)
-            .unwrap()
-            .fixed_offset();
+            .unwrap_or_else(|| super::super::clock::today() - chrono::Duration::days(1));
+        let start = super::super::clock::day_start(day).unwrap();
         let end = start + chrono::Duration::days(1);
         // A group is gone over while its talk is at hand, not at night (see
         // `go_over_stretch`): only a person's day can be read back here.

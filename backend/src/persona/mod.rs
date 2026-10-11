@@ -131,6 +131,15 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
         Duration::from_secs(5 * 60),
         move || agent::merope::lifecycle::life::tick(life_db.clone()),
     );
+    // Upkeep of her records goes on whichever end is her parent, unlike
+    // her nights above.
+    let upkeep_db = db.clone();
+    drivers.periodic(
+        "her upkeep",
+        Duration::from_secs(60 * 60),
+        Duration::from_secs(10 * 60),
+        move || agent::merope::lifecycle::upkeep::tick(upkeep_db.clone()),
+    );
     let expiry_db = db.clone();
     drivers.periodic("TAPP interactions", Duration::from_secs(5), Duration::ZERO, move || {
         let db = expiry_db.clone();

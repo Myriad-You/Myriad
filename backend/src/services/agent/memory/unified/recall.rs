@@ -1,6 +1,7 @@
 //! Recall: which memories come to mind for what is said now, primed by what came to mind just before, and where her thoughts wander from there.
 
 use super::*;
+use myriad_agent_rules::memory::recall::{concept_counts, thinly_known};
 
 /// Share of a recalled memory's rank that comes from being named directly;
 /// the rest is its activation after spreading.
@@ -17,10 +18,6 @@ pub(super) const PRIMING_KEPT: usize = 16;
 
 /// How far one bout of mind-wandering drifts.
 pub(super) const WANDER_STEPS: usize = 3;
-
-/// A concept she knows this few things about is one she knows only a little
-/// about: curiosity peaks between knowing nothing and knowing plenty.
-pub(super) const THINLY_KNOWN: usize = 2;
 
 tokio::task_local! {
     static QUIETLY: ();
@@ -468,7 +465,7 @@ pub async fn wander<C: ConnectionTrait>(
         .map(|(index, _)| index)
         .collect();
     let landed = super::super::association::wander(&nodes, start, WANDER_STEPS, &avoid, roll);
-    let counts = concept_counts(&concepts);
+    let counts = concept_counts(concepts.iter().map(Vec::as_slice));
     Ok(landed.map(|index| Wandered {
         memory: MemoryRecord::from(rows[index].clone()),
         gap: thinly_known(&concepts[index], &counts),
@@ -482,33 +479,6 @@ pub struct Wandered {
     /// Something in it she knows only a little about, and how many memories
     /// she has of it, if anything.
     pub gap: Option<(String, usize)>,
-}
-
-/// How many memories each concept (by lowercased name) appears in.
-pub(super) fn concept_counts(
-    concepts: &[Vec<Concept>],
-) -> std::collections::HashMap<String, usize> {
-    let mut counts = std::collections::HashMap::new();
-    for concept in concepts.iter().flatten() {
-        *counts.entry(concept.name.to_lowercase()).or_insert(0) += 1;
-    }
-    counts
-}
-
-/// The concept of a memory she knows least about, if she knows only a little,
-/// with how many memories she has of it.
-pub(super) fn thinly_known(
-    concepts: &[Concept],
-    counts: &std::collections::HashMap<String, usize>,
-) -> Option<(String, usize)> {
-    concepts
-        .iter()
-        .filter_map(|concept| {
-            let known = counts.get(&concept.name.to_lowercase()).copied()?;
-            (known <= THINLY_KNOWN).then_some((known, concept.name.clone()))
-        })
-        .min_by_key(|(known, _)| *known)
-        .map(|(known, name)| (name, known))
 }
 
 /// Something this person just brought up that she knows only a little about
@@ -526,6 +496,7 @@ pub async fn curiosity_gap<C: ConnectionTrait>(
     Ok(gap_in(&rows, query))
 }
 
+/// [`myriad_agent_rules::memory::recall::gap_in`] over stored rows.
 pub(super) fn gap_in(rows: &[agent_memories::Model], query: &str) -> Option<(String, usize)> {
     let concepts: Vec<Vec<Concept>> = rows.iter().map(concepts_of).collect();
     let documents: Vec<super::super::lexical::Document> = rows
@@ -536,18 +507,7 @@ pub(super) fn gap_in(rows: &[agent_memories::Model], query: &str) -> Option<(Str
             concepts,
         })
         .collect();
-    let scores = super::super::lexical::score_all(query, &documents);
-    let counts = concept_counts(&concepts);
-    let mut named: Vec<(f64, usize)> = scores
-        .iter()
-        .enumerate()
-        .filter(|(_, score)| score.strong)
-        .map(|(index, score)| (score.value, index))
-        .collect();
-    named.sort_by(|left, right| right.0.total_cmp(&left.0));
-    named
-        .into_iter()
-        .find_map(|(_, index)| thinly_known(&concepts[index], &counts))
+    myriad_agent_rules::memory::recall::gap_in(&documents, query)
 }
 
 /// What stays on the mind for the next turn: the most active memories, each

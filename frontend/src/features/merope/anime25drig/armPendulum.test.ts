@@ -9,6 +9,8 @@ import {
   ArmPendulum,
   ArmSegment,
   DRAPE_SAG,
+  FIGURE_ARM_INERTIA_GAIN,
+  FIGURE_ARM_SLACK,
   FOREARM,
   HAND,
 } from './armPendulum'
@@ -66,6 +68,51 @@ test('a shoulder that starts moving leaves the hand behind for a moment', () => 
     arm.step(STILL, { x, y: 0, reach: 400 }, DT)
   }
   assert.ok(Math.abs(arm.angle) < 1e-3)
+})
+
+test('a figure\'s drawn shoulder moves as far as its body: its arm is not swung harder for it', () => {
+  const kick = (inertiaGain?: number) => {
+    const arm = new ArmPendulum(1)
+    settle(arm, STILL, 0.2)
+    let x = 0
+    let v = 0
+    let peak = 0
+    for (let t = 0; t < 0.4; t += DT) {
+      v += 900 * DT
+      x += v * DT
+      peak = Math.max(peak, arm.step({ ...STILL, inertiaGain }, { x, y: 0, reach: 400 }, DT))
+    }
+    return peak
+  }
+  const bust = kick()
+  const figure = kick(FIGURE_ARM_INERTIA_GAIN)
+  assert.ok(figure > 0 && figure < bust / 3, `${figure} vs ${bust}`)
+})
+
+test('a figure\'s arm is not flung away from its body past where it means to be', () => {
+  // ArmPendulum(1): positive is away from the body. The shoulder jerks toward
+  // the body and back, flinging the hand both ways.
+  const swing = (slack?: number) => {
+    const arm = new ArmPendulum(1)
+    settle(arm, STILL, 0.2)
+    let x = 0
+    let v = 0
+    let away = 0
+    let toward = 0
+    for (let t = 0; t < 1.2; t += DT) {
+      v += (t < 0.15 ? -6000 : t < 0.3 ? 6000 : 0) * DT
+      x += v * DT
+      const angle = arm.step({ ...STILL, slack }, { x, y: 0, reach: 400 }, DT)
+      away = Math.max(away, angle)
+      toward = Math.min(toward, angle)
+    }
+    return { away, toward }
+  }
+  const free = swing()
+  const held = swing(FIGURE_ARM_SLACK)
+  assert.ok(free.away > FIGURE_ARM_SLACK * 2, `${free.away}`)
+  assert.ok(held.away <= FIGURE_ARM_SLACK + 1e-9, `${held.away}`)
+  assert.ok(Math.abs(held.toward - free.toward) < 1e-3, 'toward the body it swings as freely')
 })
 
 test('a leaning body lets the hanging arms give some of the roll back', () => {

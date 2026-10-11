@@ -433,6 +433,11 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                     }
                 }
 
+                // Her zone (the persona's `zone`) before anything reads the hour.
+                if let Err(error) = services::agent::merope::get_persona(&db).await {
+                    tracing::warn!(%error, "Could not read her persona for her zone; the site's own for now");
+                }
+
                 match api::tapp_store::recover_tapp_filesystem_state(&db).await {
                     Ok(0) => {}
                     Ok(count) => {

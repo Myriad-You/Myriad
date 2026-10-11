@@ -36,6 +36,8 @@ pub async fn remember_in_venue<C: ConnectionTrait>(
         invalid_reason: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
+        superseded_by: Set(None),
+        origin: Set(super::ORIGIN_SITE.into()),
     };
     agent_memories::Entity::insert(row)
         .exec_without_returning(db)
@@ -71,11 +73,24 @@ pub async fn retire_unowned<C: ConnectionTrait>(
     id: &str,
     reason: &str,
 ) -> Result<bool, DbErr> {
+    retire_unowned_in_favor_of(db, venue, id, reason, None).await
+}
+
+/// [`retire_unowned`], naming the row that took its place (`by`) in the same
+/// update.
+pub async fn retire_unowned_in_favor_of<C: ConnectionTrait>(
+    db: &C,
+    venue: &str,
+    id: &str,
+    reason: &str,
+    by: Option<&str>,
+) -> Result<bool, DbErr> {
     let now = Utc::now().fixed_offset();
     let result = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             invalid_at: Set(Some(now)),
             invalid_reason: Set(Some(reason.chars().take(16).collect())),
+            superseded_by: Set(by.map(str::to_string)),
             updated_at: Set(now),
             ..Default::default()
         })

@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDate};
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 
@@ -105,7 +105,7 @@ async fn by_day(db: &DatabaseConnection, place: Place<'_>) -> BTreeMap<NaiveDate
             (Place::In(_), false) if !name.is_empty() => format!("{name}：{text}"),
             _ => text,
         };
-        days.entry(at.with_timezone(&Local).date_naive())
+        days.entry(super::clock::date_of(&at))
             .or_default()
             .push((at, role == "assistant", text));
     }
@@ -281,7 +281,7 @@ async fn people(db: &DatabaseConnection) -> Vec<i32> {
 /// At night: yesterday's line with each person, and a few older days that
 /// have none yet, newest first. Today is not over, so never today.
 pub async fn go_over(db: &DatabaseConnection, owner: i32) {
-    let today = Local::now().date_naive();
+    let today = super::clock::today();
     let oldest = today - chrono::Duration::days(FILL_BACK_DAYS);
     for user_id in people(db).await {
         let days = by_day(db, Place::With(user_id)).await;
@@ -312,7 +312,7 @@ pub async fn turn_back(
     asked: &str,
 ) -> Vec<(String, Who, String)> {
     let (table, days) = table(db, place).await;
-    let today = Local::now().date_naive();
+    let today = super::clock::today();
     // Today's talk is in front of her already.
     let table: Vec<DayLine> = table.into_iter().filter(|day| day.date < today).collect();
     if table.is_empty() {

@@ -97,7 +97,7 @@ pub(super) fn forget() {
 /// Go over her own time and let views grow or change. Once a night, and only
 /// when she has done something since she last did.
 pub async fn go_over(db: &DatabaseConnection, owner: i32) {
-    let today = chrono::Local::now().date_naive();
+    let today = super::clock::today();
     match DONE_ON.lock() {
         Ok(mut done) => match *done {
             Some((day, tries)) if day == today && tries >= TRIES_A_NIGHT => return,
@@ -215,6 +215,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         // What she thought before she changed her mind stays with the new
         // view: she knows she used to think otherwise.
         let mut was = None;
+        let mut changed_from = None;
         if let Some(at) = holding
             .iter()
             .position(|(_, subject, _)| same_subject(subject, &about))
@@ -223,7 +224,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
                 continue;
             }
             let (id, _, old) = holding.remove(at);
-            let _ = unified::retire_own(db, &id, "changed_mind").await;
+            changed_from = Some(id);
             was = Some(old);
         }
         let mut concepts = vec![Concept {
@@ -244,7 +245,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
                 Some(json!({ "id": row.id, "what": super::doing::experience_line(row)? }))
             })
             .collect();
-        if let Ok(Some(id)) = unified::remember_own(
+        let new = unified::remember_own(
             db,
             &view,
             &json!({
@@ -257,8 +258,13 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
             concepts,
             unified::OWN_VIEW,
         )
-        .await
-        {
+        .await;
+        // She changed her mind: the view she held goes, pointing at this one.
+        if let Some(old) = &changed_from {
+            let by = new.as_ref().ok().and_then(Option::as_deref);
+            let _ = unified::retire_own_in_favor_of(db, old, "changed_mind", by).await;
+        }
+        if let Ok(Some(id)) = new {
             holding.push((id, about, view));
             kept += 1;
         }
@@ -376,6 +382,8 @@ mod tests {
             invalid_reason: None,
             created_at: now,
             updated_at: now,
+            superseded_by: None,
+            origin: crate::services::agent::memory::unified::ORIGIN_SITE.into(),
         }
     }
 
@@ -416,6 +424,8 @@ mod tests {
                 invalid_reason: None,
                 created_at: Utc::now().fixed_offset(),
                 updated_at: Utc::now().fixed_offset(),
+                superseded_by: None,
+                origin: crate::services::agent::memory::unified::ORIGIN_SITE.into(),
             })
             .collect();
         // Newest first in: own_0 is the newest, own_299 the oldest.
@@ -469,6 +479,8 @@ mod tests {
             invalid_reason: None,
             created_at: Utc::now().fixed_offset(),
             updated_at: Utc::now().fixed_offset(),
+            superseded_by: None,
+            origin: crate::services::agent::memory::unified::ORIGIN_SITE.into(),
         };
         assert_eq!(
             view_of(&row),

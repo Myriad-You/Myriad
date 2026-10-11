@@ -3,16 +3,26 @@
 This directory owns the site-wide upper-body character compile path. Live
 playback is Anime2.5DRig in `../anime25drig`. There is no clip-stack driver.
 
-## Hard boundary
+## Semantic roles and runtime bones
 
-Rig IR v4 exposes only these semantic roles:
+Rig IR v4 stores only these semantic roles in a package:
 
 ```text
 root, torso, head, face, left-eye, right-eye, mouth, handwear
 ```
 
 There are no shoulder, elbow, wrist, leg, foot, contact-IK, locomotion, or hand
-pose bones in the IR. `handwear` is the shared semantic parent; optional
+pose bones in the IR, and no directed behaviour addresses one: the bones a
+figure moves with are built at playback from the joints a pose model found
+(`anchors.skeleton`), not stored, and follow the body. A standing figure gets a bone
+tree (`../anime25drig/figureSkeleton.ts`), the way a Live2D rig nests its
+rotation deformers: pelvis, abdomen and chest up the spine, thigh, shin and
+foot down each leg. Every layer does its own deformation first and the bones
+then carry it; the feet stay planted, the figure sways from them, and each leg
+is solved from hip to ankle. Large poses (a hand in front of the body, a
+wave) are drawn variants, not bigger bone turns. Which parts swing on their
+own, and how, comes from the import's vision inventory (`partProfile`).
+`handwear` is the shared semantic parent; optional
 `a25d-handwear-left/right` children hold the two sleeve/partial-forearm/hand
 drawings, which swing within ±15 degrees. The only bending inside a drawing
 comes from joints a pose model found on the master portrait

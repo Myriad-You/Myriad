@@ -6,7 +6,7 @@ pub(in crate::services::agent) mod background;
 pub(in crate::services::agent) mod bits;
 mod call;
 pub(in crate::services::agent) mod chat_days;
-pub(in crate::services::agent) mod clock;
+pub mod clock;
 pub(in crate::services::agent) mod chat_remember;
 pub(in crate::services::agent) mod curiosity;
 pub(in crate::services::agent) mod doing;
@@ -65,6 +65,7 @@ pub(in crate::services::agent) mod strangers;
 pub(in crate::services::agent) mod threads;
 pub(in crate::services::agent) mod timing;
 pub(in crate::services::agent) mod touch;
+mod upkeep;
 pub(in crate::services::agent) mod views;
 mod vitals;
 pub(in crate::services::agent) mod wander;
@@ -82,7 +83,7 @@ pub use motion::{
 };
 pub use outfit_overlay::{apply_model_wear_directive, chat_wardrobe_section, overlay_outfit_id};
 pub use store::{
-    JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate, acquire_avatar_generation,
+    AffectChange, JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate, acquire_avatar_generation,
     acquire_portrait_generation, avatar_generation_is_pending, clear_persona_on,
     complete_avatar_generation, complete_portrait_generation, credit_music_listening,
     get_or_create_state, get_persona, get_persona_on, insert_diary, latest_diary,
@@ -164,9 +165,12 @@ pub async fn note_user_turn(
         return None;
     }
     let (praised, scolded) = detect_mood_cue(text);
-    let (previous, saved) = update_affect(db, user_id, true, |affect| {
-        apply_user_utterance(affect, utterance_index, praised, scolded);
-    })
+    let (previous, saved) = update_affect(
+        db,
+        user_id,
+        true,
+        AffectChange::utterance(utterance_index, praised, scolded),
+    )
     .await
     .ok()?;
     let after = store::affect_from_state(&saved);
@@ -296,16 +300,7 @@ pub async fn note_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, tex
     maybe_write_chat_diary(db, user_id, text).await;
 }
 
-const CHAT_DIARY_MIN_CHARS: usize = 8;
-const CHAT_DIARY_GAP_MINUTES: i64 = 20;
-
-pub fn should_write_chat_diary(text: &str, last_chat_age_minutes: Option<i64>) -> bool {
-    let summary = crate::services::agent::merope::ingest::compact_summary(text);
-    if summary.chars().count() < CHAT_DIARY_MIN_CHARS {
-        return false;
-    }
-    last_chat_age_minutes.is_none_or(|age| age >= CHAT_DIARY_GAP_MINUTES)
-}
+pub use myriad_merope::diary::should_write_chat_diary;
 
 async fn maybe_write_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, text: &str) {
     let last_age = match latest_diary(db, user_id, store::DIARY_SOURCE_CHAT).await {
@@ -362,8 +357,8 @@ pub use gates::{IngestSight, decide_ingest};
 #[cfg(test)]
 pub use state::Affect;
 pub use state::{
-    MUSIC_LISTENING_MIN_SECS, MoodTransition, apply_task_outcome, apply_user_utterance, clamp_mood,
-    detect_mood_cue, effective_activity, is_extremely_low, mood_band,
+    MUSIC_LISTENING_MIN_SECS, MoodTransition, clamp_mood, detect_mood_cue, effective_activity,
+    is_extremely_low, mood_band,
 };
 
 /// The activity to act on, with a stale one read as idle.
@@ -493,6 +488,8 @@ mod tests {
             avatar_generation: None,
             updated_by: None,
             updated_at: chrono::Utc::now().into(),
+            zone: String::new(),
+            field_revs: serde_json::json!({}),
         };
         assert!(super::format_persona(&blank).is_none());
         assert!(!super::has_custom_persona(&blank));

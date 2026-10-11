@@ -146,7 +146,7 @@ mod tests {
         ))
         .await
         .unwrap();
-        let day = chrono::Local::now().date_naive();
+        let day = super::super::super::clock::today();
         let other = sea_orm::Database::connect(url.clone()).await.unwrap();
         let claims = (0..20).map(|i| {
             let db = if i % 2 == 0 { &db } else { &other };

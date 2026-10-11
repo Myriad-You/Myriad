@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use chrono::{NaiveDate, TimeZone, Utc};
+use chrono::{NaiveDate, Utc};
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
@@ -233,24 +233,18 @@ static TODAY: LazyLock<Mutex<Today>> = LazyLock::new(|| Mutex::new(Today::defaul
 /// a restart, from the trips she wrote down today: kept only in memory, a
 /// restart would let her go out again and again.
 async fn went_today(db: &DatabaseConnection) -> u32 {
-    let today = chrono::Local::now().date_naive();
+    let today = super::clock::today();
     let counted = TODAY.lock().is_ok_and(|state| state.day == Some(today));
     if !counted {
-        let written = match chrono::Local
-            .from_local_datetime(&today.and_hms_opt(0, 0, 0).unwrap_or_default())
-            .earliest()
-        {
-            Some(midnight) => {
-                unified::own_rows_since(db, unified::OWN_EXPERIENCE, midnight.fixed_offset(), 3000)
-                    .await
-                    .unwrap_or_default()
-                    .iter()
-                    .filter(|row| {
-                        super::doing::key_of(row)
-                            .is_some_and(|(_, thing)| thing.kind() == "find_out")
-                    })
-                    .count() as u32
-            }
+        let written = match super::clock::day_start(today) {
+            Some(midnight) => unified::own_rows_since(db, unified::OWN_EXPERIENCE, midnight, 3000)
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|row| {
+                    super::doing::key_of(row).is_some_and(|(_, thing)| thing.kind() == "find_out")
+                })
+                .count() as u32,
             None => 0,
         };
         if let Ok(mut state) = TODAY.lock()

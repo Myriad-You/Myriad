@@ -6,7 +6,7 @@ import { API_URL } from '../../../config'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { anime25DImportCopy } from './anime25dImportCopy'
 import { importRigPsdInWorker } from './psdImportClient'
-import { placeTurnKeyforms, turnKeyformsFor } from './turnKeyformImport'
+import { placeBodyTurnKeyforms, placeTurnKeyforms, turnKeyformsFor } from './turnKeyformImport'
 
 /** The worker's psdDecode MAX_PSD_BYTES, kept here so the page needs no PSD reader. */
 const MAX_PSD_BYTES = 96 * 1024 * 1024
@@ -56,12 +56,22 @@ export async function prepareRigPsdImport(
   )
   // Keys measured on this decomposition ride into the playback, cut as it is.
   const keys = turnKeyformsFor(file)
-  const turnKeyforms = keys && placeTurnKeyforms(keys, prepared.documentFrame, prepared.documentFrame)
+  // A figure keyed by its body alone has no head keys: its head turns as worked out.
+  const headKeyforms = keys && placeTurnKeyforms(keys, prepared.documentFrame, prepared.documentFrame)
+  const turnKeyforms = headKeyforms && Object.keys(headKeyforms).length > 0 ? headKeyforms : undefined
+  const bodyTurnKeyforms = keys && placeBodyTurnKeyforms(keys, prepared.documentFrame, prepared.documentFrame)
+  const weightKeyforms = keys && placeBodyTurnKeyforms(keys, prepared.documentFrame, prepared.documentFrame, 'weightKeyforms')
   const playback = prepared.source.anime25dPlayback
   if (playback) {
     if (turnKeyforms) playback.turnKeyforms = turnKeyforms
+    if (bodyTurnKeyforms) playback.bodyTurnKeyforms = bodyTurnKeyforms
+    if (weightKeyforms) playback.weightKeyforms = weightKeyforms
     // Kept with the rig, so its page shows the mode it was made in.
-    playback.enhancement = { turn: Boolean(turnKeyforms), expressions: expressions.length > 0 }
+    playback.enhancement = {
+      turn: Boolean(turnKeyforms),
+      expressions: expressions.length > 0,
+      ...(bodyTurnKeyforms ? { body: true } : {}),
+    }
   }
   return prepared
 }

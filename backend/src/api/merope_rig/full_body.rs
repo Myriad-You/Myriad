@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use super::{
     ApiResult, bad_request,
-    import::{import_rig, preview_rig},
+    import::{import_rig, preview_rig, spawn_part_inventory},
     internal_error,
     master::{MasterProvenance, MasterSlot, master_for},
     not_found,
@@ -371,6 +371,7 @@ pub async fn import_full_body_rig(
         None,
     )
     .await?;
+    spawn_part_inventory(&db, &imported, Some(outfit_id.clone()));
     Ok(Json(
         json!({ "manifest": imported.manifest, "assetId": imported.asset_id }),
     ))

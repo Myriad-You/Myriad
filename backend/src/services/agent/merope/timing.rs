@@ -4,45 +4,30 @@
 
 use std::time::Duration;
 
-use chrono::{Datelike, Timelike};
 use myriad_merope::timing::{self, Where};
 
 /// Seconds until she wakes, if she is asleep now: one night for all of her,
-/// in chat apps and in her own time alike.
+/// in chat apps and in her own time alike (see
+/// `myriad_merope::timing::asleep_at`).
 pub fn asleep_now() -> Option<f64> {
-    let local = super::clock::local_now();
-    // A night is the date she went to bed: before noon, yesterday's.
-    let date = if local.hour() < 12 {
-        local.date_naive() - chrono::Duration::days(1)
-    } else {
-        local.date_naive()
-    };
-    let night = u64::try_from(date.num_days_from_ce()).unwrap_or_default();
-    timing::asleep_for(night, local.hour() * 60 + local.minute())
+    timing::asleep_at(super::clock::now(), &super::clock::zone())
 }
 
 /// Where she is in her own day now (see `myriad_merope::timing::day_at`).
 pub fn her_day() -> timing::DayAt {
-    let local = super::clock::local_now();
-    timing::day_at(
-        u64::try_from(local.date_naive().num_days_from_ce()).unwrap_or_default(),
-        local.hour() * 60 + local.minute(),
-    )
+    timing::her_day_at(super::clock::now(), &super::clock::zone())
 }
 
 /// Her day's date: the day she last got up on, so it turns when she wakes,
 /// not at midnight while she is still up.
 pub fn her_date() -> chrono::NaiveDate {
-    let since_up = chrono::Duration::minutes(i64::from(her_day().since_up));
-    (super::clock::local_now() - since_up).date_naive()
+    timing::her_date_at(super::clock::now(), &super::clock::zone())
 }
 
 /// When she would be asleep by her own hours now: told to her, with when
 /// she gets up.
 pub fn past_bedtime() -> Option<String> {
-    let wakes_in = asleep_now()?;
-    let up = super::clock::local_now() + chrono::Duration::seconds(wakes_in as i64);
-    Some(timing::past_bedtime(&up.format("%H:%M").to_string()))
+    timing::past_bedtime_at(super::clock::now(), &super::clock::zone())
 }
 
 /// What she is doing as a message comes: talking there just now (which
@@ -83,7 +68,7 @@ mod tests {
     use chrono::TimeZone;
 
     fn at(day: u32, hour: u32, minute: u32) -> chrono::DateTime<chrono::Utc> {
-        chrono::Local
+        super::super::clock::zone()
             .with_ymd_and_hms(2026, 10, day, hour, minute, 0)
             .single()
             .unwrap()

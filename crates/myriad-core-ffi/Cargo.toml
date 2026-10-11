@@ -14,10 +14,12 @@ license = "AGPL-3.0-only"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+base64 = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
 myriad-agent-rules = { path = "../myriad-agent-rules" }
 myriad-merope = { path = "../myriad-merope" }
+myriad-persona-sync = { path = "../myriad-persona-sync" }
 serde = { version = "1", features = ["derive"] }
 # Numbers cross the ABI as JSON: parse them back to the exact same bits.
 serde_json = { version = "1", features = ["float_roundtrip"] }

@@ -45,6 +45,10 @@ pub struct PutPersonaRequest {
     /// Absent preserves the document, explicit `null` clears it.
     #[serde(default, deserialize_with = "present_option")]
     pub visual_profile: Option<Option<Value>>,
+    /// Her zone, an IANA name. Absent keeps it; `null` or empty is the
+    /// site's own.
+    #[serde(default, deserialize_with = "present_option")]
+    pub zone: Option<Option<String>>,
 }
 
 fn present_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
@@ -77,7 +81,10 @@ async fn require_merope_enabled() -> Result<(), HttpError> {
     }
 }
 
-async fn require_site_owner(claims: &Claims, db: &DatabaseConnection) -> Result<i32, HttpError> {
+pub(super) async fn require_site_owner(
+    claims: &Claims,
+    db: &DatabaseConnection,
+) -> Result<i32, HttpError> {
     let user_id = parse_user_id_with_agent_access(claims, db).await?;
     let owner = site_owner_user_id(db).await.map_err(|error| {
         tracing::error!(%error, "[Agent persona] Failed to resolve site owner");
@@ -183,6 +190,7 @@ pub async fn get_persona(
         body["persona"] = persona.persona_json.unwrap_or(Value::Null);
         body["visualProfile"] = persona.visual_profile.unwrap_or(Value::Null);
         body["portraitGeneration"] = persona.portrait_generation.unwrap_or(Value::Null);
+        body["zone"] = json!(persona.zone);
     }
     Ok(Json(body))
 }
@@ -211,6 +219,22 @@ pub async fn put_persona(
 ) -> Result<Json<Value>, HttpError> {
     require_merope_enabled().await?;
     let user_id = require_site_owner(&claims, &db).await?;
+    let zone = match body.zone {
+        None => None,
+        Some(zone) => {
+            let zone = zone.unwrap_or_default().trim().to_string();
+            if !merope::clock::Zone::is_valid_name(&zone) {
+                return Err(HttpError::from((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Unknown time zone",
+                        "code": "invalid_zone"
+                    })),
+                )));
+            }
+            Some(zone)
+        }
+    };
     let transaction = db
         .begin()
         .await
@@ -267,6 +291,7 @@ pub async fn put_persona(
     let contract = merope::PersonaContractUpdate {
         persona,
         visual_profile,
+        zone,
         ..merope::PersonaContractUpdate::default()
     };
     let saved = merope::upsert_persona_on(
@@ -339,7 +364,46 @@ pub async fn put_persona(
         "portraitGeneration": saved.portrait_generation,
         "portraitAssetId": saved.portrait_asset_id,
         "hasCustomPersona": merope::has_custom_persona(&saved),
+        "zone": saved.zone,
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PersonaHistoryQuery {
+    pub field: String,
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
+
+/// GET /api/agent/persona/history?field=summary
+///
+/// The values one field of her persona held before edits replaced them,
+/// newest first. Putting one back is an ordinary PUT of the persona.
+pub async fn get_persona_history(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    axum::extract::Query(query): axum::extract::Query<PersonaHistoryQuery>,
+) -> Result<Json<Value>, HttpError> {
+    require_merope_enabled().await?;
+    let _user_id = require_site_owner(&claims, &db).await?;
+    let field = query.field.trim();
+    if field.is_empty() || field.chars().count() > 64 {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Which field of her persona",
+                "code": "persona_field_required"
+            })),
+        )));
+    }
+    let limit = query.limit.unwrap_or(20).clamp(
+        1,
+        crate::services::persona_sync::fields::HISTORY_KEPT as u64,
+    );
+    let entries = crate::services::persona_sync::fields::history(&db, field, limit)
+        .await
+        .map_err(|error| persona_store_http("load persona history", error))?;
+    Ok(Json(json!({ "field": field, "entries": entries })))
 }
 
 /// DELETE /api/agent/persona

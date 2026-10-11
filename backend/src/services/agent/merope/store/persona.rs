@@ -14,9 +14,12 @@ pub async fn get_persona_on<C>(db: &C) -> Result<Option<agent_persona::Model>, a
 where
     C: ConnectionTrait,
 {
-    Ok(agent_persona::Entity::find_by_id(PERSONA_ROW_ID)
+    let persona = agent_persona::Entity::find_by_id(PERSONA_ROW_ID)
         .one(db)
-        .await?)
+        .await?;
+    // Every read keeps her zone current, whichever replica changed it.
+    super::super::clock::note_zone(persona.as_ref().map(|row| row.zone.as_str()));
+    Ok(persona)
 }
 
 pub fn normalize_persona_fields(name: &str, personality: &str) -> (String, String) {
@@ -45,6 +48,9 @@ pub struct PersonaContractUpdate {
     pub persona: JsonDocumentUpdate,
     pub visual_profile: JsonDocumentUpdate,
     pub portrait_generation: JsonDocumentUpdate,
+    /// Her zone: absent keeps it; empty is the site's own. Checked by the
+    /// caller (`clock::Zone::is_valid_name`).
+    pub zone: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -121,6 +127,9 @@ pub(super) fn apply_persona_update(
         &mut active.portrait_generation,
         &contract.portrait_generation,
     );
+    if let Some(zone) = &contract.zone {
+        active.zone = Set(zone.trim().to_string());
+    }
     if (!matches!(portrait, PortraitUpdate::Keep) || inputs_changed)
         && matches!(contract.portrait_generation, JsonDocumentUpdate::Keep)
     {
@@ -153,9 +162,31 @@ pub async fn upsert_persona_on<C>(
 where
     C: ConnectionTrait,
 {
+    let (before, saved) =
+        write_persona_on(db, name, personality, portrait, contract, updated_by).await?;
+    // Each field changed gets this write's revision; what it held is kept.
+    let saved =
+        crate::services::persona_sync::fields::record_write_on(db, before.as_ref(), saved, "edit")
+            .await?;
+    super::super::clock::note_zone(Some(&saved.zone));
+    Ok(saved)
+}
+
+async fn write_persona_on<C>(
+    db: &C,
+    name: String,
+    personality: String,
+    portrait: PortraitUpdate,
+    contract: PersonaContractUpdate,
+    updated_by: i32,
+) -> Result<(Option<agent_persona::Model>, agent_persona::Model), anyhow::Error>
+where
+    C: ConnectionTrait,
+{
     memory_jobs::lock(db).await?;
     let (name, personality) = normalize_persona_fields(&name, &personality);
     if let Some(existing) = get_persona_on(db).await? {
+        let before = existing.clone();
         let saved = apply_persona_update(
             existing,
             name,
@@ -167,7 +198,7 @@ where
         .update(db)
         .await?;
         resync_persona_avatar_snapshots(db, saved.avatar_asset_id.as_deref()).await?;
-        return Ok(saved);
+        return Ok((Some(before), saved));
     }
     let active = agent_persona::ActiveModel {
         id: Set(PERSONA_ROW_ID.to_string()),
@@ -190,14 +221,22 @@ where
         avatar_generation: Set(None),
         updated_by: Set(Some(updated_by)),
         updated_at: Set(Utc::now().into()),
+        zone: Set(contract
+            .zone
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string()),
+        field_revs: Set(serde_json::json!({})),
     };
     match active.insert(db).await {
-        Ok(model) => Ok(model),
+        Ok(model) => Ok((None, model)),
         Err(err) if is_unique_conflict(&err) => {
             let existing = get_persona_on(db)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!(err))?;
-            Ok(apply_persona_update(
+            let before = existing.clone();
+            let saved = apply_persona_update(
                 existing,
                 name,
                 personality,
@@ -206,7 +245,8 @@ where
                 updated_by,
             )
             .update(db)
-            .await?)
+            .await?;
+            Ok((Some(before), saved))
         }
         Err(err) => Err(err.into()),
     }
@@ -268,9 +308,17 @@ where
     agent_addressee_state::Entity::delete_many()
         .exec(db)
         .await?;
+    // How her affect toward each of them moved, and where its replay starts;
+    // and what her persona's fields held before.
+    db.execute_unprepared(
+        "DELETE FROM agent_affect_events; DELETE FROM agent_affect_anchor; \
+         DELETE FROM agent_persona_field_history;",
+    )
+    .await?;
     agent_persona::Entity::delete_by_id(PERSONA_ROW_ID)
         .exec(db)
         .await?;
+    super::super::clock::note_zone(None);
     // How often she has talked with people outside the community.
     super::super::strangers::forget_counts(db).await?;
     // Turtle soups on now.

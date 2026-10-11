@@ -56,6 +56,7 @@ pub mod platform_cache; // Platform filtered-JSON cache
 pub mod platform_id; // PlatformId registry: ids, aliases, credentials/enabled rule
 pub mod platform_items; // Cache → uniform items[] projection
 pub mod platform_refresh; // Platform fetch/cache (profile HTTP + scheduler)
+pub mod persona_sync; // Syncing her with other platforms: devices, what the site has of her
 pub mod principal; // 当前角色、站长、安装是否已认领：唯一来源
 pub mod process_db; // The process database connection (platform infrastructure)
 pub mod profile_text; // 名称/简介文案来源（与 avatar 独立）
@@ -152,6 +153,7 @@ pub mod qq_bot; // QQ C2C Gateway worker
 pub mod qq_pairing; // QQ C2C pairing codes + user_identities
 pub mod qq_work; // QQ C2C send adapter + Work entry
 pub mod rig_chest_analysis; // One-shot vision profile for Anime2.5D chest motion
+pub mod rig_part_analysis; // One-shot vision inventory of a rig's moving parts
 pub mod rsshub_service;
 pub mod telegram_bot; // Telegram DM getUpdates worker
 pub mod telegram_pairing; // Telegram DM pairing codes + user_identities

@@ -28,6 +28,8 @@ async fn seed_fact_at(
         invalid_reason: Set(None),
         created_at: Set(at),
         updated_at: Set(at),
+        superseded_by: Set(None),
+        origin: Set(crate::services::agent::memory::unified::ORIGIN_SITE.into()),
     }
     .insert(db)
     .await
@@ -63,6 +65,10 @@ async fn test_database() -> DatabaseConnection {
         table.if_not_exists();
         db.execute(&table).await.unwrap();
     }
+    // Each change of her affect is recorded beside it.
+    db.execute_unprepared(&super::tests::affect_log_ddl())
+        .await
+        .unwrap();
     // Where what each person said was last gone over.
     db.execute_unprepared("CREATE TABLE IF NOT EXISTS runtime_registry (namespace TEXT NOT NULL, record_id TEXT NOT NULL, subject_id INTEGER, owner_id INTEGER, tapp_id TEXT, runtime_id TEXT, payload JSONB NOT NULL, expires_at BIGINT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(namespace,record_id))")
         .await
@@ -200,7 +206,9 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
     }
     let user_id = (Uuid::new_v4().as_u128() % 1_000_000_000) as i32 + 1;
     let other_user = user_id + 1_000_000_000;
-    let (_, state) = update_affect(&db, user_id, true, |_| {}).await.unwrap();
+    let (_, state) = update_affect(&db, user_id, true, AffectChange::utterance(0, false, false))
+        .await
+        .unwrap();
     let input_at = state.last_user_message_at.unwrap();
     let old = seed_fact(&db, user_id, "喜欢咖啡").await;
     seed_fact(&db, other_user, "喜欢咖啡").await;
@@ -231,6 +239,18 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         .unwrap();
     assert_eq!(retired.invalid_reason.as_deref(), Some("superseded"));
     assert_eq!(retired.content, "喜欢咖啡");
+    // The corrected row names what holds the fact now.
+    let corrected = agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.eq(user_id))
+        .filter(agent_memories::Column::Content.eq("现在不喝咖啡"))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        retired.superseded_by.as_deref(),
+        Some(corrected.id.as_str())
+    );
     assert_eq!(retired.created_at, old.created_at);
     assert_eq!(
         recall_remembered(&db, other_user, None, 8).await.unwrap(),
@@ -312,7 +332,9 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
         vec![dated("现在不喝咖啡")]
     );
     // A fresh explicit user assertion may re-establish a withdrawn preference.
-    let (_, second) = update_affect(&db, user_id, true, |_| {}).await.unwrap();
+    let (_, second) = update_affect(&db, user_id, true, AffectChange::utterance(0, false, false))
+        .await
+        .unwrap();
     let second_input = second.last_user_message_at.unwrap();
     assert!(
         apply_chat_memory_update(&db, user_id, second_input, &addition)
@@ -370,5 +392,8 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
 
 /// What they told her today, as she holds it: placed in time.
 fn dated(fact: &str) -> String {
-    format!("[{}] {fact}", chrono::Local::now().format("%m-%d"))
+    format!(
+        "[{}] {fact}",
+        super::super::clock::local_now().format("%m-%d")
+    )
 }

@@ -87,6 +87,13 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 )),
         )
         .route(
+            "/persona/history",
+            get(super::persona::get_persona_history).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
             "/wardrobe/{outfit_id}/face",
             get(super::persona::get_wardrobe_face).route_layer(from_fn_with_state(
                 app_state.clone(),
@@ -630,6 +637,66 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
             post(clear_notifications).route_layer(from_fn_with_state(
                 app_state.clone(),
                 middleware::auth::auth_middleware,
+            )),
+        )
+        // 同步她的设备：站长在站点上添加、列出、移除、指定母端（会话凭据，只限站长）
+        .route(
+            "/devices",
+            get(super::devices::list_devices)
+                .post(super::devices::add_device)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::auth_middleware,
+                )),
+        )
+        .route(
+            "/devices/{device_id}",
+            delete(super::devices::remove_device).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/devices/{device_id}/role",
+            put(super::devices::set_device_role).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        // 设备同步她：只认设备令牌（mys_…），不认会话
+        .route(
+            "/sync/hello",
+            get(super::sync::sync_hello).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::sync_device::sync_device_auth,
+            )),
+        )
+        .route(
+            "/sync/leave",
+            post(super::sync::sync_leave).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::sync_device::sync_device_leave_auth,
+            )),
+        )
+        .route(
+            "/sync/pull",
+            get(super::sync::sync_pull).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::sync_device::sync_device_auth,
+            )),
+        )
+        .route(
+            "/sync/assets/{asset_id}",
+            get(super::sync::sync_asset).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::sync_device::sync_device_auth,
+            )),
+        )
+        .route(
+            "/sync/role",
+            put(super::sync::sync_role).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::sync_device::sync_device_auth,
             )),
         )
 }

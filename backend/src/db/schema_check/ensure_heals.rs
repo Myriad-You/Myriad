@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS agent_memories (
     invalid_at TIMESTAMPTZ,
     invalid_reason VARCHAR(16),
     created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
+    updated_at TIMESTAMPTZ NOT NULL,
+    superseded_by VARCHAR(64),
+    origin VARCHAR(64) NOT NULL DEFAULT 'site'
 );
 CREATE INDEX IF NOT EXISTS idx_agent_memories_user_created
     ON agent_memories (user_id, created_at DESC);
@@ -48,6 +50,16 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
     created_at TIMESTAMPTZ NOT NULL
 );
 "#;
+
+/// Syncing her with other platforms: the device table, her affect's changes
+/// and anchor, and her persona's field history, for databases that ran 004
+/// before they were in it. Same file as 004 (`migrations/persona_sync.sql`),
+/// so the shapes cannot drift; every statement is `IF NOT EXISTS`.
+pub(crate) async fn ensure_persona_sync_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/persona_sync.sql"))
+        .await?;
+    Ok(())
+}
 
 /// User lifecycle owned by the schema (`migrations/user_lifecycle.sql`): FK
 /// cascades for account-owned rows; for subject-keyed tables an insert-side

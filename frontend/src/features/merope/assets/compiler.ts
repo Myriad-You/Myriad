@@ -108,6 +108,7 @@ function copyPreviewPlaybackProfiles(
   if (!playback || !source.anime25dPlayback) return
   source.anime25dPlayback.chestProfile = { ...playback.chestProfile }
   source.anime25dPlayback.shellProfile = structuredClone(playback.shellProfile)
+  if (playback.partProfile) source.anime25dPlayback.partProfile = structuredClone(playback.partProfile)
 }
 
 export async function persistRigAsset(
@@ -120,6 +121,7 @@ export async function persistRigAsset(
     const manifest = await upload(
       preflight.prepared.source,
       preflight.prepared.atlas,
+      preflight.prepared.analysisReference,
     )
     emit(onStage, 'persist-manifest', 'completed')
     const report = diagnoseRig(manifest)

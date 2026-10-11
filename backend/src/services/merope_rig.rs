@@ -15,7 +15,6 @@ use myriad_merope::RigManifest;
 use once_cell::sync::Lazy;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -39,58 +38,11 @@ pub fn normalize_asset_id(raw: &str) -> Option<String> {
     }
 }
 
-/// Content identity for the complete immutable package. Runtime asset URLs are
-/// normalized out so the package id does not recursively hash itself.
+/// Content identity for the complete immutable package
+/// ([`myriad_persona_sync::rig_package_id`]): every platform names a package
+/// by the same id.
 pub fn package_id_for_manifest(atlas: &[u8], manifest: &RigManifest) -> anyhow::Result<String> {
-    let mut normalized = manifest.clone();
-    for texture in &mut normalized.textures {
-        texture.url = format!("asset://atlas/{}", texture.id);
-    }
-    let value = serde_json::to_value(normalized)?;
-    let mut canonical_manifest = Vec::new();
-    write_canonical_json(&value, &mut canonical_manifest)?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(b"myriad-rig-package-v1\0");
-    hasher.update((atlas.len() as u64).to_be_bytes());
-    hasher.update(atlas);
-    hasher.update((canonical_manifest.len() as u64).to_be_bytes());
-    hasher.update(canonical_manifest);
-    Ok(hex::encode(hasher.finalize()))
-}
-
-fn write_canonical_json(value: &Value, output: &mut Vec<u8>) -> serde_json::Result<()> {
-    match value {
-        Value::Null => output.extend_from_slice(b"null"),
-        Value::Bool(value) => output.extend_from_slice(if *value { b"true" } else { b"false" }),
-        Value::Number(value) => output.extend_from_slice(value.to_string().as_bytes()),
-        Value::String(_) => serde_json::to_writer(output, value)?,
-        Value::Array(values) => {
-            output.push(b'[');
-            for (index, value) in values.iter().enumerate() {
-                if index > 0 {
-                    output.push(b',');
-                }
-                write_canonical_json(value, output)?;
-            }
-            output.push(b']');
-        }
-        Value::Object(values) => {
-            output.push(b'{');
-            let mut keys = values.keys().collect::<Vec<_>>();
-            keys.sort_unstable();
-            for (index, key) in keys.into_iter().enumerate() {
-                if index > 0 {
-                    output.push(b',');
-                }
-                serde_json::to_writer(&mut *output, key)?;
-                output.push(b':');
-                write_canonical_json(&values[key], output)?;
-            }
-            output.push(b'}');
-        }
-    }
-    Ok(())
+    Ok(myriad_persona_sync::rig_package_id(atlas, manifest)?)
 }
 
 pub fn rig_root() -> PathBuf {

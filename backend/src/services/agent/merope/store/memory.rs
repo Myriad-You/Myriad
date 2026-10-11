@@ -123,7 +123,8 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     use crate::services::agent::memory::unified;
     let mut targets = Vec::new();
     let mut found = std::collections::HashSet::new();
-    let mut duplicate = false;
+    // The row that already says the new fact, when one does.
+    let mut duplicate = None;
     for note in unified::active_in(db, user_id, present, &unified::MemoryKind::ABOUT_PERSON).await?
     {
         let content = super::super::ingest::compact_summary(&note.content);
@@ -131,7 +132,7 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
             targets.push(note.id);
             found.insert(content);
         } else if update.fact.as_ref() == Some(&content) {
-            duplicate = true;
+            duplicate = Some(note.id);
         }
     }
     // Another extraction already replaced a target: reject the whole edit,
@@ -139,24 +140,36 @@ pub(in crate::services::agent::merope) async fn apply_chat_memory_update_on<C: C
     if found.len() != update.supersedes.len() {
         return Ok(false);
     }
-    unified::retire(db, user_id, &targets, "superseded").await?;
-    let insert = update.fact.as_ref().filter(|_| !duplicate);
-    if let Some(fact) = insert {
-        unified::remember(
-            db,
-            unified::NewMemory {
-                user_id,
-                kind: unified::MemoryKind::Fact,
-                content: fact.clone(),
-                evidence: update.evidence.clone(),
-                speaker: unified::Speaker::User,
-                source: "chat",
-                audience: present.clone(),
-                importance: 0.6,
-                concepts: update.concepts.clone(),
-            },
-        )
-        .await?;
+    // The corrected rows point at what holds the fact now: the new row, or
+    // the one that already said it; nothing when it was only taken back.
+    let insert = update.fact.as_ref().filter(|_| duplicate.is_none());
+    match insert {
+        Some(fact) => {
+            unified::remember_in_place_of(
+                db,
+                unified::NewMemory {
+                    user_id,
+                    kind: unified::MemoryKind::Fact,
+                    content: fact.clone(),
+                    evidence: update.evidence.clone(),
+                    speaker: unified::Speaker::User,
+                    source: "chat",
+                    audience: present.clone(),
+                    importance: 0.6,
+                    concepts: update.concepts.clone(),
+                },
+                unified::InPlaceOf {
+                    user_id,
+                    ids: &targets,
+                    reason: "superseded",
+                },
+            )
+            .await?;
+        }
+        None => {
+            unified::retire_in_favor_of(db, user_id, &targets, "superseded", duplicate.as_deref())
+                .await?;
+        }
     }
     let applied = !targets.is_empty() || insert.is_some();
     if applied {
@@ -263,9 +276,9 @@ pub(crate) fn as_known(note: &crate::services::agent::memory::unified::MemoryRec
     if content.is_empty() {
         return content;
     }
-    // When she came to know it, on the site's clock: what happened "last
-    // week" is placed in time; the year only when it is not this one.
-    let known = note.created_at.with_timezone(&chrono::Local);
+    // When she came to know it, on her clock: what happened "last week" is
+    // placed in time; the year only when it is not this one.
+    let known = note.created_at.with_timezone(&super::super::clock::zone());
     let when = if known.year() == super::super::clock::local_now().year() {
         known.format("%m-%d")
     } else {

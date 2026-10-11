@@ -520,6 +520,8 @@
     "structured_persona_required": "외형을 디자인하기 전에 페르소나 세부 정보를 완성하세요.",
     "visual_gender_required": "초상을 만들기 전에 성별 표현을 고르세요.",
     "portrait_not_site_asset": "초상은 이 사이트에 저장된 이미지여야 해요. 여기에 업로드한 뒤 다시 시도하세요.",
+    "invalid_zone": "알 수 없는 시간대예요. Asia/Seoul 같은 IANA 이름으로 입력하세요.",
+    "persona_field_required": "어느 항목인지 지정하세요.",
     "character_asset_provenance_changed": "그사이 캐릭터나 의상이 바뀌었어요. 새로 고친 뒤 다시 시도하세요.",
     "rig_asset_changed": "착용 중인 리그가 바뀌었어요. 새로 고친 뒤 수정 사항을 저장하세요.",
     "merope_rig_failed": "캐릭터 리그를 업데이트하지 못했어요. 다시 시도하세요.",

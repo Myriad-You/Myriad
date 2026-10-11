@@ -158,6 +158,8 @@ pub(super) async fn her_memory_at_its_full_size() {
                         invalid_reason: Set(None),
                         created_at: Set(at),
                         updated_at: Set(at),
+                        superseded_by: Set(None),
+                        origin: Set(crate::services::agent::memory::unified::ORIGIN_SITE.into()),
                     }
                 })
                 .collect();

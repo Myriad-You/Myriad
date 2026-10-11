@@ -476,6 +476,14 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                     not_null: false,
                 },
+                // Her zone, an IANA name; empty is the site's own (`TZ`).
+                ColumnDef::new("zone", "character varying")
+                    .not_null()
+                    .default_value("''"),
+                // Each field's last edit: `{field: {rev, origin}}`.
+                ColumnDef::new("field_revs", "jsonb")
+                    .not_null()
+                    .default_value("'{}'::jsonb"),
             ],
         },
         TableDef {
@@ -896,6 +904,12 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                     not_null: false,
                 },
+                // The row that took this one's place (on the old row).
+                ColumnDef::new("superseded_by", "character varying"),
+                // Which side wrote it: `site` or a device.
+                ColumnDef::new("origin", "character varying")
+                    .not_null()
+                    .default_value("'site'"),
             ],
         },
         TableDef {
@@ -906,6 +920,75 @@ pub(crate) fn tables() -> Vec<TableDef> {
                 ColumnDef::new("digest", "character varying").not_null(),
                 ColumnDef::new("vector", "bytea").not_null(),
                 ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_sync_devices".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("name", "character varying").not_null(),
+                ColumnDef::new("scope", "character varying")
+                    .not_null()
+                    .default_value("'persona-sync'"),
+                ColumnDef::new("role", "character varying")
+                    .not_null()
+                    .default_value("'child'"),
+                ColumnDef::new("token_hash", "character varying").not_null(),
+                ColumnDef::new("token_hint", "character varying").not_null(),
+                ColumnDef::new("lineage", "character varying"),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("last_seen_at", "timestamp with time zone"),
+                ColumnDef::new("revoked_at", "timestamp with time zone"),
+                ColumnDef::new("revoked_reason", "character varying"),
+            ],
+        },
+        TableDef {
+            name: "agent_affect_events".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("at", "timestamp with time zone").not_null(),
+                ColumnDef::new("cause", "character varying").not_null(),
+                ColumnDef::new("impulse", "jsonb").not_null(),
+                ColumnDef::new("baseline_mood", "double precision").not_null(),
+                ColumnDef::new("baseline_arousal", "double precision").not_null(),
+                ColumnDef::new("before", "jsonb").not_null(),
+                ColumnDef::new("after", "jsonb").not_null(),
+                ColumnDef::new("late", "boolean")
+                    .not_null()
+                    .default_value("false"),
+                ColumnDef::new("origin", "character varying")
+                    .not_null()
+                    .default_value("'site'"),
+                ColumnDef::new("rev", "character varying"),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_persona_field_history".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "bigint").not_null(),
+                ColumnDef::new("field", "character varying").not_null(),
+                ColumnDef::new("value", "jsonb"),
+                ColumnDef::new("rev", "character varying").not_null(),
+                ColumnDef::new("origin", "character varying").not_null(),
+                ColumnDef::new("replaced_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("replaced_by_rev", "character varying").not_null(),
+                ColumnDef::new("reason", "character varying").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_affect_anchor".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("mood", "double precision").not_null(),
+                ColumnDef::new("arousal", "double precision").not_null(),
+                ColumnDef::new("emotion", "double precision").not_null(),
+                ColumnDef::new("emotion_arousal", "double precision").not_null(),
+                ColumnDef::new("at", "timestamp with time zone").not_null(),
+                ColumnDef::new("through_event", "character varying"),
+                ColumnDef::new("rev", "character varying").not_null(),
             ],
         },
     ]

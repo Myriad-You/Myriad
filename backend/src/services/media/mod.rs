@@ -282,6 +282,23 @@ impl MediaService {
         Ok(asset)
     }
 
+    /// The ready asset `ctx`'s producer key already made, if there is one.
+    pub async fn ready_by_producer(
+        &self,
+        db: &DatabaseConnection,
+        ctx: &MediaContext,
+    ) -> Result<Option<MediaAsset>, MediaError> {
+        match assets::find_by_producer(db, ctx).await? {
+            Some(existing)
+                if MediaState::parse(existing.state.as_deref().unwrap_or("")).ok()
+                    == Some(MediaState::Ready) =>
+            {
+                Ok(Some(assets::to_domain(existing, 0)?))
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Persist bytes as a ready asset. `created` is false when `producer_key` hits.
     pub async fn persist_ready_bytes(
         &self,

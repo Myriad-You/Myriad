@@ -251,11 +251,48 @@ export interface Anime25DPlayback {
   shellProfile: Anime25DShellProfile
   /** The head's turn as keyed shapes per part; absent, the turn is computed. */
   turnKeyforms?: Anime25DTurnKeyforms
+  /** A standing figure's body turn as keyed shapes per body part (bodyTurnKeyforms); absent, the torso is a cylinder. */
+  bodyTurnKeyforms?: Anime25DTurnKeyforms
+  /** Its weight shift onto either leg as keyed shapes ('plus': onto the right of the picture); used beside body keys. */
+  weightKeyforms?: Anime25DTurnKeyforms
   /**
    * What generated drawings this rig was enhanced with when imported; absent
    * on rigs imported before it was recorded (then turn keys alone tell).
    */
   enhancement?: Anime25DEnhancement
+  /** The parts that move on their own, as the import's vision inventory named them; absent before it ran. */
+  partProfile?: Anime25DPartProfile
+  /** A full figure stands on its soles (the default) or floats with its legs hanging (figureFloat). */
+  figureStance?: 'ground' | 'float'
+}
+
+/**
+ * A part that moves on its own (an earring, a charm, a skirt, a ribbon), as a
+ * rigger would give it a bone and a swing: where it hangs from, which bone
+ * carries it, how it moves and what it is made of. Canvas pixels.
+ */
+export interface Anime25DPart {
+  name: string
+  /** The layer it is drawn in, or null when none fits. */
+  layer: string | null
+  /** That layer is the part alone. */
+  separate: boolean
+  box: [number, number, number, number]
+  /** Where it is fixed and hangs from. */
+  anchor: [number, number]
+  bone: string
+  motion: 'rigid' | 'sway' | 'dangle' | 'flutter'
+  material: string
+  /** 0 limp … 1 stiff. */
+  stiffness: number
+  /** 0 very light … 1 heavy. */
+  weight: number
+}
+
+export interface Anime25DPartProfile {
+  version: 1
+  source: 'ai-vision' | 'none'
+  parts: Anime25DPart[]
 }
 
 export interface Anime25DEnhancement {
@@ -263,6 +300,8 @@ export interface Anime25DEnhancement {
   turn: boolean
   /** Expressions redrawn by the image model. */
   expressions: boolean
+  /** A standing figure's body turn and weight-shift keys, fitted to generated drawings. */
+  body?: boolean
 }
 
 export function anime25DPlaybackSource(): Pick<
@@ -301,7 +340,9 @@ export function isAnime25DPlayback(value: unknown): value is Anime25DPlayback {
     isAnime25DMouthProfile(mouthProfile, canvas.width, canvas.height) &&
     isAnime25DChestProfile(chestProfile, canvas.width, canvas.height) &&
     isAnime25DShellProfile(shellProfile, canvas.width, canvas.height) &&
-    (record.turnKeyforms === undefined || isAnime25DTurnKeyforms(record.turnKeyforms))
+    (record.turnKeyforms === undefined || isAnime25DTurnKeyforms(record.turnKeyforms)) &&
+    (record.bodyTurnKeyforms === undefined || isAnime25DTurnKeyforms(record.bodyTurnKeyforms)) &&
+    (record.weightKeyforms === undefined || isAnime25DTurnKeyforms(record.weightKeyforms))
   )
 }
 

@@ -25,6 +25,8 @@
   },
   "labels": {
     "Database error": "database_error",
+    "Failed to update devices": "devices_update_failed",
+    "Sync failed": "sync_failed",
     "Database query failed": "database_error",
     "Database not connected": "database_error",
     "Failed to fetch data": "fetch_failed",
@@ -1683,6 +1685,22 @@
     "cover_not_found",
     "playlist_not_found",
     "track_not_found",
-    "skeleton_not_found"
+    "skeleton_not_found",
+    "device_limit",
+    "device_name_required",
+    "device_not_found",
+    "device_revoked",
+    "device_token_invalid",
+    "device_token_required",
+    "invalid_role",
+    "owner_changed",
+    "asset_not_found",
+    "invalid_cursor",
+    "invalid_embedding_model",
+    "clock_ahead",
+    "invalid_sync_clock",
+    "sync_clock_required",
+    "invalid_zone",
+    "persona_field_required"
   ]
 }

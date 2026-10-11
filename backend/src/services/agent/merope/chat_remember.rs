@@ -341,7 +341,7 @@ pub(super) fn extract_input(
     user_text: &str,
     reply: &str,
     turn: &super::TurnContext,
-    now: chrono::DateTime<chrono::Local>,
+    now: chrono::DateTime<super::clock::Zone>,
 ) -> String {
     let mut input = json!({
         "userText": user_text,
@@ -408,7 +408,7 @@ pub(super) async fn extract(
         user_text,
         reply,
         turn,
-        input_at.with_timezone(&chrono::Local),
+        input_at.with_timezone(&super::clock::zone()),
     );
     let raw = super::call::Ask::new(super::call::Voice::Judge, user_id, "chat_remember")
         .within(EXTRACT_TIMEOUT)
@@ -569,7 +569,7 @@ pub(crate) fn live_probe_contract(existing: &[String]) -> (String, serde_json::V
 #[cfg(test)]
 pub(crate) fn probe_input(user_text: &str, reply: &str, turn: &super::TurnContext) -> String {
     use chrono::TimeZone;
-    let now = chrono::Local
+    let now = super::clock::zone()
         .with_ymd_and_hms(2026, 9, 25, 21, 0, 0)
         .single()
         .expect("fixed date");

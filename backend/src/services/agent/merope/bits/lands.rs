@@ -29,11 +29,12 @@ pub(super) async fn put_lands(
     if now.is_empty() || was.is_some_and(|row| row.content.trim() == now) {
         return;
     }
-    if let Some(row) = was {
-        let kept_with = row.user_id.unwrap_or_else(|| circle.keeper());
-        let _ = unified::retire(db, kept_with, &[row.id.clone()], "superseded").await;
-    }
-    let _ = unified::remember(
+    // The one it replaces goes with it, pointing at it.
+    let kept_with = was.map_or(circle.keeper(), |row| {
+        row.user_id.unwrap_or_else(|| circle.keeper())
+    });
+    let replaced: Vec<String> = was.iter().map(|row| row.id.clone()).collect();
+    let _ = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: circle.keeper(),
@@ -45,6 +46,11 @@ pub(super) async fn put_lands(
             audience: circle.audience(),
             importance: 0.6,
             concepts: Vec::new(),
+        },
+        unified::InPlaceOf {
+            user_id: kept_with,
+            ids: &replaced,
+            reason: "superseded",
         },
     )
     .await;

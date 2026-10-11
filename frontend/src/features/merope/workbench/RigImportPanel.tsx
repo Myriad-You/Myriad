@@ -14,6 +14,8 @@ import {
   ANIME25D_PROJECT_URL,
   PERSONA_UPSTREAM_THANKS,
 } from '../anime25drig/credit'
+import { enhancePlanOf } from './enhanceEstimate'
+import { EnhanceProgress } from './EnhanceProgress'
 import { FaceTabs } from './FaceTabs'
 import { aiExpressionLabel, turnKeysProgress } from './rigImportCopy'
 import { RigImportProgress } from './RigImportProgress'
@@ -23,8 +25,6 @@ import {
 } from './seeThroughProject'
 import { SeeThroughSpaceField } from './SeeThroughSpaceField'
 import { TurnArchiveList } from './TurnArchiveList'
-
-export type RigPath = 'upload' | 'seeThrough'
 
 type MeropeLabels = ReturnType<typeof useI18n>['t']['merope']
 
@@ -56,7 +56,7 @@ export function RigModeTags({
   return (
     <>
       {ready ? (
-        <SettingTitleTag variant="muted" title={labels.rigReadyHint}>
+        <SettingTitleTag variant="muted" title={figure === 'bust' ? labels.rigReadyHint : labels.rigReadyFullBodyHint}>
           {labels.rigReadyTitle}
         </SettingTitleTag>
       ) : null}
@@ -76,8 +76,6 @@ export function RigModeTags({
 
 interface Props {
   rig: RigImport
-  rigPath: RigPath
-  onRigPathChange: (path: RigPath) => void
   seeThroughTokenConfigured: boolean
   /** Expressions the image model has redrawn for the current portrait. */
   aiExpressions: readonly AuthoredExpressionKind[]
@@ -93,8 +91,6 @@ interface Props {
 /** The worn outfit's rig: get a layered PSD in, check it, and put it on. */
 export function RigImportPanel({
   rig,
-  rigPath,
-  onRigPathChange,
   seeThroughTokenConfigured,
   aiExpressions,
   canGenerateAiExpressions,
@@ -105,10 +101,6 @@ export function RigImportPanel({
   const { t, format } = useI18n()
   const labels = t.merope
   const rigPsdInputRef = useRef<HTMLInputElement>(null)
-  const rigPaths: Array<{ value: RigPath; label: string }> = [
-    { value: 'upload', label: labels.rigPathUpload },
-    { value: 'seeThrough', label: labels.rigPathSeeThrough },
-  ]
   const { importing, operation } = rig
   const modes: Array<{ value: RigMode; label: string }> = [
     { value: 'plain', label: modeLabel(labels, figure, 'plain') },
@@ -119,14 +111,12 @@ export function RigImportPanel({
   useEffect(() => {
     if (activeMode) setMode(activeMode)
   }, [activeMode, setMode])
+  // The plain rig is an uploaded PSD; See-through is the enhanced one's.
   const enhancing = rig.mode === 'enhanced'
-  // The plain bust is an uploaded PSD only; See-through is the enhanced path's.
-  const uploadOnly = !enhancing && figure === 'bust'
-  const path: RigPath = uploadOnly ? 'upload' : rigPath
-  const nothingChosen = enhancing && !rig.enhanceTurn && !(rig.expressionsOffered && rig.enhanceExpressions)
+  const nothingChosen = enhancing && !rig.enhanceChosen
   const decomposeLabel = operation === 'decompose'
     ? (rig.decomposeStatus ? turnKeysProgress(labels, rig.decomposeStatus) : labels.motionSeeThroughGenerating)
-    : enhancing ? labels.rigEnhanceGenerate : labels.motionSeeThroughGenerate
+    : labels.rigEnhanceGenerate
   const seeThroughSetup = (
     <>
       <InputItem
@@ -177,6 +167,21 @@ export function RigImportPanel({
       {nothingChosen ? labels.rigEnhanceNone : decomposeLabel}
     </SettingsButton>
   )
+  const progressPlan = rig.decomposeStatus ? enhancePlanOf(rig.decomposeStatus, rig.enhanceParts) : null
+  // A loading button shows only its spinner: the job's steps and time left are shown below it,
+  // and once the split is back, the preflight's own steps (RigImportProgress).
+  const preflighting = Object.keys(rig.steps).length > 0
+  const decomposeProgress = (
+    <>
+      {operation === 'decompose' && rig.decomposeStatus && progressPlan ? (
+        <EnhanceProgress plan={progressPlan} status={rig.decomposeStatus} />
+      ) : operation === 'decompose' && !preflighting ? (
+        <p className="merope-motion-rig__hint" role="status" aria-live="polite">
+          {decomposeLabel}
+        </p>
+      ) : null}
+    </>
+  )
   return (
     <div className="merope-motion-rig">
       {/* With a rig, its mode's tags sit beside the group's title (RigModeTags). */}
@@ -190,19 +195,10 @@ export function RigImportPanel({
         />
       )}
       <p className="merope-motion-rig__hint">
-        {enhancing
-          ? labels.rigModeEnhancedHint
-          : uploadOnly ? labels.rigModePlainBustHint : labels.rigModePlainHint}
+        {!enhancing
+          ? labels.rigModePlainHint
+          : figure === 'bust' ? labels.rigModeEnhancedHint : labels.rigModeEnhancedFullBodyHint}
       </p>
-      {enhancing || uploadOnly ? null : (
-        <FaceTabs
-          className="merope-motion-rig__tabs"
-          ariaLabel={labels.rigGroup}
-          value={rigPath}
-          options={rigPaths}
-          onChange={onRigPathChange}
-        />
-      )}
       <div className="merope-character-home__credit">
         <p className="merope-character-home__credit-line">
           <GitHubProjectBadge
@@ -238,11 +234,21 @@ export function RigImportPanel({
           <CheckboxItem
             itemKey="rig-enhance-turn"
             label={labels.rigEnhanceTurn}
-            description={labels.rigEnhanceTurnHint}
+            description={figure === 'bust' ? labels.rigEnhanceTurnHint : labels.rigEnhanceTurnFullBodyHint}
             value={rig.enhanceTurn}
             onChange={rig.setEnhanceTurn}
             disabled={importing}
           />
+          {rig.bodyKeysOffered ? (
+            <CheckboxItem
+              itemKey="rig-enhance-body"
+              label={labels.rigEnhanceBody}
+              description={labels.rigEnhanceBodyHint}
+              value={rig.enhanceBody}
+              onChange={rig.setEnhanceBody}
+              disabled={importing}
+            />
+          ) : null}
           {rig.expressionsOffered ? (
             <CheckboxItem
               itemKey="rig-enhance-expressions"
@@ -286,16 +292,18 @@ export function RigImportPanel({
               </SettingsButton>
             ) : null}
           </span>
+          {decomposeProgress}
           {seeThroughTokenConfigured ? (
             <TurnArchiveList
               outfitId={archiveOutfitId}
               masterAssetId={rig.sourceMasterAssetId}
               busy={importing}
-              onRefit={(archiveId) => void rig.decomposePsd(archiveId)}
+              onRefit={(archiveId) => void rig.decomposePsd({ id: archiveId, refit: true })}
+              onLoad={(archiveId) => void rig.decomposePsd({ id: archiveId, refit: false })}
             />
           ) : null}
         </section>
-      ) : path === 'upload' ? (
+      ) : (
         <section className="merope-motion-rig__path">
           <SettingsButton
             type="button"
@@ -308,11 +316,6 @@ export function RigImportPanel({
               ? labels.motionPsdUploading
               : labels.motionPsdUpload}
           </SettingsButton>
-        </section>
-      ) : (
-        <section className="merope-motion-rig__path">
-          {seeThroughSetup}
-          {decomposeButton}
         </section>
       )}
       <input

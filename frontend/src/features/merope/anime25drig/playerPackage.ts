@@ -33,6 +33,7 @@ export function releaseCompiledGpu(
     if (layer.uvBuffer) gl.deleteBuffer(layer.uvBuffer)
     if (layer.indexBuffer) gl.deleteBuffer(layer.indexBuffer)
     if (layer.vao) gl.deleteVertexArray(layer.vao)
+    if (layer.cutTexture) gl.deleteTexture(layer.cutTexture.texture)
   }
   if (collarClip) disposeCollarClipMesh(gl, collarClip)
   if (texture) gl.deleteTexture(texture)

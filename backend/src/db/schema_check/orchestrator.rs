@@ -24,9 +24,18 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// Current (0.6.2): AI 旧设置迁到「源 + 模型」：文本三档、图片、语音
 /// （`upgrade_legacy_ai_settings`）；退役的配置行删掉（`drop_retired_rows`）；从没存过
 /// 的设置从环境变量取一次初值（`seed_from_env`）；旧形状的行改写（`old_rows`）；旧媒体
-/// 地址退场（`retire_legacy_media`）。最低支持版本提到 0.6.2 时，这个标记就是新的
+/// 地址退场（`retire_legacy_media`）。最低支持版本提到 0.6.2 时，`2026.10.03.1` 就是新的
 /// `SUPPORT_FLOOR_SCHEMA_MARK`。
-pub const SCHEMA_VERSION: &str = "2026.10.03.1";
+/// 2026.10.09.1：同步她的设备表（`agent_sync_devices`，随 004 与
+/// `ensure_persona_sync_tables` 一起建）。
+/// 2026.10.10.1：她的时区 `agent_persona.zone`（空是站点自己的时区），旧库走通用 ADD。
+/// 2026.10.10.2：记忆的取代边 `agent_memories.superseded_by`（写在旧行上）与来源端
+/// `origin`（默认 `site`），旧库走通用 ADD。
+/// 2026.10.10.3：她的心情变化记录 `agent_affect_events` 与锚点 `agent_affect_anchor`（随
+/// 004 与 `ensure_persona_sync_tables` 一起建）。
+/// 2026.10.10.4：人设逐字段的修订 `agent_persona.field_revs`（旧库走通用 ADD）与字段历史
+/// `agent_persona_field_history`（随 004 与 `ensure_persona_sync_tables` 一起建）。
+pub const SCHEMA_VERSION: &str = "2026.10.10.4";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -280,6 +289,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     super::old_rows::rewrite_old_rows(db).await?;
     crate::services::media::retire_legacy_media(db).await?;
     ensure_agent_tasks_status_check(db).await?;
+    ensure_persona_sync_tables(db).await?;
     unlink_note_docs_without_article(db).await?;
     ensure_user_lifecycle(db).await?;
     ensure_federation_foreign_keys(db).await?;

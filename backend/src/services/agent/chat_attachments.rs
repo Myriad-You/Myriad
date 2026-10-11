@@ -63,7 +63,8 @@ fn image_from_data_url(url: &str) -> Option<ImageInput> {
     })
 }
 
-fn sniff(bytes: &[u8]) -> Option<&'static str> {
+/// The image type the bytes are, whatever they were declared as.
+pub(crate) fn sniff(bytes: &[u8]) -> Option<&'static str> {
     match bytes {
         [0x89, b'P', b'N', b'G', ..] => Some("image/png"),
         [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),

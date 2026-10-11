@@ -28,6 +28,7 @@ mod full_body;
 mod import;
 mod master;
 mod package;
+mod parts;
 mod portrait;
 mod portrait_upload;
 mod pose;
@@ -107,10 +108,6 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
             post(turn_keyforms::start_full_body_turn_keyforms),
         )
         .route(
-            "/full-body/{outfit_id}/see-through/figure",
-            post(turn_keyforms::start_full_body_figure),
-        )
-        .route(
             "/full-body/{outfit_id}/see-through/figure/picture",
             get(turn_keyforms::get_full_body_figure_picture),
         )
@@ -141,6 +138,22 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/see-through/turn-archives/{archive_id}/refit",
             post(turn_keyforms::refit_turn_archive),
+        )
+        .route(
+            "/see-through/turn-archives/{archive_id}/load",
+            post(turn_keyforms::load_turn_archive),
+        )
+        .route(
+            "/full-body/{outfit_id}/stance",
+            patch(pose::save_full_body_stance),
+        )
+        .route(
+            "/full-body/{outfit_id}/parts",
+            post(parts::find_full_body_parts).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
+        )
+        .route(
+            "/parts",
+            post(parts::find_site_rig_parts).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
         .route(
             "/full-body/{outfit_id}/pose-corrections",

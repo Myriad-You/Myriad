@@ -45,6 +45,16 @@ pub mod strangers {
     pub(crate) use crate::services::agent::merope::strangers::SOURCE;
 }
 
+/// What syncing her reads (`services::persona_sync`): where her records are
+/// kept, and what her mood settles toward.
+pub mod sync {
+    pub(crate) use crate::services::agent::merope::serial::NAMESPACE as SERIAL_NAMESPACE;
+    pub(crate) use crate::services::agent::merope::sore::weighs_on as sore_weighs_on;
+    pub(crate) use crate::services::agent::merope::soup::GAMES_NAMESPACE as SOUP_NAMESPACE;
+    pub(crate) use crate::services::agent::merope::store::load_affect_baseline;
+    pub(crate) use crate::services::agent::merope::vitals::NAMESPACE as VITALS_NAMESPACE;
+}
+
 pub mod touch {
     pub(crate) use crate::services::agent::merope::touch::{
         TouchSummary, appraise, completion_summary,

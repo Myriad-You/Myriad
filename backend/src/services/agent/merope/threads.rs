@@ -105,28 +105,24 @@ pub async fn keep_in_group(db: &DatabaseConnection, venue: &str, kept: &Kept, no
         return;
     }
     let held = open_in_group(db, venue).await;
-    let mut retire: Vec<String> = held
-        .iter()
-        .filter(|thread| thread.about == about)
-        .map(|thread| thread.id.clone())
-        .collect();
-    let others = held.len() - retire.len();
-    if others + 1 > MAX_OPEN {
-        retire.extend(
-            held.iter()
-                .filter(|thread| thread.about != about)
-                .take(others + 1 - MAX_OPEN)
-                .map(|thread| thread.id.clone()),
-        );
-    }
-    close_in_group(db, venue, &retire, "superseded").await;
+    let (replaced, crowded) = make_room(&held, &about);
+    close_in_group(db, venue, &crowded, "faded").await;
     let due = kept
         .due_in_hours
         .filter(|hours| (0..=24 * 60).contains(hours))
         .map(|hours| now + chrono::Duration::hours(hours));
     let evidence = json!({ "about": about, "due": due.map(|due| due.to_rfc3339()), "hers": false })
         .to_string();
-    let _ = unified::remember_in_venue(db, &group_venue(venue), &then, &evidence, SOURCE).await;
+    let stored = group_venue(venue);
+    let kept = unified::remember_in_venue(db, &stored, &then, &evidence, SOURCE)
+        .await
+        .ok()
+        .flatten();
+    // The same subject again: the new one takes the earlier one's place.
+    for id in &replaced {
+        let _ = unified::retire_unowned_in_favor_of(db, &stored, id, "superseded", kept.as_deref())
+            .await;
+    }
 }
 
 /// She took them up in the group, or they no longer matter.
@@ -202,28 +198,17 @@ async fn put(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<U
         return;
     }
     let held = open(db, user_id).await;
-    let mut retire: Vec<String> = held
-        .iter()
-        .filter(|thread| thread.about == about)
-        .map(|thread| thread.id.clone())
-        .collect();
-    let others = held.len() - retire.len();
-    if others + 1 > MAX_OPEN {
-        retire.extend(
-            held.iter()
-                .filter(|thread| thread.about != about)
-                .take(others + 1 - MAX_OPEN)
-                .map(|thread| thread.id.clone()),
-        );
-    }
-    if !retire.is_empty() {
-        let _ = unified::retire(db, user_id, &retire, "superseded").await;
+    let (replaced, crowded) = make_room(&held, &about);
+    // Past the limit the oldest fade: nothing took their place.
+    if !crowded.is_empty() {
+        let _ = unified::retire(db, user_id, &crowded, "faded").await;
     }
     let due = kept
         .due_in_hours
         .filter(|hours| (0..=24 * 60).contains(hours))
         .map(|hours| now + chrono::Duration::hours(hours));
-    let _ = unified::remember(
+    // The same subject again: the new one takes the earlier one's place.
+    let _ = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id,
@@ -242,8 +227,32 @@ async fn put(db: &DatabaseConnection, user_id: i32, kept: &Kept, now: DateTime<U
                 aliases: Vec::new(),
             }],
         },
+        unified::InPlaceOf {
+            user_id,
+            ids: &replaced,
+            reason: "superseded",
+        },
     )
     .await;
+}
+
+/// Before keeping a thread about `about`: the held ones on the same subject
+/// (the new one takes their place), and the oldest others past the limit
+/// (they fade).
+fn make_room(held: &[Thread], about: &str) -> (Vec<String>, Vec<String>) {
+    let replaced: Vec<String> = held
+        .iter()
+        .filter(|thread| thread.about == about)
+        .map(|thread| thread.id.clone())
+        .collect();
+    let others = held.len() - replaced.len();
+    let crowded = held
+        .iter()
+        .filter(|thread| thread.about != about)
+        .take((others + 1).saturating_sub(MAX_OPEN))
+        .map(|thread| thread.id.clone())
+        .collect();
+    (replaced, crowded)
 }
 
 /// She took it up, or it no longer matters.
@@ -372,6 +381,91 @@ mod tests {
         let_fade(&db).await;
         assert!(open_in_group(&db, here).await.is_empty());
     }
+    /// The same subject again takes the earlier thread's place and the
+    /// earlier one says so; past the limit the oldest fade, with nothing in
+    /// their place. In private and in a group alike.
+    #[tokio::test]
+    async fn a_thread_replaced_points_at_the_new_one_and_crowded_ones_fade() {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "thread_edges").await;
+        let db = isolated.db.clone();
+        let user_id: i32 = db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "INSERT INTO users (username) VALUES ('thread-edge-test') RETURNING id",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get("", "id")
+            .unwrap();
+        let row = |id: String| {
+            let db = db.clone();
+            async move {
+                crate::models::entities::agent_memories::Entity::find_by_id(id)
+                    .one(&db)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            }
+        };
+        let kept = |about: &str, then: &str| Kept {
+            about: about.into(),
+            then: then.into(),
+            due_in_hours: None,
+        };
+        let now = Utc::now();
+        let venue = "telegram:-1003";
+        for place in [Some(user_id), None] {
+            let (keep_one, open_now) = (
+                |kept: Kept| {
+                    let db = db.clone();
+                    async move {
+                        match place {
+                            Some(user_id) => keep(&db, user_id, &kept, now).await,
+                            None => keep_in_group(&db, venue, &kept, now).await,
+                        }
+                    }
+                },
+                || {
+                    let db = db.clone();
+                    async move {
+                        match place {
+                            Some(user_id) => open(&db, user_id).await,
+                            None => open_in_group(&db, venue).await,
+                        }
+                    }
+                },
+            );
+            for index in 0..MAX_OPEN {
+                keep_one(kept(&format!("事{index}"), &format!("问问事{index}"))).await;
+            }
+            let oldest = open_now().await[0].clone();
+            assert_eq!(oldest.about, "事0");
+            keep_one(kept("新的事", "问问新的事")).await;
+            let crowded = row(oldest.id).await;
+            assert_eq!(crowded.invalid_reason.as_deref(), Some("faded"));
+            assert!(crowded.superseded_by.is_none());
+            let open = open_now().await;
+            assert_eq!(open.len(), MAX_OPEN);
+            let earlier = open.iter().find(|thread| thread.about == "新的事").unwrap();
+            keep_one(kept("新的事", "再问问新的事")).await;
+            let replaced = row(earlier.id.clone()).await;
+            let now_open = open_now().await;
+            let newer = now_open
+                .iter()
+                .find(|thread| thread.about == "新的事")
+                .unwrap();
+            assert_eq!(replaced.invalid_reason.as_deref(), Some("superseded"));
+            assert_eq!(replaced.superseded_by.as_deref(), Some(newer.id.as_str()));
+            assert_eq!(now_open.len(), MAX_OPEN);
+        }
+        isolated.drop().await;
+    }
+
     #[test]
     fn her_reflection_reports_threads_in_a_fixed_shape() {
         let kept: Kept =

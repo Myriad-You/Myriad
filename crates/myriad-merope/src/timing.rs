@@ -10,6 +10,7 @@
 //! after 27 s at the median (19 s to 54 s between the quartiles); she
 //! answered after 3 s (tests/merope/talk-reference.json).
 
+use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 
 /// What she is doing when a message comes.
@@ -144,6 +145,50 @@ pub fn past_bedtime(gets_up: &str) -> String {
     )
 }
 
+/// Seconds until she wakes, if she is asleep at `now` on the clock of
+/// `zone` (hers): one night for all of her, in chat apps and in her own
+/// time alike.
+pub fn asleep_at<Z: TimeZone>(now: DateTime<Utc>, zone: &Z) -> Option<f64> {
+    let local = now.with_timezone(zone);
+    // A night is the date she went to bed: before noon, yesterday's.
+    let date = if local.hour() < 12 {
+        local.date_naive() - chrono::Duration::days(1)
+    } else {
+        local.date_naive()
+    };
+    let night = u64::try_from(date.num_days_from_ce()).unwrap_or_default();
+    asleep_for(night, local.hour() * 60 + local.minute())
+}
+
+/// Where she is in her own day at `now` on the clock of `zone` (hers; see
+/// `day_at`).
+pub fn her_day_at<Z: TimeZone>(now: DateTime<Utc>, zone: &Z) -> DayAt {
+    let local = now.with_timezone(zone);
+    day_at(
+        u64::try_from(local.date_naive().num_days_from_ce()).unwrap_or_default(),
+        local.hour() * 60 + local.minute(),
+    )
+}
+
+/// Her day's date at `now` on the clock of `zone` (hers): the day she last
+/// got up on, so it turns when she wakes, not at midnight while she is
+/// still up.
+pub fn her_date_at<Z: TimeZone>(now: DateTime<Utc>, zone: &Z) -> NaiveDate {
+    let since_up = chrono::Duration::minutes(i64::from(her_day_at(now, zone).since_up));
+    (now.with_timezone(zone) - since_up).date_naive()
+}
+
+/// When she would be asleep by her own hours at `now` on the clock of
+/// `zone` (hers): told to her, with when she gets up (see `past_bedtime`).
+pub fn past_bedtime_at<Z: TimeZone>(now: DateTime<Utc>, zone: &Z) -> Option<String>
+where
+    Z::Offset: std::fmt::Display,
+{
+    let wakes_in = asleep_at(now, zone)?;
+    let up = now.with_timezone(zone) + chrono::Duration::seconds(wakes_in as i64);
+    Some(past_bedtime(&up.format("%H:%M").to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +221,61 @@ mod tests {
         }
         assert!(day_at(day, up_this_morning - 1).asleep);
         assert!(past_bedtime("08:20").contains("about 08:20"));
+    }
+
+    fn on(zone: &chrono::FixedOffset, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
+        zone.with_ymd_and_hms(2026, 10, day, hour, minute, 0)
+            .single()
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn her_hours_run_on_her_own_clock() {
+        let shanghai = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let new_york = chrono::FixedOffset::west_opt(4 * 3600).unwrap();
+        // 04:00 in Shanghai: asleep, told when she gets up on her clock.
+        let night = on(&shanghai, 2, 4, 0);
+        let wakes_in = asleep_at(night, &shanghai).unwrap();
+        let (_, up) = sleep(
+            u64::try_from(
+                chrono::NaiveDate::from_ymd_opt(2026, 10, 1)
+                    .unwrap()
+                    .num_days_from_ce(),
+            )
+            .unwrap(),
+        );
+        assert_eq!(wakes_in, f64::from(up - 240) * 60.0);
+        assert!(her_day_at(night, &shanghai).asleep);
+        let told = past_bedtime_at(night, &shanghai).unwrap();
+        assert!(
+            told.contains(&format!("about {:02}:{:02}", up / 60, up % 60)),
+            "{told}"
+        );
+        // The same moment is mid-afternoon in New York: awake, nothing told.
+        assert!(asleep_at(night, &new_york).is_none());
+        assert!(!her_day_at(night, &new_york).asleep);
+        assert!(past_bedtime_at(night, &new_york).is_none());
+        assert_eq!(her_date_at(night, &new_york).to_string(), "2026-10-01");
+    }
+
+    #[test]
+    fn her_day_turns_when_she_gets_up_not_at_midnight() {
+        let shanghai = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let afternoon = on(&shanghai, 2, 15, 0);
+        assert!(asleep_at(afternoon, &shanghai).is_none());
+        assert_eq!(her_date_at(afternoon, &shanghai).to_string(), "2026-10-02");
+        // Half past midnight she is still up, and still on the day before.
+        let late = on(&shanghai, 2, 0, 30);
+        assert!(asleep_at(late, &shanghai).is_none());
+        assert_eq!(her_date_at(late, &shanghai).to_string(), "2026-10-01");
+        // On UTC the same moment is 16:30 the day before: that day too.
+        assert_eq!(her_date_at(late, &Utc).to_string(), "2026-10-01");
+        // That afternoon is 03:00 in New York, where she is asleep and her
+        // day is still yesterday's.
+        let new_york = chrono::FixedOffset::west_opt(4 * 3600).unwrap();
+        assert!(asleep_at(afternoon, &new_york).is_some());
+        assert_eq!(her_date_at(afternoon, &new_york).to_string(), "2026-10-01");
     }
 
     /// A fixed stream of rolls, so a run is the same every time.

@@ -526,6 +526,51 @@ impl SeeThroughClient {
             })
     }
 
+    /// The Space's `judge_turn`: whether one turned drawing keeps what a turn
+    /// keeps of the front one (its fringe, its head's size, the body). `None`
+    /// when the Space has no judge (the drawing is then fitted as drawn).
+    pub async fn judge_turn(
+        &self,
+        front: (Vec<u8>, (Vec<u8>, String)),
+        turned: (Vec<u8>, (Vec<u8>, String)),
+        side: &str,
+    ) -> Result<Option<TurnJudgement>, SeeThroughError> {
+        validate_psd(&front.0)?;
+        validate_psd(&turned.0)?;
+        self.wait_until_running().await?;
+        if !self.serves("judge_turn").await? {
+            return Ok(None);
+        }
+        let file = |path: String, name: &str| json!({ "path": path, "orig_name": name, "meta": { "_type": "gradio.FileData" } });
+        let mut files = Vec::new();
+        for (label, (psd, (picture, media_type))) in [("front", front), ("turned", turned)] {
+            let psd_name = format!("{label}.psd");
+            let psd = self
+                .upload_file(psd, &psd_name, "image/vnd.adobe.photoshop")
+                .await?;
+            let png_name = format!("{label}.{}", image_extension(&media_type).unwrap_or("png"));
+            let png = self.upload_file(picture, &png_name, &media_type).await?;
+            files.push((file(psd, &psd_name), file(png, &png_name)));
+        }
+        let [(front_psd, front_png), (turned_psd, turned_png)]: [_; 2] =
+            files.try_into().expect("two drawings");
+        let data = json!([front_psd, turned_psd, front_png, turned_png, side]);
+        let event_id = self.start("judge_turn", data).await?;
+        let data = self
+            .await_data("judge_turn", &event_id, REQUEST_TIMEOUT)
+            .await?;
+        data.as_array()
+            .and_then(|values| values.first())
+            .cloned()
+            .and_then(|judged| serde_json::from_value(judged).ok())
+            .map(Some)
+            .ok_or_else(|| {
+                SeeThroughError::InvalidOutput(
+                    "See-through returned an invalid turn judgement".to_string(),
+                )
+            })
+    }
+
     /// The Space's `upscale`: a standing figure's picture enlarged to 4096 px
     /// tall by super-resolution (as it is when near that already). None when
     /// the Space has no such endpoint.
@@ -686,6 +731,101 @@ impl SeeThroughClient {
             .await?;
         serde_json::from_slice::<Value>(&keyforms).map_err(|_| {
             SeeThroughError::InvalidOutput("See-through returned invalid keyforms".to_string())
+        })?;
+        Ok(keyforms)
+    }
+
+    /// The Space's `figure_hair`: the figure's decomposition with its front
+    /// and back hair taken from its head's (`head`, baked, front hair in
+    /// locks), placed by the keys `figure_keys` placed. The keys were fitted
+    /// on the head's hair, split as the head's decomposition split it.
+    pub async fn figure_hair(
+        &self,
+        figure: Vec<u8>,
+        head: Vec<u8>,
+        placed_keyforms: Vec<u8>,
+    ) -> Result<Vec<u8>, SeeThroughError> {
+        validate_psd(&figure)?;
+        validate_psd(&head)?;
+        self.wait_until_running().await?;
+        let file = |path: String, name: &str| json!({ "path": path, "orig_name": name, "meta": { "_type": "gradio.FileData" } });
+        let figure = self
+            .upload_file(figure, "figure.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let head = self
+            .upload_file(head, "head.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let keys = self
+            .upload_file(placed_keyforms, "keyforms.json", "application/json")
+            .await?;
+        let data = json!([
+            file(figure, "figure.psd"),
+            file(head, "head.psd"),
+            file(keys, "keyforms.json"),
+        ]);
+        let event_id = self.start("figure_hair", data).await?;
+        let data = self
+            .await_data("figure_hair", &event_id, REQUEST_TIMEOUT)
+            .await?;
+        let url = output_file_url_at(&self.space, &data, 0)?;
+        self.download_psd(url).await
+    }
+
+    /// A standing figure's body turn keys (`/body_keys`): its decomposition
+    /// fitted onto decompositions of it drawn turned toward image right and
+    /// left, placed on `picture`, the picture that decomposition was made of.
+    /// JSON `{canvas, keyforms, drift, knees}`. `mode` "weight": the two are
+    /// the figure's weight on its right and left leg instead.
+    pub async fn body_keys(
+        &self,
+        (picture, media_type): (Vec<u8>, String),
+        figure: Vec<u8>,
+        turned: [Vec<u8>; 2],
+        turned_pictures: [Vec<u8>; 2],
+        mode: &str,
+    ) -> Result<Vec<u8>, SeeThroughError> {
+        validate_psd(&figure)?;
+        for psd in &turned {
+            validate_psd(psd)?;
+        }
+        self.wait_until_running().await?;
+        let name = format!("figure.{}", image_extension(&media_type).unwrap_or("png"));
+        let file = |path: String, name: &str| json!({ "path": path, "orig_name": name, "meta": { "_type": "gradio.FileData" } });
+        let picture = self.upload_file(picture, &name, &media_type).await?;
+        let figure = self
+            .upload_file(figure, "figure.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let [right, left] = turned;
+        let right = self
+            .upload_file(right, "right.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let left = self
+            .upload_file(left, "left.psd", "image/vnd.adobe.photoshop")
+            .await?;
+        let [right_png, left_png] = turned_pictures;
+        let right_png = self
+            .upload_file(right_png, "right.png", "image/png")
+            .await?;
+        let left_png = self.upload_file(left_png, "left.png", "image/png").await?;
+        let data = json!([
+            file(figure, "figure.psd"),
+            file(right, "right.psd"),
+            file(left, "left.psd"),
+            file(right_png, "right.png"),
+            file(left_png, "left.png"),
+            file(picture, &name),
+            mode,
+        ]);
+        let event_id = self.start("body_keys", data).await?;
+        let data = self
+            .await_data("body_keys", &event_id, KEYFORMS_TIMEOUT)
+            .await?;
+        let keys_url = output_file_url_at(&self.space, &data, 0)?;
+        let keyforms = self
+            .download(keys_url, "body keys download", MAX_KEYFORMS_JSON_BYTES)
+            .await?;
+        serde_json::from_slice::<Value>(&keyforms).map_err(|_| {
+            SeeThroughError::InvalidOutput("See-through returned invalid body keys".to_string())
         })?;
         Ok(keyforms)
     }
@@ -964,6 +1104,23 @@ pub struct TurnedPicturesCheck {
     /// Per side, how far a smooth warp of the front drawing stays from it (px).
     #[serde(default)]
     pub residual: std::collections::BTreeMap<String, f64>,
+}
+
+/// What a turned drawing keeps of the front one (`judge_turn`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct TurnJudgement {
+    /// Front hair area, turned over front.
+    pub fringe: Option<f64>,
+    /// Crown to chin, turned over front.
+    pub head: Option<f64>,
+    /// Share of the uncovered outfit that changed.
+    pub body: Option<f64>,
+    /// What it fails: "fringe", "head", "body". Empty: fit it as drawn.
+    #[serde(default)]
+    pub faults: Vec<String>,
+    /// How far past the bounds, to choose between two drawings of one side.
+    #[serde(default)]
+    pub badness: f64,
 }
 
 /// Whether the fit can key from a decomposition, and why not.

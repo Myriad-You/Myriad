@@ -12,11 +12,14 @@ import {
   hairLockCharacter,
   hairStrandDynamics,
 } from './hairPhysics'
+import { cutFrom } from './partSplit'
 
 const NECK_MESH_CELL = 28
 const FRONT_COLLAR_MESH_CELL = 22
 /** A head drawing's mesh cell, as a share of the face's width. */
 const HEAD_TURN_CELL = 0.03
+/** A piece cut out of its host has at least this many rows to bend over. */
+const CUT_PIECE_ROWS = 10
 
 export type Anime25DLayerBindingExtension =
   | 'neck-mesh-density'
@@ -127,7 +130,10 @@ export function buildAnime25DLayerBinding(
     maniacMouthMesh ? 14 : sillyMouthMesh ? 10 : eyeFeature ? 8 : morphingMouth ? 6 : 2,
     Math.round(source.w / cell),
   )
+  // A piece cut out of its host bends from its cut by its swing: it needs rows to bend over.
+  const cutPiece = cutFrom(source) !== undefined
   const baseRows = Math.max(
+    cutPiece ? CUT_PIECE_ROWS : 0,
     maniacMouthMesh
       ? 10
       : sillyMouthMesh

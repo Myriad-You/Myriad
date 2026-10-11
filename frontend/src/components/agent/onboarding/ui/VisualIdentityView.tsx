@@ -1,8 +1,9 @@
+import type { ReactNode } from 'react'
 import type {
   UpperBodyVisualIdentity,
   UpperBodyVisualIdentityKey,
 } from '../onboardingTypes'
-import { LuCheck, LuEdit3, LuX } from '@lib/icons'
+import { LuCheck, LuClock, LuEdit3, LuX } from '@lib/icons'
 import { useState } from 'react'
 import {
   CHARACTER_VISUAL_KEYS,
@@ -26,6 +27,10 @@ interface Props {
   show?: 'all' | 'character' | 'outfit'
   onIdentity: (identity: UpperBodyVisualIdentity) => void
   onEditingChange?: (editing: boolean) => void
+  /** The label of the history button; no button without it. */
+  historyLabel?: string
+  /** What her visual settings held before, shown under the first title while open. */
+  renderHistory?: (close: () => void) => ReactNode
 }
 
 export default function VisualIdentityView({
@@ -40,10 +45,13 @@ export default function VisualIdentityView({
   show = 'all',
   onIdentity,
   onEditingChange,
+  historyLabel,
+  renderHistory,
 }: Props) {
   const [editingField, setEditingField] =
     useState<UpperBodyVisualIdentityKey | null>(null)
   const [draft, setDraft] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const startEdit = (key: UpperBodyVisualIdentityKey) => {
     setEditingField(key)
@@ -83,13 +91,33 @@ export default function VisualIdentityView({
 
   return (
     <div className="merope-ob-visual merope-ob-persona-groups">
-      {groups.map(({ title, keys }) => (
+      {groups.map(({ title, keys }, index) => (
         <section
           key={title}
           className="merope-ob-persona-group"
           aria-label={title}
         >
-          <h2 className="merope-ob-persona-group__title">{title}</h2>
+          {index === 0 && historyLabel && renderHistory ? (
+            <>
+              <div className="merope-ob-persona-group__head">
+                <h2 className="merope-ob-persona-group__title">{title}</h2>
+                <button
+                  type="button"
+                  className="merope-ob-persona-view__edit"
+                  disabled={busy}
+                  title={historyLabel}
+                  aria-label={`${historyLabel} · ${title}`}
+                  aria-expanded={historyOpen}
+                  onClick={() => setHistoryOpen((open) => !open)}
+                >
+                  <LuClock aria-hidden />
+                </button>
+              </div>
+              {historyOpen ? renderHistory(() => setHistoryOpen(false)) : null}
+            </>
+          ) : (
+            <h2 className="merope-ob-persona-group__title">{title}</h2>
+          )}
           <dl className="merope-ob-persona-view">
             {keys.map((key) => {
               const isEditing = editingField === key

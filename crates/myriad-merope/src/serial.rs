@@ -135,6 +135,16 @@ pub struct Past {
     pub dropped: Vec<String>,
 }
 
+/// The books put out for the day, drawn at random from the library.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Shelf {
+    pub day: String,
+    pub books: Vec<Work>,
+    /// Every book put out before, so the next shelf has others.
+    #[serde(default)]
+    pub shown: Vec<String>,
+}
+
 /// How a serial ended for her, if it did with this part.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

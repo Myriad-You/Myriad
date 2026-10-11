@@ -235,6 +235,14 @@ test('preflight carries analyzed playback profiles into the persisted source', a
       garmentMotionScale: 0.8,
       confidence: 0.9,
     },
+    partProfile: {
+      version: 1,
+      source: 'ai-vision',
+      parts: [{
+        name: 'charm', layer: null, separate: false, box: [40, 60, 60, 90], anchor: [50, 60],
+        bone: 'chest', motion: 'dangle', material: 'metal', stiffness: 0.7, weight: 0.8,
+      }],
+    },
   }
   analyzed.anime25dPlayback.shellProfile.poseCorrections = [{
     surface: 'head', at: { angleX: 0.8, eyeCloseL: 1 },
@@ -260,6 +268,11 @@ test('preflight carries analyzed playback profiles into the persisted source', a
   assert.notEqual(
     result.prepared.source.anime25dPlayback?.shellProfile,
     analyzed.anime25dPlayback.shellProfile,
+  )
+  assert.deepEqual(
+    result.prepared.source.anime25dPlayback?.partProfile,
+    analyzed.anime25dPlayback.partProfile,
+    'the parts the preview found are kept for the import',
   )
   await persistRigAsset(result, async uploaded => {
     assert.deepEqual(uploaded.anime25dPlayback?.shellProfile.poseCorrections,

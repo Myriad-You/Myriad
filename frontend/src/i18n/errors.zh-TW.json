@@ -520,6 +520,8 @@
     "structured_persona_required": "請先完善人設資訊，再設計形象。",
     "visual_gender_required": "產生立繪前請先選擇性別呈現。",
     "portrait_not_site_asset": "立繪必須是本站儲存的圖片。請先上傳到本站再試。",
+    "invalid_zone": "不認得這個時區。請填寫 IANA 名稱，例如 Asia/Taipei。",
+    "persona_field_required": "請指明人設裡的哪一項。",
     "character_asset_provenance_changed": "角色或服裝剛剛有變動。請重新整理後重試。",
     "rig_asset_changed": "目前穿戴的骨骼模型已變動。請重新整理後再儲存修改。",
     "merope_rig_failed": "角色骨骼模型更新失敗。請重試。",

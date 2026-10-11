@@ -520,6 +520,8 @@
     "structured_persona_required": "Complétez les détails du persona avant de concevoir son apparence.",
     "visual_gender_required": "Choisissez une présentation de genre avant de générer le portrait.",
     "portrait_not_site_asset": "Le portrait doit être une image stockée sur ce site. Téléversez-la ici puis réessayez.",
+    "invalid_zone": "Fuseau horaire inconnu. Utilisez un nom IANA comme Europe/Paris.",
+    "persona_field_required": "Indiquez de quel champ il s’agit.",
     "character_asset_provenance_changed": "Le personnage ou la tenue a changé entre-temps. Actualisez puis réessayez.",
     "rig_asset_changed": "Le rig porté a changé. Actualisez avant d’enregistrer vos corrections.",
     "merope_rig_failed": "Impossible de mettre à jour le rig du personnage. Réessayez.",

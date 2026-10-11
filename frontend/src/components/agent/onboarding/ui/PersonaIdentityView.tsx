@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react'
 import type { StructuredPersona } from '../onboardingTypes'
-import { LuCheck, LuEdit3, LuX } from '@lib/icons'
-import { useState } from 'react'
+import { LuCheck, LuClock, LuEdit3, LuX } from '@lib/icons'
+import { Fragment, useState } from 'react'
 import { joinList, parseList } from '../onboardingTypes'
 import { TextArea } from './Field'
 import '../../PersonaOnboarding.css'
@@ -16,6 +17,10 @@ interface Props {
   groupLabel: string
   busy?: boolean
   onPersona: (persona: StructuredPersona) => void
+  /** The label of each field's history button; no button without it. */
+  historyLabel?: string
+  /** What a field held before, shown under it while open. */
+  renderHistory?: (key: PersonaFieldKey, close: () => void) => ReactNode
 }
 
 function displayValue(persona: StructuredPersona, key: PersonaFieldKey): string {
@@ -45,8 +50,11 @@ export default function PersonaIdentityView({
   groupLabel,
   busy = false,
   onPersona,
+  historyLabel,
+  renderHistory,
 }: Props) {
   const [editingField, setEditingField] = useState<PersonaFieldKey | null>(null)
+  const [historyOf, setHistoryOf] = useState<PersonaFieldKey | null>(null)
   const [draft, setDraft] = useState('')
   const rows: Array<{ key: PersonaFieldKey; areaRows: number }> = [
     { key: 'temperament', areaRows: 3 },
@@ -81,8 +89,8 @@ export default function PersonaIdentityView({
           {rows.map((row) => {
             const isEditing = editingField === row.key
             return (
+              <Fragment key={row.key}>
               <div
-                key={row.key}
                 className={`merope-ob-persona-view__row${isEditing ? ' is-editing' : ''}`}
               >
                 {isEditing ? (
@@ -136,6 +144,23 @@ export default function PersonaIdentityView({
                       <dt>{labels[row.key]}</dt>
                       <dd>{displayValue(persona, row.key)}</dd>
                     </div>
+                    {historyLabel && renderHistory ? (
+                      <button
+                        type="button"
+                        className="merope-ob-persona-view__edit"
+                        disabled={busy}
+                        title={historyLabel}
+                        aria-label={`${historyLabel} · ${labels[row.key]}`}
+                        aria-expanded={historyOf === row.key}
+                        onClick={() =>
+                          setHistoryOf((open) =>
+                            open === row.key ? null : row.key,
+                          )
+                        }
+                      >
+                        <LuClock aria-hidden />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="merope-ob-persona-view__edit"
@@ -149,6 +174,10 @@ export default function PersonaIdentityView({
                   </>
                 )}
               </div>
+              {historyOf === row.key && renderHistory
+                ? renderHistory(row.key, () => setHistoryOf(null))
+                : null}
+              </Fragment>
             )
           })}
         </dl>

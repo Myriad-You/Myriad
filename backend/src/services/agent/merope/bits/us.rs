@@ -27,10 +27,8 @@ pub(super) async fn put_us(
         return;
     }
     let before = was.map(|row| us_evidence_after(row).to_string());
-    if let Some(row) = was {
-        let _ = unified::retire(db, user_id, &[row.id.clone()], "superseded").await;
-    }
-    let kept = unified::remember(
+    let replaced: Vec<String> = was.iter().map(|row| row.id.clone()).collect();
+    let kept = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id,
@@ -43,9 +41,14 @@ pub(super) async fn put_us(
             importance: 0.7,
             concepts: Vec::new(),
         },
+        unified::InPlaceOf {
+            user_id,
+            ids: &replaced,
+            reason: "superseded",
+        },
     )
     .await;
-    if matches!(kept, Ok(Some(_))) {
+    if matches!(kept, Ok(unified::Replaced { id: Some(_), .. })) {
         tracing::info!(user_id, "[Merope] what someone is to her, put anew");
     }
 }

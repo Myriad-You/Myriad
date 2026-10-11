@@ -60,6 +60,7 @@ myriad-runtime-registry = { path = "../crates/myriad-runtime-registry" }
 myriad-listening = { path = "../crates/myriad-listening" }
 myriad-prompt-security = { path = "../crates/myriad-prompt-security" }
 myriad-agent-rules = { path = "../crates/myriad-agent-rules" }
+myriad-persona-sync = { path = "../crates/myriad-persona-sync" }
 myriad-phantasi-notes = { path = "../crates/myriad-phantasi-notes" }
 myriad-tapp-rules = { path = "../crates/myriad-tapp-rules" }
 myriad-module-visibility = { path = "../crates/myriad-module-visibility" }
@@ -121,6 +122,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 cron = "0.17"                                           # For cron expression parsing
 uuid = { version = "1.24", features = ["v4", "serde"] }
 rand = "0.10"

@@ -159,25 +159,32 @@ pub async fn consider(
     let Some(judged) = parse(&raw) else {
         return;
     };
-    if let Some(row) = &held {
-        let _ = unified::retire_unowned(db, &group, &row.id, "superseded").await;
-    }
+    // The guess before this one goes either way; a new guess takes its place.
+    let mut new = None;
     if let Some((sure, why)) = judged {
         // Kept in the group and read back there: never a word of what she
         // knows of the candidate privately, whatever the judgment wrote.
         if myriad_merope::recognizing::gives_away(&why, &touched, said) {
             tracing::warn!(%venue, "[Merope] a guess about who someone is cited what she knows privately; not kept");
-            return;
+        } else {
+            let evidence = json!({
+                "who": stranger.who,
+                "name": stranger.name,
+                "userId": user_id,
+                "sure": sure,
+            })
+            .to_string();
+            new = unified::remember_in_venue(db, &group, &why, &evidence, SOURCE)
+                .await
+                .ok()
+                .flatten();
+            tracing::info!(%venue, sure, "[Merope] she wonders who someone in a group is");
         }
-        let evidence = json!({
-            "who": stranger.who,
-            "name": stranger.name,
-            "userId": user_id,
-            "sure": sure,
-        })
-        .to_string();
-        let _ = unified::remember_in_venue(db, &group, &why, &evidence, SOURCE).await;
-        tracing::info!(%venue, sure, "[Merope] she wonders who someone in a group is");
+    }
+    if let Some(row) = &held {
+        let _ =
+            unified::retire_unowned_in_favor_of(db, &group, &row.id, "superseded", new.as_deref())
+                .await;
     }
 }
 

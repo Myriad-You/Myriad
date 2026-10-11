@@ -47,6 +47,10 @@ fn test_folded_extension_tables_in_expected_schema() {
         // 004
         "heartbeat_claims",
         "agent_memory_embeddings",
+        "agent_sync_devices",
+        "agent_affect_events",
+        "agent_affect_anchor",
+        "agent_persona_field_history",
         "agent_intentions",
         "agent_autonomy_grants",
         // 005 扩展
@@ -593,11 +597,22 @@ VALUES
         "tapp_storage must reject encrypted payloads outside _credentials.*"
     );
 
-    // The generic path puts back a missing index, in its declared shape.
+    // The generic path puts back a missing index, in its declared shape, and
+    // a database that ran 004 before the sync devices table gets it. A
+    // persona row from before her zone gets the column, empty (the site's).
     db.execute_unprepared(
         r#"
 DROP INDEX idx_phantasi_items_source_recent;
 DROP INDEX idx_metadata_history_user_date;
+DROP TABLE agent_sync_devices;
+DROP TABLE agent_affect_anchor;
+DROP TABLE agent_affect_events;
+DROP TABLE agent_persona_field_history;
+INSERT INTO agent_persona (id, name, updated_at) VALUES ('site', 'Merope', NOW());
+ALTER TABLE agent_persona DROP COLUMN zone, DROP COLUMN field_revs;
+INSERT INTO agent_memories (id, kind, content, source, venue, valid_from, created_at, updated_at)
+VALUES ('own_schema_fixture', 'doing', '去河边走了一圈', 'own', 'own', NOW(), NOW(), NOW());
+ALTER TABLE agent_memories DROP COLUMN superseded_by, DROP COLUMN origin;
 "#,
     )
     .await
@@ -614,9 +629,75 @@ DROP INDEX idx_metadata_history_user_date;
             .unwrap()
             .contains("published_at DESC NULLS LAST, id DESC")
     );
+    let devices_index = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() \
+             AND indexname = 'idx_agent_sync_devices_one_parent'",
+        ))
+        .await
+        .unwrap()
+        .expect("the heal creates the sync devices table and its one-parent index");
+    assert!(
+        devices_index
+            .try_get::<String>("", "indexdef")
+            .unwrap()
+            .contains("WHERE")
+    );
+    for table in [
+        "agent_affect_events",
+        "agent_affect_anchor",
+        "agent_persona_field_history",
+    ] {
+        assert!(
+            db.query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                format!("SELECT to_regclass('{table}')::text AS name"),
+            ))
+            .await
+            .unwrap()
+            .and_then(|row| row.try_get::<Option<String>>("", "name").ok().flatten())
+            .is_some(),
+            "the heal creates {table}"
+        );
+    }
+    let zone = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT zone, field_revs FROM agent_persona WHERE id = 'site'",
+        ))
+        .await
+        .unwrap()
+        .expect("the persona row is kept");
+    assert_eq!(zone.try_get::<String>("", "zone").unwrap(), "");
+    assert_eq!(
+        zone.try_get::<serde_json::Value>("", "field_revs").unwrap(),
+        serde_json::json!({})
+    );
+    let memory = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT origin, superseded_by FROM agent_memories WHERE id = 'own_schema_fixture'",
+        ))
+        .await
+        .unwrap()
+        .expect("the memory row is kept");
+    assert_eq!(memory.try_get::<String>("", "origin").unwrap(), "site");
+    assert_eq!(
+        memory
+            .try_get::<Option<String>>("", "superseded_by")
+            .unwrap(),
+        None
+    );
     ensure_schema(&db)
         .await
         .expect("a second startup changes nothing");
+    db.execute_unprepared("DELETE FROM agent_memories WHERE id = 'own_schema_fixture'")
+        .await
+        .expect("remove fixture memory");
+    db.execute_unprepared("DELETE FROM agent_persona WHERE id = 'site'")
+        .await
+        .expect("remove fixture persona");
     db.execute_unprepared("DELETE FROM users WHERE id = 2147483647")
         .await
         .expect("remove fixture user");

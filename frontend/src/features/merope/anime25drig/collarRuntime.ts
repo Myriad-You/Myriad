@@ -51,6 +51,24 @@ export interface CollarMotionPose {
   keyedHead: boolean
 }
 
+/** The collar's pose this frame: the head's turn and roll, breath and the torso's carry. */
+export function writeCollarMotion(
+  pose: CollarMotionPose,
+  driver: Readonly<{ angleX: number; angleY: number }>,
+  frame: Readonly<Pick<CollarMotionPose, 'headRotationCosine' | 'headRotationSine' | 'bodyBreathOffset' |
+    'headBreathOffset' | 'torsoShellBlend' | 'torsoNeckOffsetX'>>,
+): CollarMotionPose {
+  pose.angleX = driver.angleX
+  pose.angleY = driver.angleY
+  pose.headRotationCosine = frame.headRotationCosine
+  pose.headRotationSine = frame.headRotationSine
+  pose.bodyBreathOffset = frame.bodyBreathOffset
+  pose.headBreathOffset = frame.headBreathOffset
+  pose.torsoShellBlend = frame.torsoShellBlend
+  pose.torsoNeckOffsetX = frame.torsoNeckOffsetX
+  return pose
+}
+
 export function collarNeckHeadBlend(
   y: number,
   pose: Pick<CollarMotionPose, 'neckFollowTop' | 'neckFollowSpan'>,

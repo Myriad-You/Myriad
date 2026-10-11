@@ -44,7 +44,7 @@
             "rigid-left-arm-fragment",
             "rigid-right-arm-fragment"
           ],
-          "forbiddenChains": ["shoulder-elbow-wrist-hand", "leg"]
+          "forbiddenChains": ["leg"]
         }
       },
       "fullBody": {
@@ -87,7 +87,7 @@
             "rigid-left-arm-fragment",
             "rigid-right-arm-fragment"
           ],
-          "forbiddenChains": ["shoulder-elbow-wrist-hand"]
+          "forbiddenChains": []
         }
       }
     }

@@ -448,17 +448,23 @@ pub async fn offered(db: &DatabaseConnection, venue: Option<&str>, talk: &str) -
         .collect()
 }
 
-/// Stickers she made this month (on the site's clock).
-pub async fn made_this_month(db: &DatabaseConnection) -> usize {
-    let now = chrono::Local::now();
-    let Some(start) = chrono::Local
+/// When this month began in her zone; none when its first midnight is
+/// skipped or doubled by the clocks.
+pub(super) fn month_start() -> Option<chrono::DateTime<Utc>> {
+    let now = super::clock::local_now();
+    super::clock::zone()
         .with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
         .single()
-    else {
+        .map(|start| start.with_timezone(&Utc))
+}
+
+/// Stickers she made this month (in her zone).
+pub async fn made_this_month(db: &DatabaseConnection) -> usize {
+    let Some(start) = month_start() else {
         return MONTHLY;
     };
     Entity::find()
-        .filter(Column::CreatedAt.gte(start.with_timezone(&Utc)))
+        .filter(Column::CreatedAt.gte(start))
         .count(db)
         .await
         .map_or(MONTHLY, |count| count as usize)

@@ -20,6 +20,7 @@ pub(super) const TESTED: &[&str] = &[
     "outfit.wardrobe_section",
     "reach.as_text",
     "reach.judge_system",
+    "reach.key",
     "reach.parse_judged",
     "reach.reason",
     "reach.route",
@@ -261,6 +262,19 @@ fn writing_first_matches_the_crate() {
         );
         let ids =
             |threads: &[threads::Thread]| threads.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+        if let Some(reason) = &want {
+            let key = ok(
+                "reach.key",
+                json!({
+                    "due": ids(&reason.due),
+                    "wished": ids(&reason.wished),
+                    "daysSince": reason.days_since,
+                    "toTell": reason.to_tell,
+                    "toTry": reason.to_try,
+                }),
+            );
+            assert_eq!(key["key"], reason.key());
+        }
         assert_eq!(
             got["reason"],
             want.map_or(Value::Null, |reason| json!({

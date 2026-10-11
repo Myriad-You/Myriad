@@ -149,6 +149,8 @@ mod tests {
             invalid_reason: None,
             created_at: now,
             updated_at: now,
+            superseded_by: None,
+            origin: crate::services::agent::memory::unified::ORIGIN_SITE.into(),
         }
     }
 

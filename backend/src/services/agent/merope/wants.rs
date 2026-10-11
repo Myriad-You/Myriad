@@ -8,7 +8,7 @@
 //! own memories as part of her life; one nothing moved in six weeks fades.
 
 use chrono::{DateTime, Utc};
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 use serde_json::{Value, json};
 
 use super::call::{self, Voice};
@@ -116,7 +116,11 @@ pub async fn open(db: &DatabaseConnection) -> Vec<Want> {
     wants
 }
 
-async fn put(db: &DatabaseConnection, want: &Want, grew_from: &[String]) {
+async fn put<C: ConnectionTrait>(
+    db: &C,
+    want: &Want,
+    grew_from: &[String],
+) -> Result<Option<String>, sea_orm::DbErr> {
     let evidence = json!({
         "why": want.why,
         "reach": want.reach.as_str(),
@@ -125,15 +129,31 @@ async fn put(db: &DatabaseConnection, want: &Want, grew_from: &[String]) {
         "notes": want.notes.iter().map(|(at, note)| json!({ "at": at.to_rfc3339(), "note": note })).collect::<Vec<_>>(),
         "grewFrom": grew_from,
     });
-    let _ = unified::remember_own(db, &want.want, &evidence.to_string(), Vec::new(), SOURCE).await;
+    unified::remember_own(db, &want.want, &evidence.to_string(), Vec::new(), SOURCE).await
+}
+
+/// Retire the want `id` as `reason` in favor of the row `write` keeps,
+/// together: when the want can no longer be retired, nothing is written.
+async fn replace_want<F>(db: &DatabaseConnection, id: &str, reason: &str, write: F) -> bool
+where
+    F: AsyncFnOnce(&sea_orm::DatabaseTransaction) -> Result<Option<String>, sea_orm::DbErr>,
+{
+    let Ok(transaction) = db.begin().await else {
+        return false;
+    };
+    let kept = write(&transaction).await.ok().flatten();
+    match unified::retire_own_in_favor_of(&transaction, id, reason, kept.as_deref()).await {
+        Ok(_) => transaction.commit().await.is_ok(),
+        Err(_) => {
+            let _ = transaction.rollback().await;
+            false
+        }
+    }
 }
 
 /// How a want ended, kept as part of her life.
 async fn ended(db: &DatabaseConnection, want: &Want, how: &str, came_true: bool) {
     let reason = if came_true { "came_true" } else { "let_go" };
-    if unified::retire_own(db, &want.id, reason).await.is_err() {
-        return;
-    }
     let evidence = json!({
         "want": want.want,
         "since": want.since.to_rfc3339(),
@@ -145,7 +165,11 @@ async fn ended(db: &DatabaseConnection, want: &Want, how: &str, came_true: bool)
     } else {
         format!("不再想要「{}」了：{how}", want.want.trim())
     };
-    let _ = unified::remember_own(db, &line, &evidence.to_string(), Vec::new(), ENDED).await;
+    // How it ended takes the want's place.
+    replace_want(db, &want.id, reason, async |db| {
+        unified::remember_own(db, &line, &evidence.to_string(), Vec::new(), ENDED).await
+    })
+    .await;
 }
 
 /// At night: what she wants, from what she did and heard this past week.
@@ -198,12 +222,6 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         let Some(want) = held.get(moved.i).filter(|_| !done.contains(&moved.i)) else {
             continue;
         };
-        if unified::retire_own(db, &want.id, "superseded")
-            .await
-            .is_err()
-        {
-            continue;
-        }
         let mut want = want.clone();
         want.notes.push((now, moved.note.clone()));
         // What moved it is among what it grew from now.
@@ -218,7 +236,15 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         grew_from.dedup();
         let over = grew_from.len().saturating_sub(ROOTS_KEPT);
         grew_from.drain(..over);
-        put(db, &want, &grew_from).await;
+        // The want as it moved takes the place of the one before.
+        let old = want.id.clone();
+        if !replace_want(db, &old, "superseded", async |db| {
+            put(db, &want, &grew_from).await
+        })
+        .await
+        {
+            continue;
+        }
         done.push(moved.i);
     }
     for new in &night.new {
@@ -237,7 +263,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
             since: now,
             notes: Vec::new(),
         };
-        put(db, &want, &grew_from).await;
+        let _ = put(db, &want, &grew_from).await;
     }
     if !night.new.is_empty() || !done.is_empty() {
         tracing::info!(

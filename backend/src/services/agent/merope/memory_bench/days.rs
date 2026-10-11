@@ -403,14 +403,7 @@ pub(super) async fn her_day_in_a_group_a_stretch_at_a_time() {
     .unwrap();
     let keeper = super::new_user(&db, "站长").await;
     let venue = "onebot:4242";
-    let today = chrono::Local::now()
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .and_then(|midnight| {
-            chrono::TimeZone::from_local_datetime(&chrono::Local, &midnight).earliest()
-        })
-        .unwrap()
-        .fixed_offset();
+    let today = super::super::clock::day_start(super::super::clock::today()).unwrap();
     let stretch = |hour: i64, lines: &[(&str, &str)]| {
         lines
             .iter()

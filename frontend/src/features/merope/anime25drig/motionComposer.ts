@@ -10,10 +10,12 @@ import type {
 import type { Anime25DIrisRebound } from './irisRebound'
 import type { Anime25DMotionEnvelopeProfile } from './motionEnvelope'
 import type { StylizedExpressionMotion } from './stylizedExpressionMotion'
+import type { Anime25DPlayback } from './types'
 import { allowsPointerGaze } from '../motion/policy'
 import { SingingGrooveController } from '../singing/singingGroove'
 import { AmbientMotionController } from './ambientMotion'
 import { Anime25DBehaviorMotionController } from './behaviorMotion'
+import { headRidesBody } from './bodyTurnKeyforms'
 import { BODY_CONTROL_DRIVERS, DirectedPoseController, INDEPENDENT_BODY_CONTROLS } from './directedPose'
 import { IDENTITY_DRIVER } from './driver'
 import {
@@ -135,6 +137,7 @@ export class Anime25DMotionComposer {
   private readonly composedPose = zeroOccupancyOffset()
   private readonly breathPose = { angleX: 0, angleY: 0, angleZ: 0, body: 0 }
   private standing = false
+  private headRidesBody = 0
   private readonly cryMouth = {
     mouthOpen: 0,
     mouthForm: 0,
@@ -151,9 +154,14 @@ export class Anime25DMotionComposer {
     private readonly irisRebound: Anime25DIrisRebound,
   ) {}
 
-  /** A standing figure also shifts its weight from leg to leg while idle. */
-  setStanding(standing: boolean): void {
-    this.standing = standing
+  /**
+   * A standing figure also shifts its weight from leg to leg while idle; one
+   * with a keyed body turn carries its head round with a directed torso turn
+   * (headRidesBody).
+   */
+  setFigure(playback: Pick<Anime25DPlayback, 'anchors' | 'bodyTurnKeyforms' | 'turnKeyforms'>): void {
+    this.standing = playback.anchors.groundY !== undefined
+    this.headRidesBody = headRidesBody(Boolean(playback.bodyTurnKeyforms), Boolean(playback.turnKeyforms))
   }
 
   directedBodyWeight(control: IndependentBodyControl): number {
@@ -326,6 +334,7 @@ export class Anime25DMotionComposer {
     )
     this.directedPose.setTouchShare(this.performanceExpression.getTouchShare())
     this.directedPose.write(tgt, vocalizing)
+    tgt.angleX += tgt.torsoTurn * this.headRidesBody
     projectAnime25DMotionEnvelope(
       tgt,
       input.motionEnvelopeProfile,

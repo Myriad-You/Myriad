@@ -80,11 +80,11 @@ fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
         .join(" ");
     let naive = chrono::NaiveDateTime::parse_from_str(&cleaned, "%Y/%m/%d %H:%M")
         .unwrap_or_else(|_| panic!("unreadable date {text}"));
-    // Their local time, as a chat's times are.
-    chrono::Local
-        .from_local_datetime(&naive)
+    // Their local time, as a chat's times are: in her zone.
+    let zone = super::clock::zone();
+    zone.from_local_datetime(&naive)
         .earliest()
-        .unwrap_or_else(|| naive.and_utc().with_timezone(&chrono::Local))
+        .unwrap_or_else(|| naive.and_utc().with_timezone(&zone))
         .fixed_offset()
 }
 
@@ -182,7 +182,7 @@ pub(super) async fn remember_turn(
         text,
         reply,
         &super::TurnContext::default(),
-        at.with_timezone(&chrono::Local),
+        at.with_timezone(&super::clock::zone()),
     );
     let raw = judge
         .analyze_json(

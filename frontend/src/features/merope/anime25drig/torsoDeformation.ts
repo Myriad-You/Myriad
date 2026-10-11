@@ -9,7 +9,7 @@ import {
   resolveChestSpatialField,
 } from './chestPhysics'
 
-const HEAD_YAW_SHARE = 0.45
+export const HEAD_YAW_SHARE = 0.45
 const BODY_YAW_SHARE = 0.1
 // ~0.4 s to 95% for a held target, with continuous position AND velocity.
 const YAW_ANGULAR_FREQUENCY = 12

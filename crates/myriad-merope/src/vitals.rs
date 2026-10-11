@@ -69,6 +69,9 @@ pub struct Day {
 /// One group's talk on a day, as counts only.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GroupTalk {
+    /// Which group, where it was counted. Empty once the day leaves that
+    /// side: synced vitals carry the counts, not the group.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub venue: String,
     /// Lines said there, hers among them, and how many others spoke.
     pub lines: u64,

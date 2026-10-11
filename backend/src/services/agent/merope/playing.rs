@@ -265,10 +265,8 @@ async fn remember_session(db: &DatabaseConnection, owner: i32, session: Session)
     let Some(note) = session_note(&session, earlier.is_some()) else {
         return;
     };
-    if let Some(earlier) = earlier {
-        let _ = unified::retire(db, owner, &[earlier.id], "superseded").await;
-    }
-    let kept = unified::remember(
+    let earlier: Vec<String> = earlier.into_iter().map(|row| row.id).collect();
+    let kept = unified::remember_in_place_of(
         db,
         unified::NewMemory {
             user_id: owner,
@@ -284,6 +282,11 @@ async fn remember_session(db: &DatabaseConnection, owner: i32, session: Session)
                 name: session.game.clone(),
                 aliases: Vec::new(),
             }],
+        },
+        unified::InPlaceOf {
+            user_id: owner,
+            ids: &earlier,
+            reason: "superseded",
         },
     )
     .await;

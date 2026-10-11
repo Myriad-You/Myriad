@@ -9,7 +9,7 @@
 //! people type one way always, some are all over the place. Short lines say
 //! little about who typed them, so too little is no answer, not a guess.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Lines of someone's own before their way of typing is known.
 pub const KNOWN_AFTER: usize = 100;
@@ -55,7 +55,9 @@ fn marks(line: &str) -> [f64; MARKS] {
 /// Someone's way of typing, from their lines.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Profile {
-    grams: HashMap<String, f64>,
+    /// In the grams' own order, so that `distance` sums them the same way
+    /// on every run and every platform.
+    grams: BTreeMap<String, f64>,
     marks: [f64; MARKS],
     lines: usize,
     chars: usize,

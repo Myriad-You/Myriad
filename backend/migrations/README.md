@@ -87,6 +87,15 @@ writes), delete them together with their tests:
   settings rows. Their tables and `legacy_ai_settings::upgrade` stay, because
   restoring a settings backup still reads the old keys (see below).
 
+### Removed when the floor moves past the release that brings persona sync
+
+- `ensure_persona_sync_tables` (`orchestrator.rs`, `ensure_heals.rs`): the
+  device table, her affect's changes and anchor (`agent_affect_events`,
+  `agent_affect_anchor`) and her persona's field history
+  (`agent_persona_field_history`) for databases that ran 004 before it had
+  them. 004 runs the
+  same `persona_sync.sql`; only the heal call goes.
+
 ### Kept regardless of the floor
 
 Inputs a newer release still receives from outside the database:

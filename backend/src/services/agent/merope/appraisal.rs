@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use crate::models::entities::{agent_addressee_state, agent_persona};
 use crate::services::agent::UserRequest;
 
-use super::state::{MoodTransition, apply_appraisal, lite_appraisal};
+use super::state::{MoodTransition, lite_appraisal};
 use super::store::{affect_from_state, get_persona, recall_remembered, update_utterance_appraisal};
 
 // Nobody waits on it any more; a late result still moves her mood.
@@ -295,9 +295,12 @@ async fn appraise(
     if persona.as_ref().map(|row| row.updated_at) != persona_revision {
         return;
     }
-    let saved = update_utterance_appraisal(db, user_id, input_at, |affect| {
-        apply_appraisal(affect, lite_appraisal(hint.valence, hint.arousal), 1.0);
-    })
+    let saved = update_utterance_appraisal(
+        db,
+        user_id,
+        input_at,
+        super::store::AffectChange::appraisal(lite_appraisal(hint.valence, hint.arousal)),
+    )
     .await;
     let Ok(Some((before, saved))) = saved else {
         return;
