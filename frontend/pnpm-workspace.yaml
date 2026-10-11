@@ -33,8 +33,12 @@ overrides:
   colord: ^2.10.0
   fast-uri: '>=4.1.5'
   js-yaml: ^4.3.2
+  # GHSA-238p-pmpm-9mq7: patch KaTeX inherited renderer options in Markdown tools.
+  katex: ^0.18.7
   nanoid: 3.3.18
   postcss: '>=8.5.28'
+  # GHSA-rj75-hqrm-r3gf: keep selector tokenization linear for flat selectors.
+  postcss-selector-parser: ^7.1.6
   semver: '>=7.8.5'
   # GHSA-68fv-2mgg-jv7q: reject malformed indexed source-map offsets.
   source-map-js: ^1.2.2
