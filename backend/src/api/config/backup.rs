@@ -180,6 +180,31 @@ fn merge_settings_backup_entries(
         .map(|entry| (entry.key.clone(), entry))
         .collect();
 
+    // Validate fake-IP snapshot fields individually in the restore planner.
+    // The strict save projection would reject the entire snapshot for one bad
+    // CIDR, dropping unrelated settings and hiding the invalid key in preview.
+    let mut snapshot = backup.effective_config.clone();
+    snapshot.ui_config.config_fields.retain(|field| {
+        if !matches!(
+            field.key.as_str(),
+            "outbound_fake_ip_ranges" | "allow_rfc2544_benchmark_range"
+        ) {
+            return true;
+        }
+        entries
+            .entry(field.key.clone())
+            .or_insert(SettingsBackupEntry {
+                key: field.key.clone(),
+                value: Value::String(field.value.clone()),
+                schema_version: 1,
+                description: None,
+                category: Some("general".into()),
+                is_encrypted: Some(false),
+                is_public: Some(false),
+            });
+        false
+    });
+
     // The first version of this PR stored a boolean. Restore it through the
     // CIDR key so it cannot silently revive after the new list is cleared.
     if let Some(mut legacy) = entries.remove("allow_rfc2544_benchmark_range") {
@@ -217,11 +242,10 @@ fn merge_settings_backup_entries(
 
     // v1 部署可能从环境变量取值。快照里有、备份行里没有的键在这里补上；
     // 下线键不补。`collect_database_updates` 只发出快照 bag 里实际存在的字段。
-    let extra_updates =
-        collect_database_updates(&backup.effective_config).unwrap_or_else(|error| {
-            tracing::error!(%error, "settings backup could not project effective_config");
-            std::collections::HashMap::new()
-        });
+    let extra_updates = collect_database_updates(&snapshot).unwrap_or_else(|error| {
+        tracing::error!(%error, "settings backup could not project effective_config");
+        std::collections::HashMap::new()
+    });
     for (key, value) in extra_updates {
         let Some(descriptor) = live_setting_descriptor(&key) else {
             continue;
@@ -1592,6 +1616,46 @@ mod settings_backup_tests {
         ]));
         assert!(invalid.entries.is_empty());
         assert_eq!(invalid.preview.invalid_keys, ["outbound_fake_ip_ranges"]);
+    }
+
+    #[test]
+    fn restore_snapshot_invalid_fake_ip_keeps_other_settings_and_reports_the_key() {
+        let mut backup = backup_with_entries(vec![]);
+        backup.effective_config.ui_config.config_fields = vec![
+            ui_field("outbound_fake_ip_ranges", "198.18.0.0/15, ::/0"),
+            ui_field("site_title", "Restored title"),
+        ];
+        let plan = build_settings_restore_plan(&backup);
+        assert!(
+            plan.entries
+                .iter()
+                .any(|entry| entry.key == "site_title" && entry.value == json!("Restored title"))
+        );
+        assert!(
+            !plan
+                .entries
+                .iter()
+                .any(|entry| entry.key == "outbound_fake_ip_ranges")
+        );
+        assert_eq!(plan.preview.invalid_keys, ["outbound_fake_ip_ranges"]);
+    }
+
+    #[test]
+    fn restore_snapshot_fake_ip_migrates_legacy_and_honors_explicit_empty_cidrs() {
+        let mut backup = backup_with_entries(vec![]);
+        backup.effective_config.ui_config.config_fields =
+            vec![ui_field("allow_rfc2544_benchmark_range", "true")];
+        let legacy = build_settings_restore_plan(&backup);
+        assert_eq!(legacy.entries.len(), 1);
+        assert_eq!(legacy.entries[0].key, "outbound_fake_ip_ranges");
+        assert_eq!(legacy.entries[0].value, json!(["198.18.0.0/15"]));
+
+        backup.configurations = vec![entry("allow_rfc2544_benchmark_range")];
+        backup.effective_config.ui_config.config_fields =
+            vec![ui_field("outbound_fake_ip_ranges", "")];
+        let cleared = build_settings_restore_plan(&backup);
+        assert_eq!(cleared.entries.len(), 1);
+        assert_eq!(cleared.entries[0].value, json!([]));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Admin config response bag types.
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConfigResponse {
     pub platforms: Vec<PlatformConfig>,
@@ -50,7 +50,7 @@ pub struct ConfigField {
 }
 
 /// 管理端 `ai_config`：只暴露 bag（`config_fields`）。
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiConfig {
     pub config_fields: Vec<ConfigField>,
@@ -58,7 +58,7 @@ pub struct AiConfig {
 
 /// 独立的 3D 生成配置。它不属于图片生成 provider；图片只作为 3D 管线输入。
 /// 管理端只暴露 bag（`config_fields`）。
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TripoConfig {
     pub config_fields: Vec<ConfigField>,
@@ -66,7 +66,7 @@ pub struct TripoConfig {
 
 /// 管理端 `ui_config`：**只暴露 bag**（`config_fields`）。
 /// 保存只读 bag，公开运行时配置走 `GET /api/config/ui`。
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiConfig {
     pub config_fields: Vec<ConfigField>,
