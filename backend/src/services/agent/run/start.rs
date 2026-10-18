@@ -332,12 +332,16 @@ pub(crate) async fn start(
     let conversation_history =
         if has_session && interaction_mode == crate::services::agent::AgentInteractionMode::Chat {
             Some(
-                crate::services::agent::sessions::load_private_chat_history(&db, user_id, 20)
-                    .await
-                    .map_err(|error| {
-                        tracing::error!(%error, "[Agent API] Failed to load private chat history");
-                        AppError::internal("Could not load Agent session")
-                    })?,
+                crate::services::agent::sessions::load_private_chat_history(
+                    &db,
+                    user_id,
+                    crate::services::agent::sessions::PRIVATE_CHAT_IN_FRONT,
+                )
+                .await
+                .map_err(|error| {
+                    tracing::error!(%error, "[Agent API] Failed to load private chat history");
+                    AppError::internal("Could not load Agent session")
+                })?,
             )
         } else if has_session {
             let history = load_session_history(

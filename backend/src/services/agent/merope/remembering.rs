@@ -219,8 +219,10 @@ pub async fn cues(owner: i32, venue: &str, message: &str) -> Attention {
 /// Scroll back through the private chat with `user_id` for what `query`
 /// names, as a person checks what was said: the few messages that name
 /// most of it, each cut to the part that does, oldest first; `asked` (what
-/// they just said) is not what she is looking for. Their groups' talk is
-/// the groups', not looked through here.
+/// they just said) is not what she is looking for, and neither is the rest
+/// of the talk still in front of her: found again, it would read as
+/// something said before. Their groups' talk is the groups', not looked
+/// through here.
 pub async fn look_back(
     db: &DatabaseConnection,
     user_id: i32,
@@ -231,10 +233,11 @@ pub async fn look_back(
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
     const LATEST: i32 = 3000;
     const SHOWN_CHARS: usize = 600;
+    let in_front = in_front(db, user_id).await;
     let Ok(rows) = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT m.role, m.content, m.created_at FROM agent_messages m \
+            "SELECT m.id, m.role, m.content, m.created_at FROM agent_messages m \
              JOIN agent_sessions s ON s.id = m.session_id \
              WHERE s.user_id = $1 AND (s.context->>'venue') IS NULL \
                AND m.role IN ('user', 'assistant') \
@@ -249,6 +252,10 @@ pub async fn look_back(
     let mut chat: Vec<(chrono::DateTime<chrono::FixedOffset>, bool, String)> = rows
         .iter()
         .filter_map(|row| {
+            let id = row.try_get::<i32>("", "id").ok()?;
+            if in_front.contains(&id) {
+                return None;
+            }
             let role = row.try_get::<String>("", "role").ok()?;
             let content = row
                 .try_get::<String>("", "content")
@@ -312,6 +319,31 @@ pub async fn look_back(
     )
     .await;
     merge_found(by_words, by_day)
+}
+
+/// Ids of the private chat messages a chat turn has in front of her: the
+/// latest `PRIVATE_CHAT_IN_FRONT` loaded as history, and the message just
+/// kept after that history was read. Nothing when it cannot be read.
+async fn in_front(db: &DatabaseConnection, user_id: i32) -> std::collections::HashSet<i32> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, Value as SeaValue};
+    let shown = crate::services::agent::sessions::PRIVATE_CHAT_IN_FRONT as i64 + 1;
+    let Ok(rows) = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT m.id FROM agent_messages m \
+             JOIN agent_sessions s ON s.id = m.session_id \
+             WHERE s.user_id = $1 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+               AND NOT s.archived AND m.role IN ('user', 'assistant') \
+             ORDER BY m.created_at DESC LIMIT $2",
+            vec![SeaValue::Int(Some(user_id)), SeaValue::BigInt(Some(shown))],
+        ))
+        .await
+    else {
+        return Default::default();
+    };
+    rows.iter()
+        .filter_map(|row| row.try_get::<i32>("", "id").ok())
+        .collect()
 }
 
 /// What was found by words and by day, once each, oldest first.
@@ -437,6 +469,51 @@ mod tests {
         assert!(!words(false).her_life());
         // Asked about her, her life comes to mind without waiting on cues.
         assert!(words(true).her_life());
+    }
+
+    /// Scrolling back finds what was said before the talk in front of her,
+    /// not that talk again.
+    #[tokio::test]
+    async fn looking_back_skips_the_talk_still_in_front_of_her() {
+        use sea_orm::ConnectionTrait;
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "look_back").await;
+        let db = &schema.db;
+        for statement in [
+            "INSERT INTO users (id, username) VALUES (51, 'look-back')".to_string(),
+            "INSERT INTO agent_sessions (id, user_id, title, context, message_count, archived, \
+             created_at, last_active_at) VALUES ('s_look', 51, '兰草', '{\"mode\":\"chat\"}', \
+             23, false, NOW(), NOW())"
+                .to_string(),
+            // Said earlier today (so not a day turned back to), then the
+            // twenty-one lines in front of her, one naming the same thing.
+            "INSERT INTO agent_messages (session_id, role, content, created_at) VALUES \
+             ('s_look', 'user', '阳台那盆兰草浇水要隔三天', NOW() - INTERVAL '2 hours')"
+                .to_string(),
+            format!(
+                "INSERT INTO agent_messages (session_id, role, content, created_at) \
+                 SELECT 's_look', CASE WHEN n % 2 = 0 THEN 'user' ELSE 'assistant' END, \
+                   CASE WHEN n = 5 THEN '兰草浇水我昨天刚做过' ELSE '嗯' || n END, \
+                   NOW() - INTERVAL '1 hour' + n * INTERVAL '1 minute' \
+                 FROM generate_series(1, {}) n",
+                crate::services::agent::sessions::PRIVATE_CHAT_IN_FRONT + 1
+            ),
+        ] {
+            db.execute_unprepared(&statement).await.unwrap();
+        }
+        let found = look_back(db, 51, "兰草浇水", "", 3).await;
+        let texts: Vec<&str> = found.iter().map(|(_, _, text)| text.as_str()).collect();
+        assert!(
+            texts.iter().any(|text| text.contains("隔三天")),
+            "what was said before is found: {texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|text| text.contains("昨天刚做过")),
+            "the talk in front of her is not found again: {texts:?}"
+        );
+        schema.drop().await;
     }
 }
 

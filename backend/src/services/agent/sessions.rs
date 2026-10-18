@@ -45,6 +45,10 @@ pub(crate) async fn load_session_history(
         .collect())
 }
 
+/// How many of the latest private chat messages a chat turn has in front of
+/// her (see [`load_private_chat_history`]).
+pub(crate) const PRIVATE_CHAT_IN_FRONT: u64 = 20;
+
 /// A person's last `max_messages` with her in private chat, oldest first,
 /// whichever of their private conversations they were in (the site's panel,
 /// a chat app): one talk going on between them, not one per window. Groups
