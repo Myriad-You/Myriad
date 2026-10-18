@@ -156,12 +156,15 @@ describe('formatWorkbenchBytes / workbenchMediaRefLabel', () => {
     assert.equal(formatWorkbenchBytes(512), '512 B')
     assert.equal(formatWorkbenchBytes(2048), '2.0 KB')
     assert.equal(
-      workbenchMediaRefLabel(['notes', 'site', 'other'], {
-        notes: '笔记',
-        articles: '文章',
-        site: '站点',
+      workbenchMediaRefLabel(['notes', 'sticker', 'channel', 'persona', 'site', 'other'], {
+        notes: '被文章引用',
+        articles: '被订阅内容引用',
+        sticker: '被表情包引用',
+        channel: '被聊天消息引用',
+        persona: '被人设引用',
+        site: '被站点设置引用',
       }),
-      '笔记 · 站点',
+      '被文章引用 · 被表情包引用 · 被聊天消息引用 · 被人设引用 · 被站点设置引用',
     )
   })
 })

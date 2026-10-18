@@ -6,7 +6,7 @@ use crate::models::entities::media_references;
 use sea_orm::{ColumnTrait, Condition, ConnectionTrait, EntityTrait, QueryFilter, QuerySelect};
 use std::collections::HashMap;
 
-/// Map live consumer types onto the catalog UI's notes/articles/site labels.
+/// Map live consumer types onto the catalog UI's reference labels.
 pub fn catalog_reference_labels(consumer_types: &[String]) -> Vec<String> {
     let mut labels = Vec::new();
     let push = |labels: &mut Vec<String>, label: &str| {
@@ -18,6 +18,9 @@ pub fn catalog_reference_labels(consumer_types: &[String]) -> Vec<String> {
         match kind.as_str() {
             "note_draft" | "note_published" | "note_history" => push(&mut labels, "notes"),
             "rss_item" | "federation_activity" => push(&mut labels, "articles"),
+            "sticker" => push(&mut labels, "sticker"),
+            "channel_message" => push(&mut labels, "channel"),
+            "persona_outfit" | "persona_portrait" => push(&mut labels, "persona"),
             _ => push(&mut labels, "site"),
         }
     }
@@ -68,9 +71,18 @@ mod tests {
             catalog_reference_labels(&[
                 "note_draft".into(),
                 "note_history".into(),
-                "sticker".into()
+                "sticker".into(),
+                "channel_message".into(),
+                "persona_portrait".into(),
+                "site_wallpaper".into(),
             ]),
-            vec!["notes".to_string(), "site".to_string()]
+            vec![
+                "notes".to_string(),
+                "sticker".to_string(),
+                "channel".to_string(),
+                "persona".to_string(),
+                "site".to_string(),
+            ]
         );
     }
 

@@ -420,12 +420,22 @@ function plainNoteExcerpt(markdown: string): string {
 
 export function workbenchMediaRefLabel(
   refs: readonly string[],
-  copy: { notes: string; articles: string; site: string },
+  copy: {
+    notes: string
+    articles: string
+    site: string
+    sticker?: string
+    channel?: string
+    persona?: string
+  },
 ): string {
   return refs
     .map((ref) => {
       if (ref === 'notes') return copy.notes
       if (ref === 'articles') return copy.articles
+      if (ref === 'sticker') return copy.sticker ?? copy.site
+      if (ref === 'channel') return copy.channel ?? copy.site
+      if (ref === 'persona') return copy.persona ?? copy.site
       if (ref === 'site') return copy.site
       return ''
     })

@@ -89,8 +89,11 @@ export function WorkbenchMediaPane({
         const src = mediaAssetSrc(item) || undefined
         const inUse = item.references.length > 0
         const refs = workbenchMediaRefLabel(item.references, {
-          notes: phantasi.workbenchNotes,
-          articles: phantasi.articles,
+          notes: phantasi.workbenchMediaRefNotes,
+          articles: phantasi.workbenchMediaRefArticles,
+          sticker: phantasi.workbenchMediaRefSticker,
+          channel: phantasi.workbenchMediaRefChannel,
+          persona: phantasi.workbenchMediaRefPersona,
           site: phantasi.workbenchMediaRefSite,
         })
         const formatKey = workbenchMediaFormatKey(item)
