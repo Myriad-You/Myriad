@@ -35,7 +35,6 @@ import { InputItem } from '../settings'
 import { StudioBlogPane } from './StudioBlogPane'
 import {
   studioMediaOrigin,
-  studioSectionForMediaOrigin,
   studioSectionPath,
 } from './studioRoutes'
 import '../ConfigForm.css'
@@ -206,8 +205,19 @@ export function StudioShell({
   const [mobilePane, setMobilePane] = useState<'nav' | 'section'>('section')
   const [categoryQuery, setCategoryQuery] = useState('')
   const [openedCategory, setOpenedCategory] = useState<string | null>(null)
-  const presentMediaOrigins = new Set(mediaOrigins ?? media.map(mediaAssetOrigin))
+  const presentMediaOrigins = mediaOrigins
+    ? new Set(mediaOrigins)
+    : mediaFilter.origin === 'all' &&
+        mediaFilter.format === 'all' &&
+        !mediaFilter.query.trim() &&
+        media.length > 0
+      ? new Set(media.map(mediaAssetOrigin))
+      : null
   const go = (next: StudioSection) => {
+    const nextOrigin = studioMediaOrigin(next)
+    if (nextOrigin && next !== section) {
+      onMediaFilter({ ...mediaFilter, origin: nextOrigin, format: 'all' })
+    }
     navigate(studioSectionPath(next))
     setMobilePane('section')
     setOpenedCategory(null)
@@ -259,7 +269,7 @@ export function StudioShell({
                 if (item.pack !== pack) return false
                 const origin = studioMediaOrigin(item.section)
                 if (!origin || origin === 'all' || item.section === section) return true
-                return presentMediaOrigins.has(origin)
+                return presentMediaOrigins ? presentMediaOrigins.has(origin) : true
               }).map((item) => {
                 const current = section === item.section
                 return (
@@ -360,16 +370,10 @@ export function StudioShell({
           }
           back={back}
           media={media}
-          mediaOrigins={mediaOrigins}
           mediaFormats={mediaFormats}
           mediaLoading={mediaLoading}
           mediaFilter={mediaFilter}
-          onMediaFilter={(next) => {
-            if (next.origin !== mediaFilter.origin) {
-              navigate(studioSectionPath(studioSectionForMediaOrigin(next.origin)))
-            }
-            onMediaFilter(next)
-          }}
+          onMediaFilter={onMediaFilter}
           mediaHasMore={mediaHasMore}
           onLoadMoreMedia={onLoadMoreMedia}
           busy={busy}

@@ -1,16 +1,15 @@
 import type { ReactNode } from 'react'
-import type { MediaAsset, MediaFilter, MediaOrigin } from '../../../services/mediaApi'
+import type { MediaAsset, MediaFilter } from '../../../services/mediaApi'
 import type { ManagedListItem } from '../../settings/ManagedList'
 import {
   LuFileText,
   LuImage,
   LuList,
   LuSquare,
-  LuUpload,
 } from '@lib/icons'
 import { useMemo, useRef, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
-import { MEDIA_ORIGINS, mediaAssetOrigin, mediaAssetSrc } from '../../../services/mediaApi'
+import { mediaAssetOrigin, mediaAssetSrc } from '../../../services/mediaApi'
 import { MediaPreview } from '../../media/MediaPreview'
 import { InputItem, ManagedList, SettingsButton } from '../../settings'
 import {
@@ -31,7 +30,6 @@ export function WorkbenchMediaPane({
   title,
   back,
   media,
-  mediaOrigins,
   mediaFormats,
   mediaLoading,
   mediaFilter,
@@ -49,7 +47,6 @@ export function WorkbenchMediaPane({
   title?: string
   back: ReactNode
   media: MediaAsset[]
-  mediaOrigins?: readonly MediaOrigin[]
   mediaFormats?: readonly string[]
   mediaLoading: boolean
   mediaFilter: MediaFilter
@@ -84,31 +81,6 @@ export function WorkbenchMediaPane({
       })),
     ],
     [phantasi.workbenchMediaAll, phantasi.workbenchMediaFormatOther, visibleFormats],
-  )
-  const visibleOrigins = useMemo(() => {
-    const present = new Set(mediaOrigins ?? media.map(mediaAssetOrigin))
-    return MEDIA_ORIGINS.filter(
-      (key) => present.has(key) || key === mediaOrigin,
-    )
-  }, [media, mediaOrigin, mediaOrigins])
-  const mediaOriginOptions = useMemo(
-    () => [
-      { key: 'all', label: phantasi.workbenchMediaAll },
-      ...visibleOrigins.map((key) => ({
-        key,
-        label:
-          key === 'generated'
-            ? phantasi.workbenchMediaGeneratedKind
-            : key === 'kept'
-              ? phantasi.workbenchMediaKeptKind
-              : key === 'channel'
-                ? phantasi.workbenchMediaChannelKind
-                : key === 'import'
-                  ? phantasi.workbenchMediaImportKind
-                  : phantasi.workbenchMediaUploadKind,
-      })),
-    ],
-    [phantasi, visibleOrigins],
   )
 
   const mediaItems = useMemo<ManagedListItem[]>(
@@ -229,19 +201,6 @@ export function WorkbenchMediaPane({
                   value: mediaFormat,
                   onChange: (key: string) =>
                     onMediaFilter({ ...mediaFilter, format: key }),
-                },
-              ]
-            : []),
-          ...(visibleOrigins.length > 0
-            ? [
-                {
-                  label: phantasi.workbenchMediaSource,
-                  icon: <LuUpload />,
-                  ariaLabel: phantasi.workbenchMediaSource,
-                  options: mediaOriginOptions,
-                  value: mediaOrigin,
-                  onChange: (key: string) =>
-                    onMediaFilter({ ...mediaFilter, origin: key as MediaFilter['origin'] }),
                 },
               ]
             : []),

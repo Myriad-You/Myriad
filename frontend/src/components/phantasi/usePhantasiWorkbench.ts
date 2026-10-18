@@ -43,8 +43,12 @@ export function usePhantasiWorkbench(
   const [docs, setDocs] = useState<PhantasiNoteDoc[]>([])
   const [media, setMedia] = useState<MediaAsset[]>([])
   const [mediaTotal, setMediaTotal] = useState(0)
-  const [mediaOrigins, setMediaOrigins] = useState<MediaOrigin[]>([])
-  const [mediaFormats, setMediaFormats] = useState<string[]>([])
+  const [mediaOrigins, setMediaOrigins] = useState<MediaOrigin[] | undefined>(
+    undefined,
+  )
+  const [mediaFormats, setMediaFormats] = useState<string[] | undefined>(
+    undefined,
+  )
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>(ALL_MEDIA)
   const [mediaCursor, setMediaCursor] = useState<MediaCursor | null>(null)
   const [mediaEpoch, setMediaEpoch] = useState(0)
@@ -104,14 +108,27 @@ export function usePhantasiWorkbench(
         setMedia(next.items)
         setMediaTotal(next.total ?? 0)
         setMediaCursor(next.next_cursor)
-        setMediaOrigins(
-          next.origins ??
+        if (next.origins) {
+          setMediaOrigins(next.origins)
+        } else if (
+          activeMediaFilter.origin === 'all' &&
+          activeMediaFilter.format === 'all' &&
+          !activeMediaFilter.query.trim()
+        ) {
+          setMediaOrigins(
             Array.from(new Set(next.items.map(mediaApi.mediaAssetOrigin))),
-        )
-        setMediaFormats(
-          next.formats ??
+          )
+        }
+        if (next.formats) {
+          setMediaFormats(next.formats)
+        } else if (
+          activeMediaFilter.format === 'all' &&
+          !activeMediaFilter.query.trim()
+        ) {
+          setMediaFormats(
             Array.from(new Set(next.items.map(workbenchMediaFormatKey))),
-        )
+          )
+        }
       }
     } catch (err) {
       if (signal.aborted) return

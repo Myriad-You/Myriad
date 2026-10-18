@@ -256,3 +256,42 @@ it('appends cursor pages, preserves total, and cancels the old page on filter ch
     assert.deepEqual(errors, [])
   })
 })
+
+it('selecting a media origin or format filter does not hide the remaining origins or formats', async () => {
+  await withWorkbench(async ({ render, current, errors }) => {
+    const allItems = [
+      { id: 1, kind: 'upload', source: 'upload', url: '/1.png', mime: 'image/png', name: '1.png', size: 1, created_at: 1, references: [] },
+      { id: 2, kind: 'generated', source: 'generated', url: '/2.webp', mime: 'image/webp', name: '2.webp', size: 1, created_at: 2, references: [] },
+      { id: 3, kind: 'upload', source: 'kept', url: '/3.jpg', mime: 'image/jpeg', name: '3.jpg', size: 1, created_at: 3, references: [] },
+    ]
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), 'https://test.invalid')
+      const origin = url.searchParams.get('origin')
+      const format = url.searchParams.get('format')
+      const items = allItems.filter((item) => {
+        if (origin && item.source !== origin) return false
+        if (format === 'png' && item.mime !== 'image/png') return false
+        return true
+      })
+      return Response.json({ items, total: items.length, next_cursor: null })
+    }
+    await render('media')
+    assert.deepEqual(current().mediaOrigins, ['upload', 'generated', 'kept'])
+    assert.deepEqual(current().mediaFormats, ['png', 'webp', 'jpeg'])
+
+    await act(async () => {
+      current().setMediaFilter({ origin: 'all', format: 'png', query: '' })
+    })
+    assert.deepEqual(current().media.map(row => row.id), [1])
+    assert.deepEqual(current().mediaOrigins, ['upload', 'generated', 'kept'])
+    assert.deepEqual(current().mediaFormats, ['png', 'webp', 'jpeg'])
+
+    await act(async () => {
+      current().setMediaFilter({ origin: 'upload', format: 'all', query: '' })
+    })
+    assert.deepEqual(current().media.map(row => row.id), [1])
+    assert.deepEqual(current().mediaOrigins, ['upload', 'generated', 'kept'])
+    assert.deepEqual(current().mediaFormats, ['png'])
+    assert.deepEqual(errors, [])
+  })
+})
