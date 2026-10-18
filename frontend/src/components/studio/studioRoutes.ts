@@ -1,12 +1,22 @@
 /** 创作台地址。订阅类面板不在这里。 */
 
+import type { MediaOrigin } from '../../services/mediaApi'
+
 export const STUDIO_ROOT = '/studio'
+
+export type StudioMediaSection =
+  | 'media'
+  | 'mediaUploads'
+  | 'mediaGenerated'
+  | 'mediaKept'
+  | 'mediaChannel'
+  | 'mediaImported'
 
 export type StudioSection =
   | 'home'
   | 'notes'
   | 'comments'
-  | 'media'
+  | StudioMediaSection
   | 'reviews'
   | 'categories'
   | 'import'
@@ -20,10 +30,51 @@ const SECTION_PATHS: Record<Exclude<StudioSection, 'home'>, string> = {
   notes: '/studio/notes',
   comments: '/studio/comments',
   media: '/studio/media',
+  mediaUploads: '/studio/media/uploads',
+  mediaGenerated: '/studio/media/generated',
+  mediaKept: '/studio/media/kept',
+  mediaChannel: '/studio/media/channel',
+  mediaImported: '/studio/media/imported',
   reviews: '/studio/reviews',
   categories: '/studio/categories',
   import: '/studio/import',
   blog: '/studio/blog',
+}
+
+export function studioMediaOrigin(section: StudioSection): 'all' | MediaOrigin | null {
+  switch (section) {
+    case 'media':
+      return 'all'
+    case 'mediaUploads':
+      return 'upload'
+    case 'mediaGenerated':
+      return 'generated'
+    case 'mediaKept':
+      return 'kept'
+    case 'mediaChannel':
+      return 'channel'
+    case 'mediaImported':
+      return 'import'
+    default:
+      return null
+  }
+}
+
+export function studioSectionForMediaOrigin(origin: 'all' | MediaOrigin): StudioMediaSection {
+  switch (origin) {
+    case 'all':
+      return 'media'
+    case 'upload':
+      return 'mediaUploads'
+    case 'generated':
+      return 'mediaGenerated'
+    case 'kept':
+      return 'mediaKept'
+    case 'channel':
+      return 'mediaChannel'
+    case 'import':
+      return 'mediaImported'
+  }
 }
 
 export function studioSectionPath(section: StudioSection): string {

@@ -244,7 +244,7 @@ it('appends cursor pages, preserves total, and cancels the old page on filter ch
     }
     let pending!: Promise<void>
     await act(async () => { pending = current().loadMoreMedia() })
-    await act(async () => { current().setMediaFilter({ kind: 'all', format: 'webp', query: '' }) })
+    await act(async () => { current().setMediaFilter({ origin: 'all', format: 'webp', query: '' }) })
     assert.equal(oldSignal?.aborted, true)
     await act(async () => {
       late.resolve(Response.json({ items: [{ ...asset, id: 48 }], next_cursor: cursor }))

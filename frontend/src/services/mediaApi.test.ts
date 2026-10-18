@@ -5,7 +5,7 @@ import { afterEach, it, mock } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { displayImageUrl } from '../components/phantasi/notes/noteImageUrl'
 import { apiService } from './api'
-import { listMedia, mediaAssetSrc, saveMediaEdit, uploadMedia } from './mediaApi'
+import { listMedia, mediaAssetOrigin, mediaAssetSrc, saveMediaEdit, uploadMedia } from './mediaApi'
 
 const asset = {
   id: 7, kind: 'upload' as const, url: '/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/photo.png',
@@ -74,11 +74,22 @@ it('serializes filters and the full timestamp cursor without changing its precis
   const cursor = { created_at: '2026-09-22T01:02:03.123456+00:00', id: 42 }
   const page = { items: [asset], next_cursor: null }
   const get = mock.method(apiService, 'get', async () => page)
-  assert.equal(await listMedia({ filter: { kind: 'generated', format: 'png', query: '  100% sky  ' }, cursor, limit: 10 }), page)
+  assert.equal(await listMedia({ filter: { origin: 'kept', format: 'png', query: '  100% sky  ' }, cursor, limit: 10 }), page)
   const url = new URL(get.mock.calls[0].arguments[0], 'https://test.invalid')
   assert.equal(url.pathname, '/media')
   assert.deepEqual(Object.fromEntries(url.searchParams), {
-    kind: 'generated', format: 'png', query: '100% sky',
+    origin: 'kept', format: 'png', query: '100% sky',
     before_created_at: cursor.created_at, before_id: '42', limit: '10',
   })
+})
+
+it('maps stored source onto studio origin buckets and separates kept from channel and generated', () => {
+  assert.equal(mediaAssetOrigin({ source: 'upload', kind: 'upload' }), 'upload')
+  assert.equal(mediaAssetOrigin({ source: 'generated', kind: 'generated' }), 'generated')
+  assert.equal(mediaAssetOrigin({ source: 'kept', kind: 'upload' }), 'kept')
+  assert.equal(mediaAssetOrigin({ source: 'channel', kind: 'upload' }), 'channel')
+  assert.equal(mediaAssetOrigin({ source: 'import', kind: 'upload' }), 'import')
+  assert.equal(mediaAssetOrigin({ source: 'legacy', kind: 'upload' }), 'import')
+  assert.equal(mediaAssetOrigin({ kind: 'generated' }), 'generated')
+  assert.equal(mediaAssetOrigin({ kind: 'upload' }), 'upload')
 })

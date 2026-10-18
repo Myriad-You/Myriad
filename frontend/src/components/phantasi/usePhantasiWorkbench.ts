@@ -2,14 +2,14 @@ import type { MediaAsset, MediaCursor, MediaFilter } from '../../services/mediaA
 import type { CommentItem } from '../../services/phantasiApi'
 import type { PhantasiNoteDoc, PhantasiSourceApplication } from '../../types/phantasi'
 import type { WorkbenchPane } from './logic/board'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as mediaApi from '../../services/mediaApi'
 import * as phantasiApi from '../../services/phantasiApi'
 import { userFacingError } from '../../utils/userFacingError'
 import { RequestTurn } from './logic/requestTurn'
 import { loadNoteDocs } from './pageData'
 
-const ALL_MEDIA: MediaFilter = { kind: 'all', format: 'all', query: '' }
+const ALL_MEDIA: MediaFilter = { origin: 'all', format: 'all', query: '' }
 
 export function usePhantasiWorkbench(
   pane: WorkbenchPane,
@@ -27,6 +27,7 @@ export function usePhantasiWorkbench(
     reviewDeleteFailed: string
   },
   setError: (message: string) => void,
+  mediaOrigin?: MediaFilter['origin'] | null,
 ) {
   // blog 页自己取数。笔记页和分类页都要笔记，分类名和占用从笔记来。
   const needsCategories = pane === 'notes' || pane === 'noteCategories'
@@ -45,7 +46,11 @@ export function usePhantasiWorkbench(
   const [mediaCursor, setMediaCursor] = useState<MediaCursor | null>(null)
   const [mediaEpoch, setMediaEpoch] = useState(0)
   const mediaFetching = useRef(false)
-  const activeMediaFilter = pane === 'media' ? mediaFilter : ALL_MEDIA
+  const effectiveMediaFilter = useMemo<MediaFilter>(
+    () => (mediaOrigin ? { ...mediaFilter, origin: mediaOrigin } : mediaFilter),
+    [mediaFilter, mediaOrigin],
+  )
+  const activeMediaFilter = pane === 'media' ? effectiveMediaFilter : ALL_MEDIA
   const [comments, setComments] = useState<CommentItem[]>([])
   const [applications, setApplications] = useState<PhantasiSourceApplication[]>(
     [],
@@ -390,7 +395,7 @@ export function usePhantasiWorkbench(
     docs,
     media,
     mediaTotal,
-    mediaFilter,
+    mediaFilter: effectiveMediaFilter,
     setMediaFilter,
     mediaHasMore: mediaCursor !== null,
     loadMoreMedia,

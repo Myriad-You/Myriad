@@ -10,7 +10,7 @@ import {
 } from '@lib/icons'
 import { useMemo, useRef, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
-import { mediaAssetSrc } from '../../../services/mediaApi'
+import { mediaAssetOrigin, mediaAssetSrc } from '../../../services/mediaApi'
 import { MediaPreview } from '../../media/MediaPreview'
 import { InputItem, ManagedList, SettingsButton } from '../../settings'
 import {
@@ -28,6 +28,7 @@ import './WorkbenchMediaCards.css'
 
 export function WorkbenchMediaPane({
   active,
+  title,
   back,
   media,
   mediaLoading,
@@ -43,6 +44,7 @@ export function WorkbenchMediaPane({
   onMediaSaved,
 }: {
   active: boolean
+  title?: string
   back: ReactNode
   media: MediaAsset[]
   mediaLoading: boolean
@@ -60,7 +62,7 @@ export function WorkbenchMediaPane({
   const { t, locale } = useI18n()
   const phantasi = t.phantasi
   const fileRef = useRef<HTMLInputElement>(null)
-  const { kind: mediaKind, format: mediaFormat, query: mediaQuery } = mediaFilter
+  const { origin: mediaOrigin, format: mediaFormat, query: mediaQuery } = mediaFilter
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [mediaLayout, setMediaLayout] = useState<'list' | 'grid'>('grid')
   const mediaFormatOptions = useMemo(
@@ -91,10 +93,17 @@ export function WorkbenchMediaPane({
         )
         const size = formatWorkbenchBytes(item.size)
         const when = noteScheduleLabel(item.created_at, locale)
-        const kind =
-          item.kind === 'generated'
+        const origin = mediaAssetOrigin(item)
+        const originLabel =
+          origin === 'generated'
             ? phantasi.workbenchMediaGeneratedKind
-            : phantasi.workbenchMediaUploadKind
+            : origin === 'kept'
+              ? phantasi.workbenchMediaKeptKind
+              : origin === 'channel'
+                ? phantasi.workbenchMediaChannelKind
+                : origin === 'import'
+                  ? phantasi.workbenchMediaImportKind
+                  : phantasi.workbenchMediaUploadKind
         const video = item.mime.startsWith('video/')
         return {
           id: item.id,
@@ -106,8 +115,8 @@ export function WorkbenchMediaPane({
           badges: [
             { label: format, tone: video ? 'warn' : 'muted' },
             {
-              label: kind,
-              tone: item.kind === 'generated' ? 'active' : 'muted',
+              label: originLabel,
+              tone: origin === 'generated' || origin === 'kept' ? 'active' : 'muted',
             },
             {
               label: item.exposure === 'public'
@@ -143,7 +152,7 @@ export function WorkbenchMediaPane({
 
   return (
     <WorkbenchPage
-      title={phantasi.workbenchMedia}
+      title={title ?? phantasi.workbenchMedia}
       icon={<PhantasiWorkbenchIcon kind="media" />}
       back={back}
       guide={guide}
@@ -195,10 +204,13 @@ export function WorkbenchMediaPane({
                 key: 'generated',
                 label: phantasi.workbenchMediaGeneratedKind,
               },
+              { key: 'kept', label: phantasi.workbenchMediaKeptKind },
+              { key: 'channel', label: phantasi.workbenchMediaChannelKind },
+              { key: 'import', label: phantasi.workbenchMediaImportKind },
             ],
-            value: mediaKind,
+            value: mediaOrigin,
             onChange: (key) =>
-              onMediaFilter({ ...mediaFilter, kind: key as MediaFilter['kind'] }),
+              onMediaFilter({ ...mediaFilter, origin: key as MediaFilter['origin'] }),
           },
           {
             label: phantasi.workbenchMediaLayout,
@@ -227,7 +239,7 @@ export function WorkbenchMediaPane({
         working={busy}
         items={mediaItems}
         emptyText={
-          mediaKind !== 'all' || mediaFormat !== 'all' || mediaQuery.trim()
+          mediaOrigin !== 'all' || mediaFormat !== 'all' || mediaQuery.trim()
             ? phantasi.workbenchMediaKindEmpty
             : phantasi.workbenchMediaEmpty
         }

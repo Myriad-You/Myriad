@@ -9,7 +9,16 @@ import type { NoteTransferKind } from '../phantasi/logic/board'
 import type { WorkbenchCategoryRow } from '../phantasi/logic/categories'
 import type { WorkbenchNoteOpen } from '../phantasi/logic/workbench'
 import type { StudioSection } from './studioRoutes'
-import { LuChevronLeft, LuNotebookPen, LuTag } from '@lib/icons'
+import {
+  LuChevronLeft,
+  LuDownload,
+  LuHeart,
+  LuMessageCircle,
+  LuNotebookPen,
+  LuSparkles,
+  LuTag,
+  LuUpload,
+} from '@lib/icons'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
@@ -23,17 +32,34 @@ import { WorkbenchReviewsPane } from '../phantasi/skin/PhantasiWorkbenchReviews'
 import { PhantasiWorkbenchIcon } from '../phantasi/ui/PhantasiWorkbenchIcon'
 import { InputItem } from '../settings'
 import { StudioBlogPane } from './StudioBlogPane'
-import { studioSectionPath } from './studioRoutes'
+import {
+  studioMediaOrigin,
+  studioSectionForMediaOrigin,
+  studioSectionPath,
+} from './studioRoutes'
 import '../ConfigForm.css'
 import '../phantasi/ui/css/workbench.css'
 import './StudioShell.css'
 
 type RailPack = 'blog' | 'media'
 
-/** 概览不归组；其余按博客、媒体两块分。媒体整站共用，不只服务博客。 */
+/** 概览不归组；其余按博客、媒体两块分。媒体按来源细分，把 AI 生成与 Agent 收藏分开。 */
 const RAIL: Array<{
   section: StudioSection
-  label: 'navHome' | 'workbenchNotes' | 'workbenchComments' | 'workbenchReviews' | 'workbenchMedia' | 'navCategories' | 'workbenchNavTransfer' | 'blogSettings'
+  label:
+    | 'navHome'
+    | 'workbenchNotes'
+    | 'workbenchComments'
+    | 'workbenchReviews'
+    | 'workbenchMediaAll'
+    | 'workbenchMediaUploadKind'
+    | 'workbenchMediaGeneratedKind'
+    | 'workbenchMediaKeptKind'
+    | 'workbenchMediaChannelKind'
+    | 'workbenchMediaImportKind'
+    | 'navCategories'
+    | 'workbenchNavTransfer'
+    | 'blogSettings'
   icon: ReactNode
   pack: RailPack | null
 }> = [
@@ -44,7 +70,12 @@ const RAIL: Array<{
   { section: 'reviews', label: 'workbenchReviews', icon: <PhantasiWorkbenchIcon kind="reviews" />, pack: 'blog' },
   { section: 'import', label: 'workbenchNavTransfer', icon: <PhantasiWorkbenchIcon kind="notes-transfer" />, pack: 'blog' },
   { section: 'blog', label: 'blogSettings', icon: <PhantasiWorkbenchIcon kind="studio" />, pack: 'blog' },
-  { section: 'media', label: 'workbenchMedia', icon: <PhantasiWorkbenchIcon kind="media" />, pack: 'media' },
+  { section: 'media', label: 'workbenchMediaAll', icon: <PhantasiWorkbenchIcon kind="media" />, pack: 'media' },
+  { section: 'mediaUploads', label: 'workbenchMediaUploadKind', icon: <LuUpload size={18} />, pack: 'media' },
+  { section: 'mediaGenerated', label: 'workbenchMediaGeneratedKind', icon: <LuSparkles size={18} />, pack: 'media' },
+  { section: 'mediaKept', label: 'workbenchMediaKeptKind', icon: <LuHeart size={18} />, pack: 'media' },
+  { section: 'mediaChannel', label: 'workbenchMediaChannelKind', icon: <LuMessageCircle size={18} />, pack: 'media' },
+  { section: 'mediaImported', label: 'workbenchMediaImportKind', icon: <LuDownload size={18} />, pack: 'media' },
 ]
 
 const RAIL_GROUPS: Array<RailPack | null> = [null, 'blog', 'media']
@@ -63,8 +94,18 @@ function railLabel(key: (typeof RAIL)[number]['label'], t: ReturnType<typeof use
       return t.phantasi.workbenchComments
     case 'workbenchReviews':
       return t.phantasi.workbenchReviews
-    case 'workbenchMedia':
-      return t.phantasi.workbenchMedia
+    case 'workbenchMediaAll':
+      return t.phantasi.workbenchMediaAll
+    case 'workbenchMediaUploadKind':
+      return t.phantasi.workbenchMediaUploadKind
+    case 'workbenchMediaGeneratedKind':
+      return t.phantasi.workbenchMediaGeneratedKind
+    case 'workbenchMediaKeptKind':
+      return t.phantasi.workbenchMediaKeptKind
+    case 'workbenchMediaChannelKind':
+      return t.phantasi.workbenchMediaChannelKind
+    case 'workbenchMediaImportKind':
+      return t.phantasi.workbenchMediaImportKind
     case 'workbenchNavTransfer':
       return t.phantasi.workbenchNavTransfer
   }
@@ -292,12 +333,30 @@ export function StudioShell({
           onDelete={onDeleteApplications}
         />
         <WorkbenchMediaPane
-          active={section === 'media'}
+          active={studioMediaOrigin(section) !== null}
+          title={
+            section === 'mediaUploads'
+              ? t.phantasi.workbenchMediaUploadKind
+              : section === 'mediaGenerated'
+                ? t.phantasi.workbenchMediaGeneratedKind
+                : section === 'mediaKept'
+                  ? t.phantasi.workbenchMediaKeptKind
+                  : section === 'mediaChannel'
+                    ? t.phantasi.workbenchMediaChannelKind
+                    : section === 'mediaImported'
+                      ? t.phantasi.workbenchMediaImportKind
+                      : t.phantasi.workbenchMedia
+          }
           back={back}
           media={media}
           mediaLoading={mediaLoading}
           mediaFilter={mediaFilter}
-          onMediaFilter={onMediaFilter}
+          onMediaFilter={(next) => {
+            if (next.origin !== mediaFilter.origin) {
+              navigate(studioSectionPath(studioSectionForMediaOrigin(next.origin)))
+            }
+            onMediaFilter(next)
+          }}
           mediaHasMore={mediaHasMore}
           onLoadMoreMedia={onLoadMoreMedia}
           busy={busy}

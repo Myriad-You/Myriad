@@ -2,7 +2,14 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { pageIdFromPath } from '../../hooks/animation/pageId.ts'
 import { resolvePageRouteAnimation } from '../../tapp/routing/tappRouteMeta.ts'
-import { parseStudioPath, studioAccess, studioNotePath, studioSectionPath } from './studioRoutes.ts'
+import {
+  parseStudioPath,
+  studioAccess,
+  studioMediaOrigin,
+  studioNotePath,
+  studioSectionForMediaOrigin,
+  studioSectionPath,
+} from './studioRoutes.ts'
 
 describe('parseStudioPath', () => {
   it('创作侧各有地址，订阅面板不在其中', () => {
@@ -15,6 +22,12 @@ describe('parseStudioPath', () => {
     assert.equal(parseStudioPath('/studio/notes/new/extra'), null)
     assert.deepEqual(parseStudioPath('/studio/comments'), { kind: 'section', section: 'comments' })
     assert.deepEqual(parseStudioPath('/studio/media'), { kind: 'section', section: 'media' })
+    assert.deepEqual(parseStudioPath('/studio/media/uploads'), { kind: 'section', section: 'mediaUploads' })
+    assert.deepEqual(parseStudioPath('/studio/media/generated'), { kind: 'section', section: 'mediaGenerated' })
+    assert.deepEqual(parseStudioPath('/studio/media/kept'), { kind: 'section', section: 'mediaKept' })
+    assert.deepEqual(parseStudioPath('/studio/media/channel'), { kind: 'section', section: 'mediaChannel' })
+    assert.deepEqual(parseStudioPath('/studio/media/imported'), { kind: 'section', section: 'mediaImported' })
+    assert.equal(parseStudioPath('/studio/media/unknown'), null)
     assert.deepEqual(parseStudioPath('/studio/reviews'), { kind: 'section', section: 'reviews' })
     assert.deepEqual(parseStudioPath('/studio/categories'), { kind: 'section', section: 'categories' })
     assert.deepEqual(parseStudioPath('/studio/import'), { kind: 'section', section: 'import' })
@@ -23,6 +36,16 @@ describe('parseStudioPath', () => {
     assert.equal(parseStudioPath('/journal/workbench/notes'), null)
     assert.equal(studioSectionPath('home'), '/studio')
     assert.equal(studioSectionPath('import'), '/studio/import')
+    assert.equal(studioSectionPath('mediaKept'), '/studio/media/kept')
+    assert.equal(studioMediaOrigin('media'), 'all')
+    assert.equal(studioMediaOrigin('mediaUploads'), 'upload')
+    assert.equal(studioMediaOrigin('mediaGenerated'), 'generated')
+    assert.equal(studioMediaOrigin('mediaKept'), 'kept')
+    assert.equal(studioMediaOrigin('mediaChannel'), 'channel')
+    assert.equal(studioMediaOrigin('mediaImported'), 'import')
+    assert.equal(studioMediaOrigin('notes'), null)
+    assert.equal(studioSectionForMediaOrigin('kept'), 'mediaKept')
+    assert.equal(studioSectionForMediaOrigin('generated'), 'mediaGenerated')
     assert.equal(studioNotePath('new'), '/studio/notes/new')
     assert.equal(studioNotePath(4), '/studio/notes/4')
   })

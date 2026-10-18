@@ -4,6 +4,18 @@ import { ApiError, apiService } from './api'
 
 export type MediaKind = 'upload' | 'generated'
 
+export const MEDIA_ORIGINS = [
+  'upload',
+  'generated',
+  'kept',
+  'channel',
+  'import',
+] as const
+
+export type MediaOrigin = (typeof MEDIA_ORIGINS)[number]
+
+export type MediaSource = MediaOrigin | 'legacy'
+
 export interface MediaAsset {
   id: number
   kind: MediaKind
@@ -22,6 +34,28 @@ export interface MediaAsset {
   derived_from_id?: number | null
 }
 
+/** Studio origin bucket for an asset. Falls back to `kind` only when `source` is absent. */
+export function mediaAssetOrigin(item: {
+  source?: string | null
+  kind?: string
+}): MediaOrigin {
+  switch (item.source) {
+    case 'generated':
+      return 'generated'
+    case 'kept':
+      return 'kept'
+    case 'channel':
+      return 'channel'
+    case 'import':
+    case 'legacy':
+      return 'import'
+    case 'upload':
+      return 'upload'
+    default:
+      return item.kind === 'generated' ? 'generated' : 'upload'
+  }
+}
+
 // Validate the response without changing the catalog path or asset identity.
 function validateMediaAsset(item: MediaAsset): void {
   if (!item || !Number.isInteger(item.id) || item.id <= 0 ||
@@ -31,7 +65,7 @@ function validateMediaAsset(item: MediaAsset): void {
 }
 
 export interface MediaFilter {
-  kind: 'all' | MediaKind
+  origin: 'all' | MediaOrigin
   format: string
   query: string
 }
@@ -53,8 +87,8 @@ export async function listMedia(
 ): Promise<MediaPage> {
   const params = new URLSearchParams()
   if (options.filter) {
-    const { kind, format, query } = options.filter
-    if (kind !== 'all') params.set('kind', kind)
+    const { origin, format, query } = options.filter
+    if (origin !== 'all') params.set('origin', origin)
     if (format !== 'all') params.set('format', format)
     if (query.trim()) params.set('query', query.trim())
   }

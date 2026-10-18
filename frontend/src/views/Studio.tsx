@@ -8,7 +8,7 @@ import { useNoteTransfer } from '../components/phantasi/manager/useNoteTransfer'
 import { usePhantasiCategories } from '../components/phantasi/usePhantasiCategories'
 import { usePhantasiWorkbench } from '../components/phantasi/usePhantasiWorkbench'
 import { openPublishedItem, openStudioNote } from '../components/studio/studioNoteNav'
-import { parseStudioPath } from '../components/studio/studioRoutes'
+import { parseStudioPath, studioMediaOrigin } from '../components/studio/studioRoutes'
 import { StudioShell } from '../components/studio/StudioShell'
 import { useI18n } from '../contexts/I18nContext'
 import { showToast } from '../utils/toastManager'
@@ -24,6 +24,11 @@ function deskPane(section: StudioSection): WorkbenchPane {
     case 'comments':
       return 'comments'
     case 'media':
+    case 'mediaUploads':
+    case 'mediaGenerated':
+    case 'mediaKept':
+    case 'mediaChannel':
+    case 'mediaImported':
       return 'media'
     case 'reviews':
       return 'reviews'
@@ -96,6 +101,7 @@ function StudioDesk({ section }: { section: StudioSection }) {
       reviewDeleteFailed: t.phantasi.workbenchReviewDeleteFailed,
     },
     setError,
+    studioMediaOrigin(section),
   )
   const categories = usePhantasiCategories(
     section === 'notes' || section === 'categories' || section === 'home',
