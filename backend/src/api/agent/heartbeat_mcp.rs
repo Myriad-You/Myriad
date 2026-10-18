@@ -509,6 +509,39 @@ async fn person_names(
     .collect()
 }
 
+/// How one memory came to be (site admin): what it replaced and what
+/// replaced it, retired rows with why, oldest first. Read only.
+/// GET /api/agent/memory/all/:id/history
+pub(crate) async fn memory_history(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(memory_id): Path<String>,
+) -> Result<Json<Value>, HttpError> {
+    require_current_admin(&claims, &db).await?;
+    let rows = crate::services::agent::memory::manage::lineage(&db, &memory_id)
+        .await
+        .map_err(memory_store_http)?;
+    if rows.is_empty() {
+        return memory_found(false);
+    }
+    let history: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            json!({
+                "id": row.id,
+                "content": row.content,
+                "memoryType": row.kind,
+                "source": row.source,
+                "createdAt": row.created_at.to_rfc3339(),
+                "retiredAt": row.invalid_at.map(|at| at.to_rfc3339()),
+                "retiredBecause": row.invalid_reason,
+                "replacedBy": row.superseded_by,
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "history": history })))
+}
+
 /// Edit any memory (site admin).
 /// PUT /api/agent/memory/all/:id
 pub(crate) async fn update_any_memory(

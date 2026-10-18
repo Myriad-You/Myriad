@@ -126,6 +126,67 @@ pub async fn retire_any<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, Db
     Ok(result.rows_affected == 1)
 }
 
+/// Steps followed either way along what replaced what: a loop in old rows
+/// cannot keep it going.
+const LINEAGE_STEPS: usize = 32;
+
+/// How a memory came to be as it is, oldest first: the rows it replaced
+/// (and what those replaced), itself, and what replaced it since. Retired
+/// rows keep why (`invalid_reason`). For the admin reading the history,
+/// never for recall. Empty when no such row.
+pub async fn lineage<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    let Some(row) = agent_memories::Entity::find_by_id(id.to_string())
+        .one(db)
+        .await?
+    else {
+        return Ok(Vec::new());
+    };
+    let mut seen = std::collections::HashSet::from([row.id.clone()]);
+    // Back: whatever named one of these as what took its place.
+    let mut before = Vec::new();
+    let mut frontier = vec![row.id.clone()];
+    for _ in 0..LINEAGE_STEPS {
+        if frontier.is_empty() {
+            break;
+        }
+        let replaced = agent_memories::Entity::find()
+            .filter(agent_memories::Column::SupersededBy.is_in(frontier.clone()))
+            .all(db)
+            .await?;
+        frontier = replaced
+            .iter()
+            .filter(|row| seen.insert(row.id.clone()))
+            .map(|row| row.id.clone())
+            .collect();
+        before.extend(
+            replaced
+                .into_iter()
+                .filter(|row| frontier.contains(&row.id)),
+        );
+    }
+    // On: what took its place, and what took that one's.
+    let mut after = Vec::new();
+    let mut next = row.superseded_by.clone();
+    for _ in 0..LINEAGE_STEPS {
+        let Some(id) = next.take().filter(|id| seen.insert(id.clone())) else {
+            break;
+        };
+        let Some(newer) = agent_memories::Entity::find_by_id(id).one(db).await? else {
+            break;
+        };
+        next = newer.superseded_by.clone();
+        after.push(newer);
+    }
+    let mut all = before;
+    all.push(row);
+    all.extend(after);
+    all.sort_by_key(|row| row.created_at);
+    Ok(all)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +296,39 @@ mod tests {
             .collect();
         assert!(left.contains(&"听了两首歌".to_string()));
         assert_eq!(left.len(), 2);
+        schema.drop().await;
+    }
+
+    /// From any row of it, the admin reads what a memory replaced and what
+    /// replaced it, retired rows with why.
+    #[tokio::test]
+    async fn a_memory_shows_what_it_replaced_and_what_replaced_it() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "memory_lineage").await;
+        let db = &schema.db;
+        use sea_orm::ConnectionTrait;
+        db.execute_unprepared(
+            "INSERT INTO users (id, username) VALUES (32, 'hua');
+             INSERT INTO agent_memories (id, user_id, kind, content, speaker, source, venue, audience, concepts, importance, access_count, valid_from, invalid_at, invalid_reason, superseded_by, created_at, updated_at)
+             VALUES ('a', 32, 'fact', '住在大阪', 'user', 'chat', 'private', '[32]', '[]', 0.5, 0, NOW(), NOW(), 'superseded', 'b', NOW() - INTERVAL '3 days', NOW()),
+                    ('b', 32, 'fact', '搬去了京都', 'user', 'chat', 'private', '[32]', '[]', 0.5, 0, NOW(), NOW(), 'superseded', 'c', NOW() - INTERVAL '2 days', NOW()),
+                    ('c', 32, 'fact', '又搬回了大阪', 'user', 'chat', 'private', '[32]', '[]', 0.5, 0, NOW(), NULL, NULL, NULL, NOW() - INTERVAL '1 day', NOW()),
+                    ('x', 32, 'fact', '喜欢猫', 'user', 'chat', 'private', '[32]', '[]', 0.5, 0, NOW(), NULL, NULL, NULL, NOW(), NOW());",
+        )
+        .await
+        .unwrap();
+        let ids = |rows: Vec<agent_memories::Model>| -> Vec<String> {
+            rows.into_iter().map(|row| row.id).collect()
+        };
+        for from in ["a", "b", "c"] {
+            assert_eq!(ids(lineage(db, from).await.unwrap()), ["a", "b", "c"]);
+        }
+        let middle = lineage(db, "b").await.unwrap();
+        assert_eq!(middle[0].invalid_reason.as_deref(), Some("superseded"));
+        assert_eq!(ids(lineage(db, "x").await.unwrap()), ["x"]);
+        assert!(lineage(db, "missing").await.unwrap().is_empty());
         schema.drop().await;
     }
 }
