@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { MediaAsset, MediaFilter } from '../../../services/mediaApi'
+import type { MediaAsset, MediaFilter, MediaOrigin } from '../../../services/mediaApi'
 import type { ManagedListItem } from '../../settings/ManagedList'
 import {
   LuFileText,
@@ -10,7 +10,7 @@ import {
 } from '@lib/icons'
 import { useMemo, useRef, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
-import { mediaAssetOrigin, mediaAssetSrc } from '../../../services/mediaApi'
+import { MEDIA_ORIGINS, mediaAssetOrigin, mediaAssetSrc } from '../../../services/mediaApi'
 import { MediaPreview } from '../../media/MediaPreview'
 import { InputItem, ManagedList, SettingsButton } from '../../settings'
 import {
@@ -31,6 +31,8 @@ export function WorkbenchMediaPane({
   title,
   back,
   media,
+  mediaOrigins,
+  mediaFormats,
   mediaLoading,
   mediaFilter,
   onMediaFilter,
@@ -47,6 +49,8 @@ export function WorkbenchMediaPane({
   title?: string
   back: ReactNode
   media: MediaAsset[]
+  mediaOrigins?: readonly MediaOrigin[]
+  mediaFormats?: readonly string[]
   mediaLoading: boolean
   mediaFilter: MediaFilter
   onMediaFilter: (filter: MediaFilter) => void
@@ -65,15 +69,46 @@ export function WorkbenchMediaPane({
   const { origin: mediaOrigin, format: mediaFormat, query: mediaQuery } = mediaFilter
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [mediaLayout, setMediaLayout] = useState<'list' | 'grid'>('grid')
+  const visibleFormats = useMemo(() => {
+    const present = new Set(mediaFormats ?? media.map(workbenchMediaFormatKey))
+    return WORKBENCH_MEDIA_FORMATS.filter(
+      (key) => present.has(key) || key === mediaFormat,
+    )
+  }, [media, mediaFormat, mediaFormats])
   const mediaFormatOptions = useMemo(
     () => [
       { key: 'all', label: phantasi.workbenchMediaAll },
-      ...WORKBENCH_MEDIA_FORMATS.map((key) => ({
+      ...visibleFormats.map((key) => ({
         key,
         label: workbenchMediaFormatLabel(key, phantasi.workbenchMediaFormatOther),
       })),
     ],
-    [phantasi.workbenchMediaAll, phantasi.workbenchMediaFormatOther],
+    [phantasi.workbenchMediaAll, phantasi.workbenchMediaFormatOther, visibleFormats],
+  )
+  const visibleOrigins = useMemo(() => {
+    const present = new Set(mediaOrigins ?? media.map(mediaAssetOrigin))
+    return MEDIA_ORIGINS.filter(
+      (key) => present.has(key) || key === mediaOrigin,
+    )
+  }, [media, mediaOrigin, mediaOrigins])
+  const mediaOriginOptions = useMemo(
+    () => [
+      { key: 'all', label: phantasi.workbenchMediaAll },
+      ...visibleOrigins.map((key) => ({
+        key,
+        label:
+          key === 'generated'
+            ? phantasi.workbenchMediaGeneratedKind
+            : key === 'kept'
+              ? phantasi.workbenchMediaKeptKind
+              : key === 'channel'
+                ? phantasi.workbenchMediaChannelKind
+                : key === 'import'
+                  ? phantasi.workbenchMediaImportKind
+                  : phantasi.workbenchMediaUploadKind,
+      })),
+    ],
+    [phantasi, visibleOrigins],
   )
 
   const mediaItems = useMemo<ManagedListItem[]>(
@@ -184,34 +219,32 @@ export function WorkbenchMediaPane({
       <ManagedList
         layout={mediaLayout}
         filterGroups={[
-          {
-            label: phantasi.workbenchMediaFormat,
-            icon: <LuFileText />,
-            ariaLabel: phantasi.workbenchMediaFormat,
-            options: mediaFormatOptions,
-            value: mediaFormat,
-            onChange: (key) =>
-              onMediaFilter({ ...mediaFilter, format: key }),
-          },
-          {
-            label: phantasi.workbenchMediaSource,
-            icon: <LuUpload />,
-            ariaLabel: phantasi.workbenchMediaSource,
-            options: [
-              { key: 'all', label: phantasi.workbenchMediaAll },
-              { key: 'upload', label: phantasi.workbenchMediaUploadKind },
-              {
-                key: 'generated',
-                label: phantasi.workbenchMediaGeneratedKind,
-              },
-              { key: 'kept', label: phantasi.workbenchMediaKeptKind },
-              { key: 'channel', label: phantasi.workbenchMediaChannelKind },
-              { key: 'import', label: phantasi.workbenchMediaImportKind },
-            ],
-            value: mediaOrigin,
-            onChange: (key) =>
-              onMediaFilter({ ...mediaFilter, origin: key as MediaFilter['origin'] }),
-          },
+          ...(visibleFormats.length > 0
+            ? [
+                {
+                  label: phantasi.workbenchMediaFormat,
+                  icon: <LuFileText />,
+                  ariaLabel: phantasi.workbenchMediaFormat,
+                  options: mediaFormatOptions,
+                  value: mediaFormat,
+                  onChange: (key: string) =>
+                    onMediaFilter({ ...mediaFilter, format: key }),
+                },
+              ]
+            : []),
+          ...(visibleOrigins.length > 0
+            ? [
+                {
+                  label: phantasi.workbenchMediaSource,
+                  icon: <LuUpload />,
+                  ariaLabel: phantasi.workbenchMediaSource,
+                  options: mediaOriginOptions,
+                  value: mediaOrigin,
+                  onChange: (key: string) =>
+                    onMediaFilter({ ...mediaFilter, origin: key as MediaFilter['origin'] }),
+                },
+              ]
+            : []),
           {
             label: phantasi.workbenchMediaLayout,
             icon: <LuSquare />,

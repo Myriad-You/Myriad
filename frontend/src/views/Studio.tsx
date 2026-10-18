@@ -131,6 +131,8 @@ function StudioDesk({ section }: { section: StudioSection }) {
         docs={workbench.docs}
         media={workbench.media}
         mediaTotal={workbench.mediaTotal}
+        mediaOrigins={workbench.mediaOrigins}
+        mediaFormats={workbench.mediaFormats}
         mediaFilter={workbench.mediaFilter}
         onMediaFilter={workbench.setMediaFilter}
         mediaHasMore={workbench.mediaHasMore}

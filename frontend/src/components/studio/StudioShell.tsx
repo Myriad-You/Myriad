@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { MediaAsset, MediaFilter } from '../../services/mediaApi'
+import type { MediaAsset, MediaFilter, MediaOrigin } from '../../services/mediaApi'
 import type {
   CommentItem,
   PhantasiNoteDoc,
@@ -22,6 +22,7 @@ import {
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
+import { mediaAssetOrigin } from '../../services/mediaApi'
 import { PhantasiCategoryAdmin } from '../phantasi/manager/PhantasiCategoryAdmin'
 import { PageAction, WorkbenchPage } from '../phantasi/skin/PhantasiWorkbenchChrome'
 import { WorkbenchCommentsPane } from '../phantasi/skin/PhantasiWorkbenchComments'
@@ -116,6 +117,8 @@ export function StudioShell({
   docs,
   media,
   mediaTotal,
+  mediaOrigins,
+  mediaFormats,
   mediaFilter,
   onMediaFilter,
   mediaHasMore,
@@ -158,6 +161,8 @@ export function StudioShell({
   docs: PhantasiNoteDoc[]
   media: MediaAsset[]
   mediaTotal: number
+  mediaOrigins?: readonly MediaOrigin[]
+  mediaFormats?: readonly string[]
   mediaFilter: MediaFilter
   onMediaFilter: (filter: MediaFilter) => void
   mediaHasMore: boolean
@@ -201,6 +206,7 @@ export function StudioShell({
   const [mobilePane, setMobilePane] = useState<'nav' | 'section'>('section')
   const [categoryQuery, setCategoryQuery] = useState('')
   const [openedCategory, setOpenedCategory] = useState<string | null>(null)
+  const presentMediaOrigins = new Set(mediaOrigins ?? media.map(mediaAssetOrigin))
   const go = (next: StudioSection) => {
     navigate(studioSectionPath(next))
     setMobilePane('section')
@@ -249,7 +255,12 @@ export function StudioShell({
                   {pack === 'blog' ? t.studio.blog : t.studio.navGroupMedia}
                 </div>
               ) : null}
-              {RAIL.filter((item) => item.pack === pack).map((item) => {
+              {RAIL.filter((item) => {
+                if (item.pack !== pack) return false
+                const origin = studioMediaOrigin(item.section)
+                if (!origin || origin === 'all' || item.section === section) return true
+                return presentMediaOrigins.has(origin)
+              }).map((item) => {
                 const current = section === item.section
                 return (
                   <button
@@ -349,6 +360,8 @@ export function StudioShell({
           }
           back={back}
           media={media}
+          mediaOrigins={mediaOrigins}
+          mediaFormats={mediaFormats}
           mediaLoading={mediaLoading}
           mediaFilter={mediaFilter}
           onMediaFilter={(next) => {

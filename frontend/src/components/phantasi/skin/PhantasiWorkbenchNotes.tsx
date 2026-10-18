@@ -19,6 +19,7 @@ import {
   workbenchNoteCover,
   workbenchNoteListExcerpt,
   workbenchNoteOpen,
+  workbenchNoteStatusFilter,
   workbenchNoteStatusKey,
   workbenchNoteWhen,
 } from '../logic/workbench'
@@ -75,6 +76,12 @@ export function WorkbenchNotesPane({
   const [noteStatus, setNoteStatus] = useState<WorkbenchNoteStatusFilter>('all')
   const [noteTopic, setNoteTopic] = useState('all')
   const [noteAuthor, setNoteAuthor] = useState('all')
+  const noteStatuses = useMemo(() => {
+    const present = new Set(docs.map(workbenchNoteStatusFilter))
+    return (['draft', 'scheduled', 'published'] as const).filter(
+      (key) => present.has(key) || key === noteStatus,
+    )
+  }, [docs, noteStatus])
   const noteTopics = useMemo(() => collectWorkbenchNoteTopics(docs), [docs])
   const noteTopicOptions = useMemo(
     () => [
@@ -296,27 +303,42 @@ export function WorkbenchNotesPane({
           ) : null
         }
         filterGroups={[
-          {
-            label: phantasi.workbenchNoteStatus,
-            icon: <LuClipboardList />,
-            ariaLabel: phantasi.workbenchNoteStatus,
-            options: [
-              { key: 'all', label: phantasi.workbenchMediaAll },
-              { key: 'draft', label: phantasi.noteStatusDraft },
-              { key: 'scheduled', label: phantasi.noteStatusScheduled },
-              { key: 'published', label: phantasi.noteStatusPublished },
-            ],
-            value: noteStatus,
-            onChange: (key) => setNoteStatus(key as WorkbenchNoteStatusFilter),
-          },
-          {
-            label: phantasi.noteTopic,
-            icon: <LuTag />,
-            ariaLabel: phantasi.noteTopic,
-            options: noteTopicOptions,
-            value: resolvedNoteTopic,
-            onChange: setNoteTopic,
-          },
+          ...(noteStatuses.length > 0
+            ? [
+                {
+                  label: phantasi.workbenchNoteStatus,
+                  icon: <LuClipboardList />,
+                  ariaLabel: phantasi.workbenchNoteStatus,
+                  options: [
+                    { key: 'all', label: phantasi.workbenchMediaAll },
+                    ...noteStatuses.map((key) => ({
+                      key,
+                      label:
+                        key === 'scheduled'
+                          ? phantasi.noteStatusScheduled
+                          : key === 'published'
+                            ? phantasi.noteStatusPublished
+                            : phantasi.noteStatusDraft,
+                    })),
+                  ],
+                  value: noteStatus,
+                  onChange: (key: string) =>
+                    setNoteStatus(key as WorkbenchNoteStatusFilter),
+                },
+              ]
+            : []),
+          ...(noteTopics.length > 0
+            ? [
+                {
+                  label: phantasi.noteTopic,
+                  icon: <LuTag />,
+                  ariaLabel: phantasi.noteTopic,
+                  options: noteTopicOptions,
+                  value: resolvedNoteTopic,
+                  onChange: setNoteTopic,
+                },
+              ]
+            : []),
           ...(noteAuthors.length > 0
             ? [
                 {

@@ -79,6 +79,8 @@ export interface MediaPage {
   items: MediaAsset[]
   next_cursor: MediaCursor | null
   total?: number
+  origins?: MediaOrigin[]
+  formats?: string[]
 }
 
 export async function listMedia(

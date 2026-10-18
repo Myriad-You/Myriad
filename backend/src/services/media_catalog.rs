@@ -32,6 +32,10 @@ pub struct MediaAssetView {
 /// fixed set of `media_assets.source` values; `kind` stays for old callers.
 pub const MEDIA_ORIGINS: [&str; 5] = ["upload", "generated", "kept", "channel", "import"];
 
+pub const MEDIA_FORMATS: [&str; 8] = [
+    "jpeg", "png", "gif", "webp", "mp4", "webm", "mov", "other",
+];
+
 fn origin_sources(origin: &str) -> Option<&'static [&'static str]> {
     match origin {
         "upload" => Some(&["upload"]),
@@ -65,12 +69,10 @@ impl MediaListQuery {
                 .origin
                 .as_deref()
                 .is_none_or(|v| v == "all" || origin_sources(v).is_some())
-            && self.format.as_deref().is_none_or(|v| {
-                matches!(
-                    v,
-                    "all" | "jpeg" | "png" | "gif" | "webp" | "mp4" | "webm" | "mov" | "other"
-                )
-            })
+            && self
+                .format
+                .as_deref()
+                .is_none_or(|v| v == "all" || MEDIA_FORMATS.contains(&v))
     }
 }
 
@@ -86,6 +88,57 @@ pub struct MediaPage {
     pub next_cursor: Option<MediaCursor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origins: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formats: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, sea_orm::FromQueryResult)]
+struct FacetPair {
+    source: String,
+    format: String,
+}
+
+fn facets_from_pairs(
+    pairs: &[FacetPair],
+    origin_filter: Option<&str>,
+    kind_filter: Option<&str>,
+) -> (Vec<String>, Vec<String>) {
+    let origins = MEDIA_ORIGINS
+        .iter()
+        .filter(|origin| {
+            origin_sources(origin)
+                .is_some_and(|sources| pairs.iter().any(|p| sources.contains(&p.source.as_str())))
+        })
+        .map(|origin| (*origin).to_string())
+        .collect();
+
+    let allowed_sources = origin_filter
+        .filter(|v| *v != "all")
+        .and_then(origin_sources);
+    let kind_filter = kind_filter.filter(|v| *v != "all");
+
+    let formats = MEDIA_FORMATS
+        .iter()
+        .filter(|format| {
+            pairs.iter().any(|pair| {
+                pair.format == **format
+                    && allowed_sources.is_none_or(|sources| sources.contains(&pair.source.as_str()))
+                    && kind_filter.is_none_or(|kind| {
+                        let pair_kind = if pair.source == "generated" {
+                            "generated"
+                        } else {
+                            "upload"
+                        };
+                        pair_kind == kind
+                    })
+            })
+        })
+        .map(|format| (*format).to_string())
+        .collect();
+
+    (origins, formats)
 }
 
 #[derive(sea_orm::FromQueryResult)]
@@ -135,6 +188,7 @@ pub async fn list_assets(
                  )",
             )),
     );
+    let base_query = query.clone();
     if let Some(kind) = params.kind.as_deref().filter(|v| *v != "all") {
         query = query.filter(C::Kind.eq(kind));
     }
@@ -162,10 +216,24 @@ pub async fn list_assets(
             [needle.to_lowercase()],
         ));
     }
-    let total = if params.before_id.is_none() {
-        Some(query.clone().count(db).await?)
+    let (total, origins, formats) = if params.before_id.is_none() {
+        let total = query.clone().count(db).await?;
+        let pairs = base_query
+            .select_only()
+            .column_as(Expr::cust("COALESCE(source, 'legacy')"), "source")
+            .column_as(Expr::cust(FORMAT_SQL), "format")
+            .distinct()
+            .into_model::<FacetPair>()
+            .all(db)
+            .await?;
+        let (origins, formats) = facets_from_pairs(
+            &pairs,
+            params.origin.as_deref(),
+            params.kind.as_deref(),
+        );
+        (Some(total), Some(origins), Some(formats))
     } else {
-        None
+        (None, None, None)
     };
     if let (Some(created), Some(id)) = (params.before_created_at, params.before_id) {
         query = query.filter(Expr::cust_with_values(
@@ -216,6 +284,8 @@ pub async fn list_assets(
         items,
         next_cursor,
         total,
+        origins,
+        formats,
     })
 }
 
@@ -358,5 +428,31 @@ mod tests {
         // Agent-kept stickers and images people sent her are never the same origin.
         assert_eq!(super::origin_sources("kept"), Some(&["kept"][..]));
         assert_eq!(super::origin_sources("channel"), Some(&["channel"][..]));
+    }
+
+    #[test]
+    fn facets_only_include_present_origins_and_formats() {
+        use super::{FacetPair, facets_from_pairs};
+        let pairs = vec![
+            FacetPair {
+                source: "upload".into(),
+                format: "jpeg".into(),
+            },
+            FacetPair {
+                source: "upload".into(),
+                format: "mp4".into(),
+            },
+            FacetPair {
+                source: "kept".into(),
+                format: "png".into(),
+            },
+        ];
+        let (origins, all_formats) = facets_from_pairs(&pairs, None, None);
+        assert_eq!(origins, vec!["upload", "kept"]);
+        assert_eq!(all_formats, vec!["jpeg", "png", "mp4"]);
+
+        let (origins_in_kept, kept_formats) = facets_from_pairs(&pairs, Some("kept"), None);
+        assert_eq!(origins_in_kept, vec!["upload", "kept"]);
+        assert_eq!(kept_formats, vec!["png"]);
     }
 }

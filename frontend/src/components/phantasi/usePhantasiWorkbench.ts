@@ -1,4 +1,4 @@
-import type { MediaAsset, MediaCursor, MediaFilter } from '../../services/mediaApi'
+import type { MediaAsset, MediaCursor, MediaFilter, MediaOrigin } from '../../services/mediaApi'
 import type { CommentItem } from '../../services/phantasiApi'
 import type { PhantasiNoteDoc, PhantasiSourceApplication } from '../../types/phantasi'
 import type { WorkbenchPane } from './logic/board'
@@ -7,6 +7,7 @@ import * as mediaApi from '../../services/mediaApi'
 import * as phantasiApi from '../../services/phantasiApi'
 import { userFacingError } from '../../utils/userFacingError'
 import { RequestTurn } from './logic/requestTurn'
+import { workbenchMediaFormatKey } from './logic/workbench'
 import { loadNoteDocs } from './pageData'
 
 const ALL_MEDIA: MediaFilter = { origin: 'all', format: 'all', query: '' }
@@ -42,6 +43,8 @@ export function usePhantasiWorkbench(
   const [docs, setDocs] = useState<PhantasiNoteDoc[]>([])
   const [media, setMedia] = useState<MediaAsset[]>([])
   const [mediaTotal, setMediaTotal] = useState(0)
+  const [mediaOrigins, setMediaOrigins] = useState<MediaOrigin[]>([])
+  const [mediaFormats, setMediaFormats] = useState<string[]>([])
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>(ALL_MEDIA)
   const [mediaCursor, setMediaCursor] = useState<MediaCursor | null>(null)
   const [mediaEpoch, setMediaEpoch] = useState(0)
@@ -101,6 +104,14 @@ export function usePhantasiWorkbench(
         setMedia(next.items)
         setMediaTotal(next.total ?? 0)
         setMediaCursor(next.next_cursor)
+        setMediaOrigins(
+          next.origins ??
+            Array.from(new Set(next.items.map(mediaApi.mediaAssetOrigin))),
+        )
+        setMediaFormats(
+          next.formats ??
+            Array.from(new Set(next.items.map(workbenchMediaFormatKey))),
+        )
       }
     } catch (err) {
       if (signal.aborted) return
@@ -395,6 +406,8 @@ export function usePhantasiWorkbench(
     docs,
     media,
     mediaTotal,
+    mediaOrigins,
+    mediaFormats,
     mediaFilter: effectiveMediaFilter,
     setMediaFilter,
     mediaHasMore: mediaCursor !== null,
