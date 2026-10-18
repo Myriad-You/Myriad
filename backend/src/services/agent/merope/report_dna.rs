@@ -137,6 +137,21 @@ async fn collect_report_dna_bundle(
     Ok(build_report_dna_bundle(&sources))
 }
 
+/// Each platform's bounded evidence, as the tag call sees it, for live
+/// measurements of the persona draft. Read-only.
+#[cfg(test)]
+pub(in crate::services::agent) async fn report_evidence_values(
+    database: &DatabaseConnection,
+    user_id: i32,
+) -> Result<Vec<Value>, DbErr> {
+    let bundle = collect_report_dna_bundle(database, user_id).await?;
+    Ok(bundle
+        .evidence
+        .iter()
+        .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))
+        .collect())
+}
+
 /// Pro writes the deck when it can. Any model miss falls back to a shuffled
 /// local deck so the onboarding page is never stuck on a 502.
 pub async fn distill_report_dna(

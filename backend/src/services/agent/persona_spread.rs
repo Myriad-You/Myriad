@@ -16,13 +16,13 @@
 //! Spends Pro on the drafts and Lite on the replies and the judging; writes
 //! nothing to the site (read-only connection, ledger suppressed).
 //!
-//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,K]`
+//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,L]`
 //!
 //! Conditions change one stage each against `base`, to find where voices
 //! collapse: A the personas (hand-written, far apart), B the chat contract,
 //! C the speaking model, D the lines said to her, E the tags drawn, F to J
 //! the draft prompt's asks for conditions and limits, K the drafting model
-//! (`--drafters source:model,...`).
+//! (`--drafters source:model,...`), L one platform report as evidence per draft.
 
 use rand::seq::SliceRandom;
 use serde_json::{Value, json};
@@ -179,6 +179,9 @@ enum Condition {
     /// Same tags and prompt as base, drafted by the i-th
     /// `MEROPE_SPREAD_DRAFTERS` model instead of Pro.
     Drafter(usize),
+    /// Same tags, prompt, and model as base; each draft also gets one of the
+    /// site owner's platform reports as evidence.
+    Evidence,
 }
 
 impl Condition {
@@ -196,6 +199,7 @@ impl Condition {
             Self::Cut(i) => CUTS[i].1,
             Self::CutAll => "J_no_conditions_at_all",
             Self::Drafter(_) => unreachable!(),
+            Self::Evidence => "L_with_report_evidence",
         };
         name.to_string()
     }
@@ -320,6 +324,9 @@ fn conditions() -> Vec<Condition> {
     if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("J")) {
         out.push(Condition::CutAll);
     }
+    if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("L")) {
+        out.push(Condition::Evidence);
+    }
     if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("K")) {
         out.extend((0..drafters().len()).map(Condition::Drafter));
     }
@@ -375,9 +382,10 @@ async fn draft(
     system: &str,
     drafter: Option<&crate::services::analyzer::AiAnalyzer>,
     name: &str,
+    evidence: Option<&Value>,
     tags: &[String],
 ) -> Option<String> {
-    match suggest_persona_with_system(system, drafter, name, "zh-CN", tags).await {
+    match suggest_persona_with_system(system, drafter, evidence, name, "zh-CN", tags).await {
         Ok(draft) => Some(flatten(&draft)),
         Err(error) => {
             eprintln!("persona draft failed: {error}");
@@ -408,7 +416,7 @@ async fn personas_sound_apart() {
             tags.shuffle(&mut rand::rng());
             tags.truncate(TAGS_EACH);
             let name = format!("角色{}", drafted.len() + 1);
-            let Some(text) = draft(PERSONA_SYSTEM_PROMPT, None, &name, &tags).await else {
+            let Some(text) = draft(PERSONA_SYSTEM_PROMPT, None, &name, None, &tags).await else {
                 failures += 1;
                 assert!(failures < 2 * wanted, "persona drafts keep failing");
                 continue;
@@ -437,7 +445,7 @@ async fn personas_sound_apart() {
                 let name = format!("角色{}", i + 1);
                 let mut text = None;
                 for _ in 0..3 {
-                    text = draft(PERSONA_SYSTEM_PROMPT, None, &name, &tags).await;
+                    text = draft(PERSONA_SYSTEM_PROMPT, None, &name, None, &tags).await;
                     if text.is_some() {
                         break;
                     }
@@ -445,13 +453,25 @@ async fn personas_sound_apart() {
                 apart_tags_drafted.push((name, text.expect("persona drafts keep failing")));
             }
         }
+        let evidence_of = if conditions().contains(&Condition::Evidence) {
+            let owner = crate::services::ai_cost_ledger::resolve_site_owner_id()
+                .await
+                .expect("site owner required");
+            let evidence = super::merope::report_dna::report_evidence_values(&db, owner)
+                .await
+                .expect("reports readable");
+            assert!(!evidence.is_empty(), "condition L needs the site owner's reports");
+            evidence
+        } else {
+            vec![]
+        };
         let mut results = vec![];
         for condition in conditions() {
             // Cut conditions redraft the base tags with a trimmed prompt, so
             // they pair with base persona for persona.
             let cut_drafted = if matches!(
                 condition,
-                Condition::Cut(_) | Condition::CutAll | Condition::Drafter(_)
+                Condition::Cut(_) | Condition::CutAll | Condition::Drafter(_) | Condition::Evidence
             ) {
                 let system = draft_system(condition);
                 let drafter = match condition {
@@ -462,10 +482,15 @@ async fn personas_sound_apart() {
                     _ => None,
                 };
                 let mut out = vec![];
-                for ((name, _), tags) in drafted.iter().zip(&tags_of) {
+                for (p, ((name, _), tags)) in drafted.iter().zip(&tags_of).enumerate() {
+                    // One platform's report per persona: the evidence the tag
+                    // call reads, shaped the same way, so each persona has
+                    // material of its own. Tags stay base's.
+                    let evidence = (condition == Condition::Evidence)
+                        .then(|| Value::Array(vec![evidence_of[p % evidence_of.len()].clone()]));
                     let mut text = None;
                     for _ in 0..3 {
-                        text = draft(&system, drafter.as_ref(), name, tags).await;
+                        text = draft(&system, drafter.as_ref(), name, evidence.as_ref(), tags).await;
                         if text.is_some() {
                             break;
                         }

@@ -83,6 +83,7 @@ pub async fn suggest_persona(
         suggest_persona_once(
             PERSONA_SYSTEM_PROMPT,
             None,
+            None,
             name,
             language,
             selected_tags,
@@ -99,12 +100,22 @@ pub async fn suggest_persona(
 pub(in crate::services::agent) async fn suggest_persona_with_system(
     system: &str,
     drafter: Option<&crate::services::analyzer::AiAnalyzer>,
+    evidence: Option<&Value>,
     name: &str,
     language: &str,
     selected_tags: &[String],
 ) -> Result<Value, OnboardingAiError> {
     retry_unusable(PERSONA_ATTEMPTS, "persona draft was unusable", || {
-        suggest_persona_once(system, drafter, name, language, selected_tags, "unspecified", "")
+        suggest_persona_once(
+            system,
+            drafter,
+            evidence,
+            name,
+            language,
+            selected_tags,
+            "unspecified",
+            "",
+        )
     })
     .await
 }
@@ -112,6 +123,7 @@ pub(in crate::services::agent) async fn suggest_persona_with_system(
 async fn suggest_persona_once(
     system: &str,
     drafter: Option<&crate::services::analyzer::AiAnalyzer>,
+    evidence: Option<&Value>,
     name: &str,
     language: &str,
     selected_tags: &[String],
@@ -120,7 +132,7 @@ async fn suggest_persona_once(
 ) -> Result<Value, OnboardingAiError> {
     let tags = sanitize_onboarding_tags_for_language(selected_tags, language);
     let fallback = myriad_merope::fallback_persona_draft(name, language, &tags);
-    let input = json!({
+    let mut input = json!({
         "pipeline": "onboarding/persona",
         "task": "design_character_persona",
         "rollId": format!("p{}", uuid::Uuid::new_v4().simple()),
@@ -138,8 +150,11 @@ async fn suggest_persona_once(
             "guidance": "1-2 sentences each for socialStyle and speechStyle",
             "noLiterarySludge": true,
         },
-    })
-    .to_string();
+    });
+    if let Some(evidence) = evidence {
+        input["evidence"] = evidence.clone();
+    }
+    let input = input.to_string();
     let raw = match drafter {
         Some(drafter) => drafter
             .analyze_with_system(system, &input)
