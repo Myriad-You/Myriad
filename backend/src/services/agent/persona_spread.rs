@@ -16,12 +16,13 @@
 //! Spends Pro on the drafts and Lite on the replies and the judging; writes
 //! nothing to the site (read-only connection, ledger suppressed).
 //!
-//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,J]`
+//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,K]`
 //!
 //! Conditions change one stage each against `base`, to find where voices
 //! collapse: A the personas (hand-written, far apart), B the chat contract,
 //! C the speaking model, D the lines said to her, E the tags drawn, F to J
-//! the draft prompt's asks for conditions and limits.
+//! the draft prompt's asks for conditions and limits, K the drafting model
+//! (`--drafters source:model,...`).
 
 use rand::seq::SliceRandom;
 use serde_json::{Value, json};
@@ -175,11 +176,17 @@ enum Condition {
     Cut(usize),
     /// Same tags as base, drafted without every `CUTS` phrase.
     CutAll,
+    /// Same tags and prompt as base, drafted by the i-th
+    /// `MEROPE_SPREAD_DRAFTERS` model instead of Pro.
+    Drafter(usize),
 }
 
 impl Condition {
-    fn name(self) -> &'static str {
-        match self {
+    fn name(self) -> String {
+        if let Self::Drafter(i) = self {
+            return format!("K_drafter_{}", drafters()[i].1);
+        }
+        let name = match self {
             Self::Base => "base",
             Self::Apart => "A_apart_personas",
             Self::NoNowAndThen => "B_no_now_and_then",
@@ -188,7 +195,9 @@ impl Condition {
             Self::TagsApart => "E_apart_tags",
             Self::Cut(i) => CUTS[i].1,
             Self::CutAll => "J_no_conditions_at_all",
-        }
+            Self::Drafter(_) => unreachable!(),
+        };
+        name.to_string()
     }
 }
 
@@ -311,7 +320,41 @@ fn conditions() -> Vec<Condition> {
     if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("J")) {
         out.push(Condition::CutAll);
     }
+    if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("K")) {
+        out.extend((0..drafters().len()).map(Condition::Drafter));
+    }
     out
+}
+
+/// Drafting models for condition K, from `MEROPE_SPREAD_DRAFTERS`: comma
+/// separated `source:model`, e.g. `openrouter:openai/gpt-6.1-sol`.
+fn drafters() -> Vec<(String, String)> {
+    std::env::var("MEROPE_SPREAD_DRAFTERS")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|entry| entry.trim().split_once(':'))
+        .map(|(source, model)| (source.to_string(), model.to_string()))
+        .collect()
+}
+
+/// An analyzer for `model` on the configured `source`, the way tiers resolve
+/// theirs; keys stay in the config.
+async fn drafter_analyzer(source: &str, model: &str) -> crate::services::analyzer::AiAnalyzer {
+    let resolved = crate::GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .resolve_on_source(source, model);
+    assert!(resolved.text_ready(), "drafter {source}:{model} is not configured");
+    let provider = crate::services::analyzer::AiProvider::from_str(&resolved.api_format)
+        .expect("drafter source format");
+    crate::services::analyzer::AiAnalyzer::new_with_timeout(
+        provider,
+        resolved.api_key.unwrap_or_default(),
+        resolved.model,
+        (!resolved.base_url.is_empty()).then_some(resolved.base_url),
+        std::time::Duration::from_secs(15 * 60),
+    )
+    .await
 }
 
 /// The production draft prompt with the condition's `CUTS` phrases removed.
@@ -328,8 +371,13 @@ fn draft_system(condition: Condition) -> String {
 
 /// The production persona draft for these tags, flattened as saved. Drafts
 /// fail now and then; `None` lets the caller redraw or retry.
-async fn draft(system: &str, name: &str, tags: &[String]) -> Option<String> {
-    match suggest_persona_with_system(system, name, "zh-CN", tags).await {
+async fn draft(
+    system: &str,
+    drafter: Option<&crate::services::analyzer::AiAnalyzer>,
+    name: &str,
+    tags: &[String],
+) -> Option<String> {
+    match suggest_persona_with_system(system, drafter, name, "zh-CN", tags).await {
         Ok(draft) => Some(flatten(&draft)),
         Err(error) => {
             eprintln!("persona draft failed: {error}");
@@ -360,7 +408,7 @@ async fn personas_sound_apart() {
             tags.shuffle(&mut rand::rng());
             tags.truncate(TAGS_EACH);
             let name = format!("角色{}", drafted.len() + 1);
-            let Some(text) = draft(PERSONA_SYSTEM_PROMPT, &name, &tags).await else {
+            let Some(text) = draft(PERSONA_SYSTEM_PROMPT, None, &name, &tags).await else {
                 failures += 1;
                 assert!(failures < 2 * wanted, "persona drafts keep failing");
                 continue;
@@ -389,7 +437,7 @@ async fn personas_sound_apart() {
                 let name = format!("角色{}", i + 1);
                 let mut text = None;
                 for _ in 0..3 {
-                    text = draft(PERSONA_SYSTEM_PROMPT, &name, &tags).await;
+                    text = draft(PERSONA_SYSTEM_PROMPT, None, &name, &tags).await;
                     if text.is_some() {
                         break;
                     }
@@ -401,18 +449,41 @@ async fn personas_sound_apart() {
         for condition in conditions() {
             // Cut conditions redraft the base tags with a trimmed prompt, so
             // they pair with base persona for persona.
-            let cut_drafted = if matches!(condition, Condition::Cut(_) | Condition::CutAll) {
+            let cut_drafted = if matches!(
+                condition,
+                Condition::Cut(_) | Condition::CutAll | Condition::Drafter(_)
+            ) {
                 let system = draft_system(condition);
+                let drafter = match condition {
+                    Condition::Drafter(i) => {
+                        let (source, model) = &drafters()[i];
+                        Some(drafter_analyzer(source, model).await)
+                    }
+                    _ => None,
+                };
                 let mut out = vec![];
                 for ((name, _), tags) in drafted.iter().zip(&tags_of) {
                     let mut text = None;
                     for _ in 0..3 {
-                        text = draft(&system, name, tags).await;
+                        text = draft(&system, drafter.as_ref(), name, tags).await;
                         if text.is_some() {
                             break;
                         }
                     }
-                    out.push((name.clone(), text.expect("persona drafts keep failing")));
+                    match text {
+                        Some(text) => out.push((name.clone(), text)),
+                        None => break,
+                    }
+                }
+                if out.len() < drafted.len() {
+                    // A drafter whose drafts keep failing the production gates
+                    // is itself the finding; the other conditions still run.
+                    println!(
+                        "{}",
+                        json!({"condition": condition.name(), "skipped": "drafts kept failing the production gates"})
+                    );
+                    results.push(json!({"condition": condition.name(), "skipped": "drafts kept failing the production gates"}));
+                    continue;
                 }
                 Some(out)
             } else {
@@ -463,21 +534,45 @@ async fn personas_sound_apart() {
                     "replies": lines.iter().zip(own).map(|(line, reply)| json!({"line": line, "reply": reply})).collect::<Vec<_>>(),
                 })).collect::<Vec<_>>(),
             }));
+            // Written after every condition, so a later failure keeps what ran.
+            write_report(&report_path, &tags_of, &results);
         }
-        let report = json!({
-            "syntheticOnly": true,
-            "draftedTags": tags_of,
-            "conditions": results,
-            "note": "Measured, not graded: read the replies. told near chance or spread near 1 means the personas collapsed into one voice.",
-        });
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&report_path)
-            .expect("report must not exist");
-        serde_json::to_writer_pretty(file, &report).unwrap();
+        write_report(&report_path, &tags_of, &results);
     })
     .await;
+}
+
+fn write_report(path: &str, tags_of: &[Vec<String>], results: &[Value]) {
+    let report = json!({
+        "syntheticOnly": true,
+        "draftedTags": tags_of,
+        "conditions": results,
+        "note": "Measured, not graded: read the replies. told near chance or spread near 1 means the personas collapsed into one voice.",
+    });
+    std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).expect("report written");
+}
+
+/// Which text sources and models this site has configured: names only, no
+/// keys. To pick `--drafters` for condition K.
+#[tokio::test]
+#[ignore = "reads the configured database"]
+async fn list_draft_models() {
+    super::semantic_eval::load_configured_lite().await;
+    let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+    for tier in [
+        crate::config::ModelTier::Lite,
+        crate::config::ModelTier::Standard,
+        crate::config::ModelTier::Pro,
+    ] {
+        let resolved = config.resolve_ai_config(tier);
+        println!("tier {tier:?}: source={} model={} ready={}", config.tier_source(tier), resolved.model, resolved.text_ready());
+    }
+    for source in config.effective_vendor_sources() {
+        println!(
+            "source {} kind={} format={} enabled={}",
+            source.slug, source.kind, source.api_format, source.enabled
+        );
+    }
 }
 
 #[cfg(test)]
