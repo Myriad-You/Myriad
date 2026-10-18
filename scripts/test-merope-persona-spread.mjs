@@ -10,11 +10,14 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
 let personas = '5'
+let conditions = ''
 for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--personas') personas = args[++i]
-  else throw new Error('Usage: node scripts/test-merope-persona-spread.mjs [--personas 2-8]')
+  else if (args[i] === '--conditions') conditions = args[++i]
+  else throw new Error('Usage: node scripts/test-merope-persona-spread.mjs [--personas 2-8] [--conditions A,B,C,D]')
 }
 if (!/^[2-8]$/.test(personas)) throw new Error('--personas must be 2-8')
+if (conditions && !/^[ABCD](,[ABCD])*$/i.test(conditions)) throw new Error('--conditions takes letters A-D, comma separated')
 const dir = join(root, 'target', 'merope-reports')
 mkdirSync(dir, { recursive: true })
 const report = join(dir, `persona-spread-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
@@ -23,7 +26,7 @@ const result = spawnSync('cargo', [
   '--', '--ignored', '--nocapture',
 ], {
   cwd: join(root, 'backend'),
-  env: { ...process.env, MEROPE_SPREAD_PERSONAS: personas, MEROPE_SPREAD_REPORT: report },
+  env: { ...process.env, MEROPE_SPREAD_PERSONAS: personas, MEROPE_SPREAD_REPORT: report, MEROPE_SPREAD_CONDITIONS: conditions },
   stdio: 'inherit',
 })
 console.log(`\nPersona spread report: ${report}`)
