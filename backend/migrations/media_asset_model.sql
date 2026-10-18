@@ -60,7 +60,7 @@ BEGIN
         SELECT 1 FROM pg_constraint WHERE conname = 'media_assets_source_check'
     ) THEN
         ALTER TABLE media_assets ADD CONSTRAINT media_assets_source_check
-            CHECK (source IS NULL OR source IN ('upload', 'generated', 'channel', 'import', 'legacy'));
+            CHECK (source IS NULL OR source IN ('upload', 'generated', 'channel', 'kept', 'import', 'legacy'));
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'media_assets_owner_scope_check'

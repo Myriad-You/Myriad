@@ -77,7 +77,7 @@ pub async fn keep(
         db,
         crate::services::media::MediaContext::site(
             actor,
-            crate::services::media::MediaSource::Channel,
+            crate::services::media::MediaSource::Kept,
         )
         .with_producer_key(format!("merope-kept-sticker:{id}")),
         GeneratedImage {

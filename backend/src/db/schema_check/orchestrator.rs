@@ -61,7 +61,9 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// （索引带 WHERE，不进 `get_expected_indexes`，只读漂移检查看不见它）。
 /// 2026.10.15.2：阅读进度 `phantasi_user_states.read_progress` 退场（003 不再建，旧库由
 /// `drop_retired_columns` 删掉）。
-pub const SCHEMA_VERSION: &str = "2026.10.15.2";
+/// 2026.10.18.1：媒体来源加 `kept`（Agent 从群里收下的表情包，原来记成 `channel`）。
+/// 003 的 CHECK 直接带上；旧库由 `ensure_media_sources` 重建 CHECK 并回填存量。
+pub const SCHEMA_VERSION: &str = "2026.10.18.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -316,6 +318,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     super::note_slugs::ensure_note_slugs(db).await?;
     crate::services::media::retire_legacy_media(db).await?;
     ensure_agent_tasks_status_check(db).await?;
+    ensure_media_sources(db).await?;
     ensure_persona_sync_tables(db).await?;
     ensure_memory_cues_table(db).await?;
     unlink_note_docs_without_article(db).await?;

@@ -93,17 +93,32 @@ impl MediaExposure {
 pub enum MediaSource {
     Upload,
     Generated,
+    /// Images people sent through a chat channel.
     Channel,
+    /// Stickers the Agent kept from a group to send herself. Not `Channel`:
+    /// she chose these, nobody sent them to her.
+    Kept,
     Import,
     Legacy,
 }
 
 impl MediaSource {
+    /// Every stored value; the `media_assets_source_check` constraint lists these.
+    pub const ALL: [Self; 6] = [
+        Self::Upload,
+        Self::Generated,
+        Self::Channel,
+        Self::Kept,
+        Self::Import,
+        Self::Legacy,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Upload => "upload",
             Self::Generated => "generated",
             Self::Channel => "channel",
+            Self::Kept => "kept",
             Self::Import => "import",
             Self::Legacy => "legacy",
         }
@@ -114,6 +129,7 @@ impl MediaSource {
             "upload" => Ok(Self::Upload),
             "generated" => Ok(Self::Generated),
             "channel" => Ok(Self::Channel),
+            "kept" => Ok(Self::Kept),
             "import" => Ok(Self::Import),
             "legacy" => Ok(Self::Legacy),
             _ => Err(MediaError::invalid("Invalid media source")),
@@ -124,7 +140,7 @@ impl MediaSource {
     pub fn catalog_kind(self) -> &'static str {
         match self {
             Self::Generated => "generated",
-            Self::Upload | Self::Channel | Self::Import | Self::Legacy => "upload",
+            Self::Upload | Self::Channel | Self::Kept | Self::Import | Self::Legacy => "upload",
         }
     }
 }

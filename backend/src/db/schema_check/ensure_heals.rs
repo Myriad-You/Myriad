@@ -444,6 +444,70 @@ pub(crate) async fn ensure_agent_tasks_status_check(db: &DatabaseConnection) -> 
     Ok(())
 }
 
+/// Producer-key prefix the Agent's kept stickers were written with before
+/// they had their own source (see `merope::stickers::kept`).
+pub(crate) const KEPT_STICKER_PRODUCER_PREFIX: &str = "merope-kept-sticker:";
+
+pub(crate) fn media_assets_source_check_sql() -> String {
+    use crate::services::media::MediaSource;
+    let values = MediaSource::ALL
+        .iter()
+        .map(|source| format!("'{}'", source.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let required = MediaSource::ALL
+        .iter()
+        .map(|source| format!("def LIKE '%''{}''%'", source.as_str()))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    format!(
+        r#"
+DO $$
+DECLARE
+    def TEXT;
+BEGIN
+    IF to_regclass('media_assets') IS NULL THEN
+        RETURN;
+    END IF;
+    SELECT pg_get_constraintdef(oid) INTO def
+      FROM pg_constraint
+     WHERE conname = 'media_assets_source_check'
+       AND conrelid = 'media_assets'::regclass;
+    IF def IS NOT NULL AND {required} THEN
+        RETURN;
+    END IF;
+    IF def IS NOT NULL THEN
+        ALTER TABLE media_assets DROP CONSTRAINT media_assets_source_check;
+    END IF;
+    ALTER TABLE media_assets ADD CONSTRAINT media_assets_source_check
+        CHECK (source IS NULL OR source IN ({values}));
+END $$;
+"#
+    )
+}
+
+pub(crate) fn media_kept_backfill_sql() -> String {
+    format!(
+        "UPDATE media_assets SET source = 'kept' \
+          WHERE source = 'channel' AND producer_key LIKE '{KEPT_STICKER_PRODUCER_PREFIX}%'"
+    )
+}
+
+/// Every media source the code writes must pass the CHECK; stickers the
+/// Agent kept before `kept` existed were stored as `channel`.
+pub(crate) async fn ensure_media_sources(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(&media_assets_source_check_sql())
+        .await?;
+    let moved = db
+        .execute_unprepared(&media_kept_backfill_sql())
+        .await?
+        .rows_affected();
+    if moved > 0 {
+        tracing::info!(moved, "Media: kept stickers moved off the channel source");
+    }
+    Ok(())
+}
+
 /// Note docs have no foreign key to their article: one deleted with its
 /// source leaves a published doc pointing nowhere. Back to draft, unlinked.
 pub(crate) async fn unlink_note_docs_without_article(db: &DatabaseConnection) -> Result<(), DbErr> {

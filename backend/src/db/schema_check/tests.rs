@@ -19,6 +19,31 @@ fn agent_tasks_status_check_matches_parser() {
 }
 
 #[test]
+fn media_source_check_matches_parser_and_003() {
+    use crate::services::media::MediaSource;
+    let heal = super::ensure_heals::media_assets_source_check_sql();
+    let greenfield = include_str!("../../../migrations/media_asset_model.sql");
+    for source in MediaSource::ALL {
+        let quoted = format!("'{}'", source.as_str());
+        assert!(heal.contains(&quoted), "heal CHECK must include {quoted}");
+        assert!(greenfield.contains(&quoted), "003 CHECK must include {quoted}");
+        assert_eq!(MediaSource::parse(source.as_str()).unwrap(), source);
+    }
+    assert!(heal.contains("DROP CONSTRAINT media_assets_source_check"));
+}
+
+#[test]
+fn media_kept_backfill_matches_kept_writer() {
+    let prefix = super::ensure_heals::KEPT_STICKER_PRODUCER_PREFIX;
+    let writer = include_str!("../../services/agent/merope/stickers/kept.rs");
+    assert!(writer.contains(&format!("\"{prefix}{{id}}\"")), "kept.rs producer key changed");
+    assert!(writer.contains("MediaSource::Kept"));
+    let sql = super::ensure_heals::media_kept_backfill_sql();
+    assert!(sql.contains("source = 'channel'"));
+    assert!(sql.contains(&format!("LIKE '{prefix}%'")));
+}
+
+#[test]
 fn test_expected_schema_tables() {
     let tables = get_expected_schema();
     assert!(!tables.is_empty());

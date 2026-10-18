@@ -24,11 +24,29 @@ pub struct MediaAssetView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_path: Option<String>,
     pub references_complete: bool,
+    /// Stored `media_assets.source`; rows from before the column read as `legacy`.
+    pub source: String,
+}
+
+/// Where a catalog asset came from, as the studio groups it. Each origin is a
+/// fixed set of `media_assets.source` values; `kind` stays for old callers.
+pub const MEDIA_ORIGINS: [&str; 5] = ["upload", "generated", "kept", "channel", "import"];
+
+fn origin_sources(origin: &str) -> Option<&'static [&'static str]> {
+    match origin {
+        "upload" => Some(&["upload"]),
+        "generated" => Some(&["generated"]),
+        "kept" => Some(&["kept"]),
+        "channel" => Some(&["channel"]),
+        "import" => Some(&["import", "legacy"]),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
 pub struct MediaListQuery {
     pub kind: Option<String>,
+    pub origin: Option<String>,
     pub format: Option<String>,
     pub query: Option<String>,
     pub before_created_at: Option<chrono::DateTime<chrono::FixedOffset>>,
@@ -43,6 +61,10 @@ impl MediaListQuery {
                 .kind
                 .as_deref()
                 .is_none_or(|v| matches!(v, "all" | "upload" | "generated"))
+            && self
+                .origin
+                .as_deref()
+                .is_none_or(|v| v == "all" || origin_sources(v).is_some())
             && self.format.as_deref().is_none_or(|v| {
                 matches!(
                     v,
@@ -78,6 +100,7 @@ struct CatalogAsset {
     state: Option<String>,
     exposure: Option<String>,
     references_complete: bool,
+    source: Option<String>,
 }
 
 // Matches the workbench's supported MIME types; legacy filenames supply missing MIME formats.
@@ -114,6 +137,13 @@ pub async fn list_assets(
     );
     if let Some(kind) = params.kind.as_deref().filter(|v| *v != "all") {
         query = query.filter(C::Kind.eq(kind));
+    }
+    if let Some(sources) = params.origin.as_deref().and_then(origin_sources) {
+        let mut origin = Condition::any().add(C::Source.is_in(sources.iter().copied()));
+        if sources.contains(&"legacy") {
+            origin = origin.add(C::Source.is_null());
+        }
+        query = query.filter(origin);
     }
     if let Some(format) = params.format.as_deref().filter(|v| *v != "all") {
         query = query.filter(Expr::cust_with_values(
@@ -157,6 +187,7 @@ pub async fn list_assets(
             C::State,
             C::Exposure,
             C::ReferencesComplete,
+            C::Source,
         ])
         .order_by_desc(C::CreatedAt)
         .order_by_desc(C::Id)
@@ -230,6 +261,7 @@ fn to_view(row: CatalogAsset, references: Vec<String>) -> MediaAssetView {
         content_path,
         public_path,
         references_complete: row.references_complete,
+        source: row.source.unwrap_or_else(|| "legacy".into()),
     }
 }
 
@@ -260,6 +292,22 @@ mod tests {
             }
             .valid()
         );
+        assert!(
+            !MediaListQuery {
+                origin: Some("invalid".into()),
+                ..Default::default()
+            }
+            .valid()
+        );
+        for origin in super::MEDIA_ORIGINS {
+            assert!(
+                MediaListQuery {
+                    origin: Some(origin.into()),
+                    ..Default::default()
+                }
+                .valid()
+            );
+        }
         assert!(
             !MediaListQuery {
                 format: Some("invalid".into()),
@@ -295,5 +343,20 @@ mod tests {
         assert!(list.contains("local_music_tracks"));
         assert!(list.contains("audio_media_id"));
         assert!(list.contains("cover_media_id"));
+    }
+
+    #[test]
+    fn origins_cover_every_source_once() {
+        use crate::services::media::MediaSource;
+        for source in MediaSource::ALL {
+            let hits = super::MEDIA_ORIGINS
+                .iter()
+                .filter(|origin| super::origin_sources(origin).unwrap().contains(&source.as_str()))
+                .count();
+            assert_eq!(hits, 1, "{} must belong to exactly one origin", source.as_str());
+        }
+        // Agent-kept stickers and images people sent her are never the same origin.
+        assert_eq!(super::origin_sources("kept"), Some(&["kept"][..]));
+        assert_eq!(super::origin_sources("channel"), Some(&["channel"][..]));
     }
 }
