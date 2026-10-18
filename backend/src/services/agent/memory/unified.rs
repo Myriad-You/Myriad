@@ -268,11 +268,15 @@ pub struct MemoryRecord {
     /// Recalled because what they said brought it to mind by association,
     /// not because they named it.
     pub brought_to_mind: bool,
+    /// What it is about, as written with it.
+    pub concepts: Vec<Concept>,
 }
 
 impl From<agent_memories::Model> for MemoryRecord {
     fn from(model: agent_memories::Model) -> Self {
+        let concepts = concepts_of(&model);
         Self {
+            concepts,
             id: model.id,
             user_id: model.user_id,
             kind: model.kind,

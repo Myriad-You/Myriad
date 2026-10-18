@@ -15,6 +15,7 @@ fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
             access_count: 0,
             created_at: chrono::Utc::now().fixed_offset(),
             brought_to_mind: false,
+            concepts: Vec::new(),
         };
     // This year's are without the year, the day on her clock.
     let today = super::super::clock::local_now().format("%m-%d").to_string();

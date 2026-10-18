@@ -485,15 +485,18 @@ async fn check_against_unshown(
     else {
         return;
     };
-    let unshown: Vec<String> = rows
-        .iter()
-        .map(|row| compact_summary(&row.content))
-        .filter(|known| !known.is_empty() && !shown.contains(known))
+    let unshown: Vec<Unshown> = rows
+        .into_iter()
+        .map(|row| Unshown {
+            text: compact_summary(&row.content),
+            concepts: row.concepts,
+        })
+        .filter(|known| !known.text.is_empty() && !shown.contains(&known.text))
         .filter(|known| {
             !updates
                 .updates
                 .iter()
-                .any(|update| update.supersedes.contains(known))
+                .any(|update| update.supersedes.contains(&known.text))
         })
         .collect();
     let pairs = alike_unshown(&updates.updates, &unshown);
@@ -522,30 +525,63 @@ async fn check_against_unshown(
     settle_already(&mut updates.updates, &pairs, &verdicts);
 }
 
+/// A fact she had but the extraction did not see, with what it is about.
+struct Unshown {
+    text: String,
+    concepts: Vec<crate::services::agent::memory::unified::Concept>,
+}
+
+/// Every name a fact is about answers to, folded for comparison; names of
+/// one character say too little to tell two subjects apart.
+fn subject_names(concepts: &[crate::services::agent::memory::unified::Concept]) -> Vec<String> {
+    concepts
+        .iter()
+        .flat_map(|concept| concept.surface_forms())
+        .map(|name| name.trim().to_lowercase())
+        .filter(|name| name.chars().count() >= 2)
+        .collect()
+}
+
+/// Two facts that both say what they are about, with no name in common and
+/// neither naming the other's, are about different things: one cannot be
+/// the other said again, nor what replaces it, however many words they
+/// share. A fact that says nothing of what it is about is never kept apart.
+fn about_other_things(fact: &str, subject: &[String], known: &str, theirs: &[String]) -> bool {
+    if subject.is_empty() || theirs.is_empty() {
+        return false;
+    }
+    let (fact, known) = (fact.to_lowercase(), known.to_lowercase());
+    !subject
+        .iter()
+        .any(|name| theirs.contains(name) || known.contains(name.as_str()))
+        && !theirs.iter().any(|name| fact.contains(name.as_str()))
+}
+
 /// For each new fact, the facts she had but the extraction did not see that
-/// look most like it (by update index), at most a few.
-fn alike_unshown(updates: &[ChatMemoryUpdate], unshown: &[String]) -> Vec<(usize, String)> {
+/// look most like it (by update index), at most a few. What is plainly about
+/// something else is not asked about.
+fn alike_unshown(updates: &[ChatMemoryUpdate], unshown: &[Unshown]) -> Vec<(usize, String)> {
     use crate::services::agent::memory::lexical::overlap;
+    let theirs: Vec<Vec<String>> = unshown
+        .iter()
+        .map(|known| subject_names(&known.concepts))
+        .collect();
     let mut pairs = Vec::new();
     for (index, update) in updates.iter().enumerate() {
         let Some(fact) = update.fact.as_deref() else {
             continue;
         };
-        let subject: Vec<String> = update
-            .concepts
-            .iter()
-            .flat_map(|concept| std::iter::once(&concept.name).chain(concept.aliases.iter()))
-            .map(|name| name.trim().to_lowercase())
-            .filter(|name| name.chars().count() >= 2)
-            .collect();
+        let subject = subject_names(&update.concepts);
         let mut alike: Vec<(f64, &String)> = unshown
             .iter()
-            .filter_map(|known| {
-                let score = overlap(fact, known);
-                let lower = known.to_lowercase();
+            .zip(&theirs)
+            .filter(|(known, theirs)| !about_other_things(fact, &subject, &known.text, theirs))
+            .filter_map(|(known, _)| {
+                let score = overlap(fact, &known.text);
+                let lower = known.text.to_lowercase();
                 let same_subject = subject.iter().any(|name| lower.contains(name.as_str()));
                 (score >= LOOKS_ALIKE || (same_subject && score >= LOOKS_ALIKE_SAME_SUBJECT))
-                    .then_some((score, known))
+                    .then_some((score, &known.text))
             })
             .collect();
         alike.sort_by(|left, right| right.0.total_cmp(&left.0));
@@ -640,7 +676,7 @@ pub(crate) fn settle_probe(
 
 #[cfg(test)]
 mod tests {
-    use super::{ChatMemoryUpdate, alike_unshown, settle_already};
+    use super::{ChatMemoryUpdate, Unshown, alike_unshown, settle_already};
     use crate::services::agent::memory::unified::Concept;
     use myriad_merope::chat_remember::Already;
 
@@ -665,11 +701,7 @@ mod tests {
             new_fact("他的猫叫豆豆", "豆豆"),
             new_fact("周六考试", "考试"),
         ];
-        let unshown = vec![
-            "养了一只叫豆豆的猫".to_string(),
-            "周五要考试".to_string(),
-            "喜欢喝咖啡".to_string(),
-        ];
+        let unshown = said_plainly(&["养了一只叫豆豆的猫", "周五要考试", "喜欢喝咖啡"]);
         let pairs = alike_unshown(&updates, &unshown);
         assert_eq!(
             pairs,
@@ -679,6 +711,57 @@ mod tests {
             ]
         );
         assert!(alike_unshown(&[new_fact("在学吉他", "吉他")], &unshown).is_empty());
+    }
+
+    fn said_plainly(texts: &[&str]) -> Vec<Unshown> {
+        texts
+            .iter()
+            .map(|text| Unshown {
+                text: (*text).into(),
+                concepts: Vec::new(),
+            })
+            .collect()
+    }
+
+    fn about(text: &str, subject: &str, aliases: &[&str]) -> Unshown {
+        Unshown {
+            text: text.into(),
+            concepts: vec![Concept {
+                name: subject.into(),
+                aliases: aliases.iter().map(|alias| (*alias).into()).collect(),
+            }],
+        }
+    }
+
+    /// Many words in common are not enough when both say they are about
+    /// different things; a name in common, or one named in the other's
+    /// words, still is. A fact that says nothing of its subject is checked
+    /// as before.
+    #[test]
+    fn facts_about_different_things_are_not_asked_about() {
+        let update = new_fact("周五要去医院复查", "复查");
+        let apart = about("周五要去医院看牙", "看牙", &["牙医"]);
+        assert!(alike_unshown(std::slice::from_ref(&update), &[apart]).is_empty());
+
+        let alias = about("周五要去医院看牙", "看牙", &["复查"]);
+        assert_eq!(
+            alike_unshown(std::slice::from_ref(&update), &[alias]).len(),
+            1
+        );
+        let named = about("周五要去医院复查", "医院", &[]);
+        assert_eq!(
+            alike_unshown(std::slice::from_ref(&update), &[named]).len(),
+            1
+        );
+        let unsaid = said_plainly(&["周五要去医院看牙"]);
+        assert_eq!(
+            alike_unshown(std::slice::from_ref(&update), &unsaid).len(),
+            1
+        );
+        let mut silent = update.clone();
+        silent.concepts.clear();
+        let apart = about("周五要去医院看牙", "看牙", &[]);
+        assert_eq!(alike_unshown(&[silent], &[apart]).len(), 1);
     }
 
     /// Already had: not kept again. How it is now: replaces what she had.
