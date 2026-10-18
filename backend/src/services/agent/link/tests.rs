@@ -252,8 +252,10 @@ fn every_frame_has_a_fixture_that_fits_it() {
                     let experience: super::experience::Experience =
                         serde_json::from_value(inbound.body).unwrap();
                     assert!(experience.readable());
-                    let run = experience.run(OWNER, "dev_1");
+                    let id = inbound.id.as_deref().unwrap();
+                    let run = experience.run(OWNER, "dev_1", id);
                     assert!(run.success && run.origin.as_deref() == Some("dev_1"));
+                    assert_eq!(run.record.experience.as_deref(), Some(id));
                     assert_eq!(run.step_outputs.len(), 1);
                     assert_eq!(run.capabilities, ["time.info"]);
                 }

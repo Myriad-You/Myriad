@@ -18,6 +18,9 @@ pub(crate) struct MemoryRecordParams<'a> {
     pub(crate) reply: &'a str,
     /// 实际步骤执行结果（用于丰富记忆提取的上下文）
     pub(crate) step_results: Option<&'a std::collections::HashMap<String, StepResult>>,
+    /// 这一轮所在的会话与任务：办过的事据此找回原始记录。
+    pub(crate) session_id: Option<&'a str>,
+    pub(crate) task_id: Option<&'a str>,
 }
 
 /// 办事结束后的记忆抽取，写入统一记忆表。
@@ -66,6 +69,11 @@ pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
         success: params.success,
         reply: Some(params.reply.to_string()).filter(|reply| !reply.trim().is_empty()),
         origin: None,
+        record: memory::work_memory::RunRecord {
+            session: params.session_id.map(str::to_string),
+            task: params.task_id.map(str::to_string),
+            experience: None,
+        },
     };
     let db = params.db.clone();
     let attribution = crate::services::ai_cost_ledger::current_ai_attribution();

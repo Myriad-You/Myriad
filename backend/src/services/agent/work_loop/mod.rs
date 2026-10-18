@@ -361,6 +361,12 @@ impl Agent {
                         success: state.task.status == TaskStatus::Completed,
                         reply: &state.final_text,
                         step_results: Some(&state.task.step_results),
+                        session_id: state
+                            .request
+                            .context
+                            .as_ref()
+                            .and_then(|context| context.session_id.as_deref()),
+                        task_id: Some(&state.task.task_id),
                     },
                 )
                 .await;

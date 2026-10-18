@@ -128,8 +128,9 @@ impl Experience {
             && self.input.chars().count() <= CONTRACT.limits.max_text_chars
     }
 
-    /// The run as Work memory reads it, for the owner, from `device_id`.
-    pub(super) fn run(&self, owner: i32, device_id: &str) -> work_memory::WorkRun {
+    /// The run as Work memory reads it, for the owner, from `device_id`,
+    /// where it is the experience `id`.
+    pub(super) fn run(&self, owner: i32, device_id: &str, id: &str) -> work_memory::WorkRun {
         let outputs = self
             .outputs
             .iter()
@@ -157,6 +158,10 @@ impl Experience {
             success: self.status == Status::Completed,
             reply: self.reply.clone().filter(|reply| !reply.trim().is_empty()),
             origin: Some(device_id.to_string()),
+            record: work_memory::RunRecord {
+                experience: Some(id.to_string()),
+                ..Default::default()
+            },
         }
     }
 
@@ -288,7 +293,7 @@ async fn write_once(
     }
     // A run stopped part way teaches nothing, as on the site and the Mac.
     if experience.status != Status::Cancelled {
-        let run = experience.run(owner, device_id);
+        let run = experience.run(owner, device_id, id);
         let attribution = crate::services::ai_cost_ledger::AiLedgerAttribution::site(
             owner,
             "agent",
