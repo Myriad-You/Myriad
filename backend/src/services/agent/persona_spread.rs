@@ -16,11 +16,11 @@
 //! Spends Pro on the drafts and Lite on the replies and the judging; writes
 //! nothing to the site (read-only connection, ledger suppressed).
 //!
-//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,B,C,D]`
+//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,B,C,D,E]`
 //!
 //! Conditions change one stage each against `base`, to find where voices
 //! collapse: A the personas (hand-written, far apart), B the chat contract,
-//! C the speaking model, D the lines said to her.
+//! C the speaking model, D the lines said to her, E the tags drawn.
 
 use rand::seq::SliceRandom;
 use serde_json::{Value, json};
@@ -131,6 +131,17 @@ const APART: &[(&str, &str)] = &[
     ("角色5", "气质：迷糊、天然呆、容易跑题\n表达：常常答非所问，句尾爱带「诶」「欸嘿」，说着说着就聊到自己刚想到的事。"),
 ];
 
+/// Tag triples from the onboarding pool, picked far apart on purpose, for
+/// condition E only: whether the drafts stay apart when the tags do. A
+/// diagnostic control, never a pool or a standard.
+const TAGS_APART: &[[&str; TAGS_EACH]] = &[
+    ["活泼", "善于表达", "好奇"],
+    ["社恐", "独处才放松", "情绪来了先憋着"],
+    ["嘴硬心软", "边界感强", "完美主义"],
+    ["礼貌但疏离", "善于思考", "喜欢把事情安排妥"],
+    ["重视连接", "有创造力", "夜猫子"],
+];
+
 /// The contract sentence condition B leaves out of the chat instruction.
 const NOW_AND_THEN: &str = "Your personality is who you are, not a script to act out in every line: most of what anyone says is ordinary, and yours shows now and then. ";
 
@@ -145,6 +156,8 @@ enum Condition {
     Pro,
     /// Lines with more at stake.
     Rich,
+    /// Drafted personas, from tag triples picked far apart.
+    TagsApart,
 }
 
 impl Condition {
@@ -155,6 +168,7 @@ impl Condition {
             Self::NoNowAndThen => "B_no_now_and_then",
             Self::Pro => "C_pro_speaker",
             Self::Rich => "D_rich_lines",
+            Self::TagsApart => "E_apart_tags",
         }
     }
 }
@@ -255,7 +269,7 @@ async fn told(
 }
 
 /// Conditions run, from `MEROPE_SPREAD_CONDITIONS` (comma separated names,
-/// or letters `A,B,C,D`); base always runs.
+/// or letters `A,B,C,D,E`); base always runs.
 fn conditions() -> Vec<Condition> {
     let asked = std::env::var("MEROPE_SPREAD_CONDITIONS").unwrap_or_default();
     let mut out = vec![Condition::Base];
@@ -264,12 +278,25 @@ fn conditions() -> Vec<Condition> {
         ("B", Condition::NoNowAndThen),
         ("C", Condition::Pro),
         ("D", Condition::Rich),
+        ("E", Condition::TagsApart),
     ] {
         if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case(letter)) {
             out.push(condition);
         }
     }
     out
+}
+
+/// The production persona draft for these tags, flattened as saved. Drafts
+/// fail now and then; `None` lets the caller redraw or retry.
+async fn draft(name: &str, tags: &[String]) -> Option<String> {
+    match suggest_persona(name, "zh-CN", tags, "unspecified", "").await {
+        Ok(draft) => Some(flatten(&draft)),
+        Err(error) => {
+            eprintln!("persona draft failed: {error}");
+            None
+        }
+    }
 }
 
 #[tokio::test]
@@ -294,17 +321,12 @@ async fn personas_sound_apart() {
             tags.shuffle(&mut rand::rng());
             tags.truncate(TAGS_EACH);
             let name = format!("角色{}", drafted.len() + 1);
-            let draft = match suggest_persona(&name, "zh-CN", &tags, "unspecified", "").await {
-                Ok(draft) => draft,
-                Err(error) => {
-                    // Drafts fail now and then; draw new tags and try again.
-                    eprintln!("persona draft failed, redrawing: {error}");
-                    failures += 1;
-                    assert!(failures < 2 * wanted, "persona drafts keep failing");
-                    continue;
-                }
+            let Some(text) = draft(&name, &tags).await else {
+                failures += 1;
+                assert!(failures < 2 * wanted, "persona drafts keep failing");
+                continue;
             };
-            drafted.push((name, flatten(&draft)));
+            drafted.push((name, text));
             tags_of.push(tags);
         }
         let timeout = Some(std::time::Duration::from_secs(60));
@@ -317,6 +339,25 @@ async fn personas_sound_apart() {
         ))
         .await
         .expect("judge model required");
+        let mut apart_tags_drafted = vec![];
+        if conditions().contains(&Condition::TagsApart) {
+            for (i, tags) in TAGS_APART.iter().take(wanted).enumerate() {
+                let tags: Vec<String> = tags.iter().map(|tag| tag.to_string()).collect();
+                assert!(
+                    tags.iter().all(|tag| pool.contains(tag)),
+                    "condition E tags must come from the onboarding pool"
+                );
+                let name = format!("角色{}", i + 1);
+                let mut text = None;
+                for _ in 0..3 {
+                    text = draft(&name, &tags).await;
+                    if text.is_some() {
+                        break;
+                    }
+                }
+                apart_tags_drafted.push((name, text.expect("persona drafts keep failing")));
+            }
+        }
         let mut results = vec![];
         for condition in conditions() {
             // Every condition but A speaks for the same drafted personas, so
@@ -327,6 +368,8 @@ async fn personas_sound_apart() {
                     .take(wanted)
                     .map(|(name, text)| (name.to_string(), text.to_string()))
                     .collect()
+            } else if condition == Condition::TagsApart {
+                apart_tags_drafted.clone()
             } else {
                 drafted.clone()
             };
