@@ -237,16 +237,20 @@ fn present_credential_value(
 
 fn credential_redaction_needles(raw: &str, presented: &str, prefix: Option<&str>) -> Vec<String> {
     let mut needles = Vec::new();
-    if !raw.is_empty() {
-        needles.push(raw.to_string());
-    }
-    if !presented.is_empty() && presented != raw {
-        needles.push(presented.to_string());
-    }
-    if let Some(prefix) = prefix {
-        if !prefix.is_empty() {
-            needles.push(format!("{prefix}{presented}"));
+    let mut push = |needle: String| {
+        if !needle.is_empty() && !needles.contains(&needle) {
+            needles.push(needle);
         }
+    };
+    if let Some(prefix) = prefix.filter(|prefix| !prefix.is_empty()) {
+        push(format!("{prefix}{presented}"));
+    }
+    // Query and form placements put the value on the wire URL-encoded; an upstream that
+    // quotes the request line or body back would otherwise slip past the raw-text pass.
+    for value in [raw, presented] {
+        push(value.to_string());
+        push(url::form_urlencoded::byte_serialize(value.as_bytes()).collect());
+        push(urlencoding::encode(value).into_owned());
     }
     needles
 }
@@ -1990,6 +1994,83 @@ mod tests {
         assert!(request.contains("appid=top-secret") || request.contains("appid=top-secret"));
         assert!(request.contains("/weather?q=tokyo"));
         assert_eq!(response, json!({ "echo": "[REDACTED]" }));
+
+        match previous_environment {
+            Some(value) => unsafe { std::env::set_var("ENVIRONMENT", value) },
+            None => unsafe { std::env::remove_var("ENVIRONMENT") },
+        }
+        match previous_lab_flag {
+            Some(value) => unsafe {
+                std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", value)
+            },
+            None => unsafe { std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND") },
+        }
+    }
+
+    #[tokio::test]
+    async fn query_credential_echoed_url_encoded_is_redacted_from_body() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let _guard = crate::services::outbound_security::tests_lab_env_lock().await;
+        let previous_environment = std::env::var("ENVIRONMENT").ok();
+        let previous_lab_flag = std::env::var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND").ok();
+        unsafe { std::env::remove_var("ENVIRONMENT") };
+        unsafe { std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1") };
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        // Upstream refuses and quotes the request line back, as many APIs do.
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            loop {
+                let read = stream.read(&mut chunk).await.unwrap();
+                assert!(read > 0);
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8_lossy(&request).into_owned();
+            let request_line = request.lines().next().unwrap_or_default().to_string();
+            let body = json!({ "error": format!("bad request: {request_line}") }).to_string();
+            let response = format!(
+                "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            request
+        });
+
+        let mut api = api_def();
+        api.endpoint = Some(format!("http://{address}/weather?q=tokyo"));
+        api.credential = Some(myriad_tapp_contract::manifest::TappApiCredentialBinding {
+            key: "owm".into(),
+            in_placement: Some(TappCredentialIn::Query),
+            field: Some("appid".into()),
+            header: None,
+            prefix: None,
+            encoding: None,
+            sign: None,
+        });
+        let credential =
+            crate::services::tapp_credentials::ResolvedApiCredential::for_test(LEAKY_CREDENTIAL);
+
+        let error = TappApiService::execute_http_api_with_credential(
+            &api,
+            &HashMap::new(),
+            Some(&credential),
+        )
+        .await
+        .unwrap_err();
+        let request = server.await.unwrap();
+
+        assert!(
+            !request.contains(LEAKY_CREDENTIAL),
+            "the regression requires the wire form to differ from the raw secret"
+        );
+        assert_no_credential_leak(&error);
 
         match previous_environment {
             Some(value) => unsafe { std::env::set_var("ENVIRONMENT", value) },
