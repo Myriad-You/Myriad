@@ -1,7 +1,8 @@
 {
   "title": "Studio",
-  "subtitle": "Notes, comments, and the blog",
+  "subtitle": "Blog and media",
   "blog": "Blog",
+  "blogSettings": "Blog settings",
   "slug": "Slug",
   "slugHint": "This is the public address segment. Leave it empty to generate one on publish.",
   "slugInvalid": "Use lowercase letters, numbers, and hyphens, up to 80 characters.",
@@ -9,6 +10,7 @@
   "viewArticle": "View article",
   "navHome": "Overview",
   "navCategories": "Note categories",
+  "navGroupMedia": "Media",
   "openFailed": "Could not open this article.",
   "loading": "Loading…",
   "loadFailed": "Could not load blog settings.",

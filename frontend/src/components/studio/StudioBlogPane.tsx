@@ -129,7 +129,7 @@ export function StudioBlogPane({ back }: { back: ReactNode }) {
   if (!snapshot || !settings) {
     return (
       <WorkbenchPage
-        title={copy.blog}
+        title={copy.blogSettings}
         icon={<PhantasiWorkbenchIcon kind="studio" />}
         back={back}
       >
@@ -148,7 +148,7 @@ export function StudioBlogPane({ back }: { back: ReactNode }) {
 
   return (
     <WorkbenchPage
-      title={copy.blog}
+      title={copy.blogSettings}
       icon={<PhantasiWorkbenchIcon kind="studio" />}
       back={back}
       action={

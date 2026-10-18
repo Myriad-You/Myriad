@@ -28,21 +28,26 @@ import '../ConfigForm.css'
 import '../phantasi/ui/css/workbench.css'
 import './StudioShell.css'
 
+type RailPack = 'blog' | 'media'
+
+/** 概览不归组；其余按博客、媒体两块分。媒体整站共用，不只服务博客。 */
 const RAIL: Array<{
   section: StudioSection
-  label: 'navHome' | 'workbenchNotes' | 'workbenchComments' | 'workbenchReviews' | 'workbenchMedia' | 'navCategories' | 'workbenchNavTransfer' | 'blog'
+  label: 'navHome' | 'workbenchNotes' | 'workbenchComments' | 'workbenchReviews' | 'workbenchMedia' | 'navCategories' | 'workbenchNavTransfer' | 'blogSettings'
   icon: ReactNode
-  pack: 'content' | 'site'
+  pack: RailPack | null
 }> = [
-  { section: 'home', label: 'navHome', icon: <PhantasiWorkbenchIcon kind="overview" />, pack: 'content' },
-  { section: 'notes', label: 'workbenchNotes', icon: <PhantasiWorkbenchIcon kind="notes" />, pack: 'content' },
-  { section: 'comments', label: 'workbenchComments', icon: <PhantasiWorkbenchIcon kind="comments" />, pack: 'content' },
-  { section: 'media', label: 'workbenchMedia', icon: <PhantasiWorkbenchIcon kind="media" />, pack: 'content' },
-  { section: 'categories', label: 'navCategories', icon: <LuTag size={18} />, pack: 'content' },
-  { section: 'import', label: 'workbenchNavTransfer', icon: <PhantasiWorkbenchIcon kind="notes-transfer" />, pack: 'content' },
-  { section: 'reviews', label: 'workbenchReviews', icon: <PhantasiWorkbenchIcon kind="reviews" />, pack: 'content' },
-  { section: 'blog', label: 'blog', icon: <PhantasiWorkbenchIcon kind="studio" />, pack: 'site' },
+  { section: 'home', label: 'navHome', icon: <PhantasiWorkbenchIcon kind="overview" />, pack: null },
+  { section: 'notes', label: 'workbenchNotes', icon: <PhantasiWorkbenchIcon kind="notes" />, pack: 'blog' },
+  { section: 'comments', label: 'workbenchComments', icon: <PhantasiWorkbenchIcon kind="comments" />, pack: 'blog' },
+  { section: 'categories', label: 'navCategories', icon: <LuTag size={18} />, pack: 'blog' },
+  { section: 'reviews', label: 'workbenchReviews', icon: <PhantasiWorkbenchIcon kind="reviews" />, pack: 'blog' },
+  { section: 'import', label: 'workbenchNavTransfer', icon: <PhantasiWorkbenchIcon kind="notes-transfer" />, pack: 'blog' },
+  { section: 'blog', label: 'blogSettings', icon: <PhantasiWorkbenchIcon kind="studio" />, pack: 'blog' },
+  { section: 'media', label: 'workbenchMedia', icon: <PhantasiWorkbenchIcon kind="media" />, pack: 'media' },
 ]
+
+const RAIL_GROUPS: Array<RailPack | null> = [null, 'blog', 'media']
 
 function railLabel(key: (typeof RAIL)[number]['label'], t: ReturnType<typeof useI18n>['t']): string {
   switch (key) {
@@ -50,8 +55,8 @@ function railLabel(key: (typeof RAIL)[number]['label'], t: ReturnType<typeof use
       return t.studio.navHome
     case 'navCategories':
       return t.studio.navCategories
-    case 'blog':
-      return t.studio.blog
+    case 'blogSettings':
+      return t.studio.blogSettings
     case 'workbenchNotes':
       return t.phantasi.workbenchNotes
     case 'workbenchComments':
@@ -196,13 +201,15 @@ export function StudioShell({
           </div>
         </div>
         <nav className="config-sidebar-scroll" aria-label={t.studio.title}>
-          {(['content', 'site'] as const).map((pack) => (
-            <div key={pack} className="config-nav-group">
-              <div className="config-nav-group-title">
-                {pack === 'content' ? t.phantasi.workbenchNavContent : t.studio.blog}
-              </div>
+          {RAIL_GROUPS.map((pack) => (
+            <div key={pack ?? 'top'} className="config-nav-group">
+              {pack ? (
+                <div className="config-nav-group-title">
+                  {pack === 'blog' ? t.studio.blog : t.studio.navGroupMedia}
+                </div>
+              ) : null}
               {RAIL.filter((item) => item.pack === pack).map((item) => {
-                const current = section === item.section || (section === 'notes' && item.section === 'notes')
+                const current = section === item.section
                 return (
                   <button
                     key={item.section}

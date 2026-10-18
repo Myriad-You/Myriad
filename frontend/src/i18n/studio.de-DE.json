@@ -1,7 +1,8 @@
 {
   "title": "Studio",
-  "subtitle": "Notizen, Kommentare und Blog",
+  "subtitle": "Blog und Medien",
   "blog": "Blog",
+  "blogSettings": "Blog-Einstellungen",
   "slug": "Slug",
   "slugHint": "Dieser Teil der öffentlichen Adresse. Leer lassen, dann entsteht er beim Veröffentlichen.",
   "slugInvalid": "Nur Kleinbuchstaben, Ziffern und Bindestriche, höchstens 80 Zeichen.",
@@ -9,6 +10,7 @@
   "viewArticle": "Artikel ansehen",
   "navHome": "Überblick",
   "navCategories": "Notizkategorien",
+  "navGroupMedia": "Medien",
   "openFailed": "Dieser Artikel ließ sich nicht öffnen.",
   "loading": "Wird geladen…",
   "loadFailed": "Blog-Einstellungen konnten nicht geladen werden.",

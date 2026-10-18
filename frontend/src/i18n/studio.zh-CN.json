@@ -1,7 +1,8 @@
 {
   "title": "创作台",
-  "subtitle": "笔记、评论和博客",
+  "subtitle": "博客与媒体",
   "blog": "博客",
+  "blogSettings": "博客设置",
   "slug": "地址名",
   "slugHint": "公开地址用这一段。留空则发布时自动生成。",
   "slugInvalid": "只能用小写字母、数字和连字符，最长 80 个字符。",
@@ -9,6 +10,7 @@
   "viewArticle": "查看文章",
   "navHome": "概览",
   "navCategories": "笔记分类",
+  "navGroupMedia": "媒体",
   "openFailed": "没能打开这篇文章。",
   "loading": "正在加载…",
   "loadFailed": "没能加载博客设置。",

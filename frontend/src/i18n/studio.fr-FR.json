@@ -1,7 +1,8 @@
 {
   "title": "Studio",
-  "subtitle": "Notes, commentaires et blog",
+  "subtitle": "Blog et médias",
   "blog": "Blog",
+  "blogSettings": "Paramètres du blog",
   "slug": "Slug",
   "slugHint": "Segment de l’adresse publique. Laisser vide pour le générer à la publication.",
   "slugInvalid": "Lettres minuscules, chiffres et traits d’union, 80 caractères maximum.",
@@ -9,6 +10,7 @@
   "viewArticle": "Voir l’article",
   "navHome": "Aperçu",
   "navCategories": "Catégories de notes",
+  "navGroupMedia": "Médias",
   "openFailed": "Impossible d’ouvrir cet article.",
   "loading": "Chargement…",
   "loadFailed": "Impossible de charger les réglages du blog.",

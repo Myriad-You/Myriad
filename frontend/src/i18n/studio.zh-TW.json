@@ -1,7 +1,8 @@
 {
   "title": "創作臺",
-  "subtitle": "筆記、評論和部落格",
+  "subtitle": "部落格與媒體",
   "blog": "部落格",
+  "blogSettings": "部落格設定",
   "slug": "網址名稱",
   "slugHint": "公開網址用這一段。留空則發布時自動生成。",
   "slugInvalid": "只能用小寫字母、數字和連字號，最長 80 個字元。",
@@ -9,6 +10,7 @@
   "viewArticle": "查看文章",
   "navHome": "概覽",
   "navCategories": "筆記分類",
+  "navGroupMedia": "媒體",
   "openFailed": "沒能打開這篇文章。",
   "loading": "正在載入…",
   "loadFailed": "沒能載入部落格設定。",

@@ -1,7 +1,8 @@
 {
   "title": "스튜디오",
-  "subtitle": "노트, 댓글, 블로그",
+  "subtitle": "블로그와 미디어",
   "blog": "블로그",
+  "blogSettings": "블로그 설정",
   "slug": "슬러그",
   "slugHint": "공개 주소의 이 부분입니다. 비우면 발행할 때 자동으로 만듭니다.",
   "slugInvalid": "소문자, 숫자, 하이픈만 사용할 수 있으며 80자까지입니다.",
@@ -9,6 +10,7 @@
   "viewArticle": "글 보기",
   "navHome": "개요",
   "navCategories": "노트 분류",
+  "navGroupMedia": "미디어",
   "openFailed": "이 글을 열지 못했습니다.",
   "loading": "불러오는 중…",
   "loadFailed": "블로그 설정을 불러오지 못했습니다.",

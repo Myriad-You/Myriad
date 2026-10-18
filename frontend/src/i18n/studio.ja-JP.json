@@ -1,7 +1,8 @@
 {
   "title": "スタジオ",
-  "subtitle": "ノート、コメント、ブログ",
+  "subtitle": "ブログとメディア",
   "blog": "ブログ",
+  "blogSettings": "ブログ設定",
   "slug": "スラッグ",
   "slugHint": "公開アドレスのこの部分です。空なら公開時に自動で付きます。",
   "slugInvalid": "小文字、数字、ハイフンのみ。80 文字まで。",
@@ -9,6 +10,7 @@
   "viewArticle": "記事を見る",
   "navHome": "概要",
   "navCategories": "ノート分類",
+  "navGroupMedia": "メディア",
   "openFailed": "この記事を開けませんでした。",
   "loading": "読み込み中…",
   "loadFailed": "ブログ設定を読み込めませんでした。",
