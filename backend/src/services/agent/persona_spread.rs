@@ -21,14 +21,14 @@
 //! Spends Pro on the drafts and Lite on the replies and the judging; writes
 //! nothing to the site (read-only connection, ledger suppressed).
 //!
-//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,N]`
+//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,Q]`
 //!
 //! Conditions change one stage each against `base`, to find where voices
 //! collapse: A the personas (hand-written, far apart), B the chat contract,
 //! C the speaking model, D the lines said to her, E the tags drawn, F to J
 //! the draft prompt's asks for conditions and limits, K the drafting model
 //! (`--drafters source:model,...`), L one platform report as evidence per draft, M and N
-//! one sentence against a shared soft mode for hard moments (N on D's lines).
+//! one sentence against a shared soft mode for hard moments (N on D's lines), O to Q the shared Plain words section.
 
 use rand::seq::SliceRandom;
 use serde_json::{Value, json};
@@ -162,6 +162,13 @@ const CUTS: &[(&str, &str, &str)] = &[
     ("I", "I_no_coherence_when", "If selected traits pull in different directions, explain when each applies through context, stakes, or familiarity. "),
 ];
 
+/// Lines of the shared "Plain words" section, for O to Q: O leaves out the
+/// plain-habit line, P the no-quoted-lines line, Q the whole section.
+const PLAIN_HABIT: &str = "- Say the plain habit, in words a friend would use. A private image the character carries around (a cage to fill, moments to \"verify\", a light to chase, a blank to guard) fails: write what they actually do instead.\n";
+const NO_QUOTES: &str = "- No quoted lines, catchphrases, or signature words anywhere. Whatever is quoted in a setting gets said forever after. Describe how they talk, never what they say.\n";
+const PLAIN_SECTION_START: &str = "## Plain words (hard)\n";
+const PLAIN_SECTION_END: &str = "Fresh passes vary the details";
+
 /// Where condition M and N add `NO_SOFT_MODE` to the draft prompt: after the
 /// principle it extends.
 const NO_SOFT_MODE_AFTER: &str = "Do not erase one trait by averaging them together. ";
@@ -198,6 +205,12 @@ enum Condition {
     NoSoftMode,
     /// As M, said the lines with more at stake: pairs with D.
     NoSoftModeRich,
+    /// Same tags as base, drafted without `PLAIN_HABIT`.
+    NoPlainHabit,
+    /// Same tags as base, drafted without `NO_QUOTES`.
+    QuotesAllowed,
+    /// Same tags as base, drafted without the whole Plain words section.
+    NoPlainWords,
 }
 
 impl Condition {
@@ -218,6 +231,9 @@ impl Condition {
             Self::Evidence => "L_with_report_evidence",
             Self::NoSoftMode => "M_no_soft_mode",
             Self::NoSoftModeRich => "N_no_soft_mode_rich_lines",
+            Self::NoPlainHabit => "O_no_plain_habit",
+            Self::QuotesAllowed => "P_quotes_allowed",
+            Self::NoPlainWords => "Q_no_plain_words_section",
         };
         name.to_string()
     }
@@ -396,6 +412,15 @@ fn conditions() -> Vec<Condition> {
     if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("J")) {
         out.push(Condition::CutAll);
     }
+    for (letter, condition) in [
+        ("O", Condition::NoPlainHabit),
+        ("P", Condition::QuotesAllowed),
+        ("Q", Condition::NoPlainWords),
+    ] {
+        if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case(letter)) {
+            out.push(condition);
+        }
+    }
     if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("M")) {
         out.push(Condition::NoSoftMode);
     }
@@ -450,6 +475,20 @@ fn draft_system(condition: Condition) -> String {
             assert!(system.contains(phrase), "draft prompt phrase moved: {phrase}");
             system = system.replace(phrase, "");
         }
+    }
+    for (cut, line) in [
+        (Condition::NoPlainHabit, PLAIN_HABIT),
+        (Condition::QuotesAllowed, NO_QUOTES),
+    ] {
+        if condition == cut {
+            assert!(system.contains(line), "plain words line moved");
+            system = system.replace(line, "");
+        }
+    }
+    if condition == Condition::NoPlainWords {
+        let start = system.find(PLAIN_SECTION_START).expect("plain words section moved");
+        let end = start + system[start..].find(PLAIN_SECTION_END).expect("section end moved");
+        system.replace_range(start..end, "");
     }
     if matches!(condition, Condition::NoSoftMode | Condition::NoSoftModeRich) {
         assert!(system.contains(NO_SOFT_MODE_AFTER), "draft prompt principle moved");
@@ -559,6 +598,9 @@ async fn personas_sound_apart() {
                     | Condition::Evidence
                     | Condition::NoSoftMode
                     | Condition::NoSoftModeRich
+                    | Condition::NoPlainHabit
+                    | Condition::QuotesAllowed
+                    | Condition::NoPlainWords
             ) {
                 let system = draft_system(condition);
                 let drafter = match condition {
@@ -726,6 +768,11 @@ mod tests {
         }
         assert_eq!(draft_system(Condition::Base), PERSONA_SYSTEM_PROMPT);
         assert!(draft_system(Condition::NoSoftMode).contains(NO_SOFT_MODE));
+        assert!(!draft_system(Condition::NoPlainHabit).contains(PLAIN_HABIT));
+        assert!(!draft_system(Condition::QuotesAllowed).contains(NO_QUOTES));
+        let no_plain = draft_system(Condition::NoPlainWords);
+        assert!(!no_plain.contains(PLAIN_SECTION_START) && !no_plain.contains(NO_QUOTES));
+        assert!(no_plain.contains(PLAIN_SECTION_END));
         let all = draft_system(Condition::CutAll);
         assert!(CUTS.iter().all(|(_, _, phrase)| !all.contains(phrase)));
     }

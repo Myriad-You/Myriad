@@ -16,10 +16,10 @@ for (let i = 0; i < args.length; i += 1) {
   if (args[i] === '--personas') personas = args[++i]
   else if (args[i] === '--conditions') conditions = args[++i]
   else if (args[i] === '--drafters') drafters = args[++i]
-  else throw new Error('Usage: node scripts/test-merope-persona-spread.mjs [--personas 2-8] [--conditions A,...,N] [--drafters source:model,...]')
+  else throw new Error('Usage: node scripts/test-merope-persona-spread.mjs [--personas 2-8] [--conditions A,...,Q] [--drafters source:model,...]')
 }
 if (!/^[2-8]$/.test(personas)) throw new Error('--personas must be 2-8')
-if (conditions && !/^[A-N](,[A-N])*$/i.test(conditions)) throw new Error('--conditions takes letters A-N, comma separated')
+if (conditions && !/^[A-Q](,[A-Q])*$/i.test(conditions)) throw new Error('--conditions takes letters A-Q, comma separated')
 const dir = join(root, 'target', 'merope-reports')
 mkdirSync(dir, { recursive: true })
 const report = join(dir, `persona-spread-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
