@@ -80,12 +80,35 @@ pub async fn suggest_persona(
     extra_requirements: &str,
 ) -> Result<Value, OnboardingAiError> {
     retry_unusable(PERSONA_ATTEMPTS, "persona draft was unusable", || {
-        suggest_persona_once(name, language, selected_tags, gender, extra_requirements)
+        suggest_persona_once(
+            PERSONA_SYSTEM_PROMPT,
+            name,
+            language,
+            selected_tags,
+            gender,
+            extra_requirements,
+        )
+    })
+    .await
+}
+
+/// `suggest_persona` with another system prompt, for live measurements that
+/// change one sentence of it. Same input, retries, and gates.
+#[cfg(test)]
+pub(in crate::services::agent) async fn suggest_persona_with_system(
+    system: &str,
+    name: &str,
+    language: &str,
+    selected_tags: &[String],
+) -> Result<Value, OnboardingAiError> {
+    retry_unusable(PERSONA_ATTEMPTS, "persona draft was unusable", || {
+        suggest_persona_once(system, name, language, selected_tags, "unspecified", "")
     })
     .await
 }
 
 async fn suggest_persona_once(
+    system: &str,
     name: &str,
     language: &str,
     selected_tags: &[String],
@@ -114,7 +137,7 @@ async fn suggest_persona_once(
         },
     })
     .to_string();
-    let raw = run_onboarding_call(PERSONA_SYSTEM_PROMPT, &input).await?;
+    let raw = run_onboarding_call(system, &input).await?;
     let parsed = parse_json_object(&raw).ok_or(OnboardingAiError::UnusableResponse(
         "persona draft was not valid JSON",
     ))?;

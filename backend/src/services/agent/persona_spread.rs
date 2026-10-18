@@ -16,17 +16,19 @@
 //! Spends Pro on the drafts and Lite on the replies and the judging; writes
 //! nothing to the site (read-only connection, ledger suppressed).
 //!
-//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,B,C,D,E]`
+//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,J]`
 //!
 //! Conditions change one stage each against `base`, to find where voices
 //! collapse: A the personas (hand-written, far apart), B the chat contract,
-//! C the speaking model, D the lines said to her, E the tags drawn.
+//! C the speaking model, D the lines said to her, E the tags drawn, F to J
+//! the draft prompt's asks for conditions and limits.
 
 use rand::seq::SliceRandom;
 use serde_json::{Value, json};
 
 use super::chat_prompt;
-use super::merope::api::onboarding_ai::suggest_persona;
+use super::merope::onboarding_ai::suggest_persona_with_system;
+use super::merope::onboarding_prompts::PERSONA_SYSTEM_PROMPT;
 use super::merope::report_dna::persona_pool_labels;
 
 
@@ -142,6 +144,17 @@ const TAGS_APART: &[[&str; TAGS_EACH]] = &[
     ["重视连接", "有创造力", "夜猫子"],
 ];
 
+/// Draft-prompt phrases that each ask for a condition, limit, or change in
+/// the persona: the suspected source of the "softens when things get heavy"
+/// exit every draft takes. Conditions F to I each leave one out; J leaves out
+/// all four. Removing them is the measurement, not a proposed prompt.
+const CUTS: &[(&str, &str, &str)] = &[
+    ("F", "F_no_summary_limit", ", and a limit or exception that matters to these tags"),
+    ("G", "G_no_temperament_conditions", " Give useful conditions or limits without repeating one sentence pattern throughout."),
+    ("H", "H_no_speech_change", ", and when those change"),
+    ("I", "I_no_coherence_when", "If selected traits pull in different directions, explain when each applies through context, stakes, or familiarity. "),
+];
+
 /// The contract sentence condition B leaves out of the chat instruction.
 const NOW_AND_THEN: &str = "Your personality is who you are, not a script to act out in every line: most of what anyone says is ordinary, and yours shows now and then. ";
 
@@ -158,6 +171,10 @@ enum Condition {
     Rich,
     /// Drafted personas, from tag triples picked far apart.
     TagsApart,
+    /// Same tags as base, drafted without one `CUTS` phrase.
+    Cut(usize),
+    /// Same tags as base, drafted without every `CUTS` phrase.
+    CutAll,
 }
 
 impl Condition {
@@ -169,6 +186,8 @@ impl Condition {
             Self::Pro => "C_pro_speaker",
             Self::Rich => "D_rich_lines",
             Self::TagsApart => "E_apart_tags",
+            Self::Cut(i) => CUTS[i].1,
+            Self::CutAll => "J_no_conditions_at_all",
         }
     }
 }
@@ -269,7 +288,7 @@ async fn told(
 }
 
 /// Conditions run, from `MEROPE_SPREAD_CONDITIONS` (comma separated names,
-/// or letters `A,B,C,D,E`); base always runs.
+/// or letters `A` to `J`); base always runs.
 fn conditions() -> Vec<Condition> {
     let asked = std::env::var("MEROPE_SPREAD_CONDITIONS").unwrap_or_default();
     let mut out = vec![Condition::Base];
@@ -284,13 +303,33 @@ fn conditions() -> Vec<Condition> {
             out.push(condition);
         }
     }
+    for (i, (letter, _, _)) in CUTS.iter().enumerate() {
+        if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case(letter)) {
+            out.push(Condition::Cut(i));
+        }
+    }
+    if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("J")) {
+        out.push(Condition::CutAll);
+    }
     out
+}
+
+/// The production draft prompt with the condition's `CUTS` phrases removed.
+fn draft_system(condition: Condition) -> String {
+    let mut system = PERSONA_SYSTEM_PROMPT.to_string();
+    for (i, (_, _, phrase)) in CUTS.iter().enumerate() {
+        if condition == Condition::Cut(i) || condition == Condition::CutAll {
+            assert!(system.contains(phrase), "draft prompt phrase moved: {phrase}");
+            system = system.replace(phrase, "");
+        }
+    }
+    system
 }
 
 /// The production persona draft for these tags, flattened as saved. Drafts
 /// fail now and then; `None` lets the caller redraw or retry.
-async fn draft(name: &str, tags: &[String]) -> Option<String> {
-    match suggest_persona(name, "zh-CN", tags, "unspecified", "").await {
+async fn draft(system: &str, name: &str, tags: &[String]) -> Option<String> {
+    match suggest_persona_with_system(system, name, "zh-CN", tags).await {
         Ok(draft) => Some(flatten(&draft)),
         Err(error) => {
             eprintln!("persona draft failed: {error}");
@@ -321,7 +360,7 @@ async fn personas_sound_apart() {
             tags.shuffle(&mut rand::rng());
             tags.truncate(TAGS_EACH);
             let name = format!("角色{}", drafted.len() + 1);
-            let Some(text) = draft(&name, &tags).await else {
+            let Some(text) = draft(PERSONA_SYSTEM_PROMPT, &name, &tags).await else {
                 failures += 1;
                 assert!(failures < 2 * wanted, "persona drafts keep failing");
                 continue;
@@ -350,7 +389,7 @@ async fn personas_sound_apart() {
                 let name = format!("角色{}", i + 1);
                 let mut text = None;
                 for _ in 0..3 {
-                    text = draft(&name, &tags).await;
+                    text = draft(PERSONA_SYSTEM_PROMPT, &name, &tags).await;
                     if text.is_some() {
                         break;
                     }
@@ -360,6 +399,25 @@ async fn personas_sound_apart() {
         }
         let mut results = vec![];
         for condition in conditions() {
+            // Cut conditions redraft the base tags with a trimmed prompt, so
+            // they pair with base persona for persona.
+            let cut_drafted = if matches!(condition, Condition::Cut(_) | Condition::CutAll) {
+                let system = draft_system(condition);
+                let mut out = vec![];
+                for ((name, _), tags) in drafted.iter().zip(&tags_of) {
+                    let mut text = None;
+                    for _ in 0..3 {
+                        text = draft(&system, name, tags).await;
+                        if text.is_some() {
+                            break;
+                        }
+                    }
+                    out.push((name.clone(), text.expect("persona drafts keep failing")));
+                }
+                Some(out)
+            } else {
+                None
+            };
             // Every condition but A speaks for the same drafted personas, so
             // the comparison is paired.
             let personas: Vec<(String, String)> = if condition == Condition::Apart {
@@ -370,6 +428,8 @@ async fn personas_sound_apart() {
                     .collect()
             } else if condition == Condition::TagsApart {
                 apart_tags_drafted.clone()
+            } else if let Some(cut) = &cut_drafted {
+                cut.clone()
             } else {
                 drafted.clone()
             };
@@ -435,6 +495,16 @@ mod tests {
             vec!["嗯。".to_string(), "随便。".to_string()],
         ];
         assert!(spread(&same).unwrap() < spread(&apart).unwrap());
+    }
+
+    #[test]
+    fn every_cut_still_matches_the_draft_prompt() {
+        for i in 0..CUTS.len() {
+            assert!(draft_system(Condition::Cut(i)).len() < PERSONA_SYSTEM_PROMPT.len());
+        }
+        assert_eq!(draft_system(Condition::Base), PERSONA_SYSTEM_PROMPT);
+        let all = draft_system(Condition::CutAll);
+        assert!(CUTS.iter().all(|(_, _, phrase)| !all.contains(phrase)));
     }
 
     #[test]
