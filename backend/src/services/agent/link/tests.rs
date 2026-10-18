@@ -1755,8 +1755,9 @@ async fn what_the_app_did_becomes_part_of_her() {
         json!({ "code": "bad_id", "ref": bad })
     );
 
-    // A failed run they started, correcting her: what was done, a fact and a
-    // lesson, the step whose outcome is unknown no lesson.
+    // A failed run they started, worded like a correction: what was done and
+    // a lesson, the step whose outcome is unknown no lesson. Whether it was a
+    // correction is the extraction's to judge (no model here), not the words'.
     let failed = json!({
         "kind": "work", "started": "owner", "status": "failed",
         "input": "不是，周报应该按日期排", "reply": "没能写进去。", "endedAt": 1_760_140_880_000_i64,
@@ -1780,7 +1781,7 @@ async fn what_the_app_did_becomes_part_of_her() {
         .unwrap();
     let mut kinds: Vec<&str> = rows.iter().map(|row| row.kind.as_str()).collect();
     kinds.sort();
-    assert_eq!(kinds, ["done", "fact", "lesson"], "{rows:?}");
+    assert_eq!(kinds, ["done", "lesson"], "{rows:?}");
     let done = rows.iter().find(|row| row.kind == "done").unwrap();
     assert!(
         done.content
@@ -1808,7 +1809,7 @@ async fn what_the_app_did_becomes_part_of_her() {
         .all(&site.db)
         .await
         .unwrap();
-    assert_eq!(again.len(), 3);
+    assert_eq!(again.len(), 2);
 
     // Stopped part way, and scheduled: taken, nothing learned from the first,
     // what was done kept of the second.
@@ -1834,7 +1835,7 @@ async fn what_the_app_did_becomes_part_of_her() {
         .all(&site.db)
         .await
         .unwrap();
-    assert_eq!(after.len(), 4);
+    assert_eq!(after.len(), 3);
     assert!(after.iter().any(|row| row.kind == "done"
         && row.content.ends_with("Done for them: 整理下载文件夹")));
 
