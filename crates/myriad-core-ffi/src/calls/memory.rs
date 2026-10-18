@@ -5,7 +5,7 @@
 use chrono::{DateTime, FixedOffset};
 use myriad_agent_rules::{
     Concept,
-    memory::{association, lexical, recall, strength},
+    memory::{association, lexical, rank, recall, strength},
 };
 use myriad_merope::diary;
 use serde::Deserialize;
@@ -154,6 +154,43 @@ pub(super) fn of_row(raw: &[u8]) -> Result<Value, Failure> {
             fixed(req.now)?,
         ),
     }))
+}
+
+/// What she always has in mind about someone (`recall::always_known`).
+pub(super) fn always_known(raw: &[u8]) -> Result<Value, Failure> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Row {
+        id: String,
+        content: String,
+        #[serde(default)]
+        concepts: Vec<Concept>,
+        source: String,
+        created_at: i64,
+        access_count: i32,
+        #[serde(default)]
+        last_accessed_at: Option<i64>,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct In {
+        rows: Vec<Row>,
+        now: i64,
+    }
+    let req: In = input(raw)?;
+    let mut view = Vec::with_capacity(req.rows.len());
+    for row in &req.rows {
+        view.push(rank::Row {
+            id: &row.id,
+            content: &row.content,
+            concepts: &row.concepts,
+            source: &row.source,
+            created_at: fixed(row.created_at)?,
+            access_count: row.access_count,
+            last_accessed_at: opt_at(row.last_accessed_at)?.map(|at| at.fixed_offset()),
+        });
+    }
+    Ok(json!({ "chosen": recall::always_known(&view, fixed(req.now)?) }))
 }
 
 pub(super) fn should_write_chat_diary(raw: &[u8]) -> Result<Value, Failure> {

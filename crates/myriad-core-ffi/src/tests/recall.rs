@@ -4,7 +4,7 @@
 use chrono::{DateTime, Duration, Utc};
 use myriad_agent_rules::{
     Concept,
-    memory::{association, lexical, recall, strength},
+    memory::{association, lexical, rank, recall, strength},
 };
 use myriad_merope::{
     chat_history::{self, HistoryMessage},
@@ -22,6 +22,7 @@ pub(super) const TESTED: &[&str] = &[
     "diary.compact_summary",
     "diary.redact",
     "diary.should_write_chat",
+    "memory.always_known",
     "memory.base_level",
     "memory.gap_in",
     "memory.of_row",
@@ -316,4 +317,61 @@ fn the_conversation_she_has_matches_the_crate() {
             Some(chat_history::chat_safe_content(content))
         );
     }
+}
+
+#[test]
+fn what_she_always_knows_matches_the_crate() {
+    let now = Utc::now();
+    let rows = memories();
+    let sources = ["chat", "chat", "chat_note", "chat", "presence"];
+    let created: Vec<DateTime<Utc>> = (0..rows.len())
+        .map(|index| now - Duration::days(index as i64 * 3))
+        .collect();
+    let view: Vec<rank::Row> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (text, concepts))| rank::Row {
+            id: "",
+            content: text,
+            concepts,
+            source: sources[index],
+            created_at: created[index].fixed_offset(),
+            access_count: index as i32,
+            last_accessed_at: None,
+        })
+        .collect();
+    let mut more = rows.clone();
+    more.push(("猫又胖了".into(), vec![concept("猫", &[])]));
+    for (rows, sources) in [(&rows, &sources[..]), (&more, &["chat"; 6][..])] {
+        let view: Vec<rank::Row> = rows
+            .iter()
+            .enumerate()
+            .map(|(index, (text, concepts))| rank::Row {
+                id: "",
+                content: text,
+                concepts,
+                source: sources[index],
+                created_at: (now - Duration::days(index as i64 * 3)).fixed_offset(),
+                access_count: index as i32,
+                last_accessed_at: None,
+            })
+            .collect();
+        let want = recall::always_known(&view, now.fixed_offset());
+        let got = ok(
+            "memory.always_known",
+            json!({
+                "rows": rows.iter().enumerate().map(|(index, (text, concepts))| json!({
+                    "id": "",
+                    "content": text,
+                    "concepts": concepts,
+                    "source": sources[index],
+                    "createdAt": micros(now - Duration::days(index as i64 * 3)),
+                    "accessCount": index,
+                })).collect::<Vec<_>>(),
+                "now": micros(now),
+            }),
+        );
+        assert_eq!(got["chosen"], json!(want));
+    }
+    assert!(recall::always_known(&view, now.fixed_offset()).is_empty());
 }

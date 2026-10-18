@@ -101,7 +101,22 @@ pub(super) async fn recollection(
                 brought_to_mind: Vec::new(),
             }),
     };
-    if let Ok(recalled) = remembered {
+    if let Ok(mut recalled) = remembered {
+        // What she knows most about them is in mind whatever they say now,
+        // as anyone keeps a friend's cat and work in mind; only what this
+        // turn did not already bring.
+        if let Ok(always) =
+            crate::services::agent::memory::unified::always_known(db, user_id, present).await
+        {
+            for known in always.iter().map(store::as_known) {
+                if !known.is_empty()
+                    && !recalled.named.contains(&known)
+                    && !recalled.brought_to_mind.contains(&known)
+                {
+                    recalled.named.push(known);
+                }
+            }
+        }
         if let Some(block) = format_remembered_section(&recalled.named) {
             sections.push(block);
         }

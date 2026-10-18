@@ -78,6 +78,7 @@ const CALLS: &[(&str, Call)] = &[
     ("making.untried_at", soup::untried_at),
     ("making.writing_about_own", soup::writing_about_own),
     ("making_sense.told_section", speaking::told_section),
+    ("memory.always_known", memory::always_known),
     ("memory.base_level", memory::base_level),
     ("memory.gap_in", memory::gap_in),
     ("memory.of_row", memory::of_row),

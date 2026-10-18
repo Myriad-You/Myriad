@@ -358,6 +358,49 @@ pub async fn wander<C: ConnectionTrait>(
     }))
 }
 
+/// What she always has in mind about `user_id` here, whatever they are
+/// saying now (see [`myriad_agent_rules::memory::recall::always_known`]):
+/// in a group, only what is about them and was learned there. Shown, not
+/// recalled: it is not counted as used and primes nothing.
+pub async fn always_known<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    present: &Audience,
+) -> Result<Vec<MemoryRecord>, DbErr> {
+    use myriad_agent_rules::memory::rank;
+    if user_id <= 0 {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<agent_memories::Model> =
+        rows_for(db, user_id, present, &MemoryKind::ABOUT_PERSON)
+            .await?
+            .into_iter()
+            .filter(|row| row.user_id == Some(user_id))
+            .collect();
+    let concepts: Vec<Vec<Concept>> = rows.iter().map(concepts_of).collect();
+    let view: Vec<rank::Row> = rows
+        .iter()
+        .zip(&concepts)
+        .map(|(row, concepts)| rank::Row {
+            id: &row.id,
+            content: &row.content,
+            concepts,
+            source: &row.source,
+            created_at: row.created_at,
+            access_count: row.access_count,
+            last_accessed_at: row.last_accessed_at,
+        })
+        .collect();
+    let chosen = myriad_agent_rules::memory::recall::always_known(
+        &view,
+        super::super::utc_now().fixed_offset(),
+    );
+    Ok(chosen
+        .into_iter()
+        .map(|index| MemoryRecord::from(rows[index].clone()))
+        .collect())
+}
+
 /// Where a bout of mind-wandering settled.
 #[derive(Debug, Clone)]
 pub struct Wandered {

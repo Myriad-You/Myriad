@@ -422,3 +422,57 @@ async fn what_was_done_comes_back_only_when_what_is_asked_names_it() {
         .unwrap();
     assert!(about.iter().all(|row| row.kind != "done"));
 }
+
+#[tokio::test]
+async fn what_she_knows_most_about_them_stays_where_it_was_heard() {
+    let Some(db) = temp_db().await else {
+        return;
+    };
+    let about = |user_id: i32, content: &str, subject: &str, audience: &Audience| NewMemory {
+        audience: audience.clone(),
+        concepts: vec![Concept {
+            name: subject.into(),
+            aliases: Vec::new(),
+        }],
+        ..fact(user_id, content)
+    };
+    let private = Audience::private(7);
+    let group = Audience::group("telegram:-100123", 7);
+    for line in ["养了一只猫叫年糕", "年糕怕吸尘器", "年糕上周打了疫苗"] {
+        remember(&db, about(7, line, "年糕", &private))
+            .await
+            .unwrap();
+    }
+    for line in ["在群里说在学吉他", "吉他换了新弦", "吉他想换琴"] {
+        remember(&db, about(7, line, "吉他", &group)).await.unwrap();
+    }
+    // Someone else in the group, much talked of, is not who they are.
+    let other = Audience::group("telegram:-100123", 8);
+    for line in ["他在跑马拉松", "马拉松跑进四小时", "马拉松下月比赛"] {
+        remember(&db, about(8, line, "马拉松", &other))
+            .await
+            .unwrap();
+    }
+
+    let mine: Vec<String> = always_known(&db, 7, &private)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|memory| memory.content)
+        .collect();
+    assert_eq!(mine.len(), 1);
+    assert!(mine[0].contains("年糕"));
+    let there: Vec<String> = always_known(&db, 7, &group)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|memory| memory.content)
+        .collect();
+    assert_eq!(
+        there.len(),
+        1,
+        "the group's own, not the private nor the other member's"
+    );
+    assert!(there[0].contains("吉他"));
+    assert!(always_known(&db, 0, &private).await.unwrap().is_empty());
+}
