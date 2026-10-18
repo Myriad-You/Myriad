@@ -3,7 +3,9 @@
 //! Four sources, all private to the person the run served:
 //! - what was done: one record of each run, what was asked and how it ended
 //!   (done), written without a model so no run goes unrecorded;
-//! - a correction the person made in their own words (fact, high importance);
+//! - a correction the person made in their own words: words that read like
+//!   one are only pointed out to the extraction below, which decides whether
+//!   they correct anything ("这不是我要的风格" corrects nothing);
 //! - a failed step (lesson);
 //! - a Standard-tier extraction over the run. Tool output and page text in
 //!   that prompt are untrusted data, and the extractor's output is only ever
@@ -19,7 +21,8 @@ use serde_json::Value;
 
 use super::unified::{self, Audience, MemoryKind, NewMemory, Speaker};
 
-/// Words a person uses when they correct the Agent.
+/// Words a person may use when they correct the Agent. They mark a
+/// candidate only: the same words ask for something else just as often.
 const CORRECTION_PATTERNS_ZH: &[&str] = &[
     "不是",
     "错了",
@@ -69,7 +72,7 @@ fn private(user_id: i32) -> Audience {
     Audience::private(user_id)
 }
 
-pub(crate) fn is_correction(user_input: &str) -> bool {
+pub(crate) fn may_be_correction(user_input: &str) -> bool {
     let lower = user_input.to_lowercase();
     CORRECTION_PATTERNS_ZH.iter().any(|p| lower.contains(p))
         || CORRECTION_PATTERNS_EN.iter().any(|p| lower.contains(p))
@@ -157,25 +160,6 @@ pub(crate) async fn learn_from_run(db: &DatabaseConnection, run: WorkRun) {
         },
     )
     .await;
-
-    if is_correction(&run.user_input) {
-        store(
-            db,
-            origin,
-            NewMemory {
-                user_id: run.user_id,
-                kind: MemoryKind::Fact,
-                content: format!("User correction: {}", run.user_input),
-                evidence: Some(run.user_input.chars().take(400).collect()),
-                speaker: Speaker::User,
-                source: "work",
-                audience: private(run.user_id),
-                importance: 0.9,
-                concepts: Vec::new(),
-            },
-        )
-        .await;
-    }
 
     if !run.success {
         for (step_id, output) in &run.step_outputs {
@@ -317,6 +301,12 @@ pub(crate) fn extraction_prompt(run: &WorkRun, known: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     };
+    // Words that read like a correction are pointed out, not taken as one.
+    let correction = if may_be_correction(&run.user_input) {
+        "\n\n## Maybe a correction\nWhat the person asked has words people use when they correct something (\"不是\", \"should be\"). Only if they really correct something the Agent got wrong about a character, work, person or what they meant, keep what is right as entity_knowledge with importance 0.9, in their words. The same words also only ask for something else (\"这不是我要的风格\"): then it is no correction."
+    } else {
+        ""
+    };
     format!(
         r#"You extract long-term memory about one person from a finished task.
 
@@ -324,7 +314,7 @@ pub(crate) fn extraction_prompt(run: &WorkRun, known: &[String]) -> String {
 {known}
 
 ## What the person asked
-{request}
+{request}{correction}
 
 ## Conversation and run results
 {evidence}
@@ -510,10 +500,22 @@ mod tests {
     }
 
     #[test]
-    fn corrections_are_recognized_in_both_languages() {
-        assert!(is_correction("不是，芙芙应该是芙宁娜"));
-        assert!(is_correction("That's wrong, it should be Furina"));
-        assert!(!is_correction("帮我画一张芙宁娜"));
+    fn words_that_may_correct_are_noticed_in_both_languages() {
+        assert!(may_be_correction("不是，芙芙应该是芙宁娜"));
+        assert!(may_be_correction("That's wrong, it should be Furina"));
+        assert!(!may_be_correction("帮我画一张芙宁娜"));
+    }
+
+    #[test]
+    fn words_that_only_look_like_a_correction_are_left_to_the_extractor() {
+        // "不是" here asks for another style; nothing the Agent knew was wrong.
+        let asked = run("这不是我要的风格，换成水彩");
+        assert!(may_be_correction(&asked.user_input));
+        let prompt = extraction_prompt(&asked, &[]);
+        assert!(prompt.contains("## Maybe a correction"));
+        assert!(prompt.contains("then it is no correction"));
+        // Nothing is pointed out when nothing reads like a correction.
+        assert!(!extraction_prompt(&run("帮我画一张芙宁娜"), &[]).contains("Maybe a correction"));
     }
 
     #[test]
