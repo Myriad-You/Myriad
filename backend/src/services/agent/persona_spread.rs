@@ -21,13 +21,14 @@
 //! Spends Pro on the drafts and Lite on the replies and the judging; writes
 //! nothing to the site (read-only connection, ledger suppressed).
 //!
-//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,L]`
+//! `node scripts/test-merope-persona-spread.mjs [--personas N] [--conditions A,...,N]`
 //!
 //! Conditions change one stage each against `base`, to find where voices
 //! collapse: A the personas (hand-written, far apart), B the chat contract,
 //! C the speaking model, D the lines said to her, E the tags drawn, F to J
 //! the draft prompt's asks for conditions and limits, K the drafting model
-//! (`--drafters source:model,...`), L one platform report as evidence per draft.
+//! (`--drafters source:model,...`), L one platform report as evidence per draft, M and N
+//! one sentence against a shared soft mode for hard moments (N on D's lines).
 
 use rand::seq::SliceRandom;
 use serde_json::{Value, json};
@@ -161,6 +162,12 @@ const CUTS: &[(&str, &str, &str)] = &[
     ("I", "I_no_coherence_when", "If selected traits pull in different directions, explain when each applies through context, stakes, or familiarity. "),
 ];
 
+/// Where condition M and N add `NO_SOFT_MODE` to the draft prompt: after the
+/// principle it extends.
+const NO_SOFT_MODE_AFTER: &str = "Do not erase one trait by averaging them together. ";
+/// The sentence M and N try: hard moments are not a separate mode.
+const NO_SOFT_MODE: &str = "Hard moments included: when someone is hurting, this person helps the way they are, not in a separate gentler mode every character shares. ";
+
 /// The contract sentence condition B leaves out of the chat instruction.
 const NOW_AND_THEN: &str = "Your personality is who you are, not a script to act out in every line: most of what anyone says is ordinary, and yours shows now and then. ";
 
@@ -187,6 +194,10 @@ enum Condition {
     /// Same tags, prompt, and model as base; each draft also gets one of the
     /// site owner's platform reports as evidence.
     Evidence,
+    /// Same tags as base, drafted with `NO_SOFT_MODE` added.
+    NoSoftMode,
+    /// As M, said the lines with more at stake: pairs with D.
+    NoSoftModeRich,
 }
 
 impl Condition {
@@ -205,6 +216,8 @@ impl Condition {
             Self::CutAll => "J_no_conditions_at_all",
             Self::Drafter(_) => unreachable!(),
             Self::Evidence => "L_with_report_evidence",
+            Self::NoSoftMode => "M_no_soft_mode",
+            Self::NoSoftModeRich => "N_no_soft_mode_rich_lines",
         };
         name.to_string()
     }
@@ -383,6 +396,12 @@ fn conditions() -> Vec<Condition> {
     if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("J")) {
         out.push(Condition::CutAll);
     }
+    if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("M")) {
+        out.push(Condition::NoSoftMode);
+    }
+    if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("N")) {
+        out.push(Condition::NoSoftModeRich);
+    }
     if asked.split(',').any(|part| part.trim().eq_ignore_ascii_case("L")) {
         out.push(Condition::Evidence);
     }
@@ -431,6 +450,10 @@ fn draft_system(condition: Condition) -> String {
             assert!(system.contains(phrase), "draft prompt phrase moved: {phrase}");
             system = system.replace(phrase, "");
         }
+    }
+    if matches!(condition, Condition::NoSoftMode | Condition::NoSoftModeRich) {
+        assert!(system.contains(NO_SOFT_MODE_AFTER), "draft prompt principle moved");
+        system = system.replace(NO_SOFT_MODE_AFTER, &format!("{NO_SOFT_MODE_AFTER}{NO_SOFT_MODE}"));
     }
     system
 }
@@ -530,7 +553,12 @@ async fn personas_sound_apart() {
             // they pair with base persona for persona.
             let cut_drafted = if matches!(
                 condition,
-                Condition::Cut(_) | Condition::CutAll | Condition::Drafter(_) | Condition::Evidence
+                Condition::Cut(_)
+                    | Condition::CutAll
+                    | Condition::Drafter(_)
+                    | Condition::Evidence
+                    | Condition::NoSoftMode
+                    | Condition::NoSoftModeRich
             ) {
                 let system = draft_system(condition);
                 let drafter = match condition {
@@ -588,7 +616,11 @@ async fn personas_sound_apart() {
             } else {
                 drafted.clone()
             };
-            let lines = if condition == Condition::Rich { RICH_LINES } else { LINES };
+            let lines = if matches!(condition, Condition::Rich | Condition::NoSoftModeRich) {
+                RICH_LINES
+            } else {
+                LINES
+            };
             let pro;
             let speaker = if condition == Condition::Pro {
                 pro = crate::services::ai::create_ai_analyzer_for_tier_with_timeout(
@@ -693,6 +725,7 @@ mod tests {
             assert!(draft_system(Condition::Cut(i)).len() < PERSONA_SYSTEM_PROMPT.len());
         }
         assert_eq!(draft_system(Condition::Base), PERSONA_SYSTEM_PROMPT);
+        assert!(draft_system(Condition::NoSoftMode).contains(NO_SOFT_MODE));
         let all = draft_system(Condition::CutAll);
         assert!(CUTS.iter().all(|(_, _, phrase)| !all.contains(phrase)));
     }
