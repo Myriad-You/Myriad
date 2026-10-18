@@ -329,6 +329,11 @@ fn audience_of(model: &agent_memories::Model) -> Vec<i32> {
 /// `chat` (see `merope::chat_remember`).
 pub const SHORT_NOTE_SOURCE: &str = "chat_note";
 
+/// Where a Work lesson or pattern the extraction drew from one run is kept
+/// until it holds: never recalled, until a later run draws it again or the
+/// admin confirms it, and then kept under `work` (see `work_memory`).
+pub const WORK_TRIED_SOURCE: &str = "work_tried";
+
 /// Whether a row is a short note that has faded: it no longer comes to mind.
 pub(crate) fn faded_note(
     row: &agent_memories::Model,
@@ -368,6 +373,8 @@ async fn rows_for<C: ConnectionTrait>(
         .into_iter()
         .filter(|row| admits(row, present))
         .filter(|row| !faded_note(row, now))
+        // Drawn from one run only: not how to go about things yet.
+        .filter(|row| row.source != WORK_TRIED_SOURCE)
         // What only the two of them share, and her notes on people from
         // outside, have their own place in her mind.
         .filter(|row| !KEPT_APART.contains(&row.source.as_str()))

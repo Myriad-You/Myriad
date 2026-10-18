@@ -63,6 +63,7 @@ pub fn category(row: &agent_memories::Model) -> &'static str {
             "thread" => "thread",
             "work" if row.kind == MemoryKind::Done.as_str() => "done",
             "work" => "work",
+            s if s == super::unified::WORK_TRIED_SOURCE => "tried",
             _ => "other",
         },
         Whose::Group(_) => match source {
@@ -124,6 +125,12 @@ pub async fn retire_any<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, Db
         .exec(db)
         .await?;
     Ok(result.rows_affected == 1)
+}
+
+/// Confirm a Work lesson or pattern still only tried (drawn from one run):
+/// from now on Work goes about things by it. Returns whether one was.
+pub async fn confirm_tried<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, DbErr> {
+    super::work_memory::hold(db, id, 0.0).await
 }
 
 /// Steps followed either way along what replaced what: a loop in old rows
@@ -232,6 +239,8 @@ mod tests {
         assert_eq!(category(&bit), "bit");
         let lesson = row(Some(7), "private", "work");
         assert_eq!(category(&lesson), "work");
+        let tried = row(Some(7), "private", "work_tried");
+        assert_eq!(category(&tried), "tried");
         let mut done = row(Some(7), "private", "work");
         done.kind = "done".into();
         assert_eq!(category(&done), "done");

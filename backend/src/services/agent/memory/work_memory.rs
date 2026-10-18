@@ -9,17 +9,23 @@
 //! - a failed step (lesson);
 //! - a Standard-tier extraction over the run. Tool output and page text in
 //!   that prompt are untrusted data, and the extractor's output is only ever
-//!   stored as data, never executed.
+//!   stored as data, never executed. A lesson or pattern it draws is only
+//!   tried (`WORK_TRIED_SOURCE`, never recalled) until a later run draws it
+//!   again or the admin confirms it; what the person said of themselves
+//!   (preference, fact) is kept at once.
 //!
 //! A run a device did for the person (her link's `experience`) is learned
 //! from here too, kept as coming from that device.
 
 use myriad_agent_rules::{extract_json_object_from_ai_response, untrusted_block};
-use sea_orm::DatabaseConnection;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::lexical;
 use super::unified::{self, Audience, MemoryKind, NewMemory, Speaker};
+use crate::models::entities::agent_memories;
 
 /// Words a person may use when they correct the Agent. They mark a
 /// candidate only: the same words ask for something else just as often.
@@ -381,8 +387,14 @@ JSON: {{"memories": [{{"content": "...", "memory_type": "preference|entity_knowl
 }
 
 async fn extract_with_model(db: &DatabaseConnection, run: &WorkRun) {
+    // What is only tried is not known yet: drawn again, it holds.
     let known: Vec<String> = match unified::active(db, run.user_id, &MemoryKind::FOR_WORK).await {
-        Ok(rows) => rows.into_iter().take(30).map(|row| row.content).collect(),
+        Ok(rows) => rows
+            .into_iter()
+            .filter(|row| row.source != unified::WORK_TRIED_SOURCE)
+            .take(30)
+            .map(|row| row.content)
+            .collect(),
         Err(error) => {
             tracing::warn!(%error, "[Memory] cannot read known memories");
             return;
@@ -405,20 +417,52 @@ async fn extract_with_model(db: &DatabaseConnection, run: &WorkRun) {
     let Ok(extraction) = serde_json::from_str::<Extraction>(json.as_deref().unwrap_or(text)) else {
         return;
     };
-    for item in extraction.memories {
+    keep_extracted(db, run, extraction.memories).await;
+}
+
+/// Keep what the extraction drew from `run`: what the person said of
+/// themselves at once; a lesson or pattern only tried, unless an earlier run
+/// drew it too, and then that one holds.
+async fn keep_extracted(db: &DatabaseConnection, run: &WorkRun, memories: Vec<Extracted>) {
+    let origin = run.origin.as_deref().unwrap_or(unified::ORIGIN_SITE);
+    let mut tried = match tried_by(db, run.user_id).await {
+        Ok(tried) => tried,
+        Err(error) => {
+            tracing::warn!(%error, "[Memory] cannot read tried Work memories");
+            return;
+        }
+    };
+    for item in memories {
         let Some(kind) = kind_of(&item.memory_type) else {
             continue;
         };
+        let how_to = matches!(kind, MemoryKind::Lesson | MemoryKind::Pattern);
+        if how_to {
+            if let Some(at) = tried.iter().position(|row| {
+                row.kind == kind.as_str()
+                    && lexical::overlap(&row.content, &item.content) >= DRAWN_AGAIN
+            }) {
+                let row = tried.remove(at);
+                if let Err(error) = hold(db, &row.id, item.importance).await {
+                    tracing::warn!(%error, "[Memory] could not keep a tried Work memory");
+                }
+                continue;
+            }
+        }
         store(
             db,
-            run.origin.as_deref().unwrap_or(unified::ORIGIN_SITE),
+            origin,
             NewMemory {
                 user_id: run.user_id,
                 kind,
                 content: item.content,
                 evidence: None,
                 speaker: Speaker::Agent,
-                source: "work",
+                source: if how_to {
+                    unified::WORK_TRIED_SOURCE
+                } else {
+                    "work"
+                },
                 audience: private(run.user_id),
                 importance: item.importance.clamp(0.3, 1.0),
                 // One malformed concept must not cost the memory itself.
@@ -431,6 +475,56 @@ async fn extract_with_model(db: &DatabaseConnection, run: &WorkRun) {
         )
         .await;
     }
+}
+
+/// How much of a tried lesson or pattern a later run must draw again for it
+/// to hold (see `lexical::overlap`).
+const DRAWN_AGAIN: f64 = 0.7;
+/// A tried lesson or pattern no run drew again within this many days is let go.
+const TRIED_DAYS: i64 = 45;
+
+/// The person's tried lessons and patterns, letting go of those no run drew
+/// again in time.
+async fn tried_by(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<Vec<agent_memories::Model>, sea_orm::DbErr> {
+    let rows = agent_memories::Entity::find()
+        .filter(agent_memories::Column::UserId.eq(user_id))
+        .filter(agent_memories::Column::Source.eq(unified::WORK_TRIED_SOURCE))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .all(db)
+        .await?;
+    let since = super::utc_now().fixed_offset() - chrono::Duration::days(TRIED_DAYS);
+    let (kept, stale): (Vec<_>, Vec<_>) = rows.into_iter().partition(|row| row.created_at >= since);
+    let stale: Vec<String> = stale.into_iter().map(|row| row.id).collect();
+    unified::retire(db, user_id, &stale, "faded").await?;
+    Ok(kept)
+}
+
+/// A tried lesson or pattern drawn again, or confirmed: kept as how to go
+/// about things from now on, at least as important as it was drawn now.
+pub(crate) async fn hold<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    id: &str,
+    importance: f64,
+) -> Result<bool, sea_orm::DbErr> {
+    let result = agent_memories::Entity::update_many()
+        .col_expr(agent_memories::Column::Source, Expr::value("work"))
+        .col_expr(
+            agent_memories::Column::Importance,
+            Expr::cust_with_values("GREATEST(importance, $1)", [importance.clamp(0.3, 1.0)]),
+        )
+        .col_expr(
+            agent_memories::Column::UpdatedAt,
+            Expr::value(chrono::Utc::now().fixed_offset()),
+        )
+        .filter(agent_memories::Column::Id.eq(id))
+        .filter(agent_memories::Column::Source.eq(unified::WORK_TRIED_SOURCE))
+        .filter(agent_memories::Column::InvalidAt.is_null())
+        .exec(db)
+        .await?;
+    Ok(result.rows_affected == 1)
 }
 
 /// Compact text for one step output in the extraction prompt.
@@ -541,6 +635,140 @@ mod tests {
         let kept = unified::bounded_evidence(&done_evidence(&done));
         let evidence: Value = serde_json::from_str(&kept).unwrap();
         assert_eq!(evidence["record"]["task"], "task_1");
+    }
+
+    fn drawn(memory_type: &str, content: &str) -> Extracted {
+        Extracted {
+            content: content.into(),
+            memory_type: memory_type.into(),
+            importance: 0.7,
+            concepts: Vec::new(),
+        }
+    }
+
+    /// A lesson drawn from one run is not how Work goes about things until a
+    /// later run draws it again or the admin confirms it; what the person
+    /// said of themselves is kept at once.
+    #[tokio::test]
+    async fn a_lesson_from_one_run_holds_only_when_drawn_again() {
+        use sea_orm::ConnectionTrait;
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "work_tried").await;
+        let db = &schema.db;
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (7, 'tried')")
+            .await
+            .unwrap();
+        let present = private(7);
+        let recalled = |query: &'static str| async move {
+            unified::recall(db, 7, &private(7), Some(query), &MemoryKind::FOR_WORK, 8)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.content)
+                .collect::<Vec<_>>()
+        };
+        let first = run("帮我整理周报");
+        keep_extracted(
+            db,
+            &first,
+            vec![
+                drawn("effective_pattern", "周报表格按日期升序排列，项目放第一列"),
+                drawn("execution_lesson", "抓取知乎页面要先登录，否则只拿到摘要"),
+                drawn("preference", "喜欢简洁的表格样式"),
+            ],
+        )
+        .await;
+        let after_one = recalled("周报表格 知乎 表格样式").await;
+        assert_eq!(
+            after_one,
+            ["喜欢简洁的表格样式"],
+            "only what they said of themselves"
+        );
+        let _ = present;
+
+        // A later run draws the pattern again, in nearly the same words.
+        keep_extracted(
+            db,
+            &first,
+            vec![drawn(
+                "effective_pattern",
+                "周报表格按日期升序排列，项目放在第一列",
+            )],
+        )
+        .await;
+        let after_two = recalled("周报表格").await;
+        assert!(
+            after_two.contains(&"周报表格按日期升序排列，项目放第一列".to_string()),
+            "{after_two:?}"
+        );
+        assert_eq!(
+            after_two
+                .iter()
+                .filter(|text| text.contains("周报表格"))
+                .count(),
+            1,
+            "held, not kept twice"
+        );
+
+        // The admin confirms the lesson no run drew again.
+        let lesson = unified::active(db, 7, &[MemoryKind::Lesson])
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.source == unified::WORK_TRIED_SOURCE)
+            .unwrap();
+        assert!(
+            super::super::manage::confirm_tried(db, &lesson.id)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !super::super::manage::confirm_tried(db, &lesson.id)
+                .await
+                .unwrap()
+        );
+        assert!(
+            recalled("知乎页面")
+                .await
+                .iter()
+                .any(|text| text.contains("知乎"))
+        );
+        schema.drop().await;
+    }
+
+    /// A tried lesson no run drew again in time is let go.
+    #[tokio::test]
+    async fn a_lesson_no_run_drew_again_is_let_go() {
+        use sea_orm::ConnectionTrait;
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "work_tried_old").await;
+        let db = &schema.db;
+        db.execute_unprepared(
+            "INSERT INTO users (id, username) VALUES (7, 'tried');
+             INSERT INTO agent_memories (id, user_id, kind, content, speaker, source, venue, audience, concepts, importance, access_count, valid_from, created_at, updated_at)
+             VALUES ('old', 7, 'lesson', '旧的一次教训', 'agent', 'work_tried', 'private', '[7]', '[]', 0.7, 0, NOW(), NOW() - INTERVAL '60 days', NOW()),
+                    ('new', 7, 'lesson', '新的一次教训', 'agent', 'work_tried', 'private', '[7]', '[]', 0.7, 0, NOW(), NOW(), NOW());",
+        )
+        .await
+        .unwrap();
+        let kept: Vec<String> = tried_by(db, 7)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(kept, ["new"]);
+        let old = agent_memories::Entity::find_by_id("old".to_string())
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(old.invalid_reason.as_deref(), Some("faded"));
+        schema.drop().await;
     }
 
     #[test]

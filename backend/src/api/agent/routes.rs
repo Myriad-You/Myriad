@@ -490,6 +490,13 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
             )),
         )
         .route(
+            "/memory/all/{memory_id}/confirm",
+            post(confirm_tried_memory).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
             "/memory/all/{memory_id}/history",
             get(memory_history).route_layer(from_fn_with_state(
                 app_state.clone(),

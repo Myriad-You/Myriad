@@ -542,6 +542,23 @@ pub(crate) async fn memory_history(
     Ok(Json(json!({ "history": history })))
 }
 
+/// Confirm a Work lesson or pattern drawn from one run (site admin): Work
+/// goes about things by it from now on.
+/// POST /api/agent/memory/all/:id/confirm
+pub(crate) async fn confirm_tried_memory(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(memory_id): Path<String>,
+) -> Result<Json<Value>, HttpError> {
+    // Read only while she is not on the site (D5).
+    crate::services::persona_sync::lease::refuse_edit_while_away()?;
+    require_current_admin(&claims, &db).await?;
+    let confirmed = crate::services::agent::memory::manage::confirm_tried(&db, &memory_id)
+        .await
+        .map_err(memory_store_http)?;
+    memory_found(confirmed)
+}
+
 /// Edit any memory (site admin).
 /// PUT /api/agent/memory/all/:id
 pub(crate) async fn update_any_memory(
