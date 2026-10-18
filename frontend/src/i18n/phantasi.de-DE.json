@@ -64,7 +64,7 @@
   "workbenchMediaFormat": "Format",
   "workbenchMediaSource": "Quelle",
   "workbenchMediaFormatOther": "Sonstiges",
-  "workbenchMediaUnused": "Nicht referenziert (löschbar)",
+  "workbenchMediaUnused": "Nicht referenziert",
   "workbenchMediaLayout": "Ansicht",
   "workbenchMediaLayoutList": "Liste",
   "workbenchMediaLayoutGrid": "Raster",

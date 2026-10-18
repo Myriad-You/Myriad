@@ -64,7 +64,7 @@
   "workbenchMediaFormat": "Format",
   "workbenchMediaSource": "Source",
   "workbenchMediaFormatOther": "Other",
-  "workbenchMediaUnused": "Unreferenced (can delete)",
+  "workbenchMediaUnused": "Unreferenced",
   "workbenchMediaLayout": "Layout",
   "workbenchMediaLayoutList": "List",
   "workbenchMediaLayoutGrid": "Grid",

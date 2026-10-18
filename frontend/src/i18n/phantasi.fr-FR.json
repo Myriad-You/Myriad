@@ -64,7 +64,7 @@
   "workbenchMediaFormat": "Format",
   "workbenchMediaSource": "Source",
   "workbenchMediaFormatOther": "Autre",
-  "workbenchMediaUnused": "Non référencé (supprimable)",
+  "workbenchMediaUnused": "Non référencé",
   "workbenchMediaLayout": "Disposition",
   "workbenchMediaLayoutList": "Liste",
   "workbenchMediaLayoutGrid": "Grille",

@@ -64,7 +64,7 @@
   "workbenchMediaFormat": "형식",
   "workbenchMediaSource": "소스",
   "workbenchMediaFormatOther": "기타",
-  "workbenchMediaUnused": "참조 없음 (삭제 가능)",
+  "workbenchMediaUnused": "참조 없음",
   "workbenchMediaLayout": "레이아웃",
   "workbenchMediaLayoutList": "목록",
   "workbenchMediaLayoutGrid": "격자",
