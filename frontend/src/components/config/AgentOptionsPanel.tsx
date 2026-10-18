@@ -682,6 +682,22 @@ export const AgentOptionsPanel: React.FC = () => {
             </>
           ) : null,
           actions: [
+            // A Work lesson drawn from one run is not used until confirmed
+            // (or drawn again by a later run).
+            ...(memory.category === 'tried'
+              ? [
+                  {
+                    key: 'confirm',
+                    label: m.confirmMemory,
+                    title: m.confirmMemoryHint,
+                    variant: 'secondary' as const,
+                    onClick: () =>
+                      void guard(`memory:${memory.id}`, () =>
+                        agentService.confirmTriedMemory(memory.id),
+                      ),
+                  },
+                ]
+              : []),
             {
               key: 'remove',
               label: m.remove,

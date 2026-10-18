@@ -1322,6 +1322,14 @@ class AgentService {
     )
   }
 
+  /** Confirm a Work lesson still on trial: Work goes by it from now on. */
+  async confirmTriedMemory(memoryId: string): Promise<void> {
+    await apiService.post(
+      `${this.baseUrl}/memory/all/${encodeURIComponent(memoryId)}/confirm`,
+      {},
+    )
+  }
+
   async deleteAnyMemory(memoryId: string): Promise<void> {
     await apiService.delete(
       `${this.baseUrl}/memory/all/${encodeURIComponent(memoryId)}`,
