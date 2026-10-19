@@ -1,6 +1,7 @@
 import { currentCopy } from '../i18n/localeCopy'
 import { userFacingError } from '../utils/userFacingError'
 import { ApiError, apiService } from './api'
+import { announceDataChange } from './dataChangeEvents'
 
 export type MediaKind = 'upload' | 'generated'
 
@@ -108,6 +109,7 @@ export async function listMedia(
 
 export async function deleteMedia(id: number): Promise<void> {
   await apiService.delete(`/media/${id}`)
+  announceDataChange('media')
 }
 
 /**
@@ -121,12 +123,14 @@ export function mediaAssetSrc(item: MediaAsset): string {
 export async function publishMedia(id: number): Promise<MediaAsset> {
   const data = await apiService.post<{ item: MediaAsset }>(`/media/${id}/publication`)
   validateMediaAsset(data.item)
+  announceDataChange('media')
   return data.item
 }
 
 export async function unpublishMedia(id: number): Promise<MediaAsset> {
   const data = await apiService.delete<{ item: MediaAsset }>(`/media/${id}/publication`)
   validateMediaAsset(data.item)
+  announceDataChange('media')
   return data.item
 }
 
@@ -147,6 +151,7 @@ export async function uploadMedia(
     throw new Error(userFacingError(error, currentCopy().errors.mediaUploadFailed))
   }
   validateMediaAsset(data.item)
+  announceDataChange('media')
   return data.item
 }
 
@@ -158,5 +163,6 @@ export async function previewMediaEdit(id: number, prompt: string, width: number
 export async function saveMediaEdit(id: number, image: string, generated: boolean): Promise<MediaAsset> {
   const data = await apiService.post<{ item: MediaAsset }>(`/media/${id}/edits`, { image, generated })
   validateMediaAsset(data.item)
+  announceDataChange('media')
   return data.item
 }

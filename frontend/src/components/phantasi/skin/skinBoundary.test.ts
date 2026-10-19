@@ -48,7 +48,7 @@ describe('phantasi/skin 边界', () => {
       assert.ok(readFileSync(join(dir, file), 'utf8').length > 0, file)
     }
     const io = readFileSync(join(dir, 'PhantasiWorkbenchIo.tsx'), 'utf8')
-    assert.match(io, /pane === 'notesIo'/)
+    assert.match(io, /if \(pane !== 'notesIo'\) return null/)
     assert.match(io, /workbenchWordpress/)
     assert.doesNotMatch(io, /feedsIo|pipack|opml/)
     assert.doesNotMatch(io, /from ['"]\.\.\/manager/)

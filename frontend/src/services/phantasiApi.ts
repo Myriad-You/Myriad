@@ -23,6 +23,7 @@ import type {
   UpdateRsshubInstanceRequest,
   UpdateSourceRequest,
 } from '../types/phantasi'
+import type { DataTopic } from './dataChangeEvents'
 import { API_URL } from '../config'
 import { KeyedWrites } from '../utils/keyedWrites'
 import { phantasiItemState } from '../utils/phantasiItemState'
@@ -30,12 +31,14 @@ import { phantasiSubject } from '../utils/phantasiSubject'
 import { requestCache } from '../utils/requestCache'
 import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
 import { ApiError, apiService, parseApiErrorBody } from './api'
+import { announceDataChange, subscribeDataChanges } from './dataChangeEvents'
 import {
   invalidatePhantasiNoteDocsCache,
   invalidatePhantasiSourcesCache,
   invalidatePhantasiStatsCache,
   phantasiCacheKeys,
 } from './phantasiCache'
+import { phantasiWriteTopic } from './phantasiChanges'
 
 export type { CommentItem }
 
@@ -96,6 +99,9 @@ async function request<T>(
     ].filter(item => typeof item?.id === 'number')
     phantasiItemState.observeMany(items, stateRevision)
   }
+  // 写成功了告诉别的页面（创作台的其他窗口），它们自己重新取。
+  const topic = phantasiWriteTopic(method, endpoint)
+  if (topic) announceDataChange(topic)
   return data
 }
 
@@ -330,6 +336,18 @@ export async function getCategories(
 
 function invalidateCategoriesCache(): void {
   requestCache.delete(phantasiCacheKeys.categories)
+}
+
+/**
+ * 别的页面改了数据：先丢掉本页这一类的读缓存，再通知 `listener` 重新取，
+ * 不然重新取到的还是缓存里的旧数据。
+ */
+export function subscribePhantasiChanges(listener: (topic: DataTopic) => void): () => void {
+  return subscribeDataChanges((topic) => {
+    if (topic === 'notes') invalidatePhantasiNoteDocsCache()
+    else if (topic === 'categories') invalidateCategoriesCache()
+    listener(topic)
+  })
 }
 
 export async function createCategory(

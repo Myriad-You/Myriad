@@ -1,6 +1,7 @@
 import type { WorkbenchPane } from '../components/phantasi/logic/board'
 import type { StudioTool } from '../components/studio/overlay/studioTools'
-import { lazy, Suspense, useCallback, useState } from 'react'
+import type { DataTopic } from '../services/dataChangeEvents'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { workbenchPendingReviews } from '../components/phantasi/logic/workbenchHome'
 import { useNoteTransfer } from '../components/phantasi/manager/useNoteTransfer'
@@ -17,9 +18,13 @@ import { editorTarget, mediaOriginForArg, parseStudioToolPath } from '../compone
 import { StudioToolPane } from '../components/studio/StudioShell'
 import { ToastContainer } from '../components/ToastContainer'
 import { useI18n } from '../contexts/I18nContext'
+import { subscribePhantasiChanges } from '../services/phantasiApi'
 import { showToast } from '../utils/toastManager'
 import '../components/ConfigForm.css'
 import '../components/studio/StudioShell.css'
+
+/** 连着来的变更（编辑器边写边自动保存）只在停下这么久之后取一次。 */
+const CHANGE_SETTLE_MS = 600
 
 const NoteEditor = lazy(() => import('../components/phantasi/notes/NoteEditor'))
 
@@ -154,6 +159,27 @@ function StudioToolPage({
   const notesIo = useNoteTransfer(workbench.docs, () => {
     setDocsEpoch((value) => value + 1)
   })
+  // 别的窗口改了数据就重新取。取数的钩子只取这个窗口用得上的，用不上的调了也是空操作。
+  const refresh = useRef<Record<DataTopic, () => void>>(null!)
+  refresh.current = {
+    notes: () => setDocsEpoch((value) => value + 1),
+    categories: () => void categories.reload(),
+    comments: () => void workbench.reloadComments(),
+    reviews: () => void workbench.reloadApplications(),
+    media: () => workbench.acceptMedia(),
+  }
+  useEffect(() => {
+    const timers = new Map<DataTopic, number>()
+    const stop = subscribePhantasiChanges((topic) => {
+      if (!(topic in refresh.current)) return
+      window.clearTimeout(timers.get(topic))
+      timers.set(topic, window.setTimeout(() => refresh.current[topic](), CHANGE_SETTLE_MS))
+    })
+    return () => {
+      stop()
+      for (const timer of timers.values()) window.clearTimeout(timer)
+    }
+  }, [])
   const failed = t.studio.openFailed
   return (
     <div className="studio-tool-page">
