@@ -43,6 +43,30 @@ export function studioOverlayApi(): StudioOverlayApi | null {
   return findStudioHost()?.__myriadStudio ?? null
 }
 
+const FRAME_CLOSE = '__myriadStudioClose'
+
+interface FrameWindow extends Window {
+  [FRAME_CLOSE]?: () => void
+}
+
+/**
+ * 工具窗口自己的关闭（编辑器要先问未保存的改动）。挂在窗口自己的 window 上，
+ * 覆盖层点标题栏的关闭时先交给它；它决定关不关，关就调 `close`。
+ */
+export function setFrameCloseHandler(close: (() => void) | null, win: Window = window): void {
+  const target = win as FrameWindow
+  if (close) target[FRAME_CLOSE] = close
+  else delete target[FRAME_CLOSE]
+}
+
+export function frameCloseHandler(frame: HTMLIFrameElement | null | undefined): (() => void) | null {
+  try {
+    return (frame?.contentWindow as FrameWindow | null)?.[FRAME_CLOSE] ?? null
+  } catch {
+    return null
+  }
+}
+
 /** 文章页在外层整页打开；不在覆盖层里时开新标签。 */
 export function openBlogPage(link: string): void {
   if (findStudioHost()) {

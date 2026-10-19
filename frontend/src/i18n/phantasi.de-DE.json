@@ -105,6 +105,7 @@
   "workbenchMarkdown": "Markdown",
   "workbenchMarkdownHint": ".md mit YAML-Kopf, oder Zip.",
   "workbenchExportNotes": "Notizen exportieren",
+  "workbenchImportPick": "Importieren…",
   "workbenchDropNamed": "{name}-Datei klicken oder ablegen",
   "workbenchDropFormats": "Unterstützt {formats}",
   "workbenchContentExportSuccess": "{count, plural, one {# Notiz exportiert} other {# Notizen exportiert}}",

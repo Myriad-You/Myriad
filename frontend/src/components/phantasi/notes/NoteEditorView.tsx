@@ -243,7 +243,8 @@ export function NoteEditorView({
   taskList,
   paneRef,
   canDelete,
-}: ReturnType<typeof useNoteEditorSession>) {
+  framed = false,
+}: ReturnType<typeof useNoteEditorSession> & { framed?: boolean }) {
   const [serializeVisual] = useState(createVisualMarkdownSerializer)
   useEffect(() => () => serializeVisual.dispose(), [serializeVisual])
   const tools = [
@@ -465,7 +466,7 @@ export function NoteEditorView({
           articleHref={articleHref}
           settingsOpen={settingsOpen}
           onToggleSettings={() => setSettingsOpen((open) => !open)}
-          onClose={requestClose}
+          onClose={framed ? undefined : requestClose}
         />
 
         <div className="phantasi-note__scroll" ref={scrollRef}>

@@ -19,10 +19,9 @@
 
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  padding: 0.9rem 1rem;
-  border-radius: 0.75rem;
-  border: 1px solid var(--cfg-subtle-border);
+  gap: 0.65rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.625rem;
   background: var(--status-fill);
 }
 
@@ -45,12 +44,12 @@
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 1.75rem;
+  height: 1.75rem;
   border-radius: 50%;
   background: color-mix(in srgb, var(--status-ink) 16%, transparent);
   color: var(--status-ink);
-  font-size: 1.15rem;
+  font-size: 0.875rem;
 }
 
 .studio-blog__status-text {
@@ -62,13 +61,13 @@
 }
 
 .studio-blog__status-text strong {
-  font-size: 1.05rem;
+  font-size: 0.875rem;
   font-weight: 650;
   color: var(--cfg-text-1);
 }
 
 .studio-blog__status-text span {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--cfg-text-2);
 }
 
@@ -91,27 +90,30 @@
 .studio-blog__stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.6rem;
   margin: 0;
+  overflow: hidden;
+  border-radius: 0.625rem;
+  background: var(--cfg-fill);
 }
 
 .studio-blog__stats > div {
   min-width: 0;
-  padding: 0.7rem 0.85rem;
-  border-radius: 0.7rem;
-  border: 1px solid var(--cfg-subtle-border);
-  background: var(--cfg-subtle-bg);
+  padding: 0.5rem 0.75rem;
+}
+
+.studio-blog__stats > div + div {
+  box-shadow: inset 1px 0 0 var(--cfg-separator);
 }
 
 .studio-blog__stats dt {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   color: var(--cfg-text-3);
 }
 
 .studio-blog__stats dd {
-  margin: 0.2rem 0 0;
+  margin: 0.1rem 0 0;
   overflow: hidden;
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--cfg-text-1);
   text-overflow: ellipsis;
@@ -145,19 +147,19 @@
 
 .studio-blog__themes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: 0.5rem;
 }
 
 .studio-blog__theme {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.9rem 1rem;
-  border-radius: 0.8rem;
-  border: 1px solid var(--cfg-subtle-border);
-  background: var(--cfg-subtle-bg);
+  gap: 0.3rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.625rem;
+  border: 1px solid var(--cfg-separator);
+  background: transparent;
   transition: border-color 0.15s ease;
 }
 
@@ -173,13 +175,13 @@
 .studio-blog__theme-swatch {
   display: grid;
   place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  margin-bottom: 0.35rem;
-  border-radius: 0.6rem;
-  background: var(--cfg-accent-fill);
-  color: var(--cfg-accent-ink);
-  font-size: 1.05rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-bottom: 0.2rem;
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--cfg-accent) 16%, transparent);
+  color: var(--cfg-accent);
+  font-size: 0.875rem;
 }
 
 .studio-blog__theme-head {
@@ -190,7 +192,7 @@
 }
 
 .studio-blog__theme-head strong {
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--cfg-text-1);
 }
@@ -210,16 +212,16 @@
   align-items: center;
   gap: 0.4rem;
   margin-top: auto;
-  padding-top: 0.6rem;
+  padding-top: 0.4rem;
 }
 
 .studio-blog__theme-inuse {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  color: var(--cfg-accent-ink);
+  color: var(--cfg-accent);
 }
 
 .studio-blog__theme--install {
@@ -236,7 +238,7 @@
 
 .studio-blog__theme--install .studio-blog__drop {
   flex: 1 1 auto;
-  min-height: 6.5rem;
+  min-height: 4.5rem;
 }
 
 .studio-blog__install-url {
@@ -260,11 +262,10 @@
 
 .studio-blog__log {
   margin: 0;
-  max-height: 20rem;
+  max-height: 16rem;
   overflow: auto;
-  padding: 0.75rem 0.85rem;
-  border-radius: 0.6rem;
-  border: 1px solid var(--cfg-subtle-border);
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
   background: color-mix(in srgb, currentcolor 4%, transparent);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.75rem;

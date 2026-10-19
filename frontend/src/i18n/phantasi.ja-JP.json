@@ -105,6 +105,7 @@
   "workbenchMarkdown": "Markdown",
   "workbenchMarkdownHint": "YAML 頭付きの .md、または zip。",
   "workbenchExportNotes": "ノートを書き出す",
+  "workbenchImportPick": "インポート…",
   "workbenchDropNamed": "{name} ファイルをクリックまたはドロップ",
   "workbenchDropFormats": "{formats} をサポート",
   "workbenchContentExportSuccess": "{count} 件のノートをエクスポートしました",

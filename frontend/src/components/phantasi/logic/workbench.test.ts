@@ -414,5 +414,11 @@ describe('workbenchNoteExcerpt', () => {
       '正文从这里起。',
     )
     assert.equal(workbenchNoteExcerpt('一二三四五', 3), '一二三…')
+    assert.equal(
+      workbenchNoteExcerpt('# 桌子\n\n早晨。<br>\n\n```js\nlet a'),
+      '桌子 早晨。',
+    )
+    assert.equal(workbenchNoteExcerpt('豆子。\n\n![浅焙咖啡豆](https://upl'), '豆子。')
+    assert.equal(workbenchNoteExcerpt(':::columns\n:::col\n- [\n-'), '')
   })
 })

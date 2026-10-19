@@ -105,6 +105,7 @@
   "workbenchMarkdown": "Markdown",
   "workbenchMarkdownHint": "YAML 頭的 .md，或 zip。",
   "workbenchExportNotes": "匯出筆記",
+  "workbenchImportPick": "匯入…",
   "workbenchDropNamed": "點選或拖放 {name} 檔",
   "workbenchDropFormats": "支援 {formats}",
   "workbenchContentExportSuccess": "已匯出 {count} 篇筆記",

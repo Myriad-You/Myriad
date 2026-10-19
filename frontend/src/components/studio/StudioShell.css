@@ -7,7 +7,10 @@ html.embed-frame .studio-embed {
   overscroll-behavior: contain;
 }
 
+/* 窗口里的强调色跟覆盖层一致，不跟站点主题色走：主按钮上白字要看得清。 */
 .studio-embed {
+  --cfg-accent: #7c3aed;
+
   box-sizing: border-box;
   min-height: 100%;
   color: var(--cfg-text-1);
@@ -17,12 +20,15 @@ html.embed-frame .studio-embed {
 }
 
 html.dark .studio-embed {
+  --cfg-accent: #8b5cf6;
+
   background: #18181b;
   color-scheme: dark;
 }
 
 .studio-tool-page {
   min-height: 100%;
+  container-type: inline-size;
 }
 
 /* 工作台本来是「侧栏 + 内容」两列网格；窗口里没有侧栏，内容会掉进侧栏那一列。 */
@@ -315,14 +321,130 @@ html.dark .studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid)
 
 .studio-tool.phantasi-workbench .managed-list-empty {
   padding: 2rem 0.5rem;
+  border: 0;
+  background: transparent;
   font-size: 0.8125rem;
   color: var(--cfg-text-3);
   text-align: center;
 }
 
-/* 设置分组在窗口里去掉外层卡片感。 */
-.studio-tool .setting-group {
-  margin: 0 0 1rem;
+/* 设置类窗口（博客设置）：分组标题收成小标签，输入框和开关按窗口密度来。
+   前缀多带一层 .studio-embed，压过设置组件自己的 html.dark 规则。 */
+.studio-embed .studio-tool .setting-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.studio-embed .studio-tool .setting-group-header {
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.studio-embed .studio-tool .setting-group-title {
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--cfg-text-2);
+}
+
+/* 窗口里分组只要一个字的标签，图标块去掉。 */
+.studio-embed .studio-tool .setting-group-icon {
+  display: none;
+}
+
+.studio-embed .studio-tool .setting-group-content {
+  gap: 0.6rem;
+}
+
+.studio-embed .studio-tool .setting-item {
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.studio-embed .studio-tool .setting-label-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--cfg-text-2);
+}
+
+.studio-embed .studio-tool .setting-description {
+  font-size: 0.6875rem;
+  color: var(--cfg-text-3);
+}
+
+.studio-embed .studio-tool .field-input {
+  min-height: 2rem;
+  height: 2rem;
+  padding: 0 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: var(--cfg-fill);
+  box-shadow: none;
+  font-size: 0.8125rem;
+}
+
+.studio-embed .studio-tool textarea.field-input {
+  height: auto;
+  padding: 0.45rem 0.65rem;
+  line-height: 1.5;
+}
+
+.studio-embed .studio-tool .field-input:focus {
+  border-color: color-mix(in srgb, var(--cfg-accent) 60%, transparent);
+  background: transparent;
+  outline: none;
+}
+
+/* 开关一行：说明在左，开关在右，不再单独一张卡。 */
+.studio-embed .studio-tool .setting-item-switch {
+  padding: 0.5rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--cfg-separator);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.studio-embed .studio-tool .setting-item-switch .setting-item-content {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.studio-embed .studio-tool .setting-item-switch .setting-control {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+}
+
+.studio-embed .studio-tool .setting-item-switch .setting-label {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.studio-embed .studio-tool .setting-item-switch .setting-label-text {
+  color: var(--cfg-text-1);
+  font-size: 0.8125rem;
+}
+
+.studio-embed .studio-tool .settings-btn {
+  min-height: 1.875rem;
+  height: 1.875rem;
+  padding: 0 0.7rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
 }
 
 .studio-tool__chips {
@@ -377,7 +499,8 @@ html.dark .studio-tool__chip[aria-pressed='true'] {
   padding: 0.875rem 1rem 1.25rem;
 }
 
-.studio-overview__post {
+.studio-overview__post,
+.studio-overview__section {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -385,111 +508,287 @@ html.dark .studio-tool__chip[aria-pressed='true'] {
 
 .studio-overview__eyebrow {
   font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.6;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--cfg-text-3);
+}
+
+.studio-overview__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.studio-overview__head .phantasi-workbench__cover {
+  flex: 0 0 auto;
+  width: 4.5rem;
+  height: 3.25rem;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  background: var(--cfg-fill);
+}
+
+.studio-overview__head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
 }
 
 .studio-overview__title {
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 700;
+  overflow: hidden;
+  font-size: 1.0625rem;
+  font-weight: 650;
   line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .studio-overview__note {
   margin: 0;
-  font-size: 0.875rem;
-  opacity: 0.75;
+  font-size: 0.8125rem;
+  color: var(--cfg-text-2);
 }
 
 .studio-overview__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
+  align-items: center;
+  gap: 0.25rem 0.6rem;
   font-size: 0.75rem;
-  opacity: 0.7;
-}
-
-.studio-overview__meta code {
-  font-size: 0.6875rem;
+  color: var(--cfg-text-3);
 }
 
 .studio-overview__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.375rem;
   margin-top: 0.25rem;
 }
 
-.studio-overview__action {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.85rem;
-  border-radius: 0.6rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--cfg-accent);
-  background: rgb(0 0 0 / 5%);
+.studio-overview__actions .tool-pane__action:not(.is-primary) {
+  background: var(--cfg-fill);
 }
 
-.studio-overview__action:hover {
-  background: rgb(0 0 0 / 10%);
+/* 全站的四个数：一条分段，不是四张卡。 */
+.studio-overview__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border-radius: 0.625rem;
+  background: var(--cfg-fill);
 }
 
-.studio-overview__action.is-primary {
-  color: #fff;
-  background: var(--color-primary);
+.studio-overview__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.studio-overview__action:disabled {
-  opacity: 0.5;
+.studio-overview__stat + .studio-overview__stat {
+  box-shadow: inset 1px 0 0 var(--cfg-separator);
 }
 
-html.dark .studio-overview__action {
-  background: rgb(255 255 255 / 6%);
+.studio-overview__stat:hover {
+  background: var(--cfg-fill-strong);
 }
 
-html.dark .studio-overview__action.is-primary {
-  background: var(--color-primary);
+.studio-overview__stat-value {
+  font-size: 1.125rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 
-.studio-overview__kpis {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.studio-overview__stat-label {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 0.6875rem;
+  color: var(--cfg-text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.studio-overview__recent ul {
-  margin: 0.5rem 0 0;
+.studio-overview__stat.is-warn .studio-overview__stat-value {
+  color: #b45309;
+}
+
+html.dark .studio-overview__stat.is-warn .studio-overview__stat-value {
+  color: #fbbf24;
+}
+
+@container (width < 22rem) {
+  .studio-overview__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.studio-overview__recent {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.studio-overview__recent li button {
+.studio-overview__recent button {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  align-items: center;
+  gap: 0.5rem;
   width: 100%;
-  padding: 0.5rem 0.25rem;
+  min-width: 0;
+  padding: 0.45rem 0.4rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   text-align: left;
-  border-radius: 0.5rem;
+  cursor: pointer;
 }
 
-.studio-overview__recent li button:hover {
-  background: rgb(0 0 0 / 5%);
+.studio-overview__recent li + li button {
+  border-top: 1px solid var(--cfg-separator);
+  border-radius: 0;
 }
 
-html.dark .studio-overview__recent li button:hover {
-  background: rgb(255 255 255 / 6%);
+.studio-overview__recent button:hover {
+  background: var(--cfg-fill);
 }
 
 .studio-overview__recent-title {
-  font-size: 0.875rem;
-  font-weight: 600;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .studio-overview__recent-meta {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  color: var(--cfg-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 导入导出：一种格式一行，整行可以拖文件进来。 */
+.studio-transfer {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.studio-transfer__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.5rem;
+  border-radius: 0.5rem;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.studio-transfer__row + .studio-transfer__row {
+  border-top: 1px solid var(--cfg-separator);
+}
+
+.studio-transfer__row.is-on {
+  background: color-mix(in srgb, var(--cfg-accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cfg-accent) 55%, transparent);
+}
+
+.studio-transfer__mark {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background: var(--cfg-fill);
+}
+
+.studio-transfer__mark svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.studio-transfer__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.studio-transfer__name {
+  font-weight: 600;
+}
+
+.studio-transfer__hint,
+.studio-transfer__progress {
+  overflow: hidden;
   font-size: 0.75rem;
-  opacity: 0.6;
+  color: var(--cfg-text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-transfer__row.is-picked .studio-transfer__hint {
+  color: var(--cfg-text-1);
+}
+
+.studio-transfer__progress {
+  color: var(--cfg-accent);
+}
+
+.studio-transfer__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+}
+
+@container (width < 26rem) {
+  .studio-transfer__row {
+    flex-wrap: wrap;
+  }
+
+  .studio-transfer__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* 编辑器窗口：按钮和边距按窗口尺寸收一档。 */
+.studio-embed .phantasi-note.phantasi-skin {
+  --note-ctl-h: 2rem;
+  --note-ctl-h-lg: 2.125rem;
+  --note-gutter: clamp(0.75rem, 3vw, 1.5rem);
+}
+
+.studio-embed .phantasi-note.phantasi-skin .note-btn {
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.studio-embed .phantasi-note.phantasi-skin .note-btn--lg {
+  padding: 0 0.9rem;
+  font-size: 0.8125rem;
+}
+
+.studio-embed .phantasi-note.phantasi-skin .note-btn--icon {
+  padding: 0;
 }

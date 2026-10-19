@@ -5,6 +5,7 @@ import {
   HaloIcon,
   LuDownload,
   LuFolderOpen,
+  LuLoader2,
   LuUpload,
   SiMarkdown,
   SiWordpress,
@@ -12,11 +13,6 @@ import {
 } from '@lib/icons'
 import { useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
-import {
-  SettingGroupGrid,
-  SettingsButton,
-} from '../../settings'
-import { SettingItemWrapper } from '../../settings/items/SettingItemWrapper'
 import { WorkbenchPage } from './PhantasiWorkbenchChrome'
 
 const NOTE_TRANSFER_FORMATS: Array<{
@@ -69,28 +65,29 @@ const NOTE_TRANSFER_FORMATS: Array<{
   },
 ]
 
-function TransferActions({
+/** 一种格式一行：整行能拖文件进来，右边是导入和导出。选了文件才出现「开始导入」。 */
+function TransferRow({
+  mark,
+  name,
+  hint,
+  formats,
   accept,
   busy,
   canExport,
   progress,
-  dropLabel,
-  formatsLabel,
-  startLabel,
-  exportLabel,
-  mark,
+  labels,
   onExport,
   onImport,
 }: {
+  mark: ReactNode
+  name: string
+  hint: string
+  formats: string
   accept: string
   busy: boolean
   canExport: boolean
   progress: string | null
-  dropLabel: string
-  formatsLabel: string
-  startLabel: string
-  exportLabel: string
-  mark?: ReactNode
+  labels: { pick: string; start: string; cancel: string; export: string; drop: string }
   onExport: () => void
   onImport: (file: File) => void
 }) {
@@ -104,74 +101,76 @@ function TransferActions({
   }
 
   return (
-    <div className="phantasi-workbench__transfer">
-      <button
-        type="button"
-        className={`phantasi-workbench__drop${dragOver ? ' is-on' : ''}`}
+    <li
+      className={`studio-transfer__row${dragOver ? ' is-on' : ''}${picked ? ' is-picked' : ''}`}
+      aria-label={labels.drop}
+      onDragOver={(event) => {
+        event.preventDefault()
+        if (!busy) setDragOver(true)
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(event) => {
+        event.preventDefault()
+        setDragOver(false)
+        takeFile(event.dataTransfer.files[0])
+      }}
+    >
+      <span className="studio-transfer__mark" aria-hidden>{mark}</span>
+      <span className="studio-transfer__text">
+        <span className="studio-transfer__name">{name}</span>
+        <span className="studio-transfer__hint">
+          {picked ? picked.name : `${hint} ${formats}`}
+        </span>
+        {progress ? <span className="studio-transfer__progress">{progress}</span> : null}
+      </span>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        hidden
         disabled={busy}
-        onDragOver={(event) => {
-          event.preventDefault()
-          setDragOver(true)
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          takeFile(file)
         }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(event) => {
-          event.preventDefault()
-          setDragOver(false)
-          takeFile(event.dataTransfer.files[0])
-        }}
-        onClick={() => inputRef.current?.click()}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept={accept}
-          className="phantasi-workbench__drop-file"
-          disabled={busy}
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            event.target.value = ''
-            takeFile(file)
-          }}
-        />
-        {mark ?? <LuFolderOpen />}
-        <p>{dropLabel}</p>
-        <small>{picked ? picked.name : formatsLabel}</small>
-      </button>
-      <div className="phantasi-workbench__transfer-actions">
+      />
+      <span className="studio-transfer__actions">
         {picked ? (
-          <SettingsButton
-            variant="primary"
-            size="sm"
-            block
-            icon={<LuUpload />}
-            disabled={busy}
-            loading={busy}
-            onClick={() => {
-              const file = picked
-              setPicked(null)
-              onImport(file)
-            }}
-          >
-            {startLabel}
-          </SettingsButton>
-        ) : null}
-        <SettingsButton
-          size="sm"
-          block
-          icon={<LuDownload />}
-          disabled={busy || !canExport}
-          loading={busy}
-          onClick={onExport}
-        >
-          {exportLabel}
-        </SettingsButton>
-      </div>
-      {progress ? (
-        <p className="setting-description phantasi-workbench__transfer-progress">
-          {progress}
-        </p>
-      ) : null}
-    </div>
+          <>
+            <button type="button" className="tool-pane__action" disabled={busy} onClick={() => setPicked(null)}>
+              {labels.cancel}
+            </button>
+            <button
+              type="button"
+              className="tool-pane__action is-primary"
+              disabled={busy}
+              onClick={() => {
+                const file = picked
+                setPicked(null)
+                onImport(file)
+              }}
+            >
+              <span className="tool-pane__action-icon" aria-hidden><LuUpload /></span>
+              <span>{labels.start}</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="tool-pane__action" disabled={busy} onClick={() => inputRef.current?.click()}>
+              <span className="tool-pane__action-icon" aria-hidden><LuFolderOpen /></span>
+              <span>{labels.pick}</span>
+            </button>
+            <button type="button" className="tool-pane__action" disabled={busy || !canExport} onClick={onExport}>
+              <span className="tool-pane__action-icon" aria-hidden>
+                {busy ? <LuLoader2 className="tool-pane__spin" /> : <LuDownload />}
+              </span>
+              <span>{labels.export}</span>
+            </button>
+          </>
+        )}
+      </span>
+    </li>
   )
 }
 
@@ -197,52 +196,34 @@ export function WorkbenchIoPane({
   const { t, format } = useI18n()
   const phantasi = t.phantasi
 
-  if (pane === 'notesIo') {
-    return (
-      <WorkbenchPage
-        title={phantasi.workbenchNavTransfer}
-        back={back}
-      >
-        <SettingGroupGrid
-          columns={2}
-          variant="plain"
-          align="start"
-          minColumnWidth="16rem"
-          className="phantasi-workbench__io-grid"
-        >
-          {NOTE_TRANSFER_FORMATS.map((item) => (
-            <SettingItemWrapper
-              key={item.kind}
-              itemKey={`transfer-${item.kind}`}
-              className="phantasi-workbench__io-item"
-              size="sm"
-              label={phantasi[item.title]}
-              detail={phantasi[item.hint]}
-              icon={item.icon}
-            >
-              <TransferActions
-                mark={item.icon}
-                accept={item.accept}
-                busy={notesBusy}
-                canExport={docs.length > 0}
-                progress={notesKind === item.kind ? notesProgress : null}
-                dropLabel={format(phantasi.workbenchDropNamed, {
-                  name: phantasi[item.title],
-                })}
-                formatsLabel={format(phantasi.workbenchDropFormats, {
-                  formats: item.formats,
-                })}
-                startLabel={phantasi.startImport}
-                exportLabel={phantasi.workbenchExportNotes}
-                onExport={() => onExportNotes(item.kind)}
-                onImport={(file) => onImportNotes(item.kind, file)}
-              />
-            </SettingItemWrapper>
-          ))}
-        </SettingGroupGrid>
-      </WorkbenchPage>
-    )
-  }
+  if (pane !== 'notesIo') return null
 
-  return null
+  return (
+    <WorkbenchPage title={phantasi.workbenchNavTransfer} back={back}>
+      <ul className="studio-transfer">
+        {NOTE_TRANSFER_FORMATS.map((item) => (
+          <TransferRow
+            key={item.kind}
+            mark={item.icon}
+            name={phantasi[item.title]}
+            hint={phantasi[item.hint]}
+            formats={item.formats}
+            accept={item.accept}
+            busy={notesBusy}
+            canExport={docs.length > 0}
+            progress={notesKind === item.kind ? notesProgress : null}
+            labels={{
+              pick: phantasi.workbenchImportPick,
+              start: phantasi.startImport,
+              cancel: phantasi.cancel,
+              export: phantasi.workbenchExportNotes,
+              drop: format(phantasi.workbenchDropNamed, { name: phantasi[item.title] }),
+            }}
+            onExport={() => onExportNotes(item.kind)}
+            onImport={(file) => onImportNotes(item.kind, file)}
+          />
+        ))}
+      </ul>
+    </WorkbenchPage>
+  )
 }

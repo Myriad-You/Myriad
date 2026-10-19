@@ -379,9 +379,9 @@ export function workbenchNoteListExcerpt(doc: {
   excerpt?: string | null
   content_md?: string | null
 }): string {
+  // 服务器给的摘要是正文开头截下来的原始 markdown，照样要洗成纯文本。
   const ready = doc.excerpt?.trim()
-  if (ready) return ready
-  return workbenchNoteExcerpt(doc.content_md)
+  return workbenchNoteExcerpt(ready || doc.content_md)
 }
 
 export function workbenchNoteExcerpt(
@@ -397,6 +397,10 @@ function plainNoteExcerpt(markdown: string): string {
   let text = markdown.replaceAll('\r\n', '\n')
   text = text.replace(/```[\s\S]*?```/g, ' ')
   text = text.replace(/~~~[\s\S]*?~~~/g, ' ')
+  // 截断的摘要里会剩下没收尾的代码块、图片和链接。
+  text = text.replace(/(?:```|~~~)[\s\S]*$/, ' ')
+  text = text.replace(/!\[[^\]\n]*(?:\]\([^)\n]*)?$/, ' ')
+  text = text.replace(/\[([^\]\n]*)\]\([^)\n]*$/, '$1')
   text = text.replace(/^:::widget[^\n]*$/gm, ' ')
   text = text.replace(/^:::(?:columns|col)?\s*$/gm, ' ')
   text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
@@ -410,6 +414,7 @@ function plainNoteExcerpt(markdown: string): string {
   text = text.replace(/^\s{0,3}>\s?/gm, '')
   text = text.replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+(?:\[[ x]\]\s+)?/gim, '')
   text = text.replace(/^\s{0,3}[-*_]{3,}\s*$/gm, ' ')
+  text = text.replace(/^\s{0,3}(?:[-*+]|\[[ x]?\]?)\s*$/gim, ' ')
   text = text.replace(/`([^`]+)`/g, '$1')
   text = text.replace(/(\*\*|__)(.*?)\1/g, '$2')
   text = text.replace(/(\*|_)(.*?)\1/g, '$2')

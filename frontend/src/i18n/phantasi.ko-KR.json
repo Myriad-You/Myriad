@@ -105,6 +105,7 @@
   "workbenchMarkdown": "Markdown",
   "workbenchMarkdownHint": "YAML 머리말 .md, 또는 zip.",
   "workbenchExportNotes": "노트 내보내기",
+  "workbenchImportPick": "가져오기…",
   "workbenchDropNamed": "{name} 파일을 클릭하거나 놓으세요",
   "workbenchDropFormats": "{formats} 지원",
   "workbenchContentExportSuccess": "노트 {count}개를 내보냈습니다",

@@ -3,19 +3,31 @@ import type { WorkbenchNoteOpen } from '../phantasi/logic/workbench'
 import type { StudioTool } from './overlay/studioTools'
 import { LuExternalLink, LuMessageCircle, LuNotebookPen } from '@lib/icons'
 import { useI18n } from '../../contexts/I18nContext'
+import { getImageUrl } from '../phantasi/constants'
+import { workbenchNoteCover } from '../phantasi/logic/workbench'
 import { noteScheduleLabel } from '../phantasi/notes/noteBoard'
+import { PageAction } from '../phantasi/skin/PhantasiWorkbenchChrome'
+import { WorkbenchThumb } from '../phantasi/skin/WorkbenchThumb'
 
 const RECENT_LIMIT = 5
 
-function statusLabel(doc: PhantasiNoteDoc, t: ReturnType<typeof useI18n>['t']): string {
+type StatusTone = 'success' | 'warn' | 'muted'
+
+function noteStatus(doc: PhantasiNoteDoc, t: ReturnType<typeof useI18n>['t']): { label: string; tone: StatusTone } {
   switch (doc.status) {
     case 'published':
-      return t.phantasi.noteStatusPublished
+      return { label: t.phantasi.noteStatusPublished, tone: 'success' }
     case 'scheduled':
-      return t.phantasi.noteStatusScheduled
+      return { label: t.phantasi.noteStatusScheduled, tone: 'warn' }
     default:
-      return t.phantasi.noteStatusDraft
+      return { label: t.phantasi.noteStatusDraft, tone: 'muted' }
   }
+}
+
+function StatusBadge({ doc }: { doc: PhantasiNoteDoc }) {
+  const { t } = useI18n()
+  const status = noteStatus(doc, t)
+  return <span className={`managed-list-badge managed-list-badge--${status.tone}`}>{status.label}</span>
 }
 
 /**
@@ -53,81 +65,77 @@ export function StudioOverview({
   return (
     <div className="studio-overview">
       {itemId != null ? (
-        <section className="studio-overview__post">
+        <section className="studio-overview__post" aria-label={t.studio.overlayThisPost}>
           <div className="studio-overview__eyebrow">{t.studio.overlayThisPost}</div>
-          <h2 className="studio-overview__title">
-            {doc?.title.trim() || t.phantasi.workbenchNoteUntitled}
-          </h2>
-          {doc ? (
-            <div className="studio-overview__meta">
-              <span>{statusLabel(doc, t)}</span>
-              {doc.topic ? <span>{doc.topic}</span> : null}
-              <span>{noteScheduleLabel(doc.updated_at, locale)}</span>
-              {doc.slug ? <code>/blog/posts/{doc.slug}/</code> : null}
+          <div className="studio-overview__head">
+            <WorkbenchThumb cover src={doc ? getImageUrl(workbenchNoteCover(doc)) || undefined : undefined} />
+            <div className="studio-overview__head-text">
+              <h2 className="studio-overview__title">
+                {doc?.title.trim() || t.phantasi.workbenchNoteUntitled}
+              </h2>
+              {doc ? (
+                <div className="studio-overview__meta">
+                  <StatusBadge doc={doc} />
+                  {doc.topic ? <span>{doc.topic}</span> : null}
+                  <span>{noteScheduleLabel(doc.updated_at, locale)}</span>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
           <div className="studio-overview__actions">
-            <button
-              type="button"
-              className="studio-overview__action is-primary"
+            <PageAction
+              primary
+              label={t.studio.overlayEditPost}
+              icon={<LuNotebookPen />}
               disabled={busy}
-              onClick={() => onOpenNote(doc ? { kind: 'doc', id: doc.id } : { kind: 'item', id: itemId })}
-            >
-              <LuNotebookPen aria-hidden />
-              {t.studio.overlayEditPost}
-            </button>
-            <button type="button" className="studio-overview__action" onClick={() => onOpenTool('comments')}>
-              <LuMessageCircle aria-hidden />
-              {format(t.studio.overlayPostComments, { count: postComments })}
-            </button>
+              onPick={() => onOpenNote(doc ? { kind: 'doc', id: doc.id } : { kind: 'item', id: itemId })}
+            />
+            <PageAction
+              label={format(t.studio.overlayPostComments, { count: postComments })}
+              icon={<LuMessageCircle />}
+              onPick={() => onOpenTool('comments')}
+            />
           </div>
         </section>
       ) : (
-        <section className="studio-overview__post">
+        <section className="studio-overview__post" aria-label={t.studio.overlayThisPage}>
           <div className="studio-overview__eyebrow">{t.studio.overlayThisPage}</div>
           <p className="studio-overview__note">{t.studio.overlayNotAPost}</p>
           <div className="studio-overview__actions">
-            <button
-              type="button"
-              className="studio-overview__action is-primary"
-              disabled={busy}
-              onClick={onWrite}
-            >
-              <LuNotebookPen aria-hidden />
-              {t.phantasi.noteWrite}
-            </button>
-            <button type="button" className="studio-overview__action" onClick={onOpenPost}>
-              <LuExternalLink aria-hidden />
-              {t.studio.openBlog}
-            </button>
+            <PageAction primary label={t.phantasi.noteWrite} icon={<LuNotebookPen />} disabled={busy} onPick={onWrite} />
+            <PageAction label={t.studio.openBlog} icon={<LuExternalLink />} onPick={onOpenPost} />
           </div>
         </section>
       )}
 
-      <section className="phantasi-workbench__kpis studio-overview__kpis" aria-label={t.studio.overlayGroupSiteWide}>
-        <Kpi value={docs.length} label={t.phantasi.workbenchNotes} onPick={() => onOpenTool('notes')} />
-        <Kpi value={comments.length} label={t.phantasi.workbenchComments} onPick={() => onOpenTool('comments')} />
-        <Kpi
-          value={pendingReviews}
-          label={t.phantasi.workbenchReviews}
-          tone={pendingReviews > 0 ? 'warn' : undefined}
-          onPick={() => onOpenTool('reviews')}
-        />
-        <Kpi value={mediaTotal} label={t.phantasi.workbenchMedia} onPick={() => onOpenTool('media')} />
+      <section className="studio-overview__section" aria-label={t.studio.overlayGroupSiteWide}>
+        <div className="studio-overview__eyebrow">{t.studio.overlayGroupSiteWide}</div>
+        <div className="studio-overview__stats">
+          <Kpi value={docs.length} label={t.phantasi.workbenchNotes} onPick={() => onOpenTool('notes')} />
+          <Kpi value={comments.length} label={t.phantasi.workbenchComments} onPick={() => onOpenTool('comments')} />
+          <Kpi
+            value={pendingReviews}
+            label={t.phantasi.workbenchReviews}
+            tone={pendingReviews > 0 ? 'warn' : undefined}
+            onPick={() => onOpenTool('reviews')}
+          />
+          <Kpi value={mediaTotal} label={t.phantasi.workbenchMedia} onPick={() => onOpenTool('media')} />
+        </div>
       </section>
 
       {recent.length > 0 ? (
-        <section className="studio-overview__recent">
+        <section className="studio-overview__section" aria-label={t.studio.overlayRecent}>
           <div className="studio-overview__eyebrow">{t.studio.overlayRecent}</div>
-          <ul>
+          <ul className="studio-overview__recent">
             {recent.map((row) => (
               <li key={row.id}>
                 <button type="button" onClick={() => onOpenNote({ kind: 'doc', id: row.id })}>
                   <span className="studio-overview__recent-title">
                     {row.title.trim() || t.phantasi.workbenchNoteUntitled}
                   </span>
+                  <StatusBadge doc={row} />
                   <span className="studio-overview__recent-meta">
-                    {statusLabel(row, t)} · {noteScheduleLabel(row.updated_at, locale)}
+                    {noteScheduleLabel(row.updated_at, locale)}
                   </span>
                 </button>
               </li>
@@ -153,11 +161,11 @@ function Kpi({
   return (
     <button
       type="button"
-      className={`phantasi-workbench__kpi${tone ? ` is-${tone}` : ''}`}
+      className={`studio-overview__stat${tone ? ` is-${tone}` : ''}`}
       onClick={onPick}
     >
-      <span className="phantasi-workbench__kpi-value">{value}</span>
-      <span className="phantasi-workbench__kpi-label">{label}</span>
+      <span className="studio-overview__stat-value">{value}</span>
+      <span className="studio-overview__stat-label">{label}</span>
     </button>
   )
 }

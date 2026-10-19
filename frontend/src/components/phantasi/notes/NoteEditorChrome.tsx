@@ -141,7 +141,8 @@ interface NoteTopBarProps {
   articleHref?: string | null
   settingsOpen: boolean
   onToggleSettings: () => void
-  onClose: () => void
+  /** 不给就不放关闭按钮（窗口自己有）。 */
+  onClose?: () => void
 }
 
 export function NoteTopBar({
@@ -186,13 +187,15 @@ export function NoteTopBar({
     <header className="phantasi-note__top">
       <div className="phantasi-note__top-row">
         <div className="phantasi-note__top-left">
-          <NoteButton
-            variant="quiet"
-            icon={<X />}
-            onClick={onClose}
-            title={t.phantasi.close}
-            aria-label={t.phantasi.close}
-          />
+          {onClose ? (
+            <NoteButton
+              variant="quiet"
+              icon={<X />}
+              onClick={onClose}
+              title={t.phantasi.close}
+              aria-label={t.phantasi.close}
+            />
+          ) : null}
           <span
             className={`phantasi-note__state${lastError ? ' is-failed' : ''}`}
             role="status"

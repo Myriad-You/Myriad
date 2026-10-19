@@ -21,6 +21,7 @@ import {
   LuX,
 } from '@lib/icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { frameCloseHandler } from '../studioIsland'
 import {
   closeTool,
   defaultWindow,
@@ -102,6 +103,9 @@ export function StudioOverlay({
   const [viewport, setViewport] = useState(() => ({ w: win.innerWidth, h: win.innerHeight }))
   const [drag, setDrag] = useState<Drag | null>(null)
   const [loaded, setLoaded] = useState<ReadonlySet<StudioTool>>(() => new Set())
+  /** 窗口里的应用已经画出来了；之前窗口只显示占位，不露出整页的启动画面。 */
+  const [ready, setReady] = useState<ReadonlySet<StudioTool>>(() => new Set())
+  const frameRefs = useRef(new Map<StudioTool, HTMLIFrameElement>())
   const layoutRef = useRef(layout)
   layoutRef.current = layout
 
@@ -195,6 +199,8 @@ export function StudioOverlay({
   const openTools = new Set(layout.open.map((spec) => spec.tool))
   const loadedOpen = new Set([...loaded].filter((tool) => openTools.has(tool)))
   if (loadedOpen.size !== loaded.size) setLoaded(loadedOpen)
+  const readyOpen = new Set([...ready].filter((tool) => openTools.has(tool)))
+  if (readyOpen.size !== ready.size) setReady(readyOpen)
   const loadingNow = nextFrameToLoad(visibleTopFirst, loadedOpen, null)
 
   return (
@@ -333,20 +339,33 @@ export function StudioOverlay({
                   className="win__btn"
                   aria-label={copy.close}
                   title={copy.close}
-                  onClick={() => onLayout(closeTool(layoutRef.current, spec.tool))}
+                  onClick={() => {
+                    // 窗口有自己的关闭（编辑器）就交给它，由它决定关不关。
+                    const own = frameCloseHandler(frameRefs.current.get(spec.tool))
+                    if (own) own()
+                    else onLayout(closeTool(layoutRef.current, spec.tool))
+                  }}
                 >
                   <LuX />
                 </button>
               </header>
             )}
-            <div className="win__body">
+            <div className="win__body" data-ready={readyOpen.has(spec.tool)}>
+              {readyOpen.has(spec.tool) ? null : <FramePlaceholder />}
               {loadedOpen.has(spec.tool) || loadingNow === spec.tool ? (
                 <iframe
+                  ref={(node) => {
+                    if (node) frameRefs.current.set(spec.tool, node)
+                    else frameRefs.current.delete(spec.tool)
+                  }}
                   src={toolFrameSrc(frameSpec(spec), context)}
                   title={copy.tools[spec.tool]}
                   onLoad={(event) => {
                     const tool = spec.tool
                     setLoaded((current) => (current.has(tool) ? current : new Set([...current, tool])))
+                    whenFrameReady(event.currentTarget, () => {
+                      setReady((current) => (current.has(tool) ? current : new Set([...current, tool])))
+                    })
                     onFrameLoad(event.currentTarget)
                   }}
                 />
@@ -364,6 +383,46 @@ export function StudioOverlay({
       })}
     </div>
   )
+}
+
+/** 窗口还没画出来时的占位：几条灰条，形状像工具条加列表。 */
+function FramePlaceholder() {
+  return (
+    <div className="win__placeholder" aria-hidden>
+      <span className="win__placeholder-bar" />
+      <span />
+      <span />
+      <span />
+    </div>
+  )
+}
+
+/**
+ * 等窗口里的应用画出第一屏：应用就绪时给 `#app-root` 加 `app-ready`。
+ * 读不到（跨源、结构变了）或等太久就直接放出来，免得窗口一直是占位。
+ */
+function whenFrameReady(frame: HTMLIFrameElement, done: () => void) {
+  let root: HTMLElement | null = null
+  try {
+    root = frame.contentDocument?.getElementById('app-root') ?? null
+  } catch {
+    root = null
+  }
+  if (!root || root.classList.contains('app-ready')) {
+    done()
+    return
+  }
+  const target = root
+  const finish = () => {
+    observer.disconnect()
+    window.clearTimeout(timer)
+    done()
+  }
+  const observer = new MutationObserver(() => {
+    if (target.classList.contains('app-ready')) finish()
+  })
+  observer.observe(target, { attributes: true, attributeFilter: ['class'] })
+  const timer = window.setTimeout(finish, 8000)
 }
 
 /** 快捷键在博客页和每个工具窗口里都要听：键盘事件不会从 iframe 冒到外面。 */
