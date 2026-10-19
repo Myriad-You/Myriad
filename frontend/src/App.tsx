@@ -75,6 +75,7 @@ const {
   home: Home,
   library: Library,
   studio: Studio,
+  studioOverlay: StudioOverlayFrame,
   embedComments: EmbedComments,
   embedFriend: EmbedFriend,
   embedCompanion: EmbedCompanion,
@@ -145,7 +146,7 @@ function RequireAuth({
   return children
 }
 
-/** 创作台搬进了博客页的创作台岛，旧地址整页跳过去并展开它。 */
+/** 创作台在博客页的覆盖层里，旧地址整页跳过去并展开它。 */
 function LegacyStudioRedirect() {
   const location = useLocation()
   return <FullPageReturn to={legacyStudioRedirect(location.pathname, location.search)} />
@@ -772,7 +773,17 @@ function EmbedRoutes() {
         }
       />
       <Route
-        path="/embed/studio/*"
+        path="/embed/studio/overlay"
+        element={
+          <EmbedAdminOnly>
+            <NamespacedPage names={['phantasi', 'studio']}>
+              <StudioOverlayFrame />
+            </NamespacedPage>
+          </EmbedAdminOnly>
+        }
+      />
+      <Route
+        path="/embed/studio/tool/*"
         element={
           <EmbedAdminOnly>
             <NamespacedPage names={['phantasi', 'studio']}>

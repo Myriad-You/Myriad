@@ -73,5 +73,22 @@
   "companionGenerate": "產生",
   "companionRegenerate": "重新產生",
   "companionFailed": "沒能產生。",
-  "companionLoadFailed": "沒能讀取 AI 伴讀狀態。"
+  "companionLoadFailed": "沒能讀取 AI 伴讀狀態。",
+  "overlayEditPost": "編輯這篇",
+  "overlayHotkey": "按 Alt+` 開啟或收起創作臺",
+  "overlayPin": "釘住",
+  "overlayUnpin": "取消釘住",
+  "overlayOpacity": "釘住後的透明度",
+  "overlayToolbarIcons": "只顯示圖示",
+  "overlayToolbarList": "顯示文字",
+  "overlayGroupPage": "這一頁",
+  "overlayGroupSite": "全站",
+  "overlayGroupSiteWide": "全站數據",
+  "overlayThisPage": "這一頁",
+  "overlayThisPost": "這篇文章",
+  "overlayEditor": "編輯器",
+  "overlayOnlyThisPost": "只看這篇",
+  "overlayPostComments": "這篇的留言（{count}）",
+  "overlayNotAPost": "這一頁不是文章。可以寫一篇新的，或從工具列開啟別的工具。",
+  "overlayRecent": "最近改過"
 }

@@ -43,8 +43,8 @@ pub use slug::{
     slugify_title, validate_slug,
 };
 pub use studio::{
-    STUDIO_EMBED_ROOT, StudioIslandLabels, inject_studio_island, studio_frame_src, studio_island_html,
-    studio_island_labels, studio_only_page,
+    STUDIO_HOST_ID, STUDIO_OVERLAY_SRC, StudioPageContext, inject_studio_island, studio_only_page,
+    studio_open_spec, studio_overlay_html,
 };
 pub use summary::{SUMMARY_MAX_CHARS, summarize};
 pub use theme::{

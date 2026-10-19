@@ -73,5 +73,22 @@
   "companionGenerate": "생성",
   "companionRegenerate": "다시 생성",
   "companionFailed": "생성하지 못했어요.",
-  "companionLoadFailed": "AI 함께 읽기 상태를 불러오지 못했어요."
+  "companionLoadFailed": "AI 함께 읽기 상태를 불러오지 못했어요.",
+  "overlayEditPost": "이 글 편집",
+  "overlayHotkey": "Alt+` 로 스튜디오 열기/닫기",
+  "overlayPin": "고정",
+  "overlayUnpin": "고정 해제",
+  "overlayOpacity": "고정했을 때 불투명도",
+  "overlayToolbarIcons": "아이콘만",
+  "overlayToolbarList": "이름 표시",
+  "overlayGroupPage": "이 페이지",
+  "overlayGroupSite": "사이트 전체",
+  "overlayGroupSiteWide": "사이트 전체 수치",
+  "overlayThisPage": "이 페이지",
+  "overlayThisPost": "이 글",
+  "overlayEditor": "편집기",
+  "overlayOnlyThisPost": "이 글만",
+  "overlayPostComments": "이 글의 댓글 ({count})",
+  "overlayNotAPost": "이 페이지는 글이 아닙니다. 새 글을 쓰거나 도구 모음에서 다른 도구를 여세요.",
+  "overlayRecent": "최근 수정"
 }

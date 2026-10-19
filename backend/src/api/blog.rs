@@ -224,28 +224,23 @@ async fn serve_blog(
     Ok(response)
 }
 
-/// 站长看到的创作台岛。`?studio=/notes/12` 让它展开并停在那一页；文章页另给「编辑这篇」。
+/// 站长看到的创作台覆盖层。`?studio=editor-12` 让它展开并打开那个工具；文章页带上笔记的 id。
 async fn studio_island(db: &DatabaseConnection, path: &str, query: Option<&str>) -> String {
     let requested = query.and_then(|query| {
         url::form_urlencoded::parse(query.as_bytes())
             .find(|(key, _)| key == "studio")
             .map(|(_, value)| value.into_owned())
     });
-    let open = requested.is_some();
-    let frame_src = myriad_blog::studio_frame_src(requested.as_deref());
-    let edit_href = match post_slug(path) {
-        Some(slug) => post_note_doc_id(db, slug)
-            .await
-            .map(|doc_id| format!("{}?studio=/notes/{doc_id}", trailing_slash(path))),
-        None => None,
+    let (item_id, doc_id) = match post_slug(path) {
+        Some(slug) => post_note_ids(db, slug).await.unwrap_or((None, None)),
+        None => (None, None),
     };
-    let (_, _, locale) = crate::services::public_site::public_site_identity(db).await;
-    myriad_blog::studio_island_html(
-        &frame_src,
-        open,
-        edit_href.as_deref(),
-        myriad_blog::studio_island_labels(&locale),
-    )
+    myriad_blog::studio_overlay_html(&myriad_blog::StudioPageContext {
+        path: trailing_slash(path),
+        item_id,
+        doc_id,
+        open: myriad_blog::studio_open_spec(requested.as_deref()),
+    })
 }
 
 fn trailing_slash(path: &str) -> String {
@@ -263,8 +258,8 @@ fn post_slug(path: &str) -> Option<&str> {
     (!slug.is_empty() && !slug.contains('/')).then_some(slug)
 }
 
-/// 文章对应的笔记文档。slug 为空的笔记在博客上用 `n{id}`。
-async fn post_note_doc_id(db: &DatabaseConnection, slug: &str) -> Option<i32> {
+/// 文章对应的笔记条目和文档。slug 为空的笔记在博客上用 `n{id}`。
+async fn post_note_ids(db: &DatabaseConnection, slug: &str) -> Option<(Option<i32>, Option<i32>)> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let fallback_id = slug
         .strip_prefix('n')
@@ -273,10 +268,10 @@ async fn post_note_doc_id(db: &DatabaseConnection, slug: &str) -> Option<i32> {
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
-            SELECT d.id
+            SELECT i.id AS item_id, d.id AS doc_id
             FROM phantasi_items i
             INNER JOIN phantasi_sources s ON s.id = i.source_id
-            INNER JOIN phantasi_note_docs d ON d.item_id = i.id
+            LEFT JOIN phantasi_note_docs d ON d.item_id = i.id
             WHERE s.source_type = 'note'
               AND (i.slug = $1 OR ($2::int IS NOT NULL AND i.id = $2 AND COALESCE(i.slug, '') = ''))
             ORDER BY d.id
@@ -286,7 +281,10 @@ async fn post_note_doc_id(db: &DatabaseConnection, slug: &str) -> Option<i32> {
         ))
         .await
         .ok()??;
-    row.try_get::<i32>("", "id").ok()
+    Some((
+        row.try_get::<i32>("", "item_id").ok(),
+        row.try_get::<Option<i32>>("", "doc_id").ok().flatten(),
+    ))
 }
 
 /// 只有 HTML 才插岛；样式、图片照常返回，但同样不能进共享缓存。

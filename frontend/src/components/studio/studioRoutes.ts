@@ -1,93 +1,16 @@
-/** 创作台地址。创作台只在博客页的创作台岛里，是一个嵌入页；订阅类面板不在这里。 */
+/**
+ * 创作台地址。创作台只在博客页的覆盖层里：每个工具窗口是嵌入页
+ * `/embed/studio/tool/{tool}`，控制器是 `/embed/studio/overlay`。订阅类面板不在这里。
+ */
 
 import type { MediaOrigin } from '../../services/mediaApi'
+import type { StudioTool } from './overlay/studioTools'
+import { formatToolSpec, isStudioTool, legacySectionSpec } from './overlay/studioTools'
 
-export const STUDIO_ROOT = '/embed/studio'
+export const STUDIO_TOOL_ROOT = '/embed/studio/tool'
 
-/** 旧地址，整页跳去博客并展开创作台岛。 */
+/** 旧地址，整页跳去博客并展开覆盖层。 */
 export const LEGACY_STUDIO_ROOT = '/studio'
-
-export type StudioMediaSection =
-  | 'media'
-  | 'mediaUploads'
-  | 'mediaGenerated'
-  | 'mediaKept'
-  | 'mediaChannel'
-  | 'mediaImported'
-
-export type StudioSection =
-  | 'home'
-  | 'notes'
-  | 'comments'
-  | StudioMediaSection
-  | 'reviews'
-  | 'categories'
-  | 'import'
-  | 'blog'
-
-export type StudioLocation =
-  | { kind: 'section'; section: StudioSection }
-  | { kind: 'editor'; docId: number | 'new' }
-
-const SECTION_PATHS: Record<Exclude<StudioSection, 'home'>, string> = {
-  notes: `${STUDIO_ROOT}/notes`,
-  comments: `${STUDIO_ROOT}/comments`,
-  media: `${STUDIO_ROOT}/media`,
-  mediaUploads: `${STUDIO_ROOT}/media/uploads`,
-  mediaGenerated: `${STUDIO_ROOT}/media/generated`,
-  mediaKept: `${STUDIO_ROOT}/media/kept`,
-  mediaChannel: `${STUDIO_ROOT}/media/channel`,
-  mediaImported: `${STUDIO_ROOT}/media/imported`,
-  reviews: `${STUDIO_ROOT}/reviews`,
-  categories: `${STUDIO_ROOT}/categories`,
-  import: `${STUDIO_ROOT}/import`,
-  blog: `${STUDIO_ROOT}/blog`,
-}
-
-export function studioMediaOrigin(section: StudioSection): 'all' | MediaOrigin | null {
-  switch (section) {
-    case 'media':
-      return 'all'
-    case 'mediaUploads':
-      return 'upload'
-    case 'mediaGenerated':
-      return 'generated'
-    case 'mediaKept':
-      return 'kept'
-    case 'mediaChannel':
-      return 'channel'
-    case 'mediaImported':
-      return 'import'
-    default:
-      return null
-  }
-}
-
-export function studioSectionForMediaOrigin(origin: 'all' | MediaOrigin): StudioMediaSection {
-  switch (origin) {
-    case 'all':
-      return 'media'
-    case 'upload':
-      return 'mediaUploads'
-    case 'generated':
-      return 'mediaGenerated'
-    case 'kept':
-      return 'mediaKept'
-    case 'channel':
-      return 'mediaChannel'
-    case 'import':
-      return 'mediaImported'
-  }
-}
-
-export function studioSectionPath(section: StudioSection): string {
-  if (section === 'home') return STUDIO_ROOT
-  return SECTION_PATHS[section]
-}
-
-export function studioNotePath(docId: number | 'new'): string {
-  return `${STUDIO_ROOT}/notes/${docId}`
-}
 
 function trimPath(pathname: string): string {
   if (pathname.length > 1 && pathname.endsWith('/')) {
@@ -96,52 +19,51 @@ function trimPath(pathname: string): string {
   return pathname
 }
 
-export function parseStudioPath(pathname: string): StudioLocation | null {
+/** `/embed/studio/tool/comments` 里的工具名；别的地址为 null。 */
+export function parseStudioToolPath(pathname: string): StudioTool | null {
   const path = trimPath(pathname)
-  if (path === STUDIO_ROOT) return { kind: 'section', section: 'home' }
-  if (path === `${STUDIO_ROOT}/notes`) return { kind: 'section', section: 'notes' }
-  if (path === `${STUDIO_ROOT}/notes/new`) return { kind: 'editor', docId: 'new' }
-  if (path.startsWith(`${STUDIO_ROOT}/notes/`)) {
-    const raw = path.slice(`${STUDIO_ROOT}/notes/`.length)
-    if (!raw || raw.includes('/')) return null
-    if (!/^[1-9]\d*$/.test(raw)) return null
-    const id = Number(raw)
-    if (!Number.isSafeInteger(id)) return null
-    return { kind: 'editor', docId: id }
-  }
-  for (const [section, target] of Object.entries(SECTION_PATHS) as Array<[StudioSection, string]>) {
-    if (path === target) return { kind: 'section', section }
-  }
-  return null
+  if (!path.startsWith(`${STUDIO_TOOL_ROOT}/`)) return null
+  const tool = path.slice(STUDIO_TOOL_ROOT.length + 1)
+  return isStudioTool(tool) ? tool : null
 }
 
-export function isStudioPath(pathname: string): boolean {
-  return pathname === STUDIO_ROOT || pathname.startsWith(`${STUDIO_ROOT}/`)
+/** 编辑器窗口的 `arg`：`new` 或笔记文档 id。 */
+export function editorTarget(arg: string | null): number | 'new' {
+  if (arg && /^[1-9]\d*$/.test(arg)) {
+    const id = Number(arg)
+    if (Number.isSafeInteger(id)) return id
+  }
+  return 'new'
 }
 
-export type StudioAccess = 'pending' | 'login' | 'home' | 'allow'
-
-/** 与 App 里 RequireAuth requiresAdmin 同一口径：未登录去登录，非管理员回首页。 */
-export function studioAccess(input: {
-  hasChecked: boolean
-  isAuthenticated: boolean
-  isAdmin: boolean
-}): StudioAccess {
-  if (!input.hasChecked) return 'pending'
-  if (!input.isAuthenticated) return 'login'
-  if (!input.isAdmin) return 'home'
-  return 'allow'
+/** 媒体窗口的 `arg` 对应的来源。沿用旧地址里的写法（`imported`）。 */
+export function mediaOriginForArg(arg: string | null): 'all' | MediaOrigin {
+  switch (arg) {
+    case 'uploads':
+    case 'upload':
+      return 'upload'
+    case 'generated':
+      return 'generated'
+    case 'kept':
+      return 'kept'
+    case 'channel':
+      return 'channel'
+    case 'imported':
+    case 'import':
+      return 'import'
+    default:
+      return 'all'
+  }
 }
 
 /**
- * 旧的 `/studio/...` 换成博客页上的地址：`/blog/?studio=/notes/12`。
- * 后端看到 `studio` 参数就把创作台岛展开，停在那一页。
+ * 旧的 `/studio/...` 换成博客页上的地址：`/blog/?studio=editor-12`。
+ * 后端看到 `studio` 参数就让覆盖层展开，打开那个工具。
  */
 export function legacyStudioRedirect(pathname: string, search = ''): string {
   const path = trimPath(pathname)
   const rest = path === LEGACY_STUDIO_ROOT ? '' : path.slice(LEGACY_STUDIO_ROOT.length)
-  const sub = /^[a-z0-9/-]*$/.test(rest) ? rest : ''
   const query = new URLSearchParams(search)
-  query.set('studio', sub || '/')
-  return `/blog/?${query.toString().replaceAll('%2F', '/')}`
+  query.set('studio', formatToolSpec(legacySectionSpec(rest)))
+  return `/blog/?${query.toString()}`
 }

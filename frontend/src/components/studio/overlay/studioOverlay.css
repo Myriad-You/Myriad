@@ -1,0 +1,366 @@
+/* 创作台覆盖层。只在宿主节点的 Shadow DOM 里生效，不碰博客主题，也不受它影响。 */
+
+:host {
+  all: initial;
+
+  --so-ink: #f4f4f5;
+  --so-ink-dim: rgb(244 244 245 / 62%);
+  --so-glass: rgb(24 24 27 / 82%);
+  --so-glass-strong: rgb(24 24 27 / 94%);
+  --so-line: rgb(255 255 255 / 10%);
+  --so-hover: rgb(255 255 255 / 10%);
+  --so-active: rgb(255 255 255 / 16%);
+  --so-accent: #a78bfa;
+  --so-frame-bg: #fafaf9;
+  --so-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  position: fixed;
+  inset: 0;
+  z-index: 2147483600;
+  pointer-events: none;
+  color-scheme: light dark;
+  font: 500 13px/1.3 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--so-ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    --so-frame-bg: #18181b;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--so-accent);
+  outline-offset: 2px;
+}
+
+.glass {
+  background: var(--so-glass);
+  backdrop-filter: blur(18px) saturate(1.5);
+  box-shadow:
+    0 10px 30px rgb(0 0 0 / 22%),
+    inset 0 0 0 1px var(--so-line);
+}
+
+/* 顶部细条：收起和展开时都在。 */
+.bar {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 999px;
+  pointer-events: auto;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.bar__btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 12px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.bar__btn:hover {
+  background: var(--so-hover);
+}
+
+.bar__btn[aria-pressed='true'] {
+  background: var(--so-active);
+}
+
+.bar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f97316, var(--so-accent));
+}
+
+.bar__key {
+  padding: 2px 6px;
+  border-radius: 6px;
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--so-ink-dim);
+  box-shadow: inset 0 0 0 1px var(--so-line);
+}
+
+/* 展开时页面变暗，但仍在原地。 */
+.dim {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: auto;
+  background: rgb(9 9 11 / 46%);
+  backdrop-filter: blur(2px);
+  animation: so-fade 180ms var(--so-ease);
+}
+
+/* 左侧工具栏。 */
+.toolbar {
+  position: fixed;
+  top: 56px;
+  left: 12px;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 204px;
+  padding: 8px;
+  border-radius: 18px;
+  pointer-events: auto;
+  overflow-y: auto;
+  animation: so-slide 220ms var(--so-ease);
+}
+
+.toolbar[data-mode='icons'] {
+  width: 52px;
+}
+
+.toolbar__group {
+  margin: 10px 8px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--so-ink-dim);
+}
+
+.toolbar[data-mode='icons'] .toolbar__group {
+  height: 1px;
+  margin: 8px 6px;
+  overflow: hidden;
+  background: var(--so-line);
+  color: transparent;
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tool:hover {
+  background: var(--so-hover);
+}
+
+.tool[aria-pressed='true'] {
+  background: var(--so-active);
+}
+
+.tool svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+.tool__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool__pin {
+  margin-left: auto;
+  width: 12px !important;
+  height: 12px !important;
+  color: var(--so-ink-dim);
+}
+
+.toolbar[data-mode='icons'] .tool {
+  justify-content: center;
+  padding: 0;
+}
+
+.toolbar[data-mode='icons'] .tool__label,
+.toolbar[data-mode='icons'] .tool__pin {
+  display: none;
+}
+
+.toolbar__foot {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--so-line);
+}
+
+/* 工具窗口。 */
+.win {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  overflow: hidden;
+  pointer-events: auto;
+  background: var(--so-glass-strong);
+  box-shadow:
+    0 24px 70px rgb(0 0 0 / 38%),
+    inset 0 0 0 1px var(--so-line);
+  animation: so-pop 200ms var(--so-ease);
+}
+
+.win[data-focus='true'] {
+  box-shadow:
+    0 28px 80px rgb(0 0 0 / 46%),
+    inset 0 0 0 1px rgb(167 139 250 / 45%);
+}
+
+/* 收起后钉住的窗口：只留内容，按设置透明，鼠标穿过去点页面。 */
+.win[data-pinned-view='true'] {
+  pointer-events: none;
+  background: transparent;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 22%);
+  animation: none;
+}
+
+/* 收起后没钉住的窗口：看不见也点不到，但仍在渲染。iframe 若是 display:none，
+   里面的 requestAnimationFrame 不跑，页面会停在加载遮罩上。 */
+.win[data-away='true'] {
+  visibility: hidden;
+  pointer-events: none;
+  animation: none;
+}
+
+.win__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 6px 0 12px;
+  cursor: grab;
+  user-select: none;
+  border-bottom: 1px solid var(--so-line);
+}
+
+.win__title:active {
+  cursor: grabbing;
+}
+
+.win__title svg {
+  width: 15px;
+  height: 15px;
+}
+
+.win__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.win__btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--so-ink-dim);
+}
+
+.win__btn:hover {
+  color: var(--so-ink);
+  background: var(--so-hover);
+}
+
+.win__btn[aria-pressed='true'] {
+  color: var(--so-accent);
+}
+
+.win__opacity {
+  width: 72px;
+  accent-color: var(--so-accent);
+}
+
+.win__body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--so-frame-bg);
+}
+
+.win__body iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.win[data-dragging='true'] iframe,
+.stage[data-dragging='true'] iframe {
+  pointer-events: none;
+}
+
+.win__resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgb(255 255 255 / 28%) 50% 58%, transparent 58% 70%, rgb(255 255 255 / 28%) 70% 78%, transparent 78%);
+}
+
+@keyframes so-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes so-slide {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+@keyframes so-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dim,
+  .toolbar,
+  .win {
+    animation: none;
+  }
+}

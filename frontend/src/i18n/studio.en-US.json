@@ -73,5 +73,22 @@
   "companionGenerate": "Generate",
   "companionRegenerate": "Regenerate",
   "companionFailed": "Could not generate.",
-  "companionLoadFailed": "Could not load the AI companion status."
+  "companionLoadFailed": "Could not load the AI companion status.",
+  "overlayEditPost": "Edit this post",
+  "overlayHotkey": "Press Alt+` to open or close the studio",
+  "overlayPin": "Pin",
+  "overlayUnpin": "Unpin",
+  "overlayOpacity": "Opacity when pinned",
+  "overlayToolbarIcons": "Icons only",
+  "overlayToolbarList": "Show labels",
+  "overlayGroupPage": "This page",
+  "overlayGroupSite": "Site",
+  "overlayGroupSiteWide": "Site totals",
+  "overlayThisPage": "This page",
+  "overlayThisPost": "This post",
+  "overlayEditor": "Editor",
+  "overlayOnlyThisPost": "Only this post",
+  "overlayPostComments": "{count, plural, one {# comment on this post} other {# comments on this post}}",
+  "overlayNotAPost": "This page isn't a post. Write a new one, or open another tool from the toolbar.",
+  "overlayRecent": "Recently edited"
 }

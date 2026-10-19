@@ -73,5 +73,22 @@
   "companionGenerate": "生成",
   "companionRegenerate": "再生成",
   "companionFailed": "生成できなかった。",
-  "companionLoadFailed": "AI 伴読の状態を読み込めなかった。"
+  "companionLoadFailed": "AI 伴読の状態を読み込めなかった。",
+  "overlayEditPost": "この記事を編集",
+  "overlayHotkey": "Alt+` でスタジオを開く・閉じる",
+  "overlayPin": "ピン留め",
+  "overlayUnpin": "ピン留めを外す",
+  "overlayOpacity": "ピン留め時の不透明度",
+  "overlayToolbarIcons": "アイコンのみ",
+  "overlayToolbarList": "ラベルを表示",
+  "overlayGroupPage": "このページ",
+  "overlayGroupSite": "サイト全体",
+  "overlayGroupSiteWide": "サイト全体の数",
+  "overlayThisPage": "このページ",
+  "overlayThisPost": "この記事",
+  "overlayEditor": "エディター",
+  "overlayOnlyThisPost": "この記事だけ",
+  "overlayPostComments": "この記事のコメント（{count}）",
+  "overlayNotAPost": "このページは記事ではありません。新しく書くか、ツールバーからほかのツールを開けます。",
+  "overlayRecent": "最近の編集"
 }

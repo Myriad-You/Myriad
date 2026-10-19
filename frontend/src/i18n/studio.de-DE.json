@@ -73,5 +73,22 @@
   "companionGenerate": "Erzeugen",
   "companionRegenerate": "Neu erzeugen",
   "companionFailed": "Konnte nicht erzeugt werden.",
-  "companionLoadFailed": "Der Status des KI-Begleiters konnte nicht geladen werden."
+  "companionLoadFailed": "Der Status des KI-Begleiters konnte nicht geladen werden.",
+  "overlayEditPost": "Diesen Beitrag bearbeiten",
+  "overlayHotkey": "Alt+` öffnet oder schließt das Studio",
+  "overlayPin": "Anheften",
+  "overlayUnpin": "Lösen",
+  "overlayOpacity": "Deckkraft im angehefteten Zustand",
+  "overlayToolbarIcons": "Nur Symbole",
+  "overlayToolbarList": "Beschriftungen zeigen",
+  "overlayGroupPage": "Diese Seite",
+  "overlayGroupSite": "Website",
+  "overlayGroupSiteWide": "Website gesamt",
+  "overlayThisPage": "Diese Seite",
+  "overlayThisPost": "Dieser Beitrag",
+  "overlayEditor": "Editor",
+  "overlayOnlyThisPost": "Nur dieser Beitrag",
+  "overlayPostComments": "{count, plural, one {# Kommentar zu diesem Beitrag} other {# Kommentare zu diesem Beitrag}}",
+  "overlayNotAPost": "Diese Seite ist kein Beitrag. Schreib einen neuen oder öffne ein anderes Werkzeug in der Leiste.",
+  "overlayRecent": "Zuletzt bearbeitet"
 }

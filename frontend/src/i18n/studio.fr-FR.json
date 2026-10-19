@@ -73,5 +73,22 @@
   "companionGenerate": "Générer",
   "companionRegenerate": "Régénérer",
   "companionFailed": "Impossible de générer.",
-  "companionLoadFailed": "Impossible de charger l’état de la lecture IA."
+  "companionLoadFailed": "Impossible de charger l’état de la lecture IA.",
+  "overlayEditPost": "Modifier cet article",
+  "overlayHotkey": "Alt+` ouvre ou ferme le studio",
+  "overlayPin": "Épingler",
+  "overlayUnpin": "Désépingler",
+  "overlayOpacity": "Opacité une fois épinglé",
+  "overlayToolbarIcons": "Icônes seules",
+  "overlayToolbarList": "Afficher les libellés",
+  "overlayGroupPage": "Cette page",
+  "overlayGroupSite": "Site",
+  "overlayGroupSiteWide": "Totaux du site",
+  "overlayThisPage": "Cette page",
+  "overlayThisPost": "Cet article",
+  "overlayEditor": "Éditeur",
+  "overlayOnlyThisPost": "Cet article seulement",
+  "overlayPostComments": "{count, plural, one {# commentaire sur cet article} other {# commentaires sur cet article}}",
+  "overlayNotAPost": "Cette page n'est pas un article. Écrivez-en un nouveau ou ouvrez un autre outil depuis la barre.",
+  "overlayRecent": "Modifiés récemment"
 }

@@ -1,190 +1,109 @@
 import type { WorkbenchPane } from '../components/phantasi/logic/board'
-import type { BlogBuildMark } from '../components/studio/studioIsland'
-import type { StudioSection } from '../components/studio/studioRoutes'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import AnimatedView from '../components/AnimatedView'
+import type { StudioTool } from '../components/studio/overlay/studioTools'
+import { lazy, Suspense, useCallback, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { workbenchPendingReviews } from '../components/phantasi/logic/workbenchHome'
 import { useNoteTransfer } from '../components/phantasi/manager/useNoteTransfer'
 import { usePhantasiCategories } from '../components/phantasi/usePhantasiCategories'
 import { usePhantasiWorkbench } from '../components/phantasi/usePhantasiWorkbench'
-import {
-  blogReloadDecision,
-  closeStudioIsland,
-  findStudioIsland,
-  withoutStudioParam,
-} from '../components/studio/studioIsland'
-import { openPublishedItem, openStudioNote } from '../components/studio/studioNoteNav'
-import {
-  parseStudioPath,
-  STUDIO_ROOT,
-  studioMediaOrigin,
-  studioNotePath,
-  studioSectionPath,
-} from '../components/studio/studioRoutes'
-import { StudioShell } from '../components/studio/StudioShell'
+import { openBlogPage, studioOverlayApi } from '../components/studio/studioIsland'
+import { openPublishedItem, openStudioNote, openStudioTool } from '../components/studio/studioNoteNav'
+import { editorTarget, mediaOriginForArg, parseStudioToolPath } from '../components/studio/studioRoutes'
+import { StudioToolPane } from '../components/studio/StudioShell'
 import { ToastContainer } from '../components/ToastContainer'
 import { useI18n } from '../contexts/I18nContext'
-import { getBlogSettings } from '../services/blogApi'
 import { showToast } from '../utils/toastManager'
 
 const NoteEditor = lazy(() => import('../components/phantasi/notes/NoteEditor'))
 
-function deskPane(section: StudioSection): WorkbenchPane {
-  switch (section) {
-    case 'home':
+function deskPane(tool: Exclude<StudioTool, 'editor'>): WorkbenchPane {
+  switch (tool) {
+    case 'overview':
       return 'home'
     case 'notes':
       return 'notes'
     case 'comments':
       return 'comments'
     case 'media':
-    case 'mediaUploads':
-    case 'mediaGenerated':
-    case 'mediaKept':
-    case 'mediaChannel':
-    case 'mediaImported':
       return 'media'
     case 'reviews':
       return 'reviews'
     case 'categories':
       return 'noteCategories'
-    case 'import':
+    case 'transfer':
       return 'notesIo'
-    case 'blog':
+    case 'settings':
       return 'blog'
   }
 }
 
-async function buildMark(): Promise<BlogBuildMark | null> {
-  try {
-    const { build } = await getBlogSettings()
-    return { status: build.status, lastBuiltAt: build.last_built_at ?? null }
-  } catch {
-    return null
-  }
+function positiveInt(value: string | null): number | null {
+  const id = Number(value)
+  return value && Number.isSafeInteger(id) && id > 0 ? id : null
 }
 
-const RELOAD_POLL_MS = 1500
-const RELOAD_POLL_LIMIT = 40
-
-/**
- * 和外层创作台岛配合：Esc 和点遮罩收岛；收岛时博客若已重新生成，刷新外层页面，
- * 让站长看到刚改的内容。还在生成就等它生成完。
- */
-function useStudioIsland() {
-  useEffect(() => {
-    const host = findStudioIsland()
-    if (!host) return
-    let opened: BlogBuildMark | null = null
-    let disposed = false
-    let timer = 0
-    const remember = () => {
-      void buildMark().then((mark) => {
-        if (!disposed) opened = mark
-      })
-    }
-    const settle = (tries: number) => {
-      void buildMark().then((now) => {
-        if (disposed || host.island.open || !now) return
-        const decision = blogReloadDecision(opened, now)
-        if (decision === 'reload') { host.top.location.reload()
-}
-        else if (decision === 'wait' && tries < RELOAD_POLL_LIMIT) {
-          timer = window.setTimeout(settle, RELOAD_POLL_MS, tries + 1)
-        }
-      })
-    }
-    const onToggle = () => {
-      window.clearTimeout(timer)
-      if (host.island.open) {
-        remember()
-        return
-      }
-      const href = host.top.location.href
-      const clean = withoutStudioParam(href)
-      if (clean !== href) host.top.history.replaceState(host.top.history.state, '', clean)
-      settle(0)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented) closeStudioIsland(host)
-    }
-    const onSheet = (event: MouseEvent) => {
-      if (event.target === host.sheet) closeStudioIsland(host)
-    }
-    remember()
-    host.island.addEventListener('toggle', onToggle)
-    host.sheet?.addEventListener('click', onSheet)
-    window.addEventListener('keydown', onKey)
-    host.top.addEventListener('keydown', onKey)
-    return () => {
-      disposed = true
-      window.clearTimeout(timer)
-      host.island.removeEventListener('toggle', onToggle)
-      host.sheet?.removeEventListener('click', onSheet)
-      window.removeEventListener('keydown', onKey)
-      host.top.removeEventListener('keydown', onKey)
-    }
-  }, [])
-}
-
-/** 创作台岛里的嵌入页 `/embed/studio/*`。 */
+/** 覆盖层里一个工具窗口的嵌入页 `/embed/studio/tool/{tool}`。 */
 export default function Studio() {
   const location = useLocation()
-  useStudioIsland()
-  const parsed = parseStudioPath(location.pathname)
+  const tool = parseStudioToolPath(location.pathname)
+  const query = new URLSearchParams(location.search)
+  const arg = query.get('arg')
+  const itemId = positiveInt(query.get('item'))
   return (
     <div className="embed-root studio-embed">
-      {!parsed ? (
-        <Navigate to={STUDIO_ROOT} replace />
-      ) : parsed.kind === 'editor' ? (
-        <StudioEditor docId={parsed.docId} />
-      ) : (
-        <StudioDesk section={parsed.section} />
-      )}
+      {tool === 'editor' ? (
+        <StudioEditor target={editorTarget(arg)} />
+      ) : tool ? (
+        <StudioToolPage key={tool} tool={tool} arg={arg} itemId={itemId} />
+      ) : null}
       <ToastContainer />
     </div>
   )
 }
 
-function StudioEditor({ docId }: { docId: number | 'new' }) {
-  const navigate = useNavigate()
-  const [pin, setPin] = useState(docId)
-  const ignoreUrl = useRef(false)
-  useEffect(() => {
-    if (ignoreUrl.current) {
-      ignoreUrl.current = false
-      return
-    }
-    setPin(docId)
-  }, [docId])
+function StudioEditor({ target }: { target: number | 'new' }) {
+  const [pin] = useState(target)
+  const close = () => {
+    const api = studioOverlayApi()
+    if (api) api.close('editor')
+    else openBlogPage('/blog/')
+  }
   return (
     <Suspense fallback={null}>
       <NoteEditor
         key={pin === 'new' ? 'new' : String(pin)}
         docId={pin === 'new' ? undefined : pin}
-        onClose={() => navigate(studioSectionPath('notes'))}
+        onClose={close}
         onSaved={() => {}}
-        onDeleted={() => navigate(studioSectionPath('notes'))}
+        onDeleted={close}
         onCloudId={(id) => {
           if (pin !== 'new') return
-          ignoreUrl.current = true
-          navigate(studioNotePath(id), { replace: true })
+          // 新笔记拿到 id：记进布局，窗口不重新加载，编辑器也不重建。
+          window.history.replaceState(window.history.state, '', `?arg=${id}`)
+          studioOverlayApi()?.remember({ tool: 'editor', arg: String(id) })
         }}
       />
     </Suspense>
   )
 }
 
-function StudioDesk({ section }: { section: StudioSection }) {
+function StudioToolPage({
+  tool,
+  arg,
+  itemId,
+}: {
+  tool: Exclude<StudioTool, 'editor'>
+  arg: string | null
+  itemId: number | null
+}) {
   const { t } = useI18n()
-  const navigate = useNavigate()
   const [docsEpoch, setDocsEpoch] = useState(0)
+  const [mediaOrigin, setMediaOrigin] = useState(() => mediaOriginForArg(arg))
   const setError = useCallback((message: string) => {
     if (message) showToast({ message, type: 'error', replaceKey: 'studio' })
   }, [])
   const workbench = usePhantasiWorkbench(
-    deskPane(section),
+    deskPane(tool),
     docsEpoch,
     {
       loadFailed: t.phantasi.workbenchLoadFailed,
@@ -199,10 +118,10 @@ function StudioDesk({ section }: { section: StudioSection }) {
       reviewDeleteFailed: t.phantasi.workbenchReviewDeleteFailed,
     },
     setError,
-    studioMediaOrigin(section),
+    tool === 'media' ? mediaOrigin : null,
   )
   const categories = usePhantasiCategories(
-    section === 'notes' || section === 'categories' || section === 'home',
+    tool === 'notes' || tool === 'categories' || tool === 'overview',
     workbench.docs,
     {
       loadFailed: t.phantasi.workbenchCategoryLoadFailed,
@@ -223,16 +142,17 @@ function StudioDesk({ section }: { section: StudioSection }) {
   })
   const failed = t.studio.openFailed
   return (
-    <AnimatedView className="studio-page min-h-full px-4 sm:px-6 py-6">
-      <StudioShell
-        section={section}
+    <div className="studio-page studio-tool-page">
+      <StudioToolPane
+        tool={tool}
+        itemId={itemId}
         docs={workbench.docs}
         media={workbench.media}
         mediaTotal={workbench.mediaTotal}
-        mediaOrigins={workbench.mediaOrigins}
         mediaFormats={workbench.mediaFormats}
-        mediaFilter={workbench.mediaFilter}
+        mediaFilter={{ ...workbench.mediaFilter, origin: mediaOrigin }}
         onMediaFilter={workbench.setMediaFilter}
+        onMediaOrigin={setMediaOrigin}
         mediaHasMore={workbench.mediaHasMore}
         onLoadMoreMedia={workbench.loadMoreMedia}
         comments={workbench.comments}
@@ -261,11 +181,13 @@ function StudioDesk({ section }: { section: StudioSection }) {
             : null
         }
         onWrite={() => {
-          void openStudioNote(navigate, { kind: 'new' })
+          void openStudioNote({ kind: 'new' })
         }}
         onOpenNote={(open) => {
-          void openStudioNote(navigate, open, setError, failed)
+          void openStudioNote(open, setError, failed)
         }}
+        onOpenTool={(next) => openStudioTool({ tool: next, arg: null })}
+        onOpenPost={() => openBlogPage('/blog/')}
         onDeleteNotes={async (docs) => workbench.removeNotes(docs)}
         onUnschedule={workbench.unschedule}
         onAssignNotes={(docs, name) => {
@@ -297,6 +219,6 @@ function StudioDesk({ section }: { section: StudioSection }) {
         }}
         pendingReviews={workbenchPendingReviews(workbench.applications).length}
       />
-    </AnimatedView>
+    </div>
   )
 }
