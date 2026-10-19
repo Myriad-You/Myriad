@@ -12,6 +12,7 @@ import { reloadOnOutdatedOptimizeDepPlugin } from './scripts/vite/reloadOnOutdat
 import { siteBrandingStampPlugin } from './scripts/vite/siteBrandingStampPlugin.mjs'
 import { spaFallbackPlugin } from './scripts/vite/spaFallback.mjs'
 import { stripDevSourcemapsPlugin } from './scripts/vite/stripDevSourcemaps.mjs'
+import { isStudioPass, studioBuildPlugin } from './scripts/vite/studioBuild.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -100,7 +101,9 @@ export default defineConfig(({ command }) => ({
     backendDevProxyPlugin(),
     spaFallbackPlugin(),
     stripDevSourcemapsPlugin(),
-    precompressPlugin(),
+    // 两遍构建只在最后一遍（创作台）压缩：它会把整个输出目录都压一遍。
+    ...(command === 'build' && !isStudioPass() ? [] : [precompressPlugin()]),
+    studioBuildPlugin(),
   ],
   resolve: {
     alias: {
@@ -117,6 +120,8 @@ export default defineConfig(({ command }) => ({
       build: {
         target: 'es2025',
         rollupOptions: {
+          // 第二遍只构建创作台的嵌入页，见 scripts/vite/studioBuild.mjs。
+          ...(isStudioPass() ? { input: path.resolve(__dirname, 'studio.html') } : {}),
           output: {
             codeSplitting: {
               groups: [
@@ -184,6 +189,8 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     target: 'es2025',
+    // public/ 第一遍已经拷过了。
+    copyPublicDir: !isStudioPass(),
     cssCodeSplit: true,
     minify: 'terser',
     terserOptions: {

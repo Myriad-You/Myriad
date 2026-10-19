@@ -12,6 +12,13 @@ export function isEmbedDocumentPath(pathname) {
   return pathname === '/embed' || pathname.startsWith('/embed/')
 }
 
+/** 创作台的嵌入页用自己的 `studio.html`，不走主站的 `index.html`。 */
+export const STUDIO_DOCUMENT = 'studio.html'
+
+export function isStudioDocumentPath(pathname) {
+  return pathname === '/embed/studio/overlay' || pathname.startsWith('/embed/studio/tool/')
+}
+
 export const BACKEND_TARGET = 'http://127.0.0.1:1103'
 
 export const STATIC_ASSET_PATTERN =

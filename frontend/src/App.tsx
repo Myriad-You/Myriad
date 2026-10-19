@@ -1,11 +1,9 @@
-import type { ShellNamespace } from './i18n'
 import type { ModuleVisibilityKey } from './utils/moduleVisibility'
 import { useLazyMotion } from '@lib/lazyMotion'
 import React, {
   lazy,
   Suspense,
   useEffect,
-  useLayoutEffect,
   useRef,
   useSyncExternalStore,
 } from 'react'
@@ -29,7 +27,9 @@ import {
 import { BackgroundTappHost, RouteWarmup } from './components/ApplicationStartup'
 import CustomScrollbar from './components/CustomScrollbar'
 import { DocumentReady } from './components/DocumentReady'
+import { EmbedAdminOnly, useEmbedFrame } from './components/embed/embedFrame'
 import { isEmbedPath } from './components/embed/embedRoutes'
+import { NamespacedPage, SuspensePage } from './components/NamespacedPage'
 import { RenderErrorBoundary } from './components/RenderErrorBoundary'
 import RouteLoader from './components/RouteLoader'
 import { legacyStudioRedirect } from './components/studio/studioRoutes'
@@ -150,14 +150,6 @@ function RequireAuth({
 function LegacyStudioRedirect() {
   const location = useLocation()
   return <FullPageReturn to={legacyStudioRedirect(location.pathname, location.search)} />
-}
-
-/** 嵌入页里不跳登录页或首页：不是站长就什么都不显示。 */
-function EmbedAdminOnly({ children }: { children: React.ReactNode }) {
-  const { isAdmin, hasChecked } = useAuth()
-  if (!hasChecked) return null
-  if (!isAdmin) return <DocumentReady>{null}</DocumentReady>
-  return children
 }
 
 /** `/blog` 不在 SPA 路由里，回跳必须整页导航。 */
@@ -335,29 +327,6 @@ function AgentAccessGate({ children }: { children: React.ReactNode }) {
       {!panelAttached && (pending || allowed) ? <AgentOpenIntentCapture /> : null}
       {allowed ? children : null}
     </>
-  )
-}
-
-/** fallback null：PageLoader 与页面数据态已覆盖等待，不要再加路由级 spinner。 */
-function SuspensePage({ children }: { children: React.ReactNode }) {
-  return (
-    <Suspense fallback={null}>
-      <DocumentReady>{children}</DocumentReady>
-    </Suspense>
-  )
-}
-
-function NamespacedPage({
-  names,
-  children,
-}: {
-  names: readonly ShellNamespace[]
-  children: React.ReactNode
-}) {
-  return (
-    <I18nNamespace names={names}>
-      <SuspensePage>{children}</SuspensePage>
-    </I18nNamespace>
   )
 }
 
@@ -731,25 +700,6 @@ function AppRoutes() {
       </Routes>
     </AnimatedPage>
   )
-}
-
-function useEmbedFrame() {
-  useLayoutEffect(() => {
-    const root = document.documentElement
-    const previous = root.className
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = () => {
-      root.classList.add('embed-frame')
-      root.classList.toggle('dark', media.matches)
-      root.classList.toggle('light', !media.matches)
-    }
-    apply()
-    media.addEventListener('change', apply)
-    return () => {
-      media.removeEventListener('change', apply)
-      root.className = previous
-    }
-  }, [])
 }
 
 function EmbedRoutes() {

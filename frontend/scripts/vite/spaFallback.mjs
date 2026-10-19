@@ -4,7 +4,9 @@ import {
   DOCUMENT_PERMISSIONS_POLICY,
   EMBED_FRAME_HEADERS,
   isEmbedDocumentPath,
+  isStudioDocumentPath,
   STATIC_ASSET_PATTERN,
+  STUDIO_DOCUMENT,
 } from './constants.mjs'
 
 /** Document policy and missing-asset guard; Vite owns history fallback. */
@@ -18,6 +20,13 @@ export function spaFallbackPlugin() {
       try { pathname = decodeURIComponent((req.url || '').split('?')[0]) } catch { next(); return }
       if (isEmbedDocumentPath(pathname)) {
         for (const [name, value] of Object.entries(EMBED_FRAME_HEADERS)) res.setHeader(name, value)
+      }
+      // 创作台的嵌入页换成它自己的文档；Vite 照常处理这份 HTML，地址栏不变。
+      if (isStudioDocumentPath(pathname) && (req.method === 'GET' || req.method === 'HEAD')) {
+        const query = (req.url || '').includes('?') ? (req.url || '').slice((req.url || '').indexOf('?')) : ''
+        req.url = `/${STUDIO_DOCUMENT}${query}`
+        next()
+        return
       }
       // Transformed modules belong to Vite, including imports outside the root.
       if (/^\/(?:@|src\/|node_modules\/)/.test(pathname) || !STATIC_ASSET_PATTERN.test(pathname)) {

@@ -22,6 +22,8 @@ import {
   DOCUMENT_PERMISSIONS_POLICY,
   EMBED_FRAME_HEADERS,
   isEmbedDocumentPath,
+  isStudioDocumentPath,
+  STUDIO_DOCUMENT,
 } from './vite/constants.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -29,6 +31,7 @@ const DIST = path.resolve(process.env.DIST_DIR || path.join(HERE, '..', 'dist'))
 const PORT = Number(process.env.PORT || 1102)
 const HOST = process.env.HOST || '0.0.0.0'
 const INDEX = path.join(DIST, 'index.html')
+const STUDIO = path.join(DIST, STUDIO_DOCUMENT)
 const MANIFEST_NAME = 'manifest.webmanifest'
 
 const MIME = new Map([
@@ -118,6 +121,10 @@ function lookup(urlPath) {
   }
 
   if (ASSET_EXT.test(urlPath)) return { status: 404 }
+  // 创作台的嵌入页用自己的文档。
+  if (isStudioDocumentPath(urlPath) && existsSync(STUDIO)) {
+    return { status: 200, file: STUDIO, rel: STUDIO_DOCUMENT, stampHtml: true, stampManifest: false }
+  }
   if (!existsSync(INDEX)) return { status: 404 }
   return {
     status: 200,
