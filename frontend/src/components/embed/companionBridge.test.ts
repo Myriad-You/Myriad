@@ -3,8 +3,10 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { describe, it } from 'node:test'
 import {
-  connectIsland,
-  findIslandHost,
+  COMPANION_HOST_ID,
+  companionHost,
+  connectArticle,
+  findCompanionPage,
   paintAnnotations,
   termCandidates,
   unpaintAnnotations,
@@ -19,7 +21,7 @@ const { JSDOM } = require(
 
 function page(body: string) {
   const dom = new JSDOM(
-    `<article><div class="content">${body}<details class="myriad-island"><summary class="myriad-island__pill"><span class="myriad-island__label">AI 伴读</span></summary><iframe class="myriad-island__panel" src="/embed/companion/7"></iframe></details></div></article>`,
+    `<article><div class="content">${body}<iframe class="myriad-companion__frame" src="/embed/companion/7" hidden></iframe></div></article>`,
     { url: 'https://myriad.test/blog/posts/a/' },
   )
   const doc = dom.window.document as Document
@@ -37,12 +39,16 @@ function note(term: string, extra: Partial<AnnotationItem> = {}): AnnotationItem
 }
 
 describe('companion bridge', () => {
-  it('finds the article the island was written into, from the frame element', () => {
-    const { frame, root } = page('<p>正文</p>')
-    const host = findIslandHost(frame)
-    assert.equal(host?.root, root)
-    assert.equal(host?.island.tagName, 'DETAILS')
-    assert.equal(findIslandHost(null), null)
+  it('finds the article the frame was written into, and makes one host at the end of the body', () => {
+    const { doc, frame, root } = page('<p>正文</p>')
+    const found = findCompanionPage(frame)!
+    assert.equal(found.root, root)
+    assert.equal(findCompanionPage(null), null)
+    assert.equal(findCompanionPage(doc.createElement('iframe')), null)
+    const host = companionHost(found)
+    assert.equal(host.id, COMPANION_HOST_ID)
+    assert.equal(doc.body.lastElementChild, host)
+    assert.equal(companionHost(found), host)
   })
 
   it('prefers the AI offset, then every occurrence in order', () => {
@@ -51,7 +57,7 @@ describe('companion bridge', () => {
     assert.deepEqual(termCandidates('abc', ''), [])
   })
 
-  it('marks plain text once per term, skipping links, code and the island', () => {
+  it('marks plain text once per term, skipping links, code and frames', () => {
     const { root } = page(
       '<p><a href="/x">Rust</a> 与 <code>Rust</code></p><pre>Rust</pre><p>后来 Rust 稳定了，Rust 很快。</p>',
     )
@@ -61,7 +67,7 @@ describe('companion bridge', () => {
     assert.equal(marks.length, 1)
     assert.equal(marks[0].textContent, 'Rust')
     assert.equal(marks[0].closest('p')?.textContent, '后来 Rust 稳定了，Rust 很快。')
-    assert.equal(root.querySelector('a mark, pre mark, code mark, details mark'), null)
+    assert.equal(root.querySelector('a mark, pre mark, code mark, iframe mark'), null)
   })
 
   it('does not nest a short term inside a longer one, and unpaints cleanly', () => {
@@ -75,13 +81,15 @@ describe('companion bridge', () => {
     assert.equal(root.innerHTML, before)
   })
 
-  it('shows AI text as text, opens the island on pick, and leaves nothing behind', () => {
+  it('shows AI text as text, reports picks and Esc, and leaves nothing behind', () => {
     const { dom, doc, frame, root } = page('<p>谈谈 XSS 吧。</p>')
-    const host = findIslandHost(frame)!
+    const found = findCompanionPage(frame)!
     const picked: number[] = []
-    const link = connectIsland(host, {
+    let escaped = 0
+    const link = connectArticle(found, {
       typeLabel: (type) => `类型:${type}`,
       onPick: (index) => picked.push(index),
+      onEscape: () => { escaped += 1 },
     })
     const hostile = note('XSS', { explanation: '<img src=x onerror=alert(1)>' })
     assert.deepEqual(link.paint([hostile]), [0])
@@ -95,21 +103,12 @@ describe('companion bridge', () => {
 
     mark.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     assert.deepEqual(picked, [0])
-    assert.equal(host.island.open, true)
     doc.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
-    assert.equal(host.island.open, false)
-
-    link.setLabel('Reading companion')
-    link.setPlaying('正在播放 2/9')
-    assert.equal(host.island.dataset.state, 'playing')
-    assert.equal(host.island.querySelector('.myriad-island__label')?.textContent, '正在播放 2/9')
-    link.setPlaying(null)
-    assert.equal(host.island.dataset.state, undefined)
-    assert.equal(host.island.querySelector('.myriad-island__label')?.textContent, 'Reading companion')
+    assert.equal(escaped, 1)
+    assert.equal(tip.hidden, true)
 
     link.dispose()
     assert.equal(doc.getElementById('myriad-annot-tip'), null)
     assert.equal(root.querySelector('mark'), null)
-    assert.equal(host.island.querySelector('.myriad-island__label')?.textContent, 'AI 伴读')
   })
 })

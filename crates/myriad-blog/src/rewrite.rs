@@ -66,30 +66,27 @@ pub fn prepare_content_html(html: &str, origin: &str, item_id: i32) -> String {
     )
 }
 
-/// 还没有注释和播客的文章上，伴读岛藏着的开始标签。
-const HIDDEN_ISLAND_OPEN: &str = "<details class=\"myriad-island\" data-myriad-empty hidden>";
+/// 还没有注释和播客的文章上，控制器还没有地址。
+const DORMANT_FRAME_SRC: &str = "<iframe class=\"myriad-companion__frame\" data-myriad-src=";
 
-/// 伴读岛：页底的药丸，展开是同源 iframe。页面不跑脚本，开合靠 `<details>`。
-/// 有注释或播客（`ready`）时 iframe 不能懒加载：收起时它也要加载，正文里的注释高亮由它来画。
-/// 还没有的文章也放一个，先藏着、框懒加载：访客看不到，也不去取；站长打开页面时后端用
-/// [`reveal_companion_island`] 把它亮出来，在面板里就能补生成。
+/// 伴读：正文末尾一个看不见的同源控制器 iframe。页面不跑脚本，两侧的胶囊、面板和正文里的
+/// 注释都由控制器画（frontend/src/components/embed/EmbedCompanion.tsx）；框所在的元素就是正文，
+/// 胶囊贴着它的两边。
+/// 有注释或播客（`ready`）时控制器照常加载。还没有的文章也放一份，但框没有地址，访客那边
+/// 什么也不加载；站长打开页面时后端用 [`reveal_companion_island`] 给它地址，在面板里就能补生成。
 pub fn companion_island_html(item_id: i32, ready: bool) -> String {
-    let (open, lazy) = if ready {
-        ("<details class=\"myriad-island\">", "")
-    } else {
-        (HIDDEN_ISLAND_OPEN, " loading=\"lazy\"")
-    };
+    let src = if ready { "src" } else { "data-myriad-src" };
     format!(
-        "{open}<summary class=\"myriad-island__pill\"><span class=\"myriad-island__dot\" aria-hidden=\"true\"></span><span class=\"myriad-island__label\">AI 伴读</span></summary><iframe class=\"myriad-island__panel\" src=\"/embed/companion/{item_id}\" title=\"AI 伴读\"{lazy}></iframe></details>\n"
+        "<iframe class=\"myriad-companion__frame\" {src}=\"/embed/companion/{item_id}\" title=\"AI 伴读\" hidden aria-hidden=\"true\" tabindex=\"-1\"></iframe>\n"
     )
 }
 
-/// 站长看到的页面：把藏着的伴读岛亮出来。只认构建时写下的那个标签，正文里的字不会被碰到
-/// （正文里的 `<` 早已转义）。
+/// 站长看到的页面：给还没内容的伴读控制器地址。只认构建时写下的那个标签，正文里的字不会
+/// 被碰到（正文里的 `<` 早已转义）。
 pub fn reveal_companion_island(html: &str) -> String {
     html.replacen(
-        HIDDEN_ISLAND_OPEN,
-        "<details class=\"myriad-island\" data-myriad-empty>",
+        DORMANT_FRAME_SRC,
+        "<iframe class=\"myriad-companion__frame\" src=",
         1,
     )
 }

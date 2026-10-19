@@ -65,5 +65,12 @@
   "audioLoading": "Synthèse audio {loaded}/{total}",
   "cloudUnavailable": "La voix cloud n’est pas disponible pour le moment.",
   "cloudCacheIncomplete": "L’audio cloud est incomplet : le navigateur lit l’article en attendant.",
-  "audioFailed": "Impossible de charger l’audio cloud."
+  "audioFailed": "Impossible de charger l’audio cloud.",
+  "readingTools": "Réglages de lecture",
+  "readingProgress": "{percent} % lu",
+  "backToTop": "Haut de page",
+  "fontSize": "Taille du texte",
+  "lineHeight": "Interligne",
+  "increase": "Plus grand",
+  "decrease": "Plus petit"
 }

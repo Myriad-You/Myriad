@@ -65,5 +65,12 @@
   "audioLoading": "Audio wird erzeugt {loaded}/{total}",
   "cloudUnavailable": "Die Cloud-Stimme ist gerade nicht verfügbar.",
   "cloudCacheIncomplete": "Das Cloud-Audio ist unvollständig, deshalb liest vorerst der Browser vor.",
-  "audioFailed": "Das Cloud-Audio konnte nicht geladen werden."
+  "audioFailed": "Das Cloud-Audio konnte nicht geladen werden.",
+  "readingTools": "Leseeinstellungen",
+  "readingProgress": "{percent} % gelesen",
+  "backToTop": "Nach oben",
+  "fontSize": "Schriftgröße",
+  "lineHeight": "Zeilenabstand",
+  "increase": "Größer",
+  "decrease": "Kleiner"
 }

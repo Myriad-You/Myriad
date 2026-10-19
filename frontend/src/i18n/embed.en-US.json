@@ -65,5 +65,12 @@
   "audioLoading": "Synthesizing audio {loaded}/{total}",
   "cloudUnavailable": "Cloud voice is not available right now.",
   "cloudCacheIncomplete": "The cloud audio is incomplete, so the browser reads it for now.",
-  "audioFailed": "Could not load the cloud audio."
+  "audioFailed": "Could not load the cloud audio.",
+  "readingTools": "Reading settings",
+  "readingProgress": "{percent}% read",
+  "backToTop": "Back to top",
+  "fontSize": "Text size",
+  "lineHeight": "Line spacing",
+  "increase": "Larger",
+  "decrease": "Smaller"
 }

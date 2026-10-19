@@ -239,11 +239,6 @@
     flex: none;
     height: calc(72px + max(1rem, env(safe-area-inset-bottom)) + 12px);
   }
-
-  /* AI 伴读的小胶囊原本也在底部中间：挪到导航岛上面。 */
-  html body .myriad-island {
-    bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 84px);
-  }
 }
 
 @media (width <= 480px) {

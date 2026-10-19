@@ -1,30 +1,45 @@
 import type { AnnotationItem } from '../../services/phantasiaiApi'
 
 /**
- * The companion island reaches into the blog page that holds it. The page runs
- * no script of its own (its CSP is `script-src 'none'`); this frame is the
- * same origin, so it paints the annotations into the article and keeps the
- * pill in step. Nodes belong to the parent document: no `instanceof` checks,
- * and AI text only ever goes in as `textContent`.
+ * The companion reaches into the blog page that holds it. The page runs no
+ * script of its own (its CSP is `script-src 'none'`); the companion frame is
+ * hidden at the end of the article and is the same origin, so it paints the
+ * annotations into the article and draws its side capsules into a host node of
+ * its own. Nodes belong to the parent document: no `instanceof` checks, and AI
+ * text only ever goes in as `textContent`.
  */
 
-export interface IslandHost {
+/** The host the side capsules are drawn into (a shadow root), at the end of `<body>`. */
+export const COMPANION_HOST_ID = 'myriad-companion'
+
+export interface CompanionPage {
   doc: Document
-  island: HTMLDetailsElement
-  /** The article body the island was written into. */
+  win: Window
+  /** The article body the frame was written into: the capsules hug its edges. */
   root: HTMLElement
 }
 
-/** Null when the frame is cross-origin or not inside an island. */
-export function findIslandHost(frame: Element | null): IslandHost | null {
-  const island = frame?.closest('details.myriad-island')
-  const root = island?.parentElement
-  if (!island || !root) return null
-  return { doc: island.ownerDocument, island: island as HTMLDetailsElement, root }
+/** Null when the frame is cross-origin or is not the companion frame of a post. */
+export function findCompanionPage(frame: Element | null): CompanionPage | null {
+  if (!frame?.classList.contains('myriad-companion__frame')) return null
+  const root = frame.parentElement
+  const win = frame.ownerDocument.defaultView
+  if (!root || !win) return null
+  return { doc: frame.ownerDocument, win, root }
+}
+
+/** The host node, made once per page; scripts there never run, the controller draws into it. */
+export function companionHost(page: CompanionPage): HTMLElement {
+  const found = page.doc.getElementById(COMPANION_HOST_ID)
+  if (found) return found
+  const host = page.doc.createElement('div')
+  host.id = COMPANION_HOST_ID
+  page.doc.body.append(host)
+  return host
 }
 
 const EXEMPT =
-  'a, button, pre, code, script, style, iframe, math, svg, details.myriad-island, .myriad-annot-tip, .note-widget, .math'
+  'a, button, pre, code, script, style, iframe, math, svg, .myriad-annot-tip, .note-widget, .math'
 
 const KNOWN_TYPES = new Set(['term', 'reference', 'implicit', 'context', 'abbreviation'])
 
@@ -147,41 +162,36 @@ export function paintAnnotations(root: HTMLElement, annotations: AnnotationItem[
   return painted.toSorted((a, b) => a - b)
 }
 
-export interface IslandLink {
+export interface ArticleLink {
   /** Paints the article; returns the indices found in it. */
   paint: (annotations: AnnotationItem[]) => number[]
-  close: () => void
-  /** The pill's resting label. */
-  setLabel: (label: string) => void
-  /** Playing: the pill shows `label` and its dot pulses. `null` puts it back. */
-  setPlaying: (label: string | null) => void
   /** Scrolls the article to that annotation and flashes it. False when it is not in the text. */
   reveal: (index: number) => boolean
   dispose: () => void
 }
 
-interface IslandLinkOptions {
+interface ArticleLinkOptions {
   typeLabel: (type: string) => string
   /** A reader chose a term in the article. */
   onPick: (index: number) => void
+  /** Esc on the page. */
+  onEscape: () => void
 }
 
 const TIP_ID = 'myriad-annot-tip'
+/** Scrolled-to marks sit this far below the top, as the reader used to. */
+const REVEAL_OFFSET = 150
 
 function markOf(target: EventTarget | null): HTMLElement | null {
   const element = target as Element | null
   return (element?.closest?.('mark.myriad-annot') as HTMLElement | null) ?? null
 }
 
-export function connectIsland(host: IslandHost, options: IslandLinkOptions): IslandLink {
-  const { doc, island, root } = host
-  const view = doc.defaultView
-  const labelEl = island.querySelector('.myriad-island__label')
-  const restingLabel = labelEl?.textContent ?? ''
-  let label = restingLabel
-  let playing: string | null = null
+export function connectArticle(page: CompanionPage, options: ArticleLinkOptions): ArticleLink {
+  const { doc, root, win: view } = page
   let annotations: AnnotationItem[] = []
   let flashTimer: ReturnType<typeof setTimeout> | undefined
+  let hideTimer: ReturnType<typeof setTimeout> | undefined
 
   doc.getElementById(TIP_ID)?.remove()
   const tip = doc.createElement('div')
@@ -195,7 +205,8 @@ export function connectIsland(host: IslandHost, options: IslandLinkOptions): Isl
 
   const show = (mark: HTMLElement) => {
     const annotation = annotationAt(mark)
-    if (!annotation || !view) return
+    if (!annotation) return
+    clearTimeout(hideTimer)
     const kind = doc.createElement('small')
     kind.textContent = options.typeLabel(mark.dataset.type ?? 'term')
     const term = doc.createElement('b')
@@ -209,15 +220,16 @@ export function connectIsland(host: IslandHost, options: IslandLinkOptions): Isl
     const width = tip.offsetWidth
     const height = tip.offsetHeight
     const left = Math.min(
-      Math.max(12, rect.left + rect.width / 2 - width / 2),
-      Math.max(12, view.innerWidth - width - 12),
+      Math.max(16, rect.left + rect.width / 2 - width / 2),
+      Math.max(16, view.innerWidth - width - 16),
     )
-    const top = rect.top - height - 8 >= 12 ? rect.top - height - 8 : rect.bottom + 8
+    const top = rect.top - height - 8 >= 16 ? rect.top - height - 8 : rect.bottom + 8
     tip.style.left = `${left}px`
     tip.style.top = `${top}px`
   }
 
   const hide = () => {
+    clearTimeout(hideTimer)
     tip.hidden = true
   }
 
@@ -227,15 +239,14 @@ export function connectIsland(host: IslandHost, options: IslandLinkOptions): Isl
   }
   const onOut = (event: Event) => {
     const mark = markOf(event.target)
-    if (mark && !mark.contains((event as MouseEvent).relatedTarget as Node | null)) hide()
+    if (!mark || mark.contains((event as MouseEvent).relatedTarget as Node | null)) return
+    clearTimeout(hideTimer)
+    hideTimer = setTimeout(hide, 150)
   }
   const onFocusOut = (event: Event) => {
     if (markOf(event.target)) hide()
   }
-  const pick = (mark: HTMLElement) => {
-    island.open = true
-    options.onPick(Number(mark.dataset.index))
-  }
+  const pick = (mark: HTMLElement) => options.onPick(Number(mark.dataset.index))
   const onClick = (event: Event) => {
     const mark = markOf(event.target)
     if (mark) pick(mark)
@@ -250,7 +261,7 @@ export function connectIsland(host: IslandHost, options: IslandLinkOptions): Isl
   const onDocKey = (event: Event) => {
     if ((event as KeyboardEvent).key !== 'Escape') return
     hide()
-    island.open = false
+    options.onEscape()
   }
 
   root.addEventListener('mouseover', onOver)
@@ -260,13 +271,7 @@ export function connectIsland(host: IslandHost, options: IslandLinkOptions): Isl
   root.addEventListener('click', onClick)
   root.addEventListener('keydown', onMarkKey)
   doc.addEventListener('keydown', onDocKey)
-  view?.addEventListener('scroll', hide, { passive: true })
-
-  const renderLabel = () => {
-    if (labelEl) labelEl.textContent = playing ?? label
-    if (playing) island.dataset.state = 'playing'
-    else delete island.dataset.state
-  }
+  view.addEventListener('scroll', hide, { passive: true })
 
   return {
     paint(next) {
@@ -274,30 +279,22 @@ export function connectIsland(host: IslandHost, options: IslandLinkOptions): Isl
       hide()
       return paintAnnotations(root, next)
     },
-    close() {
-      hide()
-      island.open = false
-    },
-    setLabel(next) {
-      label = next
-      renderLabel()
-    },
-    setPlaying(next) {
-      playing = next
-      renderLabel()
-    },
     reveal(index) {
       const mark = root.querySelector<HTMLElement>(`mark.myriad-annot[data-index="${index}"]`)
       if (!mark) return false
-      const quiet = view?.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-      mark.scrollIntoView({ block: 'center', behavior: quiet ? 'auto' : 'smooth' })
+      const quiet = view.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      const top = mark.getBoundingClientRect().top + view.scrollY - REVEAL_OFFSET
+      view.scrollTo({ top: Math.max(0, top), behavior: quiet ? 'auto' : 'smooth' })
+      mark.classList.remove('is-flash')
+      void mark.offsetWidth
       mark.classList.add('is-flash')
       clearTimeout(flashTimer)
-      flashTimer = setTimeout(() => mark.classList.remove('is-flash'), 1600)
+      flashTimer = setTimeout(() => mark.classList.remove('is-flash'), 1500)
       return true
     },
     dispose() {
       clearTimeout(flashTimer)
+      clearTimeout(hideTimer)
       root.removeEventListener('mouseover', onOver)
       root.removeEventListener('mouseout', onOut)
       root.removeEventListener('focusin', onOver)
@@ -305,12 +302,9 @@ export function connectIsland(host: IslandHost, options: IslandLinkOptions): Isl
       root.removeEventListener('click', onClick)
       root.removeEventListener('keydown', onMarkKey)
       doc.removeEventListener('keydown', onDocKey)
-      view?.removeEventListener('scroll', hide)
+      view.removeEventListener('scroll', hide)
       tip.remove()
       unpaintAnnotations(root)
-      playing = null
-      label = restingLabel
-      renderLabel()
     },
   }
 }

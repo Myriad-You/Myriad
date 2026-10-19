@@ -65,5 +65,12 @@
   "audioLoading": "음성 합성 중 {loaded}/{total}",
   "cloudUnavailable": "지금은 클라우드 음성을 쓸 수 없습니다.",
   "cloudCacheIncomplete": "클라우드 음성이 완전하지 않아 우선 브라우저 음성으로 읽습니다.",
-  "audioFailed": "클라우드 음성을 불러오지 못했습니다."
+  "audioFailed": "클라우드 음성을 불러오지 못했습니다.",
+  "readingTools": "읽기 설정",
+  "readingProgress": "{percent}% 읽음",
+  "backToTop": "맨 위로",
+  "fontSize": "글자 크기",
+  "lineHeight": "줄 간격",
+  "increase": "크게",
+  "decrease": "작게"
 }

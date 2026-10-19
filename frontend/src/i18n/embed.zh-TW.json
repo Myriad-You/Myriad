@@ -65,5 +65,12 @@
   "audioLoading": "正在合成音訊 {loaded}/{total}",
   "cloudUnavailable": "雲端語音現在無法使用。",
   "cloudCacheIncomplete": "雲端音訊不完整，先用瀏覽器語音朗讀。",
-  "audioFailed": "沒能載入雲端音訊。"
+  "audioFailed": "沒能載入雲端音訊。",
+  "readingTools": "閱讀設定",
+  "readingProgress": "已讀 {percent}%",
+  "backToTop": "回到頂部",
+  "fontSize": "字級",
+  "lineHeight": "行距",
+  "increase": "大一點",
+  "decrease": "小一點"
 }

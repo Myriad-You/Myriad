@@ -24,32 +24,21 @@ math[display=block]{margin:1em 0;font-size:1.15em}\n\
 .myriad-friend-apply{height:760px}\n\
 iframe[data-embed-scheme=light]{color-scheme:light}\n\
 iframe[data-embed-scheme=dark]{color-scheme:dark}\n\
-.myriad-island{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));z-index:2147483000;transform:translateX(-50%);margin:0;padding:0;color-scheme:light dark;font:500 13px/1 ui-sans-serif,system-ui,sans-serif}\n\
-.myriad-island__pill{display:flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:999px;list-style:none;cursor:pointer;user-select:none;white-space:nowrap;color:#fafaf9;background:rgba(24,24,27,.84);-webkit-backdrop-filter:blur(16px) saturate(1.5);backdrop-filter:blur(16px) saturate(1.5);box-shadow:0 10px 30px rgba(0,0,0,.22),inset 0 0 0 1px rgba(255,255,255,.1);transition:transform .2s ease}\n\
-.myriad-island__pill::-webkit-details-marker{display:none}\n\
-.myriad-island__pill::marker{content:\"\"}\n\
-.myriad-island__pill:hover{transform:translateY(-1px)}\n\
-.myriad-island__pill:focus-visible{outline:2px solid #a78bfa;outline-offset:3px}\n\
-.myriad-island__dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#a78bfa,#38bdf8)}\n\
-.myriad-island[hidden]{display:none}\n\
-.myriad-island[data-myriad-empty] .myriad-island__dot{background:#71717a}\n\
-.myriad-island[data-state=playing] .myriad-island__dot{animation:myriad-island-pulse 1.4s ease-in-out infinite}\n\
-.myriad-island__panel{position:absolute;left:50%;bottom:calc(100% + 12px);width:min(420px,calc(100vw - 24px));max-width:none;height:min(560px,calc(100vh - 110px));transform:translateX(-50%);margin:0;border:0;border-radius:24px;background:rgba(250,250,249,.88);-webkit-backdrop-filter:blur(20px) saturate(1.4);backdrop-filter:blur(20px) saturate(1.4);box-shadow:0 24px 60px rgba(0,0,0,.22),0 0 0 1px rgba(0,0,0,.06)}\n\
-.myriad-island__panel[data-embed-scheme=dark]{background:rgba(24,24,27,.88);box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08)}\n\
-@media (prefers-color-scheme:dark){.myriad-island__panel:not([data-embed-scheme]){background:rgba(24,24,27,.88);box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08)}}\n\
-@keyframes myriad-island-pulse{50%{transform:scale(1.6);opacity:.55}}\n\
-mark.myriad-annot{color:inherit;background:none;border-bottom:1.5px dashed var(--myriad-annot,#f97316);border-radius:2px;cursor:help;transition:background-color .2s}\n\
-mark.myriad-annot:hover,mark.myriad-annot:focus-visible,mark.myriad-annot.is-flash{outline:none;background:color-mix(in srgb,var(--myriad-annot,#f97316) 22%,transparent)}\n\
+.myriad-companion__frame{display:none}\n\
+mark.myriad-annot{padding:0 .1em;color:inherit;background:color-mix(in srgb,var(--myriad-annot,#f97316) 10%,transparent);border-bottom:2px dotted color-mix(in srgb,var(--myriad-annot,#f97316) 70%,transparent);border-radius:3px;cursor:help;transition:background-color .2s,box-shadow .2s}\n\
+mark.myriad-annot:hover,mark.myriad-annot:focus-visible{outline:none;background:color-mix(in srgb,var(--myriad-annot,#f97316) 18%,transparent);box-shadow:0 0 0 2px color-mix(in srgb,var(--myriad-annot,#f97316) 30%,transparent)}\n\
+mark.myriad-annot.is-flash{animation:myriad-annot-flash 1.5s ease-in-out}\n\
+@keyframes myriad-annot-flash{0%,100%{box-shadow:0 0 0 2px transparent}25%,75%{background:color-mix(in srgb,var(--myriad-annot,#f97316) 26%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,#a855f7 60%,transparent)}}\n\
 mark.myriad-annot[data-type=reference]{--myriad-annot:#3b82f6}\n\
 mark.myriad-annot[data-type=implicit]{--myriad-annot:#a855f7}\n\
 mark.myriad-annot[data-type=context]{--myriad-annot:#22c55e}\n\
 mark.myriad-annot[data-type=abbreviation]{--myriad-annot:#ec4899}\n\
-.myriad-annot-tip{position:fixed;z-index:2147483001;max-width:min(320px,calc(100vw - 24px));padding:10px 12px;border-radius:14px;color:#f5f5f4;background:rgba(24,24,27,.94);box-shadow:0 12px 32px rgba(0,0,0,.28);font:13px/1.55 ui-sans-serif,system-ui,sans-serif;pointer-events:none}\n\
+.myriad-annot-tip{position:fixed;z-index:2147483001;max-width:min(20rem,calc(100vw - 2rem));padding:10px 12px;border:1px solid light-dark(#e8e2d4,#333);border-radius:12px;color:light-dark(#2c2c2c,#c9c9c9);background:light-dark(#fff9f0,#242424);box-shadow:0 20px 25px -5px rgb(0 0 0/12%),0 8px 10px -6px rgb(0 0 0/10%);font:13px/1.55 ui-sans-serif,system-ui,sans-serif;pointer-events:none}\n\
 .myriad-annot-tip[hidden]{display:none}\n\
 .myriad-annot-tip small{display:block;margin-bottom:4px;font-size:11px;opacity:.65}\n\
 .myriad-annot-tip b{display:block;margin-bottom:2px;font-weight:600}\n\
-@media (prefers-reduced-motion:reduce){.myriad-island__pill,mark.myriad-annot{transition:none}.myriad-island[data-state=playing] .myriad-island__dot{animation:none}}\n\
-@media print{.myriad-island,.myriad-annot-tip{display:none}}\n\
+@media (prefers-reduced-motion:reduce){mark.myriad-annot{transition:none}mark.myriad-annot.is-flash{animation:none;background:color-mix(in srgb,var(--myriad-annot,#f97316) 26%,transparent)}}\n\
+@media print{#myriad-companion,.myriad-annot-tip{display:none}}\n\
 ";
 
 /// `/blog/*` 响应头。脚本全部不允许；样式允许内联，是因为主题把 CSS 写在标签上。

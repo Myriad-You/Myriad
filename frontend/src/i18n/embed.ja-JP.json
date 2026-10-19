@@ -65,5 +65,12 @@
   "audioLoading": "音声を合成中 {loaded}/{total}",
   "cloudUnavailable": "クラウド音声は現在使えません。",
   "cloudCacheIncomplete": "クラウド音声がそろっていないため、ブラウザの音声で読み上げます。",
-  "audioFailed": "クラウド音声を読み込めませんでした。"
+  "audioFailed": "クラウド音声を読み込めませんでした。",
+  "readingTools": "表示設定",
+  "readingProgress": "{percent}% 読了",
+  "backToTop": "トップへ戻る",
+  "fontSize": "文字サイズ",
+  "lineHeight": "行間",
+  "increase": "大きく",
+  "decrease": "小さく"
 }

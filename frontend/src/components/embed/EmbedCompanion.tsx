@@ -3,57 +3,115 @@ import type {
   CompanionStatus,
   PodcastResponse,
 } from '../../services/phantasiaiApi'
-import type { IslandLink } from './companionBridge'
-import {
-  LuPause as Pause,
-  LuPlay as Play,
-  LuSkipBack as SkipBack,
-  LuSkipForward as SkipForward,
-  LuSparkles as Sparkles,
-  LuSquare as Square,
-  LuX as X,
-} from '@lib/icons'
-import { useEffect, useRef, useState } from 'react'
+import type { ArticleLink, CompanionPage } from './companionBridge'
+import type { Panel } from './CompanionChrome'
+import type { ReadingPrefs } from './companionLayout'
+import type { Kind } from './CompanionPanels'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import * as phantasiaiApi from '../../services/phantasiaiApi'
 import { userFacingError } from '../../utils/userFacingError'
-import { connectIsland, findIslandHost } from './companionBridge'
+import { DocumentReady } from '../DocumentReady'
+import companionCss from './companion.css?inline'
+import { companionHost, connectArticle, findCompanionPage } from './companionBridge'
+import { CompanionChrome } from './CompanionChrome'
+import {
+  LEADING_STEPS,
+  readingPrefsFromValue,
+  SIZE_STEPS,
+  stepFrom,
+} from './companionLayout'
+import {
+  AdminGenerate,
+  AnnotationsPanel,
+  knownType,
+  PodcastPanel,
+  readingValues,
+  Stepper,
+  TYPE_KEYS,
+} from './CompanionPanels'
 import { embedHost } from './embedHost'
 import { useCompanionPodcast } from './useCompanionPodcast'
-import './embed.css'
-import './companion.css'
 
-type Kind = 'annotations' | 'podcast'
-
-const TYPE_KEYS = {
-  term: 'typeTerm',
-  reference: 'typeReference',
-  implicit: 'typeImplicit',
-  context: 'typeContext',
-  abbreviation: 'typeAbbreviation',
-} as const
-
-type KnownType = keyof typeof TYPE_KEYS
-
-function knownType(type: string): KnownType {
-  return Object.hasOwn(TYPE_KEYS, type) ? (type as KnownType) : 'term'
-}
+const READING_KEY = 'myriad.blog.reading.v1'
 
 /** Scrolls inside the panel only: `scrollIntoView` would also move the article behind it. */
 function keepInView(container: HTMLElement | null, selector: string): void {
   const target = container?.querySelector<HTMLElement>(selector)
   if (!container || !target) return
-  const top = target.offsetTop - container.offsetTop
+  const scroller = container.closest('.panel__body') as HTMLElement | null
+  if (!scroller) return
+  const top = target.offsetTop - scroller.offsetTop
   const bottom = top + target.offsetHeight
-  if (top < container.scrollTop) { container.scrollTop = top - 8
+  if (top < scroller.scrollTop) { scroller.scrollTop = top - 8
 }
-  else if (bottom > container.scrollTop + container.clientHeight) {
-    container.scrollTop = bottom - container.clientHeight + 8
+  else if (bottom > scroller.scrollTop + scroller.clientHeight) {
+    scroller.scrollTop = bottom - scroller.clientHeight + 8
   }
 }
 
+function readPrefs(): ReadingPrefs {
+  try {
+    return readingPrefsFromValue(JSON.parse(window.localStorage.getItem(READING_KEY) ?? 'null'))
+  } catch {
+    return { size: null, leading: null }
+  }
+}
+
+function writePrefs(prefs: ReadingPrefs): void {
+  try {
+    window.localStorage.setItem(READING_KEY, JSON.stringify(prefs))
+  } catch {
+    // 存不下就只在这一页记着。
+  }
+}
+
+/** 正文眼下的行距倍数，主题写 `normal` 时按 1.2 算。 */
+function computedLeading(root: HTMLElement): number {
+  const style = root.ownerDocument.defaultView?.getComputedStyle(root)
+  const size = Number.parseFloat(style?.fontSize ?? '')
+  const line = Number.parseFloat(style?.lineHeight ?? '')
+  return size > 0 && line > 0 ? line / size : 1.2
+}
+
+/** 外面那页（博客页）上的宿主节点和它的 Shadow DOM；明暗跟着这一页的 dark/light 类。 */
+function useShadowMount(page: CompanionPage | null): HTMLElement | null {
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!page) return
+    const host = companionHost(page)
+    const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
+    shadow.replaceChildren()
+    const style = page.doc.createElement('style')
+    style.textContent = companionCss
+    const mount = page.doc.createElement('div')
+    mount.className = 'companion'
+    shadow.append(style, mount)
+    const html = document.documentElement
+    const syncScheme = () => {
+      host.dataset.scheme = html.classList.contains('dark') ? 'dark' : 'light'
+    }
+    syncScheme()
+    const observer = new MutationObserver(syncScheme)
+    observer.observe(html, { attributes: true, attributeFilter: ['class'] })
+    setContainer(mount)
+    return () => {
+      observer.disconnect()
+      setContainer(null)
+      shadow.replaceChildren()
+    }
+  }, [page])
+  return container
+}
+
+/**
+ * `/embed/companion/{id}`：文章末尾看不见的控制器。照改版前阅读器的两侧浮动，把左边的
+ * AI 胶囊（进度、注释、播客）和右边的阅读胶囊（评论、字号、行距）画进博客页，
+ * 并在正文里划出注释。窄的时候换成底部一条。
+ */
 export function EmbedCompanion() {
   const { itemId: rawId } = useParams()
   const itemId = Number(rawId)
@@ -61,17 +119,21 @@ export function EmbedCompanion() {
   const { t, format, locale } = useI18n()
   const copy = t.embed
   const { isAuthenticated, isAdmin } = useAuth()
+  const page = useMemo(() => findCompanionPage(embedHost()?.frame ?? null), [])
+  const container = useShadowMount(page)
   const [status, setStatus] = useState<CompanionStatus | null>(null)
   const [annotations, setAnnotations] = useState<AnnotationItem[]>([])
   const [inText, setInText] = useState<ReadonlySet<number>>(new Set())
   const [show, setShow] = useState<PodcastResponse | null>(null)
-  const [tab, setTab] = useState<Kind>('annotations')
+  const [panel, setPanel] = useState<Panel | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<Kind | null>(null)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState<number | null>(null)
   const [linked, setLinked] = useState(false)
-  const linkRef = useRef<IslandLink | null>(null)
+  const [prefs, setPrefs] = useState(readPrefs)
+  const [leadingNow, setLeadingNow] = useState(1.75)
+  const linkRef = useRef<ArticleLink | null>(null)
   const notesRef = useRef<HTMLOListElement>(null)
   const linesRef = useRef<HTMLOListElement>(null)
   const copyRef = useRef(copy)
@@ -86,14 +148,14 @@ export function EmbedCompanion() {
   const { prepare } = podcast
 
   useEffect(() => {
-    const host = findIslandHost(embedHost()?.frame ?? null)
-    if (!host) return
-    const link = connectIsland(host, {
+    if (!page) return
+    const link = connectArticle(page, {
       typeLabel: (type) => copyRef.current[TYPE_KEYS[knownType(type)]],
       onPick: (index) => {
-        setTab('annotations')
+        setPanel('annotations')
         setPicked(index)
       },
+      onEscape: () => setPanel(null),
     })
     linkRef.current = link
     setLinked(true)
@@ -104,11 +166,15 @@ export function EmbedCompanion() {
       release()
       linkRef.current = null
     }
-  }, [])
+  }, [page])
 
+  // 字号和行距写在正文上；主题自己的值不动，只覆盖。
   useEffect(() => {
-    linkRef.current?.setLabel(copy.islandLabel)
-  }, [copy.islandLabel, linked])
+    if (!page) return
+    page.root.style.fontSize = prefs.size ? `${prefs.size}%` : ''
+    page.root.style.lineHeight = prefs.leading ? String(prefs.leading) : ''
+    setLeadingNow(computedLeading(page.root))
+  }, [page, prefs])
 
   useEffect(() => {
     if (!valid) {
@@ -129,7 +195,6 @@ export function EmbedCompanion() {
         if (signal.aborted) return
         if (notes) setAnnotations(notes.annotations ?? [])
         if (script) setShow(script)
-        setTab(next.annotations > 0 || !next.podcast ? 'annotations' : 'podcast')
       } catch (err) {
         if (!signal.aborted) setError(userFacingError(err, copyRef.current.loadCompanionFailed))
       } finally {
@@ -151,24 +216,14 @@ export function EmbedCompanion() {
   }, [locale, prepare, show, status])
 
   useEffect(() => {
-    const playing = podcast.state === 'playing'
-    linkRef.current?.setPlaying(
-      playing
-        ? format(copy.playingLabel, {
-            current: podcast.index + 1,
-            total: podcast.dialogues.length,
-          })
-        : null,
-    )
-  }, [copy.playingLabel, format, linked, podcast.dialogues.length, podcast.index, podcast.state])
+    if (picked != null && panel === 'annotations') keepInView(notesRef.current, `[data-index="${picked}"]`)
+  }, [picked, panel])
 
   useEffect(() => {
-    if (picked != null) keepInView(notesRef.current, `[data-index="${picked}"]`)
-  }, [picked, tab])
-
-  useEffect(() => {
-    if (podcast.state !== 'stopped') keepInView(linesRef.current, `[data-line="${podcast.index}"]`)
-  }, [podcast.index, podcast.state, tab])
+    if (podcast.state !== 'stopped' && panel === 'podcast') {
+      keepInView(linesRef.current, `[data-line="${podcast.index}"]`)
+    }
+  }, [podcast.index, podcast.state, panel])
 
   const generate = async (kind: Kind, again: boolean) => {
     if (busy) return
@@ -198,213 +253,93 @@ export function EmbedCompanion() {
     }
   }
 
+  const changePrefs = (update: (current: ReadingPrefs) => ReadingPrefs) => {
+    setPrefs((current) => {
+      const next = update(current)
+      writePrefs(next)
+      return next
+    })
+  }
+  const stepSize = (direction: 1 | -1) =>
+    changePrefs((current) => {
+      const next = stepFrom(SIZE_STEPS, current.size ?? 100, direction)
+      return { ...current, size: next === 100 ? null : next }
+    })
+  const stepLeading = (direction: 1 | -1) =>
+    changePrefs((current) => ({
+      ...current,
+      leading: stepFrom(LEADING_STEPS, current.leading ?? leadingNow, direction),
+    }))
+  const values = readingValues(prefs, { size: 100, leading: leadingNow })
+
   const hasNotes = annotations.length > 0
   const hasShow = podcast.dialogues.length > 0
-  const tabs = (['annotations', 'podcast'] as const).filter(
+  const tools = (['annotations', 'podcast'] as const).filter(
     (kind) => isAdmin || (kind === 'annotations' ? hasNotes : hasShow),
   )
-  const current = tabs.includes(tab) ? tab : tabs[0]
-
-  const adminBar = (kind: Kind, has: boolean) =>
+  const admin = (kind: Kind, has: boolean) =>
     isAdmin ? (
-      <div className="companion-admin">
-        <button type="button" disabled={busy !== null} onClick={() => { void generate(kind, has) }}>
-          <Sparkles aria-hidden="true" />
-          {busy === kind ? copy.generating : has ? copy.regenerate : copy.generate}
-        </button>
-      </div>
+      <AdminGenerate copy={copy} busy={busy !== null} has={has} onGenerate={() => { void generate(kind, has) }} />
     ) : null
 
-  const playing = podcast.state === 'playing'
-  const minutes = Math.max(1, Math.round((show?.estimated_duration ?? 0) / 60))
+  const renderPanel = (open: Panel, ownScroll: () => void) => (
+    <>
+      {error ? <p className="panel__error" role="alert">{error}</p> : null}
+      {open === 'annotations' ? (
+        <AnnotationsPanel
+          copy={copy}
+          annotations={annotations}
+          inText={inText}
+          linked={linked}
+          picked={picked}
+          listRef={notesRef}
+          admin={admin('annotations', hasNotes)}
+          onPick={(index) => {
+            setPicked(index)
+            ownScroll()
+            if (linkRef.current?.reveal(index)) setPanel(null)
+          }}
+        />
+      ) : open === 'podcast' ? (
+        <PodcastPanel copy={copy} show={show} podcast={podcast} linesRef={linesRef} admin={admin('podcast', hasShow)} />
+      ) : (
+        <div className="reading">
+          <Stepper label={copy.fontSize} value={values.size} copy={copy} onStep={stepSize} />
+          <Stepper label={copy.lineHeight} value={values.leading} copy={copy} onStep={stepLeading} />
+        </div>
+      )}
+    </>
+  )
+
+  const chrome = container && page && !loading ? (
+    <CompanionChrome
+      page={page}
+      copy={copy}
+      tools={[...tools]}
+      annotationCount={annotations.length}
+      playing={podcast.state === 'playing'}
+      panel={panel}
+      onPanel={setPanel}
+      renderPanel={renderPanel}
+      size={{ label: values.size, onStep: stepSize }}
+      leading={{ label: values.leading, onStep: stepLeading }}
+    />
+  ) : null
+
+  // 播放时告诉读屏现在念到第几句；胶囊上只有按钮在跳。
+  const playingNote = podcast.state === 'playing'
+    ? format(copy.playingLabel, { current: podcast.index + 1, total: podcast.dialogues.length })
+    : ''
 
   return (
-    <main className="embed-root companion">
-      <header className="companion-head">
-        <div className="companion-tabs" role="tablist" aria-label={copy.islandLabel}>
-          {tabs.map((kind) => (
-            <button
-              key={kind}
-              type="button"
-              role="tab"
-              id={`companion-tab-${kind}`}
-              aria-selected={current === kind}
-              aria-controls={`companion-panel-${kind}`}
-              className="companion-tab"
-              onClick={() => setTab(kind)}
-            >
-              {kind === 'annotations' ? copy.tabAnnotations : copy.tabPodcast}
-              {kind === 'annotations' && hasNotes ? (
-                <span className="companion-tab__count">{annotations.length}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="companion-close"
-          aria-label={copy.close}
-          title={copy.close}
-          onClick={() => linkRef.current?.close()}
-        >
-          <X aria-hidden="true" />
-        </button>
-      </header>
-
-      {error ? <p className="embed-error" role="alert">{error}</p> : null}
-      {loading ? <p className="companion-hint">{copy.loading}</p> : null}
-      {!loading && tabs.length === 0 ? <p className="companion-hint">{copy.companionEmpty}</p> : null}
-
-      {!loading && current === 'annotations' ? (
-        <section
-          className="companion-body"
-          role="tabpanel"
-          id="companion-panel-annotations"
-          aria-labelledby="companion-tab-annotations"
-        >
-          {adminBar('annotations', hasNotes)}
-          {hasNotes && linked ? (
-            <p className="companion-hint">{format(copy.annotationsInText, { count: inText.size })}</p>
-          ) : null}
-          <ol className="companion-notes" ref={notesRef}>
-            {annotations.map((annotation, index) => {
-              const type = knownType(annotation.type)
-              return (
-                <li key={annotation.id ?? index} data-index={index}>
-                  <button
-                    type="button"
-                    className={`companion-note${picked === index ? ' is-picked' : ''}`}
-                    data-type={type}
-                    onClick={() => {
-                      setPicked(index)
-                      linkRef.current?.reveal(index)
-                    }}
-                  >
-                    <span className="companion-note__type">{copy[TYPE_KEYS[type]]}</span>
-                    <strong className="companion-note__term">{annotation.term}</strong>
-                    <span className="companion-note__text">{annotation.explanation}</span>
-                    {linked && !inText.has(index) ? (
-                      <small className="companion-note__miss">{copy.notInText}</small>
-                    ) : null}
-                  </button>
-                </li>
-              )
-            })}
-          </ol>
-        </section>
+    <DocumentReady>
+      {chrome && container ? createPortal(
+        <>
+          {chrome}
+          <p className="sr-only" role="status">{playingNote}</p>
+        </>,
+        container,
       ) : null}
-
-      {!loading && current === 'podcast' ? (
-        <section
-          className="companion-body"
-          role="tabpanel"
-          id="companion-panel-podcast"
-          aria-labelledby="companion-tab-podcast"
-        >
-          {adminBar('podcast', hasShow)}
-          {hasShow ? (
-            <>
-              <div className="companion-show">
-                <strong>{show?.title}</strong>
-                <span>{format(copy.duration, { minutes })}</span>
-              </div>
-              <div className="companion-player">
-                <button type="button" aria-label={copy.prev} title={copy.prev} disabled={podcast.audioLoading || podcast.index <= 0} onClick={() => { void podcast.prev() }}>
-                  <SkipBack aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="companion-player__main"
-                  aria-label={playing ? copy.pause : copy.play}
-                  title={playing ? copy.pause : copy.play}
-                  disabled={podcast.audioLoading}
-                  onClick={() => { void (playing ? podcast.pause() : podcast.play()) }}
-                >
-                  {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-                </button>
-                <button type="button" aria-label={copy.next} title={copy.next} disabled={podcast.audioLoading || podcast.index >= podcast.dialogues.length - 1} onClick={() => { void podcast.next() }}>
-                  <SkipForward aria-hidden="true" />
-                </button>
-                <button type="button" aria-label={copy.stop} title={copy.stop} disabled={podcast.state === 'stopped'} onClick={podcast.stop}>
-                  <Square aria-hidden="true" />
-                </button>
-                <span className="companion-player__at">
-                  {podcast.index + 1} / {podcast.dialogues.length}
-                </span>
-              </div>
-              {podcast.cloudAvailable ? (
-                <div className="companion-voice">
-                  <div className="companion-segment" role="group" aria-label={copy.voiceEngine}>
-                    {(['system', 'cloud'] as const).map((engine) => (
-                      <button
-                        key={engine}
-                        type="button"
-                        aria-pressed={podcast.engine === engine}
-                        disabled={podcast.audioLoading}
-                        onClick={() => { void podcast.switchEngine(engine) }}
-                      >
-                        {engine === 'system' ? copy.engineSystem : copy.engineCloud}
-                      </button>
-                    ))}
-                  </div>
-                  {podcast.engine === 'cloud' ? (
-                    <>
-                      {(['host', 'guest'] as const).map((role) => (
-                        <label key={role}>
-                          <span>{role === 'host' ? copy.hostVoice : copy.guestVoice}</span>
-                          <select
-                            value={(role === 'host' ? podcast.hostVoiceId : podcast.guestVoiceId) ?? 0}
-                            disabled={podcast.audioLoading}
-                            onChange={(event) => {
-                              const id = Number(event.target.value)
-                              void podcast.changeVoice(role, id || undefined)
-                            }}
-                          >
-                            <option value={0}>{copy.voiceDefault}</option>
-                            {podcast.voices.map((voice) => (
-                              <option key={voice.id} value={voice.id}>{voice.name}</option>
-                            ))}
-                          </select>
-                        </label>
-                      ))}
-                      <button type="button" disabled={podcast.audioLoading} onClick={() => { void podcast.regenerateAudio() }}>
-                        {copy.regenerateAudio}
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-              {podcast.audioLoading ? (
-                <p className="companion-hint" role="status">
-                  {format(copy.audioLoading, {
-                    loaded: podcast.audioProgress.loaded,
-                    total: podcast.audioProgress.total,
-                  })}
-                </p>
-              ) : null}
-              {podcast.notice ? <p className="companion-hint" role="status">{podcast.notice}</p> : null}
-              <ol className="companion-lines" ref={linesRef}>
-                {podcast.dialogues.map((line, index) => (
-                  <li key={index} data-line={index}>
-                    <button
-                      type="button"
-                      className={`companion-line${podcast.state !== 'stopped' && podcast.index === index ? ' is-current' : ''}`}
-                      data-speaker={line.speaker === 'host_a' ? 'host' : 'guest'}
-                      disabled={podcast.audioLoading}
-                      onClick={() => { void podcast.seek(index) }}
-                    >
-                      <span className="companion-line__who">
-                        {line.speaker === 'host_a' ? copy.speakerHost : copy.speakerGuest}
-                      </span>
-                      <span>{line.text}</span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </>
-          ) : null}
-        </section>
-      ) : null}
-    </main>
+    </DocumentReady>
   )
 }

@@ -4,8 +4,9 @@ import { test } from 'node:test'
 import { themeBootInlineScript } from '../../utils/themeBootScript.ts'
 import { EMBED_FIT_ATTR, EMBED_SCHEME_ATTR, embedHost } from './embedHost.ts'
 
-const crate = (file: string) =>
-  readFileSync(new URL(`../../../../crates/myriad-blog/src/${file}`, import.meta.url), 'utf8')
+function crate(file: string) {
+  return readFileSync(new URL(`../../../../crates/myriad-blog/src/${file}`, import.meta.url), 'utf8')
+}
 
 test('博客页那边用的是同样的属性名', () => {
   assert.match(crate('rewrite.rs'), new RegExp(`myriad-comments[^>]*${EMBED_FIT_ATTR}`))

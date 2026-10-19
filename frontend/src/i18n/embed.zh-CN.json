@@ -65,5 +65,12 @@
   "audioLoading": "正在合成音频 {loaded}/{total}",
   "cloudUnavailable": "云端语音现在用不了。",
   "cloudCacheIncomplete": "云端音频不完整，先用浏览器语音朗读。",
-  "audioFailed": "没能加载云端音频。"
+  "audioFailed": "没能加载云端音频。",
+  "readingTools": "阅读设置",
+  "readingProgress": "已读 {percent}%",
+  "backToTop": "回到顶部",
+  "fontSize": "字号",
+  "lineHeight": "行距",
+  "increase": "大一点",
+  "decrease": "小一点"
 }

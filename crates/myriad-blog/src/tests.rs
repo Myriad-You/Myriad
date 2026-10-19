@@ -41,32 +41,34 @@ fn post() -> BlogPost {
 }
 
 #[test]
-fn the_companion_island_shows_only_on_posts_that_have_one() {
+fn the_companion_loads_only_on_posts_that_have_one() {
     let mut note = post();
     let (_, file) = render_post_file(&site(), &note, DEFAULT_THEME_ID);
     assert!(
-        file.contains("<details class=\"myriad-island\" data-myriad-empty hidden>"),
+        file.contains("data-myriad-src=\"/embed/companion/42\""),
         "{file}"
     );
-    assert!(
-        file.contains("title=\"AI 伴读\" loading=\"lazy\">"),
-        "{file}"
-    );
+    assert!(!file.contains(" src=\"/embed/companion/42\""), "{file}");
     let revealed = reveal_companion_island(&file);
-    assert!(revealed.contains("<details class=\"myriad-island\" data-myriad-empty>"));
-    assert!(!revealed.contains("data-myriad-empty hidden"));
+    assert!(
+        revealed.contains("<iframe class=\"myriad-companion__frame\" src=\"/embed/companion/42\"")
+    );
     assert_eq!(
-        reveal_companion_island("<p>&lt;details&gt;</p>"),
-        "<p>&lt;details&gt;</p>"
+        reveal_companion_island("<p>&lt;iframe&gt;</p>"),
+        "<p>&lt;iframe&gt;</p>"
     );
 
     note.companion = true;
     let (_, file) = render_post_file(&site(), &note, DEFAULT_THEME_ID);
-    assert!(file.contains("<details class=\"myriad-island\">"), "{file}");
-    assert!(file.contains("src=\"/embed/companion/42\""), "{file}");
-    let island = &file[file.find("<details class=\"myriad-island\">").unwrap()..];
-    assert!(!island.contains("loading=\"lazy\""), "{island}");
-    assert!(NOTES_CSS.contains(".myriad-island__panel{"));
+    assert!(
+        file.contains("<iframe class=\"myriad-companion__frame\" src=\"/embed/companion/42\""),
+        "{file}"
+    );
+    assert!(
+        file.contains("hidden aria-hidden=\"true\" tabindex=\"-1\""),
+        "{file}"
+    );
+    assert!(!file.contains("loading=\"lazy\" title=\"AI"), "{file}");
     assert!(NOTES_CSS.contains("mark.myriad-annot{"));
 }
 
