@@ -18,6 +18,7 @@ export function WorkbenchCommentsPane({
   busy,
   onDeleteComments,
   onOpenCommentItem,
+  hereItemId = null,
 }: {
   active: boolean
   back: ReactNode
@@ -28,6 +29,8 @@ export function WorkbenchCommentsPane({
   busy: boolean
   onDeleteComments?: (ids: number[]) => void
   onOpenCommentItem?: (itemId: number) => void
+  /** 覆盖层所在的文章。这篇的评论不给「打开」：人已经在这一页上了。 */
+  hereItemId?: number | null
 }) {
   const { t, locale, format } = useI18n()
   const phantasi = t.phantasi
@@ -82,6 +85,7 @@ export function WorkbenchCommentsPane({
           row.user_display_name || row.user_name || phantasi.anonymousUser
         const when = noteScheduleLabel(row.created_at, locale)
         const title = row.comment.trim() || row.selected_text.trim() || author
+        const elsewhere = row.item_id !== hereItemId
         return {
           id: row.id,
           title,
@@ -91,15 +95,21 @@ export function WorkbenchCommentsPane({
           onSelect: picking ? () => commentsSelect.toggle(row.id) : undefined,
           onClick: picking
             ? () => commentsSelect.toggle(row.id)
-            : () => onOpenCommentItem?.(row.item_id),
+            : elsewhere
+              ? () => onOpenCommentItem?.(row.item_id)
+              : undefined,
           actions: picking
             ? []
             : [
-                {
-                  key: 'open',
-                  label: phantasi.workbenchCommentOpen,
-                  onClick: () => onOpenCommentItem?.(row.item_id),
-                },
+                ...(elsewhere
+                  ? [
+                      {
+                        key: 'open',
+                        label: phantasi.workbenchCommentOpen,
+                        onClick: () => onOpenCommentItem?.(row.item_id),
+                      },
+                    ]
+                  : []),
                 {
                   key: 'delete',
                   label: phantasi.delete,
@@ -116,6 +126,7 @@ export function WorkbenchCommentsPane({
       commentsSelect.selecting,
       commentsSelect.selected,
       commentsSelect.toggle,
+      hereItemId,
       locale,
       onDeleteComments,
       onOpenCommentItem,

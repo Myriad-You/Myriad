@@ -7,11 +7,14 @@ import { useNoteEditorSession } from './useNoteEditorSession'
 
 export default function NoteEditor({
   framed = false,
+  hideArticleLink = false,
   onCloseHandle,
   ...props
 }: NoteEditorProps & {
   /** 在创作台窗口里：窗口标题栏有关闭，编辑器自己不再放。 */
   framed?: boolean
+  /** 不放「查看文章」：编辑的就是当前所在的这篇。 */
+  hideArticleLink?: boolean
   /** 把编辑器自己的关闭交出去：窗口的关闭也要先问未保存的改动、清掉空的新笔记。 */
   onCloseHandle?: (close: (() => void) | null) => void
 }) {
@@ -21,5 +24,11 @@ export default function NoteEditor({
     onCloseHandle?.(requestClose)
     return () => onCloseHandle?.(null)
   }, [onCloseHandle, requestClose])
-  return <NoteEditorView {...session} framed={framed} />
+  return (
+    <NoteEditorView
+      {...session}
+      articleHref={hideArticleLink ? null : session.articleHref}
+      framed={framed}
+    />
+  )
 }

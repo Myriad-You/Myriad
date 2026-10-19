@@ -159,6 +159,7 @@ export function StudioToolPane(props: StudioToolPaneProps) {
           busy={props.busy}
           onDeleteComments={props.onDeleteComments}
           onOpenCommentItem={props.onOpenCommentItem}
+          hereItemId={props.itemId}
         />
         <WorkbenchReviewsPane
           active={tool === 'reviews'}

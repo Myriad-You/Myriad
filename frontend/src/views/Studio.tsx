@@ -51,10 +51,11 @@ export default function Studio() {
   const query = new URLSearchParams(location.search)
   const arg = query.get('arg')
   const itemId = positiveInt(query.get('item'))
+  const pageDocId = positiveInt(query.get('doc'))
   return (
     <div className="studio-embed">
       {tool === 'editor' ? (
-        <StudioEditor target={editorTarget(arg)} />
+        <StudioEditor target={editorTarget(arg)} pageDocId={pageDocId} />
       ) : tool ? (
         <StudioToolPage key={tool} tool={tool} arg={arg} itemId={itemId} />
       ) : null}
@@ -63,8 +64,10 @@ export default function Studio() {
   )
 }
 
-function StudioEditor({ target }: { target: number | 'new' }) {
+function StudioEditor({ target, pageDocId }: { target: number | 'new'; pageDocId: number | null }) {
   const [pin] = useState(target)
+  // 编辑的就是覆盖层所在的这篇：「查看文章」只会再开一份同一页。
+  const onThisPage = pin !== 'new' && pin === pageDocId
   const close = () => {
     const api = studioOverlayApi()
     if (api) api.close('editor')
@@ -77,6 +80,7 @@ function StudioEditor({ target }: { target: number | 'new' }) {
         docId={pin === 'new' ? undefined : pin}
         onClose={close}
         framed={findStudioHost() != null}
+        hideArticleLink={onThisPage}
         onCloseHandle={setFrameCloseHandler}
         onSaved={() => {}}
         onDeleted={close}

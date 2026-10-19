@@ -181,9 +181,12 @@ export function StudioOverlay({
     const current = layoutRef.current
     const isOpen = current.open.some((item) => item.tool === tool)
     const isTop = current.open.at(-1)?.tool === tool
-    if (isOpen && isTop) { onLayout(closeTool(current, tool))
-}
-    else {
+    if (isOpen && isTop) {
+      // 和标题栏的关闭一样：窗口有自己的关闭（编辑器）就先交给它。
+      const own = frameCloseHandler(frameRefs.current.get(tool))
+      if (own) own()
+      else onLayout(closeTool(current, tool))
+    } else {
       const arg =
         tool === 'editor' ? (context.docId != null ? String(context.docId) : 'new') : null
       const existing = current.open.find((item) => item.tool === tool)
