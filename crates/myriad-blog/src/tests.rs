@@ -183,6 +183,7 @@ fn math_urls_and_comment_iframe() {
     assert!(out.contains("https://example.com/p.jpg"), "{out}");
     assert!(out.contains("https://example.com/v.mp4"), "{out}");
     assert!(out.contains("src=\"/embed/comments/7\""), "{out}");
+    assert!(out.contains("data-embed-fit></iframe>"), "{out}");
     assert!(
         !out.contains("https://example.com/embed/comments/7"),
         "{out}"
@@ -337,6 +338,7 @@ fn home_and_friends_files() {
     assert!(file.contains("https://example.com/media/icon.png"));
     assert!(file.contains("href=\"#\""));
     assert!(file.contains("class=\"myriad-friend-apply\" src=\"/embed/friend-apply\""));
+    assert!(file.contains("title=\"友联申请\" data-embed-fit></iframe>"));
     assert!(!file.contains("javascript:"));
 }
 
@@ -434,6 +436,7 @@ fn postprocess_strips_scripts_and_injects_css() {
     assert!(NOTES_CSS.contains(".note-columns"));
     assert!(NOTES_CSS.contains(".myriad-comments"));
     assert!(NOTES_CSS.contains(".myriad-friend-apply{height:"));
+    assert!(NOTES_CSS.contains("iframe[data-embed-scheme=dark]{color-scheme:dark}"));
     assert!(BLOG_CSP.contains("script-src 'none'"));
     assert!(BLOG_CSP.contains("frame-ancestors 'self'"));
 

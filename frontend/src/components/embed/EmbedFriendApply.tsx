@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import * as phantasiApi from '../../services/phantasiApi'
 import { userFacingError } from '../../utils/userFacingError'
+import { useFitFrameHeight } from './embedFrame'
 import './embed.css'
 
 export function EmbedFriendApply() {
@@ -17,6 +18,7 @@ export function EmbedFriendApply() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
+  const fitRef = useFitFrameHeight(true)
 
   const submit = async () => {
     const name = siteName.trim()
@@ -47,7 +49,7 @@ export function EmbedFriendApply() {
 
   if (done) {
     return (
-      <main className="embed-root">
+      <main ref={fitRef} className="embed-root embed-root--fit">
         <h1>{copy.friendTitle}</h1>
         <p>{copy.submitted}</p>
         <button
@@ -70,7 +72,7 @@ export function EmbedFriendApply() {
   }
 
   return (
-    <main className="embed-root">
+    <main ref={fitRef} className="embed-root embed-root--fit">
       <h1>{copy.friendTitle}</h1>
       <p>{copy.friendHint}</p>
       {error ? <p className="embed-error" role="alert">{error}</p> : null}

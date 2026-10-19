@@ -1,5 +1,5 @@
 import type { CommentItem } from '../../types/phantasi'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
@@ -7,6 +7,7 @@ import * as phantasiApi from '../../services/phantasiApi'
 import { articleReturnPath, loginHref } from '../../utils/safeReturnPath'
 import { userFacingError } from '../../utils/userFacingError'
 import { useFitFrameHeight } from './embedFrame'
+import { embedHost } from './embedHost'
 import { publicThread } from './publicComments'
 import './embed.css'
 
@@ -16,12 +17,7 @@ function authorName(comment: CommentItem, fallback: string): string {
 
 /** 同源父页才能读到文章地址。跨源或读不到时交给 referrer / `/blog/`。 */
 function parentArticleHref(): string | null {
-  try {
-    if (window.parent === window) return null
-    return window.parent.location.href
-  } catch {
-    return null
-  }
+  return embedHost()?.win.location.href ?? null
 }
 
 export function EmbedComments() {
@@ -41,9 +37,7 @@ export function EmbedComments() {
   const [replyDraft, setReplyDraft] = useState('')
   const [replies, setReplies] = useState<Record<number, CommentItem[]>>({})
   const [openReplies, setOpenReplies] = useState<number | null>(null)
-  const rootRef = useRef<HTMLElement>(null)
-  // 博客文章底下的评论框（crates/myriad-blog/src/rewrite.rs）按内容撑高，不留一大块空白。
-  useFitFrameHeight(rootRef, 'myriad-comments', !loading && hasChecked)
+  const fitRef = useFitFrameHeight(!loading && hasChecked)
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!valid) return
@@ -154,7 +148,7 @@ export function EmbedComments() {
   }
 
   return (
-    <main ref={rootRef} className="embed-root embed-root--fit">
+    <main ref={fitRef} className="embed-root embed-root--fit">
       <h1>{copy.commentsTitle}</h1>
       {!valid ? <p className="embed-error">{copy.loadFailed}</p> : null}
       {error ? <p className="embed-error" role="alert">{error}</p> : null}

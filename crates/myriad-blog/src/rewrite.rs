@@ -62,7 +62,7 @@ pub fn prepare_content_html(html: &str, origin: &str, item_id: i32) -> String {
         )
     });
     format!(
-        "{rewritten}\n<iframe class=\"myriad-comments\" src=\"/embed/comments/{item_id}\" loading=\"lazy\" title=\"评论\"></iframe>\n"
+        "{rewritten}\n<iframe class=\"myriad-comments\" src=\"/embed/comments/{item_id}\" loading=\"lazy\" title=\"评论\" data-embed-fit></iframe>\n"
     )
 }
 

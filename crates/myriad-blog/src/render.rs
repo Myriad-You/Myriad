@@ -147,7 +147,7 @@ fn friends_html(site: &BlogSite, links: &[FriendLink]) -> String {
     }
     out.push_str("</ul>\n");
     out.push_str(
-        "<iframe class=\"myriad-friend-apply\" src=\"/embed/friend-apply\" loading=\"lazy\" title=\"友联申请\"></iframe>\n",
+        "<iframe class=\"myriad-friend-apply\" src=\"/embed/friend-apply\" loading=\"lazy\" title=\"友联申请\" data-embed-fit></iframe>\n",
     );
     out
 }

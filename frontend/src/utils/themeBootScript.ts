@@ -1,7 +1,8 @@
 /**
  * Inline first-paint theme boot. Must stay import-free in the emitted IIFE.
- * `/embed/*` 嵌在博客页里：第一帧之前就打上 `embed-frame`，明暗跟着外面那页
- * （components/embed/embedFrame.tsx 的 `embedScheme` 是同一套判断）。
+ * `/embed/*` 嵌在博客页里：第一帧之前就打上 `embed-frame`，明暗跟着外面那页，
+ * 并写到自己所在的 iframe 的 `data-embed-scheme` 上（约定见 components/embed/embedHost.ts）。
+ * 嵌入页的明暗只在这里判断。
  */
 export function themeBootInlineScript(): string {
   return `(function () {
@@ -30,17 +31,18 @@ export function themeBootInlineScript(): string {
         return null;
       }
     };
+    var apply = function (theme) {
+      html.classList.add(theme);
+      html.classList.remove(theme === 'dark' ? 'light' : 'dark');
+      if (!embed) return;
+      try {
+        if (window.frameElement) window.frameElement.setAttribute('data-embed-scheme', theme);
+      } catch (e) {}
+    };
     if (embed) html.classList.add('embed-frame');
-    var theme = embed
+    apply(embed
       ? parentScheme() || (prefersDark ? 'dark' : 'light')
-      : stored === 'light' || stored === 'dark' ? stored : prefersDark ? 'dark' : 'light';
-    if (theme === 'dark') {
-      html.classList.add('dark');
-      html.classList.remove('light');
-    } else {
-      html.classList.add('light');
-      html.classList.remove('dark');
-    }
+      : stored === 'light' || stored === 'dark' ? stored : prefersDark ? 'dark' : 'light');
     var updateThemeColor = function () {
       var primaryColor =
         getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#94a3b8';
@@ -58,14 +60,7 @@ export function themeBootInlineScript(): string {
       var current = null;
       try { current = localStorage.getItem('theme'); } catch (err) {}
       if (embed || !current || current === 'auto') {
-        var next = (embed && parentScheme()) || (e.matches ? 'dark' : 'light');
-        if (next === 'dark') {
-          html.classList.add('dark');
-          html.classList.remove('light');
-        } else {
-          html.classList.add('light');
-          html.classList.remove('dark');
-        }
+        apply((embed && parentScheme()) || (e.matches ? 'dark' : 'light'));
         updateThemeColor();
       }
     });

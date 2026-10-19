@@ -6,6 +6,7 @@
 
 import type { StudioTool, StudioToolSpec } from './overlay/studioTools'
 import { isDocumentReady, subscribeDocumentReady } from '../../utils/pageLoader'
+import { embedHost } from '../embed/embedHost'
 
 export const STUDIO_HOST_ID = 'myriad-studio-host'
 
@@ -38,13 +39,7 @@ interface HostWithApi extends HTMLElement {
 
 /** 博客页上的宿主节点。不在博客页里（被直接打开、跨源）时为 null。 */
 export function findStudioHost(win: Window = window): HostWithApi | null {
-  try {
-    const parent = win.parent
-    if (!parent || parent === win) return null
-    return (parent.document.getElementById(STUDIO_HOST_ID) as HostWithApi | null) ?? null
-  } catch {
-    return null
-  }
+  return (embedHost(win)?.doc.getElementById(STUDIO_HOST_ID) as HostWithApi | null) ?? null
 }
 
 export function setStudioOverlayApi(host: HTMLElement, api: StudioOverlayApi | null): void {

@@ -23,6 +23,12 @@ function bootTheme(options: {
   const themeColor = { content: '#f5f5f5', setAttribute(name: string, value: string) {
     if (name === 'content') this.content = value
   } }
+  const frame = {
+    attrs: {} as Record<string, string>,
+    setAttribute(name: string, value: string) {
+      this.attrs[name] = value
+    },
+  }
   const sandbox = createContext({
     localStorage: {
       getItem(key: string) {
@@ -43,6 +49,7 @@ function bootTheme(options: {
     },
     location: { pathname: options.embedIn ? '/embed/comments/7' : '/' },
     window: {
+      frameElement: options.embedIn ? frame : undefined,
       parent: options.embedIn
         ? {
             document: {
@@ -69,6 +76,7 @@ function bootTheme(options: {
   runInContext(themeBootInlineScript(), sandbox)
   return {
     classes: [...html.classList.tokens].toSorted(),
+    frameScheme: frame.attrs['data-embed-scheme'],
     themeColor: themeColor.content,
   }
 }
@@ -112,5 +120,10 @@ describe('themeBootInlineScript', () => {
       bootTheme({ stored: null, prefersDark: true, embedIn: { background: 'rgba(0, 0, 0, 0)' } }).classes,
       ['dark', 'embed-frame'],
     )
+    assert.equal(
+      bootTheme({ stored: null, prefersDark: false, embedIn: { background: 'rgb(28, 25, 23)' } }).frameScheme,
+      'dark',
+    )
+    assert.equal(bootTheme({ stored: 'dark', prefersDark: false }).frameScheme, undefined)
   })
 })

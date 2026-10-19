@@ -20,6 +20,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import * as phantasiaiApi from '../../services/phantasiaiApi'
 import { userFacingError } from '../../utils/userFacingError'
 import { connectIsland, findIslandHost } from './companionBridge'
+import { embedHost } from './embedHost'
 import { useCompanionPodcast } from './useCompanionPodcast'
 import './embed.css'
 import './companion.css'
@@ -85,7 +86,7 @@ export function EmbedCompanion() {
   const { prepare } = podcast
 
   useEffect(() => {
-    const host = findIslandHost(window.frameElement)
+    const host = findIslandHost(embedHost()?.frame ?? null)
     if (!host) return
     const link = connectIsland(host, {
       typeLabel: (type) => copyRef.current[TYPE_KEYS[knownType(type)]],

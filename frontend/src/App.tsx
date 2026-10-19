@@ -27,7 +27,6 @@ import {
 import { BackgroundTappHost, RouteWarmup } from './components/ApplicationStartup'
 import CustomScrollbar from './components/CustomScrollbar'
 import { DocumentReady } from './components/DocumentReady'
-import { useEmbedFrame } from './components/embed/embedFrame'
 import { isEmbedPath } from './components/embed/embedRoutes'
 import { NamespacedPage, SuspensePage } from './components/NamespacedPage'
 import { RenderErrorBoundary } from './components/RenderErrorBoundary'
@@ -701,7 +700,6 @@ function AppRoutes() {
 }
 
 function EmbedRoutes() {
-  useEmbedFrame()
   return (
     <Routes>
       <Route

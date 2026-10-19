@@ -1,6 +1,6 @@
 import { lazy } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import { EmbedAdminOnly, useEmbedFrame } from './components/embed/embedFrame'
+import { EmbedAdminOnly } from './components/embed/embedFrame'
 import { NamespacedPage } from './components/NamespacedPage'
 import { AnimationPreferenceProvider } from './contexts/AnimationPreferenceContext'
 import { AuthProvider } from './contexts/AuthContext'
@@ -25,7 +25,6 @@ const StudioOverlayFrame = lazy(loadOverlay)
 const Studio = lazy(loadTool)
 
 function StudioRoutes() {
-  useEmbedFrame()
   return (
     <Routes>
       <Route

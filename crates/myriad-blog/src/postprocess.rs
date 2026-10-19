@@ -8,8 +8,11 @@ use crate::urlutil::is_javascript_url;
 /// 注入到每个页面 `<head>` 末尾的样式表地址。
 pub const NOTES_CSS_HREF: &str = "/blog/_myriad/notes.css";
 
-/// 分栏、小组件占位、块级公式和嵌入页 iframe 的尺寸。主题样式表不管这些类。
-/// 页面不跑脚本，iframe 不能按内容长高，高度只能写死，超出部分在框内滚动。
+/// 分栏、小组件占位、块级公式和嵌入页 iframe 的样子。主题样式表不管这些类。
+/// 页面不跑脚本，嵌入页和它同源，由嵌入页来碰页面（frontend/src/components/embed/embedHost.ts）：
+/// 带 `data-embed-fit` 的框由里面按内容定高，这里写的高度只是加载完之前的占位；
+/// 里面第一帧之前把自己的明暗写到框的 `data-embed-scheme` 上，框的颜色跟着它，
+/// 框和里面明暗一致，浏览器才不会在框里垫一层不透明的底。
 pub const NOTES_CSS: &str = "\
 .note-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:1.25rem;margin:1em 0}\n\
 .note-column>:first-child{margin-top:0}\n\
@@ -19,6 +22,8 @@ math[display=block]{margin:1em 0;font-size:1.15em}\n\
 .myriad-comments,.myriad-friend-apply{display:block;width:100%;border:0;margin-top:2rem}\n\
 .myriad-comments{height:420px}\n\
 .myriad-friend-apply{height:760px}\n\
+iframe[data-embed-scheme=light]{color-scheme:light}\n\
+iframe[data-embed-scheme=dark]{color-scheme:dark}\n\
 .myriad-island{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));z-index:2147483000;transform:translateX(-50%);margin:0;padding:0;color-scheme:light dark;font:500 13px/1 ui-sans-serif,system-ui,sans-serif}\n\
 .myriad-island__pill{display:flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:999px;list-style:none;cursor:pointer;user-select:none;white-space:nowrap;color:#fafaf9;background:rgba(24,24,27,.84);-webkit-backdrop-filter:blur(16px) saturate(1.5);backdrop-filter:blur(16px) saturate(1.5);box-shadow:0 10px 30px rgba(0,0,0,.22),inset 0 0 0 1px rgba(255,255,255,.1);transition:transform .2s ease}\n\
 .myriad-island__pill::-webkit-details-marker{display:none}\n\
@@ -28,7 +33,8 @@ math[display=block]{margin:1em 0;font-size:1.15em}\n\
 .myriad-island__dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#a78bfa,#38bdf8)}\n\
 .myriad-island[data-state=playing] .myriad-island__dot{animation:myriad-island-pulse 1.4s ease-in-out infinite}\n\
 .myriad-island__panel{position:absolute;left:50%;bottom:calc(100% + 12px);width:min(420px,calc(100vw - 24px));max-width:none;height:min(560px,calc(100vh - 110px));transform:translateX(-50%);margin:0;border:0;border-radius:24px;background:rgba(250,250,249,.88);-webkit-backdrop-filter:blur(20px) saturate(1.4);backdrop-filter:blur(20px) saturate(1.4);box-shadow:0 24px 60px rgba(0,0,0,.22),0 0 0 1px rgba(0,0,0,.06)}\n\
-@media (prefers-color-scheme:dark){.myriad-island__panel{background:rgba(24,24,27,.88);box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08)}}\n\
+.myriad-island__panel[data-embed-scheme=dark]{background:rgba(24,24,27,.88);box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08)}\n\
+@media (prefers-color-scheme:dark){.myriad-island__panel:not([data-embed-scheme]){background:rgba(24,24,27,.88);box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08)}}\n\
 @keyframes myriad-island-pulse{50%{transform:scale(1.6);opacity:.55}}\n\
 mark.myriad-annot{color:inherit;background:none;border-bottom:1.5px dashed var(--myriad-annot,#f97316);border-radius:2px;cursor:help;transition:background-color .2s}\n\
 mark.myriad-annot:hover,mark.myriad-annot:focus-visible,mark.myriad-annot.is-flash{outline:none;background:color-mix(in srgb,var(--myriad-annot,#f97316) 22%,transparent)}\n\
