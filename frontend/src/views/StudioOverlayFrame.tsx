@@ -1,7 +1,7 @@
 import type { Root } from 'react-dom/client'
 import type { StudioOverlayCopy, StudioPageContext } from '../components/studio/overlay/StudioOverlay'
 import type { StudioOverlayLayout, StudioTool, StudioToolSpec } from '../components/studio/overlay/studioTools'
-import type { BlogBuildMark } from '../components/studio/studioIsland'
+import type { BlogBuildMark, StudioWindowPort } from '../components/studio/studioIsland'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { DocumentReady } from '../components/DocumentReady'
@@ -18,7 +18,6 @@ import {
 import {
   blogReloadDecision,
   findStudioHost,
-  frameLeaveHandler,
   setStudioOverlayApi,
   withoutStudioParam,
 } from '../components/studio/studioIsland'
@@ -77,6 +76,14 @@ export default function StudioOverlayFrame() {
   /** 每个窗口实际加载的地址，只有 `open` 会改它。 */
   const frames = useRef(new Map<string, StudioToolSpec>())
   const frameEls = useRef(new Map<StudioTool, HTMLIFrameElement>())
+  /** 窗口登记的离开前检查，连同登记它的那一页：窗口换了地址，旧页的检查就不算数。 */
+  const guards = useRef(new Map<StudioTool, { doc: Document; check: () => Promise<boolean> }>())
+  /** 窗口里的应用已经画出来了；之前窗口只显示占位，不露出整页的启动画面。 */
+  const [ready, setReady] = useState<ReadonlySet<StudioTool>>(() => new Set())
+  const openTools = new Set(layout.open.map((item) => item.tool))
+  if ([...ready].some((tool) => !openTools.has(tool))) {
+    setReady(new Set([...ready].filter((tool) => openTools.has(tool))))
+  }
   const layoutNow = useRef(layout)
   layoutNow.current = layout
   const openedMark = useRef<BlogBuildMark | null>(null)
@@ -121,6 +128,35 @@ export default function StudioOverlayFrame() {
     [t],
   )
 
+  const markReady = (tool: StudioTool) => {
+    setReady((current) => (current.has(tool) ? current : new Set([...current, tool])))
+  }
+
+  /** 关窗口或换内容之前问窗口自己；它没登记检查（或登记的是换地址前的旧页）就直接放行。 */
+  const mayLeave = (tool: StudioTool): Promise<boolean> => {
+    const guard = guards.current.get(tool)
+    let doc: Document | null = null
+    try {
+      doc = frameEls.current.get(tool)?.contentDocument ?? null
+    } catch {
+      doc = null
+    }
+    return guard && guard.doc === doc ? guard.check() : Promise.resolve(true)
+  }
+
+  /** 认出调用者是哪个窗口：工具窗口的 window 就是它那个 iframe 的 contentWindow。 */
+  const portFor = (win: Window): StudioWindowPort => {
+    const tool = [...frameEls.current].find(([, frame]) => frame.contentWindow === win)?.[0]
+    if (!tool) return { ready: () => {}, guard: () => {} }
+    return {
+      ready: () => markReady(tool),
+      guard: (check) => {
+        if (check) guards.current.set(tool, { doc: win.document, check })
+        else if (guards.current.get(tool)?.doc === win.document) guards.current.delete(tool)
+      },
+    }
+  }
+
   /**
    * 编辑器要换到另一篇时，先让它自己检查（没保存的先问、空的新笔记清掉）；
    * 通过了再换。换回布局里已经开着的同一篇不算换。
@@ -129,9 +165,13 @@ export default function StudioOverlayFrame() {
     const loaded = frames.current.get('editor')
     const showing = layoutNow.current.open.find((item) => item.tool === 'editor')
     const swapping = spec?.tool === 'editor' && loaded != null && showing?.arg !== spec.arg
-    const leave = swapping ? frameLeaveHandler(frameEls.current.get('editor')) : null
-    if (leave) leave(apply)
-    else apply()
+    if (!swapping) {
+      apply()
+      return
+    }
+    void mayLeave('editor').then((ok) => {
+      if (ok) apply()
+    })
   }
 
   const updateLayout = (next: StudioOverlayLayout) => {
@@ -220,6 +260,7 @@ export default function StudioOverlayFrame() {
         })
       },
       hide: () => setOpen(false),
+      port: portFor,
     })
     return () => setStudioOverlayApi(host, null)
   }, [host])
@@ -271,7 +312,17 @@ export default function StudioOverlayFrame() {
         onOpenChange={setOpen}
         onLayout={updateLayout}
         frameRefs={frameEls}
-        onFrameLoad={(frame) => {
+        ready={ready}
+        mayLeave={mayLeave}
+        onFrameLoad={(tool, frame) => {
+          // 载进来的不是这个应用（服务器出错页之类）就不会有人报就绪，直接露出来。
+          let app = false
+          try {
+            app = frame.contentDocument?.getElementById('app-root') != null
+          } catch {
+            app = false
+          }
+          if (!app) markReady(tool)
           const inner = frame.contentWindow
           if (!inner) return
           // 工具窗口里只听开关快捷键；Esc 留给窗口自己的对话框。

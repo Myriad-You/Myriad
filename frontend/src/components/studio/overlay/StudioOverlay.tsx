@@ -21,7 +21,6 @@ import {
   LuX,
 } from '@lib/icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { frameCloseHandler } from '../studioIsland'
 import {
   closeTool,
   defaultWindow,
@@ -88,6 +87,8 @@ export function StudioOverlay({
   onLayout,
   onFrameLoad,
   frameRefs,
+  ready,
+  mayLeave,
 }: {
   /** 博客页的 window：视口尺寸和指针事件都以它为准。 */
   win: Window
@@ -99,15 +100,17 @@ export function StudioOverlay({
   frameSpec: (spec: StudioToolSpec) => StudioToolSpec
   onOpenChange: (open: boolean) => void
   onLayout: (next: StudioOverlayLayout) => void
-  onFrameLoad: (frame: HTMLIFrameElement) => void
-  /** 每个窗口的 iframe。控制器换窗口内容前要问窗口自己，所以由它传进来。 */
+  onFrameLoad: (tool: StudioTool, frame: HTMLIFrameElement) => void
+  /** 每个窗口的 iframe。控制器要认出是哪个窗口在跟它说话，所以由它传进来。 */
   frameRefs: { current: Map<StudioTool, HTMLIFrameElement> }
+  /** 窗口里的应用已经画出来了（窗口自己报的）；之前窗口只显示占位，不露出整页的启动画面。 */
+  ready: ReadonlySet<StudioTool>
+  /** 关窗口之前问窗口自己（编辑器要先问没保存的改动），给 false 就不关。 */
+  mayLeave: (tool: StudioTool) => Promise<boolean>
 }) {
   const [viewport, setViewport] = useState(() => ({ w: win.innerWidth, h: win.innerHeight }))
   const [drag, setDrag] = useState<Drag | null>(null)
   const [loaded, setLoaded] = useState<ReadonlySet<StudioTool>>(() => new Set())
-  /** 窗口里的应用已经画出来了；之前窗口只显示占位，不露出整页的启动画面。 */
-  const [ready, setReady] = useState<ReadonlySet<StudioTool>>(() => new Set())
   const layoutRef = useRef(layout)
   layoutRef.current = layout
 
@@ -179,11 +182,11 @@ export function StudioOverlay({
     setDrag({ kind, tool, startX: event.clientX, startY: event.clientY, from })
   }
 
-  /** 关一个窗口。窗口有自己的关闭（编辑器要先问没保存的改动）就交给它，由它决定关不关。 */
+  /** 关一个窗口。先问窗口自己（编辑器要先问没保存的改动），它点头了才关。 */
   const closeWindow = (tool: StudioTool) => {
-    const own = frameCloseHandler(frameRefs.current.get(tool))
-    if (own) own()
-    else onLayout(closeTool(layoutRef.current, tool))
+    void mayLeave(tool).then((ok) => {
+      if (ok) onLayout(closeTool(layoutRef.current, tool))
+    })
   }
 
   const toggleTool = (tool: StudioTool) => {
@@ -211,8 +214,6 @@ export function StudioOverlay({
   const openTools = new Set(layout.open.map((spec) => spec.tool))
   const loadedOpen = new Set([...loaded].filter((tool) => openTools.has(tool)))
   if (loadedOpen.size !== loaded.size) setLoaded(loadedOpen)
-  const readyOpen = new Set([...ready].filter((tool) => openTools.has(tool)))
-  if (readyOpen.size !== ready.size) setReady(readyOpen)
   const loadingNow = nextFrameToLoad(visibleTopFirst, loadedOpen, null)
 
   return (
@@ -363,8 +364,8 @@ export function StudioOverlay({
                 </button>
               </header>
             )}
-            <div className="win__body" data-ready={readyOpen.has(spec.tool)}>
-              {readyOpen.has(spec.tool) ? null : <FramePlaceholder />}
+            <div className="win__body" data-ready={ready.has(spec.tool)}>
+              {ready.has(spec.tool) ? null : <FramePlaceholder />}
               {loadedOpen.has(spec.tool) || loadingNow === spec.tool ? (
                 <iframe
                   ref={(node) => {
@@ -376,10 +377,7 @@ export function StudioOverlay({
                   onLoad={(event) => {
                     const tool = spec.tool
                     setLoaded((current) => (current.has(tool) ? current : new Set([...current, tool])))
-                    whenFrameReady(event.currentTarget, () => {
-                      setReady((current) => (current.has(tool) ? current : new Set([...current, tool])))
-                    })
-                    onFrameLoad(event.currentTarget)
+                    onFrameLoad(tool, event.currentTarget)
                   }}
                 />
               ) : null}
@@ -408,34 +406,6 @@ function FramePlaceholder() {
       <span />
     </div>
   )
-}
-
-/**
- * 等窗口里的应用画出第一屏：应用就绪时给 `#app-root` 加 `app-ready`。
- * 读不到（跨源、结构变了）或等太久就直接放出来，免得窗口一直是占位。
- */
-function whenFrameReady(frame: HTMLIFrameElement, done: () => void) {
-  let root: HTMLElement | null = null
-  try {
-    root = frame.contentDocument?.getElementById('app-root') ?? null
-  } catch {
-    root = null
-  }
-  if (!root || root.classList.contains('app-ready')) {
-    done()
-    return
-  }
-  const target = root
-  const finish = () => {
-    observer.disconnect()
-    window.clearTimeout(timer)
-    done()
-  }
-  const observer = new MutationObserver(() => {
-    if (target.classList.contains('app-ready')) finish()
-  })
-  observer.observe(target, { attributes: true, attributeFilter: ['class'] })
-  const timer = window.setTimeout(finish, 8000)
 }
 
 /** 快捷键在博客页和每个工具窗口里都要听：键盘事件不会从 iframe 冒到外面。 */

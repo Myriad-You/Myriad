@@ -5,6 +5,7 @@
  */
 
 import type { StudioTool, StudioToolSpec } from './overlay/studioTools'
+import { isDocumentReady, subscribeDocumentReady } from '../../utils/pageLoader'
 
 export const STUDIO_HOST_ID = 'myriad-studio-host'
 
@@ -16,6 +17,19 @@ export interface StudioOverlayApi {
   remember: (spec: StudioToolSpec) => void
   /** 收起覆盖层，钉住的窗口留着。 */
   hide: () => void
+  /** 工具窗口拿自己和覆盖层之间的那一头；认不出是哪个窗口时给一个什么也不做的。 */
+  port: (win: Window) => StudioWindowPort
+}
+
+/** 一个工具窗口和覆盖层之间的全部约定。 */
+export interface StudioWindowPort {
+  /** 第一屏画好了，覆盖层撤掉占位。 */
+  ready: () => void
+  /**
+   * 关窗口、换内容之前先问窗口（编辑器先问没保存的改动、清掉空的新笔记），
+   * 给 false 就不关不换。传 null 撤回。只对登记它的那一页有效，窗口换了地址就失效。
+   */
+  guard: (check: (() => Promise<boolean>) | null) => void
 }
 
 interface HostWithApi extends HTMLElement {
@@ -43,57 +57,26 @@ export function studioOverlayApi(): StudioOverlayApi | null {
   return findStudioHost()?.__myriadStudio ?? null
 }
 
-const FRAME_CLOSE = '__myriadStudioClose'
-
-interface FrameWindow extends Window {
-  [FRAME_CLOSE]?: () => void
+/** 本窗口在覆盖层里的那一头。不在覆盖层里时为 null。 */
+export function studioWindowPort(win: Window = window): StudioWindowPort | null {
+  return findStudioHost(win)?.__myriadStudio?.port(win) ?? null
 }
 
 /**
- * 工具窗口自己的关闭（编辑器要先问未保存的改动）。挂在窗口自己的 window 上，
- * 覆盖层点标题栏的关闭时先交给它；它决定关不关，关就调 `close`。
+ * 每个页面启动时调一次：在覆盖层的工具窗口里，第一屏画好（出错页也算）就告诉覆盖层，
+ * 覆盖层这才撤掉占位。不在覆盖层里什么也不做。
  */
-export function setFrameCloseHandler(close: (() => void) | null, win: Window = window): void {
-  const target = win as FrameWindow
-  if (close) target[FRAME_CLOSE] = close
-  else delete target[FRAME_CLOSE]
-}
-
-export function frameCloseHandler(frame: HTMLIFrameElement | null | undefined): (() => void) | null {
-  try {
-    return (frame?.contentWindow as FrameWindow | null)?.[FRAME_CLOSE] ?? null
-  } catch {
-    return null
+export function announceStudioWindow(): void {
+  if (!findStudioHost()) return
+  const done = () => studioWindowPort()?.ready()
+  if (isDocumentReady()) {
+    done()
+    return
   }
-}
-
-const FRAME_LEAVE = '__myriadStudioLeave'
-
-interface LeaveWindow extends Window {
-  [FRAME_LEAVE]?: (next: () => void) => void
-}
-
-/**
- * 工具窗口换内容之前的检查（编辑器换篇前先问没保存的改动）。通过了才调 `next`，
- * 窗口本身不关。挂法和关闭一样。
- */
-export function setFrameLeaveHandler(
-  leave: ((next: () => void) => void) | null,
-  win: Window = window,
-): void {
-  const target = win as LeaveWindow
-  if (leave) target[FRAME_LEAVE] = leave
-  else delete target[FRAME_LEAVE]
-}
-
-export function frameLeaveHandler(
-  frame: HTMLIFrameElement | null | undefined,
-): ((next: () => void) => void) | null {
-  try {
-    return (frame?.contentWindow as LeaveWindow | null)?.[FRAME_LEAVE] ?? null
-  } catch {
-    return null
-  }
+  const stop = subscribeDocumentReady(() => {
+    stop()
+    done()
+  })
 }
 
 /** 文章页在外层整页打开；不在覆盖层里时开新标签。 */

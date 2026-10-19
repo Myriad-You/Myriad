@@ -9,9 +9,8 @@ import { usePhantasiWorkbench } from '../components/phantasi/usePhantasiWorkbenc
 import {
   findStudioHost,
   openBlogPage,
-  setFrameCloseHandler,
-  setFrameLeaveHandler,
   studioOverlayApi,
+  studioWindowPort,
 } from '../components/studio/studioIsland'
 import { openPublishedItem, openStudioNote, openStudioTool } from '../components/studio/studioNoteNav'
 import { editorTarget, mediaOriginForArg, parseStudioToolPath } from '../components/studio/studioRoutes'
@@ -72,6 +71,7 @@ export default function Studio() {
 
 function StudioEditor({ target, pageDocId }: { target: number | 'new'; pageDocId: number | null }) {
   const [pin] = useState(target)
+  const [port] = useState(() => studioWindowPort())
   // 编辑的就是覆盖层所在的这篇：「查看文章」只会再开一份同一页。
   const onThisPage = pin !== 'new' && pin === pageDocId
   const close = () => {
@@ -87,8 +87,7 @@ function StudioEditor({ target, pageDocId }: { target: number | 'new'; pageDocId
         onClose={close}
         framed={findStudioHost() != null}
         hideArticleLink={onThisPage}
-        onCloseHandle={setFrameCloseHandler}
-        onLeaveHandle={setFrameLeaveHandler}
+        onGuard={port?.guard}
         onSaved={() => {}}
         onDeleted={close}
         onCloudId={(id) => {
