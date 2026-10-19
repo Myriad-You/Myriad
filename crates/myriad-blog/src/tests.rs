@@ -10,8 +10,8 @@ use crate::{
     dedupe_slug, default_theme_files, fallback_slug, first_content_image, github_archive_root,
     inspect_theme_manifest, is_script_asset, post_path, postprocess_html, prepare_content_html,
     render_friends_file, render_home_file, render_hugo_config, render_post_file,
-    safe_archive_entries, safe_archive_path, sanitize_theme_id, slugify_title, summarize,
-    validate_slug,
+    reveal_companion_island, safe_archive_entries, safe_archive_path, sanitize_theme_id,
+    slugify_title, summarize, validate_slug,
 };
 
 fn site() -> BlogSite {
@@ -41,10 +41,24 @@ fn post() -> BlogPost {
 }
 
 #[test]
-fn the_companion_island_is_only_on_posts_that_have_one() {
+fn the_companion_island_shows_only_on_posts_that_have_one() {
     let mut note = post();
     let (_, file) = render_post_file(&site(), &note, DEFAULT_THEME_ID);
-    assert!(!file.contains("myriad-island"), "{file}");
+    assert!(
+        file.contains("<details class=\"myriad-island\" data-myriad-empty hidden>"),
+        "{file}"
+    );
+    assert!(
+        file.contains("title=\"AI 伴读\" loading=\"lazy\">"),
+        "{file}"
+    );
+    let revealed = reveal_companion_island(&file);
+    assert!(revealed.contains("<details class=\"myriad-island\" data-myriad-empty>"));
+    assert!(!revealed.contains("data-myriad-empty hidden"));
+    assert_eq!(
+        reveal_companion_island("<p>&lt;details&gt;</p>"),
+        "<p>&lt;details&gt;</p>"
+    );
 
     note.companion = true;
     let (_, file) = render_post_file(&site(), &note, DEFAULT_THEME_ID);

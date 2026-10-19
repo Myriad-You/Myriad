@@ -31,6 +31,8 @@ iframe[data-embed-scheme=dark]{color-scheme:dark}\n\
 .myriad-island__pill:hover{transform:translateY(-1px)}\n\
 .myriad-island__pill:focus-visible{outline:2px solid #a78bfa;outline-offset:3px}\n\
 .myriad-island__dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#a78bfa,#38bdf8)}\n\
+.myriad-island[hidden]{display:none}\n\
+.myriad-island[data-myriad-empty] .myriad-island__dot{background:#71717a}\n\
 .myriad-island[data-state=playing] .myriad-island__dot{animation:myriad-island-pulse 1.4s ease-in-out infinite}\n\
 .myriad-island__panel{position:absolute;left:50%;bottom:calc(100% + 12px);width:min(420px,calc(100vw - 24px));max-width:none;height:min(560px,calc(100vh - 110px));transform:translateX(-50%);margin:0;border:0;border-radius:24px;background:rgba(250,250,249,.88);-webkit-backdrop-filter:blur(20px) saturate(1.4);backdrop-filter:blur(20px) saturate(1.4);box-shadow:0 24px 60px rgba(0,0,0,.22),0 0 0 1px rgba(0,0,0,.06)}\n\
 .myriad-island__panel[data-embed-scheme=dark]{background:rgba(24,24,27,.88);box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.08)}\n\

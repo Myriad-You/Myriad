@@ -380,8 +380,9 @@ fn page_response(
     };
     let html = myriad_blog::inject_nav_island(&html, &myriad_blog::nav_island_head(), &chrome.nav);
     let (html, cache) = match &chrome.studio {
+        // 站长还能看到藏着的伴读岛，没有注释和播客的文章也能在面板里补生成。
         Some(island) => (
-            myriad_blog::inject_studio_island(&html, island),
+            myriad_blog::inject_studio_island(&myriad_blog::reveal_companion_island(&html), island),
             "private, no-store",
         ),
         None if anonymous && !chrome.personal => (html, "public, max-age=60"),

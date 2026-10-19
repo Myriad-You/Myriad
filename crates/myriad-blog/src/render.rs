@@ -18,9 +18,7 @@ pub fn render_post_file(site: &BlogSite, post: &BlogPost, theme_id: &str) -> (St
         fallback_slug(post.item_id)
     };
     let mut body = prepare_content_html(&post.content_html, &site.origin, post.item_id);
-    if post.companion {
-        body.push_str(&companion_island_html(post.item_id));
-    }
+    body.push_str(&companion_island_html(post.item_id, post.companion));
     let summary_source = if post.summary_source.trim().is_empty() {
         post.content_html.as_str()
     } else {

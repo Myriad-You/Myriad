@@ -42,7 +42,7 @@ pub use postprocess::{
     BLOG_CSP, NOTES_CSS, NOTES_CSS_HREF, is_script_asset, is_stripped_asset, postprocess_html,
 };
 pub use render::{export_site_files, render_friends_file, render_home_file, render_post_file};
-pub use rewrite::{first_content_image, prepare_content_html};
+pub use rewrite::{first_content_image, prepare_content_html, reveal_companion_island};
 pub use slug::{
     BLOG_PREFIX, SLUG_MAX_CHARS, dedupe_slug, fallback_slug, note_blog_path, post_path,
     slugify_title, validate_slug,
