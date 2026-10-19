@@ -192,15 +192,26 @@ export function StudioBlogPane({ back, arg = null }: { back: ReactNode; arg?: st
       lead={tabs}
       action={
         <>
-          <button
-            type="button"
-            className={`blog-status is-${statusTone(build.status)}`}
-            title={builtAt ? `${copy.lastBuilt} ${builtAt}` : copy.neverBuilt}
-            onClick={() => pickTab('build')}
-          >
-            <span className="blog-status__dot" aria-hidden />
-            {copy[statusKey(build.status)]}
-          </button>
+          {tab === 'build' ? (
+            // 已经在构建页：状态只是状态，不再是跳到这一页的按钮。
+            <span
+              className={`blog-status is-${statusTone(build.status)} is-here`}
+              title={builtAt ? `${copy.lastBuilt} ${builtAt}` : copy.neverBuilt}
+            >
+              <span className="blog-status__dot" aria-hidden />
+              {copy[statusKey(build.status)]}
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={`blog-status is-${statusTone(build.status)}`}
+              title={builtAt ? `${copy.lastBuilt} ${builtAt}` : copy.neverBuilt}
+              onClick={() => pickTab('build')}
+            >
+              <span className="blog-status__dot" aria-hidden />
+              {copy[statusKey(build.status)]}
+            </button>
+          )}
           <PageAction
             label={copy.rebuild}
             icon={<LuRefreshCw />}

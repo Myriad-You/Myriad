@@ -108,8 +108,12 @@ html.dark .blog-tabs__tab[aria-selected='true'] {
   cursor: pointer;
 }
 
-.blog-status:hover {
+.blog-status:hover:not(.is-here) {
   background: var(--cfg-fill);
+}
+
+.blog-status.is-here {
+  cursor: default;
 }
 
 .blog-status.is-ok {

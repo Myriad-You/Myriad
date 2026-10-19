@@ -177,15 +177,19 @@ export function StudioOverlay({
     setDrag({ kind, tool, startX: event.clientX, startY: event.clientY, from })
   }
 
+  /** 关一个窗口。窗口有自己的关闭（编辑器要先问没保存的改动）就交给它，由它决定关不关。 */
+  const closeWindow = (tool: StudioTool) => {
+    const own = frameCloseHandler(frameRefs.current.get(tool))
+    if (own) own()
+    else onLayout(closeTool(layoutRef.current, tool))
+  }
+
   const toggleTool = (tool: StudioTool) => {
     const current = layoutRef.current
     const isOpen = current.open.some((item) => item.tool === tool)
     const isTop = current.open.at(-1)?.tool === tool
     if (isOpen && isTop) {
-      // 和标题栏的关闭一样：窗口有自己的关闭（编辑器）就先交给它。
-      const own = frameCloseHandler(frameRefs.current.get(tool))
-      if (own) own()
-      else onLayout(closeTool(current, tool))
+      closeWindow(tool)
     } else {
       const arg =
         tool === 'editor' ? (context.docId != null ? String(context.docId) : 'new') : null
@@ -195,6 +199,9 @@ export function StudioOverlay({
   }
 
   const topTool = layout.open.at(-1)?.tool
+  const editingHere =
+    context.docId != null &&
+    layout.open.some((item) => item.tool === 'editor' && item.arg === String(context.docId))
   const visibleTopFirst = layout.open
     .filter((spec) => open || layout.windows[spec.tool]?.pinned)
     .map((spec) => spec.tool)
@@ -222,7 +229,13 @@ export function StudioOverlay({
           <button
             type="button"
             className="bar__btn"
+            aria-pressed={open && editingHere}
             onClick={() => {
+              // 已经在最上面编辑这篇：再点就是关掉，和工具栏一样，不是原地再开一次。
+              if (open && editingHere && topTool === 'editor') {
+                closeWindow('editor')
+                return
+              }
               onLayout(openTool(layoutRef.current, { tool: 'editor', arg: String(context.docId) }))
               onOpenChange(true)
             }}
@@ -342,12 +355,7 @@ export function StudioOverlay({
                   className="win__btn"
                   aria-label={copy.close}
                   title={copy.close}
-                  onClick={() => {
-                    // 窗口有自己的关闭（编辑器）就交给它，由它决定关不关。
-                    const own = frameCloseHandler(frameRefs.current.get(spec.tool))
-                    if (own) own()
-                    else onLayout(closeTool(layoutRef.current, spec.tool))
-                  }}
+                  onClick={() => closeWindow(spec.tool)}
                 >
                   <LuX />
                 </button>
