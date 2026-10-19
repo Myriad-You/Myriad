@@ -872,6 +872,7 @@ mod tests {
                         let index = rolls.range(0..=(open as u64 - 1)) as usize;
                         Undercover::take(&mut game, voter, index, &mut rolls);
                     }
+                    Waiting::Ask(_) => unreachable!("nothing asked as it goes"),
                     Waiting::Over => break,
                 }
             }

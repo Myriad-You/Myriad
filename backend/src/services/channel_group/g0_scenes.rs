@@ -12,6 +12,8 @@ const TOKEN: &str = "g0-token";
 
 mod avalon;
 mod games;
+mod jubensha;
+mod jubensha_writing;
 mod members;
 mod memory;
 mod seats;

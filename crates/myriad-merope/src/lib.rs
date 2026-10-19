@@ -24,6 +24,7 @@ pub mod heard;
 pub mod hosting;
 pub mod inner;
 pub mod jargon;
+pub mod jubensha;
 pub mod joining;
 pub mod library;
 pub mod making;

@@ -1108,6 +1108,12 @@ impl End {
                     | "werewolf_her_move"
                     | "avalon_her_move"
                     | "marks_her_move" => "ask:her_move",
+                    "jubensha_voice" => "ask:voice",
+                    "jubensha_outline" => "ask:jubensha_outline",
+                    "jubensha_clues" => "ask:jubensha_clues",
+                    "jubensha_scripts" => "ask:jubensha_scripts",
+                    "jubensha_check" => "ask:jubensha_check",
+                    "jubensha_answer" => "ask:jubensha_answer",
                     _ => "ask",
                 },
             ),
@@ -1145,7 +1151,13 @@ impl End {
         let got = json!({ "steps": self.steps, "state": self.group });
         if std::env::var("MYRIAD_RECORD_G1").as_deref() == Ok("1") {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, serde_json::to_string_pretty(&got).unwrap() + "\n").unwrap();
+            // Written compact when it would pass 1 MiB laid out: the other
+            // ends keep only smaller test data (each end reads it as JSON).
+            let mut text = serde_json::to_string_pretty(&got).unwrap();
+            if text.len() > 1 << 20 {
+                text = serde_json::to_string(&got).unwrap();
+            }
+            std::fs::write(&path, text + "\n").unwrap();
             return;
         }
         let want: Value = serde_json::from_str(
@@ -1238,6 +1250,14 @@ fn default_answer(kind: &str) -> Answer {
         "ask:undercover_judge" => Answer::Asked {
             raw: Some(r#"{"givesAway":false}"#.into()),
             failure: None,
+        },
+        "ask:jubensha_outline"
+        | "ask:jubensha_clues"
+        | "ask:jubensha_scripts"
+        | "ask:jubensha_check"
+        | "ask:jubensha_answer" => Answer::Asked {
+            raw: None,
+            failure: Some("unavailable".into()),
         },
         "ask:voice" | "ask:her_move" => Answer::Asked {
             raw: None,
@@ -3410,4 +3430,776 @@ fn g1_avalon_goes_on_after_a_restart() {
     let first_vote = said.iter().find(|line| line.starts_with("投票：")).unwrap();
     assert!(first_vote.contains("赞成 阿明、小红"), "{first_vote}");
     end.check("avalon_goes_on_after_a_restart");
+}
+
+// ------------------------------------------------------------ 剧本杀
+
+/// The game of 剧本杀 on at a table, if it is one.
+fn jubensha_of(seating: &flows::Seating) -> Option<&crate::jubensha::Jubensha> {
+    match seating.game.as_ref()? {
+        crate::hosting::SeatGame::Jubensha(game) => Some(game),
+        _ => None,
+    }
+}
+
+/// The story she writes in a test, step by step, each `after` seconds.
+fn jubensha_written(end: &mut End, players: usize, after: f64) {
+    let [outline, clues, scripts, check] = crate::jubensha::sample(players);
+    for (kind, raw) in [
+        ("ask:jubensha_outline", outline),
+        ("ask:jubensha_clues", clues),
+        ("ask:jubensha_scripts", scripts),
+        ("ask:jubensha_check", check),
+    ] {
+        end.answer(
+            kind,
+            after,
+            Answer::Asked {
+                raw: Some(raw),
+                failure: None,
+            },
+        );
+    }
+}
+
+/// The players of a test at 剧本杀, every ten seconds from `from` to
+/// `until`: the first `speakers` seats introduce themselves in two lines and
+/// then say they are done (the rest let their time pass); whoever has to
+/// choose whispers `chosen` (as a button pressed when `buttons`, else
+/// typed).
+fn play_jubensha(
+    end: &mut End,
+    from: f64,
+    until: f64,
+    buttons: bool,
+    speakers: usize,
+    chosen: &dyn Fn(&flows::Seating, usize) -> Option<String>,
+) {
+    use crate::hosting::Waiting;
+    use crate::jubensha::Phase;
+    let mut at = from;
+    let mut id = 700;
+    while at < until {
+        end.run(BASE + secs(at));
+        let Some(seating) = end.group.seating.clone() else {
+            break;
+        };
+        if let Some(game) = seating.game.as_ref() {
+            match game.waiting() {
+                Waiting::Speak(seat) if seat < speakers => {
+                    let lines = match jubensha_of(&seating).map(|game| &game.phase) {
+                        Some(Phase::Intro { lines, .. }) => *lines,
+                        _ => 0,
+                    };
+                    let sat = &seating.reachable[seat];
+                    let (platform, user) = sat.who.split_once(':').unwrap();
+                    let line = match lines {
+                        0 => "我是这家的老人了。",
+                        1 => "那晚我一直在自己屋里。",
+                        _ => "说完了",
+                    };
+                    id += 1;
+                    heard(
+                        end,
+                        at + 3.0,
+                        message_on(
+                            platform,
+                            &seating.chat.chat,
+                            id,
+                            user,
+                            &sat.name,
+                            line,
+                            false,
+                        ),
+                    );
+                }
+                Waiting::Choose(seats) => {
+                    for seat in seats {
+                        let sat = &seating.reachable[seat];
+                        let Some(text) = chosen(&seating, seat) else {
+                            continue;
+                        };
+                        end.at(
+                            BASE + secs(at + 3.0),
+                            Event::Whispered {
+                                who: sat.who.clone(),
+                                text,
+                                wait: if buttons { seating.waited } else { None },
+                            },
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        at += 10.0;
+    }
+    end.run(BASE + secs(until));
+}
+
+/// How the players of a test play 剧本杀: the theme as `theme` has it,
+/// read at once, each search two places (its own seat's and the next with
+/// a clue it may find), the first private clue held shown in the first
+/// talk (whose time then runs out); the vote for whom `vote` names (a
+/// character's name).
+fn jubensha_player(
+    theme: &dyn Fn(usize) -> usize,
+    vote: &dyn Fn(&crate::jubensha::Jubensha, usize) -> &'static str,
+) -> impl Fn(&flows::Seating, usize) -> Option<String> {
+    move |seating, seat| {
+        use crate::jubensha::Phase;
+        let game = jubensha_of(seating)?;
+        let choices = seating.game.as_ref()?.seat_view(seat).choices().to_vec();
+        Some(match &game.phase {
+            Phase::Theme { .. } => theme(seat).to_string(),
+            Phase::Search { round } => {
+                // Its own seat's place first, then the next that has a
+                // clue it may find.
+                let clues = &game.drafts.clues.as_ref()?.clues;
+                let outline = game.drafts.outline.as_ref()?;
+                let me = &outline.characters[game.cast[seat]].id;
+                let shown = |id: &str| {
+                    clues
+                        .iter()
+                        .position(|clue| clue.id == id)
+                        .is_some_and(|index| game.shown[index])
+                };
+                let first = if game.picks[seat] == crate::jubensha::PICKS {
+                    seat
+                } else {
+                    seat + 1
+                };
+                (0..outline.locations.len())
+                    .map(|offset| (first + offset) % outline.locations.len())
+                    .find(|place| {
+                        clues.iter().enumerate().any(|(index, clue)| {
+                            game.found[index].is_none()
+                                && clue.place == outline.locations[*place].id
+                                && clue.round <= *round
+                                && !clue.excluded.contains(me)
+                                && (clue.requires.is_empty() || shown(&clue.requires))
+                        })
+                    })?
+                    .to_string()
+            }
+            // The first private clue held is shown; the talk is let run.
+            Phase::Discuss {
+                round: 1, offered, ..
+            } => match offered[seat].first() {
+                Some(card) if !game.shown[*card] => "1".into(),
+                _ => return None,
+            },
+            Phase::Vote { .. } => {
+                let name = vote(game, seat);
+                choices
+                    .iter()
+                    .position(|choice| choice.starts_with(name))
+                    .unwrap_or(choices.len() - 1)
+                    .to_string()
+            }
+            _ => "0".into(),
+        })
+    }
+}
+
+/// The character `seat` plays, by name.
+fn plays(game: &crate::jubensha::Jubensha, seat: usize) -> String {
+    let outline = game.drafts.outline.as_ref().unwrap();
+    outline.characters[game.cast[seat]].name.clone()
+}
+
+fn asks_of(end: &End, operation: &str) -> Vec<Value> {
+    end.steps
+        .iter()
+        .flat_map(|step| {
+            step["output"]["effects"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter(|effect| effect["kind"] == "ask" && effect["operation"] == operation)
+        .collect()
+}
+
+/// A member asks for 剧本杀 in a Telegram group: four join, one asking for
+/// a theme; they vote on it from buttons; she writes the story in its
+/// steps (saying how far she is); each is whispered their own part, the
+/// culprit that it was them; they read, introduce themselves in more than
+/// one line, search twice from buttons (public clues told in the group,
+/// private ones whispered, one shown in the talk), ask her in the group
+/// (answered there, not as a turn of hers) and in private (a line that
+/// would give a secret away is not said: the facts it rests on are); the
+/// vote catches the culprit, and the truth and every ending are told.
+#[test]
+fn g1_jubensha_is_played_with_buttons() {
+    let mut end = End::new();
+    end.answer(
+        "ask:group_member",
+        2.0,
+        Answer::Asked {
+            raw: Some("好，我来当 DM\n[[game:jubensha]]".into()),
+            failure: None,
+        },
+    );
+    end.answer(
+        "ask:voice",
+        2.0,
+        Answer::Asked {
+            raw: Some(r#"{"say":"雨夜，老宅，大家小心。"}"#.into()),
+            failure: None,
+        },
+    );
+    jubensha_written(&mut end, 4, 20.0);
+    end.answer(
+        "ask:jubensha_answer",
+        2.0,
+        Answer::Asked {
+            raw: Some(r#"{"verdict":"answered","cite":[0],"say":"对，书房只有一扇门。"}"#.into()),
+            failure: None,
+        },
+    );
+    end.answer(
+        "ask:jubensha_answer",
+        2.0,
+        Answer::Asked {
+            raw: Some(r#"{"verdict":"answered","cite":[0],"say":"茶里有安眠药。"}"#.into()),
+            failure: None,
+        },
+    );
+    heard(
+        &mut end,
+        0.0,
+        message(1, 11, "阿明", "@bot 来玩剧本杀", true),
+    );
+    let people = [(11, "阿明"), (12, "小红"), (13, "阿强"), (14, "小李")];
+    for (index, (from, name)) in people.iter().enumerate() {
+        heard(
+            &mut end,
+            40.0 + index as f64,
+            message(2 + index as i64, *from, name, "加入", false),
+        );
+    }
+    heard(&mut end, 45.0, message(9, 12, "小红", "主题：武侠", false));
+    let culprit_named = |_: &crate::jubensha::Jubensha, _: usize| "周妈";
+    let player = jubensha_player(&|_| 0, &culprit_named);
+    // Until reading.
+    play_jubensha(&mut end, 110.0, 400.0, true, 1, &|seating, seat| {
+        let game = jubensha_of(seating)?;
+        matches!(game.phase, crate::jubensha::Phase::Theme { .. }).then(|| player(seating, seat))?
+    });
+    let seating = end.group.seating.clone().expect("on");
+    let game = jubensha_of(&seating).unwrap();
+    assert_eq!(game.theme, "武侠", "the theme asked for, voted for");
+    assert!(matches!(game.phase, crate::jubensha::Phase::Read { .. }));
+    // A question in the group, and one in private from someone who is not
+    // the culprit.
+    let asker = (0..4).find(|seat| plays(game, *seat) != "周妈").unwrap();
+    let (_, user) = seating.reachable[asker].who.split_once(':').unwrap();
+    let user = user.to_string();
+    let now = (end.now - BASE) as f64 / 1e6;
+    heard(
+        &mut end,
+        now + 1.0,
+        message(
+            30,
+            user.parse().unwrap(),
+            "问的人",
+            "@bot 书房是不是只有一扇门？",
+            true,
+        ),
+    );
+    end.at(
+        BASE + secs(now + 2.0),
+        Event::Whispered {
+            who: format!("telegram:{user}"),
+            text: "那杯茶有问题吗？".into(),
+            wait: None,
+        },
+    );
+    // While it is theirs to press 读完了: a number out of range is asked
+    // again; the question above was a question, not a move asked again.
+    end.at(
+        BASE + secs(now + 3.0),
+        Event::Whispered {
+            who: format!("telegram:{user}"),
+            text: "9".into(),
+            wait: None,
+        },
+    );
+    end.run(BASE + secs(now + 10.0));
+    let asked: Vec<String> = asks_of(&end, "jubensha_answer")
+        .iter()
+        .map(|ask| ask["input"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        asked.iter().any(|input| input.contains("那杯茶有问题吗")),
+        "{asked:?}"
+    );
+    let to_asker: Vec<String> = whispers(&end)
+        .into_iter()
+        .filter(|(to, _)| *to == user)
+        .map(|(_, text)| text)
+        .collect();
+    assert!(
+        to_asker
+            .iter()
+            .any(|text| text.starts_with("没有这个号码，再选一次"))
+    );
+    assert!(
+        to_asker.iter().all(|text| !text.starts_with("没看懂这句")),
+        "{to_asker:?}"
+    );
+    play_jubensha(&mut end, now + 10.0, 6000.0, true, 1, &|seating, seat| {
+        // The second talk is let pass.
+        match jubensha_of(seating)?.phase {
+            crate::jubensha::Phase::Discuss { round: 2, .. } => None,
+            _ => player(seating, seat),
+        }
+    });
+    assert!(end.group.seating.is_none(), "played to its end");
+    let said = said_in_group(&end);
+    assert!(
+        said.iter().any(|line| line.contains("对，书房只有一扇门")),
+        "{said:?}"
+    );
+    assert_eq!(
+        asks_of(&end, "group_member").len(),
+        1,
+        "the question in the group is the game's, not a turn of hers"
+    );
+    let over = said
+        .iter()
+        .position(|line| line.contains("复盘："))
+        .expect("the truth is told at the end");
+    assert!(said[over].contains("投中了"));
+    assert!(
+        said[..over]
+            .iter()
+            .all(|line| !line.contains("安眠药") || line.contains("公开线索"))
+    );
+    assert!(said.iter().any(|line| line.contains("公开了线索")));
+    assert!(
+        said.iter()
+            .any(|line| line.contains("你们") || line.contains("自我介绍"))
+    );
+    let mine = whispers(&end)
+        .into_iter()
+        .filter(|(to, _)| *to == user)
+        .map(|(_, text)| text)
+        .collect::<Vec<_>>();
+    assert!(
+        mine.iter().all(|text| !text.contains("茶里有安眠药")),
+        "a line giving a secret away is not said: {mine:?}"
+    );
+    let buttons = end.steps.iter().any(|step| {
+        step["output"]["effects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|effect| effect["kind"] == "whisper" && effect["choices"].is_array())
+    });
+    assert!(buttons);
+    // What the story was is kept as dealt lately.
+    assert!(end.steps.iter().any(|step| {
+        step["output"]["effects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|effect| effect.to_string().contains("雨夜书房/武侠"))
+    }));
+    end.check("jubensha_is_played_with_buttons");
+}
+
+/// On QQ, typed numbers: the theme vote is a tie and she picks one of
+/// those tied; the first outline does not hold (one culprit too many) and
+/// is written again; the rest time out; the vote names the wrong one, the
+/// culprit escapes and the truth is told all the same.
+#[test]
+fn g1_jubensha_on_qq_a_tie_a_rewrite_and_a_wrong_vote() {
+    let mut end = End::new();
+    end.answer(
+        "identify",
+        0.0,
+        Answer::Identified {
+            who: Who::Stranger,
+            owner: Some(1),
+        },
+    );
+    end.answer(
+        "ask:group_stranger",
+        2.0,
+        Answer::Asked {
+            raw: Some("好\n[[game:jubensha]]".into()),
+            failure: None,
+        },
+    );
+    let [outline, ..] = crate::jubensha::sample(4);
+    let mut wrong: Value = serde_json::from_str(&outline).unwrap();
+    wrong["characters"][0]["culprit"] = json!(true);
+    end.answer(
+        "ask:jubensha_outline",
+        10.0,
+        Answer::Asked {
+            raw: Some(wrong.to_string()),
+            failure: None,
+        },
+    );
+    jubensha_written(&mut end, 4, 10.0);
+    let qq = |id: i64, from: &str, name: &str, text: &str, addressed: bool| {
+        message_on("onebot", "77031", id, from, name, text, addressed)
+    };
+    heard(&mut end, 0.0, qq(1, "9101", "甲", "@bot 剧本杀", true));
+    let people = [
+        ("9101", "甲"),
+        ("9102", "乙"),
+        ("9103", "丙"),
+        ("9104", "丁"),
+    ];
+    for (index, (from, name)) in people.iter().enumerate() {
+        heard(
+            &mut end,
+            40.0 + index as f64,
+            qq(2 + index as i64, from, name, "加入", false),
+        );
+    }
+    let wrong_named = |game: &crate::jubensha::Jubensha, seat: usize| {
+        if plays(game, seat) == "林叔" {
+            "阿青"
+        } else {
+            "林叔"
+        }
+    };
+    // Two and two on the theme; reading done, everything else let pass but
+    // the vote.
+    let player = jubensha_player(&|seat| if seat < 2 { 0 } else { 3 }, &wrong_named);
+    play_jubensha(&mut end, 110.0, 8000.0, false, 0, &|seating, seat| {
+        use crate::jubensha::Phase;
+        match jubensha_of(seating)?.phase {
+            Phase::Theme { .. } | Phase::Read { .. } | Phase::Vote { .. } => player(seating, seat),
+            _ => None,
+        }
+    });
+    assert!(end.group.seating.is_none(), "played to its end");
+    let said = said_in_group(&end);
+    assert!(
+        said.iter().any(|line| line.contains("平票，我挑了")),
+        "{said:?}"
+    );
+    assert_eq!(
+        asks_of(&end, "jubensha_outline").len(),
+        2,
+        "written again once"
+    );
+    let rewrite = asks_of(&end, "jubensha_outline")[1]["input"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        rewrite.contains("exactly one character must be the culprit"),
+        "{rewrite}"
+    );
+    assert!(said.iter().any(|line| line.contains("投错了")));
+    assert!(
+        said.iter()
+            .any(|line| line.contains("周妈第二天就离开了老宅"))
+    );
+    let whispered = end.steps.iter().any(|step| {
+        step["output"]["effects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|effect| effect["kind"] == "whisper" && effect["choices"].is_array())
+    });
+    assert!(!whispered, "no buttons on QQ");
+    end.check("jubensha_on_qq_a_tie_a_rewrite_and_a_wrong_vote");
+}
+
+/// Ten minutes is all writing may take: the steps come too slowly and she
+/// says this time it is not on; nothing is remembered of it.
+#[test]
+fn g1_jubensha_is_given_up_after_ten_minutes() {
+    let mut end = End::new();
+    end.answer(
+        "ask:group_member",
+        2.0,
+        Answer::Asked {
+            raw: Some("好\n[[game:jubensha]]".into()),
+            failure: None,
+        },
+    );
+    jubensha_written(&mut end, 4, 170.0);
+    heard(&mut end, 0.0, message(1, 11, "阿明", "@bot 剧本杀", true));
+    for (index, (from, name)) in [(11, "阿明"), (12, "小红"), (13, "阿强"), (14, "小李")]
+        .iter()
+        .enumerate()
+    {
+        heard(
+            &mut end,
+            40.0 + index as f64,
+            message(2 + index as i64, *from, name, "加入", false),
+        );
+    }
+    end.run(BASE + secs(2000.0));
+    assert!(end.group.seating.is_none());
+    let said = said_in_group(&end);
+    assert!(
+        said.iter().any(|line| line.contains("本子写得太久了")),
+        "{said:?}"
+    );
+    assert!(
+        !end.steps
+            .iter()
+            .any(|step| step["output"].to_string().contains("rememberInVenue")),
+        "nothing kept of a game that never began"
+    );
+    end.check("jubensha_is_given_up_after_ten_minutes");
+}
+
+/// While they read, three of the four say in the group to stop: at the
+/// third, more than half, the truth is told at once.
+#[test]
+fn g1_jubensha_stops_when_most_ask() {
+    let mut end = End::new();
+    end.answer(
+        "ask:group_member",
+        2.0,
+        Answer::Asked {
+            raw: Some("好\n[[game:jubensha]]".into()),
+            failure: None,
+        },
+    );
+    jubensha_written(&mut end, 4, 5.0);
+    heard(&mut end, 0.0, message(1, 11, "阿明", "@bot 剧本杀", true));
+    let people = [(11, "阿明"), (12, "小红"), (13, "阿强"), (14, "小李")];
+    for (index, (from, name)) in people.iter().enumerate() {
+        heard(
+            &mut end,
+            40.0 + index as f64,
+            message(2 + index as i64, *from, name, "加入", false),
+        );
+    }
+    play_jubensha(&mut end, 110.0, 200.0, true, 0, &|seating, seat| {
+        matches!(
+            jubensha_of(seating)?.phase,
+            crate::jubensha::Phase::Theme { .. }
+        )
+        .then(|| (seat % 2).to_string())
+    });
+    assert!(matches!(
+        jubensha_of(end.group.seating.as_ref().unwrap())
+            .unwrap()
+            .phase,
+        crate::jubensha::Phase::Read { .. }
+    ));
+    let now = (end.now - BASE) as f64 / 1e6;
+    for (index, (from, name)) in people.iter().take(3).enumerate() {
+        heard(
+            &mut end,
+            now + 1.0 + index as f64,
+            message(40 + index as i64, *from, name, "结束剧本杀", false),
+        );
+    }
+    end.run(BASE + secs(now + 30.0));
+    assert!(end.group.seating.is_none());
+    let said = said_in_group(&end);
+    assert!(said.iter().any(|line| line.contains("想结束（2/4")));
+    assert!(
+        said.iter()
+            .any(|line| line.contains("复盘：") && line.contains("凶手没被找出来"))
+    );
+    end.check("jubensha_stops_when_most_ask");
+}
+
+/// A restart while she writes the clues (the outline already written): the
+/// table comes back with the outline kept, only the step it was on is
+/// asked again, and the game is played on (all of it let pass) to its end.
+#[test]
+fn g1_jubensha_goes_on_after_a_restart_while_she_writes() {
+    let mut before = End::new();
+    before.answer(
+        "ask:group_member",
+        2.0,
+        Answer::Asked {
+            raw: Some("好\n[[game:jubensha]]".into()),
+            failure: None,
+        },
+    );
+    let [outline, clues, scripts, check] = crate::jubensha::sample(4);
+    before.answer(
+        "ask:jubensha_outline",
+        20.0,
+        Answer::Asked {
+            raw: Some(outline),
+            failure: None,
+        },
+    );
+    before.answer(
+        "ask:jubensha_clues",
+        500.0,
+        Answer::Asked {
+            raw: Some(clues.clone()),
+            failure: None,
+        },
+    );
+    heard(
+        &mut before,
+        0.0,
+        message(1, 11, "阿明", "@bot 剧本杀", true),
+    );
+    for (index, (from, name)) in [(11, "阿明"), (12, "小红"), (13, "阿强"), (14, "小李")]
+        .iter()
+        .enumerate()
+    {
+        heard(
+            &mut before,
+            40.0 + index as f64,
+            message(2 + index as i64, *from, name, "加入", false),
+        );
+    }
+    play_jubensha(&mut before, 110.0, 250.0, true, 0, &|seating, seat| {
+        matches!(
+            jubensha_of(seating)?.phase,
+            crate::jubensha::Phase::Theme { .. }
+        )
+        .then(|| (seat % 2).to_string())
+    });
+    let table = last_table(&before);
+    assert_eq!(table["game"]["phase"]["phase"], "writing");
+    assert_eq!(table["game"]["phase"]["step"], 1);
+    assert!(table["game"]["drafts"]["outline"].is_object());
+    let mut end = End::new();
+    end.now = before.now + secs(5.0);
+    for (kind, raw) in [
+        ("ask:jubensha_clues", clues),
+        ("ask:jubensha_scripts", scripts),
+        ("ask:jubensha_check", check),
+    ] {
+        end.answer(
+            kind,
+            10.0,
+            Answer::Asked {
+                raw: Some(raw),
+                failure: None,
+            },
+        );
+    }
+    end.at(
+        end.now,
+        Event::Restored {
+            lines: None,
+            spoke_up: Vec::new(),
+            table: Some(table),
+        },
+    );
+    end.run(BASE + secs(9000.0));
+    assert!(end.group.seating.is_none(), "played to its end");
+    assert!(
+        asks_of(&end, "jubensha_outline").is_empty(),
+        "the outline is not written again"
+    );
+    assert_eq!(asks_of(&end, "jubensha_clues").len(), 1);
+    let said = said_in_group(&end);
+    assert!(said.iter().any(|line| line.contains("复盘：")));
+    end.check("jubensha_goes_on_after_a_restart_while_she_writes");
+}
+
+/// A restart in the first talk, with a question asked in private still
+/// waiting on its answer and a private clue held: the question is asked
+/// again and answered to who asked, the clue is still theirs to show, and
+/// the game goes on (let pass) to its end.
+#[test]
+fn g1_jubensha_goes_on_after_a_restart_mid_game() {
+    let mut before = End::new();
+    before.answer(
+        "ask:group_member",
+        2.0,
+        Answer::Asked {
+            raw: Some("好\n[[game:jubensha]]".into()),
+            failure: None,
+        },
+    );
+    jubensha_written(&mut before, 4, 5.0);
+    before.answer(
+        "ask:jubensha_answer",
+        300.0,
+        Answer::Asked {
+            raw: Some(r#"{"verdict":"notInYourInfo","cite":[],"say":""}"#.into()),
+            failure: None,
+        },
+    );
+    heard(
+        &mut before,
+        0.0,
+        message(1, 11, "阿明", "@bot 剧本杀", true),
+    );
+    for (index, (from, name)) in [(11, "阿明"), (12, "小红"), (13, "阿强"), (14, "小李")]
+        .iter()
+        .enumerate()
+    {
+        heard(
+            &mut before,
+            40.0 + index as f64,
+            message(2 + index as i64, *from, name, "加入", false),
+        );
+    }
+    let culprit_named = |_: &crate::jubensha::Jubensha, _: usize| "周妈";
+    let player = jubensha_player(&|_| 1, &culprit_named);
+    // Until the first talk.
+    let mut at = 110.0;
+    while at < 3000.0 {
+        play_jubensha(&mut before, at, at + 10.0, true, 0, &player);
+        at += 10.0;
+        let talking = before
+            .group
+            .seating
+            .as_ref()
+            .and_then(jubensha_of)
+            .is_some_and(|game| matches!(game.phase, crate::jubensha::Phase::Discuss { .. }));
+        if talking {
+            break;
+        }
+    }
+    let seating = before.group.seating.clone().expect("in the talk");
+    assert!(matches!(
+        jubensha_of(&seating).unwrap().phase,
+        crate::jubensha::Phase::Discuss { round: 1, .. }
+    ));
+    let now = (before.now - BASE) as f64 / 1e6;
+    before.at(
+        BASE + secs(now + 1.0),
+        Event::Whispered {
+            who: seating.reachable[0].who.clone(),
+            text: "我那晚到底在哪？".into(),
+            wait: None,
+        },
+    );
+    before.run(BASE + secs(now + 5.0));
+    let table = last_table(&before);
+    assert_eq!(table["asides"].as_array().map(Vec::len), Some(1), "{table}");
+    let mut end = End::new();
+    end.now = before.now + secs(5.0);
+    end.answer(
+        "ask:jubensha_answer",
+        2.0,
+        Answer::Asked {
+            raw: Some(r#"{"verdict":"notInYourInfo","cite":[],"say":""}"#.into()),
+            failure: None,
+        },
+    );
+    end.at(
+        end.now,
+        Event::Restored {
+            lines: None,
+            spoke_up: Vec::new(),
+            table: Some(table),
+        },
+    );
+    end.run(BASE + secs(9000.0));
+    assert!(end.group.seating.is_none(), "played to its end");
+    assert_eq!(asks_of(&end, "jubensha_answer").len(), 1, "asked again");
+    let to_asker = whispers(&end)
+        .into_iter()
+        .any(|(user, text)| user == "11" && text.contains("得靠搜证和推理"));
+    assert!(to_asker);
+    end.check("jubensha_goes_on_after_a_restart_mid_game");
 }

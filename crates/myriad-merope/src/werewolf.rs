@@ -1557,7 +1557,7 @@ mod tests {
                         Werewolf::take(&mut game, seat, index, &mut rolls);
                     }
                     Waiting::Choose(_) => Werewolf::timed_out(&mut game, &mut rolls),
-                    Waiting::Judge { .. } => unreachable!("no judging"),
+                    Waiting::Judge { .. } | Waiting::Ask(_) => unreachable!("no judging"),
                     Waiting::Over => break,
                 }
             }

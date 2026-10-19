@@ -49,6 +49,12 @@ const TRAJECTORIES: &[(&str, &[u8])] = &[
     trajectory!("avalon_goes_on_after_a_restart"),
     trajectory!("avalon_is_played_with_buttons"),
     trajectory!("avalon_she_fills_a_seat"),
+    trajectory!("jubensha_is_played_with_buttons"),
+    trajectory!("jubensha_on_qq_a_tie_a_rewrite_and_a_wrong_vote"),
+    trajectory!("jubensha_is_given_up_after_ten_minutes"),
+    trajectory!("jubensha_stops_when_most_ask"),
+    trajectory!("jubensha_goes_on_after_a_restart_while_she_writes"),
+    trajectory!("jubensha_goes_on_after_a_restart_mid_game"),
 ];
 
 #[test]

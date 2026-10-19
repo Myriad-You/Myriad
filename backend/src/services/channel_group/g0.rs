@@ -33,6 +33,9 @@ pub(crate) struct World {
     pub claimed: HashSet<String>,
     /// Answers of the model by operation, in order; none is a failure.
     pub models: HashMap<String, VecDeque<Option<String>>>,
+    /// How long the model takes to answer, by operation, in order (none
+    /// given: at once).
+    pub delays: HashMap<String, VecDeque<f64>>,
     /// What she sees in a picture, by its key.
     pub seen: HashMap<String, myriad_merope::seeing::Seen>,
     /// Text sends (counted from 0) the platform refuses.
@@ -84,6 +87,7 @@ impl World {
             unbound_after: HashSet::new(),
             claimed: HashSet::new(),
             models: HashMap::new(),
+            delays: HashMap::new(),
             seen: HashMap::new(),
             refused: HashSet::new(),
             unreachable: HashSet::new(),
@@ -278,6 +282,18 @@ pub(crate) fn model(operation: &str, system: &str, input: &str) -> Option<Option
         })
         .flatten(),
     )
+}
+
+/// How long the model takes over this answer of `operation`, when the
+/// scene says.
+pub(crate) fn delay(operation: &str) -> Option<f64> {
+    with(|world| {
+        world
+            .delays
+            .get_mut(operation)
+            .and_then(VecDeque::pop_front)
+    })
+    .flatten()
 }
 
 /// A send to the platform; whether it took it.

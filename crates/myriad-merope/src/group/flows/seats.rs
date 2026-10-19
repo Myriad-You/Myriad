@@ -24,7 +24,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::hosting::{Seat, SeatGame, Waiting};
+use crate::hosting::{Aside, Question, Seat, SeatGame, Waiting};
 
 /// Her seat, when she takes one: who she is at the table.
 pub const HER_SEAT: &str = "her";
@@ -122,6 +122,17 @@ pub struct Seating {
     /// from the rest: the group is never told of those.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secret_misses: Vec<u32>,
+    /// Themes asked for while sign-up was open (a game whose players vote
+    /// on one).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wishes: Vec<String>,
+    /// Questions seats asked, each waiting on its answer beside whatever
+    /// else the table waits for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asides: Vec<Aside>,
+    /// What a game made as it went was kept as dealt lately.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dealt_kept: bool,
 }
 
 impl Seating {
@@ -144,8 +155,29 @@ fn platform_of(who: &str) -> (&str, &str) {
     who.split_once(':').unwrap_or(("", who))
 }
 
-/// Say `pieces` in the group, as hers.
+/// Say `pieces` in the group, as hers: text too long for one message of
+/// the platform goes out in several.
 fn tell_pieces(cx: &mut Cx, s: &Seating, pieces: Vec<Piece>) {
+    let plain: Option<String> = pieces
+        .iter()
+        .map(|piece| match piece {
+            Piece::Text { text } => Some(text.as_str()),
+            Piece::Mention { .. } => None,
+        })
+        .collect();
+    if let Some(text) = plain {
+        let split = crate::hosting::split_for(&s.chat.platform, &text);
+        if split.len() > 1 {
+            for text in split {
+                tell_one(cx, s, vec![Piece::Text { text }]);
+            }
+            return;
+        }
+    }
+    tell_one(cx, s, pieces);
+}
+
+fn tell_one(cx: &mut Cx, s: &Seating, pieces: Vec<Piece>) {
     let now = cx.now();
     let text: String = pieces
         .iter()
@@ -200,8 +232,25 @@ fn tell_naming(cx: &mut Cx, s: &Seating, before: &str, seat: &Seat, after: &str)
 }
 
 /// Whisper `text` to `seat` (with `choices` as buttons where there are
-/// buttons); the id it is answered under.
+/// buttons); the id it is answered under. Too long for one message of the
+/// platform, it goes out in several, the buttons with the last.
 fn whisper(cx: &mut Cx, s: &Seating, seat: &Seat, text: String, choices: Vec<String>) -> String {
+    let (platform, _) = platform_of(&seat.who);
+    let mut pieces = crate::hosting::split_for(platform, &text);
+    let last = pieces.pop().unwrap_or_default();
+    for piece in pieces {
+        whisper_one(cx, s, seat, piece, Vec::new());
+    }
+    whisper_one(cx, s, seat, last, choices)
+}
+
+fn whisper_one(
+    cx: &mut Cx,
+    s: &Seating,
+    seat: &Seat,
+    text: String,
+    choices: Vec<String>,
+) -> String {
     let (platform, user) = platform_of(&seat.who);
     let (platform, user, chat) = (platform.to_string(), user.to_string(), s.chat.chat.clone());
     let wait = (!choices.is_empty()).then_some(s.waited).flatten();
@@ -306,10 +355,13 @@ pub(crate) fn open_sign_up(cx: &mut Cx, kind: &str, chat: Target, owner: i32) ->
         moments: 0,
         told_seats: Vec::new(),
         secret_misses: Vec::new(),
+        wishes: Vec::new(),
+        asides: Vec::new(),
+        dealt_kept: false,
     };
     arm(cx, &mut s, crate::hosting::SIGN_UP_SECONDS);
     cx.group.seating = Some(s);
-    Some(crate::hosting::sign_up_line(known.name))
+    Some(crate::hosting::sign_up_line_for(known.kind, known.name))
 }
 
 /// A game is on at this table, past sign-up: she does not speak up unasked
@@ -338,6 +390,19 @@ pub(crate) fn heard_at_table(cx: &mut Cx, message: &Message) {
                     name: message.display_name.clone(),
                     hers: false,
                 });
+            }
+        }
+        // A theme asked for, for a game whose players vote on one: the
+        // first two kept.
+        SeatStage::SignUp
+            if crate::hosting::seat_kind(&s.kind).is_some_and(|kind| kind.wishes)
+                && crate::hosting::wish(&message.text).is_some() =>
+        {
+            if let Some(wished) = crate::hosting::wish(&message.text)
+                && s.wishes.len() < 2
+                && !s.wishes.contains(&wished)
+            {
+                s.wishes.push(wished);
             }
         }
         SeatStage::Agreeing if s.reachable.iter().any(|seat| seat.who == who) => {
@@ -381,25 +446,135 @@ fn heard_playing(cx: &mut Cx, mut s: Seating, who: &str, message: &Message) {
         let left = s
             .until
             .map_or(0.0, |until| (until - cx.now()).max(0) as f64 / 1e6);
-        arm(cx, &mut s, left + crate::hosting::MOVE_SECONDS);
-        tell(cx, &s, crate::hosting::MORE_TIME_LINE);
+        let more = s
+            .game
+            .as_ref()
+            .map_or(crate::hosting::MOVE_SECONDS, SeatGame::more_seconds);
+        arm(cx, &mut s, left + more);
+        tell(cx, &s, &crate::hosting::more_time_line(more));
         cx.group.seating = Some(s);
         return;
+    }
+    let seat = s
+        .reachable
+        .iter()
+        .position(|sat| sat.who == who && !sat.hers);
+    // A seat asking her, the host, something: the game's, not a turn of
+    // her answering (that line is taken, so it does not call her again).
+    if let Some(seat) = seat
+        && message.addressed
+    {
+        let text = asked_text(&message.text);
+        if let Some(question) = s
+            .game
+            .as_mut()
+            .and_then(|game| game.question(seat, false, &text))
+        {
+            super::first_time(cx.group, &message.message_id);
+            return questioned(cx, s, seat, false, text, question);
+        }
+    }
+    if let Some(seat) = seat
+        && !matches!(waiting, Waiting::Speak(speaker) if speaker == seat)
+        && s.game
+            .as_mut()
+            .is_some_and(|game| game.table_line(seat, &message.text, &mut cx.at.rolls))
+    {
+        return moved(cx, s);
     }
     if let Waiting::Speak(seat) = waiting
         && s.reachable
             .get(seat)
             .is_some_and(|sat| sat.who == who && !sat.hers)
     {
+        // A turn to speak may take more than one line: its time goes on
+        // until the game is on to another wait.
+        let before = s.game.as_ref().map(SeatGame::phase);
         if let Some(game) = s.game.as_mut() {
             game.spoke(seat, &message.text);
         }
         s.moved_now(seat, true);
-        s.timer = None;
-        s.until = None;
+        if s.game.as_ref().map(SeatGame::phase) != before {
+            s.timer = None;
+            s.until = None;
+        }
         return after(cx, s);
     }
     cx.group.seating = Some(s);
+}
+
+/// A question as asked: without whom it was addressed to.
+fn asked_text(text: &str) -> String {
+    text.split_whitespace()
+        .filter(|word| !word.starts_with('@') && !word.starts_with('＠'))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `seat` asked the host something (`private`: whispered): told back at
+/// once, or asked beside what else the table waits for.
+fn questioned(
+    cx: &mut Cx,
+    mut s: Seating,
+    seat: usize,
+    private: bool,
+    text: String,
+    question: Question,
+) {
+    match question {
+        Question::Told(told) => answer_seat(cx, &s, seat, private, &told),
+        Question::Ask { facts } => {
+            let aside = Aside {
+                id: String::new(),
+                seat,
+                private,
+                text,
+                facts,
+            };
+            ask_aside(cx, &mut s, aside);
+        }
+    }
+    cx.group.seating = Some(s);
+}
+
+/// Ask what a question needs, beside whatever else the table waits for.
+fn ask_aside(cx: &mut Cx, s: &mut Seating, mut aside: Aside) {
+    let Some(ask) = s.game.as_ref().and_then(|game| game.question_ask(&aside)) else {
+        return;
+    };
+    let owner = s.owner;
+    let id = cx.effect(|id| Effect::Ask {
+        id,
+        how: AskKind::Json,
+        voice: ask.voice.to_string(),
+        owner,
+        operation: ask.operation.to_string(),
+        timeout_ms: ask.within_ms,
+        system: ask.system,
+        input: ask.input,
+        schema_name: ask.schema_name.to_string(),
+        schema: ask.schema,
+        turn: None,
+    });
+    park(cx, id.clone());
+    aside.id = id;
+    s.asides.push(aside);
+}
+
+/// Tell `seat` the answer to what it asked: in private, or in the group
+/// naming them.
+fn answer_seat(cx: &mut Cx, s: &Seating, seat: usize, private: bool, text: &str) {
+    let Some(sat) = s.reachable.get(seat).cloned() else {
+        return;
+    };
+    if text.trim().is_empty() {
+        return;
+    }
+    if private {
+        whisper(cx, s, &sat, text.to_string(), Vec::new());
+    } else {
+        tell_naming(cx, s, "", &sat, &format!(" {text}"));
+    }
 }
 
 /// The errand of the table: a timer came, or what was asked came back.
@@ -413,12 +588,29 @@ pub(crate) fn seats_step(cx: &mut Cx, errand: Errand, answer: Option<Answer>) {
         s.until = None;
         return timed_out(cx, s);
     }
-    if let Some(answer) = answer
-        && s.asked.as_deref() == Some(key)
+    if s.asked.as_deref() == Some(key)
+        && let Some(answer) = answer
     {
         s.asked = None;
         let asking = s.asking.take();
         return answered(cx, s, asking, answer);
+    }
+    if let Some(answer) = answer.as_ref()
+        && let Some(index) = s.asides.iter().position(|aside| aside.id == key)
+    {
+        let aside = s.asides.remove(index);
+        let raw = match answer {
+            Answer::Asked { raw, .. } => raw.clone(),
+            _ => None,
+        };
+        let told = s
+            .game
+            .as_mut()
+            .map(|game| game.answered(&aside, raw.as_deref()))
+            .unwrap_or_default();
+        answer_seat(cx, &s, aside.seat, aside.private, &told);
+        cx.group.seating = Some(s);
+        return;
     }
     // A stale timer, or nothing it waits for.
     cx.group.seating = Some(s);
@@ -665,6 +857,7 @@ fn deal_or_retry(cx: &mut Cx, s: Seating, raw: Option<String>, unavailable: bool
             s.reachable.clone(),
             Some(raw),
             &s.recent,
+            &s.wishes,
             &mut cx.at.rolls,
         )
     });
@@ -686,6 +879,7 @@ fn deal(cx: &mut Cx, s: Seating, raw: Option<&str>) {
         s.reachable.clone(),
         raw,
         &s.recent,
+        &s.wishes,
         &mut cx.at.rolls,
     ) {
         Some(game) => start(cx, s, game),
@@ -756,6 +950,19 @@ fn tell_news(cx: &mut Cx, s: &mut Seating) {
 /// adds a line of her own, and it goes on to its next wait.
 fn after(cx: &mut Cx, mut s: Seating) {
     tell_news(cx, &mut s);
+    // What it was made of, once made: kept so the next is not the same.
+    if !s.dealt_kept
+        && let Some(dealt) = s.game.as_ref().and_then(SeatGame::dealt_late)
+    {
+        s.dealt_kept = true;
+        cx.out.effects.push(Effect::Write {
+            of: Of::Hers,
+            what: ToWrite::Dealt {
+                game: s.kind.clone(),
+                dealt,
+            },
+        });
+    }
     let moments = s.game.as_ref().map_or(0, SeatGame::moments);
     if moments > s.moments {
         s.moments = moments;
@@ -809,6 +1016,33 @@ fn next_move(cx: &mut Cx, mut s: Seating) {
                 schema_name,
                 schema,
             );
+            cx.group.seating = Some(s);
+        }
+        Waiting::Ask(game_ask) => {
+            // Its time is for every step of it: set once.
+            if s.waited != Some(phase) {
+                s.waited = Some(phase);
+                s.extended = false;
+                arm(cx, &mut s, time);
+            }
+            if s.asked.is_none() {
+                let system = if game_ask.hers {
+                    format!("{}\n\n{}", s.soul, game_ask.system)
+                } else {
+                    game_ask.system
+                };
+                ask(
+                    cx,
+                    &mut s,
+                    Asking::Judge,
+                    game_ask.voice,
+                    game_ask.operation.to_string(),
+                    game_ask.within_ms,
+                    (system, game_ask.input),
+                    game_ask.schema_name,
+                    game_ask.schema,
+                );
+            }
             cx.group.seating = Some(s);
         }
         Waiting::Speak(seat) => {
@@ -949,6 +1183,10 @@ fn moved(cx: &mut Cx, mut s: Seating) {
 /// Over: her line was said; the group remembers it, and nobody sits at it
 /// any more.
 fn over(cx: &mut Cx, s: Seating) {
+    // One that never began (its story could not be made) is not kept.
+    if !s.game.as_ref().is_none_or(SeatGame::remembered) {
+        return end(cx, s);
+    }
     let outcome = s.game.as_ref().and_then(SeatGame::outcome);
     if outcome.is_none() {
         let line = crate::hosting::over_line(&s.name);
@@ -979,9 +1217,10 @@ fn end(cx: &mut Cx, s: Seating) {
 }
 
 /// A seat whispered back: a move when it is one of theirs now (taken);
-/// while it is theirs, anything that is none of their choices is asked
-/// again (taken, never picked for them); a move at the wrong time (taken,
-/// and they are told); else not the game's.
+/// typed words that are no move, a question for the host when the game
+/// takes one now (taken); while the move is theirs, anything else that is
+/// none of their choices is asked again (taken, never picked for them); a
+/// move at the wrong time (taken, and they are told); else not the game's.
 pub(crate) fn whispered(cx: &mut Cx, who: &str, text: &str, wait: Option<u64>) -> bool {
     let Some(mut s) = cx.group.seating.take() else {
         return false;
@@ -994,6 +1233,7 @@ pub(crate) fn whispered(cx: &mut Cx, who: &str, text: &str, wait: Option<u64>) -
         cx.group.seating = Some(s);
         return false;
     };
+    let looks = looks_like_a_move(&s, text);
     let Some(game) = s.game.as_mut() else {
         cx.group.seating = Some(s);
         return false;
@@ -1031,6 +1271,16 @@ pub(crate) fn whispered(cx: &mut Cx, who: &str, text: &str, wait: Option<u64>) -
             true
         }
         None if open => {
+            // Typed words that are no number nor anyone's name (not a
+            // button) may be a question for the host, when the game takes
+            // one now; else she asks for the move again.
+            if !looks
+                && wait.is_none()
+                && let Some(question) = game.question(seat, true, text.trim())
+            {
+                questioned(cx, s, seat, true, text.trim().to_string(), question);
+                return true;
+            }
             let sat = s.reachable[seat].clone();
             let (platform, _) = platform_of(&sat.who);
             let line = crate::hosting::again_line(text, &view, platform);
@@ -1045,8 +1295,15 @@ pub(crate) fn whispered(cx: &mut Cx, who: &str, text: &str, wait: Option<u64>) -
         }
         None => {
             // A number, or someone's name, at the wrong time.
-            let looks = text.trim().parse::<usize>().is_ok()
-                || s.reachable.iter().any(|other| other.name == text.trim());
+            // Anything else typed (not a button) may be a question for the
+            // host, when the game takes one now.
+            if !looks
+                && wait.is_none()
+                && let Some(question) = game.question(seat, true, text.trim())
+            {
+                questioned(cx, s, seat, true, text.trim().to_string(), question);
+                return true;
+            }
             if looks {
                 let sat = s.reachable[seat].clone();
                 whisper(
@@ -1061,6 +1318,12 @@ pub(crate) fn whispered(cx: &mut Cx, who: &str, text: &str, wait: Option<u64>) -
             looks
         }
     }
+}
+
+/// A whispered line that reads as a move: a number, or someone's name.
+fn looks_like_a_move(s: &Seating, text: &str) -> bool {
+    let text = text.trim();
+    text.parse::<usize>().is_ok() || s.reachable.iter().any(|other| other.name == text)
 }
 
 /// The table as kept, back after a restart: who sits at it is seated again;
@@ -1079,6 +1342,10 @@ pub(crate) fn resume_table(cx: &mut Cx, mut s: Seating) {
     s.until = None;
     s.asked = None;
     let asking = s.asking.take();
+    // Questions that were waiting on their answers: asked again.
+    for aside in std::mem::take(&mut s.asides) {
+        ask_aside(cx, &mut s, aside);
+    }
     match s.stage {
         SeatStage::SignUp | SeatStage::Agreeing => {
             arm(cx, &mut s, left.unwrap_or(0.0));

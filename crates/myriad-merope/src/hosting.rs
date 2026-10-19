@@ -174,6 +174,85 @@ pub trait Rules {
     fn moments(_: &Self::State) -> usize {
         0
     }
+
+    /// How much longer a wait goes on when someone asks for more time
+    /// (once a wait, D2c-20).
+    fn more_seconds(_: &Self::State) -> f64 {
+        MOVE_SECONDS
+    }
+
+    /// `seat` asks the host `text`, in private or in the group: what it
+    /// comes to, or none when the game takes no question now (then the line
+    /// goes on as it would without the game).
+    fn question(_: &mut Self::State, _: usize, _: bool, _: &str) -> Option<Question> {
+        None
+    }
+
+    /// What a question waiting on its answer asks the model (as a judge).
+    fn question_ask(_: &Aside) -> Option<GameAsk> {
+        None
+    }
+
+    /// What is told back for a question, from what its ask came to (none
+    /// when it could not be had); empty: nothing is told.
+    fn answered(_: &mut Self::State, _: &Aside, _: Option<&str>) -> String {
+        String::new()
+    }
+
+    /// A line `seat` said in the group, not as its turn to speak, that the
+    /// game takes (all agreeing to stop it): whether it did.
+    fn table_line(_: &mut Self::State, _: usize, _: &str, _: &mut Rolls) -> bool {
+        false
+    }
+
+    /// Whether the group remembers it (not one that never began).
+    fn remembered(_: &Self::State) -> bool {
+        true
+    }
+
+    /// What it was dealt, known only once it was made after it began: kept
+    /// as dealt lately, once.
+    fn dealt_late(_: &Self::State) -> Option<String> {
+        None
+    }
+}
+
+/// Something a game asks a model as one of its waits (what the game is
+/// made of, step by step), or for a question a seat asked.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GameAsk {
+    pub voice: &'static str,
+    pub operation: &'static str,
+    pub within_ms: u64,
+    /// Her soul goes first: she makes it, as herself.
+    pub hers: bool,
+    pub system: String,
+    pub input: String,
+    pub schema_name: &'static str,
+    pub schema: serde_json::Value,
+}
+
+/// What a question a seat asked comes to.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Question {
+    /// Told back at once, no model asked (none left to ask this round).
+    Told(String),
+    /// Asked from `facts`: what the one the answer is for may know, and
+    /// nothing else.
+    Ask { facts: Vec<String> },
+}
+
+/// A question asked, waiting on its answer beside whatever else the table
+/// waits for: who asked, where (in private or in the group), and what the
+/// one the answer is for may know when it was asked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Aside {
+    pub id: String,
+    pub seat: usize,
+    pub private: bool,
+    pub text: String,
+    pub facts: Vec<String>,
 }
 
 /// What a game waits for.
@@ -191,6 +270,10 @@ pub enum Waiting {
         schema_name: &'static str,
         schema: serde_json::Value,
     },
+    /// The game asks a model what it is made of, a step at a time (its
+    /// answer comes back as [`Rules::judged`]); the wait's time
+    /// ([`Rules::seconds`]) is for all the steps of it.
+    Ask(GameAsk),
     Over,
 }
 
@@ -251,6 +334,22 @@ pub fn seat_view<R: Rules>(state: &R::State, seat: usize) -> SeatView {
             .collect(),
         choices: R::choices(state, seat),
     }
+}
+
+/// What a story says that `seat` (none: everyone) may be told: the facts for
+/// all, and for that seat, but nothing a seat said at the table (which may
+/// not be true).
+pub fn told_facts(facts: &[Fact], seat: Option<usize>) -> Vec<String> {
+    facts
+        .iter()
+        .filter(|fact| !fact.heard)
+        .filter(|fact| match (fact.to, seat) {
+            (Audience::All, _) => true,
+            (Audience::Seat(of), Some(seat)) => of == seat,
+            _ => false,
+        })
+        .map(|fact| fact.text.clone())
+        .collect()
 }
 
 /// What everyone at the table knows.
@@ -510,6 +609,7 @@ pub enum SeatGame {
     Undercover(crate::undercover::Undercover),
     Werewolf(crate::werewolf::Werewolf),
     Avalon(crate::avalon::Avalon),
+    Jubensha(crate::jubensha::Jubensha),
     #[cfg(any(test, feature = "test-games"))]
     Marks(marks::Marks),
 }
@@ -526,6 +626,8 @@ pub struct SeatKind {
     /// She may take a seat when one player is short and all agree
     /// (D2c-11 A).
     pub she_may_fill: bool,
+    /// Who signs up may ask for a theme (`主题：民国`), for the vote on it.
+    pub wishes: bool,
 }
 
 /// The kinds of seat game there are.
@@ -538,6 +640,7 @@ pub fn seat_kinds() -> Vec<SeatKind> {
             most: crate::undercover::MOST,
             prepares: true,
             she_may_fill: true,
+            wishes: false,
         },
         SeatKind {
             kind: crate::werewolf::KIND,
@@ -546,6 +649,7 @@ pub fn seat_kinds() -> Vec<SeatKind> {
             most: crate::werewolf::MOST,
             prepares: false,
             she_may_fill: true,
+            wishes: false,
         },
         SeatKind {
             kind: crate::avalon::KIND,
@@ -554,6 +658,19 @@ pub fn seat_kinds() -> Vec<SeatKind> {
             most: crate::avalon::MOST,
             prepares: false,
             she_may_fill: true,
+            wishes: false,
+        },
+        SeatKind {
+            kind: crate::jubensha::KIND,
+            name: crate::jubensha::NAME,
+            fewest: crate::jubensha::FEWEST,
+            most: crate::jubensha::MOST,
+            // What it was dealt lately is read first; the story itself is
+            // made as the game's own waits.
+            prepares: true,
+            // She only hosts it (D2c-19).
+            she_may_fill: false,
+            wishes: true,
         },
         #[cfg(any(test, feature = "test-games"))]
         SeatKind {
@@ -563,6 +680,7 @@ pub fn seat_kinds() -> Vec<SeatKind> {
             most: 8,
             prepares: false,
             she_may_fill: true,
+            wishes: false,
         },
     ]
 }
@@ -599,6 +717,10 @@ macro_rules! each {
                 type $R = crate::avalon::Avalon;
                 $body
             }
+            SeatGame::Jubensha($game) => {
+                type $R = crate::jubensha::Jubensha;
+                $body
+            }
             #[cfg(any(test, feature = "test-games"))]
             SeatGame::Marks($game) => {
                 type $R = marks::Marks;
@@ -626,9 +748,10 @@ impl SeatGame {
         seats: Vec<Seat>,
         prepared: Option<&str>,
         recent: &[String],
+        wishes: &[String],
         rolls: &mut Rolls,
     ) -> Option<Self> {
-        let _ = (&seats, &prepared, &recent, &rolls);
+        let _ = (&seats, &prepared, &recent, &wishes, &rolls);
         match kind {
             crate::undercover::KIND => {
                 let pair = crate::undercover::read_words(prepared?, recent)?;
@@ -640,6 +763,9 @@ impl SeatGame {
                 seats, rolls,
             ))),
             crate::avalon::KIND => Some(Self::Avalon(crate::avalon::Avalon::deal(seats, rolls))),
+            crate::jubensha::KIND => Some(Self::Jubensha(crate::jubensha::Jubensha::deal(
+                seats, wishes, recent, rolls,
+            ))),
             #[cfg(any(test, feature = "test-games"))]
             "marks" => Some(Self::Marks(marks::Marks::deal_to(seats, rolls))),
             _ => None,
@@ -650,7 +776,7 @@ impl SeatGame {
     pub fn used(&self) -> Option<String> {
         match self {
             Self::Undercover(game) => Some(game.used()),
-            Self::Werewolf(_) | Self::Avalon(_) => None,
+            Self::Werewolf(_) | Self::Avalon(_) | Self::Jubensha(_) => None,
             #[cfg(any(test, feature = "test-games"))]
             Self::Marks(_) => None,
         }
@@ -690,6 +816,7 @@ impl SeatGame {
             Self::Undercover(game) => game.outcome(),
             Self::Werewolf(game) => game.outcome(),
             Self::Avalon(game) => game.outcome(),
+            Self::Jubensha(game) => game.outcome(),
             #[cfg(any(test, feature = "test-games"))]
             Self::Marks(_) => None,
         }
@@ -739,6 +866,34 @@ impl SeatGame {
         each!(self, game, R => R::public_wait(game))
     }
 
+    pub fn more_seconds(&self) -> f64 {
+        each!(self, game, R => R::more_seconds(game))
+    }
+
+    pub fn question(&mut self, seat: usize, private: bool, text: &str) -> Option<Question> {
+        each!(self, game, R => R::question(game, seat, private, text))
+    }
+
+    pub fn question_ask(&self, aside: &Aside) -> Option<GameAsk> {
+        each!(self, _game, R => R::question_ask(aside))
+    }
+
+    pub fn answered(&mut self, aside: &Aside, raw: Option<&str>) -> String {
+        each!(self, game, R => R::answered(game, aside, raw))
+    }
+
+    pub fn table_line(&mut self, seat: usize, text: &str, rolls: &mut Rolls) -> bool {
+        each!(self, game, R => R::table_line(game, seat, text, rolls))
+    }
+
+    pub fn remembered(&self) -> bool {
+        each!(self, game, R => R::remembered(game))
+    }
+
+    pub fn dealt_late(&self) -> Option<String> {
+        each!(self, game, R => R::dealt_late(game))
+    }
+
     /// Before and after the name of the seat whose turn it is to speak.
     pub fn speak_turn(&self) -> (String, String) {
         each!(self, game, R => R::speak_turn(game)).unwrap_or_else(|| speak_turn_lines(self.kind()))
@@ -750,6 +905,7 @@ impl SeatGame {
             Self::Undercover(game) => game.round,
             Self::Werewolf(game) => game.night,
             Self::Avalon(game) => game.results.len() as u32 + 1,
+            Self::Jubensha(game) => game.round(),
             #[cfg(any(test, feature = "test-games"))]
             Self::Marks(_) => 0,
         }
@@ -795,6 +951,34 @@ pub fn sign_up_line(name: &str) -> String {
     format!(
         "要玩{name}的，一分钟内在群里说「加入」。私聊会发给每个人自己的东西，收不到的我会说怎么打开。"
     )
+}
+
+/// The same for a kind: a game whose players may ask for a theme says how.
+pub fn sign_up_line_for(kind: &str, name: &str) -> String {
+    let line = sign_up_line(name);
+    if seat_kind(kind).is_some_and(|known| known.wishes) {
+        return format!("{line}想要什么题材可以说「主题：民国」这样的，开局大家投票选。");
+    }
+    line
+}
+
+/// A theme someone asked for while sign-up is open (`主题：民国`, or
+/// `题材 民国`), up to eight characters; none for any other line.
+pub fn wish(text: &str) -> Option<String> {
+    let words: String = text
+        .split_whitespace()
+        .filter(|word| !word.starts_with('@'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let rest = ["主题", "题材"]
+        .iter()
+        .find_map(|head| words.strip_prefix(head))?;
+    let wished = rest
+        .trim_start_matches([':', '：', ' ', '是'])
+        .trim_end_matches(['。', '！', '!', '~', '～'])
+        .trim();
+    let count = wished.chars().count();
+    ((1..=8).contains(&count) && !wished.contains(char::is_whitespace)).then(|| wished.to_string())
 }
 
 /// What she whispers each who joined, to see that it reaches them.
@@ -942,6 +1126,80 @@ pub fn waits(text: &str) -> bool {
 
 /// What she says giving more time.
 pub const MORE_TIME_LINE: &str = "好，多等一分钟。";
+
+/// What she says giving `seconds` more.
+pub fn more_time_line(seconds: f64) -> String {
+    let minutes = (seconds / 60.0).round() as u32;
+    match minutes {
+        0 | 1 => MORE_TIME_LINE.to_string(),
+        2 => "好，多等两分钟。".to_string(),
+        _ => format!("好，多等{}分钟。", chinese_number(minutes)),
+    }
+}
+
+fn chinese_number(number: u32) -> String {
+    const DIGITS: [&str; 10] = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+    match number {
+        0..=9 => DIGITS[number as usize].to_string(),
+        10 => "十".to_string(),
+        11..=19 => format!("十{}", DIGITS[(number % 10) as usize]),
+        _ => number.to_string(),
+    }
+}
+
+/// The longest message that goes out on `platform` in one piece, in
+/// characters: below what each platform takes (Discord 2000, Telegram
+/// 4096; QQ, whose limit depends on the OneBot end, is kept short).
+pub fn longest(platform: &str) -> usize {
+    match platform {
+        "telegram" => 3500,
+        "discord" => 1800,
+        _ => 1500,
+    }
+}
+
+/// `text` as it goes out on `platform`: in pieces at line ends where it is
+/// too long for one message (a line too long alone, at characters).
+pub fn split_for(platform: &str, text: &str) -> Vec<String> {
+    let most = longest(platform);
+    if text.chars().count() <= most {
+        return vec![text.to_string()];
+    }
+    let mut pieces = Vec::new();
+    let mut piece = String::new();
+    let (mut length, mut lines) = (0, 0);
+    for line in text.split('\n') {
+        let chars: Vec<char> = line.chars().collect();
+        let parts: Vec<String> = if chars.is_empty() {
+            vec![String::new()]
+        } else {
+            chars
+                .chunks(most)
+                .map(|part| part.iter().collect())
+                .collect()
+        };
+        for part in parts {
+            let count = part.chars().count();
+            if lines > 0 && length + 1 + count > most {
+                pieces.push(std::mem::take(&mut piece));
+                (length, lines) = (0, 0);
+            }
+            if lines > 0 {
+                piece.push('\n');
+                length += 1;
+            }
+            piece.push_str(&part);
+            length += count;
+            lines += 1;
+        }
+    }
+    pieces.push(piece);
+    pieces
+        .into_iter()
+        .map(|piece| piece.trim_matches('\n').to_string())
+        .filter(|piece| !piece.trim().is_empty())
+        .collect()
+}
 
 /// The words could not be had: not this time.
 pub fn not_prepared_line(name: &str) -> String {
@@ -1122,6 +1380,47 @@ mod tests {
         assert_eq!(read_choice(r#"{"n":5}"#, &mine), None);
         let theirs = seat_view::<Marks>(&game, 1);
         assert_eq!(read_choice(r#"{"n":0}"#, &theirs), None);
+    }
+
+    /// Too long for one message of its platform, a text goes out in pieces
+    /// at line ends, each short enough, nothing lost; a short one as it is.
+    #[test]
+    fn a_long_text_goes_out_in_pieces_each_platform_takes() {
+        assert_eq!(split_for("discord", "短"), vec!["短".to_string()]);
+        let line = "字".repeat(700);
+        let text = [line.as_str(); 6].join("\n");
+        for platform in ["telegram", "discord", "onebot"] {
+            let pieces = split_for(platform, &text);
+            assert!(pieces.len() > 1, "{platform}");
+            assert!(
+                pieces
+                    .iter()
+                    .all(|piece| piece.chars().count() <= longest(platform))
+            );
+            assert_eq!(pieces.join("\n"), text, "{platform}");
+        }
+        let one = "长".repeat(4000);
+        let pieces = split_for("discord", &one);
+        assert!(pieces.iter().all(|piece| piece.chars().count() <= 1800));
+        assert_eq!(pieces.concat(), one);
+    }
+
+    /// A theme asked for at sign-up, as people write it; anything else is
+    /// not one.
+    #[test]
+    fn a_theme_is_asked_for_in_so_many_words() {
+        assert_eq!(wish("主题：民国").as_deref(), Some("民国"));
+        assert_eq!(wish("@bot 题材 武侠").as_deref(), Some("武侠"));
+        assert_eq!(wish("主题是校园！").as_deref(), Some("校园"));
+        assert_eq!(wish("我想要民国的"), None);
+        assert_eq!(wish("主题：一个很长很长很长的题材名字"), None);
+        assert_eq!(more_time_line(60.0), MORE_TIME_LINE);
+        assert_eq!(more_time_line(180.0), "好，多等三分钟。");
+        assert!(sign_up_line_for(crate::jubensha::KIND, "剧本杀").contains("主题：民国"));
+        assert_eq!(
+            sign_up_line_for(crate::undercover::KIND, "谁是卧底"),
+            sign_up_line("谁是卧底")
+        );
     }
 
     /// In a soup she hosts, the truth is hers and the table's view lacks it.

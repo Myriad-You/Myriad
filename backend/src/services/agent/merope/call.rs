@@ -200,6 +200,16 @@ impl Ask {
         if let Some(answer) =
             crate::services::channel_group::g0::model(self.operation, system, input)
         {
+            // A model that takes its time, as the scene has it: past the
+            // ask's own limit, it timed out.
+            if let Some(delay) = crate::services::channel_group::g0::delay(self.operation) {
+                let delay = Duration::from_secs_f64(delay);
+                if delay > self.timeout {
+                    tokio::time::sleep(self.timeout).await;
+                    return Err(Failure::Timeout);
+                }
+                tokio::time::sleep(delay).await;
+            }
             return answer.ok_or(Failure::Unavailable);
         }
         self.model()

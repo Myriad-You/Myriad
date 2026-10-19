@@ -42,6 +42,12 @@ pub async fn ask(
         "werewolf_her_move" => "werewolf_her_move",
         "avalon_voice" => "avalon_voice",
         "avalon_her_move" => "avalon_her_move",
+        "jubensha_outline" => "jubensha_outline",
+        "jubensha_clues" => "jubensha_clues",
+        "jubensha_scripts" => "jubensha_scripts",
+        "jubensha_check" => "jubensha_check",
+        "jubensha_answer" => "jubensha_answer",
+        "jubensha_voice" => "jubensha_voice",
         _ => "group_mind",
     };
     let voice = match voice {
