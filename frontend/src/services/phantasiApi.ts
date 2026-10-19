@@ -38,7 +38,6 @@ import {
   invalidatePhantasiStatsCache,
   phantasiCacheKeys,
 } from './phantasiCache'
-import { phantasiWriteTopic } from './phantasiChanges'
 
 export type { CommentItem }
 
@@ -68,9 +67,19 @@ const CACHE_TTL = {
  * Phantasi subject, and every item a read returns is reported to the shared
  * item state.
  */
+/**
+ * 读请求不带 method。写请求必须说清改了哪类数据（`changes`），成功后告诉别的页面
+ * （创作台的其他窗口）去重新取；不改数据的写（渲染预览、已读、订阅源）写 `null`。
+ */
+type ReadInit = Omit<RequestInit, 'method'> & { method?: 'GET' }
+type WriteInit = Omit<RequestInit, 'method'> & {
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  changes: DataTopic | null
+}
+
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {},
+  { changes, ...options }: (ReadInit & { changes?: never }) | WriteInit = {},
 ): Promise<T> {
   const subject = phantasiSubject.capture()
   const stateRevision = phantasiItemState.getSnapshot()
@@ -99,9 +108,7 @@ async function request<T>(
     ].filter(item => typeof item?.id === 'number')
     phantasiItemState.observeMany(items, stateRevision)
   }
-  // 写成功了告诉别的页面（创作台的其他窗口），它们自己重新取。
-  const topic = phantasiWriteTopic(method, endpoint)
-  if (topic) announceDataChange(topic)
+  if (changes) announceDataChange(changes)
   return data
 }
 
@@ -172,6 +179,7 @@ export async function addSource(
     error?: string
   }>('/sources', {
     method: 'POST',
+    changes: null,
     body: JSON.stringify(req),
     headers: attributionHeaders,
   })
@@ -189,6 +197,7 @@ export async function updateSource(
     `/sources/${id}`,
     {
       method: 'PUT',
+      changes: null,
       body: JSON.stringify(req),
       headers: attributionHeaders,
     },
@@ -204,6 +213,7 @@ export async function deleteSource(
 ): Promise<void> {
   await request(`/sources/${id}`, {
     method: 'DELETE',
+    changes: null,
     headers: attributionHeaders,
   })
   invalidateSourcesCache()
@@ -217,7 +227,7 @@ export async function refreshSource(
 ): Promise<number> {
   const data = await request<{ success: boolean; new_items: number }>(
     `/sources/${id}/refresh`,
-    { method: 'POST', headers: attributionHeaders },
+    { method: 'POST', changes: null, headers: attributionHeaders },
   )
   if (!options?.skipCache) {
     invalidateSourcesCache()
@@ -259,6 +269,7 @@ export async function discoverSource(
     '/sources/discover',
     {
       method: 'POST',
+      changes: null,
       body: JSON.stringify({ url }),
       headers: attributionHeaders,
       signal: options?.signal,
@@ -278,6 +289,7 @@ export async function importOpml(
     skipped: number
   }>('/import-opml', {
     method: 'POST',
+    changes: null,
     body: JSON.stringify({ opml }),
     headers: attributionHeaders,
     signal: options?.signal,
@@ -358,6 +370,7 @@ export async function createCategory(
     '/categories',
     {
       method: 'POST',
+      changes: 'categories',
       body: JSON.stringify(req),
       headers: attributionHeaders,
     },
@@ -375,6 +388,7 @@ export async function updateCategory(
     `/categories/${id}`,
     {
       method: 'PUT',
+      changes: 'categories',
       body: JSON.stringify(req),
       headers: attributionHeaders,
     },
@@ -405,6 +419,7 @@ export async function addRsshubInstance(
     '/rsshub/instances',
     {
       method: 'POST',
+      changes: null,
       body: JSON.stringify(req),
       headers: attributionHeaders,
     },
@@ -421,6 +436,7 @@ export async function updateRsshubInstance(
     `/rsshub/instances/${id}`,
     {
       method: 'PUT',
+      changes: null,
       body: JSON.stringify(req),
       headers: attributionHeaders,
     },
@@ -434,6 +450,7 @@ export async function deleteCategory(
 ): Promise<void> {
   await request(`/categories/${id}`, {
     method: 'DELETE',
+    changes: 'categories',
     headers: attributionHeaders,
   })
   invalidateCategoriesCache()
@@ -501,6 +518,7 @@ export async function setNotesRssEnabled(enabled: boolean): Promise<boolean> {
     '/notes/rss',
     {
       method: 'PUT',
+      changes: null,
       body: JSON.stringify({ enabled }),
     },
   )
@@ -515,6 +533,7 @@ export async function createNote(
     '/notes',
     {
       method: 'POST',
+      changes: 'notes',
       body: JSON.stringify(req),
       headers: attributionHeaders,
     },
@@ -534,6 +553,7 @@ export async function updateNote(
     `/notes/${id}`,
     {
       method: 'PUT',
+      changes: 'notes',
       body: JSON.stringify(req),
       headers: attributionHeaders,
     },
@@ -550,6 +570,7 @@ export async function deleteNote(
 ): Promise<void> {
   await request(`/notes/${id}`, {
     method: 'DELETE',
+    changes: 'notes',
     headers: attributionHeaders,
   })
   invalidateItemCache(id)
@@ -574,6 +595,7 @@ export async function createNoteDoc(
     '/notes/docs',
     {
       method: 'POST',
+      changes: 'notes',
       body: JSON.stringify(req),
     },
   )
@@ -622,6 +644,7 @@ export async function updateNoteDoc(
     `/notes/docs/${id}`,
     {
       method: 'PUT',
+      changes: 'notes',
       body: JSON.stringify(req),
     },
   )
@@ -630,7 +653,7 @@ export async function updateNoteDoc(
 }
 
 export async function deleteNoteDoc(id: number): Promise<void> {
-  await request(`/notes/docs/${id}`, { method: 'DELETE' })
+  await request(`/notes/docs/${id}`, { method: 'DELETE', changes: 'notes' })
   invalidatePhantasiNoteDocsCache()
 }
 
@@ -641,7 +664,7 @@ export async function updateNoteDocTopic(
 ): Promise<PhantasiNoteDoc> {
   const data = await request<{ success: boolean; doc: PhantasiNoteDoc }>(
     `/notes/docs/${id}/topic`,
-    { method: 'PUT', body: JSON.stringify(req) },
+    { method: 'PUT', changes: 'notes', body: JSON.stringify(req) },
   ).finally(invalidatePhantasiNoteDocsCache)
   if (data.doc.item_id != null) invalidateItemCache(data.doc.item_id)
   invalidateSourcesCache()
@@ -659,6 +682,7 @@ export async function publishNoteDoc(
     doc: PhantasiNoteDoc
   }>(`/notes/docs/${id}/publish`, {
     method: 'POST',
+    changes: 'notes',
     body: JSON.stringify(req),
   })
   if (data.id) invalidateItemCache(data.id)
@@ -675,6 +699,7 @@ export async function scheduleNoteDoc(
     `/notes/docs/${id}/schedule`,
     {
       method: 'POST',
+      changes: 'notes',
       body: JSON.stringify(req),
     },
   )
@@ -690,6 +715,7 @@ export async function unscheduleNoteDoc(
     `/notes/docs/${id}/unschedule`,
     {
       method: 'POST',
+      changes: 'notes',
       body: JSON.stringify(req),
     },
   )
@@ -715,6 +741,7 @@ export async function addNoteAuthor(
     `/notes/docs/${docId}/authors`,
     {
       method: 'POST',
+      changes: 'notes',
       body: JSON.stringify({ user_id: userId }),
     },
   )
@@ -727,7 +754,7 @@ export async function removeNoteAuthor(
 ): Promise<PhantasiNoteAuthor[]> {
   const data = await request<{ success: boolean; authors: PhantasiNoteAuthor[] }>(
     `/notes/docs/${docId}/authors/${userId}`,
-    { method: 'DELETE' },
+    { method: 'DELETE', changes: 'notes' },
   )
   return data.authors
 }
@@ -745,6 +772,7 @@ export async function previewNote(
     '/notes/preview',
     {
       method: 'POST',
+      changes: null,
       body: JSON.stringify({ content_md: contentMd }),
       signal,
     },
@@ -782,6 +810,7 @@ export async function markRead(
   return writeItem(itemId, async () => {
   await request(`/items/${itemId}/read`, {
     method: 'POST',
+    changes: null,
     headers: attributionHeaders,
   })
   phantasiItemState.commit(itemId, { is_read: true })
@@ -797,6 +826,7 @@ export async function markUnread(
   return writeItem(itemId, async () => {
   await request(`/items/${itemId}/unread`, {
     method: 'POST',
+    changes: null,
     headers: attributionHeaders,
   })
   phantasiItemState.commit(itemId, { is_read: false })
@@ -812,6 +842,7 @@ export async function starItem(
   return writeItem(itemId, async () => {
   await request(`/items/${itemId}/star`, {
     method: 'POST',
+    changes: null,
     headers: attributionHeaders,
   })
   invalidateStatsCache()
@@ -827,6 +858,7 @@ export async function unstarItem(
   return writeItem(itemId, async () => {
   await request(`/items/${itemId}/unstar`, {
     method: 'POST',
+    changes: null,
     headers: attributionHeaders,
   })
   invalidateStatsCache()
@@ -851,6 +883,7 @@ export async function markAllRead(
     '/mark-all-read',
     {
       method: 'POST',
+      changes: null,
       body: JSON.stringify(options),
       headers: attributionHeaders,
     },
@@ -980,6 +1013,7 @@ export async function createComment(
 ): Promise<{ success: boolean; comment: CommentItem; error?: string }> {
   return request(`/items/${itemId}/comments`, {
     method: 'POST',
+    changes: 'comments',
     body: JSON.stringify(req),
     headers: attributionHeaders,
   })
@@ -992,6 +1026,7 @@ export async function updateComment(
 ): Promise<{ success: boolean; comment: CommentItem; error?: string }> {
   return request(`/comments/${commentId}`, {
     method: 'PUT',
+    changes: 'comments',
     body: JSON.stringify(req),
     headers: attributionHeaders,
   })
@@ -1003,6 +1038,7 @@ export async function deleteComment(
 ): Promise<{ success: boolean; error?: string }> {
   return request(`/comments/${commentId}`, {
     method: 'DELETE',
+    changes: 'comments',
     headers: attributionHeaders,
   })
 }
@@ -1034,6 +1070,7 @@ export async function createReply(
 ): Promise<{ success: boolean; comment: CommentItem; error?: string }> {
   return request(`/items/${itemId}/comments`, {
     method: 'POST',
+    changes: 'comments',
     body: JSON.stringify({
       selected_text: '',
       comment,
@@ -1054,6 +1091,7 @@ export async function applySourceApplication(
 ): Promise<{ success: boolean; application: { id: number; status: string } }> {
   return request('/applications', {
     method: 'POST',
+    changes: 'reviews',
     body: JSON.stringify(req),
   })
 }
@@ -1081,6 +1119,7 @@ export async function approveSourceApplication(
 }> {
   return request(`/applications/${id}/approve`, {
     method: 'POST',
+    changes: 'reviews',
     body: JSON.stringify(req ?? {}),
   })
 }
@@ -1091,6 +1130,7 @@ export async function rejectSourceApplication(
 ): Promise<{ success: boolean; application: PhantasiSourceApplication }> {
   return request(`/applications/${id}/reject`, {
     method: 'POST',
+    changes: 'reviews',
     body: JSON.stringify(req ?? {}),
   })
 }
@@ -1098,7 +1138,7 @@ export async function rejectSourceApplication(
 export async function deleteSourceApplication(
   id: number,
 ): Promise<{ success: boolean }> {
-  return request(`/applications/${id}`, { method: 'DELETE' })
+  return request(`/applications/${id}`, { method: 'DELETE', changes: 'reviews' })
 }
 
 export type NoteEditorDefaultView = 'write' | 'visual' | 'preview'
@@ -1123,7 +1163,7 @@ export async function getNoteEditorPreference(signal?: AbortSignal): Promise<Not
   return data.default_view
 }
 export async function saveNoteEditorPreference(defaultView: NoteEditorDefaultView): Promise<void> {
-  await request('/notes/editor-preference', { method: 'PUT', body: JSON.stringify({ default_view: defaultView }) })
+  await request('/notes/editor-preference', { method: 'PUT', changes: null, body: JSON.stringify({ default_view: defaultView }) })
 }
 export async function getNoteHistory(id: number, signal?: AbortSignal): Promise<NoteHistorySummary[]> {
   const data = await request<{ history: NoteHistorySummary[] }>(`/notes/docs/${id}/history`, { signal })
@@ -1135,7 +1175,7 @@ export async function getNoteHistoryEntry(id: number, version: number, signal?: 
 }
 export async function restoreNoteHistory(id: number, version: number, revision: number, clientRequestId: string, current: NoteHistoryEntry['snapshot']): Promise<PhantasiNoteDoc> {
   const data = await request<{ doc: PhantasiNoteDoc }>(`/notes/docs/${id}/history/${version}/restore`, {
-    method: 'POST', body: JSON.stringify({ revision, client_request_id: clientRequestId, current }),
+    method: 'POST', changes: 'notes', body: JSON.stringify({ revision, client_request_id: clientRequestId, current }),
   })
   invalidatePhantasiNoteDocsCache()
   return data.doc
