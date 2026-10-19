@@ -5,8 +5,10 @@ html.embed-frame #app-root {
   margin: 0;
   overflow: hidden;
   background: transparent !important;
-  color-scheme: light dark;
 }
+
+/* 明暗由 embedFrame.tsx 按外面那页定成 dark/light 类，color-scheme 在 styles/page-loader.css 里
+   （第一帧就要）；这里的颜色都用 light-dark() 跟着走。 */
 
 html.embed-frame .embed-root {
   position: fixed;
@@ -15,13 +17,18 @@ html.embed-frame .embed-root {
   overflow: auto;
 }
 
+/* 按内容定高的窗口（评论）：量自己的高度去调 iframe，不能铺满再滚动。 */
+html.embed-frame .embed-root--fit {
+  position: static;
+  overflow: visible;
+}
+
 .embed-root {
   box-sizing: border-box;
   overflow: auto;
   padding: 12px 14px 24px;
-  color: #1c1917;
+  color: light-dark(#1c1917, #f5f5f4);
   background: transparent;
-  color-scheme: light dark;
   font: 14px/1.45 ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -101,15 +108,5 @@ html.embed-frame .embed-root {
 }
 
 .embed-error {
-  color: #b91c1c;
-}
-
-@media (prefers-color-scheme: dark) {
-  .embed-root {
-    color: #f5f5f4;
-  }
-
-  .embed-error {
-    color: #fca5a5;
-  }
+  color: light-dark(#b91c1c, #fca5a5);
 }

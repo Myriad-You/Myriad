@@ -1,11 +1,12 @@
 import type { CommentItem } from '../../types/phantasi'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import * as phantasiApi from '../../services/phantasiApi'
 import { articleReturnPath, loginHref } from '../../utils/safeReturnPath'
 import { userFacingError } from '../../utils/userFacingError'
+import { useFitFrameHeight } from './embedFrame'
 import { publicThread } from './publicComments'
 import './embed.css'
 
@@ -40,6 +41,9 @@ export function EmbedComments() {
   const [replyDraft, setReplyDraft] = useState('')
   const [replies, setReplies] = useState<Record<number, CommentItem[]>>({})
   const [openReplies, setOpenReplies] = useState<number | null>(null)
+  const rootRef = useRef<HTMLElement>(null)
+  // 博客文章底下的评论框（crates/myriad-blog/src/rewrite.rs）按内容撑高，不留一大块空白。
+  useFitFrameHeight(rootRef, 'myriad-comments', !loading && hasChecked)
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!valid) return
@@ -150,7 +154,7 @@ export function EmbedComments() {
   }
 
   return (
-    <main className="embed-root">
+    <main ref={rootRef} className="embed-root embed-root--fit">
       <h1>{copy.commentsTitle}</h1>
       {!valid ? <p className="embed-error">{copy.loadFailed}</p> : null}
       {error ? <p className="embed-error" role="alert">{error}</p> : null}

@@ -7,6 +7,7 @@ import { themeBootInlineScript } from './themeBootScript.ts'
 function bootTheme(options: {
   stored: string | null
   prefersDark: boolean
+  embedIn?: { background: string; colorScheme?: string }
 }) {
   const html = {
     classList: {
@@ -40,7 +41,22 @@ function bootTheme(options: {
     MutationObserver: class {
       observe() {}
     },
+    location: { pathname: options.embedIn ? '/embed/comments/7' : '/' },
     window: {
+      parent: options.embedIn
+        ? {
+            document: {
+              body: {},
+              documentElement: {},
+              defaultView: {
+                getComputedStyle: () => ({
+                  backgroundColor: options.embedIn?.background,
+                  colorScheme: options.embedIn?.colorScheme ?? 'normal',
+                }),
+              },
+            },
+          }
+        : undefined,
       matchMedia() {
         return {
           matches: options.prefersDark,
@@ -49,6 +65,7 @@ function bootTheme(options: {
       },
     },
   })
+  if (!options.embedIn) sandbox.window.parent = sandbox.window
   runInContext(themeBootInlineScript(), sandbox)
   return {
     classes: [...html.classList.tokens].toSorted(),
@@ -79,6 +96,21 @@ describe('themeBootInlineScript', () => {
     assert.equal(
       bootTheme({ stored: 'dark', prefersDark: false }).themeColor,
       '#94a3b8',
+    )
+  })
+
+  it('嵌入页跟着外面那页的底色，不看主站的设置', () => {
+    assert.deepEqual(
+      bootTheme({ stored: 'light', prefersDark: false, embedIn: { background: 'rgb(28, 25, 23)' } }).classes,
+      ['dark', 'embed-frame'],
+    )
+    assert.deepEqual(
+      bootTheme({ stored: 'dark', prefersDark: true, embedIn: { background: 'rgb(247, 245, 242)' } }).classes,
+      ['embed-frame', 'light'],
+    )
+    assert.deepEqual(
+      bootTheme({ stored: null, prefersDark: true, embedIn: { background: 'rgba(0, 0, 0, 0)' } }).classes,
+      ['dark', 'embed-frame'],
     )
   })
 })

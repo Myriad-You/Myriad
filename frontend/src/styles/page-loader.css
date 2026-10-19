@@ -119,3 +119,45 @@ html.dark .page-loader {
   line-height: 1;
   margin: 0;
 }
+
+/*
+ * 嵌在博客页里的小窗口（评论、创作台）不要主站的整页启动画面：透明底，不放站名，
+ * 左上角一个小圈，300ms 内加载完就什么都不显示。`embed-frame` 由 utils/themeBootScript.ts
+ * 在第一帧之前打上，明暗跟着外面那页。
+ */
+html.embed-frame {
+  color-scheme: light dark;
+}
+
+html.embed-frame.dark {
+  color-scheme: dark;
+}
+
+html.embed-frame.light {
+  color-scheme: light;
+}
+
+html.embed-frame,
+html.embed-frame body {
+  background: transparent !important;
+}
+
+html.embed-frame .page-loader {
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 14px;
+  background: transparent;
+}
+
+html.embed-frame .page-loader .page-loader-spinner {
+  --spinner-size: 18px;
+  --spinner-thickness: 2px;
+  --spinner-color: color-mix(in srgb, CanvasText 45%, transparent);
+  --spinner-delay: 300ms;
+
+  box-shadow: none;
+}
+
+html.embed-frame .loader-brand {
+  display: none;
+}
