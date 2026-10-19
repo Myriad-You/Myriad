@@ -33,6 +33,13 @@ body {
   margin: 0 auto;
   padding: 1.25rem;
 }
+/* 左边有主站的导航岛（竖条）：窗口窄到正文会碰上它时，正文往右让；宽了照旧居中。 */
+@media (width >= 1078px), (width >= 768px) and (not (pointer: coarse)) {
+  .site-header, main, .site-footer {
+    margin-left: max(6.5rem, calc((100% - 40rem) / 2));
+    margin-right: auto;
+  }
+}
 .site-header {
   display: flex;
   justify-content: space-between;

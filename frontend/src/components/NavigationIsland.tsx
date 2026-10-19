@@ -1,6 +1,7 @@
+import type { NavIslandItemId } from '@lib/navIslandItems'
 import type { ModuleVisibilityKey } from '../utils/moduleVisibility'
 import type { NavLayout } from '../utils/navLayout'
-import { MyriadStoreIcon } from '@lib/brandIcons'
+import { NAV_ISLAND_ITEMS, NavIslandIcon } from '@lib/navIslandItems'
 
 import {
   memo,
@@ -55,6 +56,21 @@ interface PrimaryNavItem {
   fullPage?: boolean
 }
 
+/**
+ * 主条目在主站里怎么跳。条目本身（顺序、地址、模块、图标）在 `shared/nav_island.json`。
+ * /tapp 是已装列表，商店在 /tapp/store，所以按前缀算选中。
+ */
+const PRIMARY_NAV_BEHAVIOR: Record<
+  NavIslandItemId,
+  Pick<PrimaryNavItem, 'asAnchor' | 'fullPage' | 'matchPrefix'>
+> = {
+  main: { asAnchor: true },
+  library: {},
+  phantasi: { fullPage: true },
+  reports: {},
+  tapp: { asAnchor: true, matchPrefix: true },
+}
+
 const MIN_ISLAND_HEIGHT = 48
 const MAX_ISLAND_HEIGHT = 800
 
@@ -73,73 +89,6 @@ const IconBack = (
     />
   </svg>
 )
-const IconHome = (
-  <svg
-    className="w-5 h-5"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-    />
-  </svg>
-)
-const IconLibrary = (
-  <svg
-    className="w-5 h-5"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-    />
-  </svg>
-)
-const IconPhantasi = (
-  <svg
-    className="w-5 h-5"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M6 4h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z"
-    />
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M9 4v16M12 8h5M12 12h5"
-    />
-  </svg>
-)
-const IconReports = (
-  <svg
-    className="w-5 h-5"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"
-    />
-  </svg>
-)
-
 function getAnimationTiming(layout: NavLayout = getNavLayoutSnapshot()) {
   const isMobile = layout === 'mobile'
   return {
@@ -908,52 +857,15 @@ export function NavigationIsland() {
 
   const primaryNavItems = useMemo<PrimaryNavItem[]>(
     () => {
-      const items: PrimaryNavItem[] = [
-        {
-          id: 'main',
-          path: '/',
-          icon: IconHome,
-          tooltip: t.nav.home,
-          ariaLabel: t.nav.backToHome,
-          asAnchor: true,
-        },
-        {
-          id: 'library',
-          path: '/library',
-          icon: IconLibrary,
-          tooltip: t.nav.library,
-          ariaLabel: t.nav.library,
-          moduleKey: 'library',
-        },
-        {
-          id: 'phantasi',
-          path: '/blog/',
-          icon: IconPhantasi,
-          tooltip: t.nav.phantasiReading,
-          ariaLabel: t.nav.phantasiReading,
-          fullPage: true,
-          moduleKey: 'phantasi',
-        },
-        {
-          id: 'reports',
-          path: '/reports',
-          icon: IconReports,
-          tooltip: t.nav.reports,
-          ariaLabel: t.nav.reports,
-          moduleKey: 'reports',
-        },
-        {
-          id: 'tapp',
-          path: '/tapp',
-          icon: <MyriadStoreIcon className="w-5 h-5" />,
-          // /tapp 是已装列表，商店在 /tapp/store — tip 勿用 tappStore。
-          tooltip: t.nav.tapp,
-          ariaLabel: t.nav.openTapp,
-          matchPrefix: true,
-          asAnchor: true,
-          moduleKey: 'tapp',
-        },
-      ]
+      const items: PrimaryNavItem[] = NAV_ISLAND_ITEMS.map((item) => ({
+        id: item.id,
+        path: item.path,
+        icon: <NavIslandIcon icon={item.icon} className="w-5 h-5" />,
+        tooltip: t.nav[item.tip],
+        ariaLabel: t.nav[item.label],
+        moduleKey: item.module ?? undefined,
+        ...PRIMARY_NAV_BEHAVIOR[item.id],
+      }))
 
       return items.filter((item) => {
         if (!item.moduleKey || !hasChecked) return true
@@ -1133,6 +1045,13 @@ export function NavigationIsland() {
                   : location.pathname === item.path
                 const className = `nav-item ${active ? 'active' : ''}`
                 const ariaCurrent = active ? 'page' : undefined
+                // 去博客的换页动效里，博客的选中底色从这里滑过去（styles/site-transition.css）。
+                const content = (
+                  <>
+                    {active ? <span className="nav-item__mark" aria-hidden="true" /> : null}
+                    {item.icon}
+                  </>
+                )
                 return (
                   <div
                     key={item.id}
@@ -1146,7 +1065,7 @@ export function NavigationIsland() {
                         data-tooltip={item.tooltip}
                         aria-label={item.ariaLabel}
                       >
-                        {item.icon}
+                        {content}
                       </a>
                     ) : item.asAnchor ? (
                       <a
@@ -1164,7 +1083,7 @@ export function NavigationIsland() {
                           if (!navigateAfterStageLeave(go)) go()
                         }}
                       >
-                        {item.icon}
+                        {content}
                       </a>
                     ) : (
                       <button
@@ -1176,7 +1095,7 @@ export function NavigationIsland() {
                         onFocus={() => handlePrefetchPath(item.path)}
                         onClick={() => handleNavToPage(item.path)}
                       >
-                        {item.icon}
+                        {content}
                       </button>
                     )}
                   </div>

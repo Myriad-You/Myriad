@@ -88,6 +88,40 @@ static SEO: LazyLock<HashMap<&'static str, Catalog>> = LazyLock::new(|| {
     ])
 });
 
+/// 博客页上导航岛的文案，和前端 `nav.*` 同样的键。
+static NAV: LazyLock<HashMap<&'static str, Catalog>> = LazyLock::new(|| {
+    HashMap::from([
+        (
+            "en-US",
+            parse_catalog(include_str!("../i18n/nav.en-US.json")),
+        ),
+        (
+            "zh-CN",
+            parse_catalog(include_str!("../i18n/nav.zh-CN.json")),
+        ),
+        (
+            "zh-TW",
+            parse_catalog(include_str!("../i18n/nav.zh-TW.json")),
+        ),
+        (
+            "ja-JP",
+            parse_catalog(include_str!("../i18n/nav.ja-JP.json")),
+        ),
+        (
+            "ko-KR",
+            parse_catalog(include_str!("../i18n/nav.ko-KR.json")),
+        ),
+        (
+            "fr-FR",
+            parse_catalog(include_str!("../i18n/nav.fr-FR.json")),
+        ),
+        (
+            "de-DE",
+            parse_catalog(include_str!("../i18n/nav.de-DE.json")),
+        ),
+    ])
+});
+
 fn lookup(
     table: &'static LazyLock<HashMap<&'static str, Catalog>>,
     locale: &str,
@@ -111,6 +145,10 @@ fn lookup(
 
 pub fn reports(locale: &str, key: &str) -> String {
     lookup(&REPORTS, locale, key)
+}
+
+pub fn nav(locale: &str, key: &str) -> String {
+    lookup(&NAV, locale, key)
 }
 
 pub fn seo(locale: &str, key: &str) -> String {

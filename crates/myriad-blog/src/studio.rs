@@ -54,6 +54,10 @@ pub fn studio_overlay_html(ctx: &StudioPageContext) -> String {
 
 /// 插在最后一个 `</body>` 前；没有就接在末尾。
 pub fn inject_studio_island(html: &str, island: &str) -> String {
+    insert_before_body_end(html, island)
+}
+
+pub(crate) fn insert_before_body_end(html: &str, island: &str) -> String {
     let lower = html.to_ascii_lowercase();
     match lower.rfind("</body>") {
         Some(at) => {
@@ -75,7 +79,7 @@ pub fn studio_only_page(island: &str, title: &str) -> String {
     )
 }
 
-fn escape_attr(value: &str) -> String {
+pub(crate) fn escape_attr(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('"', "&quot;")

@@ -8,6 +8,7 @@ mod config;
 mod cover;
 mod inspect;
 mod model;
+mod nav;
 mod postprocess;
 mod render;
 mod rewrite;
@@ -32,6 +33,9 @@ pub use inspect::{
 pub use model::{
     BLOG_SETTINGS_KEY, BlogPost, BlogSettings, BlogSite, DEFAULT_THEME_ID, FriendLink,
     blog_settings_from_value, blog_settings_to_value,
+};
+pub use nav::{
+    NAV_ISLAND_ID, NavItem, inject_nav_island, nav_island_head, nav_island_html, nav_island_items,
 };
 pub use postprocess::{
     BLOG_CSP, NOTES_CSS, NOTES_CSS_HREF, is_script_asset, is_stripped_asset, postprocess_html,

@@ -175,15 +175,25 @@ async fn serve_blog(
         .claims
         .as_ref()
         .and_then(|claims| claims.subject().map(|subject| subject.id()));
-    crate::api::phantasi::require_phantasi_module_access(&db, user_id, viewer.is_admin).await?;
+    let preferences =
+        crate::api::phantasi::require_phantasi_module_access(&db, user_id, viewer.is_admin).await?;
     let path = request.uri().path().to_string();
     let query = request.uri().query().map(str::to_string);
     let current = blog::output_dir();
     let target = resolve_blog_target(&current, &path);
-    let studio = if viewer.is_admin {
-        Some(studio_island(&db, &path, query.as_deref()).await)
-    } else {
-        None
+    let anonymous = user_id.is_none();
+    let chrome = PageChrome {
+        nav: blog_nav(
+            &preferences,
+            user_id,
+            viewer.is_admin,
+            crate::api::reports::locale::host_locale_from_headers(request.headers()),
+        ),
+        studio: if viewer.is_admin {
+            Some(studio_island(&db, &path, query.as_deref()).await)
+        } else {
+            None
+        },
     };
     let response = match target {
         BlogTarget::Redirect(location) => {
@@ -197,17 +207,14 @@ async fn serve_blog(
             }
             response
         }
-        BlogTarget::File(file) => match &studio {
-            Some(island) => studio_file_response(&file, StatusCode::OK, island),
-            None => file_response(&file, StatusCode::OK, user_id.is_none()),
-        },
-        BlogTarget::Missing => match (theme_not_found_page(&current), &studio) {
-            (Some(page), Some(island)) => studio_file_response(&page, StatusCode::NOT_FOUND, island),
-            (Some(page), None) => file_response(&page, StatusCode::NOT_FOUND, user_id.is_none()),
+        BlogTarget::File(file) => page_response(&file, StatusCode::OK, anonymous, &chrome),
+        BlogTarget::Missing => match (theme_not_found_page(&current), &chrome.studio) {
+            (Some(page), _) => page_response(&page, StatusCode::NOT_FOUND, anonymous, &chrome),
             // 博客还没生成出来：站长照样拿到创作台，才能去博客设置里修。
-            (None, Some(island)) => studio_html_response(
+            (None, Some(island)) => html_response(
                 StatusCode::NOT_FOUND,
                 myriad_blog::studio_only_page(island, "Not found"),
+                "private, no-store",
             ),
             (None, None) => (StatusCode::NOT_FOUND, "Not found").into_response(),
         },
@@ -287,23 +294,70 @@ async fn post_note_ids(db: &DatabaseConnection, slug: &str) -> Option<(Option<i3
     ))
 }
 
-/// 只有 HTML 才插岛；样式、图片照常返回，但同样不能进共享缓存。
-fn studio_file_response(path: &std::path::Path, status: StatusCode, island: &str) -> Response {
-    let content_type = content_type_for(path);
-    if !content_type.starts_with("text/html") {
-        let mut response = file_response(path, status, false);
-        response
-            .headers_mut()
-            .insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
-        return response;
-    }
-    match std::fs::read_to_string(path) {
-        Ok(html) => studio_html_response(status, myriad_blog::inject_studio_island(&html, island)),
-        Err(_) => (StatusCode::NOT_FOUND, "Not found").into_response(),
-    }
+/// 每个博客页面都带上的东西：导航岛，站长还有创作台覆盖层。
+struct PageChrome {
+    nav: String,
+    studio: Option<String>,
 }
 
-fn studio_html_response(status: StatusCode, html: String) -> Response {
+/// 博客页上的导航岛：和主站一样按模块可见性挑条目，文案按访客的语言。
+fn blog_nav(
+    preferences: &myriad_module_visibility::ModuleVisibilityPreferences,
+    user_id: Option<i32>,
+    is_admin: bool,
+    locale: &str,
+) -> String {
+    myriad_blog::nav_island_html(
+        |module| {
+            crate::api::phantasi::phantasi_access_allowed(
+                preferences.module_visibility(module),
+                user_id,
+                is_admin,
+            )
+        },
+        |key| crate::i18n::nav(locale, key),
+    )
+}
+
+/// 只有 HTML 才插导航岛和创作台；样式、图片照常返回，站长看到的同样不能进共享缓存。
+fn page_response(
+    path: &std::path::Path,
+    status: StatusCode,
+    anonymous: bool,
+    chrome: &PageChrome,
+) -> Response {
+    if !content_type_for(path).starts_with("text/html") {
+        let mut response = file_response(path, status, anonymous);
+        if chrome.studio.is_some() {
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, no-store"),
+            );
+        }
+        return response;
+    }
+    let Ok(html) = std::fs::read_to_string(path) else {
+        return (StatusCode::NOT_FOUND, "Not found").into_response();
+    };
+    let html = myriad_blog::inject_nav_island(&html, &myriad_blog::nav_island_head(), &chrome.nav);
+    let (html, cache) = match &chrome.studio {
+        Some(island) => (
+            myriad_blog::inject_studio_island(&html, island),
+            "private, no-store",
+        ),
+        None if anonymous => (html, "public, max-age=60"),
+        None => (html, "private, max-age=60"),
+    };
+    let mut response = html_response(status, html, cache);
+    // 导航岛的文案跟着访客的语言走。
+    response.headers_mut().insert(
+        header::VARY,
+        HeaderValue::from_static("Accept-Language, Cookie"),
+    );
+    response
+}
+
+fn html_response(status: StatusCode, html: String, cache: &'static str) -> Response {
     let mut response = (status, html).into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -311,7 +365,7 @@ fn studio_html_response(status: StatusCode, html: String) -> Response {
     );
     response
         .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     response
 }
 

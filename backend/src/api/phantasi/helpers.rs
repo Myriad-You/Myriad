@@ -54,7 +54,7 @@ fn viewer_user_id(viewer: &OptionalViewer) -> Result<Option<i32>, HttpError> {
     viewer.claims.as_ref().map(parse_user_id).transpose()
 }
 
-fn phantasi_access_allowed(level: &str, user_id: Option<i32>, is_admin: bool) -> bool {
+pub(crate) fn phantasi_access_allowed(level: &str, user_id: Option<i32>, is_admin: bool) -> bool {
     match level {
         "all" => true,
         "authenticated" => user_id.is_some(),
@@ -63,16 +63,17 @@ fn phantasi_access_allowed(level: &str, user_id: Option<i32>, is_admin: bool) ->
     }
 }
 
+/// 读到的模块可见性一并交回：博客页还要拿它决定导航岛上显示哪几项。
 pub(crate) async fn require_phantasi_module_access(
     db: &DatabaseConnection,
     user_id: Option<i32>,
     is_admin: bool,
-) -> Result<(), HttpError> {
+) -> Result<myriad_module_visibility::ModuleVisibilityPreferences, HttpError> {
     let preferences = myriad_module_visibility::try_load_module_visibility_preferences(db)
         .await
         .map_err(|error| phantasi_store_http("load module visibility", error))?;
     if phantasi_access_allowed(preferences.module_visibility("phantasi"), user_id, is_admin) {
-        return Ok(());
+        return Ok(preferences);
     }
     Err(phantasi_http_err(StatusCode::NOT_FOUND, "Not found"))
 }

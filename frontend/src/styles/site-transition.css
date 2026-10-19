@@ -1,0 +1,68 @@
+/*
+ * 主站和博客之间的整页切换（跨文档 View Transitions）。只在这两边之间放，
+ * 别的整页跳转由 utils/siteTransitionScript.ts 跳过。博客页那一半在
+ * crates/myriad-blog/src/nav_island.css，两边用同样的名字：
+ *   myriad-nav          导航岛，换页时留在原处
+ *   myriad-nav-current  选中项的底色，从原来的条目滑到新的条目
+ *   myriad-site         主站的内容
+ *   myriad-blog         博客的正文
+ * 动画由新页面这一边写，所以这里只管「从博客回到主站」。
+ * 内联在文档头里：新页面第一次渲染时就得在。
+ */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+
+#app-root {
+  view-transition-name: myriad-site;
+}
+
+.dynamic-island {
+  view-transition-name: myriad-nav;
+}
+
+/*
+ * 选中的那一项里有一块透明的标记，和条目一样大：换页时博客的选中底色从这里出发，
+ * 滑到博客那一项上。只挪底色，图标留在原地，不会叠在一起。
+ */
+.nav-item__mark {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  view-transition-name: myriad-nav-current;
+}
+
+/* 主站刚打开时只有加载页，导航岛还没画出来：博客那页带着它的导航岛往下沉、淡出。 */
+::view-transition-old(myriad-blog):only-child {
+  animation: myriad-sink 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+::view-transition-old(myriad-nav):only-child,
+::view-transition-old(myriad-nav-current):only-child {
+  animation: myriad-fade-out 220ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 300ms;
+}
+
+@keyframes myriad-sink {
+  to {
+    opacity: 0;
+    transform: translateY(28px) scale(0.985);
+  }
+}
+
+@keyframes myriad-fade-out {
+  to {
+    opacity: 0;
+  }
+}
