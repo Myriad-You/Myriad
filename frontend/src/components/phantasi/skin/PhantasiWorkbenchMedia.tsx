@@ -11,7 +11,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
 import { mediaAssetOrigin, mediaAssetSrc } from '../../../services/mediaApi'
 import { MediaPreview } from '../../media/MediaPreview'
-import { InputItem, ManagedList, SettingsButton } from '../../settings'
+import { ManagedList, SettingsButton } from '../../settings'
 import {
   formatWorkbenchBytes,
   WORKBENCH_MEDIA_FORMATS,
@@ -20,15 +20,15 @@ import {
   workbenchMediaRefLabel,
 } from '../logic/workbench'
 import { noteScheduleLabel } from '../notes/noteBoard'
-import { PhantasiWorkbenchIcon } from '../ui/PhantasiWorkbenchIcon'
 import { MediaEditorDialog } from './MediaEditorDialog'
-import { PageAction, WorkbenchPage } from './PhantasiWorkbenchChrome'
+import { PageAction, WorkbenchPage, WorkbenchSearch } from './PhantasiWorkbenchChrome'
 import './WorkbenchMediaCards.css'
 
 export function WorkbenchMediaPane({
   active,
   title,
   back,
+  filters,
   media,
   mediaFormats,
   mediaLoading,
@@ -37,8 +37,6 @@ export function WorkbenchMediaPane({
   mediaHasMore,
   onLoadMoreMedia,
   busy,
-  guide,
-  guidePath,
   onUpload,
   onDeleteMedia,
   onMediaSaved,
@@ -46,6 +44,8 @@ export function WorkbenchMediaPane({
   active: boolean
   title?: string
   back: ReactNode
+  /** 窗口工具条里额外的筛选，放在搜索下面一行。 */
+  filters?: ReactNode
   media: MediaAsset[]
   mediaFormats?: readonly string[]
   mediaLoading: boolean
@@ -54,8 +54,6 @@ export function WorkbenchMediaPane({
   mediaHasMore: boolean
   onLoadMoreMedia: () => void
   busy: boolean
-  guide?: ReactNode
-  guidePath?: string
   onUpload: (file: File) => void
   onDeleteMedia: (id: number) => void
   onMediaSaved?: (item: MediaAsset) => void
@@ -163,22 +161,13 @@ export function WorkbenchMediaPane({
   return (
     <WorkbenchPage
       title={title ?? phantasi.workbenchMedia}
-      icon={<PhantasiWorkbenchIcon kind="media" />}
       back={back}
-      guide={guide}
-      guidePath={guidePath}
+      filters={filters}
       search={
-        <InputItem
-          itemKey="workbench-media-search"
-          label={phantasi.workbenchSearchMedia}
+        <WorkbenchSearch
           value={mediaQuery}
           onChange={query => onMediaFilter({ ...mediaFilter, query })}
           placeholder={phantasi.workbenchSearchMedia}
-          inputType="search"
-          size="sm"
-          layout="vertical"
-          autoComplete="off"
-          className="phantasi-workbench__title-search"
         />
       }
       action={
@@ -186,6 +175,7 @@ export function WorkbenchMediaPane({
           label={phantasi.workbenchUpload}
           description={phantasi.workbenchUploadHint}
           icon={<LuImage />}
+          primary
           disabled={busy}
           onPick={() => fileRef.current?.click()}
         />

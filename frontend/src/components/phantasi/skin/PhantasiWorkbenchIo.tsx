@@ -17,8 +17,6 @@ import {
   SettingsButton,
 } from '../../settings'
 import { SettingItemWrapper } from '../../settings/items/SettingItemWrapper'
-import { usePhantasiGuides } from '../guides/usePhantasiGuides'
-import { PhantasiWorkbenchIcon } from '../ui/PhantasiWorkbenchIcon'
 import { WorkbenchPage } from './PhantasiWorkbenchChrome'
 
 const NOTE_TRANSFER_FORMATS: Array<{
@@ -198,15 +196,12 @@ export function WorkbenchIoPane({
 }) {
   const { t, format } = useI18n()
   const phantasi = t.phantasi
-  const { catalog: g, bindGuide } = usePhantasiGuides()
 
   if (pane === 'notesIo') {
     return (
       <WorkbenchPage
         title={phantasi.workbenchNavTransfer}
-        icon={<PhantasiWorkbenchIcon kind="notes-transfer" />}
         back={back}
-        {...bindGuide('workbench.notesIo', g.notesIo)}
       >
         <SettingGroupGrid
           columns={2}
@@ -224,7 +219,6 @@ export function WorkbenchIoPane({
               label={phantasi[item.title]}
               detail={phantasi[item.hint]}
               icon={item.icon}
-              {...bindGuide(`workbench.${item.kind}`, g[item.kind])}
             >
               <TransferActions
                 mark={item.icon}

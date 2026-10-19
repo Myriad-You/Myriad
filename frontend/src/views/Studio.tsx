@@ -13,6 +13,8 @@ import { StudioToolPane } from '../components/studio/StudioShell'
 import { ToastContainer } from '../components/ToastContainer'
 import { useI18n } from '../contexts/I18nContext'
 import { showToast } from '../utils/toastManager'
+import '../components/ConfigForm.css'
+import '../components/studio/StudioShell.css'
 
 const NoteEditor = lazy(() => import('../components/phantasi/notes/NoteEditor'))
 
@@ -50,7 +52,7 @@ export default function Studio() {
   const arg = query.get('arg')
   const itemId = positiveInt(query.get('item'))
   return (
-    <div className="embed-root studio-embed">
+    <div className="studio-embed">
       {tool === 'editor' ? (
         <StudioEditor target={editorTarget(arg)} />
       ) : tool ? (
@@ -142,7 +144,7 @@ function StudioToolPage({
   })
   const failed = t.studio.openFailed
   return (
-    <div className="studio-page studio-tool-page">
+    <div className="studio-tool-page">
       <StudioToolPane
         tool={tool}
         itemId={itemId}

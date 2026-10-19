@@ -30,7 +30,6 @@ import { showError } from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
 import { noteScheduleLabel } from '../phantasi/notes/noteBoard'
 import { PageAction, WorkbenchPage } from '../phantasi/skin/PhantasiWorkbenchChrome'
-import { PhantasiWorkbenchIcon } from '../phantasi/ui/PhantasiWorkbenchIcon'
 import {
   InfoActionCard,
   InfoCard,
@@ -131,7 +130,6 @@ export function StudioBlogPane({ back }: { back: ReactNode }) {
     return (
       <WorkbenchPage
         title={copy.blogSettings}
-        icon={<PhantasiWorkbenchIcon kind="studio" />}
         back={back}
       >
         {loading ? <p className="setting-description">{copy.loading}</p> : null}
@@ -150,7 +148,6 @@ export function StudioBlogPane({ back }: { back: ReactNode }) {
   return (
     <WorkbenchPage
       title={copy.blogSettings}
-      icon={<PhantasiWorkbenchIcon kind="studio" />}
       back={back}
       action={
         <PageAction

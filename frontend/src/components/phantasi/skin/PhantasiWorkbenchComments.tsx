@@ -3,31 +3,29 @@ import type { CommentItem } from '../../../types/phantasi'
 import type { ManagedListItem } from '../../settings/ManagedList'
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
-import { InputItem, ManagedList } from '../../settings'
+import { ManagedList } from '../../settings'
 import { filterWorkbenchComments } from '../logic/workbench'
 import { noteScheduleLabel } from '../notes/noteBoard'
-import { PhantasiWorkbenchIcon } from '../ui/PhantasiWorkbenchIcon'
 import { listSelectChrome, useListSelection } from '../useListSelection'
-import { WorkbenchPage } from './PhantasiWorkbenchChrome'
+import { WorkbenchPage, WorkbenchSearch } from './PhantasiWorkbenchChrome'
 
 export function WorkbenchCommentsPane({
   active,
   back,
+  filters,
   comments,
   commentsLoading,
   busy,
-  guide,
-  guidePath,
   onDeleteComments,
   onOpenCommentItem,
 }: {
   active: boolean
   back: ReactNode
+  /** 窗口工具条里额外的筛选，放在搜索下面一行。 */
+  filters?: ReactNode
   comments: CommentItem[]
   commentsLoading: boolean
   busy: boolean
-  guide?: ReactNode
-  guidePath?: string
   onDeleteComments?: (ids: number[]) => void
   onOpenCommentItem?: (itemId: number) => void
 }) {
@@ -131,22 +129,13 @@ export function WorkbenchCommentsPane({
   return (
     <WorkbenchPage
       title={phantasi.workbenchComments}
-      icon={<PhantasiWorkbenchIcon kind="comments" />}
       back={back}
-      guide={guide}
-      guidePath={guidePath}
+      filters={filters}
       search={
-        <InputItem
-          itemKey="workbench-comment-search"
-          label={phantasi.workbenchSearchComments}
+        <WorkbenchSearch
           value={commentQuery}
           onChange={setCommentQuery}
           placeholder={phantasi.workbenchSearchComments}
-          inputType="search"
-          size="sm"
-          layout="vertical"
-          autoComplete="off"
-          className="phantasi-workbench__title-search"
         />
       }
     >

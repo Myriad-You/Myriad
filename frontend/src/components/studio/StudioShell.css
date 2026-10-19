@@ -1,25 +1,334 @@
-/* 创作台覆盖层里的工具窗口：窗口自己有标题栏，这里只管内容。 */
-.studio-tool-page {
-  min-height: 100%;
-  padding: 1rem 1.25rem 1.5rem;
+/* 创作台覆盖层里的工具窗口：窗口自己有标题栏，这里只管内容。
+   密度按桌面工具窗口来：一行工具条，下面直接是列表，不再套设置页的卡片和标题。 */
+html.embed-frame .studio-embed {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
-.studio-tool-page > .phantasi-workbench {
-  max-width: none;
-  margin: 0;
-  padding: 0;
+.studio-embed {
+  box-sizing: border-box;
+  min-height: 100%;
+  color: var(--cfg-text-1);
+  background: #fafaf9;
+  color-scheme: light;
+  font: 13px/1.45 var(--font-inter, 'Inter'), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html.dark .studio-embed {
+  background: #18181b;
+  color-scheme: dark;
+}
+
+.studio-tool-page {
+  min-height: 100%;
+}
+
+/* 工作台本来是「侧栏 + 内容」两列网格；窗口里没有侧栏，内容会掉进侧栏那一列。 */
+.studio-tool.phantasi-workbench {
+  display: block;
   overflow: visible;
+  padding: 0;
+  font-size: 0.8125rem;
 }
 
 .studio-tool .phantasi-workbench__main {
+  display: block;
   min-width: 0;
+  max-width: none;
+  padding: 0;
+}
+
+/* 工具条 + 内容 */
+.tool-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.tool-pane__bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: color-mix(in srgb, #fafaf9 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--cfg-separator);
+}
+
+html.dark .tool-pane__bar {
+  background: color-mix(in srgb, #18181b 88%, transparent);
+}
+
+.tool-pane__filters {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.tool-pane__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.5rem 0.75rem 1rem;
+}
+
+.tool-pane__crumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.tool-pane__crumb .section-header-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  height: 1.75rem;
+  padding: 0 0.4rem 0 0.2rem;
+  border-radius: 0.45rem;
+  color: var(--cfg-text-2);
+  font-size: 0.75rem;
+}
+
+.tool-pane__crumb .section-header-back:hover {
+  color: var(--cfg-text-1);
+  background: var(--cfg-fill);
+}
+
+.tool-pane__crumb-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-pane__search-slot {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+}
+
+.tool-pane__search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 1.875rem;
+  padding: 0 0.6rem;
+  border-radius: 0.5rem;
+  background: var(--cfg-fill);
+  color: var(--cfg-text-3);
+  cursor: text;
+}
+
+.tool-pane__search:focus-within {
+  box-shadow: inset 0 0 0 1px var(--cfg-accent-line, var(--cfg-accent));
+}
+
+.tool-pane__search svg {
+  flex: 0 0 auto;
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.tool-pane__search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cfg-text-1);
+  font: inherit;
+  outline: none;
+}
+
+.tool-pane__search input::placeholder {
+  color: var(--cfg-text-placeholder);
+}
+
+.tool-pane__search input::-webkit-search-decoration {
+  appearance: none;
+}
+
+.tool-pane__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.tool-pane__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 1.875rem;
+  padding: 0 0.65rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--cfg-text-1);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tool-pane__action:hover:not(:disabled) {
+  background: var(--cfg-fill-strong);
+}
+
+.tool-pane__action.is-primary {
+  color: #fff;
+  background: var(--cfg-accent);
+}
+
+.tool-pane__action.is-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cfg-accent) 86%, black);
+}
+
+.tool-pane__action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tool-pane__action-icon {
+  display: inline-flex;
+}
+
+.tool-pane__action-icon svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.tool-pane__spin {
+  animation: tool-pane-spin 0.9s linear infinite;
+}
+
+@keyframes tool-pane-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 列表在窗口里：筛选收成一行小分段，行贴着窗口面，不再一张张卡片。 */
+.studio-tool.phantasi-workbench .managed-list {
+  gap: 0.5rem;
+}
+
+.studio-tool.phantasi-workbench .managed-list-filter-bar.is-plain {
+  align-items: stretch;
+}
+
+.studio-tool.phantasi-workbench .managed-list-filter-tools-row,
+.studio-tool.phantasi-workbench .managed-list-filter-groups {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.375rem 0.75rem;
+}
+
+.studio-tool.phantasi-workbench .managed-list-filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.studio-tool.phantasi-workbench .managed-list-filter-label {
+  font-size: 0.6875rem;
+  color: var(--cfg-text-3);
+}
+
+.studio-tool.phantasi-workbench .managed-list-filter-label-icon {
+  display: none;
+}
+
+.studio-tool.phantasi-workbench .managed-list-filter-toolbar {
+  margin-left: auto;
+}
+
+.studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid) .managed-list-body {
+  gap: 0;
+}
+
+.studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid) .managed-list-row {
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  box-shadow: none;
+}
+
+.studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid) .managed-list-row + .managed-list-row {
+  border-top: 1px solid var(--cfg-separator);
+  border-radius: 0;
+}
+
+html.dark .studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid) .managed-list-row {
+  background: transparent;
+}
+
+.studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid) .managed-list-row:hover,
+html.dark .studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid) .managed-list-row:hover {
+  background: var(--cfg-fill);
+}
+
+.studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid) .managed-list-row-head {
+  min-height: 0;
+  padding: 0.45rem 0.4rem;
+}
+
+.studio-tool.phantasi-workbench .managed-list-row-hit {
+  padding: 0;
+}
+
+.studio-tool.phantasi-workbench .managed-list-row-leading .phantasi-workbench__cover,
+.studio-tool.phantasi-workbench .managed-list-row-leading .phantasi-workbench__cover.is-empty {
+  width: 3.5rem;
+  height: 2.5rem;
+  border-radius: 0.375rem;
+}
+
+.studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid) .managed-list-row-leading .phantasi-workbench__thumb {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.studio-tool.phantasi-workbench .managed-list-row-title {
+  font-size: 0.8125rem;
+}
+
+.studio-tool.phantasi-workbench .managed-list-row-subtitle,
+.studio-tool.phantasi-workbench .managed-list-row-meta {
+  font-size: 0.75rem;
+}
+
+.studio-tool .phantasi-workbench__note .managed-list-row-subtitle {
+  -webkit-line-clamp: 1;
+}
+
+.studio-tool.phantasi-workbench .managed-list-empty {
+  padding: 2rem 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--cfg-text-3);
+  text-align: center;
+}
+
+/* 设置分组在窗口里去掉外层卡片感。 */
+.studio-tool .setting-group {
+  margin: 0 0 1rem;
 }
 
 .studio-tool__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.375rem;
-  margin-bottom: 0.75rem;
+  gap: 0.25rem;
 }
 
 .studio-tool__chip {
@@ -55,8 +364,7 @@ html.dark .studio-tool__chip[aria-pressed='true'] {
 .studio-tool__scope {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  gap: 0.4rem;
   font-size: 0.8125rem;
   cursor: pointer;
 }
@@ -66,6 +374,7 @@ html.dark .studio-tool__chip[aria-pressed='true'] {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  padding: 0.875rem 1rem 1.25rem;
 }
 
 .studio-overview__post {

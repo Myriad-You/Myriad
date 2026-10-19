@@ -8,17 +8,16 @@ import type { NoteTransferKind } from '../phantasi/logic/board'
 import type { WorkbenchCategoryRow } from '../phantasi/logic/categories'
 import type { WorkbenchNoteOpen } from '../phantasi/logic/workbench'
 import type { StudioTool } from './overlay/studioTools'
-import { LuChevronLeft, LuTag } from '@lib/icons'
+import { LuChevronLeft } from '@lib/icons'
 import { useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { PhantasiCategoryAdmin } from '../phantasi/manager/PhantasiCategoryAdmin'
-import { WorkbenchPage } from '../phantasi/skin/PhantasiWorkbenchChrome'
+import { WorkbenchPage, WorkbenchSearch } from '../phantasi/skin/PhantasiWorkbenchChrome'
 import { WorkbenchCommentsPane } from '../phantasi/skin/PhantasiWorkbenchComments'
 import { WorkbenchIoPane } from '../phantasi/skin/PhantasiWorkbenchIo'
 import { WorkbenchMediaPane } from '../phantasi/skin/PhantasiWorkbenchMedia'
 import { WorkbenchNotesPane } from '../phantasi/skin/PhantasiWorkbenchNotes'
 import { WorkbenchReviewsPane } from '../phantasi/skin/PhantasiWorkbenchReviews'
-import { InputItem } from '../settings'
 import { StudioBlogPane } from './StudioBlogPane'
 import { StudioOverview } from './StudioOverview'
 import '../ConfigForm.css'
@@ -136,19 +135,21 @@ export function StudioToolPane(props: StudioToolPaneProps) {
           onAssignNotes={props.onAssignNotes}
           onOpenCategories={() => props.onOpenTool('categories')}
         />
-        {tool === 'comments' && props.itemId != null ? (
-          <label className="studio-tool__scope">
-            <input
-              type="checkbox"
-              checked={onlyThisPost}
-              onChange={(event) => setOnlyThisPost(event.target.checked)}
-            />
-            <span>{t.studio.overlayOnlyThisPost}</span>
-          </label>
-        ) : null}
         <WorkbenchCommentsPane
           active={tool === 'comments'}
           back={null}
+          filters={
+            props.itemId != null ? (
+              <label className="studio-tool__scope">
+                <input
+                  type="checkbox"
+                  checked={onlyThisPost}
+                  onChange={(event) => setOnlyThisPost(event.target.checked)}
+                />
+                <span>{t.studio.overlayOnlyThisPost}</span>
+              </label>
+            ) : null
+          }
           comments={
             onlyThisPost && props.itemId != null
               ? props.comments.filter((comment) => comment.item_id === props.itemId)
@@ -171,28 +172,28 @@ export function StudioToolPane(props: StudioToolPaneProps) {
           onReject={props.onRejectApplication}
           onDelete={props.onDeleteApplications}
         />
-        {tool === 'media' ? (
-          <div className="studio-tool__chips" role="group" aria-label={t.phantasi.workbenchMedia}>
-            {MEDIA_ORIGINS.map((origin) => (
-              <button
-                key={origin}
-                type="button"
-                className="studio-tool__chip"
-                aria-pressed={props.mediaFilter.origin === origin}
-                onClick={() => {
-                  props.onMediaOrigin(origin)
-                  props.onMediaFilter({ ...props.mediaFilter, origin, format: 'all' })
-                }}
-              >
-                {originLabel(origin)}
-              </button>
-            ))}
-          </div>
-        ) : null}
         <WorkbenchMediaPane
           active={tool === 'media'}
           title={originLabel(props.mediaFilter.origin)}
           back={null}
+          filters={
+            <div className="studio-tool__chips" role="group" aria-label={t.phantasi.workbenchMedia}>
+        {MEDIA_ORIGINS.map((origin) => (
+          <button
+            key={origin}
+            type="button"
+            className="studio-tool__chip"
+            aria-pressed={props.mediaFilter.origin === origin}
+            onClick={() => {
+              props.onMediaOrigin(origin)
+              props.onMediaFilter({ ...props.mediaFilter, origin, format: 'all' })
+            }}
+          >
+            {originLabel(origin)}
+          </button>
+        ))}
+      </div>
+          }
           media={props.media}
           mediaFormats={props.mediaFormats}
           mediaLoading={props.mediaLoading}
@@ -208,7 +209,6 @@ export function StudioToolPane(props: StudioToolPaneProps) {
         {tool === 'categories' ? (
           <WorkbenchPage
             title={openedCategory || t.studio.navCategories}
-            icon={<LuTag />}
             back={
               openedCategory ? (
                 <button
@@ -224,17 +224,10 @@ export function StudioToolPane(props: StudioToolPaneProps) {
             }
             search={
               openedCategory ? undefined : (
-                <InputItem
-                  itemKey="studio-category-search"
-                  label={t.phantasi.workbenchSearchCategories}
+                <WorkbenchSearch
                   value={categoryQuery}
                   onChange={setCategoryQuery}
                   placeholder={t.phantasi.workbenchSearchCategories}
-                  inputType="search"
-                  size="sm"
-                  layout="vertical"
-                  autoComplete="off"
-                  className="phantasi-workbench__title-search"
                 />
               )
             }

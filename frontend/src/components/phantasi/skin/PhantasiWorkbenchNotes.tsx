@@ -8,7 +8,7 @@ import type { WorkbenchNoteStatusFilter, WorkbenchNoteStatusKey } from '../logic
 import { LuClipboardList, LuNotebookPen, LuTag, LuUser } from '@lib/icons'
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
-import { InputItem, ManagedList } from '../../settings'
+import { ManagedList } from '../../settings'
 import { BatchCategoryPick } from '../BatchCategoryPick'
 import { getImageUrl } from '../constants'
 import {
@@ -24,9 +24,8 @@ import {
   workbenchNoteWhen,
 } from '../logic/workbench'
 import { noteScheduleLabel } from '../notes/noteBoard'
-import { PhantasiWorkbenchIcon } from '../ui/PhantasiWorkbenchIcon'
 import { listSelectChrome, useListSelection } from '../useListSelection'
-import { PageAction, WorkbenchPage } from './PhantasiWorkbenchChrome'
+import { PageAction, WorkbenchPage, WorkbenchSearch } from './PhantasiWorkbenchChrome'
 import { WorkbenchThumb } from './WorkbenchThumb'
 
 function noteTone(
@@ -46,8 +45,6 @@ export function WorkbenchNotesPane({
   notesLoading,
   busy,
   noteCategories,
-  guide,
-  guidePath,
   onWrite,
   onOpenNote,
   onDeleteNotes,
@@ -61,8 +58,6 @@ export function WorkbenchNotesPane({
   notesLoading: boolean
   busy: boolean
   noteCategories: readonly string[]
-  guide?: ReactNode
-  guidePath?: string
   onWrite: () => void
   onOpenNote: (open: ReturnType<typeof workbenchNoteOpen>) => void
   onDeleteNotes: (docs: PhantasiNoteDoc[]) => void | Promise<boolean>
@@ -244,22 +239,12 @@ export function WorkbenchNotesPane({
   return (
     <WorkbenchPage
       title={phantasi.workbenchNotes}
-      icon={<PhantasiWorkbenchIcon kind="notes" />}
       back={back}
-      guide={guide}
-      guidePath={guidePath}
       search={
-        <InputItem
-          itemKey="workbench-note-search"
-          label={phantasi.workbenchSearchNotes}
+        <WorkbenchSearch
           value={noteQuery}
           onChange={setNoteQuery}
           placeholder={phantasi.workbenchSearchNotes}
-          inputType="search"
-          size="sm"
-          layout="vertical"
-          autoComplete="off"
-          className="phantasi-workbench__title-search"
         />
       }
       action={
@@ -268,6 +253,7 @@ export function WorkbenchNotesPane({
             label={phantasi.noteWrite}
             description={phantasi.workbenchWriteHint}
             icon={<LuNotebookPen />}
+            primary
             disabled={busy}
             onPick={onWrite}
           />

@@ -3,13 +3,12 @@ import type { PhantasiSourceApplication } from '../../../types/phantasi'
 import type { ManagedListItem } from '../../settings/ManagedList'
 import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
-import { InputItem, ManagedList } from '../../settings'
+import { ManagedList } from '../../settings'
 import { SegmentedControl } from '../../settings/items/ChoiceControls'
 import { filterWorkbenchReviews } from '../logic/workbench'
 import { noteScheduleLabel } from '../notes/noteBoard'
-import { PhantasiWorkbenchIcon } from '../ui/PhantasiWorkbenchIcon'
 import { listSelectChrome, useListSelection } from '../useListSelection'
-import { WorkbenchPage } from './PhantasiWorkbenchChrome'
+import { WorkbenchPage, WorkbenchSearch } from './PhantasiWorkbenchChrome'
 
 type ReviewStatusFilter = 'pending' | 'approved' | 'rejected' | 'all'
 
@@ -19,8 +18,6 @@ export function WorkbenchReviewsPane({
   applications,
   applicationsLoading,
   busy,
-  guide,
-  guidePath,
   onApprove,
   onReject,
   onDelete,
@@ -30,8 +27,6 @@ export function WorkbenchReviewsPane({
   applications: PhantasiSourceApplication[]
   applicationsLoading: boolean
   busy: boolean
-  guide?: ReactNode
-  guidePath?: string
   onApprove?: (id: number) => void
   onReject?: (id: number) => void
   onDelete?: (ids: number[]) => void
@@ -168,22 +163,12 @@ export function WorkbenchReviewsPane({
   return (
     <WorkbenchPage
       title={phantasi.workbenchReviews}
-      icon={<PhantasiWorkbenchIcon kind="reviews" />}
       back={back}
-      guide={guide}
-      guidePath={guidePath}
       search={
-        <InputItem
-          itemKey="workbench-review-search"
-          label={phantasi.workbenchSearchReviews}
+        <WorkbenchSearch
           value={query}
           onChange={setQuery}
           placeholder={phantasi.workbenchSearchReviews}
-          inputType="search"
-          size="sm"
-          layout="vertical"
-          autoComplete="off"
-          className="phantasi-workbench__title-search"
         />
       }
     >
