@@ -41,3 +41,26 @@ export function studioBuildPlugin() {
     },
   }
 }
+
+/**
+ * 笔记编辑器里按名字找图标的 `lib/iconLookup.ts` 引用了近百个品牌图标。react-icons
+ * 每套图标是一个模块，摇树只能留下所有引用者的并集，于是工具窗口为了设置控件里
+ * 那十几个图标，也得下载整套。创作台那一遍让 iconLookup 拿一份自己的 `lib/icons`
+ * 和 react-icons 副本，工具窗口那份只剩它自己用到的。
+ */
+export function studioIconCatalogPlugin() {
+  const COPY = '?icon-catalog'
+  return {
+    name: 'myriad:studio-icon-catalog',
+    apply: () => isStudioPass(),
+    enforce: 'pre',
+    async resolveId(source, importer, options) {
+      if (!importer) return null
+      const fromCatalog = importer.endsWith('/src/lib/iconLookup.ts') && source === './icons'
+      const fromCopy = importer.endsWith(`/src/lib/icons.tsx${COPY}`) && source.startsWith('react-icons/')
+      if (!fromCatalog && !fromCopy) return null
+      const resolved = await this.resolve(source, importer.replace(COPY, ''), { ...options, skipSelf: true })
+      return resolved && { ...resolved, id: resolved.id + COPY }
+    },
+  }
+}

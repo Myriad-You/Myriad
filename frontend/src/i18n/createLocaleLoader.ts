@@ -3,6 +3,7 @@ import type { Locale } from './index'
 export type LocaleImporters<T> = { [L in Locale]: () => Promise<T> }
 
 /** Cache + in-flight dedupe. Unused locales stay out of the main bundle. */
+/* @__NO_SIDE_EFFECTS__ */
 export function createLocaleLoader<T>(importers: LocaleImporters<T>) {
   const cache = new Map<Locale, T>()
   const failures = new Map<Locale, unknown>()

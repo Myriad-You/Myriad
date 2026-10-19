@@ -18,7 +18,6 @@ const loader = createLocaleLoader<SettingGuidesCatalog>({
   'de-DE': async () =>
     (await import('./catalog.de-DE.json')).default,
 })
-loader.seed('en-US', en)
 
 export function loadSettingGuidesCatalog(
   locale: Locale,

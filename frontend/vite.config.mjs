@@ -12,7 +12,7 @@ import { reloadOnOutdatedOptimizeDepPlugin } from './scripts/vite/reloadOnOutdat
 import { siteBrandingStampPlugin } from './scripts/vite/siteBrandingStampPlugin.mjs'
 import { spaFallbackPlugin } from './scripts/vite/spaFallback.mjs'
 import { stripDevSourcemapsPlugin } from './scripts/vite/stripDevSourcemaps.mjs'
-import { isStudioPass, studioBuildPlugin } from './scripts/vite/studioBuild.mjs'
+import { isStudioPass, studioBuildPlugin, studioIconCatalogPlugin } from './scripts/vite/studioBuild.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -30,6 +30,8 @@ export default defineConfig(({ command }) => ({
 
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
+    // 创作台嵌入页那一遍构建（scripts/vite/studioBuild.mjs）。
+    __STUDIO_PASS__: JSON.stringify(isStudioPass()),
   },
   css: {
     // Inline CSS maps are not needed for dest HMR and inflate the transform cache.
@@ -104,6 +106,7 @@ export default defineConfig(({ command }) => ({
     // 两遍构建只在最后一遍（创作台）压缩：它会把整个输出目录都压一遍。
     ...(command === 'build' && !isStudioPass() ? [] : [precompressPlugin()]),
     studioBuildPlugin(),
+    studioIconCatalogPlugin(),
   ],
   resolve: {
     alias: {
@@ -121,7 +124,14 @@ export default defineConfig(({ command }) => ({
         target: 'es2025',
         rollupOptions: {
           // 第二遍只构建创作台的嵌入页，见 scripts/vite/studioBuild.mjs。
-          ...(isStudioPass() ? { input: path.resolve(__dirname, 'studio.html') } : {}),
+          // 那一遍把 withIconA11y 当纯函数：lib/icons 里没用到的品牌图标才摇得掉。
+          // 主站入口本来就带着 lib/icons，在源码上标注会让它变大，所以只在这里声明。
+          ...(isStudioPass()
+            ? {
+                input: path.resolve(__dirname, 'studio.html'),
+                treeshake: { manualPureFunctions: ['withIconA11y'] },
+              }
+            : {}),
           output: {
             codeSplitting: {
               groups: [
@@ -163,6 +173,9 @@ export default defineConfig(({ command }) => ({
                     if (id.includes('node_modules/motion')) {
                       return 'motion-vendor'
                     }
+                    // 创作台那一遍不合并图标：合起来就是笔记编辑器要的整套
+                    // 品牌图标，工具窗口只用到其中几个，也得整块下载。
+                    if (isStudioPass()) return
                     if (id.includes('node_modules/react-icons/fa6/')) {
                       return 'icons-fa6'
                     }

@@ -25,7 +25,6 @@ const loader = createLocaleLoader<TappPermissionGuides>({
   'de-DE': async () =>
     (await import('./tappPermissionGuides.de-DE.json')).default,
 })
-loader.seed('en-US', en)
 
 export function loadTappPermissionGuides(
   locale: Locale,

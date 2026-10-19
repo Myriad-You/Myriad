@@ -2,6 +2,8 @@
 
 /** Vite define */
 declare const __APP_VERSION__: string
+/** 创作台嵌入页单独构建的那一遍（studio.html）为 true。 */
+declare const __STUDIO_PASS__: boolean
 
 declare module '*?raw' {
   const content: string

@@ -121,92 +121,100 @@ export function StudioToolPane(props: StudioToolPaneProps) {
             onOpenTool={props.onOpenTool}
           />
         ) : null}
-        <WorkbenchNotesPane
-          active={tool === 'notes'}
-          back={null}
-          docs={props.docs}
-          notesLoading={props.notesLoading}
-          busy={props.busy}
-          noteCategories={props.noteCategories}
-          onWrite={props.onWrite}
-          onOpenNote={props.onOpenNote}
-          onDeleteNotes={props.onDeleteNotes}
-          onUnschedule={props.onUnschedule}
-          onAssignNotes={props.onAssignNotes}
-          onOpenCategories={() => props.onOpenTool('categories')}
-        />
-        <WorkbenchCommentsPane
-          active={tool === 'comments'}
-          back={null}
-          filters={
-            props.itemId != null ? (
-              <label className="studio-tool__scope">
-                <input
-                  type="checkbox"
-                  checked={onlyThisPost}
-                  onChange={(event) => setOnlyThisPost(event.target.checked)}
-                />
-                <span>{t.studio.overlayOnlyThisPost}</span>
-              </label>
-            ) : null
-          }
-          comments={
-            onlyThisPost && props.itemId != null
-              ? props.comments.filter((comment) => comment.item_id === props.itemId)
-              : props.comments
-          }
-          commentsLoading={props.commentsLoading}
-          busy={props.busy}
-          onDeleteComments={props.onDeleteComments}
-          onOpenCommentItem={props.onOpenCommentItem}
-          hereItemId={props.itemId}
-        />
-        <WorkbenchReviewsPane
-          active={tool === 'reviews'}
-          back={null}
-          applications={props.applications}
-          applicationsLoading={props.applicationsLoading}
-          busy={props.busy}
-          onApprove={(id) => {
-            void props.onApproveApplication(id)
-          }}
-          onReject={props.onRejectApplication}
-          onDelete={props.onDeleteApplications}
-        />
-        <WorkbenchMediaPane
-          active={tool === 'media'}
-          title={originLabel(props.mediaFilter.origin)}
-          back={null}
-          filters={
-            <div className="studio-tool__chips" role="group" aria-label={t.phantasi.workbenchMedia}>
-        {MEDIA_ORIGINS.map((origin) => (
-          <button
-            key={origin}
-            type="button"
-            className="studio-tool__chip"
-            aria-pressed={props.mediaFilter.origin === origin}
-            onClick={() => {
-              props.onMediaOrigin(origin)
-              props.onMediaFilter({ ...props.mediaFilter, origin, format: 'all' })
+        {tool === 'notes' ? (
+          <WorkbenchNotesPane
+            active
+            back={null}
+            docs={props.docs}
+            notesLoading={props.notesLoading}
+            busy={props.busy}
+            noteCategories={props.noteCategories}
+            onWrite={props.onWrite}
+            onOpenNote={props.onOpenNote}
+            onDeleteNotes={props.onDeleteNotes}
+            onUnschedule={props.onUnschedule}
+            onAssignNotes={props.onAssignNotes}
+            onOpenCategories={() => props.onOpenTool('categories')}
+          />
+        ) : null}
+        {tool === 'comments' ? (
+          <WorkbenchCommentsPane
+            active
+            back={null}
+            filters={
+              props.itemId != null ? (
+                <label className="studio-tool__scope">
+                  <input
+                    type="checkbox"
+                    checked={onlyThisPost}
+                    onChange={(event) => setOnlyThisPost(event.target.checked)}
+                  />
+                  <span>{t.studio.overlayOnlyThisPost}</span>
+                </label>
+              ) : null
+            }
+            comments={
+              onlyThisPost && props.itemId != null
+                ? props.comments.filter((comment) => comment.item_id === props.itemId)
+                : props.comments
+            }
+            commentsLoading={props.commentsLoading}
+            busy={props.busy}
+            onDeleteComments={props.onDeleteComments}
+            onOpenCommentItem={props.onOpenCommentItem}
+            hereItemId={props.itemId}
+          />
+        ) : null}
+        {tool === 'reviews' ? (
+          <WorkbenchReviewsPane
+            active
+            back={null}
+            applications={props.applications}
+            applicationsLoading={props.applicationsLoading}
+            busy={props.busy}
+            onApprove={(id) => {
+              void props.onApproveApplication(id)
             }}
-          >
-            {originLabel(origin)}
-          </button>
-        ))}
-      </div>
-          }
-          media={props.media}
-          mediaFormats={props.mediaFormats}
-          mediaLoading={props.mediaLoading}
-          mediaFilter={props.mediaFilter}
-          onMediaFilter={props.onMediaFilter}
-          mediaHasMore={props.mediaHasMore}
-          onLoadMoreMedia={props.onLoadMoreMedia}
-          busy={props.busy}
-          onUpload={props.onUpload}
-          onDeleteMedia={props.onDeleteMedia}
-          onMediaSaved={props.onMediaSaved}
-        />
+            onReject={props.onRejectApplication}
+            onDelete={props.onDeleteApplications}
+          />
+        ) : null}
+        {tool === 'media' ? (
+          <WorkbenchMediaPane
+            active
+            title={originLabel(props.mediaFilter.origin)}
+            back={null}
+            filters={
+              <div className="studio-tool__chips" role="group" aria-label={t.phantasi.workbenchMedia}>
+          {MEDIA_ORIGINS.map((origin) => (
+            <button
+              key={origin}
+              type="button"
+              className="studio-tool__chip"
+              aria-pressed={props.mediaFilter.origin === origin}
+              onClick={() => {
+                props.onMediaOrigin(origin)
+                props.onMediaFilter({ ...props.mediaFilter, origin, format: 'all' })
+              }}
+            >
+              {originLabel(origin)}
+            </button>
+          ))}
+        </div>
+            }
+            media={props.media}
+            mediaFormats={props.mediaFormats}
+            mediaLoading={props.mediaLoading}
+            mediaFilter={props.mediaFilter}
+            onMediaFilter={props.onMediaFilter}
+            mediaHasMore={props.mediaHasMore}
+            onLoadMoreMedia={props.onLoadMoreMedia}
+            busy={props.busy}
+            onUpload={props.onUpload}
+            onDeleteMedia={props.onDeleteMedia}
+            onMediaSaved={props.onMediaSaved}
+          />
+        ) : null}
         {tool === 'categories' ? (
           <WorkbenchPage
             title={openedCategory || t.studio.navCategories}
