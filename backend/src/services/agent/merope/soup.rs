@@ -129,8 +129,14 @@ async fn save_at(id: &str, game: &Game) {
     let Ok(db) = crate::services::process_db::database() else {
         return;
     };
-    let keep_until =
-        (game.last_played() + chrono::Duration::from_std(KEEP_FOR).unwrap_or_default()).timestamp();
+    // The registry lets it go by the database's own clock: what is left of
+    // the time to keep it, as of her now, counted on from the real now. The
+    // same thing on the site; in a turn put together as of another moment
+    // (a recorded scene, whose clock stands at its own day) it is not gone
+    // before it is read.
+    let left = game.last_played() + chrono::Duration::from_std(KEEP_FOR).unwrap_or_default()
+        - super::clock::now();
+    let keep_until = (chrono::Utc::now() + left).timestamp();
     if let Err(error) = crate::services::runtime_registry::put(
         &db,
         GAMES_NAMESPACE,
