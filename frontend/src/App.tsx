@@ -27,7 +27,7 @@ import {
 import { BackgroundTappHost, RouteWarmup } from './components/ApplicationStartup'
 import CustomScrollbar from './components/CustomScrollbar'
 import { DocumentReady } from './components/DocumentReady'
-import { EmbedAdminOnly, useEmbedFrame } from './components/embed/embedFrame'
+import { useEmbedFrame } from './components/embed/embedFrame'
 import { isEmbedPath } from './components/embed/embedRoutes'
 import { NamespacedPage, SuspensePage } from './components/NamespacedPage'
 import { RenderErrorBoundary } from './components/RenderErrorBoundary'
@@ -74,8 +74,6 @@ import './styles/performance.css'
 const {
   home: Home,
   library: Library,
-  studio: Studio,
-  studioOverlay: StudioOverlayFrame,
   embedComments: EmbedComments,
   embedFriend: EmbedFriend,
   embedCompanion: EmbedCompanion,
@@ -720,26 +718,6 @@ function EmbedRoutes() {
           <NamespacedPage names={['embed']}>
             <EmbedFriend />
           </NamespacedPage>
-        }
-      />
-      <Route
-        path="/embed/studio/overlay"
-        element={
-          <EmbedAdminOnly>
-            <NamespacedPage names={['phantasi', 'studio']}>
-              <StudioOverlayFrame />
-            </NamespacedPage>
-          </EmbedAdminOnly>
-        }
-      />
-      <Route
-        path="/embed/studio/tool/*"
-        element={
-          <EmbedAdminOnly>
-            <NamespacedPage names={['phantasi', 'studio']}>
-              <Studio />
-            </NamespacedPage>
-          </EmbedAdminOnly>
         }
       />
       <Route

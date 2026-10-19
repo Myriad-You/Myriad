@@ -230,11 +230,10 @@ pub(crate) async fn start_unified_server(
         // 重要：ServeDir 对任何非 GET/HEAD 请求直接返回 405，所以 /api/* 绝不能落到
         // 静态文件服务——未注册的 POST 应是可读的 JSON 404，不是 405。
         let index_html = std::path::Path::new(&config.frontend_dist_path).join("index.html");
-        let studio_html = std::path::Path::new(&config.frontend_dist_path).join("studio.html");
-        // 旧的前端构建没有 studio.html：创作台照旧走 index.html。
-        let studio_html = studio_html.exists().then(|| {
-            tower::Layer::layer(&CompressionLayer::new(), ServeFile::new(studio_html))
-        });
+        let studio_html = tower::Layer::layer(
+            &CompressionLayer::new(),
+            ServeFile::new(std::path::Path::new(&config.frontend_dist_path).join("studio.html")),
+        );
         // CompressionLayer 包住 ServeDir。默认谓词跳过图片（除 SVG）和 SSE。
         let serve_dir = tower::Layer::layer(
             &CompressionLayer::new(),
@@ -252,11 +251,10 @@ pub(crate) async fn start_unified_server(
                 // Resolve the cache tier before `req` is consumed by oneshot.
                 let cache_control = static_asset_cache_control(path);
                 use tower::ServiceExt;
-                let served = match studio_html {
-                    Some(studio) if is_studio_document_path(path) => {
-                        studio.oneshot(req).await.map(IntoResponse::into_response).map_err(|_| ())
-                    }
-                    _ => serve_dir.oneshot(req).await.map(IntoResponse::into_response).map_err(|_| ()),
+                let served = if is_studio_document_path(path) {
+                    studio_html.oneshot(req).await.map(IntoResponse::into_response).map_err(|_| ())
+                } else {
+                    serve_dir.oneshot(req).await.map(IntoResponse::into_response).map_err(|_| ())
                 };
                 match served {
                     Ok(res) => {

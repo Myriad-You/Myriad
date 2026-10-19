@@ -122,7 +122,8 @@ function lookup(urlPath) {
 
   if (ASSET_EXT.test(urlPath)) return { status: 404 }
   // 创作台的嵌入页用自己的文档。
-  if (isStudioDocumentPath(urlPath) && existsSync(STUDIO)) {
+  if (isStudioDocumentPath(urlPath)) {
+    if (!existsSync(STUDIO)) return { status: 404 }
     return { status: 200, file: STUDIO, rel: STUDIO_DOCUMENT, stampHtml: true, stampManifest: false }
   }
   if (!existsSync(INDEX)) return { status: 404 }
