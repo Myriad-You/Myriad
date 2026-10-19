@@ -53,8 +53,6 @@ pub(crate) async fn unstar_item(
     update_item_state(&db, &viewer, item_id, None, Some(false)).await
 }
 
-pub(crate) use crate::services::phantasi_reading::visible_state_sources;
-
 pub(crate) async fn update_item_state(
     db: &DatabaseConnection,
     viewer: &OptionalViewer,
@@ -262,6 +260,7 @@ mod journal_audit_contracts {
 #[cfg(test)]
 mod state_visibility_tests {
     use super::*;
+    use crate::services::phantasi_reading::visible_state_sources;
 
     #[test]
     fn non_admin_state_targets_require_public_sources() {
