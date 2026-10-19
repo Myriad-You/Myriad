@@ -5,7 +5,6 @@ import {
   LuActivity,
   LuCheck,
   LuCopy,
-  LuExternalLink,
   LuLink,
   LuPalette,
   LuRefreshCw,
@@ -31,7 +30,7 @@ import { userFacingError } from '../../utils/userFacingError'
 import { noteScheduleLabel } from '../phantasi/notes/noteBoard'
 import { PageAction, WorkbenchPage } from '../phantasi/skin/PhantasiWorkbenchChrome'
 import { SettingsButton } from '../settings'
-import { openBlogPage, studioOverlayApi } from './studioIsland'
+import { studioOverlayApi } from './studioIsland'
 import { BLOG_SETTINGS_TABS, blogSettingsTabForArg } from './studioRoutes'
 import './StudioBlogPane.css'
 
@@ -208,11 +207,6 @@ export function StudioBlogPane({ back, arg = null }: { back: ReactNode; arg?: st
             loading={busy === 'rebuild' || building}
             disabled={busy != null || !hugo.available}
             onPick={rebuild}
-          />
-          <PageAction
-            label={copy.openBlog}
-            icon={<LuExternalLink />}
-            onPick={() => openBlogPage('/blog/')}
           />
         </>
       }

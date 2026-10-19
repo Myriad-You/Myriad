@@ -62,7 +62,6 @@ export interface StudioToolPaneProps {
   onWrite: () => void
   onOpenNote: (open: WorkbenchNoteOpen) => void
   onOpenTool: (tool: StudioTool) => void
-  onOpenPost: () => void
   onDeleteNotes: (docs: PhantasiNoteDoc[]) => void | Promise<boolean>
   onUnschedule: (id: number, revision: number) => void
   onAssignNotes: (docs: PhantasiNoteDoc[], category: string) => void
@@ -120,7 +119,6 @@ export function StudioToolPane(props: StudioToolPaneProps) {
             onWrite={props.onWrite}
             onOpenNote={props.onOpenNote}
             onOpenTool={props.onOpenTool}
-            onOpenPost={props.onOpenPost}
           />
         ) : null}
         <WorkbenchNotesPane

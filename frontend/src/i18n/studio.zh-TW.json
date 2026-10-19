@@ -60,7 +60,6 @@
   "buildLog": "建置日誌",
   "rebuild": "立即重建",
   "rebuildFailed": "沒能開始重建。",
-  "openBlog": "打開部落格",
   "notesRss": "筆記 RSS",
   "notesRssHint": "打開後，已發布的筆記可以被別人用閱讀器訂閱。",
   "notesRssPrivate": "部落格目前不對所有訪客開放，別人還訂不到。",

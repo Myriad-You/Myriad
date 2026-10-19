@@ -60,7 +60,6 @@
   "buildLog": "Build log",
   "rebuild": "Rebuild now",
   "rebuildFailed": "Could not start a rebuild.",
-  "openBlog": "Open blog",
   "notesRss": "Notes RSS",
   "notesRssHint": "Turn this on so published notes can be followed in any reader.",
   "notesRssPrivate": "The blog is not open to all visitors, so others cannot subscribe yet.",

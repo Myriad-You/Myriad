@@ -60,7 +60,6 @@
   "buildLog": "ビルドログ",
   "rebuild": "今すぐ再構築",
   "rebuildFailed": "再構築を始められませんでした。",
-  "openBlog": "ブログを開く",
   "notesRss": "ノート RSS",
   "notesRssHint": "オンにすると、公開したノートをほかの人がリーダーで購読できる。",
   "notesRssPrivate": "ブログはすべての訪問者に開いていないので、まだ購読できない。",

@@ -60,7 +60,6 @@
   "buildLog": "빌드 로그",
   "rebuild": "지금 다시 빌드",
   "rebuildFailed": "다시 빌드를 시작하지 못했습니다.",
-  "openBlog": "블로그 열기",
   "notesRss": "노트 RSS",
   "notesRssHint": "켜면 공개한 노트를 다른 사람이 리더로 구독할 수 있어요.",
   "notesRssPrivate": "블로그가 모든 방문자에게 열려 있지 않아서, 아직은 구독할 수 없어요.",

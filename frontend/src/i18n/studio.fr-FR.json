@@ -60,7 +60,6 @@
   "buildLog": "Journal de génération",
   "rebuild": "Reconstruire",
   "rebuildFailed": "Impossible de lancer la reconstruction.",
-  "openBlog": "Ouvrir le blog",
   "notesRss": "RSS des notes",
   "notesRssHint": "Activez pour que les notes publiées puissent être suivies dans n’importe quel lecteur.",
   "notesRssPrivate": "Le blog n’est pas ouvert à tous les visiteurs, les autres ne peuvent pas encore s’abonner.",

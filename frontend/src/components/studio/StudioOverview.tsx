@@ -1,7 +1,7 @@
 import type { CommentItem, PhantasiNoteDoc } from '../../types/phantasi'
 import type { WorkbenchNoteOpen } from '../phantasi/logic/workbench'
 import type { StudioTool } from './overlay/studioTools'
-import { LuExternalLink, LuMessageCircle, LuNotebookPen } from '@lib/icons'
+import { LuMessageCircle, LuNotebookPen } from '@lib/icons'
 import { useI18n } from '../../contexts/I18nContext'
 import { getImageUrl } from '../phantasi/constants'
 import { workbenchNoteCover } from '../phantasi/logic/workbench'
@@ -44,7 +44,6 @@ export function StudioOverview({
   onWrite,
   onOpenNote,
   onOpenTool,
-  onOpenPost,
 }: {
   itemId: number | null
   docs: PhantasiNoteDoc[]
@@ -55,7 +54,6 @@ export function StudioOverview({
   onWrite: () => void
   onOpenNote: (open: WorkbenchNoteOpen) => void
   onOpenTool: (tool: StudioTool) => void
-  onOpenPost: () => void
 }) {
   const { t, locale, format } = useI18n()
   const doc = itemId != null ? docs.find((row) => row.item_id === itemId) : undefined
@@ -103,7 +101,6 @@ export function StudioOverview({
           <p className="studio-overview__note">{t.studio.overlayNotAPost}</p>
           <div className="studio-overview__actions">
             <PageAction primary label={t.phantasi.noteWrite} icon={<LuNotebookPen />} disabled={busy} onPick={onWrite} />
-            <PageAction label={t.studio.openBlog} icon={<LuExternalLink />} onPick={onOpenPost} />
           </div>
         </section>
       )}

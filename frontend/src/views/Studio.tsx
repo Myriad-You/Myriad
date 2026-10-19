@@ -192,7 +192,6 @@ function StudioToolPage({
           void openStudioNote(open, setError, failed)
         }}
         onOpenTool={(next) => openStudioTool({ tool: next, arg: null })}
-        onOpenPost={() => openBlogPage('/blog/')}
         onDeleteNotes={async (docs) => workbench.removeNotes(docs)}
         onUnschedule={workbench.unschedule}
         onAssignNotes={(docs, name) => {

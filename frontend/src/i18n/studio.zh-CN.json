@@ -60,7 +60,6 @@
   "buildLog": "构建日志",
   "rebuild": "立即重建",
   "rebuildFailed": "没能开始重建。",
-  "openBlog": "打开博客",
   "notesRss": "笔记 RSS",
   "notesRssHint": "打开后，已发布的笔记可以被别人用阅读器订阅。",
   "notesRssPrivate": "博客目前不对所有访客开放，别人还订不到。",

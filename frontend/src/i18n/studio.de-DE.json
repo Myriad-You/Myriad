@@ -60,7 +60,6 @@
   "buildLog": "Build-Protokoll",
   "rebuild": "Jetzt neu bauen",
   "rebuildFailed": "Neuer Build konnte nicht starten.",
-  "openBlog": "Blog öffnen",
   "notesRss": "Notizen-RSS",
   "notesRssHint": "Einschalten, damit veröffentlichte Notizen in jedem Reader abonniert werden können.",
   "notesRssPrivate": "Der Blog ist nicht für alle Besucher offen, andere können noch nicht abonnieren.",
