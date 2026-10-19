@@ -95,7 +95,8 @@ export function StudioOverlay({
   open: boolean
   layout: StudioOverlayLayout
   onOpenChange: (open: boolean) => void
-  onLayout: (next: StudioOverlayLayout) => void
+  /** 布局只按当时的最新状态改：拖动、点工具栏和窗口报就绪可能落在同一帧里。 */
+  onLayout: (update: (current: StudioOverlayLayout) => StudioOverlayLayout) => void
   onFrameLoad: (tool: StudioTool, frame: HTMLIFrameElement) => void
   /** 每个窗口的 iframe。控制器要认出是哪个窗口在跟它说话，所以由它传进来。 */
   frameRefs: { current: Map<StudioTool, HTMLIFrameElement> }
@@ -121,19 +122,19 @@ export function StudioOverlay({
 
   const patchWindow = useCallback(
     (tool: StudioTool, patch: Partial<StudioWindowLayout>) => {
-      const current = layoutRef.current
-      const index = current.open.findIndex((item) => item.tool === tool)
-      const base = current.windows[tool] ?? defaultWindow(tool, Math.max(index, 0), viewport)
-      onLayout({ ...current, windows: { ...current.windows, [tool]: { ...base, ...patch } } })
+      onLayout((current) => {
+        const index = current.open.findIndex((item) => item.tool === tool)
+        const base = current.windows[tool] ?? defaultWindow(tool, Math.max(index, 0), viewport)
+        return { ...current, windows: { ...current.windows, [tool]: { ...base, ...patch } } }
+      })
     },
     [onLayout, viewport],
   )
 
   const raise = useCallback(
     (spec: StudioToolSpec) => {
-      const current = layoutRef.current
-      if (current.open.at(-1)?.tool === spec.tool) return
-      onLayout(openTool(current, spec))
+      if (layoutRef.current.open.at(-1)?.tool === spec.tool) return
+      onLayout((current) => openTool(current, spec))
     },
     [onLayout],
   )
@@ -178,7 +179,7 @@ export function StudioOverlay({
   /** 关一个窗口。先问窗口自己（编辑器要先问没保存的改动），它点头了才关。 */
   const closeWindow = (tool: StudioTool) => {
     void mayLeave(tool).then((ok) => {
-      if (ok) onLayout(closeTool(layoutRef.current, tool))
+      if (ok) onLayout((current) => closeTool(current, tool))
     })
   }
 
@@ -191,8 +192,7 @@ export function StudioOverlay({
     } else {
       const arg =
         tool === 'editor' ? (context.docId != null ? String(context.docId) : 'new') : null
-      const existing = current.open.find((item) => item.tool === tool)
-      onLayout(openTool(current, existing ?? { tool, arg }))
+      onLayout((latest) => openTool(latest, latest.open.find((item) => item.tool === tool) ?? { tool, arg }))
     }
   }
 
@@ -224,7 +224,7 @@ export function StudioOverlay({
                 closeWindow('editor')
                 return
               }
-              onLayout(openTool(layoutRef.current, { tool: 'editor', arg: String(context.docId) }))
+              onLayout((current) => openTool(current, { tool: 'editor', arg: String(context.docId) }))
               onOpenChange(true)
             }}
           >
@@ -268,7 +268,7 @@ export function StudioOverlay({
               className="tool"
               title={layout.toolbar === 'list' ? copy.toolbarIcons : copy.toolbarList}
               onClick={() =>
-                onLayout({ ...layoutRef.current, toolbar: layout.toolbar === 'list' ? 'icons' : 'list' })
+                onLayout((current) => ({ ...current, toolbar: current.toolbar === 'list' ? 'icons' : 'list' }))
               }
             >
               <LuColumns2 />

@@ -175,9 +175,10 @@ export default function StudioOverlayFrame() {
     })
   }
 
-  // 工具栏、细条、拖动直接给出下一份布局。
-  const updateLayout = (next: StudioOverlayLayout) => {
-    whenEditorMayLeave(next.open.find((item) => item.tool === 'editor'), () => changeLayout(() => next))
+  // 工具栏、细条、拖动：先按眼下的布局看编辑器换不换篇，放行了再按那时的最新布局改。
+  const updateLayout = (update: (current: StudioOverlayLayout) => StudioOverlayLayout) => {
+    const editor = update(layoutNow.current).open.find((item) => item.tool === 'editor')
+    whenEditorMayLeave(editor, () => changeLayout(update))
   }
 
   // 展开时记下博客构建状态；收起时博客若已重新生成就刷新外层页面，还在生成就等它。
