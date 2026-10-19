@@ -1,6 +1,6 @@
 import type { Root } from 'react-dom/client'
 import type { StudioOverlayCopy, StudioPageContext } from '../components/studio/overlay/StudioOverlay'
-import type { StudioOverlayLayout, StudioToolSpec } from '../components/studio/overlay/studioTools'
+import type { StudioOverlayLayout, StudioTool, StudioToolSpec } from '../components/studio/overlay/studioTools'
 import type { BlogBuildMark } from '../components/studio/studioIsland'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -18,6 +18,7 @@ import {
 import {
   blogReloadDecision,
   findStudioHost,
+  frameLeaveHandler,
   setStudioOverlayApi,
   withoutStudioParam,
 } from '../components/studio/studioIsland'
@@ -75,6 +76,9 @@ export default function StudioOverlayFrame() {
   })
   /** 每个窗口实际加载的地址，只有 `open` 会改它。 */
   const frames = useRef(new Map<string, StudioToolSpec>())
+  const frameEls = useRef(new Map<StudioTool, HTMLIFrameElement>())
+  const layoutNow = useRef(layout)
+  layoutNow.current = layout
   const openedMark = useRef<BlogBuildMark | null>(null)
   const settleTimer = useRef(0)
   const openRef = useRef(open)
@@ -117,7 +121,24 @@ export default function StudioOverlayFrame() {
     [t],
   )
 
+  /**
+   * 编辑器要换到另一篇时，先让它自己检查（没保存的先问、空的新笔记清掉）；
+   * 通过了再换。换回布局里已经开着的同一篇不算换。
+   */
+  const whenEditorMayLeave = (spec: StudioToolSpec | undefined, apply: () => void) => {
+    const loaded = frames.current.get('editor')
+    const showing = layoutNow.current.open.find((item) => item.tool === 'editor')
+    const swapping = spec?.tool === 'editor' && loaded != null && showing?.arg !== spec.arg
+    const leave = swapping ? frameLeaveHandler(frameEls.current.get('editor')) : null
+    if (leave) leave(apply)
+    else apply()
+  }
+
   const updateLayout = (next: StudioOverlayLayout) => {
+    whenEditorMayLeave(next.open.find((item) => item.tool === 'editor'), () => applyLayout(next))
+  }
+
+  const applyLayout = (next: StudioOverlayLayout) => {
     // 工具栏、细条上的「编辑这篇」直接改布局；参数变了就让窗口换地址。
     for (const spec of next.open) {
       const loaded = frames.current.get(spec.tool)
@@ -166,13 +187,19 @@ export default function StudioOverlayFrame() {
     if (!host) return
     setStudioOverlayApi(host, {
       open: (spec: StudioToolSpec) => {
-        frames.current.set(spec.tool, spec)
-        setLayout((current) => {
-          const next = openTool(current, spec)
-          writeLayout(next)
-          return next
+        whenEditorMayLeave(spec, () => {
+          // 已经开着同一份内容就只提到最上面，不重新加载。
+          const showing = layoutNow.current.open.find((item) => item.tool === spec.tool)
+          if (showing?.arg !== spec.arg || !frames.current.has(spec.tool)) {
+            frames.current.set(spec.tool, spec)
+          }
+          setLayout((current) => {
+            const next = openTool(current, spec)
+            writeLayout(next)
+            return next
+          })
+          setOpen(true)
         })
-        setOpen(true)
       },
       close: (tool) => {
         setLayout((current) => {
@@ -243,6 +270,7 @@ export default function StudioOverlayFrame() {
         }}
         onOpenChange={setOpen}
         onLayout={updateLayout}
+        frameRefs={frameEls}
         onFrameLoad={(frame) => {
           const inner = frame.contentWindow
           if (!inner) return

@@ -6,7 +6,13 @@ import { workbenchPendingReviews } from '../components/phantasi/logic/workbenchH
 import { useNoteTransfer } from '../components/phantasi/manager/useNoteTransfer'
 import { usePhantasiCategories } from '../components/phantasi/usePhantasiCategories'
 import { usePhantasiWorkbench } from '../components/phantasi/usePhantasiWorkbench'
-import { findStudioHost, openBlogPage, setFrameCloseHandler, studioOverlayApi } from '../components/studio/studioIsland'
+import {
+  findStudioHost,
+  openBlogPage,
+  setFrameCloseHandler,
+  setFrameLeaveHandler,
+  studioOverlayApi,
+} from '../components/studio/studioIsland'
 import { openPublishedItem, openStudioNote, openStudioTool } from '../components/studio/studioNoteNav'
 import { editorTarget, mediaOriginForArg, parseStudioToolPath } from '../components/studio/studioRoutes'
 import { StudioToolPane } from '../components/studio/StudioShell'
@@ -82,6 +88,7 @@ function StudioEditor({ target, pageDocId }: { target: number | 'new'; pageDocId
         framed={findStudioHost() != null}
         hideArticleLink={onThisPage}
         onCloseHandle={setFrameCloseHandler}
+        onLeaveHandle={setFrameLeaveHandler}
         onSaved={() => {}}
         onDeleted={close}
         onCloudId={(id) => {

@@ -87,6 +87,7 @@ export function StudioOverlay({
   onOpenChange,
   onLayout,
   onFrameLoad,
+  frameRefs,
 }: {
   /** 博客页的 window：视口尺寸和指针事件都以它为准。 */
   win: Window
@@ -99,13 +100,14 @@ export function StudioOverlay({
   onOpenChange: (open: boolean) => void
   onLayout: (next: StudioOverlayLayout) => void
   onFrameLoad: (frame: HTMLIFrameElement) => void
+  /** 每个窗口的 iframe。控制器换窗口内容前要问窗口自己，所以由它传进来。 */
+  frameRefs: { current: Map<StudioTool, HTMLIFrameElement> }
 }) {
   const [viewport, setViewport] = useState(() => ({ w: win.innerWidth, h: win.innerHeight }))
   const [drag, setDrag] = useState<Drag | null>(null)
   const [loaded, setLoaded] = useState<ReadonlySet<StudioTool>>(() => new Set())
   /** 窗口里的应用已经画出来了；之前窗口只显示占位，不露出整页的启动画面。 */
   const [ready, setReady] = useState<ReadonlySet<StudioTool>>(() => new Set())
-  const frameRefs = useRef(new Map<StudioTool, HTMLIFrameElement>())
   const layoutRef = useRef(layout)
   layoutRef.current = layout
 

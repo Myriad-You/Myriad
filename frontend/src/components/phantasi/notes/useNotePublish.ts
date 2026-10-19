@@ -87,6 +87,8 @@ export function useNotePublish({
   handleUnschedule: () => Promise<void>
   handleDelete: () => Promise<void>
   requestClose: (dirty: boolean) => Promise<void>
+  /** 离开这篇之前的检查：没保存的先问、空的新笔记删掉。返回能不能离开，不关编辑器。 */
+  prepareClose: (dirty: boolean) => Promise<boolean>
 } {
   const clearLocalRecovery = useCallback(() => {
     if (clearRecovery) clearRecovery()
@@ -299,10 +301,10 @@ export function useNotePublish({
     setSaving,
   ])
 
-  const requestClose = useCallback(
-    async (dirty: boolean) => {
+  const prepareClose = useCallback(
+    async (dirty: boolean): Promise<boolean> => {
       if (dirty) {
-        if (!window.confirm(labels.discardConfirm)) return
+        if (!window.confirm(labels.discardConfirm)) return false
         clearLocalRecovery()
       }
       if (
@@ -316,11 +318,11 @@ export function useNotePublish({
           await runWrite(() => phantasiApi.deleteNoteDoc(cloudId))
         } catch (err) {
           showNoteNotice(userFacingError(err, labels.deleteFailed))
-          return
+          return false
         }
         clearLocalRecovery()
       }
-      onClose()
+      return true
     },
     [
       runWrite,
@@ -331,9 +333,15 @@ export function useNotePublish({
       labels.deleteFailed,
       labels.discardConfirm,
       noteId,
-      onClose,
       title,
     ],
+  )
+
+  const requestClose = useCallback(
+    async (dirty: boolean) => {
+      if (await prepareClose(dirty)) onClose()
+    },
+    [onClose, prepareClose],
   )
 
   return {
@@ -343,5 +351,6 @@ export function useNotePublish({
     handleUnschedule,
     handleDelete,
     requestClose,
+    prepareClose,
   }
 }

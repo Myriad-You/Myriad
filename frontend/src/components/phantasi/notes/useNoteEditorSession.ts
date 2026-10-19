@@ -538,6 +538,7 @@ export function useNoteEditorSession({
     handleUnschedule,
     handleDelete,
     requestClose: closeEditor,
+    prepareClose,
   } = useNotePublish({
     title,
     contentMd,
@@ -582,6 +583,8 @@ export function useNoteEditorSession({
   const requestClose = useCallback(() => {
     void closeEditor(dirty)
   }, [closeEditor, dirty])
+  /** 换到别的笔记之前用：同样的检查，但不关编辑器。 */
+  const prepareLeave = useCallback(() => prepareClose(dirty), [prepareClose, dirty])
 
   const {
     placeImage,
@@ -799,6 +802,7 @@ export function useNoteEditorSession({
     handleUnschedule,
     handleDelete,
     requestClose,
+    prepareLeave,
     placeImage,
     handleUpload,
     heading,

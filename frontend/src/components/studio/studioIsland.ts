@@ -67,6 +67,35 @@ export function frameCloseHandler(frame: HTMLIFrameElement | null | undefined): 
   }
 }
 
+const FRAME_LEAVE = '__myriadStudioLeave'
+
+interface LeaveWindow extends Window {
+  [FRAME_LEAVE]?: (next: () => void) => void
+}
+
+/**
+ * 工具窗口换内容之前的检查（编辑器换篇前先问没保存的改动）。通过了才调 `next`，
+ * 窗口本身不关。挂法和关闭一样。
+ */
+export function setFrameLeaveHandler(
+  leave: ((next: () => void) => void) | null,
+  win: Window = window,
+): void {
+  const target = win as LeaveWindow
+  if (leave) target[FRAME_LEAVE] = leave
+  else delete target[FRAME_LEAVE]
+}
+
+export function frameLeaveHandler(
+  frame: HTMLIFrameElement | null | undefined,
+): ((next: () => void) => void) | null {
+  try {
+    return (frame?.contentWindow as LeaveWindow | null)?.[FRAME_LEAVE] ?? null
+  } catch {
+    return null
+  }
+}
+
 /** 文章页在外层整页打开；不在覆盖层里时开新标签。 */
 export function openBlogPage(link: string): void {
   if (findStudioHost()) {
