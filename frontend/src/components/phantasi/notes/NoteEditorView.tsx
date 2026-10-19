@@ -167,9 +167,10 @@ export function NoteEditorView({
   cloudHint,
   textareaRef,
   visualRef,
+  bindVisual,
   titleInputRef,
   scrollRef,
-  previewRef,
+  bindPreview,
   selectedImageRef,
   selectedWidgetRef,
   widgetSettingsOpenRef,
@@ -591,7 +592,7 @@ export function NoteEditorView({
                 className={`phantasi-note__write${pane === 'visual' ? '' : ' is-hidden'}`}
               >
                 <div
-                  ref={visualRef}
+                  ref={bindVisual}
                   onCompositionStart={compositionStart}
                   onCompositionEnd={() => compositionEnd()}
                   className="phantasi-note-preview phantasi-note__visual"
@@ -755,7 +756,7 @@ export function NoteEditorView({
                   style={readerSurfaceStyle}
                   hidden={!html}
                 >
-                  <div ref={previewRef} />
+                  <div ref={bindPreview} />
                 </div>
               </div>
             </article>

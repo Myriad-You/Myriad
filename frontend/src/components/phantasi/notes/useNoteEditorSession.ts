@@ -217,6 +217,18 @@ export function useNoteEditorSession({
   const overlayOpenRef = useRef(false)
   const savedRangeRef = useRef<Range | null>(null)
   const previewRef = useRef<HTMLDivElement>(null)
+  // 正文区、预览区现在挂着的是哪个节点。视图可能整块重挂而这里的状态不变；
+  // 节点一换就得把正文重新灌进去，不然新节点一直是空的。
+  const [visualNode, setVisualNode] = useState<HTMLDivElement | null>(null)
+  const [previewNode, setPreviewNode] = useState<HTMLDivElement | null>(null)
+  const bindVisual = useCallback((node: HTMLDivElement | null) => {
+    visualRef.current = node
+    setVisualNode(node)
+  }, [])
+  const bindPreview = useCallback((node: HTMLDivElement | null) => {
+    previewRef.current = node
+    setPreviewNode(node)
+  }, [])
   /** 预览之前用的是哪种输入法；点预览编辑就回到它。 */
   const lastEditPaneRef = useRef<'write' | 'visual'>('visual')
   const pendingJumpRef = useRef<{
@@ -455,6 +467,8 @@ export function useNoteEditorSession({
     contentMdRef,
     previewRef,
     visualRef,
+    previewNode,
+    visualNode,
     textareaRef,
     visualEditing,
     lastEditPaneRef,
@@ -762,9 +776,11 @@ export function useNoteEditorSession({
     cloudHint,
     textareaRef,
     visualRef,
+    bindVisual,
     titleInputRef,
     scrollRef,
     previewRef,
+    bindPreview,
     selectedImageRef,
     selectedWidgetRef,
     widgetSettingsOpenRef,

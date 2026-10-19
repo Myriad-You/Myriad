@@ -50,6 +50,9 @@ export function useNoteEditorPreview(host: {
   contentMdRef: MutableRefObject<string>
   previewRef: RefObject<HTMLDivElement | null>
   visualRef: RefObject<HTMLDivElement | null>
+  /** 现在挂着的预览区、正文区节点；换了节点要重新灌。 */
+  previewNode: HTMLDivElement | null
+  visualNode: HTMLDivElement | null
   textareaRef: RefObject<HTMLTextAreaElement | null>
   visualEditing: MutableRefObject<boolean>
   lastEditPaneRef: MutableRefObject<'write' | 'visual'>
@@ -71,6 +74,8 @@ export function useNoteEditorPreview(host: {
     contentMdRef,
     previewRef,
     visualRef,
+    previewNode,
+    visualNode,
     textareaRef,
     visualEditing,
     lastEditPaneRef,
@@ -136,8 +141,10 @@ export function useNoteEditorPreview(host: {
     setHtml('')
   }, [contentMd, html, previewMdRef, setHtml])
 
+  // 正文区在加载完才挂上（加载时整块换成转圈），视图也可能整块重挂。所以要跟着
+  // loading 和节点本身重跑：原文先到、节点后到（或换了新节点）时，要再灌一次，不然正文一直是空的。
   useLayoutEffect(() => {
-    if (pane !== 'visual') return
+    if (loading || pane !== 'visual') return
     const el = visualRef.current
     if (!el) return
     // 水合后 face 会改 innerHTML。用原文指纹，打字 / 失焦 / 写栏往返都不整树重挂。
@@ -174,10 +181,10 @@ export function useNoteEditorPreview(host: {
       }
     })()
     return () => controller.abort()
-  }, [contentMd, contentMdRef, pane, visualEditing, visualRef, t.phantasi.noteEditInMarkdown])
+  }, [contentMd, contentMdRef, loading, pane, visualEditing, visualNode, visualRef, t.phantasi.noteEditInMarkdown])
 
   useLayoutEffect(() => {
-    if (pane !== 'preview') return
+    if (loading || pane !== 'preview') return
     const el = previewRef.current
     if (!el) return
     const stale = Boolean(html) && previewMdRef.current !== contentMd
@@ -191,7 +198,7 @@ export function useNoteEditorPreview(host: {
     replaceNoteHtml(el, source)
     if (source) decorateNoteReadSurface(el, t.phantasi.copyCode, t.phantasi.copyTex)
     el.dataset.noteRead = stamp
-  }, [contentMd, html, pane, previewMdRef, previewRef, setHtml, t.phantasi.copyCode, t.phantasi.copyTex])
+  }, [contentMd, html, loading, pane, previewMdRef, previewNode, previewRef, setHtml, t.phantasi.copyCode, t.phantasi.copyTex])
 
   if (pane === 'preview') preloadNoteWidgets(noteWidgetTypesInHtml(html))
   else preloadNoteWidgets(noteWidgetTypesInMarkdown(contentMd))
