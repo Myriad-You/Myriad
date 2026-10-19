@@ -169,7 +169,8 @@ function baseAllowed(): boolean {
   if (prefersReducedData()) return false
   if (
     typeof document !== 'undefined' &&
-    (document.visibilityState as string) === 'prerender'
+    ((document.visibilityState as string) === 'prerender' ||
+      (document as Document & { prerendering?: boolean }).prerendering === true)
   ) {
     return false
   }

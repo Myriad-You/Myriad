@@ -1,10 +1,27 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+
+/** 后台预渲染（鼠标停在链接上提前打开）时还不算来过，等真正切到这页再记。 */
+function isPrerendering() {
+  return typeof document !== 'undefined' && (document as Document & { prerendering?: boolean }).prerendering === true
+}
+
+function usePageActivated() {
+  const [activated, setActivated] = useState(() => !isPrerendering())
+  useEffect(() => {
+    if (activated) return
+    const onActivate = () => setActivated(true)
+    document.addEventListener('prerenderingchange', onActivate, { once: true })
+    return () => document.removeEventListener('prerenderingchange', onActivate)
+  }, [activated])
+  return activated
+}
 
 /** SPA route → pageview + engagement。等 auth；排除管理员/站长自己。 */
 export function usePageViewTracker() {
   const location = useLocation()
+  const activated = usePageActivated()
   const { isAdmin, hasChecked, user } = useAuth()
   const isOwner = Boolean(user?.is_owner)
   const isStaff = isAdmin || isOwner
@@ -23,7 +40,7 @@ export function usePageViewTracker() {
   }, [isAdmin, isOwner, isStaff])
 
   useEffect(() => {
-    if (!hasChecked) return
+    if (!hasChecked || !activated) return
     if (isStaff) {
       lastPathRef.current = location.pathname || '/'
       return
@@ -41,5 +58,5 @@ export function usePageViewTracker() {
     void import('../utils/umamiAnalytics').then((m) => {
       m.trackUmamiPageview(path)
     })
-  }, [location.pathname, hasChecked, isStaff])
+  }, [location.pathname, hasChecked, isStaff, activated])
 }

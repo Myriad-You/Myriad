@@ -46,6 +46,7 @@ import {
   applyNavLayoutToDocument,
   getNavLayoutSnapshot,
 } from '../utils/navLayout'
+import { ensureSiteChromeCookieSync } from '../utils/siteChromeCookie'
 import {
   getColorFromCache,
   saveColorToCache,
@@ -145,6 +146,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   // 设置强调色 --cfg-accent：与 Hero adaptive 同源，随主题/壁纸重算
   useEffect(() => {
     ensureCfgAccentSync()
+    ensureSiteChromeCookieSync()
   }, [])
 
   const { loadWallpaper: loadWallpaperFromHook } = useWallpaper()

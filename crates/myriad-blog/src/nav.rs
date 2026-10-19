@@ -68,9 +68,107 @@ pub fn nav_island_head() -> String {
     )
 }
 
+/// 博客页回主站的预渲染规则，放在 `Speculation-Rules` 响应头里指向这个地址：
+/// 博客页不许跑脚本，规则写不进页面。主站去博客那一半在 frontend/src/utils/siteTransitionScript.ts。
+pub const NAV_SPECULATION_RULES_PATH: &str = "/blog/_myriad/speculation-rules.json";
+
+/// 鼠标停在导航岛的主站条目上（触屏是按下时）就在后台把主站打开：点下去时主站的导航岛
+/// 已经画好，换页动效能接上，不再先看到加载页。
+pub const NAV_SPECULATION_RULES: &str = r##"{"prerender":[{"where":{"selector_matches":"#myriad-nav a:not([aria-current])"},"eagerness":"moderate"}]}"##;
+
+/// 主站写给博客的 cookie：主站的深浅色和颜色，博客页不跑脚本，只能这样知道。
+pub const SITE_CHROME_COOKIE: &str = "myriad_chrome";
+
+/// 主站现在的样子，由 frontend/src/utils/siteChromeCookie.ts 写成
+/// `{设置}.{现在的深浅色}.{主色}.{强调色}`，颜色是六位十六进制、不带 `#`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteChrome {
+    /// 访客在主站选了固定的深色或浅色；`None` 是跟随系统。
+    pinned: Option<Scheme>,
+    /// 写 cookie 时主站是哪一边，强调色是按这一边算的。
+    current: Scheme,
+    primary: String,
+    accent: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scheme {
+    Light,
+    Dark,
+}
+
+impl Scheme {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "light" => Some(Self::Light),
+            "dark" => Some(Self::Dark),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+}
+
+impl SiteChrome {
+    /// 只认上面那个格式，别的一律不要：这些字会原样写进页面的样式里。
+    pub fn parse(value: &str) -> Option<Self> {
+        let mut parts = value.split('.');
+        let (setting, current, primary, accent) =
+            (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+        if parts.next().is_some() {
+            return None;
+        }
+        let pinned = match setting {
+            "auto" => None,
+            other => Some(Scheme::parse(other)?),
+        };
+        let hex = |value: &str| {
+            (value.len() == 6 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                .then(|| value.to_ascii_lowercase())
+        };
+        Some(Self {
+            pinned,
+            current: Scheme::parse(current)?,
+            primary: hex(primary)?,
+            accent: hex(accent)?,
+        })
+    }
+
+    /// 写在导航岛上的属性。强调色只对写 cookie 时那一边有效，跟随系统时另一边留默认色。
+    fn nav_attrs(&self) -> String {
+        let accent = format!("#{}", self.accent);
+        let accent = match (self.pinned, self.current) {
+            (Some(_), _) => accent,
+            (None, Scheme::Light) => format!("light-dark({accent}, {DEFAULT_ACCENT_DARK})"),
+            (None, Scheme::Dark) => format!("light-dark({DEFAULT_ACCENT_LIGHT}, {accent})"),
+        };
+        let scheme = self
+            .pinned
+            .map(|scheme| format!(" data-scheme=\"{}\"", scheme.as_str()))
+            .unwrap_or_default();
+        format!(
+            "{scheme} style=\"--myriad-nav-primary: #{}; --myriad-nav-accent: {accent}\"",
+            self.primary
+        )
+    }
+}
+
+/// 没有主站颜色时的强调色，和 `nav_island.css` 里的默认值一致。
+const DEFAULT_ACCENT_LIGHT: &str = "#64748b";
+const DEFAULT_ACCENT_DARK: &str = "#cbd5e1";
+
 /// 导航岛本身。`shown` 按模块键判断访客能不能看到这一项；`text` 按文案键取字，
-/// 除了条目的键还会问 `mainNavigation`。
-pub fn nav_island_html(shown: impl Fn(&str) -> bool, text: impl Fn(&str) -> String) -> String {
+/// 除了条目的键还会问 `mainNavigation`。`chrome` 是主站的颜色，没有就用默认的。
+pub fn nav_island_html(
+    shown: impl Fn(&str) -> bool,
+    text: impl Fn(&str) -> String,
+    chrome: Option<&SiteChrome>,
+) -> String {
     let mut links = String::new();
     for item in nav_island_items() {
         if item.module.as_deref().is_some_and(|module| !shown(module)) {
@@ -94,8 +192,9 @@ pub fn nav_island_html(shown: impl Fn(&str) -> bool, text: impl Fn(&str) -> Stri
         ));
     }
     format!(
-        "<nav id=\"{NAV_ISLAND_ID}\" class=\"myriad-nav\" aria-label=\"{}\"><div class=\"myriad-nav__island\">{links}</div></nav>",
+        "<nav id=\"{NAV_ISLAND_ID}\" class=\"myriad-nav\" aria-label=\"{}\"{}><div class=\"myriad-nav__island\">{links}</div></nav>",
         escape_attr(&text("mainNavigation")),
+        chrome.map(SiteChrome::nav_attrs).unwrap_or_default(),
     )
 }
 
@@ -154,7 +253,7 @@ mod tests {
     use super::*;
 
     fn island(shown: impl Fn(&str) -> bool) -> String {
-        nav_island_html(shown, |key| format!("[{key}]"))
+        nav_island_html(shown, |key| format!("[{key}]"), None)
     }
 
     #[test]
@@ -179,7 +278,7 @@ mod tests {
 
     #[test]
     fn text_is_escaped() {
-        let html = nav_island_html(|_| true, |_| "a\"<b>".into());
+        let html = nav_island_html(|_| true, |_| "a\"<b>".into(), None);
         assert!(html.contains("aria-label=\"a&quot;&lt;b&gt;\""));
         assert!(!html.contains("a\"<b>"));
     }
@@ -205,6 +304,39 @@ mod tests {
             inject_nav_island("<BODY><p>x</p>", "<H>", "<I>"),
             format!("<BODY><H><I><p>x</p>{NAV_ISLAND_ROOM}")
         );
+    }
+
+    #[test]
+    fn speculation_rules_are_json() {
+        let rules: serde_json::Value = serde_json::from_str(NAV_SPECULATION_RULES).unwrap();
+        assert_eq!(rules["prerender"][0]["eagerness"], "moderate");
+    }
+
+    #[test]
+    fn site_chrome_takes_only_the_exact_format() {
+        let chrome = SiteChrome::parse("dark.dark.6B7280.c7d2fe").unwrap();
+        let html = nav_island_html(|_| true, |key| key.into(), Some(&chrome));
+        assert!(html.contains(
+            "aria-label=\"mainNavigation\" data-scheme=\"dark\" style=\"--myriad-nav-primary: #6b7280; --myriad-nav-accent: #c7d2fe\">"
+        ));
+        let auto = SiteChrome::parse("auto.light.6b7280.4b5563").unwrap();
+        assert_eq!(
+            auto.nav_attrs(),
+            " style=\"--myriad-nav-primary: #6b7280; --myriad-nav-accent: light-dark(#4b5563, #cbd5e1)\""
+        );
+        for bad in [
+            "",
+            "auto.light.6b7280",
+            "auto.light.6b7280.4b5563.x",
+            "dim.light.6b7280.4b5563",
+            "auto.auto.6b7280.4b5563",
+            "auto.light.6b728.4b5563",
+            "auto.light.6b7280;}.4b5563",
+            "auto.light.#6b728.4b5563",
+            "auto.light.gggggg.4b5563",
+        ] {
+            assert_eq!(SiteChrome::parse(bad), None, "{bad}");
+        }
     }
 
     #[test]

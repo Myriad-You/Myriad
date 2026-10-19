@@ -37,3 +37,17 @@ export function siteTransitionInlineScript(): string {
   } catch (e) {}
 })()`
 }
+
+/**
+ * 鼠标停在去博客的链接上（触屏是按下时）就在后台把博客页准备好，点下去时换页动效直接接上，
+ * 不等网络。博客页是静态的，提前打开没有副作用。浏览器在省流量、省电时自己会不做。
+ * 博客回主站的那一半由后端在博客页的 `Speculation-Rules` 响应头里给。
+ */
+export const SITE_SPECULATION_RULES = {
+  prerender: [
+    {
+      where: { or: [{ href_matches: '/blog' }, { href_matches: '/blog/*' }] },
+      eagerness: 'moderate',
+    },
+  ],
+} as const

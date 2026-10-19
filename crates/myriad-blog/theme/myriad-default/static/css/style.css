@@ -1,23 +1,16 @@
 /* 只用本机字体。博客响应的 CSP 不允许加载外站字体。 */
 :root {
   color-scheme: light dark;
-  --bg: #f7f5f2;
-  --text: #1c1917;
-  --muted: #57534e;
-  --line: #e7e5e4;
-  --link: #9a3412;
-  --code: #f0eeeb;
+  --bg: light-dark(#f7f5f2, #1c1917);
+  --text: light-dark(#1c1917, #fafaf9);
+  --muted: light-dark(#57534e, #a8a29e);
+  --line: light-dark(#e7e5e4, #44403c);
+  --link: light-dark(#9a3412, #fdba74);
+  --code: light-dark(#f0eeeb, #292524);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1c1917;
-    --text: #fafaf9;
-    --muted: #a8a29e;
-    --line: #44403c;
-    --link: #fdba74;
-    --code: #292524;
-  }
-}
+/* 访客在主站固定了深色或浅色：博客跟着走（后端把它写在导航岛上）。 */
+:root:has(#myriad-nav[data-scheme='dark']) { color-scheme: dark; }
+:root:has(#myriad-nav[data-scheme='light']) { color-scheme: light; }
 * { box-sizing: border-box; }
 html { font-size: 100%; }
 body {

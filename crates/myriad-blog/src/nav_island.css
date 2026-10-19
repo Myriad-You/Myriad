@@ -3,7 +3,9 @@
  * 博客页不跑脚本，所以没有主站的二级导航、自动隐藏和提示浮层；提示用 CSS 画。
  * 主题可能给 nav、a、svg 写了样式，这里的规则都挂在自己的类上，会被继承的东西也设回去。
  * 深浅色跟着博客页面自己走：主题声明了 `color-scheme: light dark` 就随系统，没声明就是浅色，
- * 用 `html.dark`、`data-theme` 之类切深色的主题也认。主站的深浅色设置存在主站那边，这里读不到。
+ * 用 `html.dark`、`data-theme` 之类切深色的主题也认。主站固定了深色或浅色时，后端在导航岛上写
+ * `data-scheme`，导航岛跟主站走；主题想整页跟着走，可以用 `:root:has(#myriad-nav[data-scheme='dark'])`。
+ * 主色和强调色也由后端按主站写的 cookie 写在导航岛的 style 上，盖过这里的默认值。
  */
 .myriad-nav {
   --myriad-nav-fill: light-dark(rgb(255 255 255 / 78%), rgb(16 16 16 / 70%));
@@ -18,8 +20,11 @@
     color-mix(in srgb, var(--myriad-nav-primary) 15%, white),
     color-mix(in srgb, var(--myriad-nav-primary) 25%, transparent)
   );
-  --myriad-nav-tip-fill: light-dark(rgb(17 24 39 / 92%), rgb(249 250 251 / 94%));
-  --myriad-nav-tip-text: light-dark(#f9fafb, #111827);
+  /* 提示照主站：--bg-secondary、--text-primary、--border-color、--shadow-color。 */
+  --myriad-nav-tip-fill: light-dark(#fff, #1a1a1a);
+  --myriad-nav-tip-text: light-dark(#1f2937, #f9fafb);
+  --myriad-nav-tip-line: light-dark(rgb(0 0 0 / 10%), rgb(255 255 255 / 10%));
+  --myriad-nav-tip-shadow: light-dark(rgb(0 0 0 / 10%), rgb(0 0 0 / 50%));
 
   position: fixed;
   inset: 50% auto auto 1.5rem;
@@ -30,7 +35,7 @@
   border: 0;
   background: none;
   color: light-dark(#6b7280, #d1d5db);
-  font: 500 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 500 13px/1.3 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   letter-spacing: normal;
   text-align: left;
 }
@@ -47,6 +52,20 @@
 :root[data-mode='light'] .myriad-nav,
 :root[data-color-scheme='light'] .myriad-nav {
   color-scheme: light;
+}
+
+#myriad-nav[data-scheme='dark'] {
+  color-scheme: dark;
+}
+
+#myriad-nav[data-scheme='light'] {
+  color-scheme: light;
+}
+
+@media (prefers-contrast: more) {
+  .myriad-nav {
+    --myriad-nav-tip-line: light-dark(rgb(0 0 0 / 30%), rgb(255 255 255 / 30%));
+  }
 }
 
 /*
@@ -143,23 +162,27 @@
   transform: translateY(-50%);
 }
 
-/* 悬停提示。 */
+/* 悬停提示，和主站的一样：停 120ms 才淡出来，在条目右边 10px。 */
 .myriad-nav__item::after {
   content: attr(data-tip);
   position: absolute;
   top: 50%;
-  left: calc(100% + 14px);
+  left: calc(100% + 10px);
+  box-sizing: border-box;
   padding: 6px 10px;
-  border-radius: 10px;
+  border: 1px solid var(--myriad-nav-tip-line);
+  border-radius: 8px;
   background: var(--myriad-nav-tip-fill);
+  box-shadow: 0 2px 8px var(--myriad-nav-tip-shadow);
   color: var(--myriad-nav-tip-text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-4px, -50%);
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
 }
 
 @media (hover: hover) {
@@ -179,7 +202,7 @@
   .myriad-nav__item:hover::after,
   .myriad-nav__item:focus-visible::after {
     opacity: 1;
-    transform: translate(0, -50%);
+    transition-delay: 120ms;
   }
 }
 

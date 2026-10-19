@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import en from '../../src/i18n/en-US.json' with { type: 'json' }
 import { localeLangInlineScript } from '../../src/i18n/localeLangScript.ts'
 import { siteBrandingInlineScript } from '../../src/utils/siteBrandingScript.ts'
-import { siteTransitionInlineScript } from '../../src/utils/siteTransitionScript.ts'
+import { SITE_SPECULATION_RULES, siteTransitionInlineScript } from '../../src/utils/siteTransitionScript.ts'
 import { themeBootInlineScript } from '../../src/utils/themeBootScript.ts'
 import { siteFontHead } from '../siteFonts.mjs'
 
@@ -56,7 +56,7 @@ export function renderDocument(html: string, env: Record<string, string> = {}) {
     } catch {} })()`),
     '<!-- boot:brand -->': script(siteBrandingInlineScript()),
     '<!-- boot:theme -->': script(themeBootInlineScript()),
-    '<!-- boot:transition -->': script(siteTransitionInlineScript()),
+    '<!-- boot:transition -->': `${script(siteTransitionInlineScript())}<script type="speculationrules">${JSON.stringify(SITE_SPECULATION_RULES)}</script>`,
     '<!-- document:json-ld -->': `<script type="application/ld+json" data-myriad-brand="json-ld">${JSON.stringify(metadata).replaceAll('<', '\\u003c')}</script>`,
     '<!-- document:fonts -->': `<style>${fonts.css}</style>${fonts.preloads.map((href) => `<link rel="preload" href="${href}" as="font" type="font/woff2" crossorigin>`).join('')}`,
     '<!-- document:styles -->': `<style>${source('../../src/styles/spa-document.css')}\n${source('../../src/styles/page-loader.css')}\n${source('../../src/styles/site-transition.css')}</style>`,

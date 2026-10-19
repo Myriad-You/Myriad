@@ -2,7 +2,7 @@
 
 use axum::body::Body;
 use axum::extract::{FromRequest, Multipart, Path, Request, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -33,6 +33,10 @@ pub fn router(app_state: crate::state::AppState) -> Router<crate::state::AppStat
             crate::middleware::auth::admin_middleware,
         ));
     let site = Router::<crate::state::AppState>::new()
+        .route(
+            myriad_blog::NAV_SPECULATION_RULES_PATH,
+            get(speculation_rules),
+        )
         .route("/blog", get(serve_blog).head(serve_blog))
         .route("/blog/", get(serve_blog).head(serve_blog))
         .route("/blog/{*path}", get(serve_blog).head(serve_blog))
@@ -182,13 +186,16 @@ async fn serve_blog(
     let current = blog::output_dir();
     let target = resolve_blog_target(&current, &path);
     let anonymous = user_id.is_none();
+    let site = site_chrome(request.headers());
     let chrome = PageChrome {
         nav: blog_nav(
             &preferences,
             user_id,
             viewer.is_admin,
             crate::api::reports::locale::host_locale_from_headers(request.headers()),
+            site.as_ref(),
         ),
+        personal: site.is_some(),
         studio: if viewer.is_admin {
             Some(studio_island(&db, &path, query.as_deref()).await)
         } else {
@@ -297,7 +304,23 @@ async fn post_note_ids(db: &DatabaseConnection, slug: &str) -> Option<(Option<i3
 /// 每个博客页面都带上的东西：导航岛，站长还有创作台覆盖层。
 struct PageChrome {
     nav: String,
+    /// 导航岛用了这位访客在主站的颜色：页面不能进共享缓存。
+    personal: bool,
     studio: Option<String>,
+}
+
+/// 主站写进 cookie 的颜色（frontend/src/utils/siteChromeCookie.ts），格式不对就当没有。
+fn site_chrome(headers: &axum::http::HeaderMap) -> Option<myriad_blog::SiteChrome> {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .find_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            (name == myriad_blog::SITE_CHROME_COOKIE).then_some(value)
+        })
+        .and_then(myriad_blog::SiteChrome::parse)
 }
 
 /// 博客页上的导航岛：和主站一样按模块可见性挑条目，文案按访客的语言。
@@ -306,6 +329,7 @@ fn blog_nav(
     user_id: Option<i32>,
     is_admin: bool,
     locale: &str,
+    site: Option<&myriad_blog::SiteChrome>,
 ) -> String {
     myriad_blog::nav_island_html(
         |module| {
@@ -316,7 +340,22 @@ fn blog_nav(
             )
         },
         |key| crate::i18n::nav(locale, key),
+        site,
     )
+}
+
+/// 博客页回主站的预渲染规则（`Speculation-Rules` 响应头指向这里）。
+async fn speculation_rules() -> Response {
+    let mut response = myriad_blog::NAV_SPECULATION_RULES.into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/speculationrules+json"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
+    response
 }
 
 /// 只有 HTML 才插导航岛和创作台；样式、图片照常返回，站长看到的同样不能进共享缓存。
@@ -345,11 +384,18 @@ fn page_response(
             myriad_blog::inject_studio_island(&html, island),
             "private, no-store",
         ),
-        None if anonymous => (html, "public, max-age=60"),
+        None if anonymous && !chrome.personal => (html, "public, max-age=60"),
         None => (html, "private, max-age=60"),
     };
     let mut response = html_response(status, html, cache);
-    // 导航岛的文案跟着访客的语言走。
+    if let Ok(value) =
+        HeaderValue::from_str(&format!("\"{}\"", myriad_blog::NAV_SPECULATION_RULES_PATH))
+    {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("speculation-rules"), value);
+    }
+    // 导航岛的文案跟着访客的语言走，颜色跟着主站的 cookie。
     response.headers_mut().insert(
         header::VARY,
         HeaderValue::from_static("Accept-Language, Cookie"),
@@ -393,7 +439,31 @@ fn file_response(path: &std::path::Path, status: StatusCode, anonymous: bool) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{post_slug, trailing_slash};
+    use super::{post_slug, site_chrome, trailing_slash};
+    use axum::http::header;
+
+    #[test]
+    fn site_chrome_is_read_from_any_cookie_header() {
+        let mut headers = axum::http::HeaderMap::new();
+        assert_eq!(site_chrome(&headers), None);
+        headers.append(header::COOKIE, "a=1".parse().unwrap());
+        headers.append(
+            header::COOKIE,
+            "myriad_chrome_x=no; myriad_chrome=auto.dark.6b7280.c7d2fe"
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(
+            site_chrome(&headers),
+            myriad_blog::SiteChrome::parse("auto.dark.6b7280.c7d2fe")
+        );
+        let mut bad = axum::http::HeaderMap::new();
+        bad.insert(
+            header::COOKIE,
+            "myriad_chrome=auto.dark.6b7280.c7d2f\"".parse().unwrap(),
+        );
+        assert_eq!(site_chrome(&bad), None);
+    }
 
     #[test]
     fn post_slug_reads_only_post_pages() {
