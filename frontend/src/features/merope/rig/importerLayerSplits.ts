@@ -295,6 +295,18 @@ export function stackHeadwearByReference(
 }
 
 /**
+ * Likewise an earring hanging over long side locks: the decomposer can draw
+ * the locks on over it and stack it under them, hiding it whole. The portrait
+ * shows which is on top; one a lock hangs over stays under it.
+ */
+export function stackEarwearByReference(
+  layers: RasterLayer[],
+  reference: Readonly<Anime25DSourceReference>,
+): RasterLayer[] {
+  return stackRoleByReference(layers, 'earwear', ['front-hair'], reference)
+}
+
+/**
  * In a full figure the sleeves and hands can be put behind the skirt and the
  * legs; a hand hanging beside the skirt then slips behind it, and behind the
  * thigh, as the arm swings in. Where the portrait shows which is in front it

@@ -27,7 +27,7 @@ import { raiseEarwearOverFrontHair } from './earwearOrder'
 import { synthesizeMissingExpressionAccents } from './expressionAccentLayers'
 import { formatTemplate } from './formatTemplate'
 import { contentFrame, deriveAnchors, semanticAnchors, standingStance } from './importerAnchors'
-import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
+import { assignCrossfadeSlots, hasStaticSeeThroughMouth, mirrorLostEyeWhite, preserveStaticMouthAsClosed, splitHandwearIfNeeded, splitLowerLimbsIfNeeded, splitVariantEyesIfNeeded, stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, stackOpenEyesInOrder, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
 import { addHiddenArmFragments, anime25DShoulderSeeds } from './linkedHandwear'
 import { findMotionExposure } from './motionExposure'
 import { inferOutfitProfileFromPartIds } from './outfit'
@@ -106,6 +106,7 @@ export async function prepareAnime25DRigPsd(
     layers = stackLowerLimbsByReference(layers, sourceReference)
     layers = stackNeckwearByReference(layers, sourceReference)
     layers = stackHeadwearByReference(layers, sourceReference)
+    layers = stackEarwearByReference(layers, sourceReference)
     // A bust's arms are cut off above where a skirt would be.
     if (profile === 'fullBody') layers = stackArmsByReference(layers, sourceReference)
   }

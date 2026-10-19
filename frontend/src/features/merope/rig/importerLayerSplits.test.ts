@@ -1,7 +1,7 @@
 import type { RasterLayer } from './anime25dImportTypes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { stackArmsByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
+import { stackArmsByReference, stackEarwearByReference, stackHeadwearByReference, stackLowerLimbsByReference, stackNeckwearByReference, tuckBackHairBehindFace, tuckBackHairBehindNeck, tuckTopUnderChinBehindNeck } from './importerLayerSplits'
 
 const SIZE = 20
 
@@ -145,6 +145,15 @@ test('a hair clip the portrait shows over the front hair is stacked above it', (
   const hair = solid('hair', 'front-hair', [250, 170, 190], { left: 0, top: 0, width: SIZE, height: SIZE })
   const stacked = stackHeadwearByReference([clip, hair], clipPortrait())
   assert.deepEqual(stacked.map((layer) => layer.id), ['hair', 'clip'])
+})
+
+test('an earring the portrait shows over the side locks is stacked above them', () => {
+  const earring = solid('earring', 'earwear', [220, 180, 90], { left: 6, top: 4, width: 8, height: 6 })
+  const locks = solid('locks', 'front-hair', [250, 170, 190], { left: 0, top: 0, width: SIZE, height: SIZE })
+  const stacked = stackEarwearByReference([earring, locks], clipPortrait())
+  assert.deepEqual(stacked.map((layer) => layer.id), ['locks', 'earring'])
+  const hidden = solid('hidden', 'earwear', [220, 180, 90], { left: 0, top: 12, width: 8, height: 6 })
+  assert.deepEqual(stackEarwearByReference([hidden, locks], clipPortrait()).map((layer) => layer.id), ['hidden', 'locks'])
 })
 
 test('a hat brim the portrait shows under the bangs stays under them', () => {
