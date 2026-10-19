@@ -1,4 +1,5 @@
 import type { WorkbenchPane } from '../components/phantasi/logic/board'
+import type { BlogBuildMark } from '../components/studio/studioIsland'
 import type { StudioSection } from '../components/studio/studioRoutes'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
@@ -7,10 +8,24 @@ import { workbenchPendingReviews } from '../components/phantasi/logic/workbenchH
 import { useNoteTransfer } from '../components/phantasi/manager/useNoteTransfer'
 import { usePhantasiCategories } from '../components/phantasi/usePhantasiCategories'
 import { usePhantasiWorkbench } from '../components/phantasi/usePhantasiWorkbench'
+import {
+  blogReloadDecision,
+  closeStudioIsland,
+  findStudioIsland,
+  withoutStudioParam,
+} from '../components/studio/studioIsland'
 import { openPublishedItem, openStudioNote } from '../components/studio/studioNoteNav'
-import { parseStudioPath, studioMediaOrigin } from '../components/studio/studioRoutes'
+import {
+  parseStudioPath,
+  STUDIO_ROOT,
+  studioMediaOrigin,
+  studioNotePath,
+  studioSectionPath,
+} from '../components/studio/studioRoutes'
 import { StudioShell } from '../components/studio/StudioShell'
+import { ToastContainer } from '../components/ToastContainer'
 import { useI18n } from '../contexts/I18nContext'
+import { getBlogSettings } from '../services/blogApi'
 import { showToast } from '../utils/toastManager'
 
 const NoteEditor = lazy(() => import('../components/phantasi/notes/NoteEditor'))
@@ -41,12 +56,95 @@ function deskPane(section: StudioSection): WorkbenchPane {
   }
 }
 
+async function buildMark(): Promise<BlogBuildMark | null> {
+  try {
+    const { build } = await getBlogSettings()
+    return { status: build.status, lastBuiltAt: build.last_built_at ?? null }
+  } catch {
+    return null
+  }
+}
+
+const RELOAD_POLL_MS = 1500
+const RELOAD_POLL_LIMIT = 40
+
+/**
+ * 和外层创作台岛配合：Esc 和点遮罩收岛；收岛时博客若已重新生成，刷新外层页面，
+ * 让站长看到刚改的内容。还在生成就等它生成完。
+ */
+function useStudioIsland() {
+  useEffect(() => {
+    const host = findStudioIsland()
+    if (!host) return
+    let opened: BlogBuildMark | null = null
+    let disposed = false
+    let timer = 0
+    const remember = () => {
+      void buildMark().then((mark) => {
+        if (!disposed) opened = mark
+      })
+    }
+    const settle = (tries: number) => {
+      void buildMark().then((now) => {
+        if (disposed || host.island.open || !now) return
+        const decision = blogReloadDecision(opened, now)
+        if (decision === 'reload') { host.top.location.reload()
+}
+        else if (decision === 'wait' && tries < RELOAD_POLL_LIMIT) {
+          timer = window.setTimeout(settle, RELOAD_POLL_MS, tries + 1)
+        }
+      })
+    }
+    const onToggle = () => {
+      window.clearTimeout(timer)
+      if (host.island.open) {
+        remember()
+        return
+      }
+      const href = host.top.location.href
+      const clean = withoutStudioParam(href)
+      if (clean !== href) host.top.history.replaceState(host.top.history.state, '', clean)
+      settle(0)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) closeStudioIsland(host)
+    }
+    const onSheet = (event: MouseEvent) => {
+      if (event.target === host.sheet) closeStudioIsland(host)
+    }
+    remember()
+    host.island.addEventListener('toggle', onToggle)
+    host.sheet?.addEventListener('click', onSheet)
+    window.addEventListener('keydown', onKey)
+    host.top.addEventListener('keydown', onKey)
+    return () => {
+      disposed = true
+      window.clearTimeout(timer)
+      host.island.removeEventListener('toggle', onToggle)
+      host.sheet?.removeEventListener('click', onSheet)
+      window.removeEventListener('keydown', onKey)
+      host.top.removeEventListener('keydown', onKey)
+    }
+  }, [])
+}
+
+/** 创作台岛里的嵌入页 `/embed/studio/*`。 */
 export default function Studio() {
   const location = useLocation()
+  useStudioIsland()
   const parsed = parseStudioPath(location.pathname)
-  if (!parsed) return <Navigate to="/studio" replace />
-  if (parsed.kind === 'editor') return <StudioEditor docId={parsed.docId} />
-  return <StudioDesk section={parsed.section} />
+  return (
+    <div className="embed-root studio-embed">
+      {!parsed ? (
+        <Navigate to={STUDIO_ROOT} replace />
+      ) : parsed.kind === 'editor' ? (
+        <StudioEditor docId={parsed.docId} />
+      ) : (
+        <StudioDesk section={parsed.section} />
+      )}
+      <ToastContainer />
+    </div>
+  )
 }
 
 function StudioEditor({ docId }: { docId: number | 'new' }) {
@@ -65,13 +163,13 @@ function StudioEditor({ docId }: { docId: number | 'new' }) {
       <NoteEditor
         key={pin === 'new' ? 'new' : String(pin)}
         docId={pin === 'new' ? undefined : pin}
-        onClose={() => navigate('/studio/notes')}
+        onClose={() => navigate(studioSectionPath('notes'))}
         onSaved={() => {}}
-        onDeleted={() => navigate('/studio/notes')}
+        onDeleted={() => navigate(studioSectionPath('notes'))}
         onCloudId={(id) => {
           if (pin !== 'new') return
           ignoreUrl.current = true
-          navigate(`/studio/notes/${id}`, { replace: true })
+          navigate(studioNotePath(id), { replace: true })
         }}
       />
     </Suspense>
@@ -125,7 +223,7 @@ function StudioDesk({ section }: { section: StudioSection }) {
   })
   const failed = t.studio.openFailed
   return (
-    <AnimatedView className="studio-page min-h-screen px-4 sm:px-6 pt-20 pb-24 md:pb-12">
+    <AnimatedView className="studio-page min-h-full px-4 sm:px-6 py-6">
       <StudioShell
         section={section}
         docs={workbench.docs}

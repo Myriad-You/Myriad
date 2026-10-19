@@ -2,6 +2,7 @@ import type { NavigateFunction } from 'react-router-dom'
 import type { WorkbenchNoteOpen } from '../phantasi/logic/workbench'
 import * as phantasiApi from '../../services/phantasiApi'
 import { userFacingError } from '../../utils/userFacingError'
+import { openBlogPage } from './studioIsland'
 import { studioNotePath } from './studioRoutes'
 
 export async function openStudioNote(
@@ -26,7 +27,7 @@ export async function openStudioNote(
   }
 }
 
-/** 文章公开地址以后端 item.link 为准，整页打开。 */
+/** 文章公开地址以后端 item.link 为准。在创作台岛里就让外层博客页去那里。 */
 export async function openPublishedItem(
   itemId: number,
   onError?: (message: string) => void,
@@ -36,7 +37,7 @@ export async function openPublishedItem(
     const item = await phantasiApi.getItem(itemId)
     const link = item.link?.trim()
     if (!link) return
-    window.open(link, '_blank', 'noopener,noreferrer')
+    openBlogPage(link)
   } catch (error) {
     onError?.(userFacingError(error, failed))
   }

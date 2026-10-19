@@ -12,6 +12,7 @@ mod postprocess;
 mod render;
 mod rewrite;
 mod slug;
+mod studio;
 mod summary;
 mod theme;
 mod urlutil;
@@ -40,6 +41,10 @@ pub use rewrite::{first_content_image, prepare_content_html};
 pub use slug::{
     BLOG_PREFIX, SLUG_MAX_CHARS, dedupe_slug, fallback_slug, note_blog_path, post_path,
     slugify_title, validate_slug,
+};
+pub use studio::{
+    STUDIO_EMBED_ROOT, StudioIslandLabels, inject_studio_island, studio_frame_src, studio_island_html,
+    studio_island_labels, studio_only_page,
 };
 pub use summary::{SUMMARY_MAX_CHARS, summarize};
 pub use theme::{

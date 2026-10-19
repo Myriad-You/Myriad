@@ -40,6 +40,7 @@ import {
   SettingTitleTag,
   SwitchItem,
 } from '../settings'
+import { openBlogPage } from './studioIsland'
 import './StudioBlogPane.css'
 
 const POLL_MS = 2000
@@ -155,7 +156,7 @@ export function StudioBlogPane({ back }: { back: ReactNode }) {
         <PageAction
           label={copy.openBlog}
           icon={<LuExternalLink />}
-          onPick={() => window.open('/blog/', '_blank', 'noopener')}
+          onPick={() => openBlogPage('/blog/')}
         />
       }
     >

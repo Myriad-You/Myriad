@@ -18,7 +18,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { useNavigation } from '../contexts/NavigationContext'
 import { emitAppEvent } from '../utils/appEvents'
-import { preloadTappRoutes, routeComponents } from '../utils/codeSplitting'
+import { preloadTappRoutes } from '../utils/codeSplitting'
 import {
   canAccessModuleVisibility,
   useModuleVisibilityPreferences,
@@ -49,7 +49,6 @@ interface PrimaryNavItem {
   // prefix：/tapp 匹配 /tapp/xxx。
   matchPrefix?: boolean
   moduleKey?: ModuleVisibilityKey
-  adminOnly?: boolean
   // seo: <a> 直接 navigate；否则 <button> 走 handleNavToPage（可展开二级）。
   asAnchor?: boolean
   // 后端整页（/blog），点击不进 SPA。
@@ -122,27 +121,6 @@ const IconPhantasi = (
       strokeLinejoin="round"
       strokeWidth="2"
       d="M9 4v16M12 8h5M12 12h5"
-    />
-  </svg>
-)
-const IconStudio = (
-  <svg
-    className="w-5 h-5"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M12 20h9"
-    />
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      d="M16.5 3.5a2.1 2.1 0 013 3L8 18l-4 1 1-4 11.5-11.5z"
     />
   </svg>
 )
@@ -658,9 +636,6 @@ export function NavigationIsland() {
     if (path === '/tapp' || path.startsWith('/tapp/')) {
       preloadTappRoutes()
     }
-    if (path === '/studio' || path.startsWith('/studio/')) {
-      void routeComponents.studio.preload()
-    }
   }, [])
 
   const handleNavToPage = useCallback(
@@ -960,16 +935,6 @@ export function NavigationIsland() {
           moduleKey: 'phantasi',
         },
         {
-          id: 'studio',
-          path: '/studio',
-          icon: IconStudio,
-          tooltip: t.nav.studio,
-          ariaLabel: t.nav.studio,
-          matchPrefix: true,
-          adminOnly: true,
-          asAnchor: true,
-        },
-        {
           id: 'reports',
           path: '/reports',
           icon: IconReports,
@@ -991,9 +956,6 @@ export function NavigationIsland() {
       ]
 
       return items.filter((item) => {
-        // 管理员走工作台；访客去公开博客。
-        if (item.id === 'phantasi' && hasChecked && isAdmin) return false
-        if (item.adminOnly && (!hasChecked || !isAdmin)) return false
         if (!item.moduleKey || !hasChecked) return true
         return canAccessModuleVisibility(
           moduleVisibilityPreferences.modules[item.moduleKey],

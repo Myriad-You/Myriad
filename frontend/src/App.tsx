@@ -32,6 +32,7 @@ import { DocumentReady } from './components/DocumentReady'
 import { isEmbedPath } from './components/embed/embedRoutes'
 import { RenderErrorBoundary } from './components/RenderErrorBoundary'
 import RouteLoader from './components/RouteLoader'
+import { legacyStudioRedirect } from './components/studio/studioRoutes'
 import { AnimationPreferenceProvider } from './contexts/AnimationPreferenceContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { I18nNamespace, I18nProvider, useI18n } from './contexts/I18nContext'
@@ -141,6 +142,20 @@ function RequireAuth({
     return <Navigate to="/" replace />
   }
 
+  return children
+}
+
+/** 创作台搬进了博客页的创作台岛，旧地址整页跳过去并展开它。 */
+function LegacyStudioRedirect() {
+  const location = useLocation()
+  return <FullPageReturn to={legacyStudioRedirect(location.pathname, location.search)} />
+}
+
+/** 嵌入页里不跳登录页或首页：不是站长就什么都不显示。 */
+function EmbedAdminOnly({ children }: { children: React.ReactNode }) {
+  const { isAdmin, hasChecked } = useAuth()
+  if (!hasChecked) return null
+  if (!isAdmin) return <DocumentReady>{null}</DocumentReady>
   return children
 }
 
@@ -590,16 +605,7 @@ function AppRoutes() {
             </ModuleVisibilityGuard>
           }
         />
-        <Route
-          path="/studio/*"
-          element={
-            <RequireAuth requiresAdmin>
-              <NamespacedPage names={['phantasi', 'studio']}>
-                <Studio />
-              </NamespacedPage>
-            </RequireAuth>
-          }
-        />
+        <Route path="/studio/*" element={<LegacyStudioRedirect />} />
         <Route
           path="/reports"
           element={
@@ -763,6 +769,16 @@ function EmbedRoutes() {
           <NamespacedPage names={['embed']}>
             <EmbedFriend />
           </NamespacedPage>
+        }
+      />
+      <Route
+        path="/embed/studio/*"
+        element={
+          <EmbedAdminOnly>
+            <NamespacedPage names={['phantasi', 'studio']}>
+              <Studio />
+            </NamespacedPage>
+          </EmbedAdminOnly>
         }
       />
       <Route

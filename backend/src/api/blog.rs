@@ -177,24 +177,40 @@ async fn serve_blog(
         .and_then(|claims| claims.subject().map(|subject| subject.id()));
     crate::api::phantasi::require_phantasi_module_access(&db, user_id, viewer.is_admin).await?;
     let path = request.uri().path().to_string();
+    let query = request.uri().query().map(str::to_string);
     let current = blog::output_dir();
     let target = resolve_blog_target(&current, &path);
+    let studio = if viewer.is_admin {
+        Some(studio_island(&db, &path, query.as_deref()).await)
+    } else {
+        None
+    };
     let response = match target {
         BlogTarget::Redirect(location) => {
+            let location = match &query {
+                Some(query) => format!("{location}?{query}"),
+                None => location,
+            };
             let mut response = StatusCode::MOVED_PERMANENTLY.into_response();
             if let Ok(value) = HeaderValue::from_str(&location) {
                 response.headers_mut().insert(header::LOCATION, value);
             }
             response
         }
-        BlogTarget::File(file) => file_response(&file, StatusCode::OK, user_id.is_none()),
-        BlogTarget::Missing => {
-            if let Some(page) = theme_not_found_page(&current) {
-                file_response(&page, StatusCode::NOT_FOUND, user_id.is_none())
-            } else {
-                (StatusCode::NOT_FOUND, "Not found").into_response()
-            }
-        }
+        BlogTarget::File(file) => match &studio {
+            Some(island) => studio_file_response(&file, StatusCode::OK, island),
+            None => file_response(&file, StatusCode::OK, user_id.is_none()),
+        },
+        BlogTarget::Missing => match (theme_not_found_page(&current), &studio) {
+            (Some(page), Some(island)) => studio_file_response(&page, StatusCode::NOT_FOUND, island),
+            (Some(page), None) => file_response(&page, StatusCode::NOT_FOUND, user_id.is_none()),
+            // 博客还没生成出来：站长照样拿到创作台，才能去博客设置里修。
+            (None, Some(island)) => studio_html_response(
+                StatusCode::NOT_FOUND,
+                myriad_blog::studio_only_page(island, "Not found"),
+            ),
+            (None, None) => (StatusCode::NOT_FOUND, "Not found").into_response(),
+        },
     };
     let mut response = response;
     if let Ok(value) = myriad_blog::BLOG_CSP.parse() {
@@ -206,6 +222,99 @@ async fn serve_blog(
         *response.body_mut() = Body::empty();
     }
     Ok(response)
+}
+
+/// 站长看到的创作台岛。`?studio=/notes/12` 让它展开并停在那一页；文章页另给「编辑这篇」。
+async fn studio_island(db: &DatabaseConnection, path: &str, query: Option<&str>) -> String {
+    let requested = query.and_then(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(key, _)| key == "studio")
+            .map(|(_, value)| value.into_owned())
+    });
+    let open = requested.is_some();
+    let frame_src = myriad_blog::studio_frame_src(requested.as_deref());
+    let edit_href = match post_slug(path) {
+        Some(slug) => post_note_doc_id(db, slug)
+            .await
+            .map(|doc_id| format!("{}?studio=/notes/{doc_id}", trailing_slash(path))),
+        None => None,
+    };
+    let (_, _, locale) = crate::services::public_site::public_site_identity(db).await;
+    myriad_blog::studio_island_html(
+        &frame_src,
+        open,
+        edit_href.as_deref(),
+        myriad_blog::studio_island_labels(&locale),
+    )
+}
+
+fn trailing_slash(path: &str) -> String {
+    if path.ends_with('/') {
+        path.to_string()
+    } else {
+        format!("{path}/")
+    }
+}
+
+/// `/blog/posts/{slug}/` 里的 slug。
+fn post_slug(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix("/blog/posts/")?;
+    let slug = rest.strip_suffix('/').unwrap_or(rest);
+    (!slug.is_empty() && !slug.contains('/')).then_some(slug)
+}
+
+/// 文章对应的笔记文档。slug 为空的笔记在博客上用 `n{id}`。
+async fn post_note_doc_id(db: &DatabaseConnection, slug: &str) -> Option<i32> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let fallback_id = slug
+        .strip_prefix('n')
+        .and_then(|digits| digits.parse::<i32>().ok());
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"
+            SELECT d.id
+            FROM phantasi_items i
+            INNER JOIN phantasi_sources s ON s.id = i.source_id
+            INNER JOIN phantasi_note_docs d ON d.item_id = i.id
+            WHERE s.source_type = 'note'
+              AND (i.slug = $1 OR ($2::int IS NOT NULL AND i.id = $2 AND COALESCE(i.slug, '') = ''))
+            ORDER BY d.id
+            LIMIT 1
+            "#,
+            vec![slug.into(), fallback_id.into()],
+        ))
+        .await
+        .ok()??;
+    row.try_get::<i32>("", "id").ok()
+}
+
+/// 只有 HTML 才插岛；样式、图片照常返回，但同样不能进共享缓存。
+fn studio_file_response(path: &std::path::Path, status: StatusCode, island: &str) -> Response {
+    let content_type = content_type_for(path);
+    if !content_type.starts_with("text/html") {
+        let mut response = file_response(path, status, false);
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+        return response;
+    }
+    match std::fs::read_to_string(path) {
+        Ok(html) => studio_html_response(status, myriad_blog::inject_studio_island(&html, island)),
+        Err(_) => (StatusCode::NOT_FOUND, "Not found").into_response(),
+    }
+}
+
+fn studio_html_response(status: StatusCode, html: String) -> Response {
+    let mut response = (status, html).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    response
 }
 
 /// 登录访客能看到的页面可能对匿名访客关着，不能进共享缓存。
@@ -227,5 +336,20 @@ fn file_response(path: &std::path::Path, status: StatusCode, anonymous: bool) ->
             response
         }
         Err(_) => (StatusCode::NOT_FOUND, "Not found").into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{post_slug, trailing_slash};
+
+    #[test]
+    fn post_slug_reads_only_post_pages() {
+        assert_eq!(post_slug("/blog/posts/hello/"), Some("hello"));
+        assert_eq!(post_slug("/blog/posts/hello"), Some("hello"));
+        assert_eq!(post_slug("/blog/posts/"), None);
+        assert_eq!(post_slug("/blog/posts/a/b/"), None);
+        assert_eq!(post_slug("/blog/friends/"), None);
+        assert_eq!(trailing_slash("/blog/posts/x"), "/blog/posts/x/");
     }
 }
