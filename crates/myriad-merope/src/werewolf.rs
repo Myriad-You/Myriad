@@ -15,9 +15,12 @@
 //! still in speaks once, then everyone votes in private; the most voted is
 //! out and leaves last words. A tie: those tied speak once more and the rest
 //! vote among them; tied again, nobody is out. The hunter, knifed or voted
-//! out (not poisoned), may shoot one. The good side wins when no werewolf is
-//! left; the werewolves when every god (seer, witch, hunter, guard) or every
-//! villager is out. At the end every role is told.
+//! out (not poisoned), may shoot one: on a board with a hunter every death,
+//! whoever it is, is followed by the same private wait of the same length,
+//! and a shot is told only when it is over, so neither the table's flow nor
+//! its pauses tell who the hunter is or that the witch poisoned them. The
+//! good side wins when no werewolf is left; the werewolves when every god
+//! (seer, witch, hunter, guard) or every villager is out. At the end every role is told.
 //!
 //! No model is asked for any rule: only for her lines as the game's voice,
 //! and her seat's speech and moves when she plays one (from her seat's view
@@ -40,6 +43,9 @@ pub const SECONDS: f64 = 60.0;
 /// left): the night goes on a while all the same, so how long it takes
 /// does not tell the table.
 pub const IDLE_SECONDS: f64 = 15.0;
+/// How long the wait after each death lasts on a board with a hunter, the
+/// hunter's or not, shot taken early or not: always all of it.
+pub const SHOT_SECONDS: f64 = 30.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -197,8 +203,9 @@ pub struct Tonight {
     pub poisoned: Option<usize>,
 }
 
-/// What comes after the dead of a moment: their last words, the hunter's
-/// shot.
+/// What comes after the dead of a moment: their last words, and on a board
+/// with a hunter the wait in which a hunter may shoot (every dead seat's,
+/// the same).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "do", content = "seat")]
 pub enum Then {
@@ -233,6 +240,12 @@ pub enum Phase {
     After {
         queue: Vec<Then>,
         next: Next,
+        /// The hunter has chosen in this wait: whom (none, no shot), told
+        /// when the wait is over.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        aimed: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        aim: Option<usize>,
     },
     /// Seats speak in `order`; `at` is whose turn it is. `tied` when it is a
     /// tie's second round.
@@ -500,7 +513,7 @@ impl Werewolf {
             if self.night == 1 {
                 queue.push(Then::Words(seat));
             }
-            if self.roles[seat] == Role::Hunter && poisoned != Some(seat) {
+            if self.has_hunter() {
                 queue.push(Then::Shoot(seat));
             }
         }
@@ -509,13 +522,18 @@ impl Werewolf {
 
     fn after(&mut self, queue: Vec<Then>, next: Next) {
         self.phases += 1;
-        self.phase = Phase::After { queue, next };
+        self.phase = Phase::After {
+            queue,
+            next,
+            aimed: false,
+            aim: None,
+        };
         self.go_on();
     }
 
     /// The next of what comes after the dead; none left, on.
     fn go_on(&mut self) {
-        let Phase::After { queue, next } = &self.phase else {
+        let Phase::After { queue, next, .. } = &self.phase else {
             return;
         };
         if !queue.is_empty() {
@@ -531,10 +549,14 @@ impl Werewolf {
     }
 
     fn done_with_first(&mut self) {
-        if let Phase::After { queue, .. } = &mut self.phase
+        if let Phase::After {
+            queue, aimed, aim, ..
+        } = &mut self.phase
             && !queue.is_empty()
         {
             queue.remove(0);
+            *aimed = false;
+            *aim = None;
         }
         self.phases += 1;
         self.go_on();
@@ -630,7 +652,7 @@ impl Werewolf {
                     return;
                 }
                 let mut queue = vec![Then::Words(seat)];
-                if self.roles[seat] == Role::Hunter {
+                if self.has_hunter() {
                     queue.push(Then::Shoot(seat));
                 }
                 self.after(queue, Next::Night);
@@ -736,6 +758,54 @@ impl Werewolf {
     fn shootable(&self) -> Vec<usize> {
         self.living()
     }
+
+    /// The board has a hunter (from seven players).
+    fn has_hunter(&self) -> bool {
+        self.roles.contains(&Role::Hunter)
+    }
+
+    /// Whom the wait after the dead is on now waits for: the dead seat when
+    /// it is the hunter, not poisoned, and yet to choose; else nobody, and
+    /// it waits all the same.
+    fn shooting(&self) -> Option<usize> {
+        let Phase::After {
+            queue,
+            aimed: false,
+            ..
+        } = &self.phase
+        else {
+            return None;
+        };
+        let Some(Then::Shoot(seat)) = queue.first() else {
+            return None;
+        };
+        (self.roles[*seat] == Role::Hunter && self.tonight.poisoned != Some(*seat)).then_some(*seat)
+    }
+
+    /// The wait after the dead is over: the hunter's shot, if one was
+    /// taken, is told now.
+    fn shot(&mut self) {
+        let Phase::After {
+            queue,
+            aim: Some(target),
+            ..
+        } = &self.phase
+        else {
+            return;
+        };
+        let Some(Then::Shoot(hunter)) = queue.first().copied() else {
+            return;
+        };
+        let target = *target;
+        self.alive[target] = false;
+        self.moments += 1;
+        let line = format!(
+            "{}是猎人，开枪带走了{}。",
+            self.name(hunter),
+            self.name(target)
+        );
+        self.announce(line);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -784,8 +854,8 @@ impl Rules for Werewolf {
                 .into_iter()
                 .map(|(choice, _)| choice)
                 .collect(),
-            Phase::After { queue, .. } => match queue.first() {
-                Some(Then::Shoot(hunter)) if *hunter == seat => {
+            Phase::After { .. } => match game.shooting() {
+                Some(hunter) if hunter == seat => {
                     let mut choices: Vec<String> = game
                         .shootable()
                         .into_iter()
@@ -872,22 +942,13 @@ impl Rules for Werewolf {
                 }
                 game.dawn();
             }
+            // Kept till the wait is over: it goes on all the same.
             Phase::After { .. } => {
-                let shootable = game.shootable();
-                if let Some(target) = shootable.get(index).copied() {
-                    game.alive[target] = false;
-                    game.moments += 1;
-                    let line = format!(
-                        "{}是猎人，开枪带走了{}。",
-                        game.name(seat),
-                        game.name(target)
-                    );
-                    game.announce(line);
-                    if game.check_over() {
-                        return;
-                    }
+                let target = game.shootable().get(index).copied();
+                if let Phase::After { aimed, aim, .. } = &mut game.phase {
+                    *aimed = true;
+                    *aim = target;
                 }
-                game.done_with_first();
             }
             Phase::Vote { among, .. } => {
                 let open: Vec<usize> = among
@@ -918,7 +979,7 @@ impl Rules for Werewolf {
             }
             Phase::After { queue, .. } => match queue.first() {
                 Some(Then::Words(seat)) => Waiting::Speak(*seat),
-                Some(Then::Shoot(seat)) => Waiting::Choose(vec![*seat]),
+                Some(Then::Shoot(_)) => Waiting::Choose(game.shooting().into_iter().collect()),
                 None => Waiting::Choose(Vec::new()),
             },
             Phase::Speak { order, at, .. } => Waiting::Speak(order[*at]),
@@ -940,6 +1001,9 @@ impl Rules for Werewolf {
     fn seconds(game: &Self) -> f64 {
         match game.phase {
             Phase::Night { step: Step::Witch } if game.witch_moves().is_none() => IDLE_SECONDS,
+            Phase::After { ref queue, .. } if matches!(queue.first(), Some(Then::Shoot(_))) => {
+                SHOT_SECONDS
+            }
             _ => SECONDS,
         }
     }
@@ -970,6 +1034,10 @@ impl Rules for Werewolf {
                 if let Some(Then::Words(seat)) = queue.first() {
                     let line = format!("{}没有留遗言。", game.name(*seat));
                     game.announce(line);
+                }
+                game.shot();
+                if game.check_over() {
+                    return;
                 }
                 game.done_with_first();
             }
@@ -1256,17 +1324,17 @@ mod tests {
         let hunter = seat_of(&game, Role::Hunter);
         let witch = seat_of(&game, Role::Witch);
         let hunter_name = game.seats[hunter].name.clone();
-        // Night one: nobody knifed; the witch poisons the hunter.
+        // Night one: nobody knifed; the witch poisons the hunter, who
+        // leaves last words and then is waited on like anyone, with no
+        // shot to take.
         night(&mut game, &[], &mut rolls);
         if witch != hunter {
             pick(&mut game, witch, &format!("毒{hunter_name}"), &mut rolls);
             assert!(!game.alive[hunter]);
-            assert!(
-                !matches!(&game.phase, Phase::After { queue, .. } if queue.contains(&Then::Shoot(hunter)))
-            );
-            assert!(
-                !matches!(Werewolf::waiting(&game), Waiting::Choose(ref seats) if seats == &vec![hunter])
-            );
+            Werewolf::spoke(&mut game, hunter, "过");
+            assert_eq!(Werewolf::waiting(&game), Waiting::Choose(Vec::new()));
+            assert_eq!(Werewolf::seconds(&game), SHOT_SECONDS);
+            assert!(Werewolf::choices(&game, hunter).is_empty());
         }
 
         let mut rolls = Rolls::new(29, Vec::new());
@@ -1286,19 +1354,117 @@ mod tests {
             }
         }
         assert!(!game.alive[hunter]);
-        // Last words, then the shot.
+        // Last words, then the shot, told when the wait is over.
         assert_eq!(Werewolf::waiting(&game), Waiting::Speak(hunter));
         Werewolf::spoke(&mut game, hunter, "我是猎人");
         assert_eq!(Werewolf::waiting(&game), Waiting::Choose(vec![hunter]));
         let wolf = game.wolves().next().unwrap();
         let wolf_name = game.seats[wolf].name.clone();
+        let phase = Werewolf::phase(&game);
         pick(&mut game, hunter, &wolf_name, &mut rolls);
+        assert!(game.alive[wolf]);
+        assert_eq!(Werewolf::phase(&game), phase);
+        assert_eq!(Werewolf::waiting(&game), Waiting::Choose(Vec::new()));
+        Werewolf::timed_out(&mut game, &mut rolls);
         assert!(!game.alive[wolf]);
         assert!(
             game.log
                 .iter()
                 .any(|fact| fact.text == format!("{hunter_name}是猎人，开枪带走了{wolf_name}。"))
         );
+    }
+
+    /// What the table sees of a game from the deal to the second night,
+    /// `victim` knifed, poisoned or voted out the first time (`how`) and
+    /// everyone else letting each move go: each line told to all, every
+    /// name as 某人 and the tally left out, and each wait that ran its whole
+    /// time, how long.
+    fn seen(seed: u64, victim: Role, how: &str) -> Vec<String> {
+        let mut rolls = Rolls::new(seed, Vec::new());
+        let mut game = Werewolf::deal(seats(8, None), &mut rolls);
+        let victim = seat_of(&game, victim);
+        let target = game.seats[victim].name.clone();
+        let names: Vec<String> = game.seats.iter().map(|seat| seat.name.clone()).collect();
+        let mut seen = Vec::new();
+        let mut told = 0;
+        let mut steps = 0;
+        while !(game.night == 2 || Werewolf::over(&game)) {
+            steps += 1;
+            assert!(steps < 200);
+            for fact in &game.log[told..] {
+                if fact.to == Audience::All {
+                    let mut line = fact.text.clone();
+                    for name in &names {
+                        line = line.replace(name.as_str(), "某人");
+                    }
+                    // The tally goes by seat: whose count is where is not
+                    // the point here.
+                    if line.contains("投票：")
+                        && let Some((heading, _)) = line.split_once('：')
+                        && let Some((_, outcome)) = line.rsplit_once('，')
+                    {
+                        line = format!("{heading}：……，{outcome}");
+                    }
+                    seen.push(line);
+                }
+            }
+            told = game.log.len();
+            let (phase, seconds) = (Werewolf::phase(&game), Werewolf::seconds(&game));
+            match Werewolf::waiting(&game) {
+                Waiting::Speak(seat) => Werewolf::spoke(&mut game, seat, "过"),
+                Waiting::Choose(seats) => {
+                    for seat in seats {
+                        let choices = Werewolf::choices(&game, seat);
+                        let wanted = match (&game.phase, game.roles[seat]) {
+                            (Phase::Vote { .. }, _) if how == "vote" => target.clone(),
+                            (Phase::Night { .. }, Role::Werewolf) if how == "knife" => {
+                                target.clone()
+                            }
+                            (Phase::Night { .. }, Role::Witch) if how == "poison" => {
+                                format!("毒{target}")
+                            }
+                            (Phase::Night { .. }, Role::Witch) => "不用药".to_string(),
+                            _ => choices.last().cloned().unwrap_or_default(),
+                        };
+                        let index = choices
+                            .iter()
+                            .position(|choice| *choice == wanted)
+                            .unwrap_or(choices.len() - 1);
+                        Werewolf::take(&mut game, seat, index, &mut rolls);
+                        if Werewolf::phase(&game) != phase {
+                            break;
+                        }
+                    }
+                }
+                _ => unreachable!(),
+            }
+            if Werewolf::phase(&game) == phase {
+                seen.push(format!("（等满 {seconds} 秒）"));
+                Werewolf::timed_out(&mut game, &mut rolls);
+            }
+        }
+        assert!(!game.alive[victim], "{how}: never out");
+        seen
+    }
+
+    /// Knifed, poisoned or voted out, a hunter (who lets the shot go) and a
+    /// villager leave the table the same: the same lines told to all, in
+    /// the same messages, with the same waits between them.
+    #[test]
+    fn a_death_looks_the_same_whether_or_not_it_is_the_hunter() {
+        for seed in [29, 41, 43] {
+            for how in ["knife", "poison", "vote"] {
+                let hunter = seen(seed, Role::Hunter, how);
+                let villager = seen(seed, Role::Villager, how);
+                assert_eq!(hunter, villager, "seed {seed}, {how}");
+                assert!(
+                    hunter
+                        .iter()
+                        .any(|line| line == &format!("（等满 {SHOT_SECONDS} 秒）")),
+                    "seed {seed}, {how}: {hunter:?}"
+                );
+            }
+        }
     }
 
     #[test]
