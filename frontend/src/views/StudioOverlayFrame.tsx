@@ -12,6 +12,7 @@ import {
   DEFAULT_LAYOUT,
   layoutFromValue,
   layoutToValue,
+  markWindowReady,
   openTool,
   parseToolSpec,
   rememberTool,
@@ -77,17 +78,6 @@ export default function StudioOverlayFrame() {
   const frameEls = useRef(new Map<StudioTool, HTMLIFrameElement>())
   /** 窗口登记的离开前检查，连同登记它的那一页：窗口换了地址，旧页的检查就不算数。 */
   const guards = useRef(new Map<StudioTool, { doc: Document; check: () => Promise<boolean> }>())
-  /**
-   * 窗口里的应用已经画出来了，记的是当时加载的参数；之前窗口只显示占位，不露出整页的启动画面。
-   * 窗口关了或换了加载的内容，这一条就作废，等新页面再报。
-   */
-  const [readyLoads, setReadyLoads] = useState<ReadonlyMap<StudioTool, string | null>>(() => new Map())
-  const loadedNow = new Map(layout.open.map((item) => [item.tool, item.loaded] as const))
-  const stale = [...readyLoads].filter(([tool, loaded]) => !loadedNow.has(tool) || loadedNow.get(tool) !== loaded)
-  if (stale.length > 0) {
-    setReadyLoads(new Map([...readyLoads].filter(([tool]) => !stale.some(([gone]) => gone === tool))))
-  }
-  const ready = new Set([...readyLoads.keys()].filter((tool) => !stale.some(([gone]) => gone === tool)))
   const layoutNow = useRef(layout)
   layoutNow.current = layout
   const openedMark = useRef<BlogBuildMark | null>(null)
@@ -132,13 +122,7 @@ export default function StudioOverlayFrame() {
     [t],
   )
 
-  const markReady = (tool: StudioTool) => {
-    const item = layoutNow.current.open.find((entry) => entry.tool === tool)
-    if (!item) return
-    setReadyLoads((current) =>
-      current.has(tool) && current.get(tool) === item.loaded ? current : new Map(current).set(tool, item.loaded),
-    )
-  }
+  const markReady = (tool: StudioTool) => changeLayout((current) => markWindowReady(current, tool))
 
   /** 关窗口或换内容之前问窗口自己；它没登记检查（或登记的是换地址前的旧页）就直接放行。 */
   const mayLeave = (tool: StudioTool): Promise<boolean> => {
@@ -181,11 +165,12 @@ export default function StudioOverlayFrame() {
     })
   }
 
-  /** 布局（连同每个窗口实际加载的地址）只从这里改，改完就存。 */
+  /** 布局（连同每个窗口加载的地址、画好没有）只从这里改；存下来的那部分变了才写。 */
   const changeLayout = (update: (current: StudioOverlayLayout) => StudioOverlayLayout) => {
     setLayout((current) => {
       const next = update(current)
-      if (next !== current) writeLayout(next)
+      const persisted = (value: StudioOverlayLayout) => JSON.stringify(layoutToValue(value))
+      if (next !== current && persisted(next) !== persisted(current)) writeLayout(next)
       return next
     })
   }
@@ -284,7 +269,6 @@ export default function StudioOverlayFrame() {
         onOpenChange={setOpen}
         onLayout={updateLayout}
         frameRefs={frameEls}
-        ready={ready}
         mayLeave={mayLeave}
         onFrameLoad={(tool, frame) => {
           // 载进来的不是这个应用（服务器出错页之类）就不会有人报就绪，直接露出来。

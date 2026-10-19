@@ -74,6 +74,11 @@ export interface StudioWindowLayout {
  */
 export interface StudioOpenWindow extends StudioToolSpec {
   loaded: string | null
+  /**
+   * 窗口里的应用已经画出第一屏（窗口自己报的）；之前只显示占位，不露出整页的启动画面。
+   * 换了加载的内容就是新的一条，重新等。不存进浏览器。
+   */
+  ready?: boolean
 }
 
 export interface StudioOverlayLayout {
@@ -214,6 +219,15 @@ export function rememberTool(layout: StudioOverlayLayout, spec: StudioToolSpec):
   }
 }
 
+/** 窗口报了第一屏画好了。没开着、或已经记过就原样返回。 */
+export function markWindowReady(layout: StudioOverlayLayout, tool: StudioTool): StudioOverlayLayout {
+  if (!layout.open.some((item) => item.tool === tool && !item.ready)) return layout
+  return {
+    ...layout,
+    open: layout.open.map((item) => (item.tool === tool ? { ...item, ready: true } : item)),
+  }
+}
+
 /** 窗口的 iframe 该加载的地址。 */
 export function windowFrameSrc(
   item: StudioOpenWindow,
@@ -224,19 +238,6 @@ export function windowFrameSrc(
 
 export function closeTool(layout: StudioOverlayLayout, tool: StudioTool): StudioOverlayLayout {
   return { ...layout, open: layout.open.filter((item) => item.tool !== tool) }
-}
-
-/**
- * 下一个该开始加载的窗口。窗口一个接一个地加载：几份前端同时下载整套模块时，
- * 开发模式下观察到会互相卡住。只加载看得见的窗口，最上面的先来。
- */
-export function nextFrameToLoad(
-  visibleTopFirst: readonly StudioTool[],
-  loaded: ReadonlySet<StudioTool>,
-  loading: StudioTool | null,
-): StudioTool | null {
-  if (loading && visibleTopFirst.includes(loading)) return loading
-  return visibleTopFirst.find((tool) => !loaded.has(tool)) ?? null
 }
 
 /** 开关覆盖层的快捷键：Alt+`。在输入框里也照样生效，因为它不会打出字。 */

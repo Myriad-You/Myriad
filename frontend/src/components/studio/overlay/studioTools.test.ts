@@ -10,7 +10,7 @@ import {
   layoutFromValue,
   layoutToValue,
   legacySectionSpec,
-  nextFrameToLoad,
+  markWindowReady,
   openTool,
   parseToolSpec,
   rememberTool,
@@ -97,6 +97,20 @@ describe('layout', () => {
     assert.equal(rememberTool(DEFAULT_LAYOUT, { tool: 'editor', arg: '1' }), DEFAULT_LAYOUT)
   })
 
+  it('画好没有跟着窗口加载的内容走：换内容重新等，自己换内容、提到最上面不用等，不存进浏览器', () => {
+    const editor = (layout: ReturnType<typeof openTool>) => layout.open.find((item) => item.tool === 'editor')
+    let layout = markWindowReady(openTool(DEFAULT_LAYOUT, { tool: 'editor', arg: '1' }), 'editor')
+    assert.equal(editor(layout)?.ready, true)
+    assert.equal(markWindowReady(layout, 'editor'), layout)
+    layout = rememberTool(layout, { tool: 'editor', arg: '2' })
+    layout = openTool(openTool(layout, { tool: 'notes', arg: null }), { tool: 'editor', arg: '2' })
+    assert.equal(editor(layout)?.ready, true)
+    assert.equal(editor(openTool(layout, { tool: 'editor', arg: '3' }))?.ready, undefined)
+    assert.equal(editor(openTool(closeTool(layout, 'editor'), { tool: 'editor', arg: '2' }))?.ready, undefined)
+    assert.equal(markWindowReady(DEFAULT_LAYOUT, 'editor'), DEFAULT_LAYOUT)
+    assert.equal(JSON.stringify(layoutToValue(layout)).includes('ready'), false)
+  })
+
   it('存下来再读回来不变，坏数据退回默认', () => {
     const layout = {
       open: [
@@ -131,16 +145,5 @@ describe('hotkey and legacy addresses', () => {
     assert.deepEqual(legacySectionSpec('/blog'), { tool: 'settings', arg: null })
     assert.deepEqual(legacySectionSpec('/import'), { tool: 'transfer', arg: null })
     assert.deepEqual(legacySectionSpec('/whatever'), { tool: 'overview', arg: null })
-  })
-})
-
-describe('nextFrameToLoad', () => {
-  it('一次只加载一个，最上面的先来，看不见的不加载', () => {
-    assert.equal(nextFrameToLoad(['editor', 'notes'], new Set(), null), 'editor')
-    assert.equal(nextFrameToLoad(['editor', 'notes'], new Set(), 'notes'), 'notes')
-    assert.equal(nextFrameToLoad(['editor', 'notes'], new Set(['editor']), null), 'notes')
-    assert.equal(nextFrameToLoad(['editor'], new Set(['editor']), null), null)
-    assert.equal(nextFrameToLoad(['notes'], new Set(), 'editor'), 'notes')
-    assert.equal(nextFrameToLoad([], new Set(), null), null)
   })
 })

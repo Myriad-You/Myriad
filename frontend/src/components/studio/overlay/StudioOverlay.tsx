@@ -26,7 +26,6 @@ import {
   defaultWindow,
   fitWindow,
   isOverlayHotkey,
-  nextFrameToLoad,
   openTool,
   STUDIO_TOOLS,
   WINDOW_MIN,
@@ -87,7 +86,6 @@ export function StudioOverlay({
   onLayout,
   onFrameLoad,
   frameRefs,
-  ready,
   mayLeave,
 }: {
   /** 博客页的 window：视口尺寸和指针事件都以它为准。 */
@@ -101,14 +99,11 @@ export function StudioOverlay({
   onFrameLoad: (tool: StudioTool, frame: HTMLIFrameElement) => void
   /** 每个窗口的 iframe。控制器要认出是哪个窗口在跟它说话，所以由它传进来。 */
   frameRefs: { current: Map<StudioTool, HTMLIFrameElement> }
-  /** 窗口里的应用已经画出来了（窗口自己报的）；之前窗口只显示占位，不露出整页的启动画面。 */
-  ready: ReadonlySet<StudioTool>
   /** 关窗口之前问窗口自己（编辑器要先问没保存的改动），给 false 就不关。 */
   mayLeave: (tool: StudioTool) => Promise<boolean>
 }) {
   const [viewport, setViewport] = useState(() => ({ w: win.innerWidth, h: win.innerHeight }))
   const [drag, setDrag] = useState<Drag | null>(null)
-  const [loaded, setLoaded] = useState<ReadonlySet<StudioTool>>(() => new Set())
   const layoutRef = useRef(layout)
   layoutRef.current = layout
 
@@ -205,14 +200,6 @@ export function StudioOverlay({
   const editingHere =
     context.docId != null &&
     layout.open.some((item) => item.tool === 'editor' && item.arg === String(context.docId))
-  const visibleTopFirst = layout.open
-    .filter((spec) => open || layout.windows[spec.tool]?.pinned)
-    .map((spec) => spec.tool)
-    .reverse()
-  const openTools = new Set(layout.open.map((spec) => spec.tool))
-  const loadedOpen = new Set([...loaded].filter((tool) => openTools.has(tool)))
-  if (loadedOpen.size !== loaded.size) setLoaded(loadedOpen)
-  const loadingNow = nextFrameToLoad(visibleTopFirst, loadedOpen, null)
 
   return (
     <div className="stage" data-dragging={drag ? 'true' : undefined}>
@@ -364,9 +351,10 @@ export function StudioOverlay({
                 </button>
               </header>
             )}
-            <div className="win__body" data-ready={ready.has(spec.tool)}>
-              {ready.has(spec.tool) ? null : <FramePlaceholder />}
-              {loadedOpen.has(spec.tool) || loadingNow === spec.tool ? (
+            <div className="win__body" data-ready={spec.ready === true}>
+              {spec.ready ? null : <FramePlaceholder />}
+              {/* 看得见就加载；画好过的收起后也留着，再展开不用重来。 */}
+              {visible || spec.ready ? (
                 <iframe
                   ref={(node) => {
                     if (node) frameRefs.current.set(spec.tool, node)
@@ -374,11 +362,7 @@ export function StudioOverlay({
                   }}
                   src={windowFrameSrc(spec, context)}
                   title={copy.tools[spec.tool]}
-                  onLoad={(event) => {
-                    const tool = spec.tool
-                    setLoaded((current) => (current.has(tool) ? current : new Set([...current, tool])))
-                    onFrameLoad(tool, event.currentTarget)
-                  }}
+                  onLoad={(event) => onFrameLoad(spec.tool, event.currentTarget)}
                 />
               ) : null}
             </div>
