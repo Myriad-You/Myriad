@@ -3164,6 +3164,7 @@ dependencies = [
  "chrono-tz",
  "myriad-agent-rules",
  "myriad-merope",
+ "myriad-perception-filter",
  "myriad-persona-sync",
  "serde",
  "serde_json",
