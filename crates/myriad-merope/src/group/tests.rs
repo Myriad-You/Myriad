@@ -2105,11 +2105,13 @@ fn g1_her_line_brings_back_what_a_failed_read_missed() {
 /// A member asks her for a game with seats (the test game with private
 /// marks): sign-up opens, two join and one of them twice, one more cannot be
 /// whispered to and is told how to open it; each of the two is whispered
-/// their own mark, a move in turn comes back in private and is taken, one
-/// out of turn is answered that it is not theirs yet, one that is no move
-/// is not the game's; seats that do not move in time pass (named in the
-/// group the second time in a row), and over, the group remembers who
-/// played. Crate-only: the
+/// their own mark; in their turn a line that is no move and a number out
+/// of range are each asked again with the choices (nothing picked for
+/// them), and a move comes back in private and is taken; one out of turn
+/// is answered that it is not theirs yet, one that is no move from a seat
+/// whose turn it is not is not the game's; seats that do not move in time
+/// pass (named in the group the second time in a row), and over, the group
+/// remembers who played. Crate-only: the
 /// test game exists only in tests, so no other end replays this one.
 #[test]
 fn g1_a_game_with_seats_is_played_in_private() {
@@ -2141,7 +2143,15 @@ fn g1_a_game_with_seats_is_played_in_private() {
         );
     };
     whispered(&mut end, 100.0, "telegram:11", "你好");
+    whispered(&mut end, 100.5, "telegram:11", "7");
+    let log = |end: &End| match &end.group.seating.as_ref().unwrap().game {
+        Some(crate::hosting::SeatGame::Marks(game)) => game.log.clone(),
+        _ => unreachable!(),
+    };
+    end.run(BASE + secs(100.8));
+    assert!(log(&end).is_empty(), "nothing is picked for them");
     whispered(&mut end, 101.0, "telegram:12", "1");
+    whispered(&mut end, 101.5, "telegram:12", "你好");
     whispered(&mut end, 102.0, "telegram:11", "1");
     whispered(&mut end, 900.0, "telegram:11", "0");
     end.run(BASE + secs(1200.0));
@@ -2152,9 +2162,36 @@ fn g1_a_game_with_seats_is_played_in_private() {
         .filter(|step| step["input"]["event"]["kind"] == "whispered")
         .map(|step| step["output"]["taken"].as_bool())
         .collect();
-    // Not a move; a move out of turn (taken, and they are told so); a move
-    // in turn; one after it is over.
-    assert_eq!(taken, [Some(false), Some(true), Some(true), Some(false)]);
+    // In turn, no move and a number out of range (each asked again); a
+    // move out of turn (taken, and they are told so); not a move, not in
+    // turn; a move in turn; one after it is over.
+    assert_eq!(
+        taken,
+        [
+            Some(true),
+            Some(true),
+            Some(true),
+            Some(false),
+            Some(true),
+            Some(false)
+        ]
+    );
+    let to_him: Vec<String> = whispers(&end)
+        .into_iter()
+        .filter(|(user, _)| user == "11")
+        .map(|(_, text)| text)
+        .collect();
+    let again = |why: &str| {
+        format!(
+            "{why}，再选一次：\n0. pass\n1. guess the next seat's mark\n点下面的按钮，或者回号码、名字。"
+        )
+    };
+    assert!(to_him.contains(&again("没看懂这句")), "{to_him:?}");
+    assert!(to_him.contains(&again("没有这个号码")), "{to_him:?}");
+    assert!(
+        !to_him.contains(&crate::hosting::NOT_YOURS_LINE.to_string()),
+        "{to_him:?}"
+    );
     for step in &end.steps {
         for effect in step["output"]["effects"].as_array().into_iter().flatten() {
             if effect["kind"] == "send" {

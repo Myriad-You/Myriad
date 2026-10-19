@@ -56,11 +56,15 @@ pub(super) fn nothing_dealt_said_in_the_group(log: &[serde_json::Value]) {
 /// Someone from outside asks for a game with seats in a Telegram group: she
 /// opens sign-up; three join (one twice), one of whom has never started a
 /// private chat with her and is told in the group how to; the two she can
-/// reach are each whispered their own mark. A private line that is not a
-/// move, and a move out of turn, are not the game's; a move in turn is, and
-/// what everyone may know of it is told in the group. A seat that does not
-/// move in time passes; over, the group remembers who played, and their
-/// private lines are no longer the game's.
+/// reach are each whispered their own mark. In their turn, a private line
+/// that is not a move and a number out of range are each asked again with
+/// the choices, nothing picked for them; a move out of turn is told it is
+/// not theirs yet; a line that is no move, out of turn, is not the game's,
+/// and one seated who is not paired is not asked to pair for it while the
+/// game goes on; a move in turn is taken, and what everyone may know of it
+/// is told in the group. A seat that does not move in time passes; over,
+/// the group remembers who played, and their private lines are no longer
+/// the game's.
 #[tokio::test(start_paused = true)]
 async fn g0_a_game_with_seats_is_played_in_private() {
     let chat = -77_111;
@@ -81,12 +85,26 @@ async fn g0_a_game_with_seats_is_played_in_private() {
     // Sign-up closes, each is whispered to, the marks are dealt.
     wait(50.0).await;
     whisper_in(ChannelPlatform::Telegram, "41", "你好").await;
+    whisper_in(ChannelPlatform::Telegram, "41", "7").await;
     whisper_in(ChannelPlatform::Telegram, "42", "1").await;
+    whisper_in(ChannelPlatform::Telegram, "42", "你好").await;
+    let unpaired = |from: &str| {
+        crate::services::channel_pairing::unpaired_reply(
+            ChannelPlatform::Telegram,
+            from,
+            myriad_agent_rules::channel::PAIRING_REQUIRED_REPLY.to_string(),
+        )
+    };
+    assert_eq!(unpaired("42"), myriad_merope::hosting::SEATED_UNPAIRED_LINE);
     whisper_in(ChannelPlatform::Telegram, "41", "1").await;
     // 小李 does not move: passes; the rest pass the same way.
     wait(400.0).await;
     whisper_in(ChannelPlatform::Telegram, "41", "0").await;
     wait(10.0).await;
+    assert_eq!(
+        unpaired("42"),
+        myriad_agent_rules::channel::PAIRING_REQUIRED_REPLY
+    );
     let world = g0::leave().expect("the world of the scene");
     nothing_dealt_said_in_the_group(&world.log);
     g0::check("a_game_with_seats_is_played_in_private", &world.log);

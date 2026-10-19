@@ -88,7 +88,7 @@ pub(crate) use ledger::talk_between;
 pub use line::GroupLine;
 pub use mind::{
     back_from_away, catch_up, groups_lately, handle, muted, names_here, notice, record,
-    pressed, take_back_kept, take_back_tables, whispered,
+    pressed, seated, take_back_kept, take_back_tables, whispered,
 };
 pub use title::title;
 

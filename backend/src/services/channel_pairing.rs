@@ -768,4 +768,4 @@ mod tests {
 mod binding;
 mod entry;
 pub(crate) use binding::{ChannelBinding, credential_scope};
-pub(crate) use entry::{PrivateText, handle_private_text};
+pub(crate) use entry::{PrivateText, handle_private_text, unpaired_reply};

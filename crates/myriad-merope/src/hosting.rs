@@ -828,6 +828,22 @@ pub fn started_line(name: &str, seats: &[Seat]) -> String {
 
 /// Whispered to the seat whose move it is.
 pub fn your_move_line(view: &SeatView, platform: &str) -> String {
+    format!("轮到你选了：\n{}", choices_and_how(view, platform))
+}
+
+/// A seat whose move it is whispered back what is none of its choices (a
+/// number out of range, a word that is no choice): she asks once more,
+/// with the choices again, and never picks for them (D2c-14).
+pub fn again_line(text: &str, view: &SeatView, platform: &str) -> String {
+    let why = if text.trim().parse::<usize>().is_ok() {
+        "没有这个号码"
+    } else {
+        "没看懂这句"
+    };
+    format!("{why}，再选一次：\n{}", choices_and_how(view, platform))
+}
+
+fn choices_and_how(view: &SeatView, platform: &str) -> String {
     let choices: Vec<String> = view
         .choices()
         .iter()
@@ -839,7 +855,7 @@ pub fn your_move_line(view: &SeatView, platform: &str) -> String {
     } else {
         "回号码或者名字就行。"
     };
-    format!("轮到你选了：\n{}\n{how}", choices.join("\n"))
+    format!("{}\n{how}", choices.join("\n"))
 }
 
 /// Whether her whispers on `platform` can carry buttons (D2c-14 A: Telegram
@@ -956,6 +972,13 @@ pub const STALE_BUTTON_LINE: &str = "这个按钮是之前那次的，已经不�
 
 /// Told to a seat whose move it is not.
 pub const NOT_YOURS_LINE: &str = "现在还没轮到你选。";
+
+/// Told to one seated at a game in a group, not paired with the site, who
+/// whispers her something that is not the game's (D2c-13: they play
+/// unpaired, the private chat takes only the game for now): never asked to
+/// pair in the middle of it.
+pub const SEATED_UNPAIRED_LINE: &str =
+    "这局还没结束，私聊这里现在只收游戏里的选择；轮到你的时候我会把选项发过来。";
 
 /// What she whispers back when a move is taken.
 pub fn taken_line(choice: &str) -> String {

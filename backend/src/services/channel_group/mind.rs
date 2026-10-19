@@ -279,6 +279,16 @@ pub async fn whispered(platform: ChannelPlatform, from: &str, text: &str) -> boo
     whispered_on(platform, from, text, None).await
 }
 
+/// Whether `from` on `platform` sits at a game in a group now (from when
+/// they are found reachable to its end).
+pub fn seated(platform: ChannelPlatform, from: &str) -> bool {
+    let who = format!("{}:{from}", platform.slug());
+    SEATED
+        .lock()
+        .ok()
+        .is_some_and(|seated| seated.contains_key(&who))
+}
+
 /// A button of a game that `from` pressed on `platform` (`data` as it
 /// came back): none when it is no game's button; else whether it was taken.
 pub async fn pressed(platform: ChannelPlatform, from: &str, data: &str) -> Option<bool> {

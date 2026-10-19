@@ -978,8 +978,10 @@ fn end(cx: &mut Cx, s: Seating) {
     cx.group.seating = None;
 }
 
-/// A seat whispered back: a move when it is one of theirs now (taken), a
-/// move at the wrong time (taken, and they are told), else not the game's.
+/// A seat whispered back: a move when it is one of theirs now (taken);
+/// while it is theirs, anything that is none of their choices is asked
+/// again (taken, never picked for them); a move at the wrong time (taken,
+/// and they are told); else not the game's.
 pub(crate) fn whispered(cx: &mut Cx, who: &str, text: &str, wait: Option<u64>) -> bool {
     let Some(mut s) = cx.group.seating.take() else {
         return false;
@@ -1026,6 +1028,19 @@ pub(crate) fn whispered(cx: &mut Cx, who: &str, text: &str, wait: Option<u64>) -
                 Vec::new(),
             );
             moved(cx, s);
+            true
+        }
+        None if open => {
+            let sat = s.reachable[seat].clone();
+            let (platform, _) = platform_of(&sat.who);
+            let line = crate::hosting::again_line(text, &view, platform);
+            let choices = if crate::hosting::has_buttons(platform) {
+                view.choices().to_vec()
+            } else {
+                Vec::new()
+            };
+            whisper(cx, &s, &sat, line, choices);
+            cx.group.seating = Some(s);
             true
         }
         None => {

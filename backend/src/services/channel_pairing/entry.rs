@@ -97,6 +97,7 @@ pub(crate) async fn handle_private_text<T: PrivateText>(text: T) {
         return;
     };
     let inbound = text.inbound();
+    let from = inbound.user_openid.clone();
     let chat_id = text.session_chat_id();
     // Gateways replay messages after a reconnect. Claim each one before
     // pairing state is read: once the first delivery of a pairing code has
@@ -136,7 +137,10 @@ pub(crate) async fn handle_private_text<T: PrivateText>(text: T) {
     };
     match ingest_channel_text(inbound, pairing, already_seen, platform.slug(), &chat_id) {
         InboundDecision::Duplicate { .. } => {}
-        InboundDecision::PairingRequired { reply, .. } => text.reply(&db, &reply).await,
+        InboundDecision::PairingRequired { reply, .. } => {
+            text.reply(&db, &unpaired_reply(platform, &from, reply))
+                .await
+        }
         InboundDecision::ConsumePairingCode { code, .. } => {
             let result = text.consume(&db, &code).await.unwrap_or_else(|error| {
                 warn!(%error, %platform, "channel pairing consume failed");
@@ -167,6 +171,18 @@ pub(crate) async fn handle_private_text<T: PrivateText>(text: T) {
                 .scope(held_as, text.start_work(&db, user_id, &input, &session_key))
                 .await
         }
+    }
+}
+
+/// What one not paired is told for a private line that is not a game's
+/// move: asked to pair, unless they sit at a game in a group now (they
+/// play it unpaired, D2c-13; the private chat takes only the game till it
+/// is over).
+pub(crate) fn unpaired_reply(platform: ChannelPlatform, from: &str, reply: String) -> String {
+    if crate::services::channel_group::seated(platform, from) {
+        myriad_merope::hosting::SEATED_UNPAIRED_LINE.to_string()
+    } else {
+        reply
     }
 }
 
