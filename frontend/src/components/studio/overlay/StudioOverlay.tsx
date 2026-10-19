@@ -28,8 +28,9 @@ import {
   isOverlayHotkey,
   nextFrameToLoad,
   openTool,
-  toolFrameSrc,
+  STUDIO_TOOLS,
   WINDOW_MIN,
+  windowFrameSrc,
 } from './studioTools'
 
 export interface StudioOverlayCopy {
@@ -82,7 +83,6 @@ export function StudioOverlay({
   context,
   open,
   layout,
-  frameSpec,
   onOpenChange,
   onLayout,
   onFrameLoad,
@@ -96,8 +96,6 @@ export function StudioOverlay({
   context: StudioPageContext
   open: boolean
   layout: StudioOverlayLayout
-  /** 窗口里实际加载的工具地址。只在明确打开时才变，免得窗口自己记下新 id 时被重新加载。 */
-  frameSpec: (spec: StudioToolSpec) => StudioToolSpec
   onOpenChange: (open: boolean) => void
   onLayout: (next: StudioOverlayLayout) => void
   onFrameLoad: (tool: StudioTool, frame: HTMLIFrameElement) => void
@@ -295,7 +293,9 @@ export function StudioOverlay({
         </nav>
       ) : null}
 
-      {layout.open.map((spec, index) => {
+      {/* 页面里的次序固定按工具排，叠放靠 z-index：iframe 在页面里挪个位置就会整页重新加载。 */}
+      {[...layout.open].sort((a, b) => STUDIO_TOOLS.indexOf(a.tool) - STUDIO_TOOLS.indexOf(b.tool)).map((spec) => {
+        const index = layout.open.indexOf(spec)
         const box = windowOf(spec.tool, index)
         const pinnedView = !open && box.pinned
         const visible = open || box.pinned
@@ -372,7 +372,7 @@ export function StudioOverlay({
                     if (node) frameRefs.current.set(spec.tool, node)
                     else frameRefs.current.delete(spec.tool)
                   }}
-                  src={toolFrameSrc(frameSpec(spec), context)}
+                  src={windowFrameSrc(spec, context)}
                   title={copy.tools[spec.tool]}
                   onLoad={(event) => {
                     const tool = spec.tool

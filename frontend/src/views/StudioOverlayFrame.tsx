@@ -14,6 +14,7 @@ import {
   layoutToValue,
   openTool,
   parseToolSpec,
+  rememberTool,
 } from '../components/studio/overlay/studioTools'
 import {
   blogReloadDecision,
@@ -73,17 +74,20 @@ export default function StudioOverlayFrame() {
     const spec = parseToolSpec(host?.dataset.open)
     return spec ? openTool(saved, spec) : saved
   })
-  /** 每个窗口实际加载的地址，只有 `open` 会改它。 */
-  const frames = useRef(new Map<string, StudioToolSpec>())
   const frameEls = useRef(new Map<StudioTool, HTMLIFrameElement>())
   /** 窗口登记的离开前检查，连同登记它的那一页：窗口换了地址，旧页的检查就不算数。 */
   const guards = useRef(new Map<StudioTool, { doc: Document; check: () => Promise<boolean> }>())
-  /** 窗口里的应用已经画出来了；之前窗口只显示占位，不露出整页的启动画面。 */
-  const [ready, setReady] = useState<ReadonlySet<StudioTool>>(() => new Set())
-  const openTools = new Set(layout.open.map((item) => item.tool))
-  if ([...ready].some((tool) => !openTools.has(tool))) {
-    setReady(new Set([...ready].filter((tool) => openTools.has(tool))))
+  /**
+   * 窗口里的应用已经画出来了，记的是当时加载的参数；之前窗口只显示占位，不露出整页的启动画面。
+   * 窗口关了或换了加载的内容，这一条就作废，等新页面再报。
+   */
+  const [readyLoads, setReadyLoads] = useState<ReadonlyMap<StudioTool, string | null>>(() => new Map())
+  const loadedNow = new Map(layout.open.map((item) => [item.tool, item.loaded] as const))
+  const stale = [...readyLoads].filter(([tool, loaded]) => !loadedNow.has(tool) || loadedNow.get(tool) !== loaded)
+  if (stale.length > 0) {
+    setReadyLoads(new Map([...readyLoads].filter(([tool]) => !stale.some(([gone]) => gone === tool))))
   }
+  const ready = new Set([...readyLoads.keys()].filter((tool) => !stale.some(([gone]) => gone === tool)))
   const layoutNow = useRef(layout)
   layoutNow.current = layout
   const openedMark = useRef<BlogBuildMark | null>(null)
@@ -129,7 +133,11 @@ export default function StudioOverlayFrame() {
   )
 
   const markReady = (tool: StudioTool) => {
-    setReady((current) => (current.has(tool) ? current : new Set([...current, tool])))
+    const item = layoutNow.current.open.find((entry) => entry.tool === tool)
+    if (!item) return
+    setReadyLoads((current) =>
+      current.has(tool) && current.get(tool) === item.loaded ? current : new Map(current).set(tool, item.loaded),
+    )
   }
 
   /** 关窗口或换内容之前问窗口自己；它没登记检查（或登记的是换地址前的旧页）就直接放行。 */
@@ -162,9 +170,8 @@ export default function StudioOverlayFrame() {
    * 通过了再换。换回布局里已经开着的同一篇不算换。
    */
   const whenEditorMayLeave = (spec: StudioToolSpec | undefined, apply: () => void) => {
-    const loaded = frames.current.get('editor')
     const showing = layoutNow.current.open.find((item) => item.tool === 'editor')
-    const swapping = spec?.tool === 'editor' && loaded != null && showing?.arg !== spec.arg
+    const swapping = spec?.tool === 'editor' && showing != null && showing.arg !== spec.arg
     if (!swapping) {
       apply()
       return
@@ -174,22 +181,18 @@ export default function StudioOverlayFrame() {
     })
   }
 
-  const updateLayout = (next: StudioOverlayLayout) => {
-    whenEditorMayLeave(next.open.find((item) => item.tool === 'editor'), () => applyLayout(next))
+  /** 布局（连同每个窗口实际加载的地址）只从这里改，改完就存。 */
+  const changeLayout = (update: (current: StudioOverlayLayout) => StudioOverlayLayout) => {
+    setLayout((current) => {
+      const next = update(current)
+      if (next !== current) writeLayout(next)
+      return next
+    })
   }
 
-  const applyLayout = (next: StudioOverlayLayout) => {
-    // 工具栏、细条上的「编辑这篇」直接改布局；参数变了就让窗口换地址。
-    for (const spec of next.open) {
-      const loaded = frames.current.get(spec.tool)
-      const fromBar = !layout.open.some((item) => item.tool === spec.tool && item.arg === spec.arg)
-      if (!loaded || fromBar) frames.current.set(spec.tool, spec)
-    }
-    for (const tool of [...frames.current.keys()]) {
-      if (!next.open.some((item) => item.tool === tool)) frames.current.delete(tool)
-    }
-    setLayout(next)
-    writeLayout(next)
+  // 工具栏、细条、拖动直接给出下一份布局。
+  const updateLayout = (next: StudioOverlayLayout) => {
+    whenEditorMayLeave(next.open.find((item) => item.tool === 'editor'), () => changeLayout(() => next))
   }
 
   // 展开时记下博客构建状态；收起时博客若已重新生成就刷新外层页面，还在生成就等它。
@@ -228,37 +231,12 @@ export default function StudioOverlayFrame() {
     setStudioOverlayApi(host, {
       open: (spec: StudioToolSpec) => {
         whenEditorMayLeave(spec, () => {
-          // 已经开着同一份内容就只提到最上面，不重新加载。
-          const showing = layoutNow.current.open.find((item) => item.tool === spec.tool)
-          if (showing?.arg !== spec.arg || !frames.current.has(spec.tool)) {
-            frames.current.set(spec.tool, spec)
-          }
-          setLayout((current) => {
-            const next = openTool(current, spec)
-            writeLayout(next)
-            return next
-          })
+          changeLayout((current) => openTool(current, spec))
           setOpen(true)
         })
       },
-      close: (tool) => {
-        setLayout((current) => {
-          const next = closeTool(current, tool)
-          writeLayout(next)
-          return next
-        })
-      },
-      remember: (spec: StudioToolSpec) => {
-        setLayout((current) => {
-          if (!current.open.some((item) => item.tool === spec.tool)) return current
-          const next = {
-            ...current,
-            open: current.open.map((item) => (item.tool === spec.tool ? spec : item)),
-          }
-          writeLayout(next)
-          return next
-        })
-      },
+      close: (tool) => changeLayout((current) => closeTool(current, tool)),
+      remember: (spec: StudioToolSpec) => changeLayout((current) => rememberTool(current, spec)),
       hide: () => setOpen(false),
       port: portFor,
     })
@@ -303,12 +281,6 @@ export default function StudioOverlayFrame() {
         context={context}
         open={open}
         layout={layout}
-        frameSpec={(spec) => {
-          const loaded = frames.current.get(spec.tool)
-          if (loaded) return loaded
-          frames.current.set(spec.tool, spec)
-          return spec
-        }}
         onOpenChange={setOpen}
         onLayout={updateLayout}
         frameRefs={frameEls}

@@ -67,16 +67,25 @@ export interface StudioWindowLayout {
   opacity: number
 }
 
+/**
+ * 一个开着的窗口。`arg` 是它现在显示的内容；`loaded` 是它的 iframe 实际加载的参数，
+ * 只在明确打开别的内容时才跟上 `arg`。窗口自己换了内容（新笔记拿到 id）只改 `arg`，
+ * 不重新加载。两者都只活在这一条里：窗口一关就一起没了。
+ */
+export interface StudioOpenWindow extends StudioToolSpec {
+  loaded: string | null
+}
+
 export interface StudioOverlayLayout {
   /** 开着的窗口，按叠放次序，最后一个在最上面。 */
-  open: StudioToolSpec[]
+  open: StudioOpenWindow[]
   windows: Partial<Record<StudioTool, StudioWindowLayout>>
   /** 工具栏只显示图标还是带文字。 */
   toolbar: 'icons' | 'list'
 }
 
 export const DEFAULT_LAYOUT: StudioOverlayLayout = {
-  open: [{ tool: 'overview', arg: null }],
+  open: [{ tool: 'overview', arg: null, loaded: null }],
   windows: {},
   toolbar: 'list',
 }
@@ -147,10 +156,10 @@ function num(value: unknown, fallback: number): number {
 export function layoutFromValue(value: unknown): StudioOverlayLayout {
   if (!value || typeof value !== 'object') return DEFAULT_LAYOUT
   const data = value as Record<string, unknown>
-  const open: StudioToolSpec[] = []
+  const open: StudioOpenWindow[] = []
   for (const raw of Array.isArray(data.open) ? data.open : []) {
     const spec = typeof raw === 'string' ? parseToolSpec(raw) : null
-    if (spec && !open.some((item) => item.tool === spec.tool)) open.push(spec)
+    if (spec && !open.some((item) => item.tool === spec.tool)) open.push({ ...spec, loaded: spec.arg })
   }
   const windows: StudioOverlayLayout['windows'] = {}
   const rawWindows =
@@ -175,18 +184,42 @@ export function layoutFromValue(value: unknown): StudioOverlayLayout {
   }
 }
 
+/** 存的是窗口现在显示的内容；下次进来按它加载。 */
 export function layoutToValue(layout: StudioOverlayLayout): unknown {
   return {
-    open: layout.open.map(formatToolSpec),
+    open: layout.open.map((item) => formatToolSpec({ tool: item.tool, arg: item.arg })),
     windows: layout.windows,
     toolbar: layout.toolbar,
   }
 }
 
-/** 打开一个工具：已开就换参数并提到最上面，没开就加上。 */
+/**
+ * 打开一个工具并提到最上面。已经开着同一份内容就原样留着（不重新加载）；
+ * 内容不同或没开，就按新参数加载。
+ */
 export function openTool(layout: StudioOverlayLayout, spec: StudioToolSpec): StudioOverlayLayout {
+  const showing = layout.open.find((item) => item.tool === spec.tool)
+  const entry: StudioOpenWindow =
+    showing && showing.arg === spec.arg ? showing : { tool: spec.tool, arg: spec.arg, loaded: spec.arg }
   const rest = layout.open.filter((item) => item.tool !== spec.tool)
-  return { ...layout, open: [...rest, spec] }
+  return { ...layout, open: [...rest, entry] }
+}
+
+/** 窗口自己换了内容：记下它现在显示什么，但不重新加载。没开着就不管。 */
+export function rememberTool(layout: StudioOverlayLayout, spec: StudioToolSpec): StudioOverlayLayout {
+  if (!layout.open.some((item) => item.tool === spec.tool && item.arg !== spec.arg)) return layout
+  return {
+    ...layout,
+    open: layout.open.map((item) => (item.tool === spec.tool ? { ...item, arg: spec.arg } : item)),
+  }
+}
+
+/** 窗口的 iframe 该加载的地址。 */
+export function windowFrameSrc(
+  item: StudioOpenWindow,
+  context: { itemId: number | null; docId: number | null },
+): string {
+  return toolFrameSrc({ tool: item.tool, arg: item.loaded }, context)
 }
 
 export function closeTool(layout: StudioOverlayLayout, tool: StudioTool): StudioOverlayLayout {

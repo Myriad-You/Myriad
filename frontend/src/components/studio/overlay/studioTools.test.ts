@@ -13,7 +13,9 @@ import {
   nextFrameToLoad,
   openTool,
   parseToolSpec,
+  rememberTool,
   toolFrameSrc,
+  windowFrameSrc,
 } from './studioTools.ts'
 
 describe('tool spec', () => {
@@ -72,15 +74,43 @@ describe('layout', () => {
     assert.deepEqual(closeTool(layout, 'notes').open.map(formatToolSpec), ['overview', 'editor-2'])
   })
 
+  it('窗口实际加载的地址跟着布局走：自己换内容不重载，关掉就清掉', () => {
+    const none = { itemId: null, docId: null }
+    const editor = (layout: ReturnType<typeof openTool>) => layout.open.find((item) => item.tool === 'editor')!
+    // 新笔记拿到 id：显示的是 7，iframe 还是当初的 new，不重新加载。
+    let layout = openTool(DEFAULT_LAYOUT, { tool: 'editor', arg: 'new' })
+    layout = rememberTool(layout, { tool: 'editor', arg: '7' })
+    assert.equal(editor(layout).arg, '7')
+    assert.equal(windowFrameSrc(editor(layout), none), '/embed/studio/tool/editor?arg=new')
+    // 再要求打开同一篇：只提到最上面，照旧不重载。
+    layout = openTool(openTool(layout, { tool: 'notes', arg: null }), { tool: 'editor', arg: '7' })
+    assert.equal(layout.open.at(-1)?.tool, 'editor')
+    assert.equal(windowFrameSrc(editor(layout), none), '/embed/studio/tool/editor?arg=new')
+    // 换一篇就按新的加载。
+    layout = openTool(layout, { tool: 'editor', arg: '8' })
+    assert.equal(windowFrameSrc(editor(layout), none), '/embed/studio/tool/editor?arg=8')
+    // 关掉再开：不会载回关之前的内容。
+    layout = rememberTool(layout, { tool: 'editor', arg: '9' })
+    layout = openTool(closeTool(layout, 'editor'), { tool: 'editor', arg: '9' })
+    assert.equal(windowFrameSrc(editor(layout), none), '/embed/studio/tool/editor?arg=9')
+    // 没开着的窗口记不进来。
+    assert.equal(rememberTool(DEFAULT_LAYOUT, { tool: 'editor', arg: '1' }), DEFAULT_LAYOUT)
+  })
+
   it('存下来再读回来不变，坏数据退回默认', () => {
     const layout = {
-      open: [{ tool: 'notes' as const, arg: null }, { tool: 'editor' as const, arg: '4' }],
+      open: [
+        { tool: 'notes' as const, arg: null, loaded: null },
+        { tool: 'editor' as const, arg: '4', loaded: '4' },
+      ],
       windows: { notes: { x: 300, y: 80, w: 700, h: 500, pinned: true, opacity: 0.5 } },
       toolbar: 'icons' as const,
     }
     assert.deepEqual(layoutFromValue(structuredClone(layoutToValue(layout))), layout)
     assert.deepEqual(layoutFromValue(null), DEFAULT_LAYOUT)
-    assert.deepEqual(layoutFromValue({ open: ['nope', 'notes', 'notes'] }).open, [{ tool: 'notes', arg: null }])
+    assert.deepEqual(layoutFromValue({ open: ['nope', 'notes', 'notes'] }).open, [
+      { tool: 'notes', arg: null, loaded: null },
+    ])
   })
 })
 
