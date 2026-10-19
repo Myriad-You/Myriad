@@ -1,7 +1,9 @@
 //! G0 scenes: the site's group behaviour, played on paused time against a
 //! recorded world (see `g0`). Each scene's log is compared with its golden
-//! in `g0/`; `MYRIAD_RECORD_G0=1` writes them. A scene uses its own chat,
-//! so scenes running side by side never share a group.
+//! in `g0/`; `MYRIAD_RECORD_G0=1` writes them. The goldens are kept out of
+//! the repository: a scene whose golden is missing still runs its own
+//! assertions and says how to record it. A scene uses its own chat and its
+//! own users, so scenes running side by side never share a group or a seat.
 
 use super::*;
 use g0::World;

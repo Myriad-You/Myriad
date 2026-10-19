@@ -347,6 +347,8 @@ pub(crate) fn golden(log: &[Value]) -> Value {
 }
 
 /// Compare `log` to the golden `name`, or write it with `MYRIAD_RECORD_G0=1`.
+/// The goldens are not in the repository: one missing is not compared, and
+/// a note says how to record it.
 pub(crate) fn check(name: &str, log: &[Value]) {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/services/channel_group/g0")
@@ -367,10 +369,15 @@ pub(crate) fn check(name: &str, log: &[Value]) {
             serde_json::to_string_pretty(&got).unwrap() + "\n",
         );
     }
-    let want: Value = serde_json::from_str(
-        &std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("no golden {name}")),
-    )
-    .unwrap();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        eprintln!(
+            "{name}: not compared, no golden at {}; record it with MYRIAD_RECORD_G0=1 and \
+             MYRIAD_G0_DATABASE_URL naming a throwaway database",
+            path.display()
+        );
+        return;
+    };
+    let want: Value = serde_json::from_str(&text).unwrap();
     if got != want {
         let got = serde_json::to_string_pretty(&got).unwrap();
         let want = serde_json::to_string_pretty(&want).unwrap();

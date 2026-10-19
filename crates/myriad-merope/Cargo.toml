@@ -27,6 +27,7 @@ test-games = []
 serde_json = "1"
 
 [dev-dependencies]
-# The group trajectories (fixtures/group) are compared after a trip through
+# The group trajectories (fixtures/group, recorded locally, not in the
+# repository) are compared after a trip through
 # JSON: read numbers back to the exact bits they were written from.
 serde_json = { version = "1", features = ["float_roundtrip"] }

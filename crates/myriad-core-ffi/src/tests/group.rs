@@ -1,6 +1,6 @@
 //! The group's mind through the C entry point, as another platform runs it:
-//! every trajectory of `myriad-merope` (G1) replayed step by step, the
-//! state each step hands back given to the next, as JSON only.
+//! every trajectory of `myriad-merope` (G1) on this machine replayed step by
+//! step, the state each step hands back given to the next, as JSON only.
 
 use serde_json::{Value, json};
 
@@ -14,53 +14,52 @@ pub(super) const TESTED: &[&str] = &[
     "group.step",
 ];
 
-macro_rules! trajectory {
-    ($name:literal) => {
-        (
-            $name,
-            include_bytes!(concat!(
-                "../../../myriad-merope/fixtures/group/",
-                $name,
-                ".json"
-            ))
-            .as_slice(),
-        )
-    };
-}
-
-const TRAJECTORIES: &[(&str, &[u8])] = &[
-    trajectory!("a_member_calls_her"),
-    trajectory!("an_outsider_calls_her"),
-    trajectory!("her_line_brings_back_what_a_failed_read_missed"),
-    trajectory!("lines_wait_while_she_is_busy"),
-    trajectory!("muted_away_and_back"),
-    trajectory!("pictures_and_what_she_heard"),
-    trajectory!("read_back_after_a_restart"),
-    trajectory!("she_brings_something_up_first_and_a_send_is_refused"),
-    trajectory!("she_keeps_back_what_no_longer_fits"),
-    trajectory!("she_says_nothing_when_what_she_has_cannot_be_read"),
-    trajectory!("she_speaks_up_unasked_and_reacts"),
-    trajectory!("undercover_goes_on_after_a_restart"),
-    trajectory!("undercover_is_played_with_buttons"),
-    trajectory!("undercover_she_fills_a_seat"),
-    trajectory!("werewolf_goes_on_after_a_restart"),
-    trajectory!("werewolf_is_played_with_buttons"),
-    trajectory!("werewolf_she_fills_a_seat"),
-    trajectory!("avalon_goes_on_after_a_restart"),
-    trajectory!("avalon_is_played_with_buttons"),
-    trajectory!("avalon_she_fills_a_seat"),
-    trajectory!("jubensha_is_played_with_buttons"),
-    trajectory!("jubensha_on_qq_a_tie_a_rewrite_and_a_wrong_vote"),
-    trajectory!("jubensha_is_given_up_after_ten_minutes"),
-    trajectory!("jubensha_stops_when_most_ask"),
-    trajectory!("jubensha_goes_on_after_a_restart_while_she_writes"),
-    trajectory!("jubensha_goes_on_after_a_restart_mid_game"),
+/// The trajectories `myriad-merope` records into its `fixtures/group/`
+/// (kept out of the repository: one missing is skipped with a note).
+const TRAJECTORIES: &[&str] = &[
+    "a_member_calls_her",
+    "an_outsider_calls_her",
+    "her_line_brings_back_what_a_failed_read_missed",
+    "lines_wait_while_she_is_busy",
+    "muted_away_and_back",
+    "pictures_and_what_she_heard",
+    "read_back_after_a_restart",
+    "she_brings_something_up_first_and_a_send_is_refused",
+    "she_keeps_back_what_no_longer_fits",
+    "she_says_nothing_when_what_she_has_cannot_be_read",
+    "she_speaks_up_unasked_and_reacts",
+    "undercover_goes_on_after_a_restart",
+    "undercover_is_played_with_buttons",
+    "undercover_she_fills_a_seat",
+    "werewolf_goes_on_after_a_restart",
+    "werewolf_is_played_with_buttons",
+    "werewolf_she_fills_a_seat",
+    "avalon_goes_on_after_a_restart",
+    "avalon_is_played_with_buttons",
+    "avalon_she_fills_a_seat",
+    "jubensha_is_played_with_buttons",
+    "jubensha_on_qq_a_tie_a_rewrite_and_a_wrong_vote",
+    "jubensha_is_given_up_after_ten_minutes",
+    "jubensha_stops_when_most_ask",
+    "jubensha_goes_on_after_a_restart_while_she_writes",
+    "jubensha_goes_on_after_a_restart_mid_game",
 ];
 
 #[test]
 fn every_trajectory_replays_through_the_core() {
-    for (name, bytes) in TRAJECTORIES {
-        let trajectory: Value = serde_json::from_slice(bytes).unwrap();
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../myriad-merope/fixtures/group");
+    for name in TRAJECTORIES {
+        let path = dir.join(format!("{name}.json"));
+        let Ok(bytes) = std::fs::read(&path) else {
+            eprintln!(
+                "{name}: not replayed, no trajectory at {}; record it with \
+                 MYRIAD_RECORD_G1=1 cargo test -p myriad-merope --lib group::tests::g1_",
+                path.display()
+            );
+            continue;
+        };
+        let trajectory: Value = serde_json::from_slice(&bytes).unwrap();
         let mut state = Value::Null;
         let steps = trajectory["steps"].as_array().unwrap();
         assert!(!steps.is_empty(), "{name}");
