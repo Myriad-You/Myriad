@@ -28,6 +28,7 @@ members = [
     "crates/myriad-agent-rules",
     "crates/myriad-core-ffi",
     "crates/myriad-persona-sync",
+    "crates/myriad-perception-filter",
     "crates/myriad-tapp-rules",
     "crates/tapp-contract",
     "tools/tapp-contract-export",

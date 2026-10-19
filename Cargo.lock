@@ -3271,6 +3271,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "myriad-perception-filter"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "myriad-persona-sync"
 version = "0.1.0"
 dependencies = [
