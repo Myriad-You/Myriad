@@ -7,6 +7,7 @@ import { LuLoader2, LuSearch } from '@lib/icons'
  */
 export function WorkbenchPage({
   title,
+  lead,
   action,
   search,
   filters,
@@ -14,6 +15,8 @@ export function WorkbenchPage({
   children,
 }: {
   title: string
+  /** 工具条最左边：分页切换之类。 */
+  lead?: ReactNode
   action?: ReactNode
   search?: ReactNode
   filters?: ReactNode
@@ -26,13 +29,14 @@ export function WorkbenchPage({
       <h2 className="tool-pane__crumb-title">{title}</h2>
     </div>
   ) : null
-  const bar = crumb || search || action || filters
+  const bar = crumb || lead || search || action || filters
 
   return (
     <section className="tool-pane" aria-label={title}>
       {bar ? (
         <div className="tool-pane__bar">
           {crumb}
+          {lead}
           {search ? <div className="tool-pane__search-slot">{search}</div> : null}
           {action ? <div className="tool-pane__actions">{action}</div> : null}
           {filters ? <div className="tool-pane__filters">{filters}</div> : null}

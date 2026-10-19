@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  blogSettingsTabForArg,
   editorTarget,
   legacyStudioRedirect,
   mediaOriginForArg,
@@ -28,6 +29,10 @@ describe('studio tool routes', () => {
     assert.equal(mediaOriginForArg('imported'), 'import')
     assert.equal(mediaOriginForArg('uploads'), 'upload')
     assert.equal(mediaOriginForArg(null), 'all')
+    assert.equal(blogSettingsTabForArg('themes'), 'themes')
+    assert.equal(blogSettingsTabForArg('build'), 'build')
+    assert.equal(blogSettingsTabForArg('nope'), 'site')
+    assert.equal(blogSettingsTabForArg(null), 'site')
   })
 
   it('旧地址跳去博客页并打开对应工具', () => {

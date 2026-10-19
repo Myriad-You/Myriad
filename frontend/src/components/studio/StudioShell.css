@@ -328,7 +328,7 @@ html.dark .studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid)
   text-align: center;
 }
 
-/* 设置类窗口（博客设置）：分组标题收成小标签，输入框和开关按窗口密度来。
+/* 窗口里用到的设置组件（分类里的新建输入框等）：分组标题收成小标签，输入框和开关按窗口密度来。
    前缀多带一层 .studio-embed，压过设置组件自己的 html.dark 规则。 */
 .studio-embed .studio-tool .setting-group {
   margin: 0;
@@ -791,4 +791,15 @@ html.dark .studio-overview__stat.is-warn .studio-overview__stat-value {
 
 .studio-embed .phantasi-note.phantasi-skin .note-btn--icon {
   padding: 0;
+}
+
+/* 窗口里的主按钮用覆盖层的强调色。 */
+.studio-embed .studio-tool .settings-btn.btn-primary {
+  border-color: transparent;
+  background: var(--cfg-accent);
+  color: #fff;
+}
+
+.studio-embed .studio-tool .settings-btn.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cfg-accent) 86%, black);
 }

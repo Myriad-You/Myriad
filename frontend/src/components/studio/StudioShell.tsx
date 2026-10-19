@@ -29,6 +29,8 @@ const MEDIA_ORIGINS: Array<'all' | MediaOrigin> = ['all', 'upload', 'generated',
 
 export interface StudioToolPaneProps {
   tool: Exclude<StudioTool, 'editor'>
+  /** 窗口参数：媒体来源、博客设置停在哪一页。 */
+  arg: string | null
   /** 这一页是哪篇文章。 */
   itemId: number | null
   docs: PhantasiNoteDoc[]
@@ -259,7 +261,7 @@ export function StudioToolPane(props: StudioToolPaneProps) {
             onImportNotes={props.onImportNotes}
           />
         ) : null}
-        {tool === 'settings' ? <StudioBlogPane back={null} /> : null}
+        {tool === 'settings' ? <StudioBlogPane back={null} arg={props.arg} /> : null}
       </div>
     </div>
   )

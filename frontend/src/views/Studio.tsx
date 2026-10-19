@@ -149,6 +149,7 @@ function StudioToolPage({
     <div className="studio-tool-page">
       <StudioToolPane
         tool={tool}
+        arg={arg}
         itemId={itemId}
         docs={workbench.docs}
         media={workbench.media}

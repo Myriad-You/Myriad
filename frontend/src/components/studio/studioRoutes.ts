@@ -36,6 +36,14 @@ export function editorTarget(arg: string | null): number | 'new' {
   return 'new'
 }
 
+export const BLOG_SETTINGS_TABS = ['site', 'themes', 'params', 'build'] as const
+export type BlogSettingsTab = (typeof BLOG_SETTINGS_TABS)[number]
+
+/** 博客设置窗口的 `arg` 是打开哪一页（`settings-themes`），认不出就是站点。 */
+export function blogSettingsTabForArg(arg: string | null): BlogSettingsTab {
+  return BLOG_SETTINGS_TABS.find((tab) => tab === arg) ?? 'site'
+}
+
 /** 媒体窗口的 `arg` 对应的来源。沿用旧地址里的写法（`imported`）。 */
 export function mediaOriginForArg(arg: string | null): 'all' | MediaOrigin {
   switch (arg) {
