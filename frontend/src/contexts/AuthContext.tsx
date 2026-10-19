@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The studio embed build never starts a Tapp runtime, so there is nothing to
   // reset (typeof: unit tests run without Vite's define).
   const resetTappSubjectState = useCallback(async () => {
-    if (typeof __STUDIO_PASS__ !== 'undefined' && __STUDIO_PASS__) return
+    if (typeof __STUDIO_ENTRY__ !== 'undefined' && __STUDIO_ENTRY__) return
     const [{ TappScheduler }, { TappRuntimeGrant }, { TappRuntime }] =
       await Promise.all([
         import('../tapp/runtime/TappScheduler'),

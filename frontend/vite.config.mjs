@@ -12,7 +12,11 @@ import { reloadOnOutdatedOptimizeDepPlugin } from './scripts/vite/reloadOnOutdat
 import { siteBrandingStampPlugin } from './scripts/vite/siteBrandingStampPlugin.mjs'
 import { spaFallbackPlugin } from './scripts/vite/spaFallback.mjs'
 import { stripDevSourcemapsPlugin } from './scripts/vite/stripDevSourcemaps.mjs'
-import { isStudioPass, studioBuildPlugin, studioIconCatalogPlugin } from './scripts/vite/studioBuild.mjs'
+import {
+  buildBothEnvironments,
+  STUDIO_ENVIRONMENT,
+  studioIconCatalogPlugin,
+} from './scripts/vite/studioEnvironment.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -20,6 +24,91 @@ const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 )
 const APP_VERSION = pkg.version || '0.6.3'
+
+/**
+ * 主站（client）和创作台（studio）两个环境的打包设置。只有这几处不同：创作台以
+ * `studio.html` 为入口，把 withIconA11y 当纯函数，不把品牌图标合成整块。
+ * @param {boolean} studio
+ */
+function appBuild(studio) {
+  return {
+    target: 'es2025',
+    rollupOptions: {
+      // 创作台环境把 withIconA11y 当纯函数：lib/icons 里没用到的品牌图标才摇得掉。
+      // 主站入口本来就带着 lib/icons，在源码上标注会让它变大，所以只在这里声明。
+      ...(studio
+        ? {
+            input: path.resolve(__dirname, 'studio.html'),
+            treeshake: { manualPureFunctions: ['withIconA11y'] },
+          }
+        : {}),
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              // Claim React before other groups recursively capture their
+              // dependencies. A manualChunks name alone lets Motion take
+              // jsx-runtime and forces every JSX entry to load Motion.
+              name: 'react-vendor',
+              priority: 100,
+              test: (id) =>
+                id.includes('node_modules/react/') ||
+                id.includes('node_modules/react-dom/') ||
+                id.includes('node_modules/react-router') ||
+                id.includes('node_modules/@remix-run') ||
+                id.includes('jsx-runtime'),
+            },
+            {
+              // Everything the entry statically needs, as one request.
+              // Left to automatic chunking, modules the shell shares with
+              // lazy routes became ~60 sub-KB chunks, all modulepreloaded;
+              // on the HTTP/1.1 proxy path they queue six at a time and
+              // held the entry's first execution back by over a second.
+              name: 'app-shell',
+              tags: ['$initial'],
+              priority: 50,
+            },
+            {
+              name: (id) => {
+                // motion-dom / motion-utils are separate packages whose paths
+                // also contain node_modules/motion. Merging them into `motion`
+                // would make shared helpers a static dep of the 124K chunk and
+                // break lazyMotion's dynamic load.
+                if (id.includes('node_modules/motion-utils')) {
+                  return 'motion-utils'
+                }
+                if (id.includes('node_modules/motion-dom')) {
+                  return 'motion-dom'
+                }
+                if (id.includes('node_modules/motion')) {
+                  return 'motion-vendor'
+                }
+                // 创作台环境不合并图标：合起来就是笔记编辑器要的整套
+                // 品牌图标，工具窗口只用到其中几个，也得整块下载。
+                if (studio) return
+                if (id.includes('node_modules/react-icons/fa6/')) {
+                  return 'icons-fa6'
+                }
+                if (id.includes('node_modules/react-icons/fa/')) {
+                  return 'icons-fa'
+                }
+                if (id.includes('node_modules/react-icons/si/')) {
+                  return 'icons-si'
+                }
+                if (id.includes('node_modules/react-icons')) {
+                  return 'icons-base'
+                }
+              },
+            },
+          ],
+        },
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
+      },
+    },
+  }
+}
 
 export default defineConfig(({ command }) => ({
   appType: 'spa',
@@ -30,8 +119,8 @@ export default defineConfig(({ command }) => ({
 
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
-    // 创作台嵌入页那一遍构建（scripts/vite/studioBuild.mjs）。
-    __STUDIO_PASS__: JSON.stringify(isStudioPass()),
+    // 创作台环境里是 true，见 scripts/vite/studioEnvironment.mjs。
+    __STUDIO_ENTRY__: 'false',
   },
   css: {
     // Inline CSS maps are not needed for dest HMR and inflate the transform cache.
@@ -103,9 +192,7 @@ export default defineConfig(({ command }) => ({
     backendDevProxyPlugin(),
     spaFallbackPlugin(),
     stripDevSourcemapsPlugin(),
-    // 两遍构建只在最后一遍（创作台）压缩：它会把整个输出目录都压一遍。
-    ...(command === 'build' && !isStudioPass() ? [] : [precompressPlugin()]),
-    studioBuildPlugin(),
+    precompressPlugin(),
     studioIconCatalogPlugin(),
   ],
   resolve: {
@@ -119,91 +206,22 @@ export default defineConfig(({ command }) => ({
     },
   },
   environments: {
-    client: {
-      build: {
-        target: 'es2025',
-        rollupOptions: {
-          // 第二遍只构建创作台的嵌入页，见 scripts/vite/studioBuild.mjs。
-          // 那一遍把 withIconA11y 当纯函数：lib/icons 里没用到的品牌图标才摇得掉。
-          // 主站入口本来就带着 lib/icons，在源码上标注会让它变大，所以只在这里声明。
-          ...(isStudioPass()
-            ? {
-                input: path.resolve(__dirname, 'studio.html'),
-                treeshake: { manualPureFunctions: ['withIconA11y'] },
-              }
-            : {}),
-          output: {
-            codeSplitting: {
-              groups: [
-                {
-                  // Claim React before other groups recursively capture their
-                  // dependencies. A manualChunks name alone lets Motion take
-                  // jsx-runtime and forces every JSX entry to load Motion.
-                  name: 'react-vendor',
-                  priority: 100,
-                  test: (id) =>
-                    id.includes('node_modules/react/') ||
-                    id.includes('node_modules/react-dom/') ||
-                    id.includes('node_modules/react-router') ||
-                    id.includes('node_modules/@remix-run') ||
-                    id.includes('jsx-runtime'),
-                },
-                {
-                  // Everything the entry statically needs, as one request.
-                  // Left to automatic chunking, modules the shell shares with
-                  // lazy routes became ~60 sub-KB chunks, all modulepreloaded;
-                  // on the HTTP/1.1 proxy path they queue six at a time and
-                  // held the entry's first execution back by over a second.
-                  name: 'app-shell',
-                  tags: ['$initial'],
-                  priority: 50,
-                },
-                {
-                  name: (id) => {
-                    // motion-dom / motion-utils are separate packages whose paths
-                    // also contain node_modules/motion. Merging them into `motion`
-                    // would make shared helpers a static dep of the 124K chunk and
-                    // break lazyMotion's dynamic load.
-                    if (id.includes('node_modules/motion-utils')) {
-                      return 'motion-utils'
-                    }
-                    if (id.includes('node_modules/motion-dom')) {
-                      return 'motion-dom'
-                    }
-                    if (id.includes('node_modules/motion')) {
-                      return 'motion-vendor'
-                    }
-                    // 创作台那一遍不合并图标：合起来就是笔记编辑器要的整套
-                    // 品牌图标，工具窗口只用到其中几个，也得整块下载。
-                    if (isStudioPass()) return
-                    if (id.includes('node_modules/react-icons/fa6/')) {
-                      return 'icons-fa6'
-                    }
-                    if (id.includes('node_modules/react-icons/fa/')) {
-                      return 'icons-fa'
-                    }
-                    if (id.includes('node_modules/react-icons/si/')) {
-                      return 'icons-si'
-                    }
-                    if (id.includes('node_modules/react-icons')) {
-                      return 'icons-base'
-                    }
-                  },
-                },
-              ],
-            },
-            chunkFileNames: 'assets/[name]-[hash].js',
-            entryFileNames: 'assets/[name]-[hash].js',
-            assetFileNames: 'assets/[name]-[hash].[ext]',
+    client: { build: appBuild(false) },
+    // 创作台只在构建时是独立环境，见 scripts/vite/studioEnvironment.mjs。
+    ...(command === 'build'
+      ? {
+          [STUDIO_ENVIRONMENT]: {
+            consumer: 'client',
+            define: { __STUDIO_ENTRY__: 'true' },
+            // 和主站写进同一个目录：不清空，public/ 主站已经拷过。
+            build: { ...appBuild(true), emptyOutDir: false, copyPublicDir: false },
           },
-        },
-      },
-    },
+        }
+      : {}),
   },
+  builder: { buildApp: buildBothEnvironments },
   build: {
     target: 'es2025',
-    // public/ 第一遍已经拷过了。
-    copyPublicDir: !isStudioPass(),
     cssCodeSplit: true,
     minify: 'terser',
     terserOptions: {

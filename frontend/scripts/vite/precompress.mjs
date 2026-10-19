@@ -58,26 +58,32 @@ export function precompressPlugin() {
   return {
     name: 'myriad:precompress',
     apply: 'build',
-    async writeBundle(options) {
-      if (this.environment && this.environment.name !== 'client') return
-      const outDir = options.dir
-      if (!outDir) return
-      const files = await Array.fromAsync(walk(outDir))
-      let next = 0
-      let variants = 0
-      const worker = async () => {
-        while (next < files.length) {
-          // Not `variants += await …`: that reads `variants` before yielding.
-          const written = await precompressFile(files[next++])
-          variants += written
-        }
-      }
-      await Promise.all(
-        Array.from({ length: Math.max(1, availableParallelism() - 1) }, worker),
-      )
-      this.environment?.logger.info(
-        `[precompress] ${variants} .br/.gz variants for ${files.length} files`,
-      )
+    // 所有环境都写完再压一遍：主站和创作台写进同一个目录。
+    buildApp: {
+      order: 'post',
+      async handler(builder) {
+        const { root, build } = builder.environments.client.config
+        await precompressDir(path.resolve(root, build.outDir), builder.config.logger)
+      },
     },
   }
+}
+
+async function precompressDir(outDir, logger) {
+  const files = await Array.fromAsync(walk(outDir))
+  let next = 0
+  let variants = 0
+  const worker = async () => {
+    while (next < files.length) {
+      // Not `variants += await …`: that reads `variants` before yielding.
+      const written = await precompressFile(files[next++])
+      variants += written
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.max(1, availableParallelism() - 1) }, worker),
+  )
+  logger.info(
+    `[precompress] ${variants} .br/.gz variants for ${files.length} files`,
+  )
 }
