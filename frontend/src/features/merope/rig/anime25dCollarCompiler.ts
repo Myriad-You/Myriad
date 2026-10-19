@@ -193,8 +193,23 @@ export function splitHighCollarOcclusion(
         frontMaximumX = Math.max(frontMaximumX, localX)
         frontMaximumY = Math.max(frontMaximumY, localY)
       }
+      // Under an opaque neck, what goes in front stays in the top too: when
+      // the neck and the front collar move apart, the same cloth shows, not a
+      // hole. So does what goes behind where the top is what the picture
+      // shows (the neck layer copied a white collar on pale skin). Where the
+      // neck is see-through the split keeps the picture's sum.
+      const opaque = neckAlpha === 255
+      const shown =
+        opaque &&
+        trustedSourceReference !== undefined &&
+        x >= 0 &&
+        y >= 0 &&
+        x < trustedSourceReference.width &&
+        y < trustedSourceReference.height &&
+        colorDistanceAt(topwear, x, y, trustedSourceReference.data, (y * trustedSourceReference.width + x) * 4) <=
+          GUESSED_GARMENT_DISTANCE
       remainingTopwear.data[pixel + 3] = Math.round(
-        sourceAlpha * (1 - rearAmount - frontAmount),
+        sourceAlpha * (1 - (shown ? 0 : rearAmount) - (opaque ? 0 : frontAmount)),
       )
     }
   }

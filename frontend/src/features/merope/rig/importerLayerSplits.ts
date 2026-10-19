@@ -174,16 +174,19 @@ export function tuckBackHairBehindFace(layers: RasterLayer[]): RasterLayer[] {
  * what lies under the chin, but once the head nods the back hair shows there
  * as a dark band where the neck should be. Where the neck is drawn over the
  * top (a collar split into back and front), the back hair goes just behind
- * the neck, still over the top and the back of the collar; what of it the
- * portrait shows over the neck the import's repair reveals.
+ * the neck, still over the top and the back of the collar. Where the top is
+ * drawn over the neck (a stand collar), back hair between the two goes behind
+ * the neck the same way; over the top it stays (locks over the collar, the
+ * runtime lifts the neck). What of it the portrait shows over the neck the
+ * import's repair reveals.
  */
 export function tuckBackHairBehindNeck(layers: RasterLayer[]): RasterLayer[] {
   const neck = layers.findIndex((layer) => layer.role === 'neck')
   if (neck < 0) return layers
   const topwear = layers.findIndex((layer) => layer.role === 'topwear')
-  if (topwear < 0 || topwear > neck) return layers
+  if (topwear < 0) return layers
   const hair = layers.findIndex((layer, index) => index > neck && layer.role === 'back-hair')
-  if (hair < 0) return layers
+  if (hair < 0 || (topwear > neck && hair > topwear)) return layers
   const output = layers.toSpliced(hair, 1)
   return output.toSpliced(neck, 0, layers[hair])
 }

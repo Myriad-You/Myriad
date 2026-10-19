@@ -108,17 +108,13 @@ test('uniform pale and dark real collars retain geometric front/rear partitionin
     )
     assert.equal(output[2], neck)
     assert.deepEqual(topwear.data, before, 'original artwork is immutable')
-    // Every garment pixel is allocated, never erased; only the collar beside
-    // the neck is also kept in the top, under the front collar.
-    const [rest, , , front] = output
+    // Every garment pixel is allocated between the top and the back collar,
+    // never erased; what goes in front is also kept in the top, under it.
+    const [rest, back, , front] = output
     for (let y = 0; y < 100; y++) {
       for (let x = 0; x < 80; x++) {
-        const alpha = output
-          .filter((l) => l !== neck)
-          .reduce((sum, l) => sum + alphaAt(l, x, y), 0)
-        const beside = alphaAt(neck, x, y) === 0 && alphaAt(front, x, y) > 0
-        if (beside) assert.equal(alphaAt(rest, x, y), alphaAt(front, x, y))
-        else assert.ok(Math.abs(alpha - 255) <= 1)
+        assert.ok(Math.abs(alphaAt(rest, x, y) + alphaAt(back, x, y) - 255) <= 1)
+        assert.ok(alphaAt(front, x, y) <= alphaAt(rest, x, y) + 1)
       }
     }
   }
@@ -283,6 +279,28 @@ test('an open collar the decomposition drew over the neck: only cloth reaching i
   assert.equal(alphaAt(front!, 40, 55), 0, 'the chest skin the shirt was painted with is not cloth in front')
   assert.equal(alphaAt(front!, 40, 26), 0, 'nor the chain, an island inside the neck')
   assert.equal(alphaAt(rear, 40, 26), 255, 'the band under the chain goes behind the neck')
+})
+
+test('a white collar on pale skin the neck layer copied: the top keeps it, so a moving neck shows cloth, not holes', () => {
+  const skin = [245, 205, 190, 255] as const
+  const juban = [250, 246, 240, 255] as const
+  const fold = [248, 238, 230, 255] as const // a fold the neck layer copied from the picture
+  const copied = (x: number, y: number) => x >= 29 && x < 33 && y >= 56 && y < 60
+  const neck = raster('neck', 20, 20, 40, 50, (x, y) => (copied(x, y) ? fold : skin))
+  const topwear = raster('topwear', 0, 0, 80, 100, () => juban)
+  const face = { ...raster('neck', 20, 0, 40, 20, () => skin), id: 'face', role: 'face' as const }
+  const reference = raster('topwear', 0, 0, 80, 100, (x, y) =>
+    x >= 20 && x < 60 && y < 44 ? skin : copied(x, y) ? fold : juban,
+  )
+  const output = splitHighCollarOcclusion([topwear, neck, face], anchors, reference)
+  const front = output.find((l) => l.role === 'collar-front')!
+  const back = output.find((l) => l.role === 'collar-back')!
+  const top = output.find((l) => l.role === 'topwear')!
+  assert.equal(alphaAt(back, 30, 58), 255, 'the picture matches the neck there: behind it')
+  assert.equal(alphaAt(top, 30, 58), 255, 'the top keeps what the picture shows')
+  assert.equal(alphaAt(front, 40, 60), 255)
+  assert.equal(alphaAt(top, 40, 60), 255, 'and keeps the front collar under it')
+  assert.equal(alphaAt(top, 40, 28), 0, 'the guessed garment behind the bare neck is not kept')
 })
 
 function raster(

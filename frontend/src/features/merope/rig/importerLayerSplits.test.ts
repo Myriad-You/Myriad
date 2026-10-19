@@ -176,6 +176,16 @@ test('back hair put over a neck drawn over the top goes just behind the neck, st
   assert.equal(tuckBackHairBehindNeck(under), under)
 })
 
+test('back hair between a neck and the stand collar drawn over it goes behind the neck', () => {
+  const box = { left: 0, top: 0, width: 4, height: 4 }
+  const neck = solid('neck', 'neck', [240, 210, 200], box)
+  const hair = solid('back-hair', 'back-hair', [30, 30, 60], box)
+  const topwear = solid('topwear', 'topwear', [40, 40, 90], box)
+  const face = solid('face', 'face', [250, 225, 215], box)
+  const out = tuckBackHairBehindNeck([neck, hair, topwear, face])
+  assert.deepEqual(out.map((l) => l.id), ['back-hair', 'neck', 'topwear', 'face'])
+})
+
 test('back hair stacked over the face goes just behind it', () => {
   const box = { left: 0, top: 0, width: 4, height: 4 }
   const ears = solid('ears', 'ears', [240, 210, 200], box)
