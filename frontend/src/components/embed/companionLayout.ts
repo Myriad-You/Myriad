@@ -1,7 +1,7 @@
 /**
  * 伴读胶囊摆在哪：照改版前阅读器的两侧浮动——左右各一个竖胶囊，贴着正文两边、留 32px，
  * 竖直居中。主题千差万别，正文在哪只能量；左边还要让开主站的导航岛。两边放不下
- * （手机、窄窗口）就换成底部居中的一条，手机上导航岛横在底部，就叠在它上面。
+ * （手机、窄窗口）就并成一个竖胶囊，贴在窗口右边、竖直居中；手机上导航岛横在底部，碰不到它。
  */
 
 export interface Box {
@@ -13,15 +13,16 @@ export interface Box {
 
 export type CompanionLayout =
   | { mode: 'sides'; left: number; right: number }
-  | { mode: 'bar'; bottom: number }
+  | { mode: 'rail'; right: number }
 
 /** 胶囊外宽：36px 的按钮加 8px 内边距和 1px 边框。 */
 export const CAPSULE_WIDTH = 54
 export const CAPSULE_GAP = 32
 const EDGE = 12
+/** 并成一个时离窗口右边多远：手机屏幕窄，贴得近一些。 */
+export const RAIL_EDGE = 8
 /** 比这窄就不放两侧，和旧阅读器的 `sm` 一样。 */
 const SIDES_MIN_WIDTH = 640
-const BAR_BOTTOM = 18
 
 export function companionLayout(
   view: { width: number; height: number },
@@ -29,17 +30,13 @@ export function companionLayout(
   nav: Box | null,
 ): CompanionLayout {
   const navVertical = nav != null && nav.bottom - nav.top > nav.right - nav.left
-  const navAtBottom = nav != null && !navVertical && nav.bottom > view.height - 120
   const left = article.left - CAPSULE_GAP - CAPSULE_WIDTH
   const right = article.right + CAPSULE_GAP
   const leftLimit = (navVertical ? nav.right : 0) + EDGE
   if (view.width >= SIDES_MIN_WIDTH && left >= leftLimit && right + CAPSULE_WIDTH <= view.width - EDGE) {
     return { mode: 'sides', left: Math.round(left), right: Math.round(right) }
   }
-  return {
-    mode: 'bar',
-    bottom: navAtBottom ? Math.round(view.height - nav.top + EDGE) : BAR_BOTTOM,
-  }
+  return { mode: 'rail', right: RAIL_EDGE }
 }
 
 /** 读到哪了：正文顶端过了视口顶端算起，正文底端到了视口底端算读完。 */

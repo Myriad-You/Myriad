@@ -61,8 +61,7 @@
 }
 
 /* 胶囊：竖直居中，贴着正文两边。 */
-.capsule,
-.bar {
+.capsule {
   position: fixed;
   z-index: 2147482900;
   display: flex;
@@ -728,21 +727,16 @@
   color: light-dark(#0284c7, #38bdf8);
 }
 
-/* 手机和窄窗口：底部居中的一条，面板从底下升起，盖过主站的导航岛（2147483000），在创作台之下。 */
-.bar {
-  left: 50%;
-  flex-direction: row;
-  gap: 4px;
+/*
+ * 手机和窄窗口：并成一个竖胶囊贴在窗口右边，面板从底下升起，
+ * 盖过主站的导航岛（2147483000），在创作台之下。
+ */
+.capsule--rail {
+  gap: 6px;
   padding: 6px;
-  /* 手机上横在正文上面，透出来的字会和按钮打架：底色厚一些。 */
+  /* 压在正文上面，透出来的字会和按钮打架：底色厚一些。 */
   background: color-mix(in srgb, var(--solid) 94%, transparent);
   box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
-  transform: translateX(-50%);
-}
-
-.bar .btn--ring .ring {
-  width: 30px;
-  height: 30px;
 }
 
 .scrim {

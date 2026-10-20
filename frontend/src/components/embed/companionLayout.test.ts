@@ -5,6 +5,7 @@ import {
   CAPSULE_WIDTH,
   companionLayout,
   LEADING_STEPS,
+  RAIL_EDGE,
   readingPrefsFromValue,
   readingProgress,
   SIZE_STEPS,
@@ -22,22 +23,16 @@ test('宽窗口里两个胶囊贴着正文两边', () => {
   })
 })
 
-test('左边会碰上导航岛、右边出窗口、或者太窄时换成底部一条', () => {
-  assert.equal(companionLayout({ width: 900, height: 800 }, column(104, 640), rail).mode, 'bar')
-  assert.equal(companionLayout({ width: 1100, height: 800 }, column(400, 640), null).mode, 'bar')
-  assert.equal(companionLayout({ width: 620, height: 800 }, column(100, 400), null).mode, 'bar')
+test('左边会碰上导航岛、右边出窗口、或者太窄时并成右边一个', () => {
+  assert.equal(companionLayout({ width: 900, height: 800 }, column(104, 640), rail).mode, 'rail')
+  assert.equal(companionLayout({ width: 1100, height: 800 }, column(400, 640), null).mode, 'rail')
+  assert.equal(companionLayout({ width: 620, height: 800 }, column(100, 400), null).mode, 'rail')
 })
 
-test('手机上导航岛横在底部，底部那条叠在它上面', () => {
+test('手机上贴着窗口右边，导航岛横在底部也一样', () => {
   const bar = { left: 49, right: 341, top: 724, bottom: 796 }
-  assert.deepEqual(companionLayout({ width: 390, height: 812 }, column(0, 390), bar), {
-    mode: 'bar',
-    bottom: 812 - 724 + 12,
-  })
-  assert.deepEqual(companionLayout({ width: 390, height: 812 }, column(0, 390), null), {
-    mode: 'bar',
-    bottom: 18,
-  })
+  assert.deepEqual(companionLayout({ width: 390, height: 812 }, column(0, 390), bar), { mode: 'rail', right: RAIL_EDGE })
+  assert.deepEqual(companionLayout({ width: 390, height: 812 }, column(0, 390), null), { mode: 'rail', right: RAIL_EDGE })
 })
 
 test('读到哪了', () => {

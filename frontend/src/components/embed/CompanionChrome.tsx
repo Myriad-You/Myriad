@@ -157,10 +157,12 @@ export function CompanionChrome({
   const { layout, progress } = usePageGeometry(page)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
+  // 并成右边一个时，手指点到窗口右边那一条就算伸手。
   const reaching = (x: number) =>
-    layout.mode === 'sides' &&
-    ((x >= layout.left - HOT_ZONE && x <= layout.left + CAPSULE_WIDTH + HOT_ZONE / 4) ||
-      (x >= layout.right - HOT_ZONE / 4 && x <= layout.right + CAPSULE_WIDTH + HOT_ZONE))
+    layout.mode === 'sides'
+      ? (x >= layout.left - HOT_ZONE && x <= layout.left + CAPSULE_WIDTH + HOT_ZONE / 4) ||
+        (x >= layout.right - HOT_ZONE / 4 && x <= layout.right + CAPSULE_WIDTH + HOT_ZONE)
+      : x >= page.win.innerWidth - layout.right - CAPSULE_WIDTH - HOT_ZONE / 4
   const { visible, ownScroll } = useChromeVisibility(page.win, hovered || focused || panel != null, reaching)
   const comments = page.doc.querySelector<HTMLElement>('iframe.myriad-comments')
   const quiet = page.win.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -255,7 +257,13 @@ export function CompanionChrome({
 
   return (
       <>
-        <div className="bar" style={{ bottom: layout.bottom }} {...hold}>
+        <div
+          className={`capsule capsule--right capsule--rail${visible ? '' : ' is-hidden'}`}
+          style={{ right: layout.right }}
+          inert={!visible}
+          aria-hidden={!visible}
+          {...hold}
+        >
           <button type="button" className="btn btn--ring" aria-label={progressLabel} title={progressLabel} onClick={toTop}>
             <ProgressRing progress={progress} />
           </button>
