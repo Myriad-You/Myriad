@@ -1,5 +1,5 @@
 /**
- * 伴读胶囊摆在哪：照改版前阅读器的两侧浮动——左右各一个竖胶囊，贴着正文两边、留 16px，
+ * 伴读胶囊摆在哪：照改版前阅读器的两侧浮动——左右各一个竖胶囊，贴着正文两边、留 32px，
  * 竖直居中。主题千差万别，正文在哪只能量；左边还要让开主站的导航岛。两边放不下
  * （手机、窄窗口）就换成底部居中的一条，手机上导航岛横在底部，就叠在它上面。
  */
@@ -17,7 +17,7 @@ export type CompanionLayout =
 
 /** 胶囊外宽：36px 的按钮加 8px 内边距和 1px 边框。 */
 export const CAPSULE_WIDTH = 54
-export const CAPSULE_GAP = 16
+export const CAPSULE_GAP = 32
 const EDGE = 12
 /** 比这窄就不放两侧，和旧阅读器的 `sm` 一样。 */
 const SIDES_MIN_WIDTH = 640
