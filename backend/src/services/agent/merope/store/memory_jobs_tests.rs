@@ -370,7 +370,10 @@ async fn durable_memory_stranger_batches_deduplicate_and_keep_arrivals_during_a_
         &first,
         Ok(Effect::Stranger {
             previous: None,
-            note: Some("喜欢猫".into()),
+            note: Some(myriad_merope::strangers::Noted {
+                note: "喜欢猫".into(),
+                facts: Vec::new(),
+            }),
         }),
     )
     .await
@@ -405,7 +408,10 @@ async fn durable_memory_stranger_batches_deduplicate_and_keep_arrivals_during_a_
         &first,
         Ok(Effect::Stranger {
             previous: None,
-            note: Some("旧工作线程".into()),
+            note: Some(myriad_merope::strangers::Noted {
+                note: "旧工作线程".into(),
+                facts: Vec::new(),
+            }),
         }),
     )
     .await

@@ -155,6 +155,56 @@ pub fn overlap(a: &str, b: &str) -> f64 {
     a.intersection(&b).count() as f64 / shorter as f64
 }
 
+/// Whether `text` (something of hers) is about what `talk` is about, not
+/// merely hooked on one word of it: at least two things it says are in the
+/// talk (a word, or a stretch of CJK whose bigrams are all in the talk, which
+/// counts once however long: 客户端 is one word, not two bigrams). Sharing
+/// one was enough for recall, and her own things came in on a single word:
+/// 「哲学家真的有用」 brought up a book with 哲学 in its title, a game lagging
+/// brought up news of another game's new client.
+pub fn touches(talk: &str, text: &str) -> bool {
+    let talk: HashSet<String> = terms(talk)
+        .into_iter()
+        .filter(|term| term.weight >= 1.0)
+        .map(|term| term.text)
+        .collect();
+    let mut shared: HashSet<String> = terms(text)
+        .into_iter()
+        .filter(|term| term.weight >= 1.0 && !term.text.chars().all(is_cjk))
+        .map(|term| term.text)
+        .filter(|term| talk.contains(term))
+        .collect();
+    let mut run: Vec<char> = Vec::new();
+    for ch in text.chars().chain(std::iter::once(' ')) {
+        if is_cjk(ch) {
+            run.push(ch);
+            continue;
+        }
+        if run.len() == 1 && talk.contains(&run[0].to_string()) {
+            shared.insert(run[0].to_string());
+        }
+        let mut stretch = String::new();
+        for pair in run.windows(2) {
+            if talk.contains(&pair.iter().collect::<String>()) {
+                if stretch.is_empty() {
+                    stretch.push(pair[0]);
+                }
+                stretch.push(pair[1]);
+            } else if !stretch.is_empty() {
+                shared.insert(std::mem::take(&mut stretch));
+            }
+        }
+        if !stretch.is_empty() {
+            shared.insert(stretch);
+        }
+        run.clear();
+    }
+    shared.len() >= TOUCHES_AT_LEAST
+}
+
+/// Terms of hers a talk must share for it to be about the same thing.
+const TOUCHES_AT_LEAST: usize = 2;
+
 /// One memory as recall sees it.
 pub struct Document<'a> {
     pub text: &'a str,
@@ -164,6 +214,12 @@ pub struct Document<'a> {
 /// Concept terms cannot collide with words: text never yields a control char.
 fn concept_term(name: &str) -> String {
     format!("\u{1}{}", name.to_lowercase())
+}
+
+/// Whether `text` uses `word`, in any case: as its own word where it is not
+/// CJK (「ai」 is not in 「said」, nor 「no」 in 「know」), anywhere where it is.
+pub fn uses_word(text: &str, word: &str) -> bool {
+    mentions(&text.to_lowercase(), &word.trim().to_lowercase())
 }
 
 /// Whether `form` is mentioned in `text` (both lowercase). CJK has no word
@@ -388,6 +444,27 @@ mod tests {
     }
 
     #[test]
+    fn one_shared_word_does_not_make_it_the_same_thing() {
+        assert!(!super::touches(
+            "哲学家真的有用",
+            "读完了《猫に哲学》，猫比人想得开"
+        ));
+        assert!(!super::touches(
+            "这游戏卡死了 客户端一直转圈",
+            "次元大作战复活了，GitHub上发布了客户端新版本v0.8.14"
+        ));
+        assert!(super::touches(
+            "次元大作战是不是复活了",
+            "次元大作战复活了，GitHub上发布了客户端新版本v0.8.14"
+        ));
+        assert!(super::touches(
+            "最近在听 Ocean of Memories",
+            "反复听 Ocean of Memories 这首"
+        ));
+        assert!(!super::touches("", "喜欢咖啡"));
+    }
+
+    #[test]
     fn a_shared_character_alone_is_not_a_match() {
         let scores = score_all("今天", &["天气不错", "今天加班"]);
         assert!(!scores[0].strong, "今天 and 天气 only share 天");
@@ -459,6 +536,16 @@ mod tests {
             !super::score_all("category theory", &documents)[0].strong,
             "cat inside a longer word is not the cat"
         );
+    }
+
+    #[test]
+    fn a_word_is_used_only_as_a_word() {
+        assert!(super::uses_word("AI 又抽风了", "ai"));
+        assert!(!super::uses_word("he said wait", "ai"));
+        assert!(!super::uses_word("I know nothing", "no"));
+        assert!(super::uses_word("no 不要", "No"));
+        assert!(super::uses_word("哈哈hyw又来了", "hyw"));
+        assert!(super::uses_word("开盒了开盒了", "开盒"));
     }
 
     #[test]

@@ -55,12 +55,28 @@ pub(crate) fn learn(
     terms: Vec<String>,
     conversation: &[String],
 ) {
+    // What people go by there is not a word to look up: a group card read
+    // as a meme came back as some made-up meaning of it.
+    let now = cx.now();
+    let names: Vec<String> = people(cx.group, now)
+        .into_iter()
+        .map(|(name, _)| name)
+        .chain(cx.group.shown_as.clone())
+        .filter(|name| !name.trim().is_empty())
+        .collect();
     let terms: VecDeque<(String, Vec<String>)> = terms
         .into_iter()
+        .filter(|term| {
+            !names
+                .iter()
+                .any(|name| myriad_agent_rules::memory::lexical::uses_word(name, term))
+        })
         .map(|term| {
             let used = crate::memes::used_in(&term, conversation);
             (term, used)
         })
+        // Only a word the talk really uses, as a word, is held to its use.
+        .filter(|(_, used)| !used.is_empty())
         .collect();
     if terms.is_empty() {
         return;

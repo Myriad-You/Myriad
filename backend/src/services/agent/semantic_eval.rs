@@ -1008,11 +1008,13 @@ fn request(case: &Case) -> Value {
                 .history
                 .chunks(2)
                 .map(|pair| {
-                    json!({"they":pair[0].text,"you":pair.get(1).map(|line| line.text.as_str()).unwrap_or_default()})
+                    let (they, replying) = myriad_merope::strangers::their_own(&pair[0].text);
+                    json!({"they":they,"replyingTo":replying,"you":pair.get(1).map(|line| line.text.as_str()).unwrap_or_default()})
                 })
                 .collect();
             json!({"system":system,"schema":schema,"schemaName":"merope_stranger_note",
-                "input":json!({"name":"阿明","remembered":case.remembered.first(),
+                "input":json!({"name":"阿明","remembered":case.remembered.first()
+                    .map(|note| myriad_merope::strangers::facts_of(note, None)).unwrap_or_default(),
                     "exchanges":exchanges}).to_string()})
         }
         "sense" => {
@@ -1494,7 +1496,15 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
             Some(bits) if bits.is_empty() => "pass",
             Some(_) => "needs_review",
         },
-        "stranger_note" => match super::merope::strangers::note_verdict(output) {
+        "stranger_note" => match super::merope::strangers::note_verdict(
+            output,
+            case.remembered.first().map(String::as_str),
+            &case
+                .history
+                .chunks(2)
+                .map(|pair| pair[0].text.clone())
+                .collect::<Vec<_>>(),
+        ) {
             None => "output_invalid",
             Some(None) if case.fact_present => "behavior_failure",
             // Nothing worth keeping, and nothing kept.

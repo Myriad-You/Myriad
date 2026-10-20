@@ -144,7 +144,11 @@ pub async fn recalled(
         let mut touched: Vec<(usize, f64)> = scores
             .iter()
             .enumerate()
-            .filter(|(index, score)| score.strong && !picked.contains(index))
+            .filter(|(index, score)| {
+                score.strong
+                    && !picked.contains(index)
+                    && crate::services::agent::memory::lexical::touches(words, &texts[*index])
+            })
             .map(|(index, score)| (index, score.value))
             .collect();
         touched.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -222,8 +226,14 @@ pub(super) fn ago(now: DateTime<Utc>, at: DateTime<Utc>) -> String {
 /// listening with her, or how she can put her song on for them.
 /// What she did on her own after `since` (within the last day) that she
 /// would want to tell someone, most recent first: what it was, how it
-/// landed and what she wrote.
-pub async fn would_tell(db: &DatabaseConnection, since: Option<DateTime<Utc>>) -> Vec<String> {
+/// landed and what she wrote. With `talk`, only what is about what is being
+/// talked about (see `lexical::touches`): a group's talk is not hers to turn
+/// to her own day.
+pub async fn would_tell(
+    db: &DatabaseConnection,
+    since: Option<DateTime<Utc>>,
+    talk: Option<&str>,
+) -> Vec<String> {
     const WITHIN: chrono::Duration = chrono::Duration::hours(24);
     const AT_MOST: usize = 3;
     let now = crate::services::agent::memory::utc_now();
@@ -237,6 +247,12 @@ pub async fn would_tell(db: &DatabaseConnection, since: Option<DateTime<Utc>>) -
         })
         .filter_map(|row| Some((Experience::of(row)?, row)))
         .filter(|(experience, _)| experience.tell)
+        .filter(|(experience, row)| {
+            talk.is_none_or(|talk| {
+                let what = format!("{} {}", experience.thing.describe(), row.content);
+                crate::services::agent::memory::lexical::touches(talk, &what)
+            })
+        })
         .take(AT_MOST)
         .map(|(experience, row)| format!("{}: {}", experience.line_felt(), row.content))
         .collect()

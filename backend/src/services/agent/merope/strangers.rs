@@ -29,10 +29,12 @@ use crate::models::entities::agent_memories;
 use crate::services::agent::memory::unified;
 pub use myriad_merope::strangers::Stranger;
 #[cfg(test)]
+use myriad_merope::strangers::evidence_of;
+#[cfg(test)]
 use myriad_merope::strangers::talks_key;
 use myriad_merope::strangers::{
-    EXCHANGE_CHARS, Exchange, NOTE_SCHEMA, evidence_marker, evidence_of, note_schema, note_system,
-    parse_note,
+    EXCHANGE_CHARS, Exchange, NOTE_SCHEMA, Noted, evidence_marker, evidence_with, facts_of,
+    note_schema, note_system, parse_note, their_own,
 };
 #[cfg(test)]
 use serde_json::Value;
@@ -162,12 +164,20 @@ pub(super) async fn prepare_note(
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let input = json!({ "name": stranger.name, "remembered": kept.as_ref().map(|row| row.content.as_str()), "exchanges": exchanges }).to_string();
+    // The note is made of facts resting on their own words; what they were
+    // answering is someone else's, and shown as that.
+    let held = kept
+        .as_ref()
+        .map(|row| facts_of(&row.content, row.evidence.as_deref()))
+        .unwrap_or_default();
+    let (theirs, shown) = shown_exchanges(exchanges);
+    let input =
+        json!({ "name": stranger.name, "remembered": held, "exchanges": shown }).to_string();
     let raw = super::call::Ask::new(super::call::Voice::Thorough, owner, NOTE_SCHEMA)
         .within(NOTE_TIMEOUT)
         .json_raw(&note_system(&soul), &input, NOTE_SCHEMA, &note_schema())
         .await?;
-    let note = parse_note(&raw).ok_or(super::call::Failure::InvalidOutput)?;
+    let note = parse_note(&raw, &held, &theirs).ok_or(super::call::Failure::InvalidOutput)?;
     // Having talked with them a while, whether they might be someone she
     // knows from elsewhere.
     let said: Vec<String> = exchanges
@@ -181,6 +191,19 @@ pub(super) async fn prepare_note(
     })
 }
 
+/// The exchanges as her note reads them: their own words, the line they
+/// answered, her reply; and their own words alone, which a fact must rest on.
+fn shown_exchanges(exchanges: &[Exchange]) -> (Vec<String>, Vec<serde_json::Value>) {
+    exchanges
+        .iter()
+        .map(|exchange| {
+            let (own, replying) = their_own(&exchange.they);
+            let shown = json!({ "they": own, "replyingTo": replying, "you": exchange.you });
+            (own, shown)
+        })
+        .unzip()
+}
+
 /// Called inside the same transaction as queue acknowledgement. Only replace
 /// the note read by this attempt; a concurrent fade/change cannot be undone.
 pub(super) async fn apply_note(
@@ -188,7 +211,7 @@ pub(super) async fn apply_note(
     venue: &str,
     stranger: &Stranger,
     previous: Option<&str>,
-    note: Option<&str>,
+    note: Option<&Noted>,
 ) -> anyhow::Result<()> {
     let group = group_venue(venue);
     let kept =
@@ -201,16 +224,23 @@ pub(super) async fn apply_note(
             unified::refresh_unowned(db, &group, &row.id).await?;
         }
         (None, None) => {}
-        (Some(note), kept) => {
+        (Some(noted), kept) => {
             if let Some(row) = &kept
-                && unified::normalize_content(&row.content) == unified::normalize_content(note)
+                && unified::normalize_content(&row.content)
+                    == unified::normalize_content(&noted.note)
             {
                 unified::refresh_unowned(db, &group, &row.id).await?;
                 return Ok(());
             }
             // The new note takes the old one's place.
-            let new = unified::remember_in_venue(db, &group, note, &evidence_of(stranger), SOURCE)
-                .await?;
+            let new = unified::remember_in_venue(
+                db,
+                &group,
+                &noted.note,
+                &evidence_with(stranger, &noted.facts),
+                SOURCE,
+            )
+            .await?;
             if let Some(row) = kept {
                 unified::retire_unowned_in_favor_of(
                     db,
@@ -240,9 +270,19 @@ pub(crate) fn note_probe_contract(soul: &str) -> (String, Value) {
     (note_system(soul), note_schema())
 }
 
+/// The note an answer comes to, given what she remembered (an older note)
+/// and the exchanges' lines of theirs.
 #[cfg(test)]
-pub(crate) fn note_verdict(raw: &str) -> Option<Option<String>> {
-    parse_note(raw)
+pub(crate) fn note_verdict(
+    raw: &str,
+    remembered: Option<&str>,
+    they: &[String],
+) -> Option<Option<String>> {
+    let held = remembered
+        .map(|note| facts_of(note, None))
+        .unwrap_or_default();
+    let theirs: Vec<String> = they.iter().map(|said| their_own(said).0).collect();
+    parse_note(raw, &held, &theirs).map(|noted| noted.map(|noted| noted.note))
 }
 
 #[cfg(test)]

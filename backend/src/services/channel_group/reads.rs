@@ -145,7 +145,7 @@ pub(super) async fn read(venue: &str, what: ToRead) -> Answer {
             };
             Answer::Life {
                 did: doing::recalled(&db, Some(&talk), 0, related).await,
-                would_tell: doing::would_tell(&db, None).await,
+                would_tell: doing::would_tell(&db, None, Some(&talk)).await,
                 now: doing::now_text(crate::services::agent::memory::utc_now()),
             }
         }

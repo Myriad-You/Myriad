@@ -72,7 +72,7 @@ pub fn watch(watched: &mut Vec<Watched>, term: &str, lines: &[String]) {
 pub fn hear(watched: &mut [Watched], line: &str) -> Vec<usize> {
     let mut due = Vec::new();
     for (index, word) in watched.iter_mut().enumerate() {
-        if !line.contains(&word.term) {
+        if !myriad_agent_rules::memory::lexical::uses_word(line, &word.term) {
             continue;
         }
         word.uses += 1;

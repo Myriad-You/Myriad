@@ -170,7 +170,7 @@ async fn first_words(db: &DatabaseConnection, user_id: i32) -> Option<(Reason, S
     let now = super::clock::now();
     let threads = threads::open(db, user_id).await;
     let last = last_talk(db, user_id).await;
-    let to_tell = super::doing::would_tell(db, last).await;
+    let to_tell = super::doing::would_tell(db, last, None).await;
     // A puzzle she made that they have not played.
     let table = myriad_merope::soup::Table::Private { user_id }.record_id();
     let puzzle = super::making::untried_at(db, &table).await;

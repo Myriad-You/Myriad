@@ -485,7 +485,7 @@ pub(in crate::services::agent::merope) async fn finish(
                         venue,
                         stranger,
                         previous.as_deref(),
-                        note.as_deref(),
+                        note.as_ref(),
                     )
                     .await?;
                     "applied".into()

@@ -125,7 +125,7 @@ pub(super) enum Effect {
     },
     Stranger {
         previous: Option<String>,
-        note: Option<String>,
+        note: Option<myriad_merope::strangers::Noted>,
     },
     NoChange,
     Stale,
