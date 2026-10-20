@@ -117,11 +117,12 @@ input:focus-visible {
   color: var(--so-ink);
 }
 
+/* 创作台的标记：固定的金色，不跟主站强调色变。 */
 .bar__mark {
   width: 14px;
   height: 14px;
   margin-left: -2px;
-  color: var(--so-accent);
+  color: light-dark(#b8860b, #fbbf24);
 }
 
 .bar__key {
