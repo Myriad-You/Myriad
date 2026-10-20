@@ -1,5 +1,7 @@
 {
   "commentsTitle": "評論",
+  "schemeToDark": "換成深色",
+  "schemeToLight": "換成淺色",
   "friendTitle": "友聯申請",
   "friendHint": "提交站點，通過後會出現在友鏈頁。有 RSS 會建成訂閱，沒有就只留入口。",
   "loading": "正在載入…",

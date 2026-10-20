@@ -8,6 +8,9 @@
   --link: light-dark(#9a3412, #fdba74);
   --code: light-dark(#f0eeeb, #292524);
 }
+/* 主站是深色还是浅色：后端写在 <html data-scheme> 上，伴读上的按钮也改它。 */
+:root[data-scheme='dark'] { color-scheme: dark; }
+:root[data-scheme='light'] { color-scheme: light; }
 /* 访客在主站固定了深色或浅色：博客跟着走（后端把它写在导航岛上）。 */
 :root:has(#myriad-nav[data-scheme='dark']) { color-scheme: dark; }
 :root:has(#myriad-nav[data-scheme='light']) { color-scheme: light; }

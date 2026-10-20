@@ -1,5 +1,7 @@
 {
   "commentsTitle": "コメント",
+  "schemeToDark": "ダークにする",
+  "schemeToLight": "ライトにする",
   "friendTitle": "相互リンク申請",
   "friendHint": "サイトを送ると、承認後に友链ページへ載ります。RSS があれば購読、なければ入口だけです。",
   "loading": "読み込み中…",

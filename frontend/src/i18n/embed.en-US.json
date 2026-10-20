@@ -1,5 +1,7 @@
 {
   "commentsTitle": "Comments",
+  "schemeToDark": "Switch to dark",
+  "schemeToLight": "Switch to light",
   "friendTitle": "Friend link application",
   "friendHint": "Submit a site. After approval it appears on the friends page. An RSS address becomes a subscription; without one it stays an entry link.",
   "loading": "Loading…",

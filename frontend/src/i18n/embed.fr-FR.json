@@ -1,5 +1,7 @@
 {
   "commentsTitle": "Commentaires",
+  "schemeToDark": "Passer en sombre",
+  "schemeToLight": "Passer en clair",
   "friendTitle": "Demande de lien",
   "friendHint": "Envoyez un site. Après validation, il apparaît sur la page des liens. Une adresse RSS devient un abonnement ; sans elle, seul le lien d’entrée reste.",
   "loading": "Chargement…",

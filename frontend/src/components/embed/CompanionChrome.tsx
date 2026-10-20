@@ -5,13 +5,16 @@ import type { Kind } from './CompanionPanels'
 import {
   LuMessageSquare as MessageSquare,
   LuMic as Mic,
+  LuMoon as Moon,
   LuSparkles as Sparkles,
+  LuSun as Sun,
   LuType as TypeIcon,
 } from '@lib/icons'
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { CAPSULE_WIDTH, companionLayout, readingProgress } from './companionLayout'
 import { PanelShell, Stepper } from './CompanionPanels'
+import { pageIsDark, pageSchemeSwitch, switchSiteScheme } from './companionScheme'
 import { ChromeVisibility } from './companionVisibility'
 
 export type Panel = Kind | 'reading'
@@ -165,6 +168,21 @@ export function CompanionChrome({
       : x >= page.win.innerWidth - layout.right - CAPSULE_WIDTH - HOT_ZONE / 4
   const { visible, ownScroll } = useChromeVisibility(page.win, hovered || focused || panel != null, reaching)
   const comments = page.doc.querySelector<HTMLElement>('iframe.myriad-comments')
+  // 主题能被替着切深浅色才有这颗按钮：只跟系统、没有深色的主题切了也看不出来。
+  const schemeSwitch = pageSchemeSwitch(page.doc)
+  const dark = schemeSwitch ? pageIsDark(page.doc, schemeSwitch) : false
+  const schemeLabel = dark ? copy.schemeToLight : copy.schemeToDark
+  const schemeButton = schemeSwitch ? (
+    <button
+      type="button"
+      className="btn"
+      aria-label={schemeLabel}
+      title={schemeLabel}
+      onClick={() => switchSiteScheme(page.win, !dark)}
+    >
+      {dark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+    </button>
+  ) : null
   const quiet = page.win.matchMedia('(prefers-reduced-motion: reduce)').matches
   const behavior: ScrollBehavior = quiet ? 'auto' : 'smooth'
 
@@ -240,14 +258,13 @@ export function CompanionChrome({
           aria-hidden={!visible}
           {...hold}
         >
+          {schemeButton}
           {comments ? (
-            <>
-              <button type="button" className="btn" aria-label={copy.commentsTitle} title={copy.commentsTitle} onClick={toComments}>
-                <MessageSquare aria-hidden="true" />
-              </button>
-              <span className="divider" aria-hidden="true" />
-            </>
+            <button type="button" className="btn" aria-label={copy.commentsTitle} title={copy.commentsTitle} onClick={toComments}>
+              <MessageSquare aria-hidden="true" />
+            </button>
           ) : null}
+          {schemeButton || comments ? <span className="divider" aria-hidden="true" /> : null}
           <Stepper label={copy.fontSize} kind="size" value={size.label} copy={copy} onStep={size.onStep} />
           <Stepper label={copy.lineHeight} kind="leading" value={leading.label} copy={copy} onStep={leading.onStep} />
         </div>
@@ -273,6 +290,7 @@ export function CompanionChrome({
               <MessageSquare aria-hidden="true" />
             </button>
           ) : null}
+          {schemeButton}
           <button
             type="button"
             className={`btn${panel === 'reading' ? ' is-on' : ''}`}

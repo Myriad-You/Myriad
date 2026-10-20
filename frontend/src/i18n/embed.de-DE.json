@@ -1,5 +1,7 @@
 {
   "commentsTitle": "Kommentare",
+  "schemeToDark": "Dunkel anzeigen",
+  "schemeToLight": "Hell anzeigen",
   "friendTitle": "Linkantrag",
   "friendHint": "Site einreichen. Nach der Freigabe erscheint sie auf der Linkseite. Mit RSS wird ein Abo, ohne RSS nur ein Einstieg.",
   "loading": "Wird geladen…",

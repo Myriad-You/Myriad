@@ -602,7 +602,7 @@ pub fn apply_page_scheme(html: &str, dark: bool) -> Option<String> {
                     let switch = el
                         .get_attribute(SCHEME_MARK_ATTR)
                         .and_then(|mark| SchemeSwitch::from_mark(&mark));
-                    el.remove_attribute(SCHEME_MARK_ATTR);
+                    // 标记留着：伴读上的深浅色按钮靠它知道这个主题怎么切。
                     if let Some(switch) = &switch
                         && switch.target() == Some(SchemeTarget::Html)
                     {
@@ -773,7 +773,7 @@ mod tests {
         assert!(marked.contains(SCHEME_MARK_ATTR));
         let dark = apply_page_scheme(&marked, true).unwrap();
         assert!(dark.contains("class=\"scroll-smooth dark\""));
-        assert!(!dark.contains(SCHEME_MARK_ATTR));
+        assert!(dark.contains(SCHEME_MARK_ATTR));
         let light = apply_page_scheme(&marked, false).unwrap();
         assert!(light.contains("class=\"scroll-smooth\""));
 

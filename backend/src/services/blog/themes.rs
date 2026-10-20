@@ -56,10 +56,15 @@ impl ThemeScheme {
         }
     }
 
-    /// 内置主题自己跟着系统和导航岛走，不用后端替它切。
+    /// 内置主题：`<html data-scheme>`，样式表里写着。归代码管，不用站长确认。
     fn builtin() -> Self {
         Self {
-            switch: SchemeSwitch::System,
+            switch: SchemeSwitch::Attribute {
+                target: myriad_blog::SchemeTarget::Html,
+                name: "data-scheme".to_string(),
+                dark: "dark".to_string(),
+                light: Some("light".to_string()),
+            },
             evidence: Vec::new(),
             confirmed: true,
         }
@@ -164,6 +169,10 @@ pub fn read_theme(layout: &BlogLayout, id: &str) -> Option<ThemeRecord> {
         return None;
     }
     if let Some(mut record) = read_sidecar(&dir) {
+        if record.builtin && record.scheme != Some(ThemeScheme::builtin()) {
+            record.scheme = Some(ThemeScheme::builtin());
+            let _ = write_sidecar(&dir, &record);
+        }
         if record.scheme.is_none() {
             // 早先装的主题：现认一次记下来，下次就不用再扫了。
             record.scheme = Some(if record.builtin {

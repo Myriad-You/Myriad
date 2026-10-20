@@ -1,5 +1,7 @@
 {
   "commentsTitle": "评论",
+  "schemeToDark": "换成深色",
+  "schemeToLight": "换成浅色",
   "friendTitle": "友联申请",
   "friendHint": "提交站点，通过后会出现在友链页。有 RSS 会建成订阅，没有就只留入口。",
   "loading": "正在加载…",

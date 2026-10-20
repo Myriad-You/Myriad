@@ -38,6 +38,23 @@ export function siteChromeValue(input: {
   return [input.setting, input.dark ? 'dark' : 'light', primary, accent].join('.')
 }
 
+/** 写 cookie 的那一行；主站和博客页上伴读的深浅色按钮都用它。 */
+export function siteChromeCookieLine(value: string, https: boolean): string {
+  const secure = https ? '; Secure' : ''
+  return `${SITE_CHROME_COOKIE}=${value}; Path=/blog; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`
+}
+
+/**
+ * 在博客页上把深浅色固定成另一边：主色和强调色沿用 cookie 里现有的（强调色要等下次打开主站才按新的一边重算），
+ * 没有 cookie 就用默认色。
+ */
+export function siteChromeSwitched(current: string | null, dark: boolean): string {
+  const parts = current?.split('.') ?? []
+  const hex = (value: string | undefined) => (value && /^[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : '94a3b8')
+  const scheme = dark ? 'dark' : 'light'
+  return [scheme, scheme, hex(parts[2]), hex(parts[3])].join('.')
+}
+
 function readSetting(): ThemeSetting {
   try {
     const stored = localStorage.getItem('theme')
@@ -60,8 +77,7 @@ function writeCookie() {
   })
   if (!value || value === lastWritten) return
   lastWritten = value
-  const secure = location.protocol === 'https:' ? '; Secure' : ''
-  document.cookie = `${SITE_CHROME_COOKIE}=${value}; Path=/blog; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`
+  document.cookie = siteChromeCookieLine(value, location.protocol === 'https:')
 }
 
 let started = false

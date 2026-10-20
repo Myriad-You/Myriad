@@ -1,5 +1,7 @@
 {
   "commentsTitle": "댓글",
+  "schemeToDark": "다크로 바꾸기",
+  "schemeToLight": "라이트로 바꾸기",
   "friendTitle": "링크 신청",
   "friendHint": "사이트를 보내면 승인 후 친구 페이지에 올라갑니다. RSS가 있으면 구독, 없으면 입구만 남습니다.",
   "loading": "불러오는 중…",
