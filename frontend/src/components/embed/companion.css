@@ -161,17 +161,20 @@
 
 .badge {
   position: absolute;
-  top: -3px;
-  right: -3px;
-  min-width: 16px;
-  height: 16px;
+  top: -2px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
   padding: 0 4px;
   border-radius: 999px;
   background: var(--badge);
+  /* 一圈胶囊底色，把数字和图标隔开。 */
+  box-shadow: 0 0 0 2px var(--solid);
   color: #fff;
-  font-size: 10px;
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
-  line-height: 16px;
+  line-height: 15px;
   text-align: center;
 }
 
@@ -632,6 +635,12 @@
   transition: width 0.3s var(--ease);
 }
 
+.player .player__stop svg {
+  width: 11px;
+  height: 11px;
+  fill: currentcolor;
+}
+
 .player__at {
   margin-left: auto;
   color: var(--soft);
@@ -725,6 +734,9 @@
   flex-direction: row;
   gap: 4px;
   padding: 6px;
+  /* 手机上横在正文上面，透出来的字会和按钮打架：底色厚一些。 */
+  background: color-mix(in srgb, var(--solid) 94%, transparent);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
   transform: translateX(-50%);
 }
 
@@ -751,11 +763,26 @@
 }
 
 .sheet .panel {
+  position: relative;
   width: 100%;
   max-height: 60vh;
+  padding-top: 10px;
   padding-bottom: env(safe-area-inset-bottom);
   border-width: 1px 0 0;
   border-radius: 1rem 1rem 0 0;
+}
+
+/* 顶上一道把手，看得出是从底下升起来的一张。 */
+.sheet .panel::before {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  content: '';
+  transform: translateX(-50%);
 }
 
 .reading {

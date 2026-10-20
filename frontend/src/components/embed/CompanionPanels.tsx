@@ -199,7 +199,7 @@ export function PodcastPanel({
           <button type="button" aria-label={copy.next} title={copy.next} disabled={podcast.audioLoading || podcast.index >= podcast.dialogues.length - 1} onClick={() => { void podcast.next() }}>
             <SkipForward aria-hidden="true" />
           </button>
-          <button type="button" aria-label={copy.stop} title={copy.stop} disabled={podcast.state === 'stopped'} onClick={podcast.stop}>
+          <button type="button" className="player__stop" aria-label={copy.stop} title={copy.stop} disabled={podcast.state === 'stopped'} onClick={podcast.stop}>
             <Square aria-hidden="true" />
           </button>
           <span className="player__at">
