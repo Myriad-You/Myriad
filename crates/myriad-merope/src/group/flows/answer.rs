@@ -157,6 +157,9 @@ pub(crate) fn answer_step(cx: &mut Cx, a: &mut Answering, answer: Option<Answer>
             };
             a.stage = AnswerStage::Turning;
             let (member, next) = member_start(cx, a, differs, late);
+            if !matches!(next, MemberNext::Wait(_)) {
+                a.turn = member.turn.clone();
+            }
             a.member = Some(Box::new(member));
             member_replied(cx, a, next)
         }
@@ -167,6 +170,8 @@ pub(crate) fn answer_step(cx: &mut Cx, a: &mut Answering, answer: Option<Answer>
             let next = member_step(cx, &mut member, answer);
             if matches!(next, MemberNext::Wait(_)) {
                 a.member = Some(member);
+            } else {
+                a.turn = member.turn.clone();
             }
             member_replied(cx, a, next)
         }
@@ -320,13 +325,21 @@ pub(crate) fn after_saying(cx: &mut Cx, a: &mut Answering, went_out: String) -> 
     }
     // Held back, the sticker she chose for it is too.
     let held = !a.reply.trim().is_empty() && !sent;
+    let mut sticker = false;
     if let Some(chosen) = a.sticker.take().filter(|_| !held) {
         cx.out.effects.push(Effect::Sticker {
             to: a.message.target(),
             chosen,
         });
         sent = true;
+        sticker = true;
     }
+    let words = if a.reply.trim().is_empty() || held {
+        String::new()
+    } else {
+        went_out
+    };
+    keep_turn(cx, a, words, sticker);
     if sent && !a.first {
         answered(cx.group, &a.message, now);
         if let (Some(stranger), Some(owner)) = (&a.stranger, a.owner) {
@@ -340,6 +353,18 @@ pub(crate) fn after_saying(cx: &mut Cx, a: &mut Answering, went_out: String) -> 
         }
     }
     Next::Done(sent)
+}
+
+/// The member's turn closed with this answer, kept with what went out of
+/// it: nothing, when nothing did.
+fn keep_turn(cx: &mut Cx, a: &mut Answering, went_out: String, sticker: bool) {
+    if let Some(turn) = a.turn.take() {
+        cx.out.effects.push(Effect::TurnKept {
+            turn,
+            went_out,
+            sticker,
+        });
+    }
 }
 
 /// Begin reading the talk before answering it (see `sense`).
@@ -431,10 +456,12 @@ fn member_replied(cx: &mut Cx, a: &mut Answering, next: MemberNext) -> Next {
             let (text, sticker) = said.unwrap_or_default();
             let text = text.trim().to_string();
             if text.is_empty() && sticker.is_none() {
+                keep_turn(cx, a, String::new(), false);
                 return Next::Done(false);
             }
             // Unpaired or switched off while she was thinking.
             if !bound {
+                keep_turn(cx, a, String::new(), false);
                 return Next::Done(false);
             }
             a.reply = without_reply_mark(&text);

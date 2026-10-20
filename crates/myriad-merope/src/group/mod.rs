@@ -847,10 +847,10 @@ pub enum Effect {
         chime: Option<String>,
         first: bool,
     },
-    /// Close it: with what she said (and the sticker she chose), kept in
-    /// their session and taken into her memory, as a Chat turn is (D2c-9 A);
-    /// without, left. Answered with her words as they stand, and whether whom
-    /// she answered is still hers.
+    /// Close it: with what she said (and the sticker she chose), ready to
+    /// go out; what went out is kept by [`Effect::TurnKept`] once it has
+    /// (D2c-9 A); without, left. Answered with her words as they stand, and
+    /// whether whom she answered is still hers.
     TurnEnd {
         id: String,
         turn: String,
@@ -859,6 +859,15 @@ pub enum Effect {
         sticker: Option<Value>,
         /// She spoke first: nobody's binding to hold to.
         first: bool,
+    },
+    /// What of a closed turn went out (nothing, if none did): only that is
+    /// kept in their session and taken into her memory. Words that never
+    /// reached the group were not said.
+    TurnKept {
+        turn: String,
+        went_out: String,
+        /// The sticker she chose went out with it.
+        sticker: bool,
     },
     React {
         id: String,

@@ -219,6 +219,9 @@ pub struct Answering {
     /// Her answer to a member, while she puts it together.
     #[serde(default)]
     pub member: Option<Box<MemberReply>>,
+    /// The member's turn her answer closed, kept with what goes out of it.
+    #[serde(default)]
+    pub turn: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

@@ -172,11 +172,24 @@ async fn day_facts(db: &DatabaseConnection, day: NaiveDate) -> Option<DayFacts> 
         .await
         .ok()?;
     let spoke_up_unprompted = super::store::spoke_up_between(db, start, end).await.ok()?;
+    // Groups are where most of her talk is: counted from each group's
+    // ledger, the groups themselves left out.
+    let group_talk =
+        crate::services::channel_group::talk_between(db, start.timestamp(), end.timestamp())
+            .await
+            .into_iter()
+            .map(|talk| myriad_merope::life::GroupDay {
+                lines: talk.lines,
+                yours: talk.hers,
+                others_who_spoke: talk.others,
+            })
+            .collect();
     Some(DayFacts {
         people_talked_with,
         work_done,
         work_failed,
         spoke_up_unprompted,
+        group_talk,
     })
 }
 

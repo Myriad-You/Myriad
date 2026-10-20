@@ -181,6 +181,7 @@ pub(crate) fn start_answer(
         unread: false,
         replying: None,
         member: None,
+        turn: None,
     });
     let owner = match &errand.kind {
         Kind::First { owner, .. } => *owner,

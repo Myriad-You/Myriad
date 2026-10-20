@@ -338,10 +338,14 @@ pub async fn after(db: &DatabaseConnection, owner: i32, question_id: &str, trip:
 
 /// Take a step. `about` is what she is looking for: the question and the
 /// searches so far, for reading long pages.
-async fn take(go: Go, about: String) -> Option<Looked> {
+async fn take(go: Go, about: String, broken: &mut Option<String>) -> Option<Looked> {
     match go {
         Go::Search(query) => {
-            let hits = senses::search(&query).await.ok()?;
+            let searched = senses::search(&query).await.ok()?;
+            if searched.broken.is_some() {
+                *broken = searched.broken;
+            }
+            let hits = searched.hits;
             let text = hits
                 .iter()
                 .map(|hit| format!("- {} ({}): {}", hit.title, hit.url, hit.snippet))
@@ -417,6 +421,7 @@ async fn go(owner: i32, question: &str) -> Option<Trip> {
         .ok()?;
     let senses = senses::available().await;
     let mut looked: Vec<Looked> = Vec::new();
+    let mut broken: Option<String> = None;
     let steps = if thinking.go_look() { STEPS } else { 0 };
     for _ in 0..steps {
         let step: Option<Step> = call::Ask::new(Voice::Judge, owner, "explore_step")
@@ -441,10 +446,17 @@ async fn go(owner: i32, question: &str) -> Option<Trip> {
             )
             .collect::<Vec<_>>()
             .join(" ");
-        match take(go, about).await {
+        match take(go, about, &mut broken).await {
             Some(found) => looked.push(found),
             None => break,
         }
+    }
+    // The site's search failed on the way: what came back stood in for a
+    // search she never got to do. Not written up as found or not found; the
+    // question stays open for another day.
+    if let Some(why) = broken {
+        tracing::warn!(%why, "[Merope] the web search failed while she was finding something out; left for another day");
+        return None;
     }
     Some(Trip {
         question: question.to_string(),

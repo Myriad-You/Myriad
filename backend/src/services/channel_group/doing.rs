@@ -306,6 +306,15 @@ pub(super) async fn perform(venue: &str, effect: Effect) {
                 answered(venue, id, Answer::TurnEnded { reply, bound }).await;
             });
         }
+        Effect::TurnKept {
+            turn,
+            went_out,
+            sticker,
+        } => {
+            tokio::spawn(async move {
+                crate::services::agent::group_turn::kept(&turn, &went_out, sticker).await;
+            });
+        }
         Effect::React { id, to, emoji } => {
             tokio::spawn(async move {
                 let ok = match line_to(&to) {

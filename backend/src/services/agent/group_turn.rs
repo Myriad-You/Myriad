@@ -7,9 +7,10 @@
 //! A turn opens ([`begin`]): it is the member's Chat turn in their session in
 //! the group (claimed as their live turn, their line kept, a lane taken, their
 //! AI budget reserved), their words land on how she feels, and what she knows
-//! of them is read. She is asked within it ([`say`]). It closes ([`end`]):
-//! what she said is kept in their session and taken into her memory, her
-//! thoughts after it run, the budget is settled. A turn the group mind leaves
+//! of them is read. She is asked within it ([`say`]). It closes ([`end`])
+//! with her words ready to go out; what of them went out is kept in their
+//! session and taken into her memory, her thoughts after it run, the budget
+//! is settled ([`kept`]). A turn the group mind leaves
 //! (nothing to say, past its time) closes without anything kept of her.
 
 use std::collections::HashMap;
@@ -253,62 +254,145 @@ pub async fn end(turn: &str, said: Option<String>, sticker: Option<Value>) -> Op
             None
         }
         Some(said) => {
-            let kept = async {
+            let published = async {
                 let (reply, _) = super::delegate::split(&said);
-                let reply = super::process_chat::published_reply(&db, &request, &reply).await;
-                super::merope::enqueue_chat_remember(
-                    &db,
-                    user_id,
-                    request.raw_input.clone(),
-                    reply.clone(),
-                    open.memory_input_at,
-                    super::merope::audience_for(&request),
-                    super::merope::turn_context(&request),
-                )
-                .await;
-                super::merope::spawn_inner_after(db.clone(), &request, &reply);
-                super::merope::spawn_curiosity(
-                    user_id,
-                    request.raw_input.clone(),
-                    reply.clone(),
-                    super::merope::audience_for(&request),
-                    super::merope::turn_context(&request),
-                );
-                super::merope::mark_activity(&db, user_id, "idle").await;
-                reply
+                super::process_chat::published_reply(&db, &request, &reply).await
             };
-            let reply = match &budget {
-                Some(budget) => budget.scope(kept).await,
-                None => kept.await,
-            };
-            let data = super::process_chat::group_reply_data(&db, &request, &reply, sticker).await;
-            let metadata = json!({
-                "suggestions": Vec::<String>::new(),
-                "dataDisplay": Value::Null,
-                "frontendAction": Value::Null,
-                "data": data,
-                "runId": turn,
-                "taskId": Value::Null,
-                "task": Value::Null,
-            });
-            if let Err(error) = super::sessions::persist_assistant_message(
-                &db,
-                &open.session_id,
-                None,
-                &reply,
-                Some(metadata),
-            )
-            .await
-            {
-                tracing::warn!("[Group] Failed to persist her group reply: {error}");
-            }
-            Some(reply)
+            Some(match &budget {
+                Some(budget) => budget.scope(published).await,
+                None => published.await,
+            })
         }
     };
     drop(open.lane.take());
     super::turn::finish_chat_turn(user_id, &open.session_id, open.slot_id).await;
+    match &reply {
+        // What of it goes out is kept once it has ([`kept`]).
+        Some(reply) => hold(
+            turn,
+            Said {
+                db,
+                request,
+                session_id: open.session_id.clone(),
+                memory_input_at: open.memory_input_at,
+                budget,
+                reply: reply.clone(),
+                sticker,
+            },
+        ),
+        None => {
+            if let Some(budget) = budget {
+                budget.settle(&db).await;
+            }
+        }
+    }
+    reply
+}
+
+/// A closed turn's words, waiting to be kept until it is known what of them
+/// went out.
+struct Said {
+    db: DatabaseConnection,
+    request: UserRequest,
+    session_id: String,
+    memory_input_at: Option<chrono::DateTime<chrono::FixedOffset>>,
+    budget: Option<AgentTurnBudget>,
+    reply: String,
+    sticker: Option<Value>,
+}
+
+static SAID: LazyLock<Mutex<HashMap<String, Said>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// How long closed words wait to hear what went out; a turn the group mind
+/// dropped meanwhile (a restart) keeps nothing of them.
+const SAID_WAITS: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+fn hold(turn: &str, said: Said) {
+    if let Ok(mut all) = SAID.lock() {
+        all.insert(turn.to_string(), said);
+    }
+    let turn = turn.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(SAID_WAITS).await;
+        kept(&turn, "", false).await;
+    });
+}
+
+/// What of a closed turn went out: only that is kept in their session and
+/// taken into her memory, and her thoughts after it run on it. Words that
+/// never reached the group were not said: nothing of them is kept.
+pub async fn kept(turn: &str, went_out: &str, sticker_went: bool) {
+    let Some(said) = SAID.lock().ok().and_then(|mut all| all.remove(turn)) else {
+        return;
+    };
+    let Said {
+        db,
+        request,
+        session_id,
+        memory_input_at,
+        budget,
+        reply,
+        sticker,
+    } = said;
+    let user_id = request.user_id;
+    let went_out = went_out.trim();
+    let sticker = sticker.filter(|_| sticker_went);
+    if went_out.is_empty() && sticker.is_none() {
+        if let Some(budget) = budget {
+            budget.settle(&db).await;
+        }
+        return;
+    }
+    // Her words as published, cut to what of them went out.
+    let reply = if went_out.is_empty() || went_out == reply.trim() {
+        reply
+    } else {
+        went_out.to_string()
+    };
+    let remember = async {
+        if !reply.trim().is_empty() {
+            super::merope::enqueue_chat_remember(
+                &db,
+                user_id,
+                request.raw_input.clone(),
+                reply.clone(),
+                memory_input_at,
+                super::merope::audience_for(&request),
+                super::merope::turn_context(&request),
+            )
+            .await;
+            super::merope::spawn_inner_after(db.clone(), &request, &reply);
+            super::merope::spawn_curiosity(
+                user_id,
+                request.raw_input.clone(),
+                reply.clone(),
+                super::merope::audience_for(&request),
+                super::merope::turn_context(&request),
+            );
+        }
+        super::merope::mark_activity(&db, user_id, "idle").await;
+    };
+    match &budget {
+        Some(budget) => budget.scope(remember).await,
+        None => remember.await,
+    }
+    let data = super::process_chat::group_reply_data(&db, &request, &reply, sticker).await;
+    let metadata = json!({
+        "suggestions": Vec::<String>::new(),
+        "dataDisplay": Value::Null,
+        "frontendAction": Value::Null,
+        "data": data,
+        "runId": turn,
+        "taskId": Value::Null,
+        "task": Value::Null,
+    });
+    if let Err(error) =
+        super::sessions::persist_assistant_message(&db, &session_id, None, &reply, Some(metadata))
+            .await
+    {
+        tracing::warn!("[Group] Failed to persist her group reply: {error}");
+    }
     if let Some(budget) = budget {
         budget.settle(&db).await;
     }
-    reply
 }

@@ -21,6 +21,13 @@ pub(crate) fn restored(
     cx.group.restored = true;
     let now = cx.now();
     if let Some(lines) = lines {
+        // What she heard in the lines kept before the restart was taken in
+        // then: taken in again, the same news and bits would be kept twice.
+        // A few lines not yet taken in go with them.
+        let kept_upto = lines.iter().map(Line::at_micros).max();
+        if cx.group.heard_upto.is_none() {
+            cx.group.heard_upto = kept_upto;
+        }
         merge_restored(cx.group, lines, now);
     }
     let since: Vec<SpokeUp> = cx.group.spoke_up.drain(..).collect();

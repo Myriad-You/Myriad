@@ -59,16 +59,26 @@ pub async fn available() -> Senses {
     }
 }
 
+/// What a search came back with, and whether the site's provider failed
+/// (the hits are then only Wikipedia's titles, standing in for it).
+pub struct Searched {
+    pub hits: Vec<Hit>,
+    pub broken: Option<String>,
+}
+
 /// Search the web with the site's provider, or Wikipedia without one (or
-/// when it fails).
-pub async fn search(query: &str) -> Result<Vec<Hit>, String> {
+/// when it fails, said so).
+pub async fn search(query: &str) -> Result<Searched, String> {
+    let mut broken = None;
     if crate::services::agent::web_search::available().await {
         match search_web(query).await {
-            Ok(hits) if !hits.is_empty() => return Ok(hits),
-            _ => {}
+            Ok(hits) if !hits.is_empty() => return Ok(Searched { hits, broken }),
+            Ok(_) => {}
+            Err(why) => broken = Some(why),
         }
     }
-    search_wikipedia(query).await
+    let hits = search_wikipedia(query).await?;
+    Ok(Searched { hits, broken })
 }
 
 async fn search_wikipedia(query: &str) -> Result<Vec<Hit>, String> {

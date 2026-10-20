@@ -68,7 +68,13 @@ pub(crate) async fn look_up(query: &str, slang: bool) -> Option<(String, String)
         let text = format!("{}\n{}", entry.title, entry.text);
         return Some((clip(&text), entry.url));
     }
-    let hits = super::senses::search(query).await.ok()?;
+    let searched = super::senses::search(query).await.ok()?;
+    // The site's search failing is not the word being unknown: Wikipedia's
+    // titles standing in for it would be learned as what it means.
+    if searched.broken.is_some() {
+        return None;
+    }
+    let hits = searched.hits;
     let first = hits.first()?.url.clone();
     let results = hits_text(&hits);
     match super::senses::read(&first, Some(query)).await {
