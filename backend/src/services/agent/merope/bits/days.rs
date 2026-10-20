@@ -3,37 +3,26 @@
 use super::*;
 
 /// What she makes of a stretch of a group's talk while it is still at hand
-/// (the lines themselves are kept only a few hours): what today there is like
-/// so far, the group's bits, how she comes across there, stings let go.
-/// `said` is (when, who, what, hers), oldest first; `keeper` is who the
-/// group's rows are kept with (the site's owner, who brought her there).
+/// (the lines themselves are kept only a few hours), in one reading (see
+/// `myriad_merope::group_reading`): what today there is like so far, the
+/// group's bits, how she comes across there, stings let go, and what she
+/// heard about the world. `said` is (when, who, what, hers), oldest first;
+/// `keeper` is who the group's rows are kept with (the site's owner, who
+/// brought her there) and who the reading is billed to.
 pub async fn go_over_stretch(
     db: &DatabaseConnection,
     keeper: i32,
     venue: &str,
     said: Vec<(DateTime<FixedOffset>, String, String, bool)>,
 ) {
-    let lines: Vec<(DateTime<FixedOffset>, Value)> = said
+    let said: Vec<_> = said
         .into_iter()
         .filter(|(_, _, text, _)| !text.trim().is_empty())
-        .map(|(at, name, text, hers)| {
-            let who = if hers {
-                "you".to_string()
-            } else {
-                let name: String = name.trim().chars().take(24).collect();
-                if name.is_empty() {
-                    "someone".to_string()
-                } else {
-                    name
-                }
-            };
-            let text: String = text.chars().take(300).collect();
-            (at, json!({ "who": who, "text": text }))
-        })
         .collect();
-    if (lines.len() as i64) < MIN_LINES {
+    if (said.len() as i64) < MIN_LINES || said.iter().all(|(_, _, _, hers)| *hers) {
         return;
     }
+    let lines = reading_lines(&said);
     let circle = Circle::Group {
         venue: venue.to_string(),
         keeper,
@@ -50,11 +39,96 @@ pub async fn go_over_stretch(
         return;
     };
     let before = day_line(db, &circle, today).await;
+    read_group(db, &circle, venue, &lines, today, before.as_deref()).await;
+}
+
+/// The stretch as the reading takes it: who (bounded), what (bounded), and
+/// on her lines how many seconds until someone else wrote that day.
+fn reading_lines(
+    said: &[(DateTime<FixedOffset>, String, String, bool)],
+) -> Vec<myriad_merope::group_reading::Line> {
+    said.iter()
+        .enumerate()
+        .map(|(index, (at, name, text, hers))| {
+            let after = hers
+                .then(|| {
+                    said[index + 1..]
+                        .iter()
+                        .find(|(_, _, _, later_hers)| !later_hers)
+                        .map(|(later, ..)| (*later - *at).num_seconds().max(0))
+                })
+                .flatten();
+            let who: String = name.trim().chars().take(24).collect();
+            myriad_merope::group_reading::Line {
+                who: if who.is_empty() {
+                    "someone".to_string()
+                } else {
+                    who
+                },
+                text: text.chars().take(300).collect(),
+                hers: *hers,
+                after,
+            }
+        })
+        .collect()
+}
+
+/// Read the stretch once and keep what holds up of it.
+async fn read_group(
+    db: &DatabaseConnection,
+    circle: &Circle,
+    venue: &str,
+    lines: &[myriad_merope::group_reading::Line],
+    today: DateTime<FixedOffset>,
+    day_before: Option<&str>,
+) {
+    use myriad_merope::group_reading::{AtHand, SCHEMA_NAME, input, parse, schema, system};
+    let held = held_in(db, circle, 30).await;
+    let sores = super::super::sore::open_in_group(db, venue, None).await;
+    let lands_now = lands_row(db, circle).await;
+    let shown_as = crate::services::channel_group::shown_as(venue);
+    let at_hand = AtHand {
+        bits: held.iter().filter_map(bit_of).collect(),
+        lands: lands_now.as_ref().map(|row| row.content.as_str()),
+        day_before,
+        sore_spots: json!(super::super::sore::as_input(&sores, chrono::Utc::now())),
+        shown_as: shown_as.as_deref(),
+    };
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    review(db, keeper, &soul, &circle, with_after(lines), today, before).await;
+    let Ok(raw) = super::super::call::Ask::new(
+        super::super::call::Voice::Reading,
+        circle.keeper(),
+        SCHEMA_NAME,
+    )
+    .within(READING_TIMEOUT)
+    .json_raw(
+        &system(&soul),
+        &input(lines, &at_hand),
+        SCHEMA_NAME,
+        &schema(),
+    )
+    .await
+    else {
+        return;
+    };
+    let Some(reading) = parse(&raw, lines) else {
+        tracing::warn!("[Merope] a group stretch's reading came back unreadable");
+        return;
+    };
+    put_day(db, circle, &reading.day, today).await;
+    put_lands(db, circle, &reading.lands, lands_now.as_ref()).await;
+    super::super::sore::let_go(db, &sores, &reading.let_go).await;
+    let kept = apply_bits(db, circle, &held, reading.bits).await;
+    if kept > 0 {
+        tracing::info!(kept, "[Merope] bits kept from a group's talk");
+    }
+    super::super::heard::keep(db, venue, reading.heard).await;
 }
+
+/// How long the reading of a stretch may take: the stronger model, thinking.
+const READING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// What she already wrote about `day` in this group, if anything.
 async fn day_line(

@@ -186,7 +186,6 @@ async fn review(
     start: DateTime<FixedOffset>,
     day_before: Option<String>,
 ) -> (bool, bool, usize) {
-    let mut kept = 0;
     let held = held_in(db, circle, 30).await;
     let now_us = match circle {
         Circle::Person(user_id) => us_row(db, *user_id).await,
@@ -262,7 +261,20 @@ async fn review(
     }
     put_lands(db, circle, &changes.lands, lands_now.as_ref()).await;
     super::sore::let_go(db, &sores, &changes.let_go).await;
-    for change in changes.bits.into_iter().take(MAX_CHANGES) {
+    let kept = apply_bits(db, circle, &held, changes.bits).await;
+    (true, true, kept)
+}
+
+/// Let a reading's changes to bits take: one that came back is fresh again,
+/// a new or changed one is kept in place of the one before. The bits kept.
+async fn apply_bits(
+    db: &DatabaseConnection,
+    circle: &Circle,
+    held: &[crate::models::entities::agent_memories::Model],
+    bits: Vec<myriad_merope::bits::Change>,
+) -> usize {
+    let mut kept = 0;
+    for change in bits.into_iter().take(MAX_CHANGES) {
         let handle: String = change.handle.trim().chars().take(30).collect();
         let how = super::ingest::compact_summary(&change.how);
         if handle.is_empty() || how.is_empty() {
@@ -287,7 +299,14 @@ async fn review(
                 user_id: circle.keeper(),
                 kind: unified::MemoryKind::Fact,
                 content: how,
-                evidence: Some(json!({ "handle": handle }).to_string()),
+                // The words it was read from, when the reading quoted them.
+                evidence: Some(
+                    match change.quote.as_deref() {
+                        Some(quote) => json!({ "handle": handle, "quote": quote }),
+                        None => json!({ "handle": handle }),
+                    }
+                    .to_string(),
+                ),
                 speaker: unified::Speaker::Agent,
                 source: SOURCE,
                 // Heard only where it grew: in private, or in that group.
@@ -310,7 +329,7 @@ async fn review(
             kept += 1;
         }
     }
-    (true, true, kept)
+    kept
 }
 
 /// A picture a group keeps sending is one of its bits, known by the picture

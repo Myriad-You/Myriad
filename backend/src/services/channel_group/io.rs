@@ -236,15 +236,6 @@ pub(super) async fn take_in_heard(
             }),
         );
     }
-    let heard = stretch
-        .iter()
-        .map(|(_, name, text, hers)| myriad_merope::heard::Said {
-            name: name.clone(),
-            text: text.clone(),
-            hers: *hers,
-        })
-        .collect();
-    crate::services::agent::merope::group::heard::take_in(db, owner, venue, heard).await;
     crate::services::agent::merope::group::bits::go_over_stretch(db, owner, venue, stretch).await;
 }
 

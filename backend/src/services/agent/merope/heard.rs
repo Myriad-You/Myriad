@@ -3,39 +3,25 @@
 //! own with no one's name on it but the group's, and brought to mind in any
 //! group whose talk touches it. What was about a person was never kept.
 
-use std::time::Duration;
-
-use myriad_merope::heard::{SCHEMA_NAME, Said, input, parse, schema, system};
 use sea_orm::DatabaseConnection;
 use serde_json::json;
 
-use super::call::{self, Voice};
 use crate::services::agent::memory::unified::{self, Concept};
 
 /// Her own rows of what she heard.
 pub const SOURCE: &str = "heard";
 /// Heard and never brought up again, it fades.
 const FADE_AFTER: chrono::Duration = chrono::Duration::days(60);
-const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const HELD: u64 = 300;
 
-/// Take in a stretch of the talk of the group `venue` (as sessions keep it);
-/// the judgment is billed to `owner`.
-pub async fn take_in(db: &DatabaseConnection, owner: i32, venue: &str, lines: Vec<Said>) {
-    if !super::is_enabled().await || lines.iter().all(|line| line.hers) {
+/// Keep what she heard in the group `venue` (as sessions keep it), read
+/// from a stretch of its talk (see `bits::go_over_stretch`): the same news
+/// told twice, or in other words, is kept once.
+pub async fn keep(db: &DatabaseConnection, venue: &str, things: Vec<String>) {
+    if things.is_empty() || !super::is_enabled().await {
         return;
     }
-    let Ok(raw) = call::Ask::new(Voice::Thorough, owner, "heard")
-        .within(CALL_TIMEOUT)
-        .json_raw(system(), &input(&lines), SCHEMA_NAME, &schema())
-        .await
-    else {
-        return;
-    };
-    let Some(things) = parse(&raw, &lines) else {
-        return;
-    };
-    let held: Vec<String> = unified::own_rows(db, SOURCE, HELD)
+    let mut held: Vec<String> = unified::own_rows(db, SOURCE, HELD)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -43,9 +29,10 @@ pub async fn take_in(db: &DatabaseConnection, owner: i32, venue: &str, lines: Ve
         .collect();
     let mut kept = 0;
     for thing in things {
-        if held.iter().any(|held| *held == thing) {
+        if myriad_merope::heard::already_heard(held.iter().map(String::as_str), &thing) {
             continue;
         }
+        held.push(thing.clone());
         let evidence = json!({ "heard": "in a group chat", "group": venue }).to_string();
         if matches!(
             unified::remember_own(db, &thing, &evidence, Vec::<Concept>::new(), SOURCE).await,

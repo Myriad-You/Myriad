@@ -21,7 +21,7 @@ pub mod doing {
 }
 
 pub mod heard {
-    pub(crate) use crate::services::agent::merope::heard::{SOURCE, take_in};
+    pub(crate) use crate::services::agent::merope::heard::SOURCE;
 }
 
 pub mod jargon {

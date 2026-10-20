@@ -157,6 +157,11 @@ pub(super) fn platform_of(slug: &str) -> Option<ChannelPlatform> {
         .find(|platform| platform.slug() == slug)
 }
 
+/// How she shows in the group `venue`, as its latest line told.
+pub(crate) fn shown_as(venue: &str) -> Option<String> {
+    with_group(venue, |group| group.shown_as.clone()).flatten()
+}
+
 /// A line to send to: where `to` is, with nothing of who said it.
 pub(super) fn line_to(to: &Target) -> Option<GroupLine> {
     Some(GroupLine {

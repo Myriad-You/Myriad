@@ -29,6 +29,7 @@ pub mod joining;
 pub mod library;
 pub mod making;
 pub mod making_sense;
+pub mod group_reading;
 pub mod memes;
 pub mod life;
 mod onboarding;

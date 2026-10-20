@@ -29,6 +29,9 @@ pub(super) enum Voice {
     /// and what she keeps of it. Slower; for calls where a wrong reading
     /// costs more than the wait.
     Thorough,
+    /// The stronger model, thinking it through: reading a stretch of a
+    /// group's talk once, which everything she keeps of it rests on.
+    Reading,
 }
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(45);
@@ -175,6 +178,13 @@ impl Ask {
                     .ok_or_else(|| self.failed(Failure::Unavailable))?
                     .with_deep_thinking()
             }
+            Voice::Reading => crate::services::ai::create_ai_analyzer_for_tier_with_timeout(
+                crate::config::ModelTier::Pro,
+                Some(self.timeout),
+            )
+            .await
+            .ok_or_else(|| self.failed(Failure::Unavailable))?
+            .with_deep_thinking(),
         };
         Ok(Model {
             analyzer,

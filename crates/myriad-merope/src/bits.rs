@@ -57,6 +57,10 @@ pub struct Change {
     pub handle: String,
     pub how: String,
     pub change: ChangeKind,
+    /// Words of the talk it was read from, as they were written (see
+    /// `group_reading`).
+    #[serde(default)]
+    pub quote: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
