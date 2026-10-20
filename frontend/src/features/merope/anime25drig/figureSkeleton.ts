@@ -109,6 +109,8 @@ export const FIGURE_HIP_SHIFT = 0.2
  * contrapposto has it; much more and the shoe leaves the ground.
  */
 const HEEL_LIFT = 0.1
+/** The most a free foot is drawn taller, rising onto its toes. */
+const FOOT_STRETCH = 1.2
 /**
  * A knee bent towards the viewer drifts inwards by this share of the thigh
  * for each unit of `sqrt(1 − (reach / drawn reach)²)`. The knee of the leg
@@ -261,6 +263,7 @@ const scratch = {
   hip: { x: 0, y: 0 },
   knee: { x: 0, y: 0 },
   ankle: { x: 0, y: 0 },
+  lifted: { x: 0, y: 0 },
 }
 
 function drawnReach(leg: Readonly<LegRest>): number {
@@ -327,19 +330,25 @@ export function solveFigurePose(rest: Readonly<FigureRest>, input: Readonly<Figu
     const left = side === 'L'
     const foot = left ? out.footL : out.footR
     // A free leg rises onto its toes. Seen from the front the foot tips
-    // towards the viewer: it shortens from its toes up to the lifted ankle.
+    // towards the viewer and shows taller from its toes up to the lifted
+    // ankle, but a drawn shoe stretched that far reads as a longer shoe: it
+    // stretches FOOT_STRETCH at most. The knee bends for the whole lift, so
+    // the rest of it goes into the thigh coming towards the viewer.
     const toeToAnkle = Math.hypot(leg.ankle.x - leg.toe.x, leg.ankle.y - leg.toe.y)
     const lift = Math.min(lifts[side], toeToAnkle * 0.6)
-    if (lift > 0 && toeToAnkle > 1) {
+    const footLift = Math.min(lift, toeToAnkle * (FOOT_STRETCH - 1))
+    if (footLift > 0 && toeToAnkle > 1) {
       scratch.ankle.x = leg.ankle.x
-      scratch.ankle.y = leg.ankle.y - lift
+      scratch.ankle.y = leg.ankle.y - footLift
       setSegment(foot, leg.toe, leg.ankle, leg.toe, scratch.ankle)
     } else {
       Object.assign(foot, IDENTITY)
     }
     const hip = apply(out.pelvis, leg.hip.x, leg.hip.y, scratch.hip)
     const ankle = apply(foot, leg.ankle.x, leg.ankle.y, scratch.ankle)
-    solveKnee(leg, hip, ankle, scratch.knee, left ? input.bendL - input.bendR : input.bendR - input.bendL)
+    scratch.lifted.x = ankle.x
+    scratch.lifted.y = ankle.y - (lift - footLift)
+    solveKnee(leg, hip, scratch.lifted, scratch.knee, left ? input.bendL - input.bendR : input.bendR - input.bendL)
     setSegment(left ? out.thighL : out.thighR, leg.hip, leg.knee, hip, scratch.knee)
     setSegment(left ? out.shinL : out.shinR, leg.knee, leg.ankle, scratch.knee, ankle)
   }

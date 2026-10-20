@@ -92,6 +92,16 @@ test('the free leg bends its knee inwards and rises onto its toes', () => {
   assert.ok(Math.abs(toe.y - 1399) < 3, `the toes stay down: ${toe.y}`)
 })
 
+test('a free foot on its toes is drawn at most a little taller, its knee bending for the whole lift', () => {
+  const pose = solveFigurePose(rest, { body: 0, pelvisTilt: 0, bendL: 1, bendR: 0 }, createFigurePose())
+  const ankle = skinned('legwear', legL, 465, 1300, pose)
+  const toe = skinned('legwear', legL, 465, 1399, pose)
+  // Drawn 99 tall from the ankle to the toes.
+  assert.ok(toe.y - ankle.y <= 99 * 1.2 + 1, `the shoe is drawn ${toe.y - ankle.y} tall`)
+  const knee = skinned('legwear', legL, 462, 960, pose)
+  assert.ok(knee.x > 462 + 20, `the knee still comes well in: ${knee.x}`)
+})
+
 test('the skin is continuous across the knee and the waist', () => {
   const pose = solveFigurePose(rest, { body: -0.8, pelvisTilt: 0.04, bendL: 0.7, bendR: 0 }, createFigurePose())
   for (const [kind, layer, x, from, to] of [
