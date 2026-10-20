@@ -61,11 +61,14 @@ pub fn nav_island_items() -> &'static [NavItem] {
 
 /// 插在 `</head>` 前：样式，以及「导航岛解析出来之前不画第一帧」，
 /// 换页动效拍新页面的那一帧时导航岛必须已经在。
-pub fn nav_island_head() -> String {
-    format!(
-        "<style id=\"{NAV_ISLAND_ID}-style\">{NAV_ISLAND_CSS}</style>\
+pub fn nav_island_head() -> &'static str {
+    static HEAD: LazyLock<String> = LazyLock::new(|| {
+        format!(
+            "<style id=\"{NAV_ISLAND_ID}-style\">{NAV_ISLAND_CSS}</style>\
 <link rel=\"expect\" href=\"#{NAV_ISLAND_ID}\" blocking=\"render\">"
-    )
+        )
+    });
+    &HEAD
 }
 
 /// 博客页回主站的预渲染规则，放在 `Speculation-Rules` 响应头里指向这个地址：

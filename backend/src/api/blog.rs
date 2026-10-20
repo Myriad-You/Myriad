@@ -205,6 +205,15 @@ async fn serve_blog(
     let current = blog::output_dir();
     let target = resolve_blog_target(&current, &path);
     let anonymous = user_id.is_none();
+    // 样式、图片、字体照常返回：导航岛和创作台只有 HTML 才用得上，不为它们拼。
+    // 它们不含创作台，站长拿到的和其他登录访客一样不进共享缓存就够了。
+    if let BlogTarget::File(file) = &target
+        && !is_html(file)
+    {
+        let mut response = file_response(file, StatusCode::OK, anonymous).await;
+        finish_blog_response(&mut response, request.method());
+        return Ok(response);
+    }
     let site = site_chrome(request.headers());
     let chrome = PageChrome {
         nav: blog_nav(
@@ -234,9 +243,11 @@ async fn serve_blog(
             }
             response
         }
-        BlogTarget::File(file) => page_response(&file, StatusCode::OK, anonymous, &chrome),
+        BlogTarget::File(file) => page_response(&file, StatusCode::OK, anonymous, &chrome).await,
         BlogTarget::Missing => match (theme_not_found_page(&current), &chrome.studio) {
-            (Some(page), _) => page_response(&page, StatusCode::NOT_FOUND, anonymous, &chrome),
+            (Some(page), _) => {
+                page_response(&page, StatusCode::NOT_FOUND, anonymous, &chrome).await
+            }
             // 博客还没生成出来：站长照样拿到创作台，才能去博客设置里修。
             (None, Some(island)) => html_response(
                 StatusCode::NOT_FOUND,
@@ -247,15 +258,23 @@ async fn serve_blog(
         },
     };
     let mut response = response;
+    finish_blog_response(&mut response, request.method());
+    Ok(response)
+}
+
+fn finish_blog_response(response: &mut Response, method: &axum::http::Method) {
     if let Ok(value) = myriad_blog::BLOG_CSP.parse() {
         response
             .headers_mut()
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
-    if request.method() == axum::http::Method::HEAD {
+    if method == axum::http::Method::HEAD {
         *response.body_mut() = Body::empty();
     }
-    Ok(response)
+}
+
+fn is_html(path: &std::path::Path) -> bool {
+    content_type_for(path).starts_with("text/html")
 }
 
 /// 站长看到的创作台覆盖层。`?studio=editor-12` 让它展开并打开那个工具；文章页带上笔记的 id。
@@ -380,24 +399,17 @@ async fn speculation_rules() -> Response {
     response
 }
 
-/// 只有 HTML 才插导航岛和创作台；样式、图片照常返回，站长看到的同样不能进共享缓存。
-fn page_response(
+/// 只有 HTML 才插导航岛和创作台；主题的 404 页之外的样式、图片在 `serve_blog` 里就返回了。
+async fn page_response(
     path: &std::path::Path,
     status: StatusCode,
     anonymous: bool,
     chrome: &PageChrome,
 ) -> Response {
-    if !content_type_for(path).starts_with("text/html") {
-        let mut response = file_response(path, status, anonymous);
-        if chrome.studio.is_some() {
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("private, no-store"),
-            );
-        }
-        return response;
+    if !is_html(path) {
+        return file_response(path, status, anonymous).await;
     }
-    let Ok(html) = std::fs::read_to_string(path) else {
+    let Ok(html) = tokio::fs::read_to_string(path).await else {
         return (StatusCode::NOT_FOUND, "Not found").into_response();
     };
     // 主题怎么切深浅色记在构建出的 `<html>` 上，这里按主站现在的那一边替它切。
@@ -405,7 +417,7 @@ fn page_response(
         .dark
         .and_then(|dark| myriad_blog::apply_page_scheme(&html, dark))
         .unwrap_or(html);
-    let html = myriad_blog::inject_nav_island(&html, &myriad_blog::nav_island_head(), &chrome.nav);
+    let html = myriad_blog::inject_nav_island(&html, myriad_blog::nav_island_head(), &chrome.nav);
     let (html, cache) = match &chrome.studio {
         // 站长还能看到藏着的伴读岛，没有注释和播客的文章也能在面板里补生成。
         Some(island) => (
@@ -444,8 +456,8 @@ fn html_response(status: StatusCode, html: String, cache: &'static str) -> Respo
 }
 
 /// 登录访客能看到的页面可能对匿名访客关着，不能进共享缓存。
-fn file_response(path: &std::path::Path, status: StatusCode, anonymous: bool) -> Response {
-    match std::fs::read(path) {
+async fn file_response(path: &std::path::Path, status: StatusCode, anonymous: bool) -> Response {
+    match tokio::fs::read(path).await {
         Ok(bytes) => {
             let mut response = (status, bytes).into_response();
             if let Ok(value) = HeaderValue::from_str(content_type_for(path)) {
