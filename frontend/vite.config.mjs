@@ -147,6 +147,10 @@ export default defineConfig(({ command }) => ({
       'react-router-dom',
       // Not on the first-paint graph; still prebundle so mid-session discovery does not 504.
       'ag-psd',
+      // lucide 是一个图标一个模块（两千多个）：不预打包时每个文档都要发两千多个请求，
+      // 博客页上伴读和创作台两个嵌入页一起加载就超出 Chrome 的上限
+      // （net::ERR_INSUFFICIENT_RESOURCES），两个都起不来。
+      'lucide-react',
       'motion/react',
       'pinyin-pro',
       // The default SDK entries are self-contained UMD, not browser ESM.
@@ -155,15 +159,14 @@ export default defineConfig(({ command }) => ({
       'agora-rtc-sdk-ng',
       'agora-rtm',
     ],
-    // Icon barrels are one file per pack (si ≈ 5MB). Prebundling them plus
+    // react-icons barrels are one file per pack (si ≈ 5MB). Prebundling them plus
     // an inline source map was a 13MB script on every page that imports
     // `@lib/icons`. Dest ESM + noDiscovery keeps them out of the shared
-    // prebundle hash (no mid-session 504).
+    // prebundle hash (no mid-session 504). lucide is prebundled above instead.
     // Agora's optional ESM tree must not enter the Vite prebundle.
     // Stay on the self-contained UMD entries; a failed ESM crawl holds every
     // optimized dep — the PageLoader never dismisses.
     exclude: [
-      'lucide-react',
       'react-icons/bs',
       'react-icons/fa',
       'react-icons/fa6',
