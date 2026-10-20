@@ -169,8 +169,10 @@ export function CompanionChrome({
   const { visible, ownScroll } = useChromeVisibility(page.win, hovered || focused || panel != null, reaching)
   const comments = page.doc.querySelector<HTMLElement>('iframe.myriad-comments')
   // 主题能被替着切深浅色才有这颗按钮：只跟系统、没有深色的主题切了也看不出来。
+  // 切过之后记住切到了哪边：页面要等视图过渡开始才真的改，这时候读还是旧的。
+  const [switched, setSwitched] = useState<boolean | null>(null)
   const schemeSwitch = pageSchemeSwitch(page.doc)
-  const dark = schemeSwitch ? pageIsDark(page.doc, schemeSwitch) : false
+  const dark = switched ?? (schemeSwitch ? pageIsDark(page.doc, schemeSwitch) : false)
   const schemeLabel = dark ? copy.schemeToLight : copy.schemeToDark
   const schemeButton = schemeSwitch ? (
     <button
@@ -178,7 +180,10 @@ export function CompanionChrome({
       className="btn"
       aria-label={schemeLabel}
       title={schemeLabel}
-      onClick={() => switchSiteScheme(page.win, !dark)}
+      onClick={() => {
+        switchSiteScheme(page.win, document, !dark)
+        setSwitched(!dark)
+      }}
     >
       {dark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
     </button>

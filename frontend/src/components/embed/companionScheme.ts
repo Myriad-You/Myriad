@@ -1,7 +1,7 @@
 /**
  * 伴读上的深浅色按钮。博客主题怎么切深浅色，构建时记在博客页的 `<html data-myriad-scheme>` 上
- * （格式见 crates/myriad-blog/src/scheme.rs）；按钮照它看现在是哪一边，切的时候改的是主站的深浅色偏好，
- * 再重新打开这一页，让后端、导航岛和评论区一起换。
+ * （格式见 crates/myriad-blog/src/scheme.rs）；按钮照它看现在是哪一边。切的时候改主站的深浅色偏好
+ * （下一页后端照它出），这一页不刷新：照主题的办法原地改，导航岛和同源的小窗（评论、创作台、伴读自己）一起换。
  */
 
 import { SITE_CHROME_COOKIE, siteChromeCookieLine, siteChromeSwitched } from '../../utils/siteChromeCookie'
@@ -49,17 +49,59 @@ export function pageSchemeSwitch(doc: Document): PageSchemeSwitch | null {
   return parseSchemeMark(doc.documentElement.getAttribute(SCHEME_MARK_ATTR))
 }
 
-/** 把主站的深浅色固定成 `dark` 这一边，再重新打开这一页。 */
-export function switchSiteScheme(win: Window, dark: boolean): void {
+function setPageScheme(doc: Document, value: PageSchemeSwitch, dark: boolean): void {
+  const element = value.target === 'html' ? doc.documentElement : doc.body
+  if (!element) return
+  if (value.kind === 'class') {
+    element.classList.toggle(value.dark, dark)
+    if (value.light) element.classList.toggle(value.light, !dark)
+    return
+  }
+  const next = dark ? value.dark : value.light
+  if (next == null) element.removeAttribute(value.name)
+  else element.setAttribute(value.name, next)
+}
+
+/** 主站应用的页面（伴读、评论、创作台）认 `<html>` 上的 dark / light 类。 */
+function setAppScheme(doc: Document | null, dark: boolean): void {
+  const html = doc?.documentElement
+  if (!html) return
+  html.classList.toggle('dark', dark)
+  html.classList.toggle('light', !dark)
+}
+
+function frameDocument(frame: HTMLIFrameElement): Document | null {
+  try {
+    return frame.contentDocument
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 把主站的深浅色固定成 `dark` 这一边，这一页原地换过去。`self` 是伴读自己的页面：
+ * 它写的 localStorage 不会通知它自己。
+ */
+export function switchSiteScheme(win: Window, self: Document, dark: boolean): void {
+  const doc = win.document
   try {
     win.localStorage.setItem('theme', dark ? 'dark' : 'light')
   } catch {
-    // 存不下也照样改 cookie：这一页还是会换。
+    // 存不下也照样改 cookie：下一页还是这一边。
   }
-  const current = win.document.cookie
+  const current = doc.cookie
     .split('; ')
     .find((part) => part.startsWith(`${SITE_CHROME_COOKIE}=`))
     ?.slice(SITE_CHROME_COOKIE.length + 1)
-  win.document.cookie = siteChromeCookieLine(siteChromeSwitched(current ?? null, dark), win.location.protocol === 'https:')
-  win.location.reload()
+  doc.cookie = siteChromeCookieLine(siteChromeSwitched(current ?? null, dark), win.location.protocol === 'https:')
+  const value = pageSchemeSwitch(doc)
+  const apply = () => {
+    if (value) setPageScheme(doc, value, dark)
+    doc.getElementById('myriad-nav')?.setAttribute('data-scheme', dark ? 'dark' : 'light')
+    setAppScheme(self, dark)
+    for (const frame of doc.querySelectorAll('iframe')) setAppScheme(frameDocument(frame), dark)
+  }
+  const quiet = win.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (quiet || typeof doc.startViewTransition !== 'function') apply()
+  else doc.startViewTransition(apply)
 }
