@@ -696,7 +696,6 @@
   width: 100%;
   padding: 8px 10px;
   border: 0;
-  border-left: 2px solid transparent;
   border-radius: 0.5rem;
   background: transparent;
   cursor: pointer;
@@ -714,7 +713,6 @@
 }
 
 .line.is-current {
-  border-left-color: var(--cast);
   background: color-mix(in srgb, var(--cast) 10%, transparent);
 }
 
