@@ -67,9 +67,9 @@ fn is_api_path(path: &str) -> bool {
     under("/api") || under("/tapi") || path == "/health"
 }
 
-/// 创作台的嵌入页（覆盖层控制器和工具窗口）用自己的 `studio.html`，不带主站外壳。
-fn is_studio_document_path(path: &str) -> bool {
-    path == "/embed/studio/overlay" || path.starts_with("/embed/studio/tool/")
+/// 嵌入页（伴读、评论、友链申请、创作台）用自己的 `embed.html`，不带主站外壳。
+fn is_embed_document_path(path: &str) -> bool {
+    path == "/embed" || path.starts_with("/embed/")
 }
 
 /// Final API fallback. A config-mode process only built the setup route graph,
@@ -230,9 +230,9 @@ pub(crate) async fn start_unified_server(
         // 重要：ServeDir 对任何非 GET/HEAD 请求直接返回 405，所以 /api/* 绝不能落到
         // 静态文件服务——未注册的 POST 应是可读的 JSON 404，不是 405。
         let index_html = std::path::Path::new(&config.frontend_dist_path).join("index.html");
-        let studio_html = tower::Layer::layer(
+        let embed_html = tower::Layer::layer(
             &CompressionLayer::new(),
-            ServeFile::new(std::path::Path::new(&config.frontend_dist_path).join("studio.html")),
+            ServeFile::new(std::path::Path::new(&config.frontend_dist_path).join("embed.html")),
         );
         // CompressionLayer 包住 ServeDir。默认谓词跳过图片（除 SVG）和 SSE。
         let serve_dir = tower::Layer::layer(
@@ -242,7 +242,7 @@ pub(crate) async fn start_unified_server(
 
         api_router.fallback(move |req: Request| {
             let serve_dir = serve_dir.clone();
-            let studio_html = studio_html.clone();
+            let embed_html = embed_html.clone();
             async move {
                 let path = req.uri().path();
                 if is_api_path(path) {
@@ -251,8 +251,8 @@ pub(crate) async fn start_unified_server(
                 // Resolve the cache tier before `req` is consumed by oneshot.
                 let cache_control = static_asset_cache_control(path);
                 use tower::ServiceExt;
-                let served = if is_studio_document_path(path) {
-                    studio_html.oneshot(req).await.map(IntoResponse::into_response).map_err(|_| ())
+                let served = if is_embed_document_path(path) {
+                    embed_html.oneshot(req).await.map(IntoResponse::into_response).map_err(|_| ())
                 } else {
                     serve_dir.oneshot(req).await.map(IntoResponse::into_response).map_err(|_| ())
                 };
@@ -461,16 +461,17 @@ async fn probe_health() {
 }
 
 #[cfg(test)]
-mod studio_document_tests {
-    use super::is_studio_document_path;
+mod embed_document_tests {
+    use super::is_embed_document_path;
 
     #[test]
-    fn studio_pages_use_their_own_document() {
-        assert!(is_studio_document_path("/embed/studio/overlay"));
-        assert!(is_studio_document_path("/embed/studio/tool/notes"));
-        assert!(!is_studio_document_path("/embed/studio"));
-        assert!(!is_studio_document_path("/embed/comments/3"));
-        assert!(!is_studio_document_path("/studio/notes"));
+    fn embed_pages_use_their_own_document() {
+        assert!(is_embed_document_path("/embed/studio/overlay"));
+        assert!(is_embed_document_path("/embed/studio/tool/notes"));
+        assert!(is_embed_document_path("/embed/comments/3"));
+        assert!(is_embed_document_path("/embed/companion/3"));
+        assert!(!is_embed_document_path("/embedded"));
+        assert!(!is_embed_document_path("/studio/notes"));
     }
 }
 

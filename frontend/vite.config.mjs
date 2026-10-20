@@ -7,16 +7,16 @@ import { defineConfig } from 'vite'
 import { backendDevProxyPlugin } from './scripts/vite/backendDevProxy.mjs'
 import { BACKEND_TARGET } from './scripts/vite/constants.mjs'
 import { documentPlugin } from './scripts/vite/documentPlugin.ts'
+import {
+  buildBothEnvironments,
+  EMBED_ENVIRONMENT,
+  embedIconCatalogPlugin,
+} from './scripts/vite/embedEnvironment.mjs'
 import { precompressPlugin } from './scripts/vite/precompress.mjs'
 import { reloadOnOutdatedOptimizeDepPlugin } from './scripts/vite/reloadOnOutdatedOptimizeDep.mjs'
 import { siteBrandingStampPlugin } from './scripts/vite/siteBrandingStampPlugin.mjs'
 import { spaFallbackPlugin } from './scripts/vite/spaFallback.mjs'
 import { stripDevSourcemapsPlugin } from './scripts/vite/stripDevSourcemaps.mjs'
-import {
-  buildBothEnvironments,
-  STUDIO_ENVIRONMENT,
-  studioIconCatalogPlugin,
-} from './scripts/vite/studioEnvironment.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -26,19 +26,19 @@ const pkg = JSON.parse(
 const APP_VERSION = pkg.version || '0.6.3'
 
 /**
- * 主站（client）和创作台（studio）两个环境的打包设置。只有这几处不同：创作台以
- * `studio.html` 为入口，把 withIconA11y 当纯函数，不把品牌图标合成整块。
- * @param {boolean} studio
+ * 主站（client）和嵌入页（embed）两个环境的打包设置。只有这几处不同：嵌入页以
+ * `embed.html` 为入口，把 withIconA11y 当纯函数，不把品牌图标合成整块。
+ * @param {boolean} embed
  */
-function appBuild(studio) {
+function appBuild(embed) {
   return {
     target: 'es2025',
     rollupOptions: {
-      // 创作台环境把 withIconA11y 当纯函数：lib/icons 里没用到的品牌图标才摇得掉。
+      // 嵌入页环境把 withIconA11y 当纯函数：lib/icons 里没用到的品牌图标才摇得掉。
       // 主站入口本来就带着 lib/icons，在源码上标注会让它变大，所以只在这里声明。
-      ...(studio
+      ...(embed
         ? {
-            input: path.resolve(__dirname, 'studio.html'),
+            input: path.resolve(__dirname, 'embed.html'),
             treeshake: { manualPureFunctions: ['withIconA11y'] },
           }
         : {}),
@@ -83,9 +83,9 @@ function appBuild(studio) {
                 if (id.includes('node_modules/motion')) {
                   return 'motion-vendor'
                 }
-                // 创作台环境不合并图标：合起来就是笔记编辑器要的整套
+                // 嵌入页环境不合并图标：合起来就是笔记编辑器要的整套
                 // 品牌图标，工具窗口只用到其中几个，也得整块下载。
-                if (studio) return
+                if (embed) return
                 if (id.includes('node_modules/react-icons/fa6/')) {
                   return 'icons-fa6'
                 }
@@ -119,8 +119,8 @@ export default defineConfig(({ command }) => ({
 
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
-    // 创作台环境里是 true，见 scripts/vite/studioEnvironment.mjs。
-    __STUDIO_ENTRY__: 'false',
+    // 嵌入页环境里是 true，见 scripts/vite/embedEnvironment.mjs。
+    __EMBED_ENTRY__: 'false',
   },
   css: {
     // Inline CSS maps are not needed for dest HMR and inflate the transform cache.
@@ -196,7 +196,7 @@ export default defineConfig(({ command }) => ({
     spaFallbackPlugin(),
     stripDevSourcemapsPlugin(),
     precompressPlugin(),
-    studioIconCatalogPlugin(),
+    embedIconCatalogPlugin(),
   ],
   resolve: {
     alias: {
@@ -210,12 +210,12 @@ export default defineConfig(({ command }) => ({
   },
   environments: {
     client: { build: appBuild(false) },
-    // 创作台只在构建时是独立环境，见 scripts/vite/studioEnvironment.mjs。
+    // 嵌入页只在构建时是独立环境，见 scripts/vite/embedEnvironment.mjs。
     ...(command === 'build'
       ? {
-          [STUDIO_ENVIRONMENT]: {
+          [EMBED_ENVIRONMENT]: {
             consumer: 'client',
-            define: { __STUDIO_ENTRY__: 'true' },
+            define: { __EMBED_ENTRY__: 'true' },
             // 和主站写进同一个目录：不清空，public/ 主站已经拷过。
             build: { ...appBuild(true), emptyOutDir: false, copyPublicDir: false },
           },

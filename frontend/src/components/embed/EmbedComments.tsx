@@ -47,21 +47,26 @@ export function EmbedComments() {
     setCanWrite(Boolean(response.can_write))
   }, [itemId, valid])
 
+  // 等登录检查有了结果再拉：先按访客拉、身份随后落定的话，评论接口会作废那次请求。
+  // 身份变了（登录、换号）就按新身份重拉，看得到的评论不一样。
+  const viewerKey = hasChecked ? (user ? `${user.id}:${user.is_admin ? 'admin' : ''}` : 'guest') : null
   useEffect(() => {
     if (!valid) {
       setLoading(false)
       return
     }
+    if (viewerKey == null) return
     const controller = new AbortController()
     setLoading(true)
     setError('')
     void load(controller.signal).catch((err: unknown) => {
-      if (!controller.signal.aborted) setError(userFacingError(err, copy.loadFailed))
+      if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return
+      setError(userFacingError(err, copy.loadFailed))
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false)
     })
     return () => controller.abort()
-  }, [copy.loadFailed, load, valid])
+  }, [copy.loadFailed, load, valid, viewerKey])
 
   const articlePath = typeof document === 'undefined'
     ? '/blog/'

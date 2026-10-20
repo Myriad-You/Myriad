@@ -74,10 +74,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Dynamic-import tapp runtime (Auth is on the first-paint path).
   // Await reset before the new identity: destroyAll is irreversible; reset after
   // a new session would leave sandboxes guest (host APIs swallow the error).
-  // The studio embed build never starts a Tapp runtime, so there is nothing to
+  // The embed build never starts a Tapp runtime, so there is nothing to
   // reset (typeof: unit tests run without Vite's define).
   const resetTappSubjectState = useCallback(async () => {
-    if (typeof __STUDIO_ENTRY__ !== 'undefined' && __STUDIO_ENTRY__) return
+    if (typeof __EMBED_ENTRY__ !== 'undefined' && __EMBED_ENTRY__) return
     const [{ TappScheduler }, { TappRuntimeGrant }, { TappRuntime }] =
       await Promise.all([
         import('../tapp/runtime/TappScheduler'),

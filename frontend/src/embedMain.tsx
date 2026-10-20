@@ -1,14 +1,14 @@
 /**
- * 创作台嵌入页的入口（`studio.html`）：`/embed/studio/overlay` 和 `/embed/studio/tool/*`。
- * 它们只在博客页的覆盖层里，每开一个窗口就启动一次，所以不带主站外壳（导航、助手、
- * 音乐、Tapp、PWA、站点配置），只带这两类页面用得上的东西。
+ * 嵌入页的入口（`embed.html`）：`/embed/*`——伴读、评论、友链申请、创作台的控制器和工具窗口。
+ * 它们只在博客页里，访客每打开一篇文章就启动伴读和评论，创作台每开一个窗口启动一次，
+ * 所以不带主站外壳（导航、助手、音乐、Tapp、PWA、站点配置），只带这些页面用得上的东西。
  */
 
 import { createRoot } from 'react-dom/client'
 import { StartupFailure } from './components/DocumentReady'
 import { RenderErrorBoundary } from './components/RenderErrorBoundary'
 import { announceStudioWindow } from './components/studio/studioIsland'
-import { StudioApp } from './StudioApp'
+import { EmbedApp } from './EmbedApp'
 import { initPageLoader } from './utils/pageLoader'
 import './styles/tailwind.css'
 
@@ -17,6 +17,6 @@ announceStudioWindow()
 
 createRoot(document.getElementById('app-root')!).render(
   <RenderErrorBoundary source="app" fallback={<StartupFailure />}>
-    <StudioApp />
+    <EmbedApp />
   </RenderErrorBoundary>,
 )

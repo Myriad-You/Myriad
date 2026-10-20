@@ -699,6 +699,7 @@ function AppRoutes() {
   )
 }
 
+/** 嵌入页本来由 embed.html 接手；构建里没有它时落到这里兜底。 */
 function EmbedRoutes() {
   return (
     <Routes>
@@ -726,7 +727,7 @@ function EmbedRoutes() {
           </NamespacedPage>
         }
       />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<DocumentReady>{null}</DocumentReady>} />
     </Routes>
   )
 }

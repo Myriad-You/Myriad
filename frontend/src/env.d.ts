@@ -2,8 +2,8 @@
 
 /** Vite define */
 declare const __APP_VERSION__: string
-/** 创作台嵌入页（studio.html）的构建环境里为 true。 */
-declare const __STUDIO_ENTRY__: boolean
+/** 嵌入页（embed.html）的构建环境里为 true。 */
+declare const __EMBED_ENTRY__: boolean
 
 declare module '*?raw' {
   const content: string
