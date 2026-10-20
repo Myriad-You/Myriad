@@ -11,6 +11,7 @@
 //! Produce does not write a sentence. Redeem does not call `consider_event`.
 
 mod delivery_claim;
+mod in_person;
 mod produce;
 mod redeem;
 
@@ -28,9 +29,9 @@ pub use produce::{ingest, spawn, spawn_presence};
 #[cfg(test)]
 pub(crate) use produce::apply_task_mood;
 pub use redeem::tick_speak_intents;
-pub(crate) use redeem::{InPerson, in_person, say_first_on_app};
+pub(crate) use in_person::{InPerson, in_person, say_first_on_app};
 #[cfg(test)]
-pub(crate) use redeem::say_on_app;
+pub(crate) use in_person::say_on_app;
 
 const SAME_EVENT_MINUTES: i64 = 15;
 
