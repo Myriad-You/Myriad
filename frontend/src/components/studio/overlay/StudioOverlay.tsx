@@ -9,6 +9,7 @@ import {
   LuColumns2,
   LuDownload,
   LuEye,
+  LuFeather,
   LuFileText,
   LuImage,
   LuInbox,
@@ -210,7 +211,7 @@ export function StudioOverlay({
           aria-pressed={open}
           onClick={() => onOpenChange(!open)}
         >
-          <span className="bar__dot" aria-hidden />
+          <LuFeather className="bar__mark" aria-hidden />
           <span>{copy.studio}</span>
         </button>
         {context.docId != null ? (

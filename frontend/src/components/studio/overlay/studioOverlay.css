@@ -117,12 +117,11 @@ input:focus-visible {
   color: var(--so-ink);
 }
 
-.bar__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--so-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--so-accent) 22%, transparent);
+.bar__mark {
+  width: 14px;
+  height: 14px;
+  margin-left: -2px;
+  color: var(--so-accent);
 }
 
 .bar__key {
