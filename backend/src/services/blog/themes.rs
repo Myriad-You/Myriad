@@ -82,6 +82,18 @@ struct ThemeSidecar {
 pub fn ensure_default_theme(layout: &BlogLayout) -> Result<(), ThemeRejected> {
     let dir = layout.theme_dir(DEFAULT_THEME_ID);
     if dir.join("theme.toml").is_file() {
+        // 内置主题归代码管：装过以后代码里改了，磁盘上的旧文件跟着换掉。
+        for (rel, body) in default_theme_files() {
+            let path = dir.join(rel);
+            if fs::read(&path).ok().as_deref() == Some(body.as_bytes()) {
+                continue;
+            }
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|_| storage("Could not update the default theme"))?;
+            }
+            fs::write(&path, body).map_err(|_| storage("Could not update the default theme"))?;
+        }
         if !dir.join(META_FILE).is_file() {
             write_sidecar(
                 &dir,
