@@ -29,6 +29,7 @@ export {
   generateSecurityWrapper,
   generateSessionToken,
   IFRAME_SANDBOX_ATTRS,
+  sandboxScriptNonce,
   sanitizeStorageValue,
   serializeSandboxScriptValue,
   validateStorageKey,

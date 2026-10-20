@@ -29,12 +29,12 @@ import {
   escapeSandboxHtmlText,
   escapeSandboxScriptSource,
   generateCSP,
-  generateNonce,
   generateSecurityWrapper,
   generateSessionToken,
   generateThemeCSS,
   generateWidgetSDK,
   IFRAME_SANDBOX_ATTRS,
+  sandboxScriptNonce,
   serializeSandboxScriptValue,
   WIDGET_STATIC_CSS,
 } from './sandbox'
@@ -102,7 +102,7 @@ function generateWidgetHTML(
   const isDark = widgetProps.theme === 'dark'
   const primaryColor = widgetProps.primaryColor || '#8b5cf6'
 
-  const nonce = generateNonce()
+  const nonce = sandboxScriptNonce()
   const cspOptions = cspOptionsFromPermissions(
     tappInstance.grantedPermissions,
     tappInstance.grantedRemoteMedia,

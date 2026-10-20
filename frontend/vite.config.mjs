@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { backendDevProxyPlugin } from './scripts/vite/backendDevProxy.mjs'
-import { BACKEND_TARGET } from './scripts/vite/constants.mjs'
+import { BACKEND_TARGET, CSP_NONCE_PLACEHOLDER } from './scripts/vite/constants.mjs'
 import { documentPlugin } from './scripts/vite/documentPlugin.ts'
 import {
   buildBothEnvironments,
@@ -116,6 +116,8 @@ export default defineConfig(({ command }) => ({
   cacheDir: path.resolve(__dirname, 'node_modules/.vite', command),
   server: { port: 1102, host: true },
   preview: { port: 1102, host: true },
+  // 产物文档的脚本带 nonce 占位，spa-server 每次请求换成真 nonce 并发 CSP。开发服务器不发 CSP。
+  ...(command === 'build' ? { html: { cspNonce: CSP_NONCE_PLACEHOLDER } } : {}),
 
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),

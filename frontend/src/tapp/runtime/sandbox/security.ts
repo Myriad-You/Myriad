@@ -7,6 +7,19 @@ export function generateNonce(): string {
   return Iterator.from(array).map((b) => b.toString(16).padStart(2, '0')).toArray().join('')
 }
 
+/**
+ * srcdoc 沙箱继承宿主文档的 CSP，脚本得同时过宿主和沙箱自己的两份策略，所以用宿主文档的
+ * nonce（spa-server 每次请求一个，写在 `meta[property=csp-nonce]`）。沙箱没有 allow-same-origin，
+ * 拿到它也碰不到宿主。没有 CSP 的场合（开发服务器、未替换的构建占位）退回随机值。
+ */
+export function sandboxScriptNonce(): string {
+  const meta = typeof document === 'undefined'
+    ? null
+    : document.querySelector<HTMLMetaElement>('meta[property=csp-nonce]')
+  const nonce = meta?.nonce || ''
+  return /^[A-Z0-9+/]{16,}={0,2}$/i.test(nonce) ? nonce : generateNonce()
+}
+
 export function generateSessionToken(): string {
   const array = new Uint8Array(32)
   crypto.getRandomValues(array)

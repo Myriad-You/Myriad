@@ -25,12 +25,12 @@ import {
   escapeSandboxScriptSource,
   generateCSP,
   generateFullSDK,
-  generateNonce,
   generateSecurityWrapper,
   generateSessionToken,
   generateThemeCSS,
   IFRAME_SANDBOX_ATTRS,
   PAGE_STATIC_CSS,
+  sandboxScriptNonce,
   serializeSandboxScriptValue,
 } from './sandbox'
 import {
@@ -108,7 +108,7 @@ function generateHeadlessCoreHTML(
   locale: string,
 ): string {
   const { manifest } = tappInstance
-  const nonce = generateNonce()
+  const nonce = sandboxScriptNonce()
   const cspOptions = cspOptionsFromPermissions(
     tappInstance.grantedPermissions,
     tappInstance.grantedRemoteMedia,
@@ -180,7 +180,7 @@ function generatePageHTML(
       .getPropertyValue('--color-primary')
       .trim() || '#94a3b8'
 
-  const nonce = generateNonce()
+  const nonce = sandboxScriptNonce()
   const cspOptions = cspOptionsFromPermissions(
     tappInstance.grantedPermissions,
     tappInstance.grantedRemoteMedia,

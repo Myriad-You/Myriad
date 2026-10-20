@@ -7,9 +7,49 @@
 
 | 层 | 路径 | 作用 |
 | --- | --- | --- |
-| **backend** | `backend/src/middleware/security.rs` | API 响应：CSP、XFO、Permissions-Policy 等 |
-| **proxy** | `proxy/src/main.rs` | 上游**未带** `Permissions-Policy` 时补齐（覆盖静态 SPA 文档） |
-| **frontend** | `frontend/scripts/spa-server.mjs` + Vite dev middleware | SPA 文档级 `Permissions-Policy`；proxy 仅在上游缺失时补齐 |
+| **backend** | `backend/src/middleware/security.rs` | API 与 `/blog` 响应：CSP、XFO、Permissions-Policy 等 |
+| **proxy** | `proxy/src/main.rs` | 上游**未带** `Permissions-Policy` 时补齐（覆盖静态 SPA 文档）；**不补 CSP** |
+| **frontend** | `frontend/scripts/spa-server.mjs` + Vite dev middleware | SPA 文档（`index.html`、`embed.html`）的 CSP、XFO、Permissions-Policy |
+
+## 文档 CSP（主站与嵌入页）
+
+浏览器打开的主站页面和 `/embed/*` 嵌入页由 `spa-server` 返回，backend 的 CSP 到不了
+这些文档，所以由 `spa-server` 自己发。策略在
+`frontend/scripts/vite/constants.mjs` 的 `documentContentSecurityPolicy`，除脚本外与
+backend 生产策略一致：
+
+| 文档 | `frame-ancestors` | `X-Frame-Options` |
+| --- | --- | --- |
+| 主站（其余所有文档路径） | `'none'` | `DENY` |
+| 嵌入页 `/embed/*`（只给本站 `/blog` 框） | `'self'` | `SAMEORIGIN` |
+
+脚本：`script-src 'nonce-…' 'strict-dynamic' 'wasm-unsafe-eval' 'self'`，`script-src-attr 'none'`。
+
+- **为什么是 nonce 而不是哈希**：TApp 跑在 srcdoc iframe 里，srcdoc 文档继承宿主文档的
+  CSP，TApp 的脚本是运行时拼出来的，算不了哈希。宿主把自己文档的 nonce 交给沙箱
+  （`sandboxScriptNonce`），沙箱脚本同时过宿主和沙箱自己两份策略。沙箱没有
+  `allow-same-origin`，拿到 nonce 也碰不到宿主文档。
+- **nonce 怎么来**：构建时 Vite 的 `html.cspNonce` 把占位符写进文档里每个 `<script>`、
+  modulepreload 和 `<meta property="csp-nonce">`；`spa-server` 每次请求生成新 nonce，
+  替换占位符并写进响应头。文档本来就是 `no-cache` 且每次请求重新盖章。
+- **`'strict-dynamic'`**：被 nonce 放行的脚本再插入的脚本（统计脚本 GA / 站长填的
+  Umami 地址、录音用的 blob: AudioWorklet、Vite 的动态模块）一并放行；HTML 里
+  没带 nonce 的 `<script>`、内联事件、`javascript:` 链接都会被拦。
+- **`'wasm-unsafe-eval'`**：代码高亮（shiki）和 TApp 用 WebAssembly。不放 `'unsafe-eval'`。
+- `connect-src` 默认 `'self' https: wss: stun: turn:`（与 backend 生产默认一致，含声网 RTC），
+  再加 `blob: data:`（TApp 沙箱的资源）。覆盖用 frontend 容器的 `FRONTEND_CSP_CONNECT_SRC`，
+  **不读** `CSP_CONNECT_SRC`：compose 给 backend 的默认值不含 `wss:`，用在文档上会挡掉实时通话。
+- 不发 `upgrade-insecure-requests`：自托管可以只走 HTTP，文档上加它会让整站资源失败。
+  需要时在外层 TLS 入口自己加。
+- 开发服务器（Vite）与 `vite preview` 不发 CSP，开发时的 HMR 内联脚本不受影响。
+
+**proxy 不补 CSP。** 文档 CSP 与文档内容绑定（nonce 每次请求不同），只有生成文档的
+那一层能发；proxy 补一份固定策略要么挡掉启动脚本和 TApp，要么形同虚设。上游缺失时
+proxy 原样透传。
+
+**backend 直接托管前端产物**（`frontend_dist_path` 存在、不经 spa-server）时，文档拿到的
+是 backend 的 `script-src 'self'`，文档里的 nonce 仍是构建占位符：内联启动脚本和 TApp
+沙箱会被拦。生产 Docker 拓扑不走这条路。
 
 浏览器定位（天气）依赖 **HTML 文档** 上的
 `Permissions-Policy: geolocation=(self)`，而不是仅 API 响应头。
@@ -60,7 +100,7 @@ ENABLE_CSP_DEV=true
 
 ```text
 client -> optional TLS entrypoint -> Myriad proxy:${HTTP_PORT:-80}
-                                    ├-> frontend:1102  (+ Permissions-Policy if missing)
+                                    ├-> frontend:1102  (document CSP/XFO; + Permissions-Policy if missing)
                                     └-> backend:1103   (full security headers)
 ```
 
@@ -228,12 +268,15 @@ curl -I http://localhost:1103/health
 
 应该能看到 `x-frame-options`、`x-content-type-options`、`referrer-policy`、
 `permissions-policy` 等响应头。生产环境还应看到
-`strict-transport-security`。
+`strict-transport-security`。经 proxy 打首页和 `/embed/...` 时还应看到带
+`'nonce-…'` 的 `content-security-policy`，两次请求的 nonce 不同，首页
+`frame-ancestors 'none'`、嵌入页 `frame-ancestors 'self'`。
 
 ## 相关配置
 
 - `ENVIRONMENT=production`：启用生产 CSP 和 HSTS。
-- `CSP_CONNECT_SRC`：覆盖生产 CSP 的 `connect-src`，默认为 `'self' https: wss: stun: turn:`（含声网 RTC）。
+- `CSP_CONNECT_SRC`：覆盖 backend 生产 CSP 的 `connect-src`，默认为 `'self' https: wss: stun: turn:`（含声网 RTC）。
+- `FRONTEND_CSP_CONNECT_SRC`：覆盖前端文档 CSP 的 `connect-src`（frontend 容器），默认同上。
 - `ENABLE_CSP_DEV=true`：开发环境也启用 CSP。
 - `PROXY_TRUSTED_UPSTREAMS`：允许传递真实客户端 IP 的外层代理 IP/CIDR 列表。
   留空时不信任任何转发头；切勿设为 `0.0.0.0/0`。

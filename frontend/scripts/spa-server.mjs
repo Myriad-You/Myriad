@@ -3,6 +3,7 @@
  *  Proxy stays a dumb hop. Crawler / share HTML is backend SEO, not this process.
  */
 import { Buffer } from 'node:buffer'
+import { randomBytes } from 'node:crypto'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import http from 'node:http'
@@ -19,9 +20,11 @@ import {
 } from './siteBrandingStamp.mjs'
 import {
   STATIC_ASSET_PATTERN as ASSET_EXT,
+  CSP_NONCE_PLACEHOLDER,
+  DEFAULT_CSP_CONNECT_SRC,
   DOCUMENT_PERMISSIONS_POLICY,
+  documentContentSecurityPolicy,
   EMBED_DOCUMENT,
-  EMBED_FRAME_HEADERS,
   isEmbedDocumentPath,
 } from './vite/constants.mjs'
 
@@ -32,6 +35,8 @@ const HOST = process.env.HOST || '0.0.0.0'
 const INDEX = path.join(DIST, 'index.html')
 const EMBED = path.join(DIST, EMBED_DOCUMENT)
 const MANIFEST_NAME = 'manifest.webmanifest'
+// 不沿用 compose 里给 backend 的 CSP_CONNECT_SRC：那份默认值没有 wss，文档上会挡掉实时通话。
+const CSP_CONNECT_SRC = process.env.FRONTEND_CSP_CONNECT_SRC || DEFAULT_CSP_CONNECT_SRC
 
 const MIME = new Map([
   ['.html', 'text/html; charset=utf-8'],
@@ -253,9 +258,16 @@ async function handle(req, res) {
     const brand = await loadBrand()
     let body = raw
     if (found.stampHtml) {
+      // 嵌入页只给本站 /blog 框住，主站文档谁也不能框。
+      const embed = isEmbedDocumentPath(urlPath)
+      const nonce = randomBytes(16).toString('base64')
       headers['Permissions-Policy'] = DOCUMENT_PERMISSIONS_POLICY
-      if (isEmbedDocumentPath(urlPath)) Object.assign(headers, EMBED_FRAME_HEADERS)
-      if (brand) body = Buffer.from(stampDocumentHtml(raw.toString('utf8'), brand))
+      headers['Content-Security-Policy'] = documentContentSecurityPolicy({ nonce, embed, connectSrc: CSP_CONNECT_SRC })
+      headers['X-Frame-Options'] = embed ? 'SAMEORIGIN' : 'DENY'
+      headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+      let html = raw.toString('utf8').replaceAll(CSP_NONCE_PLACEHOLDER, nonce)
+      if (brand) html = stampDocumentHtml(html, brand)
+      body = Buffer.from(html)
     } else if (found.stampManifest && brand) {
       const parsed = JSON.parse(raw.toString('utf8'))
       body = Buffer.from(JSON.stringify(stampWebManifest(parsed, brand)))
