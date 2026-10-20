@@ -292,8 +292,28 @@ pub fn decode_member_shown_as(data: &serde_json::Value) -> Option<String> {
             .map(str::trim)
             .filter(|value| !value.is_empty())
     };
-    let name = field("card").or_else(|| field("nickname"))?;
-    Some(name.chars().take(40).collect())
+    let name = shown_name(field("card").or_else(|| field("nickname"))?);
+    (!name.is_empty()).then_some(name)
+}
+
+/// What a line reads as: control characters dropped (a QQ group card can
+/// carry NUL and the like, which the database cannot keep and the talk
+/// cannot show), line breaks and tabs kept.
+fn printable(text: &str) -> String {
+    text.chars()
+        .filter(|ch| !ch.is_control() || matches!(ch, '\n' | '\t'))
+        .collect()
+}
+
+/// A name as the talk shows it: printable, on one line, at most 40 characters.
+fn shown_name(name: &str) -> String {
+    printable(name)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(40)
+        .collect()
 }
 
 /// 群消息。频道、`message_sent`、没有文字的行丢掉。`self_id` 用来判断 @ 和回复是不是她。
@@ -341,13 +361,12 @@ pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> 
                 .filter(|value| !value.trim().is_empty())
                 .or(sender.nickname.as_deref())
         })
-        .unwrap_or("")
-        .trim();
+        .unwrap_or("");
     Some(OneBotGroupLine {
         group_id: group_id.to_string(),
         message_id: event.message_id.map_or(String::new(), |id| id.to_string()),
         user_id: user_id.to_string(),
-        display_name: name.chars().take(40).collect(),
+        display_name: shown_name(name),
         text,
         addressed,
         reply_to,
@@ -455,7 +474,10 @@ pub fn decode_replied_message(data: &serde_json::Value, self_id: i64) -> Option<
         Some(WireMessage::Array(segments)) => decode_segments_to_text(segments),
         _ => message.raw_message.clone().unwrap_or_default(),
     };
-    let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text: String = printable(&text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     let text: String = text.chars().take(160).collect();
     if text.is_empty() {
         return None;
@@ -470,11 +492,8 @@ pub fn decode_replied_message(data: &serde_json::Value, self_id: i64) -> Option<
                 .filter(|value| !value.trim().is_empty())
                 .or(sender.nickname.as_deref())
         })
-        .unwrap_or("")
-        .trim()
-        .chars()
-        .take(40)
-        .collect();
+        .map(shown_name)
+        .unwrap_or_default();
     Some(QuotedLine {
         name,
         text,
@@ -504,7 +523,7 @@ fn group_text(segments: &[WireSegment], self_id: i64) -> (String, bool) {
                     .filter(|name| !name.is_empty());
                 let shown = match (qq.as_str(), name) {
                     ("all", _) => "全体成员".to_string(),
-                    (_, Some(name)) => name.chars().take(40).collect(),
+                    (_, Some(name)) => shown_name(&name),
                     (qq, None) if !qq.is_empty() => qq.to_string(),
                     _ => continue,
                 };
@@ -513,7 +532,10 @@ fn group_text(segments: &[WireSegment], self_id: i64) -> (String, bool) {
             _ => {}
         }
     }
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = printable(&text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     (text, addressed)
 }
 
@@ -523,14 +545,16 @@ fn group_reply(segments: &[WireSegment], self_id: i64) -> Option<QuotedLine> {
         .str_field("text")
         .or_else(|| reply.str_field("message"))
         .unwrap_or_default();
-    let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text: String = printable(&text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     let text: String = text.chars().take(160).collect();
     if text.is_empty() {
         return None;
     }
     let hers = reply.i64_field("user_id") == Some(self_id);
-    let name = reply.str_field("nickname").unwrap_or_default();
-    let name: String = name.chars().take(40).collect();
+    let name = shown_name(&reply.str_field("nickname").unwrap_or_default());
     Some(QuotedLine { name, text, hers })
 }
 

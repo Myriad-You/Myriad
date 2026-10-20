@@ -2134,6 +2134,27 @@ mod onebot_decode {
             Some("絶世の良猫要楽奈")
         );
         assert_eq!(decode_member_shown_as(&json!({"user_id": 10001})), None);
+        // Control characters in a card (NUL among them) are not part of it.
+        let odd = json!({"user_id": 20003, "card": "\u{8}&ÿÒUÐ\n\u{10}𝙀𝘾·𝞫\u{0}"});
+        assert_eq!(decode_member_shown_as(&odd).as_deref(), Some("&ÿÒUÐ 𝙀𝘾·𝞫"));
+    }
+
+    #[test]
+    fn control_characters_in_a_group_line_are_dropped() {
+        use myriad_agent_rules::onebot::decode::decode_group_inbound;
+        let raw = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 555,
+            "user_id": 20003,
+            "message_id": 11,
+            "sender": {"user_id": 20003, "card": "\u{8}&ÿÒUÐ\n\u{10}\u{12}𝙀𝘾·𝞫\u{0}"},
+            "message": [{"type": "text", "data": {"text": "早\u{0}上好\u{e}"}}]
+        });
+        let line = decode_group_inbound(&raw.to_string(), 10001).expect("line");
+        assert_eq!(line.display_name, "&ÿÒUÐ 𝙀𝘾·𝞫");
+        assert_eq!(line.text, "早上好");
+        assert!(!line.display_name.chars().any(char::is_control));
     }
 
     #[test]

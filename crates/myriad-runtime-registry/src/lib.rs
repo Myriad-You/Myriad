@@ -16,6 +16,27 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+/// `payload` as a JSON value Postgres can keep: jsonb has no NUL character,
+/// and one NUL anywhere (a QQ group card carried one) fails the whole write.
+fn storable<T: Serialize>(payload: &T) -> Result<Value, DbErr> {
+    fn without_nul(value: Value) -> Value {
+        match value {
+            Value::String(text) if text.contains('\0') => Value::String(text.replace('\0', "")),
+            Value::Array(items) => Value::Array(items.into_iter().map(without_nul).collect()),
+            Value::Object(fields) => Value::Object(
+                fields
+                    .into_iter()
+                    .map(|(key, value)| (key.replace('\0', ""), without_nul(value)))
+                    .collect(),
+            ),
+            other => other,
+        }
+    }
+    serde_json::to_value(payload)
+        .map(without_nul)
+        .map_err(|error| DbErr::Json(error.to_string()))
+}
+
 #[derive(Debug, Clone, FromQueryResult)]
 pub struct RegistryRow {
     pub record_id: String,
@@ -76,7 +97,7 @@ pub async fn put<T: Serialize>(
     payload: &T,
     expires_at: i64,
 ) -> Result<(), DbErr> {
-    let payload = serde_json::to_value(payload).map_err(|error| DbErr::Json(error.to_string()))?;
+    let payload = storable(payload)?;
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"
@@ -120,7 +141,7 @@ pub async fn put_if_absent<T: Serialize>(
     payload: &T,
     expires_at: i64,
 ) -> Result<bool, DbErr> {
-    let payload = serde_json::to_value(payload).map_err(|error| DbErr::Json(error.to_string()))?;
+    let payload = storable(payload)?;
     #[derive(FromQueryResult)]
     struct InsertedRow {
         #[allow(dead_code)]
@@ -176,7 +197,7 @@ pub async fn put_with_subject_limit_on<T: Serialize>(
     let subject_id = identity
         .subject_id
         .ok_or_else(|| DbErr::Custom("subject_id is required for a registry limit".to_string()))?;
-    let payload = serde_json::to_value(payload).map_err(|error| DbErr::Json(error.to_string()))?;
+    let payload = storable(payload)?;
     let lock_key = format!("runtime_registry:{namespace}:{subject_id}");
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -655,7 +676,7 @@ pub async fn enqueue<T: Serialize>(
     payload: &T,
     expires_at: i64,
 ) -> Result<(), DbErr> {
-    let payload = serde_json::to_value(payload).map_err(|error| DbErr::Json(error.to_string()))?;
+    let payload = storable(payload)?;
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO runtime_mailbox (channel, runtime_id, payload, expires_at) VALUES ($1, $2, $3, $4)",
@@ -761,6 +782,18 @@ mod tests {
         };
         assert!(id.subject_id.is_none());
         assert!(id.tapp_id.is_none());
+    }
+
+    #[test]
+    fn a_nul_anywhere_in_a_payload_is_dropped_before_it_is_kept() {
+        let payload = serde_json::json!({
+            "lines": [{ "who": "\u{8}名片\u{0}", "text": "早上好" }],
+            "k\u{0}ey": 3
+        });
+        let kept = storable(&payload).unwrap();
+        assert_eq!(kept["lines"][0]["who"], "\u{8}名片");
+        assert_eq!(kept["key"], 3);
+        assert!(!kept.to_string().contains("\\u0000"));
     }
 
     #[test]
