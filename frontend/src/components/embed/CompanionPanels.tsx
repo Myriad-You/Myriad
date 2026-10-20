@@ -64,6 +64,7 @@ export function PanelShell({
   )
 }
 
+/** 站长补生成或重新生成：放在面板标题栏里，不压在内容上面。 */
 export function AdminGenerate({
   copy,
   busy,
@@ -76,15 +77,17 @@ export function AdminGenerate({
   onGenerate: () => void
 }) {
   return (
-    <div className="panel__admin">
-      <button type="button" disabled={busy} onClick={onGenerate}>
-        <Sparkles aria-hidden="true" />
-        {busy ? copy.generating : has ? copy.regenerate : copy.generate}
-      </button>
-    </div>
+    <button type="button" className="panel__admin" disabled={busy} onClick={onGenerate}>
+      <Sparkles aria-hidden="true" />
+      {busy ? copy.generating : has ? copy.regenerate : copy.generate}
+    </button>
   )
 }
 
+/**
+ * 注释列表：点一条展开整段解释，在面板里就能读完；右边的箭头才跳去正文。
+ * 正文里没找到的词排在最后，单独一组。
+ */
 export function AnnotationsPanel({
   copy,
   annotations,
@@ -92,8 +95,8 @@ export function AnnotationsPanel({
   linked,
   picked,
   listRef,
-  admin,
-  onPick,
+  onToggle,
+  onReveal,
 }: {
   copy: Copy
   annotations: AnnotationItem[]
@@ -101,42 +104,55 @@ export function AnnotationsPanel({
   linked: boolean
   picked: number | null
   listRef: RefObject<HTMLOListElement | null>
-  admin: ReactNode
-  onPick: (index: number) => void
+  onToggle: (index: number) => void
+  onReveal: (index: number) => void
 }) {
   const { format } = useI18n()
+  const indexed = annotations.map((annotation, index) => ({ annotation, index }))
+  const found = linked ? indexed.filter(({ index }) => inText.has(index)) : indexed
+  const missing = linked ? indexed.filter(({ index }) => !inText.has(index)) : []
+  const row = ({ annotation, index }: (typeof indexed)[number], locatable: boolean) => {
+    const type = knownType(annotation.type)
+    const open = picked === index
+    return (
+      <li key={annotation.id ?? index} data-index={index}>
+        <div className={`note${open ? ' is-picked' : ''}`} data-type={type}>
+          <button type="button" className="note__main" aria-expanded={open} onClick={() => onToggle(index)}>
+            <span className="note__top">
+              <span className="note__type">{copy[TYPE_KEYS[type]]}</span>
+              <strong className="note__term">{annotation.term}</strong>
+            </span>
+            <span className="note__text">{annotation.explanation}</span>
+          </button>
+          {locatable ? (
+            <button
+              type="button"
+              className="note__go"
+              aria-label={`${copy.showInText}: ${annotation.term}`}
+              title={copy.showInText}
+              onClick={() => onReveal(index)}
+            >
+              <ArrowRight aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      </li>
+    )
+  }
+  if (annotations.length === 0) return <p className="panel__hint">{copy.annotationsEmpty}</p>
   return (
     <>
-      {admin}
-      {annotations.length === 0 ? <p className="panel__hint">{copy.annotationsEmpty}</p> : null}
-      {annotations.length > 0 && linked ? (
+      {linked ? (
         <p className="panel__hint">
           {format(copy.annotationsInText, { total: annotations.length, count: inText.size })}
         </p>
       ) : null}
       <ol className="notes" ref={listRef}>
-        {annotations.map((annotation, index) => {
-          const type = knownType(annotation.type)
-          const missing = linked && !inText.has(index)
-          return (
-            <li key={annotation.id ?? index} data-index={index}>
-              <button
-                type="button"
-                className={`note${picked === index ? ' is-picked' : ''}`}
-                data-type={type}
-                onClick={() => onPick(index)}
-              >
-                <span className="note__top">
-                  <span className="note__type">{copy[TYPE_KEYS[type]]}</span>
-                  <strong className="note__term">{annotation.term}</strong>
-                  {missing ? null : <ArrowRight className="note__go" aria-hidden="true" />}
-                </span>
-                <span className="note__text">{annotation.explanation}</span>
-                {missing ? <small className="note__miss">{copy.notInText}</small> : null}
-              </button>
-            </li>
-          )
-        })}
+        {found.map((entry) => row(entry, linked))}
+        {missing.length > 0 ? (
+          <li className="notes__group" aria-hidden="true">{copy.notInText}</li>
+        ) : null}
+        {missing.map((entry) => row(entry, false))}
       </ol>
     </>
   )
@@ -147,107 +163,104 @@ export function PodcastPanel({
   show,
   podcast,
   linesRef,
-  admin,
 }: {
   copy: Copy
   show: PodcastResponse | null
   podcast: Podcast
   linesRef: RefObject<HTMLOListElement | null>
-  admin: ReactNode
 }) {
   const { format } = useI18n()
   const playing = podcast.state === 'playing'
   const minutes = Math.max(1, Math.round((show?.estimated_duration ?? 0) / 60))
-  if (podcast.dialogues.length === 0) {
-    return (
-      <>
-        {admin}
-        <p className="panel__hint">{copy.podcastEmpty}</p>
-      </>
-    )
-  }
+  const total = podcast.dialogues.length
+  if (total === 0) return <p className="panel__hint">{copy.podcastEmpty}</p>
   return (
     <>
-      {admin}
-      <div className="show">
-        <strong>{show?.title}</strong>
-        <span>{format(copy.duration, { minutes })}</span>
-      </div>
-      <div className="player">
-        <button type="button" aria-label={copy.prev} title={copy.prev} disabled={podcast.audioLoading || podcast.index <= 0} onClick={() => { void podcast.prev() }}>
-          <SkipBack aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="player__main"
-          aria-label={playing ? copy.pause : copy.play}
-          title={playing ? copy.pause : copy.play}
-          disabled={podcast.audioLoading}
-          onClick={() => { void (playing ? podcast.pause() : podcast.play()) }}
-        >
-          {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-        </button>
-        <button type="button" aria-label={copy.next} title={copy.next} disabled={podcast.audioLoading || podcast.index >= podcast.dialogues.length - 1} onClick={() => { void podcast.next() }}>
-          <SkipForward aria-hidden="true" />
-        </button>
-        <button type="button" aria-label={copy.stop} title={copy.stop} disabled={podcast.state === 'stopped'} onClick={podcast.stop}>
-          <Square aria-hidden="true" />
-        </button>
-        <span className="player__at">
-          {podcast.index + 1} / {podcast.dialogues.length}
-        </span>
-      </div>
-      {podcast.cloudAvailable ? (
-        <div className="voice">
-          <div className="segment" role="group" aria-label={copy.voiceEngine}>
-            {(['system', 'cloud'] as const).map((engine) => (
-              <button
-                key={engine}
-                type="button"
-                aria-pressed={podcast.engine === engine}
-                disabled={podcast.audioLoading}
-                onClick={() => { void podcast.switchEngine(engine) }}
-              >
-                {engine === 'system' ? copy.engineSystem : copy.engineCloud}
-              </button>
-            ))}
-          </div>
-          {podcast.engine === 'cloud' ? (
-            <>
-              {(['host', 'guest'] as const).map((role) => (
-                <label key={role}>
-                  <span>{role === 'host' ? copy.hostVoice : copy.guestVoice}</span>
-                  <select
-                    value={(role === 'host' ? podcast.hostVoiceId : podcast.guestVoiceId) ?? 0}
-                    disabled={podcast.audioLoading}
-                    onChange={(event) => {
-                      const id = Number(event.target.value)
-                      void podcast.changeVoice(role, id || undefined)
-                    }}
-                  >
-                    <option value={0}>{copy.voiceDefault}</option>
-                    {podcast.voices.map((voice) => (
-                      <option key={voice.id} value={voice.id}>{voice.name}</option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-              <button type="button" className="voice__redo" disabled={podcast.audioLoading} onClick={() => { void podcast.regenerateAudio() }}>
-                {copy.regenerateAudio}
-              </button>
-            </>
-          ) : null}
+      {/* 节目名、播放和声音钉在上面，只有台词在滚。 */}
+      <div className="deck">
+        <div className="show">
+          <strong>{show?.title}</strong>
+          <span>{format(copy.duration, { minutes })}</span>
         </div>
-      ) : null}
-      {podcast.audioLoading ? (
-        <p className="panel__hint" role="status">
-          {format(copy.audioLoading, {
-            loaded: podcast.audioProgress.loaded,
-            total: podcast.audioProgress.total,
-          })}
-        </p>
-      ) : null}
-      {podcast.notice ? <p className="panel__hint" role="status">{podcast.notice}</p> : null}
+        <div className="player">
+          <button type="button" aria-label={copy.prev} title={copy.prev} disabled={podcast.audioLoading || podcast.index <= 0} onClick={() => { void podcast.prev() }}>
+            <SkipBack aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="player__main"
+            aria-label={playing ? copy.pause : copy.play}
+            title={playing ? copy.pause : copy.play}
+            disabled={podcast.audioLoading}
+            onClick={() => { void (playing ? podcast.pause() : podcast.play()) }}
+          >
+            {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+          </button>
+          <button type="button" aria-label={copy.next} title={copy.next} disabled={podcast.audioLoading || podcast.index >= podcast.dialogues.length - 1} onClick={() => { void podcast.next() }}>
+            <SkipForward aria-hidden="true" />
+          </button>
+          <button type="button" aria-label={copy.stop} title={copy.stop} disabled={podcast.state === 'stopped'} onClick={podcast.stop}>
+            <Square aria-hidden="true" />
+          </button>
+          <span className="player__at">
+            {podcast.index + 1} / {total}
+          </span>
+        </div>
+        <div className="player__track" aria-hidden="true">
+          <span style={{ width: `${((podcast.index + (podcast.state === 'stopped' ? 0 : 1)) / total) * 100}%` }} />
+        </div>
+        {podcast.cloudAvailable ? (
+          <div className="voice">
+            <div className="segment" role="group" aria-label={copy.voiceEngine}>
+              {(['system', 'cloud'] as const).map((engine) => (
+                <button
+                  key={engine}
+                  type="button"
+                  aria-pressed={podcast.engine === engine}
+                  disabled={podcast.audioLoading}
+                  onClick={() => { void podcast.switchEngine(engine) }}
+                >
+                  {engine === 'system' ? copy.engineSystem : copy.engineCloud}
+                </button>
+              ))}
+            </div>
+            {podcast.engine === 'cloud' ? (
+              <>
+                {(['host', 'guest'] as const).map((role) => (
+                  <label key={role}>
+                    <span>{role === 'host' ? copy.hostVoice : copy.guestVoice}</span>
+                    <select
+                      value={(role === 'host' ? podcast.hostVoiceId : podcast.guestVoiceId) ?? 0}
+                      disabled={podcast.audioLoading}
+                      onChange={(event) => {
+                        const id = Number(event.target.value)
+                        void podcast.changeVoice(role, id || undefined)
+                      }}
+                    >
+                      <option value={0}>{copy.voiceDefault}</option>
+                      {podcast.voices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>{voice.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+                <button type="button" className="voice__redo" disabled={podcast.audioLoading} onClick={() => { void podcast.regenerateAudio() }}>
+                  {copy.regenerateAudio}
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {podcast.audioLoading ? (
+          <p className="panel__hint" role="status">
+            {format(copy.audioLoading, {
+              loaded: podcast.audioProgress.loaded,
+              total: podcast.audioProgress.total,
+            })}
+          </p>
+        ) : null}
+        {podcast.notice ? <p className="panel__hint" role="status">{podcast.notice}</p> : null}
+      </div>
       <ol className="lines" ref={linesRef}>
         {podcast.dialogues.map((line, index) => (
           <li key={index} data-line={index}>

@@ -37,6 +37,7 @@
   "tabAnnotations": "Notes",
   "tabPodcast": "Podcast",
   "annotationsInText": "{total, plural, one {# note} other {# notes}}, {count} marked in the post",
+  "showInText": "Show in post",
   "notInText": "Not found in the post",
   "typeTerm": "Term",
   "typeReference": "Reference",

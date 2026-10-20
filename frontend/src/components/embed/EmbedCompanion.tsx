@@ -277,10 +277,11 @@ export function EmbedCompanion() {
   const tools = (['annotations', 'podcast'] as const).filter(
     (kind) => isAdmin || (kind === 'annotations' ? hasNotes : hasShow),
   )
-  const admin = (kind: Kind, has: boolean) =>
-    isAdmin ? (
-      <AdminGenerate copy={copy} busy={busy !== null} has={has} onGenerate={() => { void generate(kind, has) }} />
-    ) : null
+  const panelExtra = (open: Panel) => {
+    if (!isAdmin || open === 'reading') return null
+    const has = open === 'annotations' ? hasNotes : hasShow
+    return <AdminGenerate copy={copy} busy={busy !== null} has={has} onGenerate={() => { void generate(open, has) }} />
+  }
 
   const renderPanel = (open: Panel, ownScroll: () => void) => (
     <>
@@ -293,15 +294,15 @@ export function EmbedCompanion() {
           linked={linked}
           picked={picked}
           listRef={notesRef}
-          admin={admin('annotations', hasNotes)}
-          onPick={(index) => {
+          onToggle={(index) => setPicked((current) => (current === index ? null : index))}
+          onReveal={(index) => {
             setPicked(index)
             ownScroll()
             if (linkRef.current?.reveal(index)) setPanel(null)
           }}
         />
       ) : open === 'podcast' ? (
-        <PodcastPanel copy={copy} show={show} podcast={podcast} linesRef={linesRef} admin={admin('podcast', hasShow)} />
+        <PodcastPanel copy={copy} show={show} podcast={podcast} linesRef={linesRef} />
       ) : (
         <div className="reading">
           <Stepper label={copy.fontSize} kind="size" value={values.size} copy={copy} onStep={stepSize} />
@@ -321,6 +322,7 @@ export function EmbedCompanion() {
       panel={panel}
       onPanel={setPanel}
       renderPanel={renderPanel}
+      panelExtra={panelExtra}
       size={{ label: values.size, onStep: stepSize }}
       leading={{ label: values.leading, onStep: stepLeading }}
     />

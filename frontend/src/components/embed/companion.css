@@ -345,7 +345,7 @@
   font-size: 12px;
 }
 
-.panel__admin button,
+.panel__admin,
 .voice__redo,
 .segment button {
   display: inline-flex;
@@ -359,14 +359,21 @@
   font-size: 12px;
 }
 
-.panel__admin button:hover,
+.panel__admin:hover,
 .voice__redo:hover {
   background: var(--hover);
 }
 
+/* 标题栏里的那颗：小一号，不和标题抢。 */
+.panel__admin {
+  padding: 3px 10px;
+  color: var(--soft);
+  font-size: 11px;
+}
+
 .panel__admin svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   color: var(--ai);
 }
 
@@ -387,21 +394,32 @@
 }
 
 .note {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding: 10px;
-  border: 0;
+  position: relative;
   border-radius: 0.75rem;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
+  transition: background-color 140ms ease;
 }
 
 .note:hover,
 .note.is-picked {
   background: var(--hover);
+}
+
+.note__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 40px 10px 10px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.panel .note__main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .note__top {
@@ -413,7 +431,7 @@
 
 .note__type {
   flex: none;
-  padding: 2px 4px;
+  padding: 2px 5px;
   border-radius: 4px;
   font-size: 11px;
   line-height: 1.2;
@@ -422,22 +440,11 @@
 .note__term {
   overflow: hidden;
   flex: 1;
+  color: var(--fg);
   font-size: 13px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.note__go {
-  width: 14px;
-  height: 14px;
-  color: var(--soft);
-  opacity: 0;
-  transition: opacity 140ms ease;
-}
-
-.note:hover .note__go {
-  opacity: 1;
 }
 
 .note__text {
@@ -445,18 +452,66 @@
   overflow: hidden;
   color: var(--soft);
   font-size: 12px;
+  line-height: 1.6;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
 }
 
+/* 展开：整段解释，字亮一档。 */
 .note.is-picked .note__text {
+  color: var(--fg);
   -webkit-line-clamp: unset;
 }
 
-.note__miss {
+/* 跳去正文：右上角，指上去或展开时出来；触屏上一直在。 */
+.note__go {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--soft);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 140ms ease,
+    background-color 140ms ease;
+}
+
+.note:hover .note__go,
+.note.is-picked .note__go,
+.note__go:focus-visible {
+  opacity: 1;
+}
+
+.note__go:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.note__go svg {
+  width: 15px;
+  height: 15px;
+}
+
+@media (hover: none) {
+  .note__go {
+    opacity: 1;
+  }
+}
+
+.notes__group {
+  margin: 8px 10px 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
   color: var(--soft);
   font-size: 11px;
-  opacity: 0.8;
 }
 
 .note[data-type='term'] .note__type {
@@ -484,12 +539,29 @@
   color: light-dark(#db2777, #f472b6);
 }
 
-/* 播客。 */
+/* 播客：节目、播放和声音钉在面板顶上，台词在下面滚。 */
+.deck {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -10px -10px 0;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--solid);
+}
+
 .show {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 0 4px;
+}
+
+.show strong {
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .show span {
@@ -529,13 +601,35 @@
 .player .player__main {
   width: 38px;
   height: 38px;
+  margin: 0 2px;
   background: var(--cast);
-  color: #fff;
+  color: light-dark(#fff, #022c22);
 }
 
 .player .player__main:hover {
   background: color-mix(in srgb, var(--cast) 85%, black);
-  color: #fff;
+  color: light-dark(#fff, #022c22);
+}
+
+.player .player__main svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 念到第几句：一条细线。 */
+.player__track {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.player__track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cast);
+  transition: width 0.3s var(--ease);
 }
 
 .player__at {
@@ -582,7 +676,7 @@
 .line {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   width: 100%;
   padding: 8px 10px;
   border: 0;
@@ -597,9 +691,19 @@
   background: var(--hover);
 }
 
+.line > span:last-child {
+  color: var(--soft);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
 .line.is-current {
   border-left-color: var(--cast);
   background: color-mix(in srgb, var(--cast) 10%, transparent);
+}
+
+.line.is-current > span:last-child {
+  color: var(--fg);
 }
 
 .line__who {

@@ -134,6 +134,8 @@ export interface CompanionChromeProps {
   onPanel: (panel: Panel | null) => void
   /** 面板的内容（不含外壳）。`ownScroll` 在自己滚动页面（跳到注释）之前调。 */
   renderPanel: (panel: Panel, ownScroll: () => void) => ReactNode
+  /** 面板标题栏里、收起按钮前面的东西（站长的生成按钮）。 */
+  panelExtra: (panel: Panel) => ReactNode
   size: { label: string; onStep: (direction: 1 | -1) => void }
   leading: { label: string; onStep: (direction: 1 | -1) => void }
 }
@@ -147,6 +149,7 @@ export function CompanionChrome({
   panel,
   onPanel,
   renderPanel,
+  panelExtra,
   size,
   leading,
 }: CompanionChromeProps) {
@@ -203,6 +206,7 @@ export function CompanionChrome({
   const shell = (open: Panel) => (
     <PanelShell
       title={open === 'annotations' ? copy.tabAnnotations : open === 'podcast' ? copy.tabPodcast : copy.readingTools}
+      extra={panelExtra(open)}
       closeLabel={copy.close}
       onClose={() => onPanel(null)}
     >

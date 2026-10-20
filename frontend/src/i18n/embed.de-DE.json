@@ -37,6 +37,7 @@
   "tabAnnotations": "Notizen",
   "tabPodcast": "Podcast",
   "annotationsInText": "{total, plural, one {# Notiz} other {# Notizen}}, {count} im Text markiert",
+  "showInText": "Im Text zeigen",
   "notInText": "Im Text nicht gefunden",
   "typeTerm": "Begriff",
   "typeReference": "Referenz",
