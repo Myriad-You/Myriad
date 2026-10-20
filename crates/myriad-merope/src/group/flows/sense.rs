@@ -291,7 +291,7 @@ pub(crate) fn named_among(
         .iter()
         .map(|(id, vector)| (id.as_str(), vector.as_slice()))
         .collect();
-    let by_meaning = rank::standing_out(&rank::closeness(asked, &pairs));
+    let by_meaning = rank::brought_back(&rank::closeness(asked, &pairs));
     let view: Vec<rank::Row> = read.iter().map(MemoryRow::view).collect();
     let ranked = rank::rank_marked(
         &view,

@@ -626,6 +626,31 @@ fn pictures_read_as_she_saw_them_and_one_sent_again_is_counted() {
         "阿明：[表情：😂]"
     );
     assert_eq!(group.pictures.get("telegram:cat"), Some(&2));
+    // One person sending it twice: counted, not yet the group's.
+    assert_eq!(group.picture_senders["telegram:cat"].len(), 1);
+    assert!(!flows::the_groups_picture(&group, "telegram:cat"));
+    // Nor a third time by the same one; by someone else, it is.
+    let mut again = picture(4);
+    step(
+        &mut group,
+        &mut at(BASE),
+        Event::Heard {
+            message: again.clone(),
+            restore: None,
+        },
+    );
+    assert!(!flows::the_groups_picture(&group, "telegram:cat"));
+    again.message_id = "5".into();
+    again.from = "12".into();
+    step(
+        &mut group,
+        &mut at(BASE),
+        Event::Heard {
+            message: again,
+            restore: None,
+        },
+    );
+    assert!(flows::the_groups_picture(&group, "telegram:cat"));
     group.lines[0].seen = vec![Some(crate::seeing::Seen {
         what: "一只翻白眼的猫".into(),
         says: Some("无语".into()),
@@ -2002,8 +2027,8 @@ fn g1_read_back_after_a_restart() {
 #[test]
 fn g1_pictures_and_what_she_heard() {
     let mut end = End::new();
-    let picture = |id: i64| {
-        let mut picture = message(id, 11, "阿明", "", false);
+    let picture_from = |id: i64, from: i64, name: &str| {
+        let mut picture = message(id, from, name, "", false);
         picture.images = vec![GroupImage {
             key: "telegram:cat".into(),
             fetch: ImageFetch::TelegramFile {
@@ -2014,9 +2039,12 @@ fn g1_pictures_and_what_she_heard() {
         }];
         picture
     };
+    let picture = |id: i64| picture_from(id, 11, "阿明");
+    // Sent three times, by two of them: the group's picture.
     heard(&mut end, 0.0, picture(1));
     heard(&mut end, 1.0, message(2, 12, "小红", "哈哈哈", false));
     heard(&mut end, 2.0, picture(3));
+    heard(&mut end, 2.5, picture_from(4, 12, "小红"));
     for index in 0..HEARD_EVERY as i64 {
         heard(
             &mut end,

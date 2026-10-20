@@ -84,6 +84,11 @@ async fn read_group(
 ) {
     use myriad_merope::group_reading::{AtHand, SCHEMA_NAME, input, parse, schema, system};
     let held = held_in(db, circle, 30).await;
+    let wants: Vec<String> = super::super::wants::open(db)
+        .await
+        .into_iter()
+        .map(|want| want.want)
+        .collect();
     let sores = super::super::sore::open_in_group(db, venue, None).await;
     let lands_now = lands_row(db, circle).await;
     let shown_as = crate::services::channel_group::shown_as(venue);
@@ -93,6 +98,7 @@ async fn read_group(
         day_before,
         sore_spots: json!(super::super::sore::as_input(&sores, chrono::Utc::now())),
         shown_as: shown_as.as_deref(),
+        wants,
     };
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -113,10 +119,15 @@ async fn read_group(
     else {
         return;
     };
-    let Some(reading) = parse(&raw, lines) else {
+    let Some(reading) = parse(&raw, lines, &at_hand) else {
         tracing::warn!("[Merope] a group stretch's reading came back unreadable");
         return;
     };
+    // What she kept on a mistake someone pointed out goes before anything
+    // new is kept from the same reading.
+    if !reading.corrected.is_empty() {
+        recheck(db, circle, venue, lines, &reading.corrected, &soul).await;
+    }
     put_day(db, circle, &reading.day, today).await;
     put_lands(db, circle, &reading.lands, lands_now.as_ref()).await;
     super::super::sore::let_go(db, &sores, &reading.let_go).await;
@@ -125,6 +136,157 @@ async fn read_group(
         tracing::info!(kept, "[Merope] bits kept from a group's talk");
     }
     super::super::heard::keep(db, venue, reading.heard).await;
+    for explained in &reading.explained {
+        super::super::jargon::told(db, venue, explained).await;
+    }
+}
+
+/// What she kept from a group lately and goes back over when told she got
+/// the talk wrong, at most; and how far back.
+const RECHECKED_AT_MOST: u64 = 40;
+const RECHECKED_WITHIN_DAYS: i32 = 14;
+/// What she kept there that a recheck may take back.
+const RECHECKED: [&str; 7] = [
+    super::super::strangers::SOURCE,
+    super::super::making_sense::SOURCE,
+    SOURCE,
+    super::super::jargon::SOURCE,
+    super::super::recognizing::SOURCE,
+    DAY_SOURCE,
+    LANDS_SOURCE,
+];
+
+/// Someone told her she got the talk wrong: go back over what she kept from
+/// that group lately, and take back what rests on that mistake (kept as
+/// retired, `misread`, never deleted).
+async fn recheck(
+    db: &DatabaseConnection,
+    circle: &Circle,
+    venue: &str,
+    lines: &[myriad_merope::group_reading::Line],
+    corrected: &[myriad_merope::group_reading::Correction],
+    soul: &str,
+) {
+    use myriad_merope::group_reading::{
+        Kept, RECHECK_SCHEMA_NAME, parse_recheck, recheck_input, recheck_schema, recheck_system,
+    };
+    let rows = lately_kept_in(db, &circle.audience().venue(), venue).await;
+    if rows.is_empty() {
+        return;
+    }
+    let kept: Vec<Kept> = rows
+        .iter()
+        .map(|(_, content, rests_on)| Kept {
+            what: content,
+            rests_on: rests_on.as_deref(),
+        })
+        .collect();
+    let Ok(raw) = super::super::call::Ask::new(
+        super::super::call::Voice::Reading,
+        circle.keeper(),
+        RECHECK_SCHEMA_NAME,
+    )
+    .within(READING_TIMEOUT)
+    .json_raw(
+        &recheck_system(soul),
+        &recheck_input(lines, corrected, &kept),
+        RECHECK_SCHEMA_NAME,
+        &recheck_schema(),
+    )
+    .await
+    else {
+        return;
+    };
+    let wrong: Vec<String> = parse_recheck(&raw, rows.len(), corrected)
+        .into_iter()
+        .map(|k| rows[k].0.clone())
+        .collect();
+    if wrong.is_empty() {
+        return;
+    }
+    match take_back(db, wrong).await {
+        Ok(taken_back) => tracing::info!(
+            %venue,
+            taken_back,
+            "[Merope] told she got a group's talk wrong, took back what rested on it"
+        ),
+        Err(error) => tracing::warn!(%error, "[Merope] could not take back what she misread"),
+    }
+}
+
+/// What she kept from the group (`stored`: the venue as memories keep it;
+/// `venue`: as sessions keep it) lately, freshest first: (id, what it says,
+/// the words it rests on).
+async fn lately_kept_in(
+    db: &DatabaseConnection,
+    stored: &str,
+    venue: &str,
+) -> Vec<(String, String, Option<String>)> {
+    let heard_here = format!("\"group\":{}", Value::String(venue.to_string()));
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id, content, evidence FROM agent_memories \
+             WHERE invalid_at IS NULL AND updated_at > now() - make_interval(days => $4) \
+               AND ((venue = $1 AND source = ANY($2)) \
+                 OR (source = $5 AND evidence LIKE '%' || $3 || '%')) \
+             ORDER BY updated_at DESC LIMIT $6",
+            [
+                stored.into(),
+                RECHECKED
+                    .iter()
+                    .map(|source| source.to_string())
+                    .collect::<Vec<_>>()
+                    .into(),
+                heard_here.into(),
+                RECHECKED_WITHIN_DAYS.into(),
+                super::super::heard::SOURCE.into(),
+                (RECHECKED_AT_MOST as i64).into(),
+            ],
+        ))
+        .await
+        .unwrap_or_default();
+    let rows: Vec<(String, String, Option<String>)> = rows
+        .iter()
+        .filter_map(|row| {
+            let id: String = row.try_get("", "id").ok()?;
+            let content: String = row.try_get("", "content").ok()?;
+            let evidence: Option<String> = row.try_get("", "evidence").ok().flatten();
+            Some((id, content, evidence.as_deref().and_then(rests_on)))
+        })
+        .collect();
+    rows
+}
+
+/// Take back rows she kept on a misreading: retired as `misread`, kept.
+async fn take_back(db: &DatabaseConnection, ids: Vec<String>) -> Result<u64, sea_orm::DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE agent_memories SET invalid_at = now(), invalid_reason = $2, updated_at = now() \
+         WHERE id = ANY($1) AND invalid_at IS NULL",
+        [ids.into(), MISREAD.into()],
+    ))
+    .await
+    .map(|done| done.rows_affected())
+}
+
+/// Why a row was taken back after someone pointed out the mistake it rests on.
+pub const MISREAD: &str = "misread";
+
+/// The words a kept row was kept from, as its evidence carries them: its
+/// quote, or the quotes of its facts.
+fn rests_on(evidence: &str) -> Option<String> {
+    let evidence: Value = serde_json::from_str(evidence).ok()?;
+    if let Some(quote) = evidence.get("quote").and_then(Value::as_str) {
+        return Some(quote.to_string());
+    }
+    let quotes: Vec<&str> = evidence
+        .get("facts")?
+        .as_array()?
+        .iter()
+        .filter_map(|fact| fact.get("quote")?.as_str())
+        .collect();
+    (!quotes.is_empty()).then(|| quotes.join(" / "))
 }
 
 /// How long the reading of a stretch may take: the stronger model, thinking.
@@ -322,4 +484,108 @@ pub async fn days_in(
     // Freshest first, then what was brought back: by date, oldest first.
     days.sort_by(|left, right| left.0.cmp(&right.0));
     days
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::EntityTrait;
+
+    /// Told she misread a group, she goes back over what she kept from that
+    /// group lately (here, and what she heard there), with the words each
+    /// rests on, and what she takes back is retired as misread, not deleted.
+    #[tokio::test]
+    async fn what_she_misread_in_a_group_is_taken_back_and_kept() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "group_recheck").await;
+        let db = isolated.db.clone();
+        let venue = "onebot:1065";
+        let stored = unified::Audience::group(venue, 0).venue();
+        let elsewhere = unified::Audience::group("onebot:2077", 0).venue();
+        let note = unified::remember_in_venue(
+            &db,
+            &stored,
+            "阿明，笑我不会玩",
+            &json!({ "who": "onebot:1", "facts": [{ "fact": "笑我不会玩", "quote": "你不会玩吧" }] })
+                .to_string(),
+            super::super::super::strangers::SOURCE,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let word = unified::remember_in_venue(
+            &db,
+            &stored,
+            "书包：开地铁的",
+            &json!({ "term": "书包", "quote": "书包是开地铁的" }).to_string(),
+            super::super::super::jargon::SOURCE,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let old = unified::remember_in_venue(
+            &db,
+            &stored,
+            "很早以前的一条",
+            "{}",
+            super::super::super::jargon::SOURCE,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE agent_memories SET updated_at = now() - interval '20 days' WHERE id = $1",
+            [old.clone().into()],
+        ))
+        .await
+        .unwrap();
+        unified::remember_in_venue(
+            &db,
+            &elsewhere,
+            "别的群的说法",
+            "{}",
+            super::super::super::jargon::SOURCE,
+        )
+        .await
+        .unwrap();
+        let heard = unified::remember_own(
+            &db,
+            "武汉大学的樱花三月最好看",
+            &json!({ "group": venue }).to_string(),
+            Vec::new(),
+            super::super::super::heard::SOURCE,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let kept = lately_kept_in(&db, &stored, venue).await;
+        let mut ids: Vec<&str> = kept.iter().map(|(id, ..)| id.as_str()).collect();
+        ids.sort_unstable();
+        let mut expected = vec![note.as_str(), word.as_str(), heard.as_str()];
+        expected.sort_unstable();
+        assert_eq!(
+            ids, expected,
+            "this group's, lately, and what she heard there"
+        );
+        let rests = |id: &str| {
+            kept.iter()
+                .find(|(kept, ..)| kept == id)
+                .and_then(|(.., rests_on)| rests_on.clone())
+        };
+        assert_eq!(rests(&note).as_deref(), Some("你不会玩吧"));
+        assert_eq!(rests(&word).as_deref(), Some("书包是开地铁的"));
+        assert_eq!(take_back(&db, vec![word.clone()]).await.unwrap(), 1);
+        assert_eq!(take_back(&db, vec![word.clone()]).await.unwrap(), 0);
+        let row = crate::models::entities::agent_memories::Entity::find_by_id(word)
+            .one(&db)
+            .await
+            .unwrap()
+            .expect("kept, not deleted");
+        assert_eq!(row.invalid_reason.as_deref(), Some(MISREAD));
+        assert_eq!(lately_kept_in(&db, &stored, venue).await.len(), 2);
+        isolated.drop().await;
+    }
 }

@@ -512,6 +512,23 @@ mod tests {
         let few: HashMap<String, f64> = [("a".to_string(), 0.9), ("b".to_string(), 0.1)].into();
         assert!(standing_out(&few).is_empty());
     }
+
+    #[test]
+    fn a_topic_brings_back_only_what_is_close_in_its_own_right() {
+        use myriad_agent_rules::memory::rank::brought_back;
+        // The best of unrelated things still stands out from the rest.
+        let mut closeness: HashMap<String, f64> = (0..20)
+            .map(|index| (format!("m{index}"), 0.08 + f64::from(index % 3) * 0.01))
+            .collect();
+        closeness.insert("unrelated".into(), 0.30);
+        assert!(standing_out(&closeness).contains_key("unrelated"));
+        assert!(brought_back(&closeness).is_empty());
+        closeness.insert("related".into(), 0.55);
+        assert_eq!(
+            brought_back(&closeness).keys().collect::<Vec<_>>(),
+            vec!["related"]
+        );
+    }
 }
 
 /// The vectors kept for `rows` under the model in use, by memory id; up to

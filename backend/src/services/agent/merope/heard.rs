@@ -16,8 +16,13 @@ const HELD: u64 = 300;
 
 /// Keep what she heard in the group `venue` (as sessions keep it), read
 /// from a stretch of its talk (see `bits::go_over_stretch`): the same news
-/// told twice, or in other words, is kept once.
-pub async fn keep(db: &DatabaseConnection, venue: &str, things: Vec<String>) {
+/// told twice, or in other words, is kept once. What it hangs on of hers is
+/// kept with it, as what brings it back.
+pub async fn keep(
+    db: &DatabaseConnection,
+    venue: &str,
+    things: Vec<myriad_merope::group_reading::Heard>,
+) {
     if things.is_empty() || !super::is_enabled().await {
         return;
     }
@@ -28,14 +33,29 @@ pub async fn keep(db: &DatabaseConnection, venue: &str, things: Vec<String>) {
         .map(|row| row.content)
         .collect();
     let mut kept = 0;
-    for thing in things {
+    for heard in things {
+        let thing = heard.thing;
         if myriad_merope::heard::already_heard(held.iter().map(String::as_str), &thing) {
             continue;
         }
         held.push(thing.clone());
-        let evidence = json!({ "heard": "in a group chat", "group": venue }).to_string();
+        let evidence = json!({
+            "heard": "in a group chat",
+            "group": venue,
+            "hangsOn": heard.hangs_on,
+            "because": heard.because,
+        })
+        .to_string();
+        let concepts: Vec<Concept> = heard
+            .hangs_on
+            .into_iter()
+            .map(|name| Concept {
+                name,
+                aliases: Vec::new(),
+            })
+            .collect();
         if matches!(
-            unified::remember_own(db, &thing, &evidence, Vec::<Concept>::new(), SOURCE).await,
+            unified::remember_own(db, &thing, &evidence, concepts, SOURCE).await,
             Ok(Some(_))
         ) {
             kept += 1;

@@ -62,9 +62,15 @@ pub(crate) fn record(cx: &mut Cx, message: &Message, restore: Option<Restore>) -
     take_in(cx);
     if cx.group.pictures.len() > PICTURES_KEPT {
         cx.group.pictures.clear();
+        cx.group.picture_senders.clear();
     }
     for image in &message.images {
         *cx.group.pictures.entry(image.key.clone()).or_default() += 1;
+        cx.group
+            .picture_senders
+            .entry(image.key.clone())
+            .or_default()
+            .insert(message.from.clone());
     }
     true
 }

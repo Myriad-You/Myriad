@@ -254,7 +254,7 @@ pub async fn named_among<C: ConnectionTrait>(
         return Vec::new();
     }
     let (rows, said) = super::cues::with_cues(db, rows).await;
-    let by_meaning = super::super::meaning::standing_out(
+    let by_meaning = myriad_agent_rules::memory::rank::brought_back(
         &super::super::meaning::closeness(db, &rows, query, super::super::meaning::FILL).await,
     );
     let (chosen, _, filler) = rank_marked(

@@ -26,7 +26,7 @@
 //! remembered; and a game with seats there, she its referee: sign-up in the
 //! group, each seat's own part whispered to it alone, moves whispered back.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use myriad_agent_rules::channel::{GroupImage, QuotedLine};
 use serde::{Deserialize, Serialize};
@@ -104,6 +104,9 @@ pub const STRANGER_REPLIES_PER_DAY: u32 = 60;
 pub const HOLD_AT_MOST_SECONDS: f64 = 120.0;
 /// How often each picture's count is kept, at most.
 pub const PICTURES_KEPT: usize = 512;
+/// A picture is the group's once sent this often there, by more than one of
+/// them: one person's habit, or twice by chance, is not.
+pub const PICTURE_SENT_FOR_THE_GROUP: u32 = 3;
 /// Pictures she looks at when she reads the talk, at most at once.
 pub const PICTURES_AT_ONCE: usize = 6;
 /// How often the group is written down again as one she is in, at most.
@@ -286,6 +289,9 @@ pub struct Group {
     /// How often each picture was sent there lately (by its key).
     #[serde(default)]
     pub pictures: BTreeMap<String, u32>,
+    /// Who sent each picture there lately (by its key).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub picture_senders: BTreeMap<String, BTreeSet<String>>,
     /// The latest line seen there: where she would say something first.
     #[serde(default)]
     pub reach: Option<Message>,
@@ -349,6 +355,7 @@ impl Default for Group {
             heard_upto: None,
             shown_as: None,
             pictures: BTreeMap::new(),
+            picture_senders: BTreeMap::new(),
             reach: None,
             reach_kept: None,
             seen_before: None,

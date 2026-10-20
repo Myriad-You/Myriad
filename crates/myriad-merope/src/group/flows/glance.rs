@@ -86,8 +86,21 @@ pub(crate) fn unseen(group: &Group) -> Vec<Picture> {
         .collect()
 }
 
-/// What she saw, put on the lines; a picture sent there again is the
-/// group's.
+/// Whether the picture `key` is the group's: sent there often enough, by
+/// more than one of them.
+pub(crate) fn the_groups_picture(group: &Group, key: &str) -> bool {
+    group
+        .pictures
+        .get(key)
+        .is_some_and(|sent| *sent >= PICTURE_SENT_FOR_THE_GROUP)
+        && group
+            .picture_senders
+            .get(key)
+            .is_some_and(|senders| senders.len() >= 2)
+}
+
+/// What she saw, put on the lines; a picture several of them keep sending
+/// there is the group's.
 pub(crate) fn apply_seen(cx: &mut Cx, looked: Vec<Looked>) {
     for looked in looked {
         let key = cx
@@ -98,7 +111,7 @@ pub(crate) fn apply_seen(cx: &mut Cx, looked: Vec<Looked>) {
             .and_then(|line| line.images.get(looked.index))
             .map(|image| image.key.clone());
         if let Some(key) = key
-            && cx.group.pictures.get(&key).is_some_and(|sent| *sent >= 2)
+            && the_groups_picture(cx.group, &key)
         {
             cx.out.effects.push(Effect::PictureAgain {
                 key,

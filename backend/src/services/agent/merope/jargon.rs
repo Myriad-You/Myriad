@@ -198,6 +198,15 @@ async fn keep(db: &DatabaseConnection, venue: &str, word: &Watched, meaning: &st
         .await
         .ok()
         .flatten();
+    // What someone there told her it means stands over what she made of it.
+    if before
+        .as_ref()
+        .and_then(|before| before.evidence.as_deref())
+        .and_then(|evidence| serde_json::from_str::<serde_json::Value>(evidence).ok())
+        .is_some_and(|evidence| evidence.get("told").is_some())
+    {
+        return;
+    }
     let evidence = json!({ "term": word.term, "uses": word.uses }).to_string();
     let content = myriad_merope::memes::kept_line(&word.term, meaning);
     match unified::remember_in_venue(db, &stored, &content, &evidence, SOURCE).await {
@@ -219,6 +228,55 @@ async fn keep(db: &DatabaseConnection, venue: &str, word: &Watched, meaning: &st
     }
     if let Err(error) = unified::fade_source(db, SOURCE, FADES_AFTER).await {
         tracing::warn!(%error, "[Merope] could not let old group words fade");
+    }
+}
+
+/// Someone in the group `venue` (as sessions keep it) told her what a word
+/// of theirs means: kept as the group's, as told, in place of what she made
+/// of it, and no longer watched.
+pub async fn told(
+    db: &DatabaseConnection,
+    venue: &str,
+    explained: &myriad_merope::group_reading::Explained,
+) {
+    let stored = unified::Audience::group(venue, 0).venue();
+    let marker = format!(
+        "\"term\":{}",
+        serde_json::Value::String(explained.term.clone())
+    );
+    let before = unified::unowned_with_evidence(db, &stored, SOURCE, &marker)
+        .await
+        .ok()
+        .flatten();
+    let evidence = json!({
+        "term": explained.term,
+        "told": explained.who,
+        "quote": explained.quote,
+    })
+    .to_string();
+    let content = myriad_merope::memes::kept_line(&explained.term, &explained.meaning);
+    match unified::remember_in_venue(db, &stored, &content, &evidence, SOURCE).await {
+        Ok(Some(id)) => {
+            if let Some(before) = before.filter(|before| before.id != id) {
+                let _ = unified::retire_unowned_in_favor_of(
+                    db,
+                    &stored,
+                    &before.id,
+                    "superseded",
+                    Some(&id),
+                )
+                .await;
+            }
+            tracing::info!(%venue, "[Merope] kept a group's word as someone there told it");
+        }
+        Ok(None) => {}
+        Err(error) => tracing::warn!(%error, "[Merope] could not keep a group's word"),
+    }
+    let mut watched = watched_in(db, venue).await;
+    let before = watched.len();
+    watched.retain(|word| word.term != explained.term);
+    if watched.len() != before {
+        keep_watched(db, venue, watched).await;
     }
 }
 

@@ -37,6 +37,13 @@ pub const MAX_CONTENT_CHARS: usize = 400;
 pub const STANDS_OUT: f64 = 2.0;
 /// Fewer memories with vectors than this give no sense of the rest.
 pub const AT_LEAST: usize = 8;
+/// What a topic brings back by meaning must be at least this close to it,
+/// however it stands out from the rest: among what she heard in groups,
+/// real lines' best few stood out (two deviations) almost every time, and
+/// below this they were unrelated ("霸天虎…c盘爆满" bringing back a CD
+/// player). Measured with the embedding model in use on 2026-10-20
+/// (perplexity pplx-embed-v1-0.6b); another model's scale may differ.
+pub const BROUGHT_BACK_AT_LEAST: f64 = 0.35;
 
 /// A stored memory as recall reads it.
 #[derive(Debug, Clone)]
@@ -321,6 +328,20 @@ pub fn standing_out(closeness: &HashMap<String, f64>) -> HashMap<String, f64> {
         .iter()
         .map(|(id, value)| (id.clone(), (value - mean) / deviation))
         .filter(|(_, z)| *z >= STANDS_OUT)
+        .collect()
+}
+
+/// What a topic brings back by meaning: those that stand out (see
+/// [`standing_out`]) and are close to it in their own right
+/// ([`BROUGHT_BACK_AT_LEAST`]).
+pub fn brought_back(closeness: &HashMap<String, f64>) -> HashMap<String, f64> {
+    standing_out(closeness)
+        .into_iter()
+        .filter(|(id, _)| {
+            closeness
+                .get(id)
+                .is_some_and(|close| *close >= BROUGHT_BACK_AT_LEAST)
+        })
         .collect()
 }
 
