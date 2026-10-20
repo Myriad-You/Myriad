@@ -1035,7 +1035,7 @@ fn request(case: &Case) -> Value {
             json!({"system":myriad_merope::making_sense::system(&default_soul()),
                 "schema":myriad_merope::making_sense::schema(),
                 "schemaName":myriad_merope::making_sense::SCHEMA_NAME,
-                "input":myriad_merope::making_sense::input(&conversation)})
+                "input":myriad_merope::making_sense::input(&conversation, None)})
         }
         "chime" => {
             let conversation: Vec<String> = case

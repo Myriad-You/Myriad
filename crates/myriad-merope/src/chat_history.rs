@@ -73,7 +73,7 @@ pub fn group_chat_prompt(
             myriad_agent_rules::untrusted_block("group_transcript", &lines)
         )
     };
-    format!("{soul}\n\n{prefix}{transcript}They said to you: {input}\n\n{CHAT_REPLY_INSTRUCTION}")
+    format!("{soul}\n\n{prefix}{transcript}Latest line: {input}\n\n{CHAT_REPLY_INSTRUCTION}")
 }
 
 /// The conversation as far back as she would still have it in front of

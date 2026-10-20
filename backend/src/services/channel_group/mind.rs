@@ -170,6 +170,7 @@ pub(super) fn line_to(to: &Target) -> Option<GroupLine> {
         addressed: false,
         reply_to: None,
         images: Vec::new(),
+        shown_as: None,
     })
 }
 

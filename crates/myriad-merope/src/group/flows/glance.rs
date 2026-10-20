@@ -252,6 +252,7 @@ pub(crate) fn judge_step(
                 late: judging.here.late.as_deref(),
                 how_it_went: judging.here.how_it_went.as_deref(),
                 share: judging.here.share.as_deref(),
+                shown_as: cx.group.shown_as.as_deref(),
             };
             let input = crate::joining::input(
                 &judging.conversation,

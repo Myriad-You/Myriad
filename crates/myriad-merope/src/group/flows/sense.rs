@@ -124,7 +124,7 @@ pub(crate) fn sense_step(cx: &mut Cx, s: &mut Sensing, answer: Option<Answer>) -
         (SenseStage::Soul, Some(Answer::Soul { text })) => {
             s.stage = SenseStage::Asking;
             let owner = s.owner.unwrap_or_default();
-            let input = rules::input(&s.conversation);
+            let input = rules::input(&s.conversation, cx.group.shown_as.as_deref());
             Sensed::Wait(cx.effect(|id| Effect::Ask {
                 id,
                 how: AskKind::Json,
@@ -158,7 +158,7 @@ pub(crate) fn sense_step(cx: &mut Cx, s: &mut Sensing, answer: Option<Answer>) -
             s.sense = rules::parse(&raw);
             if s.sense
                 .as_ref()
-                .is_some_and(|sense| sense.about_you.is_some())
+                .is_some_and(|sense| sense.told(&s.conversation).is_some())
             {
                 s.stage = SenseStage::Lately;
                 let venue = stored(&s.venue);
@@ -180,14 +180,17 @@ pub(crate) fn sense_step(cx: &mut Cx, s: &mut Sensing, answer: Option<Answer>) -
                 .iter()
                 .any(|row| now - row.created_at < TOLD_ONCE_WITHIN_MINUTES * 60_000_000);
             if !lately
-                && let Some(told) = s.sense.as_ref().and_then(|sense| sense.about_you.clone())
+                && let Some(sense) = s.sense.as_ref()
+                && let Some(told) = sense.told(&s.conversation)
             {
                 cx.out.effects.push(Effect::Write {
                     of: Of::Others,
                     what: ToWrite::RememberInVenue {
                         venue: stored(&s.venue),
-                        content: told,
-                        evidence: serde_json::json!({ "line": s.said }).to_string(),
+                        content: told.to_string(),
+                        evidence:
+                            serde_json::json!({ "line": s.said, "quote": sense.about_you_quote })
+                                .to_string(),
                         source: TOLD_SOURCE.into(),
                     },
                 });

@@ -117,6 +117,16 @@ pub fn encode_get_group_msg_history(group_id: &str, count: u32) -> Option<Value>
     }))
 }
 
+/// `get_group_member_info`: how someone shows in a group (see
+/// [`crate::onebot::decode::decode_member_shown_as`]).
+pub fn encode_get_group_member_info(group_id: &str, user_id: i64) -> Option<Value> {
+    let group_id = group_id.trim().parse::<i64>().ok()?;
+    Some(json!({
+        "action": "get_group_member_info",
+        "params": {"group_id": group_id, "user_id": user_id}
+    }))
+}
+
 /// `get_msg`。SnowLuma 群消息里的回复段只有 `id`，被回复的是谁、说了什么要靠它反查。
 /// 消息 id 是有符号 int32 哈希，常为负数。
 pub fn encode_get_msg(message_id: &str) -> Option<Value> {

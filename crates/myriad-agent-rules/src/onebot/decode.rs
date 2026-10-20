@@ -284,6 +284,18 @@ pub fn decode_group_ban(raw: &str, self_id: i64) -> Option<OneBotGroupBan> {
     })
 }
 
+/// 某人在群里显示的名字（`get_group_member_info` 的回答）：群名片，没有就用昵称。
+pub fn decode_member_shown_as(data: &serde_json::Value) -> Option<String> {
+    let field = |name: &str| {
+        data.get(name)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let name = field("card").or_else(|| field("nickname"))?;
+    Some(name.chars().take(40).collect())
+}
+
 /// 群消息。频道、`message_sent`、没有文字的行丢掉。`self_id` 用来判断 @ 和回复是不是她。
 pub fn decode_group_inbound(raw: &str, self_id: i64) -> Option<OneBotGroupLine> {
     let event: RawEventJson = serde_json::from_str(raw).ok()?;

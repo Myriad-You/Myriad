@@ -28,8 +28,13 @@ pub struct Line {
     pub seen: Vec<Option<Seen>>,
 }
 
+/// How a line that @-ed her reads: the platforms take her @ out of the text,
+/// and without it a 「我喜欢你」 @-ed at her read as said to no one.
+pub const AT_YOU: &str = "@你";
+
 impl Line {
-    /// What it says, with its pictures as she saw them.
+    /// What it says, with its pictures as she saw them, and [`AT_YOU`] in
+    /// front when it @-ed her.
     pub fn said(&self) -> String {
         let pictures: Vec<String> = self
             .images
@@ -43,7 +48,12 @@ impl Line {
                 )
             })
             .collect();
-        [self.text.clone(), pictures.join("")]
+        let at = if self.addressed && !self.hers {
+            AT_YOU
+        } else {
+            ""
+        };
+        [at.to_string(), self.text.clone(), pictures.join("")]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
@@ -315,6 +325,7 @@ pub fn newest_theirs(group: &Group, like: &Message) -> Option<Message> {
         addressed: line.addressed,
         reply_to: None,
         images: line.images,
+        shown_as: None,
     })
 }
 
@@ -372,6 +383,7 @@ pub fn kept_as_heard(
                 addressed: line.addressed,
                 reply_to: None,
                 images: line.images,
+                shown_as: None,
             },
         })
         .collect()

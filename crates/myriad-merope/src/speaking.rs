@@ -670,15 +670,28 @@ pub fn guest_speaking_section() -> String {
         .to_string()
 }
 
-/// A group chat: one community member spoke to her, and anyone in the group
-/// can read the reply, including people who are not part of the community.
+/// How a group's lines say who they are said to: the platforms take her own
+/// @ out of a line, and it is put back as `@你` (see `group::AT_YOU`).
+pub const AT_YOU_READS: &str = "A line with @你 in it @-ed you: it is said to you. @ and another name @-ed that person. A line that speaks of you without @-ing you or replying to you may be about you, said to someone else.";
+
+/// A group chat: the latest line is a community member's, and anyone in the
+/// group can read the reply, including people who are not part of the
+/// community. Whether they spoke to her is in the lines (`@你`, a reply to
+/// her) and, when nobody called her, in `joining::speaking_up_section`.
 pub fn group_speaking_section(label: &str) -> String {
     format!(
-        "## Addressee\nYou are in a group chat. {label} spoke to you, and everyone in the group can read your reply, including people you do not know. The conversation shown is the group's; other names in it are other people. A line that begins with （回复 …） is a reply to that line. \
-You are the same person here as with {label} alone: talk to the one who spoke to you the way you would in private. The others are present, but you are not performing for them, and you do not lecture or scold them as a crowd. Keep anyone's private matters out of it, including things only {label} told you in private. \
+        "## Addressee\nYou are in a group chat. The latest line is {label}'s, and everyone in the group can read your reply, including people you do not know. The conversation shown is the group's; other names in it are other people. A line that begins with （回复 …） is a reply to that line. {AT_YOU_READS} \
+You are the same person here as with {label} alone: talk to them the way you would in private. The others are present, but you are not performing for them, and you do not lecture or scold them as a crowd. Keep anyone's private matters out of it, including things only {label} told you in private. \
 In a group you cannot get anything done for anyone (their subscriptions, the site, tasks on the web): if asked, say so plainly and tell them to message you privately for that. \
 To address someone in particular (someone other than {label}, or when it is not clear who you mean), write @ and their name exactly as it shows in the conversation, such as @{label}; only people in the conversation can be addressed so. \
 A group chat moves fast and people type as it comes to them, not in tidy replies. How much you say follows how you feel and how much it grabs you: bored or busy, a word; caught by it, a quick burst. You need not answer every part, tie it together into a point, or put things the way you did last time. Only when someone asked you to explain or recommend something, a few lines. Do not end every reply with a question or with telling them to hurry."
+    )
+}
+
+/// The name she shows as in a group, as its people see it.
+pub fn shown_as_section(name: &str) -> String {
+    format!(
+        "In this group your name shows as 「{name}」: someone who writes it, or a part of it, means you."
     )
 }
 
@@ -716,6 +729,27 @@ pub fn format_persona(name: &str, personality: &str) -> Option<String> {
     ))
 }
 
+/// The site's name as people say it: its title before a tagline (` - `,
+/// ` | `, ` — `), or Myriad when it has none.
+pub fn site_name(title: Option<&str>) -> String {
+    let title = title.map(str::trim).unwrap_or_default();
+    let name = [" - ", " | ", " — ", " – "]
+        .iter()
+        .fold(title, |name, cut| name.split(cut).next().unwrap_or(name))
+        .trim();
+    if name.is_empty() {
+        "Myriad".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// Which site she lives on, by name: people say it, and without it the
+/// site's own name read to her as some word to look up.
+pub fn site_line(name: &str) -> String {
+    format!("The site you live on is called {name}: when people say {name}, they mean it.")
+}
+
 /// `mind` is the same speaking sections a chat turn wears (addressee, what
 /// she knows, how she feels, how she is), so speaking up is the same person.
 pub fn compose_proactive_system(soul: &str, mind: &str, recent_block: &str) -> String {
@@ -726,6 +760,18 @@ pub fn compose_proactive_system(soul: &str, mind: &str, recent_block: &str) -> S
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_site_is_called_by_its_title_without_the_tagline() {
+        assert_eq!(
+            super::site_name(Some("Myriad - A myriad of lights, in one place.")),
+            "Myriad"
+        );
+        assert_eq!(super::site_name(Some("星海 | 小站")), "星海");
+        assert_eq!(super::site_name(Some("  ")), "Myriad");
+        assert_eq!(super::site_name(None), "Myriad");
+        assert!(super::site_line("星海").contains("called 星海"));
+    }
+
     #[test]
     fn she_knows_her_habit_once_it_shows_and_not_before() {
         use super::format_habits_section;

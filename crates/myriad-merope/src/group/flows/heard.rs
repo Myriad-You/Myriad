@@ -23,6 +23,14 @@ pub(crate) fn record(cx: &mut Cx, message: &Message, restore: Option<Restore>) -
     if !remember_line(cx.group, line, now, cx.out) {
         return false;
     }
+    if let Some(shown_as) = message
+        .shown_as
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        cx.group.shown_as = Some(shown_as.chars().take(MAX_SHOWN_AS_CHARS).collect());
+    }
     heard_at_table(cx, message);
     // Written down as a group she is in, now and then.
     let due = cx
@@ -92,7 +100,7 @@ pub(crate) fn take_in(cx: &mut Cx) {
         .map(|line| Stretch {
             at: line.at.fixed_offset().to_rfc3339(),
             name: line.name.clone(),
-            text: line.text.clone(),
+            text: line.said(),
             hers: line.hers,
         })
         .collect();

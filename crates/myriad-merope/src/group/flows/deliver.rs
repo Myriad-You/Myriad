@@ -104,8 +104,8 @@ pub(crate) fn send_chunk(cx: &mut Cx, to: &Message, d: &mut Deliver) -> Next {
         })
         .collect();
     // A line with no message behind it (her saying something first) quotes
-    // nothing.
-    let quote = !d.sent && !to.message_id.is_empty();
+    // nothing, and neither do words she said unasked.
+    let quote = !d.sent && !d.unquoted && !to.message_id.is_empty();
     d.stage = DeliverStage::Sending;
     let target = to.target();
     Next::Wait(cx.effect(|id| Effect::Send {

@@ -21,7 +21,7 @@ use myriad_agent_rules::onebot::decode::{
     decode_private_inbound, decode_replied_message, private_message_is_cq_string,
     private_temp_group,
 };
-use myriad_agent_rules::onebot::encode::encode_get_msg;
+use myriad_agent_rules::onebot::encode::{encode_get_group_member_info, encode_get_msg};
 use myriad_agent_rules::onebot::rules::{
     classify_onebot_handshake, onebot_group_allowed, onebot_worker_intent,
 };
@@ -338,7 +338,9 @@ async fn handle_text(text: &str) -> Option<ConnectFailureKind> {
                 tokio::spawn(async move {
                     // The lookup waits on this socket's read loop, so it runs here.
                     let group = resolve_reply(group, self_id).await;
-                    let line = crate::services::channel_group::GroupLine::from(group);
+                    let shown_as = shown_as(&group.group_id, self_id).await;
+                    let mut line = crate::services::channel_group::GroupLine::from(group);
+                    line.shown_as = shown_as;
                     if !crate::services::channel_group::record(&line).await {
                         return;
                     }
@@ -450,6 +452,42 @@ async fn catch_up_groups() {
         crate::services::channel_platform::ChannelPlatform::OneBot,
     )
     .await;
+}
+
+/// How long the name she shows as in a group is taken as it was looked up.
+const SHOWN_AS_FOR: Duration = Duration::from_secs(3600);
+
+/// How she shows in a group (her group card, else her nickname): people call
+/// her by it, and it need not be her name on the site. Looked up once an hour
+/// per group; a failed lookup is tried again an hour later.
+async fn shown_as(group_id: &str, self_id: i64) -> Option<String> {
+    static SHOWN: OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, Option<String>)>>,
+    > = OnceLock::new();
+    let shown = SHOWN.get_or_init(Default::default);
+    if let Ok(shown) = shown.lock()
+        && let Some((at, name)) = shown.get(group_id)
+        && at.elapsed() < SHOWN_AS_FOR
+    {
+        return name.clone();
+    }
+    let name = match encode_get_group_member_info(group_id, self_id) {
+        Some(action) => match onebot_send::call_action(action).await {
+            Ok(data) => myriad_agent_rules::onebot::decode::decode_member_shown_as(&data),
+            Err(error) => {
+                warn!(%error, "OneBot member info lookup failed");
+                None
+            }
+        },
+        None => None,
+    };
+    if let Ok(mut shown) = shown.lock() {
+        shown.insert(
+            group_id.to_string(),
+            (std::time::Instant::now(), name.clone()),
+        );
+    }
+    name
 }
 
 /// SnowLuma's reply segment names only a message id. Look it up so the quoted

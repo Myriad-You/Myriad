@@ -150,6 +150,7 @@ pub(super) async fn bring_back(db: &DatabaseConnection) {
             addressed: false,
             reply_to: None,
             images: Vec::new(),
+            shown_as: None,
         };
         step(
             &venue,

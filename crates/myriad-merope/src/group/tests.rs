@@ -33,6 +33,7 @@ fn message(id: i64, from: i64, name: &str, text: &str, addressed: bool) -> Messa
         addressed,
         reply_to: None,
         images: Vec::new(),
+        shown_as: None,
     }
 }
 
@@ -252,7 +253,7 @@ fn what_came_while_she_wrote_is_after_she_began_and_never_hers() {
         [
             ("阿红".to_string(), "刚说了十点".to_string(), false),
             ("阿明".to_string(), "那就十点".to_string(), true),
-            ("小周".to_string(), "@她 你来吗".to_string(), true),
+            ("小周".to_string(), "@你 @她 你来吗".to_string(), true),
         ]
     );
     assert!(!came_since(&group, since, "")[1].2);
@@ -756,7 +757,7 @@ fn a_group_keeps_only_its_recent_lines_and_reads_back_what_was_said_while_away()
         [
             ("user".to_string(), "leaphy：宝宝，晚安喵".to_string()),
             ("assistant".to_string(), "晚安".to_string()),
-            ("user".to_string(), "瞳：@bot 宝宝".to_string()),
+            ("user".to_string(), "瞳：@你 @bot 宝宝".to_string()),
         ]
     );
     // Read back, not answered: nothing is waiting for her.
@@ -2250,6 +2251,7 @@ fn message_on(
         addressed,
         reply_to: None,
         images: Vec::new(),
+        shown_as: None,
     }
 }
 

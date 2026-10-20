@@ -293,6 +293,7 @@ pub(crate) fn say(cx: &mut Cx, a: &mut Answering) -> Next {
         owner: a.owner.unwrap_or_default(),
         came: 0,
         left: 0.0,
+        unquoted: a.chime.is_some(),
         stage: DeliverStage::TypingMark,
     };
     a.stage = AnswerStage::Delivering;

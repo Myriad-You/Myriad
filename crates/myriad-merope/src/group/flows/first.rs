@@ -31,6 +31,7 @@ pub(crate) fn speak_first(cx: &mut Cx, reason: String, owner: Option<i32>, waite
         addressed: false,
         reply_to: None,
         images: Vec::new(),
+        shown_as: None,
     });
     start_answer(cx, errand, message, Some(reason), true);
 }

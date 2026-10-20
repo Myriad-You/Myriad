@@ -58,6 +58,8 @@ pub const VERSION: u32 = 1;
 pub const TRANSCRIPT_LINES: usize = 60;
 pub const TRANSCRIPT_FOR_SECONDS: i64 = 6 * 3600;
 pub const MAX_LINE_CHARS: usize = 500;
+/// How long the name she shows as in a group may be.
+pub const MAX_SHOWN_AS_CHARS: usize = 40;
 /// Lines that spoke to her while she was busy, answered in order after.
 pub const WAITING_LINES: usize = 30;
 /// Between two of her replies in the same group.
@@ -140,6 +142,10 @@ pub struct Message {
     pub reply_to: Option<QuotedLine>,
     #[serde(default)]
     pub images: Vec<GroupImage>,
+    /// How she shows in this group, as the platform names her (her group
+    /// card on QQ), when it tells: people call her by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shown_as: Option<String>,
 }
 
 impl Message {
@@ -273,6 +279,10 @@ pub struct Group {
     /// The last line she took in for what she heard.
     #[serde(default)]
     pub heard_upto: Option<i64>,
+    /// How she shows in the group, as its latest line told (see
+    /// [`Message::shown_as`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shown_as: Option<String>,
     /// How often each picture was sent there lately (by its key).
     #[serde(default)]
     pub pictures: BTreeMap<String, u32>,
@@ -337,6 +347,7 @@ impl Default for Group {
             typing_for: None,
             seating: None,
             heard_upto: None,
+            shown_as: None,
             pictures: BTreeMap::new(),
             reach: None,
             reach_kept: None,

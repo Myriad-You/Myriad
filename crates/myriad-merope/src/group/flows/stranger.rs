@@ -712,6 +712,9 @@ fn prompt(cx: &Cx, r: &Replying) -> String {
         crate::strangers::section(name, r.note.as_deref(), &elsewhere),
         crate::speaking::format_now_section(local),
     ];
+    if let Some(shown_as) = &cx.group.shown_as {
+        sections.insert(1, crate::speaking::shown_as_section(shown_as));
+    }
     // Whom she takes them for, if anyone: a guess, nothing more.
     if let (Some((_, sure, why)), Some(candidate)) = (&r.guess, &r.candidate) {
         sections.push(crate::recognizing::section(name, candidate, sure, why));

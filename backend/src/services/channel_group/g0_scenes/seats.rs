@@ -28,6 +28,7 @@ pub(super) fn line_on(
         addressed,
         reply_to: None,
         images: Vec::new(),
+        shown_as: None,
     }
 }
 

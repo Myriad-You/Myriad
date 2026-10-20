@@ -468,6 +468,10 @@ fn prompt(cx: &Cx, r: &MemberReply) -> String {
         .filter(|line| line.role == "assistant")
         .map(|line| line.content.as_str())
         .collect();
+    // What they call her by there.
+    if let Some(name) = &cx.group.shown_as {
+        block = then(block, crate::speaking::shown_as_section(name));
+    }
     // What of her own time she has already told them in this talk.
     if let Some(about) = &r.doing {
         let lines: Vec<&str> = hers.iter().flat_map(|reply| reply.lines()).collect();

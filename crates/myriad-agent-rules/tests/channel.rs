@@ -2124,6 +2124,19 @@ mod onebot_decode {
     }
 
     #[test]
+    fn she_shows_in_a_group_by_her_card_else_her_nickname() {
+        use myriad_agent_rules::onebot::decode::decode_member_shown_as;
+        let card = json!({"user_id": 10001, "nickname": "絶世の良猫要楽奈", "card": " 楽奈 "});
+        assert_eq!(decode_member_shown_as(&card).as_deref(), Some("楽奈"));
+        let no_card = json!({"user_id": 10001, "nickname": "絶世の良猫要楽奈", "card": ""});
+        assert_eq!(
+            decode_member_shown_as(&no_card).as_deref(),
+            Some("絶世の良猫要楽奈")
+        );
+        assert_eq!(decode_member_shown_as(&json!({"user_id": 10001})), None);
+    }
+
+    #[test]
     fn group_reply_to_her_is_read_with_the_talk() {
         use myriad_agent_rules::onebot::decode::decode_group_inbound;
         let raw = json!({

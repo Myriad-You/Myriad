@@ -267,6 +267,10 @@ pub struct Deliver {
     /// How long she still types, once the mark is shown.
     #[serde(default)]
     pub left: f64,
+    /// Her words quote no line: she spoke up unasked, and the latest line is
+    /// not always the one her words are about (whom they are for, she @-s).
+    #[serde(default)]
+    pub unquoted: bool,
     pub stage: DeliverStage,
 }
 

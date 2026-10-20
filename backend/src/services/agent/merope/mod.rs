@@ -128,16 +128,22 @@ use crate::models::entities::agent_persona;
 /// Soul text for user-facing speech: site persona when the flag is on, else SOUL.md.
 pub async fn resolve_speaking_soul() -> Option<String> {
     // Not on the site: what speaks here is the plain assistant (H3e-9).
-    let enabled = crate::services::persona_sync::lease::place().here()
-        && crate::GLOBAL_DYNAMIC_CONFIG
-            .read()
-            .await
-            .merope_enabled_resolved();
+    let (enabled, site) = {
+        let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+        (
+            crate::services::persona_sync::lease::place().here()
+                && config.merope_enabled_resolved(),
+            myriad_merope::speaking::site_name(config.site_title.as_deref()),
+        )
+    };
     if enabled {
         if let Ok(db) = crate::services::process_db::database() {
             if let Ok(Some(persona)) = get_persona(&db).await {
                 if let Some(text) = format_persona(&persona) {
-                    return Some(text);
+                    return Some(format!(
+                        "{text}\n\n{}",
+                        myriad_merope::speaking::site_line(&site)
+                    ));
                 }
             }
         }

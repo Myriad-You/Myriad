@@ -20,6 +20,9 @@ pub struct GroupLine {
     pub reply_to: Option<QuotedLine>,
     /// Pictures in it.
     pub images: Vec<GroupImage>,
+    /// How she shows in the group, when the platform tells (her group card
+    /// on QQ).
+    pub shown_as: Option<String>,
 }
 
 impl GroupLine {
@@ -42,6 +45,7 @@ impl GroupLine {
             addressed: self.addressed,
             reply_to: self.reply_to.clone(),
             images: self.images.clone(),
+            shown_as: self.shown_as.clone(),
         }
     }
 }
@@ -59,6 +63,7 @@ impl From<TelegramGroupMessage> for GroupLine {
             addressed: message.addressed,
             reply_to: message.reply_to,
             images: message.images,
+            shown_as: None,
         }
     }
 }
@@ -76,6 +81,7 @@ impl From<myriad_agent_rules::onebot::decode::OneBotGroupLine> for GroupLine {
             addressed: message.addressed,
             reply_to: message.reply_to,
             images: message.images,
+            shown_as: None,
         }
     }
 }
@@ -93,6 +99,7 @@ impl From<DiscordGroupMessage> for GroupLine {
             addressed: message.addressed,
             reply_to: message.reply_to,
             images: message.images,
+            shown_as: None,
         }
     }
 }
