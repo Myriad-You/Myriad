@@ -434,6 +434,8 @@
     "Failed to load session messages for title": "agent_session_query_failed",
     "Failed to create session": "agent_session_save_failed",
     "Failed to update session": "agent_session_save_failed",
+    "Failed to mark the reply": "agent_session_save_failed",
+    "Missing sessionId, runId or heardChars": "invalid_request",
     "Failed to update session title": "agent_session_save_failed",
     "Failed to save user message": "agent_session_save_failed",
     "Failed to save assistant message": "agent_session_save_failed",
@@ -1757,6 +1759,8 @@
     "backup_unknown",
     "backup_failed",
     "her_not_away",
-    "invalid_request"
+    "invalid_request",
+    "portrait_not_illustration",
+    "upright_in_progress"
   ]
 }

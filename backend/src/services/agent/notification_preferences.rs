@@ -636,7 +636,12 @@ mod tests {
                 .find("#[cfg(test)]\nmod tests")
                 .map_or(source.as_str(), |end| &source[..end]);
             for (line_no, line) in production.lines().enumerate() {
-                if line.contains(literal) && !line.trim_start().starts_with("//") {
+                // Reading the stored column back is not emitting a key.
+                let reads_the_column = line.contains("try_get");
+                if line.contains(literal)
+                    && !reads_the_column
+                    && !line.trim_start().starts_with("//")
+                {
                     offenders.push(format!("{relative}:{}: {}", line_no + 1, line.trim()));
                 }
             }

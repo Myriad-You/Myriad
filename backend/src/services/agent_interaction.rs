@@ -112,6 +112,29 @@ mod tests {
     use super::*;
     use sea_orm::DatabaseConnection;
 
+    /// A database every statement fails on. The admin id is cached process
+    /// wide, so with another test's database around the first statement may
+    /// be a later one: each must fail, not only the first.
+    #[derive(Debug)]
+    struct Unreachable;
+
+    #[async_trait::async_trait]
+    impl sea_orm::ProxyDatabaseTrait for Unreachable {
+        async fn query(
+            &self,
+            _: sea_orm::Statement,
+        ) -> Result<Vec<sea_orm::ProxyRow>, sea_orm::DbErr> {
+            Err(sea_orm::DbErr::Custom("no database".into()))
+        }
+
+        async fn execute(
+            &self,
+            _: sea_orm::Statement,
+        ) -> Result<sea_orm::ProxyExecResult, sea_orm::DbErr> {
+            Err(sea_orm::DbErr::Custom("no database".into()))
+        }
+    }
+
     #[test]
     fn snapshot_interaction_id_accessor() {
         let snap = AgentInteractionSnapshot {
@@ -140,7 +163,12 @@ mod tests {
 
     #[tokio::test]
     async fn domain_path_fails_closed_without_database() {
-        let db = DatabaseConnection::default();
+        let db: DatabaseConnection = sea_orm::Database::connect_proxy(
+            sea_orm::DbBackend::Postgres,
+            std::sync::Arc::new(Box::new(Unreachable)),
+        )
+        .await
+        .unwrap();
         let err = create_agent_interaction_internal(
             &db,
             1,
