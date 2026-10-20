@@ -33,7 +33,7 @@ mark.myriad-annot[data-type=reference]{--myriad-annot:#3b82f6}\n\
 mark.myriad-annot[data-type=implicit]{--myriad-annot:#a855f7}\n\
 mark.myriad-annot[data-type=context]{--myriad-annot:#22c55e}\n\
 mark.myriad-annot[data-type=abbreviation]{--myriad-annot:#ec4899}\n\
-.myriad-annot-tip{position:fixed;z-index:2147483001;max-width:min(20rem,calc(100vw - 2rem));padding:10px 12px;border:1px solid light-dark(#e8e2d4,#333);border-radius:12px;color:light-dark(#2c2c2c,#c9c9c9);background:light-dark(#fff9f0,#242424);box-shadow:0 20px 25px -5px rgb(0 0 0/12%),0 8px 10px -6px rgb(0 0 0/10%);font:13px/1.55 ui-sans-serif,system-ui,sans-serif;pointer-events:none}\n\
+.myriad-annot-tip{position:fixed;z-index:2147483001;max-width:min(20rem,calc(100vw - 2rem));padding:10px 12px;border:1px solid var(--myriad-tip-line,light-dark(#e8e2d4,#333));border-radius:12px;color:var(--myriad-tip-fg,light-dark(#2c2c2c,#c9c9c9));background:var(--myriad-tip-bg,light-dark(#fff9f0,#242424));color-scheme:var(--myriad-tip-scheme,normal);box-shadow:0 20px 25px -5px rgb(0 0 0/12%),0 8px 10px -6px rgb(0 0 0/10%);font:13px/1.55 ui-sans-serif,system-ui,sans-serif;pointer-events:none}\n\
 .myriad-annot-tip[hidden]{display:none}\n\
 .myriad-annot-tip small{display:block;margin-bottom:4px;font-size:11px;opacity:.65}\n\
 .myriad-annot-tip b{display:block;margin-bottom:2px;font-weight:600}\n\

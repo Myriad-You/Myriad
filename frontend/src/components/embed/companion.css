@@ -1,7 +1,8 @@
 /*
  * 伴读画在博客页上的样子，在宿主节点的 Shadow DOM 里，主题的样式进不来。
- * 照改版前阅读器的两侧浮动：半透明的胶囊、细边、1rem 圆角，按钮 36px；
- * 颜色是那时的浅色和深色两套，跟着博客页的明暗（宿主节点的 data-scheme）。
+ * 照改版前阅读器的两侧浮动：半透明的胶囊、细边、1rem 圆角，按钮 36px。
+ * 颜色从胶囊背后那块页面取（pagePalette.ts），写在宿主节点的 --p-* 上，深浅写在 data-scheme：
+ * 底色和文字色是主题的，强调色是主站的。取不到时用这里的后备值。
  */
 :host {
   all: initial;
@@ -17,18 +18,20 @@
 }
 
 .companion {
-  --fg: light-dark(#2c2c2c, #c9c9c9);
-  --soft: light-dark(#666, #888);
-  --line: light-dark(#e8e2d4, #333);
-  --chip: light-dark(rgb(255 252 245 / 86%), rgb(28 28 28 / 82%));
-  --solid: light-dark(#f8f5ec, #1a1a1a);
-  --hover: light-dark(rgb(44 44 44 / 6%), rgb(255 255 255 / 8%));
-  --accent: light-dark(#b8860b, #fbbf24);
-  --ai: light-dark(#9333ea, #c084fc);
-  /* 播客不另起一套颜色：播放键是正文色，念到哪用阅读进度的那道金色。 */
+  --fg: var(--p-fg, light-dark(#2c2c2c, #c9c9c9));
+  --soft: var(--p-soft, light-dark(#666, #888));
+  --line: var(--p-line, light-dark(#e8e2d4, #333));
+  --chip: var(--p-chip, light-dark(rgb(255 252 245 / 86%), rgb(28 28 28 / 82%)));
+  --solid: var(--p-solid, light-dark(#f8f5ec, #1a1a1a));
+  --hover: var(--p-hover, light-dark(rgb(44 44 44 / 6%), rgb(255 255 255 / 8%)));
+  --accent: var(--p-accent, light-dark(#b8860b, #fbbf24));
+  --on-accent: var(--p-on-accent, #fff);
+  --ai: var(--p-ai, light-dark(#9333ea, #c084fc));
+  /* 播客不另起一套颜色：播放键是正文色，念到哪用阅读进度的强调色。 */
   --cast: var(--accent);
-  --guest: light-dark(#8a7360, #b5a08a);
-  --badge: #f59e0b;
+  --guest: var(--p-guest, light-dark(#8a7360, #b5a08a));
+  --badge: var(--accent);
+  --shadow: var(--p-shadow, rgb(0 0 0 / 12%));
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
   color: var(--fg);
@@ -74,7 +77,7 @@
   border: 1px solid var(--line);
   border-radius: 1rem;
   background: var(--chip);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+  box-shadow: 0 1px 2px var(--shadow);
   -webkit-backdrop-filter: blur(12px) saturate(1.3);
   backdrop-filter: blur(12px) saturate(1.3);
 }
@@ -172,7 +175,7 @@
   background: var(--badge);
   /* 一圈胶囊底色，把数字和图标隔开。 */
   box-shadow: 0 0 0 2px var(--solid);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -217,7 +220,7 @@
   gap: 2px;
   padding: 4px;
   border-radius: 0.75rem;
-  background: light-dark(rgb(0 0 0 / 5%), rgb(255 255 255 / 5%));
+  background: var(--hover);
 }
 
 .stepper button {
@@ -286,8 +289,8 @@
   border-radius: 1rem;
   background: var(--solid);
   box-shadow:
-    0 20px 25px -5px rgb(0 0 0 / 12%),
-    0 8px 10px -6px rgb(0 0 0 / 10%);
+    0 20px 25px -5px var(--shadow),
+    0 8px 10px -6px var(--shadow);
 }
 
 .panel__head {
@@ -527,28 +530,28 @@
 }
 
 .note[data-type='term'] .note__type {
-  background: light-dark(#ffedd5, rgb(124 45 18 / 30%));
-  color: light-dark(#ea580c, #fb923c);
+  background: var(--p-kind-term-bg, light-dark(#ffedd5, rgb(124 45 18 / 30%)));
+  color: var(--p-kind-term, light-dark(#ea580c, #fb923c));
 }
 
 .note[data-type='reference'] .note__type {
-  background: light-dark(#dbeafe, rgb(30 58 138 / 30%));
-  color: light-dark(#2563eb, #60a5fa);
+  background: var(--p-kind-reference-bg, light-dark(#dbeafe, rgb(30 58 138 / 30%)));
+  color: var(--p-kind-reference, light-dark(#2563eb, #60a5fa));
 }
 
 .note[data-type='implicit'] .note__type {
-  background: light-dark(#f3e8ff, rgb(88 28 135 / 30%));
-  color: light-dark(#9333ea, #c084fc);
+  background: var(--p-kind-implicit-bg, light-dark(#f3e8ff, rgb(88 28 135 / 30%)));
+  color: var(--p-kind-implicit, light-dark(#9333ea, #c084fc));
 }
 
 .note[data-type='context'] .note__type {
-  background: light-dark(#dcfce7, rgb(20 83 45 / 30%));
-  color: light-dark(#16a34a, #4ade80);
+  background: var(--p-kind-context-bg, light-dark(#dcfce7, rgb(20 83 45 / 30%)));
+  color: var(--p-kind-context, light-dark(#16a34a, #4ade80));
 }
 
 .note[data-type='abbreviation'] .note__type {
-  background: light-dark(#fce7f3, rgb(131 24 67 / 30%));
-  color: light-dark(#db2777, #f472b6);
+  background: var(--p-kind-abbreviation-bg, light-dark(#fce7f3, rgb(131 24 67 / 30%)));
+  color: var(--p-kind-abbreviation, light-dark(#db2777, #f472b6));
 }
 
 /* 播客：节目、播放和声音钉在面板顶上，台词在下面滚。 */
@@ -744,7 +747,7 @@
   padding: 6px;
   /* 压在正文上面，透出来的字会和按钮打架：底色厚一些。 */
   background: color-mix(in srgb, var(--solid) 94%, transparent);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  box-shadow: 0 4px 16px var(--shadow);
 }
 
 .scrim {

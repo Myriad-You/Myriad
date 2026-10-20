@@ -5,6 +5,7 @@ import type { BlogBuildMark, StudioWindowPort } from '../components/studio/studi
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { DocumentReady } from '../components/DocumentReady'
+import { watchPalette } from '../components/embed/pagePaletteDom'
 import { mountShadowHost } from '../components/embed/shadowHost'
 import { listenOverlayKeys, StudioOverlay } from '../components/studio/overlay/StudioOverlay'
 import overlayCss from '../components/studio/overlay/studioOverlay.css?inline'
@@ -26,7 +27,6 @@ import {
 } from '../components/studio/studioIsland'
 import { useI18n } from '../contexts/I18nContext'
 import { getBlogSettings } from '../services/blogApi'
-import { SITE_CHROME_COOKIE } from '../utils/siteChromeCookie'
 
 const LAYOUT_KEY = 'myriad.studio.overlay.v1'
 const RELOAD_POLL_MS = 1500
@@ -57,13 +57,6 @@ async function buildMark(): Promise<BlogBuildMark | null> {
   } catch {
     return null
   }
-}
-
-/** 主站写给博客页的 cookie 里的强调色（`{设置}.{深浅色}.{主色}.{强调色}`，见 siteChromeCookie.ts）。 */
-function siteAccent(doc: Document): string | null {
-  const raw = doc.cookie.split('; ').find((part) => part.startsWith(`${SITE_CHROME_COOKIE}=`))
-  const accent = raw?.slice(SITE_CHROME_COOKIE.length + 1).split('.')[3]
-  return accent && /^[0-9a-f]{6}$/.test(accent) ? `#${accent}` : null
 }
 
 function numberAttr(host: HTMLElement, name: string): number | null {
@@ -300,13 +293,18 @@ export default function StudioOverlayFrame() {
   // 把覆盖层画进宿主节点的 Shadow DOM。
   useEffect(() => {
     if (!host) return
-    // 强调色用主站算出来的那个（博客页的 myriad_chrome cookie），和窗口里主站页面的按钮一样；
-    // 读不到就用样式表里的金色。
-    const accent = siteAccent(host.ownerDocument)
-    if (accent) host.style.setProperty('--so-accent', accent)
     const mount = mountShadowHost(host, overlayCss)
     rootRef.current = createRoot(mount.container)
+    // 颜色从博客页上取：细条取它正下方那块（页头是黑的它就是深的，滚过页头再换），
+    // 展开后的工具栏和窗口取页面中间。强调色是主站的，和窗口里的主站页面一致。
+    const page = host.ownerDocument
+    const top = page.defaultView!
+    const stopPalette = watchPalette(page, [
+      { element: host, prefix: 'p-', schemeAttr: 'data-scheme', at: () => ({ x: top.innerWidth / 2, y: top.innerHeight / 2 }) },
+      { element: host, prefix: 'bar-', schemeAttr: 'data-bar-scheme', followScroll: true, at: () => ({ x: top.innerWidth / 2, y: 25 }) },
+    ])
     return () => {
+      stopPalette()
       const root = rootRef.current
       rootRef.current = null
       queueMicrotask(() => {

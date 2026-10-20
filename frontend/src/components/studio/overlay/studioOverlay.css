@@ -1,24 +1,25 @@
 /*
  * 创作台覆盖层。只在宿主节点的 Shadow DOM 里生效，不碰博客主题，也不受它影响。
- * 底色和 AI 伴读是同一套：暖纸色的玻璃、细边；明暗跟着博客页（宿主节点的 data-scheme）。
- * 强调色是主站算出来的那个（宿主节点上的 --so-accent），和窗口里的主站页面一致；这里的金色只是读不到时的后备。
+ * 颜色和 AI 伴读是同一套办法（pagePalette.ts）：从博客页上取。展开后的工具栏和窗口取页面中间那块
+ * （宿主节点上的 --p-*，深浅在 data-scheme），顶上的细条取它正下方那块（--bar-*，data-bar-scheme）。
+ * 强调色是主站的，和窗口里的主站页面一致。取不到时用这里的后备值。
  */
 
 :host {
   all: initial;
 
-  --so-ink: light-dark(#2c2c2c, #d6d3d1);
-  --so-ink-dim: light-dark(#78716c, #8a8580);
-  --so-glass: light-dark(rgb(255 252 245 / 86%), rgb(28 28 28 / 84%));
-  --so-glass-strong: light-dark(rgb(250 247 239 / 97%), rgb(26 26 26 / 97%));
-  --so-line: light-dark(#e8e2d4, #333);
-  --so-hover: light-dark(rgb(44 44 44 / 6%), rgb(255 255 255 / 7%));
-  --so-accent: light-dark(#b8860b, #fbbf24);
+  --so-ink: var(--p-fg, light-dark(#2c2c2c, #d6d3d1));
+  --so-ink-dim: var(--p-soft, light-dark(#78716c, #8a8580));
+  --so-glass: var(--p-chip, light-dark(rgb(255 252 245 / 86%), rgb(28 28 28 / 84%)));
+  --so-glass-strong: var(--p-solid, light-dark(rgb(250 247 239 / 97%), rgb(26 26 26 / 97%)));
+  --so-line: var(--p-line, light-dark(#e8e2d4, #333));
+  --so-hover: var(--p-hover, light-dark(rgb(44 44 44 / 6%), rgb(255 255 255 / 7%)));
+  --so-accent: var(--p-accent, light-dark(#b8860b, #fbbf24));
   --so-active: color-mix(in srgb, var(--so-accent) 14%, transparent);
-  --so-frame-bg: light-dark(#fafaf9, #18181b);
+  --so-frame-bg: var(--p-solid, light-dark(#fafaf9, #18181b));
   --so-skeleton: light-dark(rgb(0 0 0 / 6%), rgb(255 255 255 / 5%));
   --so-skeleton-hi: light-dark(rgb(0 0 0 / 11%), rgb(255 255 255 / 10%));
-  --so-shadow: light-dark(rgb(60 45 20 / 10%), rgb(0 0 0 / 30%));
+  --so-shadow: var(--p-shadow, light-dark(rgb(60 45 20 / 10%), rgb(0 0 0 / 30%)));
   --so-ease: cubic-bezier(0.32, 0.72, 0, 1);
 
   position: fixed;
@@ -70,8 +71,26 @@ input:focus-visible {
     inset 0 0 0 1px var(--so-line);
 }
 
-/* 顶部细条：收起和展开时都在。 */
+/* 顶部细条：收起和展开时都在。颜色取它正下方那块页面，深浅也按那块。 */
+:host([data-bar-scheme='dark']) .bar {
+  color-scheme: dark;
+}
+
+:host([data-bar-scheme='light']) .bar {
+  color-scheme: light;
+}
+
 .bar {
+  --so-ink: var(--bar-fg, light-dark(#2c2c2c, #d6d3d1));
+  --so-ink-dim: var(--bar-soft, light-dark(#78716c, #8a8580));
+  --so-glass: var(--bar-chip, light-dark(rgb(255 252 245 / 86%), rgb(28 28 28 / 84%)));
+  --so-line: var(--bar-line, light-dark(#e8e2d4, #333));
+  --so-hover: var(--bar-hover, light-dark(rgb(44 44 44 / 6%), rgb(255 255 255 / 7%)));
+  --so-accent: var(--bar-accent, light-dark(#b8860b, #fbbf24));
+  --so-active: color-mix(in srgb, var(--so-accent) 14%, transparent);
+  --so-shadow: var(--bar-shadow, light-dark(rgb(60 45 20 / 10%), rgb(0 0 0 / 30%)));
+
+  color: var(--so-ink);
   position: fixed;
   top: max(8px, env(safe-area-inset-top));
   left: 50%;
@@ -117,12 +136,12 @@ input:focus-visible {
   color: var(--so-ink);
 }
 
-/* 创作台的标记：固定的金色，不跟主站强调色变。 */
+/* 创作台的标记：细条的强调色（主站的，明暗按细条背后那块页面调到看得清）。 */
 .bar__mark {
   width: 14px;
   height: 14px;
   margin-left: -2px;
-  color: light-dark(#b8860b, #fbbf24);
+  color: var(--so-accent);
 }
 
 .bar__key {
@@ -142,7 +161,7 @@ input:focus-visible {
   inset: 0;
   z-index: 1;
   pointer-events: auto;
-  background: light-dark(rgb(40 30 15 / 22%), rgb(0 0 0 / 46%));
+  background: light-dark(rgb(0 0 0 / 22%), rgb(0 0 0 / 46%));
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
   animation: so-fade 180ms var(--so-ease);

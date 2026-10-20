@@ -34,6 +34,7 @@ import {
   TYPE_KEYS,
 } from './CompanionPanels'
 import { embedHost } from './embedHost'
+import { watchPalette } from './pagePaletteDom'
 import { mountShadowHost } from './shadowHost'
 import { useCompanionPodcast } from './useCompanionPodcast'
 
@@ -78,14 +79,31 @@ function computedLeading(root: HTMLElement): number {
   return size > 0 && line > 0 ? line / size : 1.2
 }
 
-/** 外面那页（博客页）上的宿主节点和它的 Shadow DOM；明暗跟着这一页的 dark/light 类。 */
+/** 外面那页（博客页）上的宿主节点和它的 Shadow DOM；颜色和明暗从博客页上取。 */
 function useShadowMount(page: CompanionPage | null): HTMLElement | null {
   const [container, setContainer] = useState<HTMLElement | null>(null)
   useEffect(() => {
     if (!page) return
-    const mount = mountShadowHost(companionHost(page), companionCss, 'companion')
+    const host = companionHost(page)
+    const mount = mountShadowHost(host, companionCss, 'companion')
+    // 颜色取胶囊背后那块页边：正文左边留得出胶囊就取左边，否则取窗口右边（并成一个时它在那儿）。
+    const stopPalette = watchPalette(page.doc, [
+      {
+        element: host,
+        prefix: 'p-',
+        schemeAttr: 'data-scheme',
+        pageStyle: true,
+        textFrom: () => page.root,
+        at: () => {
+          const article = page.root.getBoundingClientRect()
+          const y = page.win.innerHeight / 2
+          return article.left >= 72 ? { x: article.left - 40, y } : { x: page.win.innerWidth - 24, y }
+        },
+      },
+    ])
     setContainer(mount.container)
     return () => {
+      stopPalette()
       setContainer(null)
       mount.dispose()
     }
