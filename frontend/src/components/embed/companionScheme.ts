@@ -79,6 +79,41 @@ function frameDocument(frame: HTMLIFrameElement): Document | null {
 }
 
 /**
+ * 切换那一下：各处自己的颜色过渡全关掉，新画面一步到位；视图过渡里每一块（导航岛有自己的名字和更长的时长）
+ * 都用同一个时长淡过去，不会有哪块慢半拍。页面、小窗和 Shadow DOM 里的伴读、创作台都要插。
+ */
+const SWITCH_MS = 240
+const FREEZE_CSS = `*,*::before,*::after{transition:none!important}
+::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation-duration:${SWITCH_MS}ms!important;animation-delay:0s!important;animation-timing-function:ease!important}`
+
+// 页面、小窗各有各的 JS 环境，`instanceof Document` 跨过去就不认了，按节点类型看。
+function isDocument(root: Document | ShadowRoot): root is Document {
+  return root.nodeType === Node.DOCUMENT_NODE
+}
+
+function freezeTransitions(doc: Document, others: (Document | null)[]): () => void {
+  const roots: (Document | ShadowRoot)[] = [doc]
+  for (const other of others) { if (other) roots.push(other)
+}
+  for (const root of [...roots]) {
+    const body = isDocument(root) ? root.body : null
+    for (const child of body?.children ?? []) { if (child.shadowRoot) roots.push(child.shadowRoot)
+}
+  }
+  const styles = roots.map((root) => {
+    const owner = isDocument(root) ? root : root.ownerDocument
+    const style = owner.createElement('style')
+    style.textContent = FREEZE_CSS
+    if (isDocument(root)) root.head.append(style)
+    else root.append(style)
+    return style
+  })
+  return () => {
+    for (const style of styles) style.remove()
+  }
+}
+
+/**
  * 把主站的深浅色固定成 `dark` 这一边，这一页原地换过去。`self` 是伴读自己的页面：
  * 它写的 localStorage 不会通知它自己。
  */
@@ -95,13 +130,20 @@ export function switchSiteScheme(win: Window, self: Document, dark: boolean): vo
     ?.slice(SITE_CHROME_COOKIE.length + 1)
   doc.cookie = siteChromeCookieLine(siteChromeSwitched(current ?? null, dark), win.location.protocol === 'https:')
   const value = pageSchemeSwitch(doc)
+  const frames = [...doc.querySelectorAll('iframe')].map(frameDocument)
+  const release = freezeTransitions(doc, [self, ...frames])
   const apply = () => {
     if (value) setPageScheme(doc, value, dark)
     doc.getElementById('myriad-nav')?.setAttribute('data-scheme', dark ? 'dark' : 'light')
     setAppScheme(self, dark)
-    for (const frame of doc.querySelectorAll('iframe')) setAppScheme(frameDocument(frame), dark)
+    for (const frame of frames) setAppScheme(frame, dark)
   }
   const quiet = win.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (quiet || typeof doc.startViewTransition !== 'function') apply()
-  else doc.startViewTransition(apply)
+  if (quiet || typeof doc.startViewTransition !== 'function') {
+    apply()
+    // 等新颜色算完再放开，放开时值已经不变，不会再补一段过渡。
+    win.requestAnimationFrame(() => win.requestAnimationFrame(release))
+    return
+  }
+  doc.startViewTransition(apply).finished.finally(release)
 }
