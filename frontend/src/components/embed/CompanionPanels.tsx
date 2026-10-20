@@ -3,6 +3,7 @@ import type { AnnotationItem, PodcastResponse } from '../../services/phantasiaiA
 import type { ReadingPrefs } from './companionLayout'
 import type { useCompanionPodcast } from './useCompanionPodcast'
 import {
+  LuALargeSmall as ALargeSmall,
   LuArrowRight as ArrowRight,
   LuMinus as Minus,
   LuPause as Pause,
@@ -12,6 +13,7 @@ import {
   LuSkipForward as SkipForward,
   LuSparkles as Sparkles,
   LuSquare as Square,
+  LuUnfoldVertical as UnfoldVertical,
   LuX as X,
 } from '@lib/icons'
 import { useI18n } from '../../contexts/I18nContext'
@@ -106,9 +108,11 @@ export function AnnotationsPanel({
   return (
     <>
       {admin}
-      {annotations.length === 0 ? <p className="panel__hint">{copy.companionEmpty}</p> : null}
+      {annotations.length === 0 ? <p className="panel__hint">{copy.annotationsEmpty}</p> : null}
       {annotations.length > 0 && linked ? (
-        <p className="panel__hint">{format(copy.annotationsInText, { count: inText.size })}</p>
+        <p className="panel__hint">
+          {format(copy.annotationsInText, { total: annotations.length, count: inText.size })}
+        </p>
       ) : null}
       <ol className="notes" ref={listRef}>
         {annotations.map((annotation, index) => {
@@ -158,7 +162,7 @@ export function PodcastPanel({
     return (
       <>
         {admin}
-        <p className="panel__hint">{copy.companionEmpty}</p>
+        <p className="panel__hint">{copy.podcastEmpty}</p>
       </>
     )
   }
@@ -266,25 +270,29 @@ export function PodcastPanel({
   )
 }
 
-/** 一组 + 值 −，竖着（胶囊里）或横着（手机的面板里）。 */
+/** 一组 图标 + 值 −，竖着（胶囊里）或横着（手机的面板里）；图标说明调的是什么。 */
 export function Stepper({
   label,
+  kind,
   value,
   copy,
   onStep,
 }: {
   label: string
+  kind: 'size' | 'leading'
   value: string
   copy: Copy
   onStep: (direction: 1 | -1) => void
 }) {
+  const Icon = kind === 'size' ? ALargeSmall : UnfoldVertical
   return (
     <div className="stepper" role="group" aria-label={label} title={label}>
-      <button type="button" aria-label={`${label} ${copy.increase}`} onClick={() => onStep(1)}>
+      <Icon className="stepper__icon" aria-hidden="true" />
+      <button type="button" className="stepper__up" aria-label={`${label} ${copy.increase}`} onClick={() => onStep(1)}>
         <Plus aria-hidden="true" />
       </button>
       <span className="stepper__value">{value}</span>
-      <button type="button" aria-label={`${label} ${copy.decrease}`} onClick={() => onStep(-1)}>
+      <button type="button" className="stepper__down" aria-label={`${label} ${copy.decrease}`} onClick={() => onStep(-1)}>
         <Minus aria-hidden="true" />
       </button>
     </div>

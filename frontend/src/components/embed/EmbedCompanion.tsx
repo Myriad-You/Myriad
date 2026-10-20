@@ -304,8 +304,8 @@ export function EmbedCompanion() {
         <PodcastPanel copy={copy} show={show} podcast={podcast} linesRef={linesRef} admin={admin('podcast', hasShow)} />
       ) : (
         <div className="reading">
-          <Stepper label={copy.fontSize} value={values.size} copy={copy} onStep={stepSize} />
-          <Stepper label={copy.lineHeight} value={values.leading} copy={copy} onStep={stepLeading} />
+          <Stepper label={copy.fontSize} kind="size" value={values.size} copy={copy} onStep={stepSize} />
+          <Stepper label={copy.lineHeight} kind="leading" value={values.leading} copy={copy} onStep={stepLeading} />
         </div>
       )}
     </>

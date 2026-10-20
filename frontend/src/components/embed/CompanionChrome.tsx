@@ -242,8 +242,8 @@ export function CompanionChrome({
               <span className="divider" aria-hidden="true" />
             </>
           ) : null}
-          <Stepper label={copy.fontSize} value={size.label} copy={copy} onStep={size.onStep} />
-          <Stepper label={copy.lineHeight} value={leading.label} copy={copy} onStep={leading.onStep} />
+          <Stepper label={copy.fontSize} kind="size" value={size.label} copy={copy} onStep={size.onStep} />
+          <Stepper label={copy.lineHeight} kind="leading" value={leading.label} copy={copy} onStep={leading.onStep} />
         </div>
       </>
     )

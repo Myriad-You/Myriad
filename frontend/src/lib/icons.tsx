@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react'
 import type { IconType } from 'react-icons'
 import {
   Activity as LuActivity,
+  ALargeSmall as LuALargeSmall,
   AlertCircle as LuAlertCircle,
   AlertTriangle as LuAlertTriangle,
   AlignJustify as LuAlignJustify,
@@ -124,6 +125,7 @@ import {
   Transgender as LuTransgender,
   Trash2 as LuTrash2,
   Type as LuType,
+  UnfoldVertical as LuUnfoldVertical,
   Unlink as LuUnlink,
   Upload as LuUpload,
   User as LuUser,
@@ -763,6 +765,7 @@ export { FaGrip }
 
 export {
   LuActivity,
+  LuALargeSmall,
   LuAlertCircle,
   LuAlertTriangle,
   LuAlignJustify,
@@ -883,6 +886,7 @@ export {
   LuTransgender,
   LuTrash2,
   LuType,
+  LuUnfoldVertical,
   LuUnlink,
   LuUpload,
   LuUser,
