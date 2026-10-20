@@ -10,7 +10,7 @@ mod feeds_sources;
 mod helpers;
 
 pub(crate) use helpers::{
-    get_phantasi_viewer, phantasi_access_allowed, require_phantasi_module_access,
+    get_phantasi_viewer, phantasi_access_allowed, require_phantasi_module_access_cached,
 };
 mod note_collab;
 mod note_docs;

@@ -67,7 +67,8 @@ pub fn prepare_content_html(html: &str, origin: &str, item_id: i32) -> String {
 }
 
 /// 还没有注释和播客的文章上，控制器还没有地址。
-const DORMANT_FRAME_SRC: &str = "<iframe class=\"myriad-companion__frame\" data-myriad-src=";
+pub(crate) const DORMANT_FRAME_SRC: &str =
+    "<iframe class=\"myriad-companion__frame\" data-myriad-src=";
 
 /// 伴读：正文末尾一个看不见的同源控制器 iframe。页面不跑脚本，两侧的胶囊、面板和正文里的
 /// 注释都由控制器画（frontend/src/components/embed/EmbedCompanion.tsx）；框所在的元素就是正文，
@@ -84,12 +85,10 @@ pub fn companion_island_html(item_id: i32, ready: bool) -> String {
 /// 站长看到的页面：给还没内容的伴读控制器地址。只认构建时写下的那个标签，正文里的字不会
 /// 被碰到（正文里的 `<` 早已转义）。
 pub fn reveal_companion_island(html: &str) -> String {
-    html.replacen(
-        DORMANT_FRAME_SRC,
-        "<iframe class=\"myriad-companion__frame\" src=",
-        1,
-    )
+    html.replacen(DORMANT_FRAME_SRC, REVEALED_FRAME_SRC, 1)
 }
+
+pub(crate) const REVEALED_FRAME_SRC: &str = "<iframe class=\"myriad-companion__frame\" src=";
 
 /// 正文里第一张 `<img>` 的 `src`。封面去重用它，不把 `<source>` 算进去。
 pub fn first_content_image(html: &str) -> Option<String> {

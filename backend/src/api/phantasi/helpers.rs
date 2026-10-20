@@ -78,6 +78,24 @@ pub(crate) async fn require_phantasi_module_access(
     Err(phantasi_http_err(StatusCode::NOT_FOUND, "Not found"))
 }
 
+/// Same check, reading visibility from the short-lived process copy
+/// (`services::module_visibility::cached_module_visibility_preferences`). For
+/// `/blog/*`, where every stylesheet and image passes this boundary.
+pub(crate) async fn require_phantasi_module_access_cached(
+    db: &DatabaseConnection,
+    user_id: Option<i32>,
+    is_admin: bool,
+) -> Result<myriad_module_visibility::ModuleVisibilityPreferences, HttpError> {
+    let preferences =
+        crate::services::module_visibility::cached_module_visibility_preferences(db)
+            .await
+            .map_err(|error| phantasi_store_http("load module visibility", error))?;
+    if phantasi_access_allowed(preferences.module_visibility("phantasi"), user_id, is_admin) {
+        return Ok(preferences);
+    }
+    Err(phantasi_http_err(StatusCode::NOT_FOUND, "Not found"))
+}
+
 /// Public Journal boundary: invalid credentials were already rejected by the
 /// optional auth middleware; the complete all/authenticated/admin visibility
 /// matrix is enforced here before data access.

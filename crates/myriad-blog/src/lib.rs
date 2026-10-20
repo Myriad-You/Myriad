@@ -37,7 +37,8 @@ pub use model::{
 };
 pub use nav::{
     NAV_ISLAND_ID, NAV_SPECULATION_RULES, NAV_SPECULATION_RULES_PATH, NavItem, SITE_CHROME_COOKIE,
-    SiteChrome, inject_nav_island, nav_island_head, nav_island_html, nav_island_items,
+    SiteChrome, decorate_page, inject_nav_island, nav_island_head, nav_island_html,
+    nav_island_items,
 };
 pub use postprocess::{
     BLOG_CSP, NOTES_CSS, NOTES_CSS_HREF, is_script_asset, is_stripped_asset, postprocess_html,

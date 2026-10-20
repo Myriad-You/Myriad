@@ -9,7 +9,8 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
-use crate::studio::{escape_attr, insert_before_body_end};
+use crate::rewrite::{DORMANT_FRAME_SRC, REVEALED_FRAME_SRC};
+use crate::studio::escape_attr;
 
 /// 导航岛的 id；样式里的 `<link rel="expect">` 等它解析出来才画第一帧。
 pub const NAV_ISLAND_ID: &str = "myriad-nav";
@@ -227,33 +228,75 @@ fn icon_svg(icon: &NavIcon) -> String {
 /// `head` 插在第一个 `</head>` 前，`island` 插在 `<body>` 开始标签之后：放在最前面，
 /// 第一帧之前就解析到。找不到标签就都放在最前。页尾再留一块给手机上的底栏让位。
 pub fn inject_nav_island(html: &str, head: &str, island: &str) -> String {
-    let lower = html.to_ascii_lowercase();
-    let head_at = lower.find("</head>");
-    let body_at = lower
-        .find("<body")
-        .and_then(|start| lower[start..].find('>').map(|end| start + end + 1));
-    let mut out = String::with_capacity(html.len() + head.len() + island.len());
+    decorate_page(html, head, island, None)
+}
+
+/// 和 [`inject_nav_island`] 一样插导航岛；`studio` 有值时（站长）再给伴读控制器地址
+/// （同 [`crate::reveal_companion_island`]），并把创作台放在页尾留白之后。
+/// 插入点在原页上一次找齐、一次拼好：不整页转小写，也不每插一样就复制一遍。
+pub fn decorate_page(html: &str, head: &str, island: &str, studio: Option<&str>) -> String {
+    let head_at = find_tag(html, "</head>");
+    let body_at = find_tag(html, "<body")
+        .and_then(|start| html[start..].find('>').map(|end| start + end + 1));
+    let mut edits: Vec<(usize, usize, &str)> = Vec::with_capacity(5);
     match (head_at, body_at) {
         (Some(head_at), Some(body_at)) if head_at < body_at => {
-            out.push_str(&html[..head_at]);
-            out.push_str(head);
-            out.push_str(&html[head_at..body_at]);
-            out.push_str(island);
-            out.push_str(&html[body_at..]);
+            edits.push((head_at, 0, head));
+            edits.push((body_at, 0, island));
         }
         (_, Some(body_at)) => {
-            out.push_str(&html[..body_at]);
-            out.push_str(head);
-            out.push_str(island);
-            out.push_str(&html[body_at..]);
+            edits.push((body_at, 0, head));
+            edits.push((body_at, 0, island));
         }
         _ => {
-            out.push_str(head);
-            out.push_str(island);
-            out.push_str(html);
+            edits.push((0, 0, head));
+            edits.push((0, 0, island));
         }
     }
-    insert_before_body_end(&out, NAV_ISLAND_ROOM)
+    let body_end = rfind_tag(html, "</body>").unwrap_or(html.len());
+    edits.push((body_end, 0, NAV_ISLAND_ROOM));
+    if let Some(studio) = studio {
+        if let Some(at) = html.find(DORMANT_FRAME_SRC) {
+            edits.push((at, DORMANT_FRAME_SRC.len(), REVEALED_FRAME_SRC));
+        }
+        edits.push((body_end, 0, studio));
+    }
+    splice(html, edits)
+}
+
+/// 按位置依次替换；同一位置按加入的先后。
+fn splice(html: &str, mut edits: Vec<(usize, usize, &str)>) -> String {
+    edits.sort_by_key(|(at, _, _)| *at);
+    let added: usize = edits.iter().map(|(_, _, text)| text.len()).sum();
+    let mut out = String::with_capacity(html.len() + added);
+    let mut cursor = 0;
+    for (at, removed, text) in edits {
+        let at = at.max(cursor);
+        out.push_str(&html[cursor..at]);
+        out.push_str(text);
+        cursor = at + removed;
+    }
+    out.push_str(&html[cursor..]);
+    out
+}
+
+/// 不分大小写找第一个 `tag`（`tag` 以 `<` 开头、全是小写 ASCII）。
+fn find_tag(html: &str, tag: &str) -> Option<usize> {
+    html.match_indices('<')
+        .map(|(at, _)| at)
+        .find(|&at| tag_at(html, at, tag))
+}
+
+fn rfind_tag(html: &str, tag: &str) -> Option<usize> {
+    html.rmatch_indices('<')
+        .map(|(at, _)| at)
+        .find(|&at| tag_at(html, at, tag))
+}
+
+fn tag_at(html: &str, at: usize, tag: &str) -> bool {
+    html.as_bytes()
+        .get(at..at + tag.len())
+        .is_some_and(|bytes| bytes.eq_ignore_ascii_case(tag.as_bytes()))
 }
 
 #[cfg(test)]
@@ -312,6 +355,55 @@ mod tests {
             inject_nav_island("<BODY><p>x</p>", "<H>", "<I>"),
             format!("<BODY><H><I><p>x</p>{NAV_ISLAND_ROOM}")
         );
+    }
+
+    #[test]
+    fn one_pass_matches_inserting_each_part_in_turn() {
+        let studio = "<S>";
+        for html in [
+            "<html><head><title>t</title></head><body class=\"x\"><main>m</main></body></html>",
+            "<HTML><HEAD></HEAD><BODY>x<iframe class=\"myriad-companion__frame\" data-myriad-src=\"/a\"></iframe></BODY></HTML>",
+            "<body></body>",
+            "<p>x</p></body>",
+            "</body><head></head><body>y",
+            "<p>x</p>",
+            "",
+        ] {
+            let stepwise = crate::studio::inject_studio_island(
+                &crate::reveal_companion_island(&inject_nav_island_stepwise(html, "<H>", "<I>")),
+                studio,
+            );
+            assert_eq!(
+                decorate_page(html, "<H>", "<I>", Some(studio)),
+                stepwise,
+                "{html}"
+            );
+            assert_eq!(
+                decorate_page(html, "<H>", "<I>", None),
+                inject_nav_island_stepwise(html, "<H>", "<I>"),
+                "{html}"
+            );
+        }
+    }
+
+    /// 改成一次拼接之前的做法，留着对照。
+    fn inject_nav_island_stepwise(html: &str, head: &str, island: &str) -> String {
+        let lower = html.to_ascii_lowercase();
+        let head_at = lower.find("</head>");
+        let body_at = lower
+            .find("<body")
+            .and_then(|start| lower[start..].find('>').map(|end| start + end + 1));
+        let out = match (head_at, body_at) {
+            (Some(head_at), Some(body_at)) if head_at < body_at => format!(
+                "{}{head}{}{island}{}",
+                &html[..head_at],
+                &html[head_at..body_at],
+                &html[body_at..]
+            ),
+            (_, Some(body_at)) => format!("{}{head}{island}{}", &html[..body_at], &html[body_at..]),
+            _ => format!("{head}{island}{html}"),
+        };
+        crate::studio::inject_studio_island(&out, NAV_ISLAND_ROOM)
     }
 
     #[test]

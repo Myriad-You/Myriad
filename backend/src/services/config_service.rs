@@ -18,6 +18,8 @@ pub async fn install_dynamic_config(
     crate::services::memory_profile::apply_from_saver_flag(config.memory_saver_enabled);
     crate::services::outbound_security::apply_dynamic_config(&config);
     *current = config;
+    // 整份配置刚从库里重读过（保存、恢复备份之后）：模块可见性也跟着重读。
+    crate::services::module_visibility::invalidate_module_visibility_cache(None);
 }
 
 /// Optional config string: null / "" / whitespace → None.
@@ -854,6 +856,9 @@ impl ConfigService {
         if count == 0 {
             return Ok(());
         }
+        let touches_visibility = updates.keys().any(|key| {
+            key == myriad_module_visibility::MODULE_VISIBILITY_PREFERENCES_KEY
+        });
         let sealed = seal_config_updates(updates)?;
         let mut sql = String::from("INSERT INTO configurations (key, value, updated_at) VALUES ");
         let mut values = Vec::with_capacity(count * 2);
@@ -880,6 +885,9 @@ impl ConfigService {
         ))
         .await
         .context("Failed to update configurations")?;
+        if touches_visibility {
+            crate::services::module_visibility::invalidate_module_visibility_cache(None);
+        }
         tracing::info!("✅ Updated {count} configurations");
         Ok(())
     }
@@ -914,6 +922,7 @@ async fn upsert_configuration(
     ))
     .await
     .context("Failed to update configuration")?;
+    crate::services::module_visibility::invalidate_module_visibility_cache(Some(key));
 
     Ok(())
 }

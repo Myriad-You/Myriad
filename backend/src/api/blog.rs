@@ -1,6 +1,6 @@
 //! 博客设置、主题和 `/blog/*` 静态页。
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::{FromRequest, Multipart, Path, Request, State};
 use axum::http::{HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -12,6 +12,8 @@ use serde_json::{Value, json};
 
 use crate::error::HttpError;
 use crate::extract::{AdminClaims, OptionalViewer};
+mod page_cache;
+
 use crate::services::blog::{
     self, BlogTarget, content_type_for, resolve_blog_target, theme_not_found_page,
 };
@@ -199,18 +201,20 @@ async fn serve_blog(
         .as_ref()
         .and_then(|claims| claims.subject().map(|subject| subject.id()));
     let preferences =
-        crate::api::phantasi::require_phantasi_module_access(&db, user_id, viewer.is_admin).await?;
+        crate::api::phantasi::require_phantasi_module_access_cached(&db, user_id, viewer.is_admin)
+            .await?;
     let path = request.uri().path().to_string();
     let query = request.uri().query().map(str::to_string);
     let current = blog::output_dir();
     let target = resolve_blog_target(&current, &path);
     let anonymous = user_id.is_none();
+    let if_none_match = request.headers().get(header::IF_NONE_MATCH);
     // 样式、图片、字体照常返回：导航岛和创作台只有 HTML 才用得上，不为它们拼。
     // 它们不含创作台，站长拿到的和其他登录访客一样不进共享缓存就够了。
     if let BlogTarget::File(file) = &target
         && !is_html(file)
     {
-        let mut response = file_response(file, StatusCode::OK, anonymous).await;
+        let mut response = file_response(file, StatusCode::OK, anonymous, if_none_match).await;
         finish_blog_response(&mut response, request.method());
         return Ok(response);
     }
@@ -243,10 +247,12 @@ async fn serve_blog(
             }
             response
         }
-        BlogTarget::File(file) => page_response(&file, StatusCode::OK, anonymous, &chrome).await,
+        BlogTarget::File(file) => {
+            page_response(&file, StatusCode::OK, anonymous, &chrome, if_none_match).await
+        }
         BlogTarget::Missing => match (theme_not_found_page(&current), &chrome.studio) {
             (Some(page), _) => {
-                page_response(&page, StatusCode::NOT_FOUND, anonymous, &chrome).await
+                page_response(&page, StatusCode::NOT_FOUND, anonymous, &chrome, None).await
             }
             // 博客还没生成出来：站长照样拿到创作台，才能去博客设置里修。
             (None, Some(island)) => html_response(
@@ -400,34 +406,63 @@ async fn speculation_rules() -> Response {
 }
 
 /// 只有 HTML 才插导航岛和创作台；主题的 404 页之外的样式、图片在 `serve_blog` 里就返回了。
+/// 访客的页面拼一次就记下（[`page_cache`]），带上内容摘要做 ETag；站长的带创作台，每次现拼、不缓存。
 async fn page_response(
     path: &std::path::Path,
     status: StatusCode,
     anonymous: bool,
     chrome: &PageChrome,
+    if_none_match: Option<&HeaderValue>,
 ) -> Response {
     if !is_html(path) {
-        return file_response(path, status, anonymous).await;
+        return file_response(path, status, anonymous, if_none_match).await;
     }
-    let Ok(html) = tokio::fs::read_to_string(path).await else {
-        return (StatusCode::NOT_FOUND, "Not found").into_response();
-    };
     // 主题怎么切深浅色记在构建出的 `<html>` 上，这里按主站现在的那一边替它切。
-    let html = chrome
-        .dark
-        .and_then(|dark| myriad_blog::apply_page_scheme(&html, dark))
-        .unwrap_or(html);
-    let html = myriad_blog::inject_nav_island(&html, myriad_blog::nav_island_head(), &chrome.nav);
-    let (html, cache) = match &chrome.studio {
+    let decorate = |html: String, studio: Option<&str>| {
+        let html = chrome
+            .dark
+            .and_then(|dark| myriad_blog::apply_page_scheme(&html, dark))
+            .unwrap_or(html);
         // 站长还能看到藏着的伴读岛，没有注释和播客的文章也能在面板里补生成。
-        Some(island) => (
-            myriad_blog::inject_studio_island(&myriad_blog::reveal_companion_island(&html), island),
-            "private, no-store",
-        ),
-        None if anonymous && !chrome.personal => (html, "public, max-age=60"),
-        None => (html, "private, max-age=60"),
+        myriad_blog::decorate_page(&html, myriad_blog::nav_island_head(), &chrome.nav, studio)
     };
-    let mut response = html_response(status, html, cache);
+    let (body, etag, cache) = match &chrome.studio {
+        Some(island) => {
+            let Ok(html) = tokio::fs::read_to_string(path).await else {
+                return (StatusCode::NOT_FOUND, "Not found").into_response();
+            };
+            (
+                Bytes::from(decorate(html, Some(island))),
+                None,
+                "private, no-store",
+            )
+        }
+        None => {
+            let Some(page) =
+                page_cache::page(path, chrome.dark, &chrome.nav, |html| decorate(html, None)).await
+            else {
+                return (StatusCode::NOT_FOUND, "Not found").into_response();
+            };
+            let cache = if anonymous && !chrome.personal {
+                "public, max-age=60"
+            } else {
+                "private, max-age=60"
+            };
+            (page.body, Some(page.etag), cache)
+        }
+    };
+    let not_modified = status == StatusCode::OK
+        && etag
+            .as_deref()
+            .is_some_and(|etag| page_cache::etag_matches(if_none_match, etag));
+    let mut response = if not_modified {
+        cached_response(StatusCode::NOT_MODIFIED, Body::empty(), cache)
+    } else {
+        html_response(status, body, cache)
+    };
+    if let Some(value) = etag.and_then(|etag| HeaderValue::from_str(&etag).ok()) {
+        response.headers_mut().insert(header::ETAG, value);
+    }
     if let Ok(value) =
         HeaderValue::from_str(&format!("\"{}\"", myriad_blog::NAV_SPECULATION_RULES_PATH))
     {
@@ -443,12 +478,17 @@ async fn page_response(
     response
 }
 
-fn html_response(status: StatusCode, html: String, cache: &'static str) -> Response {
-    let mut response = (status, html).into_response();
+fn html_response(status: StatusCode, html: impl Into<Body>, cache: &'static str) -> Response {
+    let mut response = cached_response(status, html.into(), cache);
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("text/html; charset=utf-8"),
     );
+    response
+}
+
+fn cached_response(status: StatusCode, body: Body, cache: &'static str) -> Response {
+    let mut response = (status, body).into_response();
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
@@ -456,25 +496,39 @@ fn html_response(status: StatusCode, html: String, cache: &'static str) -> Respo
 }
 
 /// 登录访客能看到的页面可能对匿名访客关着，不能进共享缓存。
-async fn file_response(path: &std::path::Path, status: StatusCode, anonymous: bool) -> Response {
-    match tokio::fs::read(path).await {
-        Ok(bytes) => {
-            let mut response = (status, bytes).into_response();
-            if let Ok(value) = HeaderValue::from_str(content_type_for(path)) {
-                response.headers_mut().insert(header::CONTENT_TYPE, value);
-            }
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static(if anonymous {
-                    "public, max-age=60"
-                } else {
-                    "private, max-age=60"
-                }),
-            );
-            response
+/// ETag 用长度和修改时间：没变的样式、图片回 304，连文件都不读。
+async fn file_response(
+    path: &std::path::Path,
+    status: StatusCode,
+    anonymous: bool,
+    if_none_match: Option<&HeaderValue>,
+) -> Response {
+    let Ok(meta) = tokio::fs::metadata(path).await else {
+        return (StatusCode::NOT_FOUND, "Not found").into_response();
+    };
+    let cache = if anonymous {
+        "public, max-age=60"
+    } else {
+        "private, max-age=60"
+    };
+    let etag = page_cache::file_etag(&meta);
+    let mut response = if status == StatusCode::OK && page_cache::etag_matches(if_none_match, &etag)
+    {
+        cached_response(StatusCode::NOT_MODIFIED, Body::empty(), cache)
+    } else {
+        let Ok(bytes) = tokio::fs::read(path).await else {
+            return (StatusCode::NOT_FOUND, "Not found").into_response();
+        };
+        let mut response = cached_response(status, Body::from(bytes), cache);
+        if let Ok(value) = HeaderValue::from_str(content_type_for(path)) {
+            response.headers_mut().insert(header::CONTENT_TYPE, value);
         }
-        Err(_) => (StatusCode::NOT_FOUND, "Not found").into_response(),
+        response
+    };
+    if let Ok(value) = HeaderValue::from_str(&etag) {
+        response.headers_mut().insert(header::ETAG, value);
     }
+    response
 }
 
 #[cfg(test)]

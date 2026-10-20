@@ -57,7 +57,7 @@ pub fn inject_studio_island(html: &str, island: &str) -> String {
     insert_before_body_end(html, island)
 }
 
-pub(crate) fn insert_before_body_end(html: &str, island: &str) -> String {
+fn insert_before_body_end(html: &str, island: &str) -> String {
     let lower = html.to_ascii_lowercase();
     match lower.rfind("</body>") {
         Some(at) => {
