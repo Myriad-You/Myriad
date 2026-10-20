@@ -109,6 +109,8 @@ export const FIGURE_HIP_SHIFT = 0.2
  * contrapposto has it; much more and the shoe leaves the ground.
  */
 const HEEL_LIFT = 0.1
+/** The most a bent leg's thigh and shin are drawn longer, its knee crossing in. */
+const LEG_STRETCH = 1.05
 /** The most a free foot is drawn taller, rising onto its toes. */
 const FOOT_STRETCH = 1.2
 /**
@@ -273,9 +275,9 @@ function drawnReach(leg: Readonly<LegRest>): number {
 /**
  * The knee for a hip and ankle: the drawn leg turned onto them and shortened
  * to fit, the knee where it was along the way and drifting inwards as the
- * leg bends towards the viewer.
+ * leg bends towards the viewer. Whether it bent.
  */
-function solveKnee(leg: Readonly<LegRest>, hip: Point, ankle: Point, out: Point, lead: number): void {
+function solveKnee(leg: Readonly<LegRest>, hip: Point, ankle: Point, out: Point, lead: number): boolean {
   const restX = leg.ankle.x - leg.hip.x
   const restY = leg.ankle.y - leg.hip.y
   const restReach = Math.max(1e-6, Math.hypot(restX, restY))
@@ -295,6 +297,45 @@ function solveKnee(leg: Readonly<LegRest>, hip: Point, ankle: Point, out: Point,
     const thigh = Math.hypot(leg.knee.x - leg.hip.x, leg.knee.y - leg.hip.y)
     out.x += leg.inward * (KNEE_DRIFT + KNEE_CROSS * smoothstep(lead / CROSS_LEAD)) * thigh * bent
   }
+  return bent > 0
+}
+
+/**
+ * Moves a bent knee along its leg, keeping how far it drifted in, so the
+ * thigh and the shin come out shortened alike: seen bending towards the
+ * viewer both foreshorten, and one drawn longer than the other reads as a
+ * thinner or a thicker leg. Neither is drawn longer than it is; a knee that
+ * drifted too far in for that comes back out to where both are full length.
+ */
+function balanceKnee(leg: Readonly<LegRest>, hip: Point, ankle: Point, knee: Point): void {
+  const thigh = Math.hypot(leg.knee.x - leg.hip.x, leg.knee.y - leg.hip.y)
+  const shin = Math.hypot(leg.ankle.x - leg.knee.x, leg.ankle.y - leg.knee.y)
+  const dx = ankle.x - hip.x
+  const dy = ankle.y - hip.y
+  const reach = Math.hypot(dx, dy)
+  if (!(thigh > 0 && shin > 0 && reach > 0)) return
+  const ux = dx / reach
+  const uy = dy / reach
+  // The knee's drift off the line from the hip to the ankle, kept.
+  let off = (knee.x - hip.x) * -uy + (knee.y - hip.y) * ux
+  // Along the line, where the thigh and the shin are shortened alike.
+  const unequal = (along: number) => Math.hypot(along, off) / thigh - Math.hypot(reach - along, off) / shin
+  let low = 0
+  let high = reach
+  for (let i = 0; i < 60; i++) {
+    const mid = (low + high) / 2
+    if (unequal(mid) < 0) low = mid
+    else high = mid
+  }
+  let along = (low + high) / 2
+  if (Math.hypot(along, off) > thigh * LEG_STRETCH) {
+    const t = thigh * LEG_STRETCH
+    const k = shin * LEG_STRETCH
+    along = reach >= t + k ? (reach * t) / (t + k) : (reach * reach + t * t - k * k) / (2 * reach)
+    off = Math.sign(off) * Math.sqrt(Math.max(0, t * t - along * along))
+  }
+  knee.x = hip.x + ux * along - uy * off
+  knee.y = hip.y + uy * along + ux * off
 }
 
 /** Writes this frame's bones for a figure standing on its ground. */
@@ -332,8 +373,7 @@ export function solveFigurePose(rest: Readonly<FigureRest>, input: Readonly<Figu
     // A free leg rises onto its toes. Seen from the front the foot tips
     // towards the viewer and shows taller from its toes up to the lifted
     // ankle, but a drawn shoe stretched that far reads as a longer shoe: it
-    // stretches FOOT_STRETCH at most. The knee bends for the whole lift, so
-    // the rest of it goes into the thigh coming towards the viewer.
+    // stretches FOOT_STRETCH at most. The knee bends for the whole lift.
     const toeToAnkle = Math.hypot(leg.ankle.x - leg.toe.x, leg.ankle.y - leg.toe.y)
     const lift = Math.min(lifts[side], toeToAnkle * 0.6)
     const footLift = Math.min(lift, toeToAnkle * (FOOT_STRETCH - 1))
@@ -348,7 +388,9 @@ export function solveFigurePose(rest: Readonly<FigureRest>, input: Readonly<Figu
     const ankle = apply(foot, leg.ankle.x, leg.ankle.y, scratch.ankle)
     scratch.lifted.x = ankle.x
     scratch.lifted.y = ankle.y - (lift - footLift)
-    solveKnee(leg, hip, scratch.lifted, scratch.knee, left ? input.bendL - input.bendR : input.bendR - input.bendL)
+    if (solveKnee(leg, hip, scratch.lifted, scratch.knee, left ? input.bendL - input.bendR : input.bendR - input.bendL)) {
+      balanceKnee(leg, hip, ankle, scratch.knee)
+    }
     setSegment(left ? out.thighL : out.thighR, leg.hip, leg.knee, hip, scratch.knee)
     setSegment(left ? out.shinL : out.shinR, leg.knee, leg.ankle, scratch.knee, ankle)
   }

@@ -102,6 +102,19 @@ test('a free foot on its toes is drawn at most a little taller, its knee bending
   assert.ok(knee.x > 462 + 20, `the knee still comes well in: ${knee.x}`)
 })
 
+test('a crossing leg foreshortens its thigh and shin alike, neither much longer than drawn', () => {
+  const pose = solveFigurePose(rest, { body: 1, pelvisTilt: 0.045, bendL: 1, bendR: 0 }, createFigurePose())
+  const hip = skinned('legwear', legL, 460, 621, pose)
+  const knee = skinned('legwear', legL, 462, 960, pose)
+  const ankle = skinned('legwear', legL, 465, 1300, pose)
+  const thigh = Math.hypot(knee.x - hip.x, knee.y - hip.y) / Math.hypot(2, 339)
+  const shin = Math.hypot(ankle.x - knee.x, ankle.y - knee.y) / Math.hypot(3, 340)
+  assert.ok(Math.abs(thigh - shin) < 0.02, `thigh ${thigh}, shin ${shin}`)
+  assert.ok(thigh < 1.06 && shin < 1.06, `thigh ${thigh}, shin ${shin}`)
+  const other = skinned('legwear', { ...legL, x: 500, side: 'R' }, 538, 960, pose)
+  assert.ok(knee.x > other.x + 20, `the free knee still crosses: ${knee.x} over ${other.x}`)
+})
+
 test('the skin is continuous across the knee and the waist', () => {
   const pose = solveFigurePose(rest, { body: -0.8, pelvisTilt: 0.04, bendL: 0.7, bendR: 0 }, createFigurePose())
   for (const [kind, layer, x, from, to] of [
