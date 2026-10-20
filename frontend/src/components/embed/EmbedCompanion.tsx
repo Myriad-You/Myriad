@@ -280,29 +280,43 @@ export function EmbedCompanion() {
   const panelExtra = (open: Panel) => {
     if (!isAdmin || open === 'reading') return null
     const has = open === 'annotations' ? hasNotes : hasShow
-    return <AdminGenerate copy={copy} busy={busy !== null} has={has} onGenerate={() => { void generate(open, has) }} />
+    return has ? <AdminGenerate copy={copy} busy={busy !== null} has onGenerate={() => { void generate(open, true) }} /> : null
   }
+  // 还没生成过：按钮放在空面板里，和「还没有」那句话在一起。
+  const emptyGenerate = (kind: Kind, has: boolean) =>
+    isAdmin && !has ? (
+      <AdminGenerate copy={copy} busy={busy !== null} has={false} onGenerate={() => { void generate(kind, false) }} />
+    ) : null
 
   const renderPanel = (open: Panel, ownScroll: () => void) => (
     <>
       {error ? <p className="panel__error" role="alert">{error}</p> : null}
+      {busy != null && busy === open && (open === 'annotations' ? hasNotes : hasShow) ? (
+        <p className="panel__hint" role="status">{copy.generating}</p>
+      ) : null}
       {open === 'annotations' ? (
-        <AnnotationsPanel
-          copy={copy}
-          annotations={annotations}
-          inText={inText}
-          linked={linked}
-          picked={picked}
-          listRef={notesRef}
-          onToggle={(index) => setPicked((current) => (current === index ? null : index))}
-          onReveal={(index) => {
-            setPicked(index)
-            ownScroll()
-            if (linkRef.current?.reveal(index)) setPanel(null)
-          }}
-        />
+        <>
+          <AnnotationsPanel
+            copy={copy}
+            annotations={annotations}
+            inText={inText}
+            linked={linked}
+            picked={picked}
+            listRef={notesRef}
+            onToggle={(index) => setPicked((current) => (current === index ? null : index))}
+            onReveal={(index) => {
+              setPicked(index)
+              ownScroll()
+              if (linkRef.current?.reveal(index)) setPanel(null)
+            }}
+          />
+          {emptyGenerate('annotations', hasNotes)}
+        </>
       ) : open === 'podcast' ? (
-        <PodcastPanel copy={copy} show={show} podcast={podcast} linesRef={linesRef} />
+        <>
+          <PodcastPanel copy={copy} show={show} podcast={podcast} linesRef={linesRef} />
+          {emptyGenerate('podcast', hasShow)}
+        </>
       ) : (
         <div className="reading">
           <Stepper label={copy.fontSize} kind="size" value={values.size} copy={copy} onStep={stepSize} />

@@ -40,7 +40,8 @@
   box-sizing: border-box;
 }
 
-.companion button {
+/* 只给默认值：零特异性，各个按钮自己的字号和颜色才压得住。 */
+:where(.companion) button {
   font: inherit;
   color: inherit;
 }
@@ -290,8 +291,9 @@
 .panel__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 8px 10px 14px;
+  gap: 2px;
+  min-height: 46px;
+  padding: 8px 8px 8px 14px;
   border-bottom: 1px solid var(--line);
   font-size: 14px;
 }
@@ -301,7 +303,8 @@
   font-weight: 600;
 }
 
-.panel__close {
+.panel__close,
+.panel__icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -314,14 +317,21 @@
   cursor: pointer;
 }
 
-.panel__close:hover {
+.panel__close:hover,
+.panel__icon:hover {
   background: var(--hover);
   color: var(--fg);
 }
 
-.panel__close svg {
+.panel__close svg,
+.panel__icon svg {
   width: 16px;
   height: 16px;
+}
+
+.panel__icon[aria-busy='true'] svg {
+  color: var(--ai);
+  animation: pulse 1.6s ease-in-out infinite;
 }
 
 .panel__body {
@@ -347,7 +357,7 @@
   font-size: 12px;
 }
 
-.panel__admin,
+.panel__generate,
 .voice__redo,
 .segment button {
   display: inline-flex;
@@ -361,21 +371,19 @@
   font-size: 12px;
 }
 
-.panel__admin:hover,
+.panel__generate:hover,
 .voice__redo:hover {
   background: var(--hover);
 }
 
-/* 标题栏里的那颗：小一号，不和标题抢。 */
-.panel__admin {
-  padding: 3px 10px;
-  color: var(--soft);
-  font-size: 11px;
+.panel__generate {
+  align-self: flex-start;
+  margin: 2px 4px;
 }
 
-.panel__admin svg {
-  width: 13px;
-  height: 13px;
+.panel__generate svg {
+  width: 14px;
+  height: 14px;
   color: var(--ai);
 }
 

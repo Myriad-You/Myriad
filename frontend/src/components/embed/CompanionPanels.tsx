@@ -64,7 +64,10 @@ export function PanelShell({
   )
 }
 
-/** 站长补生成或重新生成：放在面板标题栏里，不压在内容上面。 */
+/**
+ * 站长补生成或重新生成。已经有了：标题栏里一颗和收起一样安静的图标按钮；
+ * 还没有：空面板里一颗看得见的按钮。
+ */
 export function AdminGenerate({
   copy,
   busy,
@@ -76,10 +79,26 @@ export function AdminGenerate({
   has: boolean
   onGenerate: () => void
 }) {
+  if (has) {
+    const label = busy ? copy.generating : copy.regenerate
+    return (
+      <button
+        type="button"
+        className="panel__icon"
+        aria-label={label}
+        title={label}
+        aria-busy={busy}
+        disabled={busy}
+        onClick={onGenerate}
+      >
+        <Sparkles aria-hidden="true" />
+      </button>
+    )
+  }
   return (
-    <button type="button" className="panel__admin" disabled={busy} onClick={onGenerate}>
+    <button type="button" className="panel__generate" disabled={busy} onClick={onGenerate}>
       <Sparkles aria-hidden="true" />
-      {busy ? copy.generating : has ? copy.regenerate : copy.generate}
+      {busy ? copy.generating : copy.generate}
     </button>
   )
 }
