@@ -4,7 +4,7 @@ use axum::body::Body;
 use axum::extract::{FromRequest, Multipart, Path, Request, State};
 use axum::http::{HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
@@ -27,6 +27,7 @@ pub fn router(app_state: crate::state::AppState) -> Router<crate::state::AppStat
             )),
         )
         .route("/api/blog/themes/{id}", delete(delete_theme))
+        .route("/api/blog/themes/{id}/scheme", put(put_theme_scheme))
         .route("/api/blog/rebuild", post(post_rebuild))
         .route_layer(from_fn_with_state(
             app_state.clone(),
@@ -164,6 +165,24 @@ async fn delete_theme(
     Ok(Json(json!({ "ok": true })))
 }
 
+#[derive(Deserialize)]
+struct SchemePut {
+    switch: myriad_blog::SchemeSwitch,
+}
+
+/// 站长确认或改了主题的深浅色切换办法。
+async fn put_theme_scheme(
+    State(db): State<DatabaseConnection>,
+    _admin: AdminClaims,
+    Path(id): Path<String>,
+    Json(body): Json<SchemePut>,
+) -> Result<Json<Value>, HttpError> {
+    let theme = blog::set_theme_scheme(&db, &id, body.switch)
+        .await
+        .map_err(|(message, status)| blog_error(status, message))?;
+    Ok(Json(json!({ "theme": theme })))
+}
+
 async fn post_rebuild(_admin: AdminClaims) -> Json<Value> {
     blog::request_rebuild();
     let build = blog::build_view().await;
@@ -196,6 +215,7 @@ async fn serve_blog(
             site.as_ref(),
         ),
         personal: site.is_some(),
+        dark: site.as_ref().map(myriad_blog::SiteChrome::is_dark),
         studio: if viewer.is_admin {
             Some(studio_island(&db, &path, query.as_deref()).await)
         } else {
@@ -306,6 +326,8 @@ struct PageChrome {
     nav: String,
     /// 导航岛用了这位访客在主站的颜色：页面不能进共享缓存。
     personal: bool,
+    /// 主站现在是不是深色；没有 cookie 就不替主题切，让它照自己的默认来。
+    dark: Option<bool>,
     studio: Option<String>,
 }
 
@@ -378,6 +400,11 @@ fn page_response(
     let Ok(html) = std::fs::read_to_string(path) else {
         return (StatusCode::NOT_FOUND, "Not found").into_response();
     };
+    // 主题怎么切深浅色记在构建出的 `<html>` 上，这里按主站现在的那一边替它切。
+    let html = chrome
+        .dark
+        .and_then(|dark| myriad_blog::apply_page_scheme(&html, dark))
+        .unwrap_or(html);
     let html = myriad_blog::inject_nav_island(&html, &myriad_blog::nav_island_head(), &chrome.nav);
     let (html, cache) = match &chrome.studio {
         // 站长还能看到藏着的伴读岛，没有注释和播客的文章也能在面板里补生成。

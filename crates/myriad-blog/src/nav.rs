@@ -139,6 +139,11 @@ impl SiteChrome {
         })
     }
 
+    /// 主站现在是不是深色：固定了就是固定的那一边，跟随系统就是写 cookie 时系统那一边。
+    pub fn is_dark(&self) -> bool {
+        self.pinned.unwrap_or(self.current) == Scheme::Dark
+    }
+
     /// 写在导航岛上的属性。强调色只对写 cookie 时那一边有效，跟随系统时另一边留默认色。
     fn nav_attrs(&self) -> String {
         let accent = format!("#{}", self.accent);

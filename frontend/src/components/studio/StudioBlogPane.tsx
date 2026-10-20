@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { BlogSettings, BlogSnapshot, BlogTheme } from '../../types/blog'
+import type { BlogSchemeSwitch, BlogSettings, BlogSnapshot, BlogTheme } from '../../types/blog'
 import type { BlogSettingsTab } from './studioRoutes'
 import {
   LuActivity,
@@ -30,6 +30,7 @@ import { userFacingError } from '../../utils/userFacingError'
 import { noteScheduleLabel } from '../phantasi/notes/noteBoard'
 import { PageAction, WorkbenchPage } from '../phantasi/skin/PhantasiWorkbenchChrome'
 import { SettingsButton } from '../settings'
+import { BlogThemeScheme } from './BlogThemeScheme'
 import { studioOverlayApi } from './studioIsland'
 import { BLOG_SETTINGS_TABS, blogSettingsTabForArg } from './studioRoutes'
 import './StudioBlogPane.css'
@@ -285,6 +286,15 @@ export function StudioBlogPane({ back, arg = null }: { back: ReactNode; arg?: st
                 await refresh()
               })
             }}
+            onScheme={async (theme, value) => {
+              let saved = false
+              await run(`theme:${theme.id}`, copy.themeSchemeSaveFailed, async () => {
+                await blogApi.setBlogThemeScheme(theme.id, value)
+                await refresh()
+                saved = true
+              })
+              return saved
+            }}
             onInstallFile={(file) => run('install', copy.themeInstallFailed, async () => {
               await blogApi.uploadBlogTheme(file)
               await refresh()
@@ -404,6 +414,7 @@ function ThemesPanel({
   busy,
   onUse,
   onRemove,
+  onScheme,
   onInstallFile,
   onInstallUrl,
 }: {
@@ -411,6 +422,7 @@ function ThemesPanel({
   busy: Busy
   onUse: (theme: BlogTheme) => void
   onRemove: (theme: BlogTheme) => void
+  onScheme: (theme: BlogTheme, value: BlogSchemeSwitch) => Promise<boolean>
   onInstallFile: (file: File) => Promise<void>
   onInstallUrl: (url: string) => Promise<void>
 }) {
@@ -507,6 +519,11 @@ function ThemesPanel({
                   </SettingsButton>
                 )}
               </span>
+              <BlogThemeScheme
+                theme={theme}
+                disabled={busy != null}
+                onSave={(value) => onScheme(theme, value)}
+              />
             </li>
           )
         })}

@@ -4,6 +4,9 @@ import {
   blogBuildPolls,
   blogBuildStatus,
   blogHugoVersionLabel,
+  blogSchemeMarkup,
+  blogSchemeSwitchFrom,
+  blogSchemeSwitchValid,
   blogSnapshotFromValue,
   blogThemeCanUninstall,
   blogThemeInstallUrl,
@@ -88,5 +91,54 @@ describe('blogSnapshotFromValue', () => {
       ...snapshot.settings,
       description: '',
     }), true)
+  })
+})
+
+describe('theme color scheme switch', () => {
+  it('读主题的深浅色切换办法，不合法的丢掉', () => {
+    const snapshot = blogSnapshotFromValue({
+      themes: [
+        {
+          id: 'congo',
+          name: 'Congo',
+          builtin: false,
+          scheme: {
+            switch: { kind: 'class', target: 'html', dark: 'dark', light: null },
+            evidence: ['assets/js/appearance.js', 3],
+            confirmed: false,
+          },
+        },
+        { id: 'bad', name: 'Bad', scheme: { switch: { kind: 'attribute', target: 'html', name: 'onload', dark: 'x' } } },
+      ],
+    })
+    assert.deepEqual(snapshot.themes[0].scheme, {
+      switch: { kind: 'class', target: 'html', dark: 'dark', light: null },
+      evidence: ['assets/js/appearance.js'],
+      confirmed: false,
+    })
+    assert.equal(snapshot.themes[1].scheme, undefined)
+  })
+
+  it('和后端同样的规则校验', () => {
+    assert.equal(blogSchemeSwitchValid({ kind: 'system' }), true)
+    assert.equal(blogSchemeSwitchValid({ kind: 'class', target: 'body', dark: 'dark-mode', light: 'light' }), true)
+    assert.equal(blogSchemeSwitchValid({ kind: 'class', target: 'html', dark: 'a b', light: null }), false)
+    assert.equal(blogSchemeSwitchValid({ kind: 'class', target: 'html', dark: 'dark', light: 'dark' }), false)
+    assert.equal(
+      blogSchemeSwitchValid({ kind: 'attribute', target: 'html', name: 'data-theme', dark: 'dark', light: null }),
+      true,
+    )
+    assert.equal(
+      blogSchemeSwitchValid({ kind: 'attribute', target: 'html', name: 'theme', dark: 'dark', light: null }),
+      false,
+    )
+    assert.equal(blogSchemeSwitchFrom({ kind: 'class', target: 'head', dark: 'dark' }), null)
+  })
+
+  it('给人看的标签样子', () => {
+    const attr = { kind: 'attribute', target: 'html', name: 'data-theme', dark: 'dark', light: null } as const
+    assert.equal(blogSchemeMarkup(attr, true), '<html data-theme="dark">')
+    assert.equal(blogSchemeMarkup(attr, false), '<html>')
+    assert.equal(blogSchemeMarkup({ kind: 'none' }, true), null)
   })
 })

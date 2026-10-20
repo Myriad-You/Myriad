@@ -23,6 +23,24 @@ export interface BlogTheme {
   min_version?: string
   builtin: boolean
   installed_at?: string
+  scheme?: BlogThemeScheme
+}
+
+export type BlogSchemeTarget = 'html' | 'body'
+
+/** 主题怎么切深浅色，和 crates/myriad-blog/src/scheme.rs 的 `SchemeSwitch` 对应。 */
+export type BlogSchemeSwitch =
+  | { kind: 'class'; target: BlogSchemeTarget; dark: string; light: string | null }
+  | { kind: 'attribute'; target: BlogSchemeTarget; name: string; dark: string; light: string | null }
+  | { kind: 'system' }
+  | { kind: 'none' }
+
+export interface BlogThemeScheme {
+  switch: BlogSchemeSwitch
+  /** 让人这么认为的文件，相对主题根目录。 */
+  evidence: string[]
+  /** 站长确认或改过。 */
+  confirmed: boolean
 }
 
 export interface BlogHugo {

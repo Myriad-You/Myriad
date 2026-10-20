@@ -1,6 +1,6 @@
-import type { BlogSnapshot, BlogTheme } from '../types/blog'
+import type { BlogSchemeSwitch, BlogSnapshot, BlogTheme } from '../types/blog'
 import { apiService } from './api'
-import { blogSnapshotFromValue } from './blogState'
+import { blogSnapshotFromValue, blogThemeFromValue } from './blogState'
 
 export interface BlogSettingsWrite {
   theme_id: string
@@ -29,6 +29,15 @@ export async function uploadBlogTheme(file: File): Promise<BlogTheme> {
 export async function installBlogThemeFromUrl(url: string): Promise<BlogTheme> {
   const data = await apiService.post<{ theme: BlogTheme }>('/blog/themes', { url })
   return data.theme
+}
+
+/** 站长确认或改了主题的深浅色切换办法。 */
+export async function setBlogThemeScheme(id: string, value: BlogSchemeSwitch): Promise<BlogTheme | null> {
+  const data = await apiService.put<{ theme?: unknown }>(
+    `/blog/themes/${encodeURIComponent(id)}/scheme`,
+    { switch: value },
+  )
+  return blogThemeFromValue(data.theme)
 }
 
 export async function deleteBlogTheme(id: string): Promise<void> {

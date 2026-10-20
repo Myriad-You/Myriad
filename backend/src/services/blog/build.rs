@@ -131,7 +131,8 @@ pub async fn render_and_build(
             return Err(problem);
         }
     };
-    if let Err(message) = postprocess_output(&public) {
+    let scheme = super::themes::theme_scheme_switch(layout, &theme_id);
+    if let Err(message) = postprocess_output(&public, scheme.as_ref()) {
         let _ = fs::remove_dir_all(&work);
         return Err(failed(message, &log));
     }
@@ -339,7 +340,10 @@ where
     String::from_utf8_lossy(&buf).into_owned()
 }
 
-fn postprocess_output(public: &Path) -> Result<(), &'static str> {
+fn postprocess_output(
+    public: &Path,
+    scheme: Option<&myriad_blog::SchemeSwitch>,
+) -> Result<(), &'static str> {
     let mut files = Vec::new();
     collect_files(public, public, &mut files)?;
     for path in files {
@@ -370,6 +374,11 @@ fn postprocess_output(public: &Path) -> Result<(), &'static str> {
             continue;
         };
         let cleaned = postprocess_html(&text);
+        // 主题怎么切深浅色记在 `<html>` 上，返回页面时后端照着替它切。
+        let cleaned = match scheme {
+            Some(scheme) => myriad_blog::mark_page_scheme(&cleaned, scheme),
+            None => cleaned,
+        };
         fs::write(&path, cleaned).map_err(|_| "Could not clean the built site")?;
     }
     let css = public.join("_myriad").join("notes.css");

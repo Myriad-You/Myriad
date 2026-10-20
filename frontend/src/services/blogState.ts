@@ -2,9 +2,11 @@ import type {
   BlogBuild,
   BlogBuildStatus,
   BlogHugo,
+  BlogSchemeSwitch,
   BlogSettings,
   BlogSnapshot,
   BlogTheme,
+  BlogThemeScheme,
 } from '../types/blog'
 import { BLOG_BUILD_STATUSES } from '../types/blog'
 
@@ -78,6 +80,56 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
+const SCHEME_TOKEN = /^[\w-]{1,40}$/
+const SCHEME_DATA_ATTR = /^data-[a-z0-9-]{1,40}$/
+
+/** 和后端 `SchemeSwitch::is_valid` 一样：这些字会原样写进博客页。 */
+export function blogSchemeSwitchValid(value: BlogSchemeSwitch): boolean {
+  if (value.kind === 'system' || value.kind === 'none') return true
+  const lightOk = value.light == null || (SCHEME_TOKEN.test(value.light) && value.light !== value.dark)
+  if (!SCHEME_TOKEN.test(value.dark) || !lightOk) return false
+  return value.kind === 'class' || SCHEME_DATA_ATTR.test(value.name)
+}
+
+export function blogSchemeSwitchFrom(value: unknown): BlogSchemeSwitch | null {
+  if (!value || typeof value !== 'object') return null
+  const row = value as Record<string, unknown>
+  const target = row.target === 'body' ? 'body' : row.target === 'html' ? 'html' : null
+  const light = typeof row.light === 'string' && row.light ? row.light : null
+  let parsed: BlogSchemeSwitch | null = null
+  if (row.kind === 'system' || row.kind === 'none') { parsed = { kind: row.kind }
+}
+  else if (row.kind === 'class' && target) { parsed = { kind: 'class', target, dark: text(row.dark), light }
+}
+  else if (row.kind === 'attribute' && target) {
+    parsed = { kind: 'attribute', target, name: text(row.name), dark: text(row.dark), light }
+  }
+  return parsed && blogSchemeSwitchValid(parsed) ? parsed : null
+}
+
+function schemeFrom(value: unknown): BlogThemeScheme | null {
+  if (!value || typeof value !== 'object') return null
+  const row = value as Record<string, unknown>
+  const switchValue = blogSchemeSwitchFrom(row.switch)
+  if (!switchValue) return null
+  const evidence = Array.isArray(row.evidence)
+    ? row.evidence.filter((item): item is string => typeof item === 'string')
+    : []
+  return { switch: switchValue, evidence, confirmed: row.confirmed === true }
+}
+
+/** 写在 `<html>` / `<body>` 上的样子，给人看的：`<html class="dark">`。 */
+export function blogSchemeMarkup(value: BlogSchemeSwitch, dark: boolean): string | null {
+  if (value.kind === 'system' || value.kind === 'none') return null
+  const token = dark ? value.dark : value.light
+  const name = value.kind === 'class' ? 'class' : value.name
+  return token ? `<${value.target} ${name}="${token}">` : `<${value.target}>`
+}
+
+export function blogThemeFromValue(value: unknown): BlogTheme | null {
+  return themeFrom(value)
+}
+
 function themeFrom(value: unknown): BlogTheme | null {
   if (!value || typeof value !== 'object') return null
   const row = value as Record<string, unknown>
@@ -91,6 +143,8 @@ function themeFrom(value: unknown): BlogTheme | null {
   if (typeof row.version === 'string' && row.version) theme.version = row.version
   if (typeof row.min_version === 'string' && row.min_version) theme.min_version = row.min_version
   if (typeof row.installed_at === 'string' && row.installed_at) theme.installed_at = row.installed_at
+  const scheme = schemeFrom(row.scheme)
+  if (scheme) theme.scheme = scheme
   return theme
 }
 

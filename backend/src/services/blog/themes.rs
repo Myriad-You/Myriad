@@ -7,14 +7,18 @@ use std::path::Path;
 use chrono::Utc;
 use myriad_blog::{
     DEFAULT_THEME_ID, MAX_THEME_ARCHIVE_BYTES, MAX_THEME_ARCHIVE_ENTRIES, MAX_THEME_BYTES,
-    MAX_THEME_FILES, ThemeFile, archive_entry_path, default_theme_files, github_archive_root,
-    inspect_theme, inspect_theme_manifest, is_theme_archive_noise, safe_archive_path,
+    MAX_THEME_FILES, SchemeDetection, SchemeSwitch, ThemeFile, archive_entry_path,
+    default_theme_files, detect_scheme_switch, github_archive_root, inspect_theme,
+    inspect_theme_manifest, is_scheme_source, is_theme_archive_noise, safe_archive_path,
 };
 use serde::{Deserialize, Serialize};
 
 use super::layout::BlogLayout;
 
 const META_FILE: &str = ".myriad-theme.json";
+/// 认深浅色切换办法时每个文件最多读这么多，一共最多读这么多。
+const SCHEME_FILE_BYTES: u64 = 512 * 1024;
+const SCHEME_TOTAL_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct ThemeRejected {
@@ -30,6 +34,36 @@ pub struct ThemeRecord {
     pub min_version: Option<String>,
     pub builtin: bool,
     pub installed_at: Option<String>,
+    pub scheme: Option<ThemeScheme>,
+}
+
+/// 主题怎么切深浅色：安装时认出来的，站长确认或改过以后 `confirmed` 为真。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThemeScheme {
+    pub switch: SchemeSwitch,
+    #[serde(default)]
+    pub evidence: Vec<String>,
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
+impl ThemeScheme {
+    fn detected(detection: SchemeDetection) -> Self {
+        Self {
+            switch: detection.switch,
+            evidence: detection.evidence,
+            confirmed: false,
+        }
+    }
+
+    /// 内置主题自己跟着系统和导航岛走，不用后端替它切。
+    fn builtin() -> Self {
+        Self {
+            switch: SchemeSwitch::System,
+            evidence: Vec::new(),
+            confirmed: true,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,6 +74,9 @@ struct ThemeSidecar {
     min_version: Option<String>,
     builtin: bool,
     installed_at: String,
+    /// 早先装的主题没有这一项，读的时候现认。
+    #[serde(default)]
+    scheme: Option<ThemeScheme>,
 }
 
 pub fn ensure_default_theme(layout: &BlogLayout) -> Result<(), ThemeRejected> {
@@ -55,6 +92,7 @@ pub fn ensure_default_theme(layout: &BlogLayout) -> Result<(), ThemeRejected> {
                     min_version: Some("0.146.0".to_string()),
                     builtin: true,
                     installed_at: Some(Utc::now().to_rfc3339()),
+                    scheme: Some(ThemeScheme::builtin()),
                 },
             )?;
         }
@@ -81,6 +119,7 @@ pub fn ensure_default_theme(layout: &BlogLayout) -> Result<(), ThemeRejected> {
             min_version: Some("0.146.0".to_string()),
             builtin: true,
             installed_at: Some(Utc::now().to_rfc3339()),
+            scheme: Some(ThemeScheme::builtin()),
         },
     )
 }
@@ -112,19 +151,145 @@ pub fn read_theme(layout: &BlogLayout, id: &str) -> Option<ThemeRecord> {
     if !dir.is_dir() {
         return None;
     }
-    if let Some(record) = read_sidecar(&dir) {
+    if let Some(mut record) = read_sidecar(&dir) {
+        if record.scheme.is_none() {
+            // 早先装的主题：现认一次记下来，下次就不用再扫了。
+            record.scheme = Some(if record.builtin {
+                ThemeScheme::builtin()
+            } else {
+                ThemeScheme::detected(detect_scheme_in_dir(&dir))
+            });
+            let _ = write_sidecar(&dir, &record);
+        }
         return Some(record);
     }
     let text = fs::read_to_string(dir.join("theme.toml")).ok()?;
     let meta = inspect_theme_manifest(&text).ok()?;
+    let builtin = id == DEFAULT_THEME_ID;
     Some(ThemeRecord {
         id: id.to_string(),
         name: meta.name,
         version: None,
         min_version: meta.min_version,
-        builtin: id == DEFAULT_THEME_ID,
+        builtin,
         installed_at: None,
+        scheme: Some(if builtin {
+            ThemeScheme::builtin()
+        } else {
+            ThemeScheme::detected(detect_scheme_in_dir(&dir))
+        }),
     })
+}
+
+/// 站长确认或改了主题的深浅色切换办法。主题不在、值不合法都不写。
+pub fn set_theme_scheme(
+    layout: &BlogLayout,
+    id: &str,
+    switch: SchemeSwitch,
+) -> Result<ThemeRecord, ThemeRejected> {
+    let Some(id) = myriad_blog::sanitize_theme_id(id) else {
+        return Err(ThemeRejected {
+            status: 400,
+            message: "Invalid theme id",
+        });
+    };
+    if !switch.is_valid() {
+        return Err(ThemeRejected {
+            status: 400,
+            message: "Invalid color scheme switch",
+        });
+    }
+    let dir = layout.theme_dir(&id);
+    let Some(mut record) = read_theme(layout, &id) else {
+        return Err(ThemeRejected {
+            status: 404,
+            message: "Theme not found",
+        });
+    };
+    let evidence = record
+        .scheme
+        .take()
+        .map(|scheme| scheme.evidence)
+        .unwrap_or_default();
+    record.scheme = Some(ThemeScheme {
+        switch,
+        evidence,
+        confirmed: true,
+    });
+    write_sidecar(&dir, &record)?;
+    Ok(record)
+}
+
+/// 构建时用：这个主题确认过（或认出来）的切换办法。
+pub fn theme_scheme_switch(layout: &BlogLayout, id: &str) -> Option<SchemeSwitch> {
+    read_theme(layout, id).and_then(|record| record.scheme.map(|scheme| scheme.switch))
+}
+
+/// 已经装在磁盘上的主题：照安装时的规矩挑文件、限量读，交给 `detect_scheme_switch`。
+fn detect_scheme_in_dir(dir: &Path) -> SchemeDetection {
+    let mut sources = Vec::new();
+    let mut budget = SCHEME_TOTAL_BYTES;
+    collect_scheme_sources(dir, dir, &mut sources, &mut budget);
+    detect_scheme_switch(
+        sources
+            .iter()
+            .map(|(path, body)| (path.as_str(), body.as_str())),
+    )
+}
+
+fn collect_scheme_sources(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<(String, String)>,
+    budget: &mut u64,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        let Some(rel) = path
+            .strip_prefix(root)
+            .ok()
+            .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        else {
+            continue;
+        };
+        if kind.is_dir() {
+            if !skip_scheme_dir(&rel) {
+                collect_scheme_sources(root, &path, out, budget);
+            }
+            continue;
+        }
+        if !kind.is_file() || !is_scheme_source(&rel) || *budget == 0 {
+            continue;
+        }
+        let Ok(file) = fs::File::open(&path) else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        let limit = SCHEME_FILE_BYTES.min(*budget);
+        if file.take(limit).read_to_end(&mut bytes).is_err() {
+            continue;
+        }
+        *budget = budget.saturating_sub(bytes.len() as u64);
+        out.push((rel, String::from_utf8_lossy(&bytes).into_owned()));
+    }
+}
+
+/// 示例站、依赖和隐藏目录里的东西不代表主题本身。
+fn skip_scheme_dir(rel: &str) -> bool {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    name.starts_with('.')
+        || matches!(
+            name,
+            "exampleSite" | "node_modules" | "images" | "resources" | "tests" | "test"
+        )
 }
 
 pub fn install_zip(layout: &BlogLayout, bytes: &[u8]) -> Result<ThemeRecord, ThemeRejected> {
@@ -191,6 +356,8 @@ pub fn install_zip(layout: &BlogLayout, bytes: &[u8]) -> Result<ThemeRecord, The
 
     let strip = github_archive_root(names.iter().map(|(_, name)| name.as_str()));
     let mut files = Vec::new();
+    let mut scheme_sources: Vec<(String, String)> = Vec::new();
+    let mut scheme_budget = SCHEME_TOTAL_BYTES;
     for (index, name) in &names {
         if name.ends_with('/') {
             continue;
@@ -207,6 +374,26 @@ pub fn install_zip(layout: &BlogLayout, bytes: &[u8]) -> Result<ThemeRecord, The
         let is_manifest = rel_text.ends_with("theme.toml")
             || rel_text.ends_with("hugo.toml")
             || rel_text.ends_with("config.toml");
+        if !is_manifest
+            && is_scheme_source(&rel_text)
+            && scheme_budget > 0
+            && !rel_text.split('/').any(skip_scheme_dir)
+        {
+            let mut bytes = Vec::new();
+            file.take(SCHEME_FILE_BYTES.min(scheme_budget))
+                .read_to_end(&mut bytes)
+                .map_err(|_| ThemeRejected {
+                    status: 400,
+                    message: "Theme archive could not be read",
+                })?;
+            scheme_budget = scheme_budget.saturating_sub(bytes.len() as u64);
+            scheme_sources.push((
+                rel_text.clone(),
+                String::from_utf8_lossy(&bytes).into_owned(),
+            ));
+            files.push((*index, rel_text, size, None));
+            continue;
+        }
         let body = if is_manifest {
             let mut text = String::new();
             file.take(256 * 1024)
@@ -305,6 +492,14 @@ pub fn install_zip(layout: &BlogLayout, bytes: &[u8]) -> Result<ThemeRecord, The
                     .map_err(|_| storage("Could not store the theme"))?;
             }
         }
+        let rooted: Vec<(String, &str)> = scheme_sources
+            .iter()
+            .filter_map(|(path, body)| {
+                strip_theme_root(path, &info.root).map(|rel| (rel, body.as_str()))
+            })
+            .collect();
+        let detection =
+            detect_scheme_switch(rooted.iter().map(|(rel, body)| (rel.as_str(), *body)));
         let record = ThemeRecord {
             id: info.id.clone(),
             name: info.name.clone(),
@@ -312,6 +507,7 @@ pub fn install_zip(layout: &BlogLayout, bytes: &[u8]) -> Result<ThemeRecord, The
             min_version: info.min_version.clone(),
             builtin: false,
             installed_at: Some(Utc::now().to_rfc3339()),
+            scheme: Some(ThemeScheme::detected(detection)),
         };
         write_sidecar(&staging, &record)?;
         let dest = layout.theme_dir(&info.id);
@@ -407,6 +603,7 @@ fn write_sidecar(dir: &Path, record: &ThemeRecord) -> Result<(), ThemeRejected> 
             .installed_at
             .clone()
             .unwrap_or_else(|| Utc::now().to_rfc3339()),
+        scheme: record.scheme.clone(),
     };
     let body =
         serde_json::to_vec_pretty(&sidecar).map_err(|_| storage("Could not store the theme"))?;
@@ -423,6 +620,7 @@ fn read_sidecar(dir: &Path) -> Option<ThemeRecord> {
         min_version: sidecar.min_version,
         builtin: sidecar.builtin,
         installed_at: Some(sidecar.installed_at),
+        scheme: sidecar.scheme,
     })
 }
 
@@ -456,6 +654,83 @@ mod tests {
         }
         writer.finish().unwrap();
         cursor.into_inner()
+    }
+
+    #[test]
+    fn install_detects_scheme_switch_and_confirm_keeps_evidence() {
+        let root = std::env::temp_dir().join(format!(
+            "myriad-blog-theme-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let layout = layout_at(&root);
+        let archive = zip_bytes(&[
+            ("congo-main/theme.toml", b"name = \"Congo\"\n"),
+            (
+                "congo-main/layouts/_default/baseof.html",
+                b"<html><body></body></html>",
+            ),
+            (
+                "congo-main/assets/js/appearance.js",
+                b"document.documentElement.classList.add(\"dark\");",
+            ),
+            (
+                "congo-main/tailwind.config.js",
+                b"module.exports = { darkMode: \"class\" }",
+            ),
+            (
+                "congo-main/exampleSite/assets/js/x.js",
+                b"document.body.classList.add('dark-mode')",
+            ),
+        ]);
+        let record = install_zip(&layout, &archive).unwrap();
+        let scheme = record.scheme.clone().unwrap();
+        assert!(!scheme.confirmed);
+        assert_eq!(
+            scheme.switch,
+            SchemeSwitch::Class {
+                target: myriad_blog::SchemeTarget::Html,
+                dark: "dark".into(),
+                light: None,
+            }
+        );
+        assert!(
+            scheme
+                .evidence
+                .iter()
+                .any(|file| file == "assets/js/appearance.js")
+        );
+        assert!(
+            !scheme
+                .evidence
+                .iter()
+                .any(|file| file.contains("exampleSite"))
+        );
+
+        let attr = SchemeSwitch::Attribute {
+            target: myriad_blog::SchemeTarget::Html,
+            name: "data-theme".into(),
+            dark: "dark".into(),
+            light: Some("light".into()),
+        };
+        let confirmed = set_theme_scheme(&layout, &record.id, attr.clone()).unwrap();
+        let stored = read_theme(&layout, &record.id).unwrap().scheme.unwrap();
+        assert!(stored.confirmed);
+        assert_eq!(stored.switch, attr);
+        assert_eq!(stored.evidence, scheme.evidence);
+        assert_eq!(confirmed.scheme.unwrap(), stored);
+
+        let bad = SchemeSwitch::Class {
+            target: myriad_blog::SchemeTarget::Html,
+            dark: "x\" onload=\"y".into(),
+            light: None,
+        };
+        assert_eq!(
+            set_theme_scheme(&layout, &record.id, bad)
+                .unwrap_err()
+                .status,
+            400
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -375,6 +375,7 @@ html.dark .blog-savebar {
 
 .blog-theme {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.65rem;
   padding: 0.55rem 0.4rem;
@@ -703,4 +704,119 @@ html.dark .blog-alert.is-warn {
   .blog-savebar {
     animation: none;
   }
+}
+
+/* 主题行下面的「深浅色」：安装时认出来的切换办法，没确认过时整块淡淡地提一下。 */
+.blog-scheme {
+  display: flex;
+  flex: 1 0 100%;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-left: 2.525rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.5rem;
+  background: var(--cfg-fill);
+  font-size: 0.75rem;
+}
+
+.blog-scheme.is-pending {
+  background: color-mix(in srgb, var(--cfg-accent) 9%, transparent);
+}
+
+.blog-scheme__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.75rem;
+}
+
+.blog-scheme__icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--cfg-text-3);
+}
+
+.blog-scheme__label {
+  color: var(--cfg-text-2);
+  font-weight: 600;
+}
+
+.blog-scheme__value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--cfg-text-2);
+}
+
+.blog-scheme__value code {
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.3rem;
+  background: var(--cfg-input-bg);
+  font: 0.6875rem/1.4 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.blog-scheme__sep {
+  color: var(--cfg-text-3);
+}
+
+.blog-tag--pending {
+  margin-left: 0;
+  background: color-mix(in srgb, var(--cfg-accent) 18%, transparent);
+  color: var(--cfg-accent);
+}
+
+.blog-scheme__actions {
+  display: inline-flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.blog-scheme__hint {
+  margin: 0;
+  color: var(--cfg-text-3);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.blog-scheme__editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem;
+}
+
+.blog-scheme__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--cfg-text-2);
+}
+
+.blog-scheme__field select,
+.blog-scheme__field input {
+  height: 1.875rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--cfg-input-border);
+  border-radius: 0.4rem;
+  background: var(--cfg-input-bg);
+  color: inherit;
+  font: inherit;
+}
+
+.blog-scheme__field input {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.blog-scheme__error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: light-dark(#b91c1c, #fca5a5);
+}
+
+.blog-scheme__buttons {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  gap: 0.4rem;
 }

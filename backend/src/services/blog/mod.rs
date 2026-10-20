@@ -81,6 +81,8 @@ pub struct ThemeJson {
     pub min_version: Option<String>,
     pub builtin: bool,
     pub installed_at: Option<String>,
+    /// 深浅色怎么切；站长没确认过时 `confirmed` 为假，创作台会请站长看一眼。
+    pub scheme: Option<themes::ThemeScheme>,
 }
 
 #[derive(Serialize)]
@@ -305,6 +307,7 @@ fn theme_json(record: ThemeRecord) -> ThemeJson {
         min_version: record.min_version,
         builtin: record.builtin,
         installed_at: record.installed_at,
+        scheme: record.scheme,
     }
 }
 
@@ -398,6 +401,27 @@ pub async fn install_from_url(
     .await
     .map_err(|_| ("Theme archive is too large", 413))?;
     install_archive(db, bytes).await
+}
+
+/// 站长确认或改了主题的深浅色切换办法。正在用的主题要重建：办法记在构建出的页面上。
+pub async fn set_theme_scheme(
+    db: &DatabaseConnection,
+    id: &str,
+    switch: myriad_blog::SchemeSwitch,
+) -> Result<ThemeJson, (&'static str, u16)> {
+    let engine = engine();
+    let _guard = engine.files.lock().await;
+    let record = themes::set_theme_scheme(&layout::layout(), id, switch)
+        .map_err(|error| (error.message, error.status))?;
+    drop(_guard);
+    if content::load_settings(db)
+        .await
+        .theme_id
+        .eq_ignore_ascii_case(&record.id)
+    {
+        request_rebuild();
+    }
+    Ok(theme_json(record))
 }
 
 pub async fn remove_theme(db: &DatabaseConnection, id: &str) -> Result<(), (&'static str, u16)> {
