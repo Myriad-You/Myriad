@@ -6,7 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
     Value as SeaValue,
 };
@@ -204,7 +204,20 @@ fn bounded_comment_page(
         .limit((COMMENT_PAGE_SIZE + 1) as u64)
 }
 
-/// 文章下顶级评论的一页。按 ID 游标读取；调用方按锚点位置排列。能看见文章的人都能看。
+/// 谁能看到哪些评论：站长看全部；别人只看公开的和自己写的。不公开的评论只给站长看，
+/// 只在前端过滤等于把它交给了所有能看见文章的人。
+fn visible_comments(viewer_id: Option<i32>, is_admin: bool) -> Condition {
+    if is_admin {
+        return Condition::all();
+    }
+    let public = Condition::any().add(phantasi_comments::Column::IsPublic.eq(true));
+    match viewer_id {
+        Some(uid) => public.add(phantasi_comments::Column::UserId.eq(uid)),
+        None => public,
+    }
+}
+
+/// 文章下顶级评论的一页。按 ID 游标读取；调用方按锚点位置排列。能看见文章的人都能看公开的。
 pub(crate) async fn list_comments(
     State(db): State<DatabaseConnection>,
     viewer: OptionalViewer,
@@ -229,7 +242,8 @@ pub(crate) async fn list_comments(
     let comments = bounded_comment_page(
         phantasi_comments::Entity::find()
             .filter(phantasi_comments::Column::ItemId.eq(item_id))
-            .filter(phantasi_comments::Column::ParentId.is_null()),
+            .filter(phantasi_comments::Column::ParentId.is_null())
+            .filter(visible_comments(user_id, is_admin)),
         &page,
     )
     .all(&db)
@@ -251,6 +265,7 @@ pub(crate) async fn list_comments(
             let reply_counts: std::collections::HashMap<i32, i32> =
                 phantasi_comments::Entity::find()
                     .filter(phantasi_comments::Column::ParentId.is_in(comment_ids.clone()))
+                    .filter(visible_comments(user_id, is_admin))
                     .select_only()
                     .column(phantasi_comments::Column::ParentId)
                     .column_as(phantasi_comments::Column::Id.count(), "count")
@@ -530,14 +545,14 @@ pub(crate) async fn delete_comment(
     }
 }
 
-/// 某条评论下的一页回复。按 ID 游标读取；调用方按创建时间排列。能看见文章就能看。
+/// 某条评论下的一页回复。按 ID 游标读取；调用方按创建时间排列。能看见文章就能看公开的。
 pub(crate) async fn list_comment_replies(
     State(db): State<DatabaseConnection>,
     viewer: OptionalViewer,
     Path(comment_id): Path<i32>,
     Query(page): Query<CommentPageQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (_, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
+    let (user_id, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
     let parent = match phantasi_comments::Entity::find_by_id(comment_id)
         .one(&db)
         .await
@@ -546,11 +561,15 @@ pub(crate) async fn list_comment_replies(
         Ok(None) => return Err(comment_not_found()),
         Err(error) => return Err(phantasi_store_http("find comment", error)),
     };
+    if !is_admin && !parent.is_public && user_id != Some(parent.user_id) {
+        return Err(comment_not_found());
+    }
     visible_item(&db, parent.item_id, is_admin).await?;
 
     let replies = bounded_comment_page(
         phantasi_comments::Entity::find()
-            .filter(phantasi_comments::Column::ParentId.eq(comment_id)),
+            .filter(phantasi_comments::Column::ParentId.eq(comment_id))
+            .filter(visible_comments(user_id, is_admin)),
         &page,
     )
     .all(&db)
@@ -737,6 +756,27 @@ mod tests {
         assert!(src.contains("SourceType::Note"));
         assert!(src.contains("Comments are only available on notes"));
         assert!(src.contains("s.source_type = 'note'"));
+    }
+
+    #[test]
+    fn only_admins_see_comments_that_are_not_public() {
+        use sea_orm::{DbBackend, EntityTrait, QueryFilter, QueryTrait};
+        let sql = |viewer, admin| {
+            super::phantasi_comments::Entity::find()
+                .filter(super::visible_comments(viewer, admin))
+                .build(DbBackend::Postgres)
+                .to_string()
+                .split_once(" WHERE ")
+                .map(|(_, filter)| filter.to_string())
+                .unwrap_or_default()
+        };
+        assert!(!sql(None, true).contains("is_public"));
+        assert!(sql(None, false).contains(r#""is_public" = TRUE"#));
+        assert!(!sql(None, false).contains("user_id"));
+        assert!(
+            sql(Some(7), false)
+                .contains(r#""is_public" = TRUE OR "phantasi_comments"."user_id" = 7"#)
+        );
     }
 
     #[test]
