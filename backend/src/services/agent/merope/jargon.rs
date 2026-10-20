@@ -116,7 +116,7 @@ pub fn heard(venue: &str, line: &str) {
         return;
     }
     let (venue, line) = (venue.to_string(), line.to_string());
-    tokio::spawn(async move {
+    super::background::spawn("a word heard in a group", async move {
         let Ok(db) = crate::services::process_db::database() else {
             return;
         };
