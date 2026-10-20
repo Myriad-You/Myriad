@@ -115,11 +115,26 @@ export function StudioOverlay({
     return () => win.removeEventListener('resize', onResize)
   }, [win])
 
+  // 文档已经到了的窗口（不等它报画好：出错页不会报，队伍不能卡在那儿）。关掉的窗口从这里拿掉。
+  const [loaded, setLoaded] = useState<ReadonlySet<StudioTool>>(() => new Set())
+  const markLoaded = (tool: StudioTool) =>
+    setLoaded((current) => (current.has(tool) ? current : new Set(current).add(tool)))
+  useEffect(() => {
+    setLoaded((current) => {
+      const kept = [...current].filter((tool) => layout.open.some((spec) => spec.tool === tool))
+      return kept.length === current.size ? current : new Set(kept)
+    })
+  }, [layout.open])
   const windowOf = useCallback(
     (tool: StudioTool, index: number): StudioWindowLayout =>
       fitWindow(layoutRef.current.windows[tool] ?? defaultWindow(tool, index, viewport), viewport),
     [viewport],
   )
+
+  const nextLoad = [...layout.open]
+    .reverse()
+    .find((spec) => (open || windowOf(spec.tool, layout.open.indexOf(spec)).pinned) && !spec.ready && !loaded.has(spec.tool))
+    ?.tool
 
   const patchWindow = useCallback(
     (tool: StudioTool, patch: Partial<StudioWindowLayout>) => {
@@ -287,6 +302,8 @@ export function StudioOverlay({
         const box = windowOf(spec.tool, index)
         const pinnedView = !open && box.pinned
         const visible = open || box.pinned
+        // 看得见就加载，一个接一个：最上面的先来，它的文档到了再放下一个；画好过的收起后也留着。
+        const mounted = spec.ready === true || (visible && (loaded.has(spec.tool) || spec.tool === nextLoad))
         return (
           <section
             key={spec.tool}
@@ -354,8 +371,7 @@ export function StudioOverlay({
             )}
             <div className="win__body" data-ready={spec.ready === true}>
               {spec.ready ? null : <FramePlaceholder />}
-              {/* 看得见就加载；画好过的收起后也留着，再展开不用重来。 */}
-              {visible || spec.ready ? (
+              {mounted ? (
                 <iframe
                   ref={(node) => {
                     if (node) frameRefs.current.set(spec.tool, node)
@@ -363,7 +379,10 @@ export function StudioOverlay({
                   }}
                   src={windowFrameSrc(spec, context)}
                   title={copy.tools[spec.tool]}
-                  onLoad={(event) => onFrameLoad(spec.tool, event.currentTarget)}
+                  onLoad={(event) => {
+                    markLoaded(spec.tool)
+                    onFrameLoad(spec.tool, event.currentTarget)
+                  }}
                 />
               ) : null}
             </div>

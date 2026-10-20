@@ -819,6 +819,7 @@ export function useNoteEditorSession({
     handleDelete,
     requestClose,
     prepareLeave,
+    dirty,
     placeImage,
     handleUpload,
     heading,

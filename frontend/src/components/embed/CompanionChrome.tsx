@@ -1,6 +1,6 @@
 import type { FocusEvent, ReactNode } from 'react'
 import type { CompanionPage } from './companionBridge'
-import type { Box } from './companionLayout'
+import type { Box, CompanionLayout } from './companionLayout'
 import type { Kind } from './CompanionPanels'
 import {
   LuMessageSquare as MessageSquare,
@@ -28,33 +28,54 @@ function box(element: Element): Box {
   return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
 }
 
-/** 正文的位置、导航岛的位置和读到哪：窗口变了、正文变了、滚动了都重算。 */
-function usePageGeometry(page: CompanionPage) {
-  const measure = () => {
+/** 进度量到 0.2%：进度环和百分比都看不出差别，滚动时大多数帧就不用重渲染。 */
+const PROGRESS_STEP = 500
+
+interface Geometry {
+  layout: CompanionLayout
+  progress: number
+}
+
+function sameGeometry(a: Geometry, b: Geometry): boolean {
+  if (a.progress !== b.progress || a.layout.mode !== b.layout.mode || a.layout.right !== b.layout.right) return false
+  return a.layout.mode !== 'sides' || b.layout.mode !== 'sides' || a.layout.left === b.layout.left
+}
+
+/**
+ * 正文的位置、导航岛的位置和读到哪：窗口变了、正文变了、滚动了都重算，变了才重渲染。
+ * 帧和尺寸都跟博客页要：伴读这一页是个隐藏的框，有的浏览器不给它排帧。
+ */
+function usePageGeometry(page: CompanionPage): Geometry {
+  const measure = (): Geometry => {
     const nav = page.doc.querySelector('#myriad-nav .myriad-nav__island')
     const article = box(page.root)
     const view = { width: page.win.innerWidth, height: page.win.innerHeight }
     return {
       layout: companionLayout(view, article, nav ? box(nav) : null),
-      progress: readingProgress(article, view.height),
+      progress: Math.round(readingProgress(article, view.height) * PROGRESS_STEP) / PROGRESS_STEP,
     }
   }
   const [state, setState] = useState(measure)
   useEffect(() => {
+    // 博客页的 window：它的 ResizeObserver 要从那一页拿，类型上 Window 不带这些构造器。
+    const win = page.win as Window & typeof globalThis
     let frame = 0
     const update = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => setState(measure))
+      win.cancelAnimationFrame(frame)
+      frame = win.requestAnimationFrame(() => {
+        const next = measure()
+        setState((current) => (sameGeometry(current, next) ? current : next))
+      })
     }
-    const observer = new ResizeObserver(update)
+    const observer = new win.ResizeObserver(update)
     observer.observe(page.root)
-    page.win.addEventListener('resize', update)
-    page.win.addEventListener('scroll', update, { passive: true })
+    win.addEventListener('resize', update)
+    win.addEventListener('scroll', update, { passive: true })
     return () => {
-      cancelAnimationFrame(frame)
+      win.cancelAnimationFrame(frame)
       observer.disconnect()
-      page.win.removeEventListener('resize', update)
-      page.win.removeEventListener('scroll', update)
+      win.removeEventListener('resize', update)
+      win.removeEventListener('scroll', update)
     }
   }, [page])
   return state

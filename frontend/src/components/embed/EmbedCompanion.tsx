@@ -34,6 +34,7 @@ import {
   TYPE_KEYS,
 } from './CompanionPanels'
 import { embedHost } from './embedHost'
+import { mountShadowHost } from './shadowHost'
 import { useCompanionPodcast } from './useCompanionPodcast'
 
 const READING_KEY = 'myriad.blog.reading.v1'
@@ -82,26 +83,11 @@ function useShadowMount(page: CompanionPage | null): HTMLElement | null {
   const [container, setContainer] = useState<HTMLElement | null>(null)
   useEffect(() => {
     if (!page) return
-    const host = companionHost(page)
-    const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
-    shadow.replaceChildren()
-    const style = page.doc.createElement('style')
-    style.textContent = companionCss
-    const mount = page.doc.createElement('div')
-    mount.className = 'companion'
-    shadow.append(style, mount)
-    const html = document.documentElement
-    const syncScheme = () => {
-      host.dataset.scheme = html.classList.contains('dark') ? 'dark' : 'light'
-    }
-    syncScheme()
-    const observer = new MutationObserver(syncScheme)
-    observer.observe(html, { attributes: true, attributeFilter: ['class'] })
-    setContainer(mount)
+    const mount = mountShadowHost(companionHost(page), companionCss, 'companion')
+    setContainer(mount.container)
     return () => {
-      observer.disconnect()
       setContainer(null)
-      shadow.replaceChildren()
+      mount.dispose()
     }
   }, [page])
   return container
@@ -160,9 +146,13 @@ export function EmbedCompanion() {
     linkRef.current = link
     setLinked(true)
     const release = () => link.dispose()
-    window.addEventListener('pagehide', release)
+    // 进往返缓存的页面原样留着：拆了的话回到这篇时划线没了，面板却还说在正文里。
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (!event.persisted) release()
+    }
+    window.addEventListener('pagehide', onPageHide)
     return () => {
-      window.removeEventListener('pagehide', release)
+      window.removeEventListener('pagehide', onPageHide)
       release()
       linkRef.current = null
     }
@@ -210,10 +200,12 @@ export function EmbedCompanion() {
     setInText(new Set(link.paint(annotations)))
   }, [annotations, linked])
 
+  // 只等 status 到了就准备；之后重新拉 status（站长生成完会拉）不能把正在播的停掉重来。
+  const hasStatus = status != null
   useEffect(() => {
-    if (!status || !show) return
+    if (!hasStatus || !show) return
     void prepare(show.dialogues ?? [], show.language || locale)
-  }, [locale, prepare, show, status])
+  }, [locale, prepare, show, hasStatus])
 
   useEffect(() => {
     if (picked != null && panel === 'annotations') keepInView(notesRef.current, `[data-index="${picked}"]`)
@@ -225,8 +217,11 @@ export function EmbedCompanion() {
     }
   }, [podcast.index, podcast.state, panel])
 
+  // 闭包里的 busy 要等重渲染才更新，连点两下会发两次生成。
+  const generatingRef = useRef(false)
   const generate = async (kind: Kind, again: boolean) => {
-    if (busy) return
+    if (generatingRef.current) return
+    generatingRef.current = true
     setBusy(kind)
     setError('')
     try {
@@ -248,6 +243,7 @@ export function EmbedCompanion() {
     } catch (err) {
       setError(userFacingError(err, copy.generateFailed))
     } finally {
+      generatingRef.current = false
       setBusy(null)
       phantasiaiApi.getCompanion(itemId).then(setStatus, () => {})
     }

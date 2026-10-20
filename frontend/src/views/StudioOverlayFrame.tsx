@@ -2,9 +2,10 @@ import type { Root } from 'react-dom/client'
 import type { StudioOverlayCopy, StudioPageContext } from '../components/studio/overlay/StudioOverlay'
 import type { StudioOverlayLayout, StudioTool, StudioToolSpec } from '../components/studio/overlay/studioTools'
 import type { BlogBuildMark, StudioWindowPort } from '../components/studio/studioIsland'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { DocumentReady } from '../components/DocumentReady'
+import { mountShadowHost } from '../components/embed/shadowHost'
 import { listenOverlayKeys, StudioOverlay } from '../components/studio/overlay/StudioOverlay'
 import overlayCss from '../components/studio/overlay/studioOverlay.css?inline'
 import {
@@ -30,6 +31,7 @@ import { SITE_CHROME_COOKIE } from '../utils/siteChromeCookie'
 const LAYOUT_KEY = 'myriad.studio.overlay.v1'
 const RELOAD_POLL_MS = 1500
 const RELOAD_POLL_LIMIT = 40
+const LAYOUT_WRITE_MS = 300
 
 function readLayout(): StudioOverlayLayout {
   try {
@@ -86,12 +88,14 @@ export default function StudioOverlayFrame() {
   const frameEls = useRef(new Map<StudioTool, HTMLIFrameElement>())
   /** 窗口登记的离开前检查，连同登记它的那一页：窗口换了地址，旧页的检查就不算数。 */
   const guards = useRef(new Map<StudioTool, { doc: Document; check: () => Promise<boolean> }>())
+  /** 报告了没保存改动的窗口，同样记着是哪一页报的。 */
+  const unsaved = useRef(new Map<StudioTool, Document>())
   const layoutNow = useRef(layout)
   layoutNow.current = layout
   const openedMark = useRef<BlogBuildMark | null>(null)
   const settleTimer = useRef(0)
-  const openRef = useRef(open)
-  openRef.current = open
+  /** 每次展开、收起加一：上一轮的请求回来时对不上就作废，收起期间只有一条轮询。 */
+  const settleRound = useRef(0)
 
   const context = useMemo<StudioPageContext>(
     () => ({
@@ -130,6 +134,16 @@ export default function StudioOverlayFrame() {
     [t],
   )
 
+  /** 还开着的窗口里有没有报告过没保存的（窗口换了地址，旧页报的不算）。 */
+  const hasUnsaved = () =>
+    [...unsaved.current].some(([tool, doc]) => {
+      try {
+        return frameEls.current.get(tool)?.contentDocument === doc
+      } catch {
+        return false
+      }
+    })
+
   const markReady = (tool: StudioTool) => changeLayout((current) => markWindowReady(current, tool))
 
   /** 关窗口或换内容之前问窗口自己；它没登记检查（或登记的是换地址前的旧页）就直接放行。 */
@@ -147,8 +161,12 @@ export default function StudioOverlayFrame() {
   /** 认出调用者是哪个窗口：工具窗口的 window 就是它那个 iframe 的 contentWindow。 */
   const portFor = (win: Window): StudioWindowPort => {
     const tool = [...frameEls.current].find(([, frame]) => frame.contentWindow === win)?.[0]
-    if (!tool) return { ready: () => {}, guard: () => {} }
+    if (!tool) return { ready: () => {}, guard: () => {}, unsaved: () => {} }
     return {
+      unsaved: (has) => {
+        if (has) unsaved.current.set(tool, win.document)
+        else if (unsaved.current.get(tool) === win.document) unsaved.current.delete(tool)
+      },
       ready: () => markReady(tool),
       guard: (check) => {
         if (check) guards.current.set(tool, { doc: win.document, check })
@@ -177,26 +195,57 @@ export default function StudioOverlayFrame() {
   const changeLayout = (update: (current: StudioOverlayLayout) => StudioOverlayLayout) => {
     setLayout((current) => {
       const next = update(current)
-      const persisted = (value: StudioOverlayLayout) => JSON.stringify(layoutToValue(value))
-      if (next !== current && persisted(next) !== persisted(current)) writeLayout(next)
+      if (next !== current) pendingWrite.current = next
       return next
     })
   }
 
+  // 拖动、缩放时每一下都在改布局：停下来再写，离开页面前补写。
+  const pendingWrite = useRef<StudioOverlayLayout | null>(null)
+  const writtenLayout = useRef(JSON.stringify(layoutToValue(layout)))
+  const flushLayout = useCallback(() => {
+    const next = pendingWrite.current
+    pendingWrite.current = null
+    if (!next) return
+    const value = JSON.stringify(layoutToValue(next))
+    if (value === writtenLayout.current) return
+    writtenLayout.current = value
+    writeLayout(next)
+  }, [])
+  useEffect(() => {
+    if (!pendingWrite.current) return
+    const timer = window.setTimeout(flushLayout, LAYOUT_WRITE_MS)
+    return () => window.clearTimeout(timer)
+  }, [layout, flushLayout])
+  useEffect(() => {
+    window.addEventListener('pagehide', flushLayout)
+    return () => {
+      window.removeEventListener('pagehide', flushLayout)
+      flushLayout()
+    }
+  }, [flushLayout])
+
   // 工具栏、细条、拖动：先按眼下的布局看编辑器换不换篇，放行了再按那时的最新布局改。
-  const updateLayout = (update: (current: StudioOverlayLayout) => StudioOverlayLayout) => {
+  // 交给覆盖层的是固定的一个函数：拖动时每一下都换新的，覆盖层就每一下都重装一遍监听。
+  const updateLayoutNow = useRef<(update: (current: StudioOverlayLayout) => StudioOverlayLayout) => void>(() => {})
+  updateLayoutNow.current = (update) => {
     const editor = update(layoutNow.current).open.find((item) => item.tool === 'editor')
     whenEditorMayLeave(editor, () => changeLayout(update))
   }
+  const updateLayout = useCallback(
+    (update: (current: StudioOverlayLayout) => StudioOverlayLayout) => updateLayoutNow.current(update),
+    [],
+  )
 
   // 展开时记下博客构建状态；收起时博客若已重新生成就刷新外层页面，还在生成就等它。
   useEffect(() => {
     const top = host?.ownerDocument.defaultView
     if (!host || !top) return
     window.clearTimeout(settleTimer.current)
+    const round = ++settleRound.current
     if (open) {
       void buildMark().then((mark) => {
-        if (openRef.current) openedMark.current = mark
+        if (round === settleRound.current) openedMark.current = mark
       })
       return
     }
@@ -207,11 +256,12 @@ export default function StudioOverlayFrame() {
     if (!opened) return
     const settle = (tries: number) => {
       void buildMark().then((now) => {
-        if (openRef.current || !now) return
+        if (round !== settleRound.current || !now) return
         const decision = blogReloadDecision(opened, now)
-        if (decision === 'reload') { top.location.reload()
-}
-        else if (decision === 'wait' && tries < RELOAD_POLL_LIMIT) {
+        if (decision === 'reload') {
+          // 有窗口没保存就不刷：下次收起再看。
+          if (!hasUnsaved()) top.location.reload()
+        } else if (decision === 'wait' && tries < RELOAD_POLL_LIMIT) {
           settleTimer.current = window.setTimeout(settle, RELOAD_POLL_MS, tries + 1)
         }
       })
@@ -250,30 +300,19 @@ export default function StudioOverlayFrame() {
   // 把覆盖层画进宿主节点的 Shadow DOM。
   useEffect(() => {
     if (!host) return
-    const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
-    shadow.replaceChildren()
-    const style = host.ownerDocument.createElement('style')
-    style.textContent = overlayCss
-    const container = host.ownerDocument.createElement('div')
-    shadow.append(style, container)
-    rootRef.current = createRoot(container)
-    // 明暗跟着博客页：这一页的 dark 类和博客页读的是同一个主题偏好。强调色用主站算出来的那个
-    // （博客页的 myriad_chrome cookie），和窗口里主站页面的按钮一样；读不到就用样式表里的金色。
-    const html = document.documentElement
+    // 强调色用主站算出来的那个（博客页的 myriad_chrome cookie），和窗口里主站页面的按钮一样；
+    // 读不到就用样式表里的金色。
     const accent = siteAccent(host.ownerDocument)
     if (accent) host.style.setProperty('--so-accent', accent)
-    const syncScheme = () => {
-      host.dataset.scheme = html.classList.contains('dark') ? 'dark' : 'light'
-    }
-    syncScheme()
-    const observer = new MutationObserver(syncScheme)
-    observer.observe(html, { attributes: true, attributeFilter: ['class'] })
+    const mount = mountShadowHost(host, overlayCss)
+    rootRef.current = createRoot(mount.container)
     return () => {
-      observer.disconnect()
       const root = rootRef.current
       rootRef.current = null
-      queueMicrotask(() => root?.unmount())
-      shadow.replaceChildren()
+      queueMicrotask(() => {
+        root?.unmount()
+        mount.dispose()
+      })
     }
   }, [host])
 

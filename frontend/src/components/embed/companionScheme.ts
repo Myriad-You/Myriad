@@ -70,6 +70,15 @@ function setAppScheme(doc: Document | null, dark: boolean): void {
   html.classList.toggle('light', !dark)
 }
 
+/** 页面上的小窗，连同画在 Shadow DOM 里的（创作台的工具窗口）：querySelectorAll 进不了 Shadow DOM。 */
+function pageFrames(doc: Document): HTMLIFrameElement[] {
+  const frames = [...doc.querySelectorAll('iframe')]
+  for (const child of doc.body?.children ?? []) {
+    if (child.shadowRoot) frames.push(...child.shadowRoot.querySelectorAll('iframe'))
+  }
+  return frames
+}
+
 function frameDocument(frame: HTMLIFrameElement): Document | null {
   try {
     return frame.contentDocument
@@ -130,7 +139,7 @@ export function switchSiteScheme(win: Window, self: Document, dark: boolean): vo
     ?.slice(SITE_CHROME_COOKIE.length + 1)
   doc.cookie = siteChromeCookieLine(siteChromeSwitched(current ?? null, dark), win.location.protocol === 'https:')
   const value = pageSchemeSwitch(doc)
-  const frames = [...doc.querySelectorAll('iframe')].map(frameDocument)
+  const frames = pageFrames(doc).map(frameDocument)
   const release = freezeTransitions(doc, [self, ...frames])
   const apply = () => {
     if (value) setPageScheme(doc, value, dark)

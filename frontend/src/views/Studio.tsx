@@ -93,6 +93,7 @@ function StudioEditor({ target, pageDocId }: { target: number | 'new'; pageDocId
         framed={findStudioHost() != null}
         hideArticleLink={onThisPage}
         onGuard={port?.guard}
+        onUnsaved={port?.unsaved}
         onSaved={() => {}}
         onDeleted={close}
         onCloudId={(id) => {

@@ -31,6 +31,11 @@ export interface StudioWindowPort {
    * 给 false 就不关不换。传 null 撤回。只对登记它的那一页有效，窗口换了地址就失效。
    */
   guard: (check: (() => Promise<boolean>) | null) => void
+  /**
+   * 窗口里有没有没保存的改动，不问人。收起时博客若重新生成了，覆盖层要刷新博客页；
+   * 有窗口还没保存就不刷：收起只是把窗口藏起来，不能把里面的东西扔掉。
+   */
+  unsaved: (has: boolean) => void
 }
 
 interface HostWithApi extends HTMLElement {

@@ -9,6 +9,7 @@ export default function NoteEditor({
   framed = false,
   hideArticleLink = false,
   onGuard,
+  onUnsaved,
   ...props
 }: NoteEditorProps & {
   /** 在创作台窗口里：窗口标题栏有关闭，编辑器自己不再放。 */
@@ -20,13 +21,19 @@ export default function NoteEditor({
    * 外面关窗口、换篇之前都先过它，给 true 才关、才换。
    */
   onGuard?: (check: (() => Promise<boolean>) | null) => void
+  /** 有没有没保存的改动；不问人，外面据此决定能不能直接刷新页面。 */
+  onUnsaved?: (has: boolean) => void
 }) {
   const session = useNoteEditorSession(props)
-  const { prepareLeave } = session
+  const { prepareLeave, dirty } = session
   useEffect(() => {
     onGuard?.(prepareLeave)
     return () => onGuard?.(null)
   }, [onGuard, prepareLeave])
+  useEffect(() => {
+    onUnsaved?.(dirty)
+  }, [onUnsaved, dirty])
+  useEffect(() => () => onUnsaved?.(false), [onUnsaved])
   return (
     <NoteEditorView
       {...session}
