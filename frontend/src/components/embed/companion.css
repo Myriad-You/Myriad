@@ -25,7 +25,9 @@
   --hover: light-dark(rgb(44 44 44 / 6%), rgb(255 255 255 / 8%));
   --accent: light-dark(#b8860b, #fbbf24);
   --ai: light-dark(#9333ea, #c084fc);
-  --cast: light-dark(#059669, #34d399);
+  /* 播客不另起一套颜色：播放键是正文色，念到哪用阅读进度的那道金色。 */
+  --cast: var(--accent);
+  --guest: light-dark(#8a7360, #b5a08a);
   --badge: #f59e0b;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -612,13 +614,13 @@
   width: 38px;
   height: 38px;
   margin: 0 2px;
-  background: var(--cast);
-  color: light-dark(#fff, #022c22);
+  background: var(--fg);
+  color: var(--solid);
 }
 
 .player .player__main:hover {
-  background: color-mix(in srgb, var(--cast) 85%, black);
-  color: light-dark(#fff, #022c22);
+  background: color-mix(in srgb, var(--fg) 85%, var(--solid));
+  color: var(--solid);
 }
 
 .player .player__main svg {
@@ -726,11 +728,11 @@
 }
 
 .line[data-speaker='host'] .line__who {
-  color: light-dark(#7c3aed, #a78bfa);
+  color: var(--accent);
 }
 
 .line[data-speaker='guest'] .line__who {
-  color: light-dark(#0284c7, #38bdf8);
+  color: var(--guest);
 }
 
 /*
