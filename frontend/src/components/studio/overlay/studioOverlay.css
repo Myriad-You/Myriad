@@ -1,19 +1,24 @@
-/* 创作台覆盖层。只在宿主节点的 Shadow DOM 里生效，不碰博客主题，也不受它影响。 */
+/*
+ * 创作台覆盖层。只在宿主节点的 Shadow DOM 里生效，不碰博客主题，也不受它影响。
+ * 底色和 AI 伴读是同一套：暖纸色的玻璃、细边；明暗跟着博客页（宿主节点的 data-scheme）。
+ * 强调色是主站算出来的那个（宿主节点上的 --so-accent），和窗口里的主站页面一致；这里的金色只是读不到时的后备。
+ */
 
 :host {
   all: initial;
 
-  --so-ink: #f4f4f5;
-  --so-ink-dim: rgb(244 244 245 / 62%);
-  --so-glass: rgb(24 24 27 / 82%);
-  --so-glass-strong: rgb(24 24 27 / 94%);
-  --so-line: rgb(255 255 255 / 10%);
-  --so-hover: rgb(255 255 255 / 10%);
-  --so-active: rgb(255 255 255 / 16%);
-  --so-accent: #a78bfa;
-  --so-frame-bg: #fafaf9;
-  --so-skeleton: rgb(0 0 0 / 6%);
-  --so-skeleton-hi: rgb(0 0 0 / 11%);
+  --so-ink: light-dark(#2c2c2c, #d6d3d1);
+  --so-ink-dim: light-dark(#78716c, #8a8580);
+  --so-glass: light-dark(rgb(255 252 245 / 86%), rgb(28 28 28 / 84%));
+  --so-glass-strong: light-dark(rgb(250 247 239 / 97%), rgb(26 26 26 / 97%));
+  --so-line: light-dark(#e8e2d4, #333);
+  --so-hover: light-dark(rgb(44 44 44 / 6%), rgb(255 255 255 / 7%));
+  --so-accent: light-dark(#b8860b, #fbbf24);
+  --so-active: color-mix(in srgb, var(--so-accent) 14%, transparent);
+  --so-frame-bg: light-dark(#fafaf9, #18181b);
+  --so-skeleton: light-dark(rgb(0 0 0 / 6%), rgb(255 255 255 / 5%));
+  --so-skeleton-hi: light-dark(rgb(0 0 0 / 11%), rgb(255 255 255 / 10%));
+  --so-shadow: light-dark(rgb(60 45 20 / 10%), rgb(0 0 0 / 30%));
   --so-ease: cubic-bezier(0.32, 0.72, 0, 1);
 
   position: fixed;
@@ -25,12 +30,12 @@
   color: var(--so-ink);
 }
 
-@media (prefers-color-scheme: dark) {
-  :host {
-    --so-frame-bg: #18181b;
-    --so-skeleton: rgb(255 255 255 / 5%);
-    --so-skeleton-hi: rgb(255 255 255 / 10%);
-  }
+:host([data-scheme='dark']) {
+  color-scheme: dark;
+}
+
+:host([data-scheme='light']) {
+  color-scheme: light;
 }
 
 *,
@@ -58,9 +63,10 @@ input:focus-visible {
 
 .glass {
   background: var(--so-glass);
-  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
   box-shadow:
-    0 10px 30px rgb(0 0 0 / 22%),
+    0 8px 24px var(--so-shadow),
     inset 0 0 0 1px var(--so-line);
 }
 
@@ -73,8 +79,8 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 32px;
-  padding: 0 4px;
+  height: 34px;
+  padding: 0 5px;
   border-radius: 999px;
   pointer-events: auto;
   white-space: nowrap;
@@ -84,37 +90,50 @@ input:focus-visible {
 .bar__btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 24px;
-  padding: 0 10px;
+  gap: 7px;
+  height: 26px;
+  padding: 0 11px;
   border-radius: 999px;
   font-weight: 600;
   font-size: 12px;
   text-decoration: none;
-  color: inherit;
+  color: var(--so-ink-dim);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.bar__btn:first-child {
+  color: var(--so-ink);
 }
 
 .bar__btn:hover {
   background: var(--so-hover);
+  color: var(--so-ink);
 }
 
 .bar__btn[aria-pressed='true'] {
   background: var(--so-active);
+  color: var(--so-ink);
 }
 
 .bar__dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #f97316, var(--so-accent));
+  background: var(--so-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--so-accent) 22%, transparent);
 }
 
 .bar__key {
-  padding: 2px 6px;
+  margin: 0 4px 0 2px;
+  padding: 3px 6px;
   border-radius: 6px;
   font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--so-ink-dim);
-  box-shadow: inset 0 0 0 1px var(--so-line);
+  box-shadow:
+    inset 0 0 0 1px var(--so-line),
+    inset 0 -1px 0 var(--so-line);
 }
 
 /* 展开时页面变暗，但仍在原地。 */
@@ -123,7 +142,8 @@ input:focus-visible {
   inset: 0;
   z-index: 1;
   pointer-events: auto;
-  background: rgb(9 9 11 / 46%);
+  background: light-dark(rgb(40 30 15 / 22%), rgb(0 0 0 / 46%));
+  -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
   animation: so-fade 180ms var(--so-ease);
 }
@@ -151,12 +171,14 @@ input:focus-visible {
 }
 
 .toolbar__group {
-  margin: 10px 8px 4px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  margin: 12px 10px 4px;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--so-ink-dim);
+}
+
+.toolbar__group:first-child {
+  margin-top: 4px;
 }
 
 .toolbar[data-mode='icons'] .toolbar__group {
@@ -175,8 +197,14 @@ input:focus-visible {
   height: 34px;
   padding: 0 10px;
   border-radius: 10px;
+  color: var(--so-ink);
   text-align: left;
   white-space: nowrap;
+  transition: background-color 140ms ease;
+}
+
+.tool svg {
+  color: var(--so-ink-dim);
 }
 
 .tool:hover {
@@ -185,6 +213,10 @@ input:focus-visible {
 
 .tool[aria-pressed='true'] {
   background: var(--so-active);
+}
+
+.tool[aria-pressed='true'] svg {
+  color: var(--so-accent);
 }
 
 .tool svg {
@@ -233,22 +265,22 @@ input:focus-visible {
   pointer-events: auto;
   background: var(--so-glass-strong);
   box-shadow:
-    0 24px 70px rgb(0 0 0 / 38%),
+    0 20px 50px var(--so-shadow),
     inset 0 0 0 1px var(--so-line);
   animation: so-pop 200ms var(--so-ease);
 }
 
 .win[data-focus='true'] {
   box-shadow:
-    0 28px 80px rgb(0 0 0 / 46%),
-    inset 0 0 0 1px rgb(167 139 250 / 45%);
+    0 24px 60px color-mix(in srgb, var(--so-shadow) 100%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--so-accent) 45%, var(--so-line));
 }
 
 /* 收起后钉住的窗口：只留内容，按设置透明，鼠标穿过去点页面。 */
 .win[data-pinned-view='true'] {
   pointer-events: none;
   background: transparent;
-  box-shadow: 0 16px 40px rgb(0 0 0 / 22%);
+  box-shadow: 0 16px 40px var(--so-shadow);
   animation: none;
 }
 
@@ -375,7 +407,8 @@ input:focus-visible {
   width: 18px;
   height: 18px;
   cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 50%, rgb(255 255 255 / 28%) 50% 58%, transparent 58% 70%, rgb(255 255 255 / 28%) 70% 78%, transparent 78%);
+  background: linear-gradient(135deg, transparent 50%, var(--so-ink-dim) 50% 56%, transparent 56% 70%, var(--so-ink-dim) 70% 76%, transparent 76%);
+  opacity: 0.5;
 }
 
 @keyframes so-fade {

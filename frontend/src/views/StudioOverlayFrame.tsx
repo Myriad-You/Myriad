@@ -25,6 +25,7 @@ import {
 } from '../components/studio/studioIsland'
 import { useI18n } from '../contexts/I18nContext'
 import { getBlogSettings } from '../services/blogApi'
+import { SITE_CHROME_COOKIE } from '../utils/siteChromeCookie'
 
 const LAYOUT_KEY = 'myriad.studio.overlay.v1'
 const RELOAD_POLL_MS = 1500
@@ -54,6 +55,13 @@ async function buildMark(): Promise<BlogBuildMark | null> {
   } catch {
     return null
   }
+}
+
+/** 主站写给博客页的 cookie 里的强调色（`{设置}.{深浅色}.{主色}.{强调色}`，见 siteChromeCookie.ts）。 */
+function siteAccent(doc: Document): string | null {
+  const raw = doc.cookie.split('; ').find((part) => part.startsWith(`${SITE_CHROME_COOKIE}=`))
+  const accent = raw?.slice(SITE_CHROME_COOKIE.length + 1).split('.')[3]
+  return accent && /^[0-9a-f]{6}$/.test(accent) ? `#${accent}` : null
 }
 
 function numberAttr(host: HTMLElement, name: string): number | null {
@@ -249,7 +257,19 @@ export default function StudioOverlayFrame() {
     const container = host.ownerDocument.createElement('div')
     shadow.append(style, container)
     rootRef.current = createRoot(container)
+    // 明暗跟着博客页：这一页的 dark 类和博客页读的是同一个主题偏好。强调色用主站算出来的那个
+    // （博客页的 myriad_chrome cookie），和窗口里主站页面的按钮一样；读不到就用样式表里的金色。
+    const html = document.documentElement
+    const accent = siteAccent(host.ownerDocument)
+    if (accent) host.style.setProperty('--so-accent', accent)
+    const syncScheme = () => {
+      host.dataset.scheme = html.classList.contains('dark') ? 'dark' : 'light'
+    }
+    syncScheme()
+    const observer = new MutationObserver(syncScheme)
+    observer.observe(html, { attributes: true, attributeFilter: ['class'] })
     return () => {
+      observer.disconnect()
       const root = rootRef.current
       rootRef.current = null
       queueMicrotask(() => root?.unmount())
