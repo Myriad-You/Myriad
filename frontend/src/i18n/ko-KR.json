@@ -1758,6 +1758,7 @@
     "generateFailed": "리포트를 생성하지 못했습니다",
     "generated": "{platform} 리포트를 업데이트했습니다",
     "finished": "끝났습니다",
+    "nextLine": "눌러서 다음 문장 보기",
     "platforms": "플랫폼",
     "styleStale": "스타일이 바뀌었습니다. 다시 생성하면 적용됩니다",
     "settings": "리포트 설정",

@@ -1758,6 +1758,7 @@
     "generateFailed": "報告沒有產生出來",
     "generated": "{platform} 的報告已更新",
     "finished": "播完了",
+    "nextLine": "點一下看下一句",
     "platforms": "平台",
     "styleStale": "風格改過了，重新產生才會套用",
     "settings": "報告設定",

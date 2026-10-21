@@ -1758,6 +1758,7 @@
     "generateFailed": "The report couldn't be generated",
     "generated": "{platform} report updated",
     "finished": "That's the end",
+    "nextLine": "Click for the next line",
     "platforms": "Platforms",
     "styleStale": "The style changed. Regenerate to use it.",
     "settings": "Report settings",

@@ -31,6 +31,7 @@ import { showToast } from '../../../utils/toastManager'
 import { PLATFORM_CONFIG } from '../reportCard/platformConfig'
 import { ReportCardWidget } from '../reportCard/ReportCardWidget'
 import { GlowBackground } from '../shared/GlowBackground'
+import { FactBubbles, ProgressRing, recentFacts, RevealLine, usePointerTilt } from './stageParts'
 import { buildStageReport } from './stageScript'
 import { useStagePlayer } from './useStagePlayer'
 import './reportStage.css'
@@ -40,8 +41,10 @@ const StageOwnerSettings = lazyWithPreload(() =>
   import('./StageOwnerSettings').then((module) => ({ default: module.StageOwnerSettings })),
 )
 
-/** 字幕区最多留几句：旧句往上退，不堆满屏。 */
-const VISIBLE_BEATS = 5
+/** 字幕区最多留几句：旧句往上退、变淡，不堆满屏。 */
+const VISIBLE_BEATS = 3
+/** 卡片边上同时漂着的事实气泡。 */
+const VISIBLE_FACTS = 3
 const CARD_BASE = { width: 308, height: 154 }
 /** 收回动画放完再卸下内嵌的报告卡，让它的计时器停下。 */
 const CARD_UNMOUNT_DELAY_MS = 400
@@ -60,6 +63,14 @@ async function loadPlatformOrder(): Promise<string[] | null> {
   } catch {
     return null
   }
+}
+
+/** 当前句按长短换字号：短句可以很大，长句大字会排成一整面墙。 */
+function lengthClass(text: string): 'short' | 'long' | undefined {
+  const length = Array.from(text).length
+  if (length <= 18) return 'short'
+  if (length > 40) return 'long'
+  return undefined
 }
 
 function readPlatformParam(params: unknown): string | null {
@@ -195,10 +206,9 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
     resetKey: report,
     onEnded: advancePlatform,
   })
-  const { state, toggle, pause, jump } = player
+  const { state, toggle, pause, jump, next } = player
   const chapter = chapters[state.chapter]
   const visibleBeats = chapter ? chapter.beats.slice(0, state.shown).slice(-VISIBLE_BEATS) : []
-  const currentBeat = chapter && state.shown > 0 ? chapter.beats[state.shown - 1] : undefined
 
   // 收回时暂停；重开不自动续播，让人自己按。
   const wasActive = useRef(active)
@@ -275,9 +285,22 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
 
   const accent = PLATFORM_CONFIG[platform]?.color ?? 'var(--color-primary, #6366f1)'
   const overview = !chapter || OVERVIEW_CHAPTERS.has(chapter.key)
+  const facts = useMemo(
+    () => (chapter ? recentFacts(chapter.beats, state.shown, VISIBLE_FACTS) : []),
+    [chapter, state.shown],
+  )
+  const floatRef = useRef<HTMLDivElement>(null)
+  const lively = active && anim.loop
+  usePointerTilt(rootRef, floatRef, lively && !settingsOpen)
+  const platforms = order.includes(platform) ? order : [platform, ...order]
 
   return (
-    <div ref={rootRef} className="report-stage" style={{ '--stage-accent': accent } as React.CSSProperties}>
+    <div
+      ref={rootRef}
+      className="report-stage"
+      data-lively={lively ? 'true' : undefined}
+      style={{ '--stage-accent': accent } as React.CSSProperties}
+    >
       <div className="report-stage__glow" aria-hidden="true">
         <GlowBackground
           color={accent}
@@ -289,73 +312,95 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
         />
       </div>
 
-      <header className="report-stage__head">
-        <nav className="report-stage__platforms" aria-label={copy.platforms}>
-          {(order.includes(platform) ? order : [platform, ...order]).map((id) => (
-            <button
-              key={id}
-              type="button"
-              className="report-stage__platform"
-              aria-pressed={id === platform}
-              onClick={() => {
-                setPlayAll(false)
-                setPlatform(id)
-              }}
-            >
-              <span className="report-stage__platform-icon" aria-hidden="true">
-                {PLATFORM_CONFIG[id]?.icon}
-              </span>
-              {PLATFORM_CONFIG[id]?.label ?? id}
-            </button>
-          ))}
-        </nav>
-        {chapters.length > 0 ? (
-          <div className="report-stage__act">
-            <span>{format(copy.chapterOf, { current: state.chapter + 1, total: chapters.length })}</span>
-            <strong>{chapter?.title}</strong>
-          </div>
-        ) : null}
-        <button type="button" className="report-stage__icon-btn" aria-label={t.common.close} onClick={close}>
-          <LuX aria-hidden="true" />
-        </button>
+      <header className="report-stage__top">
+        <div className="report-stage__who">
+          <span className="report-stage__who-icon" aria-hidden="true">{PLATFORM_CONFIG[platform]?.icon}</span>
+          <span className="report-stage__who-text">
+            <strong>{platformLabel}</strong>
+            {report?.headline ? <span>{report.headline}</span> : null}
+          </span>
+        </div>
+        <div className="report-stage__corner">
+          {isAdmin ? (
+            <div className="report-stage__owner">
+              {report?.styleStale ? <span className="report-stage__stale">{copy.styleStale}</span> : null}
+              {report ? (
+                <button type="button" className="report-stage__chip" disabled={generating} onClick={regenerate}>
+                  <LuRefreshCw aria-hidden="true" className={generating ? 'is-spinning' : undefined} />
+                  {generating ? copy.generating : copy.regenerate}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="report-stage__icon-btn"
+                aria-label={copy.settings}
+                aria-pressed={settingsOpen}
+                onPointerEnter={() => void StageOwnerSettings.preload().catch(() => {})}
+                onFocus={() => void StageOwnerSettings.preload().catch(() => {})}
+                onClick={() => setSettingsOpen((open) => !open)}
+              >
+                <LuSettings aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
+          <button type="button" className="report-stage__close" aria-label={t.common.close} onClick={close}>
+            <LuX aria-hidden="true" />
+          </button>
+        </div>
       </header>
 
-      <main className="report-stage__body">
+      <main className="report-stage__scene">
         {settingsOpen && isAdmin ? (
-          <Suspense fallback={<div className="report-stage__empty"><p>{t.common.loading}</p></div>}>
-            <StageOwnerSettings platform={platform} onStyleChanged={() => void load(true)} />
-          </Suspense>
+          <div className="report-stage__panel">
+            <Suspense fallback={<div className="report-stage__empty"><p>{t.common.loading}</p></div>}>
+              <StageOwnerSettings platform={platform} onStyleChanged={() => void load(true)} />
+            </Suspense>
+          </div>
         ) : report ? (
           <>
-            <section className="report-stage__subtitles" aria-live="polite">
-              {report.headline && state.chapter === 0 ? (
-                <p className="report-stage__headline">{report.headline}</p>
-              ) : null}
-              {visibleBeats.map((beat, index) => (
-                <p
-                  key={`${state.chapter}-${state.shown - visibleBeats.length + index}`}
-                  className="report-stage__line"
-                  data-current={index === visibleBeats.length - 1 ? 'true' : undefined}
-                >
-                  {beat.text}
+            <section
+              className="report-stage__captions"
+              aria-live="polite"
+              title={state.ended ? undefined : copy.nextLine}
+              onClick={(event) => {
+                // 选字时不翻。
+                if (window.getSelection()?.toString()) return
+                if (event.detail > 1 || state.ended) return
+                next()
+              }}
+            >
+              {chapter ? (
+                <p className="report-stage__kicker" key={`${platform}-${state.chapter}`}>
+                  <span>{format(copy.chapterOf, { current: state.chapter + 1, total: chapters.length })}</span>
+                  {chapter.title}
                 </p>
-              ))}
-              {state.ended ? <p className="report-stage__end">{copy.finished}</p> : null}
+              ) : null}
+              <div className="report-stage__lines">
+                {visibleBeats.map((beat, index) => {
+                  const current = index === visibleBeats.length - 1
+                  return (
+                    <p
+                      key={`${state.chapter}-${state.shown - visibleBeats.length + index}`}
+                      className="report-stage__line"
+                      data-current={current ? 'true' : undefined}
+                      data-age={visibleBeats.length - 1 - index}
+                      data-length={lengthClass(beat.text)}
+                    >
+                      {current ? <RevealLine text={beat.text} animate={anim.level !== 'exlight'} /> : beat.text}
+                    </p>
+                  )
+                })}
+                {state.ended ? <p className="report-stage__end">{copy.finished}</p> : null}
+              </div>
             </section>
-            <aside className="report-stage__side">
-              {cardMounted ? (
-                <ScaledCard platform={platform} visuals={report.cardVisuals} overview={overview} />
-              ) : null}
-              {currentBeat?.fact ? (
-                <div className="report-stage__fact" key={currentBeat.fact.id}>
-                  {currentBeat.fact.media ? (
-                    <img src={currentBeat.fact.media} alt="" loading="lazy" decoding="async" />
-                  ) : null}
-                  <span>{currentBeat.fact.label}</span>
-                  <strong>{currentBeat.fact.value}</strong>
-                </div>
-              ) : null}
-            </aside>
+            <div className="report-stage__float" ref={floatRef}>
+              <div className="report-stage__float-inner">
+                {cardMounted ? (
+                  <ScaledCard platform={platform} visuals={report.cardVisuals} overview={overview} />
+                ) : null}
+                <FactBubbles facts={facts} />
+              </div>
+            </div>
           </>
         ) : (
           <div className="report-stage__empty">
@@ -370,12 +415,31 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
         )}
       </main>
 
-      <footer className="report-stage__controls">
-        <div className="report-stage__progress" aria-hidden="true">
-          {chapters.map((item, index) => (
-            <span key={item.key} data-state={index < state.chapter ? 'done' : index === state.chapter ? 'now' : 'next'} />
+      <footer className="report-stage__dock">
+        <nav className="report-stage__platforms" aria-label={copy.platforms}>
+          {platforms.map((id) => (
+            <button
+              key={id}
+              type="button"
+              className="report-stage__platform"
+              aria-pressed={id === platform}
+              aria-label={PLATFORM_CONFIG[id]?.label ?? id}
+              title={PLATFORM_CONFIG[id]?.label ?? id}
+              onClick={() => {
+                setPlayAll(false)
+                setPlatform(id)
+              }}
+            >
+              <span className="report-stage__platform-icon" aria-hidden="true">
+                {PLATFORM_CONFIG[id]?.icon}
+              </span>
+              <span className="report-stage__platform-label" aria-hidden="true">
+                {PLATFORM_CONFIG[id]?.label ?? id}
+              </span>
+            </button>
           ))}
-        </div>
+        </nav>
+        <span className="report-stage__dock-sep" aria-hidden="true" />
         <div className="report-stage__buttons">
           <button type="button" className="report-stage__icon-btn" aria-label={copy.prevChapter} disabled={!report || state.chapter === 0} onClick={() => jump(state.chapter - 1)}>
             <LuSkipBack aria-hidden="true" />
@@ -387,6 +451,11 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
             disabled={!report}
             onClick={toggle}
           >
+            <ProgressRing
+              chapters={chapters.map((item) => item.beats.length)}
+              chapter={state.ended ? chapters.length : state.chapter}
+              fraction={chapter ? state.shown / chapter.beats.length : 0}
+            />
             {state.ended ? <LuRotateCw aria-hidden="true" /> : state.playing ? <LuPause aria-hidden="true" /> : <LuPlay aria-hidden="true" />}
           </button>
           <button type="button" className="report-stage__icon-btn" aria-label={copy.nextChapter} disabled={!report || state.chapter >= chapters.length - 1} onClick={() => jump(state.chapter + 1)}>
@@ -394,7 +463,9 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
           </button>
           <button
             type="button"
-            className="report-stage__chip"
+            className="report-stage__icon-btn report-stage__play-all"
+            aria-label={playAll ? copy.playAllOn : copy.playAll}
+            title={playAll ? copy.playAllOn : copy.playAll}
             aria-pressed={playAll}
             disabled={order.length < 2}
             onClick={() => {
@@ -407,31 +478,8 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
             }}
           >
             <LuListOrdered aria-hidden="true" />
-            {playAll ? copy.playAllOn : copy.playAll}
           </button>
         </div>
-        {isAdmin ? (
-          <div className="report-stage__owner">
-            {report?.styleStale ? <span className="report-stage__stale">{copy.styleStale}</span> : null}
-            {report ? (
-              <button type="button" className="report-stage__chip" disabled={generating} onClick={regenerate}>
-                <LuRefreshCw aria-hidden="true" className={generating ? 'is-spinning' : undefined} />
-                {generating ? copy.generating : copy.regenerate}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="report-stage__icon-btn"
-              aria-label={copy.settings}
-              aria-pressed={settingsOpen}
-              onPointerEnter={() => void StageOwnerSettings.preload().catch(() => {})}
-              onFocus={() => void StageOwnerSettings.preload().catch(() => {})}
-              onClick={() => setSettingsOpen((open) => !open)}
-            >
-              <LuSettings aria-hidden="true" />
-            </button>
-          </div>
-        ) : null}
       </footer>
     </div>
   )

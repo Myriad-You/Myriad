@@ -1758,6 +1758,7 @@
     "generateFailed": "レポートを生成できませんでした",
     "generated": "{platform} のレポートを更新しました",
     "finished": "おしまい",
+    "nextLine": "クリックで次の一文へ",
     "platforms": "プラットフォーム",
     "styleStale": "スタイルが変わりました。再生成すると反映されます",
     "settings": "レポート設定",

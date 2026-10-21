@@ -1758,6 +1758,7 @@
     "generateFailed": "Le rapport n'a pas pu être généré",
     "generated": "Rapport {platform} mis à jour",
     "finished": "C'est fini",
+    "nextLine": "Cliquez pour la phrase suivante",
     "platforms": "Plateformes",
     "styleStale": "Le style a changé. Régénérez pour l’appliquer.",
     "settings": "Réglages des rapports",

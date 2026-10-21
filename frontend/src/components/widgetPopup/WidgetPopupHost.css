@@ -29,6 +29,15 @@ html.dark .widget-popup-backdrop {
   background: rgb(0 0 0 / 38%);
 }
 
+/* 铺满整屏（手机上的舞台）时不留半透明：底下的页面会隐约透上来。 */
+.widget-popup-layer[data-cover='full'] .widget-popup-frame {
+  background: rgb(250 250 252);
+}
+
+html.dark .widget-popup-layer[data-cover='full'] .widget-popup-frame {
+  background: rgb(24 24 27);
+}
+
 /* 前面那份铺满整屏（手机上的舞台）时底下什么也看不见，不必每帧替它模糊。 */
 html[data-perf-mode='exlight'] .widget-popup-backdrop,
 .widget-popup-layer[data-cover='full'] .widget-popup-backdrop {

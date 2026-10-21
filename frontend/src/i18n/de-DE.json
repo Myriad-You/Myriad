@@ -1758,6 +1758,7 @@
     "generateFailed": "Der Bericht konnte nicht erstellt werden",
     "generated": "Bericht für {platform} aktualisiert",
     "finished": "Das war’s",
+    "nextLine": "Klicken für den nächsten Satz",
     "platforms": "Plattformen",
     "styleStale": "Der Stil hat sich geändert. Neu erstellen, um ihn zu übernehmen.",
     "settings": "Berichtseinstellungen",

@@ -99,6 +99,8 @@ export function useStagePlayer(
     (chapter: number) => dispatch({ type: 'jump', chapter, chapters }),
     [chapters],
   )
+  /** 不等这句停够，直接出下一句；一幕的最后一句之后进下一幕。播放/暂停不变，计时从这句重新算。 */
+  const next = useCallback(() => dispatch({ type: 'tick', chapters }), [chapters])
 
-  return { state, toggle, pause, replay, jump }
+  return { state, toggle, pause, replay, jump, next }
 }

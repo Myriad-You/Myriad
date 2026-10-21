@@ -1758,6 +1758,7 @@
     "generateFailed": "报告没生成出来",
     "generated": "{platform} 的报告已更新",
     "finished": "播完了",
+    "nextLine": "点一下看下一句",
     "platforms": "平台",
     "styleStale": "风格改过了，重新生成才会用上",
     "settings": "报告设置",
