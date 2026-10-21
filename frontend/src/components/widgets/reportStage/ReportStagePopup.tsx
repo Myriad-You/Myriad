@@ -7,8 +7,6 @@ import {
   LuRefreshCw,
   LuRotateCw,
   LuSettings,
-  LuSkipBack,
-  LuSkipForward,
   LuX,
 } from '@lib/icons'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -367,9 +365,6 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
         </nav>
         <span className="report-stage__dock-sep" aria-hidden="true" />
         <div className="report-stage__buttons">
-          <button type="button" className="report-stage__icon-btn" aria-label={copy.prevChapter} disabled={!report || state.chapter === 0} onClick={() => jump(state.chapter - 1)}>
-            <LuSkipBack aria-hidden="true" />
-          </button>
           <button
             type="button"
             className="report-stage__play"
@@ -383,9 +378,6 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
               fraction={chapter ? state.shown / chapter.beats.length : 0}
             />
             {state.ended ? <LuRotateCw aria-hidden="true" /> : state.playing ? <LuPause aria-hidden="true" /> : <LuPlay aria-hidden="true" />}
-          </button>
-          <button type="button" className="report-stage__icon-btn" aria-label={copy.nextChapter} disabled={!report || state.chapter >= chapters.length - 1} onClick={() => jump(state.chapter + 1)}>
-            <LuSkipForward aria-hidden="true" />
           </button>
           <button
             type="button"

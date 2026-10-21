@@ -458,44 +458,38 @@ html.dark .report-stage__dock {
   height: 2rem;
 }
 
+/* 播放键和别的按钮一样轻，只多一圈进度：外框就是进度环。 */
 .report-stage__play {
   position: relative;
-  width: 2.75rem;
-  height: 2.75rem;
-  margin: 0 0.3125rem;
-  background: var(--stage-fg);
-  color: #fff;
+  width: 2.5rem;
+  height: 2.5rem;
 }
 
 .report-stage__play:hover:not(:disabled) {
-  scale: 1.06;
+  background: var(--stage-button-hover);
 }
 
 .report-stage__play:active:not(:disabled) {
   scale: 0.94;
 }
 
-html.dark .report-stage__play {
-  color: #111114;
-}
-
 /* 播放键外圈：每幕一段，播到哪亮到哪。 */
 .report-stage__ring {
   position: absolute;
-  inset: -0.3125rem;
+  inset: 0;
   pointer-events: none;
 }
 
 /* 压过 .report-stage svg 的 1rem。 */
 .report-stage .report-stage__ring {
-  width: calc(100% + 0.625rem);
-  height: calc(100% + 0.625rem);
+  width: 100%;
+  height: 100%;
 }
 
 .report-stage__ring circle {
   fill: none;
   stroke-linecap: round;
-  stroke-width: 2.5;
+  stroke-width: 2.25;
 }
 
 .report-stage__ring-track {
@@ -549,8 +543,8 @@ html.dark .report-stage__play {
 }
 
 .report-stage__play > svg:not(.report-stage__ring) {
-  width: 1.125rem;
-  height: 1.125rem;
+  width: 0.9375rem;
+  height: 0.9375rem;
 }
 
 .report-stage .is-spinning {

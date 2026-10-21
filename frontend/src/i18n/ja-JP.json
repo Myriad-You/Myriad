@@ -1744,8 +1744,6 @@
     "play": "再生",
     "pause": "一時停止",
     "replay": "もう一度",
-    "prevChapter": "前の幕",
-    "nextChapter": "次の幕",
     "playAll": "全プラットフォームを連続再生",
     "playAllOn": "連続再生中",
     "chapterOf": "第 {current} 幕 / 全 {total} 幕",

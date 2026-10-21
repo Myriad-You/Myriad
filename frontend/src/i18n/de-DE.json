@@ -1744,8 +1744,6 @@
     "play": "Abspielen",
     "pause": "Pause",
     "replay": "Noch einmal",
-    "prevChapter": "Voriger Akt",
-    "nextChapter": "Nächster Akt",
     "playAll": "Alle Plattformen nacheinander",
     "playAllOn": "Spielt alle",
     "chapterOf": "Akt {current} von {total}",

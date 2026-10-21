@@ -1744,8 +1744,6 @@
     "play": "재생",
     "pause": "일시정지",
     "replay": "다시 재생",
-    "prevChapter": "이전 막",
-    "nextChapter": "다음 막",
     "playAll": "모든 플랫폼 연속 재생",
     "playAllOn": "연속 재생 중",
     "chapterOf": "{total}막 중 {current}막",

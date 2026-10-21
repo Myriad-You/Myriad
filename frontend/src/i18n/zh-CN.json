@@ -1744,8 +1744,6 @@
     "play": "播放",
     "pause": "暂停",
     "replay": "重播",
-    "prevChapter": "上一幕",
-    "nextChapter": "下一幕",
     "playAll": "连播全部平台",
     "playAllOn": "连播中",
     "chapterOf": "第 {current} 幕 / 共 {total} 幕",
