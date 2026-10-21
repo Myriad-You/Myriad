@@ -7,7 +7,6 @@ import type {
   WidgetType,
 } from '../widgetGridTypes'
 import type { BuiltinWidgetHost, BuiltinWidgetId } from './builtinWidgetMeta'
-import { lazy } from 'react'
 import { lazyWithPreload } from '../../utils/codeSplitting'
 import {
   BUILTIN_WIDGET_META,
@@ -160,10 +159,12 @@ export function preloadBuiltinWidgets(types: Iterable<string>): Promise<void> {
 }
 
 /** 报告卡的弹窗就是舞台。舞台自带关闭键，不要宿主角上那颗。 */
+const ReportStagePopup = lazyWithPreload(() => import('./reportStage/ReportStagePopup'))
 const REPORT_STAGE_POPUP: WidgetPopupDef = {
-  component: lazy(() => import('./reportStage/ReportStagePopup')),
+  component: ReportStagePopup,
   size: 'stage',
   chrome: 'none',
+  preload: ReportStagePopup.preload,
 }
 
 export function getBuiltinWidgets(

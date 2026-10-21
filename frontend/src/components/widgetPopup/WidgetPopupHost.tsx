@@ -36,31 +36,43 @@ const EASE_EXIT = 'cubic-bezier(0.4, 0, 1, 1)'
 
 type Phase = 'open' | 'closing' | 'stashed'
 
+/**
+ * 从卡片长出来：等比缩放，中心对齐卡片中心。不等比会把字和卡面压扁拉长，
+ * 里面按尺寸排版的内容在动画那几帧也会量错。
+ */
 function anchorTransform(from: DOMRect, to: DOMRect): string {
-  const sx = from.width / Math.max(1, to.width)
-  const sy = from.height / Math.max(1, to.height)
-  const dx = from.left - to.left
-  const dy = from.top - to.top
-  return `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`
+  const scale = Math.min(
+    from.width / Math.max(1, to.width),
+    from.height / Math.max(1, to.height),
+  )
+  const dx = from.left + from.width / 2 - (to.left + (to.width * scale) / 2)
+  const dy = from.top + from.height / 2 - (to.top + (to.height * scale) / 2)
+  return `translate(${dx}px, ${dy}px) scale(${scale})`
 }
 
 function playFrame(
   frame: HTMLElement,
   direction: 'in' | 'out',
   anchor: DOMRect | null,
+  rect: DOMRect,
   sheet: boolean,
 ): Animation | null {
   if (typeof frame.animate !== 'function') return null
-  const rect = frame.getBoundingClientRect()
   const reduced = isExlight()
   let hidden: Keyframe
   if (reduced) hidden = { opacity: 0 }
   else if (sheet) hidden = { opacity: 1, transform: 'translateY(100%)' }
   else if (anchor && anchor.width > 0 && rect.width > 0)
-    hidden = { opacity: 0, transform: anchorTransform(anchor, rect), borderRadius: '24px' }
+    hidden = { opacity: 0, transform: anchorTransform(anchor, rect) }
   else hidden = { opacity: 0, transform: 'scale(0.96)' }
   const shown: Keyframe = { opacity: 1, transform: 'none' }
-  const keyframes = direction === 'in' ? [hidden, shown] : [shown, hidden]
+  // 透明度只在靠近卡片那一段变：整程淡入淡出时看不出是从卡片长出来的。
+  const keyframes: Keyframe[] =
+    reduced || sheet
+      ? direction === 'in' ? [hidden, shown] : [shown, hidden]
+      : direction === 'in'
+        ? [hidden, { opacity: 1, offset: 0.3 }, shown]
+        : [shown, { opacity: 1, offset: 0.6 }, hidden]
   return frame.animate(keyframes, {
     duration: reduced ? FADE_MS : direction === 'in' ? ENTER_MS : EXIT_MS,
     easing: direction === 'in' ? EASE_ENTER : EASE_EXIT,
@@ -80,6 +92,13 @@ function WidgetPopupFrame({
   const { t, format } = useI18n()
   const frameRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
+  /** 打开时量好的位置。开着时页面滚动锁住，收回时照用，不在那一帧再逼浏览器重排。 */
+  const rectsRef = useRef<{
+    anchor: DOMRect | null
+    frame: DOMRect
+    width: number
+    height: number
+  } | null>(null)
   const [phase, setPhase] = useState<Phase>(active ? 'open' : 'stashed')
   const popup = entry.widgetType.popup
   const sheet = phone && entry.size !== 'stage'
@@ -94,7 +113,12 @@ function WidgetPopupFrame({
           ? focused
           : entry.returnFocus()
       setPhase('open')
-      playFrame(frame, 'in', entry.anchor(), sheet)
+      // 收回动画还没放完又被打开：先停掉，不然量到的是缩到一半的框。
+      for (const running of frame.getAnimations()) running.cancel()
+      const anchor = entry.anchor()
+      const rect = frame.getBoundingClientRect()
+      rectsRef.current = { anchor, frame: rect, width: window.innerWidth, height: window.innerHeight }
+      playFrame(frame, 'in', anchor, rect, sheet)
       // 暂存时是 visibility:hidden，等这一帧把可见提交了才能聚焦。
       const focusTimer = requestAnimationFrame(() => {
         if (!frame.contains(document.activeElement)) frame.focus({ preventScroll: true })
@@ -103,17 +127,29 @@ function WidgetPopupFrame({
     }
     if (phase !== 'open') return
     setPhase('closing')
-    const animation = playFrame(frame, 'out', entry.anchor(), sheet)
-    const finish = () => setPhase((current) => (current === 'closing' ? 'stashed' : current))
-    if (!animation) {
-      finish()
-    } else {
-      animation.onfinish = finish
-      animation.oncancel = finish
-    }
+    const saved = rectsRef.current
+    const resized =
+      !saved || saved.width !== window.innerWidth || saved.height !== window.innerHeight
+    const animation = playFrame(
+      frame,
+      'out',
+      resized ? entry.anchor() : saved.anchor,
+      resized ? frame.getBoundingClientRect() : saved.frame,
+      sheet,
+    )
     const restore = restoreRef.current
     restoreRef.current = null
-    if (restore?.isConnected) restore.focus({ preventScroll: true })
+    // 焦点等收回放完再还：当场 focus 会在动画第一帧逼浏览器重算样式。中途又被打开就不还。
+    const finish = (completed: boolean) => {
+      setPhase((current) => (current === 'closing' ? 'stashed' : current))
+      if (completed && restore?.isConnected) restore.focus({ preventScroll: true })
+    }
+    if (!animation) {
+      finish(true)
+    } else {
+      animation.onfinish = () => finish(true)
+      animation.oncancel = () => finish(false)
+    }
     // phase 只用来判断「刚从前台收回」，不作为依赖重跑。
   }, [active])
 

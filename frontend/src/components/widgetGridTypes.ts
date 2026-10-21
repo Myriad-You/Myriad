@@ -50,6 +50,8 @@ export interface WidgetPopupDef {
   size?: WidgetPopupSize
   /** 宿主角落的关闭按钮。内容自带关闭控件时可以不要；TAPP 弹窗始终有。 */
   chrome?: 'close' | 'none'
+  /** 预先拉内容代码。卡片被指向或页面空闲时调用，点开时就不用等。 */
+  preload?: () => Promise<unknown>
 }
 
 export interface WidgetType {

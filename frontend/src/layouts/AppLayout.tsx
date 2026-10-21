@@ -16,6 +16,7 @@ import { SurfaceThemeApplier } from '../components/SurfaceThemeApplier'
 import { ToastContainer } from '../components/ToastContainer'
 import { TourHint } from '../components/tour/TourHint'
 import { TourOverlayHost } from '../components/tour/TourOverlayHost'
+import { WidgetPopupHost } from '../components/widgetPopup/loadWidgetPopupHost'
 
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
@@ -78,10 +79,6 @@ const TappShortcutSettingsModal = lazy(() =>
   import('../components/widgets/TappShortcutWidget').then((m) => ({
     default: m.TappShortcutSettingsModal,
   })),
-)
-
-const WidgetPopupHost = lazy(
-  () => import('../components/widgetPopup/WidgetPopupHost'),
 )
 
 /** 首次打开小组件弹窗才拉宿主代码。 */

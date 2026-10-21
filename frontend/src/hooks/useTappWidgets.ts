@@ -20,13 +20,14 @@ import {
   WidgetSkeleton,
 } from '../components/widgets/shared/WidgetSkeleton'
 import { currentCopy } from '../i18n/localeCopy'
+import { lazyWithPreload } from '../utils/codeSplitting'
 import { formatUserFacingError } from '../utils/formatUserFacingError'
 import { getTappSubjectSnapshot, useTappSubject } from '../utils/tappSubject'
 
 // Tapp runtime/沙箱按需加载：布局没有 Tapp 小组件时不进 Home 首屏。
 // lazy() 吃 default 导出（withI18nNamespace）。具名 TappWidgetComponent 没有语言包。
 const TappWidget = lazy(() => import('../components/widgets/TappWidget'))
-const TappWidgetPopup = lazy(() => import('../components/widgets/TappWidgetPopup'))
+const TappWidgetPopup = lazyWithPreload(() => import('../components/widgets/TappWidgetPopup'))
 
 interface TappRuntimeLookup {
   getTapp?: (id: string) =>
@@ -155,7 +156,12 @@ function createTappWidgetType(
             ),
           { displayName: `TappWidgetPopup_${widget.id}` },
         )
-      popup = { component: WrappedPopup, size: declared.size ?? 'md', chrome: 'close' }
+      popup = {
+        component: WrappedPopup,
+        size: declared.size ?? 'md',
+        chrome: 'close',
+        preload: TappWidgetPopup.preload,
+      }
     }
   } catch {
     popup = undefined

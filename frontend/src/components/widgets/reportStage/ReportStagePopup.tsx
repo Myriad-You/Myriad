@@ -47,8 +47,11 @@ function ScaledCard({ platform, visuals, overview }: { platform: string; visuals
   useLayoutEffect(() => {
     const host = hostRef.current
     if (!host) return
+    // 用布局尺寸，不用 getBoundingClientRect：弹窗展开时整体在缩放，那一刻量到的是缩小后的
+    // 大小，展开完布局尺寸不变，ResizeObserver 不会再触发，卡就一直停在缩小的倍数上。
     const fit = () => {
-      const { width, height } = host.getBoundingClientRect()
+      const width = host.clientWidth
+      const height = host.clientHeight
       if (width <= 0 || height <= 0) return
       setScale(Math.min(width / CARD_BASE.width, height / CARD_BASE.height))
     }

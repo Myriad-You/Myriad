@@ -51,8 +51,18 @@ export function themeBootInlineScript(): string {
         metaThemeColor.setAttribute('content', primaryColor);
       }
     };
+    var inlinePrimary = function () {
+      try { return document.documentElement.style.getPropertyValue('--color-primary'); } catch (e) { return null; }
+    };
+    var lastPrimary = inlinePrimary();
     updateThemeColor();
-    new MutationObserver(updateThemeColor).observe(document.documentElement, {
+    // 内联 style 上别的属性（比如锁滚动的 overflow）变了不用重算：getComputedStyle 会强制整页样式重算。
+    new MutationObserver(function () {
+      var next = inlinePrimary();
+      if (next === lastPrimary) return;
+      lastPrimary = next;
+      updateThemeColor();
+    }).observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['style'],
     });
