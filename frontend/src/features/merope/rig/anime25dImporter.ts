@@ -35,6 +35,7 @@ import { repairAnime25DPsd } from './psdRepair'
 import { flattenPsdForRigger, flattenVisibleLayers, genericCloseParts, rasterFromRiggerPart } from './riggerBridge'
 import { skeletonInFrame } from './skeleton'
 import { tuckGarmentOffLegsByReference, tuckGarmentOffNeckByReference, tuckLiningBehindLegs } from './skirtLining'
+import { splitTrouserLegsIfNeeded } from './trouserLegs'
 
 export { ANIME25D_LAYER_DEPTH, type Anime25DLayerRole } from './anime25d'
 export type { Anime25DSourceReference } from './anime25dImportTypes'
@@ -101,7 +102,7 @@ export async function prepareAnime25DRigPsd(
   let layers = stackOpenEyesInOrder(rig.layers.map((part) => rasterFromRiggerPart(part, usedIds)))
   if (staticSeeThroughMouth) layers = preserveStaticMouthAsClosed(layers)
   layers = splitHandwearIfNeeded(layers, rig.anchors.face.cx)
-  layers = splitLowerLimbsIfNeeded(layers)
+  layers = splitLowerLimbsIfNeeded(splitTrouserLegsIfNeeded(layers))
   if (sourceReference) {
     layers = stackLowerLimbsByReference(layers, sourceReference)
     layers = stackNeckwearByReference(layers, sourceReference)
