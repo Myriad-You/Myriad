@@ -468,7 +468,7 @@ pub struct DynamicConfig {
     pub bangumi_username: Option<String>,
     pub bangumi_access_token: Option<String>,
     /// 平台展示顺序（平台名称列表，如 ["Steam", "GitHub", ...]）
-    /// 决定报告页平台卡片的出现顺序，未列出的平台按默认顺序排在最后
+    /// 决定报告舞台里平台的先后（资料库来源也按它排），未列出的平台按默认顺序排在最后
     pub platform_order: Option<Vec<String>>,
     pub bangumi_user_agent: Option<String>,
     /// X (Twitter) 平台

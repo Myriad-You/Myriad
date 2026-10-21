@@ -13,7 +13,7 @@
   },
   "platform:write": {
     "what": "Allows writing or updating platform data entries.",
-    "chain": "1) App calls write APIs.\n2) Data is stored in site platform storage.\n3) Reports / library views that depend on it may change.",
+    "chain": "1) App calls write APIs.\n2) Data is stored in site platform storage.\n3) Report cards, the report stage, and library views that depend on it may change.",
     "frontend": "In-app import/sync; later site displays.",
     "notes": "High impact — bad writes can pollute stats."
   },
@@ -68,13 +68,13 @@
   "report:read": {
     "what": "Allows reading existing generated reports.",
     "chain": "1) App requests report content.\n2) Reads from report storage.\n3) Renders inside the app.",
-    "frontend": "Reports module; in-app report views.",
+    "frontend": "Report cards on the home page and the report stage; in-app report views.",
     "notes": "Does not create reports by itself."
   },
   "report:write": {
     "what": "Allows creating, updating, or deleting reports.",
-    "chain": "1) App writes via report APIs.\n2) Report list/content changes.\n3) Reports page updates.",
-    "frontend": "Reports list and detail.",
+    "chain": "1) App writes via report APIs.\n2) Report list/content changes.\n3) Report cards on the home page and the stage update.",
+    "frontend": "Report cards on the home page and the report stage.",
     "notes": "Can delete user-visible reports — sensitive."
   },
   "storage:read": {

@@ -161,7 +161,7 @@
     "visibility": {
       "what": "Quelles portes de fonctions chaque public peut voir : tout le monde, connectés, ou administrateurs seulement.",
       "chain": "1) Changez la visibilité d’un module → enregistrez les réglages liés sur cette page.\n2) La barre de navigation masque ou montre les entrées selon le rôle ; sans accès, l’URL ne suffit pas.\n3) Ce n’est pas « Autorisations » : ici = « voyez-vous la porte » ; Autorisations = « que pouvez-vous faire une fois à l’intérieur ».\n4) L’entrée assistant a encore besoin des autorisations et du quota ensemble pour vraiment servir.",
-      "frontend": "Bibliothèque, lecture, rapports, applications, assistant, et entrées similaires en bas ou sur le côté.\nUtilisez une fenêtre privée ou un autre compte pour confirmer ce que voient encore les gens ordinaires.",
+      "frontend": "Bibliothèque, lecture, applications, assistant, et entrées similaires en bas ou sur le côté.\nUtilisez une fenêtre privée ou un autre compte pour confirmer ce que voient encore les gens ordinaires.",
       "notes": "Les administrateurs peuvent en général encore ouvrir la configuration système. Pensez à enregistrer, et vérifiez avec un compte non administrateur."
     },
     "visibilityItem": {
@@ -172,7 +172,7 @@
     },
     "library": {
       "what": "Disposition des cartes de bibliothèque, et quels éléments de quelles plateformes s’affichent dans chaque catégorie.",
-      "chain": "1) « Disposition des cartes » ci-dessus choisit liste ou toile infinie ; les appareils modestes repassent automatiquement en liste.\n2) Connectez d’abord les comptes sous « Plateformes de données » et synchronisez — alors seulement sources et comptes apparaissent ici.\n3) Les cases de source ne font que filtrer l’affichage : une plateforme décochée n’apparaît pas dans la bibliothèque, mais les données synchronisées restent en général sur le serveur.\n4) Les pages de rapports utilisent aussi les données de plateforme, mais expiration/régénération des rapports se règlent dans le groupe « Rapport » ci-dessous.\n5) Distinct de « la bibliothèque est-elle visible » dans la navigation : la visibilité permet d’entrer ; ici, disposition et sources.\n6) Disposition et sources s’enregistrent avec cette page dans les préférences de bibliothèque.",
+      "chain": "1) « Disposition des cartes » ci-dessus choisit liste ou toile infinie ; les appareils modestes repassent automatiquement en liste.\n2) Connectez d’abord les comptes sous « Plateformes de données » et synchronisez — alors seulement sources et comptes apparaissent ici.\n3) Les cases de source ne font que filtrer l’affichage : une plateforme décochée n’apparaît pas dans la bibliothèque, mais les données synchronisées restent en général sur le serveur.\n4) La scène du rapport utilise aussi les données de plateforme ; expiration/régénération des rapports sont réglées par le propriétaire du site dans les réglages de la scène (bouton engrenage de la scène).\n5) Distinct de « la bibliothèque est-elle visible » dans la navigation : la visibilité permet d’entrer ; ici, disposition et sources.\n6) Disposition et sources s’enregistrent avec cette page dans les préférences de bibliothèque.",
       "frontend": "Mode liste/toile de la bibliothèque, cartes sous chaque catégorie, et comptes affichés / avant filtre.\nAprès changement, ouvrez la bibliothèque et comparez.",
       "notes": "S’il n’y a pas de données, synchronisez d’abord les plateformes. Ne rien cocher pour une catégorie peut vider la liste. La toile est plus lourde — repassez en liste si ça ralenti."
     },
@@ -258,7 +258,7 @@
   "platforms": {
     "list": {
       "what": "Aperçu données et statistiques : plateformes connectées, statistiques de visite (pages / événements / référents), et usage IA.",
-      "chain": "1) Sous Plateformes connectées, liez GitHub, Steam, Bilibili, etc. et réglez l’actualisation auto.\n2) Sous Statistiques de visite, relisez les KPI, tendances, et sections pages/événements/référents.\n3) Sous Statistiques d’usage IA, relisez l’usage texte, image et parole de tout le site.\n4) Les interrupteurs de cartes ne contrôlent que la visibilité sur la page de rapports ; l’actualisation auto synchronise les plateformes configurées.",
+      "chain": "1) Sous Plateformes connectées, liez GitHub, Steam, Bilibili, etc. et réglez l’actualisation auto.\n2) Sous Statistiques de visite, relisez les KPI, tendances, et sections pages/événements/référents.\n3) Sous Statistiques d’usage IA, relisez l’usage texte, image et parole de tout le site.\n4) Les interrupteurs de cartes ne contrôlent que la visibilité sur la scène du rapport ; l’actualisation auto synchronise les plateformes configurées.",
       "frontend": "Paramètres → Données et statistiques. Les données de plateforme alimentent bibliothèque et rapports ; agrégats visiteurs et registre IA sont réservés aux administrateurs.",
       "notes": "Les statistiques de visite ne stockent pas d’IP brutes ; gardez les secrets de plateforme privés. L’usage IA est réservé aux administrateurs."
     },
@@ -282,7 +282,7 @@
     },
     "eventAnalytics": {
       "what": "Fréquence des événements produit dans la plage choisie, et combien de visiteurs les ont déclenchés.",
-      "chain": "1) Partage l’interrupteur de collecte, la plage de dates et les exclusions des statistiques de visite (administrateur/propriétaire non comptés).\n2) Compte = somme dans la plage ; visiteurs = personnes distinctes qui ont déclenché l’événement.\n3) Les intégrés couvrent connexion/OAuth, musique, bibliothèque, Phantasi, étape de rapport, Agent, Tapp, liens d’amis, thème/langue/panneau de contrôle ; passez une cible pour découper par entité (id Tapp, slug de plateforme, …).\n4) Ligne principale = total de l’événement ; sous-lignes = détail par cible (jusqu’à ~20).\n5) Couper la collecte arrête les nouvelles écritures ; l’historique reste lisible.",
+      "chain": "1) Partage l’interrupteur de collecte, la plage de dates et les exclusions des statistiques de visite (administrateur/propriétaire non comptés).\n2) Compte = somme dans la plage ; visiteurs = personnes distinctes qui ont déclenché l’événement.\n3) Les intégrés couvrent connexion/OAuth, musique, bibliothèque, Phantasi, scène du rapport, Agent, Tapp, liens d’amis, thème/langue/panneau de contrôle ; passez une cible pour découper par entité (id Tapp, slug de plateforme, …).\n4) Ligne principale = total de l’événement ; sous-lignes = détail par cible (jusqu’à ~20).\n5) Couper la collecte arrête les nouvelles écritures ; l’historique reste lisible.",
       "frontend": "Données et statistiques → Statistiques de visite → section Événements (à côté des Référents).",
       "notes": "Gardez des noms d’événements personnalisés stables et courts ; trop d’événements fréquents encombrent le classement. Les sauvegardes export/import incluent les agrégats d’événements et sont scellées par un jeton d’intégrité d’instance : les métriques éditées à la main sont refusées."
     },
@@ -324,25 +324,25 @@
     },
     "connected": {
       "what": "Connecter des comptes externes et configurer l’actualisation auto des plateformes configurées.",
-      "chain": "1) Ouvrez une carte de plateforme → remplissez compte/clés et enregistrez (configuré suffit pour synchroniser).\n2) L’interrupteur de la carte ne contrôle que l’apparition de cette plateforme sur la page de rapports — pas l’actualisation ni la lecture.\n3) L’actualisation auto ci-dessous planifie la synchronisation de toutes les plateformes configurées.\n4) Glissez les cartes pour l’ordre des cartes de la page de rapports.",
+      "chain": "1) Ouvrez une carte de plateforme → remplissez compte/clés et enregistrez (configuré suffit pour synchroniser).\n2) L’interrupteur de la carte ne contrôle que l’apparition du rapport de cette plateforme sur la scène du rapport (lecture enchaînée comprise) — pas l’actualisation ni la lecture des données.\n3) L’actualisation auto ci-dessous planifie la synchronisation de toutes les plateformes configurées.\n4) Glissez les cartes pour l’ordre des plateformes sur la scène (les sources de la bibliothèque le suivent aussi).",
       "frontend": "Entrées de bibliothèque, matière de rapports (si activée), widgets dépendant de la plateforme, et zone de gestion des données de chaque plateforme.",
-      "notes": "Remplissez les champs obligatoires avant de synchroniser ; l’interrupteur ne fait que basculer la visibilité de la page de rapports."
+      "notes": "Remplissez les champs obligatoires avant de synchroniser ; l’interrupteur ne fait que basculer la visibilité sur la scène du rapport."
     },
     "autoRefresh": {
       "what": "À quelle fréquence tirer automatiquement les données des plateformes déjà configurées.",
-      "chain": "1) Activez et choisissez un intervalle.\n2) La synchronisation en arrière-plan couvre toutes les plateformes configurées selon le planning (indépendant de l’interrupteur de la page de rapports ; décalé pour éviter de saturer les API).\n3) Bibliothèque et rapports paraissent plus frais à la prochaine ouverture.\n4) Sans plateforme configurée, l’actualisation auto n’a rien d’utile à faire.\n5) Un intervalle trop court peut vous faire limiter temporairement par l’autre plateforme.",
+      "chain": "1) Activez et choisissez un intervalle.\n2) La synchronisation en arrière-plan couvre toutes les plateformes configurées selon le planning (indépendant de l’interrupteur de la scène du rapport ; décalé pour éviter de saturer les API).\n3) Bibliothèque et rapports paraissent plus frais à la prochaine ouverture.\n4) Sans plateforme configurée, l’actualisation auto n’a rien d’utile à faire.\n5) Un intervalle trop court peut vous faire limiter temporairement par l’autre plateforme.",
       "frontend": "Données et statistiques → Plateformes connectées → « Fréquence d’actualisation ». Vérifiez les heures de mise à jour sur la page de détail de la plateforme ou dans la bibliothèque.",
       "notes": "La synchronisation manuelle sur la page de détail fonctionne encore à côté. Ne mettez pas des intervalles trop courts en production."
     },
     "platformCard": {
-      "what": "Champs de connexion plus l’interrupteur de visibilité de la page de rapports ; ouvrir pour config et opérations de données.",
-      "chain": "1) Les champs obligatoires doivent être remplis avant que l’interrupteur puisse s’activer.\n2) Une fois configuré, vous pouvez actualiser/traiter sur la page de détail et rejoindre l’actualisation auto.\n3) L’interrupteur ne montre/masque que la carte de la page de rapports ; le couper n’arrête pas la synchronisation des données.\n4) L’ordre de glisser affecte l’ordre des cartes de la page de rapports.",
+      "what": "Champs de connexion plus l’interrupteur de visibilité sur la scène du rapport ; ouvrir pour config et opérations de données.",
+      "chain": "1) Les champs obligatoires doivent être remplis avant que l’interrupteur puisse s’activer.\n2) Une fois configuré, vous pouvez actualiser/traiter sur la page de détail et rejoindre l’actualisation auto.\n3) L’interrupteur ne montre/masque que le rapport de cette plateforme sur la scène du rapport ; le couper n’arrête pas la synchronisation des données.\n4) L’ordre de glisser fixe l’ordre des plateformes sur la scène.",
       "frontend": "Données et statistiques → cartes de la liste Plateformes connectées ; interrupteur sur la carte, clic pour ouvrir le détail et la gestion des données.",
       "notes": "Un interrupteur grisé signifie en général des champs obligatoires incomplets."
     },
     "platformFields": {
       "what": "Nom d’utilisateur, clés secrètes, et autres détails de connexion.",
-      "chain": "1) Suivez les étapes à l’écran pour copier les clés depuis le site officiel → collez ici → enregistrez.\n2) Une fois configuré, vous pouvez synchroniser sans activer l’interrupteur de la page de rapports.\n3) Synchronisation réussie → les modules en aval ont des données ; fausse ou expirée → échec, bibliothèque/rapports peuvent rester vieux ou vides.\n4) Certaines plateformes se lient aussi à la connexion tierce — les étapes le diront.",
+      "chain": "1) Suivez les étapes à l’écran pour copier les clés depuis le site officiel → collez ici → enregistrez.\n2) Une fois configuré, vous pouvez synchroniser sans activer l’interrupteur de la scène du rapport.\n3) Synchronisation réussie → les modules en aval ont des données ; fausse ou expirée → échec, bibliothèque/rapports peuvent rester vieux ou vides.\n4) Certaines plateformes se lient aussi à la connexion tierce — les étapes le diront.",
       "frontend": "Indirect : si des données apparaissent et si des erreurs s’affichent. Après synchronisation, vérifiez la bibliothèque ou la zone de gestion des données de cette plateforme.",
       "notes": "Ne partagez pas les clés secrètes ; après rotation d’une clé, revenez la mettre à jour ici."
     },

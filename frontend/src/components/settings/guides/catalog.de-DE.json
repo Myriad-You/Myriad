@@ -161,7 +161,7 @@
     "visibility": {
       "what": "Welche Funktionstüren jede Zielgruppe sieht: alle, angemeldete Nutzer oder nur Admins.",
       "chain": "1) Sichtbarkeit eines Moduls ändern → zugehörige Einstellungen auf dieser Seite speichern.\n2) Die Navigationsleiste blendet Einträge nach Rolle ein oder aus; ohne Zugang kommt man auch per URL nicht hinein.\n3) Das ist nicht dasselbe wie „Berechtigungen“: hier = „sehen Sie die Tür“; Berechtigungen = „was Sie drinnen tun können“.\n4) Der Assistenteneinstieg braucht weiterhin Berechtigungen und Kontingent zusammen, bevor jemand ihn wirklich nutzen kann.",
-      "frontend": "Bibliothek, Lesen, Berichte, Apps, Assistent und ähnliche Einträge in der unteren oder seitlichen Navigation.\nMit einem privaten Fenster oder einem anderen Konto prüfen, was gewöhnliche Personen noch sehen.",
+      "frontend": "Bibliothek, Lesen, Apps, Assistent und ähnliche Einträge in der unteren oder seitlichen Navigation.\nMit einem privaten Fenster oder einem anderen Konto prüfen, was gewöhnliche Personen noch sehen.",
       "notes": "Admins können Systemkonfiguration meist weiter öffnen. Speichern nicht vergessen und mit einem Nicht-Admin-Konto prüfen."
     },
     "visibilityItem": {
@@ -172,7 +172,7 @@
     },
     "library": {
       "what": "Wie Bibliothekskarten gelegt sind und welche Plattformeinträge in jeder Kategorie erscheinen.",
-      "chain": "1) „Kartenlayout“ oben wählt Liste oder unendliche Leinwand; schwache Geräte fallen automatisch auf Liste zurück.\n2) Zuerst Konten unter „Datenplattformen“ verbinden und synchronisieren — erst dann erscheinen hier Quellen und Zahlen.\n3) Quellenhaken sind nur Anzeigefilter: nicht angehakte Plattformen erscheinen nicht in der Bibliothek, synchronisierte Daten liegen meist weiter auf dem Server.\n4) Berichtsseiten nutzen ebenfalls Plattformdaten, aber Ablauf und Neuerzeugen von Berichten liegen in der Gruppe „Bericht“ darunter.\n5) Getrennt von der Navigationssichtbarkeit der Bibliothek: Sichtbarkeit lässt Sie eintreten; innen werden Layout und Quellen hier gesetzt.\n6) Layout und Quellen speichern sich mit dieser Seite in den Bibliothekseinstellungen.",
+      "chain": "1) „Kartenlayout“ oben wählt Liste oder unendliche Leinwand; schwache Geräte fallen automatisch auf Liste zurück.\n2) Zuerst Konten unter „Datenplattformen“ verbinden und synchronisieren — erst dann erscheinen hier Quellen und Zahlen.\n3) Quellenhaken sind nur Anzeigefilter: nicht angehakte Plattformen erscheinen nicht in der Bibliothek, synchronisierte Daten liegen meist weiter auf dem Server.\n4) Die Berichtsbühne nutzt ebenfalls Plattformdaten; Ablauf und Neuerzeugen von Berichten legt der Site-Inhaber in den Einstellungen der Bühne fest (Zahnrad in der Bühne).\n5) Getrennt von der Navigationssichtbarkeit der Bibliothek: Sichtbarkeit lässt Sie eintreten; innen werden Layout und Quellen hier gesetzt.\n6) Layout und Quellen speichern sich mit dieser Seite in den Bibliothekseinstellungen.",
       "frontend": "Listen-/Leinwandmodus der Bibliothek, Karten unter jeder Kategorie und die angezeigten / vor dem Filter gezählten Werte.\nNach der Änderung die Bibliothek öffnen und vergleichen.",
       "notes": "Ohne Daten zuerst Plattformen synchronisieren. Nichts für eine Kategorie zu wählen kann die Liste leeren. Leinwand ist schwerer — bei Ruckeln zur Liste zurück."
     },
@@ -258,7 +258,7 @@
   "platforms": {
     "list": {
       "what": "Überblick Daten & Statistik: verbundene Plattformen, Besucherstatistik (Seiten / Ereignisse / Referrer) und KI-Nutzungsstatistik.",
-      "chain": "1) Unter Verbundene Plattformen GitHub, Steam, Bilibili usw. verknüpfen und Autoaktualisierung setzen.\n2) Unter Besucherstatistik KPIs, Trends und Abschnitte Seiten/Ereignisse/Referrer prüfen.\n3) Unter KI-Nutzungsstatistik den siteweiten Text-, Bild- und Sprachverbrauch prüfen.\n4) Kartenschalter steuern nur die Sichtbarkeit der Berichtsseite; Autoaktualisierung synchronisiert konfigurierte Plattformen.",
+      "chain": "1) Unter Verbundene Plattformen GitHub, Steam, Bilibili usw. verknüpfen und Autoaktualisierung setzen.\n2) Unter Besucherstatistik KPIs, Trends und Abschnitte Seiten/Ereignisse/Referrer prüfen.\n3) Unter KI-Nutzungsstatistik den siteweiten Text-, Bild- und Sprachverbrauch prüfen.\n4) Kartenschalter steuern nur die Sichtbarkeit auf der Berichtsbühne; Autoaktualisierung synchronisiert konfigurierte Plattformen.",
       "frontend": "Einstellungen → Daten & Statistik. Plattformdaten speisen Bibliothek und Berichte; Besucher- und KI-Buch-Aggregate sind nur für Admins.",
       "notes": "Die Besucherstatistik speichert keine Roh-IPs; Plattformgeheimnisse privat halten. KI-Nutzung ist nur für Admins."
     },
@@ -282,7 +282,7 @@
     },
     "eventAnalytics": {
       "what": "Wie oft Produktereignisse im gewählten Zeitraum feuern und wie viele Besucher sie treffen.",
-      "chain": "1) Teilt Erfassungsschalter, Zeitraum und Ausschlüsse der Besucherstatistik (Admin/Inhaber nicht gezählt).\n2) Anzahl = Summe im Zeitraum; Besucher = eindeutige Personen, die das Ereignis ausgelöst haben.\n3) Eingebaute decken Anmeldung/OAuth, Musik, Bibliothek, Phantasi, Berichtsstufe, Agent, Tapp, Freundeslinks, Design/Sprache/Steuerpanel ab; target für Aufteilung je Entität übergeben (tapp id, Plattform-Slug, …).\n4) Hauptzeile = Ereignissumme; Unterzeilen = Zielaufschlüsselung (bis etwa 20).\n5) Erfassung aus stoppt neue Schreibvorgänge; der Verlauf bleibt lesbar.",
+      "chain": "1) Teilt Erfassungsschalter, Zeitraum und Ausschlüsse der Besucherstatistik (Admin/Inhaber nicht gezählt).\n2) Anzahl = Summe im Zeitraum; Besucher = eindeutige Personen, die das Ereignis ausgelöst haben.\n3) Eingebaute decken Anmeldung/OAuth, Musik, Bibliothek, Phantasi, Berichtsbühne, Agent, Tapp, Freundeslinks, Design/Sprache/Steuerpanel ab; target für Aufteilung je Entität übergeben (tapp id, Plattform-Slug, …).\n4) Hauptzeile = Ereignissumme; Unterzeilen = Zielaufschlüsselung (bis etwa 20).\n5) Erfassung aus stoppt neue Schreibvorgänge; der Verlauf bleibt lesbar.",
       "frontend": "Daten & Statistik → Besucherstatistik → Abschnitt Ereignisse (neben Referrer).",
       "notes": "Eigene Ereignisnamen stabil und kurz halten; laute hochfrequente Ereignisse verdrängen die Rangliste. Export/Import-Sicherungen enthalten Ereignisaggregate und sind mit einem Instanz-Integritätstoken versiegelt, damit handbearbeitete Kennzahlen abgelehnt werden."
     },
@@ -324,25 +324,25 @@
     },
     "connected": {
       "what": "Externe Konten verbinden und Autoaktualisierung für konfigurierte Plattformen einrichten.",
-      "chain": "1) Eine Plattformkarte öffnen → Konto/Schlüssel ausfüllen und speichern (konfiguriert reicht zum Synchronisieren).\n2) Der Kartenschalter steuert nur, ob diese Plattform auf der Berichtsseite erscheint — nicht Aktualisieren oder Lesen.\n3) Autoaktualisierung darunter plant Sync für alle konfigurierten Plattformen.\n4) Karten nach links/rechts ziehen, um die Kartenreihenfolge der Berichtsseite zu setzen.",
+      "chain": "1) Eine Plattformkarte öffnen → Konto/Schlüssel ausfüllen und speichern (konfiguriert reicht zum Synchronisieren).\n2) Der Kartenschalter steuert nur, ob der Bericht dieser Plattform auf der Berichtsbühne erscheint (auch beim Nacheinander-Abspielen) — nicht Aktualisieren oder Lesen.\n3) Autoaktualisierung darunter plant Sync für alle konfigurierten Plattformen.\n4) Karten nach links/rechts ziehen, um die Plattformreihenfolge auf der Bühne zu setzen (die Bibliotheksquellen folgen ihr auch).",
       "frontend": "Bibliothekseinträge, Berichtsmaterial (wenn aktiviert), plattformabhängige Widgets und der Datenverwaltungsbereich jeder Plattform.",
-      "notes": "Pflichtfelder vor dem Sync ausfüllen; der Schalter steuert nur die Sichtbarkeit der Berichtsseite."
+      "notes": "Pflichtfelder vor dem Sync ausfüllen; der Schalter steuert nur die Sichtbarkeit auf der Berichtsbühne."
     },
     "autoRefresh": {
       "what": "Wie oft Daten für bereits konfigurierte Plattformen automatisch geholt werden.",
-      "chain": "1) Einschalten und Intervall wählen.\n2) Hintergrund synchronisiert alle konfigurierten Plattformen nach Zeitplan (unabhängig vom Berichtsseitenschalter; gestaffelt, um APIs nicht zu überlasten).\n3) Bibliothek und Berichte wirken beim nächsten Öffnen frischer.\n4) Ohne konfigurierte Plattformen hat Autoaktualisierung nichts Nützliches zu tun.\n5) Ein zu kurzes Intervall kann Sie vorübergehend von der anderen Plattform begrenzen.",
+      "chain": "1) Einschalten und Intervall wählen.\n2) Hintergrund synchronisiert alle konfigurierten Plattformen nach Zeitplan (unabhängig vom Bühnenschalter; gestaffelt, um APIs nicht zu überlasten).\n3) Bibliothek und Berichte wirken beim nächsten Öffnen frischer.\n4) Ohne konfigurierte Plattformen hat Autoaktualisierung nichts Nützliches zu tun.\n5) Ein zu kurzes Intervall kann Sie vorübergehend von der anderen Plattform begrenzen.",
       "frontend": "Daten & Statistik → Verbundene Plattformen → „Aktualisierungsfrequenz“. Aktualisierungszeiten auf der Plattformdetailseite oder in der Bibliothek prüfen.",
       "notes": "Manueller Sync auf der Detailseite funktioniert daneben weiter. Produktionsintervalle nicht zu kurz setzen."
     },
     "platformCard": {
-      "what": "Verbindungsfelder plus Sichtbarkeitsschalter der Berichtsseite; zum Konfigurieren und für Datenoperationen öffnen.",
-      "chain": "1) Pflichtfelder müssen ausgefüllt sein, bevor der Schalter angehen kann.\n2) Einmal konfiguriert können Sie auf der Detailseite aktualisieren/verarbeiten und an der Autoaktualisierung teilnehmen.\n3) Der Schalter zeigt/versteckt nur die Karte der Berichtsseite; Aus stoppt den Datensync nicht.\n4) Ziehreihenfolge wirkt auf die Kartenreihenfolge der Berichtsseite.",
+      "what": "Verbindungsfelder plus Sichtbarkeitsschalter für die Berichtsbühne; zum Konfigurieren und für Datenoperationen öffnen.",
+      "chain": "1) Pflichtfelder müssen ausgefüllt sein, bevor der Schalter angehen kann.\n2) Einmal konfiguriert können Sie auf der Detailseite aktualisieren/verarbeiten und an der Autoaktualisierung teilnehmen.\n3) Der Schalter zeigt/versteckt nur den Bericht dieser Plattform auf der Berichtsbühne; Aus stoppt den Datensync nicht.\n4) Die Ziehreihenfolge bestimmt die Plattformreihenfolge auf der Bühne.",
       "frontend": "Daten & Statistik → Listen karten verbundener Plattformen; Schalter auf der Karte, Klick öffnet Detail und Datenverwaltung.",
       "notes": "Ein ausgegrauter Schalter bedeutet meist unvollständige Pflichtfelder."
     },
     "platformFields": {
       "what": "Nutzername, Geheimschlüssel und andere Verbindungsdetails.",
-      "chain": "1) Den Schritten auf der Seite folgen, Schlüssel von der offiziellen Site kopieren → hier einfügen → speichern.\n2) Einmal konfiguriert können Sie synchronisieren, ohne den Berichtsseitenschalter einzuschalten.\n3) Erfolgreicher Sync → nachgelagerte Module haben Daten; falsch oder abgelaufen → Sync scheitert, Bibliothek/Berichte können alt oder leer bleiben.\n4) Manche Plattformen hängen auch mit Drittanbieter-Anmeldung zusammen — die Schritte sagen das.",
+      "chain": "1) Den Schritten auf der Seite folgen, Schlüssel von der offiziellen Site kopieren → hier einfügen → speichern.\n2) Einmal konfiguriert können Sie synchronisieren, ohne den Bühnenschalter einzuschalten.\n3) Erfolgreicher Sync → nachgelagerte Module haben Daten; falsch oder abgelaufen → Sync scheitert, Bibliothek/Berichte können alt oder leer bleiben.\n4) Manche Plattformen hängen auch mit Drittanbieter-Anmeldung zusammen — die Schritte sagen das.",
       "frontend": "Indirekt: ob Daten erscheinen und ob Fehler gezeigt werden. Nach dem Sync die Bibliothek oder den Datenverwaltungsbereich dieser Plattform prüfen.",
       "notes": "Geheimschlüssel nicht teilen; nach dem Rotieren eines Schlüssels hierher zurückkommen und ihn aktualisieren."
     },

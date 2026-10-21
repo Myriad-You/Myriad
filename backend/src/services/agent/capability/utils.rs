@@ -324,7 +324,7 @@ pub fn get_quick_reference() -> Value {
             "ai.summarize": {"content": "article text or contentFrom", "maxLength": 300},
             "ai.analyze": {"content": "text to analyze", "analysisType": "sentiment|trends|custom", "customPrompt": "custom angle"},
             "phantasi.items": {"limit": 10, "source_id": "optional source id", "unread_only": true},
-            "router.navigate": {"path": "/, /library, /blog, /studio, /reports, /config, /tapp"},
+            "router.navigate": {"path": "/, /library, /blog, /studio, /config, /tapp"},
             "music.control": {"action": "play|pause|toggle|next|previous|mute|unmute|volume", "volume": 50},
             "scheduler.create": {"tappId": "installed app id", "name": "task name", "scheduleType": "cron", "schedule": {"cron": "*/30 * * * *"}},
             "heartbeat.create": {"name": "Phantasi morning summary", "schedule": "0 9 * * *", "action": "summarize phantasi feeds", "enabled": true},

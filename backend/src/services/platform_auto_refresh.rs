@@ -61,7 +61,8 @@ fn backend_actions(platform: &str) -> serde_json::Value {
 /// Reconcile persisted core tasks with the administrator's platform settings.
 ///
 /// `platform_names` should be **configured** platforms (credentials ready).
-/// Report-page `enabled` is unrelated — callers must not filter on it.
+/// The per-platform `enabled` switch (whether it shows on the report stage) is
+/// unrelated — callers must not filter on it.
 ///
 /// Existing rows are disabled rather than deleted so execution history remains
 /// inspectable. Newly enabled or rescheduled tasks run after one full interval;

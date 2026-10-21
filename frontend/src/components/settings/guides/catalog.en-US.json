@@ -161,7 +161,7 @@
     "visibility": {
       "what": "Which feature doors each audience can see: everyone, signed-in users, or admins only.",
       "chain": "1) Change a module’s visibility → save the related settings on this page.\n2) The nav bar hides or shows entries by role; people without access can’t get in even by typing the URL.\n3) This is not the same as “Permissions”: here = “can you see the door”; Permissions = “what you can do once inside.”\n4) The assistant entry still needs permissions and quota together before someone can really use it.",
-      "frontend": "Library, reading, reports, apps, assistant, and similar entries on the bottom or side nav.\nUse a private window or another account to confirm what ordinary people still see.",
+      "frontend": "Library, reading, apps, assistant, and similar entries on the bottom or side nav.\nUse a private window or another account to confirm what ordinary people still see.",
       "notes": "Admins can usually still open system configuration. Remember to save, and verify with a non-admin account."
     },
     "visibilityItem": {
@@ -172,7 +172,7 @@
     },
     "library": {
       "what": "How library cards are laid out, and which platforms’ items show in each category.",
-      "chain": "1) “Card layout” above chooses list or infinite canvas; low-end devices fall back to list automatically.\n2) Connect accounts under “Data platforms” and sync first — only then do sources and counts appear here.\n3) Source checks are display filtering only: unchecked platforms don’t show in the library, but synced data usually still sits on the server.\n4) Report pages also use platform data, but how reports expire or regenerate is under the “Report” group below.\n5) Separate from nav “is the library visible”: visibility lets you enter; inside, layout and sources are set here.\n6) Layout and sources save together with this page into library preferences.",
+      "chain": "1) “Card layout” above chooses list or infinite canvas; low-end devices fall back to list automatically.\n2) Connect accounts under “Data platforms” and sync first — only then do sources and counts appear here.\n3) Source checks are display filtering only: unchecked platforms don’t show in the library, but synced data usually still sits on the server.\n4) The report stage also uses platform data; how reports expire or regenerate is set by the site owner in the stage’s settings (the gear button in the stage).\n5) Separate from nav “is the library visible”: visibility lets you enter; inside, layout and sources are set here.\n6) Layout and sources save together with this page into library preferences.",
       "frontend": "Library list/canvas mode, cards under each category, and the shown / before-filter counts.\nAfter changing, open the library and compare.",
       "notes": "If there’s no data, sync platforms first. Selecting nothing for a category can leave the list empty. Canvas is heavier — switch back to list if it feels laggy."
     },
@@ -258,7 +258,7 @@
   "platforms": {
     "list": {
       "what": "Data & stats overview: connected platforms, visitor stats (pages / events / referrers), and AI usage stats.",
-      "chain": "1) Under Connected platforms, link GitHub, Steam, Bilibili, etc. and set auto-refresh.\n2) Under Visitor stats, review KPIs, trends, and page/event/referrer sections.\n3) Under AI usage stats, review full-site text, image, and speech usage.\n4) Card switches only control report-page visibility; auto-refresh syncs configured platforms.",
+      "chain": "1) Under Connected platforms, link GitHub, Steam, Bilibili, etc. and set auto-refresh.\n2) Under Visitor stats, review KPIs, trends, and page/event/referrer sections.\n3) Under AI usage stats, review full-site text, image, and speech usage.\n4) Card switches only control visibility on the report stage; auto-refresh syncs configured platforms.",
       "frontend": "Settings → Data & stats. Platform data feeds library and reports; visitor and AI ledger aggregates are admin-only.",
       "notes": "Visitor stats do not store raw IPs; keep platform secrets private. AI usage is admin-only."
     },
@@ -324,25 +324,25 @@
     },
     "connected": {
       "what": "Connect external accounts and configure auto-refresh for configured platforms.",
-      "chain": "1) Open a platform card → fill account/keys and save (configured is enough to sync).\n2) The card switch only controls whether that platform appears on the reports page — not refresh or read.\n3) Auto-refresh below schedules sync for all configured platforms.\n4) Drag cards left/right to set report-page card order.",
+      "chain": "1) Open a platform card → fill account/keys and save (configured is enough to sync).\n2) The card switch only controls whether that platform’s report appears on the report stage (play-all follows it too) — not refresh or read.\n3) Auto-refresh below schedules sync for all configured platforms.\n4) Drag cards left/right to set platform order on the stage (library sources follow it too).",
       "frontend": "Library entries, report material (when enabled), platform-dependent widgets, and each platform’s data management area.",
-      "notes": "Fill required fields before syncing; the switch only toggles report-page visibility."
+      "notes": "Fill required fields before syncing; the switch only toggles visibility on the report stage."
     },
     "autoRefresh": {
       "what": "How often to auto-pull data for platforms that are already configured.",
-      "chain": "1) Turn on and pick an interval.\n2) Background syncs all configured platforms on schedule (independent of the report-page switch; staggered to avoid bursting APIs).\n3) Library and reports look fresher next time you open them.\n4) With no platforms configured, auto refresh has nothing useful to do.\n5) Too short an interval may get you temporarily limited by the other platform.",
+      "chain": "1) Turn on and pick an interval.\n2) Background syncs all configured platforms on schedule (independent of the report-stage switch; staggered to avoid bursting APIs).\n3) Library and reports look fresher next time you open them.\n4) With no platforms configured, auto refresh has nothing useful to do.\n5) Too short an interval may get you temporarily limited by the other platform.",
       "frontend": "Data & stats → Connected platforms → “Refresh frequency”. Check update times on the platform detail page or in the library.",
       "notes": "Manual sync on the detail page still works alongside this. Don’t set production intervals too short."
     },
     "platformCard": {
-      "what": "Connection fields plus the report-page visibility switch; open for config and data ops.",
-      "chain": "1) Required fields must be filled before the switch can turn on.\n2) Once configured you can refresh/process on the detail page and join auto-refresh.\n3) The switch only shows/hides the reports-page card; turning it off does not stop data sync.\n4) Drag order affects report-page card order.",
+      "what": "Connection fields plus the report-stage visibility switch; open for config and data ops.",
+      "chain": "1) Required fields must be filled before the switch can turn on.\n2) Once configured you can refresh/process on the detail page and join auto-refresh.\n3) The switch only shows/hides that platform’s report on the report stage; turning it off does not stop data sync.\n4) Drag order sets platform order on the stage.",
       "frontend": "Data & stats → Connected platforms list cards; switch on the card, click to open detail and data management.",
       "notes": "Grayed-out switch usually means required fields are incomplete."
     },
     "platformFields": {
       "what": "Username, secret keys, and other connection details.",
-      "chain": "1) Follow on-page steps to copy keys from the official site → paste here → save.\n2) Once configured you can sync without turning on the report-page switch.\n3) Successful sync → downstream modules have data; wrong or expired → sync fails, library/reports may stay old or empty.\n4) Some platforms also relate to third-party login — the steps will say so.",
+      "chain": "1) Follow on-page steps to copy keys from the official site → paste here → save.\n2) Once configured you can sync without turning on the report-stage switch.\n3) Successful sync → downstream modules have data; wrong or expired → sync fails, library/reports may stay old or empty.\n4) Some platforms also relate to third-party login — the steps will say so.",
       "frontend": "Indirect: whether data appears and whether errors show. After sync, check the library or this platform’s data management area.",
       "notes": "Don’t share secret keys; after rotating a key, come back and update it here."
     },

@@ -13,7 +13,7 @@
   },
   "platform:write": {
     "what": "Ermöglicht das Schreiben oder Aktualisieren von Plattformdateneinträgen.",
-    "chain": "1) Die App ruft Schreib-APIs auf.\n2) Daten landen im Plattformspeicher der Site.\n3) Berichte und Bibliotheksansichten, die davon abhängen, können sich ändern.",
+    "chain": "1) Die App ruft Schreib-APIs auf.\n2) Daten landen im Plattformspeicher der Site.\n3) Berichtskarten, Berichtsbühne und Bibliotheksansichten, die davon abhängen, können sich ändern.",
     "frontend": "Import/Sync in der App; spätere Anzeigen auf der Site.",
     "notes": "Hohe Wirkung — fehlerhafte Schreibvorgänge können Statistiken verfälschen."
   },
@@ -68,13 +68,13 @@
   "report:read": {
     "what": "Ermöglicht das Lesen vorhandener erzeugter Berichte.",
     "chain": "1) Die App fordert Berichtsinhalt an.\n2) Liest aus dem Berichtsspeicher.\n3) Rendert in der App.",
-    "frontend": "Berichtsmodul; Berichtansichten in der App.",
+    "frontend": "Berichtskarten auf der Startseite und Berichtsbühne; Berichtansichten in der App.",
     "notes": "Erstellt selbst keine Berichte."
   },
   "report:write": {
     "what": "Ermöglicht das Anlegen, Aktualisieren oder Löschen von Berichten.",
-    "chain": "1) Die App schreibt über Berichts-APIs.\n2) Berichtsliste/-inhalt ändert sich.\n3) Die Berichtsseite aktualisiert sich.",
-    "frontend": "Berichtsliste und Detail.",
+    "chain": "1) Die App schreibt über Berichts-APIs.\n2) Berichtsliste/-inhalt ändert sich.\n3) Berichtskarten auf der Startseite und die Bühne aktualisieren sich.",
+    "frontend": "Berichtskarten auf der Startseite und Berichtsbühne.",
     "notes": "Kann für Nutzer sichtbare Berichte löschen — sensibel."
   },
   "storage:read": {

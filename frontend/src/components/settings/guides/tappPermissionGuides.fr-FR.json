@@ -13,7 +13,7 @@
   },
   "platform:write": {
     "what": "Permet d’écrire ou de mettre à jour des entrées de données de plateforme.",
-    "chain": "1) L’application appelle les API d’écriture.\n2) Les données sont stockées dans le stockage de plateforme du site.\n3) Les rapports / vues bibliothèque qui en dépendent peuvent changer.",
+    "chain": "1) L’application appelle les API d’écriture.\n2) Les données sont stockées dans le stockage de plateforme du site.\n3) Les cartes de rapport, la scène du rapport et les vues bibliothèque qui en dépendent peuvent changer.",
     "frontend": "Import/synchronisation dans l’application ; affichages ultérieurs du site.",
     "notes": "Fort impact — une mauvaise écriture peut polluer les statistiques."
   },
@@ -68,13 +68,13 @@
   "report:read": {
     "what": "Permet de lire les rapports déjà générés.",
     "chain": "1) L’application demande le contenu d’un rapport.\n2) Lecture depuis le stockage des rapports.\n3) Affichage dans l’application.",
-    "frontend": "Module Rapports ; vues de rapports dans l’application.",
+    "frontend": "Cartes de rapport de l’accueil et scène du rapport ; vues de rapports dans l’application.",
     "notes": "Ne crée pas de rapports à elle seule."
   },
   "report:write": {
     "what": "Permet de créer, mettre à jour ou supprimer des rapports.",
-    "chain": "1) L’application écrit via les API de rapports.\n2) La liste/le contenu des rapports change.\n3) La page Rapports se met à jour.",
-    "frontend": "Liste et détail des rapports.",
+    "chain": "1) L’application écrit via les API de rapports.\n2) La liste/le contenu des rapports change.\n3) Les cartes de rapport de l’accueil et la scène se mettent à jour.",
+    "frontend": "Cartes de rapport de l’accueil et scène du rapport.",
     "notes": "Peut supprimer des rapports visibles — sensible."
   },
   "storage:read": {
