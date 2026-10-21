@@ -449,18 +449,26 @@ describe('rss reader state', () => {
     const state = model.createState({})
     state.scope = { kind: 'category', value: 'News' }
     state.unreadOnly = false
+    Object.assign(state, { measure: 'wide', compact: true, focus: true })
     const restored = model.restorePrefs(model.createState({}), model.prefsOf(state))
     assert.deepEqual(restored.scope, { kind: 'category', value: 'News' })
     assert.equal(restored.unreadOnly, false)
+    assert.equal(restored.measure, 'wide')
+    assert.equal(restored.compact, true)
+    assert.equal(restored.focus, true)
 
     const junk = model.restorePrefs(model.createState({}), {
       version: 3,
       scope: { kind: 'source', value: 'x' },
       fontStep: 99,
       fontFamily: 'comic',
+      measure: 'huge',
+      compact: 'yes',
     })
     assert.deepEqual(junk.scope, { kind: 'all', value: null })
     assert.equal(junk.fontStep, 3)
     assert.equal(junk.fontFamily, 'serif')
+    assert.equal(junk.measure, 'normal')
+    assert.equal(junk.compact, false)
   })
 })

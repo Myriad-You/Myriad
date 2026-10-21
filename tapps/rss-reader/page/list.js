@@ -51,7 +51,15 @@ function buildListHeader(state) {
     el('button', { type: 'button', className: 'rss-btn is-primary is-small', 'data-action': 'mark-all' }, t('markAllReadConfirm')),
   );
 
-  head.append(top, segment, search, confirm);
+  // 未读 / 全部和列表疏密放在同一行，不再各占一行。
+  const bar = el('div', { className: 'rss-list-head__bar' });
+  bar.append(segment, el('span', { className: 'rss-spacer' }), iconButton('toggle-compact', 'rows', t('compactList'), {
+    'data-role': 'compact-toggle',
+    className: 'rss-icon-btn is-small',
+    'aria-pressed': 'false',
+  }));
+
+  head.append(top, bar, search, confirm);
   return head;
 }
 
@@ -66,6 +74,13 @@ function paintListHeader(root, state, ui) {
     for (const option of segment.querySelectorAll('[data-action="unread-only"]')) {
       setPressed(option, String(state.unreadOnly) === option.getAttribute('data-value'));
     }
+  }
+  const compact = q(root, 'compact-toggle');
+  if (compact) {
+    setPressed(compact, state.compact);
+    toggleClass(compact, 'is-on', state.compact);
+    compact.setAttribute('aria-label', state.compact ? t('detailedList') : t('compactList'));
+    compact.setAttribute('title', state.compact ? t('detailedList') : t('compactList'));
   }
   const markAll = q(root, 'mark-all');
   if (markAll) markAll.hidden = !canMarkAll(state);

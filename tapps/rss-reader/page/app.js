@@ -3,7 +3,7 @@
 const { el, q, nextFrame } = require('./dom.js');
 const model = require('./model.js');
 const { paintListHeader } = require('./list.js');
-const { paintTypography, trackProgress } = require('./reader.js');
+const { paintTypography, trackProgress, followScroll, currentItem } = require('./reader.js');
 const { createManageUi } = require('./manage.js');
 const { markBrokenIcon } = require('./nav.js');
 const reading = require('./reading.js');
@@ -86,7 +86,7 @@ function onClick(ctx, event) {
     return;
   }
   const action = target.getAttribute('data-action');
-  if (action !== 'toggle-type' && action !== 'font-step' && action !== 'font-family') closePopovers(ctx, target);
+  if (action !== 'toggle-type' && action !== 'font-step' && action !== 'font-family' && action !== 'measure') closePopovers(ctx, target);
   run(ctx, action, target);
 }
 
@@ -188,6 +188,20 @@ function run(ctx, action, target) {
       paintTypography(ctx.root, state, ui);
       reading.savePrefs(ctx);
       return;
+    case 'measure':
+      if (model.MEASURES.includes(target.getAttribute('data-value'))) state.measure = target.getAttribute('data-value');
+      paintTypography(ctx.root, state, ui);
+      reading.savePrefs(ctx);
+      return;
+    case 'toggle-focus':
+      toggleFocus(ctx);
+      return;
+    case 'toggle-compact':
+      state.compact = !state.compact;
+      view.paintLayout(ctx);
+      paintListHeader(ctx.root, state, ui);
+      reading.savePrefs(ctx);
+      return;
     case 'export-opml':
       void reading.exportOpml(ctx);
       return;
@@ -273,6 +287,40 @@ function toggleNav(ctx) {
   view.paintLayout(ctx);
 }
 
+function toggleFocus(ctx) {
+  const { state, ui } = ctx;
+  if (ui.layout === 'single') return;
+  state.focus = !state.focus;
+  if (state.focus) state.drawer = false;
+  view.paintLayout(ctx);
+  reading.savePrefs(ctx);
+}
+
+/**
+ * 空格往下翻一屏，已经到底就接着下一篇；Shift+空格往回翻。
+ * 还没打开文章时先打开当前选中的那篇。
+ */
+function pageArticle(ctx, dir) {
+  const { state, ui } = ctx;
+  const scroll = q(ctx.root, 'reader-scroll');
+  const article = currentItem(state);
+  if (!article || (ui.layout === 'single' && state.view !== 'article')) {
+    if (state.selectedId != null) void reading.openArticle(ctx, state.selectedId, { reveal: true });
+    else if (dir > 0) void reading.step(ctx, 1);
+    return;
+  }
+  if (!scroll) return;
+  const max = (scroll.scrollHeight || 0) - (scroll.clientHeight || 0);
+  const top = scroll.scrollTop || 0;
+  if (dir > 0 && top >= max - 4) {
+    void reading.step(ctx, 1);
+    return;
+  }
+  const distance = Math.max(120, (scroll.clientHeight || 0) * 0.85) * dir;
+  if (typeof scroll.scrollBy === 'function') scroll.scrollBy({ top: distance, behavior: 'smooth' });
+  else scroll.scrollTop = top + distance;
+}
+
 function goBack(ctx) {
   const { state } = ctx;
   state.view = 'list';
@@ -344,6 +392,7 @@ function onScroll(ctx, event) {
   nextFrame(() => {
     progressQueued = false;
     trackProgress(ctx.root);
+    followScroll(ctx.root, ctx.ui.typeOpen);
   });
 }
 
@@ -425,6 +474,8 @@ function onKey(ctx, event) {
     } else if (state.drawer) {
       state.drawer = false;
       view.paintLayout(ctx);
+    } else if (state.focus && ui.layout !== 'single') {
+      toggleFocus(ctx);
     } else if (state.view === 'article' && ui.layout === 'single') {
       goBack(ctx);
     }
@@ -453,6 +504,14 @@ function onKey(ctx, event) {
     focusLater(ctx, '[data-action="mark-all"]');
     return;
   }
+  if (key === ' ') {
+    // 焦点在别的按钮上时空格是「按下按钮」，不抢；在文章行或空白处才翻页。
+    const onButton = target && target.tagName === 'BUTTON' && !(target.classList && target.classList.contains('rss-row'));
+    if (onButton) return;
+    event.preventDefault();
+    pageArticle(ctx, event.shiftKey ? -1 : 1);
+    return;
+  }
   const lower = key.length === 1 ? key.toLowerCase() : key;
   if (lower === 'j' || lower === 'n') {
     event.preventDefault();
@@ -468,6 +527,8 @@ function onKey(ctx, event) {
     reading.toggleRead(ctx);
   } else if (lower === 'r') {
     void reading.reloadAll(ctx);
+  } else if (lower === 'f') {
+    toggleFocus(ctx);
   }
 }
 

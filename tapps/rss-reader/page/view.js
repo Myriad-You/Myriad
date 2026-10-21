@@ -1,7 +1,7 @@
 // 把各块的绘制串起来，并管布局状态（抽屉、单栏时看列表还是看文章）。
 // ctx = { root, state, ui }，ui 是不落盘的界面瞬时状态。
 
-const { t, el, icon, iconButton, q, setIcon, toggleClass } = require('./dom.js');
+const { t, el, icon, iconButton, q, setIcon, setPressed, toggleClass } = require('./dom.js');
 const { renderNav } = require('./nav.js');
 const { buildListHeader, paintListHeader, renderList, markSelected } = require('./list.js');
 const { buildReader, renderReader, paintReaderTools, paintTypography } = require('./reader.js');
@@ -78,6 +78,7 @@ function buildHelp() {
   head.append(el('h2', { id: 'rss-help-title' }, t('shortcuts')), iconButton('close-help', 'close', t('close')));
   const list = el('dl', { className: 'rss-shortcuts' });
   const rows = [
+    [['Space'], 'keySpace'],
     [['J'], 'keyNext'],
     [['K'], 'keyPrev'],
     [['O'], 'keyOriginal'],
@@ -86,6 +87,7 @@ function buildHelp() {
     [['R'], 'keyReload'],
     [['/'], 'keySearch'],
     [['Shift', 'A'], 'keyMarkAll'],
+    [['F'], 'keyFocus'],
     [['['], 'keyFeeds'],
     [['Esc'], 'keyBack'],
   ];
@@ -107,6 +109,19 @@ function paintLayout(ctx) {
   toggleClass(root, 'is-article', state.view === 'article');
   toggleClass(root, 'is-drawer', state.drawer && mode !== 'wide');
   toggleClass(root, 'is-nav-collapsed', state.navCollapsed && mode === 'wide');
+  // 专注阅读只在能同时看到列表的宽度下有意义；单栏本来就只有正文。
+  const focus = state.focus && mode !== 'single';
+  toggleClass(root, 'is-focus', focus);
+  toggleClass(root, 'is-compact', state.compact);
+  const focusToggle = q(root, 'focus-toggle');
+  if (focusToggle) {
+    focusToggle.hidden = mode === 'single';
+    setPressed(focusToggle, focus);
+    toggleClass(focusToggle, 'is-on', focus);
+    const label = focus ? t('exitFocus') : t('focusMode');
+    focusToggle.setAttribute('aria-label', label);
+    focusToggle.setAttribute('title', `${label} (F)`);
+  }
   const navOpen = mode === 'wide' ? !state.navCollapsed : state.drawer;
   const toggle = q(root, 'nav-toggle');
   if (toggle) {

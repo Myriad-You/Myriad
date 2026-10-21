@@ -7,6 +7,7 @@
 const PREFS_KEY = 'rss.reader.prefs';
 const PREFS_VERSION = 3;
 const FONT_STEPS = [-2, -1, 0, 1, 2, 3];
+const MEASURES = ['narrow', 'normal', 'wide'];
 const UNCATEGORIZED = '__none__';
 
 function createState(permissions) {
@@ -32,6 +33,9 @@ function createState(permissions) {
     collapsed: [],
     fontStep: 0,
     fontFamily: 'serif',
+    measure: 'normal',
+    compact: false,
+    focus: false,
     canWrite: Boolean(permissions && permissions.write),
     canManage: Boolean(permissions && permissions.manage),
   };
@@ -114,6 +118,9 @@ function restorePrefs(state, raw) {
     if (Array.isArray(prefs.collapsed)) state.collapsed = prefs.collapsed.filter((name) => typeof name === 'string').slice(0, 200);
     state.fontStep = clampStep(prefs.fontStep);
     if (prefs.fontFamily === 'sans' || prefs.fontFamily === 'serif') state.fontFamily = prefs.fontFamily;
+    if (MEASURES.includes(prefs.measure)) state.measure = prefs.measure;
+    if (typeof prefs.compact === 'boolean') state.compact = prefs.compact;
+    if (typeof prefs.focus === 'boolean') state.focus = prefs.focus;
     return state;
   }
   if (prefs.filter === 'starred') state.scope = { kind: 'starred', value: null };
@@ -133,6 +140,9 @@ function prefsOf(state) {
     collapsed: state.collapsed,
     fontStep: state.fontStep,
     fontFamily: state.fontFamily,
+    measure: state.measure,
+    compact: state.compact,
+    focus: state.focus,
   };
 }
 
@@ -151,6 +161,7 @@ function scopeStillExists(state, isFeed, tokensOf) {
 module.exports = {
   PREFS_KEY,
   FONT_STEPS,
+  MEASURES,
   UNCATEGORIZED,
   createState,
   sameScope,

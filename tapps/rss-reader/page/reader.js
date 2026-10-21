@@ -7,7 +7,7 @@ const { sourceLookup } = require('./list.js');
 
 function buildReader(state) {
   const pane = el('article', { className: 'rss-reader', 'data-role': 'reader', 'aria-label': t('reading') });
-  const head = el('header', { className: 'rss-pane-head rss-reader-head' });
+  const head = el('header', { className: 'rss-pane-head rss-reader-head', 'data-role': 'reader-head' });
   const bar = el('div', { className: 'rss-pane-head__row', role: 'toolbar', 'aria-label': t('articleTools') });
   bar.append(
     iconButton('back', 'back', t('back'), { 'data-role': 'reader-back', className: 'rss-icon-btn rss-reader-back' }),
@@ -15,6 +15,7 @@ function buildReader(state) {
     iconButton('next', 'down', t('next'), { 'data-role': 'reader-next', 'aria-keyshortcuts': 'J' }),
     el('span', { className: 'rss-spacer' }),
     iconButton('toggle-type', 'type', t('typography'), { 'data-role': 'type-toggle', 'aria-expanded': 'false', 'aria-controls': 'rss-type' }),
+    iconButton('toggle-focus', 'focus', t('focusMode'), { 'data-role': 'focus-toggle', 'aria-keyshortcuts': 'F', 'aria-pressed': 'false' }),
   );
   if (state.canWrite) {
     bar.append(
@@ -23,13 +24,14 @@ function buildReader(state) {
     );
   }
   bar.append(iconButton('open-original', 'external', t('openOriginal'), { 'data-role': 'original', 'aria-keyshortcuts': 'O' }));
+  head.append(bar, typePanel());
+  // 进度条不放在栏头里：往下读时栏头会收起来，进度条要留在顶上。
   const progress = el('div', { className: 'rss-progress', 'aria-hidden': 'true' });
   progress.appendChild(el('span', { 'data-role': 'progress' }));
-  head.append(bar, typePanel(), progress);
 
   const scroll = el('div', { className: 'rss-reader__scroll', 'data-role': 'reader-scroll' });
   scroll.appendChild(el('div', { 'data-role': 'reader-body' }));
-  pane.append(head, scroll);
+  pane.append(head, progress, scroll);
   return pane;
 }
 
@@ -51,7 +53,14 @@ function typePanel() {
     el('button', { type: 'button', className: 'is-sans', 'data-action': 'font-family', 'data-value': 'sans' }, t('sans')),
   );
   family.appendChild(segment);
-  panel.append(size, family);
+  const measure = el('div', { className: 'rss-popover__row' });
+  measure.append(el('span', { className: 'rss-popover__label' }, t('lineWidth')));
+  const widths = el('div', { className: 'rss-segment is-compact', role: 'group', 'aria-label': t('lineWidth') });
+  for (const [value, label] of [['narrow', 'measureNarrow'], ['normal', 'measureNormal'], ['wide', 'measureWide']]) {
+    widths.appendChild(el('button', { type: 'button', 'data-action': 'measure', 'data-value': value }, t(label)));
+  }
+  measure.appendChild(widths);
+  panel.append(size, family, measure);
   return panel;
 }
 
@@ -60,6 +69,7 @@ function paintTypography(root, state, ui) {
   if (reader) {
     reader.setAttribute('data-font', state.fontFamily);
     reader.setAttribute('data-step', String(state.fontStep));
+    reader.setAttribute('data-measure', state.measure);
   }
   const panel = q(root, 'type-panel');
   if (panel) panel.hidden = !ui.typeOpen;
@@ -76,6 +86,9 @@ function paintTypography(root, state, ui) {
   if (up) up.disabled = state.fontStep >= FONT_STEPS[FONT_STEPS.length - 1];
   for (const option of root.querySelectorAll('[data-action="font-family"]')) {
     setPressed(option, option.getAttribute('data-value') === state.fontFamily);
+  }
+  for (const option of root.querySelectorAll('[data-action="measure"]')) {
+    setPressed(option, option.getAttribute('data-value') === state.measure);
   }
 }
 
@@ -173,6 +186,7 @@ function renderReader(root, state) {
   host.replaceChildren(page);
   const scroll = q(root, 'reader-scroll');
   if (scroll && full) scroll.scrollTop = 0;
+  showHead(root, true);
   setProgress(root, 0);
   nextFrame(() => trackProgress(root));
 }
@@ -221,6 +235,27 @@ function readerEmpty(state) {
   return box;
 }
 
+/**
+ * 往下读时把栏头收起来，往回滚或回到顶部再放出来。状态只记在节点的类名上，
+ * 换文章时直接放出来也不会和别处记的状态对不上。
+ */
+function showHead(root, visible) {
+  toggleClass(q(root, 'reader'), 'is-head-hidden', !visible);
+}
+
+let lastTop = 0;
+
+function followScroll(root, holdHead) {
+  const scroll = q(root, 'reader-scroll');
+  if (!scroll) return;
+  const top = scroll.scrollTop || 0;
+  const delta = top - lastTop;
+  lastTop = top;
+  if (holdHead || top < 48) showHead(root, true);
+  else if (delta > 4) showHead(root, false);
+  else if (delta < -4) showHead(root, true);
+}
+
 function setProgress(root, ratio) {
   const bar = q(root, 'progress');
   if (!bar) return;
@@ -235,4 +270,4 @@ function trackProgress(root) {
   setProgress(root, max > 8 ? (scroll.scrollTop || 0) / max : 0);
 }
 
-module.exports = { buildReader, renderReader, paintReaderTools, paintTypography, trackProgress, currentItem };
+module.exports = { buildReader, renderReader, paintReaderTools, paintTypography, trackProgress, followScroll, showHead, currentItem };

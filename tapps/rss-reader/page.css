@@ -540,9 +540,11 @@ body.dark .rss-app {
   border-bottom: 1px solid var(--rss-line);
 }
 
-.rss-list-head .rss-segment {
-  align-self: flex-start;
-  margin-left: 0.35rem;
+.rss-list-head__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.35rem;
 }
 
 .rss-search {
@@ -761,6 +763,27 @@ body.dark .rss-app {
   background: var(--rss-hover);
 }
 
+/* 紧凑列表：只留来源、时间和标题，一屏能多看一倍。 */
+.rss-app.is-compact .rss-row {
+  padding-top: 0.55rem;
+  padding-bottom: 0.6rem;
+}
+
+.rss-app.is-compact .rss-row__dot {
+  top: 0.9rem;
+}
+
+.rss-app.is-compact .rss-row__title {
+  font-size: 1em;
+  -webkit-line-clamp: 2;
+}
+
+.rss-app.is-compact .rss-row__excerpt,
+.rss-app.is-compact .rss-row__foot,
+.rss-app.is-compact .rss-row__thumb {
+  display: none;
+}
+
 .rss-more,
 .rss-end {
   display: flex;
@@ -901,25 +924,57 @@ body.dark .rss-app {
 
 /* ---------- 正文 ---------- */
 
+/* 栏头浮在正文上面，往下读时收起来，正文用满整栏高度。 */
 .rss-reader {
+  --rss-reader-head: calc(var(--rss-head-h) + 1rem + 1px + var(--rss-inset-top));
+
   position: relative;
+  overflow: hidden;
   background: var(--rss-surface);
 }
 
 .rss-reader-head {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
   border-bottom: 1px solid var(--rss-line);
   background: color-mix(in srgb, var(--rss-surface) 86%, transparent);
   backdrop-filter: saturate(1.4) blur(14px);
   backdrop-filter: saturate(1.4) blur(14px);
+  transition: transform 0.26s var(--rss-ease);
+}
+
+.rss-reader.is-head-hidden .rss-reader-head:not(:focus-within) {
+  transform: translateY(-100%);
+}
+
+/* 全屏时宿主的浮动条压在顶部这一条上，栏头收起后也留着它，正文不钻到浮动条下面。 */
+.rss-reader::before {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--rss-inset-top);
+  background: var(--rss-surface);
+  content: "";
 }
 
 .rss-progress {
   position: absolute;
+  z-index: 3;
+  top: calc(var(--rss-reader-head) - 2px);
   right: 0;
-  bottom: -1px;
   left: 0;
   height: 2px;
   overflow: hidden;
+  pointer-events: none;
+  transition: top 0.26s var(--rss-ease);
+}
+
+.rss-reader.is-head-hidden .rss-reader-head:not(:focus-within) + .rss-progress {
+  top: var(--rss-inset-top);
 }
 
 .rss-progress span {
@@ -934,8 +989,10 @@ body.dark .rss-app {
 .rss-reader__scroll {
   flex: 1;
   min-height: 0;
+  padding-top: var(--rss-reader-head);
   overflow: auto;
   overscroll-behavior: contain;
+  scroll-padding-top: var(--rss-reader-head);
 }
 
 .rss-reader__scroll > div {
@@ -944,10 +1001,11 @@ body.dark .rss-app {
 
 .rss-article {
   --rss-measure: 40rem;
+  --rss-measure-extra: 0rem;
   --rss-body-size: 1.2em;
 
   width: 100%;
-  max-width: calc(var(--rss-measure) + 3rem);
+  max-width: calc(var(--rss-measure) + var(--rss-measure-extra) + 3rem);
   margin: 0 auto;
   padding: 2.25rem 1.5rem 5rem;
   animation: rss-fade 0.22s var(--rss-ease);
@@ -959,13 +1017,16 @@ body.dark .rss-app {
 
 .rss-reader[data-step="2"] .rss-article {
   --rss-body-size: 1.45em;
-  --rss-measure: 42rem;
+  --rss-measure-extra: 2rem;
 }
 
 .rss-reader[data-step="3"] .rss-article {
   --rss-body-size: 1.6em;
-  --rss-measure: 44rem;
+  --rss-measure-extra: 4rem;
 }
+
+.rss-reader[data-measure="narrow"] .rss-article { --rss-measure: 33rem; }
+.rss-reader[data-measure="wide"] .rss-article { --rss-measure: 50rem; }
 
 .rss-article__kicker {
   display: flex;
@@ -1798,12 +1859,16 @@ body.dark .rss-toast {
   padding-top: calc(0.5rem + var(--rss-inset-top));
 }
 
-.rss-nav {
+.rss-nav-head {
+  padding-left: calc(0.75rem + var(--rss-inset-left));
+}
+
+.rss-nav__body {
   padding-left: var(--rss-inset-left);
 }
 
 .rss-nav-foot {
-  padding-bottom: calc(0.5rem + var(--rss-inset-bottom));
+  padding: 0.5rem 0.5rem calc(0.5rem + var(--rss-inset-bottom)) calc(0.5rem + var(--rss-inset-left));
 }
 
 .rss-list__body,
@@ -1813,6 +1878,10 @@ body.dark .rss-toast {
 
 .rss-reader-head {
   padding-right: calc(0.75rem + var(--rss-inset-right));
+}
+
+.rss-reader-head .rss-popover {
+  right: calc(0.75rem + var(--rss-inset-right));
 }
 
 .rss-layer {
@@ -1834,7 +1903,11 @@ body.dark .rss-toast {
     grid-template-columns: calc(var(--rss-nav-w) + var(--rss-inset-left)) var(--rss-list-w) minmax(0, 1fr);
   }
 
-  .rss-app.is-nav-collapsed .rss-list {
+  .rss-app.is-nav-collapsed .rss-list-head {
+    padding-left: calc(0.75rem + var(--rss-inset-left));
+  }
+
+  .rss-app.is-nav-collapsed .rss-list__body {
     padding-left: var(--rss-inset-left);
   }
 
@@ -1855,7 +1928,11 @@ body.dark .rss-toast {
     grid-template-columns: var(--rss-list-w) minmax(0, 1fr);
   }
 
-  .rss-list {
+  .rss-list-head {
+    padding-left: calc(0.75rem + var(--rss-inset-left));
+  }
+
+  .rss-list__body {
     padding-left: var(--rss-inset-left);
   }
 
@@ -1886,6 +1963,33 @@ body.dark .rss-toast {
   }
 }
 
+/* ---------- 专注阅读：收起侧栏和列表 ---------- */
+
+@media (width >= 1180px) {
+  .rss-app.is-focus .rss-shell {
+    grid-template-columns: 0 0 minmax(0, 1fr);
+  }
+}
+
+@media (width >= 860px) and (width <= 1179px) {
+  .rss-app.is-focus .rss-shell {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+}
+
+@media (width >= 860px) {
+  .rss-app.is-focus .rss-list,
+  .rss-app.is-focus:not(.is-drawer) .rss-nav {
+    visibility: hidden;
+    overflow: hidden;
+    border: 0;
+  }
+
+  .rss-app.is-focus .rss-reader-head {
+    padding-left: calc(0.75rem + var(--rss-inset-left));
+  }
+}
+
 /* ---------- 窄屏：一次一栏 ---------- */
 
 @media (width <= 859px) {
@@ -1898,8 +2002,15 @@ body.dark .rss-toast {
   }
 
   .rss-list {
-    padding-right: var(--rss-inset-right);
     border-right: 0;
+  }
+
+  .rss-list-head {
+    padding-right: calc(0.75rem + var(--rss-inset-right));
+  }
+
+  .rss-list__body {
+    padding-right: var(--rss-inset-right);
   }
 
   .rss-reader-head {
