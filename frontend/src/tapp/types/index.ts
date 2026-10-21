@@ -279,6 +279,8 @@ export interface TappCodeStructure {
   pageEntry?: string
   /** widget id → 层入口。 */
   widgetEntries?: Record<string, string>
+  /** widget id → 弹窗层入口。 */
+  popupEntries?: Record<string, string>
   styles?: string
   pageStyles?: string
   widgetStyles?: Record<string, string>
@@ -308,6 +310,14 @@ export interface ManifestWidget {
   settings?: TappSettingItem[]
 
   refreshPolicy?: WidgetRefreshPolicy
+
+  /** 弹窗层：卡片调 Tapp.widget.openPopup() 时在单独沙箱里跑。样式沿用 styles。 */
+  popup?: ManifestWidgetPopup
+}
+
+export interface ManifestWidgetPopup {
+  entry: string
+  size?: 'md' | 'lg' | 'stage'
 }
 
 export interface WidgetRefreshPolicy {

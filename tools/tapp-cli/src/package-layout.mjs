@@ -8,13 +8,14 @@ export function assetPackagePath(path) {
   return path.startsWith('assets/') ? path : `assets/${path.replace(/^\/+/, '')}`
 }
 
-/** 层入口按固定顺序展开：core、page、各 widget。 */
+/** 层入口按固定顺序展开：core、page、各 widget（及其弹窗层）。 */
 export function manifestLayerEntries(manifest) {
   const entries = []
   if (manifest?.core?.entry) entries.push(manifest.core.entry)
   if (manifest?.page?.entry) entries.push(manifest.page.entry)
   for (const widget of manifest?.widgets || []) {
     if (widget?.entry) entries.push(widget.entry)
+    if (widget?.popup?.entry) entries.push(widget.popup.entry)
   }
   return entries
 }

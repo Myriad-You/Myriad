@@ -75,7 +75,7 @@ describe('sandbox capability profiles', () => {
     )
     assert.deepEqual(
       Iterator.from(permissionActions.difference(sdkActions)).toArray().toSorted(),
-      ['widget.instanceSettings.update', 'widget.invalidate'],
+      ['popup.close', 'widget.instanceSettings.update', 'widget.invalidate', 'widget.popup.open'],
       'only Widget-SDK-specific actions may be absent from the Page SDK',
     )
   })

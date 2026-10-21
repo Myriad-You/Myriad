@@ -12,8 +12,9 @@ pub use myriad_tapp_rules::{
 pub use myriad_tapp_rules::{
     asset_bytes_within_limit, filter_widget_paths, installed_core_entry,
     installed_manifest_declares_asset, installed_page_entry, installed_text_resource_plan,
-    installed_widget_layer_paths, installed_widget_template_paths, manifest_declares_core,
-    manifest_declares_page, manifest_declares_widgets, require_known_widget_id,
+    installed_widget_layer_paths, installed_widget_popup_entries, installed_widget_template_paths,
+    manifest_declares_core, manifest_declares_page, manifest_declares_widgets,
+    require_known_widget_id,
 };
 
 #[cfg(test)]

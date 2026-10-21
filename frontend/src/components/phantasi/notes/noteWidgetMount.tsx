@@ -11,6 +11,7 @@ import { Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom'
 import { useI18n } from '../../../contexts/I18nContext'
 import { RenderErrorBoundary } from '../../RenderErrorBoundary'
+import { useWidgetPopupOpener } from '../../WidgetGridItemBody'
 import { widgetHostConfig } from '../../widgetLibraryModel'
 import {
   decodeWidgetConfigAttr,
@@ -95,21 +96,54 @@ function NoteWidgetSlot({
   if (!widgetType || !config) {
     return <div className="note-widget__missing">{missingLabel}</div>
   }
-  const WidgetComponent = widgetType.component
   return (
     <RenderErrorBoundary
       source="note-widget"
       fallback={<div className="note-widget__missing">{missingLabel}</div>}
     >
-      <Suspense fallback={null}>
-        <WidgetComponent
-          config={config}
-          isEditMode={Boolean(editable)}
-          isPreview={false}
-          onConfigChange={onConfigChange}
-        />
-      </Suspense>
+      <NoteWidgetBody
+        host={host}
+        widgetType={widgetType}
+        config={config}
+        editable={Boolean(editable)}
+        onConfigChange={onConfigChange}
+      />
     </RenderErrorBoundary>
+  )
+}
+
+function NoteWidgetBody({
+  host,
+  widgetType,
+  config,
+  editable,
+  onConfigChange,
+}: {
+  host: HTMLElement
+  widgetType: WidgetType
+  config: WidgetConfig
+  editable: boolean
+  onConfigChange?: (config: NoteWidgetConfig) => void
+}) {
+  const anchorRef = useMemo(() => ({ current: host }), [host])
+  const openPopup = useWidgetPopupOpener(
+    config,
+    widgetType,
+    anchorRef,
+    !editable,
+    onConfigChange,
+  )
+  const WidgetComponent = widgetType.component
+  return (
+    <Suspense fallback={null}>
+      <WidgetComponent
+        config={config}
+        isEditMode={editable}
+        isPreview={false}
+        onConfigChange={onConfigChange}
+        openPopup={openPopup}
+      />
+    </Suspense>
   )
 }
 

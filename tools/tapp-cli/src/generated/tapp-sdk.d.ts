@@ -3,7 +3,7 @@
  * Generated from the runtime permission catalog. Call sites still need
  * matching Manifest permissions and a handler in the current sandbox profile.
  *
- * Headless-denied Bridge actions: component.list, component.registerAgent, component.registerTheme, component.unregister, dynamicContent.get, dynamicContent.remove, dynamicContent.set, dynamicContent.update, file.download, model3d.awaitTask, model3d.createTask, model3d.getMetadata, model3d.getTask, model3d.getUrl, model3d.status, model3d.upload, shortcut.list, shortcut.register, shortcut.unregister, tappList.export, tappList.get, tappList.getInstallPackage, tappList.getRecent, tappList.install, tappList.list, tappList.resolveStoreSource, tappList.start, tappList.stop, tappList.uninstall, ui.confirm, ui.fullscreen.exit, ui.fullscreen.isFullscreen, ui.fullscreen.request, ui.fullscreen.toggle, ui.listOpenUrls, ui.openUrl, ui.setTitle, widget.listRegistered, widget.register, widget.unregister, widget.updateConfig
+ * Headless-denied Bridge actions: component.list, component.registerAgent, component.registerTheme, component.unregister, dynamicContent.get, dynamicContent.remove, dynamicContent.set, dynamicContent.update, file.download, model3d.awaitTask, model3d.createTask, model3d.getMetadata, model3d.getTask, model3d.getUrl, model3d.status, model3d.upload, popup.close, shortcut.list, shortcut.register, shortcut.unregister, tappList.export, tappList.get, tappList.getInstallPackage, tappList.getRecent, tappList.install, tappList.list, tappList.resolveStoreSource, tappList.start, tappList.stop, tappList.uninstall, ui.confirm, ui.fullscreen.exit, ui.fullscreen.isFullscreen, ui.fullscreen.request, ui.fullscreen.toggle, ui.listOpenUrls, ui.openUrl, ui.setTitle, widget.listRegistered, widget.popup.open, widget.register, widget.unregister, widget.updateConfig
  *
  * Do not edit by hand — run: npm run sync-contract
  */
@@ -316,6 +316,45 @@ export interface TappSdk {
     }
   >
 
+  /** Popup layer per widget id (`widgets[].popup.entry`). Runs in its own sandbox. */
+  popups: Record<
+    string,
+    {
+      render(
+        container: HTMLElement,
+        props: {
+          size?: string
+          theme?: string
+          params?: unknown
+          [key: string]: unknown
+        },
+      ): void | Promise<void>
+    }
+  >
+
+  widget: {
+    getInstanceSettings(): Record<string, unknown>
+    updateInstanceSettings(patch: Record<string, unknown>): Promise<unknown>
+    /** Re-run this card's render(). With options it targets other cards (permission: storage:write). */
+    invalidate(reason?: string, options?: unknown): Promise<unknown>
+    /**
+     * Open this widget's popup layer. Only honoured right after the user acts on the card;
+     * params must be JSON and at most 4 KiB.
+     */
+    openPopup(params?: unknown): Promise<unknown>
+    register(config: unknown): Promise<unknown> // permission: widget:register
+    unregister(id: string): Promise<unknown> // permission: widget:register
+    listRegistered(): Promise<unknown> // permission: widget:register
+    updateConfig(id: string, config: unknown): Promise<unknown> // permission: widget:register
+  }
+
+  /** Available inside a popup layer. */
+  popup: {
+    close(): Promise<unknown>
+    getParams(): unknown
+    onParams(callback: (params: unknown) => void): () => void
+  }
+
   pages: Record<
     string,
     {
@@ -559,17 +598,6 @@ export interface TappSdk {
     isAdmin(...args: unknown[]): Promise<unknown>
     isGuest(...args: unknown[]): Promise<unknown>
     isLoggedIn(...args: unknown[]): Promise<unknown>
-  }
-  widget: {
-    invalidate(...args: unknown[]): Promise<unknown>
-    invalidateTarget(...args: unknown[]): Promise<unknown> // permission: storage:write
-    listRegistered(...args: unknown[]): Promise<unknown> // permission: widget:register
-    register(...args: unknown[]): Promise<unknown> // permission: widget:register
-    unregister(...args: unknown[]): Promise<unknown> // permission: widget:register
-    updateConfig(...args: unknown[]): Promise<unknown> // permission: widget:register
-    instanceSettings: {
-      update(...args: unknown[]): Promise<unknown>
-    }
   }
 }
 

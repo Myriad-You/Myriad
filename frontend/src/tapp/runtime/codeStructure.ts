@@ -2,8 +2,8 @@ import type { TappCodeStructure, TappInstance } from '../types'
 import type { LayerExecutionPlan } from './moduleRuntime'
 import { buildLayerRuntime } from './moduleRuntime'
 
-/** background 是 headless core，只跑共享层。 */
-export type TappSandboxMode = 'widget' | 'page' | 'background'
+/** background 是 headless core，只跑共享层。popup 是某个 widget 的弹窗层。 */
+export type TappSandboxMode = 'widget' | 'page' | 'background' | 'popup'
 
 /** 组装该模式入口。core 三种模式都先执行。 */
 export function getLayerEntries(
@@ -21,6 +21,13 @@ export function getLayerEntries(
       throw new Error(`Unknown widget id: ${widgetId}`)
     }
     entries.push(widgetEntry)
+  }
+  if (mode === 'popup' && widgetId) {
+    const popupEntry = code.popupEntries?.[widgetId]
+    if (!popupEntry) {
+      throw new Error(`Widget ${widgetId} has no popup layer`)
+    }
+    entries.push(popupEntry)
   }
   return entries
 }
@@ -86,6 +93,16 @@ export function getCodeStructureFingerprint(
 
   if (mode === 'background') {
     return hashParts([...moduleParts, JSON.stringify(code.i18n || {})])
+  }
+  if (mode === 'popup') {
+    return hashParts([
+      ...moduleParts,
+      code.styles || '',
+      ...sortedRecordParts(code.widgetStyles),
+      code.widgetCSS || '',
+      JSON.stringify(code.i18n || {}),
+      ...sortedRecordParts(code.assets),
+    ])
   }
   if (mode === 'widget') {
     return hashParts([

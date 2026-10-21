@@ -787,6 +787,10 @@ function validateManifest(manifest, diagnostics, requiredPermissions) {
         diagnostics.push(diagnostic('error', 'invalid-resource-path', `widgets[${index}].${key} must be a safe relative ${extension} path`))
       }
     }
+    const popupEntry = widget.popup?.entry
+    if (popupEntry !== undefined && (!validateResourcePath(popupEntry) || extname(popupEntry) !== contract.rules.resourceExtensions.widgetEntry)) {
+      diagnostics.push(diagnostic('error', 'invalid-resource-path', `widgets[${index}].popup.entry must be a safe relative .js path`))
+    }
   }
   const normalizedSystemVersion = typeof manifest.minSystemVersion === 'string'
     ? contract.rules.semverPrefixes.reduce(

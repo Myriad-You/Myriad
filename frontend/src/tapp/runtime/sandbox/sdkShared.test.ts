@@ -146,8 +146,8 @@ describe('generateSettingsNamespaceCode', () => {
 })
 
 describe('SDK_FREEZE_TAPP_CODE', () => {
-  it('freezes window.Tapp and skips widgets/pages', () => {
-    assert.match(SDK_FREEZE_TAPP_CODE, /skip = \{ widgets: 1, pages: 1 \}/)
+  it('freezes window.Tapp and skips widgets/popups/pages', () => {
+    assert.match(SDK_FREEZE_TAPP_CODE, /skip = \{ widgets: 1, popups: 1, pages: 1 \}/)
     assert.match(SDK_FREEZE_TAPP_CODE, /\)\(window\.Tapp\)/)
     assert.doesNotMatch(SDK_FREEZE_TAPP_CODE, /\)\(Tapp\)/)
   })

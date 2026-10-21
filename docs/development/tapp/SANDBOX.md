@@ -45,7 +45,9 @@ Dashboard 上的 Widget 沙箱在 **iframe 发出 ready（`tapp.ready` / lifecyc
 - 不开放 `allow-same-origin`。`srcdoc + allow-scripts + allow-same-origin` 会显著削弱
   sandbox 隔离。
 - 不开放 popups、modals、forms、downloads 或 top navigation。需要通知、确认、全屏、
-  文件下载等能力时必须调用对应的 Tapp SDK，由宿主决定是否执行。
+  文件下载等能力时必须调用对应的 Tapp SDK，由宿主决定是否执行。小组件要放大内容用
+  `Tapp.widget.openPopup()`：宿主在自己的弹窗里另起一个沙箱跑 `widgets[].popup.entry`，
+  不是浏览器弹窗。
 - `allowFullscreen` 由宿主单独设置，但调用仍经过 `ui:fullscreen` 权限与 handler。
 
 ## CSP

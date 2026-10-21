@@ -520,6 +520,12 @@ function widgetNamespace(surface: SdkSurface): string {
         if (options == null) return sendRequest('widget', 'invalidate', [reason]);
         return sendRequest('widget', 'invalidateTarget', [reason, options]);
       },
+      openPopup: (params) => sendRequest('widget', 'popup.open', [params === undefined ? null : params]),
+    },
+    popup: {
+      close: () => sendRequest('popup', 'close', []),
+      getParams: () => (window._TAPP_POPUP_PARAMS === undefined ? null : window._TAPP_POPUP_PARAMS),
+      onParams: (cb) => addEventListener('popup:params', cb),
     },`
   }
   if (surface === 'headless') {
@@ -1052,6 +1058,9 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
         eventListeners.get('primaryColorChange')?.forEach((cb) => { try { cb(message.payload); } catch {} });
         applyTappPrimaryColor(message.payload);
       }
+      else if (message.action === 'popup:params') {
+        window._TAPP_POPUP_PARAMS = message.payload;
+      }
       else if (message.action === 'animationLevel:change') {
         eventListeners.get('animationLevelChange')?.forEach((cb) => { try { cb(message.payload); } catch {} });
       }
@@ -1194,6 +1203,7 @@ ${when(
   !isHeadless,
   `
     widgets: {},
+    popups: {},
     pages: {},`,
 )}
   };

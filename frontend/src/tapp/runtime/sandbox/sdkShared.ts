@@ -242,7 +242,7 @@ export const SDK_HOST_CHROME_CODE = `
 /** widgets/pages 必须能注册 render，不能冻。其余命名空间一律冻上。 */
 export const SDK_FREEZE_TAPP_CODE = `
   (function(tapp) {
-    const skip = { widgets: 1, pages: 1 };
+    const skip = { widgets: 1, popups: 1, pages: 1 };
     Object.keys(tapp).forEach(function(key) {
       if (skip[key]) return;
       const value = tapp[key];

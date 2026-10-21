@@ -196,15 +196,17 @@ Manifest 会经历 Rust 结构的反序列化和再序列化。因此新增 Mani
 `prune_stale_private_tapps`）、`backend/src/main.rs` worker、配置读写
 `permissions_oauth` / DynamicConfig。详情见 [REST_API · 私有安装清理](REST_API.md#私有安装清理-post-apitappscleanup-temporary)。
 
-## `core`、`widget`、`page` 三层
+## `core`、`widget`、`page` 三层与 widget 弹窗层
 
-每层在包里各自有入口文件，由 Manifest 的 `core` / `page` / `widgets[].entry` 声明；
+每层在包里各自有入口文件，由 Manifest 的 `core` / `page` / `widgets[].entry` /
+`widgets[].popup.entry` 声明；
 层内其余文件由入口用相对路径 `require` 进来。宿主按 mode 只下发相关层的依赖图，
 再把这些文件静态包装成模块工厂注入 iframe。
 
 | 模式     | 执行代码                    | UI 资源                        | 主要宿主                   |
 | -------- | --------------------------- | ------------------------------ | -------------------------- |
 | Widget   | core 入口 + 该 widget 入口  | 指定尺寸模板、Widget CSS       | `TappWidgetSandbox`        |
+| Popup    | core 入口 + 该 widget 的弹窗入口 | 该 widget 的作者样式，Tailwind 按闭包现编 | `TappWidgetSandbox surface="popup"`（宿主弹窗里） |
 | Page     | core 入口 + page 入口       | Page HTML、Page CSS、i18n      | `TappPageSandbox`          |
 | Headless | 仅 core 入口                | 不加载 Page/Widget HTML 与 CSS | `TappPageSandbox headless` |
 
@@ -215,6 +217,7 @@ core 在三种模式下都先执行，模块化不改变这一点；只有后台
 
 - `core` 放共享状态、后台监听、调度回调和不依赖可见 DOM 的逻辑。
 - `widget` 只负责小组件定义/渲染；不要假设完整 Page SDK handler 都存在。
+- 弹窗层是某个 widget 的放大界面，能力面与 widget 相同，加 `Tapp.popup`；关掉只暂存不销毁。
 - `page` 负责完整页面生命周期和交互。
 - headless core 没有可见容器，不能把后台任务写在 Page render/onReady 的 UI 分支中。
 

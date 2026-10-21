@@ -25,6 +25,18 @@ export interface WidgetResources {
   i18n?: Record<string, unknown>
 }
 
+export interface PopupResources {
+  modules: Record<string, string>
+  moduleResolutions?: Record<string, Record<string, string>>
+  coreEntry?: string
+  popupEntries?: Record<string, string>
+  /** 作者样式（core + 该 widget 层；弹窗沿用 widget 的样式） */
+  styles?: string
+  /** 按弹窗层依赖闭包现编的 Tailwind */
+  css: string
+  i18n?: Record<string, unknown>
+}
+
 export interface PageResources {
   modules: Record<string, string>
   moduleResolutions?: Record<string, Record<string, string>>
@@ -231,6 +243,55 @@ export class TappResourceLoader {
         )
 
         return resources
+      },
+    )
+  }
+
+  /** 弹窗层：core + 该 widget 的弹窗入口。宿主预编译只覆盖卡片层，这里按闭包现编。 */
+  async loadPopupResources(
+    tappInstance: TappInstance,
+    widgetId: string,
+  ): Promise<PopupResources> {
+    const cacheKey = `${tappInstance.id}:popup:${widgetId}`
+    const generation = this.generationFor(tappInstance.id)
+
+    return this.deduplicator.dedupe(
+      `popup:${cacheKey}:${generation}`,
+      async () => {
+        const raw = await this.fetchRawResources(
+          tappInstance.id,
+          'popup',
+          widgetId,
+        )
+        if (!this.generationIsCurrent(tappInstance.id, generation)) {
+          return this.loadPopupResources(tappInstance, widgetId)
+        }
+        const styleParts = [
+          raw.coreStyles,
+          raw.widgetStyles?.[widgetId],
+        ].filter((part): part is string => !!part)
+        const styles = styleParts.length > 0 ? styleParts.join('\n') : undefined
+
+        let css = getCachedEntry(this.widgetCssCache, cacheKey)?.data
+        if (css === undefined) {
+          css = CssSeparator.generateLayerCSS(raw.modules, undefined, styles)
+          setCachedEntry(
+            this.widgetCssCache,
+            cacheKey,
+            { data: css, timestamp: Date.now(), ttl: CACHE_TTL.separatedCss },
+            CACHE_LIMIT.widgetCss,
+          )
+        }
+
+        return {
+          modules: raw.modules,
+          moduleResolutions: raw.moduleResolutions,
+          coreEntry: raw.coreEntry,
+          popupEntries: raw.popupEntries,
+          styles,
+          css,
+          i18n: raw.i18n,
+        }
       },
     )
   }
@@ -449,6 +510,13 @@ export async function loadWidgetResources(
   widgetId: string,
 ): Promise<WidgetResources> {
   return getResourceLoader().loadWidgetResources(tappInstance, size, widgetId)
+}
+
+export async function loadPopupResources(
+  tappInstance: TappInstance,
+  widgetId: string,
+): Promise<PopupResources> {
+  return getResourceLoader().loadPopupResources(tappInstance, widgetId)
 }
 
 export async function loadCoreResources(

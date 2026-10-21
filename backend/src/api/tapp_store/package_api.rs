@@ -28,8 +28,8 @@ use crate::services::tapp_install_resources::collect_tapp_module_graph;
 use crate::services::tapp_package_read::{
     HOST_PAGE_CSS, HOST_WIDGET_CSS, asset_bytes_within_limit, filter_widget_paths,
     installed_core_entry, installed_manifest_declares_asset, installed_page_entry,
-    installed_text_resource_plan, installed_widget_layer_paths, installed_widget_template_paths,
-    require_known_widget_id,
+    installed_text_resource_plan, installed_widget_layer_paths, installed_widget_popup_entries,
+    installed_widget_template_paths, require_known_widget_id,
 };
 use myriad_error::AppError;
 
@@ -64,6 +64,9 @@ pub(super) struct TappResourcesResponse {
     page_entry: Option<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     widget_entries: HashMap<String, String>,
+    /// widget id → 弹窗层入口。只在 `popup` mode 下发所选那一个。
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    popup_entries: HashMap<String, String>,
     /// 作者样式（层声明）。
     #[serde(skip_serializing_if = "Option::is_none")]
     core_styles: Option<String>,
@@ -94,12 +97,14 @@ pub(super) struct TappResourcesResponse {
 /// - `core`: core dependency closure only
 /// - `widget`: core + widgets (all if `widget_id` omitted, else one)
 /// - `page`: core + page layers only
+/// - `popup`: core + one widget's popup layer (`widget_id` required); styles reuse that widget's
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResourceMode {
     Full,
     Core,
     Widget,
     Page,
+    Popup,
 }
 
 impl ResourceMode {
@@ -112,6 +117,7 @@ impl ResourceMode {
             Some("core") => Self::Core,
             Some("widget") => Self::Widget,
             Some("page") => Self::Page,
+            Some("popup") => Self::Popup,
             _ => Self::Full,
         }
     }
@@ -123,14 +129,18 @@ impl ResourceMode {
     fn wants_page(self) -> bool {
         matches!(self, Self::Full | Self::Page)
     }
+
+    fn wants_popup(self) -> bool {
+        matches!(self, Self::Full | Self::Popup)
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub(super) struct GetTappResourcesQuery {
-    /// `full` | `core` | `widget` | `page`. Unknown values fall back to full.
+    /// `full` | `core` | `widget` | `page` | `popup`. Unknown values fall back to full.
     #[serde(default)]
     mode: Option<String>,
-    /// Widget mode may select one manifest widget. Omitted: all widgets.
+    /// Widget mode may select one manifest widget. Omitted: all widgets. Popup mode requires it.
     #[serde(default)]
     widget_id: Option<String>,
 }
@@ -245,13 +255,18 @@ pub(super) async fn get_tapp_resources(
 
     let want_widget = mode.wants_widget();
     let want_page = mode.wants_page();
-    let selected_widget_id = if mode == ResourceMode::Widget {
+    let selected_widget_id = if matches!(mode, ResourceMode::Widget | ResourceMode::Popup) {
         require_known_widget_id(manifest, query.widget_id.as_deref()).map_err(|error| {
             unsupported_package_structure(&format!("Unknown widget id: {}", error.0))
         })?
     } else {
         None
     };
+    if mode == ResourceMode::Popup && selected_widget_id.is_none() {
+        return Err(unsupported_package_structure(
+            "Popup mode requires widget_id",
+        ));
+    }
 
     // 入口完全来自 manifest。目录名不参与层归属。
     let core_entry = installed_core_entry(manifest);
@@ -272,7 +287,21 @@ pub(super) async fn get_tapp_resources(
     } else {
         HashMap::new()
     };
-    let widget_styles_paths = if want_widget {
+    let popup_entries: HashMap<String, String> = if mode.wants_popup() {
+        let entries =
+            filter_widget_paths(installed_widget_popup_entries(manifest), selected_widget_id);
+        if let (ResourceMode::Popup, Some(widget_id)) = (mode, selected_widget_id) {
+            if entries.is_empty() {
+                return Err(unsupported_package_structure(&format!(
+                    "Widget {widget_id} has no popup layer"
+                )));
+            }
+        }
+        entries.into_iter().collect()
+    } else {
+        HashMap::new()
+    };
+    let widget_styles_paths = if want_widget || mode == ResourceMode::Popup {
         filter_widget_paths(
             installed_widget_layer_paths(manifest, "styles"),
             selected_widget_id,
@@ -329,6 +358,7 @@ pub(super) async fn get_tapp_resources(
     layer_entries.extend(core_entry.clone());
     layer_entries.extend(page_entry.clone());
     layer_entries.extend(widget_entries.values().cloned());
+    layer_entries.extend(popup_entries.values().cloned());
     let graph = collect_tapp_module_graph(&all_modules, &layer_entries)
         .map_err(|error| unsupported_package_structure(&error))?;
     let modules: HashMap<String, String> = graph
@@ -354,6 +384,7 @@ pub(super) async fn get_tapp_resources(
         core_entry,
         page_entry,
         widget_entries,
+        popup_entries,
         core_styles,
         page_styles,
         widget_styles,

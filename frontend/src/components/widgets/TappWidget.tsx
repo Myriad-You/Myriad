@@ -39,6 +39,7 @@ import {
   WidgetSkeleton,
   WidgetSkeletonCover,
 } from './shared/WidgetSkeleton'
+import { acceptTappInstanceSettingsPatch } from './tappInstanceSettings'
 import {
   intersectionKeepsTappWidgetMounted,
   TAPP_WIDGET_VIEWPORT_OFFSCREEN_RECHECKS,
@@ -378,6 +379,7 @@ function TappWidgetRuntime({
   isPreview,
   tappWidgetId,
   onConfigChange,
+  openPopup,
   anim,
 }: TappWidgetRuntimeProps) {
   const runtime = getTappRuntime()
@@ -738,37 +740,11 @@ function TappWidgetRuntime({
   const handleInstanceSettingsChange = useCallback(
     (patch: Record<string, unknown>): boolean => {
       if (!widget || !onConfigChange) return false
-      const declarations = widget.config.settings || []
-      const byKey = new Map(
-        declarations.map((setting) => [setting.key, setting]),
+      const accepted = acceptTappInstanceSettingsPatch(
+        widget.config.settings || [],
+        patch,
       )
-      const accepted: Record<string, unknown> = {}
-
-      for (const [key, value] of Object.entries(patch)) {
-        const setting = byKey.get(key)
-        if (!setting) return false
-        if (setting.type === 'toggle' && typeof value !== 'boolean')
-          return false
-        if (
-          (setting.type === 'input' || setting.type === 'color') &&
-          typeof value !== 'string'
-        ) {
-          return false
-        }
-        if (
-          setting.type === 'select' &&
-          (typeof value !== 'string' ||
-            !setting.options?.some((option) => option.value === value))
-        ) {
-          return false
-        }
-        if (setting.type === 'number') {
-          if (typeof value !== 'number' || !Number.isFinite(value)) return false
-          if (setting.min !== undefined && value < setting.min) return false
-          if (setting.max !== undefined && value > setting.max) return false
-        }
-        accepted[key] = value
-      }
+      if (!accepted) return false
 
       onConfigChange({ ...(config.config || {}), ...accepted })
       return true
@@ -1028,6 +1004,7 @@ function TappWidgetRuntime({
             }}
             onInstanceSettingsChange={handleInstanceSettingsChange}
             onInvalidate={requestRefresh}
+            onOpenPopup={openPopup}
             className="w-full h-full"
             fallback={
               <WidgetSkeleton
@@ -1084,6 +1061,7 @@ export const TappWidgetComponent = memo(
       prevProps.tappWidgetId === nextProps.tappWidgetId &&
       prevProps.isEditMode === nextProps.isEditMode &&
       prevProps.isPreview === nextProps.isPreview &&
+      prevProps.openPopup === nextProps.openPopup &&
       prevProps.config.size === nextProps.config.size &&
       prevProps.config.type === nextProps.config.type &&
       JSON.stringify(prevProps.config.config) ===

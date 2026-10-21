@@ -1,5 +1,7 @@
 import type {
   WidgetComponentProps,
+  WidgetPopupDef,
+  WidgetPopupProps,
   WidgetSize,
   WidgetType,
 } from '../components/widgetGridTypes'
@@ -24,6 +26,24 @@ import { getTappSubjectSnapshot, useTappSubject } from '../utils/tappSubject'
 // Tapp runtime/沙箱按需加载：布局没有 Tapp 小组件时不进 Home 首屏。
 // lazy() 吃 default 导出（withI18nNamespace）。具名 TappWidgetComponent 没有语言包。
 const TappWidget = lazy(() => import('../components/widgets/TappWidget'))
+const TappWidgetPopup = lazy(() => import('../components/widgets/TappWidgetPopup'))
+
+interface TappRuntimeLookup {
+  getTapp?: (id: string) =>
+    | {
+        manifest?: {
+          themeColor?: string
+          widgets?: { id: string; popup?: { entry?: string; size?: WidgetPopupDef['size'] } }[]
+        }
+      }
+    | undefined
+}
+
+/** 跨同步复用同一组件引用，避免卡片和暂存的弹窗无故重挂。 */
+interface TappWidgetParts {
+  component: WidgetType['component']
+  popupComponent?: WidgetPopupDef['component']
+}
 
 /** 第三方 Tapp 的默认加载表面（chunk + runtime）。 */
 function TappDefaultSkeleton({ accent }: { accent?: string }) {
@@ -88,7 +108,7 @@ export interface TappWidgetType extends WidgetType {
 
 function resolveTappAccent(
   widget: RegisteredWidget,
-  runtime?: { getTapp?: (id: string) => { manifest?: { themeColor?: string } } | undefined },
+  runtime?: TappRuntimeLookup,
 ): string | undefined {
   try {
     const fromManifest = runtime
@@ -103,10 +123,8 @@ function resolveTappAccent(
 
 function createTappWidgetType(
   widget: RegisteredWidget,
-  runtime?: {
-    getTapp?: (id: string) => { manifest?: { themeColor?: string } } | undefined
-  },
-  previousComponent?: WidgetType['component'],
+  runtime?: TappRuntimeLookup,
+  previous?: TappWidgetParts,
 ): TappWidgetType {
   const config = widget.config || {}
   const WrappedComponent = (props: WidgetComponentProps) =>
@@ -120,17 +138,41 @@ function createTappWidgetType(
     )
   WrappedComponent.displayName = `TappWidget_${widget.id}`
 
+  let popup: WidgetPopupDef | undefined
+  try {
+    const declared = runtime?.getTapp?.(widget.tappId)?.manifest?.widgets?.find(
+      (entry) => entry.id === config.id,
+    )?.popup
+    if (declared?.entry) {
+      const WrappedPopup =
+        previous?.popupComponent ||
+        Object.assign(
+          (props: WidgetPopupProps) =>
+            createElement(
+              Suspense,
+              { fallback: null },
+              createElement(TappWidgetPopup, { ...props, tappWidgetId: widget.id }),
+            ),
+          { displayName: `TappWidgetPopup_${widget.id}` },
+        )
+      popup = { component: WrappedPopup, size: declared.size ?? 'md', chrome: 'close' }
+    }
+  } catch {
+    popup = undefined
+  }
+
   return {
     id: widget.id,
     name: config.name || 'Unknown Widget',
     defaultSize: mapTappSize(config.defaultSize),
-    component: previousComponent || WrappedComponent,
+    component: previous?.component || WrappedComponent,
     supportedSizes: mapTappSizes(config.sizes),
     settings: config.settings,
 
     isTappWidget: true,
     tappId: widget.tappId,
     category: config.category,
+    popup,
   }
 }
 
@@ -142,10 +184,13 @@ export function useTappWidgets(enabled = true): {
   refreshWidgets: () => void
 } {
   const subject = useTappSubject()
-  const componentsRef = useRef(new Map<string, WidgetType['component']>())
+  const componentsRef = useRef(new Map<string, TappWidgetParts>())
   const mapWidgets = useCallback((widgets: RegisteredWidget[], runtime: Parameters<typeof createTappWidgetType>[1]) => {
     const types = widgets.map(widget => createTappWidgetType(widget, runtime, componentsRef.current.get(widget.id)))
-    componentsRef.current = new Map(types.map(type => [type.id, type.component]))
+    componentsRef.current = new Map(types.map(type => [
+      type.id,
+      { component: type.component, popupComponent: type.popup?.component },
+    ]))
     return types
   }, [])
   const [tappWidgets, setTappWidgets] = useState<TappWidgetType[]>([])

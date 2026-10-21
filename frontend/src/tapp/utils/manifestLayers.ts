@@ -6,7 +6,7 @@ export function tappHasPage(manifest: Pick<TappManifest, 'page'>): boolean {
   return manifest.page !== undefined
 }
 
-/** 层入口顺序：core、page、各 widget。 */
+/** 层入口顺序：core、page、各 widget（及其弹窗层）。 */
 export function tappLayerEntries(
   manifest: Pick<TappManifest, 'core' | 'page' | 'widgets'>,
 ): string[] {
@@ -15,6 +15,7 @@ export function tappLayerEntries(
   if (manifest.page?.entry) entries.push(manifest.page.entry)
   for (const widget of manifest.widgets || []) {
     if (widget.entry) entries.push(widget.entry)
+    if (widget.popup?.entry) entries.push(widget.popup.entry)
   }
   return entries
 }

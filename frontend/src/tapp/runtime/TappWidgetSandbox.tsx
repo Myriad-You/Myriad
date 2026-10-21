@@ -86,8 +86,33 @@ export interface TappWidgetSandboxProps {
   onReady?: () => void
   onInstanceSettingsChange?: (patch: Record<string, unknown>) => boolean
   onInvalidate?: (reason: string) => void
+  /** 卡片形态：作者调 Tapp.widget.openPopup()。宿主只在用户刚点过这张卡时放行。 */
+  onOpenPopup?: (params: unknown) => void
+  /** widget = 首页格子里的卡片；popup = 同一个 widget 的弹窗层，跑在单独的沙箱里。 */
+  surface?: WidgetSandboxSurface
+  /** popup 形态：最近一次 openPopup 带来的参数。 */
+  popupParams?: unknown
+  onClosePopup?: () => void
   className?: string
   style?: React.CSSProperties
+}
+
+export type WidgetSandboxSurface = 'widget' | 'popup'
+
+/** openPopup 参数上限：只够传一个视图选择，大数据走 storage。 */
+const POPUP_PARAMS_MAX_BYTES = 4 * 1024
+/** 点进卡片之后多久内算「刚点过」。 */
+const POPUP_GESTURE_WINDOW_MS = 1500
+const POPUP_OPEN_MIN_INTERVAL_MS = 800
+
+function plainJson(value: unknown): unknown {
+  if (value === undefined || value === null) return null
+  const encoded = JSON.stringify(value)
+  if (encoded === undefined) throw new Error('Popup params must be JSON')
+  if (encoded.length > POPUP_PARAMS_MAX_BYTES) {
+    throw new Error('Popup params exceed 4 KiB')
+  }
+  return JSON.parse(encoded)
 }
 
 function generateWidgetHTML(
@@ -97,6 +122,8 @@ function generateWidgetHTML(
   widgetProps: WidgetRenderProps,
   sessionToken: string,
   labels: { missing: string; renderFailed: string },
+  surface: WidgetSandboxSurface = 'widget',
+  popupParams: unknown = null,
 ): string {
   const { manifest } = tappInstance
   const isDark = widgetProps.theme === 'dark'
@@ -118,10 +145,13 @@ function generateWidgetHTML(
 
   const customCSS = code.styles || ''
 
-  const hasHtmlTemplate = !!code.widgetHtml
-  const widgetHtmlContent = code.widgetHtml || ''
+  const isPopup = surface === 'popup'
+  // 尺寸模板只属于卡片；弹窗层纯靠 render()。
+  const hasHtmlTemplate = !isPopup && !!code.widgetHtml
+  const widgetHtmlContent = hasHtmlTemplate ? code.widgetHtml || '' : ''
+  const registry = isPopup ? 'popups' : 'widgets'
 
-  const widgetCode = buildLayerScript(code, 'widget', widgetId).source
+  const widgetCode = buildLayerScript(code, surface, widgetId).source
 
   const tailwindCSS = code.widgetCSS || ''
 
@@ -133,7 +163,7 @@ function generateWidgetHTML(
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>${escapeSandboxHtmlText(manifest.name)} Widget</title>
+  <title>${escapeSandboxHtmlText(manifest.name)} ${isPopup ? 'Popup' : 'Widget'}</title>
   <style>
     ${WIDGET_STATIC_CSS}
     ${tailwindCSS}
@@ -145,8 +175,9 @@ function generateWidgetHTML(
   <div id="widget-root">${widgetHtmlContent}</div>
 
   <script nonce="${nonce}">
-    window._TAPP_MODE = 'widget';
+    window._TAPP_MODE = ${serializeSandboxScriptValue(surface)};
     window._TAPP_WIDGET_ID = ${serializeSandboxScriptValue(widgetId)};
+    window._TAPP_POPUP_PARAMS = ${serializeSandboxScriptValue(isPopup ? popupParams ?? null : null)};
     window._TAPP_WIDGET_PROPS = ${serializeSandboxScriptValue(widgetProps)};
     window._TAPP_LOCALE = ${serializeSandboxScriptValue(widgetProps.locale)};
     window._TAPP_I18N = ${serializeSandboxScriptValue(code.i18n || {})};
@@ -203,7 +234,7 @@ function generateWidgetHTML(
       const runRender = function() {
         try {
           const widgetId = ${serializeSandboxScriptValue(widgetId)};
-          const widgetDef = Tapp.widgets && Tapp.widgets[widgetId];
+          const widgetDef = Tapp.${registry} && Tapp.${registry}[widgetId];
           const container = document.getElementById('widget-root');
           if (!container) return;
 
@@ -219,6 +250,7 @@ function generateWidgetHTML(
           const props = window._TAPP_WIDGET_PROPS || {};
           props.scale = window._TAPP_DIMENSIONS.scale;
           props.fontScale = window._TAPP_DIMENSIONS.fontScale;
+          if (${isPopup ? 'true' : 'false'}) props.params = window._TAPP_POPUP_PARAMS;
 
           const painted = widgetDef.render(container, props);
           if (painted && typeof painted.then === 'function') {
@@ -264,6 +296,10 @@ export const TappWidgetSandbox = memo(
     onReady,
     onInstanceSettingsChange,
     onInvalidate,
+    onOpenPopup,
+    surface = 'widget',
+    popupParams,
+    onClosePopup,
     className,
     style,
   }: TappWidgetSandboxProps) => {
@@ -296,10 +332,16 @@ export const TappWidgetSandbox = memo(
     const codeRef = useRef(code)
     const instanceSettingsChangeRef = useRef(onInstanceSettingsChange)
     const invalidateRef = useRef(onInvalidate)
+    const openPopupRef = useRef(onOpenPopup)
+    const closePopupRef = useRef(onClosePopup)
+    const popupParamsRef = useRef(popupParams)
     tappInstanceRef.current = tappInstance
     codeRef.current = code
     instanceSettingsChangeRef.current = onInstanceSettingsChange
     invalidateRef.current = onInvalidate
+    openPopupRef.current = onOpenPopup
+    closePopupRef.current = onClosePopup
+    popupParamsRef.current = popupParams
     animationConfigRef.current = animationConfig
 
     // 宿主外观/语言变化不重建 iframe。
@@ -448,9 +490,25 @@ export const TappWidgetSandbox = memo(
     }, [isReady])
 
     const codeFingerprint = useMemo(
-      () => getCodeStructureFingerprint(code, 'widget', widgetId),
-      [code, widgetId],
+      () => getCodeStructureFingerprint(code, surface, widgetId),
+      [code, surface, widgetId],
     )
+
+    // 跨源 iframe 里的点击不会冒泡到宿主。能看到的是：iframe 拿到焦点（父窗口 blur），
+    // 以及指针停在 iframe 上。两者之一成立、且焦点确实在这张卡上，才算用户刚点过它。
+    const gestureRef = useRef({ focusedAt: 0, pointerInside: false, lastOpenAt: 0 })
+    useEffect(() => {
+      if (surface !== 'widget') return
+      const onBlur = () => {
+        window.setTimeout(() => {
+          if (iframeRef.current && document.activeElement === iframeRef.current) {
+            gestureRef.current.focusedAt = Date.now()
+          }
+        }, 0)
+      }
+      window.addEventListener('blur', onBlur)
+      return () => window.removeEventListener('blur', onBlur)
+    }, [surface])
     const runtimeFingerprint = getTappRuntimeFingerprint(tappInstance)
 
     useEffect(() => {
@@ -471,6 +529,10 @@ export const TappWidgetSandbox = memo(
 
       const iframe = document.createElement('iframe')
       iframe.className = 'tapp-widget-iframe'
+      const onPointerEnter = () => { gestureRef.current.pointerInside = true }
+      const onPointerLeave = () => { gestureRef.current.pointerInside = false }
+      iframe.addEventListener('pointerenter', onPointerEnter)
+      iframe.addEventListener('pointerleave', onPointerLeave)
       const pointerEvents =
         stableWidgetProps.isEditMode || stableWidgetProps.isPreview
           ? 'none'
@@ -478,7 +540,7 @@ export const TappWidgetSandbox = memo(
       iframe.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;border:none;background-color:transparent;display:block;border-radius:inherit;visibility:visible;opacity:1;pointer-events:${pointerEvents};`
       iframe.setAttribute('sandbox', IFRAME_SANDBOX_ATTRS)
       iframe.setAttribute('referrerpolicy', 'no-referrer')
-      iframe.title = `${currentTappInstance.manifest.name} Widget`
+      iframe.title = `${currentTappInstance.manifest.name} ${surface === 'popup' ? 'Popup' : 'Widget'}`
       iframe.allowFullscreen = true
       iframeRef.current = iframe
 
@@ -572,6 +634,46 @@ export const TappWidgetSandbox = memo(
       registerWidgetInvalidateTargetHandler(bridge, currentTappInstance, {
         preview: previewMode,
       })
+      if (surface === 'widget') {
+        bridge.registerHandler('widget.popup.open', async (message) => {
+          const declared = currentTappInstance.manifest.widgets?.some(
+            (widget) => widget.id === widgetId && widget.popup?.entry,
+          )
+          if (!declared) {
+            return { success: false, error: 'This widget declares no popup layer' }
+          }
+          const open = openPopupRef.current
+          if (!open) {
+            return { success: false, error: 'Popup is unavailable here' }
+          }
+          const gesture = gestureRef.current
+          const now = Date.now()
+          const focused = document.activeElement === iframeRef.current
+          const recent =
+            gesture.pointerInside || now - gesture.focusedAt < POPUP_GESTURE_WINDOW_MS
+          if (!focused || !recent) {
+            return { success: false, error: 'Popup must follow a user action on this widget' }
+          }
+          if (now - gesture.lastOpenAt < POPUP_OPEN_MIN_INTERVAL_MS) {
+            return { success: false, error: 'Popup opened too recently' }
+          }
+          const [rawParams] = (message.payload as { args?: unknown[] }).args || []
+          let params: unknown
+          try {
+            params = plainJson(rawParams)
+          } catch (error) {
+            return { success: false, error: (error as Error).message }
+          }
+          gesture.lastOpenAt = now
+          open(params)
+          return { success: true, data: null }
+        })
+      } else {
+        bridge.registerHandler('popup.close', async () => {
+          closePopupRef.current?.()
+          return { success: true, data: null }
+        })
+      }
       registerAnimationHandlers(bridge, animationConfigRef)
 
       let closeAITaskStreams: () => void = () => {}
@@ -688,6 +790,8 @@ export const TappWidgetSandbox = memo(
           missing: t.tapp.widgetNotFound,
           renderFailed: t.tapp.appCodeLoadFailed,
         },
+        surface,
+        popupParamsRef.current,
       )
 
       // srcdoc 先赋值，再 appendChild。
@@ -706,6 +810,8 @@ export const TappWidgetSandbox = memo(
         closeEventStream()
         closeAgentInteractions()
         iframe.removeEventListener('load', onIframeLoad)
+        iframe.removeEventListener('pointerenter', onPointerEnter)
+        iframe.removeEventListener('pointerleave', onPointerLeave)
         iframeRef.current = null
         if (container.contains(iframe)) {
           container.removeChild(iframe)
@@ -725,9 +831,17 @@ export const TappWidgetSandbox = memo(
       subjectEpoch,
       subject.ready,
       previewMode,
+      surface,
       t.tapp.widgetNotFound,
       t.tapp.appCodeLoadFailed,
     ])
+
+    // 弹窗重开带新参数：推给已在跑的沙箱，不重建 iframe。
+    const paramsString = surface === 'popup' ? JSON.stringify(popupParams ?? null) : ''
+    useEffect(() => {
+      if (surface !== 'popup' || !isReady || !bridgeRef.current) return
+      bridgeRef.current.emit('popup:params', JSON.parse(paramsString))
+    }, [surface, isReady, paramsString])
 
     useEffect(() => {
       if (!isReady || !bridgeRef.current) return

@@ -118,6 +118,27 @@ pub fn installed_widget_layer_paths(
         .collect()
 }
 
+/// `(widget id, path)` for each declared `widgets[].popup.entry`.
+pub fn installed_widget_popup_entries(manifest: &serde_json::Value) -> Vec<(String, String)> {
+    let Some(widgets) = manifest
+        .get("widgets")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    widgets
+        .iter()
+        .filter_map(|widget| {
+            let id = widget.get("id").and_then(serde_json::Value::as_str)?;
+            let path = widget
+                .get("popup")?
+                .get("entry")
+                .and_then(serde_json::Value::as_str)?;
+            Some((id.to_string(), path.to_string()))
+        })
+        .collect()
+}
+
 /// Every layer entry declared by a stored manifest, in a stable order.
 pub fn installed_layer_entries(manifest: &serde_json::Value) -> Vec<String> {
     let mut entries = Vec::new();
@@ -128,6 +149,9 @@ pub fn installed_layer_entries(manifest: &serde_json::Value) -> Vec<String> {
         entries.push(entry);
     }
     for (_, entry) in installed_widget_layer_paths(manifest, "entry") {
+        entries.push(entry);
+    }
+    for (_, entry) in installed_widget_popup_entries(manifest) {
         entries.push(entry);
     }
     entries
@@ -263,6 +287,25 @@ mod tests {
         // 宿主产物在独立目录，作者可以放心把层样式命名成 page.css / widget.css
         assert_eq!(HOST_WIDGET_CSS, "host/widget.css");
         assert_eq!(HOST_PAGE_CSS, "host/page.css");
+    }
+
+    #[test]
+    fn popup_entries_join_layer_entries_after_their_widget_entries() {
+        let manifest = json!({
+            "core": { "entry": "core.js" },
+            "widgets": [
+                { "id": "card", "entry": "widget.js", "popup": { "entry": "popup.js" } },
+                { "id": "plain", "entry": "plain.js" }
+            ]
+        });
+        assert_eq!(
+            installed_widget_popup_entries(&manifest),
+            vec![("card".to_string(), "popup.js".to_string())]
+        );
+        assert_eq!(
+            installed_layer_entries(&manifest),
+            vec!["core.js", "widget.js", "plain.js", "popup.js"]
+        );
     }
 
     #[test]

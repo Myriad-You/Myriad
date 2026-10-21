@@ -384,6 +384,7 @@ Page、Core 与其余获授能力仍可正常使用。
 | `templates`     | object   | ❌   | HTML 模板（按尺寸覆盖）                                        |
 | `settings`      | object[] | ❌   | 每个 Dashboard 实例独立的设置声明                              |
 | `refreshPolicy` | object   | ❌   | 宿主管理的刷新策略                                             |
+| `popup`         | object   | ❌   | 弹窗层；见 [Widget 弹窗层](#widget-弹窗层)                     |
 
 单个 Tapp 最多声明或动态注册 64 个 Widget；每个 Widget 最多声明 10 个尺寸，且
 `defaultSize` 必须包含在 `sizes` 中。超出限制会在安装或注册时被后端拒绝。
@@ -405,6 +406,24 @@ Widget 实例，因此同一种 Widget 添加两次时可以采用不同配置�
 模板按 `Widget ID + 尺寸` 隔离。同一个 Tapp 的多个 Widget 可以各自声明不同的 `2x2`
 模板，不会互相覆盖。商店索引中的 `download.widget_templates` 也必须使用
 `{ "widgetId": { "2x2": "path/to/template.html" } }` 结构。
+
+### Widget 弹窗层
+
+```json
+{
+  "id": "stats",
+  "entry": "widget/stats.js",
+  "popup": { "entry": "popup/stats.js", "size": "lg" }
+}
+```
+
+| 字段    | 类型   | 必填 | 说明                                                                 |
+| ------- | ------ | ---- | -------------------------------------------------------------------- |
+| `entry` | string | ✅   | 弹窗层入口 `.js`；共享层之后只执行它，代码在 `Tapp.popups[widgetId]` 注册 |
+| `size`  | string | ❌   | `md`（默认）/ `lg` 桌面居中、手机底部面板；`stage` 桌面大幅、手机全屏 |
+
+弹窗层没有自己的样式字段，沿用该 Widget 的 `styles`；没有尺寸模板。它是该 Widget 自己的界面，
+不需要也不能另外声明权限。卡片调用 `Tapp.widget.openPopup()` 才会打开。
 
 ### Widget 分类
 

@@ -37,6 +37,10 @@ import {
   useWallpaper,
 } from '../hooks/useWallpaper'
 import {
+  isWidgetPopupHostArmed,
+  subscribeWidgetPopupHost,
+} from '../lib/widgetPopup'
+import {
   isWidgetSettingsHostArmed,
   subscribeWidgetSettingsHost,
 } from '../lib/widgetSettingsHost'
@@ -75,6 +79,25 @@ const TappShortcutSettingsModal = lazy(() =>
     default: m.TappShortcutSettingsModal,
   })),
 )
+
+const WidgetPopupHost = lazy(
+  () => import('../components/widgetPopup/WidgetPopupHost'),
+)
+
+/** 首次打开小组件弹窗才拉宿主代码。 */
+function DeferredWidgetPopupHost() {
+  const armed = useSyncExternalStore(
+    subscribeWidgetPopupHost,
+    isWidgetPopupHostArmed,
+    isWidgetPopupHostArmed,
+  )
+  if (!armed) return null
+  return (
+    <Suspense fallback={null}>
+      <WidgetPopupHost />
+    </Suspense>
+  )
+}
 
 function DeferredWidgetSettingsModals() {
   const armed = useSyncExternalStore(
@@ -401,6 +424,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <main className="relative z-10">{children}</main>
 
       <DeferredWidgetSettingsModals />
+      <DeferredWidgetPopupHost />
 
       <TourHint />
       <SiteFooter isHomePage={location.pathname === '/'} />

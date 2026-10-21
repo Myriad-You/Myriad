@@ -187,6 +187,7 @@ export function validatePlaygroundPackage(
   for (const widget of manifest.widgets ?? []) {
     layerPaths.push(['widgets[].entry', widget.entry, '.js'])
     layerPaths.push(['widgets[].styles', widget.styles, '.css'])
+    layerPaths.push(['widgets[].popup.entry', widget.popup?.entry, '.js'])
   }
   for (const [field, path, extension] of layerPaths) {
     if (!path) continue
@@ -330,6 +331,7 @@ export function validatePlaygroundPackage(
   for (const widget of widgets) {
     if (widget.entry) requiredPaths.push(widget.entry)
     if (widget.styles) requiredPaths.push(widget.styles)
+    if (widget.popup?.entry) requiredPaths.push(widget.popup.entry)
     if (!widget.templates) continue
     for (const path of Object.values(widget.templates)) {
       if (path) requiredPaths.push(path)

@@ -12,6 +12,8 @@
     "widget.unregister",
     "widget.listRegistered",
     "widget.updateConfig",
+    "widget.popup.open",
+    "popup.close",
     "tappList.list",
     "tappList.get",
     "tappList.getRecent",

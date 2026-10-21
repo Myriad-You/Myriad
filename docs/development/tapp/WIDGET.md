@@ -27,6 +27,7 @@
 | ---- | ------ | ---- | -------- |
 | **存储 / settings / shared** | ✅ `getAll`/`usage` | ✅ | ✅ |
 | **实例设置 / `invalidate`** | ✅ `getInstanceSettings` / `updateInstanceSettings` / `invalidate`（无 options 刷自己） | ✅ register 系列 + `invalidate({ widgetId })`（需 `storage:write`） | ✅ 仅 `invalidate({ widgetId })`（需 `storage:write`） |
+| **弹窗** | ✅ `Tapp.widget.openPopup(params)`（用户刚点过这张卡才放行）；弹窗层里 `Tapp.popups` / `Tapp.popup` | ❌ | ❌ |
 | **UI 主题 / 语言 / 通知** | ✅ | ✅ | ✅ |
 | **`Tapp.ui.openUrl` / `listOpenUrls`** | ✅ 需 `ui:openUrl` + `openUrls` | ✅ | ❌ 不可用 |
 | **fullscreen / title / confirm** | ❌ | ✅ | ❌ |
@@ -43,6 +44,10 @@
 
 Widget 不是纯静态展示层：共享层 `core` 可在其中使用事件、调度和数据交换。Widget 沙箱没有
 平台/报告写入、Tapp/Phantasi 管理、组件、快捷键、联邦或 `Tapp.game`。
+
+卡片放不下的内容放进**弹窗层**（`widgets[].popup`）：宿主在单独的沙箱里跑它，桌面从卡片位置
+展开，手机走底部面板（`stage` 尺寸全屏）。弹窗沿用这张卡的样式和授予权限，关掉只是暂存。
+用法见 [API Reference · 小组件弹窗](API_REFERENCE.md#小组件弹窗)。
 
 ---
 

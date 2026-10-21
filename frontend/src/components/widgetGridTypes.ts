@@ -28,6 +28,28 @@ export interface WidgetComponentProps {
   isEditMode: boolean
   isPreview?: boolean
   onConfigChange?: (newConfig: any) => void
+  /** 只在声明了 popup、且不是编辑/预览时提供。 */
+  openPopup?: (params?: unknown) => void
+}
+
+/** md / lg 桌面居中、手机底部面板；stage 桌面大幅、手机全屏。 */
+export type WidgetPopupSize = 'md' | 'lg' | 'stage'
+
+export interface WidgetPopupProps {
+  config: WidgetConfig
+  /** 最近一次 openPopup 带来的参数。 */
+  params: unknown
+  /** false 表示已收进暂存：停掉计时、动画和播放。 */
+  active: boolean
+  close: () => void
+  onConfigChange?: (newConfig: any) => void
+}
+
+export interface WidgetPopupDef {
+  component: ComponentType<WidgetPopupProps>
+  size?: WidgetPopupSize
+  /** 宿主角落的关闭按钮。内容自带关闭控件时可以不要；TAPP 弹窗始终有。 */
+  chrome?: 'close' | 'none'
 }
 
 export interface WidgetType {
@@ -45,6 +67,7 @@ export interface WidgetType {
   tappId?: string
   category?: string
   description?: string
+  popup?: WidgetPopupDef
 }
 
 export interface WidgetGridHandle {

@@ -1859,6 +1859,7 @@ fn rejects_unbounded_widget_manifests() {
                 templates: None,
                 settings: Vec::new(),
                 refresh_policy: None,
+                popup: None,
             })
             .collect(),
     );

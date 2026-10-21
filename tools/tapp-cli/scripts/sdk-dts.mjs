@@ -229,6 +229,45 @@ function localMembers() {
     }
   >
 
+  /** Popup layer per widget id (\`widgets[].popup.entry\`). Runs in its own sandbox. */
+  popups: Record<
+    string,
+    {
+      render(
+        container: HTMLElement,
+        props: {
+          size?: string
+          theme?: string
+          params?: unknown
+          [key: string]: unknown
+        },
+      ): void | Promise<void>
+    }
+  >
+
+  widget: {
+    getInstanceSettings(): Record<string, unknown>
+    updateInstanceSettings(patch: Record<string, unknown>): Promise<unknown>
+    /** Re-run this card's render(). With options it targets other cards (permission: storage:write). */
+    invalidate(reason?: string, options?: unknown): Promise<unknown>
+    /**
+     * Open this widget's popup layer. Only honoured right after the user acts on the card;
+     * params must be JSON and at most 4 KiB.
+     */
+    openPopup(params?: unknown): Promise<unknown>
+    register(config: unknown): Promise<unknown> // permission: widget:register
+    unregister(id: string): Promise<unknown> // permission: widget:register
+    listRegistered(): Promise<unknown> // permission: widget:register
+    updateConfig(id: string, config: unknown): Promise<unknown> // permission: widget:register
+  }
+
+  /** Available inside a popup layer. */
+  popup: {
+    close(): Promise<unknown>
+    getParams(): unknown
+    onParams(callback: (params: unknown) => void): () => void
+  }
+
   pages: Record<
     string,
     {
@@ -265,6 +304,8 @@ export function generateTappSdkDts(catalog) {
     'media',
     'ai',
     'scheduler',
+    'widget',
+    'popup',
   ])
 
   const genericLines = []

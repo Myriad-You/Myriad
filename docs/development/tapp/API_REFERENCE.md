@@ -810,6 +810,38 @@ await Tapp.widget.invalidate("config-saved", { target: { widgetId: "stats" } });
 `Tapp.settings.set` 只发 `onChanged`，不拆 iframe。定向 invalidate 只负责触发表面刷新，
 且不能过滤一次 storage 广播。省略 `target` 在 Page/headless 会失败。
 
+### 小组件弹窗
+
+Widget 声明了 `widgets[].popup`（见 [Manifest · Widget 弹窗层](MANIFEST.md#widget-弹窗层)）时，卡片里可以打开
+这张卡的弹窗。弹窗跑在**单独的沙箱**里：先执行 core，再执行 `popup.entry`，渲染注册在
+`Tapp.popups[widgetId]`。它不是卡片 iframe 放大，卡片的 `invalidate` 不会重挂弹窗。
+
+```javascript
+// 卡片（Widget 沙箱）：只在用户刚点过这张卡时生效
+button.onclick = () => Tapp.widget.openPopup({ view: "stats" });
+
+// 弹窗层（popup.entry）
+Tapp.popups["my-widget"] = {
+  render(root, props) {
+    root.textContent = `view = ${props.params?.view}`;
+  },
+};
+Tapp.popup.onParams((params) => {
+  /* 弹窗还开着或暂存着时，卡片再次 openPopup 带来的新参数 */
+});
+await Tapp.popup.close();
+```
+
+- `openPopup(params)` 只在用户刚对这张卡操作过时放行（焦点落在这张卡的 iframe 上，且指针在卡上
+  或 1.5 秒内刚点进来），同一张卡 0.8 秒内只开一次。`params` 必须是 JSON，不超过 4 KiB；
+  大数据走 `Tapp.storage`。
+- 弹窗不新增权限：声明、批准、授予三层都不变，弹窗沙箱用与卡片相同的授予权限和能力面，
+  另加 `Tapp.popup`。`updateInstanceSettings()` 在弹窗里同样可用，改的是打开它的那张卡。
+- 关掉弹窗只是**暂存**：沙箱收到 `lifecycle:pause`，iframe 不销毁，重开时收到
+  `lifecycle:resume`，状态还在。应用停用、卸载、换登录身份时才销毁。
+- 宿主总在弹窗角落放关闭按钮，用户随时能关；Esc 也能关（焦点在宿主上时）。
+- 编辑模式和组件库预览里不能打开弹窗。
+
 `updateInstanceSettings()` 只能更新当前 Widget 的 `widgets[].settings` 已声明字段，宿主会
 按类型、select 选项和数值范围校验，然后写入 Dashboard 布局。顶层 `settings` 仍是整个
 Tapp 共享的全局设置。可见刷新采用 `widgets[].refreshPolicy`；后台周期任务继续使用
@@ -1904,7 +1936,8 @@ Page 完整面当前包含以下命名空间（`analytics` / `agent` 也挂在 `
 | `ai`                                       | 服务端治理的 AI Task                                | `ai:*`（含 `ai:search`）           |
 | `report`                                   | `platform.*` 平台分析目录（只读）；顶层 `list`/`get`/`create` 为本安装报告 | `report:read` / `report:write` |
 | `model3d`                                  | Tripo 图生 3D / rig / retarget；`getUrl` 回沙箱 blob | `3d:generate`（资产读取 public） |
-| `widget`                                   | Page：动态注册 + 定向 `invalidate`；Widget 沙箱：实例设置 / 自刷 `invalidate` | `widget:register`（仅 register 系列）；定向 `invalidate` 要 `storage:write` |
+| `widget`                                   | Page：动态注册 + 定向 `invalidate`；Widget 沙箱：实例设置 / 自刷 `invalidate` / `openPopup` | `widget:register`（仅 register 系列）；定向 `invalidate` 要 `storage:write` |
+| `popup`, `popups`                          | 小组件弹窗层：`popups[widgetId].render`、`popup.close` / `getParams` / `onParams`（仅弹窗沙箱） | public（沿用该 Widget 的授予权限） |
 | `media`                                    | 播放器读取和控制                                    | `media:*`                          |
 | `context`, `user`                          | 应用、用户、导航、系统和地理上下文                  | public                             |
 | `persona`                                  | Agent 人设只读名片（名字、心情带、主立绘路径）      | public                             |
@@ -1930,6 +1963,7 @@ Page 完整面当前包含以下命名空间（`analytics` / `agent` 也挂在 `
 | `ui` title / confirm / fullscreen | ✅ | ❌ | ❌ |
 | `widget` register 系列 | ✅ | ❌ | ❌ |
 | `widget` 实例设置 / 自刷 `invalidate` | ❌ | ✅ | ❌ |
+| `widget.openPopup`；弹窗层的 `popups` / `popup` | ❌ | ✅（`popup` 只在弹窗沙箱里可调用） | ❌ |
 | `widget` 定向 `invalidate({ widgetId })` | ✅ 需 `storage:write` | ✅ 需 `storage:write` | ✅ 需 `storage:write` |
 | `tappList`, `component`, `shortcut`, `dynamicContent` | ✅ | ❌ | ❌ 无此对象 |
 | `dom`, `file` | ✅ | ✅ | ❌ 无此对象 |

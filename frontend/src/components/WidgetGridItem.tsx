@@ -450,6 +450,7 @@ export const WidgetGridItem = React.memo(
                   isPreview={isPreview}
                   onConfigChange={onConfigChange}
                   onPresentable={onPresentable}
+                  anchorRef={stickerItemRef}
                 />
               </MotionEntranceHost>
             </RenderErrorBoundary>

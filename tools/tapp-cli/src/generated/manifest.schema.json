@@ -897,6 +897,17 @@
         "name": {
           "type": "string"
         },
+        "popup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappWidgetPopupDef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "该 widget 的弹窗层。卡片里调 `Tapp.widget.openPopup()` 时，宿主在单独的沙箱里跑它。"
+        },
         "refreshPolicy": {
           "anyOf": [
             {
@@ -943,6 +954,38 @@
         "sizes"
       ],
       "type": "object"
+    },
+    "TappWidgetPopupDef": {
+      "additionalProperties": false,
+      "description": "小组件弹窗层：共享层之后只执行这个入口。样式沿用该 widget 的 `styles`。",
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TappWidgetPopupSize"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "entry"
+      ],
+      "type": "object"
+    },
+    "TappWidgetPopupSize": {
+      "description": "`md` / `lg` 桌面居中、手机底部面板；`stage` 桌面大幅、手机全屏。",
+      "enum": [
+        "md",
+        "lg",
+        "stage"
+      ],
+      "type": "string"
     },
     "TappWidgetRefreshMode": {
       "enum": [

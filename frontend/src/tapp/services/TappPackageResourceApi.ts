@@ -9,6 +9,8 @@ export interface TappResources {
   coreEntry?: string
   pageEntry?: string
   widgetEntries?: Record<string, string>
+  /** widget id → 弹窗层入口。 */
+  popupEntries?: Record<string, string>
   coreStyles?: string
   pageStyles?: string
   widgetStyles?: Record<string, string>
@@ -26,6 +28,7 @@ interface TappResourcesRaw {
   core_entry?: string
   page_entry?: string
   widget_entries?: Record<string, string>
+  popup_entries?: Record<string, string>
   core_styles?: string
   page_styles?: string
   widget_styles?: Record<string, string>
@@ -36,7 +39,7 @@ interface TappResourcesRaw {
   i18n?: Record<string, unknown>
 }
 
-export type TappResourceMode = 'full' | 'core' | 'widget' | 'page'
+export type TappResourceMode = 'full' | 'core' | 'widget' | 'page' | 'popup'
 
 export async function getTappResources(
   tappId: string,
@@ -69,6 +72,7 @@ export async function getTappResources(
     coreEntry: raw.core_entry,
     pageEntry: raw.page_entry,
     widgetEntries: raw.widget_entries,
+    popupEntries: raw.popup_entries,
     coreStyles: raw.core_styles,
     pageStyles: raw.page_styles,
     widgetStyles: raw.widget_styles,

@@ -197,6 +197,10 @@ fn validate_tapp_layers(manifest: &TappManifest) -> Result<(), String> {
                 validate_resource_path(styles)?;
                 validate_resource_extension(styles, ".css", "widgets[].styles")?;
             }
+            if let Some(popup) = &widget.popup {
+                validate_resource_path(&popup.entry)?;
+                validate_resource_extension(&popup.entry, ".js", "widgets[].popup.entry")?;
+            }
         }
     }
 
@@ -1216,6 +1220,33 @@ mod tests {
         assert!(err.contains("storage:read"), "{err}");
         assert!(TappPermission::from_str("storage").is_none());
         assert!(validate_tapp_manifest(&manifest(&["storage:read"]), &current()).is_ok());
+    }
+
+    #[test]
+    fn widget_popup_layer_is_a_js_entry_and_joins_layer_entries() {
+        let mut value = serde_json::to_value(manifest(&["widget:register"])).unwrap();
+        value["widgets"] = json!([{
+            "id": "card",
+            "name": "Card",
+            "defaultSize": "2x2",
+            "sizes": ["2x2"],
+            "entry": "widget.js",
+            "popup": { "entry": "popup/card.js", "size": "stage" }
+        }]);
+        let valid: TappManifest = serde_json::from_value(value.clone()).unwrap();
+        assert!(validate_tapp_manifest(&valid, &current()).is_ok());
+        assert_eq!(valid.layer_entries(), vec!["main.js", "widget.js", "popup/card.js"]);
+
+        value["widgets"][0]["popup"]["entry"] = json!("popup/card.css");
+        let wrong: TappManifest = serde_json::from_value(value.clone()).unwrap();
+        let err = validate_tapp_manifest(&wrong, &current()).unwrap_err();
+        assert!(err.contains("widgets[].popup.entry"), "{err}");
+
+        value["widgets"][0]["popup"] = json!({ "entry": "popup/card.js", "styles": "p.css" });
+        assert!(
+            serde_json::from_value::<TappManifest>(value).is_err(),
+            "popup has no styles of its own; unknown fields are rejected"
+        );
     }
 
     #[test]

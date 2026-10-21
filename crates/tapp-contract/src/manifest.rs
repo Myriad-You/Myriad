@@ -148,6 +148,9 @@ impl TappManifest {
                 if let Some(entry) = widget.entry.as_deref() {
                     entries.push(entry);
                 }
+                if let Some(popup) = &widget.popup {
+                    entries.push(popup.entry.as_str());
+                }
             }
         }
         entries
@@ -847,6 +850,30 @@ pub struct TappWidgetDef {
     pub settings: Vec<TappSettingDef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_policy: Option<TappWidgetRefreshPolicy>,
+    /// 该 widget 的弹窗层。卡片里调 `Tapp.widget.openPopup()` 时，宿主在单独的沙箱里跑它。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup: Option<TappWidgetPopupDef>,
+}
+
+/// 小组件弹窗层：共享层之后只执行这个入口。样式沿用该 widget 的 `styles`。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TappWidgetPopupDef {
+    pub entry: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<TappWidgetPopupSize>,
+}
+
+/// `md` / `lg` 桌面居中、手机底部面板；`stage` 桌面大幅、手机全屏。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum TappWidgetPopupSize {
+    #[default]
+    Md,
+    Lg,
+    Stage,
 }
 
 /// Widget 自己的分类。与顶层 [`TappCategory`] 使用同一套稳定 ID，只认规范值。

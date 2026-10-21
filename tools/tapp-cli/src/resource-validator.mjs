@@ -109,6 +109,7 @@ function resourceDeclarations(manifest) {
     if (!isObject(widget)) continue
     add(widget.entry, `widgetEntry:${widget.id}`, contract.rules.resourceExtensions.widgetEntry)
     add(widget.styles, `widgetStyles:${widget.id}`, contract.rules.resourceExtensions.widgetStyles)
+    add(widget.popup?.entry, `widgetPopupEntry:${widget.id}`, contract.rules.resourceExtensions.widgetEntry)
     for (const path of Object.values(widget.templates || {})) add(path, `widgetTemplate:${widget.id}`, contract.rules.resourceExtensions.widgetTemplate)
   }
   for (const interaction of arrayValue(manifest.agent?.interactions)) {

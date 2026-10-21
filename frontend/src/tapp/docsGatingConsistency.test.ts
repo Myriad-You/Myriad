@@ -525,7 +525,7 @@ describe('tapp docs gating consistency', () => {
     const shared = read(
       join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkShared.ts'),
     )
-    assert.match(shared, /skip = \{ widgets: 1, pages: 1 \}/)
+    assert.match(shared, /skip = \{ widgets: 1, popups: 1, pages: 1 \}/)
     assert.match(gen, /SDK_FREEZE_TAPP_CODE/)
 
     const perms = Object.keys(PERMISSION_LEVELS) as never[]

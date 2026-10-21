@@ -1,0 +1,164 @@
+/* 小组件弹窗：控制面板 9999 / 设置浮层 10000 之上，导览 10040 与 toast 10050 之下。 */
+.widget-popup-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  pointer-events: none;
+}
+
+.widget-popup-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 28%);
+  opacity: 0;
+  transition: opacity 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.widget-popup-layer[data-open='true'] .widget-popup-backdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+html.dark .widget-popup-backdrop {
+  background: rgb(0 0 0 / 46%);
+}
+
+html[data-perf-mode='exlight'] .widget-popup-backdrop,
+html[data-perf-mode='exlight'] .widget-popup-frame {
+  backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-perf-mode='exlight'] .widget-popup-frame {
+  background: rgb(250 250 252);
+}
+
+html.dark[data-perf-mode='exlight'] .widget-popup-frame {
+  background: rgb(24 24 27);
+}
+
+.widget-popup-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 1.25rem;
+  background: rgb(250 250 252 / 94%);
+  backdrop-filter: blur(28px) saturate(1.4);
+  backdrop-filter: blur(28px) saturate(1.4);
+  box-shadow:
+    var(--chrome-hairline, inset 0 0 0 1px rgb(255 255 255 / 18%)),
+    0 24px 64px rgb(0 0 0 / 22%);
+  color: #1d1d1f;
+  translate: -50% -50%;
+  transform-origin: top left;
+  outline: none;
+  pointer-events: auto;
+}
+
+html.dark .widget-popup-frame {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(24 24 27 / 94%);
+  color: #fff;
+}
+
+/* 暂存：还挂着，不占视线、不接事件。 */
+.widget-popup-frame[data-phase='stashed'] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.widget-popup-frame[data-phase='closing'] {
+  pointer-events: none;
+}
+
+.widget-popup-frame--md {
+  width: min(560px, calc(100vw - 32px));
+  height: min(640px, calc(100dvh - 64px));
+}
+
+.widget-popup-frame--lg {
+  width: min(880px, calc(100vw - 32px));
+  height: min(720px, calc(100dvh - 64px));
+}
+
+.widget-popup-frame--stage {
+  width: min(1200px, calc(100vw - 48px));
+  height: min(760px, calc(100dvh - 64px));
+}
+
+/* 手机：md / lg 走底部面板，stage 全屏。 */
+.widget-popup-frame--sheet {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: min(88dvh, 720px);
+  border-bottom: 0;
+  border-radius: 1.25rem 1.25rem 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  translate: none;
+  transform-origin: bottom center;
+}
+
+@media (width <= 767px) {
+  .widget-popup-frame--stage {
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    translate: none;
+  }
+}
+
+.widget-popup-frame__close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 2;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 6%);
+  color: inherit;
+  transition: background-color 140ms ease;
+}
+
+.widget-popup-frame__close:hover {
+  background: rgb(0 0 0 / 12%);
+}
+
+html.dark .widget-popup-frame__close {
+  background: rgb(255 255 255 / 10%);
+}
+
+html.dark .widget-popup-frame__close:hover {
+  background: rgb(255 255 255 / 18%);
+}
+
+.widget-popup-frame__close:focus-visible {
+  outline: 2px solid var(--cfg-accent, #6366f1);
+  outline-offset: 2px;
+}
+
+.widget-popup-frame__close svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.widget-popup-frame__empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: 2rem;
+  opacity: 0.6;
+  font-size: 0.875rem;
+}

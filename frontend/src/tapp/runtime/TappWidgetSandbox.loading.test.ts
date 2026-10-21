@@ -57,3 +57,33 @@ for (const outcome of ['resolve', 'reject', 'throw'] as const) {
     } finally { dom.window.close() }
   })
 }
+
+test('popup surface renders the popup layer with its params, not the card', async () => {
+  const code: TappCodeStructure = {
+    modules: {
+      'widget.js': `Tapp.widgets.card = { render: function(root) { root.textContent = 'Card'; } };`,
+      'popup.js': `Tapp.popups.card = { render: function(root, props) { root.textContent = 'Popup:' + props.params.view; } };`,
+    },
+    widgetEntries: { card: 'widget.js' },
+    popupEntries: { card: 'popup.js' },
+    widgetHtml: '<p>card template</p>',
+  }
+  const html = generateHTML(instance, code, 'card', { theme: 'light', locale: 'en-US' }, 'session', { missing: 'Missing', renderFailed: 'Render failed' }, 'popup', { view: 'stats' })
+  assert.doesNotMatch(html, /card template/, 'size templates belong to the card only')
+  const events: Array<{ action: string; content: string }> = []
+  const dom = new JSDOM(html, {
+    url: 'https://myriad.test/popup', runScripts: 'dangerously', virtualConsole: new VirtualConsole(),
+    beforeParse(window) {
+      Object.defineProperty(window, 'parent', { value: { postMessage(message) {
+        events.push({ action: message.action, content: window.document.getElementById('widget-root')?.textContent ?? '' })
+      } } })
+    },
+  })
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(events.filter(event => event.action === 'tapp.ready'), [
+      { action: 'tapp.ready', content: 'Popup:stats' },
+    ])
+    assert.equal(dom.window._TAPP_MODE, 'popup')
+  } finally { dom.window.close() }
+})
