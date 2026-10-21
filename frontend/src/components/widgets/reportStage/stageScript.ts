@@ -39,7 +39,6 @@ export interface StageReport {
   platform: string
   headline?: string
   chapters: StageChapter[]
-  cardVisuals: unknown
   /** 风格改过，报告还是旧风格写的。 */
   styleStale: boolean
 }
@@ -190,7 +189,6 @@ export function buildStageReport(
     platform,
     headline: headline || undefined,
     chapters,
-    cardVisuals: report.card_visuals ?? null,
     styleStale: report.style_stale === true,
   }
 }

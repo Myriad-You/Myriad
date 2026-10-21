@@ -1,6 +1,5 @@
 /*
- * 报告舞台：不是播放器面板，是一个场景。
- * 左边是会一段段浮出来的字幕，右边是浮着、跟着指针侧身的那张卡，事实像气泡一样从卡边冒出来；
+ * 报告舞台：只有字幕。当前这句一段段浮出来，旧句退淡往上走；
  * 平台和播放控制收进底下一颗悬浮的胶囊，外圈就是整份报告的进度。
  */
 .report-stage {
@@ -187,9 +186,9 @@ html.dark .report-stage {
 .report-stage__scene {
   display: grid;
   min-height: 0;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 50rem);
   align-items: center;
-  gap: 3rem;
+  justify-content: center;
   padding: 0.5rem 3.5rem 1rem;
 }
 
@@ -235,7 +234,7 @@ html.dark .report-stage {
 
 .report-stage__line {
   color: var(--stage-muted);
-  font-size: clamp(1rem, 1.25vw, 1.1875rem);
+  font-size: clamp(1.0625rem, 1.4vw, 1.3125rem);
   font-weight: 500;
   line-height: 1.5;
   text-wrap: pretty;
@@ -246,11 +245,11 @@ html.dark .report-stage {
 }
 
 .report-stage__line[data-current='true'][data-length='short'] {
-  font-size: clamp(1.75rem, 3vw, 2.75rem);
+  font-size: clamp(2.25rem, 4.2vw, 3.5rem);
 }
 
 .report-stage__line[data-current='true'][data-length='long'] {
-  font-size: clamp(1.25rem, 1.8vw, 1.625rem);
+  font-size: clamp(1.375rem, 2.2vw, 1.9375rem);
   line-height: 1.42;
 }
 
@@ -262,9 +261,13 @@ html.dark .report-stage {
   opacity: 0.35;
 }
 
+.report-stage__line[data-age='3'] {
+  opacity: 0.18;
+}
+
 .report-stage__line[data-current='true'] {
   color: var(--stage-fg);
-  font-size: clamp(1.5rem, 2.4vw, 2.25rem);
+  font-size: clamp(1.75rem, 3vw, 2.75rem);
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.32;
@@ -306,181 +309,6 @@ html.dark .report-stage {
   color: var(--stage-muted);
   font-size: 0.875rem;
   animation: report-stage-rise 560ms var(--stage-ease-out) both;
-}
-
-/* 浮着的卡：跟着指针侧身（--tilt-*），自己慢慢上下漂。 */
-.report-stage__float {
-  display: grid;
-  height: 100%;
-  min-height: 0;
-  place-items: center;
-  perspective: 1100px;
-}
-
-.report-stage__float-inner {
-  position: relative;
-  width: min(100%, 27rem);
-  transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
-  transition: transform 700ms var(--stage-ease-out);
-}
-
-.report-stage__card {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 2 / 1;
-  overflow: hidden;
-  border-radius: 1.25rem;
-  background: color-mix(in srgb, var(--stage-ink) 8%, var(--stage-button));
-  box-shadow:
-    inset 0 0 0 1px var(--stage-line),
-    0 2px 6px rgb(20 16 40 / 8%),
-    0 36px 70px -26px color-mix(in srgb, var(--stage-accent) 55%, transparent);
-  animation: report-stage-rise 640ms var(--stage-ease-out) both;
-}
-
-.report-stage[data-lively] .report-stage__card {
-  animation:
-    report-stage-rise 640ms var(--stage-ease-out) both,
-    report-stage-bob 7s ease-in-out 640ms infinite;
-}
-
-@keyframes report-stage-bob {
-  0%,
-  100% {
-    translate: 0 0;
-  }
-
-  50% {
-    translate: 0 -10px;
-  }
-}
-
-.report-stage__card-inner {
-  position: absolute;
-  top: 0;
-  left: 0;
-  transform-origin: top left;
-}
-
-/* 事实气泡：按 id 落在卡边三个位置之一；新的弹出来，旧的退淡变小。 */
-.report-stage__bubble {
-  position: absolute;
-  z-index: 1;
-  max-width: 15rem;
-  scale: 1;
-  opacity: 1;
-  transition:
-    scale 480ms var(--stage-ease-out),
-    opacity 480ms ease;
-  animation: report-stage-pop 620ms var(--stage-spring) backwards;
-}
-
-.report-stage__bubble[data-slot='0'] {
-  top: -1.75rem;
-  left: -2.25rem;
-  transform-origin: bottom right;
-}
-
-.report-stage__bubble[data-slot='1'] {
-  right: -1.75rem;
-  bottom: -2rem;
-  transform-origin: top left;
-}
-
-.report-stage__bubble[data-slot='2'] {
-  top: 34%;
-  right: -3rem;
-  transform-origin: left center;
-}
-
-.report-stage__bubble[data-age='1'] {
-  opacity: 0.78;
-  scale: 0.9;
-}
-
-.report-stage__bubble[data-age='2'] {
-  opacity: 0.5;
-  scale: 0.8;
-}
-
-.report-stage__bubble-body {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.5rem 1rem 0.5rem 0.5rem;
-  border: 1px solid var(--stage-glass-edge);
-  border-radius: 999px;
-  background: var(--stage-glass);
-  box-shadow: var(--stage-lift);
-}
-
-.report-stage[data-lively] .report-stage__bubble-body {
-  animation: report-stage-drift 5.5s ease-in-out infinite;
-}
-
-.report-stage[data-lively] .report-stage__bubble[data-slot='1'] .report-stage__bubble-body {
-  animation-delay: -1.8s;
-  animation-duration: 6.5s;
-}
-
-.report-stage[data-lively] .report-stage__bubble[data-slot='2'] .report-stage__bubble-body {
-  animation-delay: -3.4s;
-  animation-duration: 6s;
-}
-
-.report-stage__bubble-body:not(:has(img)) {
-  padding-left: 1rem;
-}
-
-.report-stage__bubble img {
-  width: 2.25rem;
-  height: 2.25rem;
-  flex: none;
-  border-radius: 999px;
-  object-fit: cover;
-}
-
-.report-stage__bubble span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  line-height: 1.2;
-}
-
-.report-stage__bubble small {
-  overflow: hidden;
-  color: var(--stage-muted);
-  font-size: 0.6875rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.report-stage__bubble strong {
-  overflow: hidden;
-  color: var(--stage-ink);
-  font-size: 1.0625rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@keyframes report-stage-pop {
-  from {
-    opacity: 0;
-    scale: 0.4;
-  }
-}
-
-@keyframes report-stage-drift {
-  0%,
-  100% {
-    translate: 0 0;
-  }
-
-  50% {
-    translate: 0 -6px;
-  }
 }
 
 .report-stage__panel {
@@ -747,9 +575,6 @@ html[data-perf-mode='exlight'] .report-stage *::before {
     animation: none !important;
   }
 
-  .report-stage__float-inner {
-    transform: none;
-  }
 }
 
 /* ── 手机：卡在上、字幕在中、胶囊贴底 ── */
@@ -765,45 +590,19 @@ html[data-perf-mode='exlight'] .report-stage *::before {
 
   .report-stage__scene {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-    align-items: stretch;
-    gap: 1.75rem;
-    padding: 1.25rem 1.25rem 0.75rem;
+    padding: 1rem 1.5rem 0.75rem;
   }
 
-  .report-stage__float {
-    order: -1;
-    height: auto;
+  .report-stage__line[data-current='true'] {
+    font-size: 1.625rem;
   }
 
-  .report-stage__float-inner {
-    width: min(100%, 20rem);
-  }
-
-  .report-stage__bubble:not([data-age='0']) {
-    display: none;
-  }
-
-  .report-stage__bubble[data-slot] {
-    inset: auto 0.5rem -1.5rem auto;
-  }
-
-  .report-stage__captions {
-    justify-content: flex-start;
-  }
-
-  .report-stage__lines {
-    min-height: 0;
-    justify-content: flex-start;
-  }
-
-  .report-stage__line[data-current='true'],
-  .report-stage__line[data-current='true'][data-length] {
-    font-size: 1.375rem;
+  .report-stage__line[data-current='true'][data-length='short'] {
+    font-size: 2rem;
   }
 
   .report-stage__line[data-current='true'][data-length='long'] {
-    font-size: 1.1875rem;
+    font-size: 1.3125rem;
   }
 
   .report-stage__dock {

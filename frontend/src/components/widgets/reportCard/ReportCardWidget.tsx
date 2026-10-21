@@ -4,8 +4,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import { useAnimationLevel } from '../../../hooks/useAnimationLevel'
 import {
-  coerceReportVisuals,
-  hasRenderableCardVisuals,
   hasReportDetailContent,
   pickPlatformCardVisuals,
   resolveReportPlatformId,
@@ -37,9 +35,6 @@ export const ReportCardWidget = memo(
     config,
     isEditMode,
     isPreview,
-    data: externalData,
-    bare = false,
-    showOverview: controlledShowOverview,
     onConfigChange,
     openPopup,
   }: ReportCardWidgetProps) => {
@@ -50,10 +45,9 @@ export const ReportCardWidget = memo(
     const [reportData, setReportData] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [failed, setFailed] = useState(false)
-    const isOverviewControlled = controlledShowOverview !== undefined
     const [internalShowOverview, setInternalShowOverview] = useState(true)
     // 首页可交互的卡按真实页数翻：0 是总览，之后每页是详情里的一项（或一对）。
-    const paged = !bare && !isPreview && !isOverviewControlled
+    const paged = !isPreview
     const [page, setPage] = useState(0)
     const [detailPaging, setDetailPaging] = useState({
       pages: 1,
@@ -78,13 +72,6 @@ export const ReportCardWidget = memo(
     useEffect(() => {
       if (isPreview) {
         setReportData(buildReportCardPreviewData(platformId, t))
-        setLoading(false)
-        return
-      }
-
-      if (externalData !== undefined) {
-        const visuals = coerceReportVisuals(externalData)
-        setReportData(hasRenderableCardVisuals(visuals) ? visuals : null)
         setLoading(false)
         return
       }
@@ -143,7 +130,7 @@ export const ReportCardWidget = memo(
         document.removeEventListener('visibilitychange', onVisibility)
         window.removeEventListener('reports-updated', onReportsUpdated)
       }
-    }, [platformId, isPreview, externalData])
+    }, [platformId, isPreview])
 
     const hasDetailContent = useMemo(
       () => hasReportDetailContent(reportData),
@@ -153,9 +140,7 @@ export const ReportCardWidget = memo(
     const pageCount = hasDetailContent
       ? paged
         ? 1 + detailPaging.pages
-        : isOverviewControlled
-          ? 1
-          : 2
+        : 2
       : 1
     // 页数变少（数据刷新）时停在最后一页，不按取模跳到不相干的页；
     // 存着的页码也改掉，页数再变多时不会跳回去。
@@ -163,11 +148,7 @@ export const ReportCardWidget = memo(
     useEffect(() => {
       if (page > pageCount - 1) setPage(pageCount - 1)
     }, [page, pageCount])
-    const showOverview = isOverviewControlled
-      ? controlledShowOverview
-      : paged
-        ? currentPage === 0
-        : internalShowOverview
+    const showOverview = paged ? currentPage === 0 : internalShowOverview
     const detailPagingValue = useMemo(
       () => ({
         detailIndex: Math.max(0, currentPage - 1),
@@ -178,14 +159,13 @@ export const ReportCardWidget = memo(
 
     // 没有详情可翻、或这一档不自动轮换时回到总览；手动翻不受档位限制。
     useEffect(() => {
-      if (isPreview || isOverviewControlled) return
+      if (isPreview) return
       if (!hasDetailContent || !animLevel.widgetUiRotation) {
         setInternalShowOverview(true)
         setPage(0)
       }
     }, [
       isPreview,
-      isOverviewControlled,
       hasDetailContent,
       animLevel.widgetUiRotation,
     ])
@@ -194,17 +174,15 @@ export const ReportCardWidget = memo(
       setCardContent(content)
     }, [])
 
-    const interactive = !bare && !isPreview
+    const interactive = !isPreview
 
     // 首页：总览停 10 秒，详情每页按平台面报的时长；滑动、页码点都按真实页数翻。
-    // 嵌在舞台里（bare）时只在总览 ↔ 详情间自动翻，详情项由平台面自己轮换。
     const rotation = useWidgetRotation({
       count: pageCount,
       interactive: interactive && !isEditMode,
       delay: paged && currentPage > 0 ? detailPaging.dwellMs : 10000,
       autoplay:
         !isPreview &&
-        !isOverviewControlled &&
         hasDetailContent &&
         animLevel.widgetUiRotation,
       onStep: (delta) => {
@@ -345,7 +323,6 @@ export const ReportCardWidget = memo(
         containerRef={shellRef}
         padding={0}
         contentClassName="contents"
-        glass={!bare}
         className={`${interactive && !isEditMode ? 'cursor-pointer' : ''} ${rotation.rootClassName}`}
         rootProps={{
           ...rotation.rootProps,
@@ -358,17 +335,13 @@ export const ReportCardWidget = memo(
           onTouchCancel: interactive ? handlePressEnd : undefined,
         }}
         background={
-          !bare && (
-            <GlowBackground
-              color={platformConfig.color}
-              animLevel={animLevel.level}
-              shouldAnimate={
-                !loading && animLevel.loop && animLevel.widgetGlow
-              }
-              variant="single"
-              size="lg"
-            />
-          )
+          <GlowBackground
+            color={platformConfig.color}
+            animLevel={animLevel.level}
+            shouldAnimate={!loading && animLevel.loop && animLevel.widgetGlow}
+            variant="single"
+            size="lg"
+          />
         }
       >
         {reportData ? (

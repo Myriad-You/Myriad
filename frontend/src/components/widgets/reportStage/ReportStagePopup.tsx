@@ -11,7 +11,7 @@ import {
   LuSkipForward,
   LuX,
 } from '@lib/icons'
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
 import { useAnimationLevel } from '../../../hooks/useAnimationLevel'
@@ -29,9 +29,8 @@ import {
 } from '../../../utils/requestDedup'
 import { showToast } from '../../../utils/toastManager'
 import { PLATFORM_CONFIG } from '../reportCard/platformConfig'
-import { ReportCardWidget } from '../reportCard/ReportCardWidget'
 import { GlowBackground } from '../shared/GlowBackground'
-import { FactBubbles, ProgressRing, recentFacts, RevealLine, usePointerTilt } from './stageParts'
+import { ProgressRing, RevealLine } from './stageParts'
 import { buildStageReport } from './stageScript'
 import { useStagePlayer } from './useStagePlayer'
 import './reportStage.css'
@@ -42,15 +41,7 @@ const StageOwnerSettings = lazyWithPreload(() =>
 )
 
 /** 字幕区最多留几句：旧句往上退、变淡，不堆满屏。 */
-const VISIBLE_BEATS = 3
-/** 卡片边上同时漂着的事实气泡。 */
-const VISIBLE_FACTS = 3
-const CARD_BASE = { width: 308, height: 154 }
-/** 收回动画放完再卸下内嵌的报告卡，让它的计时器停下。 */
-const CARD_UNMOUNT_DELAY_MS = 400
-/** 卡片在这几幕显示总览，其余各幕翻到详情。 */
-const OVERVIEW_CHAPTERS = new Set(['echo', 'portrait', 'closing'])
-
+const VISIBLE_BEATS = 4
 /** 站长在平台设置里开着的平台，按拖拽顺序。读不到配置时返回 null，舞台照旧全列。 */
 async function loadPlatformOrder(): Promise<string[] | null> {
   try {
@@ -79,41 +70,6 @@ function readPlatformParam(params: unknown): string | null {
     return typeof value === 'string' ? value : null
   }
   return null
-}
-
-function ScaledCard({ platform, visuals, overview }: { platform: string; visuals: unknown; overview: boolean }) {
-  const hostRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
-  useLayoutEffect(() => {
-    const host = hostRef.current
-    if (!host) return
-    // 用布局尺寸，不用 getBoundingClientRect：弹窗展开时整体在缩放，那一刻量到的是缩小后的
-    // 大小，展开完布局尺寸不变，ResizeObserver 不会再触发，卡就一直停在缩小的倍数上。
-    const fit = () => {
-      const width = host.clientWidth
-      const height = host.clientHeight
-      if (width <= 0 || height <= 0) return
-      setScale(Math.min(width / CARD_BASE.width, height / CARD_BASE.height))
-    }
-    fit()
-    const observer = new ResizeObserver(fit)
-    observer.observe(host)
-    return () => observer.disconnect()
-  }, [])
-  const config = useMemo(
-    () => ({ id: `stage-${platform}`, type: `report-${platform}`, size: '4x2' as const, position: { x: 0, y: 0 }, config: { platformId: platform } }),
-    [platform],
-  )
-  return (
-    <div ref={hostRef} className="report-stage__card">
-      <div
-        className="report-stage__card-inner"
-        style={{ width: CARD_BASE.width, height: CARD_BASE.height, transform: `scale(${scale})` }}
-      >
-        <ReportCardWidget config={config} isEditMode={false} bare data={visuals} showOverview={overview} />
-      </div>
-    </div>
-  )
 }
 
 export default function ReportStagePopup({ config, params, active, close }: WidgetPopupProps) {
@@ -217,17 +173,6 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
     wasActive.current = active
   }, [active, pause])
 
-  // 收回后卸下内嵌的报告卡：它自己的轮换、在线状态轮询不该在看不见时继续跑。
-  const [cardMounted, setCardMounted] = useState(active)
-  useEffect(() => {
-    if (active) {
-      setCardMounted(true)
-      return undefined
-    }
-    const timer = window.setTimeout(setCardMounted, CARD_UNMOUNT_DELAY_MS, false)
-    return () => window.clearTimeout(timer)
-  }, [active])
-
   const rootRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!active || settingsOpen) return
@@ -284,21 +229,12 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
   }, [copy.generateFailed, copy.generated, format, generating, load, platform, platformLabel, t.reportCard])
 
   const accent = PLATFORM_CONFIG[platform]?.color ?? 'var(--color-primary, #6366f1)'
-  const overview = !chapter || OVERVIEW_CHAPTERS.has(chapter.key)
-  const facts = useMemo(
-    () => (chapter ? recentFacts(chapter.beats, state.shown, VISIBLE_FACTS) : []),
-    [chapter, state.shown],
-  )
-  const floatRef = useRef<HTMLDivElement>(null)
-  const lively = active && anim.loop
-  usePointerTilt(rootRef, floatRef, lively && !settingsOpen)
   const platforms = order.includes(platform) ? order : [platform, ...order]
 
   return (
     <div
       ref={rootRef}
       className="report-stage"
-      data-lively={lively ? 'true' : undefined}
       style={{ '--stage-accent': accent } as React.CSSProperties}
     >
       <div className="report-stage__glow" aria-hidden="true">
@@ -357,51 +293,41 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
             </Suspense>
           </div>
         ) : report ? (
-          <>
-            <section
-              className="report-stage__captions"
-              aria-live="polite"
-              title={state.ended ? undefined : copy.nextLine}
-              onClick={(event) => {
-                // 选字时不翻。
-                if (window.getSelection()?.toString()) return
-                if (event.detail > 1 || state.ended) return
-                next()
-              }}
-            >
-              {chapter ? (
-                <p className="report-stage__kicker" key={`${platform}-${state.chapter}`}>
-                  <span>{format(copy.chapterOf, { current: state.chapter + 1, total: chapters.length })}</span>
-                  {chapter.title}
-                </p>
-              ) : null}
-              <div className="report-stage__lines">
-                {visibleBeats.map((beat, index) => {
-                  const current = index === visibleBeats.length - 1
-                  return (
-                    <p
-                      key={`${state.chapter}-${state.shown - visibleBeats.length + index}`}
-                      className="report-stage__line"
-                      data-current={current ? 'true' : undefined}
-                      data-age={visibleBeats.length - 1 - index}
-                      data-length={lengthClass(beat.text)}
-                    >
-                      {current ? <RevealLine text={beat.text} animate={anim.level !== 'exlight'} /> : beat.text}
-                    </p>
-                  )
-                })}
-                {state.ended ? <p className="report-stage__end">{copy.finished}</p> : null}
-              </div>
-            </section>
-            <div className="report-stage__float" ref={floatRef}>
-              <div className="report-stage__float-inner">
-                {cardMounted ? (
-                  <ScaledCard platform={platform} visuals={report.cardVisuals} overview={overview} />
-                ) : null}
-                <FactBubbles facts={facts} />
-              </div>
+          <section
+            className="report-stage__captions"
+            aria-live="polite"
+            title={state.ended ? undefined : copy.nextLine}
+            onClick={(event) => {
+              // 选字时不翻。
+              if (window.getSelection()?.toString()) return
+              if (event.detail > 1 || state.ended) return
+              next()
+            }}
+          >
+            {chapter ? (
+              <p className="report-stage__kicker" key={`${platform}-${state.chapter}`}>
+                <span>{format(copy.chapterOf, { current: state.chapter + 1, total: chapters.length })}</span>
+                {chapter.title}
+              </p>
+            ) : null}
+            <div className="report-stage__lines">
+              {visibleBeats.map((beat, index) => {
+                const current = index === visibleBeats.length - 1
+                return (
+                  <p
+                    key={`${state.chapter}-${state.shown - visibleBeats.length + index}`}
+                    className="report-stage__line"
+                    data-current={current ? 'true' : undefined}
+                    data-age={visibleBeats.length - 1 - index}
+                    data-length={lengthClass(beat.text)}
+                  >
+                    {current ? <RevealLine text={beat.text} animate={anim.level !== 'exlight'} /> : beat.text}
+                  </p>
+                )
+              })}
+              {state.ended ? <p className="report-stage__end">{copy.finished}</p> : null}
             </div>
-          </>
+          </section>
         ) : (
           <div className="report-stage__empty">
             <p>{loaded ? copy.empty : t.common.loading}</p>

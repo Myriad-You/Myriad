@@ -1,6 +1,4 @@
-import type { RefObject } from 'react'
-import type { StageBeat, StageFact } from './stageScript'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 
 /** 当前这句一段一段浮出来，整句最多花这么久，长句每段更快。 */
 const REVEAL_TOTAL_MS = 720
@@ -11,21 +9,46 @@ const wordSegmenter =
     ? new Intl.Segmenter(undefined, { granularity: 'word' })
     : null
 
+const SPACE = /^\s+$/
+const PUNCTUATION = /^\p{P}+$/u
+/** 开括号、开引号：跟后面的词走，不能留在行尾。 */
+const OPENING = /^[「『（([{“‘《〈【〔]+$/u
+
 /**
  * 按词切：中日文切成词，西文按单词。每段是一个 inline-block，才能上浮；
  * 按字切的话西文单词会在中间断行。空白原样留成文字，照常在那里换行。
+ *
+ * 标点不单独成段：单独一块的话浏览器的避头尾管不到它，「、」「，」会跑到行首。
+ * 开括号（以及行首、空格后的标点）并进后一段，其余并进前一段。
  */
 function segmentsOf(text: string): { text: string; space: boolean }[] {
-  if (wordSegmenter) {
-    return Array.from(wordSegmenter.segment(text), (part) => ({
-      text: part.segment,
-      space: /^\s+$/.test(part.segment),
-    }))
+  const parts = wordSegmenter
+    ? Array.from(wordSegmenter.segment(text), (part) => part.segment)
+    : text.split(/(\s+)/).filter(Boolean)
+  const segments: { text: string; space: boolean }[] = []
+  let opening = ''
+  for (const part of parts) {
+    if (SPACE.test(part)) {
+      if (opening) segments.push({ text: opening, space: false })
+      opening = ''
+      segments.push({ text: part, space: true })
+      continue
+    }
+    const previous = segments.at(-1)
+    // 行首或空格后的标点（含西文直引号）也是开头的那种。
+    if (OPENING.test(part) || (PUNCTUATION.test(part) && (!previous || previous.space))) {
+      opening += part
+      continue
+    }
+    if (!opening && PUNCTUATION.test(part) && previous && !previous.space) {
+      previous.text += part
+      continue
+    }
+    segments.push({ text: opening + part, space: false })
+    opening = ''
   }
-  return text
-    .split(/(\s+)/)
-    .filter(Boolean)
-    .map((part) => ({ text: part, space: /^\s+$/.test(part) }))
+  if (opening) segments.push({ text: opening, space: false })
+  return segments
 }
 
 /** 当前这句。屏幕阅读器读整句，逐段的那层只给眼睛看。 */
@@ -54,70 +77,6 @@ export function RevealLine({ text, animate }: { text: string; animate: boolean }
           ),
         )}
       </span>
-    </>
-  )
-}
-
-export interface PlacedFact {
-  fact: StageFact
-  /** 卡边的哪个位置。同时漂着的几条不会落在同一处。 */
-  slot: number
-}
-
-const SLOTS = 3
-
-/**
- * 这一幕到目前为止提到过的事实，同一条只留最近一次，最多几条，最新的在最后。
- * 位置按在这一幕里第一次出现的先后轮流给；跟还漂着的撞了就往后挪到空位。
- */
-export function recentFacts(beats: readonly StageBeat[], shown: number, limit: number): PlacedFact[] {
-  const firstSeen = new Map<string, number>()
-  const recent = new Map<string, StageFact>()
-  for (const beat of beats.slice(0, shown)) {
-    if (!beat.fact) continue
-    if (!firstSeen.has(beat.fact.id)) firstSeen.set(beat.fact.id, firstSeen.size)
-    recent.delete(beat.fact.id)
-    recent.set(beat.fact.id, beat.fact)
-  }
-  const visible = Array.from(recent.values()).slice(-Math.min(limit, SLOTS))
-  const taken = new Set<number>()
-  return visible.map((fact) => {
-    let slot = (firstSeen.get(fact.id) ?? 0) % SLOTS
-    while (taken.has(slot)) slot = (slot + 1) % SLOTS
-    taken.add(slot)
-    return { fact, slot }
-  })
-}
-
-/** 事实是卡片边上冒出来的气泡：新的弹出来，旧的退淡、变小。 */
-export function FactBubbles({ facts }: { facts: readonly PlacedFact[] }) {
-  return (
-    <>
-      {facts.map(({ fact, slot }, index) => (
-        <div
-          key={fact.id}
-          className="report-stage__bubble"
-          data-slot={slot}
-          data-age={facts.length - 1 - index}
-        >
-          <div className="report-stage__bubble-body">
-            {fact.media ? (
-              <img
-                src={fact.media}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                // 封面、头像取不到时不留破图标。
-                onError={(event) => event.currentTarget.remove()}
-              />
-            ) : null}
-            <span>
-              <small>{fact.label}</small>
-              <strong>{fact.value}</strong>
-            </span>
-          </div>
-        </div>
-      ))}
     </>
   )
 }
@@ -160,49 +119,4 @@ export function ProgressRing({
       })}
     </svg>
   )
-}
-
-/**
- * 卡片跟着指针微微侧过去。直接写 CSS 变量，不走 React 状态；一帧最多算一次。
- * 触屏、关了循环动效时不跟。
- */
-export function usePointerTilt(
-  rootRef: RefObject<HTMLElement | null>,
-  targetRef: RefObject<HTMLElement | null>,
-  enabled: boolean,
-) {
-  useEffect(() => {
-    const root = rootRef.current
-    if (!enabled || !root || !matchMedia('(pointer: fine)').matches) return
-    let frame = 0
-    let x = 0
-    let y = 0
-    const apply = () => {
-      frame = 0
-      const target = targetRef.current
-      if (!target) return
-      target.style.setProperty('--tilt-x', `${(-y * 6).toFixed(2)}deg`)
-      target.style.setProperty('--tilt-y', `${(x * 9).toFixed(2)}deg`)
-    }
-    const onMove = (event: PointerEvent) => {
-      const rect = root.getBoundingClientRect()
-      x = (event.clientX - rect.left) / Math.max(1, rect.width) - 0.5
-      y = (event.clientY - rect.top) / Math.max(1, rect.height) - 0.5
-      frame ||= requestAnimationFrame(apply)
-    }
-    const onLeave = () => {
-      x = 0
-      y = 0
-      frame ||= requestAnimationFrame(apply)
-    }
-    root.addEventListener('pointermove', onMove)
-    root.addEventListener('pointerleave', onLeave)
-    return () => {
-      root.removeEventListener('pointermove', onMove)
-      root.removeEventListener('pointerleave', onLeave)
-      if (frame) cancelAnimationFrame(frame)
-      targetRef.current?.style.removeProperty('--tilt-x')
-      targetRef.current?.style.removeProperty('--tilt-y')
-    }
-  }, [enabled, rootRef, targetRef])
 }
