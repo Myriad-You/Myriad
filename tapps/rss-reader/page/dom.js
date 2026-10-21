@@ -4,7 +4,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 
 // 24×24 描线图标。只放阅读器真用到的几个。
 const ICONS = {
-  menu: 'M4 7h16M4 12h16M4 17h16',
+  sidebar: 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9.5 4v16M5.75 8h1.5M5.75 11h1.5',
   back: 'M15 6l-6 6 6 6',
   up: 'M6 15l6-6 6 6',
   down: 'M6 9l6 6 6-6',
@@ -12,8 +12,11 @@ const ICONS = {
   search: 'M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM20 20l-4-4',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6',
   check: 'M5 12.5l4.5 4.5L19 7.5',
-  checks: 'M2.5 12.5l4.5 4.5 9.5-9.5M11.5 16l1 1 9.5-9.5',
-  circle: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z',
+  checks: 'M2 12.5l4.5 4.5L16 7.5M11.5 16.5l.5.5 9.5-9.5',
+  mail: 'M4.5 5.5h15a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17V7a1.5 1.5 0 0 1 1.5-1.5zM3.5 7l8.5 6 8.5-6',
+  mailOpen: 'M3 10.2a1.5 1.5 0 0 1 .7-1.3l7.5-4.6a1.5 1.5 0 0 1 1.6 0l7.5 4.6a1.5 1.5 0 0 1 .7 1.3v7.3a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5zM3.5 10l8.5 5.5 8.5-5.5',
+  pencil: 'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17zM14 8l2 2',
+  book: 'M12 6.5C10.3 5.2 7.6 4.5 3.5 4.5v13c4.1 0 6.8.7 8.5 2 1.7-1.3 4.4-2 8.5-2v-13c-4.1 0-6.8.7-8.5 2zM12 6.5v13',
   star: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
   external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   type: 'M4 19l5-14 5 14M5.8 14h6.4M15 19l3-8 3 8M15.9 16.5h4.2',
@@ -22,7 +25,6 @@ const ICONS = {
   upload: 'M12 20V9M7 14l5-5 5 5M5 4h14',
   plus: 'M12 5v14M5 12h14',
   inbox: 'M4 13l2.5-7h11l2.5 7v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM4 13h5l1 2h4l1-2h5',
-  layers: 'M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4',
   folder: 'M4 7a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z',
   chevron: 'M9 6l6 6-6 6',
   keyboard: 'M3 7a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM7 10h.01M11 10h.01M15 10h.01M7 14h10',
@@ -56,6 +58,7 @@ function icon(name, extraClass) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('data-icon', name);
   svg.setAttribute('class', extraClass ? `rss-icon ${extraClass}` : 'rss-icon');
   const drawn = document.createElementNS(SVG_NS, 'path');
   drawn.setAttribute('d', path);
@@ -74,6 +77,14 @@ function iconButton(action, iconName, label, attrs) {
   }, attrs || {}));
   button.appendChild(icon(iconName));
   return button;
+}
+
+/** 按钮的图标随状态换（已读 / 未读、收起 / 关闭），名字没变就不动节点。 */
+function setIcon(node, iconName) {
+  if (!node) return;
+  const current = node.firstChild;
+  if (current && current.getAttribute && current.getAttribute('data-icon') === iconName) return;
+  node.replaceChildren(icon(iconName));
 }
 
 function button(action, label, attrs, iconName) {
@@ -112,4 +123,4 @@ function nextFrame(callback) {
   else setTimeout(callback, 0);
 }
 
-module.exports = { t, el, icon, iconButton, button, toggleClass, q, setPressed, nextFrame };
+module.exports = { t, el, icon, iconButton, button, setIcon, toggleClass, q, setPressed, nextFrame };

@@ -3,7 +3,14 @@
  * 颜色全部走下面这组变量：浅色写在 .rss-app 上，深色由宿主给 body 加 .dark 时覆盖。
  * 主色只来自 --tapp-primary（壁纸色），淡底用 color-mix 调，主色变了也跟着变。
  * 布局三档：≥1180px 三栏；860–1179px 列表 + 正文、侧栏变抽屉；更窄时一次一栏。
+ *
+ * 宿主在全屏时给内容区加内边距，把悬浮的标题条和问候让出来。阅读器自己铺满到屏幕边，
+ * 只把栏头、按钮这些要点的东西按 --rss-inset-* 往里让，背景不留白框。
  */
+
+#tapp-content {
+  padding: 0 !important;
+}
 
 .rss-app {
   --rss-accent: var(--tapp-primary, #0f766e);
@@ -32,6 +39,10 @@
   --rss-head-h: 3.25rem;
   --rss-tap: 2.25rem;
   --rss-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --rss-inset-top: 0px;
+  --rss-inset-right: 0px;
+  --rss-inset-bottom: 0px;
+  --rss-inset-left: 0px;
 
   position: relative;
   display: flex;
@@ -167,13 +178,8 @@ body.dark .rss-app {
   color: #d97706;
 }
 
-.rss-icon-btn.is-starred .rss-icon,
-.rss-icon-btn.is-filled .rss-icon {
+.rss-icon-btn.is-starred .rss-icon {
   fill: currentcolor;
-}
-
-.rss-icon-btn.is-filled {
-  color: var(--rss-accent-ink);
 }
 
 .rss-icon-btn.is-spinning .rss-icon {
@@ -321,7 +327,6 @@ body.dark .rss-app {
   gap: 0.15rem;
 }
 
-.rss-app-title,
 .rss-pane-title {
   margin: 0;
   overflow: hidden;
@@ -1787,9 +1792,52 @@ body.dark .rss-toast {
   display: inline-grid;
 }
 
+/* ---------- 全屏贴边 ---------- */
+
+.rss-pane-head {
+  padding-top: calc(0.5rem + var(--rss-inset-top));
+}
+
+.rss-nav {
+  padding-left: var(--rss-inset-left);
+}
+
+.rss-nav-foot {
+  padding-bottom: calc(0.5rem + var(--rss-inset-bottom));
+}
+
+.rss-list__body,
+.rss-reader__scroll {
+  padding-bottom: var(--rss-inset-bottom);
+}
+
+.rss-reader-head {
+  padding-right: calc(0.75rem + var(--rss-inset-right));
+}
+
+.rss-layer {
+  padding:
+    calc(1.5rem + var(--rss-inset-top))
+    calc(1.5rem + var(--rss-inset-right))
+    calc(1.5rem + var(--rss-inset-bottom))
+    calc(1.5rem + var(--rss-inset-left));
+}
+
+.rss-toast {
+  bottom: calc(1.25rem + var(--rss-inset-bottom));
+}
+
 /* ---------- 宽屏：三栏 ---------- */
 
 @media (width >= 1180px) {
+  .rss-shell {
+    grid-template-columns: calc(var(--rss-nav-w) + var(--rss-inset-left)) var(--rss-list-w) minmax(0, 1fr);
+  }
+
+  .rss-app.is-nav-collapsed .rss-list {
+    padding-left: var(--rss-inset-left);
+  }
+
   .rss-app.is-nav-collapsed .rss-shell {
     grid-template-columns: 0 var(--rss-list-w) minmax(0, 1fr);
   }
@@ -1807,13 +1855,17 @@ body.dark .rss-toast {
     grid-template-columns: var(--rss-list-w) minmax(0, 1fr);
   }
 
+  .rss-list {
+    padding-left: var(--rss-inset-left);
+  }
+
   .rss-nav {
     position: absolute;
     z-index: 40;
     top: 0;
     bottom: 0;
     left: 0;
-    width: min(var(--rss-nav-w), 86%);
+    width: min(calc(var(--rss-nav-w) + var(--rss-inset-left)), 86%);
     border-right: 1px solid var(--rss-line);
     box-shadow: var(--rss-shadow);
     visibility: hidden;
@@ -1846,7 +1898,12 @@ body.dark .rss-toast {
   }
 
   .rss-list {
+    padding-right: var(--rss-inset-right);
     border-right: 0;
+  }
+
+  .rss-reader-head {
+    padding-left: calc(0.75rem + var(--rss-inset-left));
   }
 
   .rss-app:not(.is-article) .rss-reader,
@@ -1869,7 +1926,7 @@ body.dark .rss-toast {
 
   .rss-layer {
     align-items: end;
-    padding: 0;
+    padding: var(--rss-inset-top) 0 0;
   }
 
   .rss-dialog,
@@ -1882,7 +1939,7 @@ body.dark .rss-toast {
   }
 
   .rss-dialog__body {
-    padding-bottom: 1.5rem;
+    padding-bottom: calc(1.5rem + var(--rss-inset-bottom));
   }
 
   .rss-grid {

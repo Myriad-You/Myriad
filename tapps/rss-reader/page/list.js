@@ -6,7 +6,7 @@ const { scopeTitle, sourceAvatar } = require('./nav.js');
 function buildListHeader(state) {
   const head = el('header', { className: 'rss-pane-head rss-list-head' });
   const top = el('div', { className: 'rss-pane-head__row' });
-  top.appendChild(iconButton('toggle-nav', 'menu', t('showFeeds'), { 'data-role': 'nav-toggle', className: 'rss-icon-btn rss-nav-toggle' }));
+  top.appendChild(iconButton('toggle-nav', 'sidebar', t('showFeeds'), { 'data-role': 'nav-toggle', className: 'rss-icon-btn rss-nav-toggle' }));
   const titles = el('div', { className: 'rss-pane-head__titles' });
   titles.append(
     el('h2', { className: 'rss-pane-title', 'data-role': 'list-title', id: 'rss-list-title' }),
@@ -21,7 +21,7 @@ function buildListHeader(state) {
     tools.appendChild(iconButton('ask-mark-all', 'checks', t('markAllRead'), { 'data-role': 'mark-all' }));
   }
   if (state.canManage) {
-    tools.appendChild(iconButton('edit-scope-source', 'settings', t('editSource'), { 'data-role': 'edit-source', hidden: true }));
+    tools.appendChild(iconButton('edit-scope-source', 'pencil', t('editSource'), { 'data-role': 'edit-source', hidden: true }));
   }
   top.append(titles, tools);
 

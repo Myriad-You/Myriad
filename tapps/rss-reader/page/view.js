@@ -1,7 +1,7 @@
 // 把各块的绘制串起来，并管布局状态（抽屉、单栏时看列表还是看文章）。
 // ctx = { root, state, ui }，ui 是不落盘的界面瞬时状态。
 
-const { t, el, icon, iconButton, q, toggleClass } = require('./dom.js');
+const { t, el, icon, iconButton, q, setIcon, toggleClass } = require('./dom.js');
 const { renderNav } = require('./nav.js');
 const { buildListHeader, paintListHeader, renderList, markSelected } = require('./list.js');
 const { buildReader, renderReader, paintReaderTools, paintTypography } = require('./reader.js');
@@ -32,8 +32,9 @@ function buildShell(ctx) {
   const navHead = el('header', { className: 'rss-pane-head rss-nav-head' });
   const brand = el('div', { className: 'rss-pane-head__row' });
   const titles = el('div', { className: 'rss-pane-head__titles' });
-  titles.append(el('h1', { className: 'rss-app-title' }, t('title')), el('p', { className: 'rss-pane-sub', 'data-role': 'nav-stats' }));
-  brand.append(titles, iconButton('toggle-nav', 'menu', t('hideFeeds'), { className: 'rss-icon-btn rss-nav-close', 'data-role': 'nav-close' }));
+  // 应用名宿主的标题条上已经有了，这里只放统计。
+  titles.appendChild(el('p', { className: 'rss-pane-sub', 'data-role': 'nav-stats' }));
+  brand.append(titles, iconButton('toggle-nav', 'sidebar', t('hideFeeds'), { className: 'rss-icon-btn rss-nav-close', 'data-role': 'nav-close' }));
   navHead.appendChild(brand);
   const navFoot = el('footer', { className: 'rss-nav-foot' });
   if (state.canManage) {
@@ -117,6 +118,7 @@ function paintLayout(ctx) {
   if (close) {
     close.setAttribute('aria-label', mode === 'wide' ? t('hideFeeds') : t('close'));
     close.setAttribute('title', `${mode === 'wide' ? t('hideFeeds') : t('close')} ([)`);
+    setIcon(close, mode === 'wide' ? 'sidebar' : 'close');
   }
   const back = q(root, 'reader-back');
   if (back) back.hidden = mode !== 'single';

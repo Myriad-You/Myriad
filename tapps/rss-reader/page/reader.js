@@ -1,4 +1,4 @@
-const { t, el, icon, iconButton, q, setPressed, toggleClass, nextFrame } = require('./dom.js');
+const { t, el, icon, iconButton, q, setIcon, setPressed, toggleClass, nextFrame } = require('./dom.js');
 const { formatWhen, readingMinutes, hostOf } = require('./format.js');
 const { FONT_STEPS, shownItems, neighbour } = require('./model.js');
 const { sanitizeContent } = require('./sanitize.js');
@@ -18,7 +18,7 @@ function buildReader(state) {
   );
   if (state.canWrite) {
     bar.append(
-      iconButton('toggle-read', 'circle', t('markUnread'), { 'data-role': 'read-toggle', 'aria-keyshortcuts': 'M' }),
+      iconButton('toggle-read', 'mailOpen', t('markUnread'), { 'data-role': 'read-toggle', 'aria-keyshortcuts': 'M' }),
       iconButton('toggle-star', 'star', t('star'), { 'data-role': 'star-toggle', 'aria-keyshortcuts': 'S' }),
     );
   }
@@ -97,8 +97,10 @@ function paintReaderTools(root, state) {
     const isRead = Boolean(article && article.is_read);
     read.setAttribute('aria-label', isRead ? t('markUnread') : t('markRead'));
     read.setAttribute('title', `${isRead ? t('markUnread') : t('markRead')} (M)`);
-    setPressed(read, !isRead);
-    toggleClass(read, 'is-filled', !isRead);
+    const unread = Boolean(article) && !isRead;
+    setPressed(read, unread);
+    toggleClass(read, 'is-on', unread);
+    setIcon(read, isRead ? 'mailOpen' : 'mail');
   }
   const star = q(root, 'star-toggle');
   if (star) {
@@ -205,7 +207,7 @@ function articleFoot(state, article) {
 function readerEmpty(state) {
   const box = el('div', { className: 'rss-empty is-reader' });
   const unread = state.stats && state.stats.total_unread;
-  box.appendChild(icon('layers', 'rss-empty__mark'));
+  box.appendChild(icon('book', 'rss-empty__mark'));
   box.append(
     el('strong', null, unread === 0 ? t('allCaughtUp') : t('emptyArticle')),
     el('p', null, t('emptyArticleHint')),

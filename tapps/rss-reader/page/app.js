@@ -34,8 +34,20 @@ function start(root) {
   if (typeof document.addEventListener === 'function') {
     document.addEventListener('keydown', (event) => onKey(ctx, event));
   }
-  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('resize', () => view.paintLayout(ctx));
+  if (typeof window !== 'undefined') {
+    applyInsets(root, window._TAPP_INITIAL_SAFE_INSETS);
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', () => view.paintLayout(ctx));
+      window.addEventListener('tapp:resize', (event) => {
+        const detail = (event && event.detail) || {};
+        applyInsets(root, {
+          top: detail.safeInsetTop,
+          right: detail.safeInsetRight,
+          bottom: detail.safeInsetBottom,
+          left: detail.safeInsetLeft,
+        });
+      });
+    }
   }
   if (Tapp.ui && typeof Tapp.ui.onLocaleChange === 'function') {
     Tapp.ui.onLocaleChange(() => {
@@ -47,6 +59,19 @@ function start(root) {
   void Promise.resolve(Tapp.ui.setTitle(Tapp.i18n.t('title'))).catch(() => {});
   void reading.boot(ctx);
   return ctx;
+}
+
+/**
+ * 宿主全屏时会给内容区加内边距，把悬浮的标题条让出来。page.css 把那层内边距清掉，
+ * 改由这里把同样的数值交给各栏的栏头和边缘，背景就能一直铺到屏幕边上。
+ */
+function applyInsets(root, insets) {
+  if (!root.style || typeof root.style.setProperty !== 'function') return;
+  const value = insets || {};
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+    const px = Math.max(0, Number(value[side]) || 0);
+    root.style.setProperty(`--rss-inset-${side}`, `${px}px`);
+  }
 }
 
 function numberAttr(node, name) {
