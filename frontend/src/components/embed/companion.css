@@ -83,7 +83,8 @@
 }
 
 .capsule {
-  top: 50%;
+  /* 页面被撑宽时固定定位的参照比屏幕高（见 CompanionChrome.tsx 的 viewportRight）。 */
+  top: min(50%, 50dvh);
   flex-direction: column;
   transform: translateY(-50%);
   transition:
@@ -760,8 +761,9 @@
 
 .sheet {
   position: fixed;
-  right: 0;
-  bottom: 0;
+  /* 页面被撑宽时只占屏幕那么大，见 CompanionChrome.tsx 的 viewportRight。 */
+  right: max(0px, calc(100% - 100vw));
+  bottom: max(0px, calc(100% - 100dvh));
   left: 0;
   z-index: 2147483110;
   animation: sheet-in 0.35s var(--ease);

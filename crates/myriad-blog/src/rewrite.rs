@@ -1,4 +1,4 @@
-//! 正文 HTML 变换：公式 span 转 MathML，根相对地址改绝对地址，末尾挂评论 iframe。
+//! 正文 HTML 变换：公式 span 转 MathML，表格包一层横滚，根相对地址改绝对地址，末尾挂评论 iframe。
 //!
 //! lol_html 按完整文档解析。笔记正文是片段，所以先包一层再把内层切回来。
 //! 包层标记若已经出现在正文里，就跳过重写，原样返回，避免切错。
@@ -37,6 +37,13 @@ pub fn prepare_content_html(html: &str, origin: &str, item_id: i32) -> String {
                                 }
                             }
                         }
+                        Ok(())
+                    }),
+                    // 宽表格包一层能横着滚的：主题多半不管，手机上会把整页撑宽（见 NOTES_CSS）。
+                    // 表格自己的样式不动，主题怎么画表格还怎么画。
+                    element!("table", |el| {
+                        el.before("<div class=\"myriad-table\">", ContentType::Html);
+                        el.after("</div>", ContentType::Html);
                         Ok(())
                     }),
                     element!("*", |el| {

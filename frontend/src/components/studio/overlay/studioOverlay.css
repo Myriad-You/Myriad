@@ -93,7 +93,8 @@ input:focus-visible {
   color: var(--so-ink);
   position: fixed;
   top: max(8px, env(safe-area-inset-top));
-  left: 50%;
+  /* 50vw 不用 50%：手机上页面被撑宽时 50% 是被撑宽那块的中间，会跑出屏幕。 */
+  left: 50vw;
   z-index: 30;
   display: flex;
   align-items: center;

@@ -28,6 +28,14 @@ function box(element: Element): Box {
   return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
 }
 
+/**
+ * 贴着屏幕右边：手机上正文被宽表格之类撑宽时，固定定位的参照跟着变宽（`100%` 比屏幕宽），
+ * `100vw` 还是屏幕那么宽，差出来的让回去；桌面上 `100vw` 算上了滚动条，取 `max` 就不让。
+ */
+function viewportRight(px: number): string {
+  return `max(${px}px, calc(100% - 100vw + ${px}px))`
+}
+
 /** 进度量到 0.2%：进度环和百分比都看不出差别，滚动时大多数帧就不用重渲染。 */
 const PROGRESS_STEP = 500
 
@@ -49,7 +57,8 @@ function usePageGeometry(page: CompanionPage): Geometry {
   const measure = (): Geometry => {
     const nav = page.doc.querySelector('#myriad-nav .myriad-nav__island')
     const article = box(page.root)
-    const view = { width: page.win.innerWidth, height: page.win.innerHeight }
+    // 不用 innerWidth：手机上页面被撑宽时它跟着变宽，clientWidth 才是屏幕上那一块。
+    const view = { width: page.doc.documentElement.clientWidth, height: page.win.innerHeight }
     return {
       layout: companionLayout(view, article, nav ? box(nav) : null),
       progress: Math.round(readingProgress(article, view.height) * PROGRESS_STEP) / PROGRESS_STEP,
@@ -186,7 +195,7 @@ export function CompanionChrome({
     layout.mode === 'sides'
       ? (x >= layout.left - HOT_ZONE && x <= layout.left + CAPSULE_WIDTH + HOT_ZONE / 4) ||
         (x >= layout.right - HOT_ZONE / 4 && x <= layout.right + CAPSULE_WIDTH + HOT_ZONE)
-      : x >= page.win.innerWidth - layout.right - CAPSULE_WIDTH - HOT_ZONE / 4
+      : x >= page.doc.documentElement.clientWidth - layout.right - CAPSULE_WIDTH - HOT_ZONE / 4
   const { visible, ownScroll } = useChromeVisibility(page.win, hovered || focused || panel != null, reaching)
   const comments = page.doc.querySelector<HTMLElement>('iframe.myriad-comments')
   // 主题能被替着切深浅色才有这颗按钮：只跟系统、没有深色的主题切了也看不出来。
@@ -302,7 +311,7 @@ export function CompanionChrome({
       <>
         <div
           className={`capsule capsule--right capsule--rail${visible ? '' : ' is-hidden'}`}
-          style={{ right: layout.right }}
+          style={{ right: viewportRight(layout.right) }}
           inert={!visible}
           aria-hidden={!visible}
           {...hold}

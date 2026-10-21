@@ -208,9 +208,14 @@
 
 /* 手机和触屏平板：和主站一样换成底部居中的一条。 */
 @media (width <= 767px), (width <= 1077px) and (pointer: coarse) {
+  /*
+   * 页面被撑宽时（主题或正文里有伸出去的东西），手机上固定定位的参照跟着按比例变宽变高，
+   * `50%`、`bottom` 会落到屏幕外；`vw` / `dvh` 还是屏幕那么大。取两者小的那个：
+   * 没撑宽时一样，桌面上有滚动条时不压到滚动条上。
+   */
   .myriad-nav {
-    inset: auto auto max(1rem, env(safe-area-inset-bottom)) 50%;
-    transform: translateX(-50%);
+    inset: min(100%, 100dvh) auto auto min(50%, 50vw);
+    transform: translate(-50%, calc(-100% - max(1rem, env(safe-area-inset-bottom))));
   }
 
   .myriad-nav__island {

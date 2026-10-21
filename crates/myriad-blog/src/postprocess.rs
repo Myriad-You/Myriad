@@ -9,6 +9,9 @@ use crate::urlutil::is_javascript_url;
 pub const NOTES_CSS_HREF: &str = "/blog/_myriad/notes.css";
 
 /// 分栏、小组件占位、块级公式和嵌入页 iframe 的样子。主题样式表不管这些类。
+/// 正文（末尾挂着评论框的那个元素）里再垫几条防撑宽的：长网址折行、代码块和宽表格横着滚、
+/// 图片不超过栏宽。手机上正文一宽，固定在屏幕上的导航岛和伴读就跟着跑出屏幕。这几条包在
+/// `:where` 里，优先级是零，主题自己写了的照主题的。
 /// 页面不跑脚本，嵌入页和它同源，由嵌入页来碰页面（frontend/src/components/embed/embedHost.ts）：
 /// 带 `data-embed-fit` 的框由里面按内容定高，这里写的高度只是加载完之前的占位；
 /// 里面第一帧之前把自己的明暗写到框的 `data-embed-scheme` 上，框的颜色跟着它，
@@ -18,7 +21,12 @@ pub const NOTES_CSS: &str = "\
 .note-column>:first-child{margin-top:0}\n\
 .note-widget{border:1px dashed currentColor;opacity:.7;border-radius:8px;padding:1rem;margin:1em 0;font-size:.9em}\n\
 .note-widget::before{content:\"Myriad 小组件：\" attr(data-widget) \"（\" attr(data-size) \"）\"}\n\
-math[display=block]{margin:1em 0;font-size:1.15em}\n\
+math[display=block]{margin:1em 0;font-size:1.15em;max-width:100%;overflow-x:auto}\n\
+.myriad-table{max-width:100%;overflow-x:auto}\n\
+:where(:has(>iframe.myriad-comments)){overflow-wrap:anywhere}\n\
+:where(:has(>iframe.myriad-comments) table){overflow-wrap:break-word}\n\
+:where(:has(>iframe.myriad-comments) pre){overflow-x:auto}\n\
+:where(:has(>iframe.myriad-comments) :is(img,video)){max-width:100%;height:auto}\n\
 .myriad-comments,.myriad-friend-apply{display:block;width:100%;border:0;margin-top:2rem}\n\
 .myriad-comments{height:420px}\n\
 .myriad-friend-apply{height:760px}\n\

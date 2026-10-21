@@ -177,6 +177,18 @@ fn slug_rules() {
 }
 
 #[test]
+fn wide_tables_get_a_scroll_wrapper() {
+    let html = "<p>前</p><table><tr><td>a</td></tr></table><p>后</p>";
+    let out = prepare_content_html(html, "https://example.com/", 7);
+    assert!(
+        out.contains(
+            "<div class=\"myriad-table\"><table><tr><td>a</td></tr></table></div><p>后</p>"
+        ),
+        "{out}"
+    );
+}
+
+#[test]
 fn math_urls_and_comment_iframe() {
     let html = r##"<p>行内 <span class="math math-inline" data-tex="E=mc^2">E=mc^2</span>。</p>
 <p><span class="math math-display" data-tex="\int_0^1 x^2 \, dx">\int_0^1 x^2 \, dx</span></p>

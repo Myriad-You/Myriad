@@ -300,8 +300,8 @@ export default function StudioOverlayFrame() {
     const page = host.ownerDocument
     const top = page.defaultView!
     const stopPalette = watchPalette(page, [
-      { element: host, prefix: 'p-', schemeAttr: 'data-scheme', at: () => ({ x: top.innerWidth / 2, y: top.innerHeight / 2 }) },
-      { element: host, prefix: 'bar-', schemeAttr: 'data-bar-scheme', followScroll: true, at: () => ({ x: top.innerWidth / 2, y: 25 }) },
+      { element: host, prefix: 'p-', schemeAttr: 'data-scheme', at: () => ({ x: page.documentElement.clientWidth / 2, y: top.innerHeight / 2 }) },
+      { element: host, prefix: 'bar-', schemeAttr: 'data-bar-scheme', followScroll: true, at: () => ({ x: page.documentElement.clientWidth / 2, y: 25 }) },
     ])
     return () => {
       stopPalette()

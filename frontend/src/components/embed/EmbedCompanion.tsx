@@ -97,7 +97,7 @@ function useShadowMount(page: CompanionPage | null): HTMLElement | null {
         at: () => {
           const article = page.root.getBoundingClientRect()
           const y = page.win.innerHeight / 2
-          return article.left >= 72 ? { x: article.left - 40, y } : { x: page.win.innerWidth - 24, y }
+          return article.left >= 72 ? { x: article.left - 40, y } : { x: page.doc.documentElement.clientWidth - 24, y }
         },
       },
     ])
