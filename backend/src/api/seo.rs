@@ -29,10 +29,11 @@ use crate::models::entities::{phantasi_items, phantasi_sources, tapps};
 #[cfg(test)]
 pub(crate) use crate::services::public_site::PHANTASI_MINE_CATEGORY;
 pub(crate) use crate::services::public_site::{
-    SiteBranding, description_from_manifest, encode_path_segment, host_site_locale,
-    infer_site_locale, load_site_branding, module_is_public_all, name_from_manifest,
-    notes_rss_enabled, own_phantasi_item_links, phantasi_item_path, public_absolute_url,
-    public_site_identity, public_tapp_links, resolve_public_base_url, strip_html_snippet,
+    SiteBranding, SiteLocale, content_locale, description_from_manifest, encode_path_segment,
+    host_site_locale, infer_site_locale, load_site_branding, module_is_public_all,
+    name_from_manifest, notes_rss_enabled, own_phantasi_item_links, phantasi_item_path,
+    public_absolute_url, public_site_identity, public_tapp_links, resolve_public_base_url,
+    strip_html_snippet,
 };
 use crate::services::tapp_ownership::{find_admin_user_id, public_install_visible_to_viewer};
 use crate::services::tapp_validation::validate_tapp_id;
@@ -120,6 +121,8 @@ struct SeoDocument<'a> {
     robots: Option<&'a str>,
     og_type: &'a str,
     image: Option<&'a str>,
+    /// 图是站长设的分享图（够大）。站点图标、应用图标只配小卡片，摊成大图是一块糊掉的方块。
+    large_image: bool,
     json_ld: Option<Value>,
     body_inner: String,
     extra_head: &'a str,
@@ -149,10 +152,10 @@ fn render_seo_html(doc: SeoDocument<'_>) -> String {
             img = html_escape(image)
         )
     };
-    let twitter_card = if image.is_empty() {
-        "summary"
-    } else {
+    let twitter_card = if !image.is_empty() && doc.large_image {
         "summary_large_image"
+    } else {
+        "summary"
     };
     let json_ld = doc.json_ld.as_ref().map(json_ld_tag).unwrap_or_default();
     let keywords_meta = doc
@@ -283,14 +286,22 @@ fn is_inapp_share_ua(ua: &str) -> bool {
         || ua.contains("weibo")
 }
 
-fn seo_chrome(branding: &SiteBranding, headers: &HeaderMap) -> SeoChrome {
+/// `content` 是站点文章的语言（[`content_locale`]）。有就按它：页面写的是什么语言就标什么，
+/// 站点标题是英文不算数。没有文章时才看站点文字，还认不出来再看访客的语言。
+fn seo_chrome(
+    branding: &SiteBranding,
+    content: Option<SiteLocale>,
+    headers: &HeaderMap,
+) -> SeoChrome {
     let inferred = infer_site_locale(&[
         branding.title.as_str(),
         branding.description.as_str(),
         branding.ai_intro.as_str(),
         branding.keywords.as_str(),
     ]);
-    let loc = if inferred.html_lang == "en" {
+    let loc = if let Some(content) = content {
+        content
+    } else if inferred.html_lang == "en" {
         crate::api::reports::locale::locale_from_headers(headers)
             .map(host_site_locale)
             .unwrap_or(inferred)
@@ -627,6 +638,7 @@ fn render_tapp_seo_html(summary: &TappSeoSummary, chrome: &SeoChrome) -> String 
         robots: None,
         og_type: "website",
         image: summary.image.as_deref(),
+        large_image: false,
         json_ld: Some(json_ld),
         body_inner,
         extra_head: "",
@@ -687,7 +699,7 @@ pub async fn tapp_run_seo_html(
     match resolve_tapp_seo_summary(&db, &headers, &tapp_id).await {
         Ok(summary) => {
             let branding = load_site_branding(&db).await;
-            let chrome = seo_chrome(&branding, &headers);
+            let chrome = seo_chrome(&branding, content_locale(&db).await, &headers);
             html_response(StatusCode::OK, render_tapp_seo_html(&summary, &chrome))
         }
         Err(StatusCode::BAD_REQUEST) => html_response(
@@ -763,7 +775,7 @@ fn module_nav_html(modules: &std::collections::HashMap<String, String>) -> Strin
 /// GET / — crawler homepage shell (branding, owner, public widgets).
 pub async fn home_seo_html(State(db): State<DatabaseConnection>, headers: HeaderMap) -> Response {
     let branding = load_site_branding(&db).await;
-    let chrome = seo_chrome(&branding, &headers);
+    let chrome = seo_chrome(&branding, content_locale(&db).await, &headers);
     let base = resolve_public_base_url();
     let canonical = public_absolute_url(base.as_deref(), "/");
     let image = site_image(&branding, base.as_deref());
@@ -874,6 +886,7 @@ pub async fn home_seo_html(State(db): State<DatabaseConnection>, headers: Header
             robots: None,
             og_type: "profile",
             image: image.as_deref(),
+            large_image: !branding.og_image.trim().is_empty(),
             json_ld: Some(json_ld),
             body_inner: body,
             extra_head: "",
@@ -896,7 +909,7 @@ async fn module_list_seo_html(
         return module_not_found();
     }
     let branding = load_site_branding(db).await;
-    let chrome = seo_chrome(&branding, headers);
+    let chrome = seo_chrome(&branding, content_locale(db).await, headers);
     let base = resolve_public_base_url();
     let canonical = public_absolute_url(base.as_deref(), path);
     let image = site_image(&branding, base.as_deref());
@@ -932,6 +945,7 @@ async fn module_list_seo_html(
             robots: None,
             og_type: "website",
             image: image.as_deref(),
+            large_image: !branding.og_image.trim().is_empty(),
             json_ld: Some(json_ld),
             body_inner: body,
             extra_head: &extra_head,
@@ -1413,9 +1427,52 @@ mod tests {
         };
         let mut headers = HeaderMap::new();
         headers.insert(header::ACCEPT_LANGUAGE, "zh-TW,zh;q=0.8".parse().unwrap());
-        let chrome = seo_chrome(&branding, &headers);
+        let chrome = seo_chrome(&branding, None, &headers);
         assert_eq!(chrome.html_lang, "zh-TW");
         assert_eq!(chrome.og_locale, "zh_TW");
+        // 有文章时按文章的语言，英文标题和访客语言都不算。
+        let chrome = seo_chrome(&branding, Some(host_site_locale("ja-JP")), &headers);
+        assert_eq!(chrome.html_lang, "ja");
+        assert_eq!(chrome.og_locale, "ja_JP");
+    }
+
+    #[test]
+    fn icons_get_the_small_share_card() {
+        let summary = |image: Option<&str>| TappSeoSummary {
+            id: "com.example.app".into(),
+            name: "Todo".into(),
+            description: Some("lists".into()),
+            image: image.map(str::to_string),
+            canonical_url: "https://ex.com/tapp/run/com.example.app".into(),
+            path: "/tapp/run/com.example.app".into(),
+            noindex: false,
+            indexable: true,
+            site_title: Some("Site".into()),
+        };
+        let chrome = SeoChrome::default();
+        let html = render_tapp_seo_html(&summary(Some("https://ex.com/icon.png")), &chrome);
+        assert!(html.contains(r#"<meta property="og:image" content="https://ex.com/icon.png" />"#));
+        assert!(
+            html.contains(r#"<meta name="twitter:card" content="summary" />"#),
+            "{html}"
+        );
+
+        let chrome = SeoChrome::default();
+        let html = render_seo_html(SeoDocument {
+            title: "Site",
+            description: "d",
+            canonical: "https://ex.com/",
+            noindex: false,
+            robots: None,
+            og_type: "website",
+            image: Some("https://ex.com/share.png"),
+            large_image: true,
+            json_ld: None,
+            body_inner: String::new(),
+            extra_head: "",
+            chrome: &chrome,
+        });
+        assert!(html.contains(r#"content="summary_large_image""#), "{html}");
     }
 
     #[test]

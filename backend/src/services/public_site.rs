@@ -520,9 +520,99 @@ mod tests {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SiteLocale {
     pub(crate) html_lang: &'static str,
     pub(crate) og_locale: &'static str,
+}
+
+/// 一篇文字的语言。只有英文字母、又太短的认不准，不算。
+pub(crate) fn text_locale(title: &str, body: &str) -> Option<SiteLocale> {
+    let locale = infer_site_locale(&[title, body]);
+    if locale.html_lang == "en" {
+        let letters = title
+            .chars()
+            .chain(body.chars())
+            .filter(char::is_ascii_alphabetic)
+            .count();
+        return (letters >= 20).then_some(locale);
+    }
+    Some(locale)
+}
+
+/// 认得出的里面最多的那种。平票时和 `prefer`（`html_lang`，不分大小写）相同的优先，其次先出现的。
+pub(crate) fn majority_locale(found: &[Option<SiteLocale>], prefer: &str) -> Option<SiteLocale> {
+    let mut counts: Vec<(SiteLocale, usize)> = Vec::new();
+    for locale in found.iter().flatten() {
+        match counts.iter_mut().find(|(seen, _)| seen == locale) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((*locale, 1)),
+        }
+    }
+    // `max_by_key` 平票取最后一个，倒着找才是先出现的。
+    counts
+        .iter()
+        .rev()
+        .copied()
+        .max_by_key(|(locale, count)| (*count, locale.html_lang.eq_ignore_ascii_case(prefer)))
+        .map(|(locale, _)| locale)
+}
+
+/// 最多看最近这么多篇已发布笔记。
+const CONTENT_LOCALE_SAMPLE: u64 = 50;
+const CONTENT_LOCALE_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+static CONTENT_LOCALE: std::sync::Mutex<Option<(std::time::Instant, Option<SiteLocale>)>> =
+    std::sync::Mutex::new(None);
+
+/// 站点内容的语言：最近已发布笔记里最多的那种。站点标题是英文、文章是中文时，页面该标中文。
+/// 没有笔记或都认不出时为 `None`。结果在进程里留十分钟，爬虫壳页每次都要用。
+pub(crate) async fn content_locale(db: &DatabaseConnection) -> Option<SiteLocale> {
+    if let Ok(cached) = CONTENT_LOCALE.lock()
+        && let Some((at, locale)) = *cached
+        && at.elapsed() < CONTENT_LOCALE_TTL
+    {
+        return locale;
+    }
+    let locale = load_content_locale(db).await;
+    if let Ok(mut cached) = CONTENT_LOCALE.lock() {
+        *cached = Some((std::time::Instant::now(), locale));
+    }
+    locale
+}
+
+async fn load_content_locale(db: &DatabaseConnection) -> Option<SiteLocale> {
+    let sources: Vec<i32> = phantasi_sources::Entity::find()
+        .filter(phantasi_sources::Column::SourceType.eq(phantasi_sources::SourceType::Note))
+        .filter(phantasi_sources::Column::AdminOnly.eq(false))
+        .select_only()
+        .column(phantasi_sources::Column::Id)
+        .into_tuple()
+        .all(db)
+        .await
+        .ok()?;
+    if sources.is_empty() {
+        return None;
+    }
+    let notes: Vec<(String, Option<String>)> = phantasi_items::Entity::find()
+        .filter(phantasi_items::Column::SourceId.is_in(sources))
+        .filter(phantasi_items::Column::Slug.is_not_null())
+        .order_by_desc(phantasi_items::Column::PublishedAt)
+        .limit(CONTENT_LOCALE_SAMPLE)
+        .select_only()
+        .columns([
+            phantasi_items::Column::Title,
+            phantasi_items::Column::Summary,
+        ])
+        .into_tuple()
+        .all(db)
+        .await
+        .ok()?;
+    let found: Vec<Option<SiteLocale>> = notes
+        .iter()
+        .map(|(title, summary)| text_locale(title, summary.as_deref().unwrap_or("")))
+        .collect();
+    majority_locale(&found, "")
 }
 
 const TRADITIONAL_MARKERS: &str = "說這個為與萬億軟體檔訊預設網連線憶臺裡麼迴";

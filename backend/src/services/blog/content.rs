@@ -68,47 +68,22 @@ pub async fn load_site(db: &DatabaseConnection, settings: &BlogSettings) -> Blog
 /// 认得出语言的文章里最多的那种定为博客语言；没有文章或都认不出时用站点标题推断的。
 /// 和博客语言不同的文章单独标上自己的语言。
 pub fn settle_locales(site: &mut BlogSite, posts: &mut [BlogPost]) {
-    let detected: Vec<Option<&'static str>> = posts.iter().map(post_locale).collect();
-    let mut counts: Vec<(&'static str, usize)> = Vec::new();
-    for locale in detected.iter().flatten() {
-        match counts.iter_mut().find(|(seen, _)| seen == locale) {
-            Some((_, count)) => *count += 1,
-            None => counts.push((locale, 1)),
-        }
-    }
-    let current = site.locale.clone();
-    // 票数相同时站点原来的语言优先，其次先出现的。
-    // `max_by_key` 平票取最后一个，倒着找才是先出现的。
-    if let Some((winner, _)) = counts
+    let found: Vec<Option<public_site::SiteLocale>> = posts
         .iter()
-        .rev()
-        .copied()
-        .max_by_key(|(locale, count)| (*count, locale.eq_ignore_ascii_case(&current)))
-    {
-        site.locale = winner.to_ascii_lowercase();
+        .map(|post| {
+            public_site::text_locale(&post.title, &myriad_blog::summarize(&post.content_html))
+        })
+        .collect();
+    if let Some(winner) = public_site::majority_locale(&found, &site.locale) {
+        site.locale = winner.html_lang.to_ascii_lowercase();
     }
-    for (post, locale) in posts.iter_mut().zip(detected) {
+    for (post, locale) in posts.iter_mut().zip(found) {
         post.locale = locale
+            .map(|locale| locale.html_lang)
             .filter(|locale| !locale.eq_ignore_ascii_case(&site.locale))
             .map(str::to_string)
             .unwrap_or_default();
     }
-}
-
-/// 一篇的语言。只有英文字母、又太短的认不准，不算。
-fn post_locale(post: &BlogPost) -> Option<&'static str> {
-    let summary = myriad_blog::summarize(&post.content_html);
-    let locale = public_site::infer_site_locale(&[&post.title, &summary]).html_lang;
-    if locale == "en" {
-        let letters = post
-            .title
-            .chars()
-            .chain(summary.chars())
-            .filter(char::is_ascii_alphabetic)
-            .count();
-        return (letters >= 20).then_some(locale);
-    }
-    Some(locale)
 }
 
 pub async fn load_posts(db: &DatabaseConnection) -> Result<Vec<BlogPost>, &'static str> {
