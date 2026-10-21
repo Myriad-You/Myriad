@@ -419,6 +419,9 @@ export function registerPhantasiListHandlers(
           item_count: s.item_count,
           unread_count: s.unread_count,
           last_error: s.last_error || '',
+          last_fetched_at: s.last_fetched_at ?? null,
+          last_success_at: s.last_success_at ?? null,
+          error_count: s.error_count ?? 0,
         })),
       }
     } catch (error) {

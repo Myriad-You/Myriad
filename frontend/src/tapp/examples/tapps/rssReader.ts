@@ -6,10 +6,20 @@ import zhCN from '../../../../../tapps/rss-reader/i18n/zh-CN.json'
 import manifestJson from '../../../../../tapps/rss-reader/manifest.json'
 import pageCss from '../../../../../tapps/rss-reader/page.css?raw'
 import pageHtml from '../../../../../tapps/rss-reader/page.html?raw'
+import pageAdmin from '../../../../../tapps/rss-reader/page/admin.js?raw'
 import pageApi from '../../../../../tapps/rss-reader/page/api.js?raw'
 import pageApp from '../../../../../tapps/rss-reader/page/app.js?raw'
+import pageDom from '../../../../../tapps/rss-reader/page/dom.js?raw'
+import pageFormat from '../../../../../tapps/rss-reader/page/format.js?raw'
 import pageIndex from '../../../../../tapps/rss-reader/page/index.js?raw'
+import pageList from '../../../../../tapps/rss-reader/page/list.js?raw'
+import pageManage from '../../../../../tapps/rss-reader/page/manage.js?raw'
+import pageModel from '../../../../../tapps/rss-reader/page/model.js?raw'
+import pageNav from '../../../../../tapps/rss-reader/page/nav.js?raw'
+import pageReader from '../../../../../tapps/rss-reader/page/reader.js?raw'
+import pageReading from '../../../../../tapps/rss-reader/page/reading.js?raw'
 import pageSanitize from '../../../../../tapps/rss-reader/page/sanitize.js?raw'
+import pageView from '../../../../../tapps/rss-reader/page/view.js?raw'
 
 const manifest = manifestJson as TappManifest
 
@@ -27,9 +37,19 @@ export const rssReaderTapp: ExampleTapp = {
       'ja-JP': jaJP,
     },
     packageModules: {
-      'page/app.js': pageApp,
+      'page/admin.js': pageAdmin,
       'page/api.js': pageApi,
+      'page/app.js': pageApp,
+      'page/dom.js': pageDom,
+      'page/format.js': pageFormat,
+      'page/list.js': pageList,
+      'page/manage.js': pageManage,
+      'page/model.js': pageModel,
+      'page/nav.js': pageNav,
+      'page/reader.js': pageReader,
+      'page/reading.js': pageReading,
       'page/sanitize.js': pageSanitize,
+      'page/view.js': pageView,
     },
   },
   tags: ['official', 'rss', 'reader'],

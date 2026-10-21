@@ -1,7 +1,7 @@
 {
   "id": "com.myriad.rss-reader",
   "name": "订阅",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "阅读站点已经抓取的订阅。这个应用只有界面，抓取仍由站点完成。",
   "category": "productivity",
   "author": { "name": "Myriad" },

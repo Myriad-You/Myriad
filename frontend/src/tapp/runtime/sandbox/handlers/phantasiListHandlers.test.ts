@@ -218,6 +218,9 @@ describe('registerPhantasiListHandlers', { concurrency: false }, () => {
           item_count: 4,
           unread_count: 2,
           last_error: '',
+          last_fetched_at: 1700000000000,
+          last_success_at: 1700000000000,
+          error_count: 0,
         },
       ],
     })
@@ -233,10 +236,12 @@ describe('registerPhantasiListHandlers', { concurrency: false }, () => {
     ])
     assert.match(String(calls[0]?.url), /board=feeds/)
     assert.doesNotMatch(String(calls[0]?.url), /view=catalog/)
-    const row = (listed as { data: Array<{ unread_count: number; source_type: string }> })
-      .data[0]
+    const row = (listed as {
+      data: Array<{ unread_count: number; source_type: string; last_success_at: number | null }>
+    }).data[0]
     assert.equal(row?.unread_count, 2)
     assert.equal(row?.source_type, 'rss')
+    assert.equal(row?.last_success_at, 1700000000000)
   })
 
   it('opens the host article link and refuses anything else', async () => {
