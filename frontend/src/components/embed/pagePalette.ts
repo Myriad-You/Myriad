@@ -24,11 +24,51 @@ interface Oklch {
   h: number
 }
 
-/** 认 getComputedStyle 给的 `rgb()` / `rgba()`（逗号或空格写法）和 `#rgb` / `#rrggbb`。 */
+/** `/ 50%`、`/ 0.5` 之后那一段；没写就是不透明。 */
+function alphaOf(part: string | undefined): number {
+  if (part == null) return 1
+  const value = part.endsWith('%') ? Number.parseFloat(part) / 100 : Number.parseFloat(part)
+  return Math.min(1, Math.max(0, value))
+}
+
+/**
+ * 主题用 `oklch()`、`oklab()`、`color(srgb …)` 写的颜色，getComputedStyle 原样给出来（Tailwind v4 的主题全是这种）。
+ * `display-p3` 按 sRGB 近似：只用来判深浅、取色调，差一点看不出来。
+ */
+function parseModern(text: string): Rgb | null {
+  const fn = /^(oklch|oklab|color)\(([^)]+)\)$/.exec(text)
+  if (!fn) return null
+  const [main, alphaPart] = fn[2].split('/').map((part) => part.trim())
+  const parts = main.split(/[\s,]+/).filter(Boolean)
+  const num = (part: string, percentOf = 1) => (part === 'none' ? 0 : part.endsWith('%') ? (Number.parseFloat(part) / 100) * percentOf : Number.parseFloat(part))
+  let rgb: Rgb
+  if (fn[1] === 'color') {
+    if (parts.length < 4 || !['srgb', 'srgb-linear', 'display-p3'].includes(parts[0])) return null
+    const [r, g, b] = parts.slice(1, 4).map((part) => num(part))
+    const channel = (v: number) => (parts[0] === 'srgb-linear' ? fromLinear(v) : v * 255)
+    rgb = { r: channel(r), g: channel(g), b: channel(b), a: 1 }
+  } else {
+    if (parts.length < 3) return null
+    const l = num(parts[0])
+    if (fn[1] === 'oklch') {
+      rgb = fromOklch({ l, c: num(parts[1], 0.4), h: num(parts[2]) })
+    } else {
+      const a = num(parts[1], 0.4)
+      const b = num(parts[2], 0.4)
+      rgb = fromOklch({ l, c: Math.hypot(a, b), h: (Math.atan2(b, a) * 180) / Math.PI })
+    }
+  }
+  const alpha = alphaOf(alphaPart)
+  return [rgb.r, rgb.g, rgb.b, alpha].every(Number.isFinite) ? { ...rgb, a: alpha } : null
+}
+
+/** 认 getComputedStyle 给的 `rgb()` / `rgba()`（逗号或空格写法）、`#rgb` / `#rrggbb` 和 `oklch()` 这几种新写法。 */
 export function parseColor(value: string | null | undefined): Rgb | null {
   if (!value) return null
   const text = value.trim().toLowerCase()
   if (text === 'transparent') return { r: 0, g: 0, b: 0, a: 0 }
+  const modern = parseModern(text)
+  if (modern) return modern
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(text)
   if (hex) {
     const digits = hex[1].length === 3 ? [...hex[1]].map((d) => d + d).join('') : hex[1]

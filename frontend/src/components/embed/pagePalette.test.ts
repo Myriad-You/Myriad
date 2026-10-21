@@ -32,8 +32,24 @@ test('认计算样式里的几种写法', () => {
   assert.deepEqual(c('rgba(255, 255, 255, 0.9)'), { r: 255, g: 255, b: 255, a: 0.9 })
   assert.deepEqual(c('rgb(1 2 3 / 50%)'), { r: 1, g: 2, b: 3, a: 0.5 })
   assert.deepEqual(c('#0f0'), { r: 0, g: 255, b: 0, a: 1 })
-  assert.equal(parseColor('oklch(0.5 0.1 200)'), null)
   assert.equal(c('transparent').a, 0)
+})
+
+test('认 Tailwind v4 主题给的 oklch / oklab / color()', () => {
+  const near = (value: string, hex: string) => {
+    const got = c(value)
+    const want = c(hex)
+    for (const k of ['r', 'g', 'b'] as const) assert.ok(Math.abs(got[k] - want[k]) < 2, `${value} ${k} ${got[k]} vs ${want[k]}`)
+    return got
+  }
+  near('oklch(0.628 0.2577 29.23)', '#ff0000')
+  near('oklch(62.8% 0.2577 29.23deg)', '#ff0000')
+  near('oklch(1 0 0)', '#ffffff')
+  near('oklab(0.452 -0.0325 -0.3115)', '#0000ff')
+  near('color(srgb 0.5 0.5 0.5)', '#808080')
+  assert.equal(c('oklab(0 0 0 / 0.85)').a, 0.85)
+  assert.equal(c('oklch(0.2 0.01 250 / 40%)').a, 0.4)
+  assert.equal(parseColor('lab(50 20 30)'), null)
 })
 
 test('每个主题上都看得清', () => {

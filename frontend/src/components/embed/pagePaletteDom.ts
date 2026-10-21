@@ -40,6 +40,22 @@ function hitAt(doc: Document, point: Point): Element | null {
   return !hit || hit === doc.documentElement ? doc.body : hit
 }
 
+/**
+ * 铺满整页的伪元素遮罩：有的主题深色是在 `body::before` 上盖一层固定定位的半透明黑（paper），
+ * 命中测试只给出 `<body>`，它自己的底色还是浅的。
+ */
+function overlayOf(node: Element, view: Window): Rgb | null {
+  let color: Rgb | null = null
+  for (const pseudo of ['::after', '::before']) {
+    const style = view.getComputedStyle(node, pseudo)
+    if (style.content === 'none' || style.display === 'none' || style.position !== 'fixed') continue
+    if (Number.parseFloat(style.width) < view.innerWidth * 0.9 || Number.parseFloat(style.height) < view.innerHeight * 0.9) continue
+    const layer = parseColor(style.backgroundColor)
+    if (layer && layer.a > 0) color = color ? over(color, layer) : layer
+  }
+  return color
+}
+
 /** 从这个元素往外叠底色，直到不透明；中途碰到背景图就记下来，底色那时就不可信了。 */
 function backgroundBehind(element: Element | null, doc: Document): { color: Rgb; image: boolean } {
   const view = doc.defaultView!
@@ -48,6 +64,9 @@ function backgroundBehind(element: Element | null, doc: Document): { color: Rgb;
   for (let node: Element | null = element; node; node = node.parentElement) {
     const style = view.getComputedStyle(node)
     if (style.backgroundImage !== 'none' && !image && color.a < 0.5) image = true
+    // 伪元素画在元素自己的底色上面、里面的内容下面。
+    const overlay = node === doc.body || node === doc.documentElement ? overlayOf(node, view) : null
+    if (overlay) color = over(color, overlay)
     const layer = parseColor(style.backgroundColor)
     if (layer && layer.a > 0) color = over(color, layer)
     if (color.a >= 0.999) return { color, image }
