@@ -184,6 +184,8 @@ html.dark .report-stage {
 /* ── 场景 ── */
 
 .report-stage__scene {
+  /* 字幕的滑动按场景区量位置：它自己不跟着字幕动。 */
+  position: relative;
   display: grid;
   min-height: 0;
   grid-template-columns: minmax(0, 50rem);
@@ -238,10 +240,12 @@ html.dark .report-stage {
   font-weight: 500;
   line-height: 1.5;
   text-wrap: pretty;
+  transform-origin: left top;
+
+  /* 字号不过渡：大小变化由字幕的滑动一起补（见 useFlipLayout）。 */
   transition:
     opacity 480ms ease,
-    color 480ms ease,
-    font-size 480ms var(--stage-ease-out);
+    color 480ms ease;
 }
 
 .report-stage__line[data-current='true'][data-length='short'] {
@@ -309,6 +313,87 @@ html.dark .report-stage {
   color: var(--stage-muted);
   font-size: 0.875rem;
   animation: report-stage-rise 560ms var(--stage-ease-out) both;
+}
+
+/*
+ * 字幕下面的封面：台词点到哪部作品就弹出哪张，没点名时是一排小一号的书架。
+ * 比例按作品类型先定好（--cover-ratio），图还没下来就占好位。
+ */
+.report-stage__covers {
+  --cover-h: 5.75rem;
+
+  display: flex;
+  align-items: flex-end;
+  gap: 0.875rem;
+  margin-top: 0.5rem;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, #000 85%, transparent);
+  padding: 0.75rem 0 0.25rem;
+}
+
+.report-stage__covers[data-mode='shelf'] {
+  --cover-h: 4.5rem;
+}
+
+.report-stage__cover {
+  --cover-ratio: 0.75;
+
+  display: flex;
+  width: calc(var(--cover-h) * var(--cover-ratio));
+  flex: none;
+  flex-direction: column;
+  gap: 0.4375rem;
+  margin: 0;
+  animation: report-stage-cover-in 620ms var(--stage-spring) backwards;
+  transition: translate 320ms var(--stage-ease-out);
+}
+
+.report-stage__cover[data-shape='square'] {
+  --cover-ratio: 1;
+}
+
+.report-stage__cover[data-shape='wide'] {
+  --cover-ratio: 1.7778;
+}
+
+.report-stage__cover[data-shape='banner'] {
+  --cover-ratio: 2.14;
+}
+
+.report-stage__cover:hover {
+  translate: 0 -3px;
+}
+
+.report-stage__cover img {
+  width: 100%;
+  height: var(--cover-h);
+  border-radius: 0.75rem;
+  background: var(--stage-button);
+  box-shadow:
+    inset 0 0 0 1px var(--stage-line),
+    0 10px 24px -12px rgb(20 16 40 / 35%);
+  object-fit: cover;
+}
+
+.report-stage__cover figcaption {
+  overflow: hidden;
+  color: var(--stage-muted);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-stage__covers[data-mode='shelf'] .report-stage__cover {
+  opacity: 0.8;
+}
+
+@keyframes report-stage-cover-in {
+  from {
+    opacity: 0;
+    scale: 0.88;
+    translate: 0 0.75rem;
+  }
 }
 
 .report-stage__panel {
@@ -589,6 +674,14 @@ html[data-perf-mode='exlight'] .report-stage *::before {
 
   .report-stage__line[data-current='true'] {
     font-size: 1.625rem;
+  }
+
+  .report-stage__covers {
+    --cover-h: 4.5rem;
+  }
+
+  .report-stage__covers[data-mode='shelf'] {
+    --cover-h: 3.75rem;
   }
 
   .report-stage__line[data-current='true'][data-length='short'] {

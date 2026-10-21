@@ -1,4 +1,6 @@
-import { useMemo } from 'react'
+import type { RefObject } from 'react'
+import type { StageMedia } from './stageMedia'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 /** 当前这句一段一段浮出来，整句最多花这么久，长句每段更快。 */
 const REVEAL_TOTAL_MS = 720
@@ -137,4 +139,141 @@ export function StagePlayIcon(props: { className?: string }) {
       <path d="M5 3.9c0-.8.87-1.28 1.54-.85l6.1 4.1c.6.4.6 1.3 0 1.7l-6.1 4.1C5.87 13.38 5 12.9 5 12.1Z" />
     </svg>
   )
+}
+
+/**
+ * 字幕下面那排封面。台词点到名时是提到的那几张，否则是这个平台的书架。
+ * 屏幕阅读器不读：作品名台词里已经有了。
+ */
+export function StageCovers({ items, mode }: { items: readonly StageMedia[]; mode: 'mentioned' | 'shelf' }) {
+  if (items.length === 0) return null
+  return (
+    <div className="report-stage__covers" data-mode={mode} data-flip="covers" aria-hidden="true">
+      {items.map((item, index) => (
+        <figure
+          key={item.cover}
+          className="report-stage__cover"
+          data-shape={item.shape}
+          style={{ animationDelay: `${index * 70}ms` }}
+        >
+          <img
+            src={item.cover}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            // 封面取不到就整张不显示，不留破图。
+            onError={(event) => {
+              const figure = event.currentTarget.parentElement
+              if (figure) figure.hidden = true
+            }}
+          />
+          <figcaption>{item.title}</figcaption>
+        </figure>
+      ))}
+    </div>
+  )
+}
+
+const FLIP_MS = 620
+const FLIP_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+
+interface Flight {
+  /** 起点相对终点的位移。 */
+  dy: number
+  /** 起点的缩放（字号变了的那句：旧字号 / 新字号）。 */
+  scale: number
+}
+const flights = new WeakMap<Animation, Flight>()
+
+interface Placement {
+  top: number
+  font: number
+}
+
+/** 元素在 root 里的布局位置（不含 transform），沿 offsetParent 一路加上去。 */
+function layoutTop(element: HTMLElement, root: HTMLElement): number {
+  let top = 0
+  let node: HTMLElement | null = element
+  while (node && node !== root) {
+    top += node.offsetTop
+    node = node.offsetParent as HTMLElement | null
+  }
+  return top
+}
+
+/** 还在走的那段此刻停在哪：离终点的位移、当前缩放。读完就停掉，由新的一段接着走。 */
+function takeFlight(element: HTMLElement): Flight {
+  let dy = 0
+  let scale = 1
+  for (const animation of element.getAnimations()) {
+    const flight = flights.get(animation)
+    if (!flight) continue
+    const progress = animation.effect?.getComputedTiming().progress
+    if (typeof progress === 'number') {
+      dy += flight.dy * (1 - progress)
+      scale *= flight.scale + (1 - flight.scale) * progress
+    }
+    animation.cancel()
+  }
+  return { dy, scale }
+}
+
+/**
+ * 字幕区变高、往上让位时，带 `data-flip` 的元素从原来的位置滑到新落点，不跳；
+ * 字号变了的那句（当前句退成旧句）同时从原字号缩过去。
+ * 位置按布局算（offsetTop），上一段还没走完时从它此刻所在的地方接着走。
+ * 所以这些元素的布局只能在提交时变：字号不能再用 CSS 过渡，否则量到的旧位置会过时。
+ * root 必须是定位元素，而且自己不跟着字幕动（舞台的场景区）。尺寸变了只更新位置，不动画。
+ */
+export function useFlipLayout(
+  rootRef: RefObject<HTMLElement | null>,
+  trigger: unknown,
+  enabled: boolean,
+) {
+  const last = useRef(new Map<string, Placement>())
+
+  const measure = useCallback(
+    (animate: boolean) => {
+      const root = rootRef.current
+      if (!root) return
+      const next = new Map<string, Placement>()
+      for (const element of root.querySelectorAll<HTMLElement>('[data-flip]')) {
+        const id = element.dataset.flip
+        if (!id) continue
+        const placement = {
+          top: layoutTop(element, root),
+          font: Number.parseFloat(getComputedStyle(element).fontSize) || 16,
+        }
+        next.set(id, placement)
+        const before = last.current.get(id)
+        if (!animate || !before || typeof element.animate !== 'function') continue
+        const now = takeFlight(element)
+        const dy = before.top + now.dy - placement.top
+        const scale = (before.font * now.scale) / placement.font
+        if (Math.abs(dy) < 0.5 && Math.abs(scale - 1) < 0.005) continue
+        const animation = element.animate(
+          [
+            { translate: `0 ${dy}px`, scale: `${scale}` },
+            { translate: '0 0', scale: '1' },
+          ],
+          { duration: FLIP_MS, easing: FLIP_EASE, composite: 'add' },
+        )
+        flights.set(animation, { dy, scale })
+      }
+      last.current = next
+    },
+    [rootRef],
+  )
+
+  useLayoutEffect(() => {
+    measure(enabled)
+  }, [enabled, measure, trigger])
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measure(false))
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [measure, rootRef])
 }

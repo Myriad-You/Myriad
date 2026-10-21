@@ -26,7 +26,7 @@ import {
 import { showToast } from '../../../utils/toastManager'
 import { PLATFORM_CONFIG } from '../reportCard/platformConfig'
 import { GlowBackground } from '../shared/GlowBackground'
-import { ProgressRing, RevealLine, StagePauseIcon, StagePlayIcon } from './stageParts'
+import { ProgressRing, RevealLine, StageCovers, StagePauseIcon, StagePlayIcon, useFlipLayout } from './stageParts'
 import { buildStageReport } from './stageScript'
 import { useStagePlayer } from './useStagePlayer'
 import './reportStage.css'
@@ -38,6 +38,8 @@ const StageOwnerSettings = lazyWithPreload(() =>
 
 /** 字幕区最多留几句：旧句往上退、变淡，不堆满屏。 */
 const VISIBLE_BEATS = 4
+/** 台词还没点名时，书架摆几张。 */
+const SHELF_SIZE = 5
 /** 站长在平台设置里开着的平台，按拖拽顺序。读不到配置时返回 null，舞台照旧全列。 */
 async function loadPlatformOrder(): Promise<string[] | null> {
   try {
@@ -224,6 +226,24 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
     }
   }, [copy.generateFailed, copy.generated, format, generating, load, platform, platformLabel, t.reportCard])
 
+  // 最近一句点到名的作品留着，直到下一句点到别的；这一幕还没点过名就摆书架。
+  const covers = useMemo(() => {
+    if (!report || !chapter) return { items: [], mode: 'shelf' as const }
+    for (let index = Math.min(state.shown, chapter.beats.length) - 1; index >= 0; index--) {
+      const media = chapter.beats[index].media
+      if (media?.length) return { items: media, mode: 'mentioned' as const }
+    }
+    return { items: report.media.slice(0, SHELF_SIZE), mode: 'shelf' as const }
+  }, [chapter, report, state.shown])
+
+  // 字幕区变高时，标题、旧句、封面从原来的位置滑到新落点。
+  const sceneRef = useRef<HTMLElement>(null)
+  useFlipLayout(
+    sceneRef,
+    `${platform}|${state.chapter}|${state.shown}|${state.ended}|${covers.mode}|${covers.items.length}`,
+    active && anim.level !== 'exlight',
+  )
+
   const accent = PLATFORM_CONFIG[platform]?.color ?? 'var(--color-primary, #6366f1)'
   const platforms = order.includes(platform) ? order : [platform, ...order]
 
@@ -281,7 +301,7 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
         </div>
       </header>
 
-      <main className="report-stage__scene">
+      <main ref={sceneRef} className="report-stage__scene">
         {settingsOpen && isAdmin ? (
           <div className="report-stage__panel">
             <Suspense fallback={<div className="report-stage__empty"><p>{t.common.loading}</p></div>}>
@@ -301,7 +321,11 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
             }}
           >
             {chapter ? (
-              <p className="report-stage__kicker" key={`${platform}-${state.chapter}`}>
+              <p
+                className="report-stage__kicker"
+                key={`${platform}-${state.chapter}`}
+                data-flip={`kicker-${platform}-${state.chapter}`}
+              >
                 <span>{format(copy.chapterOf, { current: state.chapter + 1, total: chapters.length })}</span>
                 {chapter.title}
               </p>
@@ -309,9 +333,11 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
             <div className="report-stage__lines">
               {visibleBeats.map((beat, index) => {
                 const current = index === visibleBeats.length - 1
+                const id = `${platform}-${state.chapter}-${state.shown - visibleBeats.length + index}`
                 return (
                   <p
-                    key={`${state.chapter}-${state.shown - visibleBeats.length + index}`}
+                    key={id}
+                    data-flip={`line-${id}`}
                     className="report-stage__line"
                     data-current={current ? 'true' : undefined}
                     data-age={visibleBeats.length - 1 - index}
@@ -321,8 +347,9 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
                   </p>
                 )
               })}
-              {state.ended ? <p className="report-stage__end">{copy.finished}</p> : null}
+              {state.ended ? <p className="report-stage__end" data-flip="end">{copy.finished}</p> : null}
             </div>
+            <StageCovers items={covers.items} mode={covers.mode} />
           </section>
         ) : (
           <div className="report-stage__empty">

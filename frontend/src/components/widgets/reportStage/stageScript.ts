@@ -1,3 +1,6 @@
+import type { StageMedia } from './stageMedia'
+import { mediaMentionedIn, readStageMedia } from './stageMedia'
+
 /**
  * 舞台播的剧本：几幕，每幕若干句台词。新报告直接带 `script`（后端分好章、句，
  * 句子可以指向一条事实）；旧报告只有 summary / insights，退回成「回响」「洞察」两幕。
@@ -25,6 +28,8 @@ export interface StageCopy {
 export interface StageBeat {
   text: string
   fact?: StageFact
+  /** 这句提到的作品的封面（事实自带的图排最前）。 */
+  media?: StageMedia[]
   /** 这句出现后停多久再出下一句。 */
   holdMs: number
 }
@@ -39,6 +44,8 @@ export interface StageReport {
   platform: string
   headline?: string
   chapters: StageChapter[]
+  /** 这个平台带封面的作品，台词没点名时当书架摆出来。 */
+  media: StageMedia[]
   /** 风格改过，报告还是旧风格写的。 */
   styleStale: boolean
 }
@@ -171,6 +178,15 @@ function chaptersFromLegacy(
   return chapters
 }
 
+function attachMedia(target: StageBeat, media: readonly StageMedia[]) {
+  const mentioned = mediaMentionedIn(target.text, media)
+  const fromFact = target.fact?.media
+    ? [{ title: target.fact.value, cover: target.fact.media, shape: 'square' as const }]
+    : []
+  const all = [...fromFact, ...mentioned.filter((item) => item.cover !== fromFact[0]?.cover)]
+  if (all.length > 0) target.media = all
+}
+
 /** 把 `/api/reports/latest` 里的一条平台报告整理成舞台剧本。没东西可播时返回 null。 */
 export function buildStageReport(
   raw: unknown,
@@ -185,10 +201,15 @@ export function buildStageReport(
   const chapters = fromScript.length > 0 ? fromScript : chaptersFromLegacy(report, copy)
   if (chapters.length === 0) return null
   const headline = script ? cleanStageText(asText(script.headline)) : ''
+  const media = readStageMedia(report.card_visuals, platform)
+  for (const chapter of chapters) {
+    for (const item of chapter.beats) attachMedia(item, media)
+  }
   return {
     platform,
     headline: headline || undefined,
     chapters,
+    media,
     styleStale: report.style_stale === true,
   }
 }
