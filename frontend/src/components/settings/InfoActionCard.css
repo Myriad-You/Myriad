@@ -204,6 +204,15 @@ html.dark .info-action-card-title {
   -webkit-line-clamp: 2;
 }
 
+/* A lede above fields is the instruction for them: show all of it. */
+.info-action-card-lede:has(+ .info-action-card-fields) {
+  display: block;
+}
+
+.info-action-card-body > * + .info-action-card-fields {
+  margin-top: 0.6rem;
+}
+
 .info-action-card-meta {
   display: flex;
   flex-wrap: wrap;

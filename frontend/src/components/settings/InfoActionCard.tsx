@@ -246,21 +246,25 @@ export const InfoActionCard = React.memo(({
         {emptyText}
       </div>
     )
-  } else if (hasChildren) {
-    body = children
-  } else if (hasFields) {
+  } else if (hasChildren || hasFields) {
+    // Children lead, fields follow: a note never hides the values it is about.
     body = (
-      <dl className="info-action-card-fields">
-        {fields!.map((f) => (
-          <FieldRow
-            key={f.key}
-            field={f}
-            allowCopy={copyable}
-            copyLabel={copyLabel}
-            copiedLabel={copiedLabel}
-          />
-        ))}
-      </dl>
+      <>
+        {hasChildren ? children : null}
+        {hasFields ? (
+          <dl className="info-action-card-fields">
+            {fields!.map((f) => (
+              <FieldRow
+                key={f.key}
+                field={f}
+                allowCopy={copyable}
+                copyLabel={copyLabel}
+                copiedLabel={copiedLabel}
+              />
+            ))}
+          </dl>
+        ) : null}
+      </>
     )
   }
 
