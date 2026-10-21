@@ -276,6 +276,8 @@ pub async fn put_notes_rss_settings(
             "Failed to save notes RSS setting",
         ));
     }
+    // 博客页上的订阅链接跟着这个开关。
+    crate::services::blog::request_rebuild();
     Ok(Json(notes_rss_settings_json(req.enabled)))
 }
 

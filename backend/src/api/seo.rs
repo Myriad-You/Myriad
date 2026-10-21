@@ -21,10 +21,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use myriad_error::AppError;
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect, Statement,
-};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -34,8 +31,8 @@ pub(crate) use crate::services::public_site::PHANTASI_MINE_CATEGORY;
 pub(crate) use crate::services::public_site::{
     SiteBranding, description_from_manifest, encode_path_segment, host_site_locale,
     infer_site_locale, load_site_branding, module_is_public_all, name_from_manifest,
-    own_phantasi_item_links, phantasi_item_path, public_absolute_url, public_site_identity,
-    public_tapp_links, resolve_public_base_url, strip_html_snippet,
+    notes_rss_enabled, own_phantasi_item_links, phantasi_item_path, public_absolute_url,
+    public_site_identity, public_tapp_links, resolve_public_base_url, strip_html_snippet,
 };
 use crate::services::tapp_ownership::{find_admin_user_id, public_install_visible_to_viewer};
 use crate::services::tapp_validation::validate_tapp_id;
@@ -452,7 +449,7 @@ fn llms_primary_routes(
     let mut routes: Vec<(&str, &str)> = vec![("Home", "/")];
     for (key, path, label) in [
         ("library", "/library", "Library"),
-        ("phantasi", "/blog", "Blog"),
+        ("phantasi", "/blog/", "Blog"),
         ("tapp", "/tapp", "Tapp"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");
@@ -500,31 +497,6 @@ async fn tapp_module_open_to_guests(db: &DatabaseConnection) -> bool {
 
 pub(crate) async fn phantasi_module_open_to_guests(db: &DatabaseConnection) -> bool {
     module_open_to_guests(db, "phantasi").await
-}
-
-/// 站长笔记 RSS 开关。缺行 = 关。
-pub(crate) async fn notes_rss_enabled(db: &impl ConnectionTrait) -> bool {
-    let result = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT value FROM configurations WHERE key = $1",
-            vec![myriad_phantasi_notes::NOTES_RSS_PREFERENCES_KEY.into()],
-        ))
-        .await;
-    match result {
-        Ok(Some(row)) => match row.try_get::<Value>("", "value") {
-            Ok(value) => myriad_phantasi_notes::notes_rss_enabled_from_value(&value),
-            Err(error) => {
-                tracing::warn!(%error, "failed to read notes RSS preference");
-                false
-            }
-        },
-        Ok(None) => false,
-        Err(error) => {
-            tracing::warn!(%error, "failed to load notes RSS preference");
-            false
-        }
-    }
 }
 
 /// 开关打开，且 Phantasi 对访客开放，公开 feed 才存在。
@@ -766,7 +738,7 @@ fn module_nav_html(modules: &std::collections::HashMap<String, String>) -> Strin
     let mut parts: Vec<(&str, &str)> = vec![("/", "Home")];
     for (key, path, label) in [
         ("library", "/library", "Library"),
-        ("phantasi", "/blog", "Blog"),
+        ("phantasi", "/blog/", "Blog"),
         ("tapp", "/tapp", "Apps"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");
@@ -1135,7 +1107,7 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
 
     for (key, path, freq) in [
         ("library", "/library", "weekly"),
-        ("phantasi", "/blog", "weekly"),
+        ("phantasi", "/blog/", "weekly"),
         ("tapp", "/tapp", "weekly"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");
@@ -1193,21 +1165,28 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
                     .select_only()
                     .columns([
                         phantasi_items::Column::PublishedAt,
+                        phantasi_items::Column::FetchedAt,
                         phantasi_items::Column::Slug,
                     ])
-                    .into_tuple::<(chrono::DateTime<chrono::FixedOffset>, Option<String>)>()
+                    .into_tuple::<(
+                        chrono::DateTime<chrono::FixedOffset>,
+                        chrono::DateTime<chrono::FixedOffset>,
+                        Option<String>,
+                    )>()
                     .all(&db)
                     .await
                 {
-                    for (published_at, slug) in items {
+                    for (published_at, republished_at, slug) in items {
                         let Some(slug) =
                             slug.filter(|slug| myriad_phantasi_notes::validate_slug(slug).is_ok())
                         else {
                             continue;
                         };
+                        // 改稿重新发布会刷新 fetched_at，博客页的 lastmod 也取它。
+                        let modified = published_at.max(republished_at);
                         urls.push(SitemapUrl {
                             loc: format!("{base}{}", phantasi_item_path(&slug)),
-                            lastmod: Some(published_at.format("%Y-%m-%d").to_string()),
+                            lastmod: Some(modified.format("%Y-%m-%d").to_string()),
                             changefreq: None,
                         });
                     }
@@ -1394,7 +1373,7 @@ mod tests {
         modules.insert("tapp".into(), "owner".into());
         let routes = llms_primary_routes(&modules);
         assert!(routes.contains(&("Home", "/")));
-        assert!(routes.contains(&("Blog", "/blog")));
+        assert!(routes.contains(&("Blog", "/blog/")));
         assert!(!routes.iter().any(|(_, path)| path.starts_with("/journal")));
         assert!(!routes.iter().any(|(_, path)| *path == "/library"));
     }

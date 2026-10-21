@@ -10,8 +10,9 @@ pub const BLOG_SETTINGS_KEY: &str = "blog_settings";
 /// 没装第三方主题、或主题 id 不合法时用的内置主题。
 pub const DEFAULT_THEME_ID: &str = "myriad-default";
 
-/// 站点身份。`origin` 是站点根（不含 `/blog`），例如 `https://example.com`。
-#[derive(Debug, Clone, PartialEq)]
+/// 站点身份。`origin` 是站点根（不含 `/blog`），例如 `https://example.com`；
+/// 没配站点地址时为空，博客只写站内路径。
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct BlogSite {
     pub origin: String,
     pub title: String,
@@ -19,6 +20,14 @@ pub struct BlogSite {
     pub locale: String,
     /// 站长写在站点上的 Hugo params。对象以外的值在生成配置时忽略。
     pub params: Value,
+    /// 站点图标。站内路径或绝对地址，空则不写。
+    pub icon: String,
+    /// 站点分享图。文章没有图时分享卡用它，空则不写。
+    pub image: String,
+    /// 笔记 RSS 地址。站长没打开订阅时为空，页面不挂订阅链接。
+    pub feed: String,
+    /// 站点不让搜索引擎收录。每一页都写 `noindex, nofollow`。
+    pub noindex: bool,
 }
 
 /// 一篇要导出的笔记。`summary_source` 可以是纯文本，也可以是带公式 span 的 HTML。
@@ -41,6 +50,8 @@ pub struct BlogPost {
     pub cover: Option<String>,
     /// 库里已有这篇的 AI 注释或播客。只有这时页面才挂伴读岛。
     pub companion: bool,
+    /// 这篇的语言（BCP-47，如 `ja-JP`）。和站点一样或认不出时为空。
+    pub locale: String,
 }
 
 /// 友情链接。字段按纯文本处理，导出时再转义。

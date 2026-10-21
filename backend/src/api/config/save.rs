@@ -46,6 +46,8 @@ pub async fn update_config(
         }
     }
     tracing::info!("✅ Configuration saved to database");
+    // 博客页的标题、图标、分享图和收录策略都取自站点设置。输入没变时构建器不跑 Hugo。
+    crate::services::blog::request_rebuild();
 
     // Deploy keys to .env (BASE_URL + site-domain FRONTEND_URL / CORS adapt).
     let body = match save_all_configs(&payload).await {

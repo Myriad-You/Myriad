@@ -25,7 +25,9 @@ mod tests;
 pub use archive::{
     archive_entry_path, github_archive_root, safe_archive_entries, safe_archive_path,
 };
-pub use config::{HUGO_THEMES_DIR, POSTS_PERMALINK, blog_base_url, render_hugo_config};
+pub use config::{
+    HUGO_THEMES_DIR, MYRIAD_PARAMS_KEY, POSTS_PERMALINK, blog_base_url, render_hugo_config,
+};
 pub use cover::{cover_front_matter, covers_same_asset};
 pub use inspect::{
     MAX_THEME_ARCHIVE_BYTES, MAX_THEME_ARCHIVE_ENTRIES, MAX_THEME_BYTES, MAX_THEME_FILES,
@@ -42,6 +44,7 @@ pub use nav::{
 };
 pub use postprocess::{
     BLOG_CSP, NOTES_CSS, NOTES_CSS_HREF, is_script_asset, is_stripped_asset, postprocess_html,
+    postprocess_page, robots_for,
 };
 pub use render::{export_site_files, render_friends_file, render_home_file, render_post_file};
 pub use rewrite::{first_content_image, prepare_content_html, reveal_companion_island};

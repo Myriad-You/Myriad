@@ -2,10 +2,10 @@
 
 use serde_json::{Map, Value};
 
-use crate::config::{render_hugo_config, resolved_description, resolved_site_title};
+use crate::config::{friends_label, render_hugo_config, resolved_description, resolved_site_title};
 use crate::cover::{absolutize_cover, cover_front_matter, covers_same_asset};
 use crate::model::{BlogPost, BlogSettings, BlogSite, FriendLink};
-use crate::rewrite::{companion_island_html, prepare_content_html};
+use crate::rewrite::{companion_island_html, first_content_image, prepare_content_html};
 use crate::slug::{fallback_slug, validate_slug};
 use crate::summary::summarize;
 use crate::urlutil::{escape_html, is_javascript_url};
@@ -67,17 +67,33 @@ pub fn render_post_file(site: &BlogSite, post: &BlogPost, theme_id: &str) -> (St
             Value::Array(authors.into_iter().map(Value::String).collect()),
         );
     }
-    if let Some(cover) = post
+    let cover = post
         .cover
         .as_deref()
         .map(str::trim)
-        .filter(|cover| !cover.is_empty())
+        .filter(|cover| !cover.is_empty());
+    if let Some(cover) = cover
         && !covers_same_asset(&site.origin, cover, &post.content_html)
     {
         let absolute = absolutize_cover(&site.origin, cover);
         for (key, value) in cover_front_matter(theme_id, &absolute) {
             map.insert(key, value);
         }
+    }
+    // 分享卡和结构化数据用的图。封面和正文第一张相同时，上面不写封面键，但分享图照样要有。
+    // `images` 是 Hugo 约定的分享图键，主题拿它写 og:image，不会把它当封面再画一遍。
+    if let Some(image) = cover
+        .map(str::to_string)
+        .or_else(|| first_content_image(&post.content_html))
+    {
+        map.insert(
+            "images".to_string(),
+            Value::Array(vec![Value::String(absolutize_cover(&site.origin, &image))]),
+        );
+    }
+    let locale = post.locale.trim();
+    if !locale.is_empty() {
+        map.insert("inLanguage".to_string(), Value::String(locale.to_string()));
     }
 
     let front =
@@ -108,7 +124,7 @@ pub fn render_home_file(site: &BlogSite, settings: &BlogSettings) -> (String, St
 /// `content/friends/index.html`。文字做 HTML 转义，外链带 `rel="noopener"`，页尾是友联申请 iframe。
 pub fn render_friends_file(site: &BlogSite, links: &[FriendLink]) -> (String, String) {
     let front = serde_json::json!({
-        "title": "友链",
+        "title": friends_label(&site.locale),
         "slug": "friends",
     });
     let front = serde_json::to_string_pretty(&front).unwrap_or_else(|_| "{}".to_string());

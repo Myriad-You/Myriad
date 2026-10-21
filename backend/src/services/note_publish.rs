@@ -276,7 +276,14 @@ async fn write_published_item<C: ConnectionTrait>(
             requested_slug,
         )
         .await?;
+        // 读者看到的东西变了才算改过：博客页的 lastmod 和站点地图都取 fetched_at。
+        let changed = item.title != rendered.title
+            || item.content.as_deref() != Some(rendered.html.as_str())
+            || item.image != cover;
         let mut active: phantasi_items::ActiveModel = item.into();
+        if changed {
+            active.fetched_at = Set(now.into());
+        }
         active.title = Set(rendered.title);
         active.summary = Set(rendered.summary);
         active.content = Set(Some(rendered.html));

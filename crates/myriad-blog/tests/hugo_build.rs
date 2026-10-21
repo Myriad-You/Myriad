@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use myriad_blog::{
     BlogPost, BlogSettings, BlogSite, DEFAULT_THEME_ID, FriendLink, NOTES_CSS_HREF,
-    default_theme_files, postprocess_html, render_friends_file, render_home_file,
+    default_theme_files, postprocess_page, render_friends_file, render_home_file,
     render_hugo_config, render_post_file,
 };
 
@@ -76,6 +76,10 @@ fn build_in(root: &Path, hugo: &str, theme_id: &str, theme_dir: Option<&Path>) {
         description: "一段说明".to_string(),
         locale: "zh-cn".to_string(),
         params: serde_json::json!({}),
+        icon: "/favicon.webp".to_string(),
+        image: String::new(),
+        feed: "/api/phantasi/notes.xml".to_string(),
+        noindex: false,
     };
     let settings = BlogSettings {
         theme_id: theme_id.to_string(),
@@ -101,6 +105,7 @@ fn build_in(root: &Path, hugo: &str, theme_id: &str, theme_dir: Option<&Path>) {
         authors: vec!["站长".to_string()],
         cover: Some("/media/assets/abc123/cover.jpg".to_string()),
         companion: true,
+        locale: "zh-CN".to_string(),
     };
     let links = [FriendLink {
         name: "示例友站".to_string(),
@@ -181,7 +186,36 @@ fn build_in(root: &Path, hugo: &str, theme_id: &str, theme_dir: Option<&Path>) {
         "theme={theme_id} 缺少伴读岛\n{page}"
     );
 
-    let cleaned = postprocess_html(&page);
+    // Hugo 不出订阅和站点地图：订阅只走笔记 RSS，站点地图由主站给。
+    let public = site_dir.join("public");
+    assert!(
+        !public.join("index.xml").exists(),
+        "theme={theme_id} 还在出 RSS"
+    );
+    assert!(
+        !public.join("sitemap.xml").exists(),
+        "theme={theme_id} 还在出站点地图"
+    );
+
+    let cleaned = postprocess_page(&page, "posts/math-note/index.html", &blog);
+    assert_eq!(
+        cleaned.matches("rel=\"canonical\"").count(),
+        1,
+        "theme={theme_id} canonical 不是正好一个\n{cleaned}"
+    );
+    assert!(
+        cleaned.contains("https://example.com/blog/posts/math-note/"),
+        "theme={theme_id} canonical 不对\n{cleaned}"
+    );
+    assert!(
+        cleaned.contains("href=\"https://example.com/api/phantasi/notes.xml\""),
+        "theme={theme_id} 没挂笔记 RSS\n{cleaned}"
+    );
+    assert!(
+        !cleaned.contains("index.xml\""),
+        "theme={theme_id} 残留 Hugo 订阅链接\n{cleaned}"
+    );
+    assert!(!cleaned.contains("name=\"robots\""), "{cleaned}");
     assert!(cleaned.contains("<math"));
     assert!(cleaned.contains(NOTES_CSS_HREF));
     assert_no_active_scripts(&cleaned);
@@ -191,16 +225,69 @@ fn build_in(root: &Path, hugo: &str, theme_id: &str, theme_dir: Option<&Path>) {
 
     if theme_id == DEFAULT_THEME_ID {
         assert!(page.contains("myriad-post"), "{page}");
+        assert!(page.contains("<html lang=\"zh-CN\">"), "{page}");
+        assert!(
+            page.contains("<title>公式测试 · 站长的博客</title>"),
+            "{page}"
+        );
+        assert!(
+            page.contains("property=\"og:type\" content=\"article\""),
+            "{page}"
+        );
+        assert!(
+            page.contains("property=\"og:locale\" content=\"zh_CN\""),
+            "{page}"
+        );
+        assert!(
+            page.contains("property=\"og:image\" content=\"https://example.com/media/assets/abc123/cover.jpg\""),
+            "{page}"
+        );
+        assert!(
+            page.contains("rel=\"icon\" href=\"https://example.com/favicon.webp\""),
+            "{page}"
+        );
+        assert!(page.contains("2026年10月5日"), "{page}");
+        let ld = json_ld(&page);
+        assert_eq!(ld["@type"], "BlogPosting", "{page}");
+        assert_eq!(ld["headline"], "公式测试");
+        assert_eq!(ld["url"], "https://example.com/blog/posts/math-note/");
+        assert_eq!(ld["author"][0]["name"], "站长");
+        assert_eq!(ld["inLanguage"], "zh-CN");
+        assert_eq!(ld["articleSection"], "技术");
+        assert!(
+            ld["datePublished"]
+                .as_str()
+                .unwrap()
+                .starts_with("2026-10-05T10:00:00")
+        );
         let home = fs::read_to_string(site_dir.join("public/index.html"))
             .unwrap_or_else(|err| panic!("首页: {err}"));
         assert!(home.contains("class=\"myriad\""), "{home}");
         assert!(home.contains("/blog/friends/"), "{home}");
         assert!(home.contains("css/style.css"), "{home}");
+        assert!(home.contains("<title>站长的博客</title>"), "{home}");
+        assert_eq!(json_ld(&home)["@type"], "Blog", "{home}");
+        let posts = postprocess_page(
+            &fs::read_to_string(public.join("posts/index.html")).unwrap(),
+            "posts/index.html",
+            &blog,
+        );
+        assert!(posts.contains("content=\"noindex, follow\""), "{posts}");
         let friends = fs::read_to_string(site_dir.join("public/friends/index.html"))
             .unwrap_or_else(|err| panic!("友链页: {err}"));
         assert!(friends.contains("/embed/friend-apply"), "{friends}");
         assert!(friends.contains("示例友站"), "{friends}");
     }
+}
+
+fn json_ld(html: &str) -> serde_json::Value {
+    let start = html
+        .find("application/ld+json\">")
+        .unwrap_or_else(|| panic!("没有 JSON-LD\n{html}"))
+        + "application/ld+json\">".len();
+    let end = start + html[start..].find("</script>").unwrap();
+    serde_json::from_str(&html[start..end])
+        .unwrap_or_else(|err| panic!("JSON-LD 解析失败 {err}\n{html}"))
 }
 
 fn write_content(site: &Path, (rel, body): (String, String)) {

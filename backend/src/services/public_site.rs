@@ -678,3 +678,28 @@ pub(crate) fn listed_board_keeps(
         _ => true,
     }
 }
+
+/// 站长笔记 RSS 开关。缺行 = 关。
+pub(crate) async fn notes_rss_enabled(db: &impl sea_orm::ConnectionTrait) -> bool {
+    let result = db
+        .query_one_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT value FROM configurations WHERE key = $1",
+            vec![myriad_phantasi_notes::NOTES_RSS_PREFERENCES_KEY.into()],
+        ))
+        .await;
+    match result {
+        Ok(Some(row)) => match row.try_get::<Value>("", "value") {
+            Ok(value) => myriad_phantasi_notes::notes_rss_enabled_from_value(&value),
+            Err(error) => {
+                tracing::warn!(%error, "failed to read notes RSS preference");
+                false
+            }
+        },
+        Ok(None) => false,
+        Err(error) => {
+            tracing::warn!(%error, "failed to load notes RSS preference");
+            false
+        }
+    }
+}

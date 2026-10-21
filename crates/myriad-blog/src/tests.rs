@@ -8,10 +8,10 @@ use crate::{
     SUMMARY_MAX_CHARS, ThemeManifestError, absolutize_root_url, archive_entry_path, blog_base_url,
     blog_settings_from_value, blog_settings_to_value, cover_front_matter, covers_same_asset,
     dedupe_slug, default_theme_files, fallback_slug, first_content_image, github_archive_root,
-    inspect_theme_manifest, is_script_asset, post_path, postprocess_html, prepare_content_html,
-    render_friends_file, render_home_file, render_hugo_config, render_post_file,
-    reveal_companion_island, safe_archive_entries, safe_archive_path, sanitize_theme_id,
-    slugify_title, summarize, validate_slug,
+    inspect_theme_manifest, is_script_asset, post_path, postprocess_html, postprocess_page,
+    prepare_content_html, render_friends_file, render_home_file, render_hugo_config,
+    render_post_file, reveal_companion_island, robots_for, safe_archive_entries, safe_archive_path,
+    sanitize_theme_id, slugify_title, summarize, validate_slug,
 };
 
 fn site() -> BlogSite {
@@ -21,6 +21,7 @@ fn site() -> BlogSite {
         description: "站点说明".to_string(),
         locale: "zh-cn".to_string(),
         params: json!({}),
+        ..BlogSite::default()
     }
 }
 
@@ -37,6 +38,7 @@ fn post() -> BlogPost {
         authors: vec!["站长".to_string(), "  ".to_string(), "乙".to_string()],
         cover: None,
         companion: false,
+        locale: String::new(),
     }
 }
 
@@ -317,6 +319,9 @@ fn post_file_uses_json_front_matter_and_skips_duplicate_cover() {
     assert_eq!(front["authors"][1], "乙");
     assert!(front.get("cover").is_none());
     assert!(front.get("image").is_none());
+    // 封面和正文第一张相同：不写封面键，但分享图照样有。
+    assert_eq!(front["images"][0], "https://example.com/media/a.jpg");
+    assert!(front.get("inLanguage").is_none());
     assert!(file.contains("https://example.com/media/a.jpg"));
     assert!(file.contains("src=\"/embed/comments/42\""));
 
@@ -327,7 +332,16 @@ fn post_file_uses_json_front_matter_and_skips_duplicate_cover() {
     let front = front_matter(&file);
     assert_eq!(front["slug"], "n42");
     assert_eq!(front["image"], "https://example.com/media/other.jpg");
+    assert_eq!(front["images"][0], "https://example.com/media/other.jpg");
     assert!(front.get("cover").is_none());
+
+    note.cover = None;
+    note.content_html = "<p>没有图</p>".to_string();
+    note.locale = "ja-JP".to_string();
+    let (_, file) = render_post_file(&site(), &note, DEFAULT_THEME_ID);
+    let front = front_matter(&file);
+    assert!(front.get("images").is_none());
+    assert_eq!(front["inLanguage"], "ja-JP");
 }
 
 #[test]
@@ -368,6 +382,18 @@ fn home_and_friends_files() {
     assert!(file.contains("class=\"myriad-friend-apply\" src=\"/embed/friend-apply\""));
     assert!(file.contains("title=\"友联申请\" data-embed-fit></iframe>"));
     assert!(!file.contains("javascript:"));
+
+    let mut english = site();
+    english.locale = "en-us".to_string();
+    assert_eq!(
+        front_matter(&render_friends_file(&english, &[]).1)["title"],
+        "Links"
+    );
+    english.locale = "zh-tw".to_string();
+    assert_eq!(
+        front_matter(&render_friends_file(&english, &[]).1)["title"],
+        "友情連結"
+    );
 }
 
 #[test]
@@ -398,8 +424,8 @@ fn hugo_config_ignores_owner_security() {
         "https://example.com/blog/"
     );
     assert_eq!(root["title"].as_str(), Some("站长的博客"));
-    assert_eq!(root["locale"].as_str(), Some("zh-cn"));
-    assert_eq!(root["defaultContentLanguage"].as_str(), Some("zh-cn"));
+    assert_eq!(root["locale"].as_str(), Some("zh-Hans"));
+    assert_eq!(root["defaultContentLanguage"].as_str(), Some("zh-hans"));
     assert_eq!(root["hasCJKLanguage"].as_bool(), Some(true));
     assert_eq!(root["theme"].as_str(), Some(DEFAULT_THEME_ID));
     assert_eq!(root["themesDir"].as_str(), Some(HUGO_THEMES_DIR));
@@ -423,6 +449,14 @@ fn hugo_config_ignores_owner_security() {
     assert_eq!(allow[0].as_str(), Some("^text/html$"));
     assert_eq!(allow[1].as_str(), Some("^text/markdown$"));
 
+    let kinds: Vec<&str> = root["disableKinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|kind| kind.as_str())
+        .collect();
+    assert_eq!(kinds, ["rss", "sitemap", "robotstxt"]);
+
     let params = root["params"].as_table().unwrap();
     assert!(params.get("security").is_none());
     assert!(params.get("baseURL").is_none());
@@ -430,6 +464,38 @@ fn hugo_config_ignores_owner_security() {
     assert_eq!(params["mainSections"][0].as_str(), Some("notes"));
     assert_eq!(params["fromSite"].as_bool(), Some(true));
     assert_eq!(params["description"].as_str(), Some("说明"));
+
+    let mut branded = site();
+    branded.icon = "/favicon.webp".to_string();
+    branded.feed = "/api/phantasi/notes.xml".to_string();
+    branded.noindex = true;
+    let owner = BlogSettings {
+        params: json!({"myriad": {"noindex": false}}),
+        ..BlogSettings::default()
+    };
+    let text = render_hugo_config(&branded, &owner, "hugo-PaperMod");
+    let value: toml::Table = toml::from_str(&text).unwrap();
+    let myriad = value["params"]["myriad"].as_table().unwrap();
+    assert_eq!(
+        myriad["icon"].as_str(),
+        Some("https://example.com/favicon.webp")
+    );
+    assert_eq!(
+        myriad["feed"].as_str(),
+        Some("https://example.com/api/phantasi/notes.xml")
+    );
+    assert_eq!(myriad["noindex"].as_bool(), Some(true));
+    assert!(myriad.get("image").is_none());
+
+    let mut bare = site();
+    bare.origin = String::new();
+    let value: toml::Table = toml::from_str(&render_hugo_config(
+        &bare,
+        &BlogSettings::default(),
+        DEFAULT_THEME_ID,
+    ))
+    .unwrap();
+    assert_eq!(value["baseURL"].as_str(), Some("/blog/"));
 
     let text = render_hugo_config(&site(), &BlogSettings::default(), "hugo-PaperMod");
     let value: toml::Table = toml::from_str(&text).unwrap();
@@ -476,6 +542,102 @@ fn postprocess_strips_scripts_and_injects_css() {
     assert!(!is_script_asset("app.css"));
     assert!(!is_script_asset("app.json"));
     assert!(!is_script_asset("notes.css"));
+}
+
+#[test]
+fn page_head_follows_platform_rules() {
+    let theme = r#"<!DOCTYPE html><html><head><title>t</title>
+<meta name="robots" content="index, follow">
+<link rel="alternate" type="application/rss+xml" href="https://example.com/blog/index.xml">
+<link rel="shortcut icon" href="/blog/favicon.ico">
+</head><body><a href="/blog/index.xml">RSS</a><a href="https://other.example/index.xml">外站</a></body></html>"#;
+    let mut blog = site();
+    blog.icon = "/favicon.webp".to_string();
+    blog.feed = "/api/phantasi/notes.xml".to_string();
+
+    let out = postprocess_page(theme, "posts/hello/index.html", &blog);
+    assert!(
+        out.contains("<link rel=\"canonical\" href=\"https://example.com/blog/posts/hello/\">"),
+        "{out}"
+    );
+    // 主题自己有图标就不再补；它的 robots 在不需要改时留着。
+    assert_eq!(out.matches("icon\"").count(), 1, "{out}");
+    assert!(out.contains("content=\"index, follow\""), "{out}");
+    assert!(!out.contains("blog/index.xml"), "{out}");
+    assert!(
+        out.contains("href=\"https://other.example/index.xml\""),
+        "{out}"
+    );
+    assert_eq!(
+        out.matches("href=\"https://example.com/api/phantasi/notes.xml\"")
+            .count(),
+        2,
+        "{out}"
+    );
+    assert!(out.contains("title=\"站点标题\""), "{out}");
+
+    let out = postprocess_page(theme, "tags/rust/index.html", &blog);
+    assert!(
+        out.contains("<meta name=\"robots\" content=\"noindex, follow\">"),
+        "{out}"
+    );
+    assert!(!out.contains("index, follow\">\n"), "{out}");
+    assert_eq!(out.matches("name=\"robots\"").count(), 1, "{out}");
+
+    blog.feed.clear();
+    blog.noindex = true;
+    let out = postprocess_page(theme, "index.html", &blog);
+    assert!(out.contains("content=\"noindex, nofollow\""), "{out}");
+    assert!(out.contains("href=\"https://example.com/blog/\""), "{out}");
+    assert!(!out.contains("application/rss+xml"), "{out}");
+    assert!(out.contains("<a>RSS</a>"), "{out}");
+
+    let bare = BlogSite {
+        icon: "/favicon.webp".to_string(),
+        ..site_without_origin()
+    };
+    let out = postprocess_page(
+        "<html><head></head><body></body></html>",
+        "friends/index.html",
+        &bare,
+    );
+    assert!(
+        out.contains("<link rel=\"canonical\" href=\"/blog/friends/\">"),
+        "{out}"
+    );
+    assert!(
+        out.contains("<link rel=\"icon\" href=\"/favicon.webp\">"),
+        "{out}"
+    );
+    let out = postprocess_page("<html><head></head><body></body></html>", "404.html", &bare);
+    assert!(!out.contains("canonical"), "{out}");
+
+    assert_eq!(robots_for("posts/hello/index.html", false), None);
+    assert_eq!(robots_for("categories/技术/index.html", false), None);
+    assert_eq!(robots_for("index.html", false), None);
+    assert_eq!(robots_for("friends/index.html", false), None);
+    for thin in [
+        "categories/index.html",
+        "tags/index.html",
+        "authors/index.html",
+        "authors/someone/index.html",
+        "posts/index.html",
+        "page/2/index.html",
+        "categories/技术/page/2/index.html",
+    ] {
+        assert_eq!(robots_for(thin, false), Some("noindex, follow"), "{thin}");
+    }
+    assert_eq!(
+        robots_for("posts/hello/index.html", true),
+        Some("noindex, nofollow")
+    );
+}
+
+fn site_without_origin() -> BlogSite {
+    BlogSite {
+        origin: String::new(),
+        ..site()
+    }
 }
 
 #[test]
@@ -590,7 +752,15 @@ fn default_theme_files_match_current_hugo_layout() {
             .unwrap_or_else(|| panic!("missing {path}"));
         assert!(!content.trim().is_empty(), "{path}");
         assert!(safe_archive_path(path).is_some(), "{path}");
-        assert!(!content.to_ascii_lowercase().contains("<script"));
+        // 只允许结构化数据，不允许能跑的脚本。
+        let lower = content.to_ascii_lowercase();
+        assert_eq!(
+            lower.matches("<script").count(),
+            lower
+                .matches("<script type=\"application/ld+json\">")
+                .count(),
+            "{path}"
+        );
     }
     let css = files
         .iter()

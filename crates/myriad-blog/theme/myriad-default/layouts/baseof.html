@@ -1,11 +1,75 @@
 <!DOCTYPE html>
-<html lang="{{ or site.Language.Locale site.Language.Lang "zh-cn" }}">
+{{- $lang := or .Params.inLanguage site.Language.Locale site.Language.Lang "zh-CN" }}
+{{- $parts := split (replace $lang "_" "-") "-" }}
+{{- $ogLocale := index $parts 0 | lower }}
+{{- if ge (len $parts) 2 }}{{ $ogLocale = printf "%s_%s" $ogLocale (index $parts 1 | upper) }}{{ end }}
+{{- $title := .Title }}
+{{- if not .IsHome }}{{ $title = printf "%s · %s" .Title site.Title }}{{ end }}
+{{- $description := or .Description site.Params.description }}
+{{- $myriad := site.Params.myriad }}
+{{- $image := "" }}
+{{- with .Params.images }}{{ $image = index . 0 }}{{ else }}{{ with $myriad.image }}{{ $image = . }}{{ end }}{{ end }}
+<html lang="{{ $lang }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ with .Title }}{{ . }} · {{ end }}{{ site.Title }}</title>
-  {{- with .Description }}
+  <title>{{ $title }}</title>
+  {{- with $description }}
   <meta name="description" content="{{ . }}">
+  {{- end }}
+  <link rel="canonical" href="{{ .Permalink }}">
+  {{- with $myriad.icon }}
+  <link rel="icon" href="{{ . }}">
+  {{- end }}
+  <meta property="og:site_name" content="{{ site.Title }}">
+  <meta property="og:locale" content="{{ $ogLocale }}">
+  <meta property="og:title" content="{{ or .Title site.Title }}">
+  {{- with $description }}
+  <meta property="og:description" content="{{ . }}">
+  {{- end }}
+  <meta property="og:url" content="{{ .Permalink }}">
+  {{- with $image }}
+  <meta property="og:image" content="{{ . }}">
+  <meta name="twitter:image" content="{{ . }}">
+  {{- end }}
+  <meta name="twitter:card" content="{{ if $image }}summary_large_image{{ else }}summary{{ end }}">
+  <meta name="twitter:title" content="{{ or .Title site.Title }}">
+  {{- with $description }}
+  <meta name="twitter:description" content="{{ . }}">
+  {{- end }}
+  {{- if and .IsPage (eq .Section "posts") }}
+  <meta property="og:type" content="article">
+  {{- if not .Date.IsZero }}
+  <meta property="article:published_time" content="{{ .Date.Format `2006-01-02T15:04:05Z07:00` }}">
+  {{- end }}
+  {{- if not .Lastmod.IsZero }}
+  <meta property="article:modified_time" content="{{ .Lastmod.Format `2006-01-02T15:04:05Z07:00` }}">
+  {{- end }}
+  {{- range .Params.authors }}
+  <meta property="article:author" content="{{ . }}">
+  {{- end }}
+  {{- range .Params.categories }}
+  <meta property="article:section" content="{{ . }}">
+  {{- end }}
+  {{- $authors := slice }}
+  {{- range .Params.authors }}{{ $authors = $authors | append (dict "@type" "Person" "name" .) }}{{ end }}
+  {{- $publisher := dict "@type" "Organization" "name" site.Title "url" site.Home.Permalink }}
+  {{- with $myriad.icon }}{{ $publisher = merge $publisher (dict "logo" (dict "@type" "ImageObject" "url" .)) }}{{ end }}
+  {{- $ld := dict "@context" "https://schema.org" "@type" "BlogPosting" "headline" .Title "url" .Permalink "mainEntityOfPage" (dict "@type" "WebPage" "@id" .Permalink) "inLanguage" $lang "publisher" $publisher }}
+  {{- with $description }}{{ $ld = merge $ld (dict "description" .) }}{{ end }}
+  {{- if not .Date.IsZero }}{{ $ld = merge $ld (dict "datePublished" (.Date.Format `2006-01-02T15:04:05Z07:00`)) }}{{ end }}
+  {{- if not .Lastmod.IsZero }}{{ $ld = merge $ld (dict "dateModified" (.Lastmod.Format `2006-01-02T15:04:05Z07:00`)) }}{{ end }}
+  {{- with $authors }}{{ $ld = merge $ld (dict "author" .) }}{{ end }}
+  {{- with $image }}{{ $ld = merge $ld (dict "image" (slice .)) }}{{ end }}
+  {{- with .Params.categories }}{{ $ld = merge $ld (dict "articleSection" (index . 0)) }}{{ end }}
+  <script type="application/ld+json">{{ $ld | jsonify | safeJS }}</script>
+  {{- else }}
+  <meta property="og:type" content="website">
+  {{- if .IsHome }}
+  {{- $ld := dict "@context" "https://schema.org" "@type" "Blog" "name" site.Title "url" .Permalink "inLanguage" $lang }}
+  {{- with $description }}{{ $ld = merge $ld (dict "description" .) }}{{ end }}
+  <script type="application/ld+json">{{ $ld | jsonify | safeJS }}</script>
+  {{- end }}
   {{- end }}
   <link rel="stylesheet" href="{{ "css/style.css" | relURL }}">
 </head>

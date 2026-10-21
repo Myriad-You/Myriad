@@ -44,6 +44,7 @@ async fn papermod_zip_build_strips_scripts_and_keeps_notes_css() {
         description: "说明".to_string(),
         locale: "zh-cn".to_string(),
         params: serde_json::json!({}),
+        ..BlogSite::default()
     };
     let settings = BlogSettings {
         theme_id: theme.id.clone(),
@@ -63,6 +64,7 @@ async fn papermod_zip_build_strips_scripts_and_keeps_notes_css() {
         authors: vec!["站长".to_string()],
         cover: None,
         companion: true,
+        locale: String::new(),
     }];
     let friends = [FriendLink {
         name: "友站".to_string(),

@@ -12,7 +12,7 @@ use sea_orm::{
 use crate::models::entities::{
     phantasi_annotations, phantasi_items, phantasi_podcasts, phantasi_sources,
 };
-use crate::services::public_site::listed_board_keeps;
+use crate::services::public_site::{self, listed_board_keeps};
 
 pub async fn load_settings(db: &impl ConnectionTrait) -> BlogSettings {
     let row = db
@@ -34,24 +34,81 @@ pub async fn load_settings(db: &impl ConnectionTrait) -> BlogSettings {
 }
 
 pub async fn load_site(db: &DatabaseConnection, settings: &BlogSettings) -> BlogSite {
-    let (title, description, locale) = crate::services::public_site::public_site_identity(db).await;
-    let origin = crate::services::public_site::resolve_public_base_url()
-        .unwrap_or_else(|| "http://localhost".to_string());
+    let branding = public_site::load_site_branding(db).await;
+    let locale = public_site::infer_site_locale(&[&branding.title, &branding.description]);
+    // 没配站点地址就只写站内路径，不编一个域名进 canonical 和分享卡。
+    let origin = public_site::resolve_public_base_url().unwrap_or_default();
+    let feed = if public_site::notes_rss_enabled(db).await {
+        myriad_phantasi_notes::NOTES_RSS_PATH.to_string()
+    } else {
+        String::new()
+    };
     BlogSite {
         origin,
         title: if settings.site_title.trim().is_empty() {
-            title
+            branding.title
         } else {
             settings.site_title.clone()
         },
         description: if settings.description.trim().is_empty() {
-            description
+            branding.description
         } else {
             settings.description.clone()
         },
-        locale: locale.to_ascii_lowercase(),
+        locale: locale.html_lang.to_ascii_lowercase(),
         params: serde_json::json!({}),
+        icon: branding.favicon,
+        image: branding.og_image,
+        feed,
+        noindex: branding.noindex,
     }
+}
+
+/// 博客的语言跟着文章走：站点标题是英文、文章是中文时，页面该标中文。
+/// 认得出语言的文章里最多的那种定为博客语言；没有文章或都认不出时用站点标题推断的。
+/// 和博客语言不同的文章单独标上自己的语言。
+pub fn settle_locales(site: &mut BlogSite, posts: &mut [BlogPost]) {
+    let detected: Vec<Option<&'static str>> = posts.iter().map(post_locale).collect();
+    let mut counts: Vec<(&'static str, usize)> = Vec::new();
+    for locale in detected.iter().flatten() {
+        match counts.iter_mut().find(|(seen, _)| seen == locale) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((locale, 1)),
+        }
+    }
+    let current = site.locale.clone();
+    // 票数相同时站点原来的语言优先，其次先出现的。
+    // `max_by_key` 平票取最后一个，倒着找才是先出现的。
+    if let Some((winner, _)) = counts
+        .iter()
+        .rev()
+        .copied()
+        .max_by_key(|(locale, count)| (*count, locale.eq_ignore_ascii_case(&current)))
+    {
+        site.locale = winner.to_ascii_lowercase();
+    }
+    for (post, locale) in posts.iter_mut().zip(detected) {
+        post.locale = locale
+            .filter(|locale| !locale.eq_ignore_ascii_case(&site.locale))
+            .map(str::to_string)
+            .unwrap_or_default();
+    }
+}
+
+/// 一篇的语言。只有英文字母、又太短的认不准，不算。
+fn post_locale(post: &BlogPost) -> Option<&'static str> {
+    let summary = myriad_blog::summarize(&post.content_html);
+    let locale = public_site::infer_site_locale(&[&post.title, &summary]).html_lang;
+    if locale == "en" {
+        let letters = post
+            .title
+            .chars()
+            .chain(summary.chars())
+            .filter(char::is_ascii_alphabetic)
+            .count();
+        return (letters >= 20).then_some(locale);
+    }
+    Some(locale)
 }
 
 pub async fn load_posts(db: &DatabaseConnection) -> Result<Vec<BlogPost>, &'static str> {
@@ -168,5 +225,75 @@ fn item_to_post(item: phantasi_items::Model, companion: bool) -> BlogPost {
         authors,
         cover: item.image.filter(|image| !image.trim().is_empty()),
         companion,
+        locale: String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn post(title: &str, html: &str) -> BlogPost {
+        BlogPost {
+            item_id: 1,
+            slug: "a".to_string(),
+            title: title.to_string(),
+            published_at: String::new(),
+            updated_at: String::new(),
+            content_html: html.to_string(),
+            summary_source: String::new(),
+            category: None,
+            authors: Vec::new(),
+            cover: None,
+            companion: false,
+            locale: String::new(),
+        }
+    }
+
+    #[test]
+    fn blog_language_follows_the_posts() {
+        let mut site = BlogSite {
+            locale: "en".to_string(),
+            ..BlogSite::default()
+        };
+        let mut posts = vec![
+            post(
+                "自己的桌子",
+                "<p>我把写作从时间线里搬出来，不是因为讨厌人。</p>",
+            ),
+            post("早晨的咖啡", "<p>豆子不必好看，只要是真的烘过。</p>"),
+            post("朝のコーヒー", "<p>ゆっくり書くことにした。</p>"),
+            post("42", "<p>1 2 3</p>"),
+        ];
+        settle_locales(&mut site, &mut posts);
+        assert_eq!(site.locale, "zh-cn");
+        assert_eq!(posts[0].locale, "");
+        assert_eq!(posts[2].locale, "ja");
+        assert_eq!(posts[3].locale, "");
+
+        // 没有认得出的文章：留着站点标题推断的。
+        let mut site = BlogSite {
+            locale: "ja".to_string(),
+            ..BlogSite::default()
+        };
+        let mut posts = vec![post("v2", "<p>ok</p>")];
+        settle_locales(&mut site, &mut posts);
+        assert_eq!(site.locale, "ja");
+
+        // 平票时站点原来的语言优先。
+        let mut site = BlogSite {
+            locale: "en".to_string(),
+            ..BlogSite::default()
+        };
+        let mut posts = vec![
+            post("早晨的咖啡", "<p>豆子不必好看，只要是真的烘过。</p>"),
+            post(
+                "Morning coffee",
+                "<p>The beans do not need to look good, only to be roasted for real.</p>",
+            ),
+        ];
+        settle_locales(&mut site, &mut posts);
+        assert_eq!(site.locale, "en");
+        assert_eq!(posts[0].locale, "zh-CN");
     }
 }

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use myriad_blog::{
     BlogPost, BlogSettings, BlogSite, FriendLink, NOTES_CSS, export_site_files, is_script_asset,
-    postprocess_html,
+    postprocess_page,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -132,7 +132,7 @@ pub async fn render_and_build(
         }
     };
     let scheme = super::themes::theme_scheme_switch(layout, &theme_id);
-    if let Err(message) = postprocess_output(&public, scheme.as_ref()) {
+    if let Err(message) = postprocess_output(&public, site, scheme.as_ref()) {
         let _ = fs::remove_dir_all(&work);
         return Err(failed(message, &log));
     }
@@ -342,6 +342,7 @@ where
 
 fn postprocess_output(
     public: &Path,
+    site: &BlogSite,
     scheme: Option<&myriad_blog::SchemeSwitch>,
 ) -> Result<(), &'static str> {
     let mut files = Vec::new();
@@ -374,7 +375,7 @@ fn postprocess_output(
         let Ok(text) = String::from_utf8(bytes) else {
             continue;
         };
-        let cleaned = postprocess_html(&text);
+        let cleaned = postprocess_page(&text, &rel, site);
         // 主题怎么切深浅色记在 `<html>` 上，返回页面时后端照着替它切。
         let cleaned = match scheme {
             Some(scheme) => myriad_blog::mark_page_scheme(&cleaned, scheme),

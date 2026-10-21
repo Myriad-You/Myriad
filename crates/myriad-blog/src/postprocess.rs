@@ -1,9 +1,13 @@
 //! 构建产物的 HTML 清理。CSP 才是边界，这里只是让页面上不留主题脚本。
 
+use std::cell::Cell;
+
 use lol_html::html_content::ContentType;
 use lol_html::{RewriteStrSettings, element, rewrite_str};
 
-use crate::urlutil::is_javascript_url;
+use crate::config::blog_base_url;
+use crate::model::BlogSite;
+use crate::urlutil::{absolutize_root_url, escape_html, is_javascript_url};
 
 /// 注入到每个页面 `<head>` 末尾的样式表地址。
 pub const NOTES_CSS_HREF: &str = "/blog/_myriad/notes.css";
@@ -54,6 +58,124 @@ pub const BLOG_CSP: &str = "default-src 'self'; script-src 'none'; style-src 'se
 
 /// 删掉非 JSON 的 `<script>`、`on*` 属性和 `javascript:` 链接，并在 `</head>` 前挂上笔记样式。
 pub fn postprocess_html(html: &str) -> String {
+    rewrite_page(html, &HeadPlan::default())
+}
+
+/// 构建出的一页。`rel` 是它在输出目录里的路径（如 `posts/hello/index.html`）。
+///
+/// 除了 [`postprocess_html`] 的清理，还按平台的规矩补 head，第三方主题也一样：
+/// - 站点不让收录时每页都写 `noindex, nofollow`；分类/标签/作者总览、标签和作者页、
+///   文章列表和翻页写 `noindex, follow`，链接照样跟，页面本身不进索引。主题自己的 robots 换掉。
+/// - 主题没写 canonical、图标时补上。
+/// - Hugo 不出订阅，主题指向它的订阅链接删掉；站长打开了笔记 RSS 就挂那一个。
+pub fn postprocess_page(html: &str, rel: &str, site: &BlogSite) -> String {
+    let found = scan_head(html);
+    let feed = absolutize_root_url(site.feed.trim(), &site.origin);
+    let icon = absolutize_root_url(site.icon.trim(), &site.origin);
+    let plan = HeadPlan {
+        robots: robots_for(rel, site.noindex),
+        canonical: canonical_for(rel, &site.origin).filter(|_| !found.canonical),
+        icon: Some(icon).filter(|icon| !icon.is_empty() && !found.icon),
+        feed: Some(feed).filter(|feed| !feed.is_empty()),
+        feed_title: site.title.trim().to_string(),
+    };
+    rewrite_page(html, &plan)
+}
+
+/// 这一页该给搜索引擎的 robots。`None` 表示照常收录。
+pub fn robots_for(rel: &str, site_noindex: bool) -> Option<&'static str> {
+    if site_noindex {
+        return Some("noindex, nofollow");
+    }
+    let rel = rel.trim_start_matches('/');
+    let thin = matches!(
+        rel,
+        "categories/index.html" | "tags/index.html" | "authors/index.html" | "posts/index.html"
+    ) || rel.starts_with("tags/")
+        || rel.starts_with("authors/")
+        || rel.starts_with("page/")
+        || rel.contains("/page/");
+    thin.then_some("noindex, follow")
+}
+
+/// `posts/hello/index.html` → `{origin}/blog/posts/hello/`。404 页和不是 `index.html` 的文件没有。
+fn canonical_for(rel: &str, origin: &str) -> Option<String> {
+    let rel = rel.trim_start_matches('/');
+    let dir = rel.strip_suffix("index.html")?;
+    if !(dir.is_empty() || dir.ends_with('/')) {
+        return None;
+    }
+    Some(format!("{}{dir}", blog_base_url(origin)))
+}
+
+#[derive(Default)]
+struct HeadPlan {
+    robots: Option<&'static str>,
+    canonical: Option<String>,
+    icon: Option<String>,
+    feed: Option<String>,
+    feed_title: String,
+}
+
+#[derive(Default)]
+struct HeadFound {
+    canonical: bool,
+    icon: bool,
+}
+
+/// 先看一遍主题已经写了什么，补 head 时不重复。
+fn scan_head(html: &str) -> HeadFound {
+    let canonical = Cell::new(false);
+    let icon = Cell::new(false);
+    let _ = rewrite_str(
+        html,
+        RewriteStrSettings {
+            element_content_handlers: vec![element!("link[rel]", |el| {
+                let rel = el.get_attribute("rel").unwrap_or_default();
+                if has_token(&rel, "canonical") {
+                    canonical.set(true);
+                }
+                if has_token(&rel, "icon") {
+                    icon.set(true);
+                }
+                Ok(())
+            })],
+            ..RewriteStrSettings::new()
+        },
+    );
+    HeadFound {
+        canonical: canonical.get(),
+        icon: icon.get(),
+    }
+}
+
+fn rewrite_page(html: &str, plan: &HeadPlan) -> String {
+    let mut head = String::new();
+    if let Some(robots) = plan.robots {
+        head.push_str(&format!("<meta name=\"robots\" content=\"{robots}\">"));
+    }
+    if let Some(canonical) = &plan.canonical {
+        head.push_str(&format!(
+            "<link rel=\"canonical\" href=\"{}\">",
+            escape_html(canonical)
+        ));
+    }
+    if let Some(icon) = &plan.icon {
+        head.push_str(&format!(
+            "<link rel=\"icon\" href=\"{}\">",
+            escape_html(icon)
+        ));
+    }
+    if let Some(feed) = &plan.feed {
+        head.push_str(&format!(
+            "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"{}\">",
+            escape_html(&plan.feed_title),
+            escape_html(feed)
+        ));
+    }
+    head.push_str(&format!(
+        "<link rel=\"stylesheet\" href=\"{NOTES_CSS_HREF}\">"
+    ));
     rewrite_str(
         html,
         RewriteStrSettings {
@@ -62,6 +184,33 @@ pub fn postprocess_html(html: &str) -> String {
                     let ty = el.get_attribute("type").unwrap_or_default();
                     if !is_json_script_type(&ty) {
                         el.remove();
+                    }
+                    Ok(())
+                }),
+                element!("meta[name]", |el| {
+                    let name = el.get_attribute("name").unwrap_or_default();
+                    if plan.robots.is_some() && name.trim().eq_ignore_ascii_case("robots") {
+                        el.remove();
+                    }
+                    Ok(())
+                }),
+                element!("link[rel][type]", |el| {
+                    let rel = el.get_attribute("rel").unwrap_or_default();
+                    let ty = el.get_attribute("type").unwrap_or_default();
+                    if has_token(&rel, "alternate") && is_feed_type(&ty) {
+                        el.remove();
+                    }
+                    Ok(())
+                }),
+                element!("a[href]", |el| {
+                    let href = el.get_attribute("href").unwrap_or_default();
+                    if is_built_feed_link(&href) {
+                        match &plan.feed {
+                            Some(feed) => {
+                                let _ = el.set_attribute("href", feed);
+                            }
+                            None => el.remove_attribute("href"),
+                        }
                     }
                     Ok(())
                 }),
@@ -85,10 +234,7 @@ pub fn postprocess_html(html: &str) -> String {
                     Ok(())
                 }),
                 element!("head", |el| {
-                    el.append(
-                        &format!("<link rel=\"stylesheet\" href=\"{NOTES_CSS_HREF}\">"),
-                        ContentType::Html,
-                    );
+                    el.append(&head, ContentType::Html);
                     Ok(())
                 }),
             ],
@@ -96,6 +242,32 @@ pub fn postprocess_html(html: &str) -> String {
         },
     )
     .unwrap_or_else(|_| html.to_string())
+}
+
+fn has_token(value: &str, token: &str) -> bool {
+    value
+        .split_ascii_whitespace()
+        .any(|part| part.eq_ignore_ascii_case(token))
+}
+
+fn is_feed_type(value: &str) -> bool {
+    let mime = value.split(';').next().unwrap_or("").trim();
+    mime.eq_ignore_ascii_case("application/rss+xml")
+        || mime.eq_ignore_ascii_case("application/atom+xml")
+}
+
+/// 主题页面上指向 Hugo 订阅（`index.xml`）的链接。Hugo 不再出订阅，它们会落到 404。
+/// 外站地址不算：主题也可能链到站长别处的订阅。
+fn is_built_feed_link(href: &str) -> bool {
+    let path = href.split(['?', '#']).next().unwrap_or(href).trim();
+    if !path.ends_with("index.xml") {
+        return false;
+    }
+    let lower = path.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("//") {
+        return lower.contains("/blog/");
+    }
+    true
 }
 
 /// `.js` / `.mjs` 资源。查询串和 hash 不算进后缀。

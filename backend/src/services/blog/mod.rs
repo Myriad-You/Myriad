@@ -206,14 +206,15 @@ impl Engine {
             return;
         };
         let settings = content::load_settings(&db).await;
-        let site = content::load_site(&db, &settings).await;
-        let posts = match content::load_posts(&db).await {
+        let mut site = content::load_site(&db, &settings).await;
+        let mut posts = match content::load_posts(&db).await {
             Ok(posts) => posts,
             Err(message) => {
                 self.finish_failed(message, "").await;
                 return;
             }
         };
+        content::settle_locales(&mut site, &mut posts);
         let friends = match content::load_friends(&db).await {
             Ok(friends) => friends,
             Err(message) => {

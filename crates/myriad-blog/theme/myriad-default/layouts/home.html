@@ -5,7 +5,7 @@
   {{ range . }}
   <li>
     <a href="{{ .RelPermalink }}">{{ .Title }}</a>
-    {{ if not .Date.IsZero }}<time datetime="{{ .Date.Format `2006-01-02` }}">{{ .Date.Format `2006年1月2日` }}</time>{{ end }}
+    {{ if not .Date.IsZero }}<time datetime="{{ .Date.Format `2006-01-02` }}">{{ .Date | time.Format ":date_long" }}</time>{{ end }}
     {{ with .Summary }}<p>{{ . }}</p>{{ end }}
   </li>
   {{ end }}
