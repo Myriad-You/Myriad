@@ -99,7 +99,9 @@ function playFrame(
       ? FADE_MS
       : direction === 'out' ? EXIT_MS : sheet ? SHEET_MS : ENTER_MS,
     easing: reduced || direction === 'out' ? EASE_EXIT : enterEasing(sheet),
-    fill: 'none',
+    // 收回停在最后一帧：动画一结束样式就回到原状，而「已收回」要等 React 下一次提交，
+    // 中间那一帧整个弹窗会原样闪出来。藏好之后再由组件清掉。
+    fill: direction === 'out' ? 'forwards' : 'none',
   })
 }
 
@@ -297,6 +299,16 @@ function WidgetPopupFrame({
     // phase 只用来判断「刚从前台收回」，不作为依赖重跑。
   }, [active])
 
+  // 「已收回」的样式已经提交、这一帧还没画：现在清掉停在最后一帧的收回动画，看不见。
+  useLayoutEffect(() => {
+    if (phase !== 'stashed') return
+    for (const held of frameRef.current?.getAnimations() ?? []) {
+      held.onfinish = null
+      held.oncancel = null
+      held.cancel()
+    }
+  }, [phase])
+
   if (!popup) return null
   const Content = popup.component
   const label = widgetDisplayLabel(entry.widgetType, t.widgets as unknown as Record<string, unknown>)
@@ -336,7 +348,8 @@ function WidgetPopupFrame({
           <Content
             config={entry.widget}
             params={entry.params}
-            active={active}
+            // 收回动画放完才告诉内容停下：缩的那几帧里暂停键换图标、背景光停住跳位，看着就是一闪。
+            active={active || phase !== 'stashed'}
             close={() => closeWidgetPopup(entry.key)}
             onConfigChange={entry.onConfigChange}
           />
