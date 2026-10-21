@@ -39,6 +39,10 @@ COPY frontend/ ./
 # (relative ../../../shared/... from /app/src/... → /shared/...)
 COPY shared /shared
 
+# Built-in TAPP sources bundled as examples
+# (relative ../../../../../tapps/... from /app/src/tapp/examples/tapps/... → /tapps/...)
+COPY tapps /tapps
+
 # Build argument for backend URL
 # 默认为空字符串，使用相对路径（生产环境推荐）
 ARG BACKEND_URL=
