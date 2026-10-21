@@ -872,6 +872,22 @@ function unwrap(html: string, tag: string): string {
   return html.replace(new RegExp(`^<${tag}[^>]*>|</${tag}>$`, 'gi'), '')
 }
 
+/**
+ * 代码块里的 HTML → 代码原文。浏览器在代码块里回车插的是 `<br>`，有时整行包成 `<div>`；
+ * 都要读回换行，不能当字留下，也不能剥掉后把两行粘成一行。
+ * 行尾最后一个 `<br>` 只是让空行撑开高度的占位，不算换行。
+ */
+function preCodeText(html: string): string {
+  return decode(
+    html
+      .replace(/<br\s*\/?>(?=(?:<\/(?:div|p|span|code)>)*$)/i, '')
+      .replace(/<br\s*\/?>(?=<\/(?:div|p)>)/gi, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/(?!^)<(?:div|p)\b[^>]*>/gi, '\n')
+      .replace(/<[^>]+>/g, ''),
+  )
+}
+
 interface HtmlBlock {
   tag: string
   attrs: string
@@ -1121,7 +1137,7 @@ export function visualHtmlToMarkdown(html: string): string {
           }
         }
         const lang = attrs.match(/data-lang="([^"]*)"/)?.[1] ?? ''
-        const code = decode(unwrap(body, 'code'))
+        const code = preCodeText(unwrap(body, 'code'))
         const fence = '`'.repeat(
           Math.max(3, ...[...code.matchAll(/`+/g)].map((run) => run[0].length + 1)),
         )

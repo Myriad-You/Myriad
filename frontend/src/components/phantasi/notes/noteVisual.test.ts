@@ -587,6 +587,35 @@ describe('代码边界与未知语法', () => {
     assert.match(markdownToVisualHtml(md), /<code>`a`<\/code>/)
     assert.equal(visualHtmlToMarkdown(markdownToVisualHtml(md)), md)
   })
+  it('代码块里回车插的 <br> 读回换行，不留成字也不把两行粘起来', () => {
+    // 富文本层里在代码块末尾回车再打字，Chrome 留下的就是这个形状。
+    const typed = '<pre data-lang="rust"><code>fn a() {\n    1\n}<br>fn b() {}</code></pre>'
+    const md = '```rust\nfn a() {\n    1\n}\nfn b() {}\n```'
+    assert.equal(visualHtmlToMarkdown(typed), md)
+    assert.equal(visualHtmlToMarkdown(markdownToVisualHtml(md)), md)
+    assert.equal(visualHtmlToMarkdown('<pre><code>第一杯<br>第三杯\n第二杯</code></pre>'), '```\n第一杯\n第三杯\n第二杯\n```')
+    // 只撑高度的末尾 <br>、按行包的 <div>、没有 <code> 的工具栏 <pre> 都一样。
+    assert.equal(visualHtmlToMarkdown('<pre><code><br></code></pre>'), '```\n\n```')
+    assert.equal(visualHtmlToMarkdown('<pre><code>a<br>b<br></code></pre>'), '```\na\nb\n```')
+    assert.equal(visualHtmlToMarkdown('<pre><code>a<div>b</div><div><br></div><div>c</div></code></pre>'), '```\na\nb\n\nc\n```')
+    assert.equal(visualHtmlToMarkdown('<pre>x &lt;br&gt; y<br>z</pre>'), '```\nx <br> y\nz\n```')
+  })
+  it('增量序列化遇到代码块里的 <br> 也读回换行', async () => {
+    const { createVisualMarkdownSerializer } = await import('./noteVisual')
+    const { createRequire } = await import('node:module')
+    const require = createRequire(import.meta.url)
+    const { JSDOM } = require(require.resolve('jsdom', { paths: [require.resolve('isomorphic-dompurify')] }))
+    const dom = new JSDOM(`<div id="editor">${markdownToVisualHtml('段\n\n~~~\n第一杯\n第二杯\n~~~')}</div>`)
+    const root = dom.window.document.getElementById('editor')
+    const serialize = createVisualMarkdownSerializer()
+    assert.equal(serialize(root), '段\n\n```\n第一杯\n第二杯\n```')
+    const first = root.querySelector('code').firstChild
+    first.splitText('第一杯'.length)
+    first.after(dom.window.document.createElement('br'), '第三杯')
+    assert.equal(serialize(root), '段\n\n```\n第一杯\n第三杯\n第二杯\n```')
+    serialize.dispose()
+    dom.window.close()
+  })
   it('不支持的 HTML 以原文保留', () => {
     const md = '<details>\n<summary>标题</summary>\n正文\n</details>'
     const back = visualHtmlToMarkdown(markdownToVisualHtml(md))
