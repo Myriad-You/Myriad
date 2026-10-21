@@ -5,6 +5,9 @@ import {
   EMBED_DOCUMENT,
   EMBED_FRAME_HEADERS,
   isEmbedDocumentPath,
+  isRetiredPath,
+  RETIRED_PAGE_HEADERS,
+  RETIRED_PAGE_HTML,
   STATIC_ASSET_PATTERN,
 } from './constants.mjs'
 
@@ -17,6 +20,13 @@ export function spaFallbackPlugin() {
       }
       let pathname
       try { pathname = decodeURIComponent((req.url || '').split('?')[0]) } catch { next(); return }
+      // 和 spa-server 一样：下线的页面回 410。
+      if (isRetiredPath(pathname)) {
+        res.statusCode = 410
+        for (const [name, value] of Object.entries(RETIRED_PAGE_HEADERS)) res.setHeader(name, value)
+        res.end(req.method === 'HEAD' ? undefined : RETIRED_PAGE_HTML)
+        return
+      }
       if (isEmbedDocumentPath(pathname)) {
         for (const [name, value] of Object.entries(EMBED_FRAME_HEADERS)) res.setHeader(name, value)
       }

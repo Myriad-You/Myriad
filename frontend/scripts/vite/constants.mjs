@@ -6,7 +6,30 @@ export const DOCUMENT_PERMISSIONS_POLICY =
 export const EMBED_FRAME_HEADERS = Object.freeze({
   'Content-Security-Policy': "frame-ancestors 'self'",
   'X-Frame-Options': 'SAMEORIGIN',
+  // 嵌入页只是博客页里的一块，单独收录只会多出一批标题是站名的空页。
+  'X-Robots-Tag': 'noindex',
 })
+
+/**
+ * 下线的页面：手帐（换成 /blog）和报告页（换成报告卡的舞台弹窗）。都不做跳转，
+ * 回 410 让搜索引擎把旧地址清掉，而不是收到一份 200 的空壳当软 404 慢慢猜。
+ */
+const RETIRED_PREFIXES = ['/journal', '/reports']
+
+export function isRetiredPath(pathname) {
+  return RETIRED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+}
+
+export const RETIRED_PAGE_HEADERS = Object.freeze({
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'public, max-age=3600',
+  'X-Robots-Tag': 'noindex',
+})
+
+export const RETIRED_PAGE_HTML =
+  '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="robots" content="noindex">'
+  + '<meta name="viewport" content="width=device-width, initial-scale=1"><title>410 Gone</title></head>'
+  + '<body><p>This page has been retired.</p><p><a href="/">Home</a></p></body></html>'
 
 /**
  * 构建时 Vite 把它写进文档里每个 `<script>`、modulepreload 和 `meta[property=csp-nonce]`
