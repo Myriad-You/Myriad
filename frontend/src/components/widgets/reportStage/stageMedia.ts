@@ -3,6 +3,8 @@
  * 每句台词提到了哪部作品（标题，或者歌手），这句就配上那几张；事实自带的图也算。
  */
 
+import { resolveLibraryItemUrl } from '../../../utils/libraryItemUrl'
+
 export type StageMediaShape = 'square' | 'poster' | 'wide' | 'banner'
 
 export interface StageMedia {
@@ -11,6 +13,8 @@ export interface StageMedia {
   /** 歌手之类，台词提到它也算提到了这张。 */
   by?: string
   shape: StageMediaShape
+  /** 原站地址：卡片数据自带 id（番剧 season_id、条目 url 之类）时直接拼出来。 */
+  href?: string
 }
 
 /** 卡片数据里带封面的几个列表，按卡面用到的顺序。 */
@@ -58,7 +62,15 @@ export function readStageMedia(cardVisuals: unknown, platform: string): StageMed
       if (!cover || !title || !SAFE_MEDIA.test(cover) || seen.has(cover)) continue
       seen.add(cover)
       const by = asText(item?.artist) || asText(item?.author)
-      media.push({ title, cover, ...(by ? { by } : {}), shape: shapeOf(asText(item?.type), platform) })
+      const type = asText(item?.type)
+      const href = resolveLibraryItemUrl({ id: '', platform, item_type: type, metadata: item })
+      media.push({
+        title,
+        cover,
+        ...(by ? { by } : {}),
+        shape: shapeOf(type, platform),
+        ...(href ? { href } : {}),
+      })
       if (media.length >= MEDIA_LIMIT) return media
     }
   }

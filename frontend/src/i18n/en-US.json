@@ -1757,6 +1757,8 @@
     "generated": "{platform} report updated",
     "finished": "That's the end",
     "nextLine": "Click for the next line",
+    "playWork": "Play “{title}”",
+    "openWork": "Open “{title}” on its site",
     "platforms": "Platforms",
     "styleStale": "The style changed. Regenerate to use it.",
     "settings": "Report settings",

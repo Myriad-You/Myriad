@@ -53,3 +53,14 @@ test('beats carry their covers, and the report keeps the shelf', () => {
   assert.equal(beats[2].media, undefined)
   assert.equal(report.media.length, 4)
 })
+
+test('a cover links to its page when the card data carries the id', () => {
+  const [show, subject, song] = [
+    ...readStageMedia({ library_items: [{ title: '夏日重现', cover: '/a.jpg', season_id: 42 }] }, 'bilibili'),
+    ...readStageMedia({ top_subjects: [{ title: 'CLANNAD', cover: '/b.jpg', subject_id: 51 }] }, 'bangumi'),
+    ...readStageMedia({ library_items: [{ title: '魚', cover: '/c.jpg', artist: 'あたらよ' }] }, 'netease'),
+  ]
+  assert.equal(show.href, 'https://www.bilibili.com/bangumi/play/ss42')
+  assert.equal(subject.href, 'https://bgm.tv/subject/51')
+  assert.equal(song.href, undefined, 'a song needs its id from the library first')
+})

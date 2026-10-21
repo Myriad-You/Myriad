@@ -3,28 +3,23 @@ import type {
   WatchProgress,
   WatchProgressLabels,
 } from '../../utils/libraryWatchProgress'
-import type { Song } from '../../utils/musicPlayer'
 import type { LibraryItem } from './libraryCanvasVisible'
 
 import { FaBook, FaGamepad, FaMusic, FaVideo } from '@lib/icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { emitAppEvent } from '../../utils/appEvents'
 import {
   acquireCoverDecodeSlot,
   LIBRARY_CARD_COVER_SIZES,
   releaseCoverImageElement,
 } from '../../utils/libraryCardMedia'
+import { playNeteaseLibraryItem } from '../../utils/libraryItemActions'
+import { resolveLibraryItemUrl } from '../../utils/libraryItemUrl'
 import {
   formatWatchProgressText,
   formatWatchStatusLabel,
   getWatchProgress,
 } from '../../utils/libraryWatchProgress'
-import {
-  getNeteaseAudioUrlImmediate,
-  isNeteaseVipFromMeta,
-} from '../../utils/musicPlayer'
-import { proxyImageUrlOr } from '../../utils/proxyImageUrl'
 import { showInfo } from '../../utils/toastManager'
 import { LIBRARY_LIVE_MS } from './libraryLiveMs'
 
@@ -671,109 +666,6 @@ function coverFallbackUrl(title: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(title || '?')}&size=400&background=random`
 }
 
-function resolveLibraryItemUrl(item: {
-  id: string
-  platform: string
-  item_type: string
-  metadata: any
-}): string | null {
-  const m =
-    item.metadata && typeof item.metadata === 'object' ? item.metadata : {}
-  const asHttp = (v: unknown): string | null => {
-    if (typeof v !== 'string') return null
-    const s = v.trim()
-    if (!s) return null
-    if (/^https?:\/\//i.test(s)) return s
-    if (s.startsWith('//')) return `https:${s}`
-    return null
-  }
-
-  const direct =
-    asHttp(m.url) ||
-    asHttp(m.link) ||
-    asHttp(m.web_url) ||
-    asHttp(m.html_url) ||
-    asHttp(m.short_link_v2) ||
-    asHttp(m.short_link) ||
-    asHttp(m?.subject?.url) ||
-    asHttp(m?.node?.url) ||
-    asHttp(m?.share_url)
-  if (direct) return direct
-
-  const platform = (item.platform || '').toLowerCase()
-  const id = item.id || ''
-
-  if (platform.includes('steam') || id.startsWith('steam_')) {
-    const appid = m.appid ?? id.replaceAll(/^steam_game_/g, '')
-    if (appid !== '' && appid != null) {
-      return `https://store.steampowered.com/app/${appid}`
-    }
-  }
-
-  if (
-    platform.includes('bilibili') ||
-    platform.includes('bili') ||
-    id.startsWith('bilibili_')
-  ) {
-    if (m.season_id != null) {
-      return `https://www.bilibili.com/bangumi/play/ss${m.season_id}`
-    }
-    const bvid = typeof m.bvid === 'string' ? m.bvid : null
-    if (bvid) return `https://www.bilibili.com/video/${bvid}`
-    const aid = m.aid ?? m.id
-    if (aid != null && /^\d+$/.test(String(aid))) {
-      return `https://www.bilibili.com/video/av${aid}`
-    }
-  }
-
-  if (
-    platform.includes('bangumi') ||
-    platform.includes('bgm') ||
-    id.startsWith('bangumi_')
-  ) {
-    const sid =
-      m.subject_id ??
-      m.subject?.id ??
-      (id.startsWith('bangumi_subject_')
-        ? id.slice('bangumi_subject_'.length)
-        : null)
-    if (sid != null && String(sid) !== '') {
-      return `https://bgm.tv/subject/${sid}`
-    }
-  }
-
-  if (
-    platform.includes('mal') ||
-    platform.includes('myanimelist') ||
-    id.startsWith('mal_')
-  ) {
-    const mal = id.match(/^mal_(anime|manga)_(\d+)$/i)
-    if (mal) return `https://myanimelist.net/${mal[1].toLowerCase()}/${mal[2]}`
-    const kind =
-      m.media_type === 'manga' || item.item_type === 'book' ? 'manga' : 'anime'
-    const mid = m.id ?? m.node?.id
-    if (mid != null) return `https://myanimelist.net/${kind}/${mid}`
-  }
-
-  if (platform.includes('github')) {
-    if (typeof m.full_name === 'string' && m.full_name.includes('/')) {
-      return `https://github.com/${m.full_name}`
-    }
-    if (typeof m.name === 'string' && typeof m.owner?.login === 'string') {
-      return `https://github.com/${m.owner.login}/${m.name}`
-    }
-  }
-
-  if (platform.includes('youtube') || platform.includes('yt')) {
-    const vid = m.video_id ?? m.id
-    if (typeof vid === 'string' && vid.length >= 6) {
-      return `https://www.youtube.com/watch?v=${vid}`
-    }
-  }
-
-  return null
-}
-
 /**
  * 卡片主操作是去原站：有地址就是真链接（右键复制、中键新开、长按菜单都归浏览器），
  * 拿不到地址时退回不跳转的按钮。拖动画布后的点击由画布在捕获阶段吞掉。
@@ -1341,80 +1233,7 @@ export function useLibraryCardActions() {
         return
       }
 
-      const songId = (
-        item.metadata.id || item.id.replaceAll('netease_song_', '')
-      ).toString()
-      const musicState = (window as any).__musicPlayerState
-      if (
-        musicState?.currentSong?.id != null &&
-        String(musicState.currentSong.id) === songId
-      ) {
-        emitAppEvent('open-control-panel')
-        // 暂停中再点同一首应恢复，不要当成已在播放。
-        if (!musicState.isPlaying) {
-          emitAppEvent('toggle-play-pause')
-        }
-        return
-      }
-
-      const isVip = isNeteaseVipFromMeta(item.metadata)
-      if (isVip) {
-        showInfo(t.library.vipSongWarning)
-      }
-
-      const name = item.metadata.name || item.title
-      let artist = t.library.unknownArtist
-      const artists = item.metadata.ar || item.metadata.artists || []
-      if (Array.isArray(artists) && artists.length > 0) {
-        artist = artists.map((a: any) => a.name || a).join(', ')
-      } else if (item.metadata.artist) {
-        artist = item.metadata.artist
-      }
-
-      let album = t.library.unknownAlbum
-      let cover = item.cover || ''
-      if (item.metadata.al) {
-        album = item.metadata.al.name || album
-        cover = item.metadata.al.picUrl || cover
-      } else if (item.metadata.album) {
-        album = item.metadata.album.name || item.metadata.album
-        if (item.metadata.album.picUrl) {
-          cover = item.metadata.album.picUrl
-        }
-      }
-
-      const duration = item.metadata.dt
-        ? Math.floor(item.metadata.dt / 1000)
-        : item.metadata.duration
-          ? item.metadata.duration
-          : 0
-
-      // 同步 URL 禁止 await geo，会把开播拖成数百 ms～数秒。
-      const url = getNeteaseAudioUrlImmediate(songId)
-
-      const song: Song = {
-        id: songId.toString(),
-        name,
-        artist,
-        album,
-        // 裸 CDN 封面必须代理，否则取色 canvas CORS 失败。
-        cover: proxyImageUrlOr(cover, cover || ''),
-        url,
-        duration,
-        source: 'netease',
-        isVip,
-      }
-
-      emitAppEvent('open-control-panel')
-      emitAppEvent('play-song', { song })
-      void import('../../utils/analyticsEvents').then(
-        ({ trackProductEvent, AnalyticsEvents }) => {
-          trackProductEvent(AnalyticsEvents.MUSIC_LIBRARY_PLAY, {
-            target: songId,
-            throttleMs: 3000,
-          })
-        },
-      )
+      playNeteaseLibraryItem(item, t.library)
     },
     [t],
   )

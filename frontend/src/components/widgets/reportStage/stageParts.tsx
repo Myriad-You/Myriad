@@ -1,5 +1,6 @@
 import type { RefObject } from 'react'
 import type { StageMedia } from './stageMedia'
+import type { StageLink } from './useStageLinks'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 /** 当前这句一段一段浮出来，整句最多花这么久，长句每段更快。 */
@@ -143,33 +144,88 @@ export function StagePlayIcon(props: { className?: string }) {
 
 /**
  * 字幕下面那排封面。台词点到名时是提到的那几张，否则是这个平台的书架。
- * 屏幕阅读器不读：作品名台词里已经有了。
+ * 能点的去原站或用站内播放器放；点封面不翻字幕。点不了的那张屏幕阅读器不读：
+ * 作品名台词里已经有了。
  */
-export function StageCovers({ items, mode }: { items: readonly StageMedia[]; mode: 'mentioned' | 'shelf' }) {
+export function StageCovers({
+  items,
+  mode,
+  links,
+  labels,
+  onPlay,
+}: {
+  items: readonly StageMedia[]
+  mode: 'mentioned' | 'shelf'
+  links: ReadonlyMap<string, StageLink>
+  labels: { play: (title: string) => string; open: (title: string) => string }
+  onPlay: (item: StageLink & { kind: 'play' }) => void
+}) {
   if (items.length === 0) return null
   return (
-    <div className="report-stage__covers" data-mode={mode} data-flip="covers" aria-hidden="true">
-      {items.map((item, index) => (
-        <figure
-          key={item.cover}
-          className="report-stage__cover"
-          data-shape={item.shape}
-          style={{ animationDelay: `${index * 70}ms` }}
-        >
-          <img
-            src={item.cover}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            // 封面取不到就整张不显示，不留破图。
-            onError={(event) => {
-              const figure = event.currentTarget.parentElement
-              if (figure) figure.hidden = true
-            }}
-          />
-          <figcaption>{item.title}</figcaption>
-        </figure>
-      ))}
+    <div className="report-stage__covers" data-mode={mode} data-flip="covers" aria-live="off">
+      {items.map((item, index) => {
+        const link = links.get(item.cover)
+        const body = (
+          <>
+            <span className="report-stage__cover-art">
+              <img
+                src={item.cover}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                // 封面取不到就整张不显示，不留破图。
+                onError={(event) => {
+                  const cover = event.currentTarget.closest<HTMLElement>('.report-stage__cover')
+                  if (cover) cover.hidden = true
+                }}
+              />
+              {link?.kind === 'play' ? <StagePlayIcon className="report-stage__cover-play" /> : null}
+            </span>
+            <span className="report-stage__cover-title">{item.title}</span>
+          </>
+        )
+        const common = {
+          className: 'report-stage__cover',
+          'data-shape': item.shape,
+          style: { animationDelay: `${index * 70}ms` },
+        }
+        if (link?.kind === 'open') {
+          return (
+            <a
+              key={item.cover}
+              {...common}
+              href={link.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={labels.open(item.title)}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {body}
+            </a>
+          )
+        }
+        if (link?.kind === 'play') {
+          return (
+            <button
+              key={item.cover}
+              {...common}
+              type="button"
+              aria-label={labels.play(item.title)}
+              onClick={(event) => {
+                event.stopPropagation()
+                onPlay(link)
+              }}
+            >
+              {body}
+            </button>
+          )
+        }
+        return (
+          <span key={item.cover} {...common} aria-hidden="true">
+            {body}
+          </span>
+        )
+      })}
     </div>
   )
 }

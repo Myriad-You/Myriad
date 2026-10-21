@@ -736,6 +736,128 @@ pub struct LibraryPage {
     pub next_offset: Option<usize>,
 }
 
+/// One title to find in the library; `by` (the artist) tells same-named songs apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryLookup {
+    pub title: String,
+    pub by: Option<String>,
+}
+
+/// A report carries at most 16 covers; one lookup never needs more.
+pub const LIBRARY_LOOKUP_LIMIT: usize = 16;
+const LIBRARY_LOOKUP_TEXT_MAX: usize = 200;
+
+/// `platform=netease&title=A&by=X&title=B`: every `title` starts an entry, a `by`
+/// right after it is that entry's artist. Extra titles and overlong text are dropped.
+pub fn parse_library_lookup(query: &str) -> (String, Vec<LibraryLookup>) {
+    let mut platform = String::new();
+    let mut lookups: Vec<LibraryLookup> = Vec::new();
+    let clip = |text: &str| {
+        text.trim()
+            .chars()
+            .take(LIBRARY_LOOKUP_TEXT_MAX)
+            .collect::<String>()
+    };
+    for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+        match key.as_ref() {
+            "platform" => platform = clip(&value),
+            "title" if lookups.len() < LIBRARY_LOOKUP_LIMIT => lookups.push(LibraryLookup {
+                title: clip(&value),
+                by: None,
+            }),
+            // An empty `by` still belongs to its title: the next `by` is not its artist.
+            "by" => {
+                if let Some(last) = lookups.last_mut().filter(|last| last.by.is_none()) {
+                    last.by = Some(clip(&value));
+                }
+            }
+            _ => {}
+        }
+    }
+    for lookup in &mut lookups {
+        lookup.by = lookup.by.take().filter(|by| !by.is_empty());
+    }
+    (platform, lookups)
+}
+
+/// Joint credits ("A/B", "A、B") list each artist on their own.
+fn credits(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split(['/', '／', '、', ',', '，', '&', '＆', ';', '；'])
+        .map(lookup_key)
+        .filter(|name| !name.is_empty())
+}
+
+/// Compare names without case, spaces or punctuation.
+fn lookup_key(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn artist_names(metadata: &Value) -> Vec<&str> {
+    let mut names: Vec<&str> = ["ar", "artists"]
+        .iter()
+        .filter_map(|key| metadata.get(*key).and_then(Value::as_array))
+        .flatten()
+        .filter_map(|artist| {
+            artist
+                .get("name")
+                .and_then(Value::as_str)
+                .or_else(|| artist.as_str())
+        })
+        .collect();
+    if let Some(artist) = metadata.get("artist").and_then(Value::as_str) {
+        names.push(artist);
+    }
+    names
+}
+
+/// The library item each lookup names, in the same order; `None` when there is none.
+/// Only the sources the owner shows in the library are searched.
+pub fn lookup_library_items(
+    items: &[LibraryItem],
+    preferences: Option<&LibrarySourcePreferences>,
+    platform: &str,
+    lookups: &[LibraryLookup],
+) -> Vec<Option<LibraryItem>> {
+    let platform = canonical_library_platform_ref(platform);
+    let mut by_title: HashMap<String, Vec<&LibraryItem>> = HashMap::new();
+    for item in items {
+        if canonical_library_platform_ref(&item.platform) != platform
+            || !preferences.is_none_or(|preferences| {
+                preferences.source_enabled(&item.item_type, &item.platform)
+            })
+        {
+            continue;
+        }
+        let key = lookup_key(&item.title);
+        if !key.is_empty() {
+            by_title.entry(key).or_default().push(item);
+        }
+    }
+    lookups
+        .iter()
+        .map(|lookup| {
+            let candidates = by_title.get(&lookup_key(&lookup.title))?;
+            let by: Vec<String> = lookup
+                .by
+                .as_deref()
+                .map(credits)
+                .into_iter()
+                .flatten()
+                .collect();
+            let credited = candidates.iter().find(|item| {
+                artist_names(&item.metadata)
+                    .iter()
+                    .flat_map(|name| credits(name))
+                    .any(|name| by.contains(&name))
+            });
+            credited.or(candidates.first()).map(|item| (*item).clone())
+        })
+        .collect()
+}
+
 /// Same as the frontend `LIBRARY_PAGE_SIZE`. Missing `limit` used to dump the whole library.
 pub const LIBRARY_DEFAULT_PAGE_LIMIT: usize = 120;
 
@@ -1583,6 +1705,75 @@ mod tests {
         assert_eq!(page.returned, LIBRARY_DEFAULT_PAGE_LIMIT);
         assert!(page.has_more);
         assert_eq!(page.next_offset, Some(LIBRARY_DEFAULT_PAGE_LIMIT));
+    }
+
+    #[test]
+    fn lookup_pairs_each_title_with_the_artist_after_it() {
+        let (platform, lookups) =
+            parse_library_lookup("platform=netease&title=%E9%AD%9A&by=a&title=B&by=&by=x&title=C");
+        assert_eq!(platform, "netease");
+        let pairs: Vec<_> = lookups
+            .iter()
+            .map(|l| (l.title.as_str(), l.by.as_deref()))
+            .collect();
+        assert_eq!(pairs, vec![("魚", Some("a")), ("B", None), ("C", None)]);
+        let many = (0..40)
+            .map(|i| format!("title={i}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        assert_eq!(parse_library_lookup(&many).1.len(), LIBRARY_LOOKUP_LIMIT);
+    }
+
+    #[test]
+    fn lookup_finds_the_owner_item_by_name_and_artist() {
+        let song = |id: &str, title: &str, artist: &str| LibraryItem {
+            id: id.into(),
+            item_type: "music".into(),
+            title: title.into(),
+            cover: None,
+            platform: "Netease".into(),
+            metadata: json!({ "id": id, "ar": [{ "name": artist }] }),
+        };
+        let items = vec![
+            song("1", "Lemon", "Someone"),
+            song("2", "Lemon", "米津玄師"),
+            song("3", "三つ葉の結びめ", "やなぎなぎ"),
+            LibraryItem {
+                platform: "Steam".into(),
+                ..song("4", "Celeste", "")
+            },
+        ];
+        let lookup = |title: &str, by: Option<&str>| LibraryLookup {
+            title: title.into(),
+            by: by.map(str::to_string),
+        };
+        let found = lookup_library_items(
+            &items,
+            None,
+            "netease",
+            &[
+                lookup("lemon", Some("米津玄師/Someone Else")),
+                lookup("Lemon", None),
+                lookup("三つ葉の結びめ！", None),
+                lookup("Celeste", None),
+            ],
+        );
+        let ids: Vec<_> = found
+            .iter()
+            .map(|item| item.as_ref().map(|i| i.id.as_str()))
+            .collect();
+        assert_eq!(ids, vec![Some("2"), Some("1"), Some("3"), None]);
+
+        let mut hidden = LibrarySourcePreferences::default();
+        hidden
+            .categories
+            .insert("music".into(), vec!["Bilibili".into()]);
+        let found =
+            lookup_library_items(&items, Some(&hidden), "Netease", &[lookup("Lemon", None)]);
+        assert!(
+            found[0].is_none(),
+            "a source hidden from the library stays hidden"
+        );
     }
 
     #[tokio::test]

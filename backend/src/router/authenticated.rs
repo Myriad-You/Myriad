@@ -321,6 +321,7 @@ pub(super) fn build_authenticated_router(
         )
         // Library — 公开读站长资料库
         .route("/api/library", get(api::profile::get_library_data))
+        .route("/api/library/lookup", get(api::profile::lookup_library_data))
         .route(
             "/api/library/preferences",
             get(api::profile::get_library_source_preferences),

@@ -1757,6 +1757,8 @@
     "generated": "{platform} のレポートを更新しました",
     "finished": "おしまい",
     "nextLine": "クリックで次の一文へ",
+    "playWork": "「{title}」を再生",
+    "openWork": "「{title}」を元のサイトで開く",
     "platforms": "プラットフォーム",
     "styleStale": "スタイルが変わりました。再生成すると反映されます",
     "settings": "レポート設定",

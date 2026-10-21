@@ -1,5 +1,7 @@
 import type { WidgetPopupProps } from '../../widgetGridTypes'
+import type { StageMedia } from './stageMedia'
 import type { StageReport } from './stageScript'
+import type { StageLink } from './useStageLinks'
 import {
   LuListOrdered,
   LuRefreshCw,
@@ -28,6 +30,7 @@ import { PLATFORM_CONFIG } from '../reportCard/platformConfig'
 import { GlowBackground } from '../shared/GlowBackground'
 import { ProgressRing, RevealLine, StageCovers, StagePauseIcon, StagePlayIcon, useFlipLayout } from './stageParts'
 import { buildStageReport } from './stageScript'
+import { useStageLinks } from './useStageLinks'
 import { useStagePlayer } from './useStagePlayer'
 import './reportStage.css'
 
@@ -40,6 +43,7 @@ const StageOwnerSettings = lazyWithPreload(() =>
 const VISIBLE_BEATS = 4
 /** 台词还没点名时，书架摆几张。 */
 const SHELF_SIZE = 5
+const NO_MEDIA: readonly StageMedia[] = []
 /** 站长在平台设置里开着的平台，按拖拽顺序。读不到配置时返回 null，舞台照旧全列。 */
 async function loadPlatformOrder(): Promise<string[] | null> {
   try {
@@ -236,6 +240,24 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
     return { items: report.media.slice(0, SHELF_SIZE), mode: 'shelf' as const }
   }, [chapter, report, state.shown])
 
+  const links = useStageLinks(platform, report?.media ?? NO_MEDIA, active)
+  const coverLabels = useMemo(
+    () => ({
+      play: (title: string) => format(copy.playWork, { title }),
+      open: (title: string) => format(copy.openWork, { title }),
+    }),
+    [copy.openWork, copy.playWork, format],
+  )
+  const libraryCopy = t.library
+  const playCover = useCallback(
+    (link: StageLink & { kind: 'play' }) => {
+      void import('../../../utils/libraryItemActions').then(({ playNeteaseLibraryItem }) =>
+        playNeteaseLibraryItem(link.item, libraryCopy),
+      )
+    },
+    [libraryCopy],
+  )
+
   // 字幕区变高时，标题、旧句、封面从原来的位置滑到新落点。
   const sceneRef = useRef<HTMLElement>(null)
   useFlipLayout(
@@ -349,7 +371,13 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
               })}
               {state.ended ? <p className="report-stage__end" data-flip="end">{copy.finished}</p> : null}
             </div>
-            <StageCovers items={covers.items} mode={covers.mode} />
+            <StageCovers
+              items={covers.items}
+              mode={covers.mode}
+              links={links}
+              labels={coverLabels}
+              onPlay={playCover}
+            />
           </section>
         ) : (
           <div className="report-stage__empty">

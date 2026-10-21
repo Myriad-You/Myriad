@@ -1757,6 +1757,8 @@
     "generated": "Bericht für {platform} aktualisiert",
     "finished": "Das war’s",
     "nextLine": "Klicken für den nächsten Satz",
+    "playWork": "„{title}“ abspielen",
+    "openWork": "„{title}“ auf der Originalseite öffnen",
     "platforms": "Plattformen",
     "styleStale": "Der Stil hat sich geändert. Neu erstellen, um ihn zu übernehmen.",
     "settings": "Berichtseinstellungen",

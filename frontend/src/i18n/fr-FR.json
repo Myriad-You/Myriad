@@ -1757,6 +1757,8 @@
     "generated": "Rapport {platform} mis à jour",
     "finished": "C'est fini",
     "nextLine": "Cliquez pour la phrase suivante",
+    "playWork": "Écouter « {title} »",
+    "openWork": "Ouvrir « {title} » sur son site",
     "platforms": "Plateformes",
     "styleStale": "Le style a changé. Régénérez pour l’appliquer.",
     "settings": "Réglages des rapports",

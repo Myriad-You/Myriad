@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Path, Query, RawQuery, State},
     http::{HeaderMap, StatusCode},
 };
 use chrono::Utc;
@@ -706,6 +706,42 @@ pub async fn get_library_data(
 
     let items = get_or_load_library_items(user_id, || load_library_items(&db, user_id)).await;
     library_page_response(&db, items, query, user_id).await
+}
+
+/// `GET /api/library/lookup?platform=netease&title=A&by=X&title=B`
+/// 报告舞台点封面用：按名字找站长资料库里的那一条，拿到歌曲 id、appid 才能播放或打开。
+/// 结果与 `title` 一一对应，资料库里没有（或这个来源没在资料库里显示）的是 null。
+pub async fn lookup_library_data(
+    State(db): State<DatabaseConnection>,
+    RawQuery(query): RawQuery,
+) -> (StatusCode, Json<Value>) {
+    let (platform, lookups) =
+        crate::services::library_items::parse_library_lookup(query.as_deref().unwrap_or(""));
+    if platform.is_empty() || lookups.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "message": "platform and title are required" })),
+        );
+    }
+    let user_id = match site_owner_user_id(&db).await {
+        Ok(user_id) => user_id,
+        Err(error) => return site_owner_error(error),
+    };
+    let items = match cached_library_items(user_id) {
+        Some(items) => items,
+        None => get_or_load_library_items(user_id, || load_library_items(&db, user_id)).await,
+    };
+    let preferences = load_library_source_preferences(&db).await;
+    let found = crate::services::library_items::lookup_library_items(
+        items.items(),
+        Some(&preferences),
+        &platform,
+        &lookups,
+    );
+    (
+        StatusCode::OK,
+        Json(json!({ "success": true, "items": found })),
+    )
 }
 
 async fn load_library_items(db: &DatabaseConnection, user_id: i32) -> Vec<LibraryItem> {
