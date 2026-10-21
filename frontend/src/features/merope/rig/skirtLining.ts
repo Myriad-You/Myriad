@@ -129,7 +129,11 @@ const SHOWN_RATIO = 3
  * (~15-18 RGB): magenta lining on brown stockings measured 26-67.
  */
 const SHOWN_MIN_DISTANCE = 24
-/** A piece found so goes on over the part where the garment is off by less (a patch at 22-34 by the knee). */
+/**
+ * A piece found so goes on over the part where the garment is off by less (a
+ * patch at 22-34 by the knee), and where the part is closer but not by
+ * SHOWN_RATIO (a grey collar band over the neck's shadow: neck 12 off, band 22).
+ */
 const SHOWN_GROW_DISTANCE = 12
 /** Closes pinholes where the garment's colour happens to come close to the part's. */
 const SHOWN_CLOSING = 3
@@ -237,7 +241,10 @@ function tuckGarmentOffPart(
         over[target] = 1
         const garmentOff = distance(garment.data, target * 4, at)
         const partOff = distance(under.data, ((y - under.top) * under.width + x - under.left) * 4, at)
-        if (partOff * SHOWN_RATIO > garmentOff) continue
+        if (partOff * SHOWN_RATIO > garmentOff) {
+          if (partOff < garmentOff && garmentOff > SHOWN_GROW_DISTANCE) near[target] = 1
+          continue
+        }
         if (garmentOff > SHOWN_GROW_DISTANCE) near[target] = 1
         if (garmentOff > SHOWN_MIN_DISTANCE) shown[target] = 1
       }

@@ -118,3 +118,32 @@ test('the back band a top draws over a neck the portrait shows bare goes behind 
   const split = [neck, top, { ...solid('collar-front', 'collar-front', [30, 40, 90], { left: 30, top: 40, width: 40, height: 10 }), side: null }]
   assert.equal(tuckGarmentOffNeckByReference(split, reference, () => true), split)
 })
+
+test('the back band goes behind the neck whole, over the neck\'s shadow too', () => {
+  // The band is a pale grey; over the shadow the neck is nearer the portrait than the band, but not three times nearer.
+  const skin = [240, 205, 190] as const
+  const shadow = [228, 195, 180] as const
+  const band = [205, 190, 188] as const
+  const neck = { ...solid('neck', 'neck', skin, { left: 40, top: 0, width: 20, height: 70 }), side: null }
+  const top = { ...solid('topwear', 'topwear', [30, 40, 90], { left: 0, top: 40, width: 100, height: 60 }), side: null }
+  for (let y = 40; y < 70; y += 1) {
+    for (let x = 40; x < 60; x += 1) {
+      const at = ((y - 40) * 100 + x) * 4
+      if (y < 55) top.data.set([...band, 255], at)
+      else top.data[at + 3] = 0
+    }
+  }
+  const data = new Uint8ClampedArray(100 * 100 * 4)
+  for (let y = 0; y < 100; y += 1) {
+    for (let x = 0; x < 100; x += 1) {
+      const onNeck = x >= 40 && x < 60 && y < 70
+      const colour = onNeck ? (x < 48 && y >= 40 ? shadow : skin) : y >= 40 ? [30, 40, 90] : [255, 255, 255]
+      data.set([...colour, 255], (y * 100 + x) * 4)
+    }
+  }
+  const tucked = tuckGarmentOffNeckByReference([neck, top], { width: 100, height: 100, data }, () => true)
+  assert.deepEqual(tucked.map((layer) => layer.id), ['topwear-lining', 'neck', 'topwear'])
+  assert.equal(tucked[2].data[((45 - 40) * 100 + 52) * 4 + 3], 0)
+  assert.equal(tucked[2].data[((45 - 40) * 100 + 44) * 4 + 3], 0, 'over the shadow too')
+  assert.equal(tucked[2].data[((80 - 40) * 100 + 20) * 4 + 3], 255, 'the top below stays')
+})
