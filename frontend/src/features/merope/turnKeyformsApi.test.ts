@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, it, mock } from 'node:test'
 import { ApiError, apiService } from '../../services/api'
 import { turnKeyformsFor } from './rig/turnKeyformImport'
-import { decomposeWithTurnKeyforms, resumeTurnKeyforms } from './turnKeyformsApi'
+import { decomposeWithTurnKeyforms, resumeTurnKeyforms, uploadTurnArchive } from './turnKeyformsApi'
 
 afterEach(() => mock.restoreAll())
 
@@ -90,4 +90,25 @@ it('a job for another portrait or another set is not picked up', async () => {
   assert.equal(post.mock.callCount(), 0)
   mock.method(apiService, 'get', async () => ({ job: null }))
   assert.equal(await resumeTurnKeyforms({ sourceMasterAssetId: '/media/assets/a/b.png' }), null, 'nothing runs')
+})
+
+it('an uploaded zip goes in pieces, in order, then is kept for the set it was chosen in', async () => {
+  const pieces: Array<{ path: string; size: number }> = []
+  mock.method(apiService, 'put', async (path: string, piece: Blob) => {
+    pieces.push({ path, size: piece.size })
+    return { received: 0 }
+  })
+  const post = mock.method(apiService, 'post', async () => ({ id: 'kept1' }))
+  const zip = new Blob([new Uint8Array(20 * 1024 * 1024)])
+  const sent: number[] = []
+  const id = await uploadTurnArchive(zip, 'w-1', (done) => sent.push(done))
+  assert.equal(id, 'kept1')
+  assert.deepEqual(pieces.map(({ path }) => path.split('?')[1]), ['offset=0', 'offset=8388608', 'offset=16777216'])
+  assert.deepEqual(pieces.map(({ size }) => size), [8388608, 8388608, 4194304])
+  assert.deepEqual(sent, [8388608, 16777216, 20971520])
+  const upload = pieces[0].path.split('?')[0].split('/').pop()
+  assert.match(upload ?? '', /^[0-9a-f]{32}$/)
+  assert.ok(pieces.every(({ path }) => path.includes(`/see-through/turn-archive-uploads/${upload}?`)))
+  const finish = post.mock.calls[0].arguments[0] as string
+  assert.ok(finish.endsWith(`/full-body/w-1/see-through/turn-archive-uploads/${upload}`), finish)
 })

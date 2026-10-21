@@ -1,9 +1,10 @@
 import type { TranslationKeys } from '../../../i18n'
 import type { TurnArchive } from '../turnKeyformsApi'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SettingsButton } from '../../../components/settings'
 import { useI18n } from '../../../contexts/I18nContext'
-import { deleteTurnArchive, downloadTurnArchive, listTurnArchives } from '../turnKeyformsApi'
+import { ApiError } from '../../../services/api'
+import { deleteTurnArchive, downloadTurnArchive, listTurnArchives, uploadTurnArchive } from '../turnKeyformsApi'
 
 interface Props {
   /** null: the worn bust's archives; else that outfit's. */
@@ -12,6 +13,8 @@ interface Props {
   masterAssetId: string
   /** Another rig action is running: nothing can be refitted meanwhile. */
   busy: boolean
+  /** The Space can be reached: kept jobs can be fitted again (loading one needs nothing of it). */
+  canRefit: boolean
   onRefit: (archiveId: string) => void
   /** Hands a kept job to the importer as it was (a job whose page went away before it was imported). */
   onLoad: (archiveId: string) => void
@@ -20,9 +23,9 @@ interface Props {
 /**
  * The slot's kept turn-keys jobs: import one as it was, download one whole,
  * fit one again with the Space's current fit (no drawing, no decomposing), or
- * delete it.
+ * delete it. A downloaded one of this portrait can be uploaded back.
  */
-export function TurnArchiveList({ outfitId, masterAssetId, busy, onRefit, onLoad }: Props) {
+export function TurnArchiveList({ outfitId, masterAssetId, busy, canRefit, onRefit, onLoad }: Props) {
   const { t, format } = useI18n()
   const labels = t.merope
   const [archives, setArchives] = useState<TurnArchive[] | null>(null)
@@ -30,6 +33,9 @@ export function TurnArchiveList({ outfitId, masterAssetId, busy, onRefit, onLoad
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
+  /** Percent of an upload sent; null while none runs. */
+  const [uploading, setUploading] = useState<number | null>(null)
+  const picker = useRef<HTMLInputElement>(null)
 
   // Reloaded when a rig action ends (a new job may have been kept) or after a deletion.
   useEffect(() => {
@@ -60,6 +66,28 @@ export function TurnArchiveList({ outfitId, masterAssetId, busy, onRefit, onLoad
       setError(labels.turnArchiveError)
     } finally {
       setWorking(null)
+    }
+  }
+
+  const upload = async (zip: File) => {
+    setUploading(0)
+    setError(null)
+    try {
+      await uploadTurnArchive(zip, outfitId, (sent, total) => setUploading(Math.floor((sent / total) * 100)))
+      setRevision((value) => value + 1)
+    } catch (reason) {
+      const code = reason instanceof ApiError ? reason.code : undefined
+      setError(
+        code === 'turn_archive_other_portrait'
+          ? labels.turnArchiveUploadOtherPortrait
+          : code === 'turn_archive_upload_kind'
+            ? (outfitId ? labels.turnArchiveUploadNotFullBody : labels.turnArchiveUploadNotBust)
+            : code === 'turn_archive_upload_invalid'
+              ? labels.turnArchiveUploadInvalid
+              : labels.turnArchiveError,
+      )
+    } finally {
+      setUploading(null)
     }
   }
 
@@ -100,7 +128,7 @@ export function TurnArchiveList({ outfitId, masterAssetId, busy, onRefit, onLoad
             <SettingsButton
               type="button"
               size="sm"
-              disabled={busy || working !== null || !archive.current}
+              disabled={busy || working !== null || !archive.current || !canRefit}
               onClick={() => onRefit(archive.id)}
             >
               {labels.turnArchiveRefit}
@@ -122,6 +150,29 @@ export function TurnArchiveList({ outfitId, masterAssetId, busy, onRefit, onLoad
           </span>
         </div>
       ))}
+      <span className="merope-turn-archives__actions">
+        <input
+          ref={picker}
+          type="file"
+          accept=".zip,application/zip"
+          hidden
+          onChange={(event) => {
+            const zip = event.target.files?.[0]
+            event.target.value = ''
+            if (zip) void upload(zip)
+          }}
+        />
+        <SettingsButton
+          type="button"
+          size="sm"
+          disabled={busy || working !== null || uploading !== null}
+          loading={uploading !== null}
+          title={labels.turnArchiveUploadHint}
+          onClick={() => picker.current?.click()}
+        >
+          {uploading === null ? labels.turnArchiveUpload : format(labels.turnArchiveUploading, { percent: String(uploading) })}
+        </SettingsButton>
+      </span>
       {error ? (
         <p className="merope-motion-rig__hint" role="alert">
           {error}

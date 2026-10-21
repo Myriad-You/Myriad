@@ -296,15 +296,14 @@ export function RigImportPanel({
             ) : null}
           </span>
           {decomposeProgress}
-          {seeThroughTokenConfigured ? (
-            <TurnArchiveList
-              outfitId={archiveOutfitId}
-              masterAssetId={rig.sourceMasterAssetId}
-              busy={importing}
-              onRefit={(archiveId) => void rig.decomposePsd({ id: archiveId, refit: true })}
-              onLoad={(archiveId) => void rig.decomposePsd({ id: archiveId, refit: false })}
-            />
-          ) : null}
+          <TurnArchiveList
+            outfitId={archiveOutfitId}
+            masterAssetId={rig.sourceMasterAssetId}
+            busy={importing}
+            canRefit={seeThroughTokenConfigured}
+            onRefit={(archiveId) => void rig.decomposePsd({ id: archiveId, refit: true })}
+            onLoad={(archiveId) => void rig.decomposePsd({ id: archiveId, refit: false })}
+          />
         </section>
       ) : (
         <section className="merope-motion-rig__path">

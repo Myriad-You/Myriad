@@ -313,6 +313,172 @@ fn zip_in(root: &Path, id: &str) -> std::io::Result<Vec<u8>> {
     Ok(zip.finish().map_err(std::io::Error::other)?.into_inner())
 }
 
+/// A kept job as one uploaded zip (`zip_in`'s, or the same files zipped
+/// again), arriving in pieces: kept beside the archives, under a name the
+/// listing passes over, until it is read back.
+pub(super) fn upload_path(upload: &str) -> Option<PathBuf> {
+    valid_id(upload).then(|| archive_root().join(format!(".upload-{upload}.zip")))
+}
+
+/// Largest upload taken (and all its files read out), and largest file in it.
+pub(super) const UPLOAD_MAX: u64 = 1024 * 1024 * 1024;
+const UPLOAD_FILE_MAX: u64 = 512 * 1024 * 1024;
+/// An upload not finished within this long is dropped.
+const UPLOAD_STALE: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// Drops uploads left unfinished.
+pub(super) async fn prune_uploads() {
+    let Ok(mut entries) = tokio::fs::read_dir(archive_root()).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let stale = entry
+            .metadata()
+            .await
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > UPLOAD_STALE);
+        if name.starts_with(".upload-") && stale {
+            let _ = tokio::fs::remove_file(entry.path()).await;
+        }
+    }
+}
+
+/// An uploaded kept job read back: its files under one folder (or none),
+/// checked to be what a job keeps. Other entries (a desktop's own, as
+/// `__MACOSX/`) are passed over. The error says what is wrong with it.
+pub(super) fn unpack_blocking(path: &Path) -> Result<(ArchiveMeta, ArchiveFiles), String> {
+    use std::io::Read;
+
+    let file = std::fs::File::open(path).map_err(|_| "The upload could not be read".to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|_| "The upload is not a zip".to_string())?;
+    let mut found: std::collections::HashMap<String, Vec<usize>> = Default::default();
+    for index in 0..zip.len() {
+        let entry = zip
+            .by_index(index)
+            .map_err(|_| "The zip could not be read".to_string())?;
+        let name = entry.name();
+        if entry.is_dir() || name.starts_with("__MACOSX/") {
+            continue;
+        }
+        let base = name.rsplit('/').next().unwrap_or(name).to_string();
+        found.entry(base).or_default().push(index);
+    }
+    let mut total = 0u64;
+    let mut read = |name: &str| -> Result<Vec<u8>, String> {
+        let index = match found.get(name).map(Vec::as_slice) {
+            Some([index]) => *index,
+            Some(_) => return Err(format!("The zip holds more than one {name}")),
+            None => return Err(format!("The zip is missing {name}")),
+        };
+        let entry = zip
+            .by_index(index)
+            .map_err(|_| format!("{name} could not be read"))?;
+        let mut bytes = Vec::new();
+        entry
+            .take(UPLOAD_FILE_MAX + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| format!("{name} could not be read"))?;
+        total += bytes.len() as u64;
+        if bytes.len() as u64 > UPLOAD_FILE_MAX || total > UPLOAD_MAX {
+            return Err(format!("{name} is too large"));
+        }
+        Ok(bytes)
+    };
+    let psd = |name: &str, bytes: Vec<u8>| {
+        if bytes.starts_with(b"8BPS") {
+            Ok(bytes)
+        } else {
+            Err(format!("{name} is not a PSD"))
+        }
+    };
+    let png = |name: &str, bytes: Vec<u8>| {
+        if bytes.starts_with(b"\x89PNG") {
+            Ok(bytes)
+        } else {
+            Err(format!("{name} is not a PNG"))
+        }
+    };
+    let known = |media_type: &str| matches!(media_type, "image/png" | "image/jpeg" | "image/webp");
+
+    let meta: ArchiveMeta =
+        serde_json::from_slice(&read(META)?).map_err(|_| format!("{META} is not a kept job's"))?;
+    if !known(&meta.master_media_type) {
+        return Err(format!("{META} names an unsupported picture"));
+    }
+    let master = read(master_file(&meta.master_media_type))?;
+    let mut turned: [Vec<u8>; 4] = Default::default();
+    for (slot, name) in turned.iter_mut().zip(TURNED) {
+        *slot = png(name, read(name)?)?;
+    }
+    let mut decompositions: [Vec<u8>; 5] = Default::default();
+    for (slot, name) in decompositions.iter_mut().zip(DECOMPOSITIONS) {
+        *slot = psd(name, read(name)?)?;
+    }
+    let keyforms = read(KEYFORMS)?;
+    if !serde_json::from_slice::<serde_json::Value>(&keyforms).is_ok_and(|keys| keys.is_object()) {
+        return Err(format!("{KEYFORMS} holds no keys"));
+    }
+    let baked = psd(BAKED, read(BAKED)?)?;
+    let figure = match &meta.figure {
+        Some(figure) if !known(&figure.master_media_type) => {
+            return Err(format!("{META} names an unsupported picture"));
+        }
+        Some(figure) => Some(FigureFiles {
+            master: read(figure_file(&figure.master_media_type))?,
+            decomposition: psd(FIGURE_DECOMPOSITION, read(FIGURE_DECOMPOSITION)?)?,
+        }),
+        None => None,
+    };
+    Ok((
+        meta,
+        ArchiveFiles {
+            master,
+            turned,
+            decompositions,
+            keyforms,
+            baked,
+            figure,
+        },
+    ))
+}
+
+/// Whether two pictures are the same drawing: alike when both are brought
+/// to one small size over white, so a copy saved again or enlarged still is,
+/// another portrait is not.
+pub(super) fn same_picture(a: &[u8], b: &[u8]) -> bool {
+    const SIDE: u32 = 64;
+    let small = |bytes: &[u8]| {
+        let picture = image::load_from_memory(bytes).ok()?.to_rgba8();
+        let aspect = picture.width() as f64 / picture.height().max(1) as f64;
+        let small =
+            image::imageops::resize(&picture, SIDE, SIDE, image::imageops::FilterType::Triangle);
+        Some((aspect, small))
+    };
+    let (Some((aspect_a, a)), Some((aspect_b, b))) = (small(a), small(b)) else {
+        return false;
+    };
+    if (aspect_a / aspect_b - 1.0).abs() > 0.02 {
+        return false;
+    }
+    let over_white = |pixel: &image::Rgba<u8>, channel: usize| {
+        let alpha = pixel[3] as f64 / 255.0;
+        pixel[channel] as f64 * alpha + 255.0 * (1.0 - alpha)
+    };
+    let difference: f64 = a
+        .pixels()
+        .zip(b.pixels())
+        .map(|(a, b)| {
+            (0..3)
+                .map(|channel| (over_white(a, channel) - over_white(b, channel)).abs())
+                .sum::<f64>()
+        })
+        .sum();
+    difference / (SIDE * SIDE * 3) as f64 <= 3.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,6 +599,151 @@ mod tests {
             "the oldest of one.png is gone"
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn kept_files() -> ArchiveFiles {
+        let psd = |tag: u8| [b"8BPS".as_slice(), &[tag]].concat();
+        let png = |tag: u8| [b"\x89PNG".as_slice(), &[tag]].concat();
+        ArchiveFiles {
+            master: vec![1; 3],
+            turned: std::array::from_fn(|i| png(i as u8)),
+            decompositions: std::array::from_fn(|i| psd(i as u8)),
+            keyforms: b"{\"canvas\":[1,1],\"keyforms\":{}}".to_vec(),
+            baked: psd(9),
+            figure: None,
+        }
+    }
+
+    fn zip_of(entries: &[(String, Vec<u8>)]) -> PathBuf {
+        let path = scratch().join("upload.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        for (name, bytes) in entries {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut zip, bytes).unwrap();
+        }
+        zip.finish().unwrap();
+        path
+    }
+
+    #[tokio::test]
+    async fn a_downloaded_job_uploaded_again_reads_back_whole() {
+        let root = scratch();
+        let id = save_in(&root, &mut meta("/m/one.png", 1), &kept_files())
+            .await
+            .unwrap();
+        let path = root.join("upload.zip");
+        std::fs::write(&path, zip_in(&root, &id).unwrap()).unwrap();
+        let (read, files) = unpack_blocking(&path).unwrap();
+        assert_eq!(read.id, id);
+        assert_eq!(files.master, vec![1; 3]);
+        assert_eq!(files.decompositions[3], b"8BPS\x03");
+        assert!(files.figure.is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_job_zipped_again_on_a_desktop_still_reads() {
+        let made = kept_files();
+        let json = serde_json::to_vec(&meta("/m/one.png", 1)).unwrap();
+        let mut entries = vec![
+            ("kept/archive.json".to_string(), json),
+            ("kept/master.png".to_string(), made.master),
+            ("kept/keyforms.json".to_string(), made.keyforms),
+            ("kept/baked.psd".to_string(), made.baked),
+            ("__MACOSX/kept/._baked.psd".to_string(), vec![0; 4]),
+        ];
+        for (name, bytes) in TURNED.iter().zip(made.turned) {
+            entries.push((format!("kept/{name}"), bytes));
+        }
+        for (name, bytes) in DECOMPOSITIONS.iter().zip(made.decompositions) {
+            entries.push((format!("kept/{name}"), bytes));
+        }
+        let (_, files) = unpack_blocking(&zip_of(&entries)).unwrap();
+        assert_eq!(files.baked, b"8BPS\x09");
+
+        entries.retain(|(name, _)| !name.ends_with("decomposition-2.psd"));
+        let missing = unpack_blocking(&zip_of(&entries)).err().unwrap();
+        assert!(missing.contains("decomposition-2.psd"), "{missing}");
+        entries.push(("kept/decomposition-2.psd".into(), b"GIF89a".to_vec()));
+        let wrong = unpack_blocking(&zip_of(&entries)).err().unwrap();
+        assert!(wrong.contains("not a PSD"), "{wrong}");
+    }
+
+    #[test]
+    fn anything_but_a_zip_is_refused() {
+        let path = scratch().join("upload.zip");
+        std::fs::write(&path, b"not a zip").unwrap();
+        assert_eq!(
+            unpack_blocking(&path).err().unwrap(),
+            "The upload is not a zip"
+        );
+    }
+
+    fn picture(
+        width: u32,
+        height: u32,
+        paint: impl Fn(u32, u32) -> [u8; 4],
+        format: image::ImageFormat,
+    ) -> Vec<u8> {
+        let picture = image::RgbaImage::from_fn(width, height, |x, y| image::Rgba(paint(x, y)));
+        let mut bytes = Vec::new();
+        let picture = if format == image::ImageFormat::Jpeg {
+            image::DynamicImage::ImageRgb8(image::DynamicImage::ImageRgba8(picture).to_rgb8())
+        } else {
+            image::DynamicImage::ImageRgba8(picture)
+        };
+        picture
+            .write_to(&mut std::io::Cursor::new(&mut bytes), format)
+            .unwrap();
+        bytes
+    }
+
+    #[test]
+    fn the_same_drawing_saved_again_or_enlarged_is_the_same_picture() {
+        let girl = |scale: u32| {
+            move |x: u32, y: u32| {
+                let (x, y) = (x / scale, y / scale);
+                if (x as i32 - 40).pow(2) + (y as i32 - 50).pow(2) < 900 {
+                    [230, 180, 170, 255]
+                } else if y > 70 {
+                    [40, 60, 120, 255]
+                } else {
+                    [255, 255, 255, 0]
+                }
+            }
+        };
+        let master = picture(80, 120, girl(1), image::ImageFormat::Png);
+        assert!(same_picture(&master, &master));
+        assert!(same_picture(
+            &master,
+            &picture(80, 120, girl(1), image::ImageFormat::Jpeg)
+        ));
+        assert!(same_picture(
+            &master,
+            &picture(160, 240, girl(2), image::ImageFormat::Png)
+        ));
+        let other = picture(
+            80,
+            120,
+            |x, _| {
+                if x < 40 {
+                    [20, 20, 20, 255]
+                } else {
+                    [255, 255, 255, 0]
+                }
+            },
+            image::ImageFormat::Png,
+        );
+        assert!(!same_picture(&master, &other));
+        assert!(
+            !same_picture(
+                &master,
+                &picture(120, 120, girl(1), image::ImageFormat::Png)
+            ),
+            "another shape"
+        );
+        assert!(!same_picture(&master, b"not a picture"));
     }
 
     #[test]

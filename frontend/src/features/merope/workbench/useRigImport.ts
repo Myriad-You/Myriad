@@ -336,7 +336,8 @@ export function useRigImport({
    * once, then uses what was made. Only the expressions: one plain split.
    */
   const decomposePsd = async (fromArchive?: TurnArchiveUse) => {
-    if (importing || !sourceMasterAssetId || !seeThroughTokenConfigured) {
+    // A kept job loaded as it was needs nothing of the Space.
+    if (importing || !sourceMasterAssetId || (!seeThroughTokenConfigured && fromArchive?.refit !== false)) {
       return
     }
     const enhanced = mode === 'enhanced' || fromArchive !== undefined

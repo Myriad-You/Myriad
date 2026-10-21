@@ -193,6 +193,33 @@ export async function listTurnArchives(): Promise<{ archives: TurnArchive[]; kee
   return apiService.get(ARCHIVES)
 }
 
+/** Pieces an uploaded zip is sent in: well under what proxies take in one request. */
+const UPLOAD_PIECE_BYTES = 8 * 1024 * 1024
+
+/**
+ * Sends a downloaded zip of kept turn keys back, in pieces, to be kept for
+ * the slot's current portrait (null outfit: the worn bust); it is refused
+ * unless it was made from the same picture. Returns the new archive's id.
+ */
+export async function uploadTurnArchive(
+  zip: Blob,
+  outfitId: string | null,
+  onProgress?: (sent: number, total: number) => void,
+): Promise<string> {
+  const upload = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  const pieces = `${PREFIX}/see-through/turn-archive-uploads/${upload}`
+  for (let offset = 0; offset < zip.size; offset += UPLOAD_PIECE_BYTES) {
+    const piece = zip.slice(offset, Math.min(zip.size, offset + UPLOAD_PIECE_BYTES))
+    await apiService.put(`${pieces}?offset=${offset}`, piece, { timeout: SEE_THROUGH_TIMEOUT_MS })
+    onProgress?.(offset + piece.size, zip.size)
+  }
+  const finish = outfitId
+    ? `${PREFIX}${fullBodyPath(outfitId)}/see-through/turn-archive-uploads/${upload}`
+    : pieces
+  const { id } = await apiService.post<{ id: string }>(finish, {}, { timeout: SEE_THROUGH_TIMEOUT_MS })
+  return id
+}
+
 /** Saves a kept job as a zip. */
 export async function downloadTurnArchive(id: string): Promise<void> {
   const zip = await apiService.get<Blob>(`${ARCHIVES}/${encodeURIComponent(id)}/zip`, {

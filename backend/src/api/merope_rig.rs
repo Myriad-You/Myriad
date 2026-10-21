@@ -9,7 +9,7 @@ use axum::{
     extract::DefaultBodyLimit,
     http::StatusCode,
     middleware::from_fn_with_state,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
 };
 use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
@@ -128,6 +128,16 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
         .route(
             "/see-through/turn-archives/{archive_id}",
             delete(turn_keyforms::delete_turn_archive),
+        )
+        .route(
+            "/see-through/turn-archive-uploads/{upload_id}",
+            put(turn_keyforms::put_turn_archive_piece)
+                .layer(DefaultBodyLimit::max(turn_keyforms::UPLOAD_PIECE_MAX))
+                .post(turn_keyforms::finish_turn_archive_upload),
+        )
+        .route(
+            "/full-body/{outfit_id}/see-through/turn-archive-uploads/{upload_id}",
+            post(turn_keyforms::finish_full_body_turn_archive_upload),
         )
         .route(
             "/see-through/turn-archives/{archive_id}/zip",

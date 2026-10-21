@@ -16,7 +16,8 @@
 //!
 //! 每个完成的任务整套存档（`archive`）：立绘、四张图、五份拆层、关键形与烘焙后的
 //! 拆层，每张立绘留最近两份。存档可以打包下载，也可以不再生图、拆层，只用 Space
-//! 现在的拟合重做一次，照常导入。
+//! 现在的拟合重做一次，照常导入。下载的包可以传回来（`upload`），同一张立绘的
+//! 就存成它的存档。
 
 use std::{
     io::Cursor,
@@ -40,8 +41,8 @@ use super::{
     decompose::see_through_error,
     internal_error,
     master::{MasterSlot, require_master_match, valid_generation_fingerprint},
-    portrait_generation_config_error, portrait_generation_provider_error, require_merope_enabled,
-    require_owner,
+    not_found, portrait_generation_config_error, portrait_generation_provider_error,
+    require_merope_enabled, require_owner,
 };
 use crate::{
     middleware::auth::Claims,
@@ -57,6 +58,7 @@ mod figure_picture;
 mod hair_misfit;
 mod judge;
 mod served;
+mod upload;
 use archive::{ArchiveFiles, ArchiveMeta, FigureFiles, FigureMeta};
 use cache::{CACHE_KEEP, TurnCache, cache_root, prune_cache};
 #[cfg(test)]
@@ -76,6 +78,10 @@ pub use served::{
     delete_turn_archive, download_turn_archive, get_turn_keyforms, get_turn_keyforms_keys,
     get_turn_keyforms_psd, list_turn_archives, load_turn_archive, refit_turn_archive,
     running_turn_keyforms,
+};
+pub use upload::{
+    UPLOAD_PIECE_MAX, finish_full_body_turn_archive_upload, finish_turn_archive_upload,
+    put_turn_archive_piece,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
