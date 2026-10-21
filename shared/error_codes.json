@@ -616,7 +616,15 @@
     "Failed to store 3D model": "TRIPO_ERROR",
     "Tripo task polling timed out": "TRIPO_ERROR",
     "Tripo API request failed": "TRIPO_ERROR",
-    "This confirmation is no longer available. Please send the request again.": "agent_confirm_missing"
+    "This confirmation is no longer available. Please send the request again.": "agent_confirm_missing",
+    "Invalid report style": "report_style_invalid",
+    "Failed to save report styles": "report_styles_save_failed",
+    "Unknown report platform": "report_platform_unknown",
+    "No platform data for this report": "report_platform_data_missing",
+    "Report model is not configured": "report_model_unavailable",
+    "The report model did not write a usable chapter": "report_style_preview_failed",
+    "A report style preview is already running": "report_style_preview_busy",
+    "Report styles changed since they were read": "report_styles_conflict"
   },
   "leftovers": {
     "Federation is disabled on this instance": "federation_disabled_region",
@@ -1761,6 +1769,11 @@
     "her_not_away",
     "invalid_request",
     "portrait_not_illustration",
-    "upright_in_progress"
+    "upright_in_progress",
+    "report_style_invalid_id",
+    "report_style_too_long",
+    "report_style_builtin_readonly",
+    "report_style_limit",
+    "report_style_not_found"
   ]
 }

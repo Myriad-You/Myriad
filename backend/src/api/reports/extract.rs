@@ -2,6 +2,19 @@
 use crate::services::smart_filter::SmartFilteredData;
 use serde_json::{Value, json};
 
+/// A platform's raw cache file, read and parsed on a blocking thread: the
+/// files run to hundreds of KB and these extractors run on async workers.
+async fn read_raw_json(path: &std::path::Path) -> Option<Value> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let content = std::fs::read_to_string(&path).ok()?;
+        serde_json::from_str::<Value>(&content).ok()
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 fn is_unknown_artist(name: &str) -> bool {
     name == "未知艺术家" || name.eq_ignore_ascii_case("unknown artist")
 }
@@ -9,8 +22,6 @@ fn is_unknown_artist(name: &str) -> bool {
 pub(crate) async fn extract_steam_library_items(
     metadata: &SmartFilteredData,
 ) -> Result<Vec<Value>, String> {
-    use std::fs;
-
     let mut library_items = Vec::new();
 
     if let crate::services::smart_filter::ContentAnalysis::Steam(analysis) =
@@ -23,27 +34,23 @@ pub(crate) async fn extract_steam_library_items(
         let mut game_map: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
 
-        if raw_cache_path.exists() {
-            if let Ok(content) = fs::read_to_string(&raw_cache_path) {
-                if let Ok(raw_json) = serde_json::from_str::<Value>(&content) {
-                    // 提取 games 数据构建名称->封面映射
-                    if let Some(games_array) = raw_json.get("games").and_then(|v| v.as_array()) {
-                        for item in games_array {
-                            if let (Some(name), Some(appid)) = (
-                                item.get("name").and_then(|v| v.as_str()),
-                                item.get("appid").and_then(|v| v.as_u64()),
-                            ) {
-                                // Steam 游戏封面；代理交给 card_visuals 出口 normalize
-                                let cover = format!(
-                                    "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
-                                    appid
-                                );
-                                game_map.insert(name.to_string(), cover);
-                            }
-                        }
-                        println!("  - Loaded {} game covers from raw data", game_map.len());
+        if let Some(raw_json) = read_raw_json(&raw_cache_path).await {
+            // 提取 games 数据构建名称->封面映射
+            if let Some(games_array) = raw_json.get("games").and_then(|v| v.as_array()) {
+                for item in games_array {
+                    if let (Some(name), Some(appid)) = (
+                        item.get("name").and_then(|v| v.as_str()),
+                        item.get("appid").and_then(|v| v.as_u64()),
+                    ) {
+                        // Steam 游戏封面；代理交给 card_visuals 出口 normalize
+                        let cover = format!(
+                            "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
+                            appid
+                        );
+                        game_map.insert(name.to_string(), cover);
                     }
                 }
+                println!("  - Loaded {} game covers from raw data", game_map.len());
             }
         }
 
@@ -144,8 +151,6 @@ pub(crate) async fn extract_github_library_items(
 pub(crate) async fn extract_netease_library_items(
     metadata: &SmartFilteredData,
 ) -> Result<Vec<Value>, String> {
-    use std::fs;
-
     let mut library_items = Vec::new();
 
     if let crate::services::smart_filter::ContentAnalysis::Netease(analysis) =
@@ -161,65 +166,57 @@ pub(crate) async fn extract_netease_library_items(
         let mut song_map: std::collections::HashMap<String, (String, String, Option<i64>, bool)> =
             std::collections::HashMap::new();
 
-        if raw_cache_path.exists() {
-            if let Ok(content) = fs::read_to_string(&raw_cache_path) {
-                if let Ok(raw_json) = serde_json::from_str::<Value>(&content) {
-                    // 从 liked_songs 字段提取歌曲数据
-                    let songs_array = raw_json.get("liked_songs").and_then(|v| v.as_array());
+        if let Some(raw_json) = read_raw_json(&raw_cache_path).await {
+            // 从 liked_songs 字段提取歌曲数据
+            let songs_array = raw_json.get("liked_songs").and_then(|v| v.as_array());
 
-                    if let Some(songs_array) = songs_array {
-                        for item in songs_array {
-                            if let (Some(name), cover, artists) = (
-                                item.get("name").and_then(|v| v.as_str()),
-                                item.get("al")
-                                    .and_then(|al| al.get("picUrl"))
-                                    .and_then(|v| v.as_str())
-                                    .or_else(|| item.get("picUrl").and_then(|v| v.as_str()))
-                                    .unwrap_or(""),
-                                item.get("ar")
-                                    .and_then(|v| v.as_array())
-                                    .and_then(|arr| {
-                                        arr.first()
-                                            .and_then(|a| a.get("name"))
-                                            .and_then(|n| n.as_str())
-                                    })
-                                    .unwrap_or("Unknown artist"),
-                            ) {
-                                let (fee, is_vip) = netease_song_fee_flags(item);
-                                song_map.insert(
-                                    name.to_string(),
-                                    (cover.to_string(), artists.to_string(), fee, is_vip),
-                                );
-                            }
-                        }
-                        println!(
-                            "  - 从 {} 加载了 {} 首歌曲",
-                            raw_cache_path.display(),
-                            song_map.len()
-                        );
-
-                        // 打印前3个song_map条目作为样本
-                        let sample: Vec<_> = song_map.iter().take(3).collect();
-                        if !sample.is_empty() {
-                            println!("  - song_map样本(前3个):");
-                            for (song_title, (_, artist, _, _)) in sample {
-                                println!("    '{}'  by  '{}'", song_title, artist);
-                            }
-                        }
-                    } else {
-                        println!(
-                            "  ⚠️ {} 中没有找到 liked_songs 字段",
-                            raw_cache_path.display()
+            if let Some(songs_array) = songs_array {
+                for item in songs_array {
+                    if let (Some(name), cover, artists) = (
+                        item.get("name").and_then(|v| v.as_str()),
+                        item.get("al")
+                            .and_then(|al| al.get("picUrl"))
+                            .and_then(|v| v.as_str())
+                            .or_else(|| item.get("picUrl").and_then(|v| v.as_str()))
+                            .unwrap_or(""),
+                        item.get("ar")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| {
+                                arr.first()
+                                    .and_then(|a| a.get("name"))
+                                    .and_then(|n| n.as_str())
+                            })
+                            .unwrap_or("Unknown artist"),
+                    ) {
+                        let (fee, is_vip) = netease_song_fee_flags(item);
+                        song_map.insert(
+                            name.to_string(),
+                            (cover.to_string(), artists.to_string(), fee, is_vip),
                         );
                     }
-                } else {
-                    println!("  ⚠️ 无法解析 {}", raw_cache_path.display());
+                }
+                println!(
+                    "  - 从 {} 加载了 {} 首歌曲",
+                    raw_cache_path.display(),
+                    song_map.len()
+                );
+
+                // 打印前3个song_map条目作为样本
+                let sample: Vec<_> = song_map.iter().take(3).collect();
+                if !sample.is_empty() {
+                    println!("  - song_map样本(前3个):");
+                    for (song_title, (_, artist, _, _)) in sample {
+                        println!("    '{}'  by  '{}'", song_title, artist);
+                    }
                 }
             } else {
-                println!("  ⚠️ 无法读取 {}", raw_cache_path.display());
+                println!(
+                    "  ⚠️ {} 中没有找到 liked_songs 字段",
+                    raw_cache_path.display()
+                );
             }
         } else {
-            println!("  ⚠️ {} 不存在", raw_cache_path.display());
+            println!("  ⚠️ 无法读取或解析 {}", raw_cache_path.display());
         }
 
         // 从artist_analysis的favorite_artists中提取歌曲
@@ -620,16 +617,10 @@ pub(crate) fn bilibili_stats_from_raw_json(raw_json: &Value) -> Option<BilibiliU
 pub(crate) async fn extract_bilibili_user_stats(
     metadata: &SmartFilteredData,
 ) -> Result<BilibiliUserStats, String> {
-    use std::fs;
-
     let raw_cache_path = crate::services::data_paths::platform_raw_file("bilibili");
-    if raw_cache_path.exists() {
-        if let Ok(content) = fs::read_to_string(&raw_cache_path) {
-            if let Ok(raw_json) = serde_json::from_str::<Value>(&content) {
-                if let Some(stats) = bilibili_stats_from_raw_json(&raw_json) {
-                    return Ok(stats);
-                }
-            }
+    if let Some(raw_json) = read_raw_json(&raw_cache_path).await {
+        if let Some(stats) = bilibili_stats_from_raw_json(&raw_json) {
+            return Ok(stats);
         }
     }
 
@@ -655,8 +646,6 @@ pub(crate) async fn extract_bilibili_user_stats(
 pub(crate) async fn extract_netease_user_stats(
     metadata: &SmartFilteredData,
 ) -> Result<NeteaseUserStats, String> {
-    use std::fs;
-
     let summary_followers = metadata.user_summary.stats.follower_count;
     let summary_playlists = metadata.user_summary.stats.total_content;
 
@@ -667,20 +656,16 @@ pub(crate) async fn extract_netease_user_stats(
     let raw_cache_path = crate::services::data_paths::paths()
         .cache_raw
         .join("netease.json");
-    if raw_cache_path.exists() {
-        if let Ok(content) = fs::read_to_string(&raw_cache_path) {
-            if let Ok(raw_json) = serde_json::from_str::<Value>(&content) {
-                if let Some(profile) = raw_json.get("profile") {
-                    if follower_count.is_none() {
-                        follower_count = profile.get("followeds").cloned();
-                    }
-                    // Prefer raw playlistCount even when total_content is non-zero
-                    // (total_content may later be song-count or playlists-array len).
-                    if let Some(pc) = profile.get("playlistCount").cloned() {
-                        if pc.as_i64().unwrap_or(-1) >= 0 {
-                            playlist_count = Some(pc);
-                        }
-                    }
+    if let Some(raw_json) = read_raw_json(&raw_cache_path).await {
+        if let Some(profile) = raw_json.get("profile") {
+            if follower_count.is_none() {
+                follower_count = profile.get("followeds").cloned();
+            }
+            // Prefer raw playlistCount even when total_content is non-zero
+            // (total_content may later be song-count or playlists-array len).
+            if let Some(pc) = profile.get("playlistCount").cloned() {
+                if pc.as_i64().unwrap_or(-1) >= 0 {
+                    playlist_count = Some(pc);
                 }
             }
         }
@@ -880,8 +865,6 @@ pub(crate) fn normalize_discord_guild_takes(
 pub(crate) async fn extract_bilibili_library_items(
     metadata: &SmartFilteredData,
 ) -> Result<Vec<Value>, String> {
-    use std::fs;
-
     let mut library_items = Vec::new();
 
     if let crate::services::smart_filter::ContentAnalysis::Bilibili(analysis) =
@@ -897,53 +880,46 @@ pub(crate) async fn extract_bilibili_library_items(
             (String, Option<String>, Option<String>),
         > = std::collections::HashMap::new();
 
-        if raw_cache_path.exists() {
-            if let Ok(content) = fs::read_to_string(&raw_cache_path) {
-                if let Ok(raw_json) = serde_json::from_str::<Value>(&content) {
-                    // 提取 bangumi：封面 + 进度字段
-                    if let Some(bangumi_array) = raw_json.get("bangumi").and_then(|v| v.as_array())
-                    {
-                        for item in bangumi_array {
-                            let title = item.get("title").and_then(|v| v.as_str());
-                            let cover = item
-                                .get("cover")
+        if let Some(raw_json) = read_raw_json(&raw_cache_path).await {
+            // 提取 bangumi：封面 + 进度字段
+            if let Some(bangumi_array) = raw_json.get("bangumi").and_then(|v| v.as_array()) {
+                for item in bangumi_array {
+                    let title = item.get("title").and_then(|v| v.as_str());
+                    let cover = item
+                        .get("cover")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if let Some(title) = title {
+                        let progress = item
+                            .get("progress")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty());
+                        // Some scrapers put progress in `new_ep.title` / `new_ep.index_show`
+                        let progress = progress.or_else(|| {
+                            item.get("new_ep")
+                                .and_then(|v| v.as_object())
+                                .and_then(|o| o.get("title").or_else(|| o.get("index_show")))
                                 .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            if let Some(title) = title {
-                                let progress = item
-                                    .get("progress")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.trim().to_string())
-                                    .filter(|s| !s.is_empty());
-                                // Some scrapers put progress in `new_ep.title` / `new_ep.index_show`
-                                let progress = progress.or_else(|| {
-                                    item.get("new_ep")
-                                        .and_then(|v| v.as_object())
-                                        .and_then(|o| {
-                                            o.get("title").or_else(|| o.get("index_show"))
-                                        })
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.trim().to_string())
-                                        .filter(|s| !s.is_empty())
-                                });
-                                let season_id = item
-                                    .get("season_id")
-                                    .map(|v| match v {
-                                        Value::String(s) => s.trim().to_string(),
-                                        Value::Number(n) => n.to_string(),
-                                        _ => String::new(),
-                                    })
-                                    .filter(|s| !s.is_empty());
-                                bangumi_map.insert(title.to_string(), (cover, progress, season_id));
-                            }
-                        }
-                        println!(
-                            "  - Loaded {} bangumi covers from raw data",
-                            bangumi_map.len()
-                        );
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                        });
+                        let season_id = item
+                            .get("season_id")
+                            .map(|v| match v {
+                                Value::String(s) => s.trim().to_string(),
+                                Value::Number(n) => n.to_string(),
+                                _ => String::new(),
+                            })
+                            .filter(|s| !s.is_empty());
+                        bangumi_map.insert(title.to_string(), (cover, progress, season_id));
                     }
                 }
+                println!(
+                    "  - Loaded {} bangumi covers from raw data",
+                    bangumi_map.len()
+                );
             }
         }
 
@@ -1032,31 +1008,25 @@ pub(crate) async fn extract_bilibili_library_items(
         // 从原始数据中提取视频封面信息（从收藏夹中读取）
         let mut video_map: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
-        if raw_cache_path.exists() {
-            if let Ok(content) = fs::read_to_string(&raw_cache_path) {
-                if let Ok(raw_json) = serde_json::from_str::<Value>(&content) {
-                    // 从收藏夹中提取视频信息
-                    if let Some(favorites) = raw_json.get("favorites").and_then(|f| f.as_array()) {
-                        println!("  - Found {} favorite folders", favorites.len());
-                        for fav_folder in favorites {
-                            if let Some(videos) =
-                                fav_folder.get("videos").and_then(|v| v.as_array())
-                            {
-                                for video in videos {
-                                    if let (Some(title), Some(cover)) = (
-                                        video.get("title").and_then(|t| t.as_str()),
-                                        video.get("cover").and_then(|c| c.as_str()),
-                                    ) {
-                                        video_map.insert(title.to_string(), cover.to_string());
-                                    }
-                                }
+        if let Some(raw_json) = read_raw_json(&raw_cache_path).await {
+            // 从收藏夹中提取视频信息
+            if let Some(favorites) = raw_json.get("favorites").and_then(|f| f.as_array()) {
+                println!("  - Found {} favorite folders", favorites.len());
+                for fav_folder in favorites {
+                    if let Some(videos) = fav_folder.get("videos").and_then(|v| v.as_array()) {
+                        for video in videos {
+                            if let (Some(title), Some(cover)) = (
+                                video.get("title").and_then(|t| t.as_str()),
+                                video.get("cover").and_then(|c| c.as_str()),
+                            ) {
+                                video_map.insert(title.to_string(), cover.to_string());
                             }
                         }
-                        println!("  - Loaded {} video covers from favorites", video_map.len());
-                    } else {
-                        println!("  - ⚠️  No favorites found");
                     }
                 }
+                println!("  - Loaded {} video covers from favorites", video_map.len());
+            } else {
+                println!("  - ⚠️  No favorites found");
             }
         }
 

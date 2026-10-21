@@ -93,5 +93,11 @@
   "catalog.highScore": "High score",
   "catalog.watching": "Watching",
   "missingPlatformData": "This platform has no usable data yet. Fetch it first, then generate the report.",
-  "generateNone": "Could not generate a report. Fetch the platform data first."
+  "generateNone": "Could not generate a report. Fetch the platform data first.",
+  "chapter.portrait": "Portrait",
+  "chapter.taste": "Taste",
+  "chapter.rhythm": "Rhythm",
+  "chapter.highlight": "Highlight",
+  "chapter.contrast": "Contrast",
+  "chapter.closing": "Closing"
 }

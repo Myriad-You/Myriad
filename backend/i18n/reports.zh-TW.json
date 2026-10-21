@@ -93,5 +93,11 @@
   "catalog.highScore": "高分有",
   "catalog.watching": "在追",
   "missingPlatformData": "該平台還沒有可用資料。請先成功抓取後再產生報告。",
-  "generateNone": "未能產生報告。請確保已取得平台資料。"
+  "generateNone": "未能產生報告。請確保已取得平台資料。",
+  "chapter.portrait": "畫像",
+  "chapter.taste": "口味",
+  "chapter.rhythm": "節奏",
+  "chapter.highlight": "高光",
+  "chapter.contrast": "反差",
+  "chapter.closing": "尾聲"
 }

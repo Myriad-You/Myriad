@@ -8,7 +8,7 @@ use super::shared;
 #[derive(Clone, Copy, Debug)]
 pub struct PlatformVoice {
     pub role: &'static str,
-    /// Axes to cover — one insight per axis, skip an axis if Look has no data.
+    /// Axes to cover — one beat per axis, skip an axis if Look has no data.
     pub cover: &'static str,
     pub task: &'static str,
     pub visuals: &'static str,
@@ -98,7 +98,7 @@ pub fn voice_for(platform: &str) -> PlatformVoice {
             cover: "① bangumi topics ② video topics ③ taste width. Do not stack all three on currently-watching. Ban danmaku: 下次一定, AWSL, 高能预警, 泪目, next time for sure, hype warning.",
             task: "Each danmaku must match a name in Look. Without progress, do not write currently-watching or dropped.",
             visuals: "danmaku: 5-8 lines, each ≤12 chars, not synonymous.",
-            look: "①anime_analysis[].examples / genres ②recent_videos[].title ③category (Anime/TvSeries/Movie) / count / percentage. Completion only from Data.raw_unknown_content[].metadata.progress. Do not put level in summary.",
+            look: "①anime_analysis[].examples / genres ②recent_videos[].title ③category (Anime/TvSeries/Movie) / count / percentage. Completion only from Data.raw_unknown_content[].metadata.progress. Do not put level in the headline.",
             omit: &[
                 "library_items",
                 "user_level",

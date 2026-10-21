@@ -26,10 +26,15 @@ pub(super) async fn persist_platform_report_atomic(
 ) -> Result<(), String> {
     tracing::debug!("💾 Serializing report for platform: {}", report.platform);
 
-    let report_json = serde_json::to_value(report).map_err(|error| {
+    let mut report_json = serde_json::to_value(report).map_err(|error| {
         tracing::error!(platform = %report.platform, %error, "failed to serialize report");
         "Failed to save report".to_string()
     })?;
+    // The platform data dump lives once, in the `metadata` column; readers
+    // that hand it out (TAPP `report.platform.*`, AI context) read it there.
+    if let Some(obj) = report_json.as_object_mut() {
+        obj.remove("metadata");
+    }
 
     let metadata_json = serde_json::to_value(&report.metadata).map_err(|error| {
         tracing::error!(platform = %report.platform, %error, "failed to serialize report metadata");

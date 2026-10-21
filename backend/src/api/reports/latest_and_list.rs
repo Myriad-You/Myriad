@@ -1,7 +1,7 @@
 // Latest report listing and auto-regen of expired platform reports.
 
 use axum::Json;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 
 use crate::error::HttpError;
@@ -29,26 +29,75 @@ fn spawn_report_auto_regen(db: DatabaseConnection, user_id: i32, platforms: Vec<
     });
 }
 
+/// `style_stale`: the report was not written in the current style (or predates
+/// styles). Shown, never regenerated on its own.
+fn mark_style_stale(body: &mut Value, current_hash: &str) {
+    let written_with = body
+        .get("style")
+        .and_then(|style| style.get("hash"))
+        .and_then(|hash| hash.as_str());
+    let stale = written_with != Some(current_hash);
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("style_stale".to_string(), json!(stale));
+    }
+}
+
+/// Styles belong to the owner: guests never see which style wrote a report
+/// (a custom style's id included); an admin also learns whether it is stale.
+fn stamp_for_viewer(body: &mut Value, is_admin: bool, current_hash: &str) {
+    if is_admin {
+        mark_style_stale(body, current_hash);
+    } else if let Some(obj) = body.as_object_mut() {
+        obj.remove("style");
+    }
+}
+
 pub async fn get_latest_report(
     crate::extract::Db(db): crate::extract::Db,
+    viewer: crate::extract::OptionalViewer,
 ) -> Result<Json<Value>, crate::error::HttpError> {
     // Public dashboard: site owner first; else the user_id that most recently wrote a non-`all` report.
     let preferred = public_report_owner_user_id(&db).await;
     let user_id = resolve_report_user_id_for_public_read(&db, preferred).await?;
 
-    // 获取所有单平台报告，保留每个平台最新的一份
-    let user_reports = platform_reports::Entity::find()
+    // 获取所有单平台报告，保留每个平台最新的一份。只取要用的三列：
+    // metadata 列是整份平台数据，公开读取用不到。两项报告配置一次查完，
+    // 和报告查询同时进行。
+    let reports_query = platform_reports::Entity::find()
+        .select_only()
+        .columns([
+            platform_reports::Column::Platform,
+            platform_reports::Column::Report,
+            platform_reports::Column::CreatedAt,
+        ])
         .filter(platform_reports::Column::UserId.eq(user_id))
         .filter(platform_reports::Column::Platform.ne("all"))
         .order_by_desc(platform_reports::Column::CreatedAt)
-        .all(&db)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error fetching user reports: {}", e);
-            HttpError(AppError::internal("Database error"))
-        })?;
-
-    let settings = crate::api::config::load_report_settings(&db).await;
+        .into_tuple::<(String, Value, chrono::NaiveDateTime)>()
+        .all(&db);
+    let config_query = crate::services::config_service::ConfigService::load_values_on(
+        &db,
+        &[
+            crate::api::config::REPORT_SETTINGS_KEY,
+            crate::services::report_styles::REPORT_STYLES_KEY,
+        ],
+    );
+    let (user_reports, config) = tokio::join!(reports_query, config_query);
+    let user_reports = user_reports.map_err(|e| {
+        tracing::error!("Database error fetching user reports: {}", e);
+        HttpError(AppError::internal("Database error"))
+    })?;
+    let (settings, styles) = match config {
+        Ok(values) => (
+            crate::api::config::stored_report_settings(Ok(values.clone())),
+            crate::services::report_styles::stored_styles(Ok(values)),
+        ),
+        Err(error) => {
+            tracing::warn!(%error, "failed to load report configuration");
+            Default::default()
+        }
+    };
+    let style_hash = styles.current_style().hash();
     let now = chrono::Utc::now().naive_utc();
 
     // 保留每个平台最新的一份报告；按过期设置过滤
@@ -56,18 +105,19 @@ pub async fn get_latest_report(
     let mut platform_reports_list: Vec<Value> = Vec::new();
     let mut expired_platforms: Vec<String> = Vec::new();
 
-    for r in user_reports {
-        if !seen.insert(r.platform.clone()) {
+    for (platform, report, created_at) in user_reports {
+        if !seen.insert(platform.clone()) {
             continue;
         }
-        let expired_at = r.created_at + chrono::Duration::days(settings.expiry_days);
+        let expired_at = created_at + chrono::Duration::days(settings.expiry_days);
         let expired = settings.expiry_enabled && expired_at <= now;
-        let body = finalize_public_platform_report(&r.platform, r.report);
+        let mut body = finalize_public_platform_report(&platform, report);
+        stamp_for_viewer(&mut body, viewer.is_admin, &style_hash);
         if !expired {
             platform_reports_list.push(body);
         } else if settings.auto_regenerate {
             // stale-while-revalidate：先返回旧报告，后台异步重新生成
-            expired_platforms.push(r.platform.clone());
+            expired_platforms.push(platform.clone());
             platform_reports_list.push(body);
         }
         // 过期且未开自动重生成：直接隐藏
@@ -93,4 +143,36 @@ pub async fn get_latest_report(
         "platform_reports": platform_reports_list,
         "created_at": chrono::Utc::now().to_rfc3339()
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mark_style_stale;
+    use serde_json::json;
+
+    #[test]
+    fn only_an_admin_sees_the_style_stamp() {
+        let stamped = || json!({ "summary": "s", "style": { "id": "mine", "hash": "aa" } });
+        let mut guest = stamped();
+        super::stamp_for_viewer(&mut guest, false, "bb");
+        assert!(guest.get("style").is_none());
+        assert!(guest.get("style_stale").is_none());
+        let mut admin = stamped();
+        super::stamp_for_viewer(&mut admin, true, "bb");
+        assert_eq!(admin["style"]["id"], "mine");
+        assert_eq!(admin["style_stale"], true);
+    }
+
+    #[test]
+    fn a_report_is_stale_when_its_style_hash_moved_on() {
+        let mut current = json!({ "style": { "id": "default", "hash": "aa" } });
+        mark_style_stale(&mut current, "aa");
+        assert_eq!(current["style_stale"], false);
+        let mut moved = json!({ "style": { "id": "default", "hash": "aa" } });
+        mark_style_stale(&mut moved, "bb");
+        assert_eq!(moved["style_stale"], true);
+        let mut legacy = json!({ "summary": "old" });
+        mark_style_stale(&mut legacy, "aa");
+        assert_eq!(legacy["style_stale"], true);
+    }
 }

@@ -1,0 +1,581 @@
+{
+  "bangumi": {
+    "collection_type_distribution": {
+      "doing": 2,
+      "done": 20,
+      "wish": 9
+    },
+    "favorite_tags": {
+      "日常": 3,
+      "科幻": 6
+    },
+    "library_items": [
+      {
+        "cover": "/api/proxy/image?url=https%3A%2F%2Flain.bgm.tv%2Fpic%2Fcover%2Fl%2Fa.jpg",
+        "platform": "bangumi",
+        "rate": 10,
+        "title": "Steins;Gate",
+        "type": "anime",
+        "url": "https://bgm.tv/subject/1"
+      },
+      {
+        "cover": "",
+        "platform": "bangumi",
+        "rate": 9,
+        "title": "Mushishi",
+        "type": "anime",
+        "url": "https://bgm.tv/subject/2"
+      },
+      {
+        "cover": "/api/proxy/image?url=https%3A%2F%2Flain.bgm.tv%2Fpic%2Fcover%2Fl%2Fb.jpg",
+        "platform": "bangumi",
+        "rate": 0,
+        "title": "Frieren",
+        "type": "anime",
+        "url": "https://bgm.tv/subject/3"
+      }
+    ],
+    "status_counts": {
+      "doing": 2,
+      "done": 20,
+      "dropped": 0,
+      "on_hold": 0,
+      "wish": 9
+    },
+    "subject_type_distribution": {
+      "anime": 30,
+      "book": 4
+    },
+    "taste_profile": "slow burn",
+    "top_subjects": [
+      {
+        "collection_type": "done",
+        "cover": "/api/proxy/image?url=https%3A%2F%2Flain.bgm.tv%2Fpic%2Fcover%2Fl%2Fa.jpg",
+        "rate": 10,
+        "subject_id": 1,
+        "subject_type": "anime",
+        "title": "Steins;Gate",
+        "updated_at": null
+      },
+      {
+        "collection_type": "done",
+        "cover": null,
+        "rate": 9,
+        "subject_id": 2,
+        "subject_type": "anime",
+        "title": "Mushishi",
+        "updated_at": null
+      }
+    ]
+  },
+  "bilibili": {
+    "danmaku": [
+      "a",
+      "b"
+    ]
+  },
+  "discord": {
+    "community_tags": [
+      "a",
+      "b",
+      "c"
+    ],
+    "connections": [
+      {
+        "name": "t",
+        "type": "github",
+        "verified": true
+      }
+    ],
+    "guild_stats": {
+      "admin_guild_count": 1,
+      "community_guild_count": 1,
+      "guild_count": 0,
+      "manage_guild_count": 0,
+      "owned_guild_count": 1,
+      "partnered_or_verified_count": 0,
+      "total_member_reach": 0,
+      "total_online_reach": 40
+    },
+    "guild_takes": [
+      {
+        "id": "g1",
+        "name": "Rust 中文",
+        "take": "a take that runs wel"
+      }
+    ],
+    "identity_graph": {
+      "cross_check": {},
+      "linked_platforms": [
+        "github"
+      ]
+    },
+    "library_items": [
+      {
+        "features": [
+          "COMMUNITY"
+        ],
+        "icon": "https://cdn.discordapp.com/icons/g1/a.png",
+        "id": "g1",
+        "member_count": 5000,
+        "name": "Rust 中文",
+        "owner": false,
+        "permissions": [],
+        "presence_count": null,
+        "title": "Rust 中文"
+      },
+      {
+        "features": [],
+        "icon": null,
+        "id": "g2",
+        "member_count": null,
+        "name": "自家小屋",
+        "owner": true,
+        "permissions": [
+          "ADMINISTRATOR"
+        ],
+        "presence_count": null,
+        "title": "自家小屋"
+      }
+    ],
+    "linked_platforms": [
+      "github"
+    ],
+    "profile": {
+      "account_age_years": 6,
+      "avatar_url": "https://cdn.discordapp.com/avatars/1/a.png",
+      "badges": [
+        "hypesquad"
+      ],
+      "display_name": "T",
+      "mfa_enabled": true,
+      "username": "t"
+    },
+    "role_profile": "circle regular",
+    "stats": {
+      "admin_guilds": 1,
+      "connections": 1,
+      "guilds": 2,
+      "manage_guilds": 0,
+      "online_reach": 40,
+      "owned_guilds": 1
+    }
+  },
+  "github": {
+    "contribution_calendar": [
+      {
+        "count": 5,
+        "date": "2026-10-01"
+      },
+      {
+        "count": 0,
+        "date": "2026-10-02"
+      },
+      {
+        "count": -1,
+        "date": "2026-10-03"
+      },
+      {
+        "count": 9,
+        "date": "2026-10-04"
+      }
+    ],
+    "contribution_level": "veteran",
+    "languages": [
+      {
+        "name": "Rust",
+        "percentage": 60
+      },
+      {
+        "name": "TypeScript",
+        "percentage": 30
+      },
+      {
+        "name": "Python",
+        "percentage": 10
+      }
+    ],
+    "library_items": [
+      {
+        "description": "site",
+        "forks": 12,
+        "language": "Rust",
+        "stars": 240,
+        "title": "myriad",
+        "type": "repo"
+      },
+      {
+        "description": "",
+        "forks": 0,
+        "language": "Unknown",
+        "stars": 0,
+        "title": "dotfiles",
+        "type": "repo"
+      }
+    ],
+    "repos_count": 2,
+    "total_contributions": 14,
+    "total_stars": 240
+  },
+  "mal": {
+    "collection_type_distribution": {
+      "doing": 2,
+      "done": 20,
+      "wish": 9
+    },
+    "days_watched": 41.5,
+    "favorite_tags": {
+      "日常": 3,
+      "科幻": 6
+    },
+    "library_items": [
+      {
+        "cover": "/api/proxy/image?url=https%3A%2F%2Flain.bgm.tv%2Fpic%2Fcover%2Fl%2Fa.jpg",
+        "platform": "mal",
+        "rate": 10,
+        "title": "Steins;Gate",
+        "type": "anime",
+        "url": "https://myanimelist.net/anime/1"
+      },
+      {
+        "cover": "",
+        "platform": "mal",
+        "rate": 9,
+        "title": "Mushishi",
+        "type": "anime",
+        "url": "https://myanimelist.net/anime/2"
+      },
+      {
+        "cover": "/api/proxy/image?url=https%3A%2F%2Flain.bgm.tv%2Fpic%2Fcover%2Fl%2Fb.jpg",
+        "platform": "mal",
+        "rate": 0,
+        "title": "Frieren",
+        "type": "anime",
+        "url": "https://myanimelist.net/anime/3"
+      }
+    ],
+    "mean_score": 7.9,
+    "status_counts": {
+      "doing": 2,
+      "done": 20,
+      "dropped": 0,
+      "on_hold": 0,
+      "wish": 9
+    },
+    "subject_type_distribution": {
+      "anime": 30,
+      "book": 4
+    },
+    "taste_profile": "slow burn",
+    "top_subjects": [
+      {
+        "collection_type": "done",
+        "cover": "/api/proxy/image?url=https%3A%2F%2Flain.bgm.tv%2Fpic%2Fcover%2Fl%2Fa.jpg",
+        "rate": 10,
+        "subject_id": 1,
+        "subject_type": "anime",
+        "title": "Steins;Gate",
+        "updated_at": null
+      },
+      {
+        "collection_type": "done",
+        "cover": null,
+        "rate": 9,
+        "subject_id": 2,
+        "subject_type": "anime",
+        "title": "Mushishi",
+        "updated_at": null
+      }
+    ]
+  },
+  "netease": {
+    "level": 7,
+    "mood_keywords": [
+      {
+        "color": "#000000",
+        "tag": "t1"
+      },
+      {
+        "color": "#000000",
+        "tag": "t2"
+      },
+      {
+        "color": "#000000",
+        "tag": "t3"
+      },
+      {
+        "color": "#000000",
+        "tag": "t4"
+      },
+      {
+        "color": "#000000",
+        "tag": "t5"
+      },
+      {
+        "color": "#000000",
+        "tag": "t6"
+      }
+    ],
+    "soul_color": "#334455"
+  },
+  "psn": {
+    "bronze_count": 300,
+    "completed_games": 3,
+    "completion_rate": 38.0,
+    "games_count": 40,
+    "gold_count": 20,
+    "hardcore_score": 55,
+    "hunter_type": "单机通关派",
+    "is_plus": true,
+    "library_items": [
+      {
+        "cover": "https://image.api.playstation.com/b.png",
+        "platform": "PS4",
+        "platinum": true,
+        "progress": 100,
+        "title": "Bloodborne",
+        "type": "game"
+      },
+      {
+        "cover": "https://image.api.playstation.com/a.png",
+        "platform": "PS5",
+        "platinum": false,
+        "progress": 40,
+        "title": "Astro Bot",
+        "type": "game"
+      }
+    ],
+    "online_id": "tester_psn",
+    "platinum_count": 3,
+    "silver_count": 60,
+    "top_titles": [
+      {
+        "image": "https://image.api.playstation.com/b.png",
+        "name": "Bloodborne",
+        "platform": "PS4",
+        "platinum": true,
+        "progress": 100
+      }
+    ],
+    "total_trophies": 383,
+    "trophy_level": 320
+  },
+  "steam": {
+    "games_count": 3,
+    "hardcore_score": 100,
+    "player_type": "hardcore",
+    "total_playtime": 171
+  },
+  "x": {
+    "engagement_level": "immersed observer",
+    "following_highlights": [
+      {
+        "username": "u0"
+      },
+      {
+        "username": "u1"
+      },
+      {
+        "username": "u2"
+      },
+      {
+        "username": "u3"
+      },
+      {
+        "username": "u4"
+      }
+    ],
+    "following_sample": [
+      {
+        "avatar": "/api/proxy/image?url=https%3A%2F%2Fpbs.twimg.com%2Fprofile_images%2F2%2Fb_400x400.png",
+        "description": "lang",
+        "follower_count": 9,
+        "name": "Rust",
+        "username": "rustlang",
+        "verified": true
+      }
+    ],
+    "interest_circles": [
+      {
+        "accounts": [
+          "a",
+          "b",
+          "c"
+        ],
+        "count": 1,
+        "name": "c0"
+      },
+      {
+        "accounts": [
+          "a",
+          "b",
+          "c"
+        ],
+        "count": 1,
+        "name": "c1"
+      },
+      {
+        "accounts": [
+          "a",
+          "b",
+          "c"
+        ],
+        "count": 1,
+        "name": "c2"
+      },
+      {
+        "accounts": [
+          "a",
+          "b",
+          "c"
+        ],
+        "count": 1,
+        "name": "c3"
+      }
+    ],
+    "library_items": [
+      {
+        "created_at": null,
+        "id": "1",
+        "like_count": 25,
+        "retweet_count": 1,
+        "text": "shipping the report rewrite today",
+        "title": "shipping the report rewrite today"
+      },
+      {
+        "created_at": null,
+        "id": "2",
+        "like_count": 5,
+        "retweet_count": 1,
+        "text": "coffee",
+        "title": "coffee"
+      }
+    ],
+    "profile": {
+      "avatar": "/api/proxy/image?url=https%3A%2F%2Fpbs.twimg.com%2Fprofile_images%2F1%2Fa_400x400.jpg",
+      "name": "Tester",
+      "username": "tester"
+    },
+    "stats": {
+      "followers": 321,
+      "following": 12,
+      "impressions": 0,
+      "liked_posts": 0,
+      "likes_received": 30,
+      "posts": 2,
+      "replies_received": 1,
+      "retweets_received": 2
+    }
+  },
+  "xbox": {
+    "achievement_games": 20,
+    "avatar": "http://images-eds.xboxlive.com/a.png",
+    "completed_games": 2,
+    "completion_rate": 45.0,
+    "gamer_type": "GS收藏家",
+    "gamerscore": 12000,
+    "gamertag": "Tester GT",
+    "games_count": 30,
+    "hardcore_score": 61,
+    "library_items": [
+      {
+        "achievements_earned": 63,
+        "achievements_total": 63,
+        "cover": "https://store-images.s-microsoft.com/k.png",
+        "gamerscore": 1000,
+        "progress": 100.0,
+        "title": "Hollow Knight",
+        "type": "game"
+      },
+      {
+        "achievements_earned": 10,
+        "achievements_total": 100,
+        "cover": "https://store-images.s-microsoft.com/h.png",
+        "gamerscore": 150,
+        "progress": 15.0,
+        "title": "Halo Infinite",
+        "type": "game"
+      },
+      {
+        "achievements_earned": 1,
+        "achievements_total": 50,
+        "cover": null,
+        "gamerscore": 10,
+        "progress": 2.0,
+        "title": "Forza",
+        "type": "game"
+      }
+    ],
+    "top_titles": [
+      {
+        "achievements_earned": 63,
+        "achievements_total": 63,
+        "gamerscore": 1000,
+        "image": "http://store-images.s-microsoft.com/k.png",
+        "name": "Hollow Knight",
+        "progress": 100.0
+      }
+    ],
+    "total_achievements": 400,
+    "total_achievements_available": 900
+  },
+  "youtube": {
+    "avatar": "https://yt3.ggpht.com/x.jpg",
+    "channel_id": "u-1",
+    "channel_title": "tester",
+    "channel_type": "has videos",
+    "channel_url": "https://youtube.com/@t",
+    "custom_url": "@t",
+    "is_empty_channel": false,
+    "library_items": [
+      {
+        "comment_count": null,
+        "cover": "https://i.ytimg.com/vi/a1/hq.jpg",
+        "duration": "PT4M13S",
+        "image": "https://i.ytimg.com/vi/a1/hq.jpg",
+        "like_count": null,
+        "published_at": "2026-10-10T00:00:00Z",
+        "title": "Rig test",
+        "type": "video",
+        "url": "https://youtu.be/a1",
+        "video_id": "a1",
+        "view_count": 300
+      },
+      {
+        "comment_count": null,
+        "cover": null,
+        "duration": null,
+        "image": null,
+        "like_count": 40,
+        "published_at": null,
+        "title": "Old vlog",
+        "type": "video",
+        "url": null,
+        "video_id": "b2",
+        "view_count": 9000
+      }
+    ],
+    "recent_videos": [
+      {
+        "cover": "https://i.ytimg.com/vi/a1/hq.jpg",
+        "duration": "PT4M13S",
+        "published_at": "2026-10-10T00:00:00Z",
+        "title": "Rig test",
+        "url": "https://youtu.be/a1",
+        "video_id": "a1",
+        "view_count": 300
+      },
+      {
+        "like_count": 40,
+        "title": "Old vlog",
+        "video_id": "b2",
+        "view_count": 9000
+      }
+    ],
+    "subscriber_count": 1200,
+    "vibe": "quiet",
+    "video_count": 2,
+    "video_summary": "machine",
+    "view_count": 98000
+  }
+}

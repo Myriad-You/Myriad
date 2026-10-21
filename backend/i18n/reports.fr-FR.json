@@ -93,5 +93,11 @@
   "catalog.highScore": "Haut score",
   "catalog.watching": "En cours",
   "missingPlatformData": "Cette plateforme n'a pas encore de données utilisables. Récupérez-les d'abord, puis générez le rapport.",
-  "generateNone": "Impossible de générer un rapport. Récupérez d'abord les données de la plateforme."
+  "generateNone": "Impossible de générer un rapport. Récupérez d'abord les données de la plateforme.",
+  "chapter.portrait": "Portrait",
+  "chapter.taste": "Goûts",
+  "chapter.rhythm": "Rythme",
+  "chapter.highlight": "Temps fort",
+  "chapter.contrast": "Contraste",
+  "chapter.closing": "Pour finir"
 }

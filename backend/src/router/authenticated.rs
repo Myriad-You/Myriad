@@ -21,6 +21,23 @@ pub(super) fn build_authenticated_router(
                 middleware::auth::admin_middleware,
             )),
         )
+        // 报告风格：读、写、试写一章都只给管理员
+        .route(
+            "/api/reports/styles",
+            get(api::reports::get_report_styles)
+                .put(api::reports::update_report_styles)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
+        .route(
+            "/api/reports/styles/preview",
+            post(api::reports::preview_report_style).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::admin_middleware,
+            )),
+        )
         .route("/api/platforms", get(api::platforms::list_platforms))
         .route(
             "/api/github/repo",
@@ -316,8 +333,15 @@ pub(super) fn build_authenticated_router(
         )
         // Recent activities — 公开读站长动态
         .route("/api/activities", get(api::profile::get_recent_activities))
-        // GET /api/reports/latest 公开；GET /api/reports/list 须登录
-        .route("/api/reports/latest", get(api::reports::get_latest_report))
+        // GET /api/reports/latest 公开；GET /api/reports/list 须登录。latest 认出
+        // 管理员只为多给风格戳：凭据无效时照旧按访客返回
+        .route(
+            "/api/reports/latest",
+            get(api::reports::get_latest_report).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::lenient_current_admin_auth_middleware,
+            )),
+        )
         .route(
             "/api/reports/list",
             get(api::tapp_runtime::list_reports).route_layer(from_fn_with_state(

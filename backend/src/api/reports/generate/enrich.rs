@@ -337,7 +337,24 @@ pub(crate) fn finalize_public_platform_report(platform: &str, report: Value) -> 
             crate::api::profile::normalize_json_media_urls(&mut visuals);
             obj.insert("card_visuals".to_string(), visuals);
         }
-        // Home cards and /reports only read summary / insights / card_visuals.
+        // Fact media goes through the same proxy as card media. `label` only
+        // describes a fact to the model; clients name facts by id.
+        if let Some(facts) = obj.get_mut("facts").and_then(|v| v.as_array_mut()) {
+            for fact in facts.iter_mut().filter_map(|fact| fact.as_object_mut()) {
+                fact.remove("label");
+                if let Some(media) = fact.get_mut("media") {
+                    if let Some(url) = media.as_str() {
+                        *media = json!(crate::api::profile::proxy_image_url(url));
+                    }
+                }
+            }
+        }
+        // With a script, `insights` is every beat over again: the public
+        // payload carries the script alone. The row keeps both for the old
+        // readers (report_dna, TAPP, federation).
+        if obj.get("script").is_some_and(Value::is_object) {
+            obj.remove("insights");
+        }
         // Stored platform dumps (liked songs, raw libraries) stay in the row.
         obj.remove("metadata");
     }
@@ -432,6 +449,32 @@ mod finalize_public_report_media_tests {
         );
         // 应已剥掉内层 card_visuals 键
         assert!(out["card_visuals"].get("card_visuals").is_none());
+    }
+
+    #[test]
+    fn public_latest_passes_script_facts_and_style_through() {
+        let raw = json!({
+            "platform": "steam",
+            "summary": "s",
+            "insights": [],
+            "metadata": { "x": 1 },
+            "card_visuals": {},
+            "script": { "headline": "h", "chapters": [{ "key": "portrait", "title": "t", "beats": [{ "text": "s", "fact": "top_game" }] }] },
+            "facts": [{ "id": "top_game", "label": "Most played game", "value": "Hades", "media": "https://avatars.steamstatic.com/x_full.jpg" }],
+            "style": { "id": "default", "hash": "0011223344556677" }
+        });
+        let out = finalize_public_platform_report("steam", raw);
+        assert!(out.get("metadata").is_none());
+        assert_eq!(out["script"]["chapters"][0]["beats"][0]["fact"], "top_game");
+        assert_eq!(out["style"]["hash"], "0011223344556677");
+        assert!(out.get("insights").is_none(), "insights repeat the script");
+        assert!(out["facts"][0].get("label").is_none());
+        assert_eq!(out["facts"][0]["value"], "Hades");
+        let media = out["facts"][0]["media"].as_str().unwrap_or("");
+        assert!(
+            media.starts_with("/api/proxy/image?url="),
+            "fact media not proxied: {media}"
+        );
     }
 
     #[test]

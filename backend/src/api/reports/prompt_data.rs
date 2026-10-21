@@ -2,12 +2,11 @@
 //!
 //! Compact JSON, strip display noise, and shrink arrays so the budget keeps Look paths.
 
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::services::smart_filter::SmartFilteredData;
 
-/// Compact Data budget. Instruction body stays under 4600; this is the payload.
+/// Compact Data budget; the instruction body is budgeted in `prompts` tests.
 pub const REPORT_DATA_CHAR_BUDGET: usize = 16_000;
 
 const DROP_KEYS: &[&str] = &[
@@ -41,22 +40,6 @@ const DROP_KEYS: &[&str] = &[
 
 /// Keys Look still needs even when named `description` (X following / GitHub repo).
 const KEEP_DESCRIPTION_UNDER: &[&str] = &["following_sample", "recent_repos"];
-
-pub fn platform_report_schema() -> Value {
-    json!({
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["summary", "insights", "card_visuals"],
-        "properties": {
-            "summary": { "type": "string" },
-            "insights": {
-                "type": "array",
-                "items": { "type": "string" }
-            },
-            "card_visuals": { "type": "object" }
-        }
-    })
-}
 
 pub fn serialize_for_report_prompt(data: &SmartFilteredData) -> Result<String, String> {
     let mut value = serde_json::to_value(data).map_err(|e| e.to_string())?;
@@ -103,34 +86,8 @@ pub fn serialize_for_report_prompt(data: &SmartFilteredData) -> Result<String, S
     Ok(encoded)
 }
 
-#[derive(Deserialize)]
-struct AiReportJson {
-    summary: String,
-    insights: Vec<String>,
-    #[serde(default)]
-    card_visuals: Value,
-}
-
-pub fn parse_platform_report_json(raw: &str) -> Result<(String, Vec<String>, Value), String> {
-    let candidate =
-        extract_json_object(raw).ok_or_else(|| "no JSON object in response".to_string())?;
-    let parsed: AiReportJson = serde_json::from_str(candidate).map_err(|e| e.to_string())?;
-    if parsed.summary.trim().is_empty() {
-        return Err("empty summary".into());
-    }
-    let visuals = if parsed.card_visuals.is_object() || parsed.card_visuals.is_null() {
-        if parsed.card_visuals.is_null() {
-            json!({})
-        } else {
-            parsed.card_visuals
-        }
-    } else {
-        json!({})
-    };
-    Ok((parsed.summary, parsed.insights, visuals))
-}
-
-fn extract_json_object(raw: &str) -> Option<&str> {
+/// The JSON object in a model answer, fences and prose around it dropped.
+pub(crate) fn extract_json_object(raw: &str) -> Option<&str> {
     let trimmed = raw.trim();
     let unfenced = trimmed
         .trim_start_matches("```json")
@@ -574,16 +531,5 @@ mod tests {
             packed["content_analysis"]["identity_graph"]["cross_check"]["github"]["discord_linked"],
             false
         );
-    }
-
-    #[test]
-    fn parse_accepts_fenced_json_and_rejects_prose() {
-        let raw = "```json\n{\"summary\":\"画像\",\"insights\":[\"a\"],\"card_visuals\":{}}\n```";
-        let (summary, insights, visuals) = parse_platform_report_json(raw).unwrap();
-        assert_eq!(summary, "画像");
-        assert_eq!(insights, vec!["a".to_string()]);
-        assert!(visuals.is_object());
-        assert!(parse_platform_report_json("观看偏好：番剧很多").is_err());
-        assert!(parse_platform_report_json("{\"insights\":[]}").is_err());
     }
 }

@@ -62,11 +62,19 @@ impl std::error::Error for ReportCatalogError {}
 
 /// Full report content has one wire representation. SDK projections derive their fields from it.
 pub fn platform_report_payload(report: &platform_reports::Model) -> Value {
+    // Reports written since 10-21 keep the platform data only in the
+    // `metadata` column; `content.metadata` stays the SDK's shape for both.
+    let mut content = report.report.clone();
+    if let Some(obj) = content.as_object_mut() {
+        if !obj.contains_key("metadata") {
+            obj.insert("metadata".to_string(), report.metadata.clone());
+        }
+    }
     json!({
         "id": report.id,
         "platform": report.platform,
         "type": "platform",
-        "content": report.report,
+        "content": content,
         "createdAt": report.created_at.to_string()
     })
 }
@@ -431,6 +439,12 @@ mod tests {
         assert_eq!(payload["content"]["card_visuals"]["accent"], "#f00");
         assert_eq!(payload["content"]["summary"], "Played a lot");
         assert_eq!(payload["type"], "platform");
+        // The data dump comes from the column when the report JSON has none.
+        assert_eq!(payload["content"]["metadata"]["source"], "test");
+        let mut legacy = sample_report();
+        legacy.report["metadata"] = json!({ "source": "inline" });
+        let payload = platform_report_payload(&legacy);
+        assert_eq!(payload["content"]["metadata"]["source"], "inline");
     }
 
     #[test]

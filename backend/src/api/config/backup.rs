@@ -326,6 +326,11 @@ fn normalize_registered_setting_value(key: &str, value: Value) -> Result<Value, 
         }
         HITOKOTO_CONFIG_KEY => normalize::<HitokotoConfig>(value, HitokotoConfig::normalized),
         REPORT_SETTINGS_KEY => normalize::<ReportSettings>(value, ReportSettings::normalized),
+        // Same entry-by-entry read as the live path.
+        crate::services::report_styles::REPORT_STYLES_KEY => {
+            crate::services::report_styles::ReportStylesConfig::from_stored(value)
+                .and_then(|styles| serde_json::to_value(styles).map_err(|e| e.to_string()))
+        }
         "library_source_preferences" => normalize::<crate::api::profile::LibrarySourcePreferences>(
             value,
             crate::api::profile::LibrarySourcePreferences::normalized,
@@ -1145,6 +1150,41 @@ mod settings_backup_tests {
         assert_eq!(modules.get("library"), Some(&json!("admin")));
         assert!(modules.contains_key("phantasi"));
         assert!(!modules.contains_key("removed_module"));
+    }
+
+    #[test]
+    fn restore_plan_reads_report_styles_back_like_the_live_read() {
+        use crate::services::report_styles::{REPORT_STYLES_KEY, ReportStylesConfig};
+        let mut styles = entry(REPORT_STYLES_KEY);
+        styles.value = json!({
+            "current": "mine",
+            "custom": [{
+                "id": "mine",
+                "name": "我的",
+                "voice": "owner",
+                "tone": "x".repeat(260),
+                "length": "short",
+                "chapters": ["taste", "taste", "epilogue"],
+                "avoid": ["宝藏"]
+            }]
+        });
+        let mut broken = entry(REPORT_STYLES_KEY);
+        broken.value = json!({ "custom": "nope" });
+
+        let plan = build_settings_restore_plan(&backup_with_entries(vec![styles]));
+        let restored: ReportStylesConfig =
+            serde_json::from_value(plan.entries[0].value.clone()).unwrap();
+        assert_eq!(restored.current, "mine");
+        assert_eq!(restored.custom[0].tone.chars().count(), 200);
+        assert_eq!(restored.custom[0].chapters, vec!["taste".to_string()]);
+        assert_eq!(
+            crate::services::report_styles::parse_stored_styles(plan.entries[0].value.clone()),
+            restored
+        );
+
+        let plan = build_settings_restore_plan(&backup_with_entries(vec![broken]));
+        assert!(plan.entries.is_empty());
+        assert_eq!(plan.preview.invalid_keys, vec![REPORT_STYLES_KEY]);
     }
 
     #[test]

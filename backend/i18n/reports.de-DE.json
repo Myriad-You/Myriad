@@ -93,5 +93,11 @@
   "catalog.highScore": "Highscore",
   "catalog.watching": "Schaut",
   "missingPlatformData": "Diese Plattform hat noch keine nutzbaren Daten. Erst abrufen, dann den Bericht erzeugen.",
-  "generateNone": "Bericht konnte nicht erzeugt werden. Plattformdaten zuerst abrufen."
+  "generateNone": "Bericht konnte nicht erzeugt werden. Plattformdaten zuerst abrufen.",
+  "chapter.portrait": "Porträt",
+  "chapter.taste": "Geschmack",
+  "chapter.rhythm": "Rhythmus",
+  "chapter.highlight": "Höhepunkt",
+  "chapter.contrast": "Kontrast",
+  "chapter.closing": "Zum Schluss"
 }

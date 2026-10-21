@@ -410,29 +410,29 @@ impl ReportSettings {
 }
 
 pub async fn load_report_settings(db: &DatabaseConnection) -> ReportSettings {
-    let sql = "SELECT value FROM configurations WHERE key = $1";
-    let result = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            sql,
-            vec![REPORT_SETTINGS_KEY.into()],
-        ))
-        .await;
+    stored_report_settings(
+        crate::services::config_service::ConfigService::load_values_on(db, &[REPORT_SETTINGS_KEY])
+            .await,
+    )
+}
 
-    match result {
-        Ok(Some(row)) => match row.try_get::<Value>("", "value") {
-            Ok(value) => serde_json::from_value::<ReportSettings>(value)
+/// Settings out of a [`ConfigService::load_values_on`] result that asked for
+/// [`REPORT_SETTINGS_KEY`]. A missing, unreadable or failed row is the default.
+///
+/// [`ConfigService::load_values_on`]: crate::services::config_service::ConfigService::load_values_on
+pub(crate) fn stored_report_settings(
+    loaded: anyhow::Result<std::collections::HashMap<String, Value>>,
+) -> ReportSettings {
+    match loaded {
+        Ok(mut values) => match values.remove(REPORT_SETTINGS_KEY) {
+            Some(value) => serde_json::from_value::<ReportSettings>(value)
                 .map(ReportSettings::normalized)
                 .unwrap_or_else(|e| {
                     tracing::warn!("Invalid report settings, using defaults: {}", e);
                     ReportSettings::default()
                 }),
-            Err(e) => {
-                tracing::warn!("Failed to read report settings: {}", e);
-                ReportSettings::default()
-            }
+            None => ReportSettings::default(),
         },
-        Ok(None) => ReportSettings::default(),
         Err(e) => {
             tracing::warn!("Failed to load report settings: {}", e);
             ReportSettings::default()
@@ -485,6 +485,40 @@ pub async fn update_report_settings(
                 })),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod report_settings_read_tests {
+    use super::{REPORT_SETTINGS_KEY, ReportSettings, stored_report_settings};
+    use serde_json::json;
+
+    #[test]
+    fn stored_report_settings_read_back_normalized() {
+        let row = |value| {
+            Ok([(REPORT_SETTINGS_KEY.to_string(), value)]
+                .into_iter()
+                .collect())
+        };
+        let read = stored_report_settings(row(json!({
+            "expiryEnabled": true,
+            "autoRegenerate": true,
+            "expiryDays": 999
+        })));
+        assert!(read.expiry_enabled && read.auto_regenerate);
+        assert_eq!(read.expiry_days, 365);
+        assert_eq!(
+            stored_report_settings(row(json!("bad"))),
+            ReportSettings::default()
+        );
+        assert_eq!(
+            stored_report_settings(Ok(Default::default())),
+            ReportSettings::default()
+        );
+        assert_eq!(
+            stored_report_settings(Err(anyhow::anyhow!("db down"))),
+            ReportSettings::default()
+        );
     }
 }
 

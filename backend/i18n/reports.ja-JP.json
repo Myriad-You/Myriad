@@ -93,5 +93,11 @@
   "catalog.highScore": "高得点に",
   "catalog.watching": "視聴中",
   "missingPlatformData": "このプラットフォームのデータがまだありません。先に取得してからレポートを生成してください。",
-  "generateNone": "レポートを生成できませんでした。先にプラットフォームデータを取得してください。"
+  "generateNone": "レポートを生成できませんでした。先にプラットフォームデータを取得してください。",
+  "chapter.portrait": "素顔",
+  "chapter.taste": "好み",
+  "chapter.rhythm": "リズム",
+  "chapter.highlight": "ハイライト",
+  "chapter.contrast": "意外な一面",
+  "chapter.closing": "むすび"
 }

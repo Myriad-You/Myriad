@@ -308,6 +308,33 @@ impl ConfigService {
         Ok(Self::parse_config(map).music_proxy_enabled)
     }
 
+    /// A few stored settings by key, in one query: for a reader that needs
+    /// two or three standalone rows, not the whole configuration. Keys never
+    /// stored are absent. Each caller parses its own rows.
+    pub async fn load_values_on(
+        db: &impl ConnectionTrait,
+        keys: &[&str],
+    ) -> Result<HashMap<String, JsonValue>> {
+        let keys: Vec<String> = keys.iter().map(|key| key.to_string()).collect();
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT key, value FROM configurations WHERE key = ANY($1)",
+                [keys.into()],
+            ))
+            .await
+            .context("Failed to load configurations")?;
+        let mut values = HashMap::new();
+        for row in rows {
+            let key = row.try_get::<String>("", "key")?;
+            let value = row.try_get::<JsonValue>("", "value")?;
+            let value = crate::services::data_key::open_config_value(&key, value)
+                .with_context(|| format!("Failed to decrypt configuration {key}"))?;
+            values.insert(key, value);
+        }
+        Ok(values)
+    }
+
     /// 从数据库加载所有配置
     pub async fn load_config(&self) -> Result<DynamicConfig> {
         Self::load_config_on(&self.db).await

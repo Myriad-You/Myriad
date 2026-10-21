@@ -62,6 +62,7 @@ pub mod principal; // 当前角色、站长、安装是否已认领：唯一来�
 pub mod process_db; // The process database connection (platform infrastructure)
 pub mod profile_text; // 名称/简介文案来源（与 avatar 独立）
 pub mod public_reports; // Whose reports the public sees
+pub mod report_styles; // Owner's report writing styles: presets, checks, stored shape
 pub mod public_site; // What the site shows guests: branding, open modules, public links
 pub mod retired_configuration; // Backup denylist for retired configuration keys
 pub mod runtime_registry; // Platform runtime registry/mailbox shared by replicas (workspace crate)

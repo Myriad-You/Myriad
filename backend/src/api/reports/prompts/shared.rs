@@ -3,15 +3,17 @@
 /// Ground every claim in Data.
 pub const EVIDENCE: &str = "\
 Use Data only. Keep numbers as-is; do not convert units. *_summary fields are machine digests: do not restate them. \
-Skip an empty axis. Do not invent accounts, works, videos, counts, servers, or brand deals.";
+Skip an empty Cover axis (a chapter is never skipped). Do not invent accounts, works, videos, counts, servers, or brand deals.";
 
 /// What the user actually reads. Cards already show the raw numbers.
 pub const PROSE: &str = "\
-summary: one portrait, ≤50 chars. No username, no number dump. \
-insights: 3×≤60 chars on different Cover axes; thin data may use 2, never pad to 5. \
+headline: one line, no username, no number dump. \
+Each beat is one spoken line with one idea; beats do not restate each other or the headline. \
+Spread the Cover axes over the chapters. Write every chapter; when data is thin, one beat is enough — never pad. \
 Name axis = judgment + one Look name. Structure axes use fields only. \
-Home hook: vibe / taste_profile / mood_keywords, else first insight. Do not restate summary. \
-No 'xx overview:' labels. Do not stack three insights on one fact. \
+When a beat leans on a number or a name listed in # Facts, set its fact to that id; never cite an id that is not listed. \
+Home hook: vibe / taste_profile / mood_keywords, else the headline. \
+No 'xx overview:' labels. Do not stack several beats on one fact. \
 Write pace / seriousness / social distance; do not only list genres.";
 
 /// Shared refuse list. No "good" counterparts — those get copied as templates.
@@ -42,21 +44,22 @@ There is no playtime. Do not infer hours played. Speak only from achievement/tro
 
 /// Last instruction before Data.
 pub const CHECK: &str = "\
-Before you finish, check these seven; fix any miss: \
-1. Three (or fewer) insights sit on different Cover axes \
-2. Name axes include a real Look name; structure axes invent no names \
-3. summary has no username and no raw number dump \
-4. No AVOID phrases, no 'xx overview:' labels \
-5. No works or accounts that are not in Look \
-6. If vibe / taste_profile / mood_keywords exist, the short hook is not on the refuse list \
-7. User-visible copy language matches # Language";
+Before you finish, check these eight; fix any miss: \
+1. Chapters are exactly the # Chapters keys in that order; beat counts and lengths fit # Style \
+2. Every fact is an id from # Facts, or null \
+3. Beats on different Cover axes; name axes include a real Look name; structure axes invent no names \
+4. headline has no username and no raw number dump \
+5. No AVOID phrases, nothing from the style's avoid list, no 'xx overview:' labels \
+6. No works or accounts that are not in Look \
+7. If vibe / taste_profile / mood_keywords exist, the short hook is not on the refuse list \
+8. User-visible copy language matches # Language; the speaker matches the style's voice";
 
-/// JSON envelope the parser in generate.rs expects.
+/// JSON envelope the parser in `script.rs` expects.
 pub const JSON_ENVELOPE: &str = "\
 Return one valid JSON object only. No markdown, no code fence:\n\
 {\n\
-  \"summary\": \"portrait, ≤50 chars\",\n\
-  \"insights\": [\"insights on different axes\"],\n\
+  \"headline\": \"one line\",\n\
+  \"chapters\": [{\"key\": \"chapter key\", \"title\": \"short title\", \"beats\": [{\"text\": \"one line\", \"fact\": \"fact id or null\"}]}],\n\
   \"card_visuals\": {}\n\
 }\n\
 Follow # card_visuals: if it asks for an empty object, return {}. Otherwise write the listed fields.";

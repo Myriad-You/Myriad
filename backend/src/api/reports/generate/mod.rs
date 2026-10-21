@@ -3,11 +3,14 @@
 mod enrich;
 mod generate_internal;
 mod persist;
+pub(crate) mod write;
 
 pub(crate) use enrich::finalize_public_platform_report;
-pub(crate) use generate_internal::generate_platform_reports_internal;
-#[cfg(test)]
 pub(crate) use generate_internal::{
+    generate_platform_reports_internal, get_platform_data, last_stored_report_locale,
+};
+#[cfg(test)]
+pub(crate) use crate::api::reports::facts::{
     anime_status_counts_five, github_contribution_level, normalize_steam_player_type,
 };
 
@@ -42,12 +45,38 @@ pub struct PlatformReport {
     /// Host UI locale at generation time (`zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR` / `fr-FR` / `de-DE`).
     #[serde(default)]
     pub locale: String,
+    /// Headline and chapters. `summary` / `insights` are derived from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<crate::api::reports::script::ReportScript>,
+    /// What the script may cite, measured without the model.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub facts: Vec<crate::api::reports::facts::Fact>,
+    /// The style the script was written in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<StyleStamp>,
+}
+
+/// Which style wrote a report. A report whose hash no longer matches its
+/// style is stale; it is not regenerated on its own.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct StyleStamp {
+    pub id: String,
+    pub hash: String,
+}
+
+impl StyleStamp {
+    pub(crate) fn of(style: &crate::services::report_styles::ReportStyle) -> Self {
+        Self {
+            id: style.id.clone(),
+            hash: style.hash(),
+        }
+    }
 }
 
 /// User id under which public platform reports are stored.
 /// Prefer durable site owner so public latest (owner-preferred, then latest
 /// non-`all` writer) can find the rows.
-async fn report_storage_user_id(db: &DatabaseConnection, actor_id: i32) -> i32 {
+pub(crate) async fn report_storage_user_id(db: &DatabaseConnection, actor_id: i32) -> i32 {
     match crate::api::profile::site_owner_user_id(db).await {
         Ok(owner_id) => {
             if owner_id != actor_id {
