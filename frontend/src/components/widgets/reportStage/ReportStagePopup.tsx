@@ -1,11 +1,11 @@
 import type { WidgetPopupProps } from '../../widgetGridTypes'
 import type { StageReport } from './stageScript'
 import {
+  FaPause,
+  FaPlay,
+  FaRedo,
   LuListOrdered,
-  LuPause,
-  LuPlay,
   LuRefreshCw,
-  LuRotateCw,
   LuSettings,
   LuX,
 } from '@lib/icons'
@@ -377,7 +377,13 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
               chapter={state.ended ? chapters.length : state.chapter}
               fraction={chapter ? state.shown / chapter.beats.length : 0}
             />
-            {state.ended ? <LuRotateCw aria-hidden="true" /> : state.playing ? <LuPause aria-hidden="true" /> : <LuPlay aria-hidden="true" />}
+            {state.ended ? (
+              <FaRedo aria-hidden="true" />
+            ) : state.playing ? (
+              <FaPause aria-hidden="true" />
+            ) : (
+              <FaPlay aria-hidden="true" className="report-stage__play-glyph" />
+            )}
           </button>
           <button
             type="button"

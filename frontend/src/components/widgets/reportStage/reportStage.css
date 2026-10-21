@@ -542,9 +542,14 @@ html.dark .report-stage__dock {
   height: 1rem;
 }
 
+/* 实心字形比描边图标显重，小一号；三角形重心偏左，往右挪一点才看着居中。 */
 .report-stage__play > svg:not(.report-stage__ring) {
-  width: 0.9375rem;
-  height: 0.9375rem;
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
+.report-stage__play-glyph {
+  translate: 0.0625rem 0;
 }
 
 .report-stage .is-spinning {
