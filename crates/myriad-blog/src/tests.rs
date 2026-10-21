@@ -181,7 +181,7 @@ fn slug_rules() {
 #[test]
 fn wide_tables_get_a_scroll_wrapper() {
     let html = "<p>前</p><table><tr><td>a</td></tr></table><p>后</p>";
-    let out = prepare_content_html(html, "https://example.com/", 7);
+    let out = prepare_content_html(html, "https://example.com/", 7, "zh-cn");
     assert!(
         out.contains(
             "<div class=\"myriad-table\"><table><tr><td>a</td></tr></table></div><p>后</p>"
@@ -198,7 +198,7 @@ fn math_urls_and_comment_iframe() {
 <p><a href="/library">内</a> <a href="//cdn.example/a">c</a> <a href="https://gohugo.io/">g</a> <a href="#top">t</a></p>
 <img src="/media/a.jpg" srcset="/a.jpg 1x, https://cdn.example/b.jpg 2x">
 <video poster="/p.jpg" src="/v.mp4"></video>"##;
-    let out = prepare_content_html(html, "https://example.com/", 7);
+    let out = prepare_content_html(html, "https://example.com/", 7, "zh-cn");
     assert!(!out.contains("<html"), "{out}");
     assert!(out.contains("display=\"inline\""), "{out}");
     assert!(out.contains("display=\"block\""), "{out}");
@@ -630,6 +630,71 @@ fn page_head_follows_platform_rules() {
     assert_eq!(
         robots_for("posts/hello/index.html", true),
         Some("noindex, nofollow")
+    );
+}
+
+#[test]
+fn lazy_images_load_without_theme_scripts() {
+    let html = r#"<html><head></head><body>
+<img class="lazyload cover" src="data:image/gif;base64,R0lGOD" data-src="/blog/a.jpg" data-srcset="/blog/a.jpg 1x, /blog/a@2x.jpg 2x" alt="a">
+<img data-lazy-src="/blog/b.jpg" loading="eager">
+<picture><source data-srcset="/blog/c.webp" type="image/webp"><img src="/blog/c.jpg" data-src="/blog/other.jpg"></picture>
+</body></html>"#;
+    let out = postprocess_html(html);
+    assert!(
+        out.contains(r#"<img class="lazyloaded cover" src="/blog/a.jpg" data-src="/blog/a.jpg" data-srcset="/blog/a.jpg 1x, /blog/a@2x.jpg 2x" alt="a" srcset="/blog/a.jpg 1x, /blog/a@2x.jpg 2x" loading="lazy">"#),
+        "{out}"
+    );
+    assert!(
+        out.contains(r#"<img data-lazy-src="/blog/b.jpg" loading="eager" src="/blog/b.jpg">"#),
+        "{out}"
+    );
+    assert!(
+        out.contains(
+            r#"<source data-srcset="/blog/c.webp" type="image/webp" srcset="/blog/c.webp">"#
+        ),
+        "{out}"
+    );
+    // 已经有真地址的不动。
+    assert!(
+        out.contains(r#"<img src="/blog/c.jpg" data-src="/blog/other.jpg">"#),
+        "{out}"
+    );
+}
+
+#[test]
+fn blog_words_follow_the_blog_language() {
+    let mut blog = site();
+    let (_, file) = render_post_file(&blog, &post(), DEFAULT_THEME_ID);
+    assert!(file.contains("title=\"评论\""), "{file}");
+    assert!(file.contains("title=\"AI 伴读\""), "{file}");
+
+    blog.locale = "en".to_string();
+    let (_, file) = render_post_file(&blog, &post(), DEFAULT_THEME_ID);
+    assert!(file.contains("title=\"Comments\""), "{file}");
+    assert!(file.contains("title=\"AI companion\""), "{file}");
+    let mut note = post();
+    note.locale = "ja".to_string();
+    let (_, file) = render_post_file(&blog, &note, DEFAULT_THEME_ID);
+    assert!(file.contains("title=\"コメント\""), "{file}");
+
+    let (_, file) = render_friends_file(&blog, &[]);
+    assert!(file.contains("title=\"Friend link application\""), "{file}");
+    let text = render_hugo_config(&blog, &BlogSettings::default(), DEFAULT_THEME_ID);
+    let root: toml::Table = toml::from_str(&text).unwrap();
+    assert_eq!(root["menus"]["main"][0]["name"].as_str(), Some("Links"));
+    assert_eq!(
+        root["params"]["myriad"]["labels"]["notFound"].as_str(),
+        Some("Page not found")
+    );
+
+    blog.locale = "zh-tw".to_string();
+    let text = render_hugo_config(&blog, &BlogSettings::default(), DEFAULT_THEME_ID);
+    let root: toml::Table = toml::from_str(&text).unwrap();
+    assert_eq!(root["menus"]["main"][0]["name"].as_str(), Some("友情連結"));
+    assert_eq!(
+        root["params"]["myriad"]["labels"]["home"].as_str(),
+        Some("回到首頁")
     );
 }
 

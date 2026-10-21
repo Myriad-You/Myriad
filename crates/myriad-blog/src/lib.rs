@@ -7,6 +7,7 @@ mod archive;
 mod config;
 mod cover;
 mod inspect;
+mod labels;
 mod model;
 mod nav;
 mod postprocess;
@@ -46,7 +47,9 @@ pub use postprocess::{
     BLOG_CSP, NOTES_CSS, NOTES_CSS_HREF, is_script_asset, is_stripped_asset, postprocess_html,
     postprocess_page, robots_for,
 };
-pub use render::{export_site_files, render_friends_file, render_home_file, render_post_file};
+pub use render::{
+    export_site_files, render_friends_file, render_home_file, render_list_titles, render_post_file,
+};
 pub use rewrite::{first_content_image, prepare_content_html, reveal_companion_island};
 pub use scheme::{
     SCHEME_MARK_ATTR, SchemeDetection, SchemeSwitch, SchemeTarget, apply_page_scheme,

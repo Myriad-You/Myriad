@@ -7,13 +7,15 @@ use latex2mathml::{DisplayStyle, latex_to_mathml};
 use lol_html::html_content::ContentType;
 use lol_html::{RewriteStrSettings, element, rewrite_str, text};
 
-use crate::urlutil::{absolutize_root_url, rewrite_srcset};
+use crate::labels::labels;
+use crate::urlutil::{absolutize_root_url, escape_html, rewrite_srcset};
 
 const FRAG_OPEN: &str = "<myriad-frag>";
 const FRAG_CLOSE: &str = "</myriad-frag>";
 
 /// 导出前的正文。评论 iframe 在地址改写之后追加，`src` 保持 `/embed/comments/{id}`。
-pub fn prepare_content_html(html: &str, origin: &str, item_id: i32) -> String {
+/// `locale` 是这一页的语言，定 iframe 标题用哪种说法。
+pub fn prepare_content_html(html: &str, origin: &str, item_id: i32, locale: &str) -> String {
     let rewritten = map_fragment(html, |wrapped| {
         rewrite_str(
             wrapped,
@@ -68,8 +70,9 @@ pub fn prepare_content_html(html: &str, origin: &str, item_id: i32) -> String {
             },
         )
     });
+    let title = escape_html(labels(locale).comments);
     format!(
-        "{rewritten}\n<iframe class=\"myriad-comments\" src=\"/embed/comments/{item_id}\" loading=\"lazy\" title=\"评论\" data-embed-fit></iframe>\n"
+        "{rewritten}\n<iframe class=\"myriad-comments\" src=\"/embed/comments/{item_id}\" loading=\"lazy\" title=\"{title}\" data-embed-fit></iframe>\n"
     )
 }
 
@@ -82,10 +85,11 @@ pub(crate) const DORMANT_FRAME_SRC: &str =
 /// 胶囊贴着它的两边。
 /// 有注释或播客（`ready`）时控制器照常加载。还没有的文章也放一份，但框没有地址，访客那边
 /// 什么也不加载；站长打开页面时后端用 [`reveal_companion_island`] 给它地址，在面板里就能补生成。
-pub fn companion_island_html(item_id: i32, ready: bool) -> String {
+pub fn companion_island_html(item_id: i32, ready: bool, locale: &str) -> String {
     let src = if ready { "src" } else { "data-myriad-src" };
+    let title = escape_html(labels(locale).companion);
     format!(
-        "<iframe class=\"myriad-companion__frame\" {src}=\"/embed/companion/{item_id}\" title=\"AI 伴读\" hidden aria-hidden=\"true\" tabindex=\"-1\"></iframe>\n"
+        "<iframe class=\"myriad-companion__frame\" {src}=\"/embed/companion/{item_id}\" title=\"{title}\" hidden aria-hidden=\"true\" tabindex=\"-1\"></iframe>\n"
     )
 }
 

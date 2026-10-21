@@ -1,16 +1,17 @@
 <!DOCTYPE html>
+{{- $labels := site.Params.myriad.labels }}
 <html lang="{{ or site.Language.Locale site.Language.Lang "zh-CN" }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>找不到页面</title>
+  <title>{{ or $labels.notFound "找不到页面" }}</title>
   <link rel="stylesheet" href="{{ "css/style.css" | relURL }}">
 </head>
 <body class="myriad">
   <main>
-    <h1>找不到页面</h1>
-    <p>这个地址没有内容。</p>
-    <p><a href="{{ site.Home.RelPermalink }}">回到首页</a></p>
+    <h1>{{ or $labels.notFound "找不到页面" }}</h1>
+    <p>{{ or $labels.notFoundBody "这个地址没有内容。" }}</p>
+    <p><a href="{{ site.Home.RelPermalink }}">{{ or $labels.home "回到首页" }}</a></p>
   </main>
 </body>
 </html>

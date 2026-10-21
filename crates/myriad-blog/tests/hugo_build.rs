@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use myriad_blog::{
     BlogPost, BlogSettings, BlogSite, DEFAULT_THEME_ID, FriendLink, NOTES_CSS_HREF,
     default_theme_files, postprocess_page, render_friends_file, render_home_file,
-    render_hugo_config, render_post_file,
+    render_hugo_config, render_list_titles, render_post_file,
 };
 
 #[test]
@@ -119,6 +119,9 @@ fn build_in(root: &Path, hugo: &str, theme_id: &str, theme_dir: Option<&Path>) {
     write_content(&site_dir, render_home_file(&blog, &settings));
     write_content(&site_dir, render_friends_file(&blog, &links));
     write_content(&site_dir, render_post_file(&blog, &note, theme_id));
+    for file in render_list_titles(&blog) {
+        write_content(&site_dir, file);
+    }
 
     let theme_root = site_dir.join("themes").join(theme_id);
     if let Some(dir) = theme_dir {
@@ -267,12 +270,23 @@ fn build_in(root: &Path, hugo: &str, theme_id: &str, theme_dir: Option<&Path>) {
         assert!(home.contains("css/style.css"), "{home}");
         assert!(home.contains("<title>站长的博客</title>"), "{home}");
         assert_eq!(json_ld(&home)["@type"], "Blog", "{home}");
+        assert!(
+            home.contains("property=\"og:locale\" content=\"zh_CN\""),
+            "{home}"
+        );
         let posts = postprocess_page(
             &fs::read_to_string(public.join("posts/index.html")).unwrap(),
             "posts/index.html",
             &blog,
         );
         assert!(posts.contains("content=\"noindex, follow\""), "{posts}");
+        assert!(
+            posts.contains("<title>文章 · 站长的博客</title>"),
+            "{posts}"
+        );
+        let missing = fs::read_to_string(public.join("404.html")).unwrap();
+        assert!(missing.contains("<title>找不到页面</title>"), "{missing}");
+        assert!(missing.contains("回到首页"), "{missing}");
         let friends = fs::read_to_string(site_dir.join("public/friends/index.html"))
             .unwrap_or_else(|err| panic!("友链页: {err}"));
         assert!(friends.contains("/embed/friend-apply"), "{friends}");

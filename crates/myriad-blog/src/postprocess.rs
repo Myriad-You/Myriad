@@ -187,6 +187,12 @@ fn rewrite_page(html: &str, plan: &HeadPlan) -> String {
                     }
                     Ok(())
                 }),
+                // 主题的懒加载靠脚本把 `data-src` 换成 `src`。脚本不跑，图就一直是占位，
+                // 访客看不到、搜索引擎也收不到。这里换回来，交给浏览器自己的 `loading="lazy"`。
+                element!("img, source", |el| {
+                    restore_lazy_media(el);
+                    Ok(())
+                }),
                 element!("meta[name]", |el| {
                     let name = el.get_attribute("name").unwrap_or_default();
                     if plan.robots.is_some() && name.trim().eq_ignore_ascii_case("robots") {
@@ -242,6 +248,55 @@ fn rewrite_page(html: &str, plan: &HeadPlan) -> String {
         },
     )
     .unwrap_or_else(|_| html.to_string())
+}
+
+/// 懒加载库常用的地址属性。`src` 缺着、或只是 `data:` 占位时才换。
+const LAZY_SRC_ATTRS: &[&str] = &["data-src", "data-lazy-src", "data-original"];
+const LAZY_SRCSET_ATTRS: &[&str] = &["data-srcset", "data-lazy-srcset"];
+
+fn restore_lazy_media(el: &mut lol_html::html_content::Element) {
+    let placeholder = |value: Option<String>| {
+        value.is_none_or(|value| {
+            let value = value.trim().to_ascii_lowercase();
+            value.is_empty() || value.starts_with("data:")
+        })
+    };
+    let mut restored = false;
+    if placeholder(el.get_attribute("src"))
+        && let Some(url) = LAZY_SRC_ATTRS
+            .iter()
+            .find_map(|name| el.get_attribute(name))
+            .filter(|url| !url.trim().is_empty())
+    {
+        let _ = el.set_attribute("src", &url);
+        restored = true;
+    }
+    if placeholder(el.get_attribute("srcset"))
+        && let Some(set) = LAZY_SRCSET_ATTRS
+            .iter()
+            .find_map(|name| el.get_attribute(name))
+            .filter(|set| !set.trim().is_empty())
+    {
+        let _ = el.set_attribute("srcset", &set);
+        restored = true;
+    }
+    if !restored {
+        return;
+    }
+    if el.tag_name() == "img" && !el.has_attribute("loading") {
+        let _ = el.set_attribute("loading", "lazy");
+    }
+    // 常见的懒加载样式在脚本加上 `lazyloaded` 之前把图藏着（透明度为零）。
+    if let Some(class) = el.get_attribute("class") {
+        let next: Vec<&str> = class
+            .split_ascii_whitespace()
+            .map(|token| match token {
+                "lazyload" | "lazyloading" | "lazy" => "lazyloaded",
+                other => other,
+            })
+            .collect();
+        let _ = el.set_attribute("class", &next.join(" "));
+    }
 }
 
 fn has_token(value: &str, token: &str) -> bool {

@@ -2,8 +2,9 @@
 
 use serde_json::{Map, Value};
 
-use crate::config::{friends_label, render_hugo_config, resolved_description, resolved_site_title};
+use crate::config::{render_hugo_config, resolved_description, resolved_site_title};
 use crate::cover::{absolutize_cover, cover_front_matter, covers_same_asset};
+use crate::labels::labels;
 use crate::model::{BlogPost, BlogSettings, BlogSite, FriendLink};
 use crate::rewrite::{companion_island_html, first_content_image, prepare_content_html};
 use crate::slug::{fallback_slug, validate_slug};
@@ -17,8 +18,18 @@ pub fn render_post_file(site: &BlogSite, post: &BlogPost, theme_id: &str) -> (St
     } else {
         fallback_slug(post.item_id)
     };
-    let mut body = prepare_content_html(&post.content_html, &site.origin, post.item_id);
-    body.push_str(&companion_island_html(post.item_id, post.companion));
+    let page_locale = if post.locale.trim().is_empty() {
+        site.locale.as_str()
+    } else {
+        post.locale.as_str()
+    };
+    let mut body =
+        prepare_content_html(&post.content_html, &site.origin, post.item_id, page_locale);
+    body.push_str(&companion_island_html(
+        post.item_id,
+        post.companion,
+        page_locale,
+    ));
     let summary_source = if post.summary_source.trim().is_empty() {
         post.content_html.as_str()
     } else {
@@ -121,10 +132,31 @@ pub fn render_home_file(site: &BlogSite, settings: &BlogSettings) -> (String, St
     )
 }
 
+/// 文章列表和分类/标签/作者总览的 `_index.html`，只给标题。不写的话 Hugo 拿目录名当标题，
+/// 中文博客上就是「Posts」「Tags」。
+pub fn render_list_titles(site: &BlogSite) -> Vec<(String, String)> {
+    let words = labels(&site.locale);
+    [
+        ("posts", words.posts),
+        ("categories", words.categories),
+        ("tags", words.tags),
+        ("authors", words.authors),
+    ]
+    .into_iter()
+    .map(|(dir, title)| {
+        let front = serde_json::json!({ "title": title });
+        (
+            format!("content/{dir}/_index.html"),
+            serde_json::to_string_pretty(&front).unwrap_or_else(|_| "{}".to_string()),
+        )
+    })
+    .collect()
+}
+
 /// `content/friends/index.html`。文字做 HTML 转义，外链带 `rel="noopener"`，页尾是友联申请 iframe。
 pub fn render_friends_file(site: &BlogSite, links: &[FriendLink]) -> (String, String) {
     let front = serde_json::json!({
-        "title": friends_label(&site.locale),
+        "title": labels(&site.locale).friends,
         "slug": "friends",
     });
     let front = serde_json::to_string_pretty(&front).unwrap_or_else(|_| "{}".to_string());
@@ -161,19 +193,22 @@ fn friends_html(site: &BlogSite, links: &[FriendLink]) -> String {
     }
     out.push_str("</ul>\n");
     out.push_str(
-        "<iframe class=\"myriad-friend-apply\" src=\"/embed/friend-apply\" loading=\"lazy\" title=\"友联申请\" data-embed-fit></iframe>\n",
+        &format!(
+            "<iframe class=\"myriad-friend-apply\" src=\"/embed/friend-apply\" loading=\"lazy\" title=\"{}\" data-embed-fit></iframe>\n",
+            escape_html(labels(&site.locale).friend_apply)
+        ),
     );
     out
 }
 
-/// 一次导出要落盘的文件：配置、首页、友链页、每篇笔记。内容是 UTF-8 字节。
+/// 一次导出要落盘的文件：配置、首页、友链页、列表标题、每篇笔记。内容是 UTF-8 字节。
 pub fn export_site_files(
     site: &BlogSite,
     settings: &BlogSettings,
     posts: &[BlogPost],
     friends: &[FriendLink],
 ) -> Vec<(String, Vec<u8>)> {
-    let mut files = Vec::with_capacity(posts.len() + 3);
+    let mut files = Vec::with_capacity(posts.len() + 7);
     files.push((
         "hugo.toml".to_string(),
         render_hugo_config(site, settings, &settings.theme_id).into_bytes(),
@@ -182,6 +217,11 @@ pub fn export_site_files(
     files.push((path, body.into_bytes()));
     let (path, body) = render_friends_file(site, friends);
     files.push((path, body.into_bytes()));
+    files.extend(
+        render_list_titles(site)
+            .into_iter()
+            .map(|(path, body)| (path, body.into_bytes())),
+    );
     for post in posts {
         let (path, body) = render_post_file(site, post, &settings.theme_id);
         files.push((path, body.into_bytes()));

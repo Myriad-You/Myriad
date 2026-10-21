@@ -1,8 +1,14 @@
 <!DOCTYPE html>
 {{- $lang := or .Params.inLanguage site.Language.Locale site.Language.Lang "zh-CN" }}
-{{- $parts := split (replace $lang "_" "-") "-" }}
-{{- $ogLocale := index $parts 0 | lower }}
-{{- if ge (len $parts) 2 }}{{ $ogLocale = printf "%s_%s" $ogLocale (index $parts 1 | upper) }}{{ end }}
+{{- /* og:locale 要「语言_地区」。zh-Hans / zh-Hant 是文字不是地区，只写语言时补上常用地区。 */}}
+{{- $parts := split (lower (replace $lang "_" "-")) "-" }}
+{{- $base := index $parts 0 }}
+{{- $region := "" }}
+{{- range after 1 $parts }}{{ if eq (len .) 2 }}{{ $region = upper . }}{{ end }}{{ end }}
+{{- if and (eq $base "zh") (not $region) }}{{ if in $parts "hant" }}{{ $region = "TW" }}{{ else }}{{ $region = "CN" }}{{ end }}{{ end }}
+{{- if not $region }}{{ $region = index (dict "en" "US" "ja" "JP" "ko" "KR" "fr" "FR" "de" "DE") $base | default "" }}{{ end }}
+{{- $ogLocale := $base }}
+{{- with $region }}{{ $ogLocale = printf "%s_%s" $base . }}{{ end }}
 {{- $title := .Title }}
 {{- if not .IsHome }}{{ $title = printf "%s · %s" .Title site.Title }}{{ end }}
 {{- $description := or .Description site.Params.description }}

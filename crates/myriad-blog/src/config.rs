@@ -3,6 +3,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::labels::labels;
 use crate::model::{BlogSettings, BlogSite, DEFAULT_THEME_ID};
 use crate::theme::sanitize_theme_id;
 
@@ -25,22 +26,6 @@ pub const MYRIAD_PARAMS_KEY: &str = "myriad";
 /// 没有站点地址时是 `/blog/`：宁可写站内路径，也不编一个域名进页面。
 pub fn blog_base_url(origin: &str) -> String {
     format!("{}/blog/", origin.trim().trim_end_matches('/'))
-}
-
-/// 友链页的标题和菜单名，跟着博客的语言走。它会出现在页面标题里。
-pub(crate) fn friends_label(locale: &str) -> &'static str {
-    let locale = locale.trim().to_ascii_lowercase();
-    let lang = locale.split(['-', '_']).next().unwrap_or("");
-    match lang {
-        "zh" if locale.contains("tw") || locale.contains("hk") || locale.contains("hant") => {
-            "友情連結"
-        }
-        "zh" | "" => "友链",
-        "ja" => "リンク",
-        "ko" => "링크",
-        "fr" => "Liens",
-        _ => "Links",
-    }
 }
 
 /// 生成 `hugo.toml`。`theme_id` 不合法时用设置里的主题，还不行就用内置主题。
@@ -73,7 +58,7 @@ pub fn render_hugo_config(site: &BlogSite, settings: &BlogSettings, theme_id: &s
         params: params_table(site, settings),
         menus: Menus {
             main: vec![MenuEntry {
-                name: friends_label(&locale),
+                name: labels(&locale).friends,
                 url: "/friends/",
                 weight: 10,
             }],
@@ -157,6 +142,15 @@ fn myriad_params(site: &BlogSite) -> Value {
         }
     }
     map.insert("noindex".to_string(), Value::Bool(site.noindex));
+    let words = labels(&site.locale);
+    map.insert(
+        "labels".to_string(),
+        serde_json::json!({
+            "notFound": words.not_found,
+            "notFoundBody": words.not_found_body,
+            "home": words.home,
+        }),
+    );
     Value::Object(map)
 }
 
