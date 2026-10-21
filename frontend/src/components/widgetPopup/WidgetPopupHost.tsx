@@ -1,3 +1,4 @@
+import type { RefObject } from 'react'
 import type { WidgetPopupEntry } from '../../lib/widgetPopup'
 import { LuX } from '@lib/chromeStrokeIcons'
 import {
@@ -15,13 +16,11 @@ import { isExlight } from '../../hooks/useAnimationLevel'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import {
   closeWidgetPopup,
-  dropWidgetPopups,
   getWidgetPopupState,
   subscribeWidgetPopupState,
 } from '../../lib/widgetPopup'
-import { trapTabKey } from '../../utils/focusTrap'
+import { focusableWithin, trapTabKey } from '../../utils/focusTrap'
 import { lockScroll } from '../../utils/scrollLock'
-import { useTappSubject } from '../../utils/tappSubject'
 import { VIEWPORT_MQ } from '../../utils/viewportBands'
 import { RenderErrorBoundary } from '../RenderErrorBoundary'
 import { widgetDisplayLabel } from '../widgetLibraryModel'
@@ -80,6 +79,15 @@ function playFrame(
   })
 }
 
+/**
+ * 收回后焦点不还进 iframe：宿主看不见里面发生了什么，替它把焦点放回去，
+ * 在应用看来就像用户刚点了它。还给外面最近一个能聚焦的容器，下一次真点进去才算数。
+ */
+function focusReturnTarget(element: HTMLElement | null): HTMLElement | null {
+  if (!(element instanceof HTMLIFrameElement)) return element
+  return element.parentElement?.closest<HTMLElement>('[tabindex]') ?? null
+}
+
 function WidgetPopupFrame({
   entry,
   active,
@@ -108,10 +116,11 @@ function WidgetPopupFrame({
     if (!frame) return
     if (active) {
       const focused = document.activeElement
-      restoreRef.current =
+      restoreRef.current = focusReturnTarget(
         focused instanceof HTMLElement && focused !== document.body
           ? focused
-          : entry.returnFocus()
+          : entry.returnFocus(),
+      )
       setPhase('open')
       // 收回动画还没放完又被打开：先停掉，不然量到的是缩到一半的框。
       for (const running of frame.getAnimations()) running.cancel()
@@ -119,7 +128,7 @@ function WidgetPopupFrame({
       const rect = frame.getBoundingClientRect()
       rectsRef.current = { anchor, frame: rect, width: window.innerWidth, height: window.innerHeight }
       playFrame(frame, 'in', anchor, rect, sheet)
-      // 暂存时是 visibility:hidden，等这一帧把可见提交了才能聚焦。
+      // 收回时是 visibility:hidden，等这一帧把可见提交了才能聚焦。
       const focusTimer = requestAnimationFrame(() => {
         if (!frame.contains(document.activeElement)) frame.focus({ preventScroll: true })
       })
@@ -173,6 +182,7 @@ function WidgetPopupFrame({
         if (trapTabKey(event.currentTarget, event.nativeEvent)) event.stopPropagation()
       }}
     >
+      {active && <FocusSentinel frameRef={frameRef} edge="start" />}
       <RenderErrorBoundary
         source="widget-popup"
         resetKey={entry.widget.type}
@@ -202,7 +212,36 @@ function WidgetPopupFrame({
           <LuX aria-hidden="true" />
         </button>
       )}
+      {active && <FocusSentinel frameRef={frameRef} edge="end" />}
     </div>
+  )
+}
+
+/**
+ * 焦点从跨源 iframe 里 Tab 出来时宿主收不到按键，浏览器会把它送到弹窗外。
+ * 前后各放一个接住它的点，转回弹窗另一头，焦点就在弹窗里循环。
+ */
+function FocusSentinel({
+  frameRef,
+  edge,
+}: {
+  frameRef: RefObject<HTMLDivElement | null>
+  edge: 'start' | 'end'
+}) {
+  return (
+    <span
+      className="widget-popup-frame__sentinel"
+      tabIndex={0}
+      aria-hidden="true"
+      data-focus-sentinel=""
+      onFocus={() => {
+        const frame = frameRef.current
+        if (!frame) return
+        const items = focusableWithin(frame)
+        const target = edge === 'start' ? items.at(-1) : items[0]
+        ;(target ?? frame).focus({ preventScroll: true })
+      }}
+    />
   )
 }
 
@@ -214,17 +253,8 @@ export default function WidgetPopupHost() {
     getWidgetPopupState,
   )
   const phone = useMediaQuery(VIEWPORT_MQ.phone)
-  const { epoch } = useTappSubject()
   const { pathname } = useLocation()
   const open = state.activeKey !== null
-
-  // 换身份：授权前提没了，连暂存一起销毁。
-  const epochRef = useRef(epoch)
-  useEffect(() => {
-    if (epochRef.current === epoch) return
-    epochRef.current = epoch
-    dropWidgetPopups()
-  }, [epoch])
 
   // 换页只是注意力走开：收回，不销毁。宿主是第一次开弹窗时才挂的，挂上那一刻不算换页。
   const pathRef = useRef(pathname)

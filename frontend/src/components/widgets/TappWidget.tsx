@@ -39,12 +39,12 @@ import {
   WidgetSkeleton,
   WidgetSkeletonCover,
 } from './shared/WidgetSkeleton'
-import { acceptTappInstanceSettingsPatch } from './tappInstanceSettings'
 import {
   intersectionKeepsTappWidgetMounted,
   TAPP_WIDGET_VIEWPORT_OFFSCREEN_RECHECKS,
   TAPP_WIDGET_VIEWPORT_RECHECK_MS,
 } from './tappWidgetViewport'
+import { useTappInstanceSettingsPatch, useTappWidgetProps } from './useTappWidgetProps'
 
 const TappWidgetSandbox = lazy(() =>
   import('../../tapp/runtime/TappWidgetSandbox').then((module) => ({
@@ -703,53 +703,11 @@ function TappWidgetRuntime({
     }
   }, [loading, isRunning, widget, tappInstance, config?.size, code])
 
-  const configString = JSON.stringify(config.config || {})
-  const declaredDefaults = useMemo(
-    () =>
-      Object.fromEntries(
-        (widget?.config.settings || [])
-          .filter((setting) => setting.defaultValue !== undefined)
-          .map((setting) => [setting.key, setting.defaultValue]),
-      ),
-    [widget],
-  )
-  const widgetProps = useMemo(() => {
-    const isDark = document.documentElement.classList.contains('dark')
-    const primaryColor =
-      getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-primary')
-        .trim() || '#8b5cf6'
-    return {
-      size: config.size,
-      config: { ...declaredDefaults, ...(config.config || {}) },
-      isEditMode: isEditMode || false,
-      isPreview: isPreview || false,
-      theme: (isDark ? 'dark' : 'light') as 'light' | 'dark',
-      primaryColor,
-      locale,
-    }
-  }, [
-    config.size,
-    configString,
-    declaredDefaults,
-    isEditMode,
-    isPreview,
-    locale,
-  ])
-
-  const handleInstanceSettingsChange = useCallback(
-    (patch: Record<string, unknown>): boolean => {
-      if (!widget || !onConfigChange) return false
-      const accepted = acceptTappInstanceSettingsPatch(
-        widget.config.settings || [],
-        patch,
-      )
-      if (!accepted) return false
-
-      onConfigChange({ ...(config.config || {}), ...accepted })
-      return true
-    },
-    [config.config, onConfigChange, widget],
+  const widgetProps = useTappWidgetProps(widget, config, locale, { isEditMode, isPreview })
+  const handleInstanceSettingsChange = useTappInstanceSettingsPatch(
+    widget,
+    config.config,
+    onConfigChange,
   )
 
   // interval 可选，只在可见且运行中的实例上计时。

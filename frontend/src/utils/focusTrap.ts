@@ -13,6 +13,7 @@ const FOCUSABLE = [
 export function focusableWithin(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
     (element) =>
+      !element.hasAttribute('data-focus-sentinel') &&
       !element.closest('[inert]') &&
       element.getClientRects().length > 0,
   )
@@ -35,7 +36,7 @@ export function trapTabKey(root: HTMLElement, event: KeyboardEvent): boolean {
     last.focus()
     return true
   }
-  if (!event.shiftKey && current === last) {
+  if (!event.shiftKey && (current === last || current === root)) {
     event.preventDefault()
     first.focus()
     return true

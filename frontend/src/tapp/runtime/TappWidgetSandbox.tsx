@@ -104,12 +104,27 @@ const POPUP_PARAMS_MAX_BYTES = 4 * 1024
 /** 点进卡片之后多久内算「刚点过」。 */
 const POPUP_GESTURE_WINDOW_MS = 1500
 const POPUP_OPEN_MIN_INTERVAL_MS = 800
+/** 浏览器的瞬时激活时长取上限（Chrome、Firefox 为 5 秒；其他浏览器 uncertain，按更长算更严）。 */
+const TRANSIENT_ACTIVATION_MS = 5000
+
+/** 宿主页面自己最近一次被点或按键的时刻：父窗口的激活可能来自这里，不能记在卡片头上。 */
+let hostActivatedAt = 0
+let hostActivationTracked = false
+function lastHostActivationAt(): number {
+  if (!hostActivationTracked && typeof window !== 'undefined') {
+    hostActivationTracked = true
+    const mark = () => { hostActivatedAt = Date.now() }
+    window.addEventListener('pointerdown', mark, { capture: true, passive: true })
+    window.addEventListener('keydown', mark, { capture: true, passive: true })
+  }
+  return hostActivatedAt
+}
 
 function plainJson(value: unknown): unknown {
   if (value === undefined || value === null) return null
   const encoded = JSON.stringify(value)
   if (encoded === undefined) throw new Error('Popup params must be JSON')
-  if (encoded.length > POPUP_PARAMS_MAX_BYTES) {
+  if (new TextEncoder().encode(encoded).byteLength > POPUP_PARAMS_MAX_BYTES) {
     throw new Error('Popup params exceed 4 KiB')
   }
   return JSON.parse(encoded)
@@ -494,17 +509,17 @@ export const TappWidgetSandbox = memo(
       [code, surface, widgetId],
     )
 
-    // 跨源 iframe 里的点击不会冒泡到宿主。能看到的是：iframe 拿到焦点（父窗口 blur），
-    // 以及指针停在 iframe 上。两者之一成立、且焦点确实在这张卡上，才算用户刚点过它。
+    // 跨源 iframe 里的点击不会冒泡到宿主。能看到的是：iframe 刚拿到焦点（父窗口 blur），
+    // 以及子框架里的点击会把激活传给父窗口（navigator.userActivation）。焦点确实在这张卡上，
+    // 且刚点进来、或指针在卡上时激活只可能来自卡里，才算用户点了它。
     const gestureRef = useRef({ focusedAt: 0, pointerInside: false, lastOpenAt: 0 })
     useEffect(() => {
       if (surface !== 'widget') return
+      lastHostActivationAt()
+      // 当场记下：点击里的 openPopup 可能比任何延后检查先到。焦点是不是落在这张卡上，
+      // 放行时再看 activeElement。
       const onBlur = () => {
-        window.setTimeout(() => {
-          if (iframeRef.current && document.activeElement === iframeRef.current) {
-            gestureRef.current.focusedAt = Date.now()
-          }
-        }, 0)
+        gestureRef.current.focusedAt = Date.now()
       }
       window.addEventListener('blur', onBlur)
       return () => window.removeEventListener('blur', onBlur)
@@ -649,9 +664,18 @@ export const TappWidgetSandbox = memo(
           const gesture = gestureRef.current
           const now = Date.now()
           const focused = document.activeElement === iframeRef.current
-          const recent =
-            gesture.pointerInside || now - gesture.focusedAt < POPUP_GESTURE_WINDOW_MS
-          if (!focused || !recent) {
+          // 刚点进卡片：这次聚焦晚于上一次打开，一次点击只换一次弹窗。
+          const enteredNow =
+            gesture.focusedAt > gesture.lastOpenAt &&
+            now - gesture.focusedAt < POPUP_GESTURE_WINDOW_MS
+          // 焦点本来就在卡里、又点了一下：父窗口有瞬时激活，而宿主这边没被点过、
+          // 上次打开时那一下激活也已过期，激活就只能来自卡里。不支持的浏览器只认上一种。
+          const clickedAgain =
+            gesture.pointerInside &&
+            navigator.userActivation?.isActive === true &&
+            now - lastHostActivationAt() > TRANSIENT_ACTIVATION_MS &&
+            now - gesture.lastOpenAt > TRANSIENT_ACTIVATION_MS
+          if (!focused || !(enteredNow || clickedAgain)) {
             return { success: false, error: 'Popup must follow a user action on this widget' }
           }
           if (now - gesture.lastOpenAt < POPUP_OPEN_MIN_INTERVAL_MS) {
@@ -873,6 +897,9 @@ export const TappWidgetSandbox = memo(
       <div
         ref={containerRef}
         className={`tapp-widget-sandbox ${className || ''}`}
+        // 弹窗收回时焦点还到这里，不还进 iframe（见 WidgetPopupHost 的 focusReturnTarget）。
+        tabIndex={surface === 'widget' ? -1 : undefined}
+        data-focus-return={surface === 'widget' ? '' : undefined}
         style={{
           position: 'relative',
           width: '100%',

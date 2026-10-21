@@ -39,7 +39,7 @@ export interface WidgetPopupProps {
   config: WidgetConfig
   /** 最近一次 openPopup 带来的参数。 */
   params: unknown
-  /** false 表示已收进暂存：停掉计时、动画和播放。 */
+  /** false 表示已收回到后面：停掉计时、动画和播放。 */
   active: boolean
   close: () => void
   onConfigChange?: (newConfig: any) => void

@@ -19,6 +19,7 @@ import { useI18n } from '../contexts/I18nContext'
 import { useWidgetResizeObserver } from '../hooks/animation'
 import { isExlight, useAnimationLevel } from '../hooks/useAnimationLevel'
 import { useDebouncedWindowSize } from '../hooks/useSharedEventListener'
+import { dropWidgetPopups } from '../lib/widgetPopup'
 import {
   findEmptyHomeSlot,
   HOME_FREE_ROWS,
@@ -279,6 +280,8 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
       (widgetId: string) => {
         const { widgets: current, onWidgetsChange: notify } = latestRef.current
         const next = current.filter((widget) => widget.id !== widgetId)
+        // 卡没了，它的弹窗也没了来处：收回留着的一起销毁。
+        dropWidgetPopups((entry) => entry.key === widgetId)
         notify?.(next)
         saveToHistory(next)
       },

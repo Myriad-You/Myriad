@@ -237,6 +237,10 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/tappLifecycle.spec.ts
 !/frontend/tests/browser/fixture/tappLifecycle.tsx
 
+# TAPP popup layer: gesture gate, retract/reopen, focus containment, destroy on stop
+!/frontend/tests/browser/tappPopup.spec.ts
+!/frontend/tests/browser/fixture/tappPopup.tsx
+
 # Read-only production performance checks against an explicit live backend.
 !/frontend/tests/production/livePerformance.spec.ts
 

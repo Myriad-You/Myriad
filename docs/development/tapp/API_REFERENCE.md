@@ -827,19 +827,28 @@ Tapp.popups["my-widget"] = {
   },
 };
 Tapp.popup.onParams((params) => {
-  /* 弹窗还开着或暂存着时，卡片再次 openPopup 带来的新参数 */
+  /* 弹窗还开着或收回着时，卡片再次 openPopup 带来的新参数 */
 });
 await Tapp.popup.close();
 ```
 
-- `openPopup(params)` 只在用户刚对这张卡操作过时放行（焦点落在这张卡的 iframe 上，且指针在卡上
-  或 1.5 秒内刚点进来），同一张卡 0.8 秒内只开一次。`params` 必须是 JSON，不超过 4 KiB；
-  大数据走 `Tapp.storage`。
+- `openPopup(params)` 只在用户刚对这张卡操作过时放行：焦点落在这张卡的 iframe 上，并且
+  1.5 秒内刚点进来（一次点进只换一次弹窗），或指针在卡上时页面刚被激活、而这次激活只可能来自卡里
+  （`navigator.userActivation`；宿主页面没被点过，上次打开也已过 5 秒）。不支持
+  `userActivation` 的浏览器只认前一种。同一张卡 0.8 秒内只开一次。定时器、加载完成之类不是
+  用户操作的调用一律拒绝。
+- `params` 必须是 JSON，序列化后不超过 4 KiB（按 UTF-8 字节计）；大数据走 `Tapp.storage`。
+  `openPopup()` 不带参数时弹窗接着上次的参数；传 `null` 会清空。`onParams` 回调里
+  `getParams()` 已是新值。
 - 弹窗不新增权限：声明、批准、授予三层都不变，弹窗沙箱用与卡片相同的授予权限和能力面，
-  另加 `Tapp.popup`。`updateInstanceSettings()` 在弹窗里同样可用，改的是打开它的那张卡。
-- 关掉弹窗只是**暂存**：沙箱收到 `lifecycle:pause`，iframe 不销毁，重开时收到
-  `lifecycle:resume`，状态还在。应用停用、卸载、换登录身份时才销毁。
-- 宿主总在弹窗角落放关闭按钮，用户随时能关；Esc 也能关（焦点在宿主上时）。
+  另加 `Tapp.popup`。`updateInstanceSettings()` 在弹窗开着时可用，改的是打开它的那张卡；
+  收回后调用会被拒绝。
+- 关掉弹窗只是**收回**：沙箱按隐藏处理，收到 `lifecycle:pause`，iframe 不销毁，重开时收到
+  `lifecycle:resume`，状态还在。收回的 TAPP 弹窗和隐藏的卡片共用暂存池的名额。应用停用、
+  卸载、更新、换登录身份，或那张卡被删掉时才销毁。
+- 宿主总在弹窗角落放关闭按钮，用户随时能关。Esc 也能关：焦点在弹窗 iframe 里时由 SDK 转给
+  宿主；应用自己处理 Esc 时先 `event.preventDefault()`，宿主就不收回。焦点在弹窗里循环，
+  Tab 出 iframe 不会落到弹窗后面。收回后焦点回到卡片外框，不回到卡片 iframe 里。
 - 编辑模式和组件库预览里不能打开弹窗。
 
 `updateInstanceSettings()` 只能更新当前 Widget 的 `widgets[].settings` 已声明字段，宿主会

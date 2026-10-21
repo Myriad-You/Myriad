@@ -4,11 +4,12 @@ import type {
   WidgetType,
 } from '../components/widgetGridTypes'
 import { createStore } from '../utils/store'
+import { getTappSubjectSnapshot, subscribeTappSubject } from '../utils/tappSubject'
 
 /**
  * 小组件弹窗。一张卡（实例 id）至多一份弹窗；同一时刻只有一份在前台。
- * 关掉只是暂存：内容留在宿主里不卸载，重开接着上次的状态。
- * 只有授权前提消失（换身份、卸载、停用、代码变更）才销毁。
+ * 关掉只是收回：内容留在宿主里不卸载，重开接着上次的状态。
+ * 只有授权前提消失（换身份、卸载、停用、代码变更、卡片被删）才销毁。
  */
 export interface WidgetPopupEntry {
   key: string
@@ -21,7 +22,7 @@ export interface WidgetPopupEntry {
   /** 关掉后焦点回到哪里：打开它的那张卡。 */
   returnFocus: () => HTMLElement | null
   onConfigChange?: (next: any) => void
-  /** 打开次序；暂存池按它逐出最久没用的。 */
+  /** 打开次序；收回的超过上限时按它逐出最久没用的。 */
   touchedAt: number
 }
 
@@ -30,7 +31,7 @@ export interface WidgetPopupState {
   activeKey: string | null
 }
 
-/** 暂存池上限（不含前台那份）。 */
+/** 收回后留着的上限（不含前台那份）。 */
 export const WIDGET_POPUP_STASH_LIMIT = 3
 
 const store = createStore<WidgetPopupState>({ entries: [], activeKey: null })
@@ -81,7 +82,8 @@ export function openWidgetPopup(request: OpenWidgetPopupRequest): void {
       widget: request.widget,
       widgetType: request.widgetType,
       size: popup.size ?? 'md',
-      params: request.params ?? existing?.params ?? null,
+      // 不带参数是「接着上次」；明确给 null 才清掉。
+      params: request.params === undefined ? existing?.params ?? null : request.params,
       anchor: request.anchor,
       returnFocus: request.returnFocus,
       onConfigChange: request.onConfigChange,
@@ -94,7 +96,7 @@ export function openWidgetPopup(request: OpenWidgetPopupRequest): void {
   })
 }
 
-/** 收回前台弹窗（暂存）。给 key 时只收回那一份。 */
+/** 收回前台弹窗。给 key 时只收回那一份。 */
 export function closeWidgetPopup(key?: string): void {
   store.set((state) => {
     if (!state.activeKey) return state
@@ -103,7 +105,7 @@ export function closeWidgetPopup(key?: string): void {
   })
 }
 
-/** 授权前提消失时销毁：连暂存一起丢掉。 */
+/** 授权前提消失时销毁：连收回留着的一起丢掉。 */
 export function dropWidgetPopups(
   predicate: (entry: WidgetPopupEntry) => boolean = () => true,
 ): void {
@@ -129,3 +131,12 @@ export function syncWidgetPopupConfig(widget: WidgetConfig): void {
     return { ...state, entries }
   })
 }
+
+// 换身份：授权前提没了，全部销毁。在模块里直接订阅，赶在任何弹窗内容用新身份重建之前。
+let subjectEpoch = getTappSubjectSnapshot().epoch
+subscribeTappSubject(() => {
+  const { epoch } = getTappSubjectSnapshot()
+  if (epoch === subjectEpoch) return
+  subjectEpoch = epoch
+  dropWidgetPopups()
+})

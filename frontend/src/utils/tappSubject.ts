@@ -3,6 +3,7 @@ import { createStore, useStore } from './store'
 
 const tappSubject = createStore({ epoch: 0, ready: true })
 export const getTappSubjectSnapshot = tappSubject.get
+export const subscribeTappSubject = tappSubject.subscribe
 
 /** Identity changes, unlike visibility changes, invalidate every old TAPP consumer. */
 export function beginTappSubjectChange(): number {

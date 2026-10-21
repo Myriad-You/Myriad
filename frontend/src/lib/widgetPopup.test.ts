@@ -1,6 +1,7 @@
 import type { WidgetType } from '../components/widgetGridTypes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { beginTappSubjectChange, finishTappSubjectChange } from '../utils/tappSubject'
 import {
   closeWidgetPopup,
   dropWidgetPopups,
@@ -40,6 +41,9 @@ test('closing stashes instead of destroying, and reopening keeps earlier params'
   assert.equal(getWidgetPopupState().entries.length, 1, 'still mounted while stashed')
   open('a')
   assert.deepEqual(getWidgetPopupState().entries[0].params, { platform: 'steam' })
+  closeWidgetPopup()
+  open('a', null)
+  assert.equal(getWidgetPopupState().entries[0].params, null, 'an explicit null clears the params')
 })
 
 test('close with a key only closes that popup', () => {
@@ -65,4 +69,14 @@ test('dropping destroys stashed and active popups that match', () => {
   dropWidgetPopups((entry) => entry.key === 'b')
   assert.equal(getWidgetPopupState().activeKey, null)
   assert.deepEqual(getWidgetPopupState().entries.map((entry) => entry.key), ['a'])
+})
+
+test('an identity change destroys every popup before anything re-renders', () => {
+  dropWidgetPopups()
+  open('a')
+  closeWidgetPopup()
+  open('b')
+  const epoch = beginTappSubjectChange()
+  assert.deepEqual(getWidgetPopupState(), { entries: [], activeKey: null })
+  finishTappSubjectChange(epoch, false)
 })

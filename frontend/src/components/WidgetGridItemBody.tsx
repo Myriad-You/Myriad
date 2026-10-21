@@ -112,7 +112,7 @@ export function useWidgetPopupOpener(
         anchor: () => anchorRef?.current?.getBoundingClientRect() ?? null,
         returnFocus: () =>
           anchorRef?.current?.querySelector<HTMLElement>(
-            'button, a[href], iframe, [tabindex]:not([tabindex="-1"])',
+            'button, a[href], [tabindex]:not([tabindex="-1"]), [data-focus-return]',
           ) ?? null,
         onConfigChange: current.onConfigChange
           ? (next) => latest.current.onConfigChange?.(next)

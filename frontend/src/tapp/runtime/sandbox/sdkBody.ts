@@ -1031,6 +1031,8 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
             .catch(() => {});
         }
       }
+      // 先换掉参数再通知：onParams 回调里调 getParams() 要拿到新值。
+      if (message.action === 'popup:params') window._TAPP_POPUP_PARAMS = message.payload;
       const _bufKey = _ACTION_TO_EVENT[message.action] || message.action;
       if (_BUFFERED_EVENTS.has(_bufKey)) {
         _eventBuffer.set(_bufKey, message.payload);
@@ -1057,9 +1059,6 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
       else if (message.action === 'primaryColor:change') {
         eventListeners.get('primaryColorChange')?.forEach((cb) => { try { cb(message.payload); } catch {} });
         applyTappPrimaryColor(message.payload);
-      }
-      else if (message.action === 'popup:params') {
-        window._TAPP_POPUP_PARAMS = message.payload;
       }
       else if (message.action === 'animationLevel:change') {
         eventListeners.get('animationLevelChange')?.forEach((cb) => { try { cb(message.payload); } catch {} });
@@ -1216,6 +1215,16 @@ ${when(
     writable: false,
     configurable: false
   });
+${when(
+  isWidget,
+  `
+  // 跨源 iframe 里的按键到不了宿主：弹窗层自己把 Esc 转成收回，应用先 preventDefault 就不转。
+  if (window._TAPP_MODE === 'popup') {
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) sendRequest('popup', 'close', []).catch(() => {});
+    });
+  }`,
+)}
 ${when(
   !isWidget,
   `

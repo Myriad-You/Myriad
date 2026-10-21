@@ -153,6 +153,14 @@ html.dark .widget-popup-frame__close:hover {
   height: 1rem;
 }
 
+.widget-popup-frame__sentinel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
 .widget-popup-frame__empty {
   display: grid;
   flex: 1;

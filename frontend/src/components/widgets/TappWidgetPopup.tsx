@@ -1,14 +1,15 @@
 import type { RegisteredWidget, TappCodeStructure, TappInstance } from '../../tapp/types'
 import type { WidgetPopupProps } from '../widgetGridTypes'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
 import { dropWidgetPopups } from '../../lib/widgetPopup'
+import { hiddenWidgetPool } from '../../tapp/runtime/resourceBounds'
 import { loadPopupResources } from '../../tapp/runtime/sandbox/resourceLoader'
 import { getTappRuntime } from '../../tapp/runtime/TappRuntime'
 import { TappWidgetSandbox } from '../../tapp/runtime/TappWidgetSandbox'
 import { userFacingError } from '../../utils/userFacingError'
 import { TAPP_WIDGET_SKELETON, WidgetSkeletonCover } from './shared/WidgetSkeleton'
-import { acceptTappInstanceSettingsPatch } from './tappInstanceSettings'
+import { useTappInstanceSettingsPatch, useTappWidgetProps } from './useTappWidgetProps'
 
 interface TappWidgetPopupProps extends WidgetPopupProps {
   tappWidgetId: string
@@ -34,6 +35,9 @@ function TappWidgetPopupComponent({
   const [error, setError] = useState<string | null>(null)
   const [generation, setGeneration] = useState(0)
 
+  // 卡片所属应用。加载前就从注册表认出来，加载期间的停用、卸载、更新也接得住。
+  const tappId = runtime.getRegisteredWidgets().find((w) => w.id === tappWidgetId)?.tappId ?? widget?.tappId
+
   useEffect(() => {
     let cancelled = false
     setCode(null)
@@ -49,8 +53,13 @@ function TappWidgetPopupComponent({
         }
         const resources = await loadPopupResources(tapp, found.config.id)
         if (cancelled) return
+        // 拉代码期间被停用：前提已经没了，不挂。
+        if (!runtime.isRunning(found.tappId)) {
+          dropWidgetPopups((entry) => entry.key === config.id)
+          return
+        }
         setWidget(found)
-        setTappInstance(tapp)
+        setTappInstance(runtime.getTapp(found.tappId) ?? tapp)
         setCode({
           modules: resources.modules,
           moduleResolutions: resources.moduleResolutions,
@@ -68,11 +77,10 @@ function TappWidgetPopupComponent({
     return () => {
       cancelled = true
     }
-  }, [runtime, tappWidgetId, generation, t.tapp.widgetNotFound, t.tapp.appCodeLoadFailed])
+  }, [runtime, tappWidgetId, generation, config.id, t.tapp.widgetNotFound, t.tapp.appCodeLoadFailed])
 
-  // 停用、卸载：授权前提没了，连暂存一起销毁。更新：代码变了，重载这一层。
+  // 停用、卸载：授权前提没了，连收回留着的一起销毁。更新（代码或权限变了）：重载这一层。
   useEffect(() => {
-    const tappId = widget?.tappId
     if (!tappId) return
     const drop = (data: unknown) => {
       if ((data as { id?: string })?.id === tappId) {
@@ -90,41 +98,25 @@ function TappWidgetPopupComponent({
       offUninstall()
       offUpdate()
     }
-  }, [runtime, widget?.tappId, config.id])
+  }, [runtime, tappId, config.id])
 
-  const configString = JSON.stringify(config.config || {})
-  const widgetProps = useMemo(() => {
-    const declaredDefaults = Object.fromEntries(
-      (widget?.config.settings || [])
-        .filter((setting) => setting.defaultValue !== undefined)
-        .map((setting) => [setting.key, setting.defaultValue]),
-    )
-    const isDark = document.documentElement.classList.contains('dark')
-    const primaryColor =
-      getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-primary')
-        .trim() || '#8b5cf6'
-    return {
-      size: config.size,
-      config: { ...declaredDefaults, ...(config.config || {}) },
-      isEditMode: false,
-      isPreview: false,
-      theme: (isDark ? 'dark' : 'light') as 'light' | 'dark',
-      primaryColor,
-      locale,
-    }
-    // configString 代替 config.config 的引用比较。
-  }, [config.size, configString, widget, locale])
+  // 收回的 TAPP 弹窗和隐藏的卡片沙箱共用一个上限：iframe 总数不因弹窗多出一截。
+  const sandboxMounted = Boolean(code)
+  useEffect(() => {
+    if (!sandboxMounted) return undefined
+    const key = `popup:${config.id}`
+    if (active) hiddenWidgetPool.remove(key)
+    else hiddenWidgetPool.add(key, () => dropWidgetPopups((entry) => entry.key === config.id))
+    return () => hiddenWidgetPool.remove(key)
+  }, [active, sandboxMounted, config.id])
 
-  const handleInstanceSettingsChange = useCallback(
-    (patch: Record<string, unknown>): boolean => {
-      if (!widget || !onConfigChange) return false
-      const accepted = acceptTappInstanceSettingsPatch(widget.config.settings || [], patch)
-      if (!accepted) return false
-      onConfigChange({ ...(config.config || {}), ...accepted })
-      return true
-    },
-    [config.config, onConfigChange, widget],
+  const widgetProps = useTappWidgetProps(widget, config, locale)
+  // 收回后不在前台，不替卡片改设置；卡片本身被删时弹窗已随之销毁。
+  const handleInstanceSettingsChange = useTappInstanceSettingsPatch(
+    widget,
+    config.config,
+    onConfigChange,
+    active,
   )
 
   const accent = tappInstance?.manifest.themeColor?.trim() || 'var(--color-primary, #6366f1)'
