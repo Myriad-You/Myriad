@@ -49,7 +49,7 @@ test('beats carry their covers, and the report keeps the shelf', () => {
   }, { echo: 'Echo', insight: 'Insight' })!
   const beats = report.chapters[0].beats
   assert.deepEqual(beats[0].media?.map((item) => item.title), ['君という神話'])
-  assert.deepEqual(beats[1].media?.map((item) => item.cover), ['/api/proxy/image?url=z'], 'the fact image comes first')
+  assert.equal(beats[1].media, undefined, 'a fact image is not a cover: only works the line names')
   assert.equal(beats[2].media, undefined)
   assert.equal(report.media.length, 4)
 })

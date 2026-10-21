@@ -75,7 +75,7 @@ function readPlatformParam(params: unknown): string | null {
 }
 
 export default function ReportStagePopup({ config, params, active, close }: WidgetPopupProps) {
-  const { t, format, locale } = useI18n()
+  const { t, format } = useI18n()
   const copy = t.reportStage
   const { isAdmin } = useAuth()
   const anim = useAnimationLevel()
@@ -102,17 +102,14 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
     })
   }, [active, cardPlatform])
 
-  const titles = useMemo(() => {
-    const numbers = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 })
-    return {
+  const titles = useMemo(
+    () => ({
       echo: copy.echo,
       insight: copy.insight,
-      facts: copy.facts as Record<string, string>,
-      factValues: copy.factValues as Record<string, Record<string, string>>,
       chapters: copy.chapters as Record<string, string>,
-      formatNumber: (value: number) => numbers.format(value),
-    }
-  }, [copy.chapters, copy.echo, copy.factValues, copy.facts, copy.insight, locale])
+    }),
+    [copy.chapters, copy.echo, copy.insight],
+  )
 
   // 先发后至的请求不能盖掉后发先至的（切换风格后的强制刷新最常见）。
   const loadSeq = useRef(0)
