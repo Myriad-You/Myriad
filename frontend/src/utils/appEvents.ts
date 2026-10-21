@@ -35,6 +35,8 @@ export interface AppEventMap {
   'gcp-remeasure': { immediate?: boolean } | undefined
   'nav-expand-secondary': { path: string }
   'custom-platforms-update': { platforms: unknown[], persisted?: boolean }
+  /** 站长在舞台里重写了报告：缓存已清，报告卡各自重新取。 */
+  'reports-updated': void
 
   // Music player commands (handled by the player's host events)
   'play-song': { song: Song }

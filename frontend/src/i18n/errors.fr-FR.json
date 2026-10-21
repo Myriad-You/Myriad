@@ -742,6 +742,19 @@
     "invite_invalid_status": "Cette invitation ne peut plus être acceptée.",
     "visitor_stats_unavailable": "Chargement échoué",
     "portrait_not_illustration": "Cette image ne ressemble pas à une illustration en couleur (on dirait une photo, un rendu 3D, du pixel art ou une bande dessinée en noir et blanc) ; elle ne peut pas devenir une figure animée. Choisissez une illustration en couleur.",
-    "upright_in_progress": "Un autre portrait est en cours de redessin ; réessayez dans un instant."
+    "upright_in_progress": "Un autre portrait est en cours de redessin ; réessayez dans un instant.",
+    "report_style_invalid": "Quelque chose dans ce style n'est pas autorisé.",
+    "report_style_invalid_id": "Les identifiants de style utilisent minuscules, chiffres, - et _, 32 caractères au plus.",
+    "report_style_too_long": "Un champ de ce style est trop long.",
+    "report_style_builtin_readonly": "Les styles intégrés ne sont pas modifiables. Dupliquez-en un pour le modifier.",
+    "report_style_limit": "La limite de styles personnalisés est atteinte.",
+    "report_style_not_found": "Ce style n'existe pas.",
+    "report_styles_save_failed": "Impossible d'enregistrer les styles.",
+    "report_platform_unknown": "Plateforme inconnue.",
+    "report_platform_data_missing": "Cette plateforme n'a pas encore de données. Synchronisez-la d'abord.",
+    "report_model_unavailable": "Aucun modèle n'est configuré pour écrire les rapports.",
+    "report_style_preview_failed": "Le modèle n'a pas écrit d'acte utilisable. Réessayez ou ajustez le style.",
+    "report_style_preview_busy": "Un essai est encore en cours d’écriture. Réessayez quand il sera terminé.",
+    "report_styles_conflict": "Les styles viennent d’être modifiés ailleurs et ont été rechargés. Votre brouillon est toujours là : enregistrez-le à nouveau."
   }
 }

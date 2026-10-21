@@ -1,0 +1,392 @@
+/* 舞台的站长区：风格与有效期。只有站长会加载这一份。 */
+.report-stage__settings {
+  display: flex;
+  width: min(100%, 40rem);
+  min-height: 0;
+  max-height: 100%;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  justify-self: center;
+  gap: 0.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem 0.25rem 1rem;
+  scrollbar-width: thin;
+}
+
+.report-stage__settings--loading {
+  align-items: center;
+  color: var(--stage-muted);
+}
+
+.report-stage__settings h2 {
+  margin-bottom: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 650;
+}
+
+.report-stage__setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.875rem;
+  background: var(--stage-button);
+  cursor: pointer;
+}
+
+.report-stage__setting[data-disabled] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.report-stage__setting > span:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.report-stage__setting strong {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.report-stage__setting small {
+  color: var(--stage-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.report-stage__setting input[type='checkbox'] {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--stage-ink);
+}
+
+.report-stage__days {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--stage-muted);
+  font-size: 0.875rem;
+}
+
+.report-stage__styles,
+.report-stage__style-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.report-stage__styles h3,
+.report-stage__style-editor h3 {
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+
+.report-stage__styles-hint,
+.report-stage__styles-foot small,
+.report-stage__trial > small {
+  color: var(--stage-muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.report-stage__styles ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.report-stage__styles li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.875rem 0.75rem 1rem;
+  border-radius: 0.875rem;
+  background: var(--stage-button);
+}
+
+.report-stage__styles li[data-current] {
+  background: color-mix(in srgb, var(--stage-ink) 14%, var(--stage-button));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stage-ink) 45%, transparent);
+}
+
+.report-stage__style-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.report-stage__style-text strong {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.report-stage__style-text small {
+  overflow: hidden;
+  color: var(--stage-muted);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-stage__style-actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.report-stage__style-actions button,
+.report-stage__style-badge {
+  height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.report-stage__style-actions button {
+  color: var(--stage-muted);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.report-stage__style-actions button:hover:not(:disabled) {
+  background: var(--stage-button-hover);
+  color: var(--stage-fg);
+}
+
+.report-stage__style-actions .report-stage__style-use {
+  background: var(--stage-button-hover);
+  color: var(--stage-fg);
+}
+
+.report-stage__style-badge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--stage-ink);
+  font-weight: 600;
+}
+
+.report-stage__styles-foot,
+.report-stage__editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.report-stage__editor-actions {
+  justify-content: flex-end;
+  padding-top: 0.25rem;
+}
+
+.report-stage__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.report-stage__field > span:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.report-stage__field small {
+  color: var(--stage-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.report-stage__field input,
+.report-stage__field textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.625rem;
+  background: var(--stage-button);
+  color: var(--stage-fg);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.report-stage__field input:focus-visible,
+.report-stage__field textarea:focus-visible {
+  outline: 2px solid var(--stage-ink);
+  outline-offset: 1px;
+}
+
+.report-stage__segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 0.1875rem;
+  border-radius: 999px;
+  background: var(--stage-button);
+}
+
+.report-stage__segmented button {
+  height: 2rem;
+  padding: 0 0.875rem;
+  border-radius: 999px;
+  color: var(--stage-muted);
+  font-size: 0.8125rem;
+}
+
+.report-stage__segmented button[aria-checked='true'] {
+  background: var(--stage-fg);
+  color: #fff;
+}
+
+html.dark .report-stage__segmented button[aria-checked='true'] {
+  color: #111114;
+}
+
+.report-stage__chapters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.report-stage__chapters li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--stage-button);
+  opacity: 0.6;
+}
+
+.report-stage__chapters li[data-on] {
+  opacity: 1;
+}
+
+.report-stage__chapters label {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.report-stage__chapters label > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.report-stage__chapters strong {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.report-stage__chapters input {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  accent-color: var(--stage-ink);
+}
+
+.report-stage__chapter-move {
+  display: inline-flex;
+  flex: none;
+  gap: 0.125rem;
+}
+
+.report-stage__chapter-move button {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.report-stage__chapter-move button:hover:not(:disabled) {
+  background: var(--stage-button-hover);
+}
+
+.report-stage__trial {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.875rem;
+  background: color-mix(in srgb, var(--stage-ink) 8%, var(--stage-button));
+}
+
+.report-stage__trial figure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding-top: 0.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+.report-stage__trial figcaption {
+  color: var(--stage-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.report-stage__trial-headline {
+  color: var(--stage-ink);
+  font-weight: 600;
+}
+
+.report-stage__days input {
+  width: 4.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--stage-button-hover);
+  color: var(--stage-fg);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.report-stage__setting input:focus-visible {
+  outline: 2px solid var(--stage-ink);
+  outline-offset: 2px;
+}
+
+.report-stage__style-actions button[data-confirm] {
+  background: rgb(220 38 38 / 14%);
+  color: rgb(185 28 28);
+}
+
+html.dark .report-stage__style-actions button[data-confirm] {
+  color: rgb(252 165 165);
+}
+
+.report-stage__styles-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+@media (width <= 767px) {
+  .report-stage__styles li {
+    flex-wrap: wrap;
+  }
+
+  .report-stage__style-actions {
+    margin-left: auto;
+  }
+}

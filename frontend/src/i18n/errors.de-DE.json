@@ -742,6 +742,19 @@
     "invite_invalid_status": "Diese Einladung kann nicht mehr angenommen werden.",
     "visitor_stats_unavailable": "Laden fehlgeschlagen",
     "portrait_not_illustration": "Dieses Bild sieht nicht nach einer farbigen Illustration aus (eher nach Foto, 3D-Rendering, Pixel-Art oder Schwarz-Weiß-Comic) und kann keine bewegte Figur werden. Bitte wähle eine farbige Illustration.",
-    "upright_in_progress": "Ein anderes Porträt wird gerade neu gezeichnet; versuche es gleich noch einmal."
+    "upright_in_progress": "Ein anderes Porträt wird gerade neu gezeichnet; versuche es gleich noch einmal.",
+    "report_style_invalid": "Etwas an diesem Stil ist nicht erlaubt.",
+    "report_style_invalid_id": "Stil-IDs bestehen aus Kleinbuchstaben, Ziffern, - und _, höchstens 32 Zeichen.",
+    "report_style_too_long": "Ein Feld dieses Stils ist zu lang.",
+    "report_style_builtin_readonly": "Eingebaute Stile lassen sich nicht ändern. Dupliziere einen, um ihn zu bearbeiten.",
+    "report_style_limit": "Die Höchstzahl eigener Stile ist erreicht.",
+    "report_style_not_found": "Diesen Stil gibt es nicht.",
+    "report_styles_save_failed": "Die Stile konnten nicht gespeichert werden.",
+    "report_platform_unknown": "Unbekannte Plattform.",
+    "report_platform_data_missing": "Für diese Plattform gibt es noch keine Daten. Zuerst synchronisieren.",
+    "report_model_unavailable": "Für Berichte ist kein Modell eingerichtet.",
+    "report_style_preview_failed": "Das Modell hat keinen brauchbaren Akt geschrieben. Erneut versuchen oder den Stil anpassen.",
+    "report_style_preview_busy": "Ein Probelauf wird noch geschrieben. Versuche es, wenn er fertig ist.",
+    "report_styles_conflict": "Die Stile wurden gerade anderswo geändert und neu geladen. Dein Entwurf ist noch da – speichere ihn erneut."
   }
 }

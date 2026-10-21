@@ -16,6 +16,7 @@ const LONG_AI_PREFIXES = [
   '/api/tapp-playground/',
   '/api/reports/generate',
   '/api/reports/platform',
+  '/api/reports/styles/preview',
   '/api/prompt/generate',
   '/api/seo/generate-copy',
   '/api/ai/',

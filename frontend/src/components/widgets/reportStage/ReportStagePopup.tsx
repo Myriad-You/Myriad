@@ -11,27 +11,56 @@ import {
   LuSkipForward,
   LuX,
 } from '@lib/icons'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
 import { useAnimationLevel } from '../../../hooks/useAnimationLevel'
 import { fetchPlatformData, generatePlatformReports } from '../../../services/platformTasksApi'
+import { emitAppEvent } from '../../../utils/appEvents'
+import { lazyWithPreload } from '../../../utils/codeSplitting'
+import { resolvePlatformId } from '../../../utils/platformId'
 import { notifyRecentActivityUpdated } from '../../../utils/recentActivity'
 import { resolveReportPlatformId } from '../../../utils/reportCardVisuals'
 import { reportUserFacingError } from '../../../utils/reportError'
-import { getLatestReportDeduped, invalidateLatestReportCache } from '../../../utils/requestDedup'
+import {
+  getLatestReportDeduped,
+  getPublicConfigDeduped,
+  invalidateLatestReportCache,
+} from '../../../utils/requestDedup'
 import { showToast } from '../../../utils/toastManager'
 import { PLATFORM_CONFIG } from '../reportCard/platformConfig'
 import { ReportCardWidget } from '../reportCard/ReportCardWidget'
 import { GlowBackground } from '../shared/GlowBackground'
-import { StageOwnerSettings } from './StageOwnerSettings'
 import { buildStageReport } from './stageScript'
 import { useStagePlayer } from './useStagePlayer'
 import './reportStage.css'
 
+/** 站长区只有站长用得到，访客不下载它。 */
+const StageOwnerSettings = lazyWithPreload(() =>
+  import('./StageOwnerSettings').then((module) => ({ default: module.StageOwnerSettings })),
+)
+
 /** 字幕区最多留几句：旧句往上退，不堆满屏。 */
 const VISIBLE_BEATS = 5
 const CARD_BASE = { width: 308, height: 154 }
+/** 收回动画放完再卸下内嵌的报告卡，让它的计时器停下。 */
+const CARD_UNMOUNT_DELAY_MS = 400
+/** 卡片在这几幕显示总览，其余各幕翻到详情。 */
+const OVERVIEW_CHAPTERS = new Set(['echo', 'portrait', 'closing'])
+
+/** 站长在平台设置里开着的平台，按拖拽顺序。读不到配置时返回 null，舞台照旧全列。 */
+async function loadPlatformOrder(): Promise<string[] | null> {
+  try {
+    const data = await getPublicConfigDeduped()
+    if (!Array.isArray(data?.platforms)) return null
+    return data.platforms
+      .filter((item: { enabled?: unknown }) => item?.enabled)
+      .map((item: { name?: unknown }) => (typeof item?.name === 'string' ? resolvePlatformId(item.name) : null))
+      .filter((id: string | null): id is string => Boolean(id))
+  } catch {
+    return null
+  }
+}
 
 function readPlatformParam(params: unknown): string | null {
   if (params && typeof params === 'object' && 'platform' in params) {
@@ -77,7 +106,7 @@ function ScaledCard({ platform, visuals, overview }: { platform: string; visuals
 }
 
 export default function ReportStagePopup({ config, params, active, close }: WidgetPopupProps) {
-  const { t, format } = useI18n()
+  const { t, format, locale } = useI18n()
   const copy = t.reportStage
   const { isAdmin } = useAuth()
   const anim = useAnimationLevel()
@@ -104,22 +133,43 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
     })
   }, [active, cardPlatform])
 
-  const titles = useMemo(() => ({ echo: copy.echo, insight: copy.insight }), [copy.echo, copy.insight])
+  const titles = useMemo(() => {
+    const numbers = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 })
+    return {
+      echo: copy.echo,
+      insight: copy.insight,
+      facts: copy.facts as Record<string, string>,
+      factValues: copy.factValues as Record<string, Record<string, string>>,
+      chapters: copy.chapters as Record<string, string>,
+      formatNumber: (value: number) => numbers.format(value),
+    }
+  }, [copy.chapters, copy.echo, copy.factValues, copy.facts, copy.insight, locale])
 
+  // 先发后至的请求不能盖掉后发先至的（切换风格后的强制刷新最常见）。
+  const loadSeq = useRef(0)
   const load = useCallback(
     async (forceRefresh = false) => {
+      const seq = ++loadSeq.current
       try {
-        const data = await getLatestReportDeduped({ forceRefresh })
-        const next = new Map<string, StageReport>()
+        const [data, enabled] = await Promise.all([
+          getLatestReportDeduped({ forceRefresh }),
+          loadPlatformOrder(),
+        ])
+        if (seq !== loadSeq.current) return
+        const built = new Map<string, StageReport>()
         for (const raw of Array.isArray(data?.platform_reports) ? data.platform_reports : []) {
           const report = buildStageReport(raw, titles)
-          if (report && PLATFORM_CONFIG[report.platform]) next.set(report.platform, report)
+          if (report && PLATFORM_CONFIG[report.platform]) built.set(report.platform, report)
         }
+        // 站长关掉的平台不上舞台；顺序跟平台设置里的拖拽一致。
+        const next = enabled
+          ? new Map(enabled.flatMap((id) => (built.has(id) ? [[id, built.get(id)!] as const] : [])))
+          : built
         setReports(next)
       } catch {
-        setReports(new Map())
+        if (seq === loadSeq.current) setReports(new Map())
       } finally {
-        setLoaded(true)
+        if (seq === loadSeq.current) setLoaded(true)
       }
     },
     [titles],
@@ -150,17 +200,32 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
   const visibleBeats = chapter ? chapter.beats.slice(0, state.shown).slice(-VISIBLE_BEATS) : []
   const currentBeat = chapter && state.shown > 0 ? chapter.beats[state.shown - 1] : undefined
 
-  // 收进暂存时暂停；重开不自动续播，让人自己按。
+  // 收回时暂停；重开不自动续播，让人自己按。
   const wasActive = useRef(active)
   useEffect(() => {
     if (wasActive.current && !active) pause()
     wasActive.current = active
   }, [active, pause])
 
+  // 收回后卸下内嵌的报告卡：它自己的轮换、在线状态轮询不该在看不见时继续跑。
+  const [cardMounted, setCardMounted] = useState(active)
   useEffect(() => {
-    if (!active) return
+    if (active) {
+      setCardMounted(true)
+      return undefined
+    }
+    const timer = window.setTimeout(setCardMounted, CARD_UNMOUNT_DELAY_MS, false)
+    return () => window.clearTimeout(timer)
+  }, [active])
+
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!active || settingsOpen) return
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
       const target = event.target instanceof Element ? event.target : null
+      // 只管落在舞台里（或焦点丢到 body）时的按键，别处的方向键不归它。
+      if (target && target !== document.body && !rootRef.current?.contains(target)) return
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
       // 焦点在按钮上时空格由按钮自己处理，这里再切一次就抵消了。
       if (event.key === ' ' && target?.closest('button')) return
@@ -177,7 +242,7 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [active, toggle, jump, state.chapter])
+  }, [active, settingsOpen, toggle, jump, state.chapter])
 
   const platformLabel = PLATFORM_CONFIG[platform]?.label ?? platform
   const regenerate = useCallback(async () => {
@@ -194,6 +259,7 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
       const produced = Array.isArray(body?.reports) && body.reports.some((r) => r?.platform === platform)
       if (!produced) throw new Error(body?.message || 'not generated')
       invalidateLatestReportCache()
+      emitAppEvent('reports-updated')
       await load(true)
       showToast({ message: format(copy.generated, { platform: platformLabel }), type: 'success', replaceKey: 'report-stage' })
     } catch (err) {
@@ -208,10 +274,10 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
   }, [copy.generateFailed, copy.generated, format, generating, load, platform, platformLabel, t.reportCard])
 
   const accent = PLATFORM_CONFIG[platform]?.color ?? 'var(--color-primary, #6366f1)'
-  const overview = chapter?.key !== 'insight'
+  const overview = !chapter || OVERVIEW_CHAPTERS.has(chapter.key)
 
   return (
-    <div className="report-stage" style={{ '--stage-accent': accent } as React.CSSProperties}>
+    <div ref={rootRef} className="report-stage" style={{ '--stage-accent': accent } as React.CSSProperties}>
       <div className="report-stage__glow" aria-hidden="true">
         <GlowBackground
           color={accent}
@@ -244,7 +310,7 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
           ))}
         </nav>
         {chapters.length > 0 ? (
-          <div className="report-stage__act" aria-live="polite">
+          <div className="report-stage__act">
             <span>{format(copy.chapterOf, { current: state.chapter + 1, total: chapters.length })}</span>
             <strong>{chapter?.title}</strong>
           </div>
@@ -256,7 +322,9 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
 
       <main className="report-stage__body">
         {settingsOpen && isAdmin ? (
-          <StageOwnerSettings />
+          <Suspense fallback={<div className="report-stage__empty"><p>{t.common.loading}</p></div>}>
+            <StageOwnerSettings platform={platform} onStyleChanged={() => void load(true)} />
+          </Suspense>
         ) : report ? (
           <>
             <section className="report-stage__subtitles" aria-live="polite">
@@ -275,9 +343,14 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
               {state.ended ? <p className="report-stage__end">{copy.finished}</p> : null}
             </section>
             <aside className="report-stage__side">
-              <ScaledCard platform={platform} visuals={report.cardVisuals} overview={overview} />
+              {cardMounted ? (
+                <ScaledCard platform={platform} visuals={report.cardVisuals} overview={overview} />
+              ) : null}
               {currentBeat?.fact ? (
                 <div className="report-stage__fact" key={currentBeat.fact.id}>
+                  {currentBeat.fact.media ? (
+                    <img src={currentBeat.fact.media} alt="" loading="lazy" decoding="async" />
+                  ) : null}
                   <span>{currentBeat.fact.label}</span>
                   <strong>{currentBeat.fact.value}</strong>
                 </div>
@@ -351,6 +424,8 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
               className="report-stage__icon-btn"
               aria-label={copy.settings}
               aria-pressed={settingsOpen}
+              onPointerEnter={() => void StageOwnerSettings.preload().catch(() => {})}
+              onFocus={() => void StageOwnerSettings.preload().catch(() => {})}
               onClick={() => setSettingsOpen((open) => !open)}
             >
               <LuSettings aria-hidden="true" />

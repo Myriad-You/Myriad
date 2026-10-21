@@ -7,6 +7,19 @@ export interface StageFact {
   id: string
   label: string
   value: string
+  /** 封面、头像之类，已经过站内图片代理。 */
+  media?: string
+}
+
+/** 剧本里要本地化的文字。后端事实的 label 是写给模型看的英文，界面按 id 取文案。 */
+export interface StageCopy {
+  echo: string
+  insight: string
+  facts?: Record<string, string>
+  /** 枚举型事实的取值（如贡献等级）按 id → 值 → 文字本地化。 */
+  factValues?: Record<string, Record<string, string>>
+  chapters?: Record<string, string>
+  formatNumber?: (value: number) => string
 }
 
 export interface StageBeat {
@@ -32,17 +45,30 @@ export interface StageReport {
 }
 
 const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/g
-const MARKDOWN_SYMBOLS = /[*_~`#>]/g
 const WHITESPACE = /\s+/g
+// 只去成对的标记和行首标记：「C#」「my_repo」「5 * 3」里的符号不动。
+const LINE_MARKERS = /^[ \t]{0,3}(?:#{1,6}|[>\-*+])[ \t]+/gm
+const PAIRED_MARKUP = /(\*\*|__|~~|`)(?=\S)(.+?)(?<=\S)\1/g
+const SINGLE_STARS = /(^|[\s(（])\*(?=\S)([^*\n]+)(?<=\S)\*(?=$|[\s).,!?;:，。！？）])/gm
 // 旧报告没分句，只按句末标点切；逗号不切，免得一句话碎成几截。
 const SENTENCE_END = /([。！？!?；;]|\.(?=\s|$))/g
 
-export function cleanStageText(text: string): string {
+/** 事实原样显示（「C#」「my_repo」都是正经值），只去控制字符、并空白。 */
+export function cleanFactText(text: string): string {
   return text
-    .replaceAll(CONTROL_CHARS, '')
-    .replaceAll(MARKDOWN_SYMBOLS, '')
+    .replaceAll(CONTROL_CHARS, ' ')
     .replaceAll(WHITESPACE, ' ')
     .trim()
+}
+
+/** 台词：模型偶尔仍带 markdown，去成对的标记和行首标记，单个符号不动。 */
+export function cleanStageText(text: string): string {
+  return cleanFactText(
+    text
+      .replaceAll(LINE_MARKERS, '')
+      .replaceAll(PAIRED_MARKUP, '$2')
+      .replaceAll(SINGLE_STARS, '$1$2'),
+  )
 }
 
 function splitSentences(text: string): string[] {
@@ -74,15 +100,27 @@ function asText(value: unknown): string {
   return ''
 }
 
-function readFacts(raw: unknown): Map<string, StageFact> {
+// 只认站内路径或 http(s)，别的（data:、javascript:）一律不显示。
+// 站内绝对路径或 http(s)。「//host」「/\\host」浏览器都当成别的站，不放行。
+const SAFE_MEDIA = /^(\/(?![/\\])|https?:\/\/)/i
+
+function readFacts(raw: unknown, copy: StageCopy): Map<string, StageFact> {
   const facts = new Map<string, StageFact>()
   if (!Array.isArray(raw)) return facts
   for (const item of raw) {
     const record = asRecord(item)
     const id = asText(record?.id)
-    const label = cleanStageText(asText(record?.label))
-    const value = cleanStageText(asText(record?.value))
-    if (id && label && value) facts.set(id, { id, label, value })
+    const label = copy.facts?.[id] || cleanFactText(asText(record?.label))
+    const rawValue = record?.value
+    const value = cleanFactText(
+      typeof rawValue === 'number' && Number.isFinite(rawValue) && copy.formatNumber
+        ? copy.formatNumber(rawValue)
+        : copy.factValues?.[id]?.[asText(rawValue)] ?? asText(rawValue),
+    )
+    const media = asText(record?.media).trim()
+    if (id && label && value) {
+      facts.set(id, SAFE_MEDIA.test(media) ? { id, label, value, media } : { id, label, value })
+    }
   }
   return facts
 }
@@ -118,7 +156,7 @@ function chaptersFromScript(
 
 function chaptersFromLegacy(
   report: Record<string, unknown>,
-  titles: { echo: string; insight: string },
+  titles: StageCopy,
 ): StageChapter[] {
   const chapters: StageChapter[] = []
   const summary = splitSentences(asText(report.summary)).map((text) => beat(text))
@@ -137,15 +175,15 @@ function chaptersFromLegacy(
 /** 把 `/api/reports/latest` 里的一条平台报告整理成舞台剧本。没东西可播时返回 null。 */
 export function buildStageReport(
   raw: unknown,
-  titles: { echo: string; insight: string },
+  copy: StageCopy,
 ): StageReport | null {
   const report = asRecord(raw)
   const platform = asText(report?.platform)
   if (!report || !platform) return null
   const script = asRecord(report.script)
-  const facts = readFacts(report.facts)
-  const fromScript = script ? chaptersFromScript(script, facts, titles) : []
-  const chapters = fromScript.length > 0 ? fromScript : chaptersFromLegacy(report, titles)
+  const facts = readFacts(report.facts, copy)
+  const fromScript = script ? chaptersFromScript(script, facts, copy.chapters ?? {}) : []
+  const chapters = fromScript.length > 0 ? fromScript : chaptersFromLegacy(report, copy)
   if (chapters.length === 0) return null
   const headline = script ? cleanStageText(asText(script.headline)) : ''
   return {

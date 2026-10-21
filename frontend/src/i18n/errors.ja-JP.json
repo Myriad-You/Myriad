@@ -742,6 +742,19 @@
     "invite_invalid_status": "この招待はもう受け取れません。",
     "visitor_stats_unavailable": "読み込みに失敗しました",
     "portrait_not_illustration": "この画像はカラーイラストではないようです（写真、3D レンダリング、ドット絵、白黒漫画など）。動く姿にはできないので、カラーイラストを選んでください。",
-    "upright_in_progress": "別の立ち絵を描き直しています。しばらくしてからもう一度お試しください。"
+    "upright_in_progress": "別の立ち絵を描き直しています。しばらくしてからもう一度お試しください。",
+    "report_style_invalid": "この書き方に使えない内容があります。",
+    "report_style_invalid_id": "書き方の ID は小文字・数字・- と _ だけ、32 文字までです。",
+    "report_style_too_long": "書き方のどこかが長さの上限を超えています。",
+    "report_style_builtin_readonly": "組み込みの書き方は変更できません。複製してから編集してください。",
+    "report_style_limit": "カスタムの書き方が上限に達しています。",
+    "report_style_not_found": "その書き方はありません。",
+    "report_styles_save_failed": "書き方を保存できませんでした。",
+    "report_platform_unknown": "知らないプラットフォームです。",
+    "report_platform_data_missing": "このプラットフォームにはまだデータがありません。先に同期してください。",
+    "report_model_unavailable": "レポートを書くモデルが設定されていません。",
+    "report_style_preview_failed": "モデルが使える1幕を書けませんでした。もう一度試すか、書き方を調整してください。",
+    "report_style_preview_busy": "前回の試し書きがまだ終わっていません。終わってからもう一度試してください。",
+    "report_styles_conflict": "スタイルが別の場所で変更されたため、最新の内容を読み込みました。下書きは残っているので、もう一度保存してください。"
   }
 }

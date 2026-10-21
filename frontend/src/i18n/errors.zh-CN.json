@@ -742,6 +742,19 @@
     "invite_invalid_status": "这个邀请已经不能接受了。",
     "visitor_stats_unavailable": "加载失败",
     "portrait_not_illustration": "这张图看起来不是彩色插画（像照片、3D 渲染、像素画或黑白漫画），做不成会动的形象。请换一张彩色插画。",
-    "upright_in_progress": "正在重画另一张立绘，请稍后再试。"
+    "upright_in_progress": "正在重画另一张立绘，请稍后再试。",
+    "report_style_invalid": "这套风格有内容不合要求。",
+    "report_style_invalid_id": "风格编号只能用小写字母、数字、- 和 _，最长 32 个字符。",
+    "report_style_too_long": "风格里有一项超出了长度上限。",
+    "report_style_builtin_readonly": "内置风格不能改，可以复制一份再改。",
+    "report_style_limit": "自定义风格已经到上限了。",
+    "report_style_not_found": "没有这套风格。",
+    "report_styles_save_failed": "风格没能保存。",
+    "report_platform_unknown": "不认识这个平台。",
+    "report_platform_data_missing": "这个平台还没有数据，先同步一次。",
+    "report_model_unavailable": "还没有配置写报告用的模型。",
+    "report_style_preview_failed": "模型没写出合格的一幕，再试一次或调整一下风格。",
+    "report_style_preview_busy": "上一次试写还没结束，等它写完再试。",
+    "report_styles_conflict": "风格刚在别处改过，已换成最新的。草稿还在，再保存一次就行。"
   }
 }

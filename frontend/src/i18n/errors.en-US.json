@@ -742,6 +742,19 @@
     "invite_invalid_status": "This invite can no longer be accepted.",
     "visitor_stats_unavailable": "Failed to load",
     "portrait_not_illustration": "This picture does not look like a color illustration (it looks like a photo, a 3D render, pixel art or a black-and-white comic), so it cannot become a moving figure. Please choose a color illustration.",
-    "upright_in_progress": "Another portrait is being redrawn; try again in a moment."
+    "upright_in_progress": "Another portrait is being redrawn; try again in a moment.",
+    "report_style_invalid": "Something in this style isn't allowed.",
+    "report_style_invalid_id": "Style IDs use lowercase letters, digits, - and _, up to 32 characters.",
+    "report_style_too_long": "A field in this style is too long.",
+    "report_style_builtin_readonly": "Built-in styles can't be changed. Duplicate one to edit it.",
+    "report_style_limit": "You've reached the limit of custom styles.",
+    "report_style_not_found": "That style doesn't exist.",
+    "report_styles_save_failed": "Couldn't save the styles.",
+    "report_platform_unknown": "Unknown platform.",
+    "report_platform_data_missing": "This platform has no data yet. Sync it first.",
+    "report_model_unavailable": "No model is set up for writing reports.",
+    "report_style_preview_failed": "The model didn't write a usable act. Try again or adjust the style.",
+    "report_style_preview_busy": "A trial is still being written. Try again when it finishes.",
+    "report_styles_conflict": "The styles were just changed elsewhere and have been reloaded. Your draft is still here — save it again."
   }
 }

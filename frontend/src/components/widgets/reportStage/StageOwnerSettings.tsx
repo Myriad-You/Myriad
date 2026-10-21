@@ -8,13 +8,21 @@ import {
 } from '../../../utils/reportSettings'
 import { showToast } from '../../../utils/toastManager'
 import { userFacingError } from '../../../utils/userFacingError'
+import { StageStyleSettings } from './StageStyleSettings'
+import './stageOwner.css'
 
 function clampDays(value: number): number {
   return Math.min(365, Math.max(1, Math.round(value)))
 }
 
-/** 站长区：报告有效期与过期后是否重写。改一项存一项，不另设保存按钮。 */
-export function StageOwnerSettings() {
+/** 站长区：报告风格，以及有效期与过期后是否重写。有效期改一项存一项，不另设保存按钮。 */
+export function StageOwnerSettings({
+  platform,
+  onStyleChanged,
+}: {
+  platform: string
+  onStyleChanged: () => void
+}) {
   const { t } = useI18n()
   const copy = t.reportStage
   const [settings, setSettings] = useState<ReportSettings | null>(null)
@@ -81,6 +89,7 @@ export function StageOwnerSettings() {
   return (
     <section className="report-stage__settings" aria-labelledby={`${id}-title`} aria-busy={saving}>
       <h2 id={`${id}-title`}>{copy.settings}</h2>
+      <StageStyleSettings platform={platform} onStyleChanged={onStyleChanged} />
       <label className="report-stage__setting">
         <span>
           <strong>{copy.expiryEnabled}</strong>

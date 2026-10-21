@@ -132,11 +132,16 @@ export const ReportCardWidget = memo(
         }
       }
       document.addEventListener('visibilitychange', onVisibility)
+      const onReportsUpdated = () => {
+        if (!cancelled) fetchReport()
+      }
+      window.addEventListener('reports-updated', onReportsUpdated)
 
       return () => {
         cancelled = true
         if (timeoutId) clearTimeout(timeoutId)
         document.removeEventListener('visibilitychange', onVisibility)
+        window.removeEventListener('reports-updated', onReportsUpdated)
       }
     }, [platformId, isPreview, externalData])
 
@@ -192,7 +197,7 @@ export const ReportCardWidget = memo(
     const interactive = !bare && !isPreview
 
     // 首页：总览停 10 秒，详情每页按平台面报的时长；滑动、页码点都按真实页数翻。
-    // 嵌在报告页（bare）时只在总览 ↔ 详情间自动翻，详情项由平台面自己轮换。
+    // 嵌在舞台里（bare）时只在总览 ↔ 详情间自动翻，详情项由平台面自己轮换。
     const rotation = useWidgetRotation({
       count: pageCount,
       interactive: interactive && !isEditMode,
