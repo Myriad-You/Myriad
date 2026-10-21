@@ -55,7 +55,7 @@ function TappWidgetPopupComponent({
         if (cancelled) return
         // 拉代码期间被停用：前提已经没了，不挂。
         if (!runtime.isRunning(found.tappId)) {
-          dropWidgetPopups((entry) => entry.key === config.id)
+          dropWidgetPopups((entry) => entry.widget.id === config.id)
           return
         }
         setWidget(found)
@@ -84,7 +84,7 @@ function TappWidgetPopupComponent({
     if (!tappId) return
     const drop = (data: unknown) => {
       if ((data as { id?: string })?.id === tappId) {
-        dropWidgetPopups((entry) => entry.key === config.id)
+        dropWidgetPopups((entry) => entry.widget.id === config.id)
       }
     }
     const reload = (data: unknown) => {
@@ -106,7 +106,7 @@ function TappWidgetPopupComponent({
     if (!sandboxMounted) return undefined
     const key = `popup:${config.id}`
     if (active) hiddenWidgetPool.remove(key)
-    else hiddenWidgetPool.add(key, () => dropWidgetPopups((entry) => entry.key === config.id))
+    else hiddenWidgetPool.add(key, () => dropWidgetPopups((entry) => entry.widget.id === config.id))
     return () => hiddenWidgetPool.remove(key)
   }, [active, sandboxMounted, config.id])
 

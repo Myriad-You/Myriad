@@ -12,6 +12,7 @@ import { getTappSubjectSnapshot, subscribeTappSubject } from '../utils/tappSubje
  * 只有授权前提消失（换身份、卸载、停用、代码变更、卡片被删）才销毁。
  */
 export interface WidgetPopupEntry {
+  /** 卡片实例 id；声明了 shareKey 的弹窗用它，几张卡共用一份。 */
   key: string
   widget: WidgetConfig
   widgetType: WidgetType
@@ -72,7 +73,7 @@ export function openWidgetPopup(request: OpenWidgetPopupRequest): void {
   const popup = request.widgetType.popup
   if (!popup) return
   armed.set(true)
-  const key = request.widget.id
+  const key = popup.shareKey ?? request.widget.id
   clock += 1
   const touchedAt = clock
   store.set(({ entries }) => {
@@ -122,7 +123,7 @@ export function dropWidgetPopups(
 /** 卡片配置变了（站长改了实例设置）时，把新配置带进已开的弹窗，不重开。 */
 export function syncWidgetPopupConfig(widget: WidgetConfig): void {
   store.set((state) => {
-    const index = state.entries.findIndex((entry) => entry.key === widget.id)
+    const index = state.entries.findIndex((entry) => entry.widget.id === widget.id)
     if (index < 0) return state
     const current = state.entries[index]
     if (current.widget === widget) return state

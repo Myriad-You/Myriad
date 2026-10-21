@@ -165,6 +165,8 @@ const REPORT_STAGE_POPUP: WidgetPopupDef = {
   size: 'stage',
   chrome: 'none',
   preload: ReportStagePopup.preload,
+  // 舞台能切到任何平台、能连播：所有报告卡共用一份，打开它的卡带上自己的平台。
+  shareKey: 'report-stage',
 }
 
 export function getBuiltinWidgets(

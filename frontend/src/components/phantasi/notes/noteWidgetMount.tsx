@@ -10,8 +10,8 @@ import type { NoteWidgetConfig } from './noteLayout'
 import { Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useI18n } from '../../../contexts/I18nContext'
+import { useWidgetPopupOpener } from '../../../hooks/useWidgetPopupOpener'
 import { RenderErrorBoundary } from '../../RenderErrorBoundary'
-import { useWidgetPopupOpener } from '../../WidgetGridItemBody'
 import { widgetHostConfig } from '../../widgetLibraryModel'
 import {
   decodeWidgetConfigAttr,

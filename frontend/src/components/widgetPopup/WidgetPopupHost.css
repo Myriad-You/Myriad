@@ -13,7 +13,6 @@
   opacity: 0;
   transition: opacity 220ms cubic-bezier(0.32, 0.72, 0, 1);
   backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
 }
 
 .widget-popup-layer[data-open='true'] .widget-popup-backdrop {
@@ -25,8 +24,9 @@ html.dark .widget-popup-backdrop {
   background: rgb(0 0 0 / 46%);
 }
 
-html[data-perf-mode='exlight'] .widget-popup-backdrop {
-  backdrop-filter: none;
+/* 前面那份铺满整屏（手机上的舞台）时底下什么也看不见，不必每帧替它模糊。 */
+html[data-perf-mode='exlight'] .widget-popup-backdrop,
+.widget-popup-layer[data-cover='full'] .widget-popup-backdrop {
   backdrop-filter: none;
 }
 

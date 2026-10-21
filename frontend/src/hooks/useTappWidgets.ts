@@ -159,6 +159,7 @@ function createTappWidgetType(
       popup = {
         component: WrappedPopup,
         size: declared.size ?? 'md',
+        // 应用自己画的关闭控件不可信，宿主的关闭按钮总在。
         chrome: 'close',
         preload: TappWidgetPopup.preload,
       }

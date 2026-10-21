@@ -52,6 +52,11 @@ export interface WidgetPopupDef {
   chrome?: 'close' | 'none'
   /** 预先拉内容代码。卡片被指向或页面空闲时调用，点开时就不用等。 */
   preload?: () => Promise<unknown>
+  /**
+   * 几张卡共用一份弹窗。弹窗本身不属于某张卡（比如舞台能切到任何平台）时给，
+   * 免得每张卡各开一份、重复取数还多占收回的名额。参数照常由打开它的卡带进来。
+   */
+  shareKey?: string
 }
 
 export interface WidgetType {

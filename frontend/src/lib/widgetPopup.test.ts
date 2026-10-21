@@ -80,3 +80,18 @@ test('an identity change destroys every popup before anything re-renders', () =>
   assert.deepEqual(getWidgetPopupState(), { entries: [], activeKey: null })
   finishTappSubjectChange(epoch, false)
 })
+
+test('cards sharing a popup reuse one instance and hand it their own params', () => {
+  dropWidgetPopups()
+  const shared = { ...withPopup, popup: { ...withPopup.popup!, shareKey: 'stage' } } as WidgetType
+  open('steam-card', { platform: 'steam' }, shared)
+  closeWidgetPopup()
+  open('github-card', { platform: 'github' }, shared)
+  const { entries, activeKey } = getWidgetPopupState()
+  assert.equal(entries.length, 1)
+  assert.equal(activeKey, 'stage')
+  assert.equal(entries[0].widget.id, 'github-card', 'anchors to the card that opened it last')
+  assert.deepEqual(entries[0].params, { platform: 'github' })
+  dropWidgetPopups((entry) => entry.widget.id === 'github-card')
+  assert.equal(getWidgetPopupState().entries.length, 0, 'deleting that card drops the shared popup')
+})

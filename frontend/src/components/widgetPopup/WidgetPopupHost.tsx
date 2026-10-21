@@ -202,7 +202,7 @@ function WidgetPopupFrame({
           />
         </Suspense>
       </RenderErrorBoundary>
-      {popup.chrome === 'none' && !entry.widgetType.isTappWidget ? null : (
+      {popup.chrome === 'none' ? null : (
         <button
           type="button"
           className="widget-popup-frame__close"
@@ -280,9 +280,14 @@ export default function WidgetPopupHost() {
   }, [open])
 
   if (state.entries.length === 0) return null
+  const front = state.entries.find((entry) => entry.key === state.activeKey)
 
   return createPortal(
-    <div className="widget-popup-layer" data-open={open ? 'true' : 'false'}>
+    <div
+      className="widget-popup-layer"
+      data-open={open ? 'true' : 'false'}
+      data-cover={phone && front?.size === 'stage' ? 'full' : undefined}
+    >
       <div
         className="widget-popup-backdrop"
         aria-hidden="true"
