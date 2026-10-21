@@ -61,6 +61,19 @@ const MIME = new Map([
 
 const loadBrand = createBrandLoader(process.env.BRANDING_METADATA_URL || '')
 
+// 下线的页面：手帐（换成 /blog）和报告页（换成报告卡的舞台弹窗）。都不做跳转，
+// 回 410 让搜索引擎把旧地址清掉，而不是收到一份 200 的空壳当软 404 慢慢猜。
+const RETIRED_PREFIXES = ['/journal', '/reports']
+const GONE_HTML = Buffer.from(
+  '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="robots" content="noindex">'
+  + '<meta name="viewport" content="width=device-width, initial-scale=1"><title>410 Gone</title></head>'
+  + '<body><p>This page has been retired.</p><p><a href="/">Home</a></p></body></html>',
+)
+
+function isRetiredPath(urlPath) {
+  return RETIRED_PREFIXES.some((prefix) => urlPath === prefix || urlPath.startsWith(`${prefix}/`))
+}
+
 function requestPathname(rawUrl) {
   const pathOnly = String(rawUrl || '/').split('?')[0]
   try {
@@ -241,6 +254,21 @@ async function handle(req, res) {
     return
   }
 
+  if (isRetiredPath(urlPath)) {
+    send(res, {
+      status: 410,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Robots-Tag': 'noindex',
+        'Content-Length': GONE_HTML.length,
+      },
+      body: GONE_HTML,
+      method,
+    })
+    return
+  }
+
   const found = lookup(urlPath)
   if (found.status !== 200) {
     send(res, { status: found.status, headers: { 'Cache-Control': 'no-cache' }, method })
@@ -264,6 +292,8 @@ async function handle(req, res) {
       headers['Permissions-Policy'] = DOCUMENT_PERMISSIONS_POLICY
       headers['Content-Security-Policy'] = documentContentSecurityPolicy({ nonce, embed, connectSrc: CSP_CONNECT_SRC })
       headers['X-Frame-Options'] = embed ? 'SAMEORIGIN' : 'DENY'
+      // 嵌入页只是博客页里的一块，单独收录只会多出一批标题是站名的空页。
+      if (embed) headers['X-Robots-Tag'] = 'noindex'
       headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
       let html = raw.toString('utf8').replaceAll(CSP_NONCE_PLACEHOLDER, nonce)
       if (brand) html = stampDocumentHtml(html, brand)

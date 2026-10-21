@@ -237,7 +237,7 @@ AI 增强源内部叫 phantasiai，界面叫 **AI 增强**。订阅包格式叫 
 
 **博客（blog）**：
 笔记对访客的唯一出口。后端把已发布笔记和友情链接导出给 Hugo，用选中的博客主题生成静态站，挂在 `/blog`。页面不跑脚本；评论与友联申请靠同源嵌入页。
-访客侧 `/journal` 已下线，不做 301。笔记 RSS 只在 `/api/phantasi/notes.xml`，默认关闭，管理员打开。
+访客侧 `/journal` 已下线，不做 301，回 410。笔记 RSS 只在 `/api/phantasi/notes.xml`，默认关闭，管理员打开；Hugo 不出订阅和站点地图，站点地图由主站统一给。
 抓来的单篇没有本站文章地址。`/api/phantasi` 与联邦对象 ID `/phantasi/articles/{id}` 仍用内部名。
 _Avoid_: 手帐（访客界面已下线）、把 `/blog` 当 SPA 路由、Brew、Brewlia、Brewpack、把用户可见 URL 写成 `/phantasi`、把订阅源当自己的文章收录、给 `/journal` 做 301 或 query 回填
 
