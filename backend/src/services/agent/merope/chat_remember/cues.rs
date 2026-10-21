@@ -70,12 +70,18 @@ async fn write_for(
     };
     let mut kept = 0;
     for (index, cues) in parse(&raw, rows.len()).unwrap_or_default() {
-        if matches!(unified::keep_cues(db, &rows[index].id, &cues).await, Ok(true)) {
+        if matches!(
+            unified::keep_cues(db, &rows[index].id, &cues).await,
+            Ok(true)
+        ) {
             kept += 1;
         }
     }
     if kept > 0 {
-        tracing::info!(kept, "[Merope] wrote when what she knows would come to mind");
+        tracing::info!(
+            kept,
+            "[Merope] wrote when what she knows would come to mind"
+        );
     }
     kept
 }
