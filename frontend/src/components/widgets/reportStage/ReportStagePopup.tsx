@@ -1,11 +1,9 @@
 import type { WidgetPopupProps } from '../../widgetGridTypes'
 import type { StageReport } from './stageScript'
 import {
-  FaPause,
-  FaPlay,
-  FaRedo,
   LuListOrdered,
   LuRefreshCw,
+  LuRotateCw,
   LuSettings,
   LuX,
 } from '@lib/icons'
@@ -28,7 +26,7 @@ import {
 import { showToast } from '../../../utils/toastManager'
 import { PLATFORM_CONFIG } from '../reportCard/platformConfig'
 import { GlowBackground } from '../shared/GlowBackground'
-import { ProgressRing, RevealLine } from './stageParts'
+import { ProgressRing, RevealLine, StagePauseIcon, StagePlayIcon } from './stageParts'
 import { buildStageReport } from './stageScript'
 import { useStagePlayer } from './useStagePlayer'
 import './reportStage.css'
@@ -378,11 +376,11 @@ export default function ReportStagePopup({ config, params, active, close }: Widg
               fraction={chapter ? state.shown / chapter.beats.length : 0}
             />
             {state.ended ? (
-              <FaRedo aria-hidden="true" />
+              <LuRotateCw aria-hidden="true" />
             ) : state.playing ? (
-              <FaPause aria-hidden="true" />
+              <StagePauseIcon />
             ) : (
-              <FaPlay aria-hidden="true" className="report-stage__play-glyph" />
+              <StagePlayIcon />
             )}
           </button>
           <button

@@ -120,3 +120,21 @@ export function ProgressRing({
     </svg>
   )
 }
+
+/** 播放键用的细字形：图标库里的实心款太重，描边款的暂停又是两个空框。 */
+export function StagePauseIcon(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" {...props}>
+      <rect x="4.25" y="3" width="2" height="10" rx="1" />
+      <rect x="9.75" y="3" width="2" height="10" rx="1" />
+    </svg>
+  )
+}
+
+export function StagePlayIcon(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M5 3.9c0-.8.87-1.28 1.54-.85l6.1 4.1c.6.4.6 1.3 0 1.7l-6.1 4.1C5.87 13.38 5 12.9 5 12.1Z" />
+    </svg>
+  )
+}
