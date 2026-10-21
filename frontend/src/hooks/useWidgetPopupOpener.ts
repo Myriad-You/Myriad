@@ -23,9 +23,9 @@ function cardFace(shell: HTMLElement | null): WidgetPopupAnchor | null {
   let node: Element | null = shell
   for (let depth = 0; node && depth < 4; depth++, node = node.firstElementChild) {
     const radius = Number.parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0
-    if (radius > 0) return { rect: node.getBoundingClientRect(), radius }
+    if (radius > 0 && node instanceof HTMLElement) return { rect: node.getBoundingClientRect(), radius, face: node }
   }
-  return { rect: shell.getBoundingClientRect(), radius: 0 }
+  return { rect: shell.getBoundingClientRect(), radius: 0, face: shell }
 }
 
 /** 卡片打开自己的弹窗。编辑、预览里不给；宿主不同（网格、正文）共用这一处。 */

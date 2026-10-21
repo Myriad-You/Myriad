@@ -25,10 +25,11 @@ export interface WidgetPopupEntry {
   touchedAt: number
 }
 
-/** 卡片看得见的那一面：位置和圆角（px）。 */
+/** 卡片看得见的那一面：位置和圆角（px）。收回快落地时用它的样子先换上。 */
 export interface WidgetPopupAnchor {
   rect: DOMRect
   radius: number
+  face?: HTMLElement
 }
 
 export interface WidgetPopupState {

@@ -24,6 +24,7 @@ import { lockScroll } from '../../utils/scrollLock'
 import { VIEWPORT_MQ } from '../../utils/viewportBands'
 import { RenderErrorBoundary } from '../RenderErrorBoundary'
 import { widgetDisplayLabel } from '../widgetLibraryModel'
+import { cloneCardFace, syncCardAnimations } from './cardStandIn'
 import './WidgetPopupHost.css'
 
 /**
@@ -45,11 +46,16 @@ const EASE_ENTER_FALLBACK = 'cubic-bezier(0.16, 1, 0.3, 1)'
 const EASE_LAND = 'cubic-bezier(0.32, 0.72, 0, 1)'
 const EASE_EXIT = 'cubic-bezier(0.4, 0, 1, 1)'
 /**
- * 收回时按时间在这一段里淡掉：之前形状已经差不多是卡片了；
- * 形状最后那点慢慢贴合时已经看不见，不留弹窗和卡片叠在一起的重影。
+ * 收回快落地时（按时间）先换成卡片的样子：卡片副本显出来、弹窗内容退掉，几乎同时，
+ * 五十毫秒上下换完。卡片常是半透明的毛玻璃，弹窗退得比它慢就会从底下透出来。
+ * 形状最后那点贴合时框里已经是卡片，落地不留重影。做不出副本时弹窗自己在 FADE 那一段淡掉。
  */
-const LAND_FADE_FROM = 0.5
-const LAND_FADE_TO = 0.9
+const STAND_IN_FROM = 0.48
+const STAND_IN_TO = 0.62
+const FRAME_OUT_FROM = 0.5
+const FRAME_OUT_TO = 0.64
+const FADE_FROM = 0.5
+const FADE_TO = 0.9
 /**
  * 弹窗的投影伸出边框外这么远（上、右、下、左）。收回时裁切从投影外沿开始，
  * 第一帧不会把投影一刀切掉。
@@ -86,15 +92,28 @@ function anchorTransform(from: DOMRect, to: DOMRect, cover = false): { transform
  * 落回卡片：等比缩到盖住卡片，多出来的部分裁掉，圆角裁成卡片的圆角，
  * 最后一帧和卡片看得见的那一面严丝合缝。裁切量按缩放前的尺寸算。
  */
-function landingKeyframes(anchor: WidgetPopupAnchor, rect: DOMRect, radius: number, full: boolean): Keyframe[] {
+function landing(anchor: WidgetPopupAnchor, rect: DOMRect, radius: number, full: boolean) {
   const { transform, scale } = anchorTransform(anchor.rect, rect, true)
   const x = Math.max(0, (rect.width - anchor.rect.width / scale) / 2)
   const y = Math.max(0, (rect.height - anchor.rect.height / scale) / 2)
   const [top, right, bottom, left] = full ? [0, 0, 0, 0] : SHADOW_REACH
-  return [
+  const frame: Keyframe[] = [
     { transform: 'none', clipPath: `inset(${-top}px ${-right}px ${-bottom}px ${-left}px round ${radius}px)` },
     { transform, clipPath: `inset(${y}px ${x}px ${y}px ${x}px round ${anchor.radius / scale}px)` },
   ]
+  // 卡片副本就是框里裁出来的那一块：起点放大到弹窗的比例，和框同一条曲线落到卡片上。
+  // 位移和缩放都随进度线性变，两份动画同一帧开始、同一条缓动，一直对得上。
+  const standIn: Keyframe[] = [
+    { transform: `translate(${rect.left + x}px, ${rect.top + y}px) scale(${1 / scale})` },
+    { transform: `translate(${anchor.rect.left}px, ${anchor.rect.top}px) scale(1)` },
+  ]
+  return { frame, standIn }
+}
+
+/** 按时间的一段淡入淡出，不跟形状的缓动：形状末段走得很慢，跟着它会从一半就开始发虚。 */
+function fadeBetween(from: number, to: number, appear: boolean): Keyframe[] {
+  const [start, end] = appear ? [0, 1] : [1, 0]
+  return [{ opacity: start }, { opacity: start, offset: from }, { opacity: end, offset: to }, { opacity: end }]
 }
 
 function playFrame(
@@ -107,24 +126,25 @@ function playFrame(
   from = 'none',
   /** 弹窗自己的圆角，和它是不是铺满整屏（铺满时没有投影要让）。 */
   shape: { radius: number; full: boolean } = { radius: 0, full: false },
+  /** 收回快落地时先换上的卡片副本，已经挂好。 */
+  standIn: HTMLElement | null = null,
 ): Animation | null {
   if (typeof frame.animate !== 'function') return null
   const reduced = isExlight()
-  const landing = !reduced && !sheet && direction === 'out' && anchor && anchor.rect.width > 0 && rect.width > 0
-  if (landing) {
-    const motion = frame.animate(landingKeyframes(anchor, rect, shape.radius, shape.full), {
-      duration: LAND_MS,
-      easing: EASE_LAND,
-      // 收回停在最后一帧：动画一结束样式就回到原状，而「已收回」要等 React 下一次提交，
-      // 中间那一帧整个弹窗会原样闪出来。藏好之后再由组件清掉。
-      fill: 'forwards',
-    })
-    // 淡出按时间走，不跟形状的缓动：形状末段走得很慢，跟着它会从一半就开始发虚。
-    frame.animate([{ opacity: 1 }, { opacity: 1, offset: LAND_FADE_FROM }, { opacity: 0, offset: LAND_FADE_TO }, { opacity: 0 }], {
-      duration: LAND_MS,
-      easing: 'linear',
-      fill: 'forwards',
-    })
+  if (!reduced && !sheet && direction === 'out' && anchor && anchor.rect.width > 0 && rect.width > 0) {
+    const path = landing(anchor, rect, shape.radius, shape.full)
+    // 收回停在最后一帧：动画一结束样式就回到原状，而「已收回」要等 React 下一次提交，
+    // 中间那一帧整个弹窗会原样闪出来。藏好之后再由组件清掉。
+    const timing: KeyframeAnimationOptions = { duration: LAND_MS, easing: EASE_LAND, fill: 'forwards' }
+    const fade: KeyframeAnimationOptions = { duration: LAND_MS, easing: 'linear', fill: 'forwards' }
+    const motion = frame.animate(path.frame, timing)
+    if (standIn) {
+      standIn.animate(path.standIn, timing)
+      standIn.animate(fadeBetween(STAND_IN_FROM, STAND_IN_TO, true), fade)
+      frame.animate(fadeBetween(FRAME_OUT_FROM, FRAME_OUT_TO, false), fade)
+    } else {
+      frame.animate(fadeBetween(FADE_FROM, FADE_TO, false), fade)
+    }
     return motion
   }
   let hidden: Keyframe
@@ -287,6 +307,15 @@ function WidgetPopupFrame({
   const sheet = phone && entry.size !== 'stage'
   /** 面板被拖下去时松手的位置，收回动画从这里接着走。 */
   const dragRef = useRef('none')
+  /** 收回时叠在弹窗上的卡片副本，收好、重开或卸载时拿掉，真卡片同时露回来。 */
+  const standInRef = useRef<{ copy: HTMLElement; face: HTMLElement; visibility: string } | null>(null)
+  const dropStandIn = () => {
+    const held = standInRef.current
+    if (!held) return
+    held.copy.remove()
+    held.face.style.visibility = held.visibility
+    standInRef.current = null
+  }
   const sheetDrag = useSheetDrag(frameRef, dragRef, () => closeWidgetPopup(entry.key))
 
   useLayoutEffect(() => {
@@ -301,6 +330,7 @@ function WidgetPopupFrame({
       setPhase('open')
       // 收回动画还没放完又被打开：先停掉，不然量到的是缩到一半的框。
       for (const running of frame.getAnimations()) running.cancel()
+      dropStandIn()
       const anchor = entry.anchor()
       const rect = frame.getBoundingClientRect()
       const radius = Number.parseFloat(getComputedStyle(frame).borderTopLeftRadius) || 0
@@ -323,14 +353,26 @@ function WidgetPopupFrame({
       !saved || saved.width !== window.innerWidth || saved.height !== window.innerHeight
     const from = dragRef.current
     dragRef.current = 'none'
+    const anchor = resized ? entry.anchor() : saved.anchor
+    const standIn = !sheet && !isExlight() && anchor?.face?.isConnected ? cloneCardFace(anchor.face) : null
+    if (standIn && anchor?.face) {
+      const face = anchor.face
+      document.body.append(standIn)
+      syncCardAnimations(face, standIn)
+      // 副本是半透明的毛玻璃，压在真卡片上会把它也糊进去，落地时偏白。
+      // 真卡片这段时间一直被弹窗盖着，先藏起来看不出；副本拿掉的同一帧再露出来。
+      standInRef.current = { copy: standIn, face, visibility: face.style.visibility }
+      face.style.visibility = 'hidden'
+    }
     const animation = playFrame(
       frame,
       'out',
-      resized ? entry.anchor() : saved.anchor,
+      anchor,
       resized ? frame.getBoundingClientRect() : saved.frame,
       sheet,
       from,
       { radius: saved?.radius ?? 0, full: phone && entry.size === 'stage' },
+      standIn,
     )
     const restore = restoreRef.current
     restoreRef.current = null
@@ -349,6 +391,7 @@ function WidgetPopupFrame({
   }, [active])
 
   // 「已收回」的样式已经提交、这一帧还没画：现在清掉停在最后一帧的收回动画，看不见。
+  // 卡片副本同一帧拿掉，底下的真卡片和它长得一样，换过去看不出来。
   useLayoutEffect(() => {
     if (phase !== 'stashed') return
     for (const held of frameRef.current?.getAnimations() ?? []) {
@@ -356,7 +399,10 @@ function WidgetPopupFrame({
       held.oncancel = null
       held.cancel()
     }
+    dropStandIn()
   }, [phase])
+
+  useEffect(() => dropStandIn, [])
 
   if (!popup) return null
   const Content = popup.component
