@@ -46,14 +46,18 @@ const EASE_ENTER_FALLBACK = 'cubic-bezier(0.16, 1, 0.3, 1)'
 const EASE_LAND = 'cubic-bezier(0.32, 0.72, 0, 1)'
 const EASE_EXIT = 'cubic-bezier(0.4, 0, 1, 1)'
 /**
- * 收回快落地时（按时间）先换成卡片的样子：卡片副本显出来、弹窗内容退掉，几乎同时，
- * 五十毫秒上下换完。卡片常是半透明的毛玻璃，弹窗退得比它慢就会从底下透出来。
- * 形状最后那点贴合时框里已经是卡片，落地不留重影。做不出副本时弹窗自己在 FADE 那一段淡掉。
+ * 收回途中（按时间）把框里的内容从弹窗换成卡片，三层各走各的：
+ * 弹窗的内容先淡出，卡片副本随后淡入，两段有一截重叠，是看得见的交替；
+ * 弹窗的底色等卡片完全显出来以后才退。卡片常是半透明的毛玻璃，底色一直垫着，
+ * 交替那段透不出别的东西。形状最后那点贴合时框里已经只有卡片，落地不留重影。
+ * 做不出副本时弹窗自己在 FADE 那一段整个淡掉。
  */
-const STAND_IN_FROM = 0.48
-const STAND_IN_TO = 0.62
-const FRAME_OUT_FROM = 0.5
-const FRAME_OUT_TO = 0.64
+const CONTENT_OUT_FROM = 0.18
+const CONTENT_OUT_TO = 0.5
+const STAND_IN_FROM = 0.32
+const STAND_IN_TO = 0.66
+const SURFACE_OUT_FROM = 0.6
+const SURFACE_OUT_TO = 0.8
 const FADE_FROM = 0.5
 const FADE_TO = 0.9
 /**
@@ -128,6 +132,8 @@ function playFrame(
   shape: { radius: number; full: boolean } = { radius: 0, full: false },
   /** 收回快落地时先换上的卡片副本，已经挂好。 */
   standIn: HTMLElement | null = null,
+  /** 除了返回的那一份，这里放进其余停在最后一帧的动画，收好时一起清掉。 */
+  held: Animation[] = [],
 ): Animation | null {
   if (typeof frame.animate !== 'function') return null
   const reduced = isExlight()
@@ -139,9 +145,13 @@ function playFrame(
     const fade: KeyframeAnimationOptions = { duration: LAND_MS, easing: 'linear', fill: 'forwards' }
     const motion = frame.animate(path.frame, timing)
     if (standIn) {
+      // 内容是框里的每个子元素（舞台、关闭键…），底色是框自己。
+      for (const child of frame.children) {
+        held.push(child.animate(fadeBetween(CONTENT_OUT_FROM, CONTENT_OUT_TO, false), fade))
+      }
       standIn.animate(path.standIn, timing)
       standIn.animate(fadeBetween(STAND_IN_FROM, STAND_IN_TO, true), fade)
-      frame.animate(fadeBetween(FRAME_OUT_FROM, FRAME_OUT_TO, false), fade)
+      frame.animate(fadeBetween(SURFACE_OUT_FROM, SURFACE_OUT_TO, false), fade)
     } else {
       frame.animate(fadeBetween(FADE_FROM, FADE_TO, false), fade)
     }
@@ -307,6 +317,12 @@ function WidgetPopupFrame({
   const sheet = phone && entry.size !== 'stage'
   /** 面板被拖下去时松手的位置，收回动画从这里接着走。 */
   const dragRef = useRef('none')
+  /** 收回时停在框的子元素上的淡出，收好、重开时清掉（框自己身上的另外清）。 */
+  const heldRef = useRef<Animation[]>([])
+  const releaseHeld = () => {
+    for (const animation of heldRef.current) animation.cancel()
+    heldRef.current = []
+  }
   /** 收回时叠在弹窗上的卡片副本，收好、重开或卸载时拿掉，真卡片同时露回来。 */
   const standInRef = useRef<{ copy: HTMLElement; face: HTMLElement; visibility: string } | null>(null)
   const dropStandIn = () => {
@@ -330,6 +346,7 @@ function WidgetPopupFrame({
       setPhase('open')
       // 收回动画还没放完又被打开：先停掉，不然量到的是缩到一半的框。
       for (const running of frame.getAnimations()) running.cancel()
+      releaseHeld()
       dropStandIn()
       const anchor = entry.anchor()
       const rect = frame.getBoundingClientRect()
@@ -373,6 +390,7 @@ function WidgetPopupFrame({
       from,
       { radius: saved?.radius ?? 0, full: phone && entry.size === 'stage' },
       standIn,
+      heldRef.current,
     )
     const restore = restoreRef.current
     restoreRef.current = null
@@ -399,6 +417,7 @@ function WidgetPopupFrame({
       held.oncancel = null
       held.cancel()
     }
+    releaseHeld()
     dropStandIn()
   }, [phase])
 
