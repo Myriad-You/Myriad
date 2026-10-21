@@ -91,29 +91,6 @@ export const LIBRARY_TOURS: readonly TourDefinition[] = [
   ),
 ]
 
-export const REPORTS_TOURS: readonly TourDefinition[] = [
-  {
-    id: 'reports-visitor',
-    route: '/reports',
-    audience: 'visitor',
-    steps: [
-      { id: 'reports-status', anchor: 'reports-status' },
-      { id: 'reports-play', anchor: 'reports-play' },
-      { id: 'reports-cards', anchor: 'reports-cards' },
-    ],
-  },
-  {
-    id: 'reports-owner',
-    route: '/reports',
-    audience: 'owner',
-    steps: [
-      { id: 'reports-status', anchor: 'reports-status' },
-      { id: 'reports-play', anchor: 'reports-play' },
-      { id: 'reports-cards-owner', anchor: 'reports-cards' },
-    ],
-  },
-]
-
 export const TAPP_TOURS: readonly TourDefinition[] = [
   {
     id: 'tapp-visitor',
@@ -216,7 +193,6 @@ export const CONFIG_PERSONA_TOURS: readonly TourDefinition[] = [
 export const TOURS: readonly TourDefinition[] = [
   ...HOME_TOURS,
   ...LIBRARY_TOURS,
-  ...REPORTS_TOURS,
   ...TAPP_TOURS,
   ...TAPP_DETAIL_TOURS,
   ...TAPP_PLAYGROUND_TOURS,

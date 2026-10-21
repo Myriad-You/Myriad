@@ -350,8 +350,6 @@ const ModernConfigForm: React.FC = () => {
             savedPreferences={drafts.library.saved}
             hitokotoDraft={drafts.hitokoto.draft}
             setHitokotoDraft={drafts.hitokoto.setDraft}
-            reportSettingsDraft={drafts.reports.draft}
-            setReportSettingsDraft={drafts.reports.setDraft}
             uiConfigFields={config.ui_config.config_fields}
             updateUiFieldValue={updateUiFieldValue}
             onMessage={handleModuleMessage}

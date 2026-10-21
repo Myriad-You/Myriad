@@ -188,30 +188,6 @@
       "frontend": "Entrées sous cet onglet de catégorie. Après changement des cases, actualisez la catégorie.",
       "notes": "Ne rien cocher peut vider cette catégorie."
     },
-    "report": {
-      "what": "Combien de temps un rapport reste valable, et s’il faut en refaire un automatiquement après expiration.",
-      "chain": "1) Le contenu du rapport dépend de : données de plateforme déjà synchronisées + « Configuration IA » fonctionnelle + autorisations/quota qui le permettent.\n2) « Expiration » activée : les rapports trop vieux sont marqués expirés ; « régénération auto » aussi activée : reconstruction en arrière-plan à l’échéance (consomme du quota IA).\n3) Masquer l’entrée « Rapports » dans la navigation ne fait que rendre le clic plus difficile — les anciens rapports restent en général.\n4) En cas d’échec, tâches ou notifications peuvent afficher un indice.",
-      "frontend": "Indices d’expiration sur la page de rapports, et si le contenu paraît à jour.\nOuvrez la page de rapports pour l’état, ou actualisez après le travail automatique.",
-      "notes": "La régénération auto coûte du quota ; activez d’abord l’expiration, puis la régénération auto. Sans IA configurée, ça échoue en boucle."
-    },
-    "reportExpiry": {
-      "what": "Autoriser les rapports à « expirer ».",
-      "chain": "1) Coupé = le nombre de jours et la régénération auto ci-dessous ne font pratiquement rien.\n2) Activé = l’expiration se juge selon le nombre de jours.\n3) Ne réécrit ni l’IA ni les réglages de plateforme — seulement « ce rapport est-il considéré comme vieux ».",
-      "frontend": "Si les rapports affichent un état expiré. Après le bascule, ouvrez la page de rapports pour confirmer.",
-      "notes": "Expiration coupée : la régénération auto est en général aussi indisponible."
-    },
-    "reportAutoRegen": {
-      "what": "Générer automatiquement un nouveau rapport après expiration.",
-      "chain": "1) « Expiration » doit d’abord être activée.\n2) À l’échéance → file d’arrière-plan reconstruit → IA et données de plateforme doivent être saines.\n3) En succès, la page de rapports montre le nouveau contenu ; en échec, l’ancien rapport peut rester avec un indice d’erreur.",
-      "frontend": "Le contenu du rapport devient nouveau une fois le travail terminé. Surveillez les notifications pour les messages de tâche liés.",
-      "notes": "Échoue si l’IA n’est pas configurée ou si le quota est épuisé ; n’attendez pas « un clic et c’est instantané »."
-    },
-    "reportExpiryDays": {
-      "what": "Nombre de jours pendant lesquels un rapport reste valable.",
-      "chain": "1) Compté depuis le jour de génération.\n2) Jours dépassés avec expiration activée → marqué expiré ; régénération auto activée → peut déclencher une reconstruction.\n3) Changer le nombre ne reconstruit pas tout de suite — cela n’affecte que les contrôles futurs.",
-      "frontend": "Indices et timing liés à l’expiration. Après changement, comparez avec l’heure de génération du rapport.",
-      "notes": "En général 1–365 jours ; en quittant le champ, la valeur est ramenée dans une plage valide."
-    },
     "music": {
       "what": "Le lecteur de musique intégré du site : marche/arrêt, et source de playlist.",
       "chain": "1) Activez l’interrupteur, choisissez une plateforme, saisissez le numéro de playlist → enregistrez en bas.\n2) Le lecteur récupère la liste depuis ce service ; le lecteur du panneau de contrôle et les widgets musique partagent le même réglage.\n3) Couper l’interrupteur ne fait que masquer le lecteur — les réglages de playlist restent.\n4) « Vider le cache » n’oublie que la liste mémorisée sur cet appareil, pas le numéro saisi.\n5) Si le serveur a besoin d’un proxy pour Internet (Paramètres avancés), cela peut empêcher le chargement des titres.",

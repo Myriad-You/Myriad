@@ -214,8 +214,8 @@ export function TaskStatus({
               <p className="text-sm text-red-600 dark:text-red-400 mt-1">
                 {reportUserFacingError(
                   task.error,
-                  t.reportsPage.generateNeedData,
-                  t.reportsPage,
+                  t.reportCard.generateNeedData,
+                  t.reportCard,
                 )}
               </p>
             )}

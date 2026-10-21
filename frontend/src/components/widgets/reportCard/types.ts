@@ -31,4 +31,6 @@ export interface ReportCardWidgetProps {
   // 外部控制翻转时禁用内部 10s 轮播，与外部状态完全同步。
   showOverview?: boolean
   onConfigChange?: (newConfig: any) => void
+  /** 打开这张卡的舞台弹窗。 */
+  openPopup?: (params?: unknown) => void
 }

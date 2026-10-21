@@ -1,10 +1,8 @@
 import type { CardContent } from './CardLogoPill'
 import type { ReportCardClickAction, ReportCardWidgetProps } from './types'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../../contexts/I18nContext'
 import { useAnimationLevel } from '../../../hooks/useAnimationLevel'
-import { isPlainClick } from '../../../utils/plainClick'
 import {
   coerceReportVisuals,
   hasRenderableCardVisuals,
@@ -43,10 +41,10 @@ export const ReportCardWidget = memo(
     bare = false,
     showOverview: controlledShowOverview,
     onConfigChange,
+    openPopup,
   }: ReportCardWidgetProps) => {
     const animLevel = useAnimationLevel()
     const { t } = useI18n()
-    const navigate = useNavigate()
     const localRef = useRef<HTMLDivElement | null>(null)
     const platformId = resolveReportPlatformId(config)
     const [reportData, setReportData] = useState<any>(null)
@@ -293,27 +291,22 @@ export const ReportCardWidget = memo(
       }
     }, [])
 
-    // 长按打开设置后松手的那次点击不算数；打开主页/报告页交给下面的链接。
+    // 长按打开设置后松手的那次点击不算数；打开主页/舞台交给下面的链接或按钮。
     const handleCardClick = useCallback(() => {
       isLongPressRef.current = false
     }, [])
 
-    // 卡片是真链接：右键复制、中键新开、长按菜单都归浏览器。
+    // 去主页是真链接：右键复制、中键新开、长按菜单都归浏览器。播放报告是按钮，开舞台弹窗。
     const cardLink = useMemo(() => {
       if (!interactive || isEditMode) return null
       const social = PLATFORM_SOCIAL[platformId]
       if (clickAction === 'social' && socialUserId && social) {
         return {
           href: social.getUserUrl(socialUserId),
-          external: true,
           label: `${social.publicName}: ${t.platformCard.clickToSocial}`,
         }
       }
-      return {
-        href: '/reports',
-        external: false,
-        label: t.platformCard.clickToReport,
-      }
+      return null
     }, [
       interactive,
       isEditMode,
@@ -398,16 +391,22 @@ export const ReportCardWidget = memo(
         {cardLink ? (
           <a
             href={cardLink.href}
-            target={cardLink.external ? '_blank' : undefined}
-            rel={cardLink.external ? 'noopener noreferrer' : undefined}
+            target="_blank"
+            rel="noopener noreferrer"
             draggable={false}
             className="absolute inset-0 z-20"
             aria-label={cardLink.label}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ) : interactive && !isEditMode && openPopup && reportData ? (
+          <button
+            type="button"
+            className="absolute inset-0 z-20 cursor-pointer"
+            aria-label={t.platformCard.clickToReport}
             onClick={(event) => {
               event.stopPropagation()
-              if (cardLink.external || !isPlainClick(event)) return
-              event.preventDefault()
-              navigate(cardLink.href)
+              if (isLongPressRef.current) return
+              openPopup({ platform: platformId })
             }}
           />
         ) : null}

@@ -313,15 +313,15 @@ mod tests {
             .iter()
             .map(|item| item.id.as_str())
             .collect();
-        assert_eq!(ids, ["main", "library", "phantasi", "reports", "tapp"]);
+        assert_eq!(ids, ["main", "library", "phantasi", "tapp"]);
     }
 
     #[test]
     fn blog_item_is_current_and_hidden_modules_are_left_out() {
-        let html = island(|module| module != "reports");
+        let html = island(|module| module != "library");
         assert!(html.contains("href=\"/blog/\" aria-label=\"[phantasiReading]\" data-tip=\"[phantasiReading]\" aria-current=\"page\""));
         assert!(html.contains("href=\"/\" aria-label=\"[backToHome]\" data-tip=\"[home]\">"));
-        assert!(!html.contains("/reports"));
+        assert!(!html.contains("href=\"/library\""));
         assert!(html.contains("aria-label=\"[mainNavigation]\""));
         assert_eq!(html.matches("aria-current").count(), 1);
         assert_eq!(html.matches("myriad-nav__mark").count(), 1);

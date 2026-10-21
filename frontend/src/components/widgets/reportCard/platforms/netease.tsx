@@ -38,7 +38,7 @@ export const MusicStatsWidget = memo(
 
     const formatNumber = (num: number) => {
       if (num >= 10000)
-        return `${(num / 10000).toFixed(1)}${t.reportsPage.tenThousandSuffix}`
+        return `${(num / 10000).toFixed(1)}${t.reportCard.tenThousandSuffix}`
       if (num >= 1000) return `${(num / 1000).toFixed(1)}k`
       return num.toString()
     }
@@ -186,7 +186,7 @@ export const MusicStatsWidget = memo(
                   {formatNumber(followerCount)}
                 </span>
                 <span className="text-[9px] tracking-wide mt-0.5 italic font-semibold text-gray-600 dark:text-gray-400 font-georgia">
-                  {t.reportsPage.fans}
+                  {t.reportCard.fans}
                 </span>
               </div>
               <div className="w-px h-5 bg-gray-300 dark:bg-white/20" />
@@ -195,7 +195,7 @@ export const MusicStatsWidget = memo(
                   {formatNumber(playlistCount)}
                 </span>
                 <span className="text-[9px] tracking-wide mt-0.5 italic font-semibold text-gray-600 dark:text-gray-400 font-georgia">
-                  {t.reportsPage.lists}
+                  {t.reportCard.lists}
                 </span>
               </div>
             </motion.div>

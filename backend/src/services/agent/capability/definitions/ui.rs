@@ -137,7 +137,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "pageName": { "type": "string", "description": "Page name" },
                 "pageType": { 
                     "type": "string", 
-                    "enum": ["home", "library", "platform", "phantasi", "tapp", "report", "settings", "profile", "other"],
+                    "enum": ["home", "library", "platform", "phantasi", "tapp", "settings", "profile", "other"],
                     "description": "Page type"
                 },
                 "context": {

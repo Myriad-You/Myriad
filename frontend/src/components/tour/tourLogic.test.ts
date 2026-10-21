@@ -51,7 +51,6 @@ import {
   CONFIG_TOURS,
   HOME_TOURS,
   LIBRARY_TOURS,
-  REPORTS_TOURS,
   TAPP_DETAIL_TOURS,
   TAPP_PLAYGROUND_TOURS,
   TAPP_TOURS,
@@ -322,7 +321,6 @@ describe('tour hint copy', () => {
     library: '资料库',
     phantasi: 'Phantasi',
     studio: '工作台',
-    reports: '报告',
     tapp: 'Tapp',
     config: '配置',
     agent: 'Agent',
@@ -391,7 +389,6 @@ describe('tour hint copy', () => {
     assert.equal(tourMeasureWatchesHost('library-grid'), false)
     assert.equal(tourMeasureWatchesHost('home-grid'), true)
     assert.equal(tourMeasureWatchesHost('tapp-grid'), true)
-    assert.equal(tourMeasureWatchesHost('reports-cards'), true)
     assert.equal(tourMeasureWatchesHost('library-card'), true)
     assert.equal(tourMeasureWatchesScroll(true), false)
     assert.equal(tourMeasureWatchesScroll(false), true)
@@ -567,9 +564,9 @@ describe('tour hint copy', () => {
 })
 
 describe('page tours', () => {
-  it('registers library, reports, tapp, and owner-only config', () => {
+  it('registers library, tapp, and owner-only config', () => {
     assert.equal(pickTour(LIBRARY_TOURS, '/library', false)?.id, 'library-visitor')
-    assert.equal(pickTour(REPORTS_TOURS, '/reports', true)?.id, 'reports-owner')
+    assert.equal(pickTour(TOURS, '/reports', true), null)
     assert.equal(pickTour(TAPP_TOURS, '/tapp', false)?.id, 'tapp-visitor')
     assert.equal(pickTour(TOURS, '/tapp/store', true), null)
     assert.equal(pickTour(TOURS, '/tapp/store', false), null)
@@ -702,14 +699,6 @@ describe('page tours', () => {
         'tapp-install',
         'tapp-grid-owner',
       ],
-    )
-    assert.equal(
-      pickTour(REPORTS_TOURS, '/reports', false)?.steps.at(-1)?.id,
-      'reports-cards',
-    )
-    assert.equal(
-      pickTour(REPORTS_TOURS, '/reports', true)?.steps.at(-1)?.id,
-      'reports-cards-owner',
     )
     assert.equal(
       pickTour(CONFIG_TOURS, '/config', true)?.steps.some(

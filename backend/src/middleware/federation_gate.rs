@@ -18,8 +18,8 @@ use axum::{
 };
 
 /// Path prefixes owned entirely by federation. A match requires at least one
-/// character after the prefix, so SEO `/library` and `/reports` (and trailing
-/// slash) stay reachable. `/phantasi` is not a remainder-sibling of `/phantasi/articles/`.
+/// character after the prefix, so SEO `/library` and the bare `/reports` (and
+/// trailing slash) stay off the federation worker. `/phantasi` is not a remainder-sibling of `/phantasi/articles/`.
 const FEDERATION_PATH_PREFIXES: &[&str] = &[
     "/api/federation/",
     "/api/tapp/federation/",
@@ -150,7 +150,7 @@ mod tests {
         );
     }
 
-    /// SEO `/library` and `/reports` are one segment above object ids; `/phantasi`
+    /// `/library` and `/reports` are one segment above object ids; `/phantasi`
     /// is two (`/phantasi/articles/{id}`). Closed gate must not take SPA paths.
     #[test]
     fn spares_sibling_non_federation_routes() {

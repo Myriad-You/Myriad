@@ -42,19 +42,6 @@
       }
     },
     {
-      "id": "reports",
-      "path": "/reports",
-      "module": "reports",
-      "label": "reports",
-      "tip": "reports",
-      "icon": {
-        "strokeWidth": 2,
-        "paths": [
-          "M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"
-        ]
-      }
-    },
-    {
       "id": "tapp",
       "path": "/tapp",
       "module": "tapp",

@@ -41,7 +41,6 @@
   "nav": {
     "home": "ホーム",
     "library": "ライブラリ",
-    "reports": "プラットフォームレポート",
     "config": "設定",
     "login": "ログイン",
     "backToHome": "ホームに戻る",
@@ -201,22 +200,6 @@
       "library-canvas": {
         "title": "キャンバス",
         "body": "無限キャンバスを拡大縮小するか、中央へ戻します。"
-      },
-      "reports-status": {
-        "title": "ステータス",
-        "body": "このページのプラットフォームと再生状態を順に表示します。"
-      },
-      "reports-play": {
-        "title": "再生",
-        "body": "既存のレポートを順に再生します。"
-      },
-      "reports-cards": {
-        "title": "プラットフォーム",
-        "body": "プラットフォームごとに1枚。既存レポートを開きます。"
-      },
-      "reports-cards-owner": {
-        "title": "プラットフォーム",
-        "body": "プラットフォームごとに1枚。既存レポートを開くか、ここで生成します。"
       },
       "tapp-store-entry": {
         "title": "ストア",
@@ -532,11 +515,8 @@
     "githubReposField": "リポジトリ",
     "githubReposFieldHint": "GitHub URL または owner/repo",
     "library": "ライブラリ",
-    "dataReport": "プラットフォームレポート",
     "multiPlatformAggregation": "マルチプラットフォームコンテンツ集約",
-    "dualLayerAnalysis": "各プラットフォームのプロフィールと洞察",
     "libraryFeature": "ゲーム、映像、音楽を一か所に",
-    "platformProfile": "プラットフォームレポートの生成と閲覧",
     "phantasiReading": "ブログ",
     "phantasiDesc": "公開ノート",
     "phantasiFeature": "記事と相互リンク",
@@ -676,9 +656,6 @@
     "statusOnHold": "保留",
     "statusDropped": "中断"
   },
-  "reports": {
-    "title": "データレポート"
-  },
   "agentPanel": {
     "away": {
       "toWork": "作業モードにする",
@@ -708,7 +685,6 @@
       "routes": {
         "home": "ホーム",
         "library": "ライブラリ",
-        "reports": "レポート",
         "config": "設定",
         "tapp": "Tapp",
         "studio": "スタジオ",
@@ -1459,70 +1435,22 @@
       "かわいい",
       "懐かしい",
       "泣いた"
-    ]
-  },
-  "reportsPage": {
-    "neteaseMusic": "网易雲音楽",
-    "bilibili": "Bilibili",
-    "steam": "Steam",
-    "github": "GitHub",
-    "casualPlayer": "カジュアルプレイヤー",
-    "core": "コア",
-    "active": "アクティブ",
+    ],
     "library": "ライブラリ",
     "playtime": "プレイ時間",
     "commits": "コミット",
     "repos": "リポジトリ",
-    "stars": "スター",
     "fans": "ファン",
     "lists": "リスト",
-    "noPlatformReports": "利用可能なプラットフォームレポートがありません",
-    "allPlaybackComplete": "すべてのプラットフォームの再生が完了しました",
-    "getTokenFailed": "セキュリティトークンの取得に失敗しました",
-    "refreshingReport": "{platform}レポートを更新中...",
-    "reportRefreshSuccess": "{platform}レポートを更新しました！",
-    "reportRefreshNoData": "レポート更新完了、更新データが見つかりませんでした",
-    "refreshReportFailed": "{platform}レポートの更新に失敗しました",
-    "adminOnlyGenerate": "管理者のみレポートを生成できます",
-    "generateFailed": "生成失敗",
-    "generateFailedRetry": "生成に失敗しました、後でもう一度お試しください",
-    "generateNeedData": "このプラットフォームのデータがまだありません。先に取得してからレポートを生成してください。",
-    "generateEmptySummary": "データが足りずレポートを生成できません。先にもう少し同期してください。",
-    "close": "閉じる",
-    "aiSummary": "AI要約",
-    "noEnabledPlatforms": "有効なデータプラットフォームがまだありません",
-    "noEnabledPlatformsDesc": "設定で少なくとも1つのデータプラットフォームを有効にすると、ここに対応するカードが表示されます。",
-    "platformReport": "プラットフォームレポート",
-    "stagePlaying": "ステージモード再生中",
-    "stagePaused": "ステージ一時停止",
-    "heroStage": "Stage",
-    "tipNoReports": "レポートはまだありません",
-    "tipNoReportsSub": "先にプラットフォームレポートを生成",
-    "playAllReports": "すべてのプラットフォームレポートを再生",
-    "refreshing": "更新中...",
-    "refreshCurrentReport": "現在のレポートを更新",
-    "continuePlay": "続行",
-    "pause": "一時停止",
-    "closeStage": "ステージを閉じる",
-    "clickToGenerate": "クリックで生成",
-    "noReport": "レポートなし",
-    "anime": "アニメ",
-    "tvSeries": "ドラマ",
-    "video": "動画",
-    "game": "ゲーム",
-    "music": "音楽",
-    "content": "コンテンツ",
-    "dataEcho": "データエコー",
-    "deepInsight": "ディープインサイト",
-    "unknownPlatform": "不明なプラットフォーム",
-    "generate": "生成",
     "tenThousandSuffix": "万",
     "bangumiDone": "視聴済",
     "bangumiDoing": "視聴中",
     "bangumiWish": "視聴予定",
     "malDone": "完了",
     "malDoing": "視聴中",
-    "malWish": "予定"
+    "malWish": "予定",
+    "generateNeedData": "このプラットフォームのデータがまだありません。先に取得してからレポートを生成してください。",
+    "generateEmptySummary": "データが足りずレポートを生成できません。先にもう少し同期してください。"
   },
   "dataManagement": {
     "fetchResult": {
@@ -1714,7 +1642,7 @@
   },
   "platformCard": {
     "clickToSocial": "プロフィールを開く",
-    "clickToReport": "レポートを開く",
+    "clickToReport": "レポートを再生",
     "settingsTitle": "クリック動作",
     "longPressHint": "長押しで設定"
   },
@@ -1810,6 +1738,39 @@
     "ytViews": "再生",
     "ytVideos": "動画",
     "ytEmptyChannel": "公開チャンネル連携済み — まだ動画がありません"
+  },
+  "reportStage": {
+    "title": "レポートステージ",
+    "play": "再生",
+    "pause": "一時停止",
+    "replay": "もう一度",
+    "prevChapter": "前の幕",
+    "nextChapter": "次の幕",
+    "playAll": "全プラットフォームを連続再生",
+    "playAllOn": "連続再生中",
+    "chapterOf": "第 {current} 幕 / 全 {total} 幕",
+    "echo": "データエコー",
+    "insight": "ディープインサイト",
+    "empty": "このプラットフォームのレポートはまだありません",
+    "generate": "レポートを生成",
+    "regenerate": "再生成",
+    "generating": "生成中…",
+    "generateFailed": "レポートを生成できませんでした",
+    "generated": "{platform} のレポートを更新しました",
+    "finished": "おしまい",
+    "platforms": "プラットフォーム",
+    "styleStale": "スタイルが変わりました。再生成すると反映されます",
+    "settings": "レポート設定",
+    "expiryEnabled": "レポートの有効期限を有効化",
+    "expiryEnabledDesc": "無効にすると、既存および新規レポートは期限切れで非表示になりません",
+    "autoRegenerate": "期限切れ後に自動再生成",
+    "autoRegenerateDesc": "期限切れのプラットフォームレポートを表示しつつ、バックグラウンドで再生成します",
+    "expiryDays": "有効期間",
+    "expiryDaysUnit": "日",
+    "expiryDaysHint": "1～365日で設定できます。新規レポートに適用されます。",
+    "settingsSaved": "レポート設定を保存しました",
+    "settingsLoadFailed": "レポート設定の読み込みに失敗しました",
+    "settingsSaveFailed": "レポート設定を保存できませんでした。"
   },
   "socialNetworkWidget": {
     "fillPlatformName": "プラットフォーム名を入力してください",

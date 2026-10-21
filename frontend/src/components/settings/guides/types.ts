@@ -40,10 +40,6 @@ export interface SettingGuidesCatalog {
     library: SettingGuideEntry
     libraryLayout: SettingGuideEntry
     libraryType: SettingGuideEntry
-    report: SettingGuideEntry
-    reportExpiry: SettingGuideEntry
-    reportAutoRegen: SettingGuideEntry
-    reportExpiryDays: SettingGuideEntry
     music: SettingGuideEntry
     musicPlatform: SettingGuideEntry
     musicPlaylist: SettingGuideEntry

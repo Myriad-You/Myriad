@@ -7,7 +7,7 @@ describe('isInSitePath', () => {
     for (const path of [
       '/',
       '/library',
-      '/reports?id=3',
+      '/tapp?id=3',
       '/agent/settings#persona',
     ]) {
       assert.ok(isInSitePath(path), path)

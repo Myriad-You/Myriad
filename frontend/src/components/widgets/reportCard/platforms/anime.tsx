@@ -62,9 +62,9 @@ export const ANIME_THEMES: Record<'bangumi' | 'mal', AnimeListTheme> = {
     fallbackTypeColor: '#f09199',
     labels: (t) => ({
       fallbackTaste: t.widgets.reportBangumi,
-      done: t.reportsPage.bangumiDone,
-      doing: t.reportsPage.bangumiDoing,
-      wish: t.reportsPage.bangumiWish,
+      done: t.reportCard.bangumiDone,
+      doing: t.reportCard.bangumiDoing,
+      wish: t.reportCard.bangumiWish,
       typeLabels: {
         book: t.library.book,
         anime: t.library.anime,
@@ -88,9 +88,9 @@ export const ANIME_THEMES: Record<'bangumi' | 'mal', AnimeListTheme> = {
     fallbackTypeColor: '#2e51a2',
     labels: (t) => ({
       fallbackTaste: t.widgets.reportMal,
-      done: t.reportsPage.malDone,
-      doing: t.reportsPage.malDoing,
-      wish: t.reportsPage.malWish,
+      done: t.reportCard.malDone,
+      doing: t.reportCard.malDoing,
+      wish: t.reportCard.malWish,
       typeLabels: {
         anime: t.library.anime,
         manga: t.library.book,

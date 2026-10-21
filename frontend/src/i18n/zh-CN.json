@@ -41,7 +41,6 @@
   "nav": {
     "home": "首页",
     "library": "资料库",
-    "reports": "平台报告",
     "config": "配置",
     "login": "登录",
     "backToHome": "返回主页",
@@ -201,22 +200,6 @@
       "library-canvas": {
         "title": "画布",
         "body": "缩放无限画布，或重置到中心。"
-      },
-      "reports-status": {
-        "title": "状态条",
-        "body": "轮播本页各平台与播放状态。"
-      },
-      "reports-play": {
-        "title": "播放",
-        "body": "按顺序播放已有报告。"
-      },
-      "reports-cards": {
-        "title": "平台卡",
-        "body": "每个平台一张。打开已有报告。"
-      },
-      "reports-cards-owner": {
-        "title": "平台卡",
-        "body": "每个平台一张。打开已有报告，或在此生成。"
       },
       "tapp-store-entry": {
         "title": "商店",
@@ -532,11 +515,8 @@
     "githubReposField": "仓库",
     "githubReposFieldHint": "GitHub 地址或 owner/repo",
     "library": "资料库",
-    "dataReport": "平台报告",
     "multiPlatformAggregation": "多平台内容聚合",
-    "dualLayerAnalysis": "各平台画像与数据洞察",
     "libraryFeature": "游戏、影视、音乐收在一处",
-    "platformProfile": "平台画像与报告生成",
     "phantasiReading": "博客",
     "phantasiDesc": "公开笔记",
     "phantasiFeature": "文章与友链",
@@ -676,9 +656,6 @@
     "statusOnHold": "搁置",
     "statusDropped": "抛弃"
   },
-  "reports": {
-    "title": "数据报告"
-  },
   "agentPanel": {
     "away": {
       "toWork": "改用办事模式",
@@ -708,7 +685,6 @@
       "routes": {
         "home": "首页",
         "library": "库",
-        "reports": "报告",
         "config": "设置",
         "tapp": "Tapp",
         "studio": "创作台",
@@ -1459,70 +1435,22 @@
       "AWSL",
       "爷青回",
       "泪目"
-    ]
-  },
-  "reportsPage": {
-    "neteaseMusic": "网易云",
-    "bilibili": "Bilibili",
-    "steam": "Steam",
-    "github": "GitHub",
-    "casualPlayer": "休闲玩家",
-    "core": "核心",
-    "active": "活跃",
+    ],
     "library": "资料库",
     "playtime": "游玩时长",
     "commits": "提交",
     "repos": "仓库",
-    "stars": "Star",
     "fans": "粉丝",
     "lists": "歌单",
-    "noPlatformReports": "没有可用的平台报告",
-    "allPlaybackComplete": "所有平台播放完毕",
-    "getTokenFailed": "获取安全令牌失败",
-    "refreshingReport": "正在刷新 {platform} 报告...",
-    "reportRefreshSuccess": "{platform} 报告刷新成功！",
-    "reportRefreshNoData": "报告刷新完成，但未找到更新数据",
-    "refreshReportFailed": "刷新 {platform} 报告失败",
-    "adminOnlyGenerate": "仅管理员可生成报告",
-    "generateFailed": "生成失败",
-    "generateFailedRetry": "生成失败,请稍后重试",
-    "generateNeedData": "该平台还没有可用数据。请先成功抓取后再生成报告。",
-    "generateEmptySummary": "平台数据太少，无法生成报告。请先同步更多内容。",
-    "close": "关闭",
-    "aiSummary": "AI 总结",
-    "noEnabledPlatforms": "还没有启用任何数据平台",
-    "noEnabledPlatformsDesc": "请先在设置中开启至少一个数据平台，报告页才会显示对应的平台卡片。",
-    "platformReport": "平台报告",
-    "stagePlaying": "舞台模式播放中",
-    "stagePaused": "舞台已暂停",
-    "heroStage": "Stage",
-    "tipNoReports": "还没有报告",
-    "tipNoReportsSub": "先生成一份平台报告",
-    "playAllReports": "播放所有平台报告",
-    "refreshing": "正在刷新...",
-    "refreshCurrentReport": "刷新当前报告",
-    "continuePlay": "继续播放",
-    "pause": "暂停",
-    "closeStage": "关闭舞台",
-    "clickToGenerate": "点击生成",
-    "noReport": "无报告",
-    "anime": "追番",
-    "tvSeries": "追剧",
-    "video": "视频",
-    "game": "游戏",
-    "music": "音乐",
-    "content": "内容",
-    "dataEcho": "数据回响",
-    "deepInsight": "深度洞察",
-    "unknownPlatform": "未知平台",
-    "generate": "生成",
     "tenThousandSuffix": "万",
     "bangumiDone": "看过",
     "bangumiDoing": "在看",
     "bangumiWish": "想看",
     "malDone": "完成",
     "malDoing": "在看",
-    "malWish": "计划"
+    "malWish": "计划",
+    "generateNeedData": "该平台还没有可用数据。请先成功抓取后再生成报告。",
+    "generateEmptySummary": "平台数据太少，无法生成报告。请先同步更多内容。"
   },
   "dataManagement": {
     "fetchResult": {
@@ -1714,7 +1642,7 @@
   },
   "platformCard": {
     "clickToSocial": "打开社交主页",
-    "clickToReport": "进入报告页",
+    "clickToReport": "播放报告",
     "settingsTitle": "点击行为",
     "longPressHint": "长按设置"
   },
@@ -1810,6 +1738,39 @@
     "ytViews": "观看",
     "ytVideos": "视频",
     "ytEmptyChannel": "公开频道已绑定，暂无上传视频"
+  },
+  "reportStage": {
+    "title": "报告舞台",
+    "play": "播放",
+    "pause": "暂停",
+    "replay": "重播",
+    "prevChapter": "上一幕",
+    "nextChapter": "下一幕",
+    "playAll": "连播全部平台",
+    "playAllOn": "连播中",
+    "chapterOf": "第 {current} 幕 / 共 {total} 幕",
+    "echo": "数据回响",
+    "insight": "深度洞察",
+    "empty": "这个平台还没有报告",
+    "generate": "生成报告",
+    "regenerate": "重新生成",
+    "generating": "正在生成…",
+    "generateFailed": "报告没生成出来",
+    "generated": "{platform} 的报告已更新",
+    "finished": "播完了",
+    "platforms": "平台",
+    "styleStale": "风格改过了，重新生成才会用上",
+    "settings": "报告设置",
+    "expiryEnabled": "启用报告过期",
+    "expiryEnabledDesc": "关闭后已有和新生成的报告均不会因过期而隐藏",
+    "autoRegenerate": "过期后自动重新生成",
+    "autoRegenerateDesc": "访问过期的平台报告时先显示旧内容，并在后台重新生成",
+    "expiryDays": "过期时间",
+    "expiryDaysUnit": "天",
+    "expiryDaysHint": "可设置 1–365 天，新生成的报告将使用此有效期",
+    "settingsSaved": "报告设置已保存",
+    "settingsLoadFailed": "加载报告设置失败",
+    "settingsSaveFailed": "报告设置没能保存。"
   },
   "socialNetworkWidget": {
     "fillPlatformName": "请填写平台名称",

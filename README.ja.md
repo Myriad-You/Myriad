@@ -126,7 +126,7 @@ ActivityPub · MFP
 </tr>
 </table>
 
-`/config` は管理者のみ。ライブラリ、Phantasi、レポート、Tapp、Agent：全員 / ログイン済み / 管理者。
+`/config` は管理者のみ。ライブラリ、Phantasi、Tapp、Agent：全員 / ログイン済み / 管理者。
 
 ---
 
@@ -193,7 +193,7 @@ PostgreSQL に保存。Report Card、ライブラリ、レポートは同一デ�
 
 **ライブラリ**は接続済みプラットフォームのゲーム、アニメ、映像、書籍、音楽を種類で絞り込む。レイアウト：リストまたは無限キャンバス。低スペックはリストに戻る。カテゴリごとのソースは設定可能。
 
-**レポート**は各サービスの肖像。案内つきペルソナ作成が読む。もう一方の経路は文案の貼り付けと立ち絵のアップロード。
+**レポート**は各サービスの肖像で、専用ページはない。ホームのレポートカードを開くとポップアップで幕ごとに再生され、オーナーは同じ場所で再生成、有効期限、レポートの書き方を設定する。案内つきペルソナ作成が読む。もう一方の経路は文案の貼り付けと立ち絵のアップロード。
 
 ---
 
@@ -299,7 +299,7 @@ ActivityPub + **MFP**。発見は `BASE_URL` を使う。
 
 - **ローカルアカウント：** オーナー作成後。登録のオン/オフ。OAuth 連携後、そのユーザーのパスワードログインを無効化できる。
 - **OAuth：** 組み込み GitHub と任意の OIDC（Authentik、Keycloak、Google、Microsoft、GitLab、Discord、…）。身元は明示バインド。二つの issuer の同一メールはマージしない。
-- **モジュール公開範囲：** ライブラリ、Phantasi、レポート、Tapp、Agent — 全員 / ログイン済み / 管理者。
+- **モジュール公開範囲：** ライブラリ、Phantasi、Tapp、Agent — 全員 / ログイン済み / 管理者。
 - **検索と AI：** 非公開（noindex、空 sitemap、`/llms.txt` なし）、検索エンジンのみ、AI 引用、完全公開。
 - **サイト識別：** 名前、紹介、アイコン、任意 PWA、壁紙とテーマ、第一者訪問統計、任意の Google Analytics / Umami。
 
@@ -447,7 +447,7 @@ host HTTP_PORT
 
 </details>
 
-クローラ / アプリ内シェア UA はホーム、ライブラリ、Phantasi、レポート、Tapp の SEO HTML シェルを受け取り、ブラウザは SPA を受け取る。[アーキテクチャ](docs/development/ARCHITECTURE.md)。
+クローラ / アプリ内シェア UA はホーム、ライブラリ、Phantasi、Tapp の SEO HTML シェルを受け取り、ブラウザは SPA を受け取る。[アーキテクチャ](docs/development/ARCHITECTURE.md)。
 
 ---
 

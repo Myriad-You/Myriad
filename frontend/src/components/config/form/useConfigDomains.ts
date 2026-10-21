@@ -6,7 +6,6 @@ import { useModuleVisibilityDomain } from './domains/useModuleVisibilityDomain'
 import { useNotificationDomain } from './domains/useNotificationDomain'
 import { useOAuthDomain } from './domains/useOAuthDomain'
 import { usePermissionDomain } from './domains/usePermissionDomain'
-import { useReportDomain } from './domains/useReportDomain'
 
 export function useConfigDomains(
   isAdmin: boolean,
@@ -17,7 +16,6 @@ export function useConfigDomains(
   const library = useLibraryDomain(messages)
   const visibility = useModuleVisibilityDomain()
   const hitokoto = useHitokotoDomain()
-  const reports = useReportDomain()
   const permissions = usePermissionDomain(messages)
   const notifications = useNotificationDomain(userId)
   const oauth = useOAuthDomain()
@@ -26,7 +24,6 @@ export function useConfigDomains(
     library,
     visibility,
     hitokoto,
-    reports,
     permissions,
     notifications,
     oauth,

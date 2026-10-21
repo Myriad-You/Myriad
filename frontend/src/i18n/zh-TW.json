@@ -41,7 +41,6 @@
   "nav": {
     "home": "首頁",
     "library": "資料庫",
-    "reports": "平臺報告",
     "config": "配置",
     "login": "登入",
     "backToHome": "返回主頁",
@@ -201,22 +200,6 @@
       "library-canvas": {
         "title": "畫布",
         "body": "縮放無限畫布，或重置到中心。"
-      },
-      "reports-status": {
-        "title": "狀態條",
-        "body": "輪播本頁各平臺與播放狀態。"
-      },
-      "reports-play": {
-        "title": "播放",
-        "body": "按順序播放已有報告。"
-      },
-      "reports-cards": {
-        "title": "平臺卡",
-        "body": "每個平臺一張。開啟已有報告。"
-      },
-      "reports-cards-owner": {
-        "title": "平臺卡",
-        "body": "每個平臺一張。開啟已有報告，或在此生成。"
       },
       "tapp-store-entry": {
         "title": "商店",
@@ -532,11 +515,8 @@
     "githubReposField": "倉庫",
     "githubReposFieldHint": "GitHub 地址或 owner/repo",
     "library": "資料庫",
-    "dataReport": "平臺報告",
     "multiPlatformAggregation": "多平臺內容聚合",
-    "dualLayerAnalysis": "各平臺畫像與資料洞察",
     "libraryFeature": "遊戲、影視、音樂收在一處",
-    "platformProfile": "平臺畫像與報告生成",
     "phantasiReading": "部落格",
     "phantasiDesc": "公開筆記",
     "phantasiFeature": "文章與友鏈",
@@ -676,9 +656,6 @@
     "statusOnHold": "擱置",
     "statusDropped": "拋棄"
   },
-  "reports": {
-    "title": "資料包告"
-  },
   "agentPanel": {
     "away": {
       "toWork": "改用辦事模式",
@@ -708,7 +685,6 @@
       "routes": {
         "home": "首頁",
         "library": "庫",
-        "reports": "報告",
         "config": "設定",
         "tapp": "Tapp",
         "studio": "創作臺",
@@ -1459,70 +1435,22 @@
       "AWSL",
       "爺青回",
       "淚目"
-    ]
-  },
-  "reportsPage": {
-    "neteaseMusic": "網易雲",
-    "bilibili": "Bilibili",
-    "steam": "Steam",
-    "github": "GitHub",
-    "casualPlayer": "休閒玩家",
-    "core": "核心",
-    "active": "活躍",
+    ],
     "library": "資料庫",
     "playtime": "遊玩時長",
     "commits": "提交",
     "repos": "倉庫",
-    "stars": "Star",
     "fans": "粉絲",
     "lists": "歌單",
-    "noPlatformReports": "沒有可用的平臺報告",
-    "allPlaybackComplete": "所有平臺播放完畢",
-    "getTokenFailed": "獲取安全令牌失敗",
-    "refreshingReport": "正在重新整理 {platform} 報告...",
-    "reportRefreshSuccess": "{platform} 報告重新整理成功！",
-    "reportRefreshNoData": "報告重新整理完成，但未找到更新資料",
-    "refreshReportFailed": "重新整理 {platform} 報告失敗",
-    "adminOnlyGenerate": "僅管理員可生成報告",
-    "generateFailed": "生成失敗",
-    "generateFailedRetry": "生成失敗,請稍後重試",
-    "generateNeedData": "該平臺還沒有可用資料。請先成功抓取後再生成報告。",
-    "generateEmptySummary": "平臺資料太少，無法生成報告。請先同步更多內容。",
-    "close": "關閉",
-    "aiSummary": "AI 總結",
-    "noEnabledPlatforms": "還沒有啟用任何資料平臺",
-    "noEnabledPlatformsDesc": "請先在設定中開啟至少一個資料平臺，報告頁才會顯示對應的平臺卡片。",
-    "platformReport": "平臺報告",
-    "stagePlaying": "舞臺模式播放中",
-    "stagePaused": "舞臺已暫停",
-    "heroStage": "Stage",
-    "tipNoReports": "還沒有報告",
-    "tipNoReportsSub": "先生成一份平臺報告",
-    "playAllReports": "播放所有平臺報告",
-    "refreshing": "正在重新整理...",
-    "refreshCurrentReport": "重新整理當前報告",
-    "continuePlay": "繼續播放",
-    "pause": "暫停",
-    "closeStage": "關閉舞臺",
-    "clickToGenerate": "點選生成",
-    "noReport": "無報告",
-    "anime": "追番",
-    "tvSeries": "追劇",
-    "video": "影片",
-    "game": "遊戲",
-    "music": "音樂",
-    "content": "內容",
-    "dataEcho": "資料迴響",
-    "deepInsight": "深度洞察",
-    "unknownPlatform": "未知平臺",
-    "generate": "生成",
     "tenThousandSuffix": "萬",
     "bangumiDone": "看過",
     "bangumiDoing": "在看",
     "bangumiWish": "想看",
     "malDone": "完成",
     "malDoing": "在看",
-    "malWish": "計劃"
+    "malWish": "計劃",
+    "generateNeedData": "該平臺還沒有可用資料。請先成功抓取後再生成報告。",
+    "generateEmptySummary": "平臺資料太少，無法生成報告。請先同步更多內容。"
   },
   "dataManagement": {
     "fetchResult": {
@@ -1714,7 +1642,7 @@
   },
   "platformCard": {
     "clickToSocial": "開啟社交主頁",
-    "clickToReport": "進入報告頁",
+    "clickToReport": "播放報告",
     "settingsTitle": "點選行為",
     "longPressHint": "長按設定"
   },
@@ -1810,6 +1738,39 @@
     "ytViews": "觀看",
     "ytVideos": "影片",
     "ytEmptyChannel": "公開頻道已繫結，暫無上傳影片"
+  },
+  "reportStage": {
+    "title": "報告舞臺",
+    "play": "播放",
+    "pause": "暫停",
+    "replay": "重播",
+    "prevChapter": "上一幕",
+    "nextChapter": "下一幕",
+    "playAll": "連播全部平台",
+    "playAllOn": "連播中",
+    "chapterOf": "第 {current} 幕 / 共 {total} 幕",
+    "echo": "數據回響",
+    "insight": "深度洞察",
+    "empty": "這個平台還沒有報告",
+    "generate": "產生報告",
+    "regenerate": "重新產生",
+    "generating": "正在產生…",
+    "generateFailed": "報告沒有產生出來",
+    "generated": "{platform} 的報告已更新",
+    "finished": "播完了",
+    "platforms": "平台",
+    "styleStale": "風格改過了，重新產生才會套用",
+    "settings": "報告設定",
+    "expiryEnabled": "啟用報告過期",
+    "expiryEnabledDesc": "關閉後已有和新生成的報告均不會因過期而隱藏",
+    "autoRegenerate": "過期後自動重新生成",
+    "autoRegenerateDesc": "訪問過期的平臺報告時先顯示舊內容，並在後臺重新生成",
+    "expiryDays": "過期時間",
+    "expiryDaysUnit": "天",
+    "expiryDaysHint": "可設定 1–365 天，新生成的報告將使用此有效期",
+    "settingsSaved": "報告設定已儲存",
+    "settingsLoadFailed": "載入報告設定失敗",
+    "settingsSaveFailed": "報告設定沒能儲存。"
   },
   "socialNetworkWidget": {
     "fillPlatformName": "請填寫平臺名稱",

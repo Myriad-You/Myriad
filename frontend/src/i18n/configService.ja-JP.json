@@ -1,6 +1,6 @@
 {
   "moduleVisibilitySaveFailed": "ページ表示範囲設定を保存できませんでした。",
-  "reportSettingsSaveFailed": "レポートページ設定を保存できませんでした。",
+  "reportSettingsSaveFailed": "レポート設定を保存できませんでした。",
   "loadConfigFailed": "設定の読み込みに失敗しました",
   "permissionsSaveFailed": "権限設定の保存に失敗しました",
   "usersUpdateFailed": "そのユーザーを更新できませんでした。",

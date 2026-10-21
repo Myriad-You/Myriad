@@ -8,7 +8,6 @@ export const SEO_SHELL_EXACT = [
   '/',
   '/tapp',
   '/library',
-  '/reports',
 ]
 
 export const SEO_SHELL_PREFIXES = [

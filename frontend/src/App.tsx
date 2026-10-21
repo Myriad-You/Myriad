@@ -76,7 +76,6 @@ const {
   embedComments: EmbedComments,
   embedFriend: EmbedFriend,
   embedCompanion: EmbedCompanion,
-  reports: Reports,
   config: Config,
   agentSettings: AgentSettings,
   login: Login,
@@ -573,16 +572,6 @@ function AppRoutes() {
           }
         />
         <Route path="/studio/*" element={<LegacyStudioRedirect />} />
-        <Route
-          path="/reports"
-          element={
-            <ModuleVisibilityGuard moduleKey="reports">
-              <SuspensePage>
-                <Reports />
-              </SuspensePage>
-            </ModuleVisibilityGuard>
-          }
-        />
         <Route
           path="/config"
           element={

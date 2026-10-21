@@ -544,7 +544,7 @@ fn is_persona_path(path: &str) -> bool {
 }
 
 /// Includes AP object dereference paths as well as inbox and authenticated APIs.
-/// Index/SEO paths such as /reports and /library remain on their existing owners.
+/// Index/SEO paths such as /library remain on their existing owners.
 fn is_federation_path(path: &str) -> bool {
     matches!(
         path,
@@ -748,10 +748,7 @@ fn wants_seo_html_shell(user_agent: &str) -> bool {
 ///
 /// `user_agent` is used only for crawler HTML shells (crawlers → backend, humans → SPA).
 fn is_seo_document_shell_path(path: &str) -> bool {
-    matches!(
-        path,
-        "/" | "/tapp" | "/library" | "/reports"
-    ) || path.starts_with("/tapp/run/")
+    matches!(path, "/" | "/tapp" | "/library") || path.starts_with("/tapp/run/")
 }
 
 #[cfg(test)]
@@ -1853,7 +1850,7 @@ mod tests {
         assert!(!is_backend_path("/journal/notes", googlebot));
         assert!(!is_backend_path("/phantasi", "facebookexternalhit/1.1"));
         assert!(is_backend_path("/library", googlebot));
-        assert!(is_backend_path("/reports", googlebot));
+        assert!(!is_backend_path("/reports", googlebot));
         assert!(!is_backend_path("/", browser));
         assert!(!is_backend_path("/tapp", browser));
         assert!(!is_backend_path("/library", browser));

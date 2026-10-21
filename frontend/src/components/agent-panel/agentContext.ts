@@ -1,10 +1,9 @@
 export type AgentContextRoute =
-  'home' | 'library' | 'studio' | 'reports' | 'config' | 'tapp' | 'other'
+  'home' | 'library' | 'studio' | 'config' | 'tapp' | 'other'
 
 const ROUTE_PREFIXES: ReadonlyArray<readonly [string, AgentContextRoute]> = [
   ['/library', 'library'],
   ['/studio', 'studio'],
-  ['/reports', 'reports'],
   ['/config', 'config'],
   ['/tapp', 'tapp'],
 ]

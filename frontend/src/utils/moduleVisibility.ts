@@ -8,7 +8,6 @@ export type ModuleVisibilityLevel = 'all' | 'authenticated' | 'admin'
 export type ModuleVisibilityKey =
   | 'library'
   | 'phantasi'
-  | 'reports'
   | 'tapp'
   | 'agent'
 
@@ -35,7 +34,6 @@ interface ModuleVisibilityResponse {
 export const MODULE_VISIBILITY_KEYS: ModuleVisibilityKey[] = [
   'library',
   'phantasi',
-  'reports',
   'tapp',
   'agent',
 ]
@@ -63,7 +61,6 @@ export const DEFAULT_MODULE_VISIBILITY_PREFERENCES: ModuleVisibilityPreferences 
     modules: {
       library: 'all',
       phantasi: 'all',
-      reports: 'all',
       tapp: 'all',
       agent: 'all',
     },

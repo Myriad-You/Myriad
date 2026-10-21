@@ -46,7 +46,7 @@ function NavProbe() {
   )
 }
 function UncontrolledProbe() {
-  const { activeId } = useSecondaryNav({ routePath: '/reports', items, defaultActiveId: 'all' })
+  const { activeId } = useSecondaryNav({ routePath: '/tapp', items, defaultActiveId: 'all' })
   return <output data-filter>{activeId}</output>
 }
 
@@ -145,10 +145,10 @@ it('uses the URL instead of a retained secondary nav selection when the page rem
   assert.equal(window.location.search, '')
 })
 it('keeps existing secondary nav users without URL control working', async () => {
-  await mount('/reports', 'initial', true)
+  await mount('/tapp', 'initial', true)
   expectFilter('all')
   await select('video')
   expectFilter('video')
-  assert.equal(window.location.pathname, '/reports')
+  assert.equal(window.location.pathname, '/tapp')
   assert.equal(window.location.search, '')
 })

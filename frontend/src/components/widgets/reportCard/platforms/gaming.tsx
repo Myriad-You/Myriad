@@ -434,8 +434,8 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
   }, [presence])
   const statItems = useMemo(
     () => [
-      { label: t.reportsPage.library, value: String(gamesCount), unit: '' },
-      { label: t.reportsPage.playtime, value: totalPlaytime, unit: 'H' },
+      { label: t.reportCard.library, value: String(gamesCount), unit: '' },
+      { label: t.reportCard.playtime, value: totalPlaytime, unit: 'H' },
       {
         label: t.reportCardWidget.steamRecent2w,
         value: recent2wHours ?? '0',

@@ -67,11 +67,6 @@ export interface AppEventMap {
     songId: Song['id'] | null
   }
   'music-cover-loaded': { songId: Song['id'], cover: Song['cover'] }
-
-  // Reports stage
-  'stage-pause-state-change': { isPaused: boolean }
-  'stage-playback-complete': void
-  'stage-toggle-pause': void
 }
 
 export type AppEventName = keyof AppEventMap

@@ -342,7 +342,6 @@ pub(crate) async fn public_geo_prompt_facts(db: &DatabaseConnection) -> String {
     for (key, label) in [
         ("library", "Library"),
         ("phantasi", "Blog"),
-        ("reports", "Reports"),
         ("tapp", "Tapp"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");
@@ -406,7 +405,6 @@ pub(crate) async fn public_geo_inspect(db: &DatabaseConnection) -> Value {
     for (key, label) in [
         ("library", "Library"),
         ("phantasi", "Blog"),
-        ("reports", "Reports"),
         ("tapp", "Tapp"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");

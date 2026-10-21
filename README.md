@@ -124,7 +124,7 @@ ActivityPub · MFP
 </tr>
 </table>
 
-`/config` is admin-only. Library, Phantasi, Reports, Tapp, Agent: everyone / signed-in / admins.
+`/config` is admin-only. Library, Phantasi, Tapp, Agent: everyone / signed-in / admins.
 
 ---
 
@@ -191,7 +191,7 @@ Stored in PostgreSQL. Report cards, Library, and Reports read the same data.
 
 **Library** lists games, anime, shows, books, and music from connected platforms, filtered by type. Layout: list or infinite canvas; low-end devices fall back to the list. Per-category sources are configurable.
 
-**Reports** are per-platform portraits. Guided persona setup reads them. A write-up plus an uploaded portrait is the other path.
+**Reports** are per-platform portraits with no page of their own: open a report card on the homepage and it plays act by act in a popup, where the owner also regenerates it and sets expiry and report style. Guided persona setup reads them; a write-up plus an uploaded portrait is the other path.
 
 ---
 
@@ -297,7 +297,7 @@ Notes: [Federation](docs/development/FEDERATION.md). Federated domain move ≠ o
 
 - **Local accounts** after owner creation. Registration on/off. Per-user password login can be disabled after OAuth is linked.
 - **OAuth:** built-in GitHub plus arbitrary OIDC (Authentik, Keycloak, Google, Microsoft, GitLab, Discord, …). Identities bind explicitly; the same email on two issuers is not merged.
-- **Module visibility:** Library, Phantasi, Reports, Tapp, Agent — everyone / signed-in / admins.
+- **Module visibility:** Library, Phantasi, Tapp, Agent — everyone / signed-in / admins.
 - **Search & AI:** private (noindex, empty sitemap, no `/llms.txt`), search engines only, AI citations, or fully open.
 - **Site identity:** name, blurb, icon, optional PWA, wallpaper and theme, first-party visitor stats, optional Google Analytics / Umami.
 
@@ -450,7 +450,7 @@ upgrade both before using online updates with this topology. See
 
 </details>
 
-Crawler / in-app-share user-agents receive an SEO HTML shell for Home, Library, Phantasi, Reports, and Tapp; browsers receive the SPA. [Architecture](docs/development/ARCHITECTURE.md).
+Crawler / in-app-share user-agents receive an SEO HTML shell for Home, Library, Phantasi, and Tapp; browsers receive the SPA. [Architecture](docs/development/ARCHITECTURE.md).
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "moduleVisibilitySaveFailed": "页面可见性设置没能保存。",
-  "reportSettingsSaveFailed": "报告页设置没能保存。",
+  "reportSettingsSaveFailed": "报告设置没能保存。",
   "loadConfigFailed": "加载配置失败",
   "permissionsSaveFailed": "保存权限设置失败",
   "usersUpdateFailed": "用户资料没能更新。",

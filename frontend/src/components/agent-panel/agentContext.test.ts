@@ -52,11 +52,11 @@ test('有正文但没标题仍然算看得到内容 —— 能总结的是正文
 test('标题在但没正文时不谎称看得到内容', () => {
   assert.deepEqual(
     resolveAgentContext({
-      pathname: '/reports',
-      pageTitle: '数据报告',
+      pathname: '/library',
+      pageTitle: '资料库',
       hasPageContent: false,
     }),
-    { kind: 'route', route: 'reports' },
+    { kind: 'route', route: 'library' },
   )
 })
 

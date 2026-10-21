@@ -188,30 +188,6 @@
       "frontend": "Entries under that category tab. After changing checks, refresh the category to look.",
       "notes": "Checking none may empty this category."
     },
-    "report": {
-      "what": "How long a report stays valid, and whether to auto-make a new one after it expires.",
-      "chain": "1) Report content depends on: platform data already synced + “AI configuration” working + permissions/quota allowing it.\n2) With “expiry” on, reports past the day count are marked expired; with “auto regenerate” also on, they rebuild in the background when due (uses AI quota).\n3) Hiding the “Reports” entry in nav only makes it hard to click in — old reports usually remain.\n4) On failure, tasks or notifications may show a hint.",
-      "frontend": "Expiry cues on the report page, and whether content looks updated.\nOpen the report page for status, or refresh after the automatic job runs.",
-      "notes": "Auto regenerate costs quota; turn on expiry first, then auto regenerate. If AI isn’t set up, it keeps failing."
-    },
-    "reportExpiry": {
-      "what": "Whether reports are allowed to “expire.”",
-      "chain": "1) Off = the day count and auto regenerate below basically do nothing.\n2) On = expiry is judged by the day count.\n3) Does not rewrite AI or platform settings — only “is this report considered old.”",
-      "frontend": "Whether reports show an expired state. After flipping the switch, open the report page to confirm.",
-      "notes": "With expiry off, auto regenerate is usually also unavailable."
-    },
-    "reportAutoRegen": {
-      "what": "Automatically generate a new report after expiry.",
-      "chain": "1) “Expiry” must be on first.\n2) When due → background queue rebuilds → needs AI and platform data both healthy.\n3) On success, the report page shows new content; on failure it may stay on the old report with an error hint.",
-      "frontend": "Report content becomes new after the job finishes. Watch notifications for related task messages.",
-      "notes": "Fails if AI isn’t set up or quota is used up; don’t expect “click and it’s done instantly.”"
-    },
-    "reportExpiryDays": {
-      "what": "How many days a report stays valid.",
-      "chain": "1) Counted from the day it was generated.\n2) Past the days with expiry on → marked expired; with auto regenerate on → may trigger a rebuild.\n3) Changing the number does not rebuild immediately — it only affects how future checks work.",
-      "frontend": "Expiry-related cues and timing. After changing, compare with the report’s generation time.",
-      "notes": "Usually 1–365 days; when you leave the field it snaps into a valid range."
-    },
     "music": {
       "what": "The site’s built-in music player: on or off, and which playlist source.",
       "chain": "1) Turn the switch on, pick a platform, fill the playlist number → save at the bottom.\n2) The player fetches the list from that music service; the control-panel player and music widgets share the same setup.\n3) Turning the switch off only hides the player — playlist settings stay.\n4) “Clear cache” only forgets the list remembered on this device, not the number you typed.\n5) If the server needs a proxy for the open internet (Advanced settings), that can affect whether songs load.",

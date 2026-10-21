@@ -433,7 +433,6 @@ pub fn normalize_path(raw: &str) -> Option<String> {
     let mapped: Vec<String> = match collapsed[0].to_ascii_lowercase().as_str() {
         "library" => vec!["library".into()],
         "phantasi" => vec!["phantasi".into()],
-        "reports" => vec!["reports".into()],
         "config" => vec!["config".into()],
         "login" => vec!["login".into()],
         "register" => vec!["register".into()],

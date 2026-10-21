@@ -245,7 +245,7 @@ fn render_seo_html(doc: SeoDocument<'_>) -> String {
 /// Match proxy `is_seo_document_shell_path`. Humans with `?_spa=1` must not
 /// stay on this SEO document — the bounce script is a no-op once that query is set.
 pub(crate) fn is_seo_document_shell_path(path: &str) -> bool {
-    matches!(path, "/" | "/tapp" | "/library" | "/reports") || path.starts_with("/tapp/run/")
+    matches!(path, "/" | "/tapp" | "/library") || path.starts_with("/tapp/run/")
 }
 
 pub(crate) fn query_has_spa_bypass(query: Option<&str>) -> bool {
@@ -453,7 +453,6 @@ fn llms_primary_routes(
     for (key, path, label) in [
         ("library", "/library", "Library"),
         ("phantasi", "/blog", "Blog"),
-        ("reports", "/reports", "Reports"),
         ("tapp", "/tapp", "Tapp"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");
@@ -768,7 +767,6 @@ fn module_nav_html(modules: &std::collections::HashMap<String, String>) -> Strin
     for (key, path, label) in [
         ("library", "/library", "Library"),
         ("phantasi", "/blog", "Blog"),
-        ("reports", "/reports", "Reports"),
         ("tapp", "/tapp", "Apps"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");
@@ -1011,24 +1009,6 @@ pub async fn library_seo_html(
     .await
 }
 
-/// GET /reports — thin public intro for crawlers.
-pub async fn reports_seo_html(
-    State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-) -> Response {
-    module_list_seo_html(
-        &db,
-        &headers,
-        "reports",
-        "/reports",
-        "Reports",
-        "Periodic reports from this site's data.",
-        Vec::new(),
-        false,
-    )
-    .await
-}
-
 /// GET /robots.txt — `Sitemap:` only when policy is not private and durable origin is set.
 /// Non-private: `Allow: /` plus Disallow `/login` `/register` `/setup` `/config`
 /// `/tapp/playground` `/tapp/detail/` `/agent/settings`. Those SPA pages also set client noindex.
@@ -1156,7 +1136,6 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
     for (key, path, freq) in [
         ("library", "/library", "weekly"),
         ("phantasi", "/blog", "weekly"),
-        ("reports", "/reports", "weekly"),
         ("tapp", "/tapp", "weekly"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");
@@ -1412,7 +1391,6 @@ mod tests {
         let mut modules = std::collections::HashMap::new();
         modules.insert("phantasi".into(), "all".into());
         modules.insert("library".into(), "owner".into());
-        modules.insert("reports".into(), "owner".into());
         modules.insert("tapp".into(), "owner".into());
         let routes = llms_primary_routes(&modules);
         assert!(routes.contains(&("Home", "/")));

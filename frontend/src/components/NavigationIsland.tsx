@@ -34,7 +34,6 @@ import {
   subscribeNavLayout,
 } from '../utils/navLayout'
 import { createNavLayoutTransition } from './navLayoutTransition'
-import { navigateAfterStageLeave } from './stageLeaveGate'
 
 interface ModeMetrics {
   height?: number
@@ -67,7 +66,6 @@ const PRIMARY_NAV_BEHAVIOR: Record<
   main: { asAnchor: true },
   library: {},
   phantasi: { fullPage: true },
-  reports: {},
   tapp: { asAnchor: true, matchPrefix: true },
 }
 
@@ -605,7 +603,7 @@ export function NavigationIsland() {
             }
           }, 150)
         }
-        if (!navigateAfterStageLeave(go)) go()
+        go()
       }
     },
     [location.pathname, secondaryNav, handleExpand, navigate, handlePrefetchPath],
@@ -1080,7 +1078,7 @@ export function NavigationIsland() {
                           e.preventDefault()
                           handlePrefetchPath(item.path)
                           const go = () => navigate(item.path)
-                          if (!navigateAfterStageLeave(go)) go()
+                          go()
                         }}
                       >
                         {content}

@@ -180,7 +180,7 @@ export const BilibiliWidget = memo(
     const followingCount = Number(data?.following_count) || 0
     const formatCount = (num: number) => {
       if (num >= 10000)
-        return `${(num / 10000).toFixed(1)}${t.reportsPage.tenThousandSuffix}`
+        return `${(num / 10000).toFixed(1)}${t.reportCard.tenThousandSuffix}`
       if (num >= 1000) return `${(num / 1000).toFixed(1)}k`
       return String(num)
     }
@@ -190,7 +190,7 @@ export const BilibiliWidget = memo(
       stats.push({
         key: 'fans',
         value: formatCount(followerCount),
-        label: t.reportsPage.fans,
+        label: t.reportCard.fans,
       })
     }
     if (followingCount > 0) {

@@ -6,7 +6,7 @@ import contract from '../../../shared/nav_island.json' with { type: 'json' }
  * 导航岛的主条目（`shared/nav_island.json`）。博客页上那一份由后端照同一个文件画，
  * 顺序、地址、模块、图标在这里改一次两边都跟着变。
  */
-export type NavIslandItemId = 'main' | 'library' | 'phantasi' | 'reports' | 'tapp'
+export type NavIslandItemId = 'main' | 'library' | 'phantasi' | 'tapp'
 
 /** 条目文案在 `nav.*` 里的键；后端的 `backend/i18n/nav.*` 用同样的键。 */
 export type NavIslandLabelKey =
@@ -14,7 +14,6 @@ export type NavIslandLabelKey =
   | 'home'
   | 'library'
   | 'phantasiReading'
-  | 'reports'
   | 'tapp'
   | 'openTapp'
 

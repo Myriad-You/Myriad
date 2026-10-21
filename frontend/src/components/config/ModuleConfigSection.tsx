@@ -10,7 +10,6 @@ import type {
   ModuleVisibilityPreferences,
 } from '../../utils/moduleVisibility'
 import type { HitokotoConfig } from '../../utils/quote'
-import type { ReportSettings } from '../../utils/reportSettings'
 import {
   FaTrash,
   LuEye,
@@ -41,7 +40,6 @@ import PlatformIcon from '../PlatformIcon'
 import {
   ButtonItem,
   InputItem,
-  NumberItem,
   ProviderItem,
   SegmentedControl,
   SettingGroup,
@@ -93,8 +91,6 @@ interface ModuleConfigSectionProps {
   savedPreferences: LibrarySourcePreferences
   hitokotoDraft: HitokotoConfig
   setHitokotoDraft: React.Dispatch<React.SetStateAction<HitokotoConfig>>
-  reportSettingsDraft: ReportSettings
-  setReportSettingsDraft: React.Dispatch<React.SetStateAction<ReportSettings>>
   uiConfigFields: UiConfigField[]
   updateUiFieldValue: (key: string, value: string) => void
   onMessage?: (message: string, type?: 'success' | 'error' | 'info') => void
@@ -171,24 +167,6 @@ function PhantasiTitleIcon({ className }: { className?: string }) {
         strokeLinejoin="round"
         strokeWidth="2"
         d="M9 4v16M12 8h5M12 12h5"
-      />
-    </svg>
-  )
-}
-
-function ReportsTitleIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-        d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"
       />
     </svg>
   )
@@ -351,8 +329,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
   savedPreferences,
   hitokotoDraft,
   setHitokotoDraft,
-  reportSettingsDraft,
-  setReportSettingsDraft,
   uiConfigFields,
   updateUiFieldValue,
   onMessage,
@@ -444,7 +420,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
     () => ({
       library: t.nav.library,
       phantasi: t.nav.phantasiReading,
-      reports: t.nav.reports,
       tapp: t.nav.tapp,
       agent: t.nav.agent,
     }),
@@ -457,7 +432,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
         <LibrarySubtitleIcon className={MODULE_SETTING_TITLE_ICON_CLASS} />
       ),
       phantasi: <PhantasiTitleIcon className={MODULE_SETTING_TITLE_ICON_CLASS} />,
-      reports: <ReportsTitleIcon className={MODULE_SETTING_TITLE_ICON_CLASS} />,
       tapp: <MyriadStoreIcon className={MODULE_SETTING_TITLE_ICON_CLASS} />,
       agent: (
         <MyriadConfigIcon
@@ -515,13 +489,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
       setHitokotoDraft((prev) => ({ ...prev, ...patch }))
     },
     [setHitokotoDraft],
-  )
-
-  const updateReportSettings = useCallback(
-    (patch: Partial<ReportSettings>) => {
-      setReportSettingsDraft((prev) => ({ ...prev, ...patch }))
-    },
-    [setReportSettingsDraft],
   )
 
   useEffect(() => {
@@ -731,65 +698,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
             )
           })}
         </SettingGroupGrid>
-      </SettingGroup>
-
-      <SettingGroup
-        title={t.config.reportSettingsTitle}
-        description={t.config.reportSettingsDesc}
-        {...bindGuide('modules.report', g.modules.report)}
-        icon={<ReportsTitleIcon className="h-3.5 w-3.5" />}
-      >
-        <div className="space-y-3">
-          <SwitchItem
-            itemKey="report-expiry-enabled"
-            label={t.config.reportExpiryEnabled}
-            description={t.config.reportExpiryEnabledDesc}
-            {...bindGuide('modules.reportExpiry', g.modules.reportExpiry)}
-            value={reportSettingsDraft.expiryEnabled}
-            onChange={(value) => updateReportSettings({ expiryEnabled: value })}
-          />
-          <SwitchItem
-            itemKey="report-auto-regenerate"
-            label={t.config.reportAutoRegenerate}
-            description={t.config.reportAutoRegenerateDesc}
-            {...bindGuide('modules.reportAutoRegen', g.modules.reportAutoRegen)}
-            value={reportSettingsDraft.autoRegenerate}
-            onChange={(value) =>
-              updateReportSettings({ autoRegenerate: value })
-            }
-            disabled={!reportSettingsDraft.expiryEnabled}
-          />
-          <NumberItem
-            itemKey="report-expiry-days"
-            label={t.config.reportExpiryDays}
-            description={t.config.reportExpiryDaysHint}
-            {...bindGuide(
-              'modules.reportExpiryDays',
-              g.modules.reportExpiryDays,
-            )}
-            value={reportSettingsDraft.expiryDays}
-            onChange={(value) => {
-              if (Number.isFinite(value)) {
-                updateReportSettings({ expiryDays: value })
-              }
-            }}
-            onBlur={() =>
-              updateReportSettings({
-                expiryDays: Math.min(
-                  365,
-                  Math.max(1, Math.round(reportSettingsDraft.expiryDays)),
-                ),
-              })
-            }
-            min={1}
-            max={365}
-            step={1}
-            unit={t.config.reportExpiryDaysUnit}
-            disabled={!reportSettingsDraft.expiryEnabled}
-            layout="horizontal"
-            size="sm"
-          />
-        </div>
       </SettingGroup>
 
       <SettingGroup

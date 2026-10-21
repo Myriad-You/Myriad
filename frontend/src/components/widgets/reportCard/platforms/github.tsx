@@ -217,7 +217,7 @@ export const GithubStatsWidget = memo(({ data }: any) => {
                     {contributions}
                   </span>
                   <span className="text-[9px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-bold">
-                    {t.reportsPage.commits}
+                    {t.reportCard.commits}
                   </span>
                 </motion.div>
                 <motion.div
@@ -230,7 +230,7 @@ export const GithubStatsWidget = memo(({ data }: any) => {
                     {reposCount}
                   </span>
                   <span className="text-[9px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-bold">
-                    {t.reportsPage.repos}
+                    {t.reportCard.repos}
                   </span>
                 </motion.div>
               </div>

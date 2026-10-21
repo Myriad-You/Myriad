@@ -1,6 +1,6 @@
 {
   "moduleVisibilitySaveFailed": "페이지 공개 범위 설정을 저장하지 못했습니다.",
-  "reportSettingsSaveFailed": "리포트 페이지 설정을 저장하지 못했습니다.",
+  "reportSettingsSaveFailed": "리포트 설정을 저장하지 못했습니다.",
   "loadConfigFailed": "설정을 불러오지 못했습니다",
   "permissionsSaveFailed": "권한 설정을 저장하지 못했습니다",
   "usersUpdateFailed": "그 사용자를 업데이트하지 못했습니다.",

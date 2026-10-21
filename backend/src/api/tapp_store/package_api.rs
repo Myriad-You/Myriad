@@ -527,6 +527,7 @@ mod resource_mode_tests {
             core_entry: Some("core.js".to_string()),
             page_entry: Some("page/index.js".to_string()),
             widget_entries: HashMap::from([("card".to_string(), "widget/index.js".to_string())]),
+            popup_entries: HashMap::new(),
             core_styles: Some("a{}".to_string()),
             page_styles: Some("b{}".to_string()),
             widget_styles: HashMap::from([("card".to_string(), "c{}".to_string())]),

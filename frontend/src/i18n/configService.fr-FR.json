@@ -1,6 +1,6 @@
 {
   "moduleVisibilitySaveFailed": "Impossible d'enregistrer la visibilité des pages.",
-  "reportSettingsSaveFailed": "Impossible d'enregistrer les réglages de la page rapports.",
+  "reportSettingsSaveFailed": "Impossible d'enregistrer les réglages des rapports.",
   "loadConfigFailed": "Impossible de charger la configuration",
   "permissionsSaveFailed": "Échec de l'enregistrement des permissions",
   "usersUpdateFailed": "Impossible de mettre à jour cet utilisateur.",

@@ -35,7 +35,7 @@ test('task polling waits for completion, stops at terminal states, and discards 
       builder.onResolve({ filter: /(@lib\/icons|contexts\/I18nContext|services\/platformTasksApi|\.\/Spinner)$/ }, ({ path }) => ({ path, external: true }))
     } }],
   })
-  const t = { task: { fetchFailed: 'Fetch failed' }, common: {}, reportsPage: {} }
+  const t = { task: { fetchFailed: 'Fetch failed' }, common: {}, reportCard: {} }
   const mockRequire = (path: string) => {
     if (path.includes('I18nContext')) return { useI18n: () => ({ t, locale: 'en-US' }) }
     if (path === '@lib/icons') return Object.fromEntries(['FaCheckCircle', 'FaExclamationCircle', 'FaSpinner', 'FaTimes'].map(key => [key, () => null]))

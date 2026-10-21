@@ -1415,7 +1415,6 @@ async fn execute_page_content(
             platform_params.insert("platform".into(), json!(platform));
             super::data_read::execute("platform.read", &platform_params, ctx).await
         }
-        "report" => super::data_read::execute("report.list", params, ctx).await,
         "library" => super::data_read::execute("stats.overview", params, ctx).await,
         _ => Err("Unable to read page content".to_string()),
     }

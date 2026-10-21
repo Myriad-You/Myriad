@@ -1,0 +1,514 @@
+.report-stage {
+  --stage-fg: #111114;
+  --stage-muted: rgb(17 17 20 / 52%);
+  --stage-line: rgb(17 17 20 / 8%);
+  --stage-button: rgb(17 17 20 / 6%);
+  --stage-button-hover: rgb(17 17 20 / 11%);
+
+  position: relative;
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  color: var(--stage-fg);
+  isolation: isolate;
+}
+
+html.dark .report-stage {
+  --stage-fg: #f5f5f7;
+  --stage-muted: rgb(245 245 247 / 55%);
+  --stage-line: rgb(255 255 255 / 10%);
+  --stage-button: rgb(255 255 255 / 8%);
+  --stage-button-hover: rgb(255 255 255 / 15%);
+}
+
+.report-stage__glow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.report-stage__head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1rem 0.5rem 1.25rem;
+}
+
+.report-stage__platforms {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 0.375rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.report-stage__platforms::-webkit-scrollbar {
+  display: none;
+}
+
+.report-stage__platform {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 999px;
+  color: var(--stage-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.report-stage__platform:hover {
+  background: var(--stage-button);
+  color: var(--stage-fg);
+}
+
+.report-stage__platform[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--stage-accent) 16%, transparent);
+  color: var(--stage-fg);
+}
+
+.report-stage__platform-icon {
+  display: inline-flex;
+  color: var(--stage-accent);
+}
+
+.report-stage__platform[aria-pressed='false'] .report-stage__platform-icon {
+  color: inherit;
+}
+
+.report-stage__act {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+}
+
+.report-stage__act span {
+  color: var(--stage-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.report-stage__act strong {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.report-stage__body {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 2rem;
+  padding: 1rem 2.5rem;
+}
+
+.report-stage__subtitles {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  overflow: hidden;
+  padding-bottom: 1rem;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 30%);
+}
+
+.report-stage__headline {
+  margin-bottom: 0.5rem;
+  color: var(--stage-accent);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.report-stage__line {
+  color: var(--stage-muted);
+  font-size: clamp(1.125rem, 1.6vw, 1.5rem);
+  font-weight: 500;
+  line-height: 1.45;
+  text-wrap: pretty;
+  transition:
+    color 360ms ease,
+    opacity 360ms ease;
+  animation: report-stage-line-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.report-stage__line:not([data-current='true']) {
+  font-size: clamp(1rem, 1.3vw, 1.1875rem);
+}
+
+.report-stage__line:nth-last-child(n + 3):not([data-current='true']) {
+  opacity: 0.55;
+}
+
+.report-stage__line[data-current='true'] {
+  color: var(--stage-fg);
+  font-size: clamp(1.375rem, 2.2vw, 2rem);
+  font-weight: 650;
+}
+
+.report-stage__end {
+  color: var(--stage-muted);
+  font-size: 0.875rem;
+}
+
+@keyframes report-stage-line-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    translate: 0 0.5rem;
+  }
+
+  to {
+    opacity: 1;
+    filter: none;
+    translate: 0 0;
+  }
+}
+
+html[data-perf-mode='exlight'] .report-stage__line {
+  animation: none;
+}
+
+.report-stage__side {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.report-stage__card {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--stage-accent) 8%, var(--stage-button));
+  box-shadow: inset 0 0 0 1px var(--stage-line);
+}
+
+.report-stage__card-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+.report-stage__fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: var(--stage-button);
+  animation: report-stage-line-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.report-stage__fact span {
+  color: var(--stage-muted);
+  font-size: 0.8125rem;
+}
+
+.report-stage__fact strong {
+  color: var(--stage-accent);
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-stage__empty {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: var(--stage-muted);
+}
+
+.report-stage__settings {
+  display: flex;
+  width: min(100%, 34rem);
+  grid-column: 1 / -1;
+  flex-direction: column;
+  place-self: center;
+  gap: 0.5rem;
+}
+
+.report-stage__settings--loading {
+  align-items: center;
+  color: var(--stage-muted);
+}
+
+.report-stage__settings h2 {
+  margin-bottom: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 650;
+}
+
+.report-stage__setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.875rem;
+  background: var(--stage-button);
+  cursor: pointer;
+}
+
+.report-stage__setting[data-disabled] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.report-stage__setting > span:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.report-stage__setting strong {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.report-stage__setting small {
+  color: var(--stage-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.report-stage__setting input[type='checkbox'] {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--stage-accent);
+}
+
+.report-stage__days {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--stage-muted);
+  font-size: 0.875rem;
+}
+
+.report-stage__days input {
+  width: 4.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--stage-button-hover);
+  color: var(--stage-fg);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.report-stage__setting input:focus-visible {
+  outline: 2px solid var(--stage-accent);
+  outline-offset: 2px;
+}
+
+.report-stage__controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem 1.25rem;
+}
+
+.report-stage__progress {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 0.25rem;
+}
+
+.report-stage__progress span {
+  height: 3px;
+  flex: 1;
+  border-radius: 999px;
+  background: var(--stage-line);
+  transition: background-color 240ms ease;
+}
+
+.report-stage__progress span[data-state='done'],
+.report-stage__progress span[data-state='now'] {
+  background: var(--stage-accent);
+}
+
+.report-stage__progress span[data-state='now'] {
+  opacity: 0.6;
+}
+
+.report-stage__buttons {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.report-stage__owner {
+  display: flex;
+  grid-column: 3;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.report-stage__stale {
+  overflow: hidden;
+  color: var(--stage-muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-stage__icon-btn,
+.report-stage__play,
+.report-stage__chip,
+.report-stage__primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-radius: 999px;
+  color: inherit;
+  transition:
+    background-color 140ms ease,
+    opacity 140ms ease;
+}
+
+.report-stage__icon-btn {
+  width: 2.25rem;
+  height: 2.25rem;
+  background: var(--stage-button);
+}
+
+.report-stage__play {
+  width: 3rem;
+  height: 3rem;
+  background: var(--stage-fg);
+  color: #fff;
+}
+
+html.dark .report-stage__play {
+  color: #111114;
+}
+
+.report-stage__chip {
+  height: 2.25rem;
+  padding: 0 0.875rem;
+  background: var(--stage-button);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.report-stage__chip[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--stage-accent) 20%, transparent);
+}
+
+.report-stage__primary {
+  height: 2.5rem;
+  padding: 0 1.25rem;
+  background: var(--stage-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.report-stage__icon-btn:hover:not(:disabled),
+.report-stage__chip:hover:not(:disabled) {
+  background: var(--stage-button-hover);
+}
+
+.report-stage button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.report-stage button:focus-visible {
+  outline: 2px solid var(--stage-accent);
+  outline-offset: 2px;
+}
+
+.report-stage svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.report-stage__play svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.report-stage .is-spinning {
+  animation: report-stage-spin 900ms linear infinite;
+}
+
+@keyframes report-stage-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@media (width <= 767px) {
+  .report-stage__head {
+    padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem 0.25rem 1rem;
+  }
+
+  .report-stage__act {
+    display: none;
+  }
+
+  .report-stage__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .report-stage__side {
+    order: -1;
+  }
+
+  .report-stage__card {
+    width: min(100%, 22rem);
+    margin-inline: auto;
+  }
+
+  .report-stage__line[data-current='true'] {
+    font-size: 1.375rem;
+  }
+
+  .report-stage__controls {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .report-stage__buttons,
+  .report-stage__owner {
+    grid-column: 1;
+    max-width: 100%;
+  }
+
+  .report-stage__buttons {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}

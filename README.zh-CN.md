@@ -126,7 +126,7 @@ ActivityPub · MFP
 </tr>
 </table>
 
-`/config` 仅管理员。资料库、Phantasi、报告、Tapp、Agent：所有人 / 登录用户 / 管理员。
+`/config` 仅管理员。资料库、Phantasi、Tapp、Agent：所有人 / 登录用户 / 管理员。
 
 ---
 
@@ -193,7 +193,7 @@ ActivityPub · MFP
 
 **资料库**按类型筛选已连接平台的游戏、番剧、影视、书籍、音乐。布局：列表或无限画布；低端设备回退列表。每类来源可配置。
 
-**平台报告**为各平台画像。引导式人设会读取。另一条路径是贴文案并上传立绘。
+**平台报告**为各平台画像，没有单独的页面：点首页的报告卡，在弹窗里逐幕播放；站长在同一处重新生成、设置有效期和报告风格。引导式人设会读取它；另一条路径是贴文案并上传立绘。
 
 ---
 
@@ -299,7 +299,7 @@ ActivityPub + **MFP**。发现地址使用 `BASE_URL`。
 
 - **本地账号**：所有者创建之后。注册可开可关。绑定 OAuth 后可关闭该用户的密码登录。
 - **OAuth：** 内置 GitHub，以及任意 OIDC（Authentik、Keycloak、Google、Microsoft、GitLab、Discord……）。身份显式绑定；两个 issuer 上同一邮箱不合并。
-- **页面可见性：** 资料库、Phantasi、报告、Tapp、Agent — 所有人 / 登录用户 / 管理员。
+- **页面可见性：** 资料库、Phantasi、Tapp、Agent — 所有人 / 登录用户 / 管理员。
 - **搜索与 AI：** 私有（noindex、空 sitemap、无 `/llms.txt`）、仅搜索引擎、允许 AI 引用、完全开放。
 - **站点身份：** 名称、简介、图标、可选 PWA、壁纸与主题、第一方访客统计、可选 Google Analytics / Umami。
 
@@ -447,7 +447,7 @@ host HTTP_PORT
 
 </details>
 
-爬虫 / 应用内分享 UA 获得首页、资料库、Phantasi、报告、Tapp 的 SEO HTML 壳；浏览器获得 SPA。[架构](docs/development/ARCHITECTURE.md)。
+爬虫 / 应用内分享 UA 获得首页、资料库、Phantasi、Tapp 的 SEO HTML 壳；浏览器获得 SPA。[架构](docs/development/ARCHITECTURE.md)。
 
 ---
 

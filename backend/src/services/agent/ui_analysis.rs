@@ -46,7 +46,7 @@ static RE_FUNC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(\w+)\s*\("#).unwr
 /// Keep in lockstep with `frontend/src/App.tsx` `<Route path>`.
 /// `/blog` is the public notes site. `/studio` is note management.
 pub const VALID_ROUTER_PREFIXES: &[&str] = &[
-    "/", "/library", "/reports", "/config", "/agent", "/tapp", "/setup", "/blog", "/studio",
+    "/", "/library", "/config", "/agent", "/tapp", "/setup", "/blog", "/studio",
 ];
 
 /// Allowed `page.interact` action names.
@@ -592,8 +592,6 @@ pub fn detect_page_type(path: &str) -> &'static str {
         "phantasi"
     } else if path_lower.starts_with("/tapp") {
         "tapp"
-    } else if path_lower.starts_with("/report") {
-        "report"
     } else if path_lower.starts_with("/settings") || path_lower.starts_with("/config") {
         "settings"
     } else if path_lower.starts_with("/profile") || path_lower.starts_with("/user") {
@@ -639,7 +637,6 @@ pub fn get_page_name(path: &str, page_type: &str) -> String {
                 "Tapp apps".to_string()
             }
         }
-        "report" => "Reports".to_string(),
         "settings" => "Settings".to_string(),
         "profile" => "Profile".to_string(),
         _ => "Page".to_string(),
@@ -697,7 +694,6 @@ pub fn build_breadcrumb(path: &str) -> Vec<String> {
             "netease" => "NetEase Music".to_string(),
             "phantasi" => "Phantasi".to_string(),
             "tapp" | "tapps" => "Tapp apps".to_string(),
-            "report" | "reports" => "Reports".to_string(),
             "settings" => "Settings".to_string(),
             "profile" => "Profile".to_string(),
             "detail" | "details" => "Detail".to_string(),
@@ -843,7 +839,7 @@ mod tests {
         assert!(!is_valid_router_path("/journal"));
         assert!(!is_valid_router_path("/journal/articles/1"));
         assert!(!is_valid_router_path("/phantasi/item/1"));
-        assert!(is_valid_router_path("/reports"));
+        assert!(!is_valid_router_path("/reports"));
         assert!(is_valid_router_path("/config"));
         assert!(is_valid_router_path("/agent/settings"));
         assert!(!is_valid_router_path("/agentish"));

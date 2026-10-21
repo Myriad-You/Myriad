@@ -1,7 +1,13 @@
 import type { ComponentType } from 'react'
 import type { TranslationKeys } from '../../i18n'
-import type { WidgetComponentProps, WidgetSize, WidgetType } from '../widgetGridTypes'
+import type {
+  WidgetComponentProps,
+  WidgetPopupDef,
+  WidgetSize,
+  WidgetType,
+} from '../widgetGridTypes'
 import type { BuiltinWidgetHost, BuiltinWidgetId } from './builtinWidgetMeta'
+import { lazy } from 'react'
 import { lazyWithPreload } from '../../utils/codeSplitting'
 import {
   BUILTIN_WIDGET_META,
@@ -153,6 +159,13 @@ export function preloadBuiltinWidgets(types: Iterable<string>): Promise<void> {
   return Promise.all(jobs).then(() => undefined)
 }
 
+/** 报告卡的弹窗就是舞台。舞台自带关闭键，不要宿主角上那颗。 */
+const REPORT_STAGE_POPUP: WidgetPopupDef = {
+  component: lazy(() => import('./reportStage/ReportStagePopup')),
+  size: 'stage',
+  chrome: 'none',
+}
+
 export function getBuiltinWidgets(
   widgetsI18n: WidgetsI18n,
   host: BuiltinWidgetHost,
@@ -168,6 +181,7 @@ export function getBuiltinWidgets(
       supportedSizes: [...base.supportedSizes],
       componentLongPress:
         COMPONENT_LONG_PRESS_WIDGETS.has(base.component) || undefined,
+      popup: meta.id.startsWith('report-') ? REPORT_STAGE_POPUP : undefined,
       settings:
         meta.id === 'github-repos'
           ? [

@@ -191,7 +191,6 @@ export function pageNameForPath(
     library: string
     phantasi: string
     studio: string
-    reports: string
     tapp: string
     config: string
     agent: string
@@ -203,7 +202,6 @@ export function pageNameForPath(
   if ((path === '/' || path === '') && editingHome) return editMode
   if (path === '/library' || path.startsWith('/library')) return nav.library
   if (path === '/studio' || path.startsWith('/studio/')) return nav.studio
-  if (path === '/reports' || path.startsWith('/reports')) return nav.reports
   if (path === '/tapp' || path.startsWith('/tapp')) return nav.tapp
   if (path === '/agent/settings' || path.startsWith('/agent/settings')) {
     return nav.agent

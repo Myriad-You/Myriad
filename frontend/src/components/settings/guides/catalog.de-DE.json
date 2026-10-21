@@ -188,30 +188,6 @@
       "frontend": "Einträge unter diesem Kategorie-Tab. Nach Häkchen-Änderung die Kategorie aktualisieren und nachsehen.",
       "notes": "Nichts angehakt kann diese Kategorie leeren."
     },
-    "report": {
-      "what": "Wie lange ein Bericht gültig bleibt und ob nach Ablauf automatisch ein neuer entsteht.",
-      "chain": "1) Berichtsinhalt hängt ab von: bereits synchronisierten Plattformdaten + funktionierender „KI-Konfiguration“ + erlaubten Berechtigungen/Kontingent.\n2) Mit „Ablauf“ an gelten Berichte nach der Tageszahl als abgelaufen; mit zusätzlich „automatisch neu erzeugen“ werden sie fällig im Hintergrund neu gebaut (nutzt KI-Kontingent).\n3) Den Navigationseintrag „Berichte“ auszublenden macht ihn nur schwer anklickbar — alte Berichte bleiben meist.\n4) Bei Fehler können Aufgaben oder Benachrichtigungen einen Hinweis zeigen.",
-      "frontend": "Ablaufhinweise auf der Berichtsseite und ob Inhalt aktualisiert wirkt.\nBerichtsseite für den Status öffnen oder nach dem automatischen Auftrag aktualisieren.",
-      "notes": "Automatisch neu erzeugen kostet Kontingent; zuerst Ablauf, dann automatisch neu erzeugen. Ohne eingerichtete KI scheitert es weiter."
-    },
-    "reportExpiry": {
-      "what": "Ob Berichte „ablaufen“ dürfen.",
-      "chain": "1) Aus = die Tageszahl und das automatische Neuerzeugen darunter tun im Wesentlichen nichts.\n2) An = der Ablauf wird nach der Tageszahl beurteilt.\n3) Schreibt KI- oder Plattformeinstellungen nicht um — nur „gilt dieser Bericht als alt“.",
-      "frontend": "Ob Berichte einen abgelaufenen Zustand zeigen. Nach dem Umschalten die Berichtsseite öffnen und bestätigen.",
-      "notes": "Bei ausgeschaltetem Ablauf ist automatisches Neuerzeugen meist ebenfalls nicht verfügbar."
-    },
-    "reportAutoRegen": {
-      "what": "Nach Ablauf automatisch einen neuen Bericht erzeugen.",
-      "chain": "1) „Ablauf“ muss zuerst an sein.\n2) Wenn fällig → Hintergrundwarteschlange baut neu → KI und Plattformdaten müssen beide gesund sein.\n3) Bei Erfolg zeigt die Berichtsseite neuen Inhalt; bei Fehler bleibt oft der alte Bericht mit Fehlerhinweis.",
-      "frontend": "Berichtsinhalt wird nach dem Auftrag neu. Benachrichtigungen auf zugehörige Aufgabenmeldungen achten.",
-      "notes": "Scheitert, wenn KI nicht eingerichtet oder das Kontingent aufgebraucht ist; nicht „klicken und sofort fertig“ erwarten."
-    },
-    "reportExpiryDays": {
-      "what": "Wie viele Tage ein Bericht gültig bleibt.",
-      "chain": "1) Gezählt ab dem Erzeugungstag.\n2) Nach den Tagen bei Ablauf an → als abgelaufen markiert; bei automatisch neu erzeugen an → kann einen Neuaufbau auslösen.\n3) Die Zahl zu ändern baut nicht sofort neu — sie wirkt nur auf künftige Prüfungen.",
-      "frontend": "Ablaufbezogene Hinweise und Zeitpunkte. Nach der Änderung mit der Erzeugungszeit des Berichts vergleichen.",
-      "notes": "Meist 1–365 Tage; beim Verlassen des Feldes rastet es in einen gültigen Bereich ein."
-    },
     "music": {
       "what": "Der eingebaute Musikplayer der Site: an oder aus und welche Playlist-Quelle.",
       "chain": "1) Schalter an, Plattform wählen, Playlist-Nummer ausfüllen → unten speichern.\n2) Der Player holt die Liste von diesem Musikdienst; Steuerpanel-Player und Musik-Widgets teilen dieselbe Einrichtung.\n3) Den Schalter aus blendet nur den Player — Playlist-Einstellungen bleiben.\n4) „Cache leeren“ vergisst nur die auf diesem Gerät merkte Liste, nicht die eingegebene Nummer.\n5) Wenn der Server für das offene Internet einen Proxy braucht (Erweiterte Einstellungen), kann das das Laden von Titeln beeinflussen.",

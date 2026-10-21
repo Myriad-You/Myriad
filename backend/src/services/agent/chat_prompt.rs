@@ -441,7 +441,7 @@ mod tests {
         json!({
             "data": { "task": { "status": "completed", "stepHistory": [{"id": "s1"}] } },
             "dataDisplay": { "type": "table" },
-            "frontendAction": { "action": "navigate", "path": "/reports" }
+            "frontendAction": { "action": "navigate", "path": "/library" }
         })
     }
 

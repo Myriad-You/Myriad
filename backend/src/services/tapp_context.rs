@@ -104,7 +104,6 @@ pub fn idle_navigation_context() -> Value {
         "availableRoutes": [
             { "path": "/", "name": "home", "icon": "home" },
             { "path": "/library", "name": "library", "icon": "book" },
-            { "path": "/reports", "name": "reports", "icon": "bar-chart" },
             { "path": "/tapp", "name": "tapp", "icon": "grid" },
             { "path": "/config", "name": "config", "icon": "settings" }
         ],
@@ -210,7 +209,7 @@ mod tests {
             .filter_map(|r| r["path"].as_str())
             .collect();
         assert!(!paths.contains(&"/journal"));
-        assert!(paths.contains(&"/reports"));
+        assert!(!paths.contains(&"/reports"));
         assert!(paths.contains(&"/tapp"));
         assert!(paths.contains(&"/config"));
         assert!(!paths.contains(&"/life"));

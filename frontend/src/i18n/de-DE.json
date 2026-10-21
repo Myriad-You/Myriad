@@ -41,7 +41,6 @@
   "nav": {
     "home": "Start",
     "library": "Bibliothek",
-    "reports": "Plattformberichte",
     "config": "Einstellungen",
     "login": "Anmelden",
     "backToHome": "Zurück zum Start",
@@ -201,22 +200,6 @@
       "library-canvas": {
         "title": "Fläche",
         "body": "Die unendliche Fläche zoomen oder zur Mitte zurücksetzen."
-      },
-      "reports-status": {
-        "title": "Statusleiste",
-        "body": "Wechselt auf dieser Seite durch Plattform- und Wiedergabestatus."
-      },
-      "reports-play": {
-        "title": "Abspielen",
-        "body": "Vorhandene Berichte nacheinander abspielen."
-      },
-      "reports-cards": {
-        "title": "Plattformkarten",
-        "body": "Eine Karte pro Plattform. Einen vorhandenen Bericht öffnen."
-      },
-      "reports-cards-owner": {
-        "title": "Plattformkarten",
-        "body": "Eine Karte pro Plattform. Einen vorhandenen Bericht öffnen oder hier erzeugen."
       },
       "tapp-store-entry": {
         "title": "Store",
@@ -532,11 +515,8 @@
     "githubReposField": "Repository",
     "githubReposFieldHint": "GitHub-URL oder owner/repo",
     "library": "Bibliothek",
-    "dataReport": "Plattformberichte",
     "multiPlatformAggregation": "Inhalte mehrerer Plattformen an einem Ort",
-    "dualLayerAnalysis": "Profile und Einblicke je Plattform",
     "libraryFeature": "Spiele, Filme und Musik an einem Ort",
-    "platformProfile": "Plattformprofile und Berichte erzeugen",
     "phantasiReading": "Blog",
     "phantasiDesc": "Öffentliche Notizen",
     "phantasiFeature": "Beiträge und Links",
@@ -676,9 +656,6 @@
     "statusOnHold": "Pausiert",
     "statusDropped": "Abgebrochen"
   },
-  "reports": {
-    "title": "Datenberichte"
-  },
   "agentPanel": {
     "away": {
       "toWork": "Zum Arbeitsmodus",
@@ -708,7 +685,6 @@
       "routes": {
         "home": "Start",
         "library": "Bibliothek",
-        "reports": "Berichte",
         "config": "Einstellungen",
         "tapp": "Tapp",
         "studio": "Studio",
@@ -1459,70 +1435,22 @@
       "lol",
       "Nostalgie",
       "Tränen"
-    ]
-  },
-  "reportsPage": {
-    "neteaseMusic": "NetEase",
-    "bilibili": "Bilibili",
-    "steam": "Steam",
-    "github": "GitHub",
-    "casualPlayer": "Gelegenheitsspieler",
-    "core": "Kern",
-    "active": "Aktiv",
+    ],
     "library": "BIBLIOTHEK",
     "playtime": "SPIELZEIT",
     "commits": "Commits",
     "repos": "Repos",
-    "stars": "Stars",
     "fans": "Fans",
     "lists": "Listen",
-    "noPlatformReports": "Keine Plattformberichte vorhanden",
-    "allPlaybackComplete": "Wiedergabe aller Plattformen fertig",
-    "getTokenFailed": "Sicherheits-Token nicht verfügbar",
-    "refreshingReport": "{platform}-Bericht wird aktualisiert...",
-    "reportRefreshSuccess": "{platform}-Bericht aktualisiert!",
-    "reportRefreshNoData": "Bericht aktualisiert, aber keine neuen Daten gefunden",
-    "refreshReportFailed": "{platform}-Bericht ließ sich nicht aktualisieren",
-    "adminOnlyGenerate": "Nur Admins können Berichte erzeugen",
-    "generateFailed": "Erzeugen fehlgeschlagen",
-    "generateFailedRetry": "Erzeugen fehlgeschlagen, bitte erneut versuchen",
-    "generateNeedData": "Diese Plattform hat noch keine nutzbaren Daten. Zuerst holen, dann den Bericht erzeugen.",
-    "generateEmptySummary": "Zu wenig Plattformdaten für einen Bericht. Zuerst mehr Inhalt synchronisieren.",
-    "close": "Schließen",
-    "aiSummary": "KI-Kurztext",
-    "noEnabledPlatforms": "Noch keine Datenplattformen eingeschaltet",
-    "noEnabledPlatformsDesc": "Mindestens eine Datenplattform in den Einstellungen einschalten, damit hier Karten erscheinen.",
-    "platformReport": "Plattformberichte",
-    "stagePlaying": "Bühne spielt",
-    "stagePaused": "Bühne pausiert",
-    "heroStage": "Bühne",
-    "tipNoReports": "Noch keine Berichte",
-    "tipNoReportsSub": "Zuerst einen Plattformbericht erzeugen",
-    "playAllReports": "Alle Plattformberichte abspielen",
-    "refreshing": "Aktualisieren...",
-    "refreshCurrentReport": "Aktuellen Bericht aktualisieren",
-    "continuePlay": "Weiter",
-    "pause": "Pause",
-    "closeStage": "Bühne schließen",
-    "clickToGenerate": "Zum Erzeugen klicken",
-    "noReport": "Kein Bericht",
-    "anime": "Anime",
-    "tvSeries": "Serien",
-    "video": "Video",
-    "game": "Spiel",
-    "music": "Musik",
-    "content": "Inhalt",
-    "dataEcho": "Datenecho",
-    "deepInsight": "Tiefer Blick",
-    "unknownPlatform": "Unbekannte Plattform",
-    "generate": "Erzeugen",
     "tenThousandSuffix": "×10k",
     "bangumiDone": "Fertig",
     "bangumiDoing": "Dabei",
     "bangumiWish": "Merkliste",
     "malDone": "Abgeschlossen",
     "malDoing": "Dabei",
-    "malWish": "Geplant"
+    "malWish": "Geplant",
+    "generateNeedData": "Diese Plattform hat noch keine nutzbaren Daten. Zuerst holen, dann den Bericht erzeugen.",
+    "generateEmptySummary": "Zu wenig Plattformdaten für einen Bericht. Zuerst mehr Inhalt synchronisieren."
   },
   "dataManagement": {
     "fetchResult": {
@@ -1714,7 +1642,7 @@
   },
   "platformCard": {
     "clickToSocial": "Profil öffnen",
-    "clickToReport": "Berichte öffnen",
+    "clickToReport": "Bericht abspielen",
     "settingsTitle": "Klickaktion",
     "longPressHint": "Halten zum Einstellen"
   },
@@ -1810,6 +1738,39 @@
     "ytViews": "Aufrufe",
     "ytVideos": "Videos",
     "ytEmptyChannel": "Öffentlicher Kanal verknüpft — noch keine Uploads"
+  },
+  "reportStage": {
+    "title": "Berichtsbühne",
+    "play": "Abspielen",
+    "pause": "Pause",
+    "replay": "Noch einmal",
+    "prevChapter": "Voriger Akt",
+    "nextChapter": "Nächster Akt",
+    "playAll": "Alle Plattformen nacheinander",
+    "playAllOn": "Spielt alle",
+    "chapterOf": "Akt {current} von {total}",
+    "echo": "Datenecho",
+    "insight": "Tiefer Einblick",
+    "empty": "Für diese Plattform gibt es noch keinen Bericht",
+    "generate": "Bericht erstellen",
+    "regenerate": "Neu erstellen",
+    "generating": "Wird erstellt…",
+    "generateFailed": "Der Bericht konnte nicht erstellt werden",
+    "generated": "Bericht für {platform} aktualisiert",
+    "finished": "Das war’s",
+    "platforms": "Plattformen",
+    "styleStale": "Der Stil hat sich geändert. Neu erstellen, um ihn zu übernehmen.",
+    "settings": "Berichtseinstellungen",
+    "expiryEnabled": "Berichtsablauf aktivieren",
+    "expiryEnabledDesc": "Wenn aus, bleiben vorhandene und neu erzeugte Berichte verfügbar",
+    "autoRegenerate": "Nach Ablauf neu erzeugen",
+    "autoRegenerateDesc": "Veraltete Plattformberichte anzeigen und im Hintergrund neu erzeugen",
+    "expiryDays": "Ablauffrist",
+    "expiryDaysUnit": "Tage",
+    "expiryDaysHint": "1–365 Tage wählen. Neu erzeugte Berichte nutzen diese Lebensdauer.",
+    "settingsSaved": "Berichtseinstellungen gespeichert",
+    "settingsLoadFailed": "Berichtseinstellungen konnten nicht geladen werden",
+    "settingsSaveFailed": "Berichtseinstellungen konnten nicht gespeichert werden."
   },
   "socialNetworkWidget": {
     "fillPlatformName": "Bitte Plattformname eingeben",

@@ -60,8 +60,8 @@ Persona WebSocket upgrades are rejected (400). `/internal/*` is 404 at the edge.
 | `/users/*` | Actor documents and per-user inboxes |
 | `/activities/*` `/notes/*` `/reports/*` `/tapps/*` `/library/*` `/phantasi/articles/*` | ActivityPub object dereference (prefix longer than the SEO index path) |
 
-Exact `/reports` and `/library` stay on the SEO / SPA owners below. They are
-**not** federation prefixes.
+Exact `/library` stays on the SEO / SPA owners below; exact `/reports` is no
+longer a page and falls through to the SPA. Neither is a federation prefix.
 
 #### Proxy → backend (web)
 
@@ -77,7 +77,7 @@ Tapps, updater admin proxy, SEO JSON, …).
 | `/blog` `/blog/*` | Static blog built by Hugo from published notes, for every user agent. Served with `script-src 'none'` and same-origin framing only |
 | `/robots.txt` | Dynamic robots; absolute `Sitemap:` line only when `FRONTEND_URL` or `BASE_URL` is set (omitted when unset) |
 | `/llms.txt` | AI-facing site index (when GEO policy allows) |
-| `/` `/tapp` `/library` `/reports` | **Crawler / WeChat-Weibo in-app share UA** → backend SEO HTML shell (proxy routes only; it does not rewrite HTML); `?_spa=1` and ordinary browsers → SPA |
+| `/` `/tapp` `/library` | **Crawler / WeChat-Weibo in-app share UA** → backend SEO HTML shell (proxy routes only; it does not rewrite HTML); `?_spa=1` and ordinary browsers → SPA |
 | `/tapp/run/*` | **Crawler UA only** → backend SEO HTML shell; browsers → SPA |
 | `/api/seo/tapp/{id}` | Public Tapp share summary JSON |
 

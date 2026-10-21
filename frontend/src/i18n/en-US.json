@@ -41,7 +41,6 @@
   "nav": {
     "home": "Home",
     "library": "Library",
-    "reports": "Platform Reports",
     "config": "Config",
     "login": "Login",
     "backToHome": "Back to Home",
@@ -201,22 +200,6 @@
       "library-canvas": {
         "title": "Canvas",
         "body": "Zoom the infinite canvas, or reset to center."
-      },
-      "reports-status": {
-        "title": "Status bar",
-        "body": "Cycles through platform and playback status on this page."
-      },
-      "reports-play": {
-        "title": "Play",
-        "body": "Play existing reports in sequence."
-      },
-      "reports-cards": {
-        "title": "Platform cards",
-        "body": "One card per platform. Open an existing report."
-      },
-      "reports-cards-owner": {
-        "title": "Platform cards",
-        "body": "One card per platform. Open an existing report, or generate one here."
       },
       "tapp-store-entry": {
         "title": "Store",
@@ -532,11 +515,8 @@
     "githubReposField": "Repository",
     "githubReposFieldHint": "GitHub URL or owner/repo",
     "library": "Library",
-    "dataReport": "Platform Reports",
     "multiPlatformAggregation": "Multi-platform Content Aggregation",
-    "dualLayerAnalysis": "Per-platform profiles and insights",
     "libraryFeature": "Games, films, and music in one place",
-    "platformProfile": "Platform profiles and report generation",
     "phantasiReading": "Blog",
     "phantasiDesc": "Public notes",
     "phantasiFeature": "Posts and friend links",
@@ -676,9 +656,6 @@
     "statusOnHold": "On hold",
     "statusDropped": "Dropped"
   },
-  "reports": {
-    "title": "Data Reports"
-  },
   "agentPanel": {
     "away": {
       "toWork": "Switch to Work",
@@ -708,7 +685,6 @@
       "routes": {
         "home": "Home",
         "library": "Library",
-        "reports": "Reports",
         "config": "Settings",
         "tapp": "Tapp",
         "studio": "Studio",
@@ -1459,70 +1435,22 @@
       "LOL",
       "Nostalgia",
       "Tears"
-    ]
-  },
-  "reportsPage": {
-    "neteaseMusic": "NetEase",
-    "bilibili": "Bilibili",
-    "steam": "Steam",
-    "github": "GitHub",
-    "casualPlayer": "Casual Player",
-    "core": "Core",
-    "active": "Active",
+    ],
     "library": "LIBRARY",
     "playtime": "PLAYTIME",
     "commits": "Commits",
     "repos": "Repos",
-    "stars": "Stars",
     "fans": "Fans",
     "lists": "Lists",
-    "noPlatformReports": "No platform reports available",
-    "allPlaybackComplete": "All platforms playback complete",
-    "getTokenFailed": "Failed to get security token",
-    "refreshingReport": "Refreshing {platform} report...",
-    "reportRefreshSuccess": "{platform} report refreshed!",
-    "reportRefreshNoData": "Report refresh complete, but no updated data found",
-    "refreshReportFailed": "Failed to refresh {platform} report",
-    "adminOnlyGenerate": "Only admin can generate reports",
-    "generateFailed": "Generation failed",
-    "generateFailedRetry": "Generation failed, please try again",
-    "generateNeedData": "This platform has no usable data yet. Fetch it first, then generate the report.",
-    "generateEmptySummary": "There is not enough platform data to generate a report. Sync more content first.",
-    "close": "Close",
-    "aiSummary": "AI Summary",
-    "noEnabledPlatforms": "No data platforms are enabled yet",
-    "noEnabledPlatformsDesc": "Enable at least one data platform in settings before platform cards can appear here.",
-    "platformReport": "Platform Reports",
-    "stagePlaying": "Stage mode playing",
-    "stagePaused": "Stage paused",
-    "heroStage": "Stage",
-    "tipNoReports": "No reports yet",
-    "tipNoReportsSub": "Generate a platform report first",
-    "playAllReports": "Play all platform reports",
-    "refreshing": "Refreshing...",
-    "refreshCurrentReport": "Refresh current report",
-    "continuePlay": "Continue",
-    "pause": "Pause",
-    "closeStage": "Close stage",
-    "clickToGenerate": "Click to generate",
-    "noReport": "No report",
-    "anime": "Anime",
-    "tvSeries": "TV Series",
-    "video": "Video",
-    "game": "Game",
-    "music": "Music",
-    "content": "Content",
-    "dataEcho": "Data Echo",
-    "deepInsight": "Deep Insight",
-    "unknownPlatform": "Unknown platform",
-    "generate": "Generate",
     "tenThousandSuffix": "W",
     "bangumiDone": "Done",
     "bangumiDoing": "Doing",
     "bangumiWish": "Wish",
     "malDone": "Completed",
     "malDoing": "Watching",
-    "malWish": "Plan to"
+    "malWish": "Plan to",
+    "generateNeedData": "This platform has no usable data yet. Fetch it first, then generate the report.",
+    "generateEmptySummary": "There is not enough platform data to generate a report. Sync more content first."
   },
   "dataManagement": {
     "fetchResult": {
@@ -1714,7 +1642,7 @@
   },
   "platformCard": {
     "clickToSocial": "Open profile",
-    "clickToReport": "Open reports",
+    "clickToReport": "Play report",
     "settingsTitle": "Click action",
     "longPressHint": "Hold to set"
   },
@@ -1810,6 +1738,39 @@
     "ytViews": "views",
     "ytVideos": "videos",
     "ytEmptyChannel": "Public channel linked — no uploads yet"
+  },
+  "reportStage": {
+    "title": "Report stage",
+    "play": "Play",
+    "pause": "Pause",
+    "replay": "Replay",
+    "prevChapter": "Previous act",
+    "nextChapter": "Next act",
+    "playAll": "Play every platform",
+    "playAllOn": "Playing all",
+    "chapterOf": "Act {current} of {total}",
+    "echo": "Data echo",
+    "insight": "Deep insight",
+    "empty": "No report for this platform yet",
+    "generate": "Generate report",
+    "regenerate": "Regenerate",
+    "generating": "Generating…",
+    "generateFailed": "The report couldn't be generated",
+    "generated": "{platform} report updated",
+    "finished": "That's the end",
+    "platforms": "Platforms",
+    "styleStale": "The style changed. Regenerate to use it.",
+    "settings": "Report settings",
+    "expiryEnabled": "Enable report expiry",
+    "expiryEnabledDesc": "When disabled, existing and newly generated reports remain available",
+    "autoRegenerate": "Regenerate after expiry",
+    "autoRegenerateDesc": "Show stale platform reports while regenerating them in the background",
+    "expiryDays": "Expiry period",
+    "expiryDaysUnit": "days",
+    "expiryDaysHint": "Choose 1–365 days. Newly generated reports use this lifetime.",
+    "settingsSaved": "Report settings saved",
+    "settingsLoadFailed": "Failed to load report settings",
+    "settingsSaveFailed": "Could not save report settings."
   },
   "socialNetworkWidget": {
     "fillPlatformName": "Please enter platform name",

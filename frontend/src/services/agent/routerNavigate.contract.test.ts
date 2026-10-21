@@ -38,7 +38,6 @@ describe('router.navigate allow-list', () => {
       '/',
       '/library',
       '/studio',
-      '/reports',
       '/config',
       '/agent/settings',
       '/tapp',

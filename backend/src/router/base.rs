@@ -435,7 +435,6 @@ pub(super) fn build_base_api_router(
                 .route("/tapp", get(api::seo::tapp_list_seo_html))
                 .route("/tapp/run/{tapp_id}", get(api::seo::tapp_run_seo_html))
                 .route("/library", get(api::seo::library_seo_html))
-                .route("/reports", get(api::seo::reports_seo_html))
                 .layer(from_fn(api::seo::spa_document_bypass)),
         )
         // CSRF Token 获取端点

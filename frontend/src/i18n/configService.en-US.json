@@ -1,6 +1,6 @@
 {
   "moduleVisibilitySaveFailed": "Could not save page visibility settings.",
-  "reportSettingsSaveFailed": "Could not save report page settings.",
+  "reportSettingsSaveFailed": "Could not save report settings.",
   "loadConfigFailed": "Failed to load configuration",
   "permissionsSaveFailed": "Failed to save permission settings",
   "usersUpdateFailed": "Could not update that user.",

@@ -41,7 +41,6 @@
   "nav": {
     "home": "Accueil",
     "library": "Bibliothèque",
-    "reports": "Rapports",
     "config": "Réglages",
     "login": "Connexion",
     "backToHome": "Retour à l'accueil",
@@ -201,22 +200,6 @@
       "library-canvas": {
         "title": "Toile",
         "body": "Zoomez la toile infinie, ou recentrez."
-      },
-      "reports-status": {
-        "title": "Barre d'état",
-        "body": "Fait défiler l'état des plateformes et de la lecture sur cette page."
-      },
-      "reports-play": {
-        "title": "Lecture",
-        "body": "Enchaîne les rapports déjà générés."
-      },
-      "reports-cards": {
-        "title": "Cartes plateforme",
-        "body": "Une carte par plateforme. Ouvrez un rapport existant."
-      },
-      "reports-cards-owner": {
-        "title": "Cartes plateforme",
-        "body": "Une carte par plateforme. Ouvrez un rapport existant, ou générez-en un ici."
       },
       "tapp-store-entry": {
         "title": "Boutique",
@@ -532,11 +515,8 @@
     "githubReposField": "Dépôt",
     "githubReposFieldHint": "URL GitHub ou owner/repo",
     "library": "Bibliothèque",
-    "dataReport": "Rapports",
     "multiPlatformAggregation": "Agrégation multi-plateforme",
-    "dualLayerAnalysis": "Profils et regards par plateforme",
     "libraryFeature": "Jeux, films et musique au même endroit",
-    "platformProfile": "Profils plateforme et génération de rapports",
     "phantasiReading": "Blog",
     "phantasiDesc": "Notes publiques",
     "phantasiFeature": "Articles et liens",
@@ -676,9 +656,6 @@
     "statusOnHold": "En pause",
     "statusDropped": "Abandonné"
   },
-  "reports": {
-    "title": "Rapports"
-  },
   "agentPanel": {
     "away": {
       "toWork": "Passer en mode travail",
@@ -708,7 +685,6 @@
       "routes": {
         "home": "Accueil",
         "library": "Bibliothèque",
-        "reports": "Rapports",
         "config": "Réglages",
         "tapp": "Tapp",
         "studio": "Studio",
@@ -1459,70 +1435,22 @@
       "MDR",
       "Nostalgie",
       "Larmes"
-    ]
-  },
-  "reportsPage": {
-    "neteaseMusic": "NetEase",
-    "bilibili": "Bilibili",
-    "steam": "Steam",
-    "github": "GitHub",
-    "casualPlayer": "Joueur occasionnel",
-    "core": "Cœur",
-    "active": "Actif",
+    ],
     "library": "BIBLIOTHÈQUE",
     "playtime": "TEMPS DE JEU",
     "commits": "Commits",
     "repos": "Dépôts",
-    "stars": "Étoiles",
     "fans": "Fans",
     "lists": "Listes",
-    "noPlatformReports": "Aucun rapport plateforme",
-    "allPlaybackComplete": "Lecture de toutes les plateformes terminée",
-    "getTokenFailed": "Impossible d'obtenir le jeton de sécurité",
-    "refreshingReport": "Actualisation du rapport {platform}...",
-    "reportRefreshSuccess": "Rapport {platform} actualisé !",
-    "reportRefreshNoData": "Actualisation terminée, mais pas de nouvelles données",
-    "refreshReportFailed": "Impossible d'actualiser le rapport {platform}",
-    "adminOnlyGenerate": "Seul l'admin peut générer des rapports",
-    "generateFailed": "Génération échouée",
-    "generateFailedRetry": "Génération échouée, réessayez",
-    "generateNeedData": "Cette plateforme n'a pas encore de données utilisables. Récupérez-les d'abord, puis générez le rapport.",
-    "generateEmptySummary": "Pas assez de données pour générer un rapport. Synchronisez d'abord plus de contenu.",
-    "close": "Fermer",
-    "aiSummary": "Résumé IA",
-    "noEnabledPlatforms": "Aucune plateforme de données n'est encore activée",
-    "noEnabledPlatformsDesc": "Activez au moins une plateforme dans les réglages pour que les cartes apparaissent ici.",
-    "platformReport": "Rapports",
-    "stagePlaying": "Stage en lecture",
-    "stagePaused": "Stage en pause",
-    "heroStage": "Stage",
-    "tipNoReports": "Pas encore de rapports",
-    "tipNoReportsSub": "Générez d'abord un rapport plateforme",
-    "playAllReports": "Lire tous les rapports",
-    "refreshing": "Actualisation...",
-    "refreshCurrentReport": "Actualiser le rapport actuel",
-    "continuePlay": "Continuer",
-    "pause": "Pause",
-    "closeStage": "Fermer le Stage",
-    "clickToGenerate": "Cliquer pour générer",
-    "noReport": "Pas de rapport",
-    "anime": "Anime",
-    "tvSeries": "Séries",
-    "video": "Vidéo",
-    "game": "Jeu",
-    "music": "Musique",
-    "content": "Contenu",
-    "dataEcho": "Écho des données",
-    "deepInsight": "Regard profond",
-    "unknownPlatform": "Plateforme inconnue",
-    "generate": "Générer",
     "tenThousandSuffix": "W",
     "bangumiDone": "Terminé",
     "bangumiDoing": "En cours",
     "bangumiWish": "Envie",
     "malDone": "Terminé",
     "malDoing": "En cours",
-    "malWish": "À voir"
+    "malWish": "À voir",
+    "generateNeedData": "Cette plateforme n'a pas encore de données utilisables. Récupérez-les d'abord, puis générez le rapport.",
+    "generateEmptySummary": "Pas assez de données pour générer un rapport. Synchronisez d'abord plus de contenu."
   },
   "dataManagement": {
     "fetchResult": {
@@ -1714,7 +1642,7 @@
   },
   "platformCard": {
     "clickToSocial": "Ouvrir le profil",
-    "clickToReport": "Ouvrir les rapports",
+    "clickToReport": "Lire le rapport",
     "settingsTitle": "Action au clic",
     "longPressHint": "Maintenir pour régler"
   },
@@ -1810,6 +1738,39 @@
     "ytViews": "vues",
     "ytVideos": "vidéos",
     "ytEmptyChannel": "Chaîne publique liée — pas encore de vidéos"
+  },
+  "reportStage": {
+    "title": "Scène du rapport",
+    "play": "Lire",
+    "pause": "Pause",
+    "replay": "Rejouer",
+    "prevChapter": "Acte précédent",
+    "nextChapter": "Acte suivant",
+    "playAll": "Enchaîner toutes les plateformes",
+    "playAllOn": "Lecture enchaînée",
+    "chapterOf": "Acte {current} sur {total}",
+    "echo": "Écho des données",
+    "insight": "Analyse approfondie",
+    "empty": "Pas encore de rapport pour cette plateforme",
+    "generate": "Générer le rapport",
+    "regenerate": "Régénérer",
+    "generating": "Génération…",
+    "generateFailed": "Le rapport n'a pas pu être généré",
+    "generated": "Rapport {platform} mis à jour",
+    "finished": "C'est fini",
+    "platforms": "Plateformes",
+    "styleStale": "Le style a changé. Régénérez pour l’appliquer.",
+    "settings": "Réglages des rapports",
+    "expiryEnabled": "Activer l'expiration des rapports",
+    "expiryEnabledDesc": "Si désactivé, les rapports existants et nouvellement générés restent disponibles",
+    "autoRegenerate": "Regénérer après expiration",
+    "autoRegenerateDesc": "Afficher les rapports de plateforme périmés tout en les régénérant en arrière-plan",
+    "expiryDays": "Durée avant expiration",
+    "expiryDaysUnit": "jours",
+    "expiryDaysHint": "Choisissez 1–365 jours. Les rapports nouvellement générés utilisent cette durée.",
+    "settingsSaved": "Réglages des rapports enregistrés",
+    "settingsLoadFailed": "Impossible de charger les réglages des rapports",
+    "settingsSaveFailed": "Impossible d'enregistrer les réglages des rapports."
   },
   "socialNetworkWidget": {
     "fillPlatformName": "Entrez le nom de la plateforme",
