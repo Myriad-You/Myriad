@@ -8,14 +8,15 @@
 
 /*
  * 遮罩只是一层薄雾：页面还看得见、只是退到后面，弹窗像浮在它上面，
- * 而不是把整页压暗的对话框。开时慢慢起雾，关时比弹窗收得还快。
+ * 而不是把整页压暗的对话框。开时慢慢起雾；关时跟着弹窗一起散，
+ * 弹窗落回卡片时页面正好清楚，不会大弹窗还在、底下已经先清了。
  */
 .widget-popup-backdrop {
   position: absolute;
   inset: 0;
   background: rgb(24 20 40 / 12%);
   opacity: 0;
-  transition: opacity 180ms cubic-bezier(0.4, 0, 1, 1);
+  transition: opacity 320ms cubic-bezier(0.45, 0, 0.55, 1);
   backdrop-filter: blur(10px) saturate(115%);
 }
 

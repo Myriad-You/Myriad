@@ -18,11 +18,17 @@ export interface WidgetPopupEntry {
   widgetType: WidgetType
   size: WidgetPopupSize
   params: unknown
-  /** 开窗时卡片在视口里的位置；展开/收回动画从这里出发。 */
-  anchor: () => DOMRect | null
+  /** 卡片此刻在视口里的样子；展开从这里出发，收回落到这里。 */
+  anchor: () => WidgetPopupAnchor | null
   onConfigChange?: (next: any) => void
   /** 打开次序；收回的超过上限时按它逐出最久没用的。 */
   touchedAt: number
+}
+
+/** 卡片看得见的那一面：位置和圆角（px）。 */
+export interface WidgetPopupAnchor {
+  rect: DOMRect
+  radius: number
 }
 
 export interface WidgetPopupState {
@@ -47,7 +53,7 @@ export interface OpenWidgetPopupRequest {
   widget: WidgetConfig
   widgetType: WidgetType
   params?: unknown
-  anchor: () => DOMRect | null
+  anchor: () => WidgetPopupAnchor | null
   onConfigChange?: (next: any) => void
 }
 

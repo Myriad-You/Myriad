@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
-import type { WidgetPopupEntry } from '../../lib/widgetPopup'
+import type { WidgetPopupAnchor, WidgetPopupEntry } from '../../lib/widgetPopup'
 import { LuX } from '@lib/chromeStrokeIcons'
 import {
   Suspense,
@@ -28,10 +28,13 @@ import './WidgetPopupHost.css'
 
 /**
  * 入场是带一点初速的弹簧：一出手就走掉一半，落位时冲过头约 2% 再回来，像被抛出来停稳。
- * 底部面板不冲过头，不然底边会离开屏幕边缘。退场不弹，干脆收走，比入场短。
+ * 底部面板不冲过头，不然底边会离开屏幕边缘。
+ * 收回到卡片是反过来的一程：一下子缩走大半，越靠近卡片越慢，轻轻落进去，
+ * 最后一段才淡掉，露出底下的卡片。底部面板收回是滑出屏幕，越走越快。
  */
 const ENTER_MS = 560
 const SHEET_MS = 480
+const LAND_MS = 360
 const EXIT_MS = 220
 const FADE_MS = 140
 const EASE_SPRING =
@@ -39,7 +42,19 @@ const EASE_SPRING =
 const EASE_SHEET =
   'linear(0, 0.2589, 0.4566, 0.6056, 0.7169, 0.799, 0.8589, 0.9023, 0.9333, 0.9552, 0.9705, 0.9811, 0.9883, 0.993, 0.9961, 0.9981, 0.9993, 1)'
 const EASE_ENTER_FALLBACK = 'cubic-bezier(0.16, 1, 0.3, 1)'
+const EASE_LAND = 'cubic-bezier(0.32, 0.72, 0, 1)'
 const EASE_EXIT = 'cubic-bezier(0.4, 0, 1, 1)'
+/**
+ * 收回时按时间在这一段里淡掉：之前形状已经差不多是卡片了；
+ * 形状最后那点慢慢贴合时已经看不见，不留弹窗和卡片叠在一起的重影。
+ */
+const LAND_FADE_FROM = 0.5
+const LAND_FADE_TO = 0.9
+/**
+ * 弹窗的投影伸出边框外这么远（上、右、下、左）。收回时裁切从投影外沿开始，
+ * 第一帧不会把投影一刀切掉。
+ */
+const SHADOW_REACH = [30, 70, 110, 70] as const
 
 /** 底部面板往下拖过这么多（占高度）或甩得够快就关。 */
 const SHEET_DISMISS_RATIO = 0.25
@@ -59,32 +74,64 @@ type Phase = 'open' | 'closing' | 'stashed'
  * 从卡片长出来：等比缩放，中心对齐卡片中心。不等比会把字和卡面压扁拉长，
  * 里面按尺寸排版的内容在动画那几帧也会量错。
  */
-function anchorTransform(from: DOMRect, to: DOMRect): string {
-  const scale = Math.min(
-    from.width / Math.max(1, to.width),
-    from.height / Math.max(1, to.height),
-  )
+function anchorTransform(from: DOMRect, to: DOMRect, cover = false): { transform: string; scale: number } {
+  const fit = cover ? Math.max : Math.min
+  const scale = fit(from.width / Math.max(1, to.width), from.height / Math.max(1, to.height))
   const dx = from.left + from.width / 2 - (to.left + (to.width * scale) / 2)
   const dy = from.top + from.height / 2 - (to.top + (to.height * scale) / 2)
-  return `translate(${dx}px, ${dy}px) scale(${scale})`
+  return { transform: `translate(${dx}px, ${dy}px) scale(${scale})`, scale }
+}
+
+/**
+ * 落回卡片：等比缩到盖住卡片，多出来的部分裁掉，圆角裁成卡片的圆角，
+ * 最后一帧和卡片看得见的那一面严丝合缝。裁切量按缩放前的尺寸算。
+ */
+function landingKeyframes(anchor: WidgetPopupAnchor, rect: DOMRect, radius: number, full: boolean): Keyframe[] {
+  const { transform, scale } = anchorTransform(anchor.rect, rect, true)
+  const x = Math.max(0, (rect.width - anchor.rect.width / scale) / 2)
+  const y = Math.max(0, (rect.height - anchor.rect.height / scale) / 2)
+  const [top, right, bottom, left] = full ? [0, 0, 0, 0] : SHADOW_REACH
+  return [
+    { transform: 'none', clipPath: `inset(${-top}px ${-right}px ${-bottom}px ${-left}px round ${radius}px)` },
+    { transform, clipPath: `inset(${y}px ${x}px ${y}px ${x}px round ${anchor.radius / scale}px)` },
+  ]
 }
 
 function playFrame(
   frame: HTMLElement,
   direction: 'in' | 'out',
-  anchor: DOMRect | null,
+  anchor: WidgetPopupAnchor | null,
   rect: DOMRect,
   sheet: boolean,
   /** 收回时从这里出发：面板被拖下去一截时，从手松开的位置接着走。 */
   from = 'none',
+  /** 弹窗自己的圆角，和它是不是铺满整屏（铺满时没有投影要让）。 */
+  shape: { radius: number; full: boolean } = { radius: 0, full: false },
 ): Animation | null {
   if (typeof frame.animate !== 'function') return null
   const reduced = isExlight()
+  const landing = !reduced && !sheet && direction === 'out' && anchor && anchor.rect.width > 0 && rect.width > 0
+  if (landing) {
+    const motion = frame.animate(landingKeyframes(anchor, rect, shape.radius, shape.full), {
+      duration: LAND_MS,
+      easing: EASE_LAND,
+      // 收回停在最后一帧：动画一结束样式就回到原状，而「已收回」要等 React 下一次提交，
+      // 中间那一帧整个弹窗会原样闪出来。藏好之后再由组件清掉。
+      fill: 'forwards',
+    })
+    // 淡出按时间走，不跟形状的缓动：形状末段走得很慢，跟着它会从一半就开始发虚。
+    frame.animate([{ opacity: 1 }, { opacity: 1, offset: LAND_FADE_FROM }, { opacity: 0, offset: LAND_FADE_TO }, { opacity: 0 }], {
+      duration: LAND_MS,
+      easing: 'linear',
+      fill: 'forwards',
+    })
+    return motion
+  }
   let hidden: Keyframe
   if (reduced) hidden = { opacity: 0 }
   else if (sheet) hidden = { opacity: 1, transform: 'translateY(100%)' }
-  else if (anchor && anchor.width > 0 && rect.width > 0)
-    hidden = { opacity: 0, transform: anchorTransform(anchor, rect) }
+  else if (anchor && anchor.rect.width > 0 && rect.width > 0)
+    hidden = { opacity: 0, transform: anchorTransform(anchor.rect, rect).transform }
   else hidden = { opacity: 0, transform: 'scale(0.96)' }
   const shown: Keyframe = { opacity: 1, transform: direction === 'in' ? 'none' : from }
   // 透明度只在靠近卡片那一段变：整程淡入淡出时看不出是从卡片长出来的。
@@ -99,8 +146,7 @@ function playFrame(
       ? FADE_MS
       : direction === 'out' ? EXIT_MS : sheet ? SHEET_MS : ENTER_MS,
     easing: reduced || direction === 'out' ? EASE_EXIT : enterEasing(sheet),
-    // 收回停在最后一帧：动画一结束样式就回到原状，而「已收回」要等 React 下一次提交，
-    // 中间那一帧整个弹窗会原样闪出来。藏好之后再由组件清掉。
+    // 收回同样停在最后一帧，理由见上。
     fill: direction === 'out' ? 'forwards' : 'none',
   })
 }
@@ -230,8 +276,9 @@ function WidgetPopupFrame({
   const restoreRef = useRef<HTMLElement | null>(null)
   /** 打开时量好的位置。开着时页面滚动锁住，收回时照用，不在那一帧再逼浏览器重排。 */
   const rectsRef = useRef<{
-    anchor: DOMRect | null
+    anchor: WidgetPopupAnchor | null
     frame: DOMRect
+    radius: number
     width: number
     height: number
   } | null>(null)
@@ -256,7 +303,8 @@ function WidgetPopupFrame({
       for (const running of frame.getAnimations()) running.cancel()
       const anchor = entry.anchor()
       const rect = frame.getBoundingClientRect()
-      rectsRef.current = { anchor, frame: rect, width: window.innerWidth, height: window.innerHeight }
+      const radius = Number.parseFloat(getComputedStyle(frame).borderTopLeftRadius) || 0
+      rectsRef.current = { anchor, frame: rect, radius, width: window.innerWidth, height: window.innerHeight }
       playFrame(frame, 'in', anchor, rect, sheet)
       // 收回时是 visibility:hidden，等这一帧把可见提交了才能聚焦。
       const focusTimer = requestAnimationFrame(() => {
@@ -282,6 +330,7 @@ function WidgetPopupFrame({
       resized ? frame.getBoundingClientRect() : saved.frame,
       sheet,
       from,
+      { radius: saved?.radius ?? 0, full: phone && entry.size === 'stage' },
     )
     const restore = restoreRef.current
     restoreRef.current = null

@@ -1,5 +1,6 @@
 import type { RefObject } from 'react'
 import type { WidgetConfig, WidgetType } from '../components/widgetGridTypes'
+import type { WidgetPopupAnchor } from '../lib/widgetPopup'
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { loadWidgetPopupHost } from '../components/widgetPopup/loadWidgetPopupHost'
 import { openWidgetPopup, syncWidgetPopupConfig } from '../lib/widgetPopup'
@@ -12,6 +13,20 @@ function warmWidgetPopup(widgetType: WidgetType): void {
 
 /** 首屏加载完再预热，不和首屏抢连接。 */
 const IDLE_WARM_DELAY_MS = 3000
+
+/**
+ * 卡片外壳里看得见的那一面：外壳常留一圈间距，圆角也在里面一层。
+ * 顺着第一个子元素往下找带圆角的那层，找不到就用外壳本身。
+ */
+function cardFace(shell: HTMLElement | null): WidgetPopupAnchor | null {
+  if (!shell) return null
+  let node: Element | null = shell
+  for (let depth = 0; node && depth < 4; depth++, node = node.firstElementChild) {
+    const radius = Number.parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0
+    if (radius > 0) return { rect: node.getBoundingClientRect(), radius }
+  }
+  return { rect: shell.getBoundingClientRect(), radius: 0 }
+}
 
 /** 卡片打开自己的弹窗。编辑、预览里不给；宿主不同（网格、正文）共用这一处。 */
 export function useWidgetPopupOpener(
@@ -59,7 +74,7 @@ export function useWidgetPopupOpener(
         widget: current.widget,
         widgetType: current.widgetType,
         params,
-        anchor: () => anchorRef?.current?.getBoundingClientRect() ?? null,
+        anchor: () => cardFace(anchorRef?.current ?? null),
         onConfigChange: current.onConfigChange
           ? (next) => latest.current.onConfigChange?.(next)
           : undefined,
