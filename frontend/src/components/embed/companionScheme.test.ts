@@ -18,7 +18,8 @@ test('认后端写在 <html> 上的标记', () => {
     dark: 'dark',
     light: 'light',
   })
-  for (const bad of [null, '', 'system', 'class head dark -', 'attr html onload x -', 'class html a"b -']) {
+  assert.equal(parseSchemeMark('attr body theme dark -')?.name, 'theme')
+  for (const bad of [null, '', 'system', 'class head dark -', 'attr html onload x -', 'attr body style x -', 'class html a"b -']) {
     assert.equal(parseSchemeMark(bad), null, String(bad))
   }
 })

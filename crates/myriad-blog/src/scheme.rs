@@ -79,7 +79,7 @@ impl SchemeSwitch {
             Self::Attribute {
                 name, dark, light, ..
             } => {
-                is_data_attr(name)
+                is_attr_name(name)
                     && is_token(dark)
                     && light
                         .as_deref()
@@ -149,6 +149,14 @@ fn is_token(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+/// 不带 `data-` 的那几个：LoveIt 一家写的是 `<body theme="dark">`。
+const BARE_SCHEME_ATTRS: &[&str] = &["theme"];
+
+/// 后端会替主题写的属性名：`data-*`，或 [`BARE_SCHEME_ATTRS`] 里的。
+fn is_attr_name(name: &str) -> bool {
+    is_data_attr(name) || BARE_SCHEME_ATTRS.contains(&name)
 }
 
 fn is_data_attr(name: &str) -> bool {
@@ -320,6 +328,15 @@ fn is_light_word(value: &str) -> bool {
     is_scheme_word(value, "light")
 }
 
+/// 属性值还认 `dim` / `lit`（Clarity 的两档）。类名不认：`.dim` 多半是调透明度的工具类。
+fn is_dark_value(value: &str) -> bool {
+    is_dark_word(value) || value.eq_ignore_ascii_case("dim")
+}
+
+fn is_light_value(value: &str) -> bool {
+    is_light_word(value) || value.eq_ignore_ascii_case("lit")
+}
+
 /// `dark`、`dark-mode`、`theme-dark`、`is-dark` 这几种写法；`highlight`、`bg-dark-blue` 不算。
 fn is_scheme_word(value: &str, word: &str) -> bool {
     let value = value.to_ascii_lowercase();
@@ -330,7 +347,7 @@ fn is_scheme_word(value: &str, word: &str) -> bool {
     let after = &value[at + word.len()..];
     matches!(
         before,
-        "" | "is-" | "theme-" | "mode-" | "color-" | "scheme-"
+        "" | "is-" | "theme-" | "mode-" | "color-" | "scheme-" | "colorscheme-" | "color-scheme-"
     ) && matches!(
         after,
         "" | "-mode" | "mode" | "_mode" | "-theme" | "-scheme"
@@ -339,10 +356,11 @@ fn is_scheme_word(value: &str, word: &str) -> bool {
 
 /// 主题用来区分深浅的属性名长这样；`data-src` 之类的不算。
 fn is_scheme_attr(name: &str) -> bool {
-    is_data_attr(name)
-        && ["theme", "scheme", "mode", "appearance", "color"]
-            .iter()
-            .any(|word| name.contains(word))
+    BARE_SCHEME_ATTRS.contains(&name)
+        || (is_data_attr(name)
+            && ["theme", "scheme", "mode", "appearance", "color"]
+                .iter()
+                .any(|word| name.contains(word)))
 }
 
 fn ident_at(text: &str, start: usize) -> &str {
@@ -520,7 +538,18 @@ fn scan_css(body: &str, file: &str, tally: &mut Tally) {
                 .or_default() += 1;
         }
     }
-    for (at, _) in body.match_indices("[data-") {
+    let selectors = body
+        .match_indices("[data-")
+        .chain(BARE_SCHEME_ATTRS.iter().flat_map(|name| {
+            body.match_indices(name).filter(move |(at, _)| {
+                *at > 0
+                    && body.as_bytes()[at - 1] == b'['
+                    && body[at + name.len()..].starts_with('=')
+            })
+        }))
+        .map(|(at, text)| if text.starts_with('[') { at } else { at - 1 })
+        .collect::<Vec<_>>();
+    for at in selectors {
         let name = ident_at(body, at + 1);
         if !is_scheme_attr(name) {
             continue;
@@ -535,7 +564,7 @@ fn scan_css(body: &str, file: &str, tally: &mut Tally) {
             continue;
         }
         let target = selector_target(body, at);
-        if is_dark_word(value) {
+        if is_dark_value(value) {
             tally.add(
                 Key::Attribute(target, name.to_string()),
                 Some(value),
@@ -543,7 +572,7 @@ fn scan_css(body: &str, file: &str, tally: &mut Tally) {
                 file,
                 true,
             );
-        } else if is_light_word(value) {
+        } else if is_light_value(value) {
             *tally
                 .light_values
                 .entry(name.to_string())
@@ -565,6 +594,38 @@ fn selector_target(body: &str, at: usize) -> SchemeTarget {
         SchemeTarget::Body
     } else {
         SchemeTarget::Html
+    }
+}
+
+/// 构建出来的样式里有没有这个办法的深色选择器（`.dark`、`[data-theme="dark"]`）。
+/// 主题的深色样式可能要站点参数打开才会被模板引进来（Coder 的 `colorScheme`），
+/// 也可能认错了属性：样式里没有，替它切了页面也不会变，按钮成了摆设。
+/// 页面只认站内的样式表（CSP 不放外链样式），所以看构建产物就够了。
+pub fn scheme_is_styled(switch: &SchemeSwitch, css: &str) -> bool {
+    let ident = |byte: Option<&u8>| {
+        byte.is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_')
+    };
+    match switch {
+        SchemeSwitch::Class { dark, .. } => {
+            let needle = format!(".{dark}");
+            css.match_indices(&needle).any(|(at, _)| {
+                let next = css.as_bytes().get(at + needle.len());
+                !ident(next) && next != Some(&b'\\')
+            })
+        }
+        SchemeSwitch::Attribute { name, dark, .. } => {
+            let needle = format!("[{name}");
+            css.match_indices(&needle).any(|(at, _)| {
+                let rest = &css[at + needle.len()..];
+                let Some(rest) = rest.strip_prefix('=').or_else(|| rest.strip_prefix("~=")) else {
+                    return false;
+                };
+                let rest = rest.trim_start_matches(['"', '\'']);
+                rest.strip_prefix(dark.as_str())
+                    .is_some_and(|after| !ident(after.as_bytes().first()))
+            })
+        }
+        SchemeSwitch::System | SchemeSwitch::None => false,
     }
 }
 
@@ -634,9 +695,13 @@ fn set_scheme(el: &mut lol_html::html_content::Element<'_, '_>, switch: &SchemeS
             ..
         } => {
             let current = el.get_attribute("class").unwrap_or_default();
+            // `colorscheme-auto` 这种「跟系统」的类也拿掉：留着它，系统是深色时主题照样变深。
+            let auto = dark_class.replace("dark", "auto");
             let mut classes: Vec<&str> = current
                 .split_whitespace()
-                .filter(|class| *class != dark_class && Some(*class) != light.as_deref())
+                .filter(|class| {
+                    *class != dark_class && Some(*class) != light.as_deref() && *class != auto
+                })
                 .collect();
             if dark {
                 classes.push(dark_class);
@@ -759,6 +824,126 @@ mod tests {
             detect(&[("static/css/style.css", "body{color:#222} .a{width:1.5rem}")]),
             SchemeSwitch::None
         );
+    }
+
+    #[test]
+    fn colorscheme_class_on_body() {
+        // Coder：模板在 <body> 上写 colorscheme-light / -dark / -auto，脚本照类名判断。
+        let switch = detect(&[
+            (
+                "assets/js/coder.js",
+                "body.classList.contains('colorscheme-dark'); document.body.classList.remove('colorscheme-light')",
+            ),
+            (
+                "assets/js/toggle.js",
+                "document.body.classList.contains('colorscheme-dark')",
+            ),
+            (
+                "assets/scss/_base_dark.scss",
+                "body.colorscheme-dark{color:#fff} @media (prefers-color-scheme: dark){body.colorscheme-auto{color:#fff}}",
+            ),
+        ]);
+        assert_eq!(
+            switch,
+            SchemeSwitch::Class {
+                target: SchemeTarget::Body,
+                dark: "colorscheme-dark".into(),
+                light: Some("colorscheme-light".into())
+            }
+        );
+    }
+
+    #[test]
+    fn bare_theme_attribute_on_body() {
+        // LoveIt：`document.body.setAttribute('theme', …)`，样式写 `[theme=dark]`。
+        let switch = detect(&[
+            (
+                "layouts/baseof.html",
+                "<script>document.body.setAttribute('theme', isDark ? 'dark' : 'light');</script>",
+            ),
+            (
+                "assets/css/_core/_base.scss",
+                "[theme=dark] & {color:#fff} [theme=dark] a {color:#ccc}",
+            ),
+        ]);
+        assert_eq!(
+            switch,
+            SchemeSwitch::Attribute {
+                target: SchemeTarget::Body,
+                name: "theme".into(),
+                dark: "dark".into(),
+                light: None
+            }
+        );
+        assert!(switch.is_valid());
+    }
+
+    #[test]
+    fn dim_and_lit_attribute_values() {
+        // Clarity：`<html data-mode="dim">`，样式写 `html[data-mode="dim"]` / `[data-mode="lit"]`。
+        let switch = detect(&[
+            ("layouts/_default/baseof.html", "<html data-mode=\"lit\">"),
+            (
+                "assets/sass/_base.sass",
+                "html[data-mode=\"dim\"]\n  --bg: #000\nhtml[data-mode=\"lit\"]\n  --bg: #fff",
+            ),
+        ]);
+        assert_eq!(
+            switch,
+            SchemeSwitch::Attribute {
+                target: SchemeTarget::Html,
+                name: "data-mode".into(),
+                dark: "dim".into(),
+                light: Some("lit".into())
+            }
+        );
+    }
+
+    #[test]
+    fn switching_drops_the_follow_system_class() {
+        let page =
+            "<!doctype html><html><head></head><body class=\"colorscheme-auto x\"></body></html>";
+        let class = SchemeSwitch::Class {
+            target: SchemeTarget::Body,
+            dark: "colorscheme-dark".into(),
+            light: Some("colorscheme-light".into()),
+        };
+        let marked = mark_page_scheme(page, &class);
+        assert!(
+            apply_page_scheme(&marked, false)
+                .unwrap()
+                .contains("<body class=\"x colorscheme-light\">")
+        );
+        assert!(
+            apply_page_scheme(&marked, true)
+                .unwrap()
+                .contains("<body class=\"x colorscheme-dark\">")
+        );
+    }
+
+    #[test]
+    fn styled_only_when_the_built_css_has_the_dark_selector() {
+        let class = SchemeSwitch::Class {
+            target: SchemeTarget::Html,
+            dark: "dark".into(),
+            light: None,
+        };
+        assert!(scheme_is_styled(&class, "html.dark{--bg:#000}"));
+        assert!(scheme_is_styled(&class, ":is(.dark *){color:#fff}"));
+        assert!(!scheme_is_styled(&class, ".dark\\:bg-black{} .darker{}"));
+        let attr = SchemeSwitch::Attribute {
+            target: SchemeTarget::Html,
+            name: "data-theme".into(),
+            dark: "dark".into(),
+            light: None,
+        };
+        assert!(scheme_is_styled(&attr, ":root[data-theme=\"dark\"]{}"));
+        assert!(scheme_is_styled(&attr, "[data-theme=dark] a{}"));
+        assert!(!scheme_is_styled(
+            &attr,
+            "[data-theme=darkblue]{} [data-themes=dark]{}"
+        ));
+        assert!(!scheme_is_styled(&SchemeSwitch::System, "html.dark{}"));
     }
 
     #[test]

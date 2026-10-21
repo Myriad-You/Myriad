@@ -18,7 +18,8 @@ export interface PageSchemeSwitch {
 }
 
 const TOKEN = /^[\w-]{1,40}$/
-const DATA_ATTR = /^data-[a-z0-9-]{1,40}$/
+/** `data-*`，或不带 `data-` 的 `theme`（LoveIt 一家的 `<body theme="dark">`），和后端 scheme.rs 认的一样。 */
+const SCHEME_ATTR = /^(data-[a-z0-9-]{1,40}|theme)$/
 
 /** 只认后端写的那两种；只跟系统、没有深色的主题没有标记，按钮也就不出现。 */
 export function parseSchemeMark(mark: string | null): PageSchemeSwitch | null {
@@ -32,7 +33,7 @@ export function parseSchemeMark(mark: string | null): PageSchemeSwitch | null {
   }
   if (!parsed || (parsed.target !== 'html' && parsed.target !== 'body')) return null
   if (!TOKEN.test(parsed.dark) || (parsed.light != null && !TOKEN.test(parsed.light))) return null
-  if (parsed.kind === 'attr' && !DATA_ATTR.test(parsed.name)) return null
+  if (parsed.kind === 'attr' && !SCHEME_ATTR.test(parsed.name)) return null
   return parsed
 }
 

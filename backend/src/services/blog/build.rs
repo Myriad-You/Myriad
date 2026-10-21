@@ -346,6 +346,7 @@ fn postprocess_output(
 ) -> Result<(), &'static str> {
     let mut files = Vec::new();
     collect_files(public, public, &mut files)?;
+    let scheme = scheme.filter(|scheme| scheme_styled_in(&files, scheme));
     for path in files {
         let rel = path
             .strip_prefix(public)
@@ -387,6 +388,29 @@ fn postprocess_output(
     }
     fs::write(css, NOTES_CSS).map_err(|_| "Could not clean the built site")?;
     Ok(())
+}
+
+/// 构建出来的样式表和页面里的 `<style>` 有没有这个办法的深色选择器；没有就不记在页面上，
+/// 替主题切了也看不出来（见 [`myriad_blog::scheme_is_styled`]）。
+fn scheme_styled_in(files: &[PathBuf], scheme: &myriad_blog::SchemeSwitch) -> bool {
+    files.iter().any(|path| {
+        let css = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("css"));
+        if !css && !is_html(path) {
+            return false;
+        }
+        let Ok(text) = fs::read_to_string(path) else {
+            return false;
+        };
+        if css {
+            return myriad_blog::scheme_is_styled(scheme, &text);
+        }
+        text.split("<style").skip(1).any(|block| {
+            let body = block.split("</style>").next().unwrap_or_default();
+            myriad_blog::scheme_is_styled(scheme, body)
+        })
+    })
 }
 
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), &'static str> {

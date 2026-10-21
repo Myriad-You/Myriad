@@ -47,7 +47,7 @@ pub use render::{export_site_files, render_friends_file, render_home_file, rende
 pub use rewrite::{first_content_image, prepare_content_html, reveal_companion_island};
 pub use scheme::{
     SCHEME_MARK_ATTR, SchemeDetection, SchemeSwitch, SchemeTarget, apply_page_scheme,
-    detect_scheme_switch, is_scheme_source, mark_page_scheme,
+    detect_scheme_switch, is_scheme_source, mark_page_scheme, scheme_is_styled,
 };
 pub use slug::{
     BLOG_PREFIX, SLUG_MAX_CHARS, dedupe_slug, fallback_slug, note_blog_path, post_path,
