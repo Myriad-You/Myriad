@@ -209,7 +209,10 @@ function resolveDefinedLink(
   return `<a href="${escapeHtml(def.href)}"${title} data-linkref="${ref}">${label}</a>`
 }
 
-/** 行内 Markdown → HTML。`  \n` 和 `\\\n` 是硬换行，普通换行只是空格。 */
+/**
+ * 行内 Markdown → HTML。`  \n` 和 `\\\n` 是硬换行；普通换行原样留在文字里，
+ * 浏览器照样显示成空格，读回时还是换行，源码不会被压成一行。
+ */
 function inlineMarkdown(
   text: string,
   defs: ReadonlyMap<string, LinkDef> = EMPTY_DEFS,
@@ -254,7 +257,8 @@ function inlineMarkdown(
   }
   let html = escapeHtml(stashEscapes(protectedText))
     .replaceAll(/(?: {2,}|\\)\n/g, '<br>')
-    .replaceAll('\n', ' ')
+    // 软换行先换成占位符，下面的行内规则仍按空格对待它，最后再换回换行。
+    .replaceAll('\n', SOFT_BREAK)
     .replace(IMAGE_RE, (_m, alt: string, src: string, dq?: string, sq?: string) =>
       imgTag(src, alt, dq ?? sq ?? ''),
     )
@@ -299,10 +303,12 @@ function inlineMarkdown(
     /\uE020(\d+)\uE021/g,
     (_m, index: string) => `<code>${codes[Number(index)]}</code>`,
   )
-  return renderEscapes(html)
+  return renderEscapes(html).replaceAll(SOFT_BREAK, '\n')
 }
 
-const LIST_LINE = /^( *)([-*]|\d+\.) (\[([ x])\] )?(.*)$/i
+const SOFT_BREAK = '\uE030'
+
+const LIST_LINE = /^( *)([-*+]|\d+\.) (\[([ x])\] )?(.*)$/i
 
 export interface MarkdownBlock {
   text: string
@@ -468,7 +474,7 @@ function blockKind(line: string): BlockKind {
   if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) return 'hr'
   if (/^>(?: |$)/.test(line)) return 'quote'
   if (line.startsWith('|')) return 'table'
-  if (/^[-*] /.test(line)) return 'ul'
+  if (/^[-*+] /.test(line)) return 'ul'
   if (/^\d+\. /.test(line)) return 'ol'
   if (/^\[\^[^\]\s]+\]:/.test(line)) return 'footnote'
   if (LINK_DEF_LINE.test(line)) return 'linkdef'
@@ -478,6 +484,8 @@ function blockKind(line: string): BlockKind {
 interface ListNode {
   text: string
   ordered: boolean
+  /** 无序列表的记号；`-` 是默认，不写进 HTML。 */
+  marker: string
   start: number
   task: boolean | null
   children: ListNode[]
@@ -499,6 +507,7 @@ function parseListTree(block: string, defs: ReadonlyMap<string, LinkDef> = EMPTY
     const node: ListNode = {
       text: inlineMarkdown(match[5] ?? '', defs),
       ordered: /\d/.test(match[2]!),
+      marker: match[2]!,
       start: Number.parseInt(match[2]!, 10) || 1,
       task: match[3] ? match[4]!.toLowerCase() === 'x' : null,
       children: [],
@@ -518,7 +527,8 @@ function renderListTree(nodes: ListNode[]): string {
   const tag = ordered ? 'ol' : 'ul'
   const listAttr =
     (nodes[0]!.task != null ? ' data-task="1"' : '') +
-    (ordered && nodes[0]!.start !== 1 ? ` start="${nodes[0]!.start}"` : '')
+    (ordered && nodes[0]!.start !== 1 ? ` start="${nodes[0]!.start}"` : '') +
+    (!ordered && nodes[0]!.marker !== '-' ? ` data-marker="${nodes[0]!.marker}"` : '')
   const items = nodes
     .map((node) => {
       const attr = node.task == null ? '' : ` data-task="${node.task ? '1' : '0'}"`
@@ -637,7 +647,7 @@ function renderPlainBlock(text: string, defs: ReadonlyMap<string, LinkDef>): str
   if (text.startsWith('>')) {
     return `<blockquote>${renderPlainVisual(text.replace(/^(> ?)/gm, ''), defs)}</blockquote>`
   }
-  if (/^([-*] |\d+\. )/.test(text)) return renderListTree(parseListTree(text, defs))
+  if (/^([-*+] |\d+\. )/.test(text)) return renderListTree(parseListTree(text, defs))
   if (isTableBlock(text)) return renderTable(text, defs)
   return `<p>${inlineMarkdown(text, defs)}</p>`
 }
@@ -945,14 +955,15 @@ function serializeList(body: string, ordered: boolean, listAttrs: string, indent
       const text = inlineHtml(own).trim()
       const taskItem = /data-task=/.test(item.attrs)
       const taskList = /data-task="1"/.test(listAttrs) && !/data-task=/.test(item.attrs)
+      const bullet = /\bdata-marker="([*+])"/.exec(listAttrs)?.[1] ?? '-'
       let marker: string
       if (taskItem || taskList) {
         const checked = /data-task="1"/.test(item.attrs)
-        marker = `- [${checked ? 'x' : ' '}] `
+        marker = `${bullet} [${checked ? 'x' : ' '}] `
       } else {
         marker = ordered
           ? `${index + Number(listAttrs.match(/\bstart="(-?\d+)"/)?.[1] ?? 1)}. `
-          : '- '
+          : `${bullet} `
       }
       const line = `${indent}${marker}${text}`
       const childIndent = indent + ' '.repeat(ordered ? marker.length : 2)
@@ -1145,10 +1156,10 @@ export function visualHtmlToMarkdown(html: string): string {
       }
       if (tag === 'blockquote') {
         if (/<(?:p|h[1-6]|ul|ol|pre)\b/i.test(body)) {
-          const inner = visualHtmlToMarkdown(body).replaceAll('\n', '\n> ')
-          return inner ? `> ${inner}` : ''
+          const inner = quoteLines(visualHtmlToMarkdown(body))
+          return inner === '>' ? '' : inner
         }
-        return `> ${inlineHtml(body).replaceAll('\n', '\n> ')}`
+        return quoteLines(inlineHtml(body))
       }
       if (tag === 'ul' || tag === 'ol') return serializeList(body, tag === 'ol', attrs, '')
       if (tag === 'table') {
@@ -1205,6 +1216,14 @@ export function visualHtmlToMarkdown(html: string): string {
       return glue + block
     })
     .join('')
+}
+
+/** 每行加 `> `；空行只留 `>`，不在行尾留空格。 */
+function quoteLines(markdown: string): string {
+  return markdown
+    .split('\n')
+    .map((line) => (line ? `> ${line}` : '>'))
+    .join('\n')
 }
 
 function isDefinitionMarkdown(block: string): boolean {
@@ -1680,7 +1699,7 @@ export function inlineMarkdownTail(text: string): { length: number; html: string
 
 /** 粗看一眼像不像 Markdown：贴纯文本时决定要不要按 Markdown 解。 */
 export function looksLikeMarkdown(text: string): boolean {
-  return /!\[[^\]]*\]\([^)\s]+\)|(?<!!)\[[^\]]+\]\([^)\s]+\)|(?<!!)\[[^\]]+\]\[[^\]]*\]|(^|\n)(#{1,6} |[-*] |\d+\. |> |```|:::|\$\$|\[[^\]\s]+\]:)|\*\*[^*\n]+\*\*|`[^`\n]+`|~~[^~\n]+~~|(?<!\$)\$[^$\n]+\$/.test(
+  return /!\[[^\]]*\]\([^)\s]+\)|(?<!!)\[[^\]]+\]\([^)\s]+\)|(?<!!)\[[^\]]+\]\[[^\]]*\]|(^|\n)(#{1,6} |[-*+] |\d+\. |> |```|:::|\$\$|\[[^\]\s]+\]:)|\*\*[^*\n]+\*\*|`[^`\n]+`|~~[^~\n]+~~|(?<!\$)\$[^$\n]+\$/.test(
     text,
   )
 }

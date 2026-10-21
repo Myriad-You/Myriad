@@ -167,9 +167,9 @@ describe('行内解析对齐后端', () => {
     assert.equal(visualHtmlToMarkdown(html), md)
   })
 
-  it('硬换行是两个空格，软换行只是空格', () => {
+  it('硬换行是两个空格，软换行留在文字里显示成空格', () => {
     assert.match(markdownToVisualHtml('甲  \n乙'), /甲<br>乙/)
-    assert.match(markdownToVisualHtml('甲\n乙'), /<p>甲 乙<\/p>/)
+    assert.match(markdownToVisualHtml('甲\n乙'), /<p>甲\n乙<\/p>/)
     assert.equal(visualHtmlToMarkdown('<p>甲<br>乙</p>'), '甲  \n乙')
   })
 })
@@ -568,7 +568,7 @@ describe('结构转换保留正文', () => {
   })
   it('引用保留标题、空段与列表', () => {
     const md = '> # 标题\n>\n> - 一\n> - 二\n>\n> 尾段'
-    assert.equal(stable(md), md.replaceAll('\n>\n', '\n> \n'))
+    assert.equal(stable(md), md)
   })
   it('有序列表保留非一的起始序号', () => {
     assert.equal(stable('9. 九\n10. 十'), '9. 九\n10. 十')
@@ -722,6 +722,32 @@ it('the DOM serializer keeps the existing Markdown contract for rich inline and 
     root.innerHTML = markdownToVisualHtml(md)
     assert.equal(serialize(root), visualHtmlToMarkdown(root.innerHTML), md)
   }
+  serialize.dispose()
+  dom.window.close()
+})
+
+it('+ 列表和软换行原样往返，不被压成一行', async () => {
+  const { createVisualMarkdownSerializer } = await import('./noteVisual')
+  const { createRequire } = await import('node:module')
+  const require = createRequire(import.meta.url)
+  const { JSDOM } = require(require.resolve('jsdom', { paths: [require.resolve('isomorphic-dompurify')] }))
+  const dom = new JSDOM('<main></main>')
+  const root = dom.window.document.querySelector('main')
+  const serialize = createVisualMarkdownSerializer()
+  for (const md of [
+    '+ 甲\n+ 乙',
+    '* 甲\n* 乙\n  + 子',
+    '+ [x] 做完\n+ [ ] 没做',
+    '一\n二 **粗**\n三',
+    '> 一\n>\n> 二\n> 三',
+    '尾随两个空格是硬换行  \n下一行',
+  ]) {
+    const html = markdownToVisualHtml(md)
+    assert.equal(visualHtmlToMarkdown(html), md, md)
+    root.innerHTML = html
+    assert.equal(serialize(root), md, md)
+  }
+  assert.match(markdownToVisualHtml('+ 甲\n+ 乙'), /<ul data-marker="\+"><li>甲<\/li><li>乙<\/li><\/ul>/)
   serialize.dispose()
   dom.window.close()
 })
