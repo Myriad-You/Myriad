@@ -897,9 +897,8 @@ export const TappWidgetSandbox = memo(
       <div
         ref={containerRef}
         className={`tapp-widget-sandbox ${className || ''}`}
-        // 弹窗收回时焦点还到这里，不还进 iframe（见 WidgetPopupHost 的 focusReturnTarget）。
+        // 键盘打开的弹窗收回时焦点还到这里，不还进 iframe（见 WidgetPopupHost 的 focusReturnTarget）。
         tabIndex={surface === 'widget' ? -1 : undefined}
-        data-focus-return={surface === 'widget' ? '' : undefined}
         style={{
           position: 'relative',
           width: '100%',

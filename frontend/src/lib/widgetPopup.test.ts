@@ -20,7 +20,6 @@ function open(id: string, params?: unknown, type = withPopup) {
     widgetType: type,
     params,
     anchor: () => null,
-    returnFocus: () => null,
   })
 }
 

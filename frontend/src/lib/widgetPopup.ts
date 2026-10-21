@@ -20,8 +20,6 @@ export interface WidgetPopupEntry {
   params: unknown
   /** 开窗时卡片在视口里的位置；展开/收回动画从这里出发。 */
   anchor: () => DOMRect | null
-  /** 关掉后焦点回到哪里：打开它的那张卡。 */
-  returnFocus: () => HTMLElement | null
   onConfigChange?: (next: any) => void
   /** 打开次序；收回的超过上限时按它逐出最久没用的。 */
   touchedAt: number
@@ -50,7 +48,6 @@ export interface OpenWidgetPopupRequest {
   widgetType: WidgetType
   params?: unknown
   anchor: () => DOMRect | null
-  returnFocus: () => HTMLElement | null
   onConfigChange?: (next: any) => void
 }
 
@@ -86,7 +83,6 @@ export function openWidgetPopup(request: OpenWidgetPopupRequest): void {
       // 不带参数是「接着上次」；明确给 null 才清掉。
       params: request.params === undefined ? existing?.params ?? null : request.params,
       anchor: request.anchor,
-      returnFocus: request.returnFocus,
       onConfigChange: request.onConfigChange,
       touchedAt,
     }

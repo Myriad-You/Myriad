@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import type { WidgetPopupEntry } from '../../lib/widgetPopup'
 import { LuX } from '@lib/chromeStrokeIcons'
 import {
@@ -26,12 +26,32 @@ import { RenderErrorBoundary } from '../RenderErrorBoundary'
 import { widgetDisplayLabel } from '../widgetLibraryModel'
 import './WidgetPopupHost.css'
 
-/** 退场比入场短。 */
-const ENTER_MS = 340
+/**
+ * 入场是带一点初速的弹簧：一出手就走掉一半，落位时冲过头约 2% 再回来，像被抛出来停稳。
+ * 底部面板不冲过头，不然底边会离开屏幕边缘。退场不弹，干脆收走，比入场短。
+ */
+const ENTER_MS = 560
+const SHEET_MS = 480
 const EXIT_MS = 220
 const FADE_MS = 140
-const EASE_ENTER = 'cubic-bezier(0.16, 1, 0.3, 1)'
+const EASE_SPRING =
+  'linear(0, 0.193, 0.3734, 0.5317, 0.6639, 0.77, 0.8518, 0.9126, 0.9558, 0.9852, 1.0039, 1.0147, 1.02, 1.0215, 1.0207, 1.0185, 1.0157, 1.0127, 1.01, 1.0075, 1.0054, 1.0037, 1.0024, 1.0015, 1)'
+const EASE_SHEET =
+  'linear(0, 0.2589, 0.4566, 0.6056, 0.7169, 0.799, 0.8589, 0.9023, 0.9333, 0.9552, 0.9705, 0.9811, 0.9883, 0.993, 0.9961, 0.9981, 0.9993, 1)'
+const EASE_ENTER_FALLBACK = 'cubic-bezier(0.16, 1, 0.3, 1)'
 const EASE_EXIT = 'cubic-bezier(0.4, 0, 1, 1)'
+
+/** 底部面板往下拖过这么多（占高度）或甩得够快就关。 */
+const SHEET_DISMISS_RATIO = 0.25
+const SHEET_DISMISS_VELOCITY = 0.6
+
+let springSupported: boolean | null = null
+function enterEasing(sheet: boolean): string {
+  springSupported ??=
+    typeof CSS !== 'undefined' && CSS.supports('transition-timing-function', 'linear(0, 1)')
+  if (!springSupported) return EASE_ENTER_FALLBACK
+  return sheet ? EASE_SHEET : EASE_SPRING
+}
 
 type Phase = 'open' | 'closing' | 'stashed'
 
@@ -55,6 +75,8 @@ function playFrame(
   anchor: DOMRect | null,
   rect: DOMRect,
   sheet: boolean,
+  /** 收回时从这里出发：面板被拖下去一截时，从手松开的位置接着走。 */
+  from = 'none',
 ): Animation | null {
   if (typeof frame.animate !== 'function') return null
   const reduced = isExlight()
@@ -64,7 +86,7 @@ function playFrame(
   else if (anchor && anchor.width > 0 && rect.width > 0)
     hidden = { opacity: 0, transform: anchorTransform(anchor, rect) }
   else hidden = { opacity: 0, transform: 'scale(0.96)' }
-  const shown: Keyframe = { opacity: 1, transform: 'none' }
+  const shown: Keyframe = { opacity: 1, transform: direction === 'in' ? 'none' : from }
   // 透明度只在靠近卡片那一段变：整程淡入淡出时看不出是从卡片长出来的。
   const keyframes: Keyframe[] =
     reduced || sheet
@@ -73,19 +95,123 @@ function playFrame(
         ? [hidden, { opacity: 1, offset: 0.3 }, shown]
         : [shown, { opacity: 1, offset: 0.6 }, hidden]
   return frame.animate(keyframes, {
-    duration: reduced ? FADE_MS : direction === 'in' ? ENTER_MS : EXIT_MS,
-    easing: direction === 'in' ? EASE_ENTER : EASE_EXIT,
+    duration: reduced
+      ? FADE_MS
+      : direction === 'out' ? EXIT_MS : sheet ? SHEET_MS : ENTER_MS,
+    easing: reduced || direction === 'out' ? EASE_EXIT : enterEasing(sheet),
     fill: 'none',
   })
 }
 
 /**
- * 收回后焦点不还进 iframe：宿主看不见里面发生了什么，替它把焦点放回去，
- * 在应用看来就像用户刚点了它。还给外面最近一个能聚焦的容器，下一次真点进去才算数。
+ * 底部面板顶上的把手：往下拖跟手走，往上拖有阻尼；松手时过线或甩得快就关，
+ * 否则弹回去。只认把手，不碰内容里的滚动和 iframe。
+ */
+function useSheetDrag(
+  frameRef: RefObject<HTMLDivElement | null>,
+  dragRef: RefObject<string>,
+  onDismiss: () => void,
+) {
+  const gesture = useRef<{
+    id: number
+    startY: number
+    lastY: number
+    lastAt: number
+    velocity: number
+    offset: number
+  } | null>(null)
+
+  const place = (offset: number) => {
+    const frame = frameRef.current
+    if (frame) frame.style.transform = offset ? `translateY(${offset}px)` : ''
+  }
+  const release = () => {
+    gesture.current = null
+    delete frameRef.current?.dataset.dragging
+  }
+
+  return {
+    onPointerDown(event: ReactPointerEvent<HTMLElement>) {
+      if (event.button !== 0) return
+      const frame = frameRef.current
+      if (!frame) return
+      for (const running of frame.getAnimations()) running.cancel()
+      // 捕获要等下一个指针事件才生效；手一快，第一下移动就落进内容里的跨源 iframe，
+      // 被那边吞掉，之后再也收不到。拖着的时候内容不接指针。
+      frame.dataset.dragging = ''
+      event.currentTarget.setPointerCapture(event.pointerId)
+      gesture.current = {
+        id: event.pointerId,
+        startY: event.clientY,
+        lastY: event.clientY,
+        lastAt: event.timeStamp,
+        velocity: 0,
+        offset: 0,
+      }
+    },
+    onPointerMove(event: ReactPointerEvent<HTMLElement>) {
+      const state = gesture.current
+      if (!state || state.id !== event.pointerId) return
+      const dy = event.clientY - state.startY
+      const dt = Math.max(1, event.timeStamp - state.lastAt)
+      state.velocity = (event.clientY - state.lastY) / dt
+      state.lastY = event.clientY
+      state.lastAt = event.timeStamp
+      // 往上拖越拖越沉，最多露出一指宽。
+      state.offset = dy >= 0 ? dy : -Math.min(24, Math.sqrt(-dy) * 2)
+      place(state.offset)
+    },
+    onPointerUp(event: ReactPointerEvent<HTMLElement>) {
+      const state = gesture.current
+      if (!state || state.id !== event.pointerId) return
+      release()
+      const frame = frameRef.current
+      if (!frame) return
+      const height = frame.getBoundingClientRect().height
+      const dismiss =
+        state.offset > height * SHEET_DISMISS_RATIO ||
+        (state.offset > 0 && state.velocity > SHEET_DISMISS_VELOCITY)
+      const at = `translateY(${state.offset}px)`
+      place(0)
+      if (dismiss) {
+        dragRef.current = at
+        onDismiss()
+        return
+      }
+      if (state.offset !== 0 && typeof frame.animate === 'function') {
+        frame.animate([{ transform: at }, { transform: 'none' }], {
+          duration: SHEET_MS,
+          easing: enterEasing(true),
+        })
+      }
+    },
+    onPointerCancel(event: ReactPointerEvent<HTMLElement>) {
+      if (gesture.current?.id !== event.pointerId) return
+      release()
+      place(0)
+    },
+  }
+}
+
+/**
+ * 收回后把焦点还给谁。只有用键盘打开的才还：鼠标点开的，还回去会让浏览器把那颗按钮
+ * 画成键盘焦点（原生焦点框），轮换卡也会当成有人在看而停住不翻。
+ *
+ * 也不还进 iframe：宿主看不见里面发生了什么，替它把焦点放回去，在应用看来就像用户
+ * 刚点了它。还给外面最近一个能聚焦的容器，下一次真点进去才算数。
  */
 function focusReturnTarget(element: HTMLElement | null): HTMLElement | null {
+  if (!element || !isKeyboardFocused(element)) return null
   if (!(element instanceof HTMLIFrameElement)) return element
   return element.parentElement?.closest<HTMLElement>('[tabindex]') ?? null
+}
+
+function isKeyboardFocused(element: Element): boolean {
+  try {
+    return element.matches(':focus-visible')
+  } catch {
+    return false
+  }
 }
 
 function WidgetPopupFrame({
@@ -110,16 +236,18 @@ function WidgetPopupFrame({
   const [phase, setPhase] = useState<Phase>(active ? 'open' : 'stashed')
   const popup = entry.widgetType.popup
   const sheet = phone && entry.size !== 'stage'
+  /** 面板被拖下去时松手的位置，收回动画从这里接着走。 */
+  const dragRef = useRef('none')
+  const sheetDrag = useSheetDrag(frameRef, dragRef, () => closeWidgetPopup(entry.key))
 
   useLayoutEffect(() => {
     const frame = frameRef.current
     if (!frame) return
     if (active) {
+      // 应用自己开的（焦点不在任何控件上）不算键盘打开，不还。
       const focused = document.activeElement
       restoreRef.current = focusReturnTarget(
-        focused instanceof HTMLElement && focused !== document.body
-          ? focused
-          : entry.returnFocus(),
+        focused instanceof HTMLElement && focused !== document.body ? focused : null,
       )
       setPhase('open')
       // 收回动画还没放完又被打开：先停掉，不然量到的是缩到一半的框。
@@ -136,15 +264,22 @@ function WidgetPopupFrame({
     }
     if (phase !== 'open') return
     setPhase('closing')
+    // 焦点不还的时候也不能留在里面：收回的弹窗还挂着，焦点要是还在它的 iframe 里，
+    // 接下来的按键会打进一个看不见的弹窗。
+    const inside = document.activeElement
+    if (inside instanceof HTMLElement && frame.contains(inside)) inside.blur()
     const saved = rectsRef.current
     const resized =
       !saved || saved.width !== window.innerWidth || saved.height !== window.innerHeight
+    const from = dragRef.current
+    dragRef.current = 'none'
     const animation = playFrame(
       frame,
       'out',
       resized ? entry.anchor() : saved.anchor,
       resized ? frame.getBoundingClientRect() : saved.frame,
       sheet,
+      from,
     )
     const restore = restoreRef.current
     restoreRef.current = null
@@ -183,6 +318,11 @@ function WidgetPopupFrame({
       }}
     >
       {active && <FocusSentinel frameRef={frameRef} edge="start" />}
+      {sheet && (
+        <div className="widget-popup-frame__grabber" aria-hidden="true" {...sheetDrag}>
+          <span />
+        </div>
+      )}
       <RenderErrorBoundary
         source="widget-popup"
         resetKey={entry.widget.type}

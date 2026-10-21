@@ -60,10 +60,6 @@ export function useWidgetPopupOpener(
         widgetType: current.widgetType,
         params,
         anchor: () => anchorRef?.current?.getBoundingClientRect() ?? null,
-        returnFocus: () =>
-          anchorRef?.current?.querySelector<HTMLElement>(
-            'button, a[href], [tabindex]:not([tabindex="-1"]), [data-focus-return]',
-          ) ?? null,
         onConfigChange: current.onConfigChange
           ? (next) => latest.current.onConfigChange?.(next)
           : undefined,

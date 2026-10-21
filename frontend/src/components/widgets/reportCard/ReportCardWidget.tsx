@@ -399,14 +399,14 @@ export const ReportCardWidget = memo(
             target="_blank"
             rel="noopener noreferrer"
             draggable={false}
-            className="absolute inset-0 z-20"
+            className="absolute inset-0 z-20 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cfg-accent)]"
             aria-label={cardLink.label}
             onClick={(event) => event.stopPropagation()}
           />
         ) : interactive && !isEditMode && openPopup && reportData ? (
           <button
             type="button"
-            className="absolute inset-0 z-20 cursor-pointer"
+            className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cfg-accent)]"
             aria-label={t.platformCard.clickToReport}
             onClick={(event) => {
               event.stopPropagation()

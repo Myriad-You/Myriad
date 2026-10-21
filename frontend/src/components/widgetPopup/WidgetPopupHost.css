@@ -6,22 +6,27 @@
   pointer-events: none;
 }
 
+/*
+ * 遮罩只是一层薄雾：页面还看得见、只是退到后面，弹窗像浮在它上面，
+ * 而不是把整页压暗的对话框。开时慢慢起雾，关时比弹窗收得还快。
+ */
 .widget-popup-backdrop {
   position: absolute;
   inset: 0;
-  background: rgb(0 0 0 / 28%);
+  background: rgb(24 20 40 / 12%);
   opacity: 0;
-  transition: opacity 220ms cubic-bezier(0.32, 0.72, 0, 1);
-  backdrop-filter: blur(6px);
+  transition: opacity 180ms cubic-bezier(0.4, 0, 1, 1);
+  backdrop-filter: blur(10px) saturate(115%);
 }
 
 .widget-popup-layer[data-open='true'] .widget-popup-backdrop {
   opacity: 1;
   pointer-events: auto;
+  transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html.dark .widget-popup-backdrop {
-  background: rgb(0 0 0 / 46%);
+  background: rgb(0 0 0 / 38%);
 }
 
 /* 前面那份铺满整屏（手机上的舞台）时底下什么也看不见，不必每帧替它模糊。 */
@@ -39,20 +44,26 @@ html.dark[data-perf-mode='exlight'] .widget-popup-frame {
 }
 
 .widget-popup-frame {
+  /* 投影带一点站点主色：浮起来的东西底下有它自己的颜色，不是一块灰。 */
+  --popup-glow: color-mix(in srgb, var(--cfg-accent, #6366f1) 26%, transparent);
+
   position: absolute;
   top: 50%;
   left: 50%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 15%);
-  border-radius: 1.25rem;
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 1.75rem;
 
   /* 不给自己加 backdrop-filter：底色几乎不透，模糊看不出来，展开时却每帧都要重算。 */
   background: rgb(250 250 252 / 97%);
+
+  /* 贴身一圈细影交代边缘，中间一层托起来，最外一层大而淡的色影让它离开页面。 */
   box-shadow:
-    var(--chrome-hairline, inset 0 0 0 1px rgb(255 255 255 / 18%)),
-    0 24px 64px rgb(0 0 0 / 22%);
+    0 1px 2px rgb(20 16 40 / 6%),
+    0 12px 28px -10px rgb(20 16 40 / 18%),
+    0 40px 90px -24px var(--popup-glow);
   color: #1d1d1f;
   translate: -50% -50%;
   transform-origin: top left;
@@ -61,8 +72,14 @@ html.dark[data-perf-mode='exlight'] .widget-popup-frame {
 }
 
 html.dark .widget-popup-frame {
+  --popup-glow: color-mix(in srgb, var(--cfg-accent, #6366f1) 22%, rgb(0 0 0 / 50%));
+
   border-color: rgb(255 255 255 / 10%);
   background: rgb(24 24 27 / 97%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 6%),
+    0 12px 28px -10px rgb(0 0 0 / 50%),
+    0 40px 100px -20px var(--popup-glow);
   color: #fff;
 }
 
@@ -86,9 +103,10 @@ html.dark .widget-popup-frame {
   height: min(720px, calc(100dvh - 64px));
 }
 
+/* 四周留出页面：看得见底下的东西，才像浮在上面。 */
 .widget-popup-frame--stage {
-  width: min(1200px, calc(100vw - 48px));
-  height: min(760px, calc(100dvh - 64px));
+  width: min(1160px, calc(100vw - 96px));
+  height: min(720px, calc(100dvh - 96px));
 }
 
 /* 手机：md / lg 走底部面板，stage 全屏。 */
@@ -99,7 +117,7 @@ html.dark .widget-popup-frame {
   width: 100vw;
   height: min(88dvh, 720px);
   border-bottom: 0;
-  border-radius: 1.25rem 1.25rem 0 0;
+  border-radius: 1.75rem 1.75rem 0 0;
   padding-bottom: env(safe-area-inset-bottom);
   translate: none;
   transform-origin: bottom center;
@@ -116,27 +134,71 @@ html.dark .widget-popup-frame {
   }
 }
 
+/* 底部面板的把手：整条都能抓，中间那根短条只是告诉人这里能往下拖。 */
+.widget-popup-frame__grabber {
+  display: grid;
+  flex: none;
+  height: 1.25rem;
+  place-items: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.widget-popup-frame[data-dragging] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* 沙箱给 iframe 写了内联的 pointer-events，继承压不住，只能点名盖过去。 */
+.widget-popup-frame[data-dragging] > :not(.widget-popup-frame__grabber),
+.widget-popup-frame[data-dragging] iframe {
+  pointer-events: none !important;
+}
+
+.widget-popup-frame__grabber span {
+  width: 2.25rem;
+  height: 0.3125rem;
+  border-radius: 999px;
+  background: currentcolor;
+  opacity: 0.18;
+}
+
+/* 关闭键自己也浮着：一颗小圆，指上去轻轻放大，叉转一下。 */
 .widget-popup-frame__close {
   position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
+  top: 0.875rem;
+  right: 0.875rem;
   z-index: 2;
   display: grid;
-  width: 2rem;
-  height: 2rem;
+  width: 2.125rem;
+  height: 2.125rem;
   place-items: center;
   border-radius: 999px;
-  background: rgb(0 0 0 / 6%);
+  background: rgb(255 255 255 / 72%);
+  box-shadow:
+    0 0 0 1px rgb(20 16 40 / 6%),
+    0 4px 12px -4px rgb(20 16 40 / 18%);
   color: inherit;
-  transition: background-color 140ms ease;
+  transition:
+    background-color 160ms ease,
+    scale 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .widget-popup-frame__close:hover {
-  background: rgb(0 0 0 / 12%);
+  background: rgb(255 255 255 / 95%);
+  scale: 1.08;
+}
+
+.widget-popup-frame__close:active {
+  scale: 0.94;
 }
 
 html.dark .widget-popup-frame__close {
   background: rgb(255 255 255 / 10%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 8%),
+    0 4px 12px -4px rgb(0 0 0 / 50%);
 }
 
 html.dark .widget-popup-frame__close:hover {
@@ -151,6 +213,16 @@ html.dark .widget-popup-frame__close:hover {
 .widget-popup-frame__close svg {
   width: 1rem;
   height: 1rem;
+  transition: rotate 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.widget-popup-frame__close:hover svg {
+  rotate: 90deg;
+}
+
+html[data-perf-mode='exlight'] .widget-popup-frame__close,
+html[data-perf-mode='exlight'] .widget-popup-frame__close svg {
+  transition: none;
 }
 
 .widget-popup-frame__sentinel {
