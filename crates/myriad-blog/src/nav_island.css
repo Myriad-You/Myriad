@@ -287,9 +287,18 @@ body {
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 主站那边的标记是透明的：博客的底色一出发就显出来，看得见它滑过去。 */
+/*
+ * 选中的底色只挪位置，只画新的那张。交叉淡入淡出时两张叠加混合、时长又错开，中途比平时亮一截；
+ * 两张都留着又是两层半透明叠在一起，比平时深。博客里翻页新旧是同一块、在同一处，于是一动不动；
+ * 从主站进来时主站那边的标记本来就是透明的，博客的底色一出发就在，看得见它滑过去。
+ */
+::view-transition-old(myriad-nav-current) {
+  animation: none;
+  opacity: 0;
+}
+
 ::view-transition-new(myriad-nav-current) {
-  animation-duration: 160ms;
+  animation: none;
 }
 
 ::view-transition-old(myriad-site):only-child {
