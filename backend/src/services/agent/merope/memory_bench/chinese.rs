@@ -3,7 +3,9 @@
 use super::*;
 
 /// The Chinese set (tests/merope/memory-zh.json): her kind of chat, in the
-/// shape the bench reads, every type covered, each answer's turn marked.
+/// shape the bench reads, every type covered, each answer's turn marked;
+/// where a session or the question is had is a place the bench knows, and
+/// the noise questions bring what she keeps instead of talk.
 #[test]
 pub(super) fn the_chinese_memory_set_reads_as_the_bench_needs() {
     let questions: Vec<Question> = serde_json::from_str(include_str!(
@@ -14,7 +16,7 @@ pub(super) fn the_chinese_memory_set_reads_as_the_bench_needs() {
         .iter()
         .map(|question| question.question_type.as_str())
         .collect();
-    assert_eq!(types.len(), 6);
+    assert_eq!(types.len(), 9);
     for question in &questions {
         assert_eq!(
             question.haystack_dates.len(),
@@ -23,6 +25,30 @@ pub(super) fn the_chinese_memory_set_reads_as_the_bench_needs() {
         for date in &question.haystack_dates {
             date_of(date);
         }
+        assert!(
+            question.haystack_venues.is_empty()
+                || question.haystack_venues.len() == question.haystack_sessions.len(),
+            "{}",
+            question.question_id
+        );
+        for venue in question
+            .haystack_venues
+            .iter()
+            .chain(question.question_venue.iter())
+        {
+            assert!(
+                venue == "private" || venue.starts_with("group:"),
+                "{}",
+                question.question_id
+            );
+        }
+        let noise = question.question_type == "noise";
+        assert_eq!(
+            noise,
+            !question.memories.is_empty(),
+            "{}",
+            question.question_id
+        );
         let marked = question
             .haystack_sessions
             .iter()
@@ -30,7 +56,16 @@ pub(super) fn the_chinese_memory_set_reads_as_the_bench_needs() {
             .any(|turn| turn.has_answer);
         assert_eq!(
             marked,
-            !question.question_id.ends_with("_abs"),
+            !question.question_id.ends_with("_abs") && !noise,
+            "{}",
+            question.question_id
+        );
+        // The rules made for this set are written down, not left to the
+        // default.
+        let key = rule_key(question);
+        assert!(
+            prompts()["grade"]["rules"][key].is_string()
+                || !["abstention", "forget", "private", "noise", "memory-ops"].contains(&key),
             "{}",
             question.question_id
         );

@@ -59,17 +59,23 @@ async fn settle_session(
     notes: &[String],
     at: chrono::DateTime<chrono::FixedOffset>,
 ) -> Vec<(String, String)> {
-    let known: Vec<String> = crate::services::agent::memory::unified::active_in(
+    // What she knows of them for good, newest first, as many as production
+    // shows beside a stretch.
+    let mut known = crate::services::agent::memory::unified::active_in(
         db,
         user_id,
         present,
         &crate::services::agent::memory::unified::MemoryKind::ABOUT_PERSON,
     )
     .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|row| super::super::ingest::compact_summary(&row.content))
-    .collect();
+    .unwrap_or_default();
+    known.retain(|row| row.source == "chat");
+    known.sort_by_key(|row| std::cmp::Reverse(row.created_at));
+    let known: Vec<String> = known
+        .into_iter()
+        .take(SETTLE_KNOWN)
+        .map(|row| super::super::ingest::compact_summary(&row.content))
+        .collect();
     let theirs = turns
         .iter()
         .filter(|turn| turn.role == "user")
@@ -159,6 +165,10 @@ async fn settle_session(
     lasting
 }
 
+/// What she knows of them for good, at most, shown beside a stretch (as
+/// production's `chat_remember::settle`).
+const SETTLE_KNOWN: usize = 40;
+
 /// How long a short note is still there to recall, in the settle way: past
 /// this, by the question's date, it has faded. A stand-in for a fast fading
 /// memory strength, not a rule production has.
@@ -171,14 +181,14 @@ pub(super) async fn go_over(
     db: &sea_orm::DatabaseConnection,
     judge: &crate::services::analyzer::AiAnalyzer,
     user_id: i32,
-    present: &Audience,
-    sessions: &[(chrono::DateTime<chrono::FixedOffset>, &Vec<Turn>)],
+    sessions: &[super::Session<'_>],
     question_date: &str,
     answering: &mut Vec<String>,
     kept: &mut usize,
 ) {
     let asked_at = date_of(question_date);
-    for (session_at, turns) in sessions.iter().copied() {
+    for (session_at, turns, present) in sessions {
+        let (session_at, present) = (*session_at, present);
         let mut notes: Vec<String> = Vec::new();
         let mut short: Vec<(
             chrono::DateTime<chrono::FixedOffset>,

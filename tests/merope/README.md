@@ -100,3 +100,17 @@ node scripts/test-merope-semantics.mjs --live
 不是对评审人正确性的自动证明。评审不能盖过请求失败或硬约束失败。没有完成的评审不计通过，
 导出模式外任何失败或待评审均非零退出。勿扰的 `gate_pass` 单列，不算模型学会了沉默。
 报告含合成输入和最终输出，不含思考链、密钥、原始提供方错误。不要用真实用户记录替换这些用例。
+
+## 中文记忆题（真实模型，不操作页面）
+
+`memory-zh.json` 是她的中文记忆题，格式仿 LongMemEval，另加群聊场合（`haystack_venues`、`question_venue`、`question_speaker`）和噪声题预先记下的事（`memories`）。作答和评分提示在 `memory-bench.json`。站点的 `memory_bench`（见 `backend/src/services/agent/merope/memory_bench.rs` 顶部说明）和 App 的 `MyriadMemoryEvalRunner`（MyriadNative `docs/MEMORY-EVAL.md`）读同一份题和同一份提示，不各存一份。
+
+```sh
+MEROPE_MEMORY_BENCH=tests/merope/memory-zh.json MEROPE_MEMORY_BENCH_WAY=settle \
+MEROPE_MEMORY_BENCH_TIMES=3 MEROPE_MEMORY_BENCH_PER_TYPE=100 \
+MEROPE_MEMORY_BENCH_REPORT=/absolute/new/file.json \
+MYRIAD_MEDIA_TEST_DATABASE_URL=… cargo test -p myriad-backend --bin myriad-backend \
+  -- --ignored her_memory_on_longmemeval --nocapture
+```
+
+会花站点模型的钱。写入只进每次新建、跑完删除的独立 schema。题目全部是编的：闲聊、私事和数字都不来自真实用户。报告的 `scores` 给出每种召回方式的单次准确率、每轮答对数和 `pass^n`（n 次都答对的题数）。`wide` 是生产的召回方式。

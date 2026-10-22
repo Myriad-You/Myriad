@@ -50,102 +50,182 @@ pub(super) async fn her_memory_on_longmemeval() {
     let url = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL").expect("test database");
     let isolated = crate::db::IsolatedSchema::migrated(&url, "memory_bench").await;
     let db = isolated.db.clone();
-    let outcomes: Vec<(Question, Outcome)> = futures::stream::iter(questions)
-        .map(|question| {
+    let times = times();
+    let runs: Vec<(Question, usize)> = (0..times)
+        .flat_map(|round| {
+            questions
+                .iter()
+                .cloned()
+                .map(move |question| (question, round))
+        })
+        .collect();
+    let outcomes: Vec<(Question, usize, Outcome)> = futures::stream::iter(runs)
+        .map(|(question, round)| {
             let (db, judge, lite) = (db.clone(), &judge, &lite);
             async move {
-                let outcome = run_one(&db, judge, lite, &question).await;
+                let outcome = run_one(&db, judge, lite, &question, round).await;
                 println!(
-                    "{} {} written={} plain={:?} cued={:?}",
+                    "{} {} #{round} written={} plain={:?} cued={:?} wide={:?}",
                     question.question_type,
                     question.question_id,
                     outcome.written,
                     outcome.plain.correct,
-                    outcome.cued.correct
+                    outcome.cued.correct,
+                    outcome.wide.correct
                 );
-                (question, outcome)
+                (question, round, outcome)
             }
         })
         .buffer_unordered(at_once())
         .collect()
         .await;
     isolated.drop().await;
-    // Per type: questions, written, then retrieved and correct for recall
-    // from their words alone and with cues.
-    let mut summary: BTreeMap<String, [usize; 8]> = BTreeMap::new();
-    let mut rows = Vec::new();
-    for (question, outcome) in &outcomes {
-        let kind = if question.question_id.ends_with("_abs") {
+    let report = report(&questions, times, &outcomes);
+    println!("{}", report["scores"]);
+    std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+}
+
+/// `MEROPE_MEMORY_BENCH_TIMES` (default 1): how many times each question
+/// is run, each time by someone new, written down again from the start.
+fn times() -> usize {
+    std::env::var("MEROPE_MEMORY_BENCH_TIMES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|times| *times > 0)
+        .unwrap_or(1)
+}
+
+/// Each way of recalling scored by its run: right once on average, and
+/// pass^n, the questions right every time they were run.
+fn report(questions: &[Question], times: usize, outcomes: &[(Question, usize, Outcome)]) -> Value {
+    let arms: [(&str, fn(&Outcome) -> &Answered); 3] = [
+        ("plain", |outcome| &outcome.plain),
+        ("cued", |outcome| &outcome.cued),
+        ("wide", |outcome| &outcome.wide),
+    ];
+    let of = |id: &str| -> Vec<&Outcome> {
+        let mut runs: Vec<(usize, &Outcome)> = outcomes
+            .iter()
+            .filter(|(question, _, _)| question.question_id == id)
+            .map(|(_, round, outcome)| (*round, outcome))
+            .collect();
+        runs.sort_by_key(|(round, _)| *round);
+        runs.into_iter().map(|(_, outcome)| outcome).collect()
+    };
+    let kind_of = |question: &Question| {
+        if question.question_id.ends_with("_abs") {
             "abstention".to_string()
+        } else if question.question_id.starts_with("zh-long-") {
+            format!("long/{}", question.question_type)
         } else {
             question.question_type.clone()
+        }
+    };
+    let mut scores = serde_json::Map::new();
+    for (arm, answered) in arms {
+        let mut by_kind: BTreeMap<String, [usize; 6]> = BTreeMap::new();
+        let mut per_round = vec![0usize; times];
+        let (mut right, mut every) = (0, 0);
+        for question in questions {
+            let runs = of(&question.question_id);
+            let rights: Vec<bool> = runs
+                .iter()
+                .map(|outcome| answered(outcome).correct == Some(true))
+                .collect();
+            let slot = by_kind.entry(kind_of(question)).or_default();
+            slot[0] += 1;
+            slot[1] += rights.iter().filter(|right| **right).count();
+            slot[2] += runs.len();
+            let all = rights.len() == times && rights.iter().all(|right| *right);
+            slot[3] += usize::from(all);
+            slot[4] += runs.iter().filter(|outcome| outcome.written).count();
+            slot[5] += runs
+                .iter()
+                .filter(|outcome| answered(outcome).retrieved)
+                .count();
+            every += usize::from(all);
+            right += rights.iter().filter(|right| **right).count();
+            for (round, outcome) in runs.iter().enumerate() {
+                per_round[round] += usize::from(answered(outcome).correct == Some(true));
+            }
+        }
+        let kinds: serde_json::Map<String, Value> = by_kind
+            .into_iter()
+            .map(|(kind, [n, right, run, every, written, retrieved])| {
+                (
+                    kind,
+                    json!({"questions": n, "runs": run, "written": written,
+                        "retrieved": retrieved, "right": right, "every": every}),
+                )
+            })
+            .collect();
+        scores.insert(
+            arm.to_string(),
+            json!({
+                "accuracy": right as f64 / (questions.len() * times).max(1) as f64,
+                "perRound": per_round,
+                format!("pass^{times}"): every,
+                "questions": questions.len(),
+                "byKind": kinds,
+            }),
+        );
+    }
+    // Noise: the same everyday questions with what she keeps of them and
+    // with nothing, as production answers (the wide way).
+    let noise: Vec<&Outcome> = outcomes
+        .iter()
+        .filter(|(question, _, _)| question.question_type == "noise")
+        .map(|(_, _, outcome)| outcome)
+        .collect();
+    if !noise.is_empty() {
+        let count = |pick: fn(&Outcome) -> Option<bool>| {
+            noise
+                .iter()
+                .filter(|outcome| pick(outcome) == Some(true))
+                .count()
         };
-        let slot = summary.entry(kind).or_default();
-        slot[0] += 1;
-        slot[1] += usize::from(outcome.written);
-        slot[2] += usize::from(outcome.plain.retrieved);
-        slot[3] += usize::from(outcome.plain.correct == Some(true));
-        slot[4] += usize::from(outcome.cued.retrieved);
-        slot[5] += usize::from(outcome.cued.correct == Some(true));
-        slot[6] += usize::from(outcome.wide.retrieved);
-        slot[7] += usize::from(outcome.wide.correct == Some(true));
-        let answered = |answered: &Answered| {
-            json!({"retrieved":answered.retrieved,"correct":answered.correct,
-                "recalled":answered.recalled,"response":answered.answer})
-        };
-        rows.push(
-            json!({"id":question.question_id,"type":question.question_type,
+        scores.insert(
+            "noise".into(),
+            json!({
+                "runs": noise.len(),
+                "rightWithMemories": count(|outcome| outcome.wide.correct),
+                "rightWithout": count(|outcome| outcome.bare.as_ref().and_then(|bare| bare.correct)),
+                "draggedWithMemories": count(|outcome| outcome.wide.dragged),
+                "draggedWithout": count(|outcome| outcome.bare.as_ref().and_then(|bare| bare.dragged)),
+            }),
+        );
+    }
+    // Private things asked in a group: would recall in private have found
+    // them (so keeping them out was the audience's doing).
+    let private: Vec<bool> = outcomes
+        .iter()
+        .filter_map(|(_, _, outcome)| outcome.in_private)
+        .collect();
+    if !private.is_empty() {
+        scores.insert(
+            "privateFoundInPrivate".into(),
+            json!(format!(
+                "{}/{}",
+                private.iter().filter(|found| **found).count(),
+                private.len()
+            )),
+        );
+    }
+    let answered = |answered: &Answered| {
+        json!({"retrieved":answered.retrieved,"correct":answered.correct,
+            "dragged":answered.dragged,"recalled":answered.recalled,"response":answered.answer})
+    };
+    let rows: Vec<Value> = outcomes
+        .iter()
+        .map(|(question, round, outcome)| {
+            json!({"id":question.question_id,"type":question.question_type,"round":round,
             "question":question.question,"answer":question.answer,
             "written":outcome.written,"kept":outcome.kept,
             "plain":answered(&outcome.plain),"cued":answered(&outcome.cued),
             "wide":answered(&outcome.wide),
-            "memories":outcome.memories,"concepts":outcome.concepts}),
-        );
-    }
-    let total = outcomes.len();
-    let count = |cued: bool| {
-        outcomes
-            .iter()
-            .filter(|(_, outcome)| {
-                (if cued { &outcome.cued } else { &outcome.plain }).correct == Some(true)
-            })
-            .count()
-    };
-    let (plain, cued) = (count(false), count(true));
-    let summary: Value = summary
-        .into_iter()
-        .map(
-            |(
-                kind,
-                [
-                    n,
-                    written,
-                    plain_found,
-                    plain_right,
-                    cued_found,
-                    cued_right,
-                    wide_found,
-                    wide_right,
-                ],
-            )| {
-                (
-                    kind,
-                    json!({"questions":n,"written":written,
-                    "plain":{"retrieved":plain_found,"correct":plain_right},
-                    "cued":{"retrieved":cued_found,"correct":cued_right},
-                    "wide":{"retrieved":wide_found,"correct":wide_right}}),
-                )
-            },
-        )
-        .collect::<serde_json::Map<_, _>>()
-        .into();
-    println!("summary {summary} plain {plain}/{total} cued {cued}/{total}");
-    std::fs::write(
-        &report_path,
-        serde_json::to_string_pretty(
-            &json!({"summary":summary,"plain":plain,"cued":cued,"total":total,"rows":rows}),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+            "bare":outcome.bare.as_ref().map(answered),"inPrivate":outcome.in_private,
+            "memories":outcome.memories,"concepts":outcome.concepts})
+        })
+        .collect();
+    json!({"times": times, "scores": scores, "rows": rows})
 }

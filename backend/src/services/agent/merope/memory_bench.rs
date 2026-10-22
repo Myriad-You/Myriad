@@ -11,8 +11,17 @@
 //! file> MYRIAD_MEDIA_TEST_DATABASE_URL=… DATABASE_URL=… cargo test -p
 //! myriad-backend --bin myriad-backend -- --ignored her_memory_on_longmemeval
 //! --nocapture`. `MEROPE_MEMORY_BENCH_PER_TYPE` (default 5) questions of each
-//! type; `MEROPE_MEMORY_BENCH_ONLY` a comma list of question ids. Writes go
-//! to a fresh schema that is dropped afterwards.
+//! type; `MEROPE_MEMORY_BENCH_ONLY` a comma list of question ids;
+//! `MEROPE_MEMORY_BENCH_TIMES=3` runs each question three times, each by
+//! someone new, and reports pass^3 (right all three times) beside the
+//! average. Writes go to a fresh schema that is dropped afterwards.
+//!
+//! The Chinese set adds what LongMemEval does not ask: sessions had in a
+//! group and questions asked there (`haystack_venues`, `question_venue`),
+//! things they asked her to forget, and everyday questions asked with what
+//! she keeps of them and with nothing (`memories`). The answering and
+//! grading prompts are tests/merope/memory-bench.json, which the native
+//! app's runner reads too.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -33,10 +42,10 @@ mod full_size;
 mod longmemeval;
 mod making;
 mod memes;
+mod probes;
 mod settle;
 mod since_up;
 mod wishing;
-mod probes;
 
 use probes::*;
 
@@ -49,6 +58,50 @@ struct Question {
     question_date: String,
     haystack_dates: Vec<String>,
     haystack_sessions: Vec<Vec<Turn>>,
+    /// Where each session was had, `private` or `group:<id>`; private
+    /// when not given.
+    #[serde(default)]
+    haystack_venues: Vec<String>,
+    /// Where the question is asked; private when not given.
+    #[serde(default)]
+    question_venue: Option<String>,
+    /// `other` when someone else in the group asks about them.
+    #[serde(default)]
+    question_speaker: Option<String>,
+    /// What she already keeps of them, unrelated to the question (the
+    /// noise questions): kept as written, nothing extracted.
+    #[serde(default)]
+    memories: Vec<String>,
+}
+
+impl Question {
+    fn venue(&self, session: usize) -> &str {
+        self.haystack_venues
+            .get(session)
+            .map_or("private", String::as_str)
+    }
+}
+
+/// Who is present at `venue` (`private` or `group:<id>`), as she would
+/// answer `user_id` there. Each run has a group of its own (`run`): in a
+/// group she remembers what everyone there said, and runs share a database.
+fn audience_at(venue: &str, user_id: i32, run: &str) -> Audience {
+    match venue.strip_prefix("group:") {
+        Some(group) => Audience::group(format!("{group}:{run}"), user_id),
+        None => Audience::private(user_id),
+    }
+}
+
+/// The answering and grading prompts, shared with the native app's runner
+/// (tests/merope/memory-bench.json) so both ends are graded alike.
+fn prompts() -> &'static Value {
+    static PROMPTS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    PROMPTS.get_or_init(|| {
+        serde_json::from_str(include_str!(
+            "../../../../../tests/merope/memory-bench.json"
+        ))
+        .expect("memory bench prompts")
+    })
 }
 
 #[derive(Deserialize, Clone)]
@@ -92,35 +145,62 @@ fn date_of(text: &str) -> chrono::DateTime<chrono::FixedOffset> {
 
 /// As she would answer in a chat: from what she remembers of them (each
 /// with the date she learned it), with what she generally knows for advice
-/// or a recommendation; what she does not remember of them she does not make up.
-const ANSWER_SYSTEM: &str = "Someone you have talked with before asks you something. What you remember of them is listed, each with the date you learned it; it is all you know of your past conversations. Today is the date given. If they ask for advice or a recommendation, use what you remember of them together with what you generally know. If they ask about something from your past conversations that you do not remember, say you do not know. Answer briefly.";
-
-fn judge_system(question: &Question) -> String {
-    let abstention = question.question_id.ends_with("_abs");
-    let rule = if abstention {
-        "The question cannot be answered from the conversations. Answer yes only if the response says it does not know or cannot tell."
-    } else {
-        match question.question_type.as_str() {
-            "temporal-reasoning" => {
-                "Answer yes if the response contains the correct answer. Do not penalize off-by-one errors in counting days, weeks or months."
-            }
-            "knowledge-update" => {
-                "Answer yes if the response contains the correct answer. If it also contains earlier information along with the updated answer, it is still correct as long as the updated answer is the required one."
-            }
-            "single-session-preference" => {
-                "The correct answer is a rubric of what the user would want. Answer yes if the response recalls and uses the user's personal information correctly."
-            }
-            _ => {
-                "Answer yes if the response contains the correct answer, or is equivalent to it. If it contains only part of what the answer needs, answer no."
-            }
+/// or a recommendation; what she does not remember of them she does not make
+/// up. In a group, she knows others read along.
+fn answer_system(question: &Question, present: &Audience) -> String {
+    let answer = &prompts()["answer"];
+    let mut system = answer["system"].as_str().unwrap().to_string();
+    if present.is_group() {
+        system = format!("{system} {}", answer["group"].as_str().unwrap());
+        if question.question_speaker.as_deref() == Some("other") {
+            system = format!("{system} {}", answer["other"].as_str().unwrap());
         }
-    };
-    format!(
-        "You grade an answer to a question about past conversations. {rule} Reply with only a JSON object {{\"correct\": true or false}}."
-    )
+    }
+    system
 }
 
-fn grade_schema() -> Value {
+/// Which grading rule a question takes: by its id's ending for those that
+/// must not be answered (`_abs`, `_forget`, `_private`), else by its type.
+fn rule_key(question: &Question) -> &str {
+    let id = question.question_id.as_str();
+    if id.ends_with("_abs") {
+        "abstention"
+    } else if id.ends_with("_forget") {
+        "forget"
+    } else if id.ends_with("_private") {
+        "private"
+    } else {
+        question.question_type.as_str()
+    }
+}
+
+/// The rule itself; a type with none of its own takes the default.
+fn rule_of(question: &Question) -> &'static str {
+    let rules = &prompts()["grade"]["rules"];
+    rules[rule_key(question)]
+        .as_str()
+        .or_else(|| rules["default"].as_str())
+        .unwrap()
+}
+
+fn judge_system(question: &Question) -> String {
+    let system = if question.question_type == "noise" {
+        "noise_system"
+    } else {
+        "system"
+    };
+    prompts()["grade"][system]
+        .as_str()
+        .unwrap()
+        .replace("{rule}", rule_of(question))
+}
+
+fn grade_schema(question: &Question) -> Value {
+    if question.question_type == "noise" {
+        return json!({"type":"object","additionalProperties":false,
+            "required":["correct","dragged"],
+            "properties":{"correct":{"type":"boolean"},"dragged":{"type":"boolean"}}});
+    }
     json!({"type":"object","additionalProperties":false,"required":["correct"],
         "properties":{"correct":{"type":"boolean"}}})
 }
@@ -244,41 +324,73 @@ struct Outcome {
     plain: Answered,
     cued: Answered,
     wide: Answered,
+    /// Asked with nothing kept of them (noise questions): what the noise
+    /// changed.
+    bare: Option<Answered>,
+    /// Asked where something private must not come up: whether recall in
+    /// private would have brought it, so not bringing it there is the
+    /// audience's doing, not a memory that was never kept.
+    in_private: Option<bool>,
     memories: Vec<String>,
     /// Each memory's concepts, as kept beside it.
     concepts: Vec<Value>,
     kept: usize,
 }
 
+/// A session of the question: when, its turns, and who was present.
+type Session<'a> = (
+    chrono::DateTime<chrono::FixedOffset>,
+    &'a Vec<Turn>,
+    Audience,
+);
+
 async fn run_one(
     db: &sea_orm::DatabaseConnection,
     judge: &crate::services::analyzer::AiAnalyzer,
     lite: &crate::services::analyzer::AiAnalyzer,
     question: &Question,
+    round: usize,
 ) -> Outcome {
-    let user_id = new_user(db, &format!("lme-{}", question.question_id)).await;
-    let present = Audience::private(user_id);
+    let name = format!("lme-{}-{round}", question.question_id);
+    let user_id = new_user(db, &name).await;
+    let present = audience_at(
+        question.question_venue.as_deref().unwrap_or("private"),
+        user_id,
+        &name,
+    );
     let mut answering: Vec<String> = Vec::new();
     let mut kept = 0;
-    let mut sessions: Vec<(chrono::DateTime<chrono::FixedOffset>, &Vec<Turn>)> = question
+    let mut sessions: Vec<Session> = question
         .haystack_dates
         .iter()
         .map(|date| date_of(date))
         .zip(question.haystack_sessions.iter())
+        .enumerate()
+        .map(|(number, (at, turns))| {
+            (
+                at,
+                turns,
+                audience_at(question.venue(number), user_id, &name),
+            )
+        })
         .collect();
-    sessions.sort_by_key(|(at, _)| *at);
+    sessions.sort_by_key(|(at, _, _)| *at);
     // The chat itself, as the site keeps it, for scrolling back through.
-    for (number, (session_at, turns)) in sessions.iter().enumerate() {
-        let session = format!("lme-{}-{number}", question.question_id);
+    for (number, (session_at, turns, here)) in sessions.iter().enumerate() {
+        let session = format!("{name}-{number}");
+        let context = here
+            .group_id()
+            .map(|group| json!({"mode": "chat", "venue": group}));
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO agent_sessions (id, user_id, message_count, archived, created_at, last_active_at) \
-             VALUES ($1, $2, $3, false, $4, $4)",
+            "INSERT INTO agent_sessions (id, user_id, message_count, archived, created_at, last_active_at, context) \
+             VALUES ($1, $2, $3, false, $4, $4, $5)",
             [
                 session.clone().into(),
                 user_id.into(),
                 (turns.len() as i32).into(),
                 (*session_at).into(),
+                context.into(),
             ],
         ))
         .await
@@ -298,13 +410,36 @@ async fn run_one(
             .unwrap();
         }
     }
+    // What she already keeps of them, a week before they ask.
+    if !question.memories.is_empty() {
+        let updates = super::chat_remember::ChatMemoryUpdates {
+            updates: question
+                .memories
+                .iter()
+                .map(|fact| super::chat_remember::ChatMemoryUpdate {
+                    fact: Some(fact.clone()),
+                    supersedes: Vec::new(),
+                    evidence: Some(fact.clone()),
+                    concepts: Vec::new(),
+                    cues: Vec::new(),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let at = date_of(&question.question_date) - chrono::Duration::days(7);
+        if apply_at(db, user_id, &Audience::private(user_id), at, &updates)
+            .await
+            .is_some()
+        {
+            kept += question.memories.len();
+        }
+    }
     let settle = std::env::var("MEROPE_MEMORY_BENCH_WAY").as_deref() == Ok("settle");
     if settle {
         settle::go_over(
             db,
             judge,
             user_id,
-            &present,
             &sessions,
             &question.question_date,
             &mut answering,
@@ -312,7 +447,7 @@ async fn run_one(
         )
         .await;
     }
-    for (session_at, turns) in sessions.into_iter().filter(|_| !settle) {
+    for (session_at, turns, here) in sessions.iter().filter(|_| !settle) {
         for (index, turn) in turns.iter().enumerate() {
             if turn.role != "user" {
                 continue;
@@ -322,7 +457,7 @@ async fn run_one(
                 .filter(|next| next.role == "assistant")
                 .map(|next| next.content.as_str())
                 .unwrap_or("");
-            let at = session_at + chrono::Duration::minutes(index as i64);
+            let at = *session_at + chrono::Duration::minutes(index as i64);
             let text: String = turn
                 .content
                 .split_whitespace()
@@ -331,8 +466,7 @@ async fn run_one(
             if text.chars().count() > 2_000 {
                 continue;
             }
-            let Some(updates) =
-                remember_turn(db, judge, user_id, &present, &text, reply, at).await
+            let Some(updates) = remember_turn(db, judge, user_id, here, &text, reply, at).await
             else {
                 continue;
             };
@@ -397,15 +531,73 @@ async fn run_one(
         &answering,
     )
     .await;
-    // Everything she kept, to tell unwritten from unfound afterwards.
-    let kept_rows = crate::services::agent::memory::unified::active_in(
-        db,
-        user_id,
-        &present,
-        &crate::services::agent::memory::unified::MemoryKind::ABOUT_PERSON,
-    )
-    .await
-    .unwrap_or_default();
+    let bare = if question.memories.is_empty() {
+        None
+    } else {
+        let nobody = new_user(db, &format!("{name}-bare")).await;
+        Some(
+            answer_one(
+                db,
+                judge,
+                lite,
+                question,
+                nobody,
+                &Audience::private(nobody),
+                cues.as_ref(),
+                THOROUGH,
+                true,
+                &[],
+            )
+            .await,
+        )
+    };
+    let in_private = if present.is_group() && question.question_id.ends_with("_private") {
+        let recalled = recalled_for(
+            db,
+            question,
+            user_id,
+            &Audience::private(user_id),
+            cues.as_ref(),
+            THOROUGH,
+        )
+        .await;
+        Some(
+            answering
+                .iter()
+                .any(|fact| recalled.iter().any(|line| line.contains(fact.as_str()))),
+        )
+    } else {
+        None
+    };
+    // Everything she kept, to tell unwritten from unfound afterwards: in
+    // each place she kept something.
+    let mut places: Vec<Audience> = Vec::new();
+    for (_, _, here) in &sessions {
+        if !places.contains(here) {
+            places.push(here.clone());
+        }
+    }
+    if places.is_empty() {
+        places.push(Audience::private(user_id));
+    }
+    let mut kept_rows = Vec::new();
+    for place in &places {
+        for row in crate::services::agent::memory::unified::active_in(
+            db,
+            user_id,
+            place,
+            &crate::services::agent::memory::unified::MemoryKind::ABOUT_PERSON,
+        )
+        .await
+        .unwrap_or_default()
+        {
+            if !kept_rows.iter().any(
+                |kept: &crate::services::agent::memory::unified::MemoryRecord| kept.id == row.id,
+            ) {
+                kept_rows.push(row);
+            }
+        }
+    }
     let concepts_by_id: std::collections::HashMap<String, Value> = {
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
         crate::models::entities::agent_memories::Entity::find()
@@ -432,6 +624,8 @@ async fn run_one(
         plain,
         cued,
         wide,
+        bare,
+        in_private,
         kept,
         memories,
         concepts,
@@ -473,6 +667,9 @@ async fn recalled_for(
 struct Answered {
     retrieved: bool,
     correct: Option<bool>,
+    /// Noise questions: whether the answer brought in what she keeps of
+    /// them where the question did not call for it.
+    dragged: Option<bool>,
     answer: String,
     recalled: Vec<String>,
 }
@@ -494,8 +691,14 @@ async fn answer_one(
     let retrieved = answering
         .iter()
         .any(|fact| recalled.iter().any(|line| line.contains(fact.as_str())));
-    // Asked about what was said in detail, she scrolls back, as in a chat.
-    let scrolled = match cues.filter(|cues| cues.look_back || (back_when_thorough && cues.thorough))
+    // Asked about what was said in detail, she scrolls back, as in a chat;
+    // the wide way also when their words plainly reach back, as production
+    // does. Never in a group: what she scrolls through is the private chat.
+    let reaching_back =
+        back_when_thorough && myriad_merope::remembering::reaches_back(&question.question);
+    let scrolled = match cues
+        .filter(|_| !present.is_group())
+        .filter(|cues| cues.look_back || (back_when_thorough && cues.thorough) || reaching_back)
     {
         Some(cues) => {
             let query = std::iter::once(question.question.as_str())
@@ -530,7 +733,7 @@ async fn answer_one(
     let mut answer = String::new();
     for _ in 0..3 {
         answer = lite
-            .analyze_with_system(ANSWER_SYSTEM, &input)
+            .analyze_with_system(&answer_system(question, present), &input)
             .await
             .unwrap_or_default();
         if !answer.trim().is_empty() {
@@ -541,29 +744,33 @@ async fn answer_one(
         return Answered {
             retrieved,
             correct: None,
+            dragged: None,
             answer,
             recalled,
         };
     }
+    let mut graded = json!({"question": question.question, "correctAnswer": question.answer,
+        "response": answer});
+    if question.question_type == "noise" {
+        graded["memories"] = json!(question.memories);
+    }
     let graded = judge
         .analyze_json(
             &judge_system(question),
-            &json!({"question": question.question, "correctAnswer": question.answer,
-                "response": answer})
-            .to_string(),
+            &graded.to_string(),
             "memory_bench_grade",
-            Some(&grade_schema()),
+            Some(&grade_schema(question)),
         )
         .await
         .ok()
         .and_then(|raw| {
             let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
             serde_json::from_str::<Value>(json.as_deref().unwrap_or(raw.trim())).ok()
-        })
-        .and_then(|value| value["correct"].as_bool());
+        });
     Answered {
         retrieved,
-        correct: graded,
+        correct: graded.as_ref().and_then(|value| value["correct"].as_bool()),
+        dragged: graded.as_ref().and_then(|value| value["dragged"].as_bool()),
         answer,
         recalled,
     }
