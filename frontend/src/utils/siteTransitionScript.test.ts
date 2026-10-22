@@ -7,13 +7,17 @@ type Listener = (event: Record<string, unknown>) => void
 
 function boot(options: { referrer?: string; activationFrom?: string; perfMode?: string } = {}) {
   const listeners = new Map<string, Listener[]>()
+  const classes = new Set<string>()
+  const timers: (() => void)[] = []
   const sandbox = createContext({
     URL,
     location: { href: 'https://site.test/', origin: 'https://site.test' },
+    setTimeout: (callback: () => void) => timers.push(callback),
     document: {
       referrer: options.referrer ?? '',
       documentElement: {
         getAttribute: (name: string) => (name === 'data-perf-mode' ? (options.perfMode ?? null) : null),
+        classList: { add: (name: string) => classes.add(name), remove: (name: string) => classes.delete(name) },
       },
     },
     navigation: options.activationFrom ? { activation: { from: { url: options.activationFrom } } } : undefined,
@@ -29,10 +33,10 @@ function boot(options: { referrer?: string; activationFrom?: string; perfMode?: 
   /** 放一次换页，交回动效有没有被跳过。 */
   const run = (type: 'pageswap' | 'pagereveal', event: Record<string, unknown> = {}) => {
     let skipped = false
-    fire(type, { ...event, viewTransition: { skipTransition: () => { skipped = true } } })
+    fire(type, { ...event, viewTransition: { skipTransition: () => { skipped = true }, finished: new Promise(() => {}) } })
     return skipped
   }
-  return { fire, run }
+  return { fire, run, sandbox, classes, timers }
 }
 
 const swapTo = (url: string) => ({ activation: { entry: { url } } })
@@ -66,6 +70,18 @@ describe('主站打开时', () => {
   it('从博客回来放动效', () => {
     assert.equal(boot({ activationFrom: 'https://site.test/blog/posts/a/' }).run('pagereveal'), false)
     assert.equal(boot({ referrer: 'https://site.test/blog/' }).run('pagereveal'), false)
+  })
+
+  it('从博客回来时留着过渡，交给主站淡入完再结束，卡住了也会兜底结束', () => {
+    const page = boot({ activationFrom: 'https://site.test/blog/' })
+    let skipped = 0
+    const transition = { skipTransition: () => { skipped++ }, finished: new Promise(() => {}) }
+    page.fire('pagereveal', { viewTransition: transition })
+    assert.equal(skipped, 0)
+    assert.equal(page.sandbox.__myriadBlogReveal, transition)
+    assert.ok(page.classes.has('from-blog'))
+    page.timers.forEach((timer) => timer())
+    assert.equal(skipped, 1)
   })
 
   it('从别处来直接换页', () => {

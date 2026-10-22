@@ -32,7 +32,23 @@ export function siteTransitionInlineScript(): string {
       if (!e.viewTransition) return;
       var activation = window.navigation && window.navigation.activation;
       var from = (activation && activation.from && activation.from.url) || document.referrer;
-      if (!from || !isBlog(from)) e.viewTransition.skipTransition();
+      if (!from || !isBlog(from)) {
+        e.viewTransition.skipTransition();
+        return;
+      }
+      // 从博客回来：主站这时多半还在加载页。过渡里博客的导航岛一直留在原处（site-transition.css），
+      // 加载页不放转圈和站名；主站淡入完由 pageLoader 结束过渡，换成主站自己的导航岛。
+      var root = document.documentElement;
+      var transition = e.viewTransition;
+      root.classList.add('from-blog');
+      window.__myriadBlogReveal = transition;
+      var done = function () {
+        root.classList.remove('from-blog');
+        if (window.__myriadBlogReveal === transition) window.__myriadBlogReveal = null;
+      };
+      transition.finished.then(done, done);
+      // 主站一直没好（断网、出错）也不能一直卡在过渡里。
+      setTimeout(function () { transition.skipTransition(); }, 5000);
     });
   } catch (e) {}
 })()`

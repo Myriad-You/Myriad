@@ -34,6 +34,24 @@ class PageLoader {
 
     this.appRoot = document.getElementById('app-root')
 
+    // 后台预渲染（博客页悬停到回主站的链接上）时浏览器不出帧，requestAnimationFrame 不跑：
+    // 主站早就渲染好了，加载页却要等真切过去才开始淡出，换页动效拍到的新页面就成了加载页，
+    // 导航岛接不上。这时直接撤掉，不要过渡：切过去的第一帧就是主站，淡入交给换页动效。
+    if ((document as Document & { prerendering?: boolean }).prerendering) {
+      if (this.appRoot) {
+        this.appRoot.classList.add('app-ready')
+        this.appRoot.style.transition = 'none'
+        this.appRoot.style.opacity = '1'
+      }
+      if (this.loader) {
+        this.loader.style.transition = 'none'
+        this.loader.classList.add('hidden')
+        this.loader.setAttribute('aria-busy', 'false')
+      }
+      this.isShowing = false
+      return
+    }
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (this.appRoot) {
@@ -45,6 +63,9 @@ class PageLoader {
               appRootRef.style.opacity = '1'
               appRootRef.style.transition = 'none'
             }
+            // 从博客回来的换页过渡还压着博客的导航岛（utils/siteTransitionScript.ts）：主站淡入完了，
+            // 底下同一个位置已经是主站的导航岛，结束过渡就看不出交接。
+            ;(window as Window & { __myriadBlogReveal?: ViewTransition | null }).__myriadBlogReveal?.skipTransition()
           }, 600)
         }
 

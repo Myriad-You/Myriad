@@ -39,14 +39,34 @@
   view-transition-name: myriad-nav-current;
 }
 
-/* 主站刚打开时只有加载页，导航岛还没画出来：博客那页带着它的导航岛往下沉、淡出。 */
+/*
+ * 主站刚打开时多半只有加载页，导航岛还没画出来：博客正文往下沉、淡出，博客的导航岛留在原处，
+ * 一直留到主站淡入完（utils/pageLoader.ts 结束过渡），底下同一个位置换成主站自己的导航岛。
+ * 选中的底色淡掉，交接后主站那一项自己亮。保留时长只是兜底，正常由脚本提前结束。
+ */
 ::view-transition-old(myriad-blog):only-child {
   animation: myriad-sink 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
-::view-transition-old(myriad-nav):only-child,
+::view-transition-old(myriad-nav):only-child {
+  animation: myriad-hold 5s linear both;
+}
+
 ::view-transition-old(myriad-nav-current):only-child {
   animation: myriad-fade-out 220ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* 过渡里只剩一个干净的底，主站从上面淡入；转圈和站名留给直接打开主站的时候。 */
+html.from-blog .page-loader-spinner,
+html.from-blog .loader-brand {
+  visibility: hidden;
+}
+
+@keyframes myriad-hold {
+  from,
+  to {
+    opacity: 1;
+  }
 }
 
 ::view-transition-old(root),
