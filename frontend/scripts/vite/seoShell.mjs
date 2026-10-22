@@ -44,6 +44,7 @@ export const SEO_CRAWLER_MARKERS = [
   'rogerbot',
   'screaming frog',
   'ia_archiver',
+  'archive.org_bot',
   'chatgpt-user',
   'gptbot',
   'claudebot',

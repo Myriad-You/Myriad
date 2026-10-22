@@ -57,6 +57,10 @@ describe('seoShell', () => {
     assert.equal(isSeoCrawlerUserAgent('Googlebot/2.1'), true)
     assert.equal(isSeoCrawlerUserAgent('Bytespider'), true)
     assert.equal(isSeoCrawlerUserAgent('claude-web anthropic-ai'), true)
+    assert.equal(
+      isSeoCrawlerUserAgent('Mozilla/5.0 (compatible; archive.org_bot +http://archive.org/details/archive.org_bot)'),
+      true,
+    )
     assert.equal(wantsSeoHtmlShell('facebookexternalhit/1.1'), true)
     assert.equal(isInappShareUserAgent('Mozilla/5.0 MicroMessenger'), true)
     assert.equal(isSeoCrawlerUserAgent('Mozilla/5.0'), false)

@@ -697,6 +697,7 @@ fn is_seo_crawler_ua(ua: &str) -> bool {
         "rogerbot",
         "screaming frog",
         "ia_archiver",
+        "archive.org_bot",
         "chatgpt-user",
         "gptbot",
         "claudebot",
@@ -1846,6 +1847,10 @@ mod tests {
         // Homepage / module indexes / Tapp / Phantasi SEO shells: crawlers only
         assert!(is_backend_path("/", googlebot));
         assert!(is_backend_path("/tapp", googlebot));
+        // Wayback: `archive.org_bot` is followed by a space, so the generic `bot/` rule misses it.
+        let wayback = "Mozilla/5.0 (compatible; archive.org_bot +http://archive.org/details/archive.org_bot)";
+        assert!(is_backend_path("/", wayback));
+        assert!(is_backend_path("/library", wayback));
         assert!(!is_backend_path("/journal", "facebookexternalhit/1.1"));
         assert!(!is_backend_path("/journal/notes", googlebot));
         assert!(!is_backend_path("/phantasi", "facebookexternalhit/1.1"));
