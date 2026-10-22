@@ -8,10 +8,11 @@ use crate::{
     SUMMARY_MAX_CHARS, ThemeManifestError, absolutize_root_url, archive_entry_path, blog_base_url,
     blog_settings_from_value, blog_settings_to_value, cover_front_matter, covers_same_asset,
     dedupe_slug, default_theme_files, fallback_slug, first_content_image, github_archive_root,
-    inspect_theme_manifest, is_script_asset, post_path, postprocess_html, postprocess_page,
-    prepare_content_html, render_friends_file, render_home_file, render_hugo_config,
-    render_post_file, reveal_companion_island, robots_for, safe_archive_entries, safe_archive_path,
-    sanitize_theme_id, slugify_title, summarize, validate_slug,
+    inspect_theme_manifest, is_script_asset, page_images, post_path, postprocess_html,
+    postprocess_page, prepare_content_html, render_friends_file, render_home_file,
+    render_hugo_config, render_post_file, reveal_companion_island, robots_for,
+    safe_archive_entries, safe_archive_path, sanitize_theme_id, slugify_title, summarize,
+    validate_slug,
 };
 
 fn site() -> BlogSite {
@@ -246,6 +247,37 @@ fn summary_drops_footnote_markers_and_definitions() {
         r#"<div class="footnote-definition" id="note-fn-a"><sup class="footnote-definition-label">1</sup><p>出处</p></div>"#,
     );
     assert_eq!(summarize(html), "想什么。 我信这句。");
+}
+
+#[test]
+fn page_images_lists_cover_then_content_once() {
+    let origin = "https://example.com";
+    let html = r#"<p><img src="/media/a.jpg"><img src="data:image/gif;base64,R0lG"></p>
+<img src="https://cdn.test/b.png"><img src="relative.jpg"><img src="https://example.com/media/a.jpg">
+<picture><source srcset="/media/c.webp"><img src="/media/c.jpg"></picture>"#;
+    assert_eq!(
+        page_images(origin, Some("/media/a.jpg"), html, 10),
+        vec![
+            "https://example.com/media/a.jpg",
+            "https://cdn.test/b.png",
+            "https://example.com/media/c.jpg",
+        ]
+    );
+    assert_eq!(
+        page_images(origin, Some("/media/cover.jpg"), html, 2),
+        vec![
+            "https://example.com/media/cover.jpg",
+            "https://example.com/media/a.jpg"
+        ]
+    );
+    assert_eq!(
+        page_images(origin, None, "<p>没有图</p>", 10),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        page_images(origin, Some("🔥"), "", 10),
+        Vec::<String>::new()
+    );
 }
 
 #[test]

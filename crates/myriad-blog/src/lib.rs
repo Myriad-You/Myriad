@@ -29,7 +29,7 @@ pub use archive::{
 pub use config::{
     HUGO_THEMES_DIR, MYRIAD_PARAMS_KEY, POSTS_PERMALINK, blog_base_url, render_hugo_config,
 };
-pub use cover::{cover_front_matter, covers_same_asset};
+pub use cover::{cover_front_matter, covers_same_asset, page_images};
 pub use inspect::{
     MAX_THEME_ARCHIVE_BYTES, MAX_THEME_ARCHIVE_ENTRIES, MAX_THEME_BYTES, MAX_THEME_FILES,
     ThemeFile, ThemeInfo, ThemeInspectError, inspect_theme, is_theme_archive_noise,
@@ -50,7 +50,9 @@ pub use postprocess::{
 pub use render::{
     export_site_files, render_friends_file, render_home_file, render_list_titles, render_post_file,
 };
-pub use rewrite::{first_content_image, prepare_content_html, reveal_companion_island};
+pub use rewrite::{
+    content_images, first_content_image, prepare_content_html, reveal_companion_island,
+};
 pub use scheme::{
     SCHEME_MARK_ATTR, SchemeDetection, SchemeSwitch, SchemeTarget, apply_page_scheme,
     detect_scheme_switch, is_scheme_source, mark_page_scheme, scheme_is_styled,

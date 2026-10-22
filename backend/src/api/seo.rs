@@ -41,6 +41,9 @@ use myriad_module_visibility::{
     load_module_visibility_preferences, try_load_module_visibility_preferences,
 };
 
+/// Cap `<image:image>` per blog post in sitemap (cover first, then body images).
+const PHANTASI_SITEMAP_IMAGE_LIMIT: usize = 10;
+
 /// Cap phantasi item URLs in sitemap (newest first).
 const PHANTASI_SITEMAP_ITEM_LIMIT: u64 = 200;
 
@@ -93,6 +96,8 @@ struct SitemapUrl {
     loc: String,
     lastmod: Option<String>,
     changefreq: Option<&'static str>,
+    /// 图片站点地图扩展：页面上的图，绝对地址。
+    images: Vec<String>,
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -1070,6 +1075,36 @@ pub async fn llms_txt(State(db): State<DatabaseConnection>, _headers: HeaderMap)
         .into_response()
 }
 
+fn render_sitemap(urls: &[SitemapUrl]) -> String {
+    let mut body = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+"#,
+    );
+    for entry in urls {
+        body.push_str("  <url>\n");
+        body.push_str(&format!("    <loc>{}</loc>\n", xml_escape(&entry.loc)));
+        if let Some(ref lastmod) = entry.lastmod {
+            body.push_str(&format!("    <lastmod>{}</lastmod>\n", xml_escape(lastmod)));
+        }
+        if let Some(freq) = entry.changefreq {
+            body.push_str(&format!(
+                "    <changefreq>{}</changefreq>\n",
+                xml_escape(freq)
+            ));
+        }
+        for image in &entry.images {
+            body.push_str(&format!(
+                "    <image:image><image:loc>{}</image:loc></image:image>\n",
+                xml_escape(image)
+            ));
+        }
+        body.push_str("  </url>\n");
+    }
+    body.push_str("</urlset>\n");
+    body
+}
+
 /// GET /sitemap.xml
 ///
 /// Sitemap protocol requires absolute `<loc>` URLs. Without durable
@@ -1114,6 +1149,7 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
         loc: format!("{base}/"),
         lastmod: None,
         changefreq: Some("daily"),
+        images: Vec::new(),
     });
 
     let prefs = load_module_visibility_preferences(&db).await;
@@ -1130,6 +1166,7 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
                 loc: format!("{base}{path}"),
                 lastmod: None,
                 changefreq: Some(freq),
+                images: Vec::new(),
             });
         }
     }
@@ -1151,6 +1188,7 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
                         loc: format!("{base}/tapp/run/{id}"),
                         lastmod: Some(tapp.updated_at.format("%Y-%m-%d").to_string()),
                         changefreq: None,
+                        images: Vec::new(),
                     });
                 }
             }
@@ -1181,16 +1219,20 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
                         phantasi_items::Column::PublishedAt,
                         phantasi_items::Column::FetchedAt,
                         phantasi_items::Column::Slug,
+                        phantasi_items::Column::Image,
+                        phantasi_items::Column::Content,
                     ])
                     .into_tuple::<(
                         chrono::DateTime<chrono::FixedOffset>,
                         chrono::DateTime<chrono::FixedOffset>,
                         Option<String>,
+                        Option<String>,
+                        Option<String>,
                     )>()
                     .all(&db)
                     .await
                 {
-                    for (published_at, republished_at, slug) in items {
+                    for (published_at, republished_at, slug, cover, content) in items {
                         let Some(slug) =
                             slug.filter(|slug| myriad_phantasi_notes::validate_slug(slug).is_ok())
                         else {
@@ -1202,6 +1244,13 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
                             loc: format!("{base}{}", phantasi_item_path(&slug)),
                             lastmod: Some(modified.format("%Y-%m-%d").to_string()),
                             changefreq: None,
+                            // 博客页上的封面和正文图，搜索引擎的图片收录靠这里（#648）。
+                            images: myriad_blog::page_images(
+                                &base,
+                                cover.as_deref().filter(|c| !c.trim().is_empty()),
+                                content.as_deref().unwrap_or(""),
+                                PHANTASI_SITEMAP_IMAGE_LIMIT,
+                            ),
                         });
                     }
                 }
@@ -1209,26 +1258,7 @@ pub async fn sitemap_xml(State(db): State<DatabaseConnection>, _headers: HeaderM
         }
     }
 
-    let mut body = String::from(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-"#,
-    );
-    for entry in &urls {
-        body.push_str("  <url>\n");
-        body.push_str(&format!("    <loc>{}</loc>\n", xml_escape(&entry.loc)));
-        if let Some(ref lastmod) = entry.lastmod {
-            body.push_str(&format!("    <lastmod>{}</lastmod>\n", xml_escape(lastmod)));
-        }
-        if let Some(freq) = entry.changefreq {
-            body.push_str(&format!(
-                "    <changefreq>{}</changefreq>\n",
-                xml_escape(freq)
-            ));
-        }
-        body.push_str("  </url>\n");
-    }
-    body.push_str("</urlset>\n");
+    let body = render_sitemap(&urls);
 
     (
         StatusCode::OK,
@@ -1261,6 +1291,32 @@ mod tests {
             format_document_title("Todo", "Myriad Site"),
             "Todo · Myriad Site"
         );
+    }
+
+    #[test]
+    fn sitemap_declares_post_images() {
+        let xml = render_sitemap(&[
+            SitemapUrl {
+                loc: "https://ex.com/".into(),
+                lastmod: None,
+                changefreq: Some("daily"),
+                images: Vec::new(),
+            },
+            SitemapUrl {
+                loc: "https://ex.com/blog/posts/hello/".into(),
+                lastmod: Some("2026-10-22".into()),
+                changefreq: None,
+                images: vec![
+                    "https://ex.com/media/a.jpg".into(),
+                    "https://cdn.test/b.png?w=1&h=2".into(),
+                ],
+            },
+        ]);
+        assert!(xml.contains(r#"xmlns:image="http://www.google.com/schemas/sitemap-image/1.1""#));
+        assert!(xml.contains(
+            "<loc>https://ex.com/blog/posts/hello/</loc>\n    <lastmod>2026-10-22</lastmod>\n    <image:image><image:loc>https://ex.com/media/a.jpg</image:loc></image:image>\n    <image:image><image:loc>https://cdn.test/b.png?w=1&amp;h=2</image:loc></image:image>\n  </url>"
+        ));
+        assert_eq!(xml.matches("<image:image>").count(), 2);
     }
 
     #[test]

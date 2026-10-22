@@ -2,7 +2,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::rewrite::first_content_image;
+use crate::rewrite::{content_images, first_content_image};
 use crate::urlutil::absolutize_root_url;
 
 /// 已知主题（id 里包含这一段）只写自己的封面键。点号表示嵌套，`cover.image` 写成对象。
@@ -23,6 +23,39 @@ pub fn covers_same_asset(origin: &str, cover: &str, content_html: &str) -> bool 
         return false;
     };
     normalize_asset(origin, cover) == normalize_asset(origin, &first)
+}
+
+/// 一篇文章页上的图，给站点地图声明用：封面在前，再按顺序接正文里的图。
+/// 根相对地址按 `origin` 补全，补全后不是 http(s) 的（`data:`、相对路径）不要；同一张只留一次。
+pub fn page_images(
+    origin: &str,
+    cover: Option<&str>,
+    content_html: &str,
+    limit: usize,
+) -> Vec<String> {
+    let mut seen = Vec::new();
+    let mut out = Vec::new();
+    let candidates = cover
+        .into_iter()
+        .map(str::to_string)
+        .chain(content_images(content_html, limit));
+    for raw in candidates {
+        if out.len() >= limit {
+            break;
+        }
+        let absolute = absolutize_root_url(raw.trim(), origin);
+        let lower = absolute.to_ascii_lowercase();
+        if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+            continue;
+        }
+        let key = normalize_asset(origin, &absolute);
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.push(key);
+        out.push(absolute);
+    }
+    out
 }
 
 /// 已知主题只写自己的封面键，再加通用 `images`。认不出的主题把这些键都写上。

@@ -103,18 +103,26 @@ pub(crate) const REVEALED_FRAME_SRC: &str = "<iframe class=\"myriad-companion__f
 
 /// 正文里第一张 `<img>` 的 `src`。封面去重用它，不把 `<source>` 算进去。
 pub fn first_content_image(html: &str) -> Option<String> {
-    let mut first = None;
+    content_images(html, 1).into_iter().next()
+}
+
+/// 正文里 `<img>` 的 `src`，按出现顺序，最多 `limit` 张，不把 `<source>` 算进去。
+pub fn content_images(html: &str, limit: usize) -> Vec<String> {
+    let mut found = Vec::new();
+    if limit == 0 {
+        return found;
+    }
     let _ = map_fragment(html, |wrapped| {
         let result = rewrite_str(
             wrapped,
             RewriteStrSettings {
                 element_content_handlers: vec![element!("img", |el| {
-                    if first.is_none()
+                    if found.len() < limit
                         && let Some(src) = el.get_attribute("src")
                     {
                         let src = src.trim();
                         if !src.is_empty() {
-                            first = Some(src.to_string());
+                            found.push(src.to_string());
                         }
                     }
                     Ok(())
@@ -123,11 +131,11 @@ pub fn first_content_image(html: &str) -> Option<String> {
             },
         );
         if result.is_err() {
-            first = None;
+            found.clear();
         }
         result
     });
-    first
+    found
 }
 
 /// 去掉公式 span（连同里面的 TeX 文本）和脚注、链接定义，并在块级元素后补一个空格，避免段落粘在一起。
