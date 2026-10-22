@@ -359,11 +359,13 @@ pub(super) fn unpack_blocking(path: &Path) -> Result<(ArchiveMeta, ArchiveFiles)
         let entry = zip
             .by_index(index)
             .map_err(|_| "The zip could not be read".to_string())?;
-        let name = entry.name();
+        let name = entry
+            .name()
+            .map_err(|_| "The zip could not be read".to_string())?;
         if entry.is_dir() || name.starts_with("__MACOSX/") {
             continue;
         }
-        let base = name.rsplit('/').next().unwrap_or(name).to_string();
+        let base = name.rsplit('/').next().unwrap_or(&name).to_string();
         found.entry(base).or_default().push(index);
     }
     let mut total = 0u64;

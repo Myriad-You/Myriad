@@ -6,13 +6,12 @@
 
 use std::io::Cursor;
 
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
+use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 /// Longest song heard: past this the rest is not decoded.
 const MAX_SECONDS: f32 = 15.0 * 60.0;
@@ -53,42 +52,41 @@ pub fn decode_mono(bytes: Vec<u8>, ext: Option<&str>) -> Result<Audio, DecodeErr
     if let Some(ext) = ext {
         hint.with_extension(ext);
     }
-    let probed = symphonia::default::get_probe()
-        .format(
+    let mut format = symphonia::default::get_probe()
+        .probe(
             &hint,
             stream,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )
         .map_err(|_| DecodeError::Unsupported)?;
-    let mut format = probed.format;
-    let track = format
+    let (track_id, params) = format
         .tracks()
         .iter()
-        .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
+        .find_map(|track| {
+            let params = track.codec_params.as_ref()?.audio()?;
+            Some((track.id, params.clone()))
+        })
         .ok_or(DecodeError::Unsupported)?;
-    let track_id = track.id;
-    let rate = track
-        .codec_params
-        .sample_rate
-        .ok_or(DecodeError::Unsupported)?;
+    let rate = params.sample_rate.ok_or(DecodeError::Unsupported)?;
     let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &DecoderOptions::default())
+        .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .map_err(|_| DecodeError::Unsupported)?;
 
     let step = (rate as f32 / TARGET_RATE as f32).round().max(1.0) as usize;
     let limit = (MAX_SECONDS * rate as f32) as usize;
     let mut mono: Vec<f32> = Vec::new();
     let mut read = 0usize;
-    let mut buffer: Option<SampleBuffer<f32>> = None;
+    let mut buffer: Vec<f32> = Vec::new();
     loop {
         let packet = match format.next_packet() {
-            Ok(packet) => packet,
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(SymphoniaError::IoError(_)) => break,
             Err(SymphoniaError::ResetRequired) => break,
             Err(_) => return Err(DecodeError::Damaged),
         };
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
         let decoded = match decoder.decode(&packet) {
@@ -97,18 +95,12 @@ pub fn decode_mono(bytes: Vec<u8>, ext: Option<&str>) -> Result<Audio, DecodeErr
             Err(SymphoniaError::DecodeError(_)) => continue,
             Err(_) => return Err(DecodeError::Damaged),
         };
-        let spec = *decoded.spec();
-        let channels = spec.channels.count().max(1);
-        let buffer =
-            buffer.get_or_insert_with(|| SampleBuffer::<f32>::new(decoded.capacity() as u64, spec));
-        if buffer.capacity() < decoded.capacity() * channels {
-            *buffer = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
-        }
-        buffer.copy_interleaved_ref(decoded);
-        for frame in buffer.samples().chunks(channels) {
+        let channels = decoded.spec().channels().count().max(1);
+        decoded.copy_to_vec_interleaved(&mut buffer);
+        for frame in buffer.chunks(channels) {
             mono.push(frame.iter().sum::<f32>() / channels as f32);
         }
-        read += buffer.samples().len() / channels;
+        read += buffer.len() / channels;
         if read >= limit {
             break;
         }

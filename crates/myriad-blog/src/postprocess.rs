@@ -2,8 +2,9 @@
 
 use std::cell::Cell;
 
+use crate::rewrite::with_handlers;
 use lol_html::html_content::ContentType;
-use lol_html::{RewriteStrSettings, element, rewrite_str};
+use lol_html::{element, rewrite_str};
 
 use crate::config::blog_base_url;
 use crate::model::BlogSite;
@@ -129,19 +130,16 @@ fn scan_head(html: &str) -> HeadFound {
     let icon = Cell::new(false);
     let _ = rewrite_str(
         html,
-        RewriteStrSettings {
-            element_content_handlers: vec![element!("link[rel]", |el| {
-                let rel = el.get_attribute("rel").unwrap_or_default();
-                if has_token(&rel, "canonical") {
-                    canonical.set(true);
-                }
-                if has_token(&rel, "icon") {
-                    icon.set(true);
-                }
-                Ok(())
-            })],
-            ..RewriteStrSettings::new()
-        },
+        with_handlers(vec![element!("link[rel]", |el| {
+            let rel = el.get_attribute("rel").unwrap_or_default();
+            if has_token(&rel, "canonical") {
+                canonical.set(true);
+            }
+            if has_token(&rel, "icon") {
+                icon.set(true);
+            }
+            Ok(())
+        })]),
     );
     HeadFound {
         canonical: canonical.get(),
@@ -178,74 +176,71 @@ fn rewrite_page(html: &str, plan: &HeadPlan) -> String {
     ));
     rewrite_str(
         html,
-        RewriteStrSettings {
-            element_content_handlers: vec![
-                element!("script", |el| {
-                    let ty = el.get_attribute("type").unwrap_or_default();
-                    if !is_json_script_type(&ty) {
-                        el.remove();
-                    }
-                    Ok(())
-                }),
-                // 主题的懒加载靠脚本把 `data-src` 换成 `src`。脚本不跑，图就一直是占位，
-                // 访客看不到、搜索引擎也收不到。这里换回来，交给浏览器自己的 `loading="lazy"`。
-                element!("img, source", |el| {
-                    restore_lazy_media(el);
-                    Ok(())
-                }),
-                element!("meta[name]", |el| {
-                    let name = el.get_attribute("name").unwrap_or_default();
-                    if plan.robots.is_some() && name.trim().eq_ignore_ascii_case("robots") {
-                        el.remove();
-                    }
-                    Ok(())
-                }),
-                element!("link[rel][type]", |el| {
-                    let rel = el.get_attribute("rel").unwrap_or_default();
-                    let ty = el.get_attribute("type").unwrap_or_default();
-                    if has_token(&rel, "alternate") && is_feed_type(&ty) {
-                        el.remove();
-                    }
-                    Ok(())
-                }),
-                element!("a[href]", |el| {
-                    let href = el.get_attribute("href").unwrap_or_default();
-                    if is_built_feed_link(&href) {
-                        match &plan.feed {
-                            Some(feed) => {
-                                let _ = el.set_attribute("href", feed);
-                            }
-                            None => el.remove_attribute("href"),
+        with_handlers(vec![
+            element!("script", |el| {
+                let ty = el.get_attribute("type").unwrap_or_default();
+                if !is_json_script_type(&ty) {
+                    el.remove();
+                }
+                Ok(())
+            }),
+            // 主题的懒加载靠脚本把 `data-src` 换成 `src`。脚本不跑，图就一直是占位，
+            // 访客看不到、搜索引擎也收不到。这里换回来，交给浏览器自己的 `loading="lazy"`。
+            element!("img, source", |el| {
+                restore_lazy_media(el);
+                Ok(())
+            }),
+            element!("meta[name]", |el| {
+                let name = el.get_attribute("name").unwrap_or_default();
+                if plan.robots.is_some() && name.trim().eq_ignore_ascii_case("robots") {
+                    el.remove();
+                }
+                Ok(())
+            }),
+            element!("link[rel][type]", |el| {
+                let rel = el.get_attribute("rel").unwrap_or_default();
+                let ty = el.get_attribute("type").unwrap_or_default();
+                if has_token(&rel, "alternate") && is_feed_type(&ty) {
+                    el.remove();
+                }
+                Ok(())
+            }),
+            element!("a[href]", |el| {
+                let href = el.get_attribute("href").unwrap_or_default();
+                if is_built_feed_link(&href) {
+                    match &plan.feed {
+                        Some(feed) => {
+                            let _ = el.set_attribute("href", feed);
                         }
+                        None => el.remove_attribute("href"),
                     }
-                    Ok(())
-                }),
-                element!("*", |el| {
-                    let names: Vec<String> = el
-                        .attributes()
-                        .iter()
-                        .map(|attr| attr.name())
-                        .filter(|name| is_event_handler(name))
-                        .collect();
-                    for name in names {
-                        el.remove_attribute(&name);
+                }
+                Ok(())
+            }),
+            element!("*", |el| {
+                let names: Vec<String> = el
+                    .attributes()
+                    .iter()
+                    .map(|attr| attr.name())
+                    .filter(|name| is_event_handler(name))
+                    .collect();
+                for name in names {
+                    el.remove_attribute(&name);
+                }
+                for name in ["href", "src", "action"] {
+                    if let Some(value) = el.get_attribute(name)
+                        && is_javascript_url(&value)
+                    {
+                        let _ = el.set_attribute(name, "#");
                     }
-                    for name in ["href", "src", "action"] {
-                        if let Some(value) = el.get_attribute(name)
-                            && is_javascript_url(&value)
-                        {
-                            let _ = el.set_attribute(name, "#");
-                        }
-                    }
-                    Ok(())
-                }),
-                element!("head", |el| {
-                    el.append(&head, ContentType::Html);
-                    Ok(())
-                }),
-            ],
-            ..RewriteStrSettings::new()
-        },
+                }
+                Ok(())
+            }),
+            element!("head", |el| {
+                el.append(&head, ContentType::Html);
+                Ok(())
+            }),
+        ]),
     )
     .unwrap_or_else(|_| html.to_string())
 }

@@ -5,7 +5,8 @@
 
 use latex2mathml::{DisplayStyle, latex_to_mathml};
 use lol_html::html_content::ContentType;
-use lol_html::{RewriteStrSettings, element, rewrite_str, text};
+use lol_html::{ElementContentHandlers, RewriteStrSettings, Selector, element, rewrite_str, text};
+use std::borrow::Cow;
 
 use crate::labels::labels;
 use crate::urlutil::{absolutize_root_url, escape_html, rewrite_srcset};
@@ -19,55 +20,52 @@ pub fn prepare_content_html(html: &str, origin: &str, item_id: i32, locale: &str
     let rewritten = map_fragment(html, |wrapped| {
         rewrite_str(
             wrapped,
-            RewriteStrSettings {
-                element_content_handlers: vec![
-                    element!("span[data-tex]", |el| {
-                        if has_class(el.get_attribute("class").as_deref(), "math") {
-                            let tex = el.get_attribute("data-tex").unwrap_or_default();
-                            let tex = tex.trim();
-                            if !tex.is_empty() {
-                                let style = if has_class(
-                                    el.get_attribute("class").as_deref(),
-                                    "math-display",
-                                ) {
-                                    DisplayStyle::Block
+            with_handlers(vec![
+                element!("span[data-tex]", |el| {
+                    if has_class(el.get_attribute("class").as_deref(), "math") {
+                        let tex = el.get_attribute("data-tex").unwrap_or_default();
+                        let tex = tex.trim();
+                        if !tex.is_empty() {
+                            let style = if has_class(
+                                el.get_attribute("class").as_deref(),
+                                "math-display",
+                            ) {
+                                DisplayStyle::Block
+                            } else {
+                                DisplayStyle::Inline
+                            };
+                            if let Ok(mathml) = latex_to_mathml(tex, style) {
+                                el.replace(&mathml, ContentType::Html);
+                            }
+                        }
+                    }
+                    Ok(())
+                }),
+                // 宽表格包一层能横着滚的：主题多半不管，手机上会把整页撑宽（见 NOTES_CSS）。
+                // 表格自己的样式不动，主题怎么画表格还怎么画。
+                element!("table", |el| {
+                    el.before("<div class=\"myriad-table\">", ContentType::Html);
+                    el.after("</div>", ContentType::Html);
+                    Ok(())
+                }),
+                element!("*", |el| {
+                    if el.tag_name() != "myriad-frag" {
+                        for name in ["src", "href", "srcset", "poster"] {
+                            if let Some(value) = el.get_attribute(name) {
+                                let next = if name == "srcset" {
+                                    rewrite_srcset(&value, origin)
                                 } else {
-                                    DisplayStyle::Inline
+                                    absolutize_root_url(&value, origin)
                                 };
-                                if let Ok(mathml) = latex_to_mathml(tex, style) {
-                                    el.replace(&mathml, ContentType::Html);
+                                if next != value {
+                                    let _ = el.set_attribute(name, &next);
                                 }
                             }
                         }
-                        Ok(())
-                    }),
-                    // 宽表格包一层能横着滚的：主题多半不管，手机上会把整页撑宽（见 NOTES_CSS）。
-                    // 表格自己的样式不动，主题怎么画表格还怎么画。
-                    element!("table", |el| {
-                        el.before("<div class=\"myriad-table\">", ContentType::Html);
-                        el.after("</div>", ContentType::Html);
-                        Ok(())
-                    }),
-                    element!("*", |el| {
-                        if el.tag_name() != "myriad-frag" {
-                            for name in ["src", "href", "srcset", "poster"] {
-                                if let Some(value) = el.get_attribute(name) {
-                                    let next = if name == "srcset" {
-                                        rewrite_srcset(&value, origin)
-                                    } else {
-                                        absolutize_root_url(&value, origin)
-                                    };
-                                    if next != value {
-                                        let _ = el.set_attribute(name, &next);
-                                    }
-                                }
-                            }
-                        }
-                        Ok(())
-                    }),
-                ],
-                ..RewriteStrSettings::new()
-            },
+                    }
+                    Ok(())
+                }),
+            ]),
         )
     });
     let title = escape_html(labels(locale).comments);
@@ -115,20 +113,17 @@ pub fn content_images(html: &str, limit: usize) -> Vec<String> {
     let _ = map_fragment(html, |wrapped| {
         let result = rewrite_str(
             wrapped,
-            RewriteStrSettings {
-                element_content_handlers: vec![element!("img", |el| {
-                    if found.len() < limit
-                        && let Some(src) = el.get_attribute("src")
-                    {
-                        let src = src.trim();
-                        if !src.is_empty() {
-                            found.push(src.to_string());
-                        }
+            with_handlers(vec![element!("img", |el| {
+                if found.len() < limit
+                    && let Some(src) = el.get_attribute("src")
+                {
+                    let src = src.trim();
+                    if !src.is_empty() {
+                        found.push(src.to_string());
                     }
-                    Ok(())
-                })],
-                ..RewriteStrSettings::new()
-            },
+                }
+                Ok(())
+            })]),
         );
         if result.is_err() {
             found.clear();
@@ -143,31 +138,28 @@ pub(crate) fn strip_for_summary(html: &str) -> String {
     map_fragment(html, |wrapped| {
         rewrite_str(
             wrapped,
-            RewriteStrSettings {
-                element_content_handlers: vec![
-                    element!("span[data-tex]", |el| {
-                        if has_class(el.get_attribute("class").as_deref(), "math") {
-                            el.remove();
-                        }
+            with_handlers(vec![
+                element!("span[data-tex]", |el| {
+                    if has_class(el.get_attribute("class").as_deref(), "math") {
+                        el.remove();
+                    }
+                    Ok(())
+                }),
+                element!(
+                    "sup.footnote-reference, div.footnote-definition, div.link-definition",
+                    |el| {
+                        el.remove();
                         Ok(())
-                    }),
-                    element!(
-                        "sup.footnote-reference, div.footnote-definition, div.link-definition",
-                        |el| {
-                            el.remove();
-                            Ok(())
-                        }
-                    ),
-                    element!(
-                        "p, div, li, h1, h2, h3, h4, h5, h6, tr, blockquote, pre, br, figcaption, section, article, ul, ol, figure",
-                        |el| {
-                            el.after(" ", ContentType::Text);
-                            Ok(())
-                        }
-                    ),
-                ],
-                ..RewriteStrSettings::new()
-            },
+                    }
+                ),
+                element!(
+                    "p, div, li, h1, h2, h3, h4, h5, h6, tr, blockquote, pre, br, figcaption, section, article, ul, ol, figure",
+                    |el| {
+                        el.after(" ", ContentType::Text);
+                        Ok(())
+                    }
+                ),
+            ]),
         )
     })
 }
@@ -181,13 +173,10 @@ pub(crate) fn html_text(html: &str) -> String {
     let wrapped = wrap_fragment(html);
     let result = rewrite_str(
         &wrapped,
-        RewriteStrSettings {
-            element_content_handlers: vec![text!("myriad-frag, myriad-frag *", |chunk| {
-                acc.push_str(chunk.as_str());
-                Ok(())
-            })],
-            ..RewriteStrSettings::new()
-        },
+        with_handlers(vec![text!("myriad-frag, myriad-frag *", |chunk| {
+            acc.push_str(chunk.as_str());
+            Ok(())
+        })]),
     );
     if result.is_err() {
         return String::new();
@@ -227,4 +216,14 @@ fn unwrap_fragment(html: &str) -> Option<String> {
         return None;
     }
     Some(html[start..end].to_string())
+}
+
+/// lol_html 3 起设置字段私有，处理器只能逐个追加。
+pub(crate) fn with_handlers<'h, 's>(
+    handlers: Vec<(Cow<'s, Selector>, ElementContentHandlers<'h>)>,
+) -> RewriteStrSettings<'h, 's> {
+    handlers.into_iter().fold(
+        RewriteStrSettings::new(),
+        RewriteStrSettings::append_element_content_handler,
+    )
 }

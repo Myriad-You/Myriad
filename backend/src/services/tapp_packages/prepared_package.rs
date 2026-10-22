@@ -314,7 +314,8 @@ fn extract_archive_entries(data: &[u8], extraction_dir: &Path) -> Result<(), std
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(data))?;
     for index in 0..archive.len() {
         let mut file = archive.by_index(index)?;
-        let out_path = archive_entry_path(extraction_dir, file.name())
+        let name = file.name()?.into_owned();
+        let out_path = archive_entry_path(extraction_dir, &name)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
         if file.is_dir() {
             std::fs::create_dir_all(&out_path)?;

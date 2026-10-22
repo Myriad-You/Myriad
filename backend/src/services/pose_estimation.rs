@@ -64,7 +64,7 @@ pub struct Pose {
     pub keypoints: Vec<[f32; 3]>,
 }
 
-type Runnable = TypedRunnableModel<TypedModel>;
+type Runnable = std::sync::Arc<TypedRunnableModel>;
 
 /**
  * One look at a time. Each look runs in its own child process, which loads the
@@ -331,7 +331,7 @@ fn run(model: &Runnable, image: &image::RgbaImage) -> Result<Pose, PoseError> {
         outputs
             .get(index)
             .ok_or_else(|| PoseError::Inference("missing SimCC head".into()))?
-            .to_array_view::<f32>()
+            .to_plain_array_view::<f32>()
             .map_err(|error| PoseError::Inference(error.to_string()))
             .map(|view| view.to_owned())
     };

@@ -10,4 +10,4 @@ license = "AGPL-3.0-only"
 [dependencies]
 rustfft = "6"
 serde = { version = "1", features = ["derive"] }
-symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "aac", "isomp4", "wav", "pcm", "ogg", "vorbis"] }
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "flac", "aac", "isomp4", "wav", "pcm", "ogg", "vorbis"] }

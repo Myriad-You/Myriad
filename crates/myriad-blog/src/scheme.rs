@@ -5,7 +5,8 @@
 //! 切换靠主题自己的脚本，而博客页不跑脚本，所以安装时认出它用哪一种（站长再确认），
 //! 构建时记在 `<html>` 上，返回页面时由后端按主站现在的深浅色替它加上。
 
-use lol_html::{RewriteStrSettings, element, rewrite_str};
+use crate::rewrite::with_handlers;
+use lol_html::{element, rewrite_str};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -636,13 +637,10 @@ pub fn mark_page_scheme(html: &str, switch: &SchemeSwitch) -> String {
     };
     rewrite_str(
         html,
-        RewriteStrSettings {
-            element_content_handlers: vec![element!("html", move |el| {
-                let _ = el.set_attribute(SCHEME_MARK_ATTR, &mark);
-                Ok(())
-            })],
-            ..RewriteStrSettings::new()
-        },
+        with_handlers(vec![element!("html", move |el| {
+            let _ = el.set_attribute(SCHEME_MARK_ATTR, &mark);
+            Ok(())
+        })]),
     )
     .unwrap_or_else(|_| html.to_string())
 }
@@ -657,32 +655,29 @@ pub fn apply_page_scheme(html: &str, dark: bool) -> Option<String> {
     let on_body = Rc::clone(&found);
     rewrite_str(
         html,
-        RewriteStrSettings {
-            element_content_handlers: vec![
-                element!("html", move |el| {
-                    let switch = el
-                        .get_attribute(SCHEME_MARK_ATTR)
-                        .and_then(|mark| SchemeSwitch::from_mark(&mark));
-                    // 标记留着：伴读上的深浅色按钮靠它知道这个主题怎么切。
-                    if let Some(switch) = &switch
-                        && switch.target() == Some(SchemeTarget::Html)
-                    {
-                        set_scheme(el, switch, dark);
-                    }
-                    *on_html.borrow_mut() = switch;
-                    Ok(())
-                }),
-                element!("body", move |el| {
-                    if let Some(switch) = on_body.borrow().as_ref()
-                        && switch.target() == Some(SchemeTarget::Body)
-                    {
-                        set_scheme(el, switch, dark);
-                    }
-                    Ok(())
-                }),
-            ],
-            ..RewriteStrSettings::new()
-        },
+        with_handlers(vec![
+            element!("html", move |el| {
+                let switch = el
+                    .get_attribute(SCHEME_MARK_ATTR)
+                    .and_then(|mark| SchemeSwitch::from_mark(&mark));
+                // 标记留着：伴读上的深浅色按钮靠它知道这个主题怎么切。
+                if let Some(switch) = &switch
+                    && switch.target() == Some(SchemeTarget::Html)
+                {
+                    set_scheme(el, switch, dark);
+                }
+                *on_html.borrow_mut() = switch;
+                Ok(())
+            }),
+            element!("body", move |el| {
+                if let Some(switch) = on_body.borrow().as_ref()
+                    && switch.target() == Some(SchemeTarget::Body)
+                {
+                    set_scheme(el, switch, dark);
+                }
+                Ok(())
+            }),
+        ]),
     )
     .ok()
 }

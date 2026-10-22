@@ -45,7 +45,7 @@ migration = { path = "migrations" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # Native tool schemas validate locally; no network/file reference resolution.
-jsonschema = { version = "0.56.0", default-features = false }
+jsonschema = { version = "0.60", default-features = false }
 myriad-tapp-contract = { path = "../crates/tapp-contract" }
 myriad-error = { path = "../crates/myriad-error" }
 myriad-data-key = { path = "../crates/myriad-data-key" }
@@ -95,7 +95,7 @@ flate2 = "1"         # zlib inflate for KuGou KRC (逐字歌词) decode
 # Image proxy still streams bytes only. `image` is sticker cutout fallback.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 # Pure-Rust ONNX inference for the rig's pose model (no native runtime to ship)
-tract-onnx = "0.22.4"
+tract-onnx = "0.23"
 # Allocator that returns freed memory to the system (see the `mimalloc` feature)
 mimalloc = { version = "0.1", optional = true }
 # Local profiling only; normal builds do not compile the profiler.
@@ -139,12 +139,12 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["c
 # will not auto-pick, and tokio-tungstenite WSS panics on connect.
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws-lc-rs"] }
 encoding_rs = "0.8"                                     # Shift_JIS texts (Aozora Bunko serials)
-zip = "8.6"                                             # For .tapp file handling
+zip = "9"                                             # For .tapp file handling
 md5 = "0.8"
 quick-xml = "0.42"
 serde_yaml = "0.9.34"
-scraper = "0.27"                                        # HTML parsing for web.scrape capability
-html5ever = "0.39"                                      # rewrite feed <img> attributes; already locked via scraper
+scraper = "0.29"                                        # HTML parsing for web.scrape capability
+html5ever = "0.40"                                      # rewrite feed <img> attributes; already locked via scraper
 ego-tree = "0.11"                                       # walk the scraper tree; already locked via scraper
 prost = "0.14"                                          # Feishu long-connection Frame (pbbp2)
 

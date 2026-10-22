@@ -340,7 +340,13 @@ pub fn install_zip(layout: &BlogLayout, bytes: &[u8]) -> Result<ThemeRecord, The
             status: 400,
             message: "Theme archive could not be read",
         })?;
-        let name = file.name().to_string();
+        let name = file
+            .name()
+            .map_err(|_| ThemeRejected {
+                status: 400,
+                message: "Theme archive could not be read",
+            })?
+            .into_owned();
         if !name.ends_with('/') && safe_archive_path(&name).is_none() {
             return Err(ThemeRejected {
                 status: 400,

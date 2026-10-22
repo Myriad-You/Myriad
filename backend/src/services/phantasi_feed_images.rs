@@ -360,7 +360,7 @@ fn set_local_attr(element: &mut scraper::node::Element, name: &str, value: &str)
     if let Some((_, slot)) = element
         .attrs
         .iter_mut()
-        .find(|(qual, _)| qual.local.as_ref() == name)
+        .find(|(qual, _)| &*qual.local == name)
     {
         *slot = tendril;
         return;

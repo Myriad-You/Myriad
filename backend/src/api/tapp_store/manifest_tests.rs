@@ -2107,7 +2107,7 @@ fn exports_nested_resource_paths_without_flattening() {
 
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
     let mut names = (0..archive.len())
-        .map(|index| archive.by_index(index).unwrap().name().to_string())
+        .map(|index| archive.by_index(index).unwrap().name().unwrap().to_string())
         .collect::<Vec<_>>();
     names.sort();
     assert_eq!(
