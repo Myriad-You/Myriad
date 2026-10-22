@@ -111,6 +111,36 @@ pub async fn recall_primed<C: ConnectionTrait>(
         return Ok((Vec::new(), Priming::default()));
     }
     let rows = rows_for(db, user_id, present, kinds).await?;
+    recall_among(db, rows, query, limit, priming, breadth).await
+}
+
+/// [`recall`] for Work: what it is still trying comes to mind too.
+pub async fn recall_for_work<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    present: &Audience,
+    query: &str,
+    kinds: &[MemoryKind],
+    limit: usize,
+) -> Result<Vec<MemoryRecord>, DbErr> {
+    if user_id <= 0 || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let rows = rows_with(db, user_id, present, kinds, true).await?;
+    let (recalled, _) =
+        recall_among(db, rows, Some(query), limit, &Priming::default(), 1.0).await?;
+    Ok(recalled)
+}
+
+/// What of `rows` comes to mind for `query`, counted as used.
+async fn recall_among<C: ConnectionTrait>(
+    db: &C,
+    rows: Vec<agent_memories::Model>,
+    query: Option<&str>,
+    limit: usize,
+    priming: &Priming,
+    breadth: f64,
+) -> Result<(Vec<MemoryRecord>, Priming), DbErr> {
     // Each read with when it would come to mind; given back as it was said.
     let (rows, said) = super::cues::with_cues(db, rows).await;
     let by_meaning = match query {

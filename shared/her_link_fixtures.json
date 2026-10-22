@@ -204,7 +204,7 @@
     },
     {
       "t": "work.recalled", "seq": 14, "ack": 12, "at": 1760140820120,
-      "body": { "requestId": "wr_01", "memories": ["周报要按项目分组，表格放在最前面"] }
+      "body": { "requestId": "wr_01", "memories": ["周报要按项目分组，表格放在最前面"], "ids": ["mem_0b6f3c2e7a414c8e9d0a3f5e2b1c4d6a"] }
     },
     {
       "t": "experience", "seq": 13, "ack": 14, "id": "exp_0123456789abcdef0123456789abcdef", "at": 1760140880000,
@@ -219,7 +219,8 @@
         "outputs": [
           { "id": "step_1", "value": { "action": "把这周的周报整理成表格", "capability": "time.info", "success": true, "output_summary": "{2 fields}" } }
         ],
-        "capabilities": ["time.info"]
+        "capabilities": ["time.info"],
+        "recalled": [{ "id": "mem_0b6f3c2e7a414c8e9d0a3f5e2b1c4d6a" }]
       }
     },
     {

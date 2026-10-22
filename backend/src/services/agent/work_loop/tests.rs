@@ -38,6 +38,7 @@ pub(super) fn checkpoint() -> Checkpoint {
         active_ms: 0,
         plan: json!([]),
         final_text: String::new(),
+        recall: Default::default(),
     }
 }
 
@@ -741,9 +742,104 @@ fn an_unattended_task_waiting_for_an_answer_is_over() {
     let mut state = checkpoint();
     state.user_id = 7;
     state.task.status = TaskStatus::WaitingForInput;
-    assert!(!super::unattended_and_waiting(&state), "a person can answer");
+    assert!(
+        !super::unattended_and_waiting(&state),
+        "a person can answer"
+    );
     state.user_id = crate::services::agent::SYSTEM_USER_ID;
     assert!(super::unattended_and_waiting(&state));
     state.task.status = TaskStatus::Running;
     assert!(!super::unattended_and_waiting(&state));
+}
+
+/// A tool's error or empty answer is where the run is stuck, once a run; a
+/// refusal is not, until it is the same call a third time.
+#[test]
+fn a_failed_or_empty_tool_call_marks_the_run_stuck_once() {
+    let mut state = checkpoint();
+    state.pending.push_back(pending("declined", "write"));
+    finish_call(
+        &mut state,
+        &pending("declined", "write"),
+        Err("declined".into()),
+        0,
+    );
+    assert!(
+        state.recall.pending.is_none(),
+        "a refusal is no failure to learn from"
+    );
+
+    state.pending.push_back(pending("empty", "search"));
+    finish_tool_call(&mut state, &pending("empty", "search"), Ok(json!([])), 0);
+    let at = state
+        .recall
+        .pending
+        .take()
+        .expect("stuck on an empty result");
+    assert_eq!(at.tool, "search");
+    assert!(at.query.ends_with("returned nothing"));
+
+    state.pending.push_back(pending("failed", "fetch"));
+    finish_tool_call(
+        &mut state,
+        &pending("failed", "fetch"),
+        Err("timeout".into()),
+        0,
+    );
+    assert!(state.recall.pending.is_none(), "once a run");
+
+    let mut repeated = checkpoint();
+    for id in ["1", "2", "3"] {
+        repeated.pending.push_back(pending(id, "write"));
+        finish_call(
+            &mut repeated,
+            &pending(id, "write"),
+            Err("declined".into()),
+            0,
+        );
+    }
+    assert!(
+        repeated
+            .recall
+            .pending
+            .as_ref()
+            .is_some_and(|at| at.query.ends_with("the same call a third time"))
+    );
+}
+
+/// The memory a run was given where stuck is marked when that same tool
+/// fails again after it, and carried to what the run teaches.
+#[test]
+fn the_tool_failing_again_after_its_memory_is_marked() {
+    let mut state = checkpoint();
+    state.recall.used = true;
+    state
+        .recall
+        .shown
+        .push(crate::services::agent::memory::work_memory::Shown {
+            id: "mem_1".into(),
+            stuck: Some("fetch".into()),
+            failed_again: false,
+        });
+    state.pending.push_back(pending("ok", "fetch"));
+    finish_tool_call(
+        &mut state,
+        &pending("ok", "fetch"),
+        Ok(json!({"page": "text"})),
+        0,
+    );
+    assert!(!state.recall.shown[0].failed_again);
+    state.pending.push_back(pending("again", "fetch"));
+    finish_tool_call(
+        &mut state,
+        &pending("again", "fetch"),
+        Ok(json!({"success": false, "message": "blocked"})),
+        0,
+    );
+    assert!(state.recall.shown[0].failed_again);
+    // A checkpoint saved before this existed still loads.
+    let mut saved = serde_json::to_value(&state).unwrap();
+    saved.as_object_mut().unwrap().remove("recall");
+    let loaded: Checkpoint = serde_json::from_value(saved).unwrap();
+    assert!(loaded.recall.shown.is_empty() && !loaded.recall.used);
 }

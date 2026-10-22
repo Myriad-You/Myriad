@@ -258,6 +258,17 @@ fn every_frame_has_a_fixture_that_fits_it() {
                     assert_eq!(run.record.experience.as_deref(), Some(id));
                     assert_eq!(run.step_outputs.len(), 1);
                     assert_eq!(run.capabilities, ["time.info"]);
+                    // What it was given comes back by id, to settle.
+                    assert_eq!(
+                        run.shown,
+                        [crate::services::agent::memory::work_memory::Shown {
+                            id: fixture("work.recalled")["body"]["ids"][0]
+                                .as_str()
+                                .unwrap()
+                                .into(),
+                            ..Default::default()
+                        }]
+                    );
                 }
                 "work.recall" => {
                     assert!(inbound.body["requestId"].as_str().is_some_and(valid_id));
@@ -337,6 +348,8 @@ fn every_frame_has_a_fixture_that_fits_it() {
     let recalled = fixture("work.recalled");
     let memories: Vec<String> =
         serde_json::from_value(recalled["body"]["memories"].clone()).unwrap();
+    let ids: Vec<String> = serde_json::from_value(recalled["body"]["ids"].clone()).unwrap();
+    let memories: Vec<(String, String)> = ids.into_iter().zip(memories).collect();
     let sent = super::experience::recalled_frame("wr_01", &memories);
     assert_eq!((sent.t, &sent.body), ("work.recalled", &recalled["body"]));
     let taken = fixture("experience.taken");
@@ -1681,6 +1694,7 @@ fn remember_native_presence_for_test(device_id: &str, visible: bool) {
 #[tokio::test]
 async fn what_the_app_did_becomes_part_of_her() {
     use crate::services::agent::memory::unified::{self, Audience, MemoryKind, NewMemory, Speaker};
+    use crate::services::agent::memory::work_memory;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
     let Some(site) = site().await else {
         return;
@@ -1743,6 +1757,56 @@ async fn what_the_app_did_becomes_part_of_her() {
             .any(|memory| memory == "周报要按项目分组，表格放在最前面"),
         "{recalled}"
     );
+    // Each with its id, for what the run was given to come back by.
+    assert_eq!(
+        recalled["body"]["ids"].as_array().map(Vec::len),
+        Some(memories.len())
+    );
+
+    // Stuck: the one lesson the failure names, what Work is still trying
+    // too, other than what the run was given; none once it was given.
+    let tried = |content: &str| NewMemory {
+        user_id: OWNER,
+        kind: MemoryKind::Lesson,
+        content: content.into(),
+        evidence: None,
+        speaker: Speaker::Agent,
+        source: unified::WORK_TRIED_SOURCE,
+        audience: private.clone(),
+        importance: 0.7,
+        concepts: Vec::new(),
+    };
+    let columns = unified::remember(
+        &site.db,
+        tried("When: 周报表格列名不对. Do: 先读出表头再写. Check: 列名和表头一致."),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let folders = unified::remember(
+        &site.db,
+        tried("When: 整理下载文件夹. Do: 按扩展名分到子文件夹. Check: 根目录只剩子文件夹."),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    for shown in [json!([]), json!([columns])] {
+        child
+            .send(
+                "work.recall",
+                None,
+                json!({ "requestId": "wr_2", "query": "data_transform {}: 表格列名不对", "stuck": true, "shown": shown }),
+            )
+            .await;
+        let answer = child.expect("work.recalled").await;
+        let ids = answer["body"]["ids"].as_array().unwrap();
+        assert!(ids.len() <= 1, "{answer}");
+        assert_eq!(
+            ids.contains(&json!(columns)),
+            shown == json!([]),
+            "the lesson the failure names, once: {answer}"
+        );
+    }
     let bad = child
         .send(
             "work.recall",
@@ -1755,9 +1819,10 @@ async fn what_the_app_did_becomes_part_of_her() {
         json!({ "code": "bad_id", "ref": bad })
     );
 
-    // A failed run they started, worded like a correction: what was done and
-    // a lesson, the step whose outcome is unknown no lesson. Whether it was a
-    // correction is the extraction's to judge (no model here), not the words'.
+    // A failed run they started, worded like a correction: what was done,
+    // its failed step kept in that record, not as a lesson of its own.
+    // Whether it was a correction is the extraction's to judge (no model
+    // here), not the words'.
     let failed = json!({
         "kind": "work", "started": "owner", "status": "failed",
         "input": "不是，周报应该按日期排", "reply": "没能写进去。", "endedAt": 1_760_140_880_000_i64,
@@ -1766,7 +1831,8 @@ async fn what_the_app_did_becomes_part_of_her() {
             { "id": "step_1", "value": { "action": "不是，周报应该按日期排", "capability": "data.transform", "success": false, "error": "表格列名不对" } },
             { "id": "step_2", "value": { "action": "不是，周报应该按日期排", "capability": "resource.create", "success": false, "error": "调用被中止，结果未知", "execution_unknown": true }, "unknown": true }
         ],
-        "capabilities": ["data.transform", "resource.create"]
+        "capabilities": ["data.transform", "resource.create"],
+        "recalled": [{ "id": columns, "stuck": "data_transform", "failedAgain": true }]
     });
     child
         .send("experience", Some("exp_1"), failed.clone())
@@ -1781,7 +1847,7 @@ async fn what_the_app_did_becomes_part_of_her() {
         .unwrap();
     let mut kinds: Vec<&str> = rows.iter().map(|row| row.kind.as_str()).collect();
     kinds.sort();
-    assert_eq!(kinds, ["done", "lesson"], "{rows:?}");
+    assert_eq!(kinds, ["done"], "{rows:?}");
     let done = rows.iter().find(|row| row.kind == "done").unwrap();
     assert!(
         done.content
@@ -1795,8 +1861,11 @@ async fn what_the_app_did_becomes_part_of_her() {
         assert_eq!(row.audience, json!([OWNER]));
         assert_eq!(row.venue, private.venue());
     }
-    assert!(rows.iter().any(|row| row.content.contains("表格列名不对")));
-    assert!(!rows.iter().any(|row| row.content.contains("结果未知")));
+    assert!(
+        done.evidence
+            .as_deref()
+            .is_some_and(|evidence| evidence.contains("表格列名不对"))
+    );
 
     // Sent again (its taken was lost): told again, written once.
     child.send("experience", Some("exp_1"), failed).await;
@@ -1809,7 +1878,20 @@ async fn what_the_app_did_becomes_part_of_her() {
         .all(&site.db)
         .await
         .unwrap();
-    assert_eq!(again.len(), 2);
+    assert_eq!(again.len(), 1);
+    // Given where it was stuck, the same tool failed again: let go.
+    let let_go = |id: &str| {
+        crate::models::entities::agent_memories::Entity::find_by_id(id.to_string()).one(&site.db)
+    };
+    assert_eq!(
+        let_go(&columns)
+            .await
+            .unwrap()
+            .unwrap()
+            .invalid_reason
+            .as_deref(),
+        Some(work_memory::FAILED_AGAIN)
+    );
 
     // Stopped part way, and scheduled: taken, nothing learned from the first,
     // what was done kept of the second.
@@ -1822,7 +1904,8 @@ async fn what_the_app_did_becomes_part_of_her() {
                 "experience",
                 Some(id),
                 json!({ "kind": "work", "started": started, "status": status,
-                        "input": "整理下载文件夹", "endedAt": 1_760_140_890_000_i64, "title": "每晚整理" }),
+                        "input": "整理下载文件夹", "endedAt": 1_760_140_890_000_i64, "title": "每晚整理",
+                        "recalled": [{ "id": folders }, { "id": "mem_not_theirs" }] }),
             )
             .await;
         assert_eq!(
@@ -1835,7 +1918,9 @@ async fn what_the_app_did_becomes_part_of_her() {
         .all(&site.db)
         .await
         .unwrap();
-    assert_eq!(after.len(), 3);
+    assert_eq!(after.len(), 2);
+    // The run it was given in was done (the cancelled one decided nothing): it holds.
+    assert_eq!(let_go(&folders).await.unwrap().unwrap().source, "work");
     assert!(after.iter().any(|row| row.kind == "done"
         && row.content.ends_with("Done for them: 整理下载文件夹")));
 
@@ -1869,18 +1954,10 @@ async fn what_the_app_did_becomes_part_of_her() {
         );
     }
 
-    // What the Mac learned is hers on every end: the site's own Work
-    // recalls it.
-    let found = unified::recall(
-        &site.db,
-        OWNER,
-        &private,
-        Some("周报应该按日期排"),
-        &MemoryKind::FOR_WORK,
-        4,
-    )
-    .await
-    .unwrap();
+    // What the Mac did is hers on every end: the site's own Work recalls it.
+    let found = work_memory::recall_for_run(&site.db, OWNER, "周报应该按日期排", 4)
+        .await
+        .unwrap();
     assert!(
         found
             .iter()

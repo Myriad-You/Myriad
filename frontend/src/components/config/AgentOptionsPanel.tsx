@@ -682,8 +682,8 @@ export const AgentOptionsPanel: React.FC = () => {
             </>
           ) : null,
           actions: [
-            // A Work lesson drawn from one run is not used until confirmed
-            // (or drawn again by a later run).
+            // A Work lesson drawn from one run is only tried until a run it
+            // was given in is done, or it is confirmed here.
             ...(memory.category === 'tried'
               ? [
                   {

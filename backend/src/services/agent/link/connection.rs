@@ -997,6 +997,10 @@ impl Link {
         struct Recall {
             request_id: String,
             query: String,
+            #[serde(default)]
+            stuck: bool,
+            #[serde(default)]
+            shown: Vec<String>,
         }
         let Ok(recall) = serde_json::from_value::<Recall>(inbound.body) else {
             self.error("bad_frame", Some(inbound.seq));
@@ -1012,7 +1016,9 @@ impl Link {
         }
         let (db, owner, tx) = (self.db.clone(), self.owner, self.tx.clone());
         tokio::spawn(async move {
-            let memories = super::experience::recall(&db, owner, &recall.query).await;
+            let shown: Vec<String> = recall.shown.into_iter().take(16).collect();
+            let memories =
+                super::experience::recall(&db, owner, &recall.query, recall.stuck, &shown).await;
             let _ = tx
                 .send(super::experience::recalled_frame(
                     &recall.request_id,

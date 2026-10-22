@@ -51,6 +51,9 @@ pub(super) struct Checkpoint {
     pub active_ms: u64,
     pub plan: Value,
     pub final_text: String,
+    /// The memories the run was given, and its one recall where it is stuck.
+    #[serde(default)]
+    pub recall: super::stuck::Recall,
 }
 
 impl Checkpoint {

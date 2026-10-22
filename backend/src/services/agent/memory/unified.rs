@@ -330,8 +330,9 @@ fn audience_of(model: &agent_memories::Model) -> Vec<i32> {
 pub const SHORT_NOTE_SOURCE: &str = "chat_note";
 
 /// Where a Work lesson or pattern the extraction drew from one run is kept
-/// until it holds: never recalled, until a later run draws it again or the
-/// admin confirms it, and then kept under `work` (see `work_memory`).
+/// until it holds: recalled by Work alone, until a run it was shown in is
+/// done or the admin confirms it, and then kept under `work` (see
+/// `work_memory`).
 pub const WORK_TRIED_SOURCE: &str = "work_tried";
 
 /// Whether a row is a short note that has faded: it no longer comes to mind.
@@ -350,6 +351,18 @@ async fn rows_for<C: ConnectionTrait>(
     user_id: i32,
     present: &Audience,
     kinds: &[MemoryKind],
+) -> Result<Vec<agent_memories::Model>, DbErr> {
+    rows_with(db, user_id, present, kinds, false).await
+}
+
+/// [`rows_for`], with what Work is still trying (`WORK_TRIED_SOURCE`) when
+/// `tried`: Work reads those, nothing else does.
+pub(crate) async fn rows_with<C: ConnectionTrait>(
+    db: &C,
+    user_id: i32,
+    present: &Audience,
+    kinds: &[MemoryKind],
+    tried: bool,
 ) -> Result<Vec<agent_memories::Model>, DbErr> {
     let rows = if present.is_group() {
         let mut query = agent_memories::Entity::find()
@@ -373,8 +386,9 @@ async fn rows_for<C: ConnectionTrait>(
         .into_iter()
         .filter(|row| admits(row, present))
         .filter(|row| !faded_note(row, now))
-        // Drawn from one run only: not how to go about things yet.
-        .filter(|row| row.source != WORK_TRIED_SOURCE)
+        // Drawn from one run only: not how to go about things yet, except
+        // for Work trying it.
+        .filter(|row| tried || row.source != WORK_TRIED_SOURCE)
         // What only the two of them share, and her notes on people from
         // outside, have their own place in her mind.
         .filter(|row| !KEPT_APART.contains(&row.source.as_str()))

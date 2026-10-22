@@ -21,6 +21,8 @@ pub(crate) struct MemoryRecordParams<'a> {
     /// 这一轮所在的会话与任务：办过的事据此找回原始记录。
     pub(crate) session_id: Option<&'a str>,
     pub(crate) task_id: Option<&'a str>,
+    /// 这一轮给过的经验和做法，按结果转正或放掉（见 `work_memory::settle_shown`）。
+    pub(crate) shown: &'a [memory::work_memory::Shown],
 }
 
 /// 办事结束后的记忆抽取，写入统一记忆表。
@@ -74,6 +76,7 @@ pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
             task: params.task_id.map(str::to_string),
             experience: None,
         },
+        shown: params.shown.to_vec(),
     };
     let db = params.db.clone();
     let attribution = crate::services::ai_cost_ledger::current_ai_attribution();

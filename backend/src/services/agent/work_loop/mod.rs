@@ -12,6 +12,7 @@ mod recipes;
 mod recovery_tests;
 mod state;
 mod store;
+mod stuck;
 #[cfg(test)]
 mod tests;
 mod tool_schema;
@@ -170,6 +171,7 @@ impl Agent {
             .insert("_task_id".into(), json!(task.task_id));
         // Memory is recalled for the person this turn serves, in front of that
         // person only. The loop passes it on as untrusted reference data.
+        let mut recall = stuck::Recall::default();
         match super::memory::work_memory::recall_for_run(
             &self.db,
             request.user_id,
@@ -185,16 +187,24 @@ impl Agent {
                 let away = !crate::services::persona_sync::lease::place().here();
                 let persona_sources =
                     crate::services::agent::merope::api::store::PERSONA_MEMORY_SOURCES;
+                let given: Vec<_> = memories
+                    .iter()
+                    .filter(|memory| !away || !persona_sources.contains(&memory.source.as_str()))
+                    .collect();
                 context.memory_context = Some(
-                    memories
+                    given
                         .iter()
-                        .filter(|memory| {
-                            !away || !persona_sources.contains(&memory.source.as_str())
-                        })
                         .map(|m| m.content.chars().take(1000).collect::<String>())
                         .collect::<Vec<_>>()
                         .join("\n"),
                 );
+                recall.shown = given
+                    .iter()
+                    .map(|memory| super::memory::work_memory::Shown {
+                        id: memory.id.clone(),
+                        ..Default::default()
+                    })
+                    .collect();
             }
             Ok(_) => {}
             Err(error) => tracing::warn!(%error, "[Work] memory recall failed"),
@@ -230,6 +240,7 @@ impl Agent {
             active_ms: 0,
             plan: json!([]),
             final_text: String::new(),
+            recall,
         }
     }
 
@@ -367,6 +378,7 @@ impl Agent {
                             .as_ref()
                             .and_then(|context| context.session_id.as_deref()),
                         task_id: Some(&state.task.task_id),
+                        shown: &state.recall.shown,
                     },
                 )
                 .await;
@@ -463,6 +475,10 @@ impl Agent {
                     return Ok(());
                 }
                 continue;
+            }
+            if let Some(at) = state.recall.pending.take() {
+                self.give_when_stuck(state, at).await;
+                store::save(&self.db, state).await?;
             }
             let granted = tools::granted_for(state, &self.db).await;
             state.prune_results();
@@ -600,6 +616,35 @@ impl Agent {
         }
     }
 
+    /// Where the run is stuck, once: the one lesson or pattern its failure
+    /// names, given as untrusted reference data before the model goes on.
+    async fn give_when_stuck(&self, state: &mut Checkpoint, at: stuck::At) {
+        let found = super::memory::work_memory::recall_when_stuck(
+            &self.db,
+            state.user_id,
+            &at.query,
+            &state.recall.shown_ids(),
+        )
+        .await;
+        let memory = match found {
+            Ok(Some(memory)) => memory,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!(%error, "[Work] memory recall where stuck failed");
+                return;
+            }
+        };
+        let content: String = memory.content.chars().take(1000).collect();
+        state.history.push(ToolMessage::User {
+            content: stuck::note(&content),
+        });
+        state.recall.shown.push(super::memory::work_memory::Shown {
+            id: memory.id,
+            stuck: Some(at.tool),
+            failed_again: false,
+        });
+    }
+
     async fn work_tool(
         &self,
         state: &mut Checkpoint,
@@ -610,7 +655,7 @@ impl Agent {
         let params: Value = match serde_json::from_str(&call.arguments) {
             Ok(Value::Object(params)) => Value::Object(params),
             _ => {
-                finish_call(
+                finish_tool_call(
                     state,
                     &pending,
                     Err("Tool arguments must be a JSON object".into()),
@@ -677,8 +722,12 @@ impl Agent {
             super::tool_permissions::capability_allowed_for_grants(id, &params_map, &granted).await;
         let validation = tool_schema::prepare(&capability.input_schema)
             .and_then(|schema| schema.validate(&params));
-        if let Err(error) = permission.and(validation) {
+        if let Err(error) = permission {
             finish_call(state, &pending, Err(error), 0);
+            return Ok(false);
+        }
+        if let Err(error) = validation {
+            finish_tool_call(state, &pending, Err(error), 0);
             return Ok(false);
         }
         let mcp_output_schema =
@@ -914,7 +963,7 @@ impl Agent {
             return Ok(true);
         }
         state.inflight = None;
-        finish_call(state, &pending, output, duration);
+        finish_tool_call(state, &pending, output, duration);
         Ok(false)
     }
 }
@@ -983,18 +1032,65 @@ pub(super) fn reject_unattended_confirmation(
     true
 }
 
+/// A call that ended without its tool having its say: refused, declined,
+/// or a bookkeeping tool of the loop's own. Only a third same call of it is
+/// where the run is stuck.
 fn finish_call(
     state: &mut Checkpoint,
     pending: &PendingCall,
     result: Result<Value, String>,
     duration_ms: u64,
 ) {
-    if let Ok(params) = serde_json::from_str::<Value>(&pending.call.arguments) {
-        *state
-            .call_counts
-            .entry(operation_key(&pending.call.name, &params))
-            .or_default() += 1;
-    }
+    finish(state, pending, result, duration_ms, false)
+}
+
+/// A call the tool answered, or whose arguments failed: an error or an
+/// empty result is where the run is stuck too (see `stuck`).
+fn finish_tool_call(
+    state: &mut Checkpoint,
+    pending: &PendingCall,
+    result: Result<Value, String>,
+    duration_ms: u64,
+) {
+    finish(state, pending, result, duration_ms, true)
+}
+
+fn finish(
+    state: &mut Checkpoint,
+    pending: &PendingCall,
+    result: Result<Value, String>,
+    duration_ms: u64,
+    answered: bool,
+) {
+    let arguments = serde_json::from_str::<Value>(&pending.call.arguments).ok();
+    let count = match &arguments {
+        Some(params) => {
+            let count = state
+                .call_counts
+                .entry(operation_key(&pending.call.name, params))
+                .or_default();
+            *count += 1;
+            *count
+        }
+        None => 1,
+    };
+    let ended = match (&result, answered) {
+        (Ok(output), true) => stuck::Ended::Returned(output),
+        (Err(error), true) => stuck::Ended::Failed(error),
+        _ => stuck::Ended::Other,
+    };
+    let failed = match &ended {
+        stuck::Ended::Failed(_) => true,
+        stuck::Ended::Returned(output) => stuck::returned_failure(output).is_some(),
+        stuck::Ended::Other => false,
+    };
+    let at = stuck::stuck_on(
+        &pending.call.name,
+        arguments.as_ref().unwrap_or(&Value::Null),
+        ended,
+        count,
+    );
+    state.recall.after_call(&pending.call.name, failed, at);
     let (output, error) = match result {
         Ok(output) => (Some(output), None),
         Err(error) => (None, Some(error)),

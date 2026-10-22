@@ -39,6 +39,9 @@ pub(super) const RECALLED_CHARS: usize = 1_000;
 const MAX_OUTPUTS: usize = 64;
 const MAX_TURNS: usize = 16;
 const MAX_CAPABILITIES: usize = 64;
+/// Memories a run may say it was given: the start's four and one where it
+/// was stuck, with room to spare.
+const MAX_RECALLED: usize = 8;
 /// What reaches her as the outcome: as long as a site notification's body.
 const OUTCOME_CHARS: usize = 160;
 
@@ -118,6 +121,32 @@ pub(super) struct Experience {
     /// Her proposal it ran, when the owner accepted it on the child to run there.
     #[serde(default)]
     pub(super) proposal_id: Option<String>,
+    /// The memories `work.recalled` gave the run, and what came of them.
+    #[serde(default)]
+    pub(super) recalled: Vec<Recalled>,
+}
+
+/// One memory a run on the child was given (`experience.recalled`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Recalled {
+    pub(super) id: String,
+    /// The tool the run was stuck on when it was given.
+    #[serde(default)]
+    pub(super) stuck: Option<String>,
+    /// That tool failed again after it.
+    #[serde(default)]
+    pub(super) failed_again: bool,
+}
+
+/// A memory id as the host makes them: what a child sends back is only
+/// ever looked up among the owner's own, never trusted as more.
+fn valid_memory_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 impl Experience {
@@ -162,6 +191,20 @@ impl Experience {
                 experience: Some(id.to_string()),
                 ..Default::default()
             },
+            shown: self
+                .recalled
+                .iter()
+                .take(MAX_RECALLED)
+                .filter(|shown| valid_memory_id(&shown.id))
+                .map(|shown| work_memory::Shown {
+                    id: shown.id.clone(),
+                    stuck: shown
+                        .stuck
+                        .as_ref()
+                        .map(|tool| tool.chars().take(128).collect()),
+                    failed_again: shown.failed_again,
+                })
+                .collect(),
         }
     }
 
@@ -195,10 +238,12 @@ pub(super) fn taken_frame(id: &str) -> Outgoing {
     Outgoing::latest("experience.taken", json!({ "id": id }))
 }
 
-pub(super) fn recalled_frame(request_id: &str, memories: &[String]) -> Outgoing {
+pub(super) fn recalled_frame(request_id: &str, memories: &[(String, String)]) -> Outgoing {
+    let (ids, texts): (Vec<&String>, Vec<&String>) =
+        memories.iter().map(|(id, text)| (id, text)).unzip();
     Outgoing::latest(
         "work.recalled",
-        json!({ "requestId": request_id, "memories": memories }),
+        json!({ "requestId": request_id, "memories": texts, "ids": ids }),
     )
 }
 
@@ -322,12 +367,32 @@ async fn write_once(
 }
 
 /// The owner's Work memories that fit `query`, as the site's own Work
-/// recalls them (four, in front of the owner alone).
-pub(super) async fn recall(db: &DatabaseConnection, owner: i32, query: &str) -> Vec<String> {
-    match work_memory::recall_for_run(db, owner, query, RECALLED).await {
+/// recalls them (four, in front of the owner alone), each with its id. When
+/// the run is `stuck`, `query` is how, and it is the one lesson or pattern
+/// that failure names, other than those it was given (`shown`).
+pub(super) async fn recall(
+    db: &DatabaseConnection,
+    owner: i32,
+    query: &str,
+    stuck: bool,
+    shown: &[String],
+) -> Vec<(String, String)> {
+    let found = if stuck {
+        work_memory::recall_when_stuck(db, owner, query, shown)
+            .await
+            .map(|found| found.into_iter().collect())
+    } else {
+        work_memory::recall_for_run(db, owner, query, RECALLED).await
+    };
+    match found {
         Ok(memories) => memories
-            .iter()
-            .map(|memory| memory.content.chars().take(RECALLED_CHARS).collect())
+            .into_iter()
+            .map(|memory| {
+                (
+                    memory.id,
+                    memory.content.chars().take(RECALLED_CHARS).collect(),
+                )
+            })
             .collect(),
         Err(error) => {
             tracing::warn!(%error, "[link] Work memory recall failed");
