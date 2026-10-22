@@ -442,7 +442,7 @@ impl Werewolf {
 
     /// The first part of the night is done: the knife falls, and the witch
     /// is told where while she has her antidote.
-    fn to_witch(&mut self, rolls: &mut Rolls) {
+    fn enter_witch(&mut self, rolls: &mut Rolls) {
         let (top, _) = self.tonight.knives.most();
         self.tonight.knifed = match top.len() {
             0 => None,
@@ -925,7 +925,7 @@ impl Rules for Werewolf {
                 }
                 game.tonight.acted.push(seat);
                 if game.acting().is_empty() {
-                    game.to_witch(rolls);
+                    game.enter_witch(rolls);
                 }
             }
             Phase::Night { step: Step::Witch } => {
@@ -1028,7 +1028,7 @@ impl Rules for Werewolf {
     fn timed_out(game: &mut Self, rolls: &mut Rolls) {
         match game.phase.clone() {
             // Who did not move at night does nothing tonight.
-            Phase::Night { step: Step::Act } => game.to_witch(rolls),
+            Phase::Night { step: Step::Act } => game.enter_witch(rolls),
             Phase::Night { step: Step::Witch } => game.dawn(),
             Phase::After { queue, .. } => {
                 if let Some(Then::Words(seat)) = queue.first() {

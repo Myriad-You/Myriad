@@ -12,7 +12,7 @@
 #![allow(clippy::empty_line_after_doc_comments)]
 #![allow(clippy::unnecessary_sort_by)]
 #![allow(clippy::redundant_guards)]
-// rustc 1.98 clippy pedantic-style lints: style nits, not a security gate.
+// rustc 1.99 clippy pedantic-style lints: style nits, not a security gate.
 #![allow(clippy::result_large_err)]
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::needless_borrows_for_generic_args)]

@@ -414,13 +414,15 @@ fn a_line_left_waiting_by_a_restart_is_taken_back_up_once() {
 
 #[test]
 fn she_stops_answering_one_who_never_stops() {
-    let mut group = Group::default();
-    group.answered = (0..LOOP_ROUNDS - 1)
-        .map(|_| Answered {
-            from: "77".into(),
-            at: BASE,
-        })
-        .collect();
+    let mut group = Group {
+        answered: (0..LOOP_ROUNDS - 1)
+            .map(|_| Answered {
+                from: "77".into(),
+                at: BASE,
+            })
+            .collect(),
+        ..Group::default()
+    };
     let bot = message(1, 77, "复读机", "在吗", true);
     assert!(group.paused.is_empty());
     // One more round, all within the window: paused.
@@ -586,8 +588,10 @@ fn she_looks_once_the_talk_settles_and_glances_at_the_rest_once() {
     );
     assert!(matches!(&third.effects[..], [Effect::Wake { after, .. }] if *after == SETTLE_SECONDS));
     // Called there lately is in the talk too.
-    let mut other = Group::default();
-    other.called = Some(BASE);
+    let other = Group {
+        called: Some(BASE),
+        ..Group::default()
+    };
     assert!(flows::in_talk(&other, BASE + secs(60.0)));
     assert!(!flows::in_talk(&other, BASE + secs(IN_TALK_SECONDS)));
 }
@@ -978,13 +982,13 @@ impl End {
     }
 
     fn step(&mut self, mut event: Event) {
-        if !self.group.restored && !self.unreadable {
-            if let Event::Heard { restore, .. }
+        if !self.group.restored
+            && !self.unreadable
+            && let Event::Heard { restore, .. }
             | Event::Muted { restore, .. }
             | Event::StickerSent { restore, .. } = &mut event
-            {
-                restore.get_or_insert_with(Restore::default);
-            }
+        {
+            restore.get_or_insert_with(Restore::default);
         }
         self.seed = self
             .seed

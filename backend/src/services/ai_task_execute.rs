@@ -200,7 +200,7 @@ impl BufferedTaskBroadcast {
         if self.permit.take().is_some() {
             self.metrics
                 .queue_depth
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |depth| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |depth| {
                     Some(depth.saturating_sub(1))
                 })
                 .ok();

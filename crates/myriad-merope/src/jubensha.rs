@@ -991,7 +991,7 @@ impl Jubensha {
 
     // ------------------------------------------------------------ play
 
-    fn to_intro(&mut self) {
+    fn enter_intro(&mut self) {
         self.announce(
             "大家都读完了。按座位顺序自我介绍，每人两分钟，可以说几句，说完说「说完了」。"
                 .to_string(),
@@ -1009,11 +1009,11 @@ impl Jubensha {
                 lines: 0,
             });
         } else {
-            self.to_search(1);
+            self.enter_search(1);
         }
     }
 
-    fn to_search(&mut self, round: u32) {
+    fn enter_search(&mut self, round: u32) {
         self.picks = vec![PICKS; self.seats.len()];
         if round > 1 {
             self.asked = vec![0; self.seats.len()];
@@ -1090,7 +1090,7 @@ impl Jubensha {
             return;
         };
         if round < ROUNDS {
-            return self.to_search(round + 1);
+            return self.enter_search(round + 1);
         }
         self.announce("讨论结束，投凶：私聊投一票（两分钟），不能投自己，可以弃票。".to_string());
         let among: Vec<usize> = (0..self.seats.len()).map(|seat| self.cast[seat]).collect();
@@ -1819,10 +1819,8 @@ pub fn check_clues(outline: &Outline, clues: &Clues) -> Vec<String> {
                     ));
                 }
             }
-            "obtain" => {
-                if !clues.clues.iter().any(|c| c.id == goal.target) {
-                    problems.push(format!("the obtain goal of {} names no clue", goal.owner));
-                }
+            "obtain" if !clues.clues.iter().any(|c| c.id == goal.target) => {
+                problems.push(format!("the obtain goal of {} names no clue", goal.owner));
             }
             _ => {}
         }
@@ -2239,7 +2237,7 @@ impl Rules for Jubensha {
             Phase::Read { mut done } => {
                 done.push(seat);
                 if done.len() >= game.seats.len() {
-                    game.to_intro();
+                    game.enter_intro();
                 } else {
                     game.phase = Phase::Read { done };
                 }
@@ -2403,16 +2401,14 @@ impl Rules for Jubensha {
         match game.phase.clone() {
             Phase::Theme { .. } => game.theme_voted(rolls),
             Phase::Writing { .. } => game.not_written(true),
-            Phase::Read { .. } => game.to_intro(),
+            Phase::Read { .. } => game.enter_intro(),
             Phase::Intro { at, .. } => {
                 let line = format!("{}的时间到了。", game.seat_name(at));
                 game.announce(line);
                 game.next_intro();
             }
             Phase::Search { .. } => {
-                for left in &mut game.picks {
-                    *left = 0;
-                }
+                game.picks.fill(0);
                 game.searched();
             }
             Phase::Discuss { .. } => game.discussed(),
@@ -3042,11 +3038,9 @@ mod tests {
         };
         let (a, b) = (among[0], among[1]);
         let pick = |game: &Jubensha, seat: usize| {
-            let target = if game.cast[seat] == a {
-                b
-            } else if game.cast[seat] == b {
-                a
-            } else if seat % 2 == 0 {
+            let target = if game.cast[seat] == b
+                || (game.cast[seat] != a && seat.is_multiple_of(2))
+            {
                 a
             } else {
                 b
@@ -3231,7 +3225,7 @@ mod tests {
         for seed in 0..200u64 {
             let mut rolls = Rolls::new(seed, Vec::new());
             let players = FEWEST + rolls.range(0..=(MOST - FEWEST) as u64) as usize;
-            let mut game = SeatGame::Jubensha(Jubensha::deal(seats(players), &[], &[], &mut rolls));
+            let mut game = SeatGame::Jubensha(Box::new(Jubensha::deal(seats(players), &[], &[], &mut rolls)));
             let sample = sample(players);
             let mut steps = 0;
             while !game.over() && steps < 400 {

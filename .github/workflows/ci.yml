@@ -207,7 +207,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.98
+      - uses: dtolnay/rust-toolchain@1.99
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -242,7 +242,7 @@ jobs:
         working-directory: proxy
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.98
+      - uses: dtolnay/rust-toolchain@1.99
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
@@ -267,7 +267,7 @@ jobs:
         working-directory: updater
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.98
+      - uses: dtolnay/rust-toolchain@1.99
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -315,7 +315,7 @@ jobs:
       MYRIAD_SMOKE_BACKEND_PORT: 18103
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.98
+      - uses: dtolnay/rust-toolchain@1.99
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
@@ -359,7 +359,7 @@ jobs:
           - 5432:5432
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.98
+      - uses: dtolnay/rust-toolchain@1.99
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
@@ -421,7 +421,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.98
+      - uses: dtolnay/rust-toolchain@1.99
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -509,7 +509,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 20
-      - uses: dtolnay/rust-toolchain@1.98
+      - uses: dtolnay/rust-toolchain@1.99
       - name: Install dependencies
         run: npm ci
       - name: Regenerate contract

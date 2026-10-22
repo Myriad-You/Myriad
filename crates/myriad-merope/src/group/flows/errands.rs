@@ -294,17 +294,14 @@ pub(crate) fn chain_end(cx: &mut Cx, mut errand: Errand) {
         } => {
             *message = None;
             *why = None;
-            match cx
+            if let Some(newer) = cx
                 .group
                 .pending
                 .as_ref()
                 .map(|line| line.message_id.clone())
             {
-                Some(newer) => {
-                    *id = newer;
-                    look_loop(cx, errand);
-                }
-                None => {}
+                *id = newer;
+                look_loop(cx, errand);
             }
         }
         Kind::First { waiter, spoke, .. } => {

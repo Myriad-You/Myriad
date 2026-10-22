@@ -2,7 +2,7 @@
 name = "myriad-updater"
 version = "0.6.3"
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.99"
 authors = ["Myriad Contributors"]
 description = "Self-update daemon for Myriad: maintenance-mode + single-slot updates with file-level pgdata snapshots."
 license = "AGPL-3.0-only"

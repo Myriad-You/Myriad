@@ -126,6 +126,8 @@ struct StoredReach {
 }
 
 #[cfg(test)]
+// 场景用一把 std 锁跨 await 串行占住整段回合（见 WHOLE_TURNS），是有意的。
+#[allow(clippy::await_holding_lock)]
 mod g0_scenes;
 #[cfg(test)]
 mod tests;

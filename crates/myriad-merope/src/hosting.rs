@@ -609,7 +609,7 @@ pub enum SeatGame {
     Undercover(crate::undercover::Undercover),
     Werewolf(crate::werewolf::Werewolf),
     Avalon(crate::avalon::Avalon),
-    Jubensha(crate::jubensha::Jubensha),
+    Jubensha(Box<crate::jubensha::Jubensha>),
     #[cfg(any(test, feature = "test-games"))]
     Marks(marks::Marks),
 }
@@ -763,9 +763,9 @@ impl SeatGame {
                 seats, rolls,
             ))),
             crate::avalon::KIND => Some(Self::Avalon(crate::avalon::Avalon::deal(seats, rolls))),
-            crate::jubensha::KIND => Some(Self::Jubensha(crate::jubensha::Jubensha::deal(
+            crate::jubensha::KIND => Some(Self::Jubensha(Box::new(crate::jubensha::Jubensha::deal(
                 seats, wishes, recent, rolls,
-            ))),
+            )))),
             #[cfg(any(test, feature = "test-games"))]
             "marks" => Some(Self::Marks(marks::Marks::deal_to(seats, rolls))),
             _ => None,

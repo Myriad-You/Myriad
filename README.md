@@ -325,7 +325,7 @@ Memory-saver profile for ~1 GiB hosts. `/config` diagnostics run live checks (da
 
 **From source**
 
-- Rust 1.98+
+- Rust 1.99+
 - Node.js 24 LTS
 - PostgreSQL 18 (Compose default; floor: release `min_pg_version`)
 
@@ -497,7 +497,7 @@ Agora RTC / RTM (optional)
 <td width="50%" valign="top">
 
 **Backend**  
-[Rust](https://github.com/rust-lang/rust) 1.98 · [Axum](https://github.com/tokio-rs/axum) 0.8 · [Tokio](https://github.com/tokio-rs/tokio)  
+[Rust](https://github.com/rust-lang/rust) 1.99 · [Axum](https://github.com/tokio-rs/axum) 0.8 · [Tokio](https://github.com/tokio-rs/tokio)  
 [SeaORM](https://github.com/SeaQL/sea-orm) 2 / [SQLx](https://github.com/launchbadge/sqlx) · [reqwest](https://github.com/seanmonstar/reqwest) 0.13
 
 **Data**  

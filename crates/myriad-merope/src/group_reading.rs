@@ -454,7 +454,7 @@ fn quoted_line(
     cited
         .iter()
         .filter_map(|index| usize::try_from(*index).ok())
-        .filter(|index| lines.get(*index).is_some_and(|line| allowed(line)))
+        .filter(|index| lines.get(*index).is_some_and(&allowed))
         .find(|index| crate::making_sense::plain(&lines[*index].text).contains(&quote))
 }
 

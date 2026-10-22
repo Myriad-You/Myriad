@@ -62,7 +62,7 @@ pub(crate) fn charge_units(tokens: u64) -> Result<()> {
         .try_with(|budget| {
             budget
                 .remaining
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
                     remaining.checked_sub(tokens)
                 })
                 .map(|_| ())

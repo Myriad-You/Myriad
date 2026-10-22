@@ -50,7 +50,7 @@ identically, because they are pure application features backed by PostgreSQL.
 | Requirement | Version | Notes |
 | --- | --- | --- |
 | Linux host | any modern distro | Examples below use Debian/Ubuntu `apt`. Adapt package names for RHEL/Arch. |
-| **Rust** | stable **1.98+** | Install via [rustup](https://rustup.rs/). Image builds pin `rust:1.98-bookworm`; see `docs/development/BUILD.md`. |
+| **Rust** | stable **1.99+** | Install via [rustup](https://rustup.rs/). Image builds pin `rust:1.99-bookworm`; see `docs/development/BUILD.md`. |
 | **Node.js** | **20+** (22 recommended) | For building the frontend only — not needed at runtime. |
 | **pnpm** | **10.x** | Enable via `corepack enable`. |
 | **PostgreSQL** | **17+** (18 recommended) | Server + client tools. Stock Docker Compose uses 18; 17+ is required for `transaction_timeout`. |

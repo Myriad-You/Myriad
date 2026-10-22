@@ -2,7 +2,7 @@
 
 # ---------- builder ----------
 # Pin with backend/proxy (sea-orm 2 / sqlx 0.9 need rustc >= 1.94).
-FROM rust:1.98-bookworm AS builder
+FROM rust:1.99-bookworm AS builder
 WORKDIR /work
 
 COPY updater/Cargo.toml updater/Cargo.toml

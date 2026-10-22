@@ -133,7 +133,7 @@ fn input(
         other_end: "local".into(),
         other_end_on_host: (!device.is_empty()).then(|| format!("app:{device}")),
         host_end: hlc::SITE.into(),
-        other_device: (!device.is_empty()).then(|| Device {
+        other_device: (!device.is_empty()).then_some(Device {
             id: device,
             name: device_name,
         }),

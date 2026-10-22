@@ -506,10 +506,10 @@ fn scan_template(body: &str, file: &str, tally: &mut Tally) {
 
 /// 样式里的 `html.dark`、`body.dark-mode`、`[data-theme="dark"]` 和 `prefers-color-scheme`。
 fn scan_css(body: &str, file: &str, tally: &mut Tally) {
-    if body.contains("prefers-color-scheme: dark") || body.contains("prefers-color-scheme:dark") {
-        if !tally.media.iter().any(|seen| seen == file) {
-            tally.media.push(file.to_string());
-        }
+    if (body.contains("prefers-color-scheme: dark") || body.contains("prefers-color-scheme:dark"))
+        && !tally.media.iter().any(|seen| seen == file)
+    {
+        tally.media.push(file.to_string());
     }
     let bytes = body.as_bytes();
     for (at, _) in body.match_indices('.') {

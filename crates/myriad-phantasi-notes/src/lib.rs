@@ -1118,6 +1118,7 @@ pub fn allocate_note_slug(title: &str, item_id: i32, taken: &HashSet<String>) ->
 }
 
 /// 站长手改的 slug。小写、`[a-z0-9-]`、不能以 `-` 开头或结尾、不能连续 `-`、长度 1..=80。
+#[allow(clippy::result_unit_err)] // 调用方只看 is_ok/is_err，没有可报的细节。
 pub fn validate_slug(slug: &str) -> Result<(), ()> {
     if myriad_phantasi::is_note_slug(slug) {
         Ok(())

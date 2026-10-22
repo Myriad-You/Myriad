@@ -487,7 +487,9 @@ fn main() {
     // Looks drawn from her own controls, named so the director can pick a
     // whole face at once; every control and tier must exist.
     generated.push_str(
-        "pub const PERFORMANCE_FACE_PRESETS: &[(&str, &str, &[(&str, &str)])] = &[\n",
+        "/// (name, look, [(control, tier)])\n\
+         pub type FacePreset = (&'static str, &'static str, &'static [(&'static str, &'static str)]);\n\
+         pub const PERFORMANCE_FACE_PRESETS: &[FacePreset] = &[\n",
     );
     for (name, preset) in performance_contract["facePresets"]
         .as_object()

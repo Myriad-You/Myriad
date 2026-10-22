@@ -460,7 +460,7 @@ async fn seven_backups_are_kept() {
     .await
     .unwrap();
     for day in 1..=9 {
-        let bytes = vec![day as u8; 10];
+        let bytes = [day as u8; 10];
         let query = |offset: u64| backups::PieceQuery {
             offset,
             total: 10,
