@@ -3132,6 +3132,7 @@ dependencies = [
  "chrono-tz",
  "myriad-agent-rules",
  "myriad-merope",
+ "myriad-persona-log",
  "myriad-persona-sync",
  "serde",
  "serde_json",
@@ -3236,6 +3237,15 @@ dependencies = [
  "reqwest",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "myriad-persona-log"
+version = "0.1.0"
+dependencies = [
+ "myriad-persona-sync",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,0 +1,444 @@
+{
+  "call": "log.merge",
+  "cases": [
+    {
+      "input": {
+        "incoming": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "x-1",
+            "kind": "node.created",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "forgotten": true,
+            "hlc": "001760000000020-000000-dev_mac",
+            "id": "x-3",
+            "kind": "memory.write",
+            "object": "memory:m-2",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000005-000000-site",
+            "id": "y-1",
+            "kind": "node.talked",
+            "object": "node:a",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:y-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000030-000000-site",
+            "id": "y-2",
+            "kind": "forget",
+            "object": "memory:m-1",
+            "origin": "site",
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "x-2",
+            "kind": "memory.write",
+            "object": "memory:m-9",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-2"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000040-000000-dev_mac",
+            "id": "z-1",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:z-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ],
+        "log": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "x-1",
+            "kind": "node.created",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "x-2",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-2"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "hlc": "001760000000020-000000-dev_mac",
+            "id": "x-3",
+            "kind": "memory.write",
+            "object": "memory:m-2",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-3"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          }
+        ]
+      },
+      "name": "union, dedupe, stubs and clashes",
+      "output": {
+        "added": [
+          "y-1",
+          "y-2"
+        ],
+        "conflicts": [
+          {
+            "clash": "same_id_differs",
+            "id": "x-2"
+          },
+          {
+            "clash": "same_place",
+            "id": "z-1",
+            "with": "x-2"
+          }
+        ],
+        "duplicates": 2,
+        "log": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "x-1",
+            "kind": "node.created",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000005-000000-site",
+            "id": "y-1",
+            "kind": "node.talked",
+            "object": "node:a",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:y-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "forgotten": true,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "x-2",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "forgotten": true,
+            "hlc": "001760000000020-000000-dev_mac",
+            "id": "x-3",
+            "kind": "memory.write",
+            "object": "memory:m-2",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000030-000000-site",
+            "id": "y-2",
+            "kind": "forget",
+            "object": "memory:m-1",
+            "origin": "site",
+            "replicate": "shared",
+            "version": 1
+          }
+        ],
+        "stubbed": [
+          "x-2",
+          "x-3"
+        ]
+      }
+    },
+    {
+      "input": {
+        "incoming": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "x-1",
+            "kind": "node.created",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "x-2",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-2"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "hlc": "001760000000020-000000-dev_mac",
+            "id": "x-3",
+            "kind": "memory.write",
+            "object": "memory:m-2",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-3"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          }
+        ],
+        "log": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "x-1",
+            "kind": "node.created",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "forgotten": true,
+            "hlc": "001760000000020-000000-dev_mac",
+            "id": "x-3",
+            "kind": "memory.write",
+            "object": "memory:m-2",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000005-000000-site",
+            "id": "y-1",
+            "kind": "node.talked",
+            "object": "node:a",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:y-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000030-000000-site",
+            "id": "y-2",
+            "kind": "forget",
+            "object": "memory:m-1",
+            "origin": "site",
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "the same union the other way round",
+      "output": {
+        "added": [
+          "x-2"
+        ],
+        "duplicates": 2,
+        "log": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "x-1",
+            "kind": "node.created",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:x-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000005-000000-site",
+            "id": "y-1",
+            "kind": "node.talked",
+            "object": "node:a",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:y-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "forgotten": true,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "x-2",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "forgotten": true,
+            "hlc": "001760000000020-000000-dev_mac",
+            "id": "x-3",
+            "kind": "memory.write",
+            "object": "memory:m-2",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000030-000000-site",
+            "id": "y-2",
+            "kind": "forget",
+            "object": "memory:m-1",
+            "origin": "site",
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      }
+    }
+  ],
+  "version": 1
+}

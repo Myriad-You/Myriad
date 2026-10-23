@@ -10,6 +10,7 @@ mod books;
 mod games;
 mod group;
 mod habits;
+mod log;
 mod mood;
 mod own;
 mod recall;
@@ -105,6 +106,7 @@ fn every_call_is_tested_and_version_lists_them() {
     .chain(games::TESTED.iter().copied())
     .chain(group::TESTED.iter().copied())
     .chain(habits::TESTED.iter().copied())
+    .chain(log::TESTED.iter().copied())
     .chain(mood::TESTED.iter().copied())
     .chain(own::TESTED.iter().copied())
     .chain(recall::TESTED.iter().copied())

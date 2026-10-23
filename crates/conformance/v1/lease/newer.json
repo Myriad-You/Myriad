@@ -1,0 +1,66 @@
+{
+  "call": "lease.newer",
+  "cases": [
+    {
+      "input": {
+        "a": {
+          "epoch": 3,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site"
+        },
+        "b": {
+          "epoch": 4,
+          "holder": "site",
+          "how": "takeover",
+          "issued": "001759999999950-000000-site"
+        }
+      },
+      "name": "the higher epoch stands",
+      "output": {
+        "newer": "b"
+      }
+    },
+    {
+      "input": {
+        "a": {
+          "epoch": 4,
+          "holder": "dev_win",
+          "how": "force",
+          "issued": "001760000000010-000000-site"
+        },
+        "b": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "force",
+          "issued": "001760000000005-000000-site"
+        }
+      },
+      "name": "one epoch twice: the one issued first stands",
+      "output": {
+        "newer": "b"
+      }
+    },
+    {
+      "input": {
+        "a": {
+          "epoch": 4,
+          "holder": "dev_win",
+          "how": "force",
+          "issued": "001760000000005-000000-site"
+        },
+        "b": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "force",
+          "issued": "001760000000005-000000-site"
+        }
+      },
+      "name": "one epoch twice at once: the lower holder stands",
+      "output": {
+        "newer": "b"
+      }
+    }
+  ],
+  "version": 1
+}

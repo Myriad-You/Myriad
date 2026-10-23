@@ -19,6 +19,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 chrono-tz = "0.10"
 myriad-agent-rules = { path = "../myriad-agent-rules" }
 myriad-merope = { path = "../myriad-merope" }
+myriad-persona-log = { path = "../myriad-persona-log" }
 myriad-persona-sync = { path = "../myriad-persona-sync" }
 serde = { version = "1", features = ["derive"] }
 # Numbers cross the ABI as JSON: parse them back to the exact same bits.

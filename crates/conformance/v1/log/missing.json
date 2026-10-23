@@ -1,0 +1,48 @@
+{
+  "call": "log.missing",
+  "cases": [
+    {
+      "input": {
+        "mine": {
+          "dev_mac": 3,
+          "site": 5
+        },
+        "theirs": {
+          "dev_mac": 5,
+          "dev_win": 2,
+          "site": 4
+        }
+      },
+      "name": "what each side lacks",
+      "output": {
+        "missing": [
+          {
+            "from": 4,
+            "origin": "dev_mac",
+            "through": 5
+          },
+          {
+            "from": 1,
+            "origin": "dev_win",
+            "through": 2
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "mine": {
+          "dev_mac": 3
+        },
+        "theirs": {
+          "dev_mac": 3
+        }
+      },
+      "name": "nothing lacking",
+      "output": {
+        "missing": []
+      }
+    }
+  ],
+  "version": 1
+}
