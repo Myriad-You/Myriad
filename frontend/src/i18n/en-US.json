@@ -812,7 +812,7 @@
       "refreshDesc": "Reload the list",
       "enableTask": "Turn “{name}” on or off",
       "memoryContent": "Content",
-      "confirmRemoveMemory": "Delete this memory? It and its earlier versions are erased and can't be brought back.",
+      "confirmRemoveMemory": "Delete this memory? Its earlier versions and the words it came from (those lines of the chat, or that day's chat) are erased with it and can't be brought back.",
       "confirmMemory": "Confirm",
       "confirmMemoryHint": "Use this for Work from now on",
       "memoryScopes": { "her": "Her own", "person": "About people", "group": "In groups" },

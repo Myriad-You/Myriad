@@ -812,7 +812,7 @@
       "refreshDesc": "Liste neu laden",
       "enableTask": "„{name}“ ein- oder ausschalten",
       "memoryContent": "Inhalt",
-      "confirmRemoveMemory": "Diese Erinnerung löschen? Sie und ihre früheren Fassungen werden gelöscht und lassen sich nicht wiederherstellen.",
+      "confirmRemoveMemory": "Diese Erinnerung löschen? Ihre früheren Fassungen und die Worte, aus denen sie stammt (diese Zeilen des Chats oder der Chat jenes Tages), werden mitgelöscht und lassen sich nicht wiederherstellen.",
       "confirmMemory": "Bestätigen",
       "confirmMemoryHint": "Ab jetzt bei der Arbeit nutzen",
       "memoryScopes": { "her": "Ihre eigenen", "person": "Über Personen", "group": "In Gruppen" },

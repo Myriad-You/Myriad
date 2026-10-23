@@ -1,5 +1,5 @@
 pub(super) mod curiosity;
-pub(super) mod memory_jobs;
+pub(in crate::services::agent) mod memory_jobs;
 
 use chrono::Utc;
 use sea_orm::{

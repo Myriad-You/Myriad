@@ -812,7 +812,7 @@
       "refreshDesc": "Recharger la liste",
       "enableTask": "Activer ou couper « {name} »",
       "memoryContent": "Contenu",
-      "confirmRemoveMemory": "Supprimer ce souvenir ? Lui et ses versions précédentes seront effacés, sans retour possible.",
+      "confirmRemoveMemory": "Supprimer ce souvenir ? Ses versions précédentes et les mots d'où il vient (ces lignes de la conversation, ou la conversation de ce jour-là) seront effacés avec lui, sans retour possible.",
       "confirmMemory": "Confirmer",
       "confirmMemoryHint": "L'utiliser pour le travail désormais",
       "memoryScopes": { "her": "Les siens", "person": "Sur les gens", "group": "Dans les groupes" },

@@ -114,7 +114,14 @@ pub(in crate::services::agent::merope) async fn settle(
     let mut updates = ChatMemoryUpdates::default();
     let mut settled = Vec::new();
     for item in lasting {
-        settled.extend(item.from.iter().map(|index| notes[*index].id.clone()));
+        let mut from: Vec<String> = item
+            .from
+            .iter()
+            .map(|index| notes[*index].id.clone())
+            .collect();
+        from.sort();
+        from.dedup();
+        settled.push(from);
         updates.updates.push(ChatMemoryUpdate {
             fact: Some(compact_summary(&item.fact)),
             // What it changes goes with the first: it says how it is now.
@@ -130,8 +137,6 @@ pub(in crate::services::agent::merope) async fn settle(
             cues: item.when_for,
         });
     }
-    settled.sort();
-    settled.dedup();
     Ok(Effect::Settle { updates, settled })
 }
 

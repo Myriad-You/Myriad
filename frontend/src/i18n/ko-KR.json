@@ -812,7 +812,7 @@
       "refreshDesc": "목록 다시 불러오기",
       "enableTask": "「{name}」 켜기/끄기",
       "memoryContent": "내용",
-      "confirmRemoveMemory": "이 기억을 삭제할까요? 이전 버전까지 함께 지워지고 되돌릴 수 없습니다.",
+      "confirmRemoveMemory": "이 기억을 삭제할까요? 이전 버전과 이 기억이 나온 대화(그 몇 줄, 또는 그날의 대화)까지 함께 지워지고 되돌릴 수 없습니다.",
       "confirmMemory": "확정",
       "confirmMemoryHint": "앞으로 작업에 이걸 씁니다",
       "memoryScopes": { "her": "그녀 자신의", "person": "다른 사람에 관한", "group": "그룹의" },

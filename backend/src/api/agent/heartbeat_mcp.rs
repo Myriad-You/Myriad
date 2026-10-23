@@ -582,8 +582,8 @@ pub(crate) async fn update_any_memory(
     memory_found(updated)
 }
 
-/// Have her forget any memory (site admin): it, its earlier versions and
-/// what was derived from them are deleted, not kept.
+/// Have her forget any memory (site admin): it, its earlier versions, what
+/// was derived from them and the words they came from are deleted, not kept.
 /// DELETE /api/agent/memory/all/:id
 pub(crate) async fn delete_any_memory(
     State(db): State<DatabaseConnection>,

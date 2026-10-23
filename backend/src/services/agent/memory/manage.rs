@@ -10,8 +10,9 @@
 //!
 //! Each row also has a finer category from where it came. The admin may read
 //! and edit any of it, and have her forget any of it: forgetting deletes the
-//! memory, every earlier version of it and what was derived from them, so
-//! nothing of what it said is kept ([`forget_any`]).
+//! memory, every earlier version of it, what was derived from them and what
+//! they came from ([`super::origins`]), so nothing of what it said is kept
+//! and nothing teaches it to her again ([`forget_any`]).
 
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
@@ -115,15 +116,21 @@ pub async fn update_any<C: ConnectionTrait>(
 
 /// Has her forget any active memory, truly: the row, every earlier version
 /// of it (what it replaced, and what those replaced, along the replacement
-/// edges) and what was derived from them (their meaning vectors and cues,
-/// by the foreign keys) are deleted in one transaction. Nothing of what
-/// they said is kept, not even to stop an event from teaching her the same
-/// thing again. Returns whether there was such a memory.
+/// edges, the short notes a lasting memory was kept from among them), what
+/// was derived from them (their meaning vectors and cues, by the foreign
+/// keys) and the words they came from ([`super::origins::forget`]) are
+/// deleted in one transaction. Nothing of what they said is kept, not even
+/// to stop it being learned again: what would teach it again goes instead.
+/// Returns whether there was such a memory.
 ///
 /// The database frees the deleted rows' space at its next vacuum; its write-
 /// ahead log and the deployment's backups are outside what this reaches.
 pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bool, DbErr> {
     let txn = db.begin().await?;
+    // Before any row: queued memory work takes this lock, then writes rows.
+    crate::services::agent::merope::store::memory_jobs::lock(&txn)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
     let Some(row) = agent_memories::Entity::find_by_id(id.to_string())
         .filter(agent_memories::Column::InvalidAt.is_null())
         .one(&txn)
@@ -148,6 +155,11 @@ pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bo
             .collect();
         doomed.extend(frontier.iter().cloned());
     }
+    let rows = agent_memories::Entity::find()
+        .filter(agent_memories::Column::Id.is_in(doomed.clone()))
+        .all(&txn)
+        .await?;
+    super::origins::forget(&txn, &rows).await?;
     agent_memories::Entity::delete_many()
         .filter(agent_memories::Column::Id.is_in(doomed))
         .exec(&txn)
@@ -396,6 +408,104 @@ mod tests {
             1
         );
         assert_eq!(count("SELECT COUNT(*) FROM agent_memory_cues").await, 0);
+        schema.drop().await;
+    }
+
+    /// Forgetting takes the words it came from: the lines that said it in
+    /// its place (with her answer), the same words in her diary and in work
+    /// still queued, the notes it was kept from; for a day's line, the day.
+    /// What another place or person said, or was said long before, stays.
+    #[tokio::test]
+    async fn forgetting_a_memory_deletes_the_words_it_came_from() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "memory_forget_origins").await;
+        let db = &schema.db;
+        use sea_orm::ConnectionTrait;
+        let yesterday = crate::services::agent::merope::clock::today()
+            .pred_opt()
+            .unwrap();
+        let noon = crate::services::agent::merope::clock::day_start(yesterday).unwrap()
+            + chrono::Duration::hours(12);
+        db.execute_unprepared(&format!(
+            "INSERT INTO users (id, username) VALUES (34, 'mei'), (35, 'other');
+             INSERT INTO agent_sessions (id, user_id, context, message_count, created_at, last_active_at)
+             VALUES ('s-mei', 34, '{{\"mode\":\"chat\"}}', 6, NOW(), NOW()),
+                    ('s-group', 34, '{{\"mode\":\"chat\",\"venue\":\"telegram:-1\"}}', 1, NOW(), NOW()),
+                    ('s-other', 35, '{{\"mode\":\"chat\"}}', 1, NOW(), NOW());
+             INSERT INTO agent_messages (session_id, role, content, created_at) VALUES
+               ('s-mei', 'user', '我家  养了一只猫叫年糕', NOW() - INTERVAL '60 minutes'),
+               ('s-mei', 'assistant', '年糕这个名字真好', NOW() - INTERVAL '59 minutes'),
+               ('s-mei', 'user', '今天下雨了', NOW() - INTERVAL '30 minutes'),
+               ('s-mei', 'assistant', '记得带伞', NOW() - INTERVAL '29 minutes'),
+               ('s-mei', 'user', '养了一只猫叫年糕', NOW() - INTERVAL '3 days'),
+               ('s-group', 'user', '养了一只猫叫年糕', NOW() - INTERVAL '60 minutes'),
+               ('s-other', 'user', '养了一只猫叫年糕', NOW() - INTERVAL '60 minutes'),
+               ('s-mei', 'user', '昨天的事', '{noon}'),
+               ('s-mei', 'assistant', '昨天的回答', '{noon}'::timestamptz + INTERVAL '1 minute');
+             INSERT INTO agent_diary (id, user_id, content, source, created_at) VALUES
+               ('d1', 34, '我家 养了一只猫叫年糕', 'chat', NOW() - INTERVAL '60 minutes'),
+               ('d2', 34, '今天下雨了', 'chat', NOW() - INTERVAL '30 minutes');
+             INSERT INTO runtime_registry (namespace, record_id, owner_id, payload, expires_at) VALUES
+               ('merope_memory_jobs', 'j-mei', 34, '{{\"owner\":34,\"data\":{{\"Chat\":{{\"user_text\":\"养了一只猫叫年糕\",\"reply\":\"\"}}}}}}', 9999999999),
+               ('merope_memory_jobs', 'j-other', 35, '{{\"owner\":35,\"data\":{{\"Chat\":{{\"user_text\":\"养了一只猫叫年糕\",\"reply\":\"\"}}}}}}', 9999999999);
+             INSERT INTO agent_memories (id, user_id, kind, content, evidence, speaker, source, venue, audience, concepts, importance, access_count, valid_from, invalid_at, invalid_reason, superseded_by, created_at, updated_at)
+             VALUES ('n', 34, 'fact', '养了猫', '养了一只猫叫年糕', 'user', 'chat_note', 'private', '[34]', '[]', 0.5, 0, NOW(), NOW(), 'settled', 'k', NOW() - INTERVAL '58 minutes', NOW()),
+                    ('k', 34, 'fact', '家里有只猫叫年糕', '养了一只 猫叫年糕', 'user', 'chat', 'private', '[34]', '[]', 0.5, 0, NOW(), NULL, NULL, NULL, NOW() - INTERVAL '40 minutes', NOW()),
+                    ('w', 34, 'fact', '今天下雨', '今天下雨了', 'user', 'chat', 'private', '[34]', '[]', 0.5, 0, NOW(), NULL, NULL, NULL, NOW(), NOW()),
+                    ('day', 34, 'fact', '昨天聊了很多', '{{\"day\":\"{yesterday}\"}}', 'agent', 'day_with', 'private', '[34]', '[]', 0.3, 0, NOW(), NULL, NULL, NULL, NOW(), NOW());"
+        ))
+        .await
+        .unwrap();
+        assert!(forget_any(db, "k").await.unwrap());
+        let texts = |sql: &'static str| async move {
+            db.query_all_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                sql.to_string(),
+            ))
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.try_get_by_index::<String>(0).unwrap())
+            .collect::<Vec<String>>()
+        };
+        assert_eq!(
+            texts("SELECT m.session_id || ':' || m.content FROM agent_messages m ORDER BY m.created_at, m.session_id").await,
+            [
+                "s-mei:养了一只猫叫年糕",
+                "s-mei:昨天的事",
+                "s-mei:昨天的回答",
+                "s-group:养了一只猫叫年糕",
+                "s-other:养了一只猫叫年糕",
+                "s-mei:今天下雨了",
+                "s-mei:记得带伞",
+            ],
+            "the line that said it and her answer go; elsewhere and long before stay"
+        );
+        assert_eq!(texts("SELECT id FROM agent_diary").await, ["d2"]);
+        assert_eq!(
+            texts("SELECT record_id FROM runtime_registry").await,
+            ["j-other"]
+        );
+        assert_eq!(
+            texts("SELECT id FROM agent_memories ORDER BY id").await,
+            ["day", "w"]
+        );
+        assert_eq!(
+            texts("SELECT message_count::text FROM agent_sessions WHERE id = 's-mei'").await,
+            ["5"]
+        );
+
+        // A day's line is written from the whole day: the day goes with it.
+        assert!(forget_any(db, "day").await.unwrap());
+        assert_eq!(
+            texts(
+                "SELECT content FROM agent_messages WHERE session_id = 's-mei' ORDER BY created_at"
+            )
+            .await,
+            ["养了一只猫叫年糕", "今天下雨了", "记得带伞"]
+        );
         schema.drop().await;
     }
 
