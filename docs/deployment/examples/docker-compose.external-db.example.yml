@@ -85,6 +85,12 @@ services:
       CACHE_DIR: /app/cache
       JWT_SECRET: ${JWT_SECRET}
       MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:?Set MYRIAD_SETUP_SECRET in .env}
+      # The site checks its own clock (SNTP, then HTTPS Date) and tells the
+      # owner when it is wrong. See docs/deployment/DOCKER_DEPLOYMENT.md#clock.
+      CLOCK_CHECK_ENABLED: ${CLOCK_CHECK_ENABLED:-true}
+      CLOCK_CHECK_NTP_SERVERS: ${CLOCK_CHECK_NTP_SERVERS:-time.cloudflare.com,time.google.com,pool.ntp.org}
+      CLOCK_CHECK_HTTPS_URLS: ${CLOCK_CHECK_HTTPS_URLS:-https://www.cloudflare.com,https://www.google.com}
+      CLOCK_CHECK_THRESHOLD_SECS: ${CLOCK_CHECK_THRESHOLD_SECS:-60}
       # Required for weather/client-geo: honor proxy-rewritten X-Real-IP.
       TRUST_PROXY_HEADERS: "true"
       # Explicit second-hop trust: loopback + docker0 + fixed compose myriad-net,
@@ -309,6 +315,68 @@ services:
     security_opt: [no-new-privileges:true]
     read_only: true
     tmpfs: [/tmp]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  time-sync:
+    # Keeps the host's clock right. Every container shares the host kernel's
+    # clock, so setting it here sets it for the host and every service. NTP
+    # (chrony) first; where UDP 123 is blocked, the Date of HTTPS answers
+    # (htpdate, certificates verified). It alone gets SYS_TIME; nothing else
+    # in this stack may set the clock. Created by the host's
+    # `docker compose up -d`, never by the updater (the Guard refuses CapAdd).
+    # MYRIAD_TIME_SYNC=off when the host keeps its own time; on OpenVZ/LXC
+    # hosts it cannot set the clock and stops, saying so.
+    # See docs/deployment/DOCKER_DEPLOYMENT.md#clock.
+    image: docker.io/library/alpine:3.22.7@sha256:e9f2de928efcc1b53d0948e684b4f490315f280de6044844ec0ff26c0b44d3cf
+    container_name: myriad-time-sync
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        case "$${MYRIAD_TIME_SYNC:-on}" in
+          off|false|0|no) echo "[time-sync] off (MYRIAD_TIME_SYNC)"; exit 0 ;;
+        esac
+        until command -v chronyd >/dev/null && command -v htpdate >/dev/null; do
+          apk add --no-cache chrony htpdate && break
+          echo "[time-sync] could not install chrony and htpdate; trying again in 5 minutes"
+          sleep 300
+        done
+        refused() {
+          echo "[time-sync] this host does not let containers set the clock (no SYS_TIME:" \
+            "an OpenVZ/LXC-style VPS, or a locked-down Docker). Set the clock on the host," \
+            "or ask the provider. Stopping; the site still checks its clock and tells the" \
+            "owner on the devices page."
+          exit 0
+        }
+        while :; do
+          set --
+          for server in $$MYRIAD_TIME_SYNC_NTP; do set -- "$$@" "server $$server iburst"; done
+          out=$$(chronyd -q -u root -t 30 "$$@" 2>&1); code=$$?
+          echo "$$out" | grep -qi "not permitted" && refused
+          if [ "$$code" -ne 0 ]; then
+            echo "[time-sync] NTP (UDP 123) did not answer; setting the clock from HTTPS Date"
+            out=$$(htpdate -c -s $$MYRIAD_TIME_SYNC_HTTPS 2>&1); code=$$?
+            echo "$$out" | grep -qi "not permitted" && refused
+          fi
+          echo "$$out" | tail -n 3
+          [ "$$code" -eq 0 ] || echo "[time-sync] could not set the clock this time: no time source answered"
+          sleep "$${MYRIAD_TIME_SYNC_INTERVAL:-900}"
+        done
+    environment:
+      MYRIAD_TIME_SYNC: ${MYRIAD_TIME_SYNC:-on}
+      MYRIAD_TIME_SYNC_NTP: ${MYRIAD_TIME_SYNC_NTP:-time.cloudflare.com time.google.com pool.ntp.org}
+      MYRIAD_TIME_SYNC_HTTPS: ${MYRIAD_TIME_SYNC_HTTPS:-https://www.cloudflare.com https://www.google.com}
+      MYRIAD_TIME_SYNC_INTERVAL: ${MYRIAD_TIME_SYNC_INTERVAL:-900}
+    cap_add: [SYS_TIME]
+    # Only the internet: no part of the site's own networks.
+    network_mode: bridge
+    # Stopped for good once it exits 0 (off, or the host refuses).
+    restart: on-failure
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: '0.2', memory: 64M }
     logging:
       driver: "json-file"
       options: { max-size: "10m", max-file: "3" }

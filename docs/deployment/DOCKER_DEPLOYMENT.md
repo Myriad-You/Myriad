@@ -79,7 +79,7 @@ name and must be upgraded first; see [external DB setup](./EXTERNAL_POSTGRES.md)
 
 | File | Role |
 | --- | --- |
-| `docker-compose.yml` | Production stack: postgres, backend-volume-init, backend, federation-worker, persona-worker, frontend, proxy, updater, updater-gateway, docker-guard |
+| `docker-compose.yml` | Production stack: postgres, backend-volume-init, backend, federation-worker, persona-worker, frontend, proxy, time-sync, updater, updater-gateway, docker-guard |
 | `docs/deployment/RUNTIME_ISOLATION.md` | Web / federation / persona process boundaries and update/rollback |
 | `docs/deployment/WORKER_DATABASE.md` | Separate worker DB logins and budgets |
 | `.env.production.example` | Template for host `.env` |
@@ -162,6 +162,12 @@ database outage.
 | `UPDATER_ALLOW_INSECURE_COSIGN` | no | Required dual key when `COSIGN_VERIFY=off` (`true` / alias `COSIGN_INSECURE_OK`) |
 | `TAPP_STORE_STATS_ENABLED` | no | Official Tapp install counts (no secrets; 1/instance/app/day). Unset: on in `ENVIRONMENT=production` with a non-localhost `BASE_URL`. Compose stock sets `true`. Set `false` to opt out. |
 | `TAPP_STORE_STATS_URL` | no | Stats endpoint, default `https://stats.store.myriad.you` |
+| `MYRIAD_TIME_SYNC` | no | `off` stops the time-sync service (see [Clock](#clock)); default `on` |
+| `MYRIAD_TIME_SYNC_NTP` / `MYRIAD_TIME_SYNC_HTTPS` | no | Its NTP servers and HTTPS fallback addresses, space separated |
+| `MYRIAD_TIME_SYNC_INTERVAL` | no | Seconds between settings of the clock, default `900` |
+| `CLOCK_CHECK_ENABLED` | no | Backend: check its own clock (log, device clock checks, devices page), default `true` |
+| `CLOCK_CHECK_NTP_SERVERS` / `CLOCK_CHECK_HTTPS_URLS` | no | Backend: SNTP servers and `https://` addresses for the check, comma separated; empty for none |
+| `CLOCK_CHECK_THRESHOLD_SECS` | no | Backend: how far off counts as wrong, default `60` |
 
 Do not set `BACKEND_PORT` or `FRONTEND_PORT` for production. Those are internal
 container ports.
@@ -179,6 +185,46 @@ shells already use). The proxy does not rewrite HTML. Container `MYRIAD_VERSION`
 comes from the image, not from `MYRIAD_TAG` / `UPDATER_TAG`.
 
 For the full port map, see [PORTS.md](./PORTS.md).
+
+## Clock
+
+Every container keeps its host's clock: Docker has no clock per container. A
+host clock that is minutes off makes the site refuse devices whose clocks are
+right (`clock_ahead`), sends reminders at the wrong time and stamps everything
+it writes wrong. Three things deal with it, in this order:
+
+1. **`time-sync` sets the host's clock.** It runs chrony once every
+   `MYRIAD_TIME_SYNC_INTERVAL` seconds (NTP, UDP 123); where UDP 123 is
+   blocked, htpdate sets it from the `Date` of HTTPS answers, with certificates
+   verified. Since containers share the host kernel's clock, setting it here
+   sets it for the host and every service. It needs `SYS_TIME`, the
+   capability to set the clock; it is the only service that has it, and it is
+   on Docker's default `bridge` network, outside the site's own networks. The
+   image is `alpine` pinned by digest; chrony and htpdate are installed from
+   Alpine's signed repository when the container is created (so the first start
+   needs the Alpine mirror).
+   - The host keeps its own time already (systemd-timesyncd, chronyd, ntpd):
+     set `MYRIAD_TIME_SYNC=off`; two clients on one clock gain nothing.
+   - OpenVZ / LXC style VPS: the container cannot set the clock however it is
+     configured. The service says so in its log and stops; ask the provider
+     to fix the host's clock.
+   - Docker Desktop (Mac, Windows): containers run in Docker Desktop's VM,
+     whose clock Docker Desktop keeps to the computer's. The service sets the
+     VM's clock, not the computer's; if the computer's clock is wrong, set it
+     right there and restart Docker Desktop.
+   - The updater never creates it: the Guard refuses any `CapAdd`. It comes
+     from the host's `docker compose up -d` (`deploy.sh up`); an install from
+     before it exists runs that once to get it.
+2. **The site checks its own clock.** The backend measures its offset at start
+   and every 15 minutes (SNTP to `CLOCK_CHECK_NTP_SERVERS`, then the `Date` of
+   `CLOCK_CHECK_HTTPS_URLS`) and logs a warning when it is off by more than
+   `CLOCK_CHECK_THRESHOLD_SECS`. With a measurement it trusts (an HTTPS `Date`,
+   or two SNTP servers that agree; at most 45 minutes old and 3 hours off) it
+   compares devices' clocks with real time instead of its own, so a device
+   whose clock is right still syncs. Nothing else in the site uses it: the
+   site's own time stays the host's.
+3. **The owner is told.** When the clock is off and the site could not correct
+   for it, the owner's devices page says how far and what to do.
 
 ## Security baseline
 
