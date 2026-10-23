@@ -68,7 +68,8 @@ pub struct Row {
     /// The side that wrote it: `site`, `dev_…`, `loc_…` (the clock's node).
     pub origin: String,
     pub author: Author,
-    /// Her rows only: the lease epoch the writer held when it wrote it.
+    /// Her rows only: the lease epoch the writer held when it wrote it;
+    /// [`crate::lease::ALONE`] (0) before the writer ever held or saw one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epoch: Option<u64>,
     /// Shared rows only: the how-manyth shared row of `origin`, from 1,
@@ -181,8 +182,10 @@ impl Row {
             )));
         }
         match (self.author, self.epoch) {
-            (Author::Her, None | Some(0)) => {
-                return Err(LogError::new("her row carries no lease epoch"));
+            (Author::Her, None) => {
+                return Err(LogError::new(
+                    "her row carries no lease epoch (0 while there is none yet)",
+                ));
             }
             (Author::Owner, Some(_)) => {
                 return Err(LogError::new("the owner's row carries no lease epoch"));

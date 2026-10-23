@@ -115,17 +115,10 @@
     {
       "input": {
         "disconnectedSince": 1759964000000000,
-        "lease": {
-          "epoch": 1,
-          "holder": "loc_1f0c",
-          "how": "first",
-          "issued": "001760000000000-000000-loc_1f0c"
-        },
         "me": "loc_1f0c",
-        "now": 1760000000000000,
-        "ownerHereAt": 1760000000000000
+        "now": 1760000000000000
       },
-      "name": "an app that never met the server holds its own first grant",
+      "name": "never knew a lease: she thinks here alone, at epoch 0",
       "output": {
         "state": "thinking"
       }

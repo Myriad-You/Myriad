@@ -1039,6 +1039,255 @@
     },
     {
       "input": {
+        "leases": [
+          {
+            "epoch": 1,
+            "holder": "loc_1f0c",
+            "how": "first",
+            "issued": "001760000000100-000000-site"
+          }
+        ],
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 0,
+            "hlc": "001760000000000-000000-loc_1f0c",
+            "id": "j-1",
+            "kind": "node.created",
+            "object": "node:lamp",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:j-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 0,
+            "hlc": "001760000000010-000000-loc_1f0c",
+            "id": "j-2",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:j-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 0,
+            "hlc": "001760000000105-000000-loc_1f0c",
+            "id": "j-3",
+            "kind": "node.talked",
+            "object": "node:lamp",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:j-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 4,
+            "epoch": 1,
+            "hlc": "001760000000200-000000-loc_1f0c",
+            "id": "j-4",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:j-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "alone before she lived anywhere else: one her, nothing marked",
+      "output": {
+        "objects": [
+          {
+            "audience": "personal:o1",
+            "current": {
+              "node.view_changed": "j-4"
+            },
+            "history": {
+              "node.view_changed": [
+                "j-2"
+              ]
+            },
+            "object": "node:lamp",
+            "rows": [
+              "j-1",
+              "j-2",
+              "j-3",
+              "j-4"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "leases": [
+          {
+            "epoch": 1,
+            "holder": "site",
+            "how": "first",
+            "issued": "001759999999900-000000-site"
+          }
+        ],
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 0,
+            "hlc": "001759999999800-000000-loc_1f0c",
+            "id": "k-1",
+            "kind": "node.created",
+            "object": "node:lamp",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:k-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001759999999950-000000-site",
+            "id": "k-2",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:k-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 0,
+            "hlc": "001760000000050-000000-loc_1f0c",
+            "id": "k-3",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:k-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 0,
+            "hlc": "001760000000060-000000-loc_1f0c",
+            "id": "k-4",
+            "kind": "segment.open",
+            "object": "segment:s-3",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:k-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000070-000000-site",
+            "id": "k-5",
+            "kind": "node.created",
+            "object": "node:kept",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:k-5"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "alone while she lived elsewhere: marked like a force",
+      "output": {
+        "objects": [
+          {
+            "audience": "personal:o1",
+            "object": "node:kept",
+            "rows": [
+              "k-5"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "concurrent": true,
+            "current": {
+              "node.view_changed": "k-3"
+            },
+            "history": {
+              "node.view_changed": [
+                "k-2"
+              ]
+            },
+            "object": "node:lamp",
+            "rows": [
+              "k-1",
+              "k-2",
+              "k-3"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "concurrent": true,
+            "object": "segment:s-3",
+            "rows": [
+              "k-4"
+            ]
+          }
+        ],
+        "standing": [
+          {
+            "epoch": 0,
+            "id": "k-3",
+            "origin": "loc_1f0c",
+            "standing": "concurrent",
+            "with": 1
+          },
+          {
+            "epoch": 0,
+            "id": "k-4",
+            "origin": "loc_1f0c",
+            "standing": "concurrent",
+            "with": 1
+          }
+        ]
+      }
+    },
+    {
+      "input": {
         "rows": [
           {
             "audience": "personal:o1",

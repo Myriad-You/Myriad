@@ -5,6 +5,10 @@
 //! row from the future would win every later change. Otherwise each row is
 //! taken or refused on its own, and a refused row is only counted. A row
 //! already forgotten here is taken as a stub, so the vector still fills.
+//!
+//! One side's her rows never go down in epoch along its own order: a side
+//! writes [`crate::lease::ALONE`] only before it knows any lease, so those
+//! rows come before its first epoch in its count, and arrive first.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -36,6 +40,9 @@ pub struct AdmitInput {
     /// This side's ledger.
     #[serde(default)]
     pub ledger: Vec<Entry>,
+    /// For each side, the highest epoch of its her rows this side holds.
+    #[serde(default)]
+    pub epochs: BTreeMap<String, u64>,
 }
 
 /// Why one row was refused.
@@ -50,6 +57,9 @@ pub enum Reason {
     AudienceChanged,
     /// Its subject is not in the group.
     NotAMember,
+    /// Her row with a lower epoch than one its side wrote before it (an
+    /// alone row after the side knew a lease, most often).
+    EpochBack,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -80,6 +90,8 @@ pub struct Admitted {
     pub clock_ahead: Option<ClockAhead>,
     /// This side's ledger with the batch's forgets added.
     pub ledger: Vec<Entry>,
+    /// `epochs` with the batch's her rows added.
+    pub epochs: BTreeMap<String, u64>,
 }
 
 pub fn admit(input: AdmitInput) -> Admitted {
@@ -89,6 +101,7 @@ pub fn admit(input: AdmitInput) -> Admitted {
         mut known,
         members,
         ledger,
+        mut epochs,
     } = input;
     let ahead = rows
         .iter()
@@ -104,6 +117,7 @@ pub fn admit(input: AdmitInput) -> Admitted {
                 max_ahead_ms: hlc::MAX_AHEAD_MS,
             }),
             ledger,
+            epochs,
         };
     }
     sort(&mut rows);
@@ -121,6 +135,12 @@ pub fn admit(input: AdmitInput) -> Admitted {
         }
         if row.replicate == Replicate::Local {
             refused.push(refuse(&row, Reason::Local, None));
+            continue;
+        }
+        if let Some(epoch) = row.epoch
+            && epochs.get(&row.origin).is_some_and(|&held| epoch < held)
+        {
+            refused.push(refuse(&row, Reason::EpochBack, None));
             continue;
         }
         if known
@@ -143,6 +163,10 @@ pub fn admit(input: AdmitInput) -> Admitted {
         known
             .entry(row.object.clone())
             .or_insert_with(|| row.audience.clone());
+        if let Some(epoch) = row.epoch {
+            let held = epochs.entry(row.origin.clone()).or_insert(epoch);
+            *held = (*held).max(epoch);
+        }
         accepted.push(row);
     }
     let ledger = forget::joined(&ledger, &forget::ledger(&accepted));
@@ -152,5 +176,6 @@ pub fn admit(input: AdmitInput) -> Admitted {
         refused,
         clock_ahead: None,
         ledger,
+        epochs,
     }
 }

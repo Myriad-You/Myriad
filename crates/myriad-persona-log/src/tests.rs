@@ -440,6 +440,7 @@ fn what_one_side_answers_fills_the_other() {
         known: Default::default(),
         members: Default::default(),
         ledger: Vec::new(),
+        epochs: Default::default(),
     });
     assert!(admitted.refused.is_empty());
     site = merge(MergeInput {
@@ -505,7 +506,7 @@ fn a_takeover_only_happens_once_the_holder_has_stopped() {
                         granted += 1;
                         let at_holder = lease::here(HereInput {
                             me: "dev_mac".into(),
-                            lease: lease.clone(),
+                            lease: Some(lease.clone()),
                             now,
                             disconnected_since: Some(last_seen),
                             owner_here_at: Some(owner_left),

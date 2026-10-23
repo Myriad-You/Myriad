@@ -10,9 +10,10 @@
 //! its rows and the forget arrive in ([`forget`]).
 //!
 //! Her own rows are written only by the holder of the lease and carry its
-//! epoch; the owner's rows are written anywhere, offline too, and carry
-//! none. Who may move the lease, when a holder stops by itself, and which
-//! rows overlap because the owner forced a move are in [`lease`].
+//! epoch (0 on a side that never knew a lease); the owner's rows are written
+//! anywhere, offline too, and carry none. Who may move the lease, when a
+//! holder stops by itself, and which rows overlap because the owner forced
+//! a move or a side was used alone are in [`lease`].
 //!
 //! Its clock is the shared one (`hlc`), fed corrected time and kept from
 //! running ahead of the server ([`clock`]).
