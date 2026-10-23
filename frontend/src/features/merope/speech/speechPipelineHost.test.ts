@@ -43,15 +43,87 @@ test('persona speech is off unless the status flag is on', () => {
   )
 })
 
-test('queued speech keeps its original source and generation through playback and cancellation', () => {
+/** The shared audio context the host plays on, its decoding held in hand. */
+let decoding: Promise<unknown> = Promise.resolve({ duration: 1 })
+class FakeAudioContext {
+  state: AudioContextState = 'running'
+  currentTime = 0
+  destination = {}
+  decodeAudioData(): Promise<unknown> {
+    return decoding
+  }
+
+  async resume(): Promise<void> {
+    this.state = 'running'
+  }
+
+  async suspend(): Promise<void> {
+    this.state = 'suspended'
+  }
+
+  createAnalyser(): unknown {
+    return {
+      fftSize: 256,
+      getByteTimeDomainData: (bins: Uint8Array) => bins.fill(128),
+      connect: () => {},
+      disconnect: () => {},
+    }
+  }
+
+  createBufferSource(): unknown {
+    return {
+      buffer: null,
+      onended: null,
+      connect: () => {},
+      disconnect: () => {},
+      start: () => {},
+      stop: () => {},
+    }
+  }
+}
+
+function withAudio(): () => void {
+  const saved = {
+    AudioContext: globalThis.AudioContext,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+  }
+  globalThis.AudioContext = FakeAudioContext as unknown as typeof AudioContext
+  globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame
+  globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame
+  return () => {
+    decoding = Promise.resolve({ duration: 1 })
+    Object.assign(globalThis, saved)
+  }
+}
+
+function settle(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
+function capturedSpeech(): {
+  events: MeropeSpeechEventDetail[]
+  restore: () => void
+} {
   const savedWindow = globalThis.window
-  const savedGeneration = liveMotionGeneration()
   const events: MeropeSpeechEventDetail[] = []
   const target = new EventTarget()
   target.addEventListener(MEROPE_SPEECH_EVENT, (event) =>
     events.push((event as CustomEvent<MeropeSpeechEventDetail>).detail),
   )
   globalThis.window = target as unknown as Window & typeof globalThis
+  return {
+    events,
+    restore: () => {
+      globalThis.window = savedWindow
+    },
+  }
+}
+
+test('queued speech keeps its original source and generation through playback and cancellation', async () => {
+  const savedGeneration = liveMotionGeneration()
+  const { events, restore } = capturedSpeech()
+  const restoreAudio = withAudio()
   try {
     const host = new SpeechPipelineHost()
     setLiveMotionGeneration(9)
@@ -67,6 +139,7 @@ test('queued speech keeps its original source and generation through playback an
       ).push('你真的这么想吗？')[0]!
       // Test the real outlet without widening its production visibility.
       const handle = host.play(new ArrayBuffer(0), segment, () => {})
+      await settle()
       handle.stop()
       const scoped = events.filter(
         (event) => event.messageId === segment.messageId,
@@ -81,9 +154,77 @@ test('queued speech keeps its original source and generation through playback an
       )
     }
   } finally {
-    globalThis.window = savedWindow
+    restore()
+    restoreAudio()
     setLiveMotionGeneration(savedGeneration)
     patchVoicePresence({ ttsPlaying: false })
+  }
+})
+
+test('she begins speaking when the voice starts, not while it is decoded or held', async () => {
+  const { events, restore } = capturedSpeech()
+  const restoreAudio = withAudio()
+  const decoded = Promise.withResolvers<unknown>()
+  decoding = decoded.promise
+  const segment = new SpeechSegmenter('decoding', 0, 'zh-CN').push('你真的这么想吗？')[0]!
+  const began = (): MeropeSpeechEventDetail[] =>
+    events.filter(
+      (event) => event.messageId === segment.messageId && event.phase === 'start',
+    )
+  try {
+    const host = new SpeechPipelineHost()
+    const handle = host.play(new ArrayBuffer(0), segment, () => {})
+    await settle()
+    assert.deepEqual(began(), [], 'not while it is decoded')
+    assert.equal(getVoicePresence().ttsPlaying, false)
+
+    // Decoded while held: it waits for the release to begin.
+    host.pipeline.enqueue = () => {}
+    Object.defineProperty(host.pipeline, 'playing', { get: () => true })
+    assert.equal(host.hold(), true)
+    decoded.resolve({ duration: 1 })
+    await settle()
+    assert.deepEqual(began(), [], 'not while it is held')
+    assert.equal(getVoicePresence().ttsPlaying, false)
+    assert.ok(
+      events.every((event) => event.messageId !== segment.messageId),
+      'no mouth, no gestures before it begins',
+    )
+
+    host.resume()
+    await settle()
+    assert.equal(began().length, 1)
+    assert.equal(getVoicePresence().ttsPlaying, true)
+    const mine = events.filter((event) => event.messageId === segment.messageId)
+    assert.equal(mine[0]?.phase, 'start', 'begun before its mouth and gestures')
+    handle.stop()
+  } finally {
+    restore()
+    restoreAudio()
+    patchVoicePresence({ ttsPlaying: false })
+  }
+})
+
+test('a voice that never starts is not reported as having begun or ended', async () => {
+  const { events, restore } = capturedSpeech()
+  const restoreAudio = withAudio()
+  decoding = Promise.reject(new Error('bad audio'))
+  decoding.catch(() => {})
+  const segment = new SpeechSegmenter('broken', 0, 'zh-CN').push('你真的这么想吗？')[0]!
+  try {
+    let ended = 0
+    new SpeechPipelineHost().play(new ArrayBuffer(0), segment, () => {
+      ended += 1
+    })
+    await settle()
+    assert.equal(ended, 1, 'the queue still moves on')
+    assert.deepEqual(
+      events.filter((event) => event.messageId === segment.messageId),
+      [],
+    )
+  } finally {
+    restore()
+    restoreAudio()
   }
 })
 

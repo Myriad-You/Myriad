@@ -20,6 +20,11 @@ export interface TtsPlayHooks {
     timeline: SpeechProsodyTimeline,
     timing: TtsProsodyTiming,
   ) => void
+  /**
+   * It is about to be heard: decoded, not held, resumed. Called in the same
+   * task as its first mouth frame and its start, before both.
+   */
+  onBegin?: () => void
   onStarted?: () => void
   onEnded: () => void
 }
@@ -43,6 +48,27 @@ const FFT = 256
 /** One display frame plus the mouth driver's response, without leading speech visibly. */
 export const SPEECH_MOUTH_PREDICTION_SECONDS = 0.045
 const ENERGY_WINDOW_SECONDS = 0.018
+/** Past this an output delay is a wrong reading, not a headset. */
+const MAX_OUTPUT_LATENCY_SECONDS = 1
+/** Smaller changes in the output delay are jitter, not a new device. */
+const OUTPUT_LATENCY_SHIFT_MS = 10
+
+/**
+ * How far what is heard trails the audio clock: the output device's delay, a
+ * Bluetooth headset's most of all. 0 when the browser does not say, which
+ * leaves the mouth on the audio clock as before.
+ */
+export function speechOutputLatencySeconds(
+  ctx: Partial<Pick<AudioContext, 'outputLatency' | 'baseLatency'>>,
+): number {
+  const output = ctx.outputLatency
+  if (typeof output !== 'number' || !Number.isFinite(output) || output <= 0)
+    return 0
+  const base = ctx.baseLatency
+  const processing =
+    typeof base === 'number' && Number.isFinite(base) && base > 0 ? base : 0
+  return Math.min(MAX_OUTPUT_LATENCY_SECONDS, output + processing)
+}
 
 export function playTtsBuffer(
   audio: ArrayBuffer,
@@ -108,13 +134,19 @@ export function playTtsBuffer(
       const bins: Uint8Array<ArrayBuffer> = new Uint8Array(
         new ArrayBuffer(analyser.fftSize),
       )
+      hooks.onBegin?.()
       const startedAt = ctx.currentTime
+      // Heard later than the audio clock by the output delay, read afresh
+      // each time: a headset connected mid-line moves it.
+      const heardAt = (): number =>
+        ctx.currentTime - startedAt - speechOutputLatencySeconds(ctx)
       // A held context stands still, so a hold is not counted as heard.
       played = () =>
         decoded.duration > 0
-          ? Math.min(1, Math.max(0, (ctx.currentTime - startedAt) / decoded.duration))
+          ? Math.min(1, Math.max(0, heardAt() / decoded.duration))
           : 0
-      let startedAtMs = wallNow()
+      let latencyMs = speechOutputLatencySeconds(ctx) * 1_000
+      let startedAtMs = wallNow() + latencyMs
       const prosodyInput = {
         utteranceId: `tts-${segment.segmentId}`,
         text: segment.text,
@@ -154,15 +186,23 @@ export function playTtsBuffer(
       })
       const tick = (): void => {
         if (stopped || !analyser) return
-        const elapsed = Math.max(0, ctx.currentTime - startedAt)
+        // A new output delay moves its gestures by as much, as a hold does.
+        const nextLatencyMs = speechOutputLatencySeconds(ctx) * 1_000
+        if (Math.abs(nextLatencyMs - latencyMs) >= OUTPUT_LATENCY_SHIFT_MS) {
+          startedAtMs += nextLatencyMs - latencyMs
+          latencyMs = nextLatencyMs
+          prosodyInput.startedAtMs = startedAtMs
+          hooks.onProsody?.(lastProsody, { startedAtMs })
+        }
+        const heard = heardAt()
         const sample = held
           ? HELD_MOUTH
           : sampleDecodedMouth(
             decoded,
             spans,
-            elapsed,
+            heard,
             SPEECH_MOUTH_PREDICTION_SECONDS,
-          ) ?? analyserMouth(analyser, bins, spans, elapsed)
+          ) ?? analyserMouth(analyser, bins, spans, Math.max(0, heard))
         hooks.onEnergy(sample.energy ?? 0, sample)
         raf = requestAnimationFrame(tick)
       }
@@ -250,11 +290,10 @@ export function playPcmStream(
     }
   }
   const ctx = context ?? speechAudioContext()
-  const analyser = ctx.createAnalyser()
-  analyser.fftSize = FFT
-  analyser.connect(ctx.destination)
-  const bins: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(FFT))
   const playing = new Set<AudioBufferSourceNode>()
+  // What is still to be heard, in order: the mouth reads the pieces
+  // themselves at the time they reach the ear, not the audio clock's.
+  const pieces: { at: number; buffer: AudioBuffer }[] = []
   let nextAt = 0
   let raf = 0
 
@@ -262,12 +301,20 @@ export function playPcmStream(
     if (stopped) return
     stopped = true
     if (raf) cancelAnimationFrame(raf)
-    analyser.disconnect()
+    pieces.length = 0
     hooks.onEnded()
   }
   const tick = (): void => {
     if (stopped) return
-    const sample = held ? HELD_MOUTH : analyserMouth(analyser, bins, [], 0)
+    const heard = ctx.currentTime - speechOutputLatencySeconds(ctx)
+    const ahead = heard + SPEECH_MOUTH_PREDICTION_SECONDS
+    while (pieces.length > 0 && pieces[0]!.at + pieces[0]!.buffer.duration <= ahead)
+      pieces.shift()
+    const piece = pieces[0]
+    const sample = held
+      ? HELD_MOUTH
+      : (piece && sampleDecodedMouth(piece.buffer, [], heard - piece.at)) ??
+        articulationFromEnergy(0, [], 0)
     hooks.onEnergy(sample.energy ?? 0, sample)
     raf = requestAnimationFrame(tick)
   }
@@ -284,9 +331,10 @@ export function playPcmStream(
       buffer.getChannelData(0).set(read.samples)
       const source = ctx.createBufferSource()
       source.buffer = buffer
-      source.connect(analyser)
+      source.connect(ctx.destination)
       const at = Math.max(nextAt, ctx.currentTime + PCM_LEAD_SECONDS)
       nextAt = at + buffer.duration
+      pieces.push({ at, buffer })
       playing.add(source)
       source.onended = () => {
         playing.delete(source)
@@ -296,6 +344,7 @@ export function playPcmStream(
       source.start(at)
       if (!started) {
         started = true
+        hooks.onBegin?.()
         hooks.onStarted?.()
         tick()
       }
@@ -317,7 +366,7 @@ export function playPcmStream(
         source.disconnect()
       }
       playing.clear()
-      analyser.disconnect()
+      pieces.length = 0
     },
   }
 }
@@ -340,7 +389,9 @@ export function sampleDecodedMouth(
   ) {
     return null
   }
-  const predicted = Math.max(0, seconds + Math.max(0, predictionSeconds))
+  const predicted = seconds + Math.max(0, predictionSeconds)
+  // Not reaching the ear yet: the mouth waits shut.
+  if (predicted < 0) return articulationFromEnergy(0, spans, 0)
   if (predicted >= buffer.duration) {
     return articulationFromEnergy(0, spans, predicted)
   }

@@ -3,7 +3,14 @@ import type { TextVisemeCue } from './textVisemes'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { TtsPipeline } from './ttsPipeline'
-import { pcmSamples, playTtsBuffer, sampleDecodedMouth, sampleMouth } from './ttsPlayer'
+import {
+  pcmSamples,
+  playPcmStream,
+  playTtsBuffer,
+  sampleDecodedMouth,
+  sampleMouth,
+  speechOutputLatencySeconds,
+} from './ttsPlayer'
 
 test('audio energy maps to a rest viseme when the buffer is silence', () => {
   const bins = new Uint8Array(32)
@@ -90,17 +97,31 @@ class FakeSource {
   }
 }
 
+interface FakeClock {
+  currentTime: number
+  outputLatency?: number
+  baseLatency?: number
+}
+
 function fakeContext(
   decoded: Promise<unknown>,
-  options: { state?: AudioContextState; resume?: () => Promise<void> } = {},
+  options: {
+    state?: AudioContextState
+    resume?: () => Promise<void>
+    outputLatency?: number
+    baseLatency?: number
+  } = {},
 ): {
   context: AudioContext
   sources: FakeSource[]
+  clock: FakeClock
 } {
   const sources: FakeSource[] = []
   const context = {
     state: options.state ?? 'running',
     currentTime: 0,
+    outputLatency: options.outputLatency,
+    baseLatency: options.baseLatency,
     destination: {},
     resume: options.resume ?? (() => Promise.resolve()),
     decodeAudioData: () => decoded,
@@ -115,8 +136,21 @@ function fakeContext(
       sources.push(source)
       return source
     },
+    createBuffer: (_channels: number, length: number, sampleRate: number) => {
+      const samples = new Float32Array(length)
+      return {
+        duration: length / sampleRate,
+        numberOfChannels: 1,
+        sampleRate,
+        getChannelData: () => samples,
+      }
+    },
   }
-  return { context: context as unknown as AudioContext, sources }
+  return {
+    context: context as unknown as AudioContext,
+    sources,
+    clock: context,
+  }
 }
 
 const segment = {
@@ -434,4 +468,185 @@ test('her own voice is read sample by sample, an odd byte waiting for the next p
   const second = pcmSamples(first.carry, new Uint8Array([0xC0]))
   assert.deepEqual(Array.from(second.samples), [-0.5])
   assert.equal(second.carry, null)
+})
+
+test('the output delay counts only when the browser reports one', () => {
+  assert.equal(speechOutputLatencySeconds({}), 0)
+  assert.equal(speechOutputLatencySeconds({ outputLatency: 0, baseLatency: 0.01 }), 0)
+  assert.equal(speechOutputLatencySeconds({ outputLatency: Number.NaN }), 0)
+  assert.equal(
+    speechOutputLatencySeconds({ outputLatency: 0.182, baseLatency: 0.01 }),
+    0.192,
+  )
+  assert.equal(speechOutputLatencySeconds({ outputLatency: 30 }), 1)
+})
+
+test('a voice still on its way to the ear leaves the mouth shut', () => {
+  const samples = new Float32Array(1_000).fill(0.4)
+  const buffer = {
+    duration: 1,
+    numberOfChannels: 1,
+    sampleRate: 1_000,
+    getChannelData: () => samples,
+  }
+  assert.equal(sampleDecodedMouth(buffer, [], -0.1)?.viseme, 'rest')
+  assert.equal(sampleDecodedMouth(buffer, [], -0.1)?.energy, 0)
+  assert.notEqual(sampleDecodedMouth(buffer, [], -0.01)?.viseme, 'rest')
+})
+
+/** Animation frames run by hand, one at a time. */
+function frames(): { next: () => void; restore: () => void } {
+  const saved = globalThis.requestAnimationFrame
+  let pending: FrameRequestCallback | null = null
+  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    pending = callback
+    return 1
+  }) as typeof requestAnimationFrame
+  return {
+    next: () => {
+      const callback = pending
+      pending = null
+      callback?.(0)
+    },
+    restore: () => {
+      globalThis.requestAnimationFrame = saved
+    },
+  }
+}
+
+function loudBuffer(): unknown {
+  return {
+    duration: 1,
+    numberOfChannels: 1,
+    sampleRate: 1_000,
+    getChannelData: () => new Float32Array(1_000).fill(0.4),
+  }
+}
+
+test('the mouth follows what is heard, the output delay behind the audio clock', async () => {
+  const frame = frames()
+  const mouths: string[] = []
+  const { context, clock } = fakeContext(Promise.resolve(loudBuffer()), {
+    outputLatency: 0.19,
+    baseLatency: 0.01,
+  })
+  const handle = playTtsBuffer(
+    new ArrayBuffer(8),
+    segment,
+    {
+      onEnergy: (_energy, articulation) => mouths.push(articulation.viseme),
+      onEnded: () => {},
+    },
+    context,
+    { compileVisemes: async () => [] },
+  )
+  try {
+    await settle()
+    clock.currentTime = 0.1
+    frame.next()
+    assert.deepEqual(mouths, ['rest', 'rest'], 'shut while it is on its way')
+    clock.currentTime = 0.2
+    frame.next()
+    assert.notEqual(mouths.at(-1), 'rest', 'open once it is heard')
+    assert.equal(handle.progress?.(), 0, 'only what was heard counts as said')
+    clock.currentTime = 0.7
+    assert.ok(Math.abs((handle.progress?.() ?? 0) - 0.5) < 1e-9)
+  } finally {
+    handle.stop()
+    frame.restore()
+  }
+})
+
+test('without a reported output delay the mouth keeps to the audio clock', async () => {
+  const mouths: string[] = []
+  const { context } = fakeContext(Promise.resolve(loudBuffer()))
+  const handle = playTtsBuffer(
+    new ArrayBuffer(8),
+    segment,
+    {
+      onEnergy: (_energy, articulation) => mouths.push(articulation.viseme),
+      onEnded: () => {},
+    },
+    context,
+    { compileVisemes: async () => [] },
+  )
+  await settle()
+  assert.notEqual(mouths[0], 'rest')
+  handle.stop()
+})
+
+test('gestures start when the voice is heard and move with a new output delay', async () => {
+  const frame = frames()
+  const timings: number[] = []
+  const { context, clock } = fakeContext(Promise.resolve(loudBuffer()), {
+    outputLatency: 0.2,
+  })
+  const handle = playTtsBuffer(
+    new ArrayBuffer(8),
+    segment,
+    {
+      onEnergy: () => {},
+      onProsody: (_timeline, timing) => timings.push(timing.startedAtMs),
+      onEnded: () => {},
+    },
+    context,
+    { compileVisemes: async () => [], now: () => 1_000 },
+  )
+  try {
+    await settle()
+    assert.ok(timings.length > 0)
+    assert.ok(timings.every((timing) => timing === 1_200))
+
+    // Jitter in the reading does not move them.
+    clock.outputLatency = 0.204
+    frame.next()
+    assert.ok(timings.every((timing) => timing === 1_200))
+
+    // A headset connected mid-line: moved, not started over.
+    const before = timings.length
+    clock.outputLatency = 0.25
+    frame.next()
+    assert.deepEqual(timings.slice(before), [1_250])
+    frame.next()
+    assert.equal(timings.length, before + 1)
+  } finally {
+    handle.stop()
+    frame.restore()
+  }
+})
+
+test('her own voice moves the mouth when it reaches the ear', () => {
+  const frame = frames()
+  const mouths: string[] = []
+  const { context, clock } = fakeContext(Promise.resolve({}), {
+    outputLatency: 0.2,
+  })
+  const stream = playPcmStream(
+    {
+      onEnergy: (_energy, articulation) => mouths.push(articulation.viseme),
+      onEnded: () => {},
+    },
+    context,
+  )
+  try {
+    // A tenth of a second, loud, scheduled to play at 0.12 s.
+    const bytes = new Uint8Array(4_800)
+    const view = new DataView(bytes.buffer)
+    for (let i = 0; i < 2_400; i += 1)
+      view.setInt16(i * 2, i % 2 === 0 ? 12_000 : -12_000, true)
+    stream.push(bytes)
+    assert.equal(mouths.at(-1), 'rest')
+    clock.currentTime = 0.15
+    frame.next()
+    assert.equal(mouths.at(-1), 'rest', 'played but not yet heard')
+    clock.currentTime = 0.33
+    frame.next()
+    assert.notEqual(mouths.at(-1), 'rest', 'heard')
+    clock.currentTime = 0.6
+    frame.next()
+    assert.equal(mouths.at(-1), 'rest', 'all of it heard')
+  } finally {
+    stream.stop()
+    frame.restore()
+  }
 })
