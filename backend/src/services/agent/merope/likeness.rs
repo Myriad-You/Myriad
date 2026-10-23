@@ -68,7 +68,7 @@ pub async fn unlike_them(
     {
         return *seen;
     }
-    let now = Utc::now();
+    let now = crate::clock::now();
     let lines = super::store::their_lines_in(db, user_id, venue, LINES)
         .await
         .ok()?;
@@ -146,7 +146,8 @@ mod tests {
                 None => serde_json::json!({ "mode": "chat" }),
             };
             async move {
-                let at = (Utc::now() - chrono::Duration::minutes(minutes_ago)).fixed_offset();
+                let at =
+                    (crate::clock::now() - chrono::Duration::minutes(minutes_ago)).fixed_offset();
                 let session = uuid::Uuid::new_v4().to_string();
                 db.execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,

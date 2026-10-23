@@ -219,7 +219,7 @@ async fn store<C: ConnectionTrait, T: Text>(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO agent_memory_embeddings (memory_id, model, digest, vector, created_at) \
-         VALUES ($1, $2, $3, $4, NOW()) \
+         VALUES ($1, $2, $3, $4, $5::timestamptz) \
          ON CONFLICT (memory_id) DO UPDATE SET model = EXCLUDED.model, \
          digest = EXCLUDED.digest, vector = EXCLUDED.vector, created_at = EXCLUDED.created_at",
         [
@@ -227,6 +227,7 @@ async fn store<C: ConnectionTrait, T: Text>(
             model.into(),
             digest(&row.content()).into(),
             to_bytes(vector).into(),
+            crate::clock::now().into(),
         ],
     ))
     .await

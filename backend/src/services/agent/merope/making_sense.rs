@@ -23,7 +23,7 @@ pub async fn remember_told_by(db: &DatabaseConnection, user_id: i32, told: &str)
         .await
         .unwrap_or_default()
         .into_iter()
-        .any(|row| chrono::Utc::now().fixed_offset() - row.created_at < TOLD_ONCE_WITHIN);
+        .any(|row| crate::clock::now().fixed_offset() - row.created_at < TOLD_ONCE_WITHIN);
     if lately || told.trim().is_empty() {
         return;
     }
@@ -52,7 +52,7 @@ pub async fn told_by_section(db: &DatabaseConnection, user_id: i32) -> Option<St
     let rows = unified::latest_of(db, user_id, SOURCE, TOLD_SHOWN)
         .await
         .ok()?;
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     let told: Vec<(String, String)> = rows
         .into_iter()
         .filter(|row| !row.venue.starts_with("group:"))

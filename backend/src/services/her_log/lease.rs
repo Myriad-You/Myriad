@@ -95,13 +95,14 @@ async fn insert<C: ConnectionTrait>(db: &C, grant: &Grant) -> Result<(), Error> 
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO agent_lease_grants (epoch, holder, issued, how, through, created_at) \
-         VALUES ($1, $2, $3, $4, $5, NOW())",
+         VALUES ($1, $2, $3, $4, $5, $6)",
         [
             (grant.epoch as i64).into(),
             grant.holder.clone().into(),
             grant.issued.to_string().into(),
             how_name(grant.how).into(),
             grant.through.as_ref().map(|through| json!(through)).into(),
+            crate::clock::now().into(),
         ],
     ))
     .await?;

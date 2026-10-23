@@ -50,7 +50,7 @@ pub fn load_platform_cache_files() -> Vec<PlatformCacheFile> {
             .ok()
             .and_then(|meta| meta.modified().ok())
             .map(DateTime::<Utc>::from)
-            .unwrap_or_else(Utc::now);
+            .unwrap_or_else(crate::clock::now);
         files.push(PlatformCacheFile {
             platform: stem.to_string(),
             data: json,
@@ -176,6 +176,8 @@ pub(crate) fn commit_cache_temp_file_with(
 }
 
 #[cfg(test)]
+// Unique temp names from the host's clock, not times.
+#[allow(clippy::disallowed_methods)]
 mod atomic_replace_tests {
     use super::{commit_cache_temp_file, commit_cache_temp_file_with};
     use std::fs;
@@ -184,9 +186,9 @@ mod atomic_replace_tests {
     #[test]
     fn merged_cache_keeps_oldest_timestamp_and_last_platform_value() {
         use super::{PlatformCacheFile, platform_cache_from_files};
-        use chrono::{Duration, Utc};
+        use chrono::Duration;
         use serde_json::json;
-        let now = Utc::now();
+        let now = crate::clock::now();
         let oldest = now - Duration::hours(13);
         let files = vec![
             PlatformCacheFile {
@@ -230,7 +232,7 @@ mod atomic_replace_tests {
                 data: json!({"rows": (0..1000).map(|row| json!({
                     "id": row, "title": format!("Title {row}"), "unused": padding
                 })).collect::<Vec<_>>()}),
-                fetched_at: Utc::now(),
+                fetched_at: crate::clock::now(),
             })
             .collect();
         let _profile = hotpath::HotpathGuardBuilder::new("platform_cache_assembly").build();
@@ -273,9 +275,9 @@ mod atomic_replace_tests {
     #[test]
     fn freshness_is_per_required_platform() {
         use super::{PlatformCacheFile, required_platforms_are_fresh};
-        use chrono::{Duration, Utc};
+        use chrono::Duration;
         use serde_json::json;
-        let now = Utc::now();
+        let now = crate::clock::now();
         let files = vec![
             PlatformCacheFile {
                 platform: "github".into(),

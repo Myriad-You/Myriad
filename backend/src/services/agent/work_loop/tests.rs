@@ -4,7 +4,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Schema, Statement};
 pub(super) fn checkpoint() -> Checkpoint {
     let request = UserRequest {
         raw_input: "Compare the time in Tokyo and UTC".into(),
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::clock::now(),
         user_id: 0,
         context: None,
     };
@@ -191,7 +191,7 @@ fn confirmation_checks_identity_expiry_and_explicit_choice() {
     assert!(apply_answer(&mut state.clone(), &answer(&state, "maybe")).is_err());
     let mut expired = state.clone();
     expired.task.pending_question.as_mut().unwrap().expires_at =
-        Some(chrono::Utc::now() - chrono::Duration::seconds(1));
+        Some(crate::clock::now() - chrono::Duration::seconds(1));
     assert!(apply_answer(&mut expired, &answer(&state, "yes")).is_err());
     input = answer(&state, "yes");
     apply_answer(&mut state, &input).unwrap();
@@ -331,7 +331,7 @@ async fn postgres_recipe_discovery_is_owner_scoped() {
     let mut state = checkpoint();
     state.user_id = 8383;
     state.request.user_id = 8383;
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let mut own_id = 0;
     for owner in [8383, 8384] {
         let row = agent_task_presets::ActiveModel {
@@ -442,7 +442,7 @@ async fn postgres_fencing_recovery_and_observation_driven_execution() {
         .task
         .set_pending_question(UserQuestion::free_text("Old question", "", true));
     expired.task.pending_question.as_mut().unwrap().expires_at =
-        Some(chrono::Utc::now() - chrono::Duration::seconds(1));
+        Some(crate::clock::now() - chrono::Duration::seconds(1));
     let old_question = expired
         .task
         .pending_question
@@ -506,9 +506,9 @@ async fn postgres_fencing_recovery_and_observation_driven_execution() {
         input: json!({}),
         input_schema: None,
         result_schema: None,
-        deadline: chrono::Utc::now().to_rfc3339(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
+        deadline: crate::clock::now().to_rfc3339(),
+        created_at: crate::clock::now().to_rfc3339(),
+        updated_at: crate::clock::now().to_rfc3339(),
         result: Some(json!({"ok":true})),
         rejection_reason: None,
         source: InteractionSource {

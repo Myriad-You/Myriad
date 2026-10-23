@@ -243,7 +243,7 @@ pub async fn create_tapp_report(
     metadata: Option<Value>,
 ) -> Result<CreatedTappReport, TappReportCrudError> {
     validate_report_type(report_type)?;
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let report_id = format!("report_{report_type}_{}", Uuid::new_v4());
     let storage_key = report_storage_key(&report_id);
     let created_at = now.to_rfc3339();
@@ -348,7 +348,7 @@ pub async fn update_tapp_report(
         .map_err(|_| TappReportCrudError::Database)?
         .ok_or(TappReportCrudError::NotFound)?;
 
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let mut report_data = item.value.clone();
     if let Some(title) = title {
         report_data["title"] = json!(title);
@@ -408,11 +408,10 @@ mod tests {
         report_storage_key, validate_report_type,
     };
     use crate::models::entities::platform_reports;
-    use chrono::Utc;
     use serde_json::json;
 
     fn sample_report() -> platform_reports::Model {
-        let now = Utc::now().naive_utc();
+        let now = crate::clock::now().naive_utc();
         platform_reports::Model {
             id: 7,
             user_id: 1,
@@ -452,7 +451,7 @@ mod tests {
         let item = platform_report_list_item(&super::PlatformReportSummary {
             id: 7,
             platform: "steam".into(),
-            created_at: Utc::now().naive_utc(),
+            created_at: crate::clock::now().naive_utc(),
             summary: "Played a lot".into(),
         });
         assert_eq!(item["id"], 7);

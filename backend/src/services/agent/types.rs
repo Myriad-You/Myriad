@@ -741,7 +741,7 @@ impl Recipe {
             steps: Vec::new(),
             expected_output: OutputFormat::Text,
             estimated_duration_ms: 0,
-            created_at: chrono::Utc::now(),
+            created_at: crate::clock::now(),
             metadata: HashMap::new(),
             page_context: None,
             conversation_context: None,
@@ -762,7 +762,7 @@ impl TaskState {
             status: TaskStatus::Pending,
             current_step: 0,
             step_results: HashMap::new(),
-            started_at: chrono::Utc::now(),
+            started_at: crate::clock::now(),
             completed_at: None,
             error: None,
             progress: 0,
@@ -977,9 +977,9 @@ impl UserQuestion {
             options: None,
             required,
             default_value: None,
-            created_at: chrono::Utc::now(),
+            created_at: crate::clock::now(),
             expires_at: Some(
-                chrono::Utc::now() + chrono::Duration::minutes(DEFAULT_QUESTION_TTL_MINUTES),
+                crate::clock::now() + chrono::Duration::minutes(DEFAULT_QUESTION_TTL_MINUTES),
             ),
         }
     }
@@ -1005,9 +1005,9 @@ impl UserQuestion {
             ]),
             required: true,
             default_value: None,
-            created_at: chrono::Utc::now(),
+            created_at: crate::clock::now(),
             expires_at: Some(
-                chrono::Utc::now() + chrono::Duration::minutes(DEFAULT_QUESTION_TTL_MINUTES),
+                crate::clock::now() + chrono::Duration::minutes(DEFAULT_QUESTION_TTL_MINUTES),
             ),
         }
     }
@@ -1027,14 +1027,14 @@ mod question_ttl_tests {
             options: None,
             required: true,
             default_value: None,
-            created_at: chrono::Utc::now() - chrono::Duration::minutes(5),
+            created_at: crate::clock::now() - chrono::Duration::minutes(5),
             expires_at: None,
         };
-        assert!(!q.is_expired(chrono::Utc::now()));
+        assert!(!q.is_expired(crate::clock::now()));
         q.ensure_expires_at();
         assert!(q.expires_at.is_some());
         let exp = q.expires_at.unwrap();
-        assert!(exp > chrono::Utc::now());
+        assert!(exp > crate::clock::now());
         assert_eq!(
             (exp - q.created_at).num_minutes(),
             DEFAULT_QUESTION_TTL_MINUTES
@@ -1051,11 +1051,11 @@ mod question_ttl_tests {
             options: None,
             required: false,
             default_value: None,
-            created_at: chrono::Utc::now()
+            created_at: crate::clock::now()
                 - chrono::Duration::minutes(DEFAULT_QUESTION_TTL_MINUTES + 1),
             expires_at: None,
         };
-        assert!(q.is_expired(chrono::Utc::now()));
+        assert!(q.is_expired(crate::clock::now()));
     }
 }
 

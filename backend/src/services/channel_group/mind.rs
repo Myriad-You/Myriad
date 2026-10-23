@@ -57,7 +57,7 @@ pub(super) fn unseat(venue: &str, who: &str) {
 
 /// When this process first heard a group: lines before it reached the one
 /// before, and whatever it was holding for her then went with it.
-static UP_SINCE: LazyLock<chrono::DateTime<chrono::Utc>> = LazyLock::new(chrono::Utc::now);
+static UP_SINCE: LazyLock<chrono::DateTime<chrono::Utc>> = LazyLock::new(crate::clock::now);
 
 pub(super) fn up_since() -> chrono::DateTime<chrono::Utc> {
     #[cfg(test)]

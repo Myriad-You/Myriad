@@ -15,7 +15,6 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
     QuerySelect, Set,
@@ -451,7 +450,7 @@ async fn generate_and_save_annotations(
                     explanation: Set(ann.explanation.clone()),
                     position: Set(ann.position),
                     context_hint: Set(ann.context_hint.clone()),
-                    created_at: Set(Utc::now().into()),
+                    created_at: Set(crate::clock::now().into()),
                     ..Default::default()
                 };
 
@@ -1095,7 +1094,7 @@ async fn podcast_script(
                 language: Set(language.clone()),
                 dialogues: Set(serde_json::to_value(&dialogues).unwrap_or_default()),
                 estimated_duration: Set(Some(estimated_duration)),
-                created_at: Set(Utc::now().into()),
+                created_at: Set(crate::clock::now().into()),
                 ..Default::default()
             };
 
@@ -1558,7 +1557,7 @@ async fn generate_style_tags(
             let tags_json = serde_json::to_value(&tags).unwrap_or_default();
             let mut active: phantasi_sources::ActiveModel = source.into();
             active.ai_style_tags = Set(Some(tags_json));
-            active.updated_at = Set(Utc::now().into());
+            active.updated_at = Set(crate::clock::now().into());
 
             match active.update(&db).await {
                 Err(e) => {

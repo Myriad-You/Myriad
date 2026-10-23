@@ -157,7 +157,7 @@ pub(super) async fn execute_phantasi_generate_reading_list(
     );
 
     // 计算时间范围
-    let cutoff_time = chrono::Utc::now() - chrono::Duration::days(days_back);
+    let cutoff_time = crate::clock::now() - chrono::Duration::days(days_back);
 
     let is_admin = crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await?;
     let sources = visible_sources_query(is_admin)

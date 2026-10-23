@@ -3,7 +3,6 @@ use axum::{
     extract::{Path, Query, RawQuery, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::Utc;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
     QueryOrder, Statement,
@@ -44,7 +43,7 @@ async fn fresh_configured_platform_cache()
         let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
         configured_platform_ids(&config)
     };
-    if required_platforms_are_fresh(&files, &required, Utc::now()) {
+    if required_platforms_are_fresh(&files, &required, crate::clock::now()) {
         platform_cache_from_files(files)
     } else {
         None
@@ -88,7 +87,7 @@ pub async fn fetch_all_data(State(db): State<DatabaseConnection>) -> (StatusCode
                     "message": message,
                     "data": outcome.data,
                     "errors": outcome.errors,
-                    "fetched_at": chrono::Utc::now().to_rfc3339(),
+                    "fetched_at": crate::clock::now().to_rfc3339(),
                     "from_cache": false
                 })),
             )
@@ -119,7 +118,7 @@ pub async fn refresh_platform_data(
 ) -> (StatusCode, Json<Value>) {
     if !query.force {
         if let Some(cache) = fresh_configured_platform_cache().await {
-            let age = Utc::now() - cache.fetched_at;
+            let age = crate::clock::now() - cache.fetched_at;
             return (
                 StatusCode::OK,
                 Json(json!({
@@ -152,7 +151,7 @@ pub async fn refresh_platform_data(
                     "message": message,
                     "data": outcome.data,
                     "errors": outcome.errors,
-                    "fetched_at": chrono::Utc::now().to_rfc3339()
+                    "fetched_at": crate::clock::now().to_rfc3339()
                 })),
             )
         }
@@ -209,7 +208,7 @@ pub async fn fetch_single_platform_data(
                         "data": outcome.data,
                         "partial": platform_has_usable_data(&req.platform, outcome.data.get(&req.platform)),
                         "issues": platform_fetch_details(remote_err),
-                        "fetched_at": chrono::Utc::now().to_rfc3339()
+                        "fetched_at": crate::clock::now().to_rfc3339()
                     })),
                 );
             }
@@ -220,7 +219,7 @@ pub async fn fetch_single_platform_data(
                     "success": true,
                     "message": format!("Data for {} fetched successfully", req.platform),
                     "data": outcome.data,
-                    "fetched_at": chrono::Utc::now().to_rfc3339()
+                    "fetched_at": crate::clock::now().to_rfc3339()
                 })),
             )
         }
@@ -249,7 +248,7 @@ pub async fn get_raw_metadata(
 
     // 尝试从缓存文件读取
     if let Some(cache) = load_platform_data_cache() {
-        let age = Utc::now() - cache.fetched_at;
+        let age = crate::clock::now() - cache.fetched_at;
         let age_hours = age.num_hours();
 
         tracing::info!("✅ Found cached platform data (age: {}h)", age_hours);

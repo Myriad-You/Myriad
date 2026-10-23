@@ -203,7 +203,7 @@ pub async fn register_component(
 ) -> Result<RegisteredComponent, ComponentRegistryError> {
     let type_str = component_type.as_str();
     let component_id = validate_component_config(component_type, &config)?.to_string();
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let storage_key = component_storage_key(type_str, &component_id);
     let registered_at = now.to_rfc3339();
 

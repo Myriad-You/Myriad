@@ -11,7 +11,6 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use chrono::Utc;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
     QuerySelect, Set, Statement, TransactionTrait,
@@ -213,7 +212,7 @@ async fn restore_version(
             .map(Into::into)),
         last_edited_by: Set(Some(user_id)),
         revision: Set(req.revision + 1),
-        updated_at: Set(Utc::now().into()),
+        updated_at: Set(crate::clock::now().into()),
         ..Default::default()
     };
     phantasi_note_docs::Entity::update_many()
@@ -244,7 +243,7 @@ async fn restore_version(
         last_error: Set(None),
         last_edited_by: Set(Some(user_id)),
         revision: Set(req.revision + 2),
-        updated_at: Set(Utc::now().into()),
+        updated_at: Set(crate::clock::now().into()),
         ..Default::default()
     };
     let mut rows = phantasi_note_docs::Entity::update_many()

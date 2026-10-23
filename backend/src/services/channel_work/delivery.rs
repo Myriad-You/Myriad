@@ -138,9 +138,9 @@ async fn acknowledge_item(
     sent: &StoredOutbound,
 ) -> Result<bool, DbErr> {
     let result = db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-        "UPDATE runtime_registry SET payload = jsonb_set(payload, '{next_index}', to_jsonb($4::bigint)), updated_at = NOW() \
+        "UPDATE runtime_registry SET payload = jsonb_set(payload, '{next_index}', to_jsonb($4::bigint)), updated_at = $6::timestamptz \
          WHERE namespace = $1 AND record_id = $2 AND payload->>'run_id' = $3 AND (payload->>'next_index')::bigint = $5",
-        [platform.outbound_ns().into(), key.into(), sent.run_id.as_str().into(), ((sent.next_index + 1) as i64).into(), (sent.next_index as i64).into()])).await?;
+        [platform.outbound_ns().into(), key.into(), sent.run_id.as_str().into(), ((sent.next_index + 1) as i64).into(), (sent.next_index as i64).into(), crate::clock::now().into()])).await?;
     Ok(result.rows_affected() == 1)
 }
 
@@ -167,7 +167,7 @@ async fn project_delivery(
         let outbox =
             StoredOutbound::prepare(content, images, sink.text_limit(), prompt.clone(), run_id);
         let txn = db.begin().await?;
-        let expiry = (Utc::now() + ChronoDuration::days(2)).timestamp();
+        let expiry = (crate::clock::now() + ChronoDuration::days(2)).timestamp();
         shared_registry::put(
             &txn,
             sink.platform().outbound_ns(),
@@ -206,7 +206,7 @@ async fn project_delivery(
             key,
             identity(user_id),
             &session,
-            (Utc::now() + ChronoDuration::seconds(BINDING_TTL_SECS)).timestamp(),
+            (crate::clock::now() + ChronoDuration::seconds(BINDING_TTL_SECS)).timestamp(),
         )
         .await?;
         txn.commit().await?;
@@ -298,7 +298,7 @@ mod postgres_tests {
         db.execute_unprepared("CREATE TABLE IF NOT EXISTS runtime_registry (namespace TEXT, record_id TEXT, subject_id INTEGER, owner_id INTEGER, tapp_id TEXT, runtime_id TEXT, payload JSONB NOT NULL, expires_at BIGINT, updated_at TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY(namespace, record_id)); CREATE TABLE IF NOT EXISTS runtime_mailbox (expires_at BIGINT);").await.unwrap();
         let key = format!("ack-test-{}", uuid::Uuid::new_v4());
         let sent = StoredOutbound::prepare("first", &["/image.png".into()], 100, None, "first-run");
-        let expiry = Utc::now().timestamp() + 600;
+        let expiry = crate::clock::now().timestamp() + 600;
         shared_registry::put(
             &db,
             ChannelPlatform::Telegram.outbound_ns(),

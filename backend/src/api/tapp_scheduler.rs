@@ -382,7 +382,7 @@ pub async fn register_task(
         )
     })?;
     // 表达式写错是调用方的输入问题，在这里回 400，不要落到下面 register_task 的 500。
-    TappSchedulerEngine::calculate_next_run(&schedule_type, &schedule_config, chrono::Utc::now())
+    TappSchedulerEngine::calculate_next_run(&schedule_type, &schedule_config, crate::clock::now())
         .map_err(bad_request)?;
 
     let retry_config = normalize_retry_config(req.retry)?;

@@ -268,6 +268,8 @@ impl Default for IconService {
 }
 
 #[cfg(test)]
+// Unique temp names from the host's clock, not times.
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use base64::Engine;

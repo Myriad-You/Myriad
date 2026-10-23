@@ -177,12 +177,13 @@ pub async fn create_ring(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_ring_memberships
            (ring_id, ring_name, ring_type, gossip_config, known_peers, joined_at)
-           VALUES ($1, $2, $3, $4, '[]'::json, NOW())"#,
+           VALUES ($1, $2, $3, $4, '[]'::json, $5::timestamptz)"#,
         [
             ring_id.clone().into(),
             req.name.clone().into(),
             req.ring_type.clone().into(),
             gossip_config.clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -706,8 +707,8 @@ pub async fn trigger_sync(
         let _ = db
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "UPDATE federation_ring_memberships SET last_sync_at = NOW() WHERE ring_id = $1",
-                [ring_id.into()],
+                "UPDATE federation_ring_memberships SET last_sync_at = $2::timestamptz WHERE ring_id = $1",
+                [ring_id.into(), crate::clock::now().into()],
             ))
             .await;
         return Ok(json!({"success": true, "synced_peers": 0, "message": "No data to sync"}));
@@ -719,6 +720,8 @@ pub async fn trigger_sync(
     } else {
         use std::collections::HashSet;
         let mut set = HashSet::new();
+        // A random seed, not a time: the host's clock is enough.
+        #[allow(clippy::disallowed_methods)]
         let mut rng_state = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -781,8 +784,8 @@ pub async fn trigger_sync(
     let _ = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE federation_ring_memberships SET last_sync_at = NOW() WHERE ring_id = $1",
-            [ring_id.into()],
+            "UPDATE federation_ring_memberships SET last_sync_at = $2::timestamptz WHERE ring_id = $1",
+            [ring_id.into(), crate::clock::now().into()],
         ))
         .await;
 
@@ -1355,11 +1358,15 @@ pub async fn handle_ring_sync(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_timeline
                (user_id, activity_id, activity_type, object_type, content_preview, content_json, received_at)
-               SELECT $1, e->>'a', 'Create', e->>'t', e->>'p', (e->'d')::json, NOW()
+               SELECT $1, e->>'a', 'Create', e->>'t', e->>'p', (e->'d')::json, $3::timestamptz
                FROM jsonb_array_elements($2::jsonb) AS e
                ON CONFLICT (user_id, activity_id) DO NOTHING
                RETURNING activity_id"#,
-                [first_user.into(), serde_json::Value::Array(rows).into()],
+                [
+                    first_user.into(),
+                    serde_json::Value::Array(rows).into(),
+                    crate::clock::now().into(),
+                ],
             ))
             .await
             .map_err(|e| e.to_string())?;
@@ -1381,14 +1388,18 @@ pub async fn handle_ring_sync(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_ring_memberships
-           SET last_sync_at = NOW(),
+           SET last_sync_at = $3::timestamptz,
                known_peers = CASE
                  WHEN NOT (COALESCE(known_peers, '[]'::json)::jsonb @> $2::jsonb)
                  THEN (COALESCE(known_peers, '[]'::json)::jsonb || $2::jsonb)
                  ELSE COALESCE(known_peers, '[]'::json)::jsonb
                END
            WHERE ring_id = $1"#,
-        [ring_id.into(), json!([actor_url_str]).into()],
+        [
+            ring_id.into(),
+            json!([actor_url_str]).into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(|e| e.to_string())?;
@@ -1470,9 +1481,14 @@ pub async fn handle_ring_sync(
                                     DatabaseBackend::Postgres,
                                     r#"INSERT INTO federation_activities
                                        (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-                                       VALUES ($1, $2, 'RingSync', 'Ring', $3, false, NOW())
+                                       VALUES ($1, $2, 'RingSync', 'Ring', $3, false, $4::timestamptz)
                                        RETURNING id"#,
-                                    [fwd_activity_id.into(), first_user.into(), fwd_activity.into()],
+                                    [
+                                        fwd_activity_id.into(),
+                                        first_user.into(),
+                                        fwd_activity.into(),
+                                        crate::clock::now().into(),
+                                    ],
                                 ))
                                 .await
                                 .map_err(|e| e.to_string())?;

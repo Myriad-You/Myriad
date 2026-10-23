@@ -82,7 +82,11 @@ mod integration_tests {
         let stmt = Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &sql,
-            vec![sea_orm::Value::Int(Some(-1)), sea_orm::Value::Int(Some(-2))],
+            vec![
+                sea_orm::Value::Int(Some(-1)),
+                sea_orm::Value::Int(Some(-2)),
+                crate::clock::now().into(),
+            ],
         );
         let rows = db.query_all_raw(stmt).await.expect("pulses sql executes");
         assert!(rows.is_empty(), "不存在的 source_id 不该回任何节律");

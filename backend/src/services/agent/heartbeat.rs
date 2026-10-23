@@ -260,6 +260,8 @@ impl HeartbeatManager {
         let yaml = serde_yaml::to_string(&view)
             .map_err(|error| format!("Failed to persist HEARTBEAT.md: {error}"))?;
         let content = format!("---\n{yaml}---\n\n{body}");
+        // A unique name, not a time: the host's clock is enough.
+        #[allow(clippy::disallowed_methods)]
         let tmp_path = self.config_path.with_file_name(format!(
             ".{}.tmp-{:x}",
             self.config_path
@@ -549,11 +551,15 @@ impl HeartbeatManager {
         let sql = format!(
             r#"
             DELETE FROM heartbeat_claims
-            WHERE claimed_at < NOW() - INTERVAL '{hours} hours'
+            WHERE claimed_at < $1::timestamptz - INTERVAL '{hours} hours'
             "#
         );
         match db
-            .execute_raw(Statement::from_string(DbBackend::Postgres, sql))
+            .execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                sql,
+                [crate::clock::now().into()],
+            ))
             .await
         {
             Ok(result) => {
@@ -578,7 +584,7 @@ impl HeartbeatManager {
     pub async fn record_result(&self, task_id: &str, result: &str) {
         let mut tasks = self.tasks.write().await;
         if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
-            task.last_run = Some(Utc::now());
+            task.last_run = Some(crate::clock::now());
             task.last_result = Some(result.to_string());
         }
     }
@@ -591,8 +597,8 @@ impl HeartbeatManager {
     pub async fn check_due_tasks(&self) -> Vec<HeartbeatTask> {
         // 调度前按 mtime 热加载 HEARTBEAT.md
         self.maybe_reload_if_changed().await;
-        let now_local = Local::now();
-        let now_utc = Utc::now();
+        let now_local = crate::clock::now().with_timezone(&chrono::Local);
+        let now_utc = crate::clock::now();
         let mut tasks = self.tasks.write().await;
 
         let mut due = Vec::new();
@@ -637,15 +643,15 @@ impl HeartbeatManager {
         let sql = format!(
             r#"
             INSERT INTO heartbeat_claims (task_id, minute_bucket, status, claimed_at)
-            VALUES ($1, $2, 'running', NOW())
+            VALUES ($1, $2, 'running', $3::timestamptz)
             ON CONFLICT (task_id, minute_bucket) DO UPDATE
             SET status = 'running',
-                claimed_at = NOW(),
+                claimed_at = $3::timestamptz,
                 completed_at = NULL
             WHERE heartbeat_claims.status = 'failed'
                OR (
                     heartbeat_claims.status = 'running'
-                    AND heartbeat_claims.claimed_at < NOW() - INTERVAL '{stale} seconds'
+                    AND heartbeat_claims.claimed_at < $3::timestamptz - INTERVAL '{stale} seconds'
                )
             RETURNING task_id
             "#,
@@ -655,7 +661,7 @@ impl HeartbeatManager {
             .query_one_raw(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 sql,
-                [task_id.into(), minute_bucket.into()],
+                [task_id.into(), minute_bucket.into(), crate::clock::now().into()],
             ))
             .await
         {
@@ -693,10 +699,15 @@ impl HeartbeatManager {
                 DbBackend::Postgres,
                 r#"
                 UPDATE heartbeat_claims
-                SET status = $3, completed_at = NOW()
+                SET status = $3, completed_at = $4::timestamptz
                 WHERE task_id = $1 AND minute_bucket = $2
                 "#,
-                [task_id.into(), minute_bucket.into(), status.into()],
+                [
+                    task_id.into(),
+                    minute_bucket.into(),
+                    status.into(),
+                    crate::clock::now().into(),
+                ],
             ))
             .await;
         if let Err(e) = result {
@@ -710,7 +721,7 @@ impl HeartbeatManager {
 
     /// 当前 UTC 分钟桶（unix_ts / 60）
     pub fn current_minute_bucket() -> i64 {
-        Utc::now().timestamp() / 60
+        crate::clock::now().timestamp() / 60
     }
 
     /// 重新加载配置（保留运行时状态：last_run / last_result / last_reserved）。
@@ -773,7 +784,7 @@ fn unique_slug_from_name(name: &str, existing: &[HeartbeatTask]) -> String {
         }
     }
     // unreachable in practice
-    format!("{base}-{}", Utc::now().timestamp())
+    format!("{base}-{}", crate::clock::now().timestamp())
 }
 
 // Cron 匹配
@@ -1074,7 +1085,7 @@ mod tests {
             serde_yaml::from_str("id: x\nname: n\nschedule: \"* * * * *\"\naction: a").unwrap();
         assert!(t.enabled, "enabled 缺省应为 true");
         assert!(t.last_run.is_none());
-        t.last_run = Some(Utc::now());
+        t.last_run = Some(crate::clock::now());
         t.last_result = Some("ok".to_string());
         let v = serde_json::to_value(&t).unwrap();
         assert!(v.get("lastRun").is_some(), "应序列化 lastRun: {v}");

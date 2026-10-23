@@ -612,18 +612,28 @@ export function AgentDevicesGroup() {
     </div>
   )
 
-  // Only when neither the time-sync service nor the site's own correction
-  // could make up for it (the site still judges device clocks by its own).
+  // Only when the site could not correct its clock: no trusted measurement
+  // to correct it by, or one too far off to believe.
   const clock = list?.serverClock
-  const clockWarning =
-    clock && clock.wrong && !clock.corrected && clock.offsetMs !== null
-      ? format(
-          clock.offsetMs < 0
+  const clockWarning: { title: string; body: string } | null = (() => {
+    if (!clock || clock.corrected) return null
+    const offset = clock.offsetMs
+    if (clock.trusted && offset !== null && Math.abs(offset) > clock.maxCorrectionMs) {
+      return {
+        title: format(
+          offset < 0
             ? c.agentServerClockBehindTitle
             : c.agentServerClockAheadTitle,
-          { amount: clockAmount(Math.abs(clock.offsetMs)) },
-        )
-      : null
+          { amount: clockAmount(Math.abs(offset)) },
+        ),
+        body: c.agentServerClockRangeBody,
+      }
+    }
+    return {
+      title: c.agentServerClockUnmeasuredTitle,
+      body: c.agentServerClockUnmeasuredBody,
+    }
+  })()
 
   return (
     <SettingGroup
@@ -643,8 +653,8 @@ export function AgentDevicesGroup() {
         </p>
       ) : null}
       {clockWarning ? (
-        <InfoActionCard title={clockWarning} tone="warn">
-          <p className="info-action-card-lede">{c.agentServerClockBody}</p>
+        <InfoActionCard title={clockWarning.title} tone="warn">
+          <p className="info-action-card-lede">{clockWarning.body}</p>
         </InfoActionCard>
       ) : null}
       {move && move.phase === 'proposed' && moveToDevice ? (

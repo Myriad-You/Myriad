@@ -383,7 +383,7 @@ fn eval_threads(case: &Case) -> Vec<super::merope::threads::Thread> {
             id: index.to_string(),
             about: about.clone(),
             then: then.clone(),
-            due: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+            due: Some(crate::clock::now() - chrono::Duration::hours(1)),
             hers: false,
         })
         .collect()
@@ -676,7 +676,7 @@ fn mind_chat_prompt(case: &Case) -> String {
         .collect();
     let history = super::merope::merge_said_unprompted(&history, &said);
     // Same order as production: her inner state last, nearest their words.
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     let sections: Vec<String> = [
         case.known.map(|(days_ago, days)| {
             myriad_merope::speaking::format_acquaintance_section(
@@ -699,7 +699,7 @@ fn mind_chat_prompt(case: &Case) -> String {
         super::merope::format_bits_section(&case.bits, case.in_group),
         super::merope::threads::section(
             &eval_threads(case),
-            chrono::Utc::now(),
+            crate::clock::now(),
             &super::merope::clock::zone(),
         ),
         case.writing_first

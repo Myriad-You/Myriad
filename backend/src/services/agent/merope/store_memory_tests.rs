@@ -37,7 +37,7 @@ async fn seed_fact_at(
 }
 
 async fn seed_fact(db: &DatabaseConnection, user_id: i32, content: &str) -> agent_memories::Model {
-    seed_fact_at(db, user_id, content, Utc::now().fixed_offset()).await
+    seed_fact_at(db, user_id, content, crate::clock::now().fixed_offset()).await
 }
 
 async fn test_database() -> DatabaseConnection {
@@ -86,7 +86,7 @@ async fn recall_and_memory_writes_cover_old_rows_duplicates_and_addressee_isolat
 
     // More than two pages, all at the same timestamp, also exercise id cursors.
     let old = seed_fact(&db, user_id, "  prefers   saffron tea  ").await;
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     for index in 0..260 {
         seed_fact_at(&db, user_id, &format!("unrelated recent fact {index}"), now).await;
     }

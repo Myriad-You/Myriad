@@ -22,7 +22,7 @@ pub(crate) async fn insert_author_timeline(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_timeline
                (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
-           VALUES ($1, $2, NULL, $3, $4, $5, $6, NOW())
+           VALUES ($1, $2, NULL, $3, $4, $5, $6, $7::timestamptz)
            ON CONFLICT (user_id, activity_id) DO NOTHING"#,
         [
             user_id.into(),
@@ -31,6 +31,7 @@ pub(crate) async fn insert_author_timeline(
             object_type.into(),
             preview.into(),
             object.clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await

@@ -480,8 +480,8 @@ pub async fn save(
     let result = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE users SET notification_preferences = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-            [value.into(), user_id.into()],
+            "UPDATE users SET notification_preferences = $1, updated_at = $3::timestamptz WHERE id = $2",
+            [value.into(), user_id.into(), crate::clock::now().into()],
         ))
         .await
         .map_err(|error| error.to_string())?;

@@ -85,7 +85,7 @@ async fn execute_data_transform(params: &HashMap<String, Value>) -> Result<Value
                 "count": count,
                 "preview": items.iter().take(3).cloned().collect::<Vec<_>>()
             },
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }
@@ -239,7 +239,7 @@ async fn execute_scheduler_create(
         )
         .await?;
 
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     tracing::info!(
         task_id = %task.task_id,
         tapp_id = %task.tapp_id,
@@ -311,7 +311,7 @@ async fn execute_scheduler_trigger(
         "triggered": true,
         "taskId": task_id,
         "tappId": tapp_id,
-        "timestamp": chrono::Utc::now().to_rfc3339()
+        "timestamp": crate::clock::now().to_rfc3339()
     }))
 }
 
@@ -374,7 +374,7 @@ async fn execute_heartbeat_create(
                 "message": format!("{} · {}", task.name, task.schedule),
                 "taskId": task.id
             },
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }
@@ -487,7 +487,7 @@ async fn execute_system_metrics() -> Result<Value, String> {
 
     Ok(json!({
         "status": "ok",
-        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "timestamp": crate::clock::now().to_rfc3339(),
         "scope": "process",
         "note": "Limited process-level metrics (memory/uptime/task counts). Not full host or cluster monitoring.",
         "memory": memory,
@@ -686,7 +686,7 @@ async fn execute_rsshub_healthcheck(
         "instances": results,
         "total": results.len(),
         "healthyCount": healthy_count,
-        "checkedAt": chrono::Utc::now().to_rfc3339(),
+        "checkedAt": crate::clock::now().to_rfc3339(),
         "source": "configured_instances",
     }))
 }
@@ -833,7 +833,7 @@ async fn execute_export_data(params: &HashMap<String, Value>) -> Result<Value, S
         export_data["databases"] = db_data;
     }
 
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     // Write `cache/exports/{id}.{format}`; download uses Blob `params.content`
     let export_id = format!("export_{}", now.timestamp_millis());
     let export_path = format!("cache/exports/{}.{}", export_id, format);
@@ -906,7 +906,7 @@ async fn execute_task_submit(params: &HashMap<String, Value>) -> Result<Value, S
             "platform": platform,
             "status": "submitted",
             "message": "Task submitted to background processor",
-            "timestamp": chrono::Utc::now().to_rfc3339()
+            "timestamp": crate::clock::now().to_rfc3339()
         })),
         Err(e) => Err(format!("Failed to submit task: {}", e)),
     }
@@ -989,7 +989,7 @@ async fn execute_phantasi_schedule(params: &HashMap<String, Value>) -> Result<Va
                 "action": "status",
                 "running": scheduler.as_ref().is_some_and(|s| s.is_running()),
                 "available": scheduler.is_some(),
-                "checkedAt": chrono::Utc::now().to_rfc3339()
+                "checkedAt": crate::clock::now().to_rfc3339()
             }))
         }
     }
@@ -1007,6 +1007,6 @@ async fn execute_setup_status(ctx: &HandlerContext<'_>) -> Result<Value, String>
         "hasDatabase": progress.has_database,
         "hasAdminUser": progress.has_admin_user,
         "missingConfigs": progress.missing_configs,
-        "checkedAt": chrono::Utc::now().to_rfc3339()
+        "checkedAt": crate::clock::now().to_rfc3339()
     }))
 }

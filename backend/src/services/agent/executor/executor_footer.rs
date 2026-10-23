@@ -40,7 +40,7 @@ pub(crate) fn tapp_interaction_wait_question(
         options: None,
         required: true,
         default_value: None,
-        created_at: chrono::Utc::now(),
+        created_at: crate::clock::now(),
         expires_at,
     })
 }

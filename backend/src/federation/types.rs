@@ -642,7 +642,7 @@ pub async fn get_base_url() -> String {
 
 /// ISO 8601 当前时间字符串
 pub fn now_iso8601() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    crate::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 /// 通用的数据库错误转换为 HTTP 500 响应
@@ -700,7 +700,7 @@ pub async fn insert_local_activity(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-               VALUES ($1, $2, $3, $4, $5, true, NOW())
+               VALUES ($1, $2, $3, $4, $5, true, $6::timestamptz)
                RETURNING id"#,
             [
                 activity_id.into(),
@@ -708,6 +708,7 @@ pub async fn insert_local_activity(
                 activity_type.into(),
                 object_type.into(),
                 object_json.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -727,13 +728,14 @@ pub async fn enqueue_delivery(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_delivery_queue
                (activity_id, target_inbox, target_domain, status, created_at)
-           VALUES ($1, $2, $3, $4, NOW())
+           VALUES ($1, $2, $3, $4, $5::timestamptz)
            ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
         [
             activity_db_id.into(),
             target_inbox.into(),
             domain.into(),
             status.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await?;

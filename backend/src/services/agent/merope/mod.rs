@@ -324,7 +324,7 @@ pub use myriad_merope::diary::should_write_chat_diary;
 async fn maybe_write_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, text: &str) {
     let last_age = match latest_diary(db, user_id, store::DIARY_SOURCE_CHAT).await {
         Ok(Some(last)) => {
-            Some((chrono::Utc::now() - last.created_at.with_timezone(&chrono::Utc)).num_minutes())
+            Some((crate::clock::now() - last.created_at.with_timezone(&chrono::Utc)).num_minutes())
         }
         Ok(None) => None,
         Err(_) => return,
@@ -383,7 +383,7 @@ pub use state::{
 /// The activity to act on, with a stale one read as idle.
 pub fn current_activity(state: &crate::models::entities::agent_addressee_state::Model) -> &str {
     let age =
-        (chrono::Utc::now() - state.activity_updated_at.with_timezone(&chrono::Utc)).num_seconds();
+        (crate::clock::now() - state.activity_updated_at.with_timezone(&chrono::Utc)).num_seconds();
     effective_activity(&state.activity, age)
 }
 
@@ -524,7 +524,7 @@ mod tests {
             avatar_asset_id: None,
             avatar_generation: None,
             updated_by: None,
-            updated_at: chrono::Utc::now().into(),
+            updated_at: crate::clock::now().into(),
             zone: String::new(),
             field_revs: serde_json::json!({}),
         };

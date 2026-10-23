@@ -12,11 +12,10 @@
 //! revision its next write would get). One more than five minutes ahead of
 //! the site's clock is refused, 409 `clock_ahead` with the site's time, so
 //! the device can say its clock is wrong and sync again once it is right
-//! (`myriad_persona_sync::hlc::check_ahead`). The site's clock here is real
-//! time when the site has measured its own clock and can trust it
-//! (`services::server_clock`): a site whose host is behind does not refuse
-//! a device that is right. Without such a measurement it is this host's
-//! clock, as before. `hello` requires it;
+//! (`myriad_persona_sync::hlc::check_ahead`). The site's clock is
+//! [`crate::clock`]: real time when the site has a trusted measurement of
+//! its host's clock (`services::server_clock`), so a site whose host is
+//! behind does not refuse a device that is right. `hello` requires it;
 //! `leave` never refuses it, so a device with a wrong clock can still leave.
 //! The link does not read it at all: nothing on the link is ordered by a
 //! device's clock.
@@ -69,19 +68,6 @@ pub fn clock_ahead(ahead: hlc::Ahead, server_time: i64, source: &str) -> Respons
         .into_response()
 }
 
-/// `rev` against real time as the site knows it from this host's clock at
-/// `host_micros` and its last check of that clock
-/// ([`server_clock::real_now_at`]): Ok, or the time and source it was too
-/// far ahead of.
-fn check_clock(
-    rev: &Rev,
-    host_micros: i64,
-    last: Option<(server_clock::Check, std::time::Duration)>,
-) -> Result<(), (hlc::Ahead, i64, &'static str)> {
-    let (now, source) = server_clock::real_now_at(host_micros, last);
-    hlc::check_ahead(rev, now).map_err(|ahead| (ahead, now, source))
-}
-
 /// How a gate takes the device's clock.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ClockRule {
@@ -113,12 +99,9 @@ fn clock_of(req: &Request, rule: ClockRule) -> Result<Option<Rev>, Response> {
             )
         })?;
     if rule == ClockRule::Check {
-        check_clock(
-            &rev,
-            chrono::Utc::now().timestamp_micros(),
-            server_clock::last(),
-        )
-        .map_err(|(ahead, now, source)| clock_ahead(ahead, now, source))?;
+        let now = crate::clock::now_micros();
+        hlc::check_ahead(&rev, now)
+            .map_err(|ahead| clock_ahead(ahead, now, server_clock::source()))?;
     }
     Ok(Some(rev))
 }
@@ -238,68 +221,12 @@ async fn gate(db: DatabaseConnection, mut req: Request, next: Next, rule: ClockR
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::server_clock::{Check, MAX_AGE, Measurement, Source};
-    use std::time::Duration;
-
-    const MINUTE_US: i64 = 60 * 1_000_000;
-    /// Real time.
-    const REAL: i64 = 1_761_200_000_000_000;
-
-    fn rev_at(micros: i64) -> Rev {
-        Rev::new((micros / 1000) as u64, 0, "dev_test").unwrap()
-    }
-
-    /// The site's host 10 minutes behind, as a check measured it.
-    fn behind(trusted: bool, age: Duration) -> Option<(Check, Duration)> {
-        Some((
-            Check {
-                checked_at_ms: (REAL - 10 * MINUTE_US) / 1000,
-                measured: Some(Measurement {
-                    offset_ms: -10 * 60 * 1000,
-                    source: Source::Https,
-                    trusted,
-                }),
-                threshold_ms: 60_000,
-            },
-            age,
-        ))
-    }
-
-    #[test]
-    fn a_right_device_passes_a_site_whose_host_is_behind() {
-        let host = REAL - 10 * MINUTE_US;
-        let fresh = behind(true, Duration::from_secs(60));
-        assert!(check_clock(&rev_at(REAL), host, fresh).is_ok());
-        // Without the measurement it was refused (the incident).
-        assert!(check_clock(&rev_at(REAL), host, None).is_err());
-    }
-
-    #[test]
-    fn a_device_ahead_of_real_time_is_still_refused() {
-        let host = REAL - 10 * MINUTE_US;
-        let fresh = behind(true, Duration::from_secs(60));
-        let (ahead, now, source) =
-            check_clock(&rev_at(REAL + 6 * MINUTE_US), host, fresh).unwrap_err();
-        assert_eq!((now, source), (REAL, "https"), "real time, and from where");
-        assert!(ahead.ahead_ms >= 6 * 60 * 1000 - 1);
-    }
-
-    #[test]
-    fn without_a_trusted_fresh_measurement_the_hosts_clock_as_before() {
-        let host = REAL - 10 * MINUTE_US;
-        for last in [
-            None,
-            behind(false, Duration::from_secs(60)),
-            behind(true, MAX_AGE + Duration::from_secs(1)),
-        ] {
-            let (_, now, source) = check_clock(&rev_at(REAL), host, last).unwrap_err();
-            assert_eq!((now, source), (host, "clock"));
-        }
-    }
 
     #[tokio::test]
     async fn clock_ahead_says_where_the_sites_time_came_from() {
-        let ahead = hlc::check_ahead(&rev_at(REAL + 6 * MINUTE_US), REAL).unwrap_err();
+        const REAL: i64 = 1_761_200_000_000_000;
+        let rev = Rev::new((REAL / 1000) as u64 + 6 * 60 * 1000, 0, "dev_test").unwrap();
+        let ahead = hlc::check_ahead(&rev, REAL).unwrap_err();
         let response = clock_ahead(ahead, REAL, "https");
         assert_eq!(response.status(), StatusCode::CONFLICT);
         let body = axum::body::to_bytes(response.into_body(), 1 << 16)

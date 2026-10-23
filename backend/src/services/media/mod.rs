@@ -231,7 +231,7 @@ impl MediaService {
             || row.write_token != Some(token)
             || row
                 .write_lease_until
-                .is_none_or(|until| until <= chrono::Utc::now())
+                .is_none_or(|until| until <= crate::clock::now())
         {
             return Err(MediaError::NotReady);
         }

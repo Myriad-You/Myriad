@@ -104,7 +104,7 @@ pub async fn update_any<C: ConnectionTrait>(
     let result = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             content: Set(content),
-            updated_at: Set(chrono::Utc::now().fixed_offset()),
+            updated_at: Set(crate::clock::now().fixed_offset()),
             ..Default::default()
         })
         .filter(agent_memories::Column::InvalidAt.is_null())
@@ -240,7 +240,7 @@ mod tests {
     use super::*;
 
     fn row(user_id: Option<i32>, venue: &str, source: &str) -> agent_memories::Model {
-        let now = chrono::Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         agent_memories::Model {
             id: "m".into(),
             user_id,

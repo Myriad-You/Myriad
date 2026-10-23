@@ -45,7 +45,7 @@ pub fn where_she_is(in_talk: bool, may_sleep: bool) -> Where {
         return Where::Asleep { wakes_in };
     }
     let free_in = super::doing::current()
-        .map(|doing| (doing.ends - chrono::Utc::now()).num_seconds())
+        .map(|doing| (doing.ends - crate::clock::now()).num_seconds())
         .filter(|seconds| *seconds > 0);
     match free_in {
         Some(seconds) => Where::Busy {

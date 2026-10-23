@@ -19,7 +19,7 @@ pub use myriad_agent_rules::{
 mod tests {
     use super::*;
     use crate::services::agent::types::TaskStatus;
-    use chrono::{Duration, Utc};
+    use chrono::Duration;
 
     #[test]
     fn cancellable_statuses_include_active_and_wait() {
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn retention_and_waiting_timeout() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         assert!(!is_terminal_past_retention(now - Duration::hours(23), now));
         assert!(is_terminal_past_retention(now - Duration::hours(25), now));
         assert!(!is_waiting_input_timed_out(now - Duration::hours(2), now));

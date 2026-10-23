@@ -19,7 +19,7 @@ pub(crate) fn probe(
         input(
             conversation,
             &Standing::default(),
-            super::doing::now_text(chrono::Utc::now()).as_deref(),
+            super::doing::now_text(crate::clock::now()).as_deref(),
             material,
         ),
     )

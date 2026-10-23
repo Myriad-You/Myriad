@@ -141,7 +141,7 @@ pub async fn render_and_build(
         failed(message, &log)
     })?;
     let _ = fs::remove_dir_all(&work);
-    let built_at = chrono::Utc::now().to_rfc3339();
+    let built_at = crate::clock::now().to_rfc3339();
     if let Some(fingerprint) = fingerprint {
         write_stamp(
             &layout.stamp_path(),

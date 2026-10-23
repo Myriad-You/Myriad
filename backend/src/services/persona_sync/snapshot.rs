@@ -558,8 +558,8 @@ async fn registry<C: ConnectionTrait>(
 ) -> Result<Vec<(String, Value, DateTime<FixedOffset>)>, DbErr> {
     db.query_all_raw(statement(
         "SELECT record_id, payload, updated_at FROM runtime_registry \
-         WHERE namespace = $1 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT",
-        vec![namespace.into()],
+         WHERE namespace = $1 AND expires_at > EXTRACT(EPOCH FROM $2::timestamptz)::BIGINT",
+        vec![namespace.into(), crate::clock::now().into()],
     ))
     .await?
     .iter()

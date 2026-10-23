@@ -566,7 +566,7 @@ async fn a_forget_on_the_server_deletes_the_key_and_is_answered_first() {
     };
     let db = &schema.db;
     // The server stamps its forget with its own time: the sides live now.
-    let t0 = super::now().0;
+    let t0 = super::now();
     let mut mac = Side::new("dev_mac");
     mac.now = t0;
     mac.write(

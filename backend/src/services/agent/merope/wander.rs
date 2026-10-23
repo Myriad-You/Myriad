@@ -112,7 +112,7 @@ pub async fn tick(db: DatabaseConnection) {
         return;
     }
     let myself = super::self_state::current(&db).await;
-    let now = Utc::now();
+    let now = crate::clock::now();
     for user_id in crate::services::agent::consciousness::present_users() {
         if user_id <= 0 || !super::is_logged_in_addressee(user_id) {
             continue;
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn the_mind_drifts_only_after_quiet_and_not_too_often() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let ago = |secs: i64| Some(now - chrono::Duration::seconds(secs));
         assert!(quiet_enough(ago(600), None, None, 180, now));
         assert!(!quiet_enough(ago(30), None, None, 180, now), "just spoke");
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn a_thought_is_not_had_again_for_days() {
         let user = -93_001;
-        let now = Utc::now();
+        let now = crate::clock::now();
         note_thought(user, "mem_cat".into(), now - chrono::Duration::days(1));
         note_thought(user, "mem_tea".into(), now - chrono::Duration::days(4));
         let (last, avoid) = recently_thought(user, now);

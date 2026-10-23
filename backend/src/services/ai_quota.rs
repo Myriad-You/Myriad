@@ -277,11 +277,14 @@ fn guest_quota_buckets(
 }
 
 fn period_end() -> String {
-    let tomorrow = Utc::now().date_naive().succ_opt().unwrap_or_default();
+    let tomorrow = crate::clock::now()
+        .date_naive()
+        .succ_opt()
+        .unwrap_or_default();
     tomorrow
         .and_hms_opt(0, 0, 0)
         .map(|value| DateTime::<Utc>::from_naive_utc_and_offset(value, Utc).to_rfc3339())
-        .unwrap_or_else(|| Utc::now().to_rfc3339())
+        .unwrap_or_else(|| crate::clock::now().to_rfc3339())
 }
 
 /// Borrow the existing bucket keys; the batch owns only its SQL parameters.
@@ -335,16 +338,19 @@ fn quota_values(rows: &mut [QuotaRow<'_>]) -> Result<(String, Vec<SeaValue>), Ai
 async fn ensure_quota_rows<C: ConnectionTrait>(
     db: &C,
     rows: &mut [QuotaRow<'_>],
+    now: DateTime<Utc>,
 ) -> Result<(), AiQuotaError> {
-    let (tuples, values) = quota_values(rows)?;
+    let (tuples, mut values) = quota_values(rows)?;
+    let now_ph = values.len() + 1;
+    values.push(now.into());
     db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
         format!(
             r#"
         INSERT INTO ai_quota_usage
             (user_id, scope, quota_type, used, "limit", period_start, period_end, updated_at)
-        SELECT user_id, scope, quota_type, 0, amount, date_trunc('day', NOW()),
-               date_trunc('day', NOW()) + interval '1 day', NOW()
+        SELECT user_id, scope, quota_type, 0, amount, date_trunc('day', ${now_ph}::timestamptz),
+               date_trunc('day', ${now_ph}::timestamptz) + interval '1 day', ${now_ph}::timestamptz
         FROM (VALUES {tuples}) AS input(user_id, scope, quota_type, amount, touch, period_start)
         ORDER BY user_id, scope COLLATE "C", quota_type COLLATE "C"
         ON CONFLICT (user_id, scope, quota_type, period_start)
@@ -367,8 +373,11 @@ type QuotaKey = (i32, String, String);
 async fn read_rows_for_update<C: ConnectionTrait>(
     db: &C,
     rows: &mut [QuotaRow<'_>],
+    now: DateTime<Utc>,
 ) -> Result<BTreeMap<QuotaKey, QuotaUsage>, AiQuotaError> {
-    let (tuples, values) = quota_values(rows)?;
+    let (tuples, mut values) = quota_values(rows)?;
+    let now_ph = values.len() + 1;
+    values.push(now.into());
     let results = db
         .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
@@ -379,7 +388,7 @@ async fn read_rows_for_update<C: ConnectionTrait>(
         JOIN (VALUES {tuples}) AS input(user_id, scope, quota_type, amount, touch, period_start)
           ON q.user_id = input.user_id AND q.scope = input.scope
          AND q.quota_type = input.quota_type
-        WHERE q.period_start = date_trunc('day', NOW())
+        WHERE q.period_start = date_trunc('day', ${now_ph}::timestamptz)
         ORDER BY q.user_id, q.scope COLLATE "C", q.quota_type COLLATE "C"
         FOR UPDATE OF q
     "#
@@ -428,7 +437,9 @@ async fn increment_rows(
     db: &sea_orm::DatabaseTransaction,
     rows: &mut [QuotaRow<'_>],
 ) -> Result<(), AiQuotaError> {
-    let (tuples, values) = quota_values(rows)?;
+    let (tuples, mut values) = quota_values(rows)?;
+    let now_ph = values.len() + 1;
+    values.push(crate::clock::now().into());
     let updated = db
         .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
@@ -444,7 +455,7 @@ async fn increment_rows(
         )
         UPDATE ai_quota_usage q
         SET used = q.used + locked.amount,
-            updated_at = CASE WHEN locked.touch THEN NOW() ELSE q.updated_at END
+            updated_at = CASE WHEN locked.touch THEN ${now_ph}::timestamptz ELSE q.updated_at END
         FROM locked
         WHERE q.user_id = locked.user_id AND q.scope = locked.scope
           AND q.quota_type = locked.quota_type AND q.period_start = locked.period_start
@@ -589,8 +600,9 @@ async fn reserve_buckets(
             ]
         })
         .collect();
-    ensure_quota_rows(&txn, &mut rows).await?;
-    let mut usage = read_rows_for_update(&txn, &mut rows).await?;
+    let now = crate::clock::now();
+    ensure_quota_rows(&txn, &mut rows, now).await?;
+    let mut usage = read_rows_for_update(&txn, &mut rows, now).await?;
     drop(rows);
     let mut reserved_buckets = Vec::with_capacity(bucket_limits.len());
     // Preserve business-error precedence independently of database lock order.
@@ -612,7 +624,7 @@ async fn reserve_buckets(
             return Err(ledger_error("AI quota periods do not match"));
         }
         limits.bucket.period_start = period_start;
-        let cooldown_elapsed = Utc::now()
+        let cooldown_elapsed = crate::clock::now()
             .signed_duration_since(last_call_at)
             .num_seconds()
             .max(0);
@@ -792,12 +804,13 @@ async fn read_usage_value(
                 SELECT used, updated_at
                 FROM ai_quota_usage
                 WHERE user_id = $1 AND scope = $2 AND quota_type = $3
-                  AND period_start = date_trunc('day', NOW())
+                  AND period_start = date_trunc('day', $4::timestamptz)
             "#,
             vec![
                 SeaValue::Int(Some(subject_id)),
                 SeaValue::String(Some(scope.to_string())),
                 SeaValue::String(Some(quota_type.to_string())),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -855,7 +868,7 @@ pub async fn get_ai_usage(
     let tokens_used = tokens.as_ref().map_or(0, |value| value.0);
     let remaining_seconds = calls
         .map(|(_, updated_at)| {
-            let elapsed = Utc::now()
+            let elapsed = crate::clock::now()
                 .signed_duration_since(updated_at)
                 .num_seconds()
                 .max(0);

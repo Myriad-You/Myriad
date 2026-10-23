@@ -450,7 +450,7 @@ pub async fn set_profile_text_source(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE users SET profile_text_source_kind = $1, profile_text_source_ref = $2, \
-         updated_at = NOW() WHERE id = $3",
+         updated_at = $4::timestamptz WHERE id = $3",
         vec![
             SeaValue::String(Some(kind.as_str().to_string())),
             match stored_ref {
@@ -458,6 +458,7 @@ pub async fn set_profile_text_source(
                 None => SeaValue::String(None),
             },
             SeaValue::Int(Some(user_id)),
+            crate::clock::now().into(),
         ],
     ))
     .await

@@ -102,7 +102,7 @@ mod sitting_tests {
 
     #[test]
     fn only_this_sitting_counts_toward_how_often_they_said_it() {
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         let said = |role: &str, hours_ago: i64| ConversationMessage {
             role: role.into(),
             content: "你真好".into(),

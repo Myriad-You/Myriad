@@ -1,7 +1,6 @@
 //! Host-governed text generation for scheduler and declared-API builtins.
 //! Shares AI Task registration, execution, rate limits and the quota ledger.
 
-use chrono::Utc;
 use myriad_prompt_security::validate_prompt_security;
 use myriad_tapp_contract::manifest::{TappAiOperation, TappAiOutputFormat};
 use sea_orm::DatabaseConnection;
@@ -134,7 +133,7 @@ pub async fn execute_governed_text(
         }
     };
     let task_id = task_id_for_request(subject_id, owner_id, &tapp_id, None);
-    let now = Utc::now().to_rfc3339();
+    let now = crate::clock::now().to_rfc3339();
     let snapshot = AiTaskSnapshot {
         task_id: task_id.clone(),
         status: AiTaskStatus::Queued,

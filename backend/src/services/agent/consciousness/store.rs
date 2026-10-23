@@ -68,7 +68,7 @@ impl IntentStore {
                 // yet. If it already ran, report what actually happened.
                 let update = agent_intentions::ActiveModel {
                     accept_source: Set(source.as_str().into()),
-                    updated_at: Set(to_fixed(Utc::now())),
+                    updated_at: Set(to_fixed(crate::clock::now())),
                     ..Default::default()
                 };
                 let result = agent_intentions::Entity::update_many()
@@ -102,7 +102,7 @@ impl IntentStore {
         let update = agent_intentions::ActiveModel {
             status: Set(IntentStatus::Accepted.as_str().into()),
             accept_source: Set(source.as_str().into()),
-            updated_at: Set(to_fixed(Utc::now())),
+            updated_at: Set(to_fixed(crate::clock::now())),
             ..Default::default()
         };
         let result = agent_intentions::Entity::update_many()
@@ -136,7 +136,7 @@ impl IntentStore {
     /// A concurrent user accept or claim is left alone.
     pub async fn defer_autonomy_skip(&self, intent_id: &str, user_id: i32) -> Result<bool, DbErr> {
         let update = agent_intentions::ActiveModel {
-            updated_at: Set(to_fixed(Utc::now())),
+            updated_at: Set(to_fixed(crate::clock::now())),
             ..Default::default()
         };
         let result = agent_intentions::Entity::update_many()
@@ -171,7 +171,7 @@ impl IntentStore {
     pub async fn claim_for_autonomy(&self, intent_id: &str, user_id: i32) -> Result<bool, DbErr> {
         let update = agent_intentions::ActiveModel {
             status: Set(IntentStatus::Running.as_str().into()),
-            updated_at: Set(to_fixed(Utc::now())),
+            updated_at: Set(to_fixed(crate::clock::now())),
             ..Default::default()
         };
         let result = agent_intentions::Entity::update_many()
@@ -213,7 +213,7 @@ impl IntentStore {
             work_session_id: Set(work_session_id.or(current.work_session_id.clone())),
             work_run_id: Set(work_run_id.or(current.work_run_id.clone())),
             result_summary: Set(result_summary.or(current.result_summary.clone())),
-            updated_at: Set(to_fixed(Utc::now())),
+            updated_at: Set(to_fixed(crate::clock::now())),
             ..Default::default()
         };
         let result = agent_intentions::Entity::update_many()
@@ -311,7 +311,7 @@ impl IntentStore {
     async fn expire_stale_for(&self, user_id: Option<i32>) -> Result<u64, DbErr> {
         let update = agent_intentions::ActiveModel {
             status: Set(IntentStatus::Expired.as_str().into()),
-            updated_at: Set(to_fixed(Utc::now())),
+            updated_at: Set(to_fixed(crate::clock::now())),
             ..Default::default()
         };
         let mut query = agent_intentions::Entity::update_many()
@@ -320,7 +320,7 @@ impl IntentStore {
                 IntentStatus::Proposed.as_str(),
                 IntentStatus::Accepted.as_str(),
             ]))
-            .filter(agent_intentions::Column::ExpiresAt.lte(to_fixed(Utc::now())));
+            .filter(agent_intentions::Column::ExpiresAt.lte(to_fixed(crate::clock::now())));
         if let Some(user_id) = user_id {
             query = query.filter(agent_intentions::Column::UserId.eq(user_id));
         }
@@ -350,7 +350,7 @@ impl IntentStore {
             status: Set(IntentStatus::Accepted.as_str().into()),
             work_session_id: Set(None),
             work_run_id: Set(None),
-            updated_at: Set(to_fixed(Utc::now())),
+            updated_at: Set(to_fixed(crate::clock::now())),
             ..Default::default()
         };
         let result = agent_intentions::Entity::update_many()
@@ -394,7 +394,7 @@ impl IntentStore {
         let update = agent_intentions::ActiveModel {
             work_session_id: Set(Some(session_id)),
             work_run_id: Set(Some(run_id)),
-            updated_at: Set(to_fixed(Utc::now())),
+            updated_at: Set(to_fixed(crate::clock::now())),
             ..Default::default()
         };
         let result = agent_intentions::Entity::update_many()
@@ -591,7 +591,7 @@ mod ledger_db_tests {
     }
 
     fn record(user_id: i32, source: &str, status: IntentStatus) -> IntentRecord {
-        let now = Utc::now();
+        let now = crate::clock::now();
         IntentRecord {
             id: format!("int_test_{}", uuid::Uuid::new_v4().simple()),
             user_id,
@@ -714,7 +714,7 @@ mod ledger_db_tests {
         let store = IntentStore::new(db.clone());
         let source = format!("evt_test_{}", uuid::Uuid::new_v4().simple());
         let mut row = record(user_id, &source, IntentStatus::Proposed);
-        row.expires_at = Some(Utc::now() - chrono::Duration::hours(1));
+        row.expires_at = Some(crate::clock::now() - chrono::Duration::hours(1));
         row = store.create_proposed(row).await.expect("insert");
         row = store
             .mark_accepted(&row.id, user_id, AcceptSource::Autonomy)

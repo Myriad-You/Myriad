@@ -96,7 +96,7 @@ async fn read_group(
         bits: held.iter().filter_map(bit_of).collect(),
         lands: lands_now.as_ref().map(|row| row.content.as_str()),
         day_before,
-        sore_spots: json!(super::super::sore::as_input(&sores, chrono::Utc::now())),
+        sore_spots: json!(super::super::sore::as_input(&sores, crate::clock::now())),
         shown_as: shown_as.as_deref(),
         wants,
     };
@@ -227,7 +227,7 @@ async fn lately_kept_in(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, content, evidence FROM agent_memories \
-             WHERE invalid_at IS NULL AND updated_at > now() - make_interval(days => $4) \
+             WHERE invalid_at IS NULL AND updated_at > $7::timestamptz - make_interval(days => $4) \
                AND ((venue = $1 AND source = ANY($2)) \
                  OR (source = $5 AND evidence LIKE '%' || $3 || '%')) \
              ORDER BY updated_at DESC LIMIT $6",
@@ -242,6 +242,7 @@ async fn lately_kept_in(
                 RECHECKED_WITHIN_DAYS.into(),
                 super::super::heard::SOURCE.into(),
                 (RECHECKED_AT_MOST as i64).into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -262,9 +263,9 @@ async fn lately_kept_in(
 async fn take_back(db: &DatabaseConnection, ids: Vec<String>) -> Result<u64, sea_orm::DbErr> {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE agent_memories SET invalid_at = now(), invalid_reason = $2, updated_at = now() \
+        "UPDATE agent_memories SET invalid_at = $3::timestamptz, invalid_reason = $2, updated_at = $3::timestamptz \
          WHERE id = ANY($1) AND invalid_at IS NULL",
-        [ids.into(), MISREAD.into()],
+        [ids.into(), MISREAD.into(), crate::clock::now().into()],
     ))
     .await
     .map(|done| done.rows_affected())

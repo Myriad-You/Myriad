@@ -110,7 +110,7 @@ pub(super) fn new_id() -> String {
     let random = uuid::Uuid::new_v4().simple().to_string();
     format!(
         "{}-{}",
-        chrono::Utc::now().format("%Y%m%d-%H%M%S"),
+        crate::clock::now().format("%Y%m%d-%H%M%S"),
         &random[..8]
     )
 }

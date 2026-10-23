@@ -390,7 +390,6 @@ fn log_write_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use serde_json::json;
     use std::collections::HashMap;
     use std::io::Write;
@@ -499,7 +498,7 @@ mod tests {
         package
             .stage_into(
                 &root,
-                Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
                 PackageStageContext {
                     user_id: 1,
                     installation_owner_id: 1,
@@ -594,7 +593,7 @@ mod tests {
         package
             .stage_into(
                 &root,
-                Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
                 PackageStageContext {
                     user_id: 1,
                     installation_owner_id: 1,
@@ -688,7 +687,7 @@ mod tests {
         let error = package
             .stage_into(
                 &root,
-                Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
                 PackageStageContext {
                     user_id: 1,
                     installation_owner_id: 1,
@@ -813,7 +812,7 @@ mod tests {
         package
             .stage_into(
                 &root,
-                Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
                 PackageStageContext {
                     user_id: 2,
                     installation_owner_id: 2,
@@ -868,7 +867,7 @@ mod tests {
         package
             .stage_into(
                 &root,
-                Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
                 PackageStageContext {
                     user_id: 1,
                     installation_owner_id: 1,
@@ -928,7 +927,7 @@ mod tests {
         package
             .stage_into(
                 &root,
-                Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
                 PackageStageContext {
                     user_id: 1,
                     installation_owner_id: 1,
@@ -989,7 +988,7 @@ mod tests {
         package
             .stage_into(
                 &root,
-                Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
                 PackageStageContext {
                     user_id: 1,
                     installation_owner_id: 1,

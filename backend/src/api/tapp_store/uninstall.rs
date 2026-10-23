@@ -198,13 +198,14 @@ impl UninstallScope<'_> {
                              AND COALESCE(u.is_admin, false) = false
                              AND COALESCE(u.is_owner, false) = false
                              AND COALESCE(u.last_login_at, u.last_seen_at, u.created_at)
-                                 < NOW() - make_interval(days => $4::int)
+                                 < $5::timestamptz - make_interval(days => $4::int)
                            FOR UPDATE OF t FOR SHARE OF u"#,
                         [
                             (*row_id).into(),
                             (*user_id).into(),
                             (*tapp_id).into(),
                             (*inactivity_days).into(),
+                            crate::clock::now().into(),
                         ],
                     ))
                     .one(txn)
@@ -494,9 +495,9 @@ pub async fn prune_stale_private_tapps(
             WHERE COALESCE(u.is_admin, false) = false
               AND COALESCE(u.is_owner, false) = false
               AND COALESCE(u.last_login_at, u.last_seen_at, u.created_at)
-                  < NOW() - make_interval(days => $1::int)
+                  < $2::timestamptz - make_interval(days => $1::int)
             "#,
-            [days.into()],
+            [days.into(), crate::clock::now().into()],
         ))
         .await
         .map_err(|e| e.to_string())?;

@@ -315,7 +315,7 @@ async fn execute_tapp_interact(
             "type": "agent_interaction",
             "tappId": tapp_id,
             "interactionId": interaction_id,
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }
@@ -920,7 +920,7 @@ async fn execute_tapp_windows_query(
             "type": "query_windows",
             "action": "getWindowState",
             "includeUiAnalysis": include_ui,
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }
@@ -978,7 +978,7 @@ async fn execute_tapp_window_open(
             "tappId": tapp.tapp_id,
             "position": position,
             "size": size,
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }
@@ -999,7 +999,7 @@ async fn execute_tapp_window_close(
         "frontendAction": {
             "type": "close_window",
             "target": close_target,
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }
@@ -1041,7 +1041,7 @@ async fn execute_tapp_window_focus(
         "frontendAction": {
             "type": "focus_window",
             "target": focus_target,
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }
@@ -1075,7 +1075,7 @@ async fn execute_router_navigate(params: &HashMap<String, Value>) -> Result<Valu
             "query": query_params,
             "fullPath": full_path,
             "replace": replace,
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }
@@ -1095,7 +1095,7 @@ async fn execute_page_interact(params: &HashMap<String, Value>) -> Result<Value,
         "type": "page_interact",
         "action": action,
         "target": target,
-        "timestamp": chrono::Utc::now().timestamp_millis()
+        "timestamp": crate::clock::now().timestamp_millis()
     });
     if let Some(value) = params.get("value") {
         frontend_action["value"] = value.clone();
@@ -1212,7 +1212,7 @@ async fn execute_router_state(params: &HashMap<String, Value>) -> Result<Value, 
         "context": context,
         "breadcrumb": breadcrumb,
         "canGoBack": router_can_go_back(current_path),
-        "timestamp": chrono::Utc::now().to_rfc3339()
+        "timestamp": crate::clock::now().to_rfc3339()
     }))
 }
 
@@ -1226,7 +1226,7 @@ async fn execute_music_control(params: &HashMap<String, Value>) -> Result<Value,
     let volume = params.get("volume").and_then(|v| v.as_f64());
     let position = params.get("position").and_then(|v| v.as_f64());
     let normalized = normalize_music_control(action, volume, position)?;
-    let timestamp = chrono::Utc::now().timestamp_millis();
+    let timestamp = crate::clock::now().timestamp_millis();
 
     let mut frontend_action = json!({
         "type": "music_control",
@@ -1247,7 +1247,7 @@ async fn execute_music_control(params: &HashMap<String, Value>) -> Result<Value,
 
 /// 获取音乐播放器状态（请求里带了快照就回快照，否则只发 frontendAction）
 async fn execute_music_status(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let timestamp = chrono::Utc::now().timestamp_millis();
+    let timestamp = crate::clock::now().timestamp_millis();
     let mut body = json!({
         "frontendAction": {
             "type": "music_get_status",
@@ -1295,7 +1295,7 @@ async fn execute_music_playlist(params: &HashMap<String, Value>) -> Result<Value
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    let timestamp = chrono::Utc::now().timestamp_millis();
+    let timestamp = crate::clock::now().timestamp_millis();
 
     tracing::info!(
         playlist_id = %playlist_id,

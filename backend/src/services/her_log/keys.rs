@@ -108,8 +108,8 @@ async fn audience_key<C: ConnectionTrait>(
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO agent_log_audience_keys (audience, sealed, created_at) \
-             VALUES ($1, $2, NOW()) ON CONFLICT (audience) DO NOTHING",
-            [audience.into(), sealed.into()],
+             VALUES ($1, $2, $3) ON CONFLICT (audience) DO NOTHING",
+            [audience.into(), sealed.into(), crate::clock::now().into()],
         ))
         .await?;
     }
@@ -148,12 +148,13 @@ async fn object_key<C: ConnectionTrait>(
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO agent_log_object_keys (audience, object, subject, sealed, created_at) \
-             VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (audience, object) DO NOTHING",
+             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (audience, object) DO NOTHING",
             [
                 audience.into(),
                 object.into(),
                 subject.map(str::to_string).into(),
                 sealed.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;

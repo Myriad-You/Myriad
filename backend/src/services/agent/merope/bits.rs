@@ -230,7 +230,7 @@ async fn review(
     }
     let lands_now = lands_row(db, circle).await;
     input["lands"] = json!(lands_now.as_ref().map(|row| row.content.clone()));
-    input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
+    input["soreSpots"] = json!(super::sore::as_input(&sores, crate::clock::now()));
     let input = input.to_string();
     let raw = super::call::Ask::new(super::call::Voice::Thorough, owner, SCHEMA_NAME)
         .within(std::time::Duration::from_secs(60))
@@ -393,9 +393,9 @@ pub async fn groups_lately(db: &DatabaseConnection, days: i32, limit: i64) -> Ve
         DatabaseBackend::Postgres,
         "SELECT venue FROM agent_memories \
          WHERE source = $1 AND venue LIKE 'group:%' AND invalid_at IS NULL \
-           AND updated_at > NOW() - make_interval(days => $2) \
+           AND updated_at > $4::timestamptz - make_interval(days => $2) \
          GROUP BY venue ORDER BY max(updated_at) DESC LIMIT $3",
-        [SOURCE.into(), days.into(), limit.into()],
+        [SOURCE.into(), days.into(), limit.into(), crate::clock::now().into()],
     ))
     .await
     .unwrap_or_default()
@@ -465,7 +465,7 @@ mod tests {
         evidence: Option<Value>,
         days_ago: i64,
     ) -> crate::models::entities::agent_memories::Model {
-        let at = (chrono::Utc::now() - chrono::Duration::days(days_ago)).fixed_offset();
+        let at = (crate::clock::now() - chrono::Duration::days(days_ago)).fixed_offset();
         crate::models::entities::agent_memories::Model {
             id: content.into(),
             user_id: Some(1),
@@ -642,7 +642,7 @@ mod live {
         };
         let (keeper, other) = (user("day-keeper").await, user("day-other").await);
         let venue = "telegram:-1004";
-        let day = chrono::Utc::now().fixed_offset();
+        let day = crate::clock::now().fixed_offset();
         let circle = |keeper| Circle::Group {
             venue: venue.to_string(),
             keeper,

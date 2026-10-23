@@ -211,7 +211,7 @@ pub async fn update_track(
     active.lyrics = Set(normalize_lyrics(input.lyrics));
     active.sort_order = Set(input.sort_order);
     active.enabled = Set(input.enabled);
-    active.updated_at = Set(chrono::Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     let row = active.update(db).await?;
     if old_audio_media_id != row.audio_media_id {
         release_media_if_unused(db, Some(old_audio_media_id)).await;
@@ -422,7 +422,7 @@ pub async fn update_playlist(
     let mut active: local_music_playlists::ActiveModel = existing.into();
     active.name = Set(name);
     active.sort_order = Set(input.sort_order);
-    active.updated_at = Set(chrono::Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     let row = active.update(db).await?;
     replace_playlist_tracks(db, id, &input.track_ids).await?;
     Ok(LocalPlaylistView {

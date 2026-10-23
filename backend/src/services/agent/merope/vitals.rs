@@ -264,7 +264,7 @@ pub async fn go_over(db: &DatabaseConnection) {
     if !counted.alerts.is_empty() {
         tracing::warn!(alerts = ?counted.alerts, day = %yesterday, "[Merope] her vital signs raise something");
     }
-    let keep_until = (chrono::Utc::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
+    let keep_until = (crate::clock::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
     if let Err(error) = crate::services::runtime_registry::put(
         db,
         NAMESPACE,

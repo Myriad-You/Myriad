@@ -21,8 +21,6 @@ use tokio::sync::{RwLock, watch};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
-use chrono::Utc;
-
 use crate::GLOBAL_DYNAMIC_CONFIG;
 use crate::config::DynamicConfig;
 use crate::services::bot_supervisor::{BotWorker, SessionResult, SupervisorPhase, supervise};
@@ -95,7 +93,7 @@ async fn publish_phase(phase: QqBotPhase) {
 }
 
 async fn mark_inbound() {
-    snapshot().write().await.last_inbound_at = Some(Utc::now().to_rfc3339());
+    snapshot().write().await.last_inbound_at = Some(crate::clock::now().to_rfc3339());
 }
 
 pub async fn current_status() -> QqBotStatus {

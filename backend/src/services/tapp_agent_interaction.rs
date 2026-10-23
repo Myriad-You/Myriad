@@ -6,7 +6,6 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use chrono::Utc;
 use myriad_tapp_contract::contract_rules::MAX_AGENT_SCHEMA_RESOURCE_BYTES;
 use myriad_tapp_contract::manifest::{TappAgentInteractionDef, TappAgentManifest};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, FromQueryResult, Statement};
@@ -293,15 +292,17 @@ async fn expire_interaction_if_due(
     db: &DatabaseConnection,
     interaction: &StoredInteraction,
 ) -> Result<Option<StoredInteraction>, AgentInteractionError> {
-    if interaction.snapshot.state.terminal() || interaction.deadline_at > Utc::now().timestamp() {
+    if interaction.snapshot.state.terminal()
+        || interaction.deadline_at > crate::clock::now().timestamp()
+    {
         return Ok(None);
     }
 
     let mut expired = interaction.clone();
     expired.snapshot.state = InteractionState::Expired;
     expired.snapshot.rejection_reason = Some("Agent interaction expired".to_string());
-    expired.snapshot.updated_at = Utc::now().to_rfc3339();
-    expired.retain_until = Utc::now().timestamp() + TERMINAL_RETENTION_SECONDS;
+    expired.snapshot.updated_at = crate::clock::now().to_rfc3339();
+    expired.retain_until = crate::clock::now().timestamp() + TERMINAL_RETENTION_SECONDS;
     let payload =
         serde_json::to_value(&expired).map_err(|_| AgentInteractionError::SerializationFailed)?;
     let result = db
@@ -309,16 +310,17 @@ async fn expire_interaction_if_due(
             DatabaseBackend::Postgres,
             r#"
 UPDATE runtime_registry
-SET payload = $1, expires_at = $2, updated_at = NOW()
+SET payload = $1, expires_at = $2, updated_at = $5::timestamptz
 WHERE namespace = $3 AND record_id = $4
   AND payload #>> '{snapshot,state}' IN ('pending', 'accepted')
-  AND (payload ->> 'deadline_at')::BIGINT <= EXTRACT(EPOCH FROM NOW())::BIGINT
+  AND (payload ->> 'deadline_at')::BIGINT <= EXTRACT(EPOCH FROM $5::timestamptz)::BIGINT
 "#,
             vec![
                 payload.into(),
                 expired.retain_until.into(),
                 INTERACTION_NAMESPACE.into(),
                 expired.snapshot.interaction_id.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -340,7 +342,9 @@ pub async fn load_interaction(
     }
     // A different replica may have won the expiry CAS. Reload so this request
     // never acts on the stale pending/accepted snapshot.
-    if !interaction.snapshot.state.terminal() && interaction.deadline_at <= Utc::now().timestamp() {
+    if !interaction.snapshot.state.terminal()
+        && interaction.deadline_at <= crate::clock::now().timestamp()
+    {
         return load_interaction_raw(db, interaction_id).await;
     }
     Ok(interaction)
@@ -355,13 +359,13 @@ pub(crate) async fn expire_due_interactions(
 SELECT record_id, runtime_id, payload
 FROM runtime_registry
 WHERE namespace = $1
-  AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT
+  AND expires_at > EXTRACT(EPOCH FROM $2::timestamptz)::BIGINT
   AND payload #>> '{snapshot,state}' IN ('pending', 'accepted')
-  AND (payload ->> 'deadline_at')::BIGINT <= EXTRACT(EPOCH FROM NOW())::BIGINT
+  AND (payload ->> 'deadline_at')::BIGINT <= EXTRACT(EPOCH FROM $2::timestamptz)::BIGINT
 ORDER BY updated_at ASC
 LIMIT 128
 "#,
-        vec![INTERACTION_NAMESPACE.into()],
+        vec![INTERACTION_NAMESPACE.into(), crate::clock::now().into()],
     ))
     .all(db)
     .await
@@ -395,10 +399,10 @@ async fn conditional_save_interaction(
             DatabaseBackend::Postgres,
             r#"
 UPDATE runtime_registry
-SET payload = $1, runtime_id = $2, expires_at = $3, updated_at = NOW()
+SET payload = $1, runtime_id = $2, expires_at = $3, updated_at = $11::timestamptz
 WHERE namespace = $4 AND record_id = $5
   AND subject_id = $6 AND owner_id = $7 AND tapp_id = $8
-  AND (payload ->> 'deadline_at')::BIGINT > EXTRACT(EPOCH FROM NOW())::BIGINT
+  AND (payload ->> 'deadline_at')::BIGINT > EXTRACT(EPOCH FROM $11::timestamptz)::BIGINT
   AND (
     ($10::BOOLEAN AND payload #>> '{snapshot,state}' = 'pending')
     OR (
@@ -418,6 +422,7 @@ WHERE namespace = $4 AND record_id = $5
                 runtime.tapp_id.clone().into(),
                 runtime.runtime_id.clone().into(),
                 allow_pending.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -437,7 +442,7 @@ async fn cancel_disconnected_interaction(
             DatabaseBackend::Postgres,
             r#"
 UPDATE runtime_registry
-SET payload = $1, expires_at = $2, updated_at = NOW()
+SET payload = $1, expires_at = $2, updated_at = $6::timestamptz
 WHERE namespace = $3 AND record_id = $4
   AND payload #>> '{snapshot,state}' = 'accepted'
   AND payload ->> 'accepted_runtime_id' = $5
@@ -448,6 +453,7 @@ WHERE namespace = $3 AND record_id = $4
                 INTERACTION_NAMESPACE.into(),
                 interaction.snapshot.interaction_id.clone().into(),
                 runtime_id.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -489,7 +495,7 @@ async fn notify_pending(
             INTERACTION_MAILBOX_CHANNEL,
             runtime_id,
             snapshot,
-            Utc::now().timestamp() + INTERACTION_TTL_SECONDS,
+            crate::clock::now().timestamp() + INTERACTION_TTL_SECONDS,
         )
         .await
         .map_err(|_| AgentInteractionError::Unavailable { presence: false })?;
@@ -551,7 +557,7 @@ async fn create_with_tapp(
     )
     .await?;
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let deadline_at = now.timestamp() + INTERACTION_TTL_SECONDS;
     let snapshot = AgentInteractionSnapshot {
         version: 2,
@@ -632,7 +638,7 @@ pub async fn accept_interaction(
         InteractionState::Pending => {
             interaction.snapshot.state = InteractionState::Accepted;
             interaction.accepted_runtime_id = Some(runtime.runtime_id.clone());
-            interaction.snapshot.updated_at = Utc::now().to_rfc3339();
+            interaction.snapshot.updated_at = crate::clock::now().to_rfc3339();
         }
         InteractionState::Accepted
             if interaction.accepted_runtime_id.as_deref() == Some(runtime.runtime_id.as_str()) => {}
@@ -692,9 +698,9 @@ pub async fn submit_result(
         "data": data,
         "summary": summary,
     }));
-    interaction.snapshot.updated_at = Utc::now().to_rfc3339();
+    interaction.snapshot.updated_at = crate::clock::now().to_rfc3339();
     interaction.result_idempotency_key = Some(idempotency_key);
-    interaction.retain_until = Utc::now().timestamp() + TERMINAL_RETENTION_SECONDS;
+    interaction.retain_until = crate::clock::now().timestamp() + TERMINAL_RETENTION_SECONDS;
     if !conditional_save_interaction(db, &interaction, runtime, false).await? {
         let latest = load_interaction(db, interaction_id).await?;
         if latest.snapshot.state == InteractionState::Completed
@@ -734,8 +740,8 @@ pub async fn reject_interaction(
     }
     interaction.snapshot.state = InteractionState::Rejected;
     interaction.snapshot.rejection_reason = Some(reason);
-    interaction.snapshot.updated_at = Utc::now().to_rfc3339();
-    interaction.retain_until = Utc::now().timestamp() + TERMINAL_RETENTION_SECONDS;
+    interaction.snapshot.updated_at = crate::clock::now().to_rfc3339();
+    interaction.retain_until = crate::clock::now().timestamp() + TERMINAL_RETENTION_SECONDS;
     if !conditional_save_interaction(db, &interaction, runtime, true).await? {
         return Err(AgentInteractionError::StateConflict {
             message: "Agent interaction was already finalized",
@@ -893,8 +899,8 @@ pub async fn disconnect_runtime_interactions(runtime_id: &str) -> bool {
         }
         interaction.snapshot.state = InteractionState::Cancelled;
         interaction.snapshot.rejection_reason = Some("Tapp runtime disconnected".to_string());
-        interaction.snapshot.updated_at = Utc::now().to_rfc3339();
-        interaction.retain_until = Utc::now().timestamp() + TERMINAL_RETENTION_SECONDS;
+        interaction.snapshot.updated_at = crate::clock::now().to_rfc3339();
+        interaction.retain_until = crate::clock::now().timestamp() + TERMINAL_RETENTION_SECONDS;
         if cancel_disconnected_interaction(&db, &interaction, runtime_id)
             .await
             .unwrap_or(false)
@@ -979,8 +985,8 @@ pub(super) async fn waiting_work_result_payloads(
     struct ResultRow {
         payload: Value,
     }
-    let rows = ResultRow::find_by_statement(Statement::from_string(DatabaseBackend::Postgres,
-        format!("SELECT r.payload FROM runtime_registry r JOIN agent_tasks t ON t.id = r.payload #>> '{{snapshot,source,taskId}}' AND t.user_id = (r.payload->>'subject_id')::integer WHERE r.namespace='agent_interaction' AND r.expires_at > EXTRACT(EPOCH FROM NOW())::bigint AND r.payload #>> '{{snapshot,state}}' IN ('completed','rejected','expired','cancelled') AND t.status='waiting_for_input' AND t.{} AND t.pending_question->>'question_id' = 'tapp_interaction:' || (r.payload #>> '{{snapshot,interactionId}}') LIMIT 64", crate::services::agent::types::AgentEngine::WORK_LOOP_SQL)))
+    let rows = ResultRow::find_by_statement(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+        format!("SELECT r.payload FROM runtime_registry r JOIN agent_tasks t ON t.id = r.payload #>> '{{snapshot,source,taskId}}' AND t.user_id = (r.payload->>'subject_id')::integer WHERE r.namespace='agent_interaction' AND r.expires_at > EXTRACT(EPOCH FROM $1::timestamptz)::bigint AND r.payload #>> '{{snapshot,state}}' IN ('completed','rejected','expired','cancelled') AND t.status='waiting_for_input' AND t.{} AND t.pending_question->>'question_id' = 'tapp_interaction:' || (r.payload #>> '{{snapshot,interactionId}}') LIMIT 64", crate::services::agent::types::AgentEngine::WORK_LOOP_SQL), [crate::clock::now().into()]))
         .all(db).await.map_err(|_| "Unable to redeliver Work interaction results")?;
     Ok(rows.into_iter().map(|row| row.payload).collect())
 }

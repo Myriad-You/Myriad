@@ -76,8 +76,8 @@ pub(super) async fn her_wish_toward_someone() {
     .unwrap();
 
     // Her night, going over yesterday with them.
-    let start = chrono::Utc::now().fixed_offset() - chrono::Duration::hours(31);
-    let end = chrono::Utc::now().fixed_offset() - chrono::Duration::hours(28);
+    let start = crate::clock::now().fixed_offset() - chrono::Duration::hours(31);
+    let end = crate::clock::now().fixed_offset() - chrono::Duration::hours(28);
     super::super::bits::go_over(&db, owner, start, end).await;
     let on_mind = super::super::threads::open(&db, user_id).await;
     for thread in &on_mind {

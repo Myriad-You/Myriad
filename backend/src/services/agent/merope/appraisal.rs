@@ -494,7 +494,7 @@ mod tests {
         });
         let request = UserRequest {
             raw_input: "抱抱".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::clock::now(),
             user_id: 1,
             context: Some(RequestContext {
                 conversation_history: Some(history),

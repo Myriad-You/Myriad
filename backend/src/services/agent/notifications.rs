@@ -191,7 +191,7 @@ impl Notification {
             body: body.into(),
             user_id: Some(user_id),
             metadata: None,
-            created_at: Utc::now(),
+            created_at: crate::clock::now(),
             read: false,
         }
     }
@@ -598,7 +598,7 @@ impl NotificationManager {
 
     /// 清理过期通知（保留最近 keep_days 天）
     pub async fn cleanup_old(&self, keep_days: i64) {
-        let cutoff = Utc::now() - chrono::Duration::days(keep_days);
+        let cutoff = crate::clock::now() - chrono::Duration::days(keep_days);
         self.history
             .write()
             .await
@@ -1022,7 +1022,7 @@ mod tests {
                 "old",
                 "old",
             );
-            notification.created_at = Utc::now() - chrono::Duration::days(31);
+            notification.created_at = crate::clock::now() - chrono::Duration::days(31);
             notification
         };
         manager.history.write().await.push_back(old());

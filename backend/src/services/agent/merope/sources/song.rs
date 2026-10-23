@@ -168,7 +168,7 @@ const MOVED_DAYS: i64 = 60;
 async fn moved_by_lately(db: &DatabaseConnection, this: &str) -> Vec<String> {
     use crate::services::agent::memory::unified;
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
-    let since = chrono::Utc::now() - chrono::Duration::days(MOVED_DAYS);
+    let since = crate::clock::now() - chrono::Duration::days(MOVED_DAYS);
     // Faded is still hers; a row taken away (not faded) is not.
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(

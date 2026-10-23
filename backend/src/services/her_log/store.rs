@@ -302,8 +302,12 @@ async fn take_in<C: ConnectionTrait>(
             .await?;
             txn.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "INSERT INTO agent_log_payloads (row_id, sealed, created_at) VALUES ($1, $2, NOW())",
-                [row.id.clone().into(), sealed.into()],
+                "INSERT INTO agent_log_payloads (row_id, sealed, created_at) VALUES ($1, $2, $3)",
+                [
+                    row.id.clone().into(),
+                    sealed.into(),
+                    crate::clock::now().into(),
+                ],
             ))
             .await?;
         }
@@ -341,12 +345,13 @@ async fn take_in<C: ConnectionTrait>(
         txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "INSERT INTO agent_log_ledger (audience, target, at, recorded_at) \
-             VALUES ($1, $2, $3, NOW()) \
+             VALUES ($1, $2, $3, $4) \
              ON CONFLICT (audience, target) DO UPDATE SET at = EXCLUDED.at",
             [
                 entry.audience.clone().into(),
                 entry.target.clone().into(),
                 at.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -370,7 +375,7 @@ async fn insert<C: ConnectionTrait>(db: &C, row: &Row, from: &str) -> Result<(),
         DatabaseBackend::Postgres,
         "INSERT INTO agent_log_rows (id, audience, origin, dseq, hlc, object, subject, kind, \
          forgotten, envelope, received_from, received_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         [
             row.id.clone().into(),
             row.audience.clone().into(),
@@ -383,6 +388,7 @@ async fn insert<C: ConnectionTrait>(db: &C, row: &Row, from: &str) -> Result<(),
             row.forgotten.into(),
             row.to_value().into(),
             from.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await?;
@@ -439,10 +445,9 @@ pub async fn answer<C: ConnectionTrait>(
 /// The server's clock after seeing `seen` (so its own rows sort after
 /// what it took).
 async fn observe<C: ConnectionTrait>(db: &C, seen: &Rev) -> Result<(), Error> {
-    let (now, offset) = super::now();
+    let now = super::now();
     let last = last_clock(db).await?;
-    let host = now - offset;
-    let next = myriad_persona_log::clock::observe(last.as_ref(), seen, host, offset, NODE)?;
+    let next = myriad_persona_log::clock::observe(last.as_ref(), seen, now, 0, NODE)?;
     store_clock(db, &next).await
 }
 
@@ -474,9 +479,9 @@ async fn store_clock<C: ConnectionTrait>(db: &C, rev: &Rev) -> Result<(), Error>
 
 /// The server's next revision: for a row it writes, or a grant it issues.
 pub async fn next_rev<C: ConnectionTrait>(db: &C) -> Result<Rev, Error> {
-    let (now, offset) = super::now();
+    let now = super::now();
     let last = last_clock(db).await?;
-    let next = myriad_persona_log::clock::next(last.as_ref(), now - offset, offset, NODE)?;
+    let next = myriad_persona_log::clock::next(last.as_ref(), now, 0, NODE)?;
     store_clock(db, &next).await?;
     Ok(next)
 }
@@ -530,7 +535,7 @@ pub async fn forget(
         forgotten: false,
     };
     row.check()?;
-    let (now, _) = super::now();
+    let now = super::now();
     let taken = take_in(
         &txn,
         root,
@@ -591,9 +596,9 @@ pub async fn account<C: ConnectionTrait>(db: &C, owner: i32) -> Result<Option<Ac
 pub async fn start<C: ConnectionTrait>(db: &C, owner: i32) -> Result<Account, Error> {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO agent_log_accounts (user_id, region, started_at) VALUES ($1, NULL, NOW()) \
+        "INSERT INTO agent_log_accounts (user_id, region, started_at) VALUES ($1, NULL, $2) \
          ON CONFLICT (user_id) DO UPDATE SET stopped_at = NULL",
-        [owner.into()],
+        [owner.into(), crate::clock::now().into()],
     ))
     .await?;
     account(db, owner)
@@ -605,9 +610,9 @@ pub async fn start<C: ConnectionTrait>(db: &C, owner: i32) -> Result<Account, Er
 pub async fn stop<C: ConnectionTrait>(db: &C, owner: i32) -> Result<(), Error> {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE agent_log_accounts SET stopped_at = NOW() \
+        "UPDATE agent_log_accounts SET stopped_at = $2 \
          WHERE user_id = $1 AND stopped_at IS NULL",
-        [owner.into()],
+        [owner.into(), crate::clock::now().into()],
     ))
     .await?;
     Ok(())

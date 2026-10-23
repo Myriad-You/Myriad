@@ -145,7 +145,7 @@ async fn finish_upload(
     let uploaded_id = kept.id.clone();
     let meta = ArchiveMeta {
         id: archive::new_id(),
-        created_at: chrono::Utc::now(),
+        created_at: crate::clock::now(),
         outfit_id,
         source_master_asset_id: master.asset_id.clone(),
         source_generation_fingerprint: master.generation_fingerprint.clone(),

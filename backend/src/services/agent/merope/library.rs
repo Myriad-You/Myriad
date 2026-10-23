@@ -110,7 +110,7 @@ static REFRESHING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub async fn works() -> Vec<Work> {
     let _one_at_a_time = REFRESHING.lock().await;
     let mut kept = kept().await;
-    let now = Utc::now();
+    let now = crate::clock::now();
     let stale = kept
         .fetched
         .is_none_or(|fetched| now.signed_duration_since(fetched) > REFRESH_AFTER);

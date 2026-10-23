@@ -368,11 +368,11 @@ pub async fn read<C: ConnectionTrait>(db: &C) -> Result<Option<Lease>, DbErr> {
         .query_one_raw(statement(
             &format!(
                 "INSERT INTO agent_host_lease (id, holder, lineage, epoch, state, updated_at) \
-                 SELECT 'her', $1, gen_random_uuid()::text, 1, 'live', NOW() \
+                 SELECT 'her', $1, gen_random_uuid()::text, 1, 'live', $2::timestamptz \
                  WHERE EXISTS (SELECT 1 FROM agent_persona WHERE id = 'site') \
                  ON CONFLICT (id) DO NOTHING RETURNING {COLUMNS}"
             ),
-            vec![SITE.into()],
+            vec![SITE.into(), crate::clock::now().into()],
         ))
         .await?;
     match issued {
@@ -525,10 +525,14 @@ async fn write(
     let row = txn
         .query_one_raw(statement(
             &format!(
-                "UPDATE agent_host_lease SET state = $1, move = $2, updated_at = NOW() \
+                "UPDATE agent_host_lease SET state = $1, move = $2, updated_at = $3::timestamptz \
                  WHERE id = 'her' RETURNING {COLUMNS}"
             ),
-            vec![state.as_str().into(), moving.into()],
+            vec![
+                state.as_str().into(),
+                moving.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?
         .ok_or(DbErr::RecordNotUpdated)?;
@@ -563,7 +567,7 @@ pub async fn start(
         Kind::Merge => (device.to_string(), SITE.to_string()),
         _ => (SITE.to_string(), device.to_string()),
     };
-    let now = Utc::now();
+    let now = crate::clock::now();
     let confirmed = by == Starter::Owner && kind == Kind::Merge;
     let moving = Move {
         id: format!("mv_{}", uuid::Uuid::new_v4().simple()),
@@ -621,7 +625,7 @@ pub async fn start_back(
     if lease.place() != Where::Elsewhere(device.to_string()) {
         return Err(MoveError::NotHere);
     }
-    let now = Utc::now();
+    let now = crate::clock::now();
     let confirmed = by == Starter::Owner;
     let moving = Move {
         id: format!("mv_{}", uuid::Uuid::new_v4().simple()),
@@ -687,7 +691,7 @@ pub async fn confirm(db: &DatabaseConnection, id: &str) -> Result<Lease, MoveErr
         return Err(MoveError::NotAgreed);
     }
     moving.phase = moving.phase.next().ok_or(MoveError::Phase(moving.phase))?;
-    moving.confirmed_at = Some(Utc::now());
+    moving.confirmed_at = Some(crate::clock::now());
     let lease = write(&txn, State::Frozen, Some(&moving)).await?;
     txn.commit().await?;
     tracing::info!(move_id = %id, epoch = lease.epoch, "[host] the owner confirmed a move: she is frozen");
@@ -754,7 +758,7 @@ pub(super) async fn arriving(
     epoch: i64,
     digest: &str,
 ) -> Result<Lease, DbErr> {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let moving = Move {
         id: import_id.to_string(),
         kind: Kind::Move,
@@ -781,10 +785,10 @@ pub(super) async fn arriving(
         .query_one_raw(statement(
             &format!(
                 "UPDATE agent_host_lease SET holder = $1, state = 'frozen', move = $3, \
-                 updated_at = NOW() WHERE id = 'her' AND state = 'vacant' AND lineage = $2 \
+                 updated_at = $4::timestamptz WHERE id = 'her' AND state = 'vacant' AND lineage = $2 \
                  RETURNING {COLUMNS}"
             ),
-            vec![device.into(), lineage.into(), back.into()],
+            vec![device.into(), lineage.into(), back.into(), now.into()],
         ))
         .await?
     {
@@ -795,13 +799,14 @@ pub(super) async fn arriving(
         .query_one_raw(statement(
             &format!(
                 "INSERT INTO agent_host_lease (id, holder, lineage, epoch, state, move, updated_at) \
-                 VALUES ('her', $1, $2, $3, 'frozen', $4, NOW()) RETURNING {COLUMNS}"
+                 VALUES ('her', $1, $2, $3, 'frozen', $4, $5::timestamptz) RETURNING {COLUMNS}"
             ),
             vec![
                 device.into(),
                 lineage.into(),
                 epoch.max(1).into(),
                 moving.into(),
+                now.into(),
             ],
         ))
         .await?
@@ -852,7 +857,7 @@ pub(super) async fn merge_step(
     if lease.place() != Where::Here {
         return Err(MoveError::NotHere);
     }
-    let now = Utc::now();
+    let now = crate::clock::now();
     let moving = match lease.moving {
         Some(moving) if moving.id == import_id => Move {
             phase,
@@ -915,10 +920,10 @@ pub(super) async fn merged(
         .query_one_raw(statement(
             &format!(
                 "UPDATE agent_host_lease SET epoch = epoch + 1, state = 'live', move = NULL, \
-                 updated_at = NOW() WHERE id = 'her' AND holder = $1 AND move->>'id' = $2 \
+                 updated_at = $3::timestamptz WHERE id = 'her' AND holder = $1 AND move->>'id' = $2 \
                  RETURNING {COLUMNS}"
             ),
-            vec![SITE.into(), import_id.into()],
+            vec![SITE.into(), import_id.into(), crate::clock::now().into()],
         ))
         .await?
         .ok_or(DbErr::RecordNotUpdated)?;
@@ -931,9 +936,9 @@ pub(super) async fn merge_called_off<C: ConnectionTrait>(
     import_id: &str,
 ) -> Result<(), DbErr> {
     db.execute_raw(statement(
-        "UPDATE agent_host_lease SET move = NULL, state = 'live', updated_at = NOW() \
+        "UPDATE agent_host_lease SET move = NULL, state = 'live', updated_at = $3::timestamptz \
          WHERE id = 'her' AND holder = $1 AND move->>'id' = $2",
-        vec![SITE.into(), import_id.into()],
+        vec![SITE.into(), import_id.into(), crate::clock::now().into()],
     ))
     .await?;
     Ok(())
@@ -948,6 +953,7 @@ pub(super) async fn landed(
     lineage: &str,
     came_at: i64,
 ) -> Result<Lease, DbErr> {
+    let now = crate::clock::now();
     let row = match txn
         .query_one_raw(statement(
             &format!(
@@ -955,10 +961,15 @@ pub(super) async fn landed(
                  state = 'live', done = CASE WHEN move IS NULL THEN done ELSE \
                  jsonb_build_object('id', move->>'id', 'kind', move->>'kind', \
                  'epoch', GREATEST(epoch, $3) + 1, 'import', move->>'import') END, \
-                 move = NULL, updated_at = NOW() WHERE id = 'her' AND lineage = $2 \
+                 move = NULL, updated_at = $4::timestamptz WHERE id = 'her' AND lineage = $2 \
                  RETURNING {COLUMNS}"
             ),
-            vec![SITE.into(), lineage.into(), came_at.max(0).into()],
+            vec![
+                SITE.into(),
+                lineage.into(),
+                came_at.max(0).into(),
+                now.into(),
+            ],
         ))
         .await?
     {
@@ -967,9 +978,14 @@ pub(super) async fn landed(
             .query_one_raw(statement(
                 &format!(
                     "INSERT INTO agent_host_lease (id, holder, lineage, epoch, state, updated_at) \
-                     VALUES ('her', $1, $2, $3, 'live', NOW()) RETURNING {COLUMNS}"
+                     VALUES ('her', $1, $2, $3, 'live', $4::timestamptz) RETURNING {COLUMNS}"
                 ),
-                vec![SITE.into(), lineage.into(), (came_at.max(0) + 1).into()],
+                vec![
+                    SITE.into(),
+                    lineage.into(),
+                    (came_at.max(0) + 1).into(),
+                    now.into(),
+                ],
             ))
             .await?
             .ok_or(DbErr::RecordNotInserted)?,
@@ -990,18 +1006,19 @@ pub(super) async fn forget_arrival<C: ConnectionTrait>(
     ))
     .await?;
     // A site she had left (vacant) is left as it was.
+    let now = crate::clock::now();
     db.execute_raw(statement(
-        "UPDATE agent_host_lease SET state = 'vacant', move = NULL, updated_at = NOW() \
+        "UPDATE agent_host_lease SET state = 'vacant', move = NULL, updated_at = $2::timestamptz \
          WHERE id = 'her' AND move->>'id' = $1 AND move->>'was' = 'vacant'",
-        vec![import_id.into()],
+        vec![import_id.into(), now.into()],
     ))
     .await?;
     // A move back or a reclaim that carried her as this import: she is
     // where she stood before it.
     db.execute_raw(statement(
         "UPDATE agent_host_lease SET state = COALESCE(move->>'was', 'live'), move = NULL, \
-         updated_at = NOW() WHERE id = 'her' AND move->>'import' = $1",
-        vec![import_id.into()],
+         updated_at = $2::timestamptz WHERE id = 'her' AND move->>'import' = $1",
+        vec![import_id.into(), now.into()],
     ))
     .await?;
     Ok(())
@@ -1078,10 +1095,10 @@ pub(super) async fn committed_to_device(
             &format!(
                 "UPDATE agent_host_lease SET holder = $2, epoch = epoch + 1, state = 'live', \
                  done = jsonb_build_object('id', move->>'id', 'kind', move->>'kind', \
-                 'epoch', epoch + 1), move = NULL, updated_at = NOW() \
+                 'epoch', epoch + 1), move = NULL, updated_at = $3::timestamptz \
                  WHERE id = 'her' AND move->>'id' = $1 RETURNING {COLUMNS}"
             ),
-            vec![id.into(), device.into()],
+            vec![id.into(), device.into(), crate::clock::now().into()],
         ))
         .await?
         .ok_or(DbErr::RecordNotUpdated)?;
@@ -1140,7 +1157,7 @@ pub(super) async fn reclaiming(
         phase: Phase::Proposed,
         by: Starter::Device,
         digest: None,
-        started_at: Utc::now(),
+        started_at: crate::clock::now(),
         confirmed_at: None,
         agreed: None,
         import: Some(import.to_string()),
@@ -1165,7 +1182,7 @@ pub(super) async fn import_confirmed(
         return Err(MoveError::Phase(moving.phase));
     }
     moving.phase = Phase::Frozen;
-    moving.confirmed_at = Some(Utc::now());
+    moving.confirmed_at = Some(crate::clock::now());
     Ok(write(txn, State::Frozen, Some(&moving)).await?)
 }
 
@@ -1187,19 +1204,20 @@ pub(super) async fn device_gone<C: ConnectionTrait>(db: &C, device: &str) -> Res
     ))
     .await?;
     // She lived on it: where she is now is not known here.
+    let now = crate::clock::now();
     db.execute_raw(statement(
-        "UPDATE agent_host_lease SET state = 'vacant', move = NULL, updated_at = NOW() \
+        "UPDATE agent_host_lease SET state = 'vacant', move = NULL, updated_at = $2::timestamptz \
          WHERE id = 'her' AND holder = $1 AND state <> 'vacant'",
-        vec![device.into()],
+        vec![device.into(), now.into()],
     ))
     .await?;
     // A move to it, a merge from it, or a reclaim it was sending: called
     // off, she is where she was.
     db.execute_raw(statement(
         "UPDATE agent_host_lease SET state = COALESCE(move->>'was', 'live'), move = NULL, \
-         updated_at = NOW() WHERE id = 'her' AND holder <> $1 AND \
+         updated_at = $2::timestamptz WHERE id = 'her' AND holder <> $1 AND \
          (move->>'to' = $1 OR move->>'via' = $1 OR move->>'from' = $1)",
-        vec![device.into()],
+        vec![device.into(), now.into()],
     ))
     .await?;
     Ok(())
@@ -1212,14 +1230,14 @@ pub async fn settle_orphan(db: &DatabaseConnection) -> Result<(), DbErr> {
     let changed = db
         .execute_raw(statement(
             &format!(
-                "UPDATE agent_host_lease SET state = 'vacant', move = NULL, updated_at = NOW() \
+                "UPDATE agent_host_lease SET state = 'vacant', move = NULL, updated_at = $2::timestamptz \
                  WHERE id = 'her' AND holder <> $1 AND state IN ('live', 'frozen') \
                  AND move IS NULL AND NOT EXISTS (SELECT 1 FROM agent_sync_devices d \
                  WHERE d.id = agent_host_lease.holder AND d.revoked_at IS NULL \
                  AND d.user_id = ({})) ",
                 crate::services::principal::SITE_OWNER_ID_SQL
             ),
-            vec![SITE.into()],
+            vec![SITE.into(), crate::clock::now().into()],
         ))
         .await?;
     if changed.rows_affected() > 0 {
@@ -1577,7 +1595,7 @@ mod tests {
             epoch: 3,
             state,
             moving: None,
-            updated_at: Utc::now(),
+            updated_at: crate::clock::now(),
             done: None,
         }
     }
@@ -1611,7 +1629,7 @@ mod tests {
             phase: Phase::Proposed,
             by: Starter::Owner,
             digest: None,
-            started_at: Utc::now(),
+            started_at: crate::clock::now(),
             confirmed_at: None,
             agreed: Some(false),
             import: None,
@@ -1659,8 +1677,8 @@ mod tests {
             phase: Phase::Frozen,
             by: Starter::Device,
             digest: None,
-            started_at: Utc::now(),
-            confirmed_at: Some(Utc::now()),
+            started_at: crate::clock::now(),
+            confirmed_at: Some(crate::clock::now()),
             agreed: None,
             import: None,
             via: None,

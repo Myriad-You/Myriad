@@ -17,7 +17,6 @@ use axum::{
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
 };
-use chrono::Utc;
 use futures::Stream;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -155,7 +154,7 @@ pub async fn stream_events(
     let guard = SubscriptionGuard {
         runtime_id: runtime.runtime_id().to_string(),
     };
-    let expires_in = (runtime.expires_at() - Utc::now().timestamp()).max(1) as u64;
+    let expires_in = (runtime.expires_at() - crate::clock::now().timestamp()).max(1) as u64;
     let ready = json!({
         "runtimeId": runtime.runtime_id(),
         "tappId": runtime.tapp_id(),

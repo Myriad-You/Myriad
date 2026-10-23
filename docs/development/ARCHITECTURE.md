@@ -213,8 +213,8 @@ its tables and the site behaves as before.
   `lease.yield`, `lease.stopped` in; `log.rows`, `log.vector`, `log.full`,
   `lease.grant`, `lease.epoch`, `lease.takeover`, `error` out, every frame
   checked by `myriad-her-link` both ways. A clock too far ahead refuses the
-  batch whole with `error` `clock_ahead` and `serverTime` (real time when
-  the site trusts its clock, as the HTTPS `clock_ahead`). A group's rows go
+  batch whole with `error` `clock_ahead` and `serverTime` (the site's one
+  clock, `crate::clock`, as the HTTPS `clock_ahead`). A group's rows go
   only to the core her mind is on, and only it may add to them.
 - **First full sync** (`full`): `log.full` gives a single-use link,
   `GET /api/agent/sync/log/full/{link}` behind the device gate, 10 minutes,

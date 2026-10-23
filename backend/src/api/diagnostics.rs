@@ -99,7 +99,7 @@ async fn probe_database_established_at(db: &impl ConnectionTrait) -> Option<Date
 pub async fn runtime_diagnostics(
     crate::extract::Db(db): crate::extract::Db,
 ) -> (StatusCode, Json<Value>) {
-    let generated_at = Utc::now();
+    let generated_at = crate::clock::now();
     let config_mode = crate::CONFIG_MODE.load(Ordering::Relaxed);
     let server_location_task =
         tokio::spawn(crate::services::server_location::inspect_server_location());

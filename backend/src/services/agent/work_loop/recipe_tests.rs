@@ -33,7 +33,7 @@ async fn preset(db: &sea_orm::DatabaseConnection, user: i32, steps: Vec<RecipeSt
     .unwrap();
     let mut recipe = tests::checkpoint().task.recipe.unwrap();
     recipe.steps = steps;
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     presets::ActiveModel {
         user_id: Set(user),
         input: Set("fixture".into()),

@@ -4,7 +4,6 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use chrono::Utc;
 #[cfg(test)]
 use sea_orm::QueryTrait;
 use sea_orm::{
@@ -123,7 +122,7 @@ pub(crate) async fn mark_all_read(
         .await
         .map_err(|error| phantasi_store_http("begin bulk reading state write", error))?;
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let bind = [
         now.into(),
         user_id.into(),

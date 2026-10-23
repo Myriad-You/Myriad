@@ -97,7 +97,7 @@ pub async fn claim_receipt<C: ConnectionTrait + ?Sized>(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_inbox_receipts
                    (signer, activity_id, inbox_scope, body_digest, status, created_at)
-               VALUES ($1, $2, $3, $4, 'processing', NOW())
+               VALUES ($1, $2, $3, $4, 'processing', $5::timestamptz)
                ON CONFLICT (signer, activity_id, inbox_scope) DO NOTHING
                RETURNING signer"#,
             [
@@ -105,6 +105,7 @@ pub async fn claim_receipt<C: ConnectionTrait + ?Sized>(
                 key.activity_id.clone().into(),
                 key.inbox_scope.clone().into(),
                 key.body_digest.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -175,7 +176,7 @@ pub async fn finish_receipt<C: ConnectionTrait + ?Sized>(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_inbox_receipts
            SET status = $5, outcome_status = $6, error_message = $7,
-               completed_at = NOW()
+               completed_at = $8::timestamptz
            WHERE signer = $1 AND activity_id = $2 AND inbox_scope = $3
              AND body_digest = $4
              AND status = 'processing'"#,
@@ -187,6 +188,7 @@ pub async fn finish_receipt<C: ConnectionTrait + ?Sized>(
                 state.into(),
                 (status as i16).into(),
                 message.map(str::to_owned).into(),
+                crate::clock::now().into(),
             ],
         ))
         .await

@@ -182,13 +182,9 @@ impl From<myriad_persona_log::LogError> for Error {
     }
 }
 
-/// The server's time for her log, in microseconds: real time when the site
-/// trusts its measurement of its own clock, else this host's clock (the
-/// same time `clock_ahead` compares device clocks with). The second value
-/// is the offset from this host's clock.
-pub fn now() -> (i64, i64) {
-    let host = chrono::Utc::now().timestamp_micros();
-    let (real, _) =
-        crate::services::server_clock::real_now_at(host, crate::services::server_clock::last());
-    (real, real - host)
+/// The server's time for her log, in microseconds: the site's one clock
+/// (`crate::clock`), the same time `clock_ahead` compares device clocks
+/// with. It is already corrected, so her log's clock takes no offset.
+pub fn now() -> i64 {
+    crate::clock::now_micros()
 }

@@ -183,13 +183,14 @@ async fn sync_user_oauth_columns(
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE users SET linked_github_id = COALESCE($1, linked_github_id), \
-                 avatar_url = COALESCE($2, avatar_url), updated_at = NOW() WHERE id = $3",
+                 avatar_url = COALESCE($2, avatar_url), updated_at = $4::timestamptz WHERE id = $3",
                 vec![
                     SeaValue::BigInt(github_id),
                     avatar_url
                         .map(|s| SeaValue::String(Some(s)))
                         .unwrap_or(SeaValue::String(None)),
                     SeaValue::Int(Some(user_id)),
+                    crate::clock::now().into(),
                 ],
             ))
             .await
@@ -206,10 +207,11 @@ async fn sync_user_oauth_columns(
     if let Err(e) = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2",
+            "UPDATE users SET avatar_url = $1, updated_at = $3::timestamptz WHERE id = $2",
             vec![
                 SeaValue::String(Some(avatar_url)),
                 SeaValue::Int(Some(user_id)),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -821,12 +823,13 @@ async fn find_or_create_user(
             err_500("Database error")
         })?;
         // 更新 identity 的 last_login_at + 档案字段
+        let now = crate::clock::now();
         let _ = db
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE user_identities SET \
                     provider_username = $1, email = $2, avatar_url = $3, profile_url = $4, \
-                    raw_profile = $5, last_login_at = NOW() \
+                    raw_profile = $5, last_login_at = $8::timestamptz \
                  WHERE provider = $6 AND provider_user_id = $7",
                 vec![
                     SeaValue::String(Some(profile.username.clone())),
@@ -848,6 +851,7 @@ async fn find_or_create_user(
                     SeaValue::Json(Some(Box::new(profile.raw.clone()))),
                     SeaValue::String(Some(slug.to_string())),
                     SeaValue::String(Some(profile.provider_user_id.clone())),
+                    now.into(),
                 ],
             ))
             .await;
@@ -856,8 +860,8 @@ async fn find_or_create_user(
         let _ = db
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "UPDATE users SET last_login_at = NOW() WHERE id = $1",
-                vec![SeaValue::Int(Some(uid))],
+                "UPDATE users SET last_login_at = $2::timestamptz WHERE id = $1",
+                vec![SeaValue::Int(Some(uid)), now.into()],
             ))
             .await;
         return Ok(uid);
@@ -921,7 +925,7 @@ async fn find_or_create_user(
                 "INSERT INTO users (username, display_name, email, avatar_url, \
                                      is_admin, auth_provider, github_id, github_profile_url, \
                                      last_login_at, created_at, updated_at) \
-                 VALUES ($1, $2, $3, $4, false, $5, $6, $7, NOW(), NOW(), NOW()) \
+                 VALUES ($1, $2, $3, $4, false, $5, $6, $7, $8::timestamptz, $8::timestamptz, $8::timestamptz) \
                  RETURNING id",
                 vec![
                     SeaValue::String(Some(unique_username.clone())),
@@ -957,6 +961,7 @@ async fn find_or_create_user(
                     } else {
                         SeaValue::String(None)
                     },
+                    crate::clock::now().into(),
                 ],
             ))
             .await
@@ -1058,7 +1063,7 @@ async fn upsert_identity(
             $1, $2, $3, $4, $5, $6, $7, $8, $9, \
             (NOT EXISTS (SELECT 1 FROM user_identities WHERE user_id = $1 \
                 AND LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu'))), \
-            NOW(), NOW() \
+            $10::timestamptz, $10::timestamptz \
          ) \
          ON CONFLICT (provider, provider_user_id) DO UPDATE SET \
             provider_username = EXCLUDED.provider_username, \
@@ -1067,7 +1072,7 @@ async fn upsert_identity(
             avatar_url = EXCLUDED.avatar_url, \
             profile_url = EXCLUDED.profile_url, \
             raw_profile = EXCLUDED.raw_profile, \
-            last_login_at = NOW() \
+            last_login_at = $10::timestamptz \
          WHERE user_identities.user_id = EXCLUDED.user_id",
         vec![
             SeaValue::Int(Some(user_id)),
@@ -1091,6 +1096,7 @@ async fn upsert_identity(
                 .map(|s| SeaValue::String(Some(s)))
                 .unwrap_or(SeaValue::String(None)),
             SeaValue::Json(Some(Box::new(profile.raw.clone()))),
+            crate::clock::now().into(),
         ],
     ))
     .await

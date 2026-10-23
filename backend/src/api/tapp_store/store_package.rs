@@ -84,7 +84,7 @@ pub(crate) use crate::services::tapp_store_package::{
 fn with_store_cache_bust(url: &str) -> String {
     let token = format!(
         "{}{}",
-        chrono::Utc::now().timestamp_millis(),
+        crate::clock::now().timestamp_millis(),
         std::process::id()
     );
     append_store_cache_bust(url, &token)

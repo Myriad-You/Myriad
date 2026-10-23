@@ -161,6 +161,7 @@ pub async fn take_piece(
     let part = path.with_extension("her-archive.part");
     let failed = |error: std::io::Error| BackupError::Failed(error.to_string());
     let txn = db.begin().await?;
+    let now = crate::clock::now();
     let row = txn
         .query_one_raw(statement(
             "SELECT id, received, bytes FROM agent_host_backups WHERE device_id = $1 AND day = $2 \
@@ -176,10 +177,10 @@ pub async fn take_piece(
         txn.execute_raw(statement(
             "INSERT INTO agent_host_backups (id, device_id, day, lineage, epoch, digest, bytes, \
              received, complete, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 0, false, NOW(), NOW()) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 0, false, $8::timestamptz, $8::timestamptz) \
              ON CONFLICT (device_id, day) DO UPDATE SET lineage = EXCLUDED.lineage, \
              epoch = EXCLUDED.epoch, digest = EXCLUDED.digest, bytes = EXCLUDED.bytes, \
-             received = 0, complete = false, updated_at = NOW()",
+             received = 0, complete = false, updated_at = $8::timestamptz",
             vec![
                 id.clone().into(),
                 device.into(),
@@ -188,6 +189,7 @@ pub async fn take_piece(
                 query.epoch.into(),
                 query.digest.clone().into(),
                 (query.total as i64).into(),
+                now.into(),
             ],
         ))
         .await?;
@@ -219,9 +221,14 @@ pub async fn take_piece(
     let received = query.offset + bytes.len() as u64;
     let complete = received == query.total;
     txn.execute_raw(statement(
-        "UPDATE agent_host_backups SET received = $2, complete = $3, updated_at = NOW() \
+        "UPDATE agent_host_backups SET received = $2, complete = $3, updated_at = $4::timestamptz \
          WHERE id = $1",
-        vec![id.clone().into(), (received as i64).into(), complete.into()],
+        vec![
+            id.clone().into(),
+            (received as i64).into(),
+            complete.into(),
+            now.into(),
+        ],
     ))
     .await?;
     if complete {

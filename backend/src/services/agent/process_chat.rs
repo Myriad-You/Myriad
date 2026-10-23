@@ -279,7 +279,7 @@ fn chat_music_frontend_action(
     let mut value = json!({
         "type": "music_control",
         "action": action,
-        "timestamp": chrono::Utc::now().timestamp_millis(),
+        "timestamp": crate::clock::now().timestamp_millis(),
     });
     if let Some(song) = song {
         value["song"] = song;

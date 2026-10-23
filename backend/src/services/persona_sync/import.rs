@@ -434,7 +434,7 @@ pub(super) async fn begin_carrying(
             &format!(
                 "INSERT INTO agent_host_import (id, source, device_id, lineage, epoch, name, \
                  manifest, phase, created_at, updated_at, confirmed_at, kind) \
-                 VALUES ($1, 'device', $2, $3, $4, $5, $6, $7, NOW(), NOW(), NOW(), $8) \
+                 VALUES ($1, 'device', $2, $3, $4, $5, $6, $7, $9::timestamptz, $9::timestamptz, $9::timestamptz, $8) \
                  RETURNING {COLUMNS}"
             ),
             vec![
@@ -448,6 +448,7 @@ pub(super) async fn begin_carrying(
                     .into(),
                 phase::CONFIRMED.into(),
                 kind_of.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?
@@ -645,7 +646,7 @@ pub async fn propose(
             &format!(
                 "INSERT INTO agent_host_import (id, source, device_id, lineage, epoch, name, \
                  manifest, phase, created_at, updated_at, kind, subject, preview) \
-                 VALUES ($1, 'device', $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10) \
+                 VALUES ($1, 'device', $2, $3, $4, $5, $6, $7, $11::timestamptz, $11::timestamptz, $8, $9, $10) \
                  RETURNING {COLUMNS}"
             ),
             vec![
@@ -663,6 +664,7 @@ pub async fn propose(
                     .transpose()
                     .map_err(ImportError::failed)?
                     .into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?
@@ -752,9 +754,9 @@ pub async fn confirm(
             .await
             .map_err(merge_refused)?;
         txn.execute_raw(statement(
-            "UPDATE agent_host_import SET phase = $2, confirmed_at = NOW(), updated_at = NOW() \
+            "UPDATE agent_host_import SET phase = $2, confirmed_at = $3::timestamptz, updated_at = $3::timestamptz \
              WHERE id = $1",
-            vec![id.into(), phase::CONFIRMED.into()],
+            vec![id.into(), phase::CONFIRMED.into(), crate::clock::now().into()],
         ))
         .await?;
         txn.commit().await?;
@@ -781,9 +783,9 @@ pub async fn confirm(
     }
     let written = lease::arriving(&txn, id, device, lineage, epoch, &manifest.digest).await?;
     txn.execute_raw(statement(
-        "UPDATE agent_host_import SET phase = $2, confirmed_at = NOW(), updated_at = NOW() \
+        "UPDATE agent_host_import SET phase = $2, confirmed_at = $3::timestamptz, updated_at = $3::timestamptz \
          WHERE id = $1",
-        vec![id.into(), phase::CONFIRMED.into()],
+        vec![id.into(), phase::CONFIRMED.into(), crate::clock::now().into()],
     ))
     .await?;
     txn.commit().await?;
@@ -924,8 +926,12 @@ pub async fn take_page(
     }
     if session.phase == phase::CONFIRMED {
         txn.execute_raw(statement(
-            "UPDATE agent_host_import SET phase = $2, updated_at = NOW() WHERE id = $1",
-            vec![id.into(), phase::TRANSFERRING.into()],
+            "UPDATE agent_host_import SET phase = $2, updated_at = $3::timestamptz WHERE id = $1",
+            vec![
+                id.into(),
+                phase::TRANSFERRING.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?;
         lease::import_step(&txn, id, lease::Phase::Transferring).await?;
@@ -1251,12 +1257,13 @@ pub async fn begin_file(
         .query_one_raw(statement(
             &format!(
                 "INSERT INTO agent_host_import (id, source, phase, total, created_at, updated_at) \
-                 VALUES ($1, 'file', $2, $3, NOW(), NOW()) RETURNING {COLUMNS}"
+                 VALUES ($1, 'file', $2, $3, $4::timestamptz, $4::timestamptz) RETURNING {COLUMNS}"
             ),
             vec![
                 id.clone().into(),
                 phase::UPLOADING.into(),
                 (total as i64).into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?
@@ -1315,10 +1322,14 @@ pub async fn take_piece(
     let row = txn
         .query_one_raw(statement(
             &format!(
-                "UPDATE agent_host_import SET received = $2, updated_at = NOW() WHERE id = $1 \
+                "UPDATE agent_host_import SET received = $2, updated_at = $3::timestamptz WHERE id = $1 \
                  RETURNING {COLUMNS}"
             ),
-            vec![id.into(), ((offset + bytes.len() as u64) as i64).into()],
+            vec![
+                id.into(),
+                ((offset + bytes.len() as u64) as i64).into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?
         .ok_or(ImportError::Unknown)?;
@@ -1441,14 +1452,14 @@ fn sniff(bytes: &[u8]) -> Option<&'static str> {
 pub(super) fn at(micros: i64) -> DateTime<FixedOffset> {
     Utc.timestamp_micros(micros)
         .single()
-        .unwrap_or_else(Utc::now)
+        .unwrap_or_else(crate::clock::now)
         .fixed_offset()
 }
 
 pub(super) fn utc(micros: i64) -> DateTime<Utc> {
     Utc.timestamp_micros(micros)
         .single()
-        .unwrap_or_else(Utc::now)
+        .unwrap_or_else(crate::clock::now)
 }
 
 /// Her end on the side she came from: the site's, or a Mac on its own.
@@ -1677,7 +1688,7 @@ async fn land(
             avatar_asset_id: Set(avatar.clone()),
             avatar_generation: Set(None),
             updated_by: Set(Some(owner)),
-            updated_at: Set(Utc::now().fixed_offset()),
+            updated_at: Set(crate::clock::now().fixed_offset()),
             zone: Set(zone.clone()),
             field_revs: Set(Value::Object(revs)),
         }
@@ -1768,12 +1779,13 @@ async fn land(
             }
             txn.execute_raw(statement(
                 "INSERT INTO agent_memory_embeddings (memory_id, model, digest, vector, created_at) \
-                 VALUES ($1, $2, $3, $4, NOW())",
+                 VALUES ($1, $2, $3, $4, $5::timestamptz)",
                 vec![
                     embedding.memory_id.clone().into(),
                     model.model.clone().into(),
                     embedding.digest.clone().into(),
                     vector.into(),
+                    crate::clock::now().into(),
                 ],
             ))
             .await?;
@@ -1868,7 +1880,7 @@ async fn land(
         txn.execute_raw(statement(
             "INSERT INTO agent_affect_events (id, user_id, at, cause, impulse, baseline_mood, \
              baseline_arousal, before, after, late, origin, rev, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz)",
             vec![
                 entity.id.clone().into(),
                 owner.into(),
@@ -1888,6 +1900,7 @@ async fn land(
                 change.late.into(),
                 entity.origin.clone().into(),
                 entity.rev.to_string().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -1903,7 +1916,7 @@ async fn land(
         let state = owner_state.clone().unwrap_or_default();
         let (affect, settled) = match standing {
             Some((affect, since)) => (Some(affect), at(since)),
-            None => (None, Utc::now().fixed_offset()),
+            None => (None, crate::clock::now().fixed_offset()),
         };
         let activity: String = state
             .activity
@@ -1916,7 +1929,7 @@ async fn land(
              last_user_message_at, last_proactive_at, music_mood_credited_at, mood_settled_at, \
              emotion_settled_at, updated_at) VALUES \
              ($1, COALESCE($2, 70), COALESCE($3, 50), COALESCE($4, 50), COALESCE($5, 50), $6, \
-              $7, $8, $9, $10, $11, $12, $13, $14, $14, NOW()) \
+              $7, $8, $9, $10, $11, $12, $13, $14, $14, $15::timestamptz) \
              ON CONFLICT (user_id) DO UPDATE SET mood = EXCLUDED.mood, arousal = EXCLUDED.arousal, \
              emotion = EXCLUDED.emotion, emotion_arousal = EXCLUDED.emotion_arousal, \
              activity = EXCLUDED.activity, activity_updated_at = EXCLUDED.activity_updated_at, \
@@ -1926,7 +1939,7 @@ async fn land(
              last_proactive_at = EXCLUDED.last_proactive_at, \
              music_mood_credited_at = EXCLUDED.music_mood_credited_at, \
              mood_settled_at = EXCLUDED.mood_settled_at, \
-             emotion_settled_at = EXCLUDED.emotion_settled_at, updated_at = NOW()",
+             emotion_settled_at = EXCLUDED.emotion_settled_at, updated_at = $15::timestamptz",
             vec![
                 owner.into(),
                 affect.map(|affect| affect.mood).into(),
@@ -1937,7 +1950,7 @@ async fn land(
                 state
                     .activity_updated_at
                     .map(at)
-                    .unwrap_or_else(|| Utc::now().fixed_offset())
+                    .unwrap_or_else(|| crate::clock::now().fixed_offset())
                     .into(),
                 state.do_not_disturb.into(),
                 state.dnd_start_minute.into(),
@@ -1946,6 +1959,7 @@ async fn land(
                 state.last_proactive_at.map(at).into(),
                 state.music_mood_credited_at.map(at).into(),
                 settled.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -1955,7 +1969,7 @@ async fn land(
     }
 
     // Her own records the site keeps in its registry.
-    let keep = |days: i64| (Utc::now() + chrono::Duration::days(days)).timestamp();
+    let keep = |days: i64| (crate::clock::now() + chrono::Duration::days(days)).timestamp();
     let mut registry: Vec<(&str, String, Value, i64)> = Vec::new();
     for entity in of(Kind::VitalsDay) {
         let day = entity.id.split('@').next().unwrap_or_default().to_string();
@@ -2062,14 +2076,15 @@ async fn land(
     for (namespace, record, payload, expires) in registry {
         txn.execute_raw(statement(
             "INSERT INTO runtime_registry (namespace, record_id, payload, expires_at, updated_at) \
-             VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (namespace, record_id) \
+             VALUES ($1, $2, $3, $4, $5::timestamptz) ON CONFLICT (namespace, record_id) \
              DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at, \
-             updated_at = NOW()",
+             updated_at = $5::timestamptz",
             vec![
                 namespace.into(),
                 record.into(),
                 payload.into(),
                 expires.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -2215,8 +2230,12 @@ async fn land(
     let written = lease::landed(&txn, &lineage, whole.epoch.unwrap_or(0)).await?;
     if let Some(import) = import {
         txn.execute_raw(statement(
-            "UPDATE agent_host_import SET phase = $2, updated_at = NOW() WHERE id = $1",
-            vec![import.into(), phase::COMMITTED.into()],
+            "UPDATE agent_host_import SET phase = $2, updated_at = $3::timestamptz WHERE id = $1",
+            vec![
+                import.into(),
+                phase::COMMITTED.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?;
         txn.execute_raw(statement(

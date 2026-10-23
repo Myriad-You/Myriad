@@ -4,7 +4,6 @@ use crate::extract::{AdminClaims, OptionalViewer};
 use myriad_error::AppError;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use chrono::Utc;
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
     TransactionTrait,
@@ -47,7 +46,7 @@ pub(crate) async fn import_opml(
     // 逐条走共享的创建入口：与手动添加、友链审核、Agent 订阅同一去重规则与锁；
     // 同一份 OPML 里的重复项在同一事务里也只收一次。整份导入同一事务，失败全回滚。
     let total = feeds.len();
-    let now = Utc::now();
+    let now = crate::clock::now();
     let imported = async {
         let txn = db.begin().await?;
         let mut imported = 0usize;

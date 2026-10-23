@@ -84,7 +84,7 @@ pub async fn enqueue_steering(
             runtime_id: Some(task_id),
         },
         &instruction,
-        (Utc::now() + chrono::Duration::minutes(30)).timestamp(),
+        (crate::clock::now() + chrono::Duration::minutes(30)).timestamp(),
     )
     .await
     .map_err(|error| {
@@ -237,7 +237,7 @@ impl TaskStore {
     /// Reclaim only cached terminal snapshots; durable history stays in the DB.
     /// Live and waiting Work is never evicted by age or capacity pressure.
     fn reclaim_expired(&mut self) -> Vec<(i32, TaskState)> {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let mut expired = HashSet::new();
         let mut timed_out = Vec::new();
         for (id, task) in &mut self.tasks {
@@ -311,14 +311,17 @@ async fn load_pending_tasks_from_db(db: &DatabaseConnection) -> Result<(), Strin
 UPDATE agent_tasks
 SET status = 'cancelled',
     error = $1,
-    completed_at = COALESCE(completed_at, NOW()),
-    updated_at = NOW()
+    completed_at = COALESCE(completed_at, $2::timestamptz),
+    updated_at = $2::timestamptz
 WHERE status IN ('pending', 'running')
   AND NOT COALESCE({}, false)
 "#,
                 crate::services::agent::types::AgentEngine::WORK_LOOP_SQL
             ),
-            vec![crate::services::agent::response_agent::task_interrupted().into()],
+            vec![
+                crate::services::agent::response_agent::task_interrupted().into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(|error| {
@@ -466,7 +469,7 @@ pub(crate) async fn save_task_on(
 fn next_recipe_persist_at() -> chrono::DateTime<Utc> {
     static LAST: Mutex<Option<chrono::DateTime<Utc>>> = Mutex::new(None);
     let mut last = LAST.lock().unwrap();
-    let now = Utc::now();
+    let now = crate::clock::now();
     let next = match *last {
         Some(prev) if prev >= now => prev + chrono::Duration::milliseconds(1),
         _ => now,
@@ -646,8 +649,8 @@ pub async fn cancel_task_for_user(task_id: &str, user_id: i32) -> bool {
 UPDATE agent_tasks
 SET status = 'cancelled',
     error = $3,
-    completed_at = COALESCE(completed_at, NOW()),
-    updated_at = NOW()
+    completed_at = COALESCE(completed_at, $4::timestamptz),
+    updated_at = $4::timestamptz
 WHERE id = $1 AND user_id = $2
   AND status IN ('pending', 'running', 'waiting_for_input', 'paused')
 "#,
@@ -655,6 +658,7 @@ WHERE id = $1 AND user_id = $2
                 task_id.to_string().into(),
                 user_id.into(),
                 cancellation_error.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -687,12 +691,16 @@ pub async fn request_cancel(task_id: &str, reason: &str) -> bool {
 UPDATE agent_tasks
 SET status = 'cancelled',
     error = $2,
-    completed_at = COALESCE(completed_at, NOW()),
-    updated_at = NOW()
+    completed_at = COALESCE(completed_at, $3::timestamptz),
+    updated_at = $3::timestamptz
 WHERE id = $1
   AND status IN ('pending', 'running', 'waiting_for_input', 'paused')
 "#,
-            vec![task_id.to_string().into(), reason.to_string().into()],
+            vec![
+                task_id.to_string().into(),
+                reason.to_string().into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .is_ok_and(|result| result.rows_affected() == 1);
@@ -715,7 +723,7 @@ async fn mark_cancelled_in_memory(task_id: &str, reason: &str) {
     if let Some(task) = store.get_mut(task_id) {
         task.status = TaskStatus::Cancelled;
         task.error = Some(reason.to_string());
-        task.completed_at = Some(Utc::now());
+        task.completed_at = Some(crate::clock::now());
     }
     // Serialize with owner Drop so cancellation cannot recreate an orphan
     // marker after its worker has exited. Durable rows cover remote/waiting work.
@@ -784,8 +792,9 @@ pub async fn get_user_tasks(user_id: i32) -> Vec<TaskState> {
 /// Preserve the existing 24-hour terminal-row retention independently of hot
 /// cache eviction. Never delete live/waiting Work to reclaim process memory.
 async fn cleanup_expired_tasks_from_db(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
-    db.execute_raw(Statement::from_string(DatabaseBackend::Postgres,
-        "DELETE FROM agent_tasks WHERE id IN (SELECT id FROM agent_tasks WHERE status IN ('completed', 'failed', 'cancelled') AND completed_at < NOW() - INTERVAL '24 hours' ORDER BY completed_at LIMIT 256)"
+    db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+        "DELETE FROM agent_tasks WHERE id IN (SELECT id FROM agent_tasks WHERE status IN ('completed', 'failed', 'cancelled') AND completed_at < $1::timestamptz - INTERVAL '24 hours' ORDER BY completed_at LIMIT 256)",
+        [crate::clock::now().into()]
     )).await?;
     Ok(())
 }
@@ -870,7 +879,7 @@ mod tests {
         ));
         task.task_id = id.into();
         task.status = status;
-        task.started_at = Utc::now() - chrono::Duration::hours(hours_old);
+        task.started_at = crate::clock::now() - chrono::Duration::hours(hours_old);
         task.completed_at = Some(task.started_at);
         task
     }
@@ -938,7 +947,7 @@ mod tests {
             status: TaskStatus::Pending,
             current_step: 0,
             step_results: HashMap::new(),
-            started_at: Utc::now(),
+            started_at: crate::clock::now(),
             completed_at: None,
             error: None,
             progress: 0,
@@ -964,7 +973,7 @@ mod tests {
     #[test]
     fn task_model_restores_recipe_for_cross_replica_resume() {
         let recipe = Recipe::new("resume interaction", "open a Tapp", ExecutionType::Instant);
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         let model = agent_tasks::Model {
             id: "task-with-recipe".to_string(),
             user_id: 7,
@@ -997,7 +1006,7 @@ mod tests {
 
     #[test]
     fn unknown_task_status_is_not_pending() {
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         let model = agent_tasks::Model {
             id: "bad-status".to_string(),
             user_id: 1,
@@ -1040,7 +1049,7 @@ mod tests {
 
     #[test]
     fn older_recipe_snapshot_is_rejected() {
-        let older = Utc::now();
+        let older = crate::clock::now();
         let newer = older + chrono::Duration::milliseconds(5);
         assert!(recipe_persist_is_stale(newer, older));
         assert!(!recipe_persist_is_stale(older, newer));
@@ -1058,7 +1067,7 @@ mod tests {
             status: TaskStatus::WaitingForInput,
             current_step: 0,
             step_results: HashMap::new(),
-            started_at: Utc::now() - chrono::Duration::hours(3),
+            started_at: crate::clock::now() - chrono::Duration::hours(3),
             completed_at: None,
             error: None,
             progress: 25,

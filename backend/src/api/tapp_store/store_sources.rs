@@ -10,7 +10,6 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, DatabaseConnection, EntityTrait, QueryOrder, Set,
 };
@@ -97,7 +96,7 @@ pub(super) async fn add_store_source(
         return Err(HttpError(AppError::conflict("Conflict")));
     }
 
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let source = tapp_store_sources::ActiveModel {
         id: NotSet,
         name: Set(request.name),
@@ -145,7 +144,7 @@ pub(super) async fn update_store_source(
         }
     }
 
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let mut active: tapp_store_sources::ActiveModel = source.into();
     if let Some(name) = request.name {
         active.name = Set(name);

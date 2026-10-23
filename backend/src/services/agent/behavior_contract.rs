@@ -1,5 +1,5 @@
 //! Deterministic cross-boundary acceptance. Real producers/consumers, no model.
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use serde_json::{Value, json};
 
 use super::{chat_prompt, consciousness};
@@ -187,7 +187,7 @@ fn observation_expiry_does_not_end_the_longer_page_presence_lease() {
         "perception": [{"sourceId": "page", "kind": "page", "privacy": "consented",
             "summary": "SHORT_LIVED_PAGE", "ttlMs": 2000}]
     }));
-    live.captured_at = Some(Utc::now() - Duration::seconds(3));
+    live.captured_at = Some(crate::clock::now() - Duration::seconds(3));
     consciousness::remember_live_presence(1_930_603, live);
     let current = consciousness::last_live_presence(1_930_603);
     assert!(current.page_visible, "page presence lease is independent");
@@ -208,7 +208,7 @@ fn reading_a_live_observation_spends_its_original_ttl_without_renewing_or_double
         "perception": [{"sourceId": "page", "kind": "page", "privacy": "consented",
             "summary": "STILL_CURRENT", "ttlMs": 8000}]
     }));
-    live.captured_at = Some(Utc::now() - Duration::seconds(3));
+    live.captured_at = Some(crate::clock::now() - Duration::seconds(3));
     consciousness::remember_live_presence(1_930_604, live);
     let first = consciousness::last_live_presence(1_930_604);
     let first_ttl = first.perception_payload[0]["ttlMs"].as_i64().unwrap();

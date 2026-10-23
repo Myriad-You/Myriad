@@ -90,7 +90,7 @@ pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
             && task
                 .pending_question
                 .as_ref()
-                .is_some_and(|q| q.is_expired(chrono::Utc::now()))
+                .is_some_and(|q| q.is_expired(crate::clock::now()))
         {
             tracing::warn!(
                 task_id = %task.task_id,
@@ -98,7 +98,7 @@ pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
             );
             task.status = crate::services::agent::types::TaskStatus::Failed;
             task.error = Some("Waiting for input timed out after restart".into());
-            task.completed_at = Some(chrono::Utc::now());
+            task.completed_at = Some(crate::clock::now());
             task.pending_question = None;
             {
                 let mut store = crate::services::agent::executor::TASK_STORE.write().await;
@@ -551,7 +551,7 @@ pub(crate) async fn spawn_restored_wait_loop(
                         && task
                             .pending_question
                             .as_ref()
-                            .is_some_and(|q| q.is_expired(chrono::Utc::now()))
+                            .is_some_and(|q| q.is_expired(crate::clock::now()))
                     {
                         advance_intention_work(
                             db,
@@ -581,7 +581,7 @@ pub(crate) async fn spawn_restored_wait_loop(
                         {
                             t.status = crate::services::agent::types::TaskStatus::Failed;
                             t.error = Some("Waiting for input timed out".into());
-                            t.completed_at = Some(chrono::Utc::now());
+                            t.completed_at = Some(crate::clock::now());
                             t.pending_question = None;
                             {
                                 let mut store =

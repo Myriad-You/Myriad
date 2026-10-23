@@ -148,7 +148,7 @@ pub async fn execute_inbound_route(
         .await
         .map_err(credential_http_error)?;
 
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     let query = uri.query();
     let (nonce, _timestamp, unix) = match tapp_inbound_route::verify_signature(
         route,

@@ -13,7 +13,7 @@ fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
             speaker: speaker.into(),
             importance: 0.5,
             access_count: 0,
-            created_at: chrono::Utc::now().fixed_offset(),
+            created_at: crate::clock::now().fixed_offset(),
             brought_to_mind: false,
             concepts: Vec::new(),
         };
@@ -46,7 +46,7 @@ fn what_they_said_is_plain_and_the_rest_says_how_she_knows() {
 
 #[test]
 fn delayed_appraisal_requires_the_same_unexpired_persisted_input() {
-    let input = chrono::Utc::now();
+    let input = crate::clock::now();
     let next = input + chrono::Duration::milliseconds(1);
     assert!(super::appraisal_is_current(
         Some(input.into()),
@@ -232,7 +232,7 @@ fn changing_generation_inputs_invalidates_portrait_contract() {
         avatar_asset_id: None,
         avatar_generation: None,
         updated_by: Some(1),
-        updated_at: Utc::now().into(),
+        updated_at: crate::clock::now().into(),
         zone: String::new(),
         field_revs: serde_json::json!({}),
     };
@@ -298,7 +298,7 @@ fn changing_spoken_persona_keeps_confirmed_visual_assets() {
         avatar_asset_id: None,
         avatar_generation: None,
         updated_by: Some(1),
-        updated_at: Utc::now().into(),
+        updated_at: crate::clock::now().into(),
         zone: String::new(),
         field_revs: serde_json::json!({}),
     };
@@ -359,7 +359,7 @@ fn persona_with_avatar() -> agent_persona::Model {
         avatar_asset_id: Some("/sticker.png".to_string()),
         avatar_generation: Some(json!({ "fingerprint": "b".repeat(64) })),
         updated_by: Some(1),
-        updated_at: Utc::now().into(),
+        updated_at: crate::clock::now().into(),
         zone: String::new(),
         field_revs: serde_json::json!({}),
     }
@@ -475,7 +475,7 @@ fn onboarding_seeds_do_not_invalidate_portrait() {
         avatar_asset_id: None,
         avatar_generation: None,
         updated_by: Some(1),
-        updated_at: Utc::now().into(),
+        updated_at: crate::clock::now().into(),
         zone: String::new(),
         field_revs: serde_json::json!({}),
     };
@@ -532,7 +532,7 @@ async fn portrait_generation_lease_preserves_concurrent_persona_and_rejects_visu
         avatar_asset_id: Set(None),
         avatar_generation: Set(None),
         updated_by: Set(None),
-        updated_at: Set(Utc::now().into()),
+        updated_at: Set(crate::clock::now().into()),
         zone: Set(String::new()),
         field_revs: Set(serde_json::json!({})),
     }
@@ -722,7 +722,7 @@ async fn her_affect_replayed_from_its_changes_is_what_she_feels() {
     )
     .await
     .unwrap();
-    let t0 = Utc::now() - chrono::Duration::days(60);
+    let t0 = crate::clock::now() - chrono::Duration::days(60);
     let at = |secs: i64, micros: i64| {
         t0 + chrono::Duration::seconds(secs) + chrono::Duration::microseconds(micros)
     };

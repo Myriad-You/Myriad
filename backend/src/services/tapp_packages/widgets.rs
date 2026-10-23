@@ -76,11 +76,15 @@ pub(crate) async fn reconcile_manifest_widgets(
     .map_err(db_error)?;
 
     const COLUMNS: usize = 10;
-    let mut values: Vec<SeaValue> = Vec::with_capacity(desired.len() * COLUMNS);
+    let mut values: Vec<SeaValue> = Vec::with_capacity(desired.len() * COLUMNS + 1);
     let mut rows = Vec::with_capacity(desired.len());
+    let now_ph = desired.len() * COLUMNS + 1;
     for (widget_id, widget) in desired {
         let first = values.len() + 1;
-        rows.push(format!("({}, NOW())", placeholder_list(first, COLUMNS)));
+        rows.push(format!(
+            "({}, ${now_ph}::timestamptz)",
+            placeholder_list(first, COLUMNS)
+        ));
         let runtime_config = serde_json::json!({
             "settings": &widget.settings,
             "refreshPolicy": &widget.refresh_policy,
@@ -105,6 +109,7 @@ pub(crate) async fn reconcile_manifest_widgets(
             runtime_config.into(),
         ]);
     }
+    values.push(crate::clock::now().into());
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         format!(

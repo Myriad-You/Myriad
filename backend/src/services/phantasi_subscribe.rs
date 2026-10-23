@@ -164,7 +164,7 @@ mod tests {
     use sea_orm::{ActiveValue::Set, DatabaseConnection, PaginatorTrait, TransactionTrait};
 
     fn model(url: &str, site_url: Option<&str>) -> phantasi_sources::ActiveModel {
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         phantasi_sources::ActiveModel {
             user_id: Set(1),
             name: Set(url.to_string()),

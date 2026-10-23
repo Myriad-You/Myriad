@@ -71,8 +71,8 @@ impl BackgroundProcessor {
             status: TaskStatus::Pending,
             progress: 0.0,
             error: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: crate::clock::now(),
+            updated_at: crate::clock::now(),
             completed_at: None,
         };
 
@@ -118,10 +118,10 @@ impl BackgroundProcessor {
             task.status = status.clone();
             task.progress = progress;
             task.error = error;
-            task.updated_at = Utc::now();
+            task.updated_at = crate::clock::now();
 
             if status == TaskStatus::Completed || status == TaskStatus::Failed {
-                task.completed_at = Some(Utc::now());
+                task.completed_at = Some(crate::clock::now());
 
                 // 从处理中列表移除
                 let platform = task.platform.clone();
@@ -480,7 +480,7 @@ mod tests {
                 .await;
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         }
-        let window_start = Utc::now() - chrono::Duration::hours(1);
+        let window_start = crate::clock::now() - chrono::Duration::hours(1);
         let diagnostics = processor
             .diagnostics(window_start, 3, |detail: &str| {
                 detail.chars().take(4).collect()
@@ -500,7 +500,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(errors, vec!["7-xx", "6-xx", "5-xx"]);
 
-        let future = processor.diagnostics(Utc::now(), 3, str::to_owned).await;
+        let future = processor.diagnostics(crate::clock::now(), 3, str::to_owned).await;
         assert!(future.recent_failures.is_empty());
     }
 

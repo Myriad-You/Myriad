@@ -242,7 +242,7 @@ impl NotionService {
             language: None,
             feed_type: FeedType::Notion,
             items,
-            last_updated: Some(Utc::now()),
+            last_updated: Some(crate::clock::now()),
         })
     }
 
@@ -1826,7 +1826,7 @@ impl NotionService {
             language: None,
             feed_type: FeedType::Notion,
             items: vec![item],
-            last_updated: Some(Utc::now()),
+            last_updated: Some(crate::clock::now()),
         })
     }
 

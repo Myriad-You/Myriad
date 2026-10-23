@@ -2,7 +2,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::Duration as ChronoDuration;
 use myriad_agent_rules::channel::{
     ConnectFailure, ConnectFailureKind, classify_connect_failure, next_passive_seq,
     parse_qq_file_info,
@@ -254,7 +254,7 @@ async fn next_seq(db: &DatabaseConnection, msg_id: &str) -> u32 {
             runtime_id: None,
         },
         &StoredSeq { seq },
-        (Utc::now() + ChronoDuration::hours(2)).timestamp(),
+        (crate::clock::now() + ChronoDuration::hours(2)).timestamp(),
     )
     .await;
     seq

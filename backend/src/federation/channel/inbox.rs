@@ -97,7 +97,7 @@ pub async fn handle_channel_open(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_channels
            (channel_id, user_id, remote_actor_id, channel_type, tapp_id, status, transport, initiated_by, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'pending', $6, 'remote', NOW())
+           VALUES ($1, $2, $3, $4, $5, 'pending', $6, 'remote', $7::timestamptz)
            ON CONFLICT (channel_id) DO NOTHING"#,
             [
                 channel_id.into(),
@@ -106,6 +106,7 @@ pub async fn handle_channel_open(
                 channel_type.into(),
                 tapp_id.into(),
                 transport.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -237,12 +238,13 @@ pub async fn handle_channel_message(
         .unwrap_or(false);
 
     // 存入消息
+    let now = crate::clock::now();
     let inserted = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_channel_messages
            (channel_id, message_id, sender_actor, message_type, payload, reply_to, is_encrypted, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
            ON CONFLICT (message_id) DO NOTHING"#,
             [
                 channel_id.into(),
@@ -252,6 +254,7 @@ pub async fn handle_channel_message(
                 payload.clone().into(),
                 reply_to.into(),
                 is_encrypted.into(),
+                now.into(),
             ],
         ))
         .await
@@ -260,8 +263,8 @@ pub async fn handle_channel_message(
     // 更新通道活动时间
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET last_activity_at = NOW(), status = 'active' WHERE channel_id = $1",
-        [channel_id.into()],
+        "UPDATE federation_channels SET last_activity_at = $2::timestamptz, status = 'active' WHERE channel_id = $1",
+        [channel_id.into(), now.into()],
     ))
     .await
     .map_err(|e| e.to_string())?;
@@ -387,8 +390,8 @@ pub async fn handle_channel_close(
 
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET status = 'closed', closed_at = NOW() WHERE channel_id = $1",
-        [channel_id.into()],
+        "UPDATE federation_channels SET status = 'closed', closed_at = $2::timestamptz WHERE channel_id = $1",
+        [channel_id.into(), crate::clock::now().into()],
     ))
     .await
     .map_err(|e| e.to_string())?;

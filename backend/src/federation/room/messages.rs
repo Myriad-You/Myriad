@@ -144,7 +144,7 @@ pub async fn send_room_message(
         r#"INSERT INTO federation_room_messages
            (room_id, message_id, sender_actor, message_type, payload, thread_id, reply_to,
             reactions, is_pinned, is_encrypted, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, '{}', false, $8, NOW())"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, '{}', false, $8, $9::timestamptz)"#,
         [
             room_id.into(),
             message_id.clone().into(),
@@ -154,6 +154,7 @@ pub async fn send_room_message(
             req.thread_id.clone().into(),
             req.reply_to.clone().into(),
             is_encrypted.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await

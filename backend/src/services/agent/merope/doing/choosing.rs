@@ -83,7 +83,7 @@ pub(super) async fn taste(db: &DatabaseConnection) -> myriad_merope::taste::Tast
         #[serde(default)]
         reaction: Option<Reaction>,
     }
-    let since = Utc::now() - chrono::Duration::days(TASTE_DAYS);
+    let since = crate::clock::now() - chrono::Duration::days(TASTE_DAYS);
     // Faded is still hers; a row taken away (not faded) is not.
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -105,7 +105,7 @@ pub(super) async fn taste(db: &DatabaseConnection) -> myriad_merope::taste::Tast
             tracing::warn!(%error, "[Merope] could not read her taste");
             Vec::new()
         });
-    let now = Utc::now();
+    let now = crate::clock::now();
     let read: Vec<(Row, f64)> = rows
         .iter()
         .filter_map(|row| {
@@ -139,7 +139,7 @@ pub(super) async fn choice_input(
         taste,
     } = hand;
     let myself = super::super::self_state::current(db).await.facts_view();
-    let now = Utc::now();
+    let now = crate::clock::now();
     let lately_view: Vec<Value> = lately
         .iter()
         .take(8)
@@ -290,7 +290,7 @@ pub(super) async fn choose(
     let Some(thing) = sources::open(db, thing).await else {
         return Err(None);
     };
-    let started = Utc::now();
+    let started = crate::clock::now();
     let length = sources::length(db, &thing).await;
     tracing::info!(kind = %thing.key(), "[Merope] doing something of her own");
     Ok(Picked::Doing(Doing {

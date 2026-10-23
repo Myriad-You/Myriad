@@ -258,9 +258,13 @@ async fn ensure_instance_discovered(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_instances (domain, trust_level, created_at)
-           VALUES ($1, $2, NOW())
+           VALUES ($1, $2, $3::timestamptz)
            ON CONFLICT (domain) DO NOTHING"#,
-        [domain.into(), (TrustLevel::Discovered as i16).into()],
+        [
+            domain.into(),
+            (TrustLevel::Discovered as i16).into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await?;
     Ok(())
@@ -370,8 +374,12 @@ async fn check_rate_limit_for_trust(
                JOIN federation_remote_actors ra ON a.remote_actor_id = ra.id
                WHERE a.is_local = false
                  AND ra.domain = $1
-                 AND a.received_at > NOW() - make_interval(secs => $2::double precision)"#,
-            [domain.into(), policy.window_seconds.into()],
+                 AND a.received_at > $3::timestamptz - make_interval(secs => $2::double precision)"#,
+            [
+                domain.into(),
+                policy.window_seconds.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await;
 
@@ -633,7 +641,7 @@ pub async fn update_policy(
         r#"INSERT INTO federation_policy_settings
                (id, min_trust_level, allowed_domains, auto_discover,
                 rate_max_requests, rate_window_seconds, rate_trusted_multiplier, updated_at)
-           VALUES (1, $1, $2, $3, $4, $5, $6, NOW())
+           VALUES (1, $1, $2, $3, $4, $5, $6, $7::timestamptz)
            ON CONFLICT (id) DO UPDATE SET
                min_trust_level = EXCLUDED.min_trust_level,
                allowed_domains = EXCLUDED.allowed_domains,
@@ -641,7 +649,7 @@ pub async fn update_policy(
                rate_max_requests = EXCLUDED.rate_max_requests,
                rate_window_seconds = EXCLUDED.rate_window_seconds,
                rate_trusted_multiplier = EXCLUDED.rate_trusted_multiplier,
-               updated_at = NOW()"#,
+               updated_at = $7::timestamptz"#,
         [
             level.into(),
             domains_json.into(),
@@ -649,6 +657,7 @@ pub async fn update_policy(
             current.rate_limit.max_requests_per_window.into(),
             current.rate_limit.window_seconds.into(),
             current.rate_limit.trusted_multiplier.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -1073,13 +1082,14 @@ pub async fn create_content_filter(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_content_filters (name, filter_type, value, enabled, created_at)
-               VALUES ($1, $2, $3, $4, NOW())
+               VALUES ($1, $2, $3, $4, $5::timestamptz)
                RETURNING id"#,
             [
                 name.into(),
                 filter_type.into(),
                 value.into(),
                 enabled.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await

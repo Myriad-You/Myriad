@@ -26,7 +26,6 @@ pub fn can_manage(actor: &MediaActor, asset: &MediaAsset) -> bool {
 mod tests {
     use super::*;
     use crate::services::media::types::{MediaSource, MediaState};
-    use chrono::Utc;
     use uuid::Uuid;
 
     fn asset(scope: MediaScope, owner: Option<i32>, exposure: MediaExposure) -> MediaAsset {
@@ -45,7 +44,7 @@ mod tests {
             url: "/media/assets/00000000-0000-0000-0000-000000000000/a.png".into(),
             content_path: "/api/media/1/content".into(),
             public_path: None,
-            created_at: Utc::now(),
+            created_at: crate::clock::now(),
             usage_count: 0,
             references_complete: true,
             checksum_sha256: None,

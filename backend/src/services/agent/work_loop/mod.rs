@@ -101,7 +101,7 @@ impl Agent {
             steps,
             expected_output: OutputFormat::Json,
             estimated_duration_ms,
-            created_at: chrono::Utc::now(),
+            created_at: crate::clock::now(),
             metadata,
             page_context,
             conversation_context,
@@ -329,7 +329,7 @@ impl Agent {
             }
             state.task.error = Some(error.clone());
             state.final_text = error;
-            state.task.completed_at = Some(chrono::Utc::now());
+            state.task.completed_at = Some(crate::clock::now());
             // A stale worker must not overwrite a newer continuation. She is
             // not working on it any more either way.
             if let Err(error) = store::save(&self.db, &mut state).await {
@@ -580,7 +580,7 @@ impl Agent {
                 state.history.push(ToolMessage::Assistant { turn });
                 state.task.status = TaskStatus::Completed;
                 state.task.progress = 100;
-                state.task.completed_at = Some(chrono::Utc::now());
+                state.task.completed_at = Some(crate::clock::now());
                 store::save(&self.db, state).await?;
                 return Ok(());
             }
@@ -785,7 +785,7 @@ impl Agent {
                     &format!("{}\n{}", capability.name, preview(&json!(params_map), 6000)),
                 );
                 question.expires_at = Some(
-                    chrono::Utc::now()
+                    crate::clock::now()
                         + chrono::Duration::minutes(
                             if matches!(risk, RiskLevel::High | RiskLevel::Critical) {
                                 5

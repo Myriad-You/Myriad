@@ -68,8 +68,8 @@ pub(crate) async fn save_room_shared_config(
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_rooms SET shared_data_config = $2, updated_at = NOW() WHERE room_id = $1",
-        [room_id.into(), shared.into()],
+        "UPDATE federation_rooms SET shared_data_config = $2, updated_at = $3::timestamptz WHERE room_id = $1",
+        [room_id.into(), shared.into(), crate::clock::now().into()],
     ))
     .await
     .map_err(db_err)?;

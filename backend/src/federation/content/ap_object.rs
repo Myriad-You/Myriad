@@ -584,9 +584,14 @@ async fn enqueue_delivery(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_delivery_queue
                    (activity_id, target_inbox, target_domain, status, created_at)
-               VALUES ($1, $2, $3, 'pending', NOW())
+               VALUES ($1, $2, $3, 'pending', $4::timestamptz)
                ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-            [activity_db_id.into(), inbox.into(), domain.into()],
+            [
+                activity_db_id.into(),
+                inbox.into(),
+                domain.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?;
     Ok(result.rows_affected() as u32)

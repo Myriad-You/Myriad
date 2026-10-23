@@ -270,11 +270,15 @@ where
         DatabaseBackend::Postgres,
         r#"
 INSERT INTO configurations (key, value, updated_at)
-VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
+VALUES ($1, $2::jsonb, $3::timestamptz)
 ON CONFLICT (key) DO UPDATE
-SET value = $2::jsonb, updated_at = CURRENT_TIMESTAMP
+SET value = $2::jsonb, updated_at = $3::timestamptz
 "#,
-        vec!["agent_rig_asset_id".into(), json!(normalized).into()],
+        vec![
+            "agent_rig_asset_id".into(),
+            json!(normalized).into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await?;
     Ok(normalized)

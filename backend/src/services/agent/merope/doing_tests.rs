@@ -130,7 +130,7 @@ fn she_hears_it_with_her_views_and_what_she_wrote_on_it_before() {
 
 #[test]
 fn an_hour_holds_a_bounded_number_of_things_and_rests_between() {
-    let now = Utc::now();
+    let now = crate::clock::now();
     {
         let mut life = LIFE.lock().unwrap();
         *life = Life::default();
@@ -159,7 +159,7 @@ fn an_hour_holds_a_bounded_number_of_things_and_rests_between() {
 
 #[test]
 fn where_she_is_in_it_reads_plainly() {
-    let started = Utc::now();
+    let started = crate::clock::now();
     let doing = Doing {
         thing: song("1", "晴天"),
         started,

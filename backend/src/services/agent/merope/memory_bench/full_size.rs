@@ -449,7 +449,7 @@ pub(super) fn over_half_a_year(
         .chain(others.iter().map(|memory| (false, memory)))
         .collect();
     all.sort_by_key(|(_, memory)| place(memory));
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let count = all.len().max(1) as i32;
     let step = chrono::Duration::days(180) / count;
     let (mut hers, mut theirs) = (Vec::new(), Vec::new());

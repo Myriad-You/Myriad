@@ -4,7 +4,6 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
 };
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
@@ -358,7 +357,7 @@ pub(crate) async fn create_comment(
         )));
     }
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let new_comment = phantasi_comments::ActiveModel {
         item_id: Set(item_id),
         user_id: Set(user_id),
@@ -446,7 +445,7 @@ pub(crate) async fn update_comment(
             if let Some(is_public) = req.is_public {
                 active.is_public = Set(is_public);
             }
-            active.updated_at = Set(Utc::now().into());
+            active.updated_at = Set(crate::clock::now().into());
 
             match active.update(&db).await {
                 Ok(updated) => {

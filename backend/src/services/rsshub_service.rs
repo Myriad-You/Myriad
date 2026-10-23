@@ -2,7 +2,6 @@
 //!
 //! 提供 RSSHub 实例管理、健康检查、自动故障转移功能
 
-use chrono::Utc;
 use reqwest::Url;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
@@ -159,7 +158,7 @@ impl RsshubService {
             ("RSSForever", "https://rsshub.rssforever.com", 10),
         ];
 
-        let now = Utc::now();
+        let now = crate::clock::now();
 
         for (name, url, priority) in default_instances {
             let new_instance = rsshub_instances::ActiveModel {
@@ -298,18 +297,19 @@ impl RsshubService {
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE rsshub_instances SET \
-                    last_health_check = NOW(), \
+                    last_health_check = $4::timestamptz, \
                     last_response_time_ms = $1, \
                     consecutive_failures = 0, \
                     total_requests = total_requests + 1, \
                     success_requests = success_requests + 1, \
                     health_status = $2, \
-                    updated_at = NOW() \
+                    updated_at = $4::timestamptz \
                  WHERE id = $3",
                 [
                     SeaValue::Int(Some(response_time_ms)),
                     SeaValue::String(Some(health.to_string())),
                     SeaValue::Int(Some(instance.id)),
+                    crate::clock::now().into(),
                 ],
             ))
             .await
@@ -325,18 +325,19 @@ impl RsshubService {
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE rsshub_instances SET \
-                    last_health_check = NOW(), \
+                    last_health_check = $3::timestamptz, \
                     consecutive_failures = consecutive_failures + 1, \
                     total_requests = total_requests + 1, \
                     health_status = CASE \
                         WHEN consecutive_failures + 1 >= $1 THEN 'unhealthy' \
                         ELSE 'degraded' \
                     END, \
-                    updated_at = NOW() \
+                    updated_at = $3::timestamptz \
                  WHERE id = $2",
                 [
                     SeaValue::Int(Some(self.config.unhealthy_threshold)),
                     SeaValue::Int(Some(instance.id)),
+                    crate::clock::now().into(),
                 ],
             ))
             .await
@@ -447,7 +448,7 @@ impl RsshubService {
         }
 
         let safe_url = Self::validate_instance_url(&url).await?;
-        let now = Utc::now();
+        let now = crate::clock::now();
 
         let new_instance = rsshub_instances::ActiveModel {
             user_id: Set(user_id),
@@ -499,7 +500,7 @@ impl RsshubService {
             return Err("Permission denied".to_string());
         }
 
-        let now = Utc::now();
+        let now = crate::clock::now();
         let mut active: rsshub_instances::ActiveModel = instance.into();
 
         if let Some(n) = name {
@@ -580,7 +581,7 @@ impl RsshubService {
             return Err("Permission denied".to_string());
         }
 
-        let now = Utc::now();
+        let now = crate::clock::now();
         let mut active: rsshub_instances::ActiveModel = instance.into();
 
         active.health_status = Set(HealthStatus::Unknown);
@@ -669,7 +670,6 @@ mod stats_and_unique_tests {
     async fn concurrent_success_records_do_not_drop_counts() {
         use super::RsshubService;
         use crate::models::entities::rsshub_instances::{self, HealthStatus};
-        use chrono::Utc;
         use sea_orm::{
             ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectOptions, ConnectionTrait,
             Database, DatabaseBackend, EntityTrait, QueryFilter, Schema,
@@ -705,7 +705,7 @@ mod stats_and_unique_tests {
         )
         .await
         .unwrap();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let instance = rsshub_instances::ActiveModel {
             user_id: Set(Some(1)),
             name: Set("test".into()),

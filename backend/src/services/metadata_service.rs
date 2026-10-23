@@ -2,7 +2,6 @@ use crate::models::entities::{activity_events, metadata_history, platform_metada
 use crate::services::activity_event_service::{
     ActivityPayload, build_activity_payload, platform_label,
 };
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbErr,
     EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait, sea_query::Expr,
@@ -49,7 +48,7 @@ impl MetadataService {
             .one(&txn)
             .await?;
 
-        let now = Utc::now().naive_utc();
+        let now = crate::clock::now().naive_utc();
         let (metadata_id, ingest) = match existing {
             Some(old_metadata) => {
                 self.update_existing_metadata(
@@ -322,7 +321,7 @@ impl MetadataService {
         // 输入体积开关：>= 此值只存摘要
         const MAX_SUMMARY_SIZE: usize = 50_000;
 
-        let now = Utc::now().naive_utc();
+        let now = crate::clock::now().naive_utc();
         let activity = build_activity_payload(
             platform_name,
             old_data.as_ref(),
@@ -462,7 +461,7 @@ impl MetadataService {
                         .and_then(|s| s.as_array())
                         .map(|arr| arr.len())
                         .unwrap_or(0),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "timestamp": crate::clock::now().to_rfc3339(),
                 })
             }
             "steam" => {
@@ -474,7 +473,7 @@ impl MetadataService {
                         .and_then(|g| g.as_array())
                         .map(|arr| arr.len())
                         .unwrap_or(0),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "timestamp": crate::clock::now().to_rfc3339(),
                 })
             }
             "bilibili" => {
@@ -490,7 +489,7 @@ impl MetadataService {
                         .and_then(|b| b.as_array())
                         .map(|arr| arr.len())
                         .unwrap_or(0),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "timestamp": crate::clock::now().to_rfc3339(),
                 })
             }
             "github" => {
@@ -502,7 +501,7 @@ impl MetadataService {
                         .and_then(|r| r.as_array())
                         .map(|arr| arr.len())
                         .unwrap_or(0),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "timestamp": crate::clock::now().to_rfc3339(),
                 })
             }
             "youtube" => {
@@ -515,7 +514,7 @@ impl MetadataService {
                         .map(|arr| arr.len())
                         .unwrap_or(0),
                     "channel_id": data.pointer("/channel/id").cloned().unwrap_or(Value::Null),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "timestamp": crate::clock::now().to_rfc3339(),
                 })
             }
             "x" => {
@@ -527,7 +526,7 @@ impl MetadataService {
                         .and_then(|t| t.as_array())
                         .map(|arr| arr.len())
                         .unwrap_or(0),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "timestamp": crate::clock::now().to_rfc3339(),
                 })
             }
             "mal" => {
@@ -543,7 +542,7 @@ impl MetadataService {
                         .and_then(|t| t.as_array())
                         .map(|arr| arr.len())
                         .unwrap_or(0),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "timestamp": crate::clock::now().to_rfc3339(),
                 })
             }
             _ => {
@@ -551,7 +550,7 @@ impl MetadataService {
                     "_type": "change_summary",
                     "_note": "Lightweight summary - full data in platform_metadata table",
                     "changed_fields_count": changed_fields.len(),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "timestamp": crate::clock::now().to_rfc3339(),
                 })
             }
         }
@@ -765,7 +764,7 @@ mod platform_read_tests {
             .unwrap()
             .try_get("", "id")
             .unwrap();
-        let now = Utc::now().naive_utc();
+        let now = crate::clock::now().naive_utc();
         for (name, raw) in [
             ("netease", json!({ "_chunked": true, "liked_songs": [1] })),
             ("netease_chunk_2", json!({ "songs": [3] })),

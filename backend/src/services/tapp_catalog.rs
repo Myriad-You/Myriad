@@ -311,11 +311,10 @@ pub fn tapp_detail_from_model(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use serde_json::json;
 
     fn sample_model(approved: serde_json::Value) -> tapps::Model {
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         tapps::Model {
             id: 1,
             tapp_id: "com.example.detail".to_string(),
@@ -489,7 +488,7 @@ mod tests {
     fn install_response_list_item_forces_installed_and_clears_last_run() {
         let mut model = sample_model(json!([]));
         model.status = tapps::TappStatus::Running;
-        model.last_run_at = Some(Utc::now().fixed_offset());
+        model.last_run_at = Some(crate::clock::now().fixed_offset());
         // Site-owner public install.
         let public = install_response_list_item(model.clone(), true);
         assert_eq!(public.status, "installed");
@@ -508,7 +507,7 @@ mod tests {
     fn update_response_list_item_preserves_live_status_and_last_run() {
         let mut model = sample_model(json!([]));
         model.status = tapps::TappStatus::Running;
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         model.last_run_at = Some(now);
         let item = update_response_list_item(model, true);
         assert_eq!(item.status, "running");

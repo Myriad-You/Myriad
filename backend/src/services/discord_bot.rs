@@ -16,7 +16,6 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use myriad_agent_rules::channel::{
     ConnectFailureKind, DISCORD_CHANNEL_TYPE_DM, DISCORD_DISALLOWED_INTENTS, DISCORD_TEXT_LIMIT,
@@ -192,7 +191,7 @@ async fn publish_identity(identity: &DiscordBotIdentity) {
 }
 
 async fn mark_inbound() {
-    snapshot().write().await.last_inbound_at = Some(Utc::now().to_rfc3339());
+    snapshot().write().await.last_inbound_at = Some(crate::clock::now().to_rfc3339());
 }
 
 pub async fn current_status() -> DiscordBotStatus {
@@ -342,7 +341,7 @@ async fn gateway_session(
         return Ok(resume);
     };
 
-    let jitter = (Utc::now().timestamp_subsec_nanos() as f64) / 1_000_000_000.0;
+    let jitter = (crate::clock::now().timestamp_subsec_nanos() as f64) / 1_000_000_000.0;
     let first_wait = Duration::from_millis(((hello_ms as f64) * jitter) as u64);
     let interval = Duration::from_millis(hello_ms.max(1000));
 

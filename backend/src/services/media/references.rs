@@ -50,7 +50,7 @@ pub async fn active_count(db: &impl ConnectionTrait, asset_id: i32) -> Result<i6
         .filter(
             Condition::any()
                 .add(media_references::Column::ExpiresAt.is_null())
-                .add(media_references::Column::ExpiresAt.gt(Utc::now().fixed_offset())),
+                .add(media_references::Column::ExpiresAt.gt(crate::clock::now().fixed_offset())),
         )
         .count(db)
         .await? as i64)
@@ -69,7 +69,7 @@ pub(super) async fn has_active(
             AND (NOT $3 OR requires_public)) AS present",
             [
                 asset_id.into(),
-                Utc::now().fixed_offset().into(),
+                crate::clock::now().fixed_offset().into(),
                 public_only.into(),
             ],
         ))
@@ -116,7 +116,7 @@ pub(super) async fn replace_for_consumer(
     if refs.is_empty() {
         return Ok(());
     }
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let rows = refs.iter().map(|item| media_references::ActiveModel {
         asset_id: Set(item.asset_id),
         consumer_type: Set(consumer_type.to_string()),

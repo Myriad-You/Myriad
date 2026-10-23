@@ -6,7 +6,6 @@
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
 use myriad_agent_rules::channel::{
     ConnectFailureKind, WorkerIntent, feishu_worker_intent, parse_feishu_tenant_token,
     parse_feishu_ws_endpoint,
@@ -93,7 +92,7 @@ pub async fn publish_phase_online() {
 }
 
 pub async fn mark_inbound() {
-    snapshot().write().await.last_inbound_at = Some(Utc::now().to_rfc3339());
+    snapshot().write().await.last_inbound_at = Some(crate::clock::now().to_rfc3339());
 }
 
 pub async fn current_status() -> FeishuBotStatus {

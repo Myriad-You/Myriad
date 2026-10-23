@@ -104,12 +104,12 @@ pub fn start(db: DatabaseConnection) {
         let mut interval = tokio::time::interval(EVERY);
         loop {
             interval.tick().await;
-            let (now, _) = super::now();
+            let now = super::now();
             if let Err(error) = super::lease::watch(&db, settings, now).await {
                 tracing::warn!(%error, "[her-log] the takeover check failed");
             }
             if ticks % 240 == 0
-                && let Err(error) = sweep(&db, settings, chrono::Utc::now()).await
+                && let Err(error) = sweep(&db, settings, crate::clock::now()).await
             {
                 tracing::warn!(%error, "[her-log] the retention sweep failed");
             }

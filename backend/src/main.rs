@@ -56,6 +56,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod api;
 #[cfg(test)]
 mod authored_comments;
+mod clock;
 mod config;
 mod db;
 mod error;
@@ -474,6 +475,9 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                         )
                         .await;
                         tracing::info!("✅ Dynamic configuration loaded from database");
+                        // How far this host's clock is off, for the site's
+                        // clock (after the outbound proxy is loaded).
+                        services::server_clock::start();
                     }
                     Err(e) => {
                         return Err(anyhow::anyhow!("Failed to load dynamic configuration: {e}"));
@@ -527,10 +531,6 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
 
                 // Hugo 缺失时博客状态为不可用，不挡住启动。输出目录空着就排一次构建。
                 services::blog::start(db.clone());
-
-                // How far this host's clock is off, for the log, device
-                // clocks and the devices page (after the proxy is loaded).
-                services::server_clock::start();
 
                 // Her log on the server (multi-device sync): nothing starts
                 // unless HER_LOG_ENABLED is on.

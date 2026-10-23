@@ -196,13 +196,14 @@ pub(crate) async fn renew_delivery_lease(
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_delivery_queue
-               SET lease_expires_at = NOW() + make_interval(secs => $1::double precision),
-                   last_attempt_at = NOW()
+               SET lease_expires_at = $4::timestamptz + make_interval(secs => $1::double precision),
+                   last_attempt_at = $4::timestamptz
                WHERE id = $2 AND status = 'delivering' AND lease_token = $3"#,
             [
                 DELIVERY_LEASE_SECS.into(),
                 queue_id.into(),
                 lease_token.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -218,16 +219,16 @@ pub(crate) async fn claim_next_delivery(
         // MATERIALIZED keeps FOR UPDATE SKIP LOCKED from being inlined away (PG12+).
         r#"WITH selected AS MATERIALIZED (
                SELECT id, status AS prev_status, attempts AS prev_attempts,
-                      EXTRACT(EPOCH FROM (NOW() - last_attempt_at))::BIGINT
+                      EXTRACT(EPOCH FROM ($3::timestamptz - last_attempt_at))::BIGINT
                           AS prior_lease_age_secs
                FROM federation_delivery_queue
                WHERE (status = 'pending'
-                      AND (next_retry_at IS NULL OR next_retry_at <= NOW()))
+                      AND (next_retry_at IS NULL OR next_retry_at <= $3::timestamptz))
                   OR (status = 'delivering' AND (
-                      lease_expires_at <= NOW()
+                      lease_expires_at <= $3::timestamptz
                       OR (lease_token IS NULL
                           AND (last_attempt_at IS NULL
-                               OR last_attempt_at < NOW() - INTERVAL '10 minutes'))
+                               OR last_attempt_at < $3::timestamptz - INTERVAL '10 minutes'))
                   ))
                ORDER BY created_at ASC
                LIMIT 1
@@ -236,9 +237,9 @@ pub(crate) async fn claim_next_delivery(
            claimed AS (
                UPDATE federation_delivery_queue dq
                SET status = 'delivering',
-                   last_attempt_at = NOW(),
+                   last_attempt_at = $3::timestamptz,
                    lease_token = $1,
-                   lease_expires_at = NOW() + make_interval(secs => $2::double precision),
+                   lease_expires_at = $3::timestamptz + make_interval(secs => $2::double precision),
                    attempts = CASE
                        WHEN s.prev_status = 'delivering' THEN s.prev_attempts + 1
                        ELSE s.prev_attempts
@@ -255,7 +256,11 @@ pub(crate) async fn claim_next_delivery(
                   a.activity_id AS ap_activity_id, a.activity_type, a.object_json, a.user_id
            FROM claimed c
            JOIN federation_activities a ON a.id = c.activity_id"#,
-        [lease_token.into(), DELIVERY_LEASE_SECS.into()],
+        [
+            lease_token.into(),
+            DELIVERY_LEASE_SECS.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
 }
@@ -268,8 +273,12 @@ pub(crate) async fn mark_delivery_delivered_if_owned(
     let result = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE federation_delivery_queue SET status = 'delivered', last_attempt_at = NOW(), lease_token = NULL, lease_expires_at = NULL WHERE id = $1 AND status = 'delivering' AND lease_token = $2",
-            [queue_id.into(), lease_token.into()],
+            "UPDATE federation_delivery_queue SET status = 'delivered', last_attempt_at = $3::timestamptz, lease_token = NULL, lease_expires_at = NULL WHERE id = $1 AND status = 'delivering' AND lease_token = $2",
+            [
+                queue_id.into(),
+                lease_token.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -308,9 +317,9 @@ async fn lock_delivery_instance(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_instances (domain, failure_count, created_at)
-           VALUES ($1, 0, NOW())
+           VALUES ($1, 0, $2::timestamptz)
            ON CONFLICT (domain) DO NOTHING"#,
-        [target_domain.into()],
+        [target_domain.into(), crate::clock::now().into()],
     ))
     .await?;
 
@@ -346,9 +355,9 @@ pub(crate) async fn settle_remote_delivery_success(
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_instances
-           SET last_success_at = NOW(), failure_count = 0, failing_since = NULL
+           SET last_success_at = $2::timestamptz, failure_count = 0, failing_since = NULL
            WHERE domain = $1"#,
-        [target_domain.into()],
+        [target_domain.into(), crate::clock::now().into()],
     ))
     .await?;
     txn.commit().await?;
@@ -382,6 +391,7 @@ pub(crate) async fn settle_remote_delivery_failure(
     disposition: RemoteDeliveryFailureDisposition,
     counts_toward_streak: bool,
 ) -> Result<RemoteDeliveryFailureSettlement, DbErr> {
+    let now = crate::clock::now();
     let txn = db.begin().await?;
     let current_failures = lock_delivery_instance(&txn, target_domain).await?;
 
@@ -391,7 +401,7 @@ pub(crate) async fn settle_remote_delivery_failure(
                 DatabaseBackend::Postgres,
                 r#"UPDATE federation_delivery_queue
                    SET status = 'dead', attempts = $1, error_message = $2,
-                       last_attempt_at = NOW(), next_retry_at = NULL,
+                       last_attempt_at = $5::timestamptz, next_retry_at = NULL,
                        lease_token = NULL, lease_expires_at = NULL
                    WHERE id = $3 AND status = 'delivering' AND lease_token = $4"#,
                 [
@@ -399,6 +409,7 @@ pub(crate) async fn settle_remote_delivery_failure(
                     error_message.into(),
                     queue_id.into(),
                     lease_token.into(),
+                    now.into(),
                 ],
             ))
             .await?
@@ -408,8 +419,8 @@ pub(crate) async fn settle_remote_delivery_failure(
                 DatabaseBackend::Postgres,
                 r#"UPDATE federation_delivery_queue
                    SET status = 'pending', attempts = $1, error_message = $2,
-                       last_attempt_at = NOW(),
-                       next_retry_at = NOW() + make_interval(secs => $4::double precision),
+                       last_attempt_at = $6::timestamptz,
+                       next_retry_at = $6::timestamptz + make_interval(secs => $4::double precision),
                        lease_token = NULL, lease_expires_at = NULL
                    WHERE id = $3 AND status = 'delivering' AND lease_token = $5"#,
                 [
@@ -418,6 +429,7 @@ pub(crate) async fn settle_remote_delivery_failure(
                     queue_id.into(),
                     backoff_secs.into(),
                     lease_token.into(),
+                    now.into(),
                 ],
             ))
             .await?
@@ -448,12 +460,12 @@ pub(crate) async fn settle_remote_delivery_failure(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_instances
                SET failure_count = failure_count + 1,
-                   failing_since = COALESCE(failing_since, NOW())
+                   failing_since = COALESCE(failing_since, $2::timestamptz)
                WHERE domain = $1
                RETURNING failure_count,
-                         GREATEST(0, EXTRACT(EPOCH FROM (NOW() - failing_since))::BIGINT)
+                         GREATEST(0, EXTRACT(EPOCH FROM ($2::timestamptz - failing_since))::BIGINT)
                              AS streak_secs"#,
-            [target_domain.into()],
+            [target_domain.into(), now.into()],
         ))
         .await?
         .ok_or_else(|| DbErr::Custom("failed to update federation failure count".into()))?;
@@ -503,12 +515,12 @@ pub(crate) async fn settle_remote_delivery_failure(
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_channels c
-               SET status = 'closed', closed_at = COALESCE(closed_at, NOW())
+               SET status = 'closed', closed_at = COALESCE(closed_at, $2::timestamptz)
                FROM federation_remote_actors ra
                WHERE c.remote_actor_id = ra.id
                  AND LOWER(ra.domain) = LOWER($1)
                  AND c.status IN ('pending', 'accepted', 'active')"#,
-            [target_domain.into()],
+            [target_domain.into(), now.into()],
         ))
         .await?
         .rows_affected();
@@ -609,14 +621,18 @@ pub(crate) async fn settle_remote_delivery_failure(
                      WHEN dq.error_message IS NULL OR BTRIM(dq.error_message) = '' THEN $2
                      ELSE $2 || '; previous error: ' || dq.error_message
                    END,
-                   last_attempt_at = NOW(), next_retry_at = NULL,
+                   last_attempt_at = $3::timestamptz, next_retry_at = NULL,
                    lease_token = NULL, lease_expires_at = NULL
                WHERE LOWER(dq.target_domain) = LOWER($1)
                  AND dq.status IN ('pending', 'delivering')
                RETURNING (
                    SELECT a.user_id FROM federation_activities a WHERE a.id = dq.activity_id
                ) AS user_id"#,
-            [target_domain.into(), domain_revocation_reason().into()],
+            [
+                target_domain.into(),
+                domain_revocation_reason().into(),
+                now.into(),
+            ],
         ))
         .await?;
 
@@ -721,8 +737,13 @@ pub async fn process_delivery_queue_detailed(
             let mark = db
                 .execute_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = NOW(), lease_token = NULL, lease_expires_at = NULL WHERE id = $2 AND status = 'delivering' AND lease_token = $3",
-                    [err.into(), queue_id.into(), lease_token.into()],
+                    "UPDATE federation_delivery_queue SET status = 'dead', error_message = $1, last_attempt_at = $4::timestamptz, lease_token = NULL, lease_expires_at = NULL WHERE id = $2 AND status = 'delivering' AND lease_token = $3",
+                    [
+                        err.into(),
+                        queue_id.into(),
+                        lease_token.into(),
+                        crate::clock::now().into(),
+                    ],
                 ))
                 .await
                 .map_err(|e| format!("Queue dead-letter update failed: {e}"))?;
@@ -744,8 +765,8 @@ pub async fn process_delivery_queue_detailed(
                     .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_delivery_queue
-                           SET status = 'pending', error_message = $1, last_attempt_at = NOW(),
-                               next_retry_at = NOW() + make_interval(secs => $2::double precision),
+                           SET status = 'pending', error_message = $1, last_attempt_at = $5::timestamptz,
+                               next_retry_at = $5::timestamptz + make_interval(secs => $2::double precision),
                                lease_token = NULL, lease_expires_at = NULL
                            WHERE id = $3 AND status = 'delivering' AND lease_token = $4"#,
                         [
@@ -753,6 +774,7 @@ pub async fn process_delivery_queue_detailed(
                             backoff_secs.into(),
                             queue_id.into(),
                             lease_token.into(),
+                            crate::clock::now().into(),
                         ],
                     ))
                     .await
@@ -774,10 +796,15 @@ pub async fn process_delivery_queue_detailed(
                     .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_delivery_queue
-                           SET status = 'dead', error_message = $1, last_attempt_at = NOW(),
+                           SET status = 'dead', error_message = $1, last_attempt_at = $4::timestamptz,
                                lease_token = NULL, lease_expires_at = NULL
                            WHERE id = $2 AND status = 'delivering' AND lease_token = $3"#,
-                        [reason.clone().into(), queue_id.into(), lease_token.into()],
+                        [
+                            reason.clone().into(),
+                            queue_id.into(),
+                            lease_token.into(),
+                            crate::clock::now().into(),
+                        ],
                     ))
                     .await
                     .map_err(|e| format!("Queue trust-policy update failed: {e}"))?;
@@ -805,8 +832,8 @@ pub async fn process_delivery_queue_detailed(
                     .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_delivery_queue
-                           SET status = 'pending', error_message = $1, last_attempt_at = NOW(),
-                               next_retry_at = NOW() + make_interval(secs => $2::double precision),
+                           SET status = 'pending', error_message = $1, last_attempt_at = $5::timestamptz,
+                               next_retry_at = $5::timestamptz + make_interval(secs => $2::double precision),
                                lease_token = NULL, lease_expires_at = NULL
                            WHERE id = $3 AND status = 'delivering' AND lease_token = $4"#,
                         [
@@ -814,6 +841,7 @@ pub async fn process_delivery_queue_detailed(
                             backoff_secs.into(),
                             queue_id.into(),
                             lease_token.into(),
+                            crate::clock::now().into(),
                         ],
                     ))
                     .await
@@ -829,10 +857,15 @@ pub async fn process_delivery_queue_detailed(
                     .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_delivery_queue
-                           SET status = 'dead', error_message = $1, last_attempt_at = NOW(),
+                           SET status = 'dead', error_message = $1, last_attempt_at = $4::timestamptz,
                                lease_token = NULL, lease_expires_at = NULL
                            WHERE id = $2 AND status = 'delivering' AND lease_token = $3"#,
-                        [error.clone().into(), queue_id.into(), lease_token.into()],
+                        [
+                            error.clone().into(),
+                            queue_id.into(),
+                            lease_token.into(),
+                            crate::clock::now().into(),
+                        ],
                     ))
                     .await
                     .map_err(|e| format!("Queue username dead-letter update failed: {e}"))?;
@@ -853,10 +886,15 @@ pub async fn process_delivery_queue_detailed(
                     .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_delivery_queue
-                           SET status = 'dead', error_message = $1, last_attempt_at = NOW(),
+                           SET status = 'dead', error_message = $1, last_attempt_at = $4::timestamptz,
                                lease_token = NULL, lease_expires_at = NULL
                            WHERE id = $2 AND status = 'delivering' AND lease_token = $3"#,
-                        [reason.clone().into(), queue_id.into(), lease_token.into()],
+                        [
+                            reason.clone().into(),
+                            queue_id.into(),
+                            lease_token.into(),
+                            crate::clock::now().into(),
+                        ],
                     ))
                     .await
                     .map_err(|e| format!("Queue encode dead-letter update failed: {e}"))?;
@@ -930,7 +968,7 @@ pub async fn process_delivery_queue_detailed(
                                     DatabaseBackend::Postgres,
                                     r#"UPDATE federation_delivery_queue
                                        SET status = 'dead', attempts = $1, error_message = $2,
-                                           last_attempt_at = NOW(), next_retry_at = NULL,
+                                           last_attempt_at = $5::timestamptz, next_retry_at = NULL,
                                            lease_token = NULL, lease_expires_at = NULL
                                        WHERE id = $3 AND status = 'delivering' AND lease_token = $4"#,
                                     [
@@ -938,6 +976,7 @@ pub async fn process_delivery_queue_detailed(
                                         error_message.clone().into(),
                                         queue_id.into(),
                                         lease_token.into(),
+                                        crate::clock::now().into(),
                                     ],
                                 ))
                                 .await
@@ -1087,12 +1126,13 @@ pub async fn process_delivery_queue_detailed(
                     let mark = db
                         .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
-                            "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = NOW(), lease_token = NULL, lease_expires_at = NULL WHERE id = $3 AND status = 'delivering' AND lease_token = $4",
+                            "UPDATE federation_delivery_queue SET status = 'dead', attempts = $1, error_message = $2, last_attempt_at = $5::timestamptz, lease_token = NULL, lease_expires_at = NULL WHERE id = $3 AND status = 'delivering' AND lease_token = $4",
                             [
                                 new_attempts.into(),
                                 err_msg.clone().into(),
                                 queue_id.into(),
                                 lease_token.into(),
+                                crate::clock::now().into(),
                             ],
                         ))
                         .await
@@ -1116,13 +1156,14 @@ pub async fn process_delivery_queue_detailed(
                     let mark = db
                         .execute_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
-                            "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = NOW(), next_retry_at = NOW() + make_interval(secs => $4::double precision), lease_token = NULL, lease_expires_at = NULL WHERE id = $3 AND status = 'delivering' AND lease_token = $5",
+                            "UPDATE federation_delivery_queue SET status = 'pending', attempts = $1, error_message = $2, last_attempt_at = $6::timestamptz, next_retry_at = $6::timestamptz + make_interval(secs => $4::double precision), lease_token = NULL, lease_expires_at = NULL WHERE id = $3 AND status = 'delivering' AND lease_token = $5",
                             [
                                 new_attempts.into(),
                                 err_msg.into(),
                                 queue_id.into(),
                                 backoff_secs.into(),
                                 lease_token.into(),
+                                crate::clock::now().into(),
                             ],
                         ))
                         .await

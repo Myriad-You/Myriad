@@ -885,11 +885,15 @@ pub(super) async fn finalize_uploaded_transfer(
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_file_transfers
-               SET status = 'completed', local_path = $2, completed_at = NOW()
+               SET status = 'completed', local_path = $2, completed_at = $3::timestamptz
                WHERE transfer_id = $1
                  AND status = 'finalizing'
                  AND chunks_completed = chunks_total"#,
-            [transfer_id.into(), final_path_db.into()],
+            [
+                transfer_id.into(),
+                final_path_db.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(db_err)?;

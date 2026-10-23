@@ -210,7 +210,7 @@ mod postgres_tests {
                 runtime_id: None,
             },
             &"private old prompt",
-            Utc::now().timestamp() + 600,
+            crate::clock::now().timestamp() + 600,
         )
         .await
         .unwrap();
@@ -225,7 +225,7 @@ mod postgres_tests {
                 runtime_id: None,
             },
             &serde_json::json!({"session_id": "", "binding": first}),
-            Utc::now().timestamp() + 600,
+            crate::clock::now().timestamp() + 600,
         )
         .await
         .unwrap();

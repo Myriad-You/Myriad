@@ -118,6 +118,22 @@ fn parse_subject(claims: &mut Claims) -> Result<AuthSubject, Box<Response>> {
     Ok(subject)
 }
 
+/// How far `exp` may be past, as `jsonwebtoken` allows by default.
+const SESSION_LEEWAY_SECS: i64 = 60;
+
+/// Signature and the claims' shape; `exp` is checked against the site's
+/// clock ([`session_expired`]), not this host's.
+fn session_validation() -> Validation {
+    let mut validation = Validation::default();
+    validation.validate_exp = false;
+    validation
+}
+
+/// A session whose `exp` is past at `now` (the site's clock, seconds).
+fn session_expired(exp: i64, now: i64) -> bool {
+    exp < now - SESSION_LEEWAY_SECS
+}
+
 /// Build claims for a durable user session (login / register / password reissue).
 pub fn mint_session_claims(
     user_id: i32,
@@ -126,7 +142,7 @@ pub fn mint_session_claims(
     is_owner: bool,
     token_version: i64,
 ) -> Claims {
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     Claims {
         sub: user_id.to_string(),
         username: username.into(),
@@ -600,12 +616,12 @@ pub fn record_user_presence(claims: &Claims, db: DatabaseConnection) {
                 DatabaseBackend::Postgres,
                 "UPDATE users SET \
                      online_seconds = online_seconds + CASE \
-                         WHEN last_seen_at IS NOT NULL AND NOW() - last_seen_at <= make_interval(secs => $2) \
-                         THEN EXTRACT(EPOCH FROM (NOW() - last_seen_at))::BIGINT \
+                         WHEN last_seen_at IS NOT NULL AND $3::timestamptz - last_seen_at <= make_interval(secs => $2) \
+                         THEN EXTRACT(EPOCH FROM ($3::timestamptz - last_seen_at))::BIGINT \
                          ELSE 0 END, \
-                     last_seen_at = NOW() \
+                     last_seen_at = $3::timestamptz \
                  WHERE id = $1",
-                [user_id.into(), PRESENCE_SESSION_GAP_SECS.into()],
+                [user_id.into(), PRESENCE_SESSION_GAP_SECS.into(), crate::clock::now().into()],
             ))
             .await;
         if let Err(e) = result {
@@ -974,7 +990,7 @@ pub(crate) async fn revalidate_bound_claims(
     claims: &Claims,
     db: &DatabaseConnection,
 ) -> Result<Claims, Box<Response>> {
-    if claims.exp <= chrono::Utc::now().timestamp() {
+    if claims.exp <= crate::clock::now().timestamp() {
         return Err(unauthorized_session_response());
     }
     let mut claims = claims.clone();
@@ -1018,9 +1034,9 @@ pub async fn bump_token_version(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE users SET token_version = COALESCE(token_version, 0) + 1, updated_at = NOW() \
+            "UPDATE users SET token_version = COALESCE(token_version, 0) + 1, updated_at = $3::timestamptz \
              WHERE id = $1 AND COALESCE(token_version, 0)::BIGINT = $2 RETURNING token_version",
-            [user_id.into(), expected_version.into()],
+            [user_id.into(), expected_version.into(), crate::clock::now().into()],
         ))
         .await?;
     let new_version = row.map(|r| row_session_epoch(&r)).transpose()?;
@@ -1161,8 +1177,8 @@ pub async fn optional_auth_middleware(
                 username: format!("guest:{}", &session_id[..8]),
                 is_admin: false,
                 is_owner: false,
-                exp: chrono::Utc::now().timestamp() + GUEST_SESSION_MAX_AGE,
-                iat: chrono::Utc::now().timestamp(),
+                exp: crate::clock::now().timestamp() + GUEST_SESSION_MAX_AGE,
+                iat: crate::clock::now().timestamp(),
                 tv: 0,
                 subject: Some(AuthSubject(guest_id)),
             }
@@ -1227,8 +1243,16 @@ pub(crate) fn verify_signed(token: &str) -> Result<Claims, Box<Response>> {
     let token_data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(jwt_secret.as_bytes()),
-        &Validation::default(),
+        &session_validation(),
     )
+    .map_err(|e| e.to_string())
+    .and_then(|data| {
+        if session_expired(data.claims.exp, crate::clock::now().timestamp()) {
+            Err("expired by the site's clock".to_string())
+        } else {
+            Ok(data)
+        }
+    })
     .map_err(|e| {
         tracing::debug!("Invalid JWT token: {:?}", e);
         Box::new(
@@ -1367,6 +1391,18 @@ async fn clear_invalid_cookie_response(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_session_expires_by_the_sites_clock() {
+        let now = 1_761_200_000;
+        assert!(!super::session_expired(now + 3600, now));
+        assert!(!super::session_expired(now - 60, now), "leeway");
+        assert!(super::session_expired(now - 61, now));
+        // The signature is still checked; only exp moved to the site's clock.
+        let validation = super::session_validation();
+        assert!(!validation.validate_exp);
+        assert!(validation.required_spec_claims.contains("exp"));
+    }
+
     #[test]
     fn admin_recheck_requires_positive_subject() {
         let src = include_str!("auth.rs");
@@ -2399,7 +2435,7 @@ mod tests {
     #[tokio::test]
     async fn a_bound_realtime_capability_expires_before_database_access() {
         let mut claims = mint_session_claims(7, "alice", false, false, 0);
-        claims.exp = chrono::Utc::now().timestamp() - 1;
+        claims.exp = crate::clock::now().timestamp() - 1;
         let error = revalidate_bound_claims(&claims, &DatabaseConnection::default())
             .await
             .expect_err("expired binding must fail before a database query");

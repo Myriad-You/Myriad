@@ -31,131 +31,120 @@
 
 </div>
 
----
+<p align="center">
+<picture>
+  <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/assets/readme/home-ja-dark-still.webp">
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/readme/home-ja-light-still.webp">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/home-ja-dark.webp">
+  <img src="docs/assets/readme/home-ja-light.webp" width="880" alt="Myriad のホームページ：大きなタイトルの下にオーナーのカードとウィジェットの列——あいさつ、SNS アイコン、Steam と Bangumi のレポートカード、彼女の立ち絵、相互リンク、天気、NetEase と GitHub のレポートカード、音楽、最近のアクティビティ。レポートカードの中のカバーが切り替わっていく。">
+</picture>
+<br><sub>オフスクリーン描画：このリポジトリのフロントエンド（本番ビルド）をローカルのインスタンスにつなぎ、1 フレームずつ描いたもの。オーナー、作品、数字は合成したサンプルで、キャラクターはプロジェクト同梱のものです。[録画方法](docs/development/README_MEDIA.md)（中国語）。</sub>
+</p>
 
 ## これは何か
 
-**Myriad はセルフホストのホームページ兼創作工房です。** プラットフォームを集め、ライブラリを見せ、サイト全体でひとつのペルソナ、2.5D ビジュアル、所有する Tapp を動かします。
+**Myriad はセルフホストの個人ホームページです。** いろいろなプラットフォームに残したものをひとつのサイトに集め、サイトにひとりのキャラクターを置きます。彼女は自分の 2.5D の姿を持ち、訪れた人と話し、あなたの代わりに仕事もします。小さなアプリを入れたり、ブログを書いたりもできます。
 
 シングルテナント。公開または非公開。PostgreSQL。UI：`zh-CN` · `zh-TW` · `en-US` · `ja-JP` · `ko-KR` · `fr-FR` · `de-DE`。
 
-```mermaid
-flowchart LR
-  subgraph homepage ["ホームページ"]
-    direction TB
-    W[ウィジェット]
-    L[ライブラリ]
-    P[プラットフォーム]
-  end
-  subgraph studio ["工房"]
-    direction TB
-    A[ペルソナ]
-    F["2.5D ビジュアル"]
-    T[Tapp]
-  end
-  homepage -.-> studio
-```
+- **ホームページ**：標準 16×4 か自由 16×8 のグリッドに、ウィジェットを好きに並べます。自由レイアウトにはステッカーも貼れます。レポートカード、音楽、天気、相互リンク、最近のアクティビティ、彼女のウィジェットがここに並び、入れた Tapp もウィジェットを置けます。
+- **プラットフォーム**：GitHub、Steam、Bilibili、NetEase Music、Bangumi など 11 のプラットフォームのデータがひとつのデータベースに入り、レポートカード、ライブラリ、プラットフォームレポートは同じデータを読みます（[プラットフォーム](#プラットフォーム)）。
 
-<table>
-<tr>
-<td width="50%" valign="top">
+## 彼女と話す
 
-### ホームページ
-`/`
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/chat-ja-dark.webp">
+  <img src="docs/assets/readme/chat-ja-light.webp" width="720" alt="ホームページの空いたところを長押しして Agent パネルを開き、「会話」に切り替えて一言入力する。返事が少しずつ現れ、パネルの上の彼女の顔が返事に合わせて口を動かす。">
+</picture>
+<br><sub>オフスクリーン描画。彼女の返事はあらかじめ書いた代役で、その場でモデルが生成したものではありません。</sub>
+</p>
 
-- 標準 16×4 · 自由 16×8
-- 音楽、天気、Report Card、ペルソナウィジェット
-- 自由レイアウトのステッカーはウィジェット枠を占有しない
+- **サイトにひとつのペルソナ**：名前、性格、立ち絵はオーナーが決め、誰と話しても同じひとりです。ペルソナがオンで名前が未設定なら、彼女の名前は Arael です。
+- **会話と仕事**：ページの空いたところを長押しするとパネルが開き、Tab で「会話」と「仕事」を切り替えます。会話ではペルソナとして話し、仕事では付与された権限の範囲で計画し、確認して、実行します（[Agent](#agent)）。
+- **口の形**：音声がオフのときは、返事の文字から口の形を割り出します。中国語、日本語、英語はそれぞれの発音で読みます。
 
-</td>
-<td width="50%" valign="top">
+## 2.5D ビジュアル
 
-### ライブラリ
-`/library`
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/face-ja-dark.webp">
+  <img src="docs/assets/readme/face-ja-light.webp" width="680" alt="キャラクター設定の「モーション」タブ：左に彼女の上半身、右に表情のボタン。照れ、わくわく、ときめき過ぎ、泣く、ぎゅっと目、くらくら、鼻歌、目を閉じて笑顔を順に押すと顔が変わり、表情によっては記号が描かれる。">
+</picture>
+<br><sub>オフスクリーン描画。キャラクター設定 › モーション。</sub>
+</p>
 
-- ゲーム、アニメ、映像、書籍、音楽
-- 接続済みプラットフォームから同期
-- リストまたは無限キャンバス
+- **ブラウザの中で動く**：レイヤー分けした上半身の立ち絵をブラウザがその場で再生します（[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)）。サーバーで GPU 推論はしません。
+- **立ち絵から動くまで**：メインの立ち絵は生成もアップロードもできます。レイヤーは PSD から、またはレイヤー分割サービスで自動で分けられます。まばたき、口の形、頭と体の揺れはレイヤーの上で動きます。
+- **表情と動作**：ワークベンチで試せて、会話中は彼女が自分で選びます。表情によっては涙、音符、ぐるぐるのような記号が描かれます。
 
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
+## プラットフォームレポート
 
-### ペルソナ · 2.5D
-サイト全体でひとつ
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/report-ja-dark.webp">
+  <img src="docs/assets/readme/report-ja-light.webp" width="800" alt="ホームページの Steam レポートカードで再生を押すと、ポップアップで「横顔」「好み」「ハイライト」の三幕が一行ずつ流れ、下に関連するゲームのカバーが並ぶ。">
+</picture>
+<br><sub>オフスクリーン描画。レポートの文章は手書きのサンプルです。実際のレポートはプラットフォームのデータからモデルが書きます。</sub>
+</p>
 
-- レポートから生成、または文案 + 立ち絵を取り込む
-- レイヤーライブ：呼吸、まばたき、口パク
-- メイン立ち絵からステッカーアバター
+- プラットフォームごとに一枚の横顔を、横顔・好み・ハイライトの三幕で描きます。専用ページはなく、ホームページのレポートカードを押すとポップアップで一幕ずつ再生されます。
+- オーナーは同じ場所で再生成、有効期限、レポートのスタイルを設定します。
 
-</td>
-<td width="50%" valign="top">
+## ライブラリ
 
-### Tapp
-`/tapp`
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/library-ja-dark.webp">
+  <img src="docs/assets/readme/library-ja-light.webp" width="720" alt="ライブラリの無限キャンバス：キャンバスをドラッグして縮小し、左のカテゴリでゲーム、動画、すべてに切り替える。">
+</picture>
+<br><sub>オフスクリーン描画。</sub>
+</p>
 
-- Page、ホームページ Widget、または両方
-- ストア · Playground · CLI
-- サンドボックス。秘密はホスト側
+- ゲーム、アニメ、映像、本、音楽を、つないだプラットフォームから同期し、種類で絞り込みます。種類ごとの取得元も設定できます。
+- リストか無限キャンバス：ドラッグ、矢印キーで移動、ホイールで拡大縮小。性能の低い端末ではリストに戻ります。
 
-</td>
-</tr>
-</table>
+## Tapp
 
-<table>
-<tr>
-<td width="33%" valign="top">
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/tapp-ja-dark.webp">
+  <img src="docs/assets/readme/tapp-ja-light.webp" width="800" alt="Tapp プレイグラウンド：「ポモドーロタイマーを作って」と入力すると生成の手順がひとつずつ表示され、終わると左のプレビューにタイマー、右にコードが出る。スタートを押すと 25:00 からカウントダウンが進む。">
+</picture>
+<br><sub>オフスクリーン描画。生成は代役で、手順とコードはあらかじめ書いたものです。その場でモデルが生成したものではありません。</sub>
+</p>
 
-**Agent**  
-Chat / Work · パネル
+- **サイトの小さなアプリ**：ページ、ホームのウィジェット、またはその両方。サンドボックスで動き、インストール時に権限を承認します。ホストの秘密情報とアプリの認証情報はサンドボックスに入らず、エラーにも出ません。
+- **プレイグラウンド**（デスクトップ、オーナー）：一文でプロジェクトを生成し、本番と同じサンドボックスでプレビューして、気に入ればインストールするか `.tapp` に書き出します。
+- **ストアと CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store) と [`tapp-cli`](tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。開発は [Tapp 開発](docs/development/TAPP_DEVELOPMENT.md)。
 
-</td>
-<td width="33%" valign="top">
+## ブログ
 
-**Phantasi** · ブログ `/blog`
-RSS · Notion · RSSHub · Hugo
+<p align="center">
+<picture>
+  <img src="docs/assets/readme/blog-ja-light.webp" width="800" alt="ブログでスタジオのエディタを開き、タイトルと一段落を書いて公開を押す。ブログのトップに戻ると新しい記事がいちばん上にあり、押すと記事ページが開く。">
+</picture>
+<br><sub>オフスクリーン描画。公開のあと、ローカルのインスタンスが実際に Hugo で静的ブログを作り直しています。</sub>
+</p>
 
-</td>
-<td width="33%" valign="top">
+- スタジオでノートを書き、公開すると Hugo テーマで静的ブログになり、`/blog` に置かれます。ページではスクリプトを動かさず、コメントと相互リンク申請は同一オリジンの埋め込みページです。
+- 購読（RSS、Notion、RSSHub）は内蔵の「購読」アプリで読みます（[Phantasi](#phantasi)）。
 
-**連合**  
-ActivityPub · MFP
+## ほかにも
 
-</td>
-</tr>
-</table>
-
-`/config` は管理者のみ。ライブラリ、Phantasi、Tapp、Agent：全員 / ログイン済み / 管理者。
+- **グループと DM**：彼女は QQ、Telegram、Discord のグループにもいて、メンションされると返事をし、誰にも呼ばれないときもときどき自分から口をはさみます。ペアリングした DM ボットは「仕事」と同じ流れを通ります。
+- **連合**：ActivityPub と MFP。ほかのサイトをフォローできます（[連合](#連合)）。
+- **版の切り替えとロールバック**：`/config` → 情報 → 更新管理でひと手間です（[運用](#運用)）。
 
 ---
 
 ## 目次
 
-**製品** — [ホームページ](#ホームページ) · [プラットフォーム](#プラットフォーム) · [ライブラリ](#ライブラリとレポート) · [ペルソナ](#ペルソナと-25d-ビジュアル) · [Tapp](#tapp) · [Agent](#agent) · [Phantasi](#phantasi) · [連合](#連合) · [アカウント](#アカウントと公開範囲)
+**製品** — [彼女と話す](#彼女と話す) · [2.5D ビジュアル](#25d-ビジュアル) · [プラットフォームレポート](#プラットフォームレポート) · [ライブラリ](#ライブラリ) · [Tapp](#tapp) · [ブログ](#ブログ) · [プラットフォーム](#プラットフォーム) · [Agent](#agent) · [Phantasi](#phantasi) · [連合](#連合) · [アカウント](#アカウントと公開範囲)
 
 **実行** — [要件](#要件) · [デプロイ](#デプロイ) · [開発](#ローカル開発) · [運用](#運用)
 
 **参照** — [アーキテクチャ](#アーキテクチャ) · [リポジトリ](#リポジトリ) · [技術構成](#技術構成) · [ドキュメント](#ドキュメント) · [License](#license)
-
----
-
-## ホームページ
-
-**標準** 16×4（中央寄せ、狭幅では詰め直し）または **自由** 16×8（同セル）。座標はレイアウトごとに保存。自由レイアウトのステッカーはウィジェットではなく、ウィジェット枠を占有しない。
-
-<details>
-<summary>組み込みウィジェット</summary>
-
-| | |
-| --- | --- |
-| 歓迎 | Agent ペルソナ（ライブ 2.5D。同時再生は一箇所） |
-| 概要 · 最近の活動 · 訪問 | 天気 · 一言 · 音楽 |
-| 相互リンク（Phantasi）· ソーシャル · Tapp ショートカット | miHoYo ゲーム Presence · プラットフォーム別 Report Card |
-
-インストール済み Tapp はホームページ用ウィジェットを登録できる。
-
-</details>
 
 ---
 
@@ -186,67 +175,6 @@ ActivityPub · MFP
 </table>
 
 PostgreSQL に保存。Report Card、ライブラリ、レポートは同一データを読む。
-
----
-
-## ライブラリとレポート
-
-**ライブラリ**は接続済みプラットフォームのゲーム、アニメ、映像、書籍、音楽を種類で絞り込む。レイアウト：リストまたは無限キャンバス。低スペックはリストに戻る。カテゴリごとのソースは設定可能。
-
-**レポート**は各サービスの肖像で、専用ページはない。ホームのレポートカードを開くとポップアップで幕ごとに再生され、オーナーは同じ場所で再生成、有効期限、レポートの書き方を設定する。案内つきペルソナ作成が読む。もう一方の経路は文案の貼り付けと立ち絵のアップロード。
-
----
-
-## ペルソナと 2.5D ビジュアル
-
-サイト全体でひとつの話し手と上半身 2.5D ビジュアル（**Agent ペルソナ**）。オン：Agent はそのペルソナとして話す。オフ：Chat と Work は残る。
-
-```text
-レポート → ペルソナ → 視覚設定 → メイン立ち絵 → レイヤー PSD
-           または文案 + 立ち絵を取り込む
-```
-
-視覚設定は人物と衣装を分離。メイン立ち絵は 3:4、上半身。レイヤー PSD で呼吸、まばたき、口パク。
-
-頭と胴は発話と歌唱に追随。着替えはライブプレーヤーを破棄しない。メイン立ち絵から **ステッカーアバター**（頭のみ）を派生でき、アバター枠と Agent 通知に使う。メイン立ち絵を替えると無効。
-
-ライブの顔は同時に一箇所。ブラウザ内レイヤー 2.5D（[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)）。その再生で Myriad サーバーは GPU 推論しない。
-
----
-
-## Tapp
-
-**Page**、ホームページ **Widget**、または両方。サンドボックス。インストール時に権限を承認。ホスト秘密とアプリ認証情報はサンドボックスに入らず、エラー文にも出ない。
-
-<table>
-<tr>
-<td width="33%" valign="top">
-
-**ストア**  
-[tapp-store](https://github.com/Myriad-You/tapp-store)  
-`/tapp/store`
-
-</td>
-<td width="33%" valign="top">
-
-**Playground**  
-デスクトップ管理者  
-`/tapp/playground`
-
-自然言語で Page、Widget のみ、または両方。本番サンドボックスでプレビュー。インストールまたは `.tapp` 書き出し。モバイル非表示。
-
-</td>
-<td width="33%" valign="top">
-
-**CLI**  
-[`tapp-cli`](tools/tapp-cli/README.md)  
-`myriad-tapp init / check / pack`
-
-</td>
-</tr>
-</table>
-
-Page：Canvas / WebGL、パッケージ内アセット、音声、任意のホスト注入 [Three.js](https://github.com/mrdoob/three.js)。Widget は重い 3D 向けではない。[Tapp 開発](docs/development/TAPP_DEVELOPMENT.md)。
 
 ---
 

@@ -139,7 +139,7 @@ async fn mark_account_online(online: bool) {
 
 async fn mark_inbound() {
     let mut snap = snapshot().write().await;
-    snap.last_inbound_at = Some(chrono::Utc::now().to_rfc3339());
+    snap.last_inbound_at = Some(crate::clock::now().to_rfc3339());
 }
 
 #[derive(Clone, PartialEq, Eq)]

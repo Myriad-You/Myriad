@@ -337,7 +337,7 @@ impl CompletionRequest {
 /// performance events remain on the authenticated Agent run stream.
 pub fn completion_chunk(run_id: &str, token: Option<&str>, finished: bool) -> serde_json::Value {
     serde_json::json!({
-        "id": run_id, "object": "chat.completion.chunk", "created": chrono::Utc::now().timestamp(),
+        "id": run_id, "object": "chat.completion.chunk", "created": crate::clock::now().timestamp(),
         "model": "myriad-chat",
         "choices": [{"index": 0, "delta": token.map(|text| serde_json::json!({"content": text})).unwrap_or(serde_json::json!({})),
             "finish_reason": if finished { Some("stop") } else { None }}]

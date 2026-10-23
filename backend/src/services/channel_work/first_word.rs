@@ -107,10 +107,10 @@ async fn recent_chats(
             format!(
                 "SELECT namespace, record_id, runtime_id, payload FROM runtime_registry \
                  WHERE namespace IN ({namespaces}) AND subject_id = $1 \
-                   AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT \
+                   AND expires_at > EXTRACT(EPOCH FROM $2::timestamptz)::BIGINT \
                  ORDER BY updated_at DESC"
             ),
-            [user_id.into()],
+            [user_id.into(), crate::clock::now().into()],
         ))
         .await
         .unwrap_or_default();
