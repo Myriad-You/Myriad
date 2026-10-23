@@ -54,6 +54,66 @@ export function revealableBelow(
   return -1
 }
 
+/**
+ * Buried specks beside a reveal are the same covered art, cut off from it
+ * where the covering art happens to match the source as well: a belt gem's
+ * dark facets ringed by pale ones under a belly, alone under the region
+ * floor. Each within `reach` pixels of the reveal and buried under the layer
+ * it reveals there joins it whole; returns the pixels that joined.
+ */
+export function joinBuriedSpecks(
+  analysis: Readonly<Anime25DPsdAnalysis>,
+  targets: Map<number, number>,
+  reach: number,
+): number[] {
+  const { width, height } = analysis.bounds
+  const seen = new Uint8Array(width * height)
+  const around = (target: number) => {
+    const x = target % width
+    const y = Math.floor(target / width)
+    return [
+      x > 0 ? target - 1 : -1,
+      x < width - 1 ? target + 1 : -1,
+      y > 0 ? target - width : -1,
+      y < height - 1 ? target + width : -1,
+    ]
+  }
+  const buried = (target: number, below: number) =>
+    analysis.flagged[target] === 1 && analysis.covered[target] === below
+  let frontier: Array<[number, number]> = []
+  for (const [target, below] of targets) {
+    seen[target] = 1
+    frontier.push([target, below])
+  }
+  const joined: number[] = []
+  for (let step = 0; step < reach && frontier.length > 0; step += 1) {
+    const next: Array<[number, number]> = []
+    for (const [target, below] of frontier) {
+      for (const near of around(target)) {
+        if (near < 0 || seen[near]) continue
+        seen[near] = 1
+        if (!buried(near, below)) {
+          next.push([near, below])
+          continue
+        }
+        const speck = [near]
+        while (speck.length > 0) {
+          const member = speck.pop()!
+          targets.set(member, below)
+          joined.push(member)
+          for (const other of around(member)) {
+            if (other < 0 || seen[other] || !buried(other, below)) continue
+            seen[other] = 1
+            speck.push(other)
+          }
+        }
+      }
+    }
+    frontier = next
+  }
+  return joined
+}
+
 export interface RecoveredPiece {
   pixels: Map<number, readonly [number, number, number, number]>
   /** Topmost layer the piece overrides, or -1 over open backdrop. */

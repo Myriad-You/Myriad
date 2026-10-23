@@ -146,6 +146,35 @@ test('a reveal grows to the covering art edge, not the verdict threshold', () =>
   assert.equal(pixel(repaired, 150, 130)[3], 255, 'beyond the covered arm')
 })
 
+test('a gem on a revealed belt is revealed past the pale facets ringing it', () => {
+  const PALE: Rgb = [250, 220, 205]
+  const BELT: Rgb = [70, 85, 110]
+  const BELT_BOX: Box = [60, 130, 80, 20]
+  const RING: Box = [94, 134, 12, 12]
+  const CORE: Box = [98, 138, 4, 4]
+  const belt = layer('bottomwear', BELT_BOX, BELT)
+  paint(belt, RING, PALE)
+  paint(belt, CORE, GOLD)
+  // The top carries the belly down over the belt, as pale as the gem's facets.
+  const top = layer('topwear', TORSO, CLOTH)
+  paint(top, BELT_BOX, PALE)
+  const result = repairAnime25DPsd(
+    [layer('face', FACE, SKIN, 'head'), belt, top],
+    allVisible,
+    reference((fill) => {
+      portrait(fill)
+      fill(BELT_BOX, BELT)
+      fill(RING, PALE)
+      fill(CORE, GOLD)
+    }),
+    2,
+  )
+  const repaired = result.layers[2]
+  assert.equal(pixel(repaired, 70, 140)[3], 0, 'the belt')
+  assert.equal(pixel(repaired, 99, 139)[3], 0, 'the gem, alone under the region floor')
+  assert.equal(pixel(repaired, 50, 110)[3], 255, 'the top itself')
+})
+
 test('the removed drawing leaves no anti-aliased ghost outline', () => {
   const arm = layer('handwear', [80, 110, 60, 40], SKIN)
   const hair = layer('back-hair', [90, 115, 30, 30], HAIR, 'head')
