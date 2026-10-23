@@ -140,7 +140,7 @@ pub async fn read(db: &DatabaseConnection, owner: i32) -> Result<Her, ExportErro
         manifest,
         lineage,
         epoch: lease.as_ref().map(|lease| lease.epoch.max(0) as u64),
-        at: chrono::Utc::now(),
+        at: crate::clock::now(),
     })
 }
 

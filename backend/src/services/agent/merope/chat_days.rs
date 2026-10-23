@@ -267,9 +267,13 @@ async fn people(db: &DatabaseConnection) -> Vec<i32> {
         DatabaseBackend::Postgres,
         "SELECT s.user_id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
          WHERE s.user_id > 0 AND s.context->>'mode' = 'chat' AND (s.context->>'venue') IS NULL \
-           AND m.role = 'user' AND m.created_at > NOW() - make_interval(days => $1) \
+           AND m.role = 'user' AND m.created_at > $3::timestamptz - make_interval(days => $1) \
          GROUP BY s.user_id ORDER BY max(m.created_at) DESC LIMIT $2",
-        [(FILL_BACK_DAYS as i32).into(), PEOPLE.into()],
+        [
+            (FILL_BACK_DAYS as i32).into(),
+            PEOPLE.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .unwrap_or_default()

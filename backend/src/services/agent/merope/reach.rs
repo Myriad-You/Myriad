@@ -118,8 +118,8 @@ async fn talked_lately(db: &DatabaseConnection) -> Vec<i32> {
         DatabaseBackend::Postgres,
         "SELECT DISTINCT s.user_id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
          WHERE s.user_id > 0 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
-           AND m.role = 'user' AND m.created_at > NOW() - make_interval(days => $1)",
-        [(THINKS_BACK_DAYS as i32).into()],
+           AND m.role = 'user' AND m.created_at > $2::timestamptz - make_interval(days => $1)",
+        [(THINKS_BACK_DAYS as i32).into(), crate::clock::now().into()],
     ))
     .await
     .unwrap_or_default()
@@ -321,7 +321,7 @@ async fn would_write(
     )
     .await
     .unwrap_or_default();
-    let now = Utc::now();
+    let now = crate::clock::now();
     // What she said each time, as she would glance up the chat: what she
     // last wrote about is hers to weigh too.
     let said: std::collections::HashMap<DateTime<Utc>, String> =
@@ -368,7 +368,7 @@ async fn would_write(
         "whatTheyAreToYou": super::bits::us(db, user_id).await.map(|us| us.now),
         "yourLastFirstWords": myriad_merope::others::first_words_view(&first_words),
         "yourOwnTime": {
-            "now": super::doing::now_text(Utc::now()),
+            "now": super::doing::now_text(crate::clock::now()),
             "wouldTell": reason.to_tell,
             "yourPuzzle": reason.to_try.as_ref().map(|puzzle| json!({
                 "puzzle": puzzle,

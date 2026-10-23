@@ -67,7 +67,7 @@ pub(super) async fn keep_waiting(
     }) else {
         return;
     };
-    let keep_until = (chrono::Utc::now() + WAITING_FOR).timestamp();
+    let keep_until = (crate::clock::now() + WAITING_FOR).timestamp();
     if let Err(error) = shared_registry::put(
         db,
         WAITING_NS,

@@ -46,7 +46,7 @@ pub fn instance_hash() -> String {
 }
 
 pub fn instance_day_idempotency_key(app_id: &str, event: &str) -> String {
-    let day = chrono::Utc::now().format("%Y-%m-%d");
+    let day = crate::clock::now().format("%Y-%m-%d");
     let inst = instance_hash();
     stable_key(&format!("inst|{inst}|{app_id}|{event}|{day}"))
 }

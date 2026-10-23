@@ -501,7 +501,7 @@ impl Child {
         self.seq += 1;
         let mut frame = json!({
             "t": t, "seq": self.seq, "ack": self.heard,
-            "at": chrono::Utc::now().timestamp_millis(), "body": body,
+            "at": crate::clock::now().timestamp_millis(), "body": body,
         });
         if let Some(id) = id {
             frame["id"] = id.into();
@@ -2354,7 +2354,7 @@ async fn her_conversations_and_proposals_reach_the_app() {
     let store = IntentStore::new(site.db.clone());
     for (id, minutes_ago) in [("int_decline", 1), ("int_accept", 0)] {
         let mut record = proposal_record(id, IntentStatus::Proposed);
-        record.created_at = chrono::Utc::now() - chrono::Duration::minutes(minutes_ago);
+        record.created_at = crate::clock::now() - chrono::Duration::minutes(minutes_ago);
         record.updated_at = record.created_at;
         record.expires_at = Some(record.created_at + chrono::Duration::hours(24));
         store.create_proposed(record).await.unwrap();
@@ -2529,7 +2529,7 @@ async fn her_host_asks_a_mac_that_lets_it_to_act() {
     let made = |id: &str| {
         let mut record = proposal_record_at(1, id, IntentStatus::Proposed);
         record.proposal.device_id = Some(mac.id.clone());
-        record.created_at = chrono::Utc::now();
+        record.created_at = crate::clock::now();
         record.updated_at = record.created_at;
         record.expires_at = Some(record.created_at + chrono::Duration::hours(24));
         record
@@ -2658,7 +2658,7 @@ async fn her_host_asks_a_mac_that_lets_it_to_act() {
     assert_eq!(request["id"], act.as_str());
     assert_eq!(request["body"]["proposalId"], "int_web");
     assert_eq!(request["body"]["maxRunMs"], CONTRACT.timing.act_max_run_ms);
-    assert!(request["body"]["pickupBy"].as_i64().unwrap() > chrono::Utc::now().timestamp_millis());
+    assert!(request["body"]["pickupBy"].as_i64().unwrap() > crate::clock::now().timestamp_millis());
     assert!(request["body"].get("cap").is_none());
     assert_eq!(
         store.find("int_web", OWNER).await.unwrap().status,
@@ -2973,7 +2973,7 @@ async fn the_sites_reminders_come_due_once_by_the_shared_rule() {
     );
     let daily = through(site.db.clone(), "reminder_daily").await.unwrap();
     let today_9 = {
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         let nine = now.date_naive().and_hms_opt(9, 0, 0).unwrap().and_utc();
         if nine <= now {
             nine

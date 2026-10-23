@@ -27,7 +27,7 @@ impl AutonomyGrantStore {
     }
 
     pub async fn upsert(&self, grant: &AutonomyGrantView) -> Result<AutonomyGrantView, DbErr> {
-        let now = to_fixed(Utc::now());
+        let now = to_fixed(crate::clock::now());
         let permissions = serde_json::json!(grant.allowed_permissions);
         if self.find(grant.user_id).await?.is_some() {
             let update = agent_autonomy_grants::ActiveModel {

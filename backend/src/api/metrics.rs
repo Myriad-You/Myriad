@@ -34,7 +34,7 @@ pub async fn get_metrics(_db: crate::extract::Db) -> impl IntoResponse {
         StatusCode::OK,
         Json(json!({
             "status": if alerts.is_empty() { "ok" } else { "warning" },
-            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "timestamp": crate::clock::now().to_rfc3339(),
             "memory": memory_info,
             "memory_profile": crate::services::memory_profile::metrics_snapshot(),
             "memory_alerts": {

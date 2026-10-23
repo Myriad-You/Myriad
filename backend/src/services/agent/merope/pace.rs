@@ -31,7 +31,7 @@ fn identity() -> crate::services::runtime_registry::RegistryIdentity<'static> {
 }
 
 async fn put<T: serde::Serialize>(db: &DatabaseConnection, record: &str, value: &T) {
-    let keep_until = (chrono::Utc::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
+    let keep_until = (crate::clock::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
     if let Err(error) =
         crate::services::runtime_registry::put(db, NAMESPACE, record, identity(), value, keep_until)
             .await

@@ -29,7 +29,7 @@ pub async fn prune_references(db: &DatabaseConnection, limit: u64) -> Result<u64
             r#"
 DELETE FROM media_references WHERE id IN (
     SELECT r.id FROM media_references r
-    WHERE (r.expires_at IS NOT NULL AND r.expires_at < NOW() - interval '1 day')
+    WHERE (r.expires_at IS NOT NULL AND r.expires_at < $2::timestamptz - interval '1 day')
        OR (r.consumer_type = 'channel_message'
            AND r.consumer_id ~ '^agent_messages:[0-9]+$'
            AND NOT EXISTS (SELECT 1 FROM agent_messages m
@@ -47,7 +47,7 @@ DELETE FROM media_references WHERE id IN (
        OR (r.consumer_type = 'channel_message'
            AND r.consumer_id LIKE 'run\_%'
            AND r.expires_at IS NULL
-           AND r.created_at < NOW() - interval '1 day')
+           AND r.created_at < $2::timestamptz - interval '1 day')
        OR (r.consumer_type = 'federation_activity'
            AND NOT EXISTS (SELECT 1 FROM federation_published_content p
                            WHERE p.activity_id = r.consumer_id)
@@ -63,7 +63,7 @@ DELETE FROM media_references WHERE id IN (
     LIMIT $1
 )
 "#,
-            [(limit.clamp(1, 5000) as i64).into()],
+            [(limit.clamp(1, 5000) as i64).into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected())
@@ -85,8 +85,8 @@ pub(super) async fn retry_deletions(
         use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE media_assets SET updated_at = NOW() WHERE id = $1 AND state = 'deleting'",
-            [row.id.into()],
+            "UPDATE media_assets SET updated_at = $2::timestamptz WHERE id = $1 AND state = 'deleting'",
+            [row.id.into(), crate::clock::now().into()],
         ))
         .await?;
         if let Err(error) = service.delete(db, row.id).await {

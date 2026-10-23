@@ -54,15 +54,9 @@ pub(in crate::services::agent::merope) async fn lock(
     .await?;
     Ok(())
 }
-async fn now(db: &impl ConnectionTrait) -> anyhow::Result<i64> {
-    Ok(db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT EXTRACT(EPOCH FROM clock_timestamp())::BIGINT AS now".to_string(),
-        ))
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("missing clock"))?
-        .try_get("", "now")?)
+/// Now in seconds, by the site's clock (it was the database's).
+async fn now(_db: &impl ConnectionTrait) -> anyhow::Result<i64> {
+    Ok(crate::clock::now().timestamp())
 }
 async fn epoch(db: &impl ConnectionTrait, owner: i32, locked: bool) -> anyhow::Result<Option<i64>> {
     let sql = if locked {

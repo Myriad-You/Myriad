@@ -55,6 +55,8 @@ pub fn publish_tree(current: &Path, fresh: &Path) -> Result<(), &'static str> {
         return Err("Could not publish the blog");
     };
     std::fs::create_dir_all(parent).map_err(|_| "Could not publish the blog")?;
+    // A unique name, not a time: the host's clock is enough.
+    #[allow(clippy::disallowed_methods)]
     let retired = parent.join(format!(
         "retired-{}",
         std::time::SystemTime::now()

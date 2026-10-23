@@ -356,7 +356,7 @@ where
         DatabaseBackend::Postgres,
         "INSERT INTO agent_affect_events (id, user_id, at, cause, impulse, baseline_mood, \
          baseline_arousal, before, after, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)",
         vec![
             id.clone().into(),
             user_id.into(),
@@ -367,6 +367,7 @@ where
             base.arousal.into(),
             serde_json::to_value(crossed(before))?.into(),
             serde_json::to_value(crossed(after))?.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await?;

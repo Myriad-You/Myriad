@@ -47,10 +47,12 @@ pub(crate) async fn retire_legacy_media(db: &DatabaseConnection) -> Result<u64, 
     let rewritten = rewrite_stored_values(&txn, &renamed).await?;
     let normalised = normalise_catalog_urls(&txn, &addresses).await?;
     let missing = txn
-        .execute_unprepared(
-            "UPDATE media_assets SET state = 'missing', state_since = NOW(), updated_at = NOW()
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE media_assets SET state = 'missing', state_since = $1::timestamptz, updated_at = $1::timestamptz
              WHERE state IS NULL",
-        )
+            [crate::clock::now().into()],
+        ))
         .await?
         .rows_affected();
     // Only the upgrade bound queued deliveries; their URLs are retired here.

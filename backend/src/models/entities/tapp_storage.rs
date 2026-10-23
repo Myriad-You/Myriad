@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn serialized_or_debugged_storage_model_never_contains_host_credential_fields() {
-        let now = chrono::Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         let model = Model {
             id: 1,
             tapp_id: "com.example.test".into(),

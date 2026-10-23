@@ -350,7 +350,7 @@ mod tests {
         );
         assert!(
             !MediaListQuery {
-                before_created_at: Some(chrono::Utc::now().fixed_offset()),
+                before_created_at: Some(crate::clock::now().fixed_offset()),
                 ..Default::default()
             }
             .valid()

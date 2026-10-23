@@ -283,7 +283,7 @@ async fn sealed_import_replace_then_merge_applies_table_semantics() {
     // `replace` truncates every analytics table: only ever run it in a private schema.
     let isolated = crate::db::IsolatedSchema::migrated(&url, "analytics_import_test").await;
     let db = isolated.db.clone();
-    let day = (chrono::Utc::now().date_naive() - chrono::Duration::days(1)).to_string();
+    let day = (crate::clock::now().date_naive() - chrono::Duration::days(1)).to_string();
     let hash = "0123456789abcdef";
     let tables = json!({
         "page_daily": [

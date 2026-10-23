@@ -194,7 +194,17 @@ pub async fn keep(
             .collect();
         let _ = unified::retire(db, user_id, &oldest, "faded").await;
     }
-    let _ = put(db, user_id, audience, &what, weight, Utc::now(), None, &[]).await;
+    let _ = put(
+        db,
+        user_id,
+        audience,
+        &what,
+        weight,
+        crate::clock::now(),
+        None,
+        &[],
+    )
+    .await;
 }
 
 /// They apologized or made it right: it may still sting, and she knows.
@@ -215,7 +225,7 @@ pub async fn mend(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) {
             &sore.what,
             sore.weight,
             sore.since,
-            Some(Utc::now()),
+            Some(crate::clock::now()),
             std::slice::from_ref(&sore.id),
         )
         .await;
@@ -243,7 +253,7 @@ pub async fn let_go(db: &DatabaseConnection, sores: &[Sore], indexes: &[usize]) 
                 kind: unified::MemoryKind::Fact,
                 content: format!("{}（后来放下了）", sore.what.trim()),
                 evidence: Some(
-                    json!({ "since": sore.since.to_rfc3339(), "letGo": Utc::now().to_rfc3339() })
+                    json!({ "since": sore.since.to_rfc3339(), "letGo": crate::clock::now().to_rfc3339() })
                         .to_string(),
                 ),
                 speaker: unified::Speaker::Agent,

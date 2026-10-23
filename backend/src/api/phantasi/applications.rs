@@ -5,7 +5,7 @@ use axum::{
     extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -157,7 +157,7 @@ async fn find_pending_for_keys<C: ConnectionTrait>(
 /// entry-type link. The applicant's site also identifies it, so an existing
 /// source for the same site is reused.
 fn friend_source(admin_id: i32, app: &phantasi_source_applications::Model) -> NewSource {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let has_feed = app
         .feed_url
         .as_deref()
@@ -255,7 +255,7 @@ pub(crate) async fn create_application(
             )));
         }
         if let Some(ip) = applicant_ip.as_deref() {
-            let since = Utc::now() - RATE_WINDOW;
+            let since = crate::clock::now() - RATE_WINDOW;
             let recent = phantasi_source_applications::Entity::find()
                 .filter(phantasi_source_applications::Column::ApplicantIp.eq(ip))
                 .filter(phantasi_source_applications::Column::CreatedAt.gt(since))
@@ -270,7 +270,7 @@ pub(crate) async fn create_application(
             }
         }
 
-        let now = Utc::now();
+        let now = crate::clock::now();
         let row = phantasi_source_applications::ActiveModel {
             kind: Set("friend".into()),
             status: Set("pending".into()),
@@ -474,7 +474,7 @@ async fn approve_pending_application(
             SourceCreation::Existing(existing) => (existing, false),
             SourceCreation::Created(source) => (source, true),
         };
-        let now = Utc::now();
+        let now = crate::clock::now();
         let mut active: phantasi_source_applications::ActiveModel = app.into();
         active.status = Set("approved".into());
         active.result_source_id = Set(Some(source.id));
@@ -527,7 +527,7 @@ async fn reject_pending_application(
     id: i32,
     review_note: Option<String>,
 ) -> Result<phantasi_source_applications::Model, HttpError> {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let mut active = <phantasi_source_applications::ActiveModel as Default>::default();
     active.status = Set("rejected".into());
     active.review_note = Set(review_note);
@@ -608,7 +608,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_source_applications_pending_feed
     }
 
     async fn pending_application(db: &DatabaseConnection) -> phantasi_source_applications::Model {
-        let now = Utc::now();
+        let now = crate::clock::now();
         phantasi_source_applications::ActiveModel {
             kind: Set("friend".into()),
             status: Set("pending".into()),
@@ -836,7 +836,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_source_applications_pending_feed
             return;
         };
         let _ = pending_application(&db).await;
-        let now = Utc::now();
+        let now = crate::clock::now();
         let duplicate = phantasi_source_applications::ActiveModel {
             kind: Set("friend".into()),
             status: Set("pending".into()),

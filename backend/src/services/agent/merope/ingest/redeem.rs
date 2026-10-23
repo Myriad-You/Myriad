@@ -38,7 +38,7 @@ pub async fn tick_speak_intents(db: DatabaseConnection) {
     if !is_enabled().await {
         return;
     }
-    let now = Utc::now();
+    let now = crate::clock::now();
     let mut users: HashMap<i32, Vec<SpeakIntent>> = HashMap::new();
     for intent in drain_speak_intents(now) {
         users.entry(intent.user_id).or_default().push(intent);
@@ -63,7 +63,7 @@ async fn redeem_speak_intent(
     db: &DatabaseConnection,
     intent: SpeakIntent,
 ) -> Result<(), anyhow::Error> {
-    if intent.expires_at <= Utc::now() {
+    if intent.expires_at <= crate::clock::now() {
         return Ok(());
     }
     let Some(mut claim) = DELIVERY.claim(&intent).await else {
@@ -91,7 +91,7 @@ async fn redeem_speak_intent(
     let cooldown = crate::services::agent::merope::self_state::current(db)
         .await
         .proactive_cooldown_secs();
-    if within_proactive_cooldown(&intent.topic, last_proactive, Utc::now(), cooldown) {
+    if within_proactive_cooldown(&intent.topic, last_proactive, crate::clock::now(), cooldown) {
         log_skip(intent.user_id, &intent.topic, "proactive_cooldown");
         return Ok(());
     }
@@ -377,7 +377,7 @@ async fn current_delivery(
         state.last_user_message_at,
         &sight,
         is_enabled().await,
-        Utc::now(),
+        crate::clock::now(),
     )?;
     // The face it is said on: the touched one for a touch; the app shows a
     // refinement only while it still says the line (it checks that itself).
@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn proactive_speech_waits_between_events_but_not_for_touch_or_outcomes() {
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         let recent = Some(now - chrono::Duration::seconds(30));
         let old = Some(
             now - chrono::Duration::seconds(
@@ -727,7 +727,7 @@ mod tests {
     }
     #[test]
     fn every_event_rechecks_input_expiry_switch_dnd_and_delivery_surface() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let input = Some(now.fixed_offset());
         let here = IngestSight {
             on_page: true,

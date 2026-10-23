@@ -19,7 +19,6 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -65,7 +64,7 @@ fn identity() -> crate::services::runtime_registry::RegistryIdentity<'static> {
 }
 
 async fn put<T: Serialize>(db: &DatabaseConnection, record: &str, value: &T) {
-    let keep_until = (Utc::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
+    let keep_until = (crate::clock::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
     if let Err(error) =
         crate::services::runtime_registry::put(db, NAMESPACE, record, identity(), value, keep_until)
             .await
@@ -234,7 +233,7 @@ pub async fn part(db: &DatabaseConnection, id: &str, index: usize) -> Option<(St
 /// today's shelf.
 pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
     let following = following(db).await;
-    let now = Utc::now();
+    let now = crate::clock::now();
     let mut options = Vec::new();
     for following in &following {
         if following.next >= following.out(now, &super::clock::zone()) {
@@ -364,6 +363,8 @@ async fn prune_texts(db: &DatabaseConnection) {
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
         return;
     };
+    // Against file times, which the file system stamps by the host's clock.
+    #[allow(clippy::disallowed_methods)]
     let old = std::time::SystemTime::now() - Duration::from_secs(KEEP_TEXT_DAYS * 24 * 60 * 60);
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
@@ -479,7 +480,7 @@ pub async fn read(
             go_on,
             knew_it,
         },
-        Utc::now(),
+        crate::clock::now(),
     );
     if let Some(ended) = ended {
         let mut past = match crate::services::runtime_registry::get::<Past>(db, NAMESPACE, PAST)
@@ -544,7 +545,7 @@ pub(crate) fn parse_judged(raw: &str) -> Option<Held> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::DateTime;
+    use chrono::{DateTime, Utc};
     #[test]
     fn an_aozora_text_reads_as_prose() {
         let raw = "こころ\n夏目漱石\n\n-------------------------------------------------------\n【テキスト中に現れる記号について】\n《》：ルビ\n-------------------------------------------------------\n\n［＃５字下げ］上　先生と私［＃「上　先生と私」は大見出し］\n　私《わたくし》はその人を常に先生と呼んでいた。｜麦藁帽《むぎわらぼう》を被った。※［＃「てへん＋劣」、第3水準1-84-77］\n\n底本：「こころ」新潮文庫\n入力：青空文庫\n";

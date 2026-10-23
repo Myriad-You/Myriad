@@ -4,7 +4,7 @@
 //! platform refreshes use a reserved namespace so they can reuse that engine
 //! without pretending to be an installed Tapp or depending on a browser.
 
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };
@@ -77,7 +77,7 @@ pub async fn reconcile_platform_auto_refresh(
     let interval_hours = clamp_interval_hours(interval_hours);
     let interval_ms = i64::from(interval_hours) * 60 * 60 * 1000;
     let schedule_config = json!({ "interval": interval_ms });
-    let now = Utc::now();
+    let now = crate::clock::now();
 
     let desired_platforms: Vec<&'static str> = if enabled {
         let mut seen = HashSet::new();

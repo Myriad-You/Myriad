@@ -294,7 +294,7 @@ impl NeteaseService {
     ) -> Result<reqwest::Response> {
         // 生成随机设备ID和时间戳
         let device_id = generate_device_id();
-        let timestamp = std::time::SystemTime::now()
+        let timestamp = crate::clock::now_system()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
@@ -705,7 +705,7 @@ impl NeteaseService {
         }
 
         let device_id = generate_device_id();
-        let timestamp = std::time::SystemTime::now()
+        let timestamp = crate::clock::now_system()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
@@ -784,7 +784,7 @@ impl NeteaseService {
         }
 
         let device_id = generate_device_id();
-        let timestamp = std::time::SystemTime::now()
+        let timestamp = crate::clock::now_system()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
@@ -859,7 +859,7 @@ impl NeteaseService {
         }
 
         let device_id = generate_device_id();
-        let timestamp = std::time::SystemTime::now()
+        let timestamp = crate::clock::now_system()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
@@ -935,7 +935,7 @@ impl NeteaseService {
     pub async fn fetch_audio_url(&self, song_id: i64) -> Result<NeteaseAudioUrl> {
         let requested_at = Instant::now();
         let device_id = generate_device_id();
-        let timestamp = std::time::SystemTime::now()
+        let timestamp = crate::clock::now_system()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();

@@ -623,7 +623,7 @@ pub async fn oauth_callback(
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     let expires_at = if expires_in > 0 {
-        Some(chrono::Utc::now().timestamp() + expires_in)
+        Some(crate::clock::now().timestamp() + expires_in)
     } else {
         None
     };

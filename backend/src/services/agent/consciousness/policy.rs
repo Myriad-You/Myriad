@@ -93,7 +93,6 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
 
     use super::*;
     use crate::services::agent::{AgentInteractionMode, consciousness::WorkProposal};
@@ -110,7 +109,7 @@ mod tests {
             granted_permissions: vec![],
             recent_intents: vec![],
             remembered: vec![],
-            captured_at: Utc::now(),
+            captured_at: crate::clock::now(),
             live: Default::default(),
             attention: None,
             myself: None,

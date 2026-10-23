@@ -289,7 +289,7 @@ async fn apply_at(
     updates: &super::chat_remember::ChatMemoryUpdates,
 ) -> Option<()> {
     said_at(db, user_id, at).await;
-    let before = chrono::Utc::now().fixed_offset();
+    let before = crate::clock::now().fixed_offset();
     let transaction = sea_orm::TransactionTrait::begin(db).await.ok()?;
     // Written as kept for good: the bench compares ways of going over talk,
     // with the short notes' fading stood in for by SHORT_NOTES_LAST.

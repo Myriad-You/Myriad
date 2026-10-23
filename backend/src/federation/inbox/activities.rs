@@ -136,7 +136,7 @@ pub(crate) async fn handle_follow(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_follows (user_id, remote_actor_id, direction, status, activity_id, created_at)
-               VALUES ($1, $2, 'incoming', 'accepted', $3, NOW())
+               VALUES ($1, $2, 'incoming', 'accepted', $3, $4::timestamptz)
                ON CONFLICT (user_id, remote_actor_id, direction) DO UPDATE SET
                    status = 'accepted',
                    activity_id = EXCLUDED.activity_id
@@ -146,6 +146,7 @@ pub(crate) async fn handle_follow(
                 local_user_id.into(),
                 remote.id.into(),
                 activity_id.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -352,9 +353,13 @@ pub(crate) async fn handle_accept(
                     .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_channels
-                           SET status = 'accepted', last_activity_at = NOW()
+                           SET status = 'accepted', last_activity_at = $3::timestamptz
                            WHERE channel_id = $1 AND user_id = $2 AND status = 'pending'"#,
-                        [channel_id.into(), local_user_id.into()],
+                        [
+                            channel_id.into(),
+                            local_user_id.into(),
+                            crate::clock::now().into(),
+                        ],
                     ))
                     .await
                     .map_err(db_err)?;
@@ -645,10 +650,14 @@ async fn handle_follow_accept(
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_follows
-               SET status = 'accepted', accepted_at = NOW()
+               SET status = 'accepted', accepted_at = $3::timestamptz
                WHERE user_id = $1 AND direction = 'outgoing' AND activity_id = $2
                  AND status IS DISTINCT FROM 'accepted'"#,
-            [local_user_id.into(), matched_id.clone().into()],
+            [
+                local_user_id.into(),
+                matched_id.clone().into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(db_err)?;
@@ -871,7 +880,7 @@ pub(crate) async fn handle_content_activity(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_timeline
                (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
            ON CONFLICT (user_id, activity_id) DO NOTHING"#,
         [
             local_user_id.into(),
@@ -881,6 +890,7 @@ pub(crate) async fn handle_content_activity(
             object_type.into(),
             preview.into(),
             activity["object"].clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -959,7 +969,7 @@ async fn check_and_record_content_activity<'a>(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_activities
                (activity_id, remote_actor_id, activity_type, object_type, object_json, is_local, received_at, published_at)
-           VALUES ($1, $2, $3, $4, $5, false, NOW(), NOW())
+           VALUES ($1, $2, $3, $4, $5, false, $6::timestamptz, $6::timestamptz)
            ON CONFLICT (activity_id) DO NOTHING"#,
         [
             activity_id.into(),
@@ -967,6 +977,7 @@ async fn check_and_record_content_activity<'a>(
             activity_type.into(),
             object_type.into(),
             activity["object"].clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -1134,7 +1145,7 @@ pub(crate) async fn record_room_peer_activity<C: ConnectionTrait>(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_activities
                (activity_id, remote_actor_id, activity_type, object_type, object_json, is_local, received_at, published_at)
-           VALUES ($1, $2, $3, $4, $5, false, NOW(), NOW())
+           VALUES ($1, $2, $3, $4, $5, false, $6::timestamptz, $6::timestamptz)
            ON CONFLICT (activity_id) DO NOTHING"#,
         [
             activity_id.into(),
@@ -1142,6 +1153,7 @@ pub(crate) async fn record_room_peer_activity<C: ConnectionTrait>(
             activity_type.into(),
             object_type.into(),
             activity["object"].clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -1171,7 +1183,7 @@ pub(crate) async fn distribute_to_followers(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_timeline
                (user_id, activity_id, remote_actor_id, activity_type, object_type, content_preview, content_json, received_at)
-           SELECT f.user_id, $1, $2, $3, $4, $5, $6, NOW()
+           SELECT f.user_id, $1, $2, $3, $4, $5, $6, $7::timestamptz
            FROM federation_follows f
            WHERE f.remote_actor_id = $2 AND f.direction = 'outgoing' AND f.status = 'accepted'
            -- 去重由 (user_id, activity_id) 唯一索引保证。
@@ -1183,6 +1195,7 @@ pub(crate) async fn distribute_to_followers(
             object_type.into(),
             preview.into(),
             activity["object"].clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await

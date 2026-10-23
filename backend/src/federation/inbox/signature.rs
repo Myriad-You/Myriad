@@ -119,7 +119,7 @@ pub(crate) fn verify_preparse_gate(
             Json(AppError::public_json("Missing Date header")),
         )
     })?;
-    verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW)
+    verify_date_freshness(date, crate::clock::now(), HTTP_DATE_MAX_SKEW)
         .map_err(|error| inbox_auth_reject("Invalid request date", error))?;
 
     if !body.is_empty() {

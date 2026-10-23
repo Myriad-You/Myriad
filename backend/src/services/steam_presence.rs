@@ -55,7 +55,7 @@ impl From<SteamUserInfo> for SteamPresenceResponse {
             lastlogoff: info.lastlogoff,
             // 由 handler 按频率限制单独填充
             recent_2weeks_minutes: None,
-            checked_at: chrono::Utc::now().to_rfc3339(),
+            checked_at: crate::clock::now().to_rfc3339(),
         }
     }
 }

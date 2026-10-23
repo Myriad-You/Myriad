@@ -132,7 +132,7 @@ pub async fn search_reading_list(
         );
     }
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::clock::now().to_rfc3339();
     let results: Vec<Value> = results
         .into_iter()
         .enumerate()

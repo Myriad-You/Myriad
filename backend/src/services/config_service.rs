@@ -888,7 +888,8 @@ impl ConfigService {
         });
         let sealed = seal_config_updates(updates)?;
         let mut sql = String::from("INSERT INTO configurations (key, value, updated_at) VALUES ");
-        let mut values = Vec::with_capacity(count * 2);
+        let mut values = Vec::with_capacity(count * 2 + 1);
+        let now_ph = count * 2 + 1;
         for (index, (key, value)) in sealed.into_iter().enumerate() {
             if index > 0 {
                 sql.push_str(", ");
@@ -896,15 +897,19 @@ impl ConfigService {
             use std::fmt::Write;
             write!(
                 sql,
-                "(${}, ${}, CURRENT_TIMESTAMP)",
+                "(${}, ${}, ${}::timestamptz)",
                 index * 2 + 1,
-                index * 2 + 2
+                index * 2 + 2,
+                now_ph
             )
             .expect("writing to a String cannot fail");
             values.push(key.into());
             values.push(value.into());
         }
-        sql.push_str(" ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP");
+        values.push(crate::clock::now().into());
+        sql.push_str(&format!(
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = ${now_ph}::timestamptz"
+        ));
         db.execute_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
             sql,
@@ -937,15 +942,15 @@ async fn upsert_configuration(
 ) -> Result<()> {
     let sql = r#"
             INSERT INTO configurations (key, value, updated_at)
-            VALUES ($1, $2, CURRENT_TIMESTAMP)
+            VALUES ($1, $2, $3::timestamptz)
             ON CONFLICT (key) DO UPDATE
-            SET value = $2, updated_at = CURRENT_TIMESTAMP
+            SET value = $2, updated_at = $3::timestamptz
         "#;
 
     db.execute_raw(Statement::from_sql_and_values(
         sea_orm::DatabaseBackend::Postgres,
         sql,
-        vec![key.into(), value.into()],
+        vec![key.into(), value.into(), crate::clock::now().into()],
     ))
     .await
     .context("Failed to update configuration")?;

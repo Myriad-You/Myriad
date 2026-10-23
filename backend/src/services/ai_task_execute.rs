@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -799,7 +798,7 @@ pub async fn execute_task(execution: AiTaskExecution) {
     let mailbox = TaskEventMailbox::start(
         db.clone(),
         task_id.clone(),
-        Utc::now().timestamp() + TASK_RETENTION_SECONDS,
+        crate::clock::now().timestamp() + TASK_RETENTION_SECONDS,
     );
     update_task_state(&task_id, AiTaskStatus::Running).await;
 

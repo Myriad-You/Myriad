@@ -70,7 +70,7 @@ pub(super) async fn persist_platform_report_atomic(
         metadata: Set(metadata_json),
         report: Set(report_json),
         report_title: Set(None),
-        created_at: Set(chrono::Utc::now().naive_utc()),
+        created_at: Set(crate::clock::now().naive_utc()),
         ..Default::default()
     };
 

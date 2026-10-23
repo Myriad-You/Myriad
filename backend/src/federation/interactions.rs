@@ -360,12 +360,13 @@ pub async fn like_object(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_object_interactions
                    (user_id, object_id, kind, activity_id, created_at)
-               VALUES ($1, $2, 'like', $3, NOW())
+               VALUES ($1, $2, 'like', $3, $4::timestamptz)
                ON CONFLICT (user_id, object_id, kind) DO NOTHING"#,
             [
                 user_id.into(),
                 object_id.clone().into(),
                 activity_id.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -528,9 +529,13 @@ pub async fn bookmark_object(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_object_interactions
                (user_id, object_id, kind, created_at)
-           VALUES ($1, $2, 'bookmark', NOW())
+           VALUES ($1, $2, 'bookmark', $3::timestamptz)
            ON CONFLICT (user_id, object_id, kind) DO NOTHING"#,
-        [user_id.into(), object_id.clone().into()],
+        [
+            user_id.into(),
+            object_id.clone().into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(db_err)?;
@@ -987,12 +992,13 @@ pub async fn announce_object(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_object_interactions
                    (user_id, object_id, kind, activity_id, created_at)
-               VALUES ($1, $2, 'announce', $3, NOW())
+               VALUES ($1, $2, 'announce', $3, $4::timestamptz)
                ON CONFLICT (user_id, object_id, kind) DO NOTHING"#,
             [
                 user_id.into(),
                 object_id.clone().into(),
                 activity_id.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -1095,12 +1101,13 @@ pub async fn announce_object(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_published_content
                (user_id, content_type, content_id, activity_id, visibility, published_at)
-           VALUES ($1, 'repost', $2, $3, 'public', NOW())
+           VALUES ($1, 'repost', $2, $3, 'public', $4::timestamptz)
            ON CONFLICT (content_type, content_id) DO NOTHING"#,
         [
             user_id.into(),
             note_content_id.clone().into(),
             activity_id.clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -1428,9 +1435,14 @@ async fn deliver_to_object_author(
             // 去重交给 (activity_id, target_inbox) 唯一索引。
             r#"INSERT INTO federation_delivery_queue
                    (activity_id, target_inbox, target_domain, status, created_at)
-               VALUES ($1, $2, $3, 'pending', NOW())
+               VALUES ($1, $2, $3, 'pending', $4::timestamptz)
                ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-            [activity_db_id.into(), inbox.into(), domain.into()],
+            [
+                activity_db_id.into(),
+                inbox.into(),
+                domain.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await;
 }

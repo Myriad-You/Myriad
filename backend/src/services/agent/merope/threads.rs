@@ -142,7 +142,7 @@ static ASKED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default)
 /// come back to one there now (see `channel_group::come_back`). Taken up,
 /// it closes. Billed to the site's owner, who hosts her in groups.
 pub async fn come_back_in_groups(db: &DatabaseConnection) {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let rows = unified::active_from_source(db, SOURCE)
         .await
         .unwrap_or_default();
@@ -182,7 +182,7 @@ pub async fn wish(db: &DatabaseConnection, user_id: i32, about: &str, then: &str
         then: then.to_string(),
         due_in_hours: None,
     };
-    put(db, user_id, &kept, Utc::now(), true).await;
+    put(db, user_id, &kept, crate::clock::now(), true).await;
 }
 
 /// Something to come back to with them. The same subject again replaces
@@ -285,7 +285,7 @@ pub fn as_input(threads: &[Thread]) -> Vec<Value> {
 /// Threads past their time by a few days, or undated and untouched for
 /// two weeks, fade.
 pub async fn let_fade(db: &DatabaseConnection) {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let rows = unified::active_from_source(db, SOURCE)
         .await
         .unwrap_or_default();
@@ -345,7 +345,7 @@ mod tests {
             .try_get("", "id")
             .unwrap();
         let (here, there) = ("telegram:-1001", "onebot:2002");
-        let now = Utc::now();
+        let now = crate::clock::now();
         let exam = Kept {
             about: "阿明的考试".into(),
             then: "问阿明考得怎么样".into(),
@@ -417,7 +417,7 @@ mod tests {
             then: then.into(),
             due_in_hours: None,
         };
-        let now = Utc::now();
+        let now = crate::clock::now();
         let venue = "telegram:-1003";
         for place in [Some(user_id), None] {
             let (keep_one, open_now) = (

@@ -115,7 +115,7 @@ pub fn page_understand_frontend_actions(
     else {
         return Vec::new();
     };
-    let timestamp = chrono::Utc::now().timestamp_millis();
+    let timestamp = crate::clock::now().timestamp_millis();
     actions
         .iter()
         .filter_map(|step| {

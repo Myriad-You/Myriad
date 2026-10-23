@@ -190,7 +190,7 @@ async fn nodeinfo_usage_counts(
 ) -> Result<(u64, u64, u64), sea_orm::DbErr> {
     const SQL: &str = "WITH user_counts AS ( \
             SELECT COUNT(*)::bigint AS total_users, \
-                   COUNT(*) FILTER (WHERE last_login_at > NOW() - INTERVAL '30 days')::bigint \
+                   COUNT(*) FILTER (WHERE last_login_at > $1::timestamptz - INTERVAL '30 days')::bigint \
                        AS active_month \
             FROM users \
         ), post_counts AS ( \
@@ -201,7 +201,11 @@ async fn nodeinfo_usage_counts(
         SELECT total_users, active_month, local_posts \
         FROM user_counts CROSS JOIN post_counts";
     let row = db
-        .query_one_raw(Statement::from_string(DatabaseBackend::Postgres, SQL))
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            SQL,
+            [crate::clock::now().into()],
+        ))
         .await?
         .ok_or_else(|| sea_orm::DbErr::Custom("NodeInfo usage aggregate returned no row".into()))?;
     let column = |name: &str| {

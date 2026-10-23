@@ -78,7 +78,7 @@ pub(crate) async fn find<C: ConnectionTrait>(
 /// Records that this device's turn started `turn.run_id`.
 pub(crate) async fn remember<C: ConnectionTrait>(db: &C, device_id: &str, owner: i32, turn: Turn) {
     keep(device_id, turn.clone());
-    let expires_at = chrono::Utc::now().timestamp() + RETENTION_SECS;
+    let expires_at = crate::clock::now().timestamp() + RETENTION_SECS;
     if let Err(error) = registry::put(
         db,
         NAMESPACE,

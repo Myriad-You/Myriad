@@ -8,7 +8,6 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
 };
-use chrono::Utc;
 use futures::StreamExt;
 use reqwest::Url;
 use sea_orm::{
@@ -66,20 +65,21 @@ const PULSE_MAX_POINTS: i64 = 60;
 
 /// 节律查询 SQL：一次 LATERAL 查询覆盖全部源，禁止 N+1。
 ///
-/// `source_count` 决定 `$1..$n` 占位符个数。返回「距今天数」不是时间戳。
+/// `source_count` 决定 `$1..$n` 占位符个数，`$n+1` 是现在。返回「距今天数」不是时间戳。
 pub(crate) fn build_pulses_sql(source_count: usize) -> String {
     let src_ph = (1..=source_count)
         .map(|i| format!("${i}"))
         .collect::<Vec<_>>()
         .join(", ");
+    let now_ph = source_count + 1;
     format!(
         "SELECT source.id AS source_id,
-                GREATEST(0, (EXTRACT(EPOCH FROM (now() - i.published_at)) / 86400)::int) AS days_ago
+                GREATEST(0, (EXTRACT(EPOCH FROM (${now_ph}::timestamptz - i.published_at)) / 86400)::int) AS days_ago
          FROM phantasi_sources source
          CROSS JOIN LATERAL (
              SELECT published_at FROM phantasi_items
              WHERE source_id = source.id
-               AND published_at > now() - INTERVAL '{PULSE_WINDOW_DAYS} days'
+               AND published_at > ${now_ph}::timestamptz - INTERVAL '{PULSE_WINDOW_DAYS} days'
              ORDER BY published_at DESC NULLS LAST, id DESC LIMIT {PULSE_MAX_POINTS}
          ) i
          WHERE source.id IN ({src_ph})
@@ -327,10 +327,11 @@ pub(crate) async fn list_sources(
                 std::collections::HashMap::new();
             if !source_ids.is_empty() {
                 let sql = build_pulses_sql(source_ids.len());
-                let values: Vec<sea_orm::Value> = source_ids
+                let mut values: Vec<sea_orm::Value> = source_ids
                     .iter()
                     .map(|&id| sea_orm::Value::Int(Some(id)))
                     .collect();
+                values.push(crate::clock::now().into());
                 let stmt = Statement::from_sql_and_values(DatabaseBackend::Postgres, &sql, values);
                 match db.query_all_raw(stmt).await {
                     Ok(rows) => {
@@ -596,7 +597,7 @@ pub(crate) async fn add_source(
     let feed_type =
         overlay_requested_feed_type(feed_type, req.feed_type.as_deref(), source_type.clone());
 
-    let now = Utc::now();
+    let now = crate::clock::now();
 
     // 对于 RSSHub 类型，提取路由路径
     let rsshub_route = if feed_type == phantasi_sources::FeedType::RssHub {
@@ -816,7 +817,7 @@ pub(crate) async fn update_source(
             if let Some(admin_only) = req.admin_only {
                 active.admin_only = Set(admin_only);
             }
-            active.updated_at = Set(Utc::now().into());
+            active.updated_at = Set(crate::clock::now().into());
 
             match active.update(&db).await {
                 Ok(updated) => {
@@ -1061,7 +1062,7 @@ pub(crate) async fn create_category(
     // 创建分类需要管理员权限
     let user_id = admin_user_id(&admin)?;
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let new_cat = phantasi_categories::ActiveModel {
         user_id: Set(user_id),
         name: Set(req.name),
@@ -1199,7 +1200,8 @@ INSERT INTO phantasi_user_states VALUES (2000, 42, true, true), (4000, 99, true,
         assert_eq!(rows[16].try_get::<i32>("", "id").unwrap(), 4002);
         assert!(rows[0].try_get::<String>("", "summary").unwrap().len() < 10000);
         let pulse_sql = super::build_pulses_sql(3);
-        let pulse_values: Vec<sea_orm::Value> = vec![1.into(), 2.into(), 3.into()];
+        let pulse_values: Vec<sea_orm::Value> =
+            vec![1.into(), 2.into(), 3.into(), crate::clock::now().into()];
         let pulses = db
             .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,

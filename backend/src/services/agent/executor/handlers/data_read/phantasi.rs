@@ -969,7 +969,7 @@ pub(super) async fn execute_phantasi_items(
             "matchKind": match_kind,
             "frontendAction": {
                 "type": "phantasi_open_article",
-                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "timestamp": crate::clock::now().timestamp_millis(),
                 "params": {
                     "articleId": article_id,
                     "articleLink": article_link,

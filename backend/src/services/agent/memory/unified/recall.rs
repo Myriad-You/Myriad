@@ -158,7 +158,7 @@ async fn recall_among<C: ConnectionTrait>(
         .filter(|id| !filler.contains(id))
         .collect();
     if !recalled.is_empty() && counts_as_recalled() {
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         agent_memories::Entity::update_many()
             .col_expr(
                 agent_memories::Column::AccessCount,

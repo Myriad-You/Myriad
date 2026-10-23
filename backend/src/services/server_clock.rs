@@ -1,29 +1,29 @@
-//! The site's own clock, checked against the world.
+//! How far this host's clock is off, measured against the world.
 //!
 //! The site keeps time by its host's clock: a Docker container has no clock
 //! of its own. A host clock that is minutes off does not look wrong from
-//! here; every device looks wrong instead. A device whose clock is right is
-//! refused as ahead (`clock_ahead`), and reminders come early or late. So the
-//! web process measures how far its clock is off, once at start and every
-//! [`EVERY`] after: SNTP (UDP 123) to each configured server, and the `Date`
-//! of an HTTPS answer (certificate verified) for where UDP 123 is blocked.
-//! Nothing here sets the clock. The deployment's time-sync container does
-//! that, when it can.
+//! here; every device looks wrong instead (refused as ahead,
+//! `clock_ahead`), and reminders come early or late. So every process (web,
+//! persona and federation workers: each answers its own routes) measures how
+//! far its host's clock is off, at once at start, again within a minute when
+//! that fails (backing off to [`EVERY`]), and every [`EVERY`] after: SNTP
+//! (UDP 123) to each configured server, and the `Date` of an HTTPS answer
+//! (certificate verified) for where UDP 123 is blocked.
 //!
-//! What a measurement is for:
-//! - a warning in the log when the clock is off by more than the threshold;
-//! - the one comparison of a device's clock with the site's
-//!   (`middleware::sync_device`): it is made against real time, this host's
-//!   clock moved by the offset, while a measurement is [`Check::correction`]
-//!   (trusted, at most [`MAX_AGE`] old, at most [`MAX_CORRECTION_MS`] off).
-//!   Everything else the site does keeps its own clock: two clocks in one
-//!   process would be worse than one that is wrong;
-//! - `serverClock` in the device hello and on the owner's devices page.
+//! A measurement that is trusted, at most [`MAX_AGE`] old and at most
+//! [`MAX_CORRECTION_MS`] off is the site's correction: [`crate::clock`], the
+//! site's one clock, is this host's clock moved by it. Without one (could not
+//! check, not trusted, too old, too far off) the clock is this host's, and
+//! the log says why. The measurement is also `serverClock` in the device
+//! hello and on the owner's devices page.
 //!
 //! Trusted is an HTTPS `Date` (the certificate vouches for who sent it), or
 //! two SNTP servers that agree; one SNTP answer alone is unauthenticated UDP
 //! and only shown. When nothing answers, the check is "could not check",
-//! never an offset.
+//! never an offset, and the log names what each source answered.
+//!
+//! HTTPS goes the way the site's other outbound requests go: through the
+//! outbound proxy when one is set (never around it), directly otherwise.
 //!
 //! Settings (environment; see `docs/deployment/DOCKER_DEPLOYMENT.md`):
 //! `CLOCK_CHECK_ENABLED` (default on), `CLOCK_CHECK_NTP_SERVERS` and
@@ -38,10 +38,12 @@ use serde_json::{Value, json};
 
 /// How often the clock is checked.
 pub const EVERY: Duration = Duration::from_secs(15 * 60);
-/// How long a measurement is used for device clocks.
+/// How soon a check that failed is tried again (then doubling to [`EVERY`]).
+pub const RETRY: Duration = Duration::from_secs(60);
+/// How long a measurement corrects the clock.
 pub const MAX_AGE: Duration = Duration::from_secs(45 * 60);
-/// An offset beyond this is not believed: the site's clock is not used for
-/// device clocks with it, so a forged time cannot pull it far.
+/// An offset beyond this is not believed: the clock is not moved by it, so a
+/// forged time cannot pull the site far.
 pub const MAX_CORRECTION_MS: i64 = 3 * 60 * 60 * 1000;
 /// How far two SNTP answers may differ and still agree.
 pub const AGREE_MS: i64 = 1000;
@@ -85,11 +87,13 @@ pub struct Measurement {
 /// One check of the clock.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Check {
-    /// By the site's own clock, milliseconds since the epoch.
+    /// By the site's clock, milliseconds since the epoch.
     pub checked_at_ms: i64,
     /// None: nothing answered (could not check).
     pub measured: Option<Measurement>,
     pub threshold_ms: i64,
+    /// What each source that did not answer said (`sntp time.google.com: …`).
+    pub failures: Vec<String>,
 }
 
 impl Check {
@@ -99,13 +103,29 @@ impl Check {
             .is_some_and(|measured| measured.offset_ms.abs() > self.threshold_ms)
     }
 
-    /// The offset the site moves its clock by when it compares a device's
-    /// clock with real time: only a trusted measurement, `age` at most
-    /// [`MAX_AGE`] old and at most [`MAX_CORRECTION_MS`] off.
+    /// The measurement the site's clock is corrected by: only a trusted one,
+    /// `age` at most [`MAX_AGE`] old and at most [`MAX_CORRECTION_MS`] off.
     pub fn correction(&self, age: Duration) -> Option<Measurement> {
-        self.measured.filter(|measured| {
-            measured.trusted && age <= MAX_AGE && measured.offset_ms.abs() <= MAX_CORRECTION_MS
-        })
+        self.applied(age).ok()
+    }
+
+    /// [`Check::correction`], or why there is none.
+    pub fn applied(&self, age: Duration) -> Result<Measurement, &'static str> {
+        let measured = self
+            .measured
+            .ok_or("could not check: no time source answered")?;
+        if !measured.trusted {
+            return Err(
+                "the measurement is not trusted (one SNTP answer, or answers that disagree)",
+            );
+        }
+        if age > MAX_AGE {
+            return Err("the last good measurement is too old");
+        }
+        if measured.offset_ms.abs() > MAX_CORRECTION_MS {
+            return Err("the offset is too far off to believe (over 3 hours)");
+        }
+        Ok(measured)
     }
 
     /// `serverClock` as the device hello and the devices page give it.
@@ -117,6 +137,7 @@ impl Check {
             "source": measured.map(|measured| measured.source),
             "trusted": measured.is_some_and(|measured| measured.trusted),
             "thresholdMs": self.threshold_ms,
+            "maxCorrectionMs": MAX_CORRECTION_MS,
             "wrong": self.wrong(),
             "corrected": self.correction(age).is_some(),
         })
@@ -297,8 +318,9 @@ pub fn sntp_reply(reply: &[u8], request: &[u8; 48]) -> Result<(i64, i64), &'stat
     Ok((unix_micros(received), unix_micros(transmitted)))
 }
 
+/// The host's own clock: a measurement is of it, never of the corrected one.
 fn now_micros() -> i64 {
-    chrono::Utc::now().timestamp_micros()
+    crate::clock::host_micros()
 }
 
 /// One SNTP query to `server` (port 123).
@@ -340,15 +362,15 @@ async fn sntp(server: &str) -> Result<i64, String> {
 
 /// One HTTPS `HEAD` to `url`, read for its `Date`.
 async fn https_date(client: &reqwest::Client, url: &str) -> Result<i64, String> {
-    let sent = chrono::Utc::now().timestamp_millis();
+    let sent = now_micros() / 1000;
     let response = client
         .head(url)
         .header(reqwest::header::CACHE_CONTROL, "no-cache")
         .timeout(TIMEOUT)
         .send()
         .await
-        .map_err(|error| error.without_url().to_string())?;
-    let received = chrono::Utc::now().timestamp_millis();
+        .map_err(|error| reason(&error.without_url()))?;
+    let received = now_micros() / 1000;
     let date = response
         .headers()
         .get(reqwest::header::DATE)
@@ -359,38 +381,77 @@ async fn https_date(client: &reqwest::Client, url: &str) -> Result<i64, String> 
     Ok(https_offset_ms(date.timestamp(), sent, received))
 }
 
-/// Check the clock once: every SNTP server at once, then the HTTPS
-/// addresses in order until one answers.
+/// An error with what caused it, as one line.
+fn reason(error: &dyn std::error::Error) -> String {
+    let mut line = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        line.push_str(": ");
+        line.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    line
+}
+
+/// The client HTTPS `Date` is read with: through the outbound proxy when one
+/// is set (fail closed, never around it), else directly, ignoring proxy
+/// environment variables.
+async fn https_client() -> Result<reqwest::Client, String> {
+    use super::http_client::{ProxyConfig, create_client_no_proxy, create_client_with_proxy};
+    let proxy = ProxyConfig::from_dynamic_config().await;
+    if proxy.should_use_proxy() {
+        create_client_with_proxy(&proxy)
+            .map_err(|error| format!("outbound proxy: {}", reason(&error)))
+    } else {
+        create_client_no_proxy().map_err(|error| reason(&error))
+    }
+}
+
+/// Check the clock once: every SNTP server at once, then, unless they
+/// agree, the HTTPS addresses in order until one answers.
 pub async fn check(settings: &Settings) -> Check {
-    let queries = settings.ntp_servers.iter().map(|server| async move {
-        let answer = sntp(server).await;
-        if let Err(error) = &answer {
-            tracing::debug!(%server, %error, "[clock] SNTP query failed");
+    let client = https_client().await;
+    check_with(settings, client).await
+}
+
+/// [`check`] with the HTTPS client given (or why there is none).
+pub async fn check_with(settings: &Settings, client: Result<reqwest::Client, String>) -> Check {
+    let mut failures = Vec::new();
+    let queries = settings
+        .ntp_servers
+        .iter()
+        .map(|server| async move { (server, sntp(server).await) });
+    let mut sntp = Vec::new();
+    for (server, answer) in futures::future::join_all(queries).await {
+        match answer {
+            Ok(offset) => sntp.push(offset),
+            Err(error) => failures.push(format!("sntp {server}: {error}")),
         }
-        answer.ok()
-    });
-    let sntp: Vec<i64> = futures::future::join_all(queries)
-        .await
-        .into_iter()
-        .flatten()
-        .collect();
+    }
     let mut https = None;
-    if combine(&sntp, None).is_none_or(|measured| !measured.trusted) {
-        let client = super::http_client::get_global_client().await;
-        for url in &settings.https_urls {
-            match https_date(&client, url).await {
-                Ok(offset) => {
-                    https = Some(offset);
-                    break;
+    if !settings.https_urls.is_empty()
+        && combine(&sntp, None).is_none_or(|measured| !measured.trusted)
+    {
+        match &client {
+            Err(error) => failures.push(format!("https: no client: {error}")),
+            Ok(client) => {
+                for url in &settings.https_urls {
+                    match https_date(client, url).await {
+                        Ok(offset) => {
+                            https = Some(offset);
+                            break;
+                        }
+                        Err(error) => failures.push(format!("https {url}: {error}")),
+                    }
                 }
-                Err(error) => tracing::debug!(%url, %error, "[clock] HTTPS Date failed"),
             }
         }
     }
     Check {
-        checked_at_ms: chrono::Utc::now().timestamp_millis(),
+        checked_at_ms: crate::clock::now_micros() / 1000,
         measured: combine(&sntp, https),
         threshold_ms: settings.threshold_ms,
+        failures,
     }
 }
 
@@ -416,22 +477,55 @@ pub fn shown() -> Value {
     last().map_or(Value::Null, |(check, age)| check.shown(age))
 }
 
-/// Real time as the site best knows it, in Unix microseconds, for comparing
-/// a device's clock: this host's clock moved by a [`Check::correction`],
-/// else this host's clock as it is. Also which (`clock`, `sntp`, `https`).
-pub fn real_now_micros() -> (i64, &'static str) {
-    real_now_at(now_micros(), last())
+/// What the clock is corrected by now: the source while a correction holds.
+static APPLIED: std::sync::Mutex<Option<Source>> = std::sync::Mutex::new(None);
+
+/// How far [`crate::clock`] moves this host's clock now, microseconds: the
+/// correction while one holds, else 0. Logs when that changes.
+pub fn offset_micros() -> i64 {
+    let last = last();
+    let applied = match &last {
+        Some((check, age)) => check.applied(*age),
+        None => Err("no check has run yet"),
+    };
+    let now = applied.ok().map(|measured| measured.source);
+    if let Ok(mut was) = APPLIED.lock()
+        && *was != now
+    {
+        note_change(*was, &applied);
+        *was = now;
+    }
+    applied.map_or(0, |measured| -measured.offset_ms.saturating_mul(1000))
 }
 
-/// [`real_now_micros`] for this host's clock at `host_micros` and the last
-/// check (with its age).
-pub fn real_now_at(host_micros: i64, last: Option<(Check, Duration)>) -> (i64, &'static str) {
-    match last.and_then(|(check, age)| check.correction(age)) {
-        Some(measured) => (
-            host_micros - measured.offset_ms.saturating_mul(1000),
-            measured.source.name(),
+/// Where the clock's time comes from now: `sntp` or `https` while it is
+/// corrected, `clock` (this host's, as it is) otherwise.
+pub fn source() -> &'static str {
+    match last().and_then(|(check, age)| check.correction(age)) {
+        Some(measured) => measured.source.name(),
+        None => "clock",
+    }
+}
+
+/// Say that the correction started, or ended and why.
+fn note_change(was: Option<Source>, now: &Result<Measurement, &'static str>) {
+    match now {
+        Ok(measured) => tracing::info!(
+            offset_ms = measured.offset_ms,
+            source = measured.source.name(),
+            "[clock] the site's clock now follows real time: this host's clock is {} {}",
+            amount(measured.offset_ms),
+            if measured.offset_ms < 0 {
+                "behind"
+            } else {
+                "ahead"
+            },
         ),
-        None => (host_micros, "clock"),
+        Err(why) if was.is_some() => tracing::warn!(
+            "[clock] the site's clock is this host's own again ({why}); it goes on from where \
+             it was, slowly, never back"
+        ),
+        Err(_) => {}
     }
 }
 
@@ -445,75 +539,117 @@ fn amount(ms: i64) -> String {
     }
 }
 
-/// Keep `check` as the last one and say what it found.
-fn record(check: Check) {
-    let was_wrong = last().map(|(check, _)| check.wrong());
+/// Keep `check` as the last one, unless it has no trusted answer and a good
+/// one still corrects the clock, and say what it found. Whether it was
+/// trusted.
+fn record(check: Check) -> bool {
+    let trusted = check.measured.is_some_and(|measured| measured.trusted);
+    if !check.failures.is_empty() && !trusted {
+        tracing::warn!(
+            failures = %check.failures.join("; "),
+            "[clock] could not measure this host's clock against a trusted source; trying again \
+             soon"
+        );
+    } else if !check.failures.is_empty() {
+        tracing::debug!(failures = %check.failures.join("; "), "[clock] some time sources did not answer");
+    }
     match check.measured {
         Some(measured) if check.wrong() => {
-            let way = if measured.offset_ms < 0 {
-                "behind"
-            } else {
-                "ahead of"
-            };
+            let corrected = measured.trusted && measured.offset_ms.abs() <= MAX_CORRECTION_MS;
             tracing::warn!(
                 offset_ms = measured.offset_ms,
                 source = measured.source.name(),
                 trusted = measured.trusted,
-                "[clock] the site's clock is {} {way} real time. Devices with the right time \
-                 are refused as ahead and reminders are off. A Docker container keeps its \
-                 host's clock: set it right on the host (turn NTP on; on Docker Desktop, \
-                 restart Docker Desktop). The deployment's time-sync service sets it when it \
-                 can; it needs SYS_TIME, which OpenVZ/LXC hosts do not give.",
+                "[clock] this host's clock is {} {} real time; {}",
                 amount(measured.offset_ms),
+                if measured.offset_ms < 0 {
+                    "behind"
+                } else {
+                    "ahead of"
+                },
+                if corrected {
+                    "the site corrects for it. Turning NTP on on the host fixes it at the root."
+                } else {
+                    "the site cannot correct for it (not trusted, or over 3 hours off): devices \
+                     with the right time are refused and reminders are off. Turn NTP on on \
+                     the host."
+                },
             );
-            if !(measured.trusted && measured.offset_ms.abs() <= MAX_CORRECTION_MS) {
-                tracing::warn!(
-                    "[clock] the measurement is not trusted enough to judge device clocks by \
-                     (one SNTP answer, or too far off): devices are compared with the site's \
-                     own clock"
-                );
-            }
         }
-        Some(measured) => {
-            if was_wrong != Some(false) {
-                tracing::info!(
-                    offset_ms = measured.offset_ms,
-                    source = measured.source.name(),
-                    "[clock] the site's clock is right"
-                );
-            }
-        }
-        None => {
-            if was_wrong.is_none() || was_wrong == Some(true) {
-                tracing::info!(
-                    "[clock] could not check the site's clock: no SNTP server or HTTPS address \
-                     answered"
-                );
-            }
-        }
+        Some(measured) => tracing::debug!(
+            offset_ms = measured.offset_ms,
+            source = measured.source.name(),
+            "[clock] this host's clock is right"
+        ),
+        None => {}
     }
     if let Ok(mut last) = LAST.write() {
-        *last = Some(Last {
-            check,
-            at: Instant::now(),
-        });
+        // A check without a trusted answer does not throw away a good
+        // measurement that still corrects the clock; that ages out by
+        // itself (MAX_AGE).
+        let keep_old = keeps_old(
+            trusted,
+            last.as_ref().map(|last| (&last.check, last.at.elapsed())),
+        );
+        if !keep_old {
+            *last = Some(Last {
+                check,
+                at: Instant::now(),
+            });
+        }
     }
+    trusted
 }
 
-/// Check the clock now and every [`EVERY`], unless it is switched off.
+/// Whether a check that was `trusted` or not leaves `old` (and its age) as
+/// the last one: only an untrusted one, while `old` still corrects the clock.
+fn keeps_old(trusted: bool, old: Option<(&Check, Duration)>) -> bool {
+    !trusted && old.is_some_and(|(old, age)| old.correction(age).is_some())
+}
+
+/// How long until the next check after `failures` failed ones in a row.
+fn next_in(failures: u32) -> Duration {
+    if failures == 0 {
+        return EVERY;
+    }
+    RETRY.saturating_mul(1 << (failures - 1).min(8)).min(EVERY)
+}
+
+/// Check the clock now, again soon when that fails, and every [`EVERY`],
+/// unless it is switched off. Every process does, for its own clock.
 pub fn start() {
     let settings = Settings::from_env();
     if !settings.enabled {
-        tracing::info!("[clock] the clock check is off (CLOCK_CHECK_ENABLED)");
+        tracing::info!(
+            "[clock] the clock check is off (CLOCK_CHECK_ENABLED); the site keeps this host's clock"
+        );
         return;
     }
     if settings.ntp_servers.is_empty() && settings.https_urls.is_empty() {
-        tracing::info!("[clock] the clock check has no time source configured");
+        tracing::warn!(
+            "[clock] the clock check has no time source configured; the site keeps this host's clock"
+        );
         return;
     }
-    super::jobs::jobs().periodic("clock check", super::jobs::Every::new(EVERY), move || {
+    let due = std::sync::Arc::new(std::sync::Mutex::new((Instant::now(), 0u32)));
+    super::jobs::jobs().periodic("clock check", super::jobs::Every::new(RETRY), move || {
         let settings = settings.clone();
-        async move { record(check(&settings).await) }
+        let due = due.clone();
+        async move {
+            let failures = match due.lock() {
+                Ok(due) if Instant::now() < due.0 => return,
+                Ok(due) => due.1,
+                Err(_) => 0,
+            };
+            let failures = if record(check(&settings).await) {
+                0
+            } else {
+                failures + 1
+            };
+            if let Ok(mut due) = due.lock() {
+                *due = (Instant::now() + next_in(failures), failures);
+            }
+        }
     });
 }
 
@@ -532,6 +668,7 @@ mod tests {
                 trusted,
             }),
             threshold_ms: 60_000,
+            failures: vec![],
         }
     }
 
@@ -669,6 +806,7 @@ mod tests {
                 "source": "https",
                 "trusted": true,
                 "thresholdMs": 60_000,
+                "maxCorrectionMs": MAX_CORRECTION_MS,
                 "wrong": true,
                 "corrected": true,
             })
@@ -685,6 +823,7 @@ mod tests {
                 "source": null,
                 "trusted": false,
                 "thresholdMs": 60_000,
+                "maxCorrectionMs": MAX_CORRECTION_MS,
                 "wrong": false,
                 "corrected": false,
             })
@@ -716,6 +855,209 @@ mod tests {
             (key == "CLOCK_CHECK_THRESHOLD_SECS").then(|| "-5".to_string())
         });
         assert_eq!(bad.threshold_ms, 60_000);
+    }
+
+    /// A one-request HTTP server answering with `Date` set `ahead_secs` ahead
+    /// of this host's clock (real time on a host that is behind).
+    async fn date_server(ahead_secs: i64) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf).await;
+                let real = chrono::DateTime::from_timestamp_micros(now_micros()).unwrap()
+                    + chrono::Duration::seconds(ahead_secs);
+                let date = real.format("%a, %d %b %Y %H:%M:%S GMT");
+                let answer = format!(
+                    "HTTP/1.1 200 OK\r\nDate: {date}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _ = stream.write_all(answer.as_bytes()).await;
+            }
+        });
+        format!("http://{address}/")
+    }
+
+    fn only_https(url: String) -> Settings {
+        Settings {
+            enabled: true,
+            ntp_servers: vec![],
+            https_urls: vec![url],
+            threshold_ms: 60_000,
+        }
+    }
+
+    /// The host 10 minutes behind and an HTTPS time source that answers:
+    /// the site's clock is right, a device that is right gets in, and one
+    /// 6 minutes ahead of real time is still refused.
+    #[tokio::test]
+    async fn a_host_ten_minutes_behind_is_corrected() {
+        let url = date_server(600).await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let found = check_with(&only_https(url), Ok(client)).await;
+        assert!(found.failures.is_empty(), "{:?}", found.failures);
+        let measured = found.applied(Duration::from_secs(1)).unwrap();
+        assert_eq!((measured.source, measured.trusted), (Source::Https, true));
+        assert!(
+            (measured.offset_ms + 600_000).abs() <= 1_500,
+            "{measured:?}"
+        );
+
+        let host = now_micros();
+        let real = host + 600 * 1_000_000;
+        let mut state = None;
+        let site = crate::clock::step(&mut state, host, -measured.offset_ms * 1000);
+        assert!(
+            (site - real).abs() <= 1_500_000,
+            "the site's clock is real time"
+        );
+
+        let device = |micros: i64| {
+            myriad_persona_sync::Rev::new((micros / 1000) as u64, 0, "dev_test").unwrap()
+        };
+        let hlc = myriad_persona_sync::hlc::check_ahead;
+        assert!(
+            hlc(&device(real), site).is_ok(),
+            "a device that is right gets in"
+        );
+        assert!(hlc(&device(real), host).is_err(), "as it did not before");
+        assert!(
+            hlc(&device(real + 6 * 60 * 1_000_000), site).is_err(),
+            "one 6 minutes ahead of real time is still refused"
+        );
+    }
+
+    /// An outbound proxy that refuses and an SNTP server that is not there:
+    /// could not check, and what each source said is kept for the log.
+    #[tokio::test]
+    async fn a_refusing_proxy_and_no_sntp_are_named() {
+        let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = proxy.local_addr().unwrap();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut stream, _)) = proxy.accept().await {
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream
+                    .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                    .await;
+            }
+        });
+        let client = reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all(format!("http://{proxy_address}")).unwrap())
+            .build()
+            .unwrap();
+        let settings = Settings {
+            enabled: true,
+            ntp_servers: vec!["127.0.0.1".into()],
+            https_urls: vec!["https://www.cloudflare.com".into()],
+            threshold_ms: 60_000,
+        };
+        let found = check_with(&settings, Ok(client)).await;
+        assert_eq!(found.measured, None, "could not check is not an offset");
+        assert_eq!(found.failures.len(), 2, "{:?}", found.failures);
+        assert!(
+            found.failures[0].starts_with("sntp 127.0.0.1: "),
+            "{:?}",
+            found.failures
+        );
+        assert!(
+            found.failures[1].starts_with("https https://www.cloudflare.com: "),
+            "{:?}",
+            found.failures
+        );
+        assert_eq!(
+            found.applied(Duration::ZERO),
+            Err("could not check: no time source answered")
+        );
+
+        let without = check_with(
+            &only_https("https://a.example".into()),
+            Err("outbound proxy: bad url".into()),
+        )
+        .await;
+        assert_eq!(
+            without.failures,
+            ["https: no client: outbound proxy: bad url"]
+        );
+    }
+
+    #[test]
+    fn without_a_correction_the_clock_is_the_hosts_and_the_log_says_why() {
+        assert_eq!(
+            check(-600_000, true).applied(MAX_AGE + Duration::from_secs(1)),
+            Err("the last good measurement is too old")
+        );
+        assert!(check(-600_000, false).applied(Duration::ZERO).is_err());
+        assert!(
+            check(-(MAX_CORRECTION_MS + 1), true)
+                .applied(Duration::ZERO)
+                .is_err()
+        );
+
+        let logs = capture(|| {
+            note_change(
+                Some(Source::Https),
+                &Err("the last good measurement is too old"),
+            );
+            note_change(None, &Err("no check has run yet"));
+        });
+        assert!(logs.contains("WARN"), "{logs}");
+        assert!(
+            logs.contains("this host's own again (the last good measurement is too old)"),
+            "{logs}"
+        );
+        assert_eq!(
+            logs.matches("WARN").count(),
+            1,
+            "nothing to say when it was not corrected: {logs}"
+        );
+    }
+
+    #[test]
+    fn a_check_without_a_trusted_answer_keeps_a_good_measurement() {
+        let good = check(-600_000, true);
+        assert!(keeps_old(false, Some((&good, Duration::from_secs(60)))));
+        assert!(!keeps_old(true, Some((&good, Duration::from_secs(60)))));
+        assert!(!keeps_old(
+            false,
+            Some((&good, MAX_AGE + Duration::from_secs(1)))
+        ));
+        assert!(!keeps_old(false, None));
+    }
+
+    #[test]
+    fn a_failed_check_is_tried_again_soon() {
+        assert_eq!(next_in(0), EVERY);
+        assert_eq!(next_in(1), RETRY);
+        assert_eq!(next_in(2), RETRY * 2);
+        assert_eq!(next_in(4), RETRY * 8);
+        assert_eq!(next_in(30), EVERY);
+    }
+
+    /// What `f` logs, as text.
+    fn capture(f: impl FnOnce()) -> String {
+        use std::sync::{Arc, Mutex};
+        #[derive(Clone)]
+        struct Buffer(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buffer = Buffer(Arc::new(Mutex::new(Vec::new())));
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap()
     }
 
     #[test]

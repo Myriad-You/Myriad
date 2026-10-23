@@ -136,7 +136,7 @@ fn runs() -> usize {
 /// A zone where she got up `since_up` minutes ago now and bed is still a
 /// while off.
 fn zone_where(since_up: Range<u32>) -> chrono_tz::Tz {
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     (-14..=12)
         .filter_map(|offset: i32| {
             let name = match offset {
@@ -200,10 +200,10 @@ impl Day {
             .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
             .expect("chat model");
         let zone = zone_where(since_up);
-        let day = myriad_merope::timing::her_day_at(chrono::Utc::now(), &zone);
+        let day = myriad_merope::timing::her_day_at(crate::clock::now(), &zone);
         println!(
             "== {name}: her zone {zone}, now {} there, up {} min ago",
-            chrono::Utc::now().with_timezone(&zone).format("%H:%M"),
+            crate::clock::now().with_timezone(&zone).format("%H:%M"),
             day.since_up
         );
         Self {
@@ -220,7 +220,7 @@ impl Day {
     /// Someone she knows as `known`, with the talks that made it so.
     async fn person(&self, name: &str, known: Known) -> i32 {
         let user_id = super::new_user(&self.db, name).await;
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         for (index, days_back) in known.days_back().into_iter().enumerate() {
             let at = now - chrono::Duration::days(days_back) - chrono::Duration::hours(2);
             let (theirs, hers) = EARLIER[index % EARLIER.len()];
@@ -263,7 +263,7 @@ impl Day {
     /// reflection after.
     async fn lived(&mut self, user_id: i32, lines: &[&str], ago: chrono::Duration) {
         let session = format!("lived-{user_id}-{}", uuid::Uuid::new_v4().simple());
-        let starts = chrono::Utc::now() - ago;
+        let starts = crate::clock::now() - ago;
         session_at(&self.db, &session, user_id, None, starts).await;
         super::super::inner::forget();
         super::super::remembering::forget_heard(user_id, "private");
@@ -359,7 +359,7 @@ impl Day {
                 },
             ],
         };
-        let request = chat_request(user_id, line, chrono::Utc::now(), "asked", history, venue);
+        let request = chat_request(user_id, line, crate::clock::now(), "asked", history, venue);
         let agent = crate::services::agent::Agent::new(self.db.clone()).await;
         let prompt =
             super::super::clock::in_zone(self.zone, agent.chat_response_prompt(&request)).await;

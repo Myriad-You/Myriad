@@ -300,7 +300,7 @@ fn apply_body_signature(
     token: &str,
 ) -> Result<(), String> {
     if let Some(timestamp_field) = &sign.timestamp_field {
-        let unix = std::time::SystemTime::now()
+        let unix = crate::clock::now_system()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
@@ -473,14 +473,14 @@ impl TappApiService {
             inject_context.insert(format!("settings.{key}"), value.clone());
         }
 
-        let now = std::time::SystemTime::now()
+        let now = crate::clock::now_system()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         inject_context.insert("time.unix".to_string(), json!(now.as_secs()));
         inject_context.insert("time.unixMs".to_string(), json!(now.as_millis() as u64));
         inject_context.insert(
             "time.iso8601".to_string(),
-            json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            json!(crate::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         );
         let nonce = rand::random::<[u8; 16]>();
         inject_context.insert("time.nonce".to_string(), json!(hex::encode(nonce)));

@@ -376,7 +376,7 @@ pub async fn issue_runtime_grant(
 
     let token = new_token();
     let runtime_id = format!("rt_{}", Uuid::new_v4().simple());
-    let expires_at = Utc::now()
+    let expires_at = crate::clock::now()
         + chrono::Duration::from_std(RUNTIME_GRANT_TTL).expect("runtime grant TTL is valid");
     let grant = StoredRuntimeGrant {
         runtime_id: runtime_id.clone(),
@@ -389,7 +389,7 @@ pub async fn issue_runtime_grant(
         expires_at: expires_at.timestamp(),
     };
 
-    let now = Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     let txn = db.begin().await.map_err(map_db_err)?;
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -433,7 +433,7 @@ pub async fn issue_runtime_grant(
         DatabaseBackend::Postgres,
         r#"INSERT INTO runtime_registry
             (namespace, record_id, subject_id, owner_id, tapp_id, runtime_id, payload, expires_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)"#,
         vec![
             RUNTIME_GRANT_NAMESPACE.into(),
             token_hash(&token).into(),
@@ -443,6 +443,7 @@ pub async fn issue_runtime_grant(
             runtime_id.clone().into(),
             payload.into(),
             expires_at.timestamp().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await

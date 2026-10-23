@@ -174,7 +174,7 @@ async fn ended(db: &DatabaseConnection, want: &Want, how: &str, came_true: bool)
 
 /// At night: what she wants, from what she did and heard this past week.
 pub async fn go_over(db: &DatabaseConnection, owner: i32) {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let records = super::explore::lately(db, now.fixed_offset() - chrono::Duration::days(7)).await;
     let (held, roots): (Vec<Want>, Vec<Vec<String>>) =
         open_with_roots(db).await.into_iter().unzip();

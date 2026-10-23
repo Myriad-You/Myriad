@@ -205,7 +205,7 @@ async fn run_self_audit() {
         std::fs::create_dir_all(&dir).expect("report directory");
         dir.join(format!(
             "audit-{}.json",
-            chrono::Utc::now().format("%Y-%m-%dT%H-%M-%S")
+            crate::clock::now().format("%Y-%m-%dT%H-%M-%S")
         ))
         .to_string_lossy()
         .into_owned()
@@ -326,7 +326,7 @@ async fn run_self_audit() {
         }
     }
     let out = json!({
-        "at": chrono::Utc::now().to_rfc3339(),
+        "at": crate::clock::now().to_rfc3339(),
         "records": {
             "days": days.len(),
             "experiences": experiences.len(),

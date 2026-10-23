@@ -4,7 +4,7 @@ use axum::{
     extract::{ConnectInfo, Request},
     http::{StatusCode, header},
 };
-use chrono::{Duration, Local, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate};
 use myriad_error::AppError;
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait,
@@ -374,7 +374,9 @@ pub(crate) fn salt_unavailable_response() -> (StatusCode, Json<Value>) {
 /// driven by the process `TZ` env if set, otherwise the OS default.
 /// Operators should keep the server clock correct (`timedatectl` / container `TZ`).
 pub(crate) fn analytics_today() -> NaiveDate {
-    Local::now().date_naive()
+    crate::clock::now()
+        .with_timezone(&chrono::Local)
+        .date_naive()
 }
 
 /// The server-local date of a `timestamptz` column, on the same clock as
@@ -384,7 +386,10 @@ pub(crate) fn analytics_today() -> NaiveDate {
 /// miss everything that happened so far. The offset is the current one, as
 /// for [`analytics_today`].
 pub(crate) fn analytics_day_sql(column: &str) -> String {
-    let offset = Local::now().offset().local_minus_utc();
+    let offset = crate::clock::now()
+        .with_timezone(&chrono::Local)
+        .offset()
+        .local_minus_utc();
     format!("({column} AT TIME ZONE INTERVAL '{offset} seconds')::date")
 }
 
@@ -395,7 +400,10 @@ pub(crate) fn analytics_tz_label() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| {
-            let secs = Local::now().offset().local_minus_utc();
+            let secs = crate::clock::now()
+                .with_timezone(&chrono::Local)
+                .offset()
+                .local_minus_utc();
             let hours = secs / 3600;
             if hours == 0 {
                 "local".to_string()
@@ -1124,7 +1132,10 @@ pub(super) async fn bump_country(
 }
 
 async fn maybe_prune(db: &DatabaseConnection) {
-    if !Utc::now().timestamp_subsec_nanos().is_multiple_of(100) {
+    if !crate::clock::now()
+        .timestamp_subsec_nanos()
+        .is_multiple_of(100)
+    {
         return;
     }
     let today = analytics_today();

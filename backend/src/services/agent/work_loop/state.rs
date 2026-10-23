@@ -147,7 +147,7 @@ impl Checkpoint {
         // Tapp expiry is itself an authenticated terminal result, verified
         // against its persisted interaction before apply_answer is called.
         if !matches!(self.wait, Some(Wait::Interaction { .. }))
-            && question.is_expired(chrono::Utc::now())
+            && question.is_expired(crate::clock::now())
         {
             return Err("The question has expired".into());
         }

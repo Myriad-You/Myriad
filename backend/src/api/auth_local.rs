@@ -263,7 +263,7 @@ pub async fn create_admin(
         avatar_url,
         created_at,
         updated_at
-    ) VALUES ($1, $2, $3, true, true, NULL, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ) VALUES ($1, $2, $3, true, true, NULL, $4, $5::timestamptz, $5::timestamptz)
     RETURNING id";
     // avatar_url 留空：占位头像是「显示时的兜底」，不是账号数据。交给前端 <Avatar> 本地生成。
     let insert_params = vec![
@@ -271,6 +271,7 @@ pub async fn create_admin(
         SeaValue::String(Some("local".to_string())),
         SeaValue::String(Some(password_hash)),
         SeaValue::String(None),
+        crate::clock::now().into(),
     ];
 
     let user_result = match txn
@@ -437,8 +438,8 @@ pub async fn local_login(
     let _ = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1",
-            vec![SeaValue::Int(Some(user_id))],
+            "UPDATE users SET last_login_at = $2::timestamptz WHERE id = $1",
+            vec![SeaValue::Int(Some(user_id)), crate::clock::now().into()],
         ))
         .await;
 
@@ -578,7 +579,7 @@ pub async fn change_password(
     // Update password + bump session epoch so other sessions die immediately.
     let update_query = "UPDATE users SET password_hash = $1, \
                               token_version = COALESCE(token_version, 0) + 1, \
-                              updated_at = CURRENT_TIMESTAMP \
+                              updated_at = $3::timestamptz \
                        WHERE id = $2 \
                        RETURNING token_version";
 
@@ -589,6 +590,7 @@ pub async fn change_password(
             vec![
                 SeaValue::String(Some(new_password_hash)),
                 SeaValue::Int(Some(user_id)),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -888,7 +890,7 @@ pub async fn register(
             DatabaseBackend::Postgres,
             "INSERT INTO users (username, email, password_hash, auth_provider, is_admin, \
                                  avatar_url, created_at, updated_at, last_login_at) \
-             VALUES ($1, $2, $3, 'local', false, $4, NOW(), NOW(), NOW()) \
+             VALUES ($1, $2, $3, 'local', false, $4, $5::timestamptz, $5::timestamptz, $5::timestamptz) \
              RETURNING id",
             vec![
                 SeaValue::String(Some(req.username.clone())),
@@ -899,6 +901,7 @@ pub async fn register(
                 SeaValue::String(Some(password_hash)),
                 // 占位头像退成显示兜底，不落库（见 create_admin 处说明）
                 SeaValue::String(None),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -993,10 +996,14 @@ pub async fn set_password(
             DatabaseBackend::Postgres,
             "UPDATE users SET password_hash = $1, \
                                token_version = COALESCE(token_version, 0) + 1, \
-                               updated_at = NOW() \
+                               updated_at = $3::timestamptz \
                         WHERE id = $2 \
                         RETURNING token_version",
-            vec![SeaValue::String(Some(hash)), SeaValue::Int(Some(user_id))],
+            vec![
+                SeaValue::String(Some(hash)),
+                SeaValue::Int(Some(user_id)),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(|error| auth_store_http("set password", error))?;
@@ -1124,8 +1131,12 @@ pub async fn toggle_local_login(
     let disabled = !req.enabled;
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE users SET local_login_disabled = $1, updated_at = NOW() WHERE id = $2",
-        vec![SeaValue::Bool(Some(disabled)), SeaValue::Int(Some(user_id))],
+        "UPDATE users SET local_login_disabled = $1, updated_at = $3::timestamptz WHERE id = $2",
+        vec![
+            SeaValue::Bool(Some(disabled)),
+            SeaValue::Int(Some(user_id)),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(|error| auth_store_http("update local login", error))?;
@@ -1268,7 +1279,7 @@ pub async fn admin_create_user(
             DatabaseBackend::Postgres,
             "INSERT INTO users (username, email, password_hash, auth_provider, is_admin, \
                                  avatar_url, created_at, updated_at) \
-             VALUES ($1, $2, $3, 'local', $4, $5, NOW(), NOW()) \
+             VALUES ($1, $2, $3, 'local', $4, $5, $6::timestamptz, $6::timestamptz) \
              RETURNING id",
             vec![
                 SeaValue::String(Some(req.username.clone())),
@@ -1280,6 +1291,7 @@ pub async fn admin_create_user(
                 SeaValue::Bool(Some(create_as_admin)),
                 // 占位头像退成显示兜底，不落库（见 create_admin 处说明）
                 SeaValue::String(None),
+                crate::clock::now().into(),
             ],
         ))
         .await

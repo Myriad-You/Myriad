@@ -46,9 +46,9 @@ pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &st
         summary.hash(&mut hasher);
         format!("{:x}", hasher.finish())
     } else if event_key == "agent.merope.touch" {
-        (Utc::now().timestamp() / 30).to_string()
+        (crate::clock::now().timestamp() / 30).to_string()
     } else {
-        (Utc::now().timestamp() / (SAME_EVENT_MINUTES * 60)).to_string()
+        (crate::clock::now().timestamp() / (SAME_EVENT_MINUTES * 60)).to_string()
     };
     format!("evt_{user_id}_{key}_{distinguisher}")
 }
@@ -69,7 +69,7 @@ pub fn spawn_presence(user_id: i32) {
         };
         let gap_hours = state
             .last_user_message_at
-            .map(|at| (Utc::now() - at.with_timezone(&Utc)).num_minutes() as f64 / 60.0)
+            .map(|at| (crate::clock::now() - at.with_timezone(&Utc)).num_minutes() as f64 / 60.0)
             .unwrap_or(24.0);
         // Her day, on the site's clock: it turns when she gets up, not at
         // midnight UTC.
@@ -222,7 +222,7 @@ pub async fn ingest(
         } else {
             EventUrgency::Normal
         },
-        occurred_at: Utc::now(),
+        occurred_at: crate::clock::now(),
         parent_event_id,
         safe_facts: BTreeMap::new(),
     };

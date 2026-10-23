@@ -661,7 +661,7 @@ async fn execute_speech_tts(params: &HashMap<String, Value>) -> Result<Value, St
                 "audioBase64": audio,
                 "codec": codec_out
             },
-            "timestamp": chrono::Utc::now().timestamp_millis()
+            "timestamp": crate::clock::now().timestamp_millis()
         }
     }))
 }

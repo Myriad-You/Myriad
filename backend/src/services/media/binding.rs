@@ -116,7 +116,7 @@ impl Consumer {
     /// expires instead of pinning uploads forever.
     pub fn run_input(run_id: &str) -> Self {
         Self {
-            expires_at: Some(Utc::now() + chrono::Duration::hours(24)),
+            expires_at: Some(crate::clock::now() + chrono::Duration::hours(24)),
             ..Self::channel_message(run_id)
         }
     }

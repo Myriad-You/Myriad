@@ -407,12 +407,12 @@ pub async fn put_credential(
         r#"
 INSERT INTO tapp_storage
     (user_id, tapp_id, key, value, encrypted_value, binding_fingerprint, created_at, updated_at)
-VALUES ($1, $2, $3, '{"kind":"credential","version":1}'::jsonb, $4, $5, NOW(), NOW())
+VALUES ($1, $2, $3, '{"kind":"credential","version":1}'::jsonb, $4, $5, $6::timestamptz, $6::timestamptz)
 ON CONFLICT (user_id, tapp_id, key) DO UPDATE SET
     value = EXCLUDED.value,
     encrypted_value = EXCLUDED.encrypted_value,
     binding_fingerprint = EXCLUDED.binding_fingerprint,
-    updated_at = NOW()
+    updated_at = $6::timestamptz
 "#,
         vec![
             owner_id.into(),
@@ -420,6 +420,7 @@ ON CONFLICT (user_id, tapp_id, key) DO UPDATE SET
             storage_key(key).into(),
             encrypted.into(),
             binding_fingerprint.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await

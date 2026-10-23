@@ -5,7 +5,6 @@
 //! since the app's link to it does not last; let go when she has not sent
 //! one for a while.
 
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
     QueryFilter, Set,
@@ -25,7 +24,7 @@ const EDGE: u32 = 512;
 
 /// The kept stickers still in use: kept or sent lately.
 pub(super) fn in_use() -> Condition {
-    let since = Utc::now().fixed_offset() - chrono::Duration::days(FADES_AFTER_DAYS);
+    let since = crate::clock::now().fixed_offset() - chrono::Duration::days(FADES_AFTER_DAYS);
     Condition::all().add(Column::KeptFrom.is_not_null()).add(
         Condition::any()
             .add(Column::CreatedAt.gte(since))
@@ -100,7 +99,7 @@ pub async fn keep(
         identity: Set(KEPT.to_string()),
         sent: Set(0),
         last_sent_at: Set(None),
-        created_at: Set(Utc::now().fixed_offset()),
+        created_at: Set(crate::clock::now().fixed_offset()),
         kept_from: Set(Some(venue.to_string())),
     };
     match row.insert(db).await {

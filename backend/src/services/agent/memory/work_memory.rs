@@ -232,7 +232,7 @@ pub(crate) async fn settle_shown<C: sea_orm::ConnectionTrait>(
     shown: &[Shown],
     success: bool,
 ) -> Result<(), sea_orm::DbErr> {
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let (ids, reason): (Vec<String>, _) = if success {
         (shown.iter().map(|shown| shown.id.clone()).collect(), None)
     } else {
@@ -581,7 +581,7 @@ pub(crate) async fn hold<C: sea_orm::ConnectionTrait>(
         )
         .col_expr(
             agent_memories::Column::UpdatedAt,
-            Expr::value(chrono::Utc::now().fixed_offset()),
+            Expr::value(crate::clock::now().fixed_offset()),
         )
         .filter(agent_memories::Column::Id.eq(id))
         .filter(agent_memories::Column::Source.eq(unified::WORK_TRIED_SOURCE))

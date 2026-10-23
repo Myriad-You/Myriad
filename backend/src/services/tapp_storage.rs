@@ -412,10 +412,10 @@ pub async fn write_storage_value_as(
             DatabaseBackend::Postgres,
             r#"
 INSERT INTO tapp_storage (tapp_id, user_id, key, value, created_at, updated_at)
-VALUES ($1, $2, $3, $4, NOW(), NOW())
+VALUES ($1, $2, $3, $4, $5::timestamptz, $5::timestamptz)
 ON CONFLICT (user_id, tapp_id, key) DO UPDATE SET
     value = EXCLUDED.value,
-    updated_at = NOW()
+    updated_at = $5::timestamptz
 RETURNING id
 "#,
             vec![
@@ -423,6 +423,7 @@ RETURNING id
                 user_id.into(),
                 key.into(),
                 value.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await

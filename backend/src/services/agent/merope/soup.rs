@@ -136,7 +136,7 @@ async fn save_at(id: &str, game: &Game) {
     // before it is read.
     let left = game.last_played() + chrono::Duration::from_std(KEEP_FOR).unwrap_or_default()
         - super::clock::now();
-    let keep_until = (chrono::Utc::now() + left).timestamp();
+    let keep_until = (crate::clock::now() + left).timestamp();
     if let Err(error) = crate::services::runtime_registry::put(
         &db,
         GAMES_NAMESPACE,
@@ -554,7 +554,7 @@ pub(crate) fn judge_probe(
         found: Vec::new(),
         ending: None,
         solver: None,
-        started: chrono::Utc::now(),
+        started: crate::clock::now(),
         last: None,
         made: None,
     };
@@ -597,7 +597,7 @@ pub(crate) fn section_for_eval(
         found: Vec::new(),
         ending: None,
         solver: None,
-        started: chrono::Utc::now(),
+        started: crate::clock::now(),
         last: None,
         made: None,
     };
@@ -617,7 +617,7 @@ mod tests {
             found: Vec::new(),
             ending: None,
             solver: None,
-            started: chrono::Utc::now(),
+            started: crate::clock::now(),
             last: None,
             made: None,
         }

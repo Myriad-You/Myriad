@@ -168,7 +168,7 @@ pub async fn publish_content(
             r#"INSERT INTO federation_published_content
                    (user_id, content_type, content_id, activity_id, visibility, published_at,
                     idempotency_key, idempotency_fingerprint)
-               VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)"#,
+               VALUES ($1, $2, $3, $4, $5, $8::timestamptz, $6, $7)"#,
             [
                 user_id.into(),
                 content_type.into(),
@@ -177,6 +177,7 @@ pub async fn publish_content(
                 visibility.into(),
                 stored_key.into(),
                 stored_fingerprint.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await

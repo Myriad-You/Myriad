@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::services::agent::merope::gates::said_only_in_person;
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::Duration as ChronoDuration;
 use sea_orm::DatabaseConnection;
 use serde_json::json;
 
@@ -187,7 +187,7 @@ pub async fn consider_event(
                 proposal.device_name = Some(mac.name);
             }
         }
-        let now = Utc::now();
+        let now = crate::clock::now();
         let record = IntentRecord {
             id: format!("int_{}", uuid::Uuid::new_v4().simple()),
             user_id: event.addressee_user_id,
@@ -255,7 +255,7 @@ fn record_attention(event: &ConsciousnessEvent, inner: &str) {
         &event.kind,
         inner,
         &event.id,
-        Utc::now(),
+        crate::clock::now(),
     );
 }
 
@@ -449,7 +449,7 @@ mod tests {
             summary: "One feed could not refresh.".into(),
             addressee_user_id: 7,
             urgency: EventUrgency::Normal,
-            occurred_at: Utc::now(),
+            occurred_at: crate::clock::now(),
             parent_event_id: None,
             safe_facts: BTreeMap::new(),
         }
@@ -467,7 +467,7 @@ mod tests {
             granted_permissions: vec![],
             recent_intents: Vec::<RecentIntent>::new(),
             remembered: vec![],
-            captured_at: Utc::now(),
+            captured_at: crate::clock::now(),
             live: Default::default(),
             attention: None,
             myself: None,

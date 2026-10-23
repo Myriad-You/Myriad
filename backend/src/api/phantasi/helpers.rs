@@ -447,7 +447,6 @@ pub(crate) async fn materialize_source_icon(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
 
     #[test]
     fn normalize_http_url_fills_https_and_strips_fragment() {
@@ -484,7 +483,7 @@ mod tests {
         category: Option<&str>,
         site_url: Option<&str>,
     ) -> phantasi_sources::Model {
-        let now = Utc::now().into();
+        let now = crate::clock::now().into();
         phantasi_sources::Model {
             id: 1,
             user_id: 1,

@@ -38,7 +38,7 @@ pub async fn write_own_day<C: ConnectionTrait>(
         invalid_at: Set(None),
         invalid_reason: Set(None),
         created_at: Set(at),
-        updated_at: Set(Utc::now().fixed_offset()),
+        updated_at: Set(crate::clock::now().fixed_offset()),
         superseded_by: Set(None),
         origin: Set(super::ORIGIN_SITE.into()),
     };
@@ -77,7 +77,7 @@ pub async fn remember_own<C: ConnectionTrait>(
     if content.is_empty() {
         return Ok(None);
     }
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let id = format!("own_{}", uuid::Uuid::new_v4().simple());
     let row = agent_memories::ActiveModel {
         id: Set(id.clone()),
@@ -169,7 +169,7 @@ pub async fn fade_own_experiences<C: ConnectionTrait>(
     older_than: chrono::Duration,
     purge_after: chrono::Duration,
 ) -> Result<(u64, u64), DbErr> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let faded = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             invalid_at: Set(Some(now)),
@@ -225,7 +225,7 @@ pub async fn retire_own_in_favor_of<C: ConnectionTrait>(
     reason: &str,
     by: Option<&str>,
 ) -> Result<bool, DbErr> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let result = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             invalid_at: Set(Some(now)),

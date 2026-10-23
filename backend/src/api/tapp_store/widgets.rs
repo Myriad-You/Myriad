@@ -11,7 +11,6 @@ use axum::{
     Extension, Json,
     extract::{Path, State},
 };
-use chrono::Utc;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, Set,
@@ -280,7 +279,7 @@ pub(super) async fn register_widget(
         "source": "runtime",
         "installationOwnerId": installation_owner_id,
     });
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let existing = tapp_widgets::Entity::find()
         .filter(tapp_widgets::Column::UserId.eq(user_id))
         .filter(tapp_widgets::Column::WidgetId.eq(&widget_id))

@@ -4,7 +4,6 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use chrono::Utc;
 use myriad_blog::{
     DEFAULT_THEME_ID, MAX_THEME_ARCHIVE_BYTES, MAX_THEME_ARCHIVE_ENTRIES, MAX_THEME_BYTES,
     MAX_THEME_FILES, SchemeDetection, SchemeSwitch, ThemeFile, archive_entry_path,
@@ -108,7 +107,7 @@ pub fn ensure_default_theme(layout: &BlogLayout) -> Result<(), ThemeRejected> {
                     version: None,
                     min_version: Some("0.146.0".to_string()),
                     builtin: true,
-                    installed_at: Some(Utc::now().to_rfc3339()),
+                    installed_at: Some(crate::clock::now().to_rfc3339()),
                     scheme: Some(ThemeScheme::builtin()),
                 },
             )?;
@@ -135,7 +134,7 @@ pub fn ensure_default_theme(layout: &BlogLayout) -> Result<(), ThemeRejected> {
             version: None,
             min_version: Some("0.146.0".to_string()),
             builtin: true,
-            installed_at: Some(Utc::now().to_rfc3339()),
+            installed_at: Some(crate::clock::now().to_rfc3339()),
             scheme: Some(ThemeScheme::builtin()),
         },
     )
@@ -464,6 +463,8 @@ pub fn install_zip(layout: &BlogLayout, bytes: &[u8]) -> Result<ThemeRecord, The
         });
     }
 
+    // A unique name, not a time: the host's clock is enough.
+    #[allow(clippy::disallowed_methods)]
     let staging = layout.themes_dir().join(format!(
         ".staging-{}-{}",
         info.id,
@@ -533,7 +534,7 @@ pub fn install_zip(layout: &BlogLayout, bytes: &[u8]) -> Result<ThemeRecord, The
             version: info.version.clone(),
             min_version: info.min_version.clone(),
             builtin: false,
-            installed_at: Some(Utc::now().to_rfc3339()),
+            installed_at: Some(crate::clock::now().to_rfc3339()),
             scheme: Some(ThemeScheme::detected(detection)),
         };
         write_sidecar(&staging, &record)?;
@@ -629,7 +630,7 @@ fn write_sidecar(dir: &Path, record: &ThemeRecord) -> Result<(), ThemeRejected> 
         installed_at: record
             .installed_at
             .clone()
-            .unwrap_or_else(|| Utc::now().to_rfc3339()),
+            .unwrap_or_else(|| crate::clock::now().to_rfc3339()),
         scheme: record.scheme.clone(),
     };
     let body =

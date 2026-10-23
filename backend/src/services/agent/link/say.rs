@@ -93,7 +93,7 @@ pub(crate) fn say(user_id: i32, device_id: &str, say: Say) -> bool {
     if !valid_id(&say.id) || say.text.trim().is_empty() {
         return false;
     }
-    let body = body(&say, chrono::Utc::now().timestamp_millis());
+    let body = body(&say, crate::clock::now().timestamp_millis());
     if let Ok(mut outbox) = OUTBOX.lock() {
         let kept = outbox.entry(device_id.to_string()).or_default();
         let now = Instant::now();

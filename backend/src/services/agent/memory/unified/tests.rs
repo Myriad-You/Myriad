@@ -110,7 +110,8 @@ fn what_stands_out_by_meaning_is_named_even_with_no_word_shared() {
 
 fn recalled(mut row: agent_memories::Model, times: i32, ago_secs: i64) -> agent_memories::Model {
     row.access_count = times;
-    row.last_accessed_at = Some((Utc::now() - chrono::Duration::seconds(ago_secs)).fixed_offset());
+    row.last_accessed_at =
+        Some((crate::clock::now() - chrono::Duration::seconds(ago_secs)).fixed_offset());
     row
 }
 
@@ -154,7 +155,7 @@ fn of_two_as_important_the_one_never_recalled_fades_first() {
 }
 
 fn row(id: &str, content: &str, importance: f64, age_secs: i64) -> agent_memories::Model {
-    let at = (Utc::now() - chrono::Duration::seconds(age_secs)).fixed_offset();
+    let at = (crate::clock::now() - chrono::Duration::seconds(age_secs)).fixed_offset();
     agent_memories::Model {
         id: id.into(),
         user_id: Some(7),

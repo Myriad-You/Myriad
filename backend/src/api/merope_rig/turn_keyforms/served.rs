@@ -283,7 +283,7 @@ pub async fn refit_turn_archive(
     tracing::info!(job = %job_id, archive = %kept.id, "turn keyforms fitted again from an archive");
     let meta = ArchiveMeta {
         id: archive::new_id(),
-        created_at: chrono::Utc::now(),
+        created_at: crate::clock::now(),
         parent: Some(kept.id.clone()),
         space: space_name,
         bytes: 0,

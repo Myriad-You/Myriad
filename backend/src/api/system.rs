@@ -49,7 +49,7 @@ pub async fn reload_config() -> Result<Json<Value>, HttpError> {
 pub async fn system_status() -> Json<Value> {
     use std::time::SystemTime;
 
-    let uptime = SystemTime::now()
+    let uptime = crate::clock::now_system()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs();

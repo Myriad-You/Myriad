@@ -3,8 +3,6 @@
 //! Consciousness still does not execute. The API tick claims a row and then
 //! calls `Agent::process_with_progress` as the addressee.
 
-use chrono::Utc;
-
 use crate::services::agent::{AgentInteractionMode, RequestContext, SYSTEM_USER_ID, UserRequest};
 
 use super::{AcceptSource, AutonomyGrantView};
@@ -54,7 +52,7 @@ pub fn build_autonomy_work_request(
     }
     Some(UserRequest {
         raw_input: instruction.to_string(),
-        timestamp: Utc::now(),
+        timestamp: crate::clock::now(),
         user_id,
         context: Some(RequestContext {
             interaction_mode: AgentInteractionMode::Work,

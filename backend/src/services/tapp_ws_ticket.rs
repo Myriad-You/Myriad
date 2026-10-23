@@ -163,7 +163,8 @@ pub async fn mint_ws_ticket(
     }
 
     let ticket = new_ticket();
-    let expires_at = Utc::now() + chrono::Duration::from_std(WS_TICKET_TTL).expect("valid TTL");
+    let expires_at =
+        crate::clock::now() + chrono::Duration::from_std(WS_TICKET_TTL).expect("valid TTL");
     let stored = StoredWsTicket {
         runtime_id: identity.runtime_id.clone(),
         tapp_id: identity.tapp_id.clone(),
@@ -250,7 +251,7 @@ pub async fn consume_ws_ticket(
         return Err(WsTicketError::PermissionDenied);
     }
 
-    if stored.expires_at <= Utc::now().timestamp() {
+    if stored.expires_at <= crate::clock::now().timestamp() {
         return Err(WsTicketError::Invalid);
     }
 

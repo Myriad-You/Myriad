@@ -2,7 +2,6 @@
 //! the Agent both go through here, so marks from either side serialize on the
 //! same locks and a new star triggers its side effect exactly once.
 
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
     QueryFilter, QuerySelect, QueryTrait, TransactionTrait,
@@ -48,7 +47,7 @@ pub(crate) async fn mark_item_state(
     is_starred: Option<bool>,
 ) -> Result<MarkedState, MarkStateError> {
     let db_err = |step: &'static str| move |error| MarkStateError::Database(step, error);
-    let now = Utc::now();
+    let now = crate::clock::now();
     let transaction = db
         .begin()
         .await

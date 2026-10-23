@@ -63,7 +63,7 @@ impl TurnCache {
 
     /// Marks the master as just used, so pruning keeps it even when nothing new is written.
     pub(super) async fn touch(&self) {
-        self.write("last-used", chrono::Utc::now().to_rfc3339().as_bytes())
+        self.write("last-used", crate::clock::now().to_rfc3339().as_bytes())
             .await;
     }
 

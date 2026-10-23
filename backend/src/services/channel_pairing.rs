@@ -280,11 +280,12 @@ async fn live_code_expiry(
             DatabaseBackend::Postgres,
             "SELECT expires_at FROM runtime_registry \
              WHERE namespace = $1 AND subject_id = $2 \
-               AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT \
+               AND expires_at > EXTRACT(EPOCH FROM $3::timestamptz)::BIGINT \
              ORDER BY updated_at DESC LIMIT 1",
             vec![
                 SeaValue::String(Some(channel.code_namespace.to_string())),
                 SeaValue::Int(Some(user_id)),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -324,7 +325,7 @@ pub async fn mint_code(
     let mut bytes = [0u8; 5];
     rand::rng().fill_bytes(&mut bytes);
     let code = encode_pairing_code(bytes);
-    let expires_at = Utc::now() + ChronoDuration::seconds(CODE_TTL_SECS);
+    let expires_at = crate::clock::now() + ChronoDuration::seconds(CODE_TTL_SECS);
     let stored = StoredPairingCode {
         user_id,
         code: code.clone(),
@@ -505,22 +506,25 @@ fn insert_pairing_rows(
     keys: &[String],
     returning: &str,
 ) -> Statement {
-    let mut values: Vec<SeaValue> = Vec::with_capacity(keys.len() + 3);
+    let mut values: Vec<SeaValue> = Vec::with_capacity(keys.len() + 4);
     values.push(user_id.into());
     values.push(provider.into());
     values.push(scope.into());
+    // The placeholder of the site's clock, after the keys.
+    let now_param = keys.len() + 4;
     let rows = keys
         .iter()
         .enumerate()
         .map(|(index, key)| {
             values.push(key.as_str().into());
             format!(
-                "($1, $2, ${}, false, NOW(), jsonb_build_object('channel_scope', $3::text))",
+                "($1, $2, ${}, false, ${now_param}::timestamptz, jsonb_build_object('channel_scope', $3::text))",
                 index + 4
             )
         })
         .collect::<Vec<_>>()
         .join(", ");
+    values.push(crate::clock::now().into());
     Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         format!(

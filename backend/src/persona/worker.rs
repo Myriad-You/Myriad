@@ -63,6 +63,9 @@ pub async fn run() -> anyhow::Result<()> {
         dynamic_config,
     )
     .await;
+    // This process's own clock check: the routes it answers read the
+    // site's clock (after the outbound proxy is loaded).
+    crate::services::server_clock::start();
     crate::services::agent::notifications::init_notifications(db.clone()).await;
     super::start(db.clone()).await?;
 

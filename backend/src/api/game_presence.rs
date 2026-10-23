@@ -621,7 +621,7 @@ async fn parse_enka_gi(uid: &str, lang: &str, body: &Value) -> Result<GamePresen
         highlights,
         showcase,
         profile_url: Some(format!("https://enka.network/u/{uid}")),
-        fetched_at: chrono::Utc::now().to_rfc3339(),
+        fetched_at: crate::clock::now().to_rfc3339(),
         degraded: false,
         degrade_reason: None,
     })
@@ -698,7 +698,7 @@ async fn parse_enka_hsr(uid: &str, lang: &str, body: &Value) -> Result<GamePrese
         highlights,
         showcase,
         profile_url: Some(format!("https://enka.network/hsr/{uid}")),
-        fetched_at: chrono::Utc::now().to_rfc3339(),
+        fetched_at: crate::clock::now().to_rfc3339(),
         degraded: false,
         degrade_reason: None,
     })
@@ -787,7 +787,7 @@ async fn parse_enka_zzz(uid: &str, lang: &str, body: &Value) -> Result<GamePrese
         highlights,
         showcase,
         profile_url: Some(format!("https://enka.network/zzz/{uid}")),
-        fetched_at: chrono::Utc::now().to_rfc3339(),
+        fetched_at: crate::clock::now().to_rfc3339(),
         degraded: false,
         degrade_reason: None,
     })
@@ -899,7 +899,7 @@ async fn fetch_xbox(
                 "https://www.xbox.com/play/user/{}",
                 urlencoding_simple(gamertag)
             )),
-            fetched_at: chrono::Utc::now().to_rfc3339(),
+            fetched_at: crate::clock::now().to_rfc3339(),
             degraded: true,
             degrade_reason: Some(
                 "Set OPENXBL_API_KEY on the server to load Gamerscore and presence".into(),
@@ -1064,7 +1064,7 @@ async fn fetch_xbox(
             "https://www.xbox.com/play/user/{}",
             urlencoding_simple(gamertag)
         )),
-        fetched_at: chrono::Utc::now().to_rfc3339(),
+        fetched_at: crate::clock::now().to_rfc3339(),
         degraded: false,
         degrade_reason: None,
     })
@@ -1221,7 +1221,7 @@ async fn fetch_psn(
                 "https://profile.playstation.com/{}",
                 urlencoding_simple(online_id)
             )),
-            fetched_at: chrono::Utc::now().to_rfc3339(),
+            fetched_at: crate::clock::now().to_rfc3339(),
             degraded: true,
             degrade_reason: Some(
                 "Set PSN_NPSSO on the server to load trophies and presence (service account, not user cookie)".into(),
@@ -1402,7 +1402,7 @@ async fn fetch_psn(
             "https://profile.playstation.com/{}",
             urlencoding_simple(online_id)
         )),
-        fetched_at: chrono::Utc::now().to_rfc3339(),
+        fetched_at: crate::clock::now().to_rfc3339(),
         degraded: false,
         degrade_reason: None,
     })

@@ -3,7 +3,6 @@
 //! resolving to it after the cache evicts the file, with nothing recorded
 //! beside the asset itself.
 
-use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 use uuid::Uuid;
 
@@ -69,7 +68,7 @@ pub(super) async fn import_cached_citation(
     let _ = store.remove_owned_temp(public_id).await;
     let name = path.rsplit('/').next().unwrap_or("media").to_string();
     let url = compatible_url(public_id, &filename_for_mime(&name, mime, public_id)?);
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let row = media_assets::ActiveModel {
         kind: Set("upload".into()),
         public_id: Set(Some(public_id)),

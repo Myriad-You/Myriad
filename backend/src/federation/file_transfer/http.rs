@@ -100,7 +100,7 @@ pub async fn initiate_transfer(
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, filename, file_size, mime_type,
             checksum_sha256, status, direction, chunks_total, chunks_completed, local_path, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, 'pending', 'outbound', $7, 0, $8, NOW())"#,
+           VALUES ($1, $2, $3, $4, $5, $6, 'pending', 'outbound', $7, 0, $8, $9::timestamptz)"#,
         [
             transfer_id.clone().into(),
             channel_id.into(),
@@ -110,6 +110,7 @@ pub async fn initiate_transfer(
             req.checksum.clone().into(),
             chunks_total.into(),
             local_path.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -236,7 +237,7 @@ pub async fn initiate_room_transfer(
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, room_id, owner_user_id, filename, file_size, mime_type,
             checksum_sha256, status, direction, chunks_total, chunks_completed, local_path, created_at)
-           VALUES ($1, '', $2, $3, $4, $5, $6, $7, 'pending', 'outbound', $8, 0, $9, NOW())"#,
+           VALUES ($1, '', $2, $3, $4, $5, $6, $7, 'pending', 'outbound', $8, 0, $9, $10::timestamptz)"#,
         [
             transfer_id.clone().into(),
             room_id.into(),
@@ -247,6 +248,7 @@ pub async fn initiate_room_transfer(
             req.checksum.clone().into(),
             chunks_total.into(),
             local_path.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await

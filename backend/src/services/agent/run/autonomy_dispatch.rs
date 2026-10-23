@@ -546,7 +546,7 @@ mod tests {
                 status: TaskStatus::WaitingForInput,
                 current_step: 0,
                 step_results: Default::default(),
-                started_at: chrono::Utc::now(),
+                started_at: crate::clock::now(),
                 completed_at: None,
                 error: None,
                 progress: 0,

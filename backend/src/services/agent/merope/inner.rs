@@ -235,7 +235,7 @@ async fn compile(
         "myself": myself.facts_view(),
         "remembered": remembered.map(|(facts, _)| facts).unwrap_or_default(),
     });
-    if let Some(now) = super::doing::now_text(chrono::Utc::now()) {
+    if let Some(now) = super::doing::now_text(crate::clock::now()) {
         input["yourOwnTime"] = json!(now);
     }
     if let Some(scene) = &turn.scene {
@@ -262,7 +262,7 @@ async fn compile(
     if private || in_group.is_some() {
         input["openThreads"] = json!(super::threads::as_input(&threads));
     }
-    input["soreSpots"] = json!(super::sore::as_input(&sores, chrono::Utc::now()));
+    input["soreSpots"] = json!(super::sore::as_input(&sores, crate::clock::now()));
     let input = input.to_string();
     let (system_prompt, answer_schema) = if private {
         (system_for(&soul, true), schema_for(true))

@@ -174,7 +174,7 @@ pub(super) async fn her_own_puzzle() {
     println!("-- how it went: {went}");
     let (records, _) = super::super::self_story::records(
         &db,
-        (chrono::Utc::now() - chrono::Duration::days(1)).fixed_offset(),
+        (crate::clock::now() - chrono::Duration::days(1)).fixed_offset(),
     )
     .await;
     let looked_back = records

@@ -288,7 +288,7 @@ async fn mark_applied<C: ConnectionTrait>(
             runtime_id: None,
         },
         &latest,
-        chrono::Utc::now().timestamp() + APPLIED_KEPT_SECS,
+        crate::clock::now().timestamp() + APPLIED_KEPT_SECS,
     )
     .await
 }

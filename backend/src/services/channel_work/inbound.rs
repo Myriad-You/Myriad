@@ -24,7 +24,7 @@ pub(crate) async fn claim_inbound(
             identity,
         ),
         &Value::Bool(true),
-        (Utc::now() + ChronoDuration::hours(24)).timestamp(),
+        (crate::clock::now() + ChronoDuration::hours(24)).timestamp(),
     )
     .await
     {
@@ -221,7 +221,7 @@ pub(super) async fn continue_text(
             let _ = sink.send_text(PENDING_STALE_REPLY).await;
             return;
         }
-        match decide_pending_reply(&pending.prompt, input, Utc::now().timestamp()) {
+        match decide_pending_reply(&pending.prompt, input, crate::clock::now().timestamp()) {
             PendingDecision::Reask { reply } => {
                 let _ = sink.send_prompt(&reply, &pending.prompt).await;
                 return;

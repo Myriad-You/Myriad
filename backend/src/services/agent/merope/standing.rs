@@ -41,7 +41,7 @@ pub async fn standing_direction(
     rig_state: Option<RigStateSummary>,
     together: bool,
 ) -> Option<PerformanceDirective> {
-    let now = Utc::now();
+    let now = crate::clock::now();
     // Only what she is doing: why she picked it stays hers, and the minutes in
     // are left out so one direction holds for the whole of it.
     let (started, ends, what, way) = if let Some(current) = doing::current() {

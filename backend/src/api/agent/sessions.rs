@@ -15,7 +15,7 @@ pub async fn create_session(
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
     let session_id = format!("ses_{}", uuid::Uuid::new_v4().simple());
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
 
     let session = agent_sessions::ActiveModel {
         id: Set(session_id.clone()),

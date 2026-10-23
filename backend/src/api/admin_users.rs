@@ -170,7 +170,7 @@ fn user_row_to_json(row: &QueryResult, identities: &[Value]) -> Value {
         .ok()
         .flatten();
     let online = last_seen
-        .map(|t| Utc::now().signed_duration_since(t).num_seconds() <= ONLINE_WINDOW_SECS)
+        .map(|t| crate::clock::now().signed_duration_since(t).num_seconds() <= ONLINE_WINDOW_SECS)
         .unwrap_or(false);
     json!({
         "id": row.try_get::<i32>("", "id").unwrap_or(0),
@@ -494,10 +494,12 @@ pub async fn update_user(
     }
 
     params.push(SeaValue::Int(Some(user_id)));
+    params.push(crate::clock::now().into());
     let sql = format!(
-        "UPDATE users SET {}, updated_at = NOW() WHERE id = ${}",
+        "UPDATE users SET {}, updated_at = ${}::timestamptz WHERE id = ${}",
         sets.join(", "),
-        params.len()
+        params.len(),
+        params.len() - 1
     );
     let update = Statement::from_sql_and_values(DatabaseBackend::Postgres, &sql, params);
     if let Some(txn) = login_methods_txn {

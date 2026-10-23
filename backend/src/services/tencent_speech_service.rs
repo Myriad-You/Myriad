@@ -447,7 +447,7 @@ impl TencentSpeechService {
     ) -> Result<T, TencentSpeechError> {
         let host = format!("{}.tencentcloudapi.com", service);
         let url = format!("https://{}", host);
-        let timestamp = Utc::now().timestamp();
+        let timestamp = crate::clock::now().timestamp();
 
         let authorization = self.sign_request(service, &host, action, payload, timestamp);
 

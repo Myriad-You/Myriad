@@ -270,7 +270,7 @@ pub async fn retry_delivery_item(
                SET status = 'pending',
                    attempts = 0,
                    error_message = NULL,
-                   next_retry_at = NOW(),
+                   next_retry_at = $3::timestamptz,
                    last_attempt_at = NULL,
                    lease_token = NULL,
                    lease_expires_at = NULL
@@ -279,7 +279,11 @@ pub async fn retry_delivery_item(
                  AND a.id = dq.activity_id
                  AND a.user_id = $2
                  AND dq.status IN ('dead', 'pending', 'failed', 'cancelled')"#,
-            [queue_id.into(), user_id.into()],
+            [
+                queue_id.into(),
+                user_id.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(|e| {
@@ -372,7 +376,7 @@ pub async fn cancel_delivery_item(
             r#"UPDATE federation_delivery_queue dq
                SET status = 'dead',
                    error_message = 'cancelled: by user',
-                   last_attempt_at = NOW(),
+                   last_attempt_at = $3::timestamptz,
                    next_retry_at = NULL,
                    lease_token = NULL,
                    lease_expires_at = NULL
@@ -381,7 +385,11 @@ pub async fn cancel_delivery_item(
                  AND a.id = dq.activity_id
                  AND a.user_id = $2
                  AND dq.status IN ('pending', 'delivering')"#,
-            [queue_id.into(), user_id.into()],
+            [
+                queue_id.into(),
+                user_id.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(|e| {
@@ -521,7 +529,7 @@ updated AS (
     SET status = 'pending',
         attempts = 0,
         error_message = NULL,
-        next_retry_at = NOW(),
+        next_retry_at = $4::timestamptz,
         last_attempt_at = NULL,
         lease_token = NULL,
         lease_expires_at = NULL
@@ -547,7 +555,12 @@ SELECT
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             sql,
-            [user_id.into(), select_cap.into(), limit.into()],
+            [
+                user_id.into(),
+                select_cap.into(),
+                limit.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(delivery_store_failed)?
@@ -590,7 +603,7 @@ updated AS (
     UPDATE federation_delivery_queue q
     SET status = 'dead',
         error_message = 'cancelled: by user',
-        last_attempt_at = NOW(),
+        last_attempt_at = $3::timestamptz,
         next_retry_at = NULL,
         lease_token = NULL,
         lease_expires_at = NULL
@@ -600,7 +613,7 @@ updated AS (
 )
 SELECT COUNT(*)::bigint AS cancelled FROM updated
 "#,
-            [user_id.into(), limit.into()],
+            [user_id.into(), limit.into(), crate::clock::now().into()],
         ))
         .await
         .map_err(delivery_store_failed)?
@@ -673,7 +686,7 @@ pub async fn cancel_pending_deliveries_for_resource(
             r#"UPDATE federation_delivery_queue dq
                SET status = 'dead',
                    error_message = $2,
-                   last_attempt_at = NOW(),
+                   last_attempt_at = $3::timestamptz,
                    next_retry_at = NULL,
                    lease_token = NULL,
                    lease_expires_at = NULL
@@ -691,7 +704,7 @@ pub async fn cancel_pending_deliveries_for_resource(
                      ELSE a.activity_type
                    END
                  ) NOT IN ('roomdissolve', 'channelclose')"#,
-            [needle.into(), reason.into()],
+            [needle.into(), reason.into(), crate::clock::now().into()],
         ))
         .await?;
     let cancelled = result.rows_affected();

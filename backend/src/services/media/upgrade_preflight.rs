@@ -268,7 +268,7 @@ pub(crate) async fn prepare_legacy_media_upgrade(
     // complete cursor: the SQL gate still checks revision/retrying/missing-only.
     for id in &missing {
         txn.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-            "UPDATE media_assets SET state = 'missing', state_since = NOW(), updated_at = NOW() WHERE id = $1", [(*id).into()])).await?;
+            "UPDATE media_assets SET state = 'missing', state_since = $2::timestamptz, updated_at = $2::timestamptz WHERE id = $1", [(*id).into(), crate::clock::now().into()])).await?;
     }
     txn.execute_unprepared("UPDATE media_migration_jobs SET error_code = 'MEDIA_MISSING' WHERE source_kind = 'upgrade_failure'").await?;
     txn.commit().await?;

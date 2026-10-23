@@ -37,7 +37,7 @@ pub(crate) fn device_json(device: &Device, now: chrono::DateTime<Utc>) -> Value 
 async fn device_list(db: &DatabaseConnection, owner: i32) -> Result<Value, HttpError> {
     let list = devices::list(db, owner).await.map_err(store_failed)?;
     let host = lease::shown(db).await.map_err(store_failed)?;
-    let now = Utc::now();
+    let now = crate::clock::now();
     // What came by chat app while she was away, held until she is back (D3).
     let held = crate::services::channel_work::held::count(db)
         .await
@@ -503,7 +503,7 @@ pub async fn add_device(
     tracing::info!(device = %device.id, "[sync] device added");
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "device": device_json(&device, Utc::now()), "token": token })),
+        Json(json!({ "device": device_json(&device, crate::clock::now()), "token": token })),
     )
         .into_response())
 }
@@ -794,7 +794,9 @@ pub async fn remove_device(
         })?;
     lease::reload(&db).await;
     tracing::info!(device = %removed.id, "[sync] device removed by the owner");
-    Ok(Json(json!({ "device": device_json(&removed, Utc::now()) })))
+    Ok(Json(
+        json!({ "device": device_json(&removed, crate::clock::now()) }),
+    ))
 }
 
 #[cfg(test)]

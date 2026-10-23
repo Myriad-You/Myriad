@@ -1,0 +1,8 @@
+# The site's one clock is `crate::clock` (backend/src/clock.rs): this host's
+# clock corrected by what the site measured of it. Reading the host's clock
+# directly gives a second clock that can be minutes off.
+disallowed-methods = [
+    { path = "chrono::Utc::now", reason = "use crate::clock::now(), the site's one clock" },
+    { path = "chrono::Local::now", reason = "use crate::clock::now().with_timezone(&chrono::Local)" },
+    { path = "std::time::SystemTime::now", reason = "use crate::clock::now_system(); keep the host's clock only for file times, with an allow saying so" },
+]

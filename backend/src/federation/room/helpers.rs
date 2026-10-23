@@ -137,11 +137,11 @@ pub(crate) async fn mark_room_read(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_room_members
-           SET last_read_at = NOW()
+           SET last_read_at = $3::timestamptz
            WHERE room_id = $1
              AND actor_url = $2
              AND membership_status = 'active'"#,
-        [room_id.into(), actor_url.into()],
+        [room_id.into(), actor_url.into(), crate::clock::now().into()],
     ))
     .await?;
     Ok(())
@@ -323,7 +323,7 @@ pub(crate) async fn upsert_remote_room_member_with_status(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_room_members
            (room_id, actor_url, is_local, role, invited_by, joined_at, membership_status)
-           VALUES ($1, $2, false, $3, $4, NOW(), $5)
+           VALUES ($1, $2, false, $3, $4, $6::timestamptz, $5)
            ON CONFLICT (room_id, actor_url) DO UPDATE SET
                role = CASE
                    WHEN federation_room_members.role = 'owner' THEN federation_room_members.role
@@ -335,13 +335,14 @@ pub(crate) async fn upsert_remote_room_member_with_status(
                    WHEN federation_room_members.membership_status = 'active' THEN 'active'
                    ELSE EXCLUDED.membership_status
                END,
-               joined_at = COALESCE(federation_room_members.joined_at, NOW())"#,
+               joined_at = COALESCE(federation_room_members.joined_at, $6::timestamptz)"#,
         [
             room_id.into(),
             actor_url.into(),
             role.into(),
             invited_by.into(),
             status.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -567,7 +568,7 @@ async fn fanout_to_remote_members_with(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-               VALUES ($1, $2, $3, $4, $5, true, NOW())
+               VALUES ($1, $2, $3, $4, $5, true, $6::timestamptz)
                RETURNING id"#,
             [
                 activity_id.into(),
@@ -575,6 +576,7 @@ async fn fanout_to_remote_members_with(
                 activity_type.into(),
                 object_type.into(),
                 activity_json.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -640,9 +642,14 @@ async fn fanout_to_remote_members_with(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_delivery_queue
                    (activity_id, target_inbox, target_domain, status, created_at)
-                   VALUES ($1, $2, $3, 'pending', NOW())
+                   VALUES ($1, $2, $3, 'pending', $4::timestamptz)
                    ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                [act_db_id.into(), inbox.into(), domain.into()],
+                [
+                    act_db_id.into(),
+                    inbox.into(),
+                    domain.into(),
+                    crate::clock::now().into(),
+                ],
             ))
             .await?;
         result.enqueued += inserted.rows_affected() as u32;

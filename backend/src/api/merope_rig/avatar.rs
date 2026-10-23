@@ -118,7 +118,7 @@ pub async fn generate_sticker_avatar(
     let pending = json!({
         "token": generation_token,
         "inputFingerprint": contract_fingerprint,
-        "startedAt": chrono::Utc::now().to_rfc3339(),
+        "startedAt": crate::clock::now().to_rfc3339(),
     });
     // 名字与外观按人设行原样比对：这里不做归一化，锁要和落盘那一步锁同一组值。
     let stored_visual_profile = persona.visual_profile.clone().unwrap_or(Value::Null);

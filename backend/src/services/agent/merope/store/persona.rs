@@ -142,7 +142,7 @@ pub(super) fn apply_persona_update(
         active.avatar_generation = Set(None);
     }
     active.updated_by = Set(Some(updated_by));
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     active
 }
 
@@ -220,7 +220,7 @@ where
         avatar_asset_id: Set(None),
         avatar_generation: Set(None),
         updated_by: Set(Some(updated_by)),
-        updated_at: Set(Utc::now().into()),
+        updated_at: Set(crate::clock::now().into()),
         zone: Set(contract
             .zone
             .as_deref()

@@ -36,13 +36,14 @@ pub(crate) async fn enqueue_delivery(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-               VALUES ($1, $2, $3, NULL, $4, true, NOW())
+               VALUES ($1, $2, $3, NULL, $4, true, $5::timestamptz)
                RETURNING id"#,
             [
                 activity.id.clone().into(),
                 user_id.into(),
                 activity.activity_type.clone().into(),
                 activity_json.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -75,12 +76,13 @@ pub(crate) async fn enqueue_delivery(
                         DatabaseBackend::Postgres,
                         r#"INSERT INTO federation_delivery_queue
                                (activity_id, target_inbox, target_domain, status, created_at, last_attempt_at)
-                           VALUES ($1, $2, $3, 'delivered', NOW(), NOW())
+                           VALUES ($1, $2, $3, 'delivered', $4::timestamptz, $4::timestamptz)
                    ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
                         [
                             act_id.into(),
                             target_inbox.into(),
                             domain.into(),
+                            crate::clock::now().into(),
                         ],
                     ))
                     .await;
@@ -102,9 +104,14 @@ pub(crate) async fn enqueue_delivery(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_delivery_queue
                (activity_id, target_inbox, target_domain, status, created_at)
-           VALUES ($1, $2, $3, 'pending', NOW())
+           VALUES ($1, $2, $3, 'pending', $4::timestamptz)
                    ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-        [act_id.into(), target_inbox.into(), domain.into()],
+        [
+            act_id.into(),
+            target_inbox.into(),
+            domain.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(db_err)?;
@@ -128,13 +135,14 @@ pub(crate) async fn enqueue_delivery_queue(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-               VALUES ($1, $2, $3, NULL, $4, true, NOW())
+               VALUES ($1, $2, $3, NULL, $4, true, $5::timestamptz)
                RETURNING id"#,
             [
                 activity.id.clone().into(),
                 user_id.into(),
                 activity.activity_type.clone().into(),
                 activity_json.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -154,9 +162,14 @@ pub(crate) async fn enqueue_delivery_queue(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_delivery_queue
                (activity_id, target_inbox, target_domain, status, created_at)
-           VALUES ($1, $2, $3, 'pending', NOW())
+           VALUES ($1, $2, $3, 'pending', $4::timestamptz)
            ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-        [act_id.into(), target_inbox.into(), domain.into()],
+        [
+            act_id.into(),
+            target_inbox.into(),
+            domain.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(db_err)?;

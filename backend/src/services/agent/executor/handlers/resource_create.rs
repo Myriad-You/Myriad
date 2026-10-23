@@ -98,7 +98,7 @@ async fn persist_agent_tapp(
     )
     .await
     .map_err(|error| error.to_string())?;
-    Ok(Utc::now())
+    Ok(crate::clock::now())
 }
 
 async fn execute_tapp_generate(
@@ -275,7 +275,7 @@ async fn execute_report_create(
         .and_then(|v| v.as_str())
         .unwrap_or("markdown");
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let content = render_report_content(
         title,
         format,
@@ -348,7 +348,7 @@ async fn execute_reminder_create(
         .ok_or("Missing datetime")?;
     let repeat = reminder_repeat_or_default(params.get("repeat").and_then(|v| v.as_str()));
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let reminder_id = format_reminder_id(now.timestamp_millis());
 
     let reminder_data = json!({
@@ -402,7 +402,7 @@ async fn execute_note_create(
     let title = params.get("title").and_then(|v| v.as_str());
     let tags = extract_string_tags(params, "tags");
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let note_id = format_note_id(now.timestamp_millis());
     let auto_title = note_auto_title(title, &content, 30);
 
@@ -460,7 +460,7 @@ async fn execute_bookmark_save(
     let description = params.get("description").and_then(|v| v.as_str());
     let tags = extract_string_tags(params, "tags");
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let bookmark_id = format_bookmark_id(now.timestamp_millis());
 
     // 尝试获取网页标题（SSRF：outbound_security 公网 DNS 钉扎、禁止重定向）

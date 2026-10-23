@@ -220,18 +220,50 @@ impl OidcProvider {
         validation.set_audience(&[self.client_id.as_str()]);
         validation.set_issuer(&[issuer]);
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
-        validation.validate_nbf = true;
+        // exp and nbf are checked below against the site's clock, not this
+        // host's: a host that is minutes behind would take a fresh token
+        // as not yet valid.
+        validation.validate_exp = false;
+        validation.validate_nbf = false;
 
         let data = decode::<serde_json::Value>(id_token, &key, &validation).map_err(|error| {
             tracing::error!(%error, "OIDC id_token verification failed");
             "OIDC id_token verification failed".to_string()
         })?;
+        validate_token_times(&data.claims, crate::clock::now().timestamp())?;
         validate_authorized_party(&data.claims, &self.client_id)?;
         if let Some(expected) = expected_nonce.filter(|n| !n.is_empty()) {
             validate_id_token_nonce(&data.claims, expected)?;
         }
         Ok(data.claims)
     }
+}
+
+/// How far exp and nbf may be off, as `jsonwebtoken` allows by default.
+const TOKEN_LEEWAY_SECS: i64 = 60;
+
+/// An id token's `exp` (required) and `nbf` (when present) against `now`,
+/// seconds since the epoch by the site's clock.
+fn validate_token_times(claims: &serde_json::Value, now: i64) -> Result<(), String> {
+    let exp = claims["exp"].as_i64().ok_or_else(|| {
+        tracing::error!("OIDC id_token exp is not a number");
+        "OIDC id_token verification failed".to_string()
+    })?;
+    if exp < now - TOKEN_LEEWAY_SECS {
+        tracing::error!(exp, now, "OIDC id_token expired");
+        return Err("OIDC id_token verification failed".to_string());
+    }
+    if let Some(nbf) = claims.get("nbf").filter(|nbf| !nbf.is_null()) {
+        let nbf = nbf.as_i64().ok_or_else(|| {
+            tracing::error!("OIDC id_token nbf is not a number");
+            "OIDC id_token verification failed".to_string()
+        })?;
+        if nbf > now + TOKEN_LEEWAY_SECS {
+            tracing::error!(nbf, now, "OIDC id_token not valid yet");
+            return Err("OIDC id_token verification failed".to_string());
+        }
+    }
+    Ok(())
 }
 
 /// Read an error response body with the same size cap as success paths.
@@ -577,6 +609,28 @@ fn validate_id_token_nonce(claims: &serde_json::Value, expected: &str) -> Result
 #[cfg(test)]
 mod oidc_security_tests {
     use super::*;
+
+    #[test]
+    fn id_token_times_are_read_by_the_sites_clock() {
+        let now = 1_761_200_000;
+        let claims = |exp: i64, nbf: Option<i64>| serde_json::json!({ "exp": exp, "nbf": nbf });
+        // A token issued by a provider whose clock is right, on a site that
+        // corrects a host 10 minutes behind: valid.
+        assert!(validate_token_times(&claims(now + 3600, Some(now)), now).is_ok());
+        assert!(
+            validate_token_times(&claims(now - 30, None), now).is_ok(),
+            "leeway"
+        );
+        assert!(
+            validate_token_times(&claims(now - 61, None), now).is_err(),
+            "expired"
+        );
+        assert!(
+            validate_token_times(&claims(now + 3600, Some(now + 61)), now).is_err(),
+            "not yet"
+        );
+        assert!(validate_token_times(&serde_json::json!({ "exp": "soon" }), now).is_err());
+    }
 
     #[test]
     fn id_token_alg_allowlists_asymmetric_rejects_hmac() {

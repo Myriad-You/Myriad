@@ -166,7 +166,7 @@ pub async fn find_active<C: ConnectionTrait>(
 
 /// It came up again: keep it fresh.
 pub async fn refresh<C: ConnectionTrait>(db: &C, user_id: i32, id: &str) -> Result<bool, DbErr> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let result = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             updated_at: Set(now),
@@ -186,7 +186,7 @@ pub async fn fade_source<C: ConnectionTrait>(
     source: &str,
     older_than: chrono::Duration,
 ) -> Result<u64, DbErr> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     Ok(agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             invalid_at: Set(Some(now)),

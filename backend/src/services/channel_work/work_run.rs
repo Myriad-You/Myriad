@@ -149,10 +149,9 @@ pub(super) async fn resume_pending(
                     session_key,
                     identity(user_id),
                     &parked,
-                    parked
-                        .prompt
-                        .expires_at_unix
-                        .unwrap_or_else(|| (Utc::now() + ChronoDuration::days(2)).timestamp()),
+                    parked.prompt.expires_at_unix.unwrap_or_else(|| {
+                        (crate::clock::now() + ChronoDuration::days(2)).timestamp()
+                    }),
                 )
                 .await
                 {

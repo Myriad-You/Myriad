@@ -26,14 +26,14 @@ SET portrait_generation = jsonb_set(
         $1::jsonb,
         true
     ),
-    updated_at = CURRENT_TIMESTAMP
+    updated_at = $5::timestamptz
 WHERE id = $2
   AND name = $3
   AND visual_profile = $4::jsonb
   AND (
       portrait_generation IS NULL
       OR NOT (portrait_generation ? 'pending')
-      OR updated_at < CURRENT_TIMESTAMP - INTERVAL '15 minutes'
+      OR updated_at < $5::timestamptz - INTERVAL '15 minutes'
   )
 "#,
             vec![
@@ -41,6 +41,7 @@ WHERE id = $2
                 PERSONA_ROW_ID.into(),
                 expected_name.into(),
                 expected_visual_profile.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -61,11 +62,15 @@ SET portrait_generation = CASE
         WHEN (portrait_generation - 'pending') = '{}'::jsonb THEN NULL
         ELSE portrait_generation - 'pending'
     END,
-    updated_at = CURRENT_TIMESTAMP
+    updated_at = $3::timestamptz
 WHERE id = $1
   AND portrait_generation #>> '{pending,token}' = $2
 "#,
-        vec![PERSONA_ROW_ID.into(), token.into()],
+        vec![
+            PERSONA_ROW_ID.into(),
+            token.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await?;
     Ok(())
@@ -96,7 +101,7 @@ SET portrait_asset_id = $1,
     avatar_asset_id = NULL,
     avatar_generation = NULL,
     updated_by = $3,
-    updated_at = CURRENT_TIMESTAMP
+    updated_at = $8::timestamptz
 WHERE id = $4
   AND name = $5
   AND visual_profile = $6::jsonb
@@ -110,6 +115,7 @@ WHERE id = $4
                 expected_name.into(),
                 expected_visual_profile.clone().into(),
                 token.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -145,7 +151,7 @@ SET avatar_generation = jsonb_set(
         $1::jsonb,
         true
     ),
-    updated_at = CURRENT_TIMESTAMP
+    updated_at = $6::timestamptz
 WHERE id = $2
   AND name = $3
   AND visual_profile = $4::jsonb
@@ -153,7 +159,7 @@ WHERE id = $2
   AND (
       avatar_generation IS NULL
       OR NOT (avatar_generation ? 'pending')
-      OR updated_at < CURRENT_TIMESTAMP - INTERVAL '15 minutes'
+      OR updated_at < $6::timestamptz - INTERVAL '15 minutes'
   )
 "#,
             vec![
@@ -162,6 +168,7 @@ WHERE id = $2
                 expected_name.into(),
                 expected_visual_profile.clone().into(),
                 expected_portrait_asset_id.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -182,11 +189,15 @@ SET avatar_generation = CASE
         WHEN (avatar_generation - 'pending') = '{}'::jsonb THEN NULL
         ELSE avatar_generation - 'pending'
     END,
-    updated_at = CURRENT_TIMESTAMP
+    updated_at = $3::timestamptz
 WHERE id = $1
   AND avatar_generation #>> '{pending,token}' = $2
 "#,
-        vec![PERSONA_ROW_ID.into(), token.into()],
+        vec![
+            PERSONA_ROW_ID.into(),
+            token.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await?;
     Ok(())
@@ -229,7 +240,7 @@ UPDATE agent_persona
 SET avatar_asset_id = $1,
     avatar_generation = $2::jsonb,
     updated_by = $3,
-    updated_at = CURRENT_TIMESTAMP
+    updated_at = $9::timestamptz
 WHERE id = $4
   AND name = $5
   AND visual_profile = $6::jsonb
@@ -245,6 +256,7 @@ WHERE id = $4
                 expected_visual_profile.clone().into(),
                 expected_portrait_asset_id.into(),
                 token.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;

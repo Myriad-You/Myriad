@@ -158,7 +158,7 @@ pub async fn create_channel(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_channels
            (channel_id, user_id, remote_actor_id, channel_type, tapp_id, status, transport, properties, initiated_by, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, 'local', NOW())"#,
+           VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, 'local', $8::timestamptz)"#,
             [
                 channel_id.clone().into(),
                 user_id.into(),
@@ -167,6 +167,7 @@ pub async fn create_channel(
                 req.tapp_id.clone().into(),
                 transport.into(),
                 properties.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -266,7 +267,7 @@ pub async fn create_channel(
         properties: Some(properties),
         initiated_by: "local".to_string(),
         last_activity_at: None,
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: crate::clock::now().to_rfc3339(),
     })
 }
 
@@ -457,8 +458,12 @@ pub async fn close_channel(
     let closed = txn
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE federation_channels SET status = 'closed', closed_at = NOW()              WHERE user_id = $1 AND channel_id = $2 AND status <> 'closed'",
-            [user_id.into(), channel_id.into()],
+            "UPDATE federation_channels SET status = 'closed', closed_at = $3::timestamptz              WHERE user_id = $1 AND channel_id = $2 AND status <> 'closed'",
+            [
+                user_id.into(),
+                channel_id.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(db_err)?;
@@ -698,11 +703,12 @@ pub async fn send_message(
     let message_id = generate_message_id();
     let local_actor = actor_url(&base_url, username);
 
+    let now = crate::clock::now();
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_channel_messages
            (channel_id, message_id, sender_actor, message_type, payload, reply_to, is_encrypted, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)"#,
         [
             channel_id.into(),
             message_id.clone().into(),
@@ -711,6 +717,7 @@ pub async fn send_message(
             stored_payload.clone().into(),
             req.reply_to.clone().into(),
             is_encrypted.into(),
+            now.into(),
         ],
     ))
     .await
@@ -724,8 +731,8 @@ pub async fn send_message(
     };
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET last_activity_at = NOW(), status = $2 WHERE channel_id = $1",
-        [channel_id.into(), new_status.into()],
+        "UPDATE federation_channels SET last_activity_at = $3::timestamptz, status = $2 WHERE channel_id = $1",
+        [channel_id.into(), new_status.into(), now.into()],
     ))
     .await
     .map_err(db_err)?;

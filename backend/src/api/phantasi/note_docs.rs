@@ -9,7 +9,6 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use chrono::Utc;
 use myriad_phantasi_notes::{NoteDocStatus, schedule_at, validate_note};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
@@ -296,7 +295,7 @@ pub(crate) async fn create_note_doc(
     Json(req): Json<NoteDocWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let user_id = admin_user_id(&admin)?;
-    let now = Utc::now();
+    let now = crate::clock::now();
     let doc = phantasi_note_docs::ActiveModel {
         user_id: Set(user_id),
         title: Set(req.title.unwrap_or_default()),
@@ -425,7 +424,7 @@ pub(crate) async fn update_note_doc(
     if let Some(published_at) = req.published_at.and_then(millis_to_datetime) {
         active.published_at = Set(Some(published_at.into()));
     }
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     active.revision = Set(expected + 1);
     active.last_edited_by = Set(Some(user_id));
     active.last_error = Set(None);
@@ -607,7 +606,7 @@ pub(crate) async fn publish_note_doc(
     active.content_md = Set(doc.content_md.clone());
     active.topic = Set(doc.topic.clone());
     active.image = Set(doc.image.clone());
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     active.revision = Set(expected + 1);
     active.last_edited_by = Set(Some(user_id));
     // Claim, author and publish commit together: a failed publish must not
@@ -662,7 +661,7 @@ pub(crate) async fn schedule_note_doc(
             "Published notes cannot be scheduled",
         ));
     }
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = crate::clock::now().timestamp_millis();
     let at = schedule_at(now_ms, req.scheduled_at).map_err(|err| match err {
         myriad_phantasi_notes::ScheduleError::AlreadyDue => {
             phantasi_http_err(StatusCode::BAD_REQUEST, "That time has already passed")
@@ -693,7 +692,7 @@ pub(crate) async fn schedule_note_doc(
     active.status = Set(NoteDocStatus::Scheduled.as_str().to_string());
     active.scheduled_at = Set(millis_to_datetime(at).map(|value| value.into()));
     active.published_at = Set(millis_to_datetime(at).map(|value| value.into()));
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     active.revision = Set(expected + 1);
     active.last_edited_by = Set(Some(user_id));
     active.last_error = Set(None);
@@ -778,7 +777,7 @@ pub(crate) async fn unschedule_note_doc(
     });
     active.scheduled_at = Set(None);
     active.last_error = Set(None);
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     active.revision = Set(expected + 1);
     active.last_edited_by = Set(Some(user_id));
     let txn = db
@@ -1089,7 +1088,7 @@ mod tests {
 
     #[test]
     fn saved_event_identifies_revision_and_explicit_clears() {
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         let doc = phantasi_note_docs::Model {
             id: 7,
             user_id: 1,

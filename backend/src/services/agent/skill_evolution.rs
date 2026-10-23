@@ -404,7 +404,7 @@ async fn soft_delete_skill_file(skill: &Skill) -> Result<PathBuf, String> {
         .unwrap_or("skill.md");
     let dest = trash_dir.join(format!(
         "{}_{}",
-        Utc::now().format("%Y%m%d%H%M%S"),
+        crate::clock::now().format("%Y%m%d%H%M%S"),
         base_name
     ));
     tokio::fs::rename(&skill.file_path, &dest)

@@ -146,13 +146,14 @@ pub async fn invite_member(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_room_members
 	               (room_id, actor_url, is_local, role, invited_by, joined_at, membership_status)
-               VALUES ($1, $2, false, $3, $4, NOW(), 'pending')
+               VALUES ($1, $2, false, $3, $4, $5::timestamptz, 'pending')
                ON CONFLICT (room_id, actor_url) DO NOTHING"#,
                 [
                     room_id.into(),
                     remote.actor_url.clone().into(),
                     role.into(),
                     local_actor.clone().into(),
+                    crate::clock::now().into(),
                 ],
             ))
             .await
@@ -311,7 +312,7 @@ pub async fn invite_member(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_room_members
 	               (room_id, actor_url, is_local, local_user_id, role, invited_by, joined_at, membership_status)
-               VALUES ($1, $2, true, $3, $4, $5, NOW(), 'active')
+               VALUES ($1, $2, true, $3, $4, $5, $6::timestamptz, 'active')
                ON CONFLICT (room_id, actor_url) DO NOTHING"#,
                 [
                     room_id.into(),
@@ -319,6 +320,7 @@ pub async fn invite_member(
                     target_user_id.into(),
                     role.into(),
                     local_actor.clone().into(),
+                    crate::clock::now().into(),
                 ],
             ))
             .await
@@ -642,7 +644,7 @@ pub(crate) async fn materialize_remote_public_room(
         r#"INSERT INTO federation_rooms
            (room_id, name, description, avatar_url, owner_actor, home_server, governance_type,
             invite_policy, max_members, is_public, distribution_strategy, shared_data_config, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, 'owner', $7, $8, true, 'fan-out', $9, NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, 'owner', $7, $8, true, 'fan-out', $9, $10::timestamptz)
            ON CONFLICT (room_id) DO UPDATE SET
              name = CASE
                WHEN btrim(EXCLUDED.name) <> ''
@@ -707,7 +709,7 @@ pub(crate) async fn materialize_remote_public_room(
                      || EXCLUDED.shared_data_config::jsonb)::json
                ELSE federation_rooms.shared_data_config
              END,
-             updated_at = NOW()"#,
+             updated_at = $10::timestamptz"#,
         [
             info.room_id.clone().into(),
             name.into(),
@@ -721,6 +723,7 @@ pub(crate) async fn materialize_remote_public_room(
                 .as_ref()
                 .map(|game| serde_json::json!({ "game": game }))
                 .into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -969,16 +972,17 @@ pub async fn join_room(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_room_members
                (room_id, actor_url, is_local, local_user_id, role, joined_at, membership_status)
-               VALUES ($1, $2, true, $3, 'member', NOW(), 'active')
+               VALUES ($1, $2, true, $3, 'member', $4::timestamptz, 'active')
                ON CONFLICT (room_id, actor_url) DO UPDATE SET
                    membership_status = 'active',
                    is_local = true,
                    local_user_id = EXCLUDED.local_user_id,
-                   joined_at = COALESCE(federation_room_members.joined_at, NOW())"#,
+                   joined_at = COALESCE(federation_room_members.joined_at, $4::timestamptz)"#,
             [
                 room_id.clone().into(),
                 local_actor.clone().into(),
                 user_id.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -1095,9 +1099,13 @@ pub async fn accept_room_invite(
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_room_members
-               SET membership_status = 'active', joined_at = NOW()
+               SET membership_status = 'active', joined_at = $3::timestamptz
                WHERE room_id = $1 AND actor_url = $2 AND membership_status = 'pending'"#,
-            [room_id.into(), local_actor.clone().into()],
+            [
+                room_id.into(),
+                local_actor.clone().into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(db_err)?;
@@ -1623,8 +1631,12 @@ pub async fn transfer_room_ownership(
     let txn = db.begin().await.map_err(db_err)?;
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_rooms SET owner_actor = $2, updated_at = NOW() WHERE room_id = $1",
-        [room_id.into(), target_actor.clone().into()],
+        "UPDATE federation_rooms SET owner_actor = $2, updated_at = $3::timestamptz WHERE room_id = $1",
+        [
+            room_id.into(),
+            target_actor.clone().into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(db_err)?;

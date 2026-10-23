@@ -98,7 +98,7 @@ pub async fn get_latest_report(
         }
     };
     let style_hash = styles.current_style().hash();
-    let now = chrono::Utc::now().naive_utc();
+    let now = crate::clock::now().naive_utc();
 
     // 保留每个平台最新的一份报告；按过期设置过滤
     let mut seen = std::collections::HashSet::new();
@@ -141,7 +141,7 @@ pub async fn get_latest_report(
         "success": true,
         "user_id": user_id,
         "platform_reports": platform_reports_list,
-        "created_at": chrono::Utc::now().to_rfc3339()
+        "created_at": crate::clock::now().to_rfc3339()
     })))
 }
 

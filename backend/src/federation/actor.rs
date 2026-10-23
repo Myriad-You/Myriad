@@ -490,7 +490,7 @@ async fn lookup_cached_remote_actor(
     let last_fetched: Option<chrono::DateTime<chrono::FixedOffset>> =
         row.try_get("", "last_fetched_at").ok();
     let is_fresh = last_fetched
-        .map(|t| chrono::Utc::now().signed_duration_since(t).num_hours() < 24)
+        .map(|t| crate::clock::now().signed_duration_since(t).num_hours() < 24)
         .unwrap_or(false);
 
     if !is_fresh {
@@ -630,12 +630,12 @@ async fn upsert_remote_actor_document(
                     inbox_url, outbox_url, shared_inbox_url,
                     public_key_pem, public_key_id, mfp_version,
                     last_fetched_at, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW(), NOW())
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz, $13::timestamptz, $13::timestamptz)
                ON CONFLICT (actor_url) DO UPDATE SET
                    username = $2, display_name = $4, avatar_url = $5, summary = $6,
                    inbox_url = $7, outbox_url = $8, shared_inbox_url = $9,
                    public_key_pem = $10, public_key_id = $11, mfp_version = $12,
-                   last_fetched_at = NOW(), updated_at = NOW()
+                   last_fetched_at = $13::timestamptz, updated_at = $13::timestamptz
                RETURNING id"#,
             [
                 doc.actor_url.clone().into(),
@@ -650,6 +650,7 @@ async fn upsert_remote_actor_document(
                 doc.public_key_pem.clone().into(),
                 doc.public_key_id.clone().into(),
                 doc.mfp_version.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -747,7 +748,7 @@ async fn upsert_local_actor_as_remote(
             r#"INSERT INTO federation_remote_actors
                    (actor_url, username, domain, display_name, avatar_url,
                     inbox_url, mfp_version, last_fetched_at, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), NOW())
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $8::timestamptz, $8::timestamptz)
                ON CONFLICT (actor_url) DO UPDATE SET
                    username = EXCLUDED.username,
                    domain = EXCLUDED.domain,
@@ -755,8 +756,8 @@ async fn upsert_local_actor_as_remote(
                    avatar_url = COALESCE(EXCLUDED.avatar_url, federation_remote_actors.avatar_url),
                    inbox_url = EXCLUDED.inbox_url,
                    mfp_version = EXCLUDED.mfp_version,
-                   last_fetched_at = NOW(),
-                   updated_at = NOW()
+                   last_fetched_at = $8::timestamptz,
+                   updated_at = $8::timestamptz
                RETURNING id"#,
             [
                 store_url.clone().into(),
@@ -766,6 +767,7 @@ async fn upsert_local_actor_as_remote(
                 avatar_url.clone().into(),
                 inbox.clone().into(),
                 mfp_ver.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -1089,17 +1091,18 @@ async fn force_store_new_keys(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_keys (user_id, public_key_pem, private_key_encrypted, key_id, algorithm, created_at, rotated_at)
-           VALUES ($1, $2, $3, $4, 'RSA-SHA256', NOW(), NOW())
+           VALUES ($1, $2, $3, $4, 'RSA-SHA256', $5::timestamptz, $5::timestamptz)
            ON CONFLICT (user_id) DO UPDATE SET
                public_key_pem = EXCLUDED.public_key_pem,
                private_key_encrypted = EXCLUDED.private_key_encrypted,
                key_id = EXCLUDED.key_id,
-               rotated_at = NOW()"#,
+               rotated_at = $5::timestamptz"#,
         [
             user_id.into(),
             pub_pem.clone().into(),
             encrypted.into(),
             kid.clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -1224,18 +1227,19 @@ async fn generate_and_store_keys(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_keys (user_id, public_key_pem, private_key_encrypted, key_id, algorithm, created_at)
-           VALUES ($1, $2, $3, $4, 'RSA-SHA256', NOW())
+           VALUES ($1, $2, $3, $4, 'RSA-SHA256', $5::timestamptz)
            ON CONFLICT (user_id) DO UPDATE SET
                public_key_pem = EXCLUDED.public_key_pem,
                private_key_encrypted = EXCLUDED.private_key_encrypted,
                key_id = EXCLUDED.key_id,
-               rotated_at = NOW()
+               rotated_at = $5::timestamptz
            WHERE TRIM(COALESCE(federation_keys.public_key_pem, '')) = ''"#,
         [
             user_id.into(),
             pub_pem.clone().into(),
             encrypted.into(),
             kid.clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -1264,11 +1268,15 @@ async fn upsert_instance(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_instances (domain, mfp_version, trust_level, last_seen_at, created_at)
-           VALUES ($1, $2, 1, NOW(), NOW())
+           VALUES ($1, $2, 1, $3::timestamptz, $3::timestamptz)
            ON CONFLICT (domain) DO UPDATE SET
                mfp_version = COALESCE($2, federation_instances.mfp_version),
-               last_seen_at = NOW(), updated_at = NOW()"#,
-        [domain.into(), mfp_version.into()],
+               last_seen_at = $3::timestamptz, updated_at = $3::timestamptz"#,
+        [
+            domain.into(),
+            mfp_version.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(|e| format!("Failed to upsert instance: {}", e))?;

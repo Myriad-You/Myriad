@@ -527,7 +527,7 @@ pub fn build_tapp_written_item(
         "description": description,
         "url": url,
         "metadata": metadata,
-        "createdAt": created_at.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+        "createdAt": created_at.unwrap_or_else(|| crate::clock::now().to_rfc3339()),
         "source": format!("tapp:{tapp_id}")
     })
 }

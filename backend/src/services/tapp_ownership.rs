@@ -424,10 +424,9 @@ mod tests {
     fn install_visible_to_viewer_covers_private_public_and_admin() {
         use super::{TAPP_VISIBILITY_ADMIN, TAPP_VISIBILITY_ALL, install_visible_to_viewer};
         use crate::models::entities::tapps;
-        use chrono::Utc;
         use serde_json::json;
 
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         let mut public = tapps::Model {
             id: 1,
             tapp_id: "com.example.pub".into(),
