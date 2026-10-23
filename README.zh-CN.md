@@ -31,131 +31,120 @@
 
 </div>
 
----
+<p align="center">
+<picture>
+  <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/assets/readme/home-zh-dark-still.webp">
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/readme/home-zh-light-still.webp">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/home-zh-dark.webp">
+  <img src="docs/assets/readme/home-zh-light.webp" width="880" alt="Myriad 首页：大标题下是站长名片和一排小组件——问候、社交图标、Steam 和 Bangumi 报告卡、她的立绘、友链、天气、网易云和 GitHub 报告卡、音乐、最近活动；报告卡里的封面在轮播。">
+</picture>
+<br><sub>离屏渲染：仓库里的前端（生产构建）接一个本地实例逐帧画出来。站长、作品和数字都是合成的样例，形象是项目自带的角色。[怎么录的](docs/development/README_MEDIA.md)</sub>
+</p>
 
 ## 它是什么
 
-**Myriad 是自托管的个人主页与创作工坊。** 聚合各平台、展示资料库，并运行全站一份人设、2.5D 形象，以及你拥有的 Tapp 应用。
+**Myriad 是自托管的个人主页。** 把你在各个平台留下的东西收进一个站点，再配一个全站一份的角色：她有自己的 2.5D 形象，陪来访的人聊天，也替你做事。站里还能装小应用、写博客。
 
-单租户。可公开或私有。PostgreSQL。界面：`zh-CN` · `zh-TW` · `en-US` · `ja-JP` · `ko-KR` · `fr-FR` · `de-DE`。
+单租户，可公开也可私有。PostgreSQL。界面：`zh-CN` · `zh-TW` · `en-US` · `ja-JP` · `ko-KR` · `fr-FR` · `de-DE`。
 
-```mermaid
-flowchart LR
-  subgraph homepage ["首页"]
-    direction TB
-    W[小组件]
-    L[资料库]
-    P[平台]
-  end
-  subgraph studio ["工坊"]
-    direction TB
-    A[人设]
-    F["2.5D 形象"]
-    T[Tapp]
-  end
-  homepage -.-> studio
-```
+- **首页**：标准 16×4 或自由 16×8 网格，小组件随你摆；自由布局还能贴贴纸。报告卡、音乐、天气、友链、最近活动、她的小组件都在这里，装好的 Tapp 也能放小组件。
+- **平台**：GitHub、Steam、Bilibili、网易云、Bangumi 等 11 个平台的数据写进同一个库，报告卡、资料库和平台报告读的是同一份（见 [平台](#平台)）。
 
-<table>
-<tr>
-<td width="50%" valign="top">
+## 和她说话
 
-### 首页
-`/`
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/chat-zh-dark.webp">
+  <img src="docs/assets/readme/chat-zh-light.webp" width="720" alt="首页上长按空白处呼出 Agent 面板，切到「聊天」，输入一句话；她的回复逐字出现，面板上方她的脸跟着回复动嘴。">
+</picture>
+<br><sub>离屏渲染。她的回复是预先写好的替身，不是模型当场生成的。</sub>
+</p>
 
-- 标准 16×4 · 自由 16×8
-- 音乐、天气、Report Card、人设小组件
-- 自由布局贴纸不占小组件格
+- **全站一份人设**：名字、性格、立绘由站长定，对谁说话都是同一个人；开着人设但没起名字时她叫 Arael。
+- **聊天和做事**：长按页面空白处叫出面板，Tab 在「聊天」「做事」之间切换。聊天时她用人设说话；做事时按授予的权限计划、确认、执行（见 [Agent](#agent)）。
+- **口型**：没开语音时，口型由回复的文字推出来，中文、日文、英文各按自己的发音。
 
-</td>
-<td width="50%" valign="top">
+## 2.5D 形象
 
-### 资料库
-`/library`
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/face-zh-dark.webp">
+  <img src="docs/assets/readme/face-zh-light.webp" width="680" alt="人物设定页的「动作调整」：左边是她的上半身，右边是表情按钮；依次点了害羞、兴奋、心动过载、哭、挤眼、晕、哼歌、闭眼笑，脸跟着变，有的表情画上了符号。">
+</picture>
+<br><sub>离屏渲染。人物设定 › 动作调整。</sub>
+</p>
 
-- 游戏、番剧、影视、书籍、音乐
-- 从已连接平台同步
-- 列表或无限画布
+- **在浏览器里动**：上半身分层立绘由浏览器实时播放（[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)），服务器不做 GPU 推理。
+- **从立绘到会动**：主立绘可以生成也可以上传；分层来自 PSD，也可以交给拆层服务自动拆。眨眼、口型、头身摆动都在分层上做。
+- **表情和动作**：工作台里能直接试，聊天时她自己挑；有些表情会画上泪滴、音符、晕眩圈这样的符号。
 
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
+## 平台报告
 
-### 人设 · 2.5D
-全站一份
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/report-zh-dark.webp">
+  <img src="docs/assets/readme/report-zh-light.webp" width="800" alt="点首页 Steam 报告卡上的播放：弹窗里分「画像」「口味」「亮点」三幕，一句一句放出来，下面是相关的游戏封面。">
+</picture>
+<br><sub>离屏渲染。报告文案是手写的样例；真实的报告由模型按平台数据写。</sub>
+</p>
 
-- 从报告生成，或导入文案 + 立绘
-- 分层现场：呼吸、眨眼、口型
-- 主立绘派生贴纸头像
+- 每个平台一份画像，分画像、口味、亮点三幕。没有单独的页面：点首页的报告卡，在弹窗里逐幕播放。
+- 站长在同一处重新生成、设置有效期和报告风格。
 
-</td>
-<td width="50%" valign="top">
+## 资料库
 
-### Tapp
-`/tapp`
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/library-zh-dark.webp">
+  <img src="docs/assets/readme/library-zh-light.webp" width="720" alt="资料库的无限画布：拖动画布、缩小，再按左侧的类别切到游戏、视频、全部。">
+</picture>
+<br><sub>离屏渲染。</sub>
+</p>
 
-- Page、首页 Widget，或两者
-- 商店 · Playground · CLI
-- 沙箱；密钥不进沙箱
+- 游戏、番剧、影视、书籍、音乐，从连接的平台同步，按类型筛选，每类的来源可以设。
+- 列表或无限画布：拖动、方向键平移、滚轮缩放；低端设备回退到列表。
 
-</td>
-</tr>
-</table>
+## Tapp
 
-<table>
-<tr>
-<td width="33%" valign="top">
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/tapp-zh-dark.webp">
+  <img src="docs/assets/readme/tapp-zh-light.webp" width="800" alt="Tapp 游乐场：输入「做一个番茄钟」，生成过程一步步显示，完成后左边预览里出现番茄钟、右边是代码；点开始，倒计时从 25:00 往下走。">
+</picture>
+<br><sub>离屏渲染。生成过程是替身：步骤和代码是预先写好的，不是模型当场生成的。</sub>
+</p>
 
-**Agent**  
-Chat / Work · 面板
+- **站里的小应用**：页面、首页小组件，或两者都有。跑在沙箱里，安装时批准权限；宿主密钥和应用凭据不进沙箱，报错里也不出现。
+- **游乐场**（桌面端，站长）：说一句话生成项目，在生产沙箱里预览，满意了安装或导出 `.tapp`。
+- **商店和 CLI**：[tapp-store](https://github.com/Myriad-You/tapp-store)，以及 [`tapp-cli`](tools/tapp-cli/README.md)（`myriad-tapp init / check / pack`）。开发见 [Tapp 开发](docs/development/TAPP_DEVELOPMENT.md)。
 
-</td>
-<td width="33%" valign="top">
+## 博客
 
-**Phantasi** · 博客 `/blog`  
-RSS · Notion · RSSHub · Hugo
+<p align="center">
+<picture>
+  <img src="docs/assets/readme/blog-zh-light.webp" width="800" alt="博客页上打开创作台的编辑器，写下标题和一段正文，点发布；回到博客首页，新文章排在最上面，点进去是文章页。">
+</picture>
+<br><sub>离屏渲染。发布后由本地实例真的用 Hugo 重新生成了静态博客。</sub>
+</p>
 
-</td>
-<td width="33%" valign="top">
+- 在创作台写笔记，发布后用 Hugo 主题生成静态博客，挂在 `/blog`。页面不跑脚本，评论和友链申请是同源的嵌入页。
+- 订阅（RSS、Notion、RSSHub）在内置的「订阅」应用里读（见 [Phantasi](#phantasi)）。
 
-**联邦**  
-ActivityPub · MFP
+## 还有
 
-</td>
-</tr>
-</table>
-
-`/config` 仅管理员。资料库、Phantasi、Tapp、Agent：所有人 / 登录用户 / 管理员。
+- **群聊和私聊**：她也在 QQ、Telegram、Discord 的群里，被 @ 时回话，没人叫她时偶尔插一句；私聊 Bot 配对后走同一条做事的流水线。
+- **联邦**：ActivityPub 与 MFP，可以关注别的站点（见 [联邦](#联邦)）。
+- **换版与回滚**：在 `/config` → 关于 → 更新管理里一键完成（见 [运维](#运维)）。
 
 ---
 
 ## 目录
 
-**产品** — [首页](#首页) · [平台](#平台) · [资料库](#资料库与报告) · [人设](#人设与-25d-形象) · [Tapp](#tapp) · [Agent](#agent) · [Phantasi](#phantasi) · [联邦](#联邦) · [账号](#账号与可见性)
+**产品** — [和她说话](#和她说话) · [2.5D 形象](#25d-形象) · [平台报告](#平台报告) · [资料库](#资料库) · [Tapp](#tapp) · [博客](#博客) · [平台](#平台) · [Agent](#agent) · [Phantasi](#phantasi) · [联邦](#联邦) · [账号](#账号与可见性)
 
 **运行** — [运行要求](#运行要求) · [部署](#部署) · [开发](#本地开发) · [运维](#运维)
 
 **参考** — [架构](#架构) · [仓库](#仓库) · [技术构成](#技术构成) · [文档](#文档) · [License](#license)
-
----
-
-## 首页
-
-**标准** 16×4（居中，窄屏紧凑重排）或 **自由** 16×8（同格尺寸）。坐标分布局存储。自由布局贴纸不是小组件，不占小组件格。
-
-<details>
-<summary>内置小组件</summary>
-
-| | |
-| --- | --- |
-| 欢迎语 | Agent 人设（现场 2.5D；同时只播一份） |
-| 内容概览 · 最近活动 · 访客 | 天气 · 一言 · 音乐 |
-| 友情链接（Phantasi）· 社交 · Tapp 快捷方式 | 米哈游游戏 Presence · 各平台 Report Card |
-
-已安装的 Tapp 可注册首页小组件。
-
-</details>
 
 ---
 
@@ -186,67 +175,6 @@ ActivityPub · MFP
 </table>
 
 写入 PostgreSQL。Report Card、资料库、平台报告读同一份数据。
-
----
-
-## 资料库与报告
-
-**资料库**按类型筛选已连接平台的游戏、番剧、影视、书籍、音乐。布局：列表或无限画布；低端设备回退列表。每类来源可配置。
-
-**平台报告**为各平台画像，没有单独的页面：点首页的报告卡，在弹窗里逐幕播放；站长在同一处重新生成、设置有效期和报告风格。引导式人设会读取它；另一条路径是贴文案并上传立绘。
-
----
-
-## 人设与 2.5D 形象
-
-全站一份说话人格与上半身 2.5D 形象（**Agent 人设**）。开：Agent 用人设说话。关：仍提供 Chat 与 Work。
-
-```text
-报告 → 人设 → 视觉设定 → 主立绘 → 分层 PSD
-       或导入文案 + 立绘
-```
-
-视觉设定分人模块与衣服模块。主立绘 3:4、上半身。分层 PSD 用于呼吸、眨眼、口型。
-
-头身跟随说话与唱歌。换装不卸载现场播放器。主立绘可派生 **贴纸头像**（仅头），用于头像位与 Agent 通知；更换主立绘后失效。
-
-现场形象同时只播一份。浏览器分层 2.5D（[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)）。该播放不在 Myriad 服务器上做 GPU 推理。
-
----
-
-## Tapp
-
-**Page**、首页 **Widget**，或两者。沙箱运行。安装时批准权限。宿主密钥与应用凭据不进入沙箱，错误载荷中也不出现。
-
-<table>
-<tr>
-<td width="33%" valign="top">
-
-**商店**  
-[tapp-store](https://github.com/Myriad-You/tapp-store)  
-`/tapp/store`
-
-</td>
-<td width="33%" valign="top">
-
-**Playground**  
-桌面管理员  
-`/tapp/playground`
-
-自然语言 Page、仅 Widget 或两者。生产沙箱预览；安装或导出 `.tapp`。移动端不展示。
-
-</td>
-<td width="33%" valign="top">
-
-**CLI**  
-[`tapp-cli`](tools/tapp-cli/README.md)  
-`myriad-tapp init / check / pack`
-
-</td>
-</tr>
-</table>
-
-Page：Canvas / WebGL、包内资源、音频、可选宿主注入的 [Three.js](https://github.com/mrdoob/three.js)。Widget 不承担重 3D。[Tapp 开发](docs/development/TAPP_DEVELOPMENT.md)。
 
 ---
 

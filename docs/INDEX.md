@@ -55,6 +55,7 @@ docs/
 | [AGENT_CHANNELS.md](development/AGENT_CHANNELS.md) | 私聊通道授权、撤销、投递与恢复边界 |
 | [SHARED_CORE.md](development/SHARED_CORE.md) | 共用核心：纯规则静态库与 JSON C ABI，别的平台怎么链接 |
 | [BUILD.md](development/BUILD.md) | 工具链与构建 |
+| [README_MEDIA.md](development/README_MEDIA.md) | README 动图怎么录：隔离实例、样例数据、录制与编码 |
 | [API.md](API.md) | HTTP API 入口 |
 | [OAUTH.md](development/OAUTH.md) | 本地登录与 OAuth/OIDC |
 | [FEDERATION.md](development/FEDERATION.md) | 联邦行为笔记（含出口地理位置闸门） |
