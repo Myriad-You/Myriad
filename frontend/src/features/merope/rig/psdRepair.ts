@@ -3,7 +3,7 @@ import type { Anime25DPsdReconciliation } from './psdReconciliation'
 import type { RecoveredPiece } from './psdRepairLayers'
 import { analyzeAnime25DPsd, regionFloor, reportAnime25DPsdAnalysis } from './psdReconciliation'
 import { closeGarmentGaps, droppedGarment, garmentEdge } from './psdRepairGarment'
-import { hairHolder, hasExpressionVariants, mergeByGroup, mountFor, overlayLayer, revealableBelow, withPixels } from './psdRepairLayers'
+import { hairHolder, hasExpressionVariants, joinBuriedSpecks, mergeByGroup, mountFor, overlayLayer, revealableBelow, withPixels } from './psdRepairLayers'
 import { addAntialiasedRim, alphaAt, closeMask, components, fillSmallHoles, meanCoveredDistance } from './psdRepairMasks'
 
 export interface Anime25DPsdRepair {
@@ -23,6 +23,12 @@ const REVEAL_SOFT_EDGE_ALPHA = 160
  * skin under pale hair does. Faithful reveals measured 7-23; false ones 31-37.
  */
 const REVEAL_MAX_MEAN_DISTANCE = 26
+/**
+ * Buried specks this many pixels from a reveal join it: a belt gem's facets,
+ * cut off from the revealed belt by a ring that happens to match the belly
+ * over it, 2-5 px wide.
+ */
+const REVEAL_JOIN = 6
 /** Bridges an accessory's thin parts, e.g. the bars of a birdcage earring. */
 const RECOVER_CLOSING = 3
 const RECOVER_MAX_HOLE_SHARE = 0.004
@@ -134,33 +140,36 @@ export function repairAnime25DPsd(
     }
     // Grow while the covered art keeps beating the composite, so the reveal
     // ends at the covering drawing's own outline, not at a threshold contour.
-    const queue = [...region.members]
     const limit = region.members.length * REVEAL_MAX_GROWTH
-    while (queue.length > 0 && targets.size < limit) {
-      const target = queue.pop()!
-      const x = target % bounds.width
-      const y = Math.floor(target / bounds.width)
-      for (const next of [
-        x > 0 ? target - 1 : -1,
-        x < bounds.width - 1 ? target + 1 : -1,
-        y > 0 ? target - bounds.width : -1,
-        y < bounds.height - 1 ? target + bounds.width : -1,
-      ]) {
-        if (next < 0 || targets.has(next)) continue
-        // A covering strand may span several layers underneath it.
-        const matched = revealableBelow(
-          before,
-          visible,
-          next,
-          at(next),
-          reference,
-        )
-        if (matched >= 0) {
-          targets.set(next, matched)
-          queue.push(next)
+    const grow = (queue: number[]) => {
+      while (queue.length > 0 && targets.size < limit) {
+        const target = queue.pop()!
+        const x = target % bounds.width
+        const y = Math.floor(target / bounds.width)
+        for (const next of [
+          x > 0 ? target - 1 : -1,
+          x < bounds.width - 1 ? target + 1 : -1,
+          y > 0 ? target - bounds.width : -1,
+          y < bounds.height - 1 ? target + bounds.width : -1,
+        ]) {
+          if (next < 0 || targets.has(next)) continue
+          // A covering strand may span several layers underneath it.
+          const matched = revealableBelow(
+            before,
+            visible,
+            next,
+            at(next),
+            reference,
+          )
+          if (matched >= 0) {
+            targets.set(next, matched)
+            queue.push(next)
+          }
         }
       }
     }
+    grow([...region.members])
+    grow(joinBuriedSpecks(before, targets, REVEAL_JOIN))
     const erased = new Map<number, Array<{ x: number; y: number }>>()
     for (const [target, below] of targets) {
       const { x, y } = at(target)

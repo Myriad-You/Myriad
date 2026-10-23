@@ -389,15 +389,21 @@ export class SpeechPipelineHost {
     const generation = segment.generation
     const source = segment.source ?? 'reply'
     const utteranceId = `tts-${segment.segmentId}`
-    dispatchMeropeSpeech({
-      phase: 'start',
-      messageId: segment.messageId,
-      source,
-      utteranceId,
-      ...(generation ? { generation } : {}),
-    })
-    patchVoicePresence({ ttsPlaying: true })
+    let begun = false
     const handle = playTtsBuffer(audio, segment, {
+      // Begun once it is heard, not while it is decoded or held: the mouth
+      // and her speaking are not ahead of the voice.
+      onBegin: () => {
+        begun = true
+        dispatchMeropeSpeech({
+          phase: 'start',
+          messageId: segment.messageId,
+          source,
+          utteranceId,
+          ...(generation ? { generation } : {}),
+        })
+        patchVoicePresence({ ttsPlaying: true })
+      },
       onStarted: () => markTurnTraceOnce('first_audio'),
       onProsody: (timeline, timing) => {
         dispatchMeropeSpeech({
@@ -433,14 +439,16 @@ export class SpeechPipelineHost {
         })
       },
       onEnded: () => {
-        dispatchMeropeSpeech({
-          phase: 'end',
-          messageId: segment.messageId,
-          source,
-          utteranceId,
-          ...(generation ? { generation } : {}),
-        })
-        patchVoicePresence({ ttsPlaying: false })
+        if (begun) {
+          dispatchMeropeSpeech({
+            phase: 'end',
+            messageId: segment.messageId,
+            source,
+            utteranceId,
+            ...(generation ? { generation } : {}),
+          })
+          patchVoicePresence({ ttsPlaying: false })
+        }
         onEnded()
         if (!this.pipeline.playing && this.pipeline.queueLength === 0)
           markTurnTraceOnce('speech_ended')
