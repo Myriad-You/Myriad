@@ -205,17 +205,19 @@ export interface SyncDeviceList {
 
 /** How far the site's clock is off, as it last measured (`serverClock`). */
 export interface ServerClock {
-  /** Milliseconds since the epoch, by the site's own clock. */
+  /** Milliseconds since the epoch, by the site's clock. */
   checkedAt: number
-  /** The site's clock minus real time; null when nothing answered. */
+  /** The host's clock minus real time; null when nothing answered. */
   offsetMs: number | null
   source: 'sntp' | 'https' | null
   /** An HTTPS Date, or SNTP servers that agree. */
   trusted: boolean
   thresholdMs: number
-  /** Off by more than thresholdMs. */
+  /** The largest offset the site corrects. */
+  maxCorrectionMs: number
+  /** The host's clock is off by more than thresholdMs. */
   wrong: boolean
-  /** The site judges device clocks by real time with this measurement. */
+  /** The site's clock is real time by this measurement. */
   corrected: boolean
 }
 
