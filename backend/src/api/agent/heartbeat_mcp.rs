@@ -771,7 +771,7 @@ pub(crate) async fn interrupt_session(
 
     let request = crate::services::agent::UserRequest {
         raw_input: new_input.clone(),
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::clock::now(),
         user_id,
         context: None,
     };

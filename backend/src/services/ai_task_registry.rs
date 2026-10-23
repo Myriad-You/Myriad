@@ -115,6 +115,7 @@ pub async fn register_ai_task_atomically(
     }
 
     let transaction = db.begin().await?;
+    let now = crate::clock::now();
     let lock_key = format!("tapp_ai_task:{}", task.subject_id);
     transaction
         .execute_raw(Statement::from_sql_and_values(
@@ -126,14 +127,14 @@ pub async fn register_ai_task_atomically(
     transaction
         .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "DELETE FROM runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT",
-            vec![AI_TASK_NAMESPACE.into(), task.subject_id.into()],
+            "DELETE FROM runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at <= EXTRACT(EPOCH FROM $3::timestamptz)::BIGINT",
+            vec![AI_TASK_NAMESPACE.into(), task.subject_id.into(), now.into()],
         ))
         .await?;
     let tasks = PayloadRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT payload FROM runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT ORDER BY updated_at ASC",
-        vec![AI_TASK_NAMESPACE.into(), task.subject_id.into()],
+        "SELECT payload FROM runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at > EXTRACT(EPOCH FROM $3::timestamptz)::BIGINT ORDER BY updated_at ASC",
+        vec![AI_TASK_NAMESPACE.into(), task.subject_id.into(), now.into()],
     ))
     .all(&transaction)
     .await?
@@ -173,7 +174,7 @@ pub async fn register_ai_task_atomically(
             r#"
 INSERT INTO runtime_registry
     (namespace, record_id, subject_id, owner_id, tapp_id, runtime_id, payload, expires_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
 ON CONFLICT (namespace, record_id) DO NOTHING
 "#,
             vec![
@@ -185,6 +186,7 @@ ON CONFLICT (namespace, record_id) DO NOTHING
                 task.runtime_id.clone().into(),
                 payload.into(),
                 task.retain_until.into(),
+                now.into(),
             ],
         ))
         .await?

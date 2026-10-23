@@ -123,7 +123,7 @@ async fn live_days(days: &[&[&str]], name: &str) -> Lived {
         .await
         .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
         .expect("chat model");
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let as_of = |at: chrono::DateTime<chrono::FixedOffset>| at.with_timezone(&chrono::Utc);
     let mood_at = |at: chrono::DateTime<chrono::FixedOffset>| {
         let db = db.clone();

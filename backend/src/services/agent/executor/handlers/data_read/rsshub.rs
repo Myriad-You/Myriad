@@ -331,7 +331,7 @@ async fn load_rsshub_routes_cache() -> Option<Value> {
         if let Ok(data) = serde_json::from_str::<Value>(&content) {
             // 检查缓存是否过期（7天）
             if let Some(cached_at) = data.get("cachedAt").and_then(|v| v.as_i64()) {
-                let now = chrono::Utc::now().timestamp();
+                let now = crate::clock::now().timestamp();
                 if now - cached_at < 7 * 24 * 3600 {
                     return data.get("routes").cloned();
                 }
@@ -371,7 +371,7 @@ async fn fetch_rsshub_routes() -> Result<Value, String> {
 
                 // 缓存到本地
                 let cache_data = json!({
-                    "cachedAt": chrono::Utc::now().timestamp(),
+                    "cachedAt": crate::clock::now().timestamp(),
                     "source": "radar-rules",
                     "routes": routes
                 });

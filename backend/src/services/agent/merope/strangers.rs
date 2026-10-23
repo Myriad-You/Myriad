@@ -51,7 +51,7 @@ pub const TALKS_NAMESPACE: &str = "merope_stranger_talks";
 /// One more exchange with this person in this group; how many so far.
 #[cfg(test)]
 async fn count_exchange(db: &DatabaseConnection, venue: &str, who: &str) -> i64 {
-    let keep_until = (chrono::Utc::now() + FADE_AFTER).timestamp();
+    let keep_until = (crate::clock::now() + FADE_AFTER).timestamp();
     crate::services::runtime_registry::increment(
         db,
         TALKS_NAMESPACE,

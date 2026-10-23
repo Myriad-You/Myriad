@@ -140,7 +140,7 @@ fn sore_entry(row: &Row, who: Option<&str>) -> Value {
 }
 
 pub async fn snapshot(db: &DatabaseConnection) -> Value {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let rows = unified::with_history(
         db,
         &[

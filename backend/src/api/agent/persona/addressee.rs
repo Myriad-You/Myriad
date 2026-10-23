@@ -119,7 +119,7 @@ pub async fn get_doing(
             "started": lazing.started,
             "ends": lazing.ends,
         })),
-        "now": chrono::Utc::now(),
+        "now": crate::clock::now(),
     })))
 }
 

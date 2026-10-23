@@ -40,7 +40,9 @@ pub struct SignedHeaders {
 
 /// 对 HTTP 请求进行签名
 pub fn sign_request(key_pair: &KeyPair, params: &SignatureParams) -> Result<SignedHeaders> {
-    let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let date = crate::clock::now()
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string();
 
     // 计算 body digest（有 body 时）
     let digest = params.body.map(|body| {
@@ -381,7 +383,7 @@ mod tests {
 
     #[test]
     fn enforces_http_date_replay_window() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let fresh = now.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
         let stale = (now - Duration::minutes(6))
             .format("%a, %d %b %Y %H:%M:%S GMT")
@@ -425,7 +427,7 @@ mod tests {
 
     #[test]
     fn verify_date_freshness_rejects_future_skew() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let future = (now + Duration::minutes(10))
             .format("%a, %d %b %Y %H:%M:%S GMT")
             .to_string();
@@ -452,7 +454,7 @@ mod tests {
 
     #[test]
     fn w175_date_freshness_future() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let future = (now + Duration::minutes(10))
             .format("%a, %d %b %Y %H:%M:%S GMT")
             .to_string();

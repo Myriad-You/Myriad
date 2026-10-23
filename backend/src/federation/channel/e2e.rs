@@ -155,8 +155,12 @@ pub async fn handle_key_exchange(
 
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET properties = $2, last_activity_at = NOW() WHERE channel_id = $1",
-        [channel_id.into(), properties.into()],
+        "UPDATE federation_channels SET properties = $2, last_activity_at = $3::timestamptz WHERE channel_id = $1",
+        [
+            channel_id.into(),
+            properties.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(|e| e.to_string())?;
@@ -176,13 +180,14 @@ pub async fn handle_key_exchange(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_channel_messages
            (channel_id, message_id, sender_actor, message_type, payload, is_encrypted, created_at)
-           VALUES ($1, $2, $3, 'myriad:KeyExchange', $4, false, NOW())
+           VALUES ($1, $2, $3, 'myriad:KeyExchange', $4, false, $5::timestamptz)
            ON CONFLICT (message_id) DO NOTHING"#,
         [
             channel_id.into(),
             message_id.clone().into(),
             actor_url_str.into(),
             payload.clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -360,9 +365,9 @@ pub async fn handle_channel_accept(
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"UPDATE federation_channels
-               SET status = 'accepted', last_activity_at = NOW()
+               SET status = 'accepted', last_activity_at = $2::timestamptz
                WHERE channel_id = $1 AND status = 'pending'"#,
-            [channel_id.into()],
+            [channel_id.into(), crate::clock::now().into()],
         ))
         .await
         .map_err(|e| e.to_string())?;
@@ -549,8 +554,13 @@ pub async fn initiate_e2e_key_exchange(
 
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE federation_channels SET properties = $2, last_activity_at = NOW() WHERE channel_id = $1 AND user_id = $3",
-        [channel_id.into(), properties.into(), user_id.into()],
+        "UPDATE federation_channels SET properties = $2, last_activity_at = $4::timestamptz WHERE channel_id = $1 AND user_id = $3",
+        [
+            channel_id.into(),
+            properties.into(),
+            user_id.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(db_err)?;
@@ -583,7 +593,7 @@ pub async fn initiate_e2e_key_exchange(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_channel_messages
                (channel_id, message_id, sender_actor, message_type, payload, is_encrypted, created_at)
-               VALUES ($1, $2, $3, 'myriad:KeyExchange', $4, false, NOW())"#,
+               VALUES ($1, $2, $3, 'myriad:KeyExchange', $4, false, $5::timestamptz)"#,
                 [
                     channel_id.into(),
                     message_id.into(),
@@ -594,6 +604,7 @@ pub async fn initiate_e2e_key_exchange(
                         "direction": "outbound"
                     })
                     .into(),
+                    crate::clock::now().into(),
                 ],
             ))
             .await;

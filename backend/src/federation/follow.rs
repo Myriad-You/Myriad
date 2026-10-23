@@ -98,13 +98,14 @@ pub async fn follow_remote(
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_follows (user_id, remote_actor_id, direction, status, activity_id, created_at)
-           VALUES ($1, $2, 'outgoing', 'pending', $3, NOW())
+           VALUES ($1, $2, 'outgoing', 'pending', $3, $4::timestamptz)
            ON CONFLICT (user_id, remote_actor_id, direction) DO UPDATE SET
                status = 'pending', activity_id = $3"#,
         [
             user_id.into(),
             remote.id.into(),
             activity_id.clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -147,9 +148,13 @@ pub async fn follow_remote(
                     .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
                         r#"UPDATE federation_delivery_queue
-                           SET status = 'delivered', last_attempt_at = NOW()
+                           SET status = 'delivered', last_attempt_at = $3::timestamptz
                            WHERE activity_id = $1 AND target_inbox = $2"#,
-                        [act_db_id.into(), remote.inbox_url.clone().into()],
+                        [
+                            act_db_id.into(),
+                            remote.inbox_url.clone().into(),
+                            crate::clock::now().into(),
+                        ],
                     ))
                     .await;
                 if let Ok(Some(row)) = db

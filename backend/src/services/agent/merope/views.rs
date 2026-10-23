@@ -15,7 +15,7 @@
 
 use std::sync::{LazyLock, Mutex};
 
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 
@@ -75,7 +75,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         },
         Err(_) => return,
     }
-    let now = Utc::now();
+    let now = crate::clock::now();
     let Ok(experiences) = unified::own_experiences(db, WINDOW_ROWS).await else {
         return;
     };
@@ -149,7 +149,7 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
         .filter_map(|borne| shown.get(borne.i).map(|(id, _, _)| id.clone()))
         .collect();
     if !borne_out.is_empty() {
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         if let Err(error) = agent_memories::Entity::update_many()
             .col_expr(
                 agent_memories::Column::UpdatedAt,
@@ -317,7 +317,7 @@ pub(crate) fn parse_views(raw: &str) -> Option<Vec<(String, String)>> {
 mod tests {
     use super::*;
     fn view_row(evidence: Value) -> agent_memories::Model {
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         agent_memories::Model {
             id: "v".into(),
             user_id: None,
@@ -374,11 +374,11 @@ mod tests {
                 importance: 0.4,
                 access_count: 0,
                 last_accessed_at: None,
-                valid_from: Utc::now().fixed_offset(),
+                valid_from: crate::clock::now().fixed_offset(),
                 invalid_at: None,
                 invalid_reason: None,
-                created_at: Utc::now().fixed_offset(),
-                updated_at: Utc::now().fixed_offset(),
+                created_at: crate::clock::now().fixed_offset(),
+                updated_at: crate::clock::now().fixed_offset(),
                 superseded_by: None,
                 origin: crate::services::agent::memory::unified::ORIGIN_SITE.into(),
             })
@@ -429,11 +429,11 @@ mod tests {
             importance: 0.4,
             access_count: 0,
             last_accessed_at: None,
-            valid_from: Utc::now().fixed_offset(),
+            valid_from: crate::clock::now().fixed_offset(),
             invalid_at: None,
             invalid_reason: None,
-            created_at: Utc::now().fixed_offset(),
-            updated_at: Utc::now().fixed_offset(),
+            created_at: crate::clock::now().fixed_offset(),
+            updated_at: crate::clock::now().fixed_offset(),
             superseded_by: None,
             origin: crate::services::agent::memory::unified::ORIGIN_SITE.into(),
         };

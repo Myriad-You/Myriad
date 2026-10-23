@@ -2,7 +2,6 @@
 //! group's), and a session's recent messages as a conversation. The HTTP
 //! side of sessions is in `api::agent`.
 
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
     PaginatorTrait, QueryFilter, QueryOrder,
@@ -159,7 +158,7 @@ pub(crate) async fn persist_user_message(
     session_id: &str,
     content: &str,
 ) -> Result<(), String> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
         session_id: Set(session_id.to_string()),
@@ -257,7 +256,7 @@ async fn persist_message(
     content: &str,
     metadata: Option<Value>,
 ) -> Result<(), String> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let cited_metadata = metadata.clone();
     let msg = agent_messages::ActiveModel {
         id: sea_orm::ActiveValue::NotSet,
@@ -400,7 +399,7 @@ pub(crate) async fn ensure_session_in(
 
     // 自动创建新会话
     let new_id = format!("ses_{}", uuid::Uuid::new_v4().simple());
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let session = agent_sessions::ActiveModel {
         id: Set(new_id.clone()),
         user_id: Set(user_id),

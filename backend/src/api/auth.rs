@@ -239,8 +239,12 @@ pub async fn set_current_user_locale(
     let updated = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE users SET locale = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-            vec![locale.to_string().into(), user_id.into()],
+            "UPDATE users SET locale = $1, updated_at = $3::timestamptz WHERE id = $2",
+            vec![
+                locale.to_string().into(),
+                user_id.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(|error| {

@@ -6,7 +6,6 @@
 
 use std::collections::HashMap;
 
-use chrono::Utc;
 use once_cell::sync::Lazy;
 use sea_orm::TransactionTrait;
 use serde::{Deserialize, Serialize};
@@ -46,7 +45,7 @@ impl LocalAiTask {
         snapshot: AiTaskSnapshot,
     ) -> (Self, watch::Receiver<bool>) {
         let (cancel, receiver) = watch::channel(false);
-        let retain_until = Utc::now().timestamp() + TASK_RETENTION_SECONDS;
+        let retain_until = crate::clock::now().timestamp() + TASK_RETENTION_SECONDS;
         (
             Self {
                 runtime_id,
@@ -96,7 +95,7 @@ fn clean_tasks(tasks: &mut HashMap<String, LocalAiTask>, now: i64) {
 /// Insert a local task after durable registration succeeded.
 pub async fn insert_local(task: LocalAiTask) {
     let mut tasks = AI_TASKS.write().await;
-    clean_tasks(&mut tasks, Utc::now().timestamp());
+    clean_tasks(&mut tasks, crate::clock::now().timestamp());
     tasks.insert(task.snapshot.task_id.clone(), task);
 }
 
@@ -104,7 +103,7 @@ pub async fn insert_local(task: LocalAiTask) {
 pub async fn cleanup_local_tasks() {
     let abandoned = {
         let mut tasks = AI_TASKS.write().await;
-        clean_tasks(&mut tasks, Utc::now().timestamp());
+        clean_tasks(&mut tasks, crate::clock::now().timestamp());
         // A receiver lives in the producer future, including while queued for
         // polling or performing quota/ledger settlement. Age alone must never
         // terminate an executor which still owns its receiver.
@@ -151,14 +150,14 @@ pub async fn run_owned_local(
 /// Snapshot of a local task if still present.
 pub async fn local_snapshot(task_id: &str) -> Option<AiTaskSnapshot> {
     let mut tasks = AI_TASKS.write().await;
-    clean_tasks(&mut tasks, Utc::now().timestamp());
+    clean_tasks(&mut tasks, crate::clock::now().timestamp());
     tasks.get(task_id).map(|task| task.snapshot.clone())
 }
 
 /// Count active + retained local tasks for a subject (preflight).
 pub async fn local_subject_counts(subject_id: i32) -> (usize, usize) {
     let mut tasks = AI_TASKS.write().await;
-    clean_tasks(&mut tasks, Utc::now().timestamp());
+    clean_tasks(&mut tasks, crate::clock::now().timestamp());
     let mut active = 0usize;
     let mut retained = 0usize;
     for task in tasks.values() {
@@ -275,7 +274,7 @@ pub async fn update_task_state(task_id: &str, status: AiTaskStatus) {
     let mut tasks = AI_TASKS.write().await;
     let persisted = if let Some(task) = tasks.get_mut(task_id) {
         task.snapshot.status = status;
-        task.snapshot.updated_at = Utc::now().to_rfc3339();
+        task.snapshot.updated_at = crate::clock::now().to_rfc3339();
         Some(task.to_persisted())
     } else {
         None
@@ -319,8 +318,8 @@ pub async fn finish_task(
     if let Some(usage) = usage {
         task.snapshot.usage = usage;
     }
-    task.snapshot.updated_at = Utc::now().to_rfc3339();
-    task.retain_until = Utc::now().timestamp() + TASK_RETENTION_SECONDS;
+    task.snapshot.updated_at = crate::clock::now().to_rfc3339();
+    task.retain_until = crate::clock::now().timestamp() + TASK_RETENTION_SECONDS;
     if let Ok(db) = crate::services::process_db::database() {
         if let Err(error) = persist_terminal_task(&db, &task).await {
             tracing::error!(%error, %task_id, "Failed to commit AI result and media references");

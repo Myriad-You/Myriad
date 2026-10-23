@@ -91,7 +91,7 @@ fn configured_csrf_key() -> Option<[u8; 32]> {
 }
 
 fn unix_now() -> i64 {
-    chrono::Utc::now().timestamp()
+    crate::clock::now().timestamp()
 }
 
 fn sign_csrf_body(key: &[u8; 32], signed_body: &str) -> Option<[u8; 32]> {
@@ -518,7 +518,7 @@ mod tests {
     fn mint_test_jwt_with_epoch(sub: &str, username: &str, epoch: i64) -> String {
         ensure_jwt_secret();
         let secret = env::var("JWT_SECRET").expect("JWT_SECRET");
-        let now = chrono::Utc::now().timestamp();
+        let now = crate::clock::now().timestamp();
         let claims = Claims {
             sub: sub.to_string(),
             username: username.to_string(),

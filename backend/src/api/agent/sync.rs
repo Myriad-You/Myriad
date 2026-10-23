@@ -56,7 +56,8 @@ pub async fn sync_hello(
     } else {
         "child"
     };
-    let (server_time, server_time_source) = crate::services::server_clock::real_now_micros();
+    let server_time = crate::clock::now_micros();
+    let server_time_source = crate::services::server_clock::source();
     Ok(Json(json!({
         "formatVersion": myriad_persona_sync::FORMAT_VERSION,
         "deviceId": device.0.id,
@@ -822,7 +823,7 @@ mod tests {
         crate::services::principal::invalidate_site_owner_cache();
         // The device's clock: required on hello, refused when far ahead.
         let clock_at = |offset_ms: i64| {
-            let now_ms = chrono::Utc::now().timestamp_millis() + offset_ms;
+            let now_ms = crate::clock::now().timestamp_millis() + offset_ms;
             let rev = myriad_persona_sync::Rev::new(now_ms as u64, 0, "dev_test").unwrap();
             vec![("x-sync-clock", rev.to_string())]
         };

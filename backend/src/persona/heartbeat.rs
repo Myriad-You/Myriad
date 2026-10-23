@@ -83,7 +83,7 @@ async fn execute(
 
     let request = agent::UserRequest {
         raw_input: task.action.clone(),
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::clock::now(),
         user_id: agent::SYSTEM_USER_ID,
         context: None,
     };

@@ -102,7 +102,7 @@ async fn postgres_reference_counts_and_existence_keep_expiry_and_public_boundari
         return;
     };
     let image = f.image().await;
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     let public_ref = [NewReference {
         asset_id: image.id,
         slot: "public".into(),

@@ -467,7 +467,7 @@ mod tests {
         };
         let isolated = crate::db::IsolatedSchema::migrated(&url, "her_own_feeling").await;
         let db = isolated.db.clone();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let mut people = Vec::new();
         for name in ["feeling-a", "feeling-b"] {
             let id: i32 = db

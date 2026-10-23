@@ -121,8 +121,12 @@ fn input(
     device_name: Option<String>,
 ) -> Result<MergeInput, ImportError> {
     let last = host.iter().map(|entity| entity.rev.clone()).max();
-    let rev = hlc::next(last.as_ref(), Utc::now().timestamp_micros(), hlc::SITE)
-        .map_err(|error| ImportError::Failed(error.to_string()))?;
+    let rev = hlc::next(
+        last.as_ref(),
+        crate::clock::now().timestamp_micros(),
+        hlc::SITE,
+    )
+    .map_err(|error| ImportError::Failed(error.to_string()))?;
     let device = session.device_id.clone().unwrap_or_default();
     Ok(MergeInput {
         host,
@@ -238,9 +242,14 @@ pub async fn confirm(
             .await
             .map_err(merge_refused)?;
         txn.execute_raw(statement(
-            "UPDATE agent_host_import SET phase = $2, confirmed_at = NOW(), retired = $3, \
-             updated_at = NOW() WHERE id = $1",
-            vec![id.into(), phase::CONFIRMED.into(), name.clone().into()],
+            "UPDATE agent_host_import SET phase = $2, confirmed_at = $4::timestamptz, retired = $3, \
+             updated_at = $4::timestamptz WHERE id = $1",
+            vec![
+                id.into(),
+                phase::CONFIRMED.into(),
+                name.clone().into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?;
         txn.commit().await?;
@@ -345,8 +354,12 @@ async fn merge_in(
     let (vectors, rig) = land(&txn, owner, &plan, &other, &urls).await?;
     let written = lease::merged(&txn, &session.id).await?;
     txn.execute_raw(statement(
-        "UPDATE agent_host_import SET phase = $2, updated_at = NOW() WHERE id = $1",
-        vec![session.id.clone().into(), phase::COMMITTED.into()],
+        "UPDATE agent_host_import SET phase = $2, updated_at = $3::timestamptz WHERE id = $1",
+        vec![
+            session.id.clone().into(),
+            phase::COMMITTED.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await?;
     txn.execute_raw(statement(
@@ -530,13 +543,14 @@ async fn land(
             }
             txn.execute_raw(statement(
                 "INSERT INTO agent_memory_embeddings (memory_id, model, digest, vector, created_at) \
-                 VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (memory_id) DO UPDATE SET \
+                 VALUES ($1, $2, $3, $4, $5::timestamptz) ON CONFLICT (memory_id) DO UPDATE SET \
                  model = EXCLUDED.model, digest = EXCLUDED.digest, vector = EXCLUDED.vector",
                 vec![
                     embedding.memory_id.clone().into(),
                     model.model.clone().into(),
                     embedding.digest.clone().into(),
                     vector.into(),
+                    crate::clock::now().into(),
                 ],
             ))
             .await?;
@@ -636,7 +650,7 @@ async fn land(
         txn.execute_raw(statement(
             "INSERT INTO agent_affect_events (id, user_id, at, cause, impulse, baseline_mood, \
              baseline_arousal, before, after, late, origin, rev, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz) \
              ON CONFLICT (id) DO UPDATE SET at = EXCLUDED.at, late = EXCLUDED.late",
             vec![
                 entity.id.clone().into(),
@@ -651,6 +665,7 @@ async fn land(
                 change.late.into(),
                 entity.origin.clone().into(),
                 entity.rev.to_string().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -661,7 +676,7 @@ async fn land(
         let state = state.unwrap_or_default();
         let (affect, settled) = match &plan.standing {
             Some(standing) => (Some(standing.affect), at(standing.at)),
-            None => (None, Utc::now().fixed_offset()),
+            None => (None, crate::clock::now().fixed_offset()),
         };
         let activity: String = state
             .activity
@@ -675,7 +690,7 @@ async fn land(
              last_user_message_at, last_proactive_at, music_mood_credited_at, mood_settled_at, \
              emotion_settled_at, updated_at) VALUES \
              ($1, COALESCE($2, 70), COALESCE($3, 50), COALESCE($4, 50), COALESCE($5, 50), $6, \
-              $7, $8, $9, $10, $11, $12, $13, $14, $14, NOW()) \
+              $7, $8, $9, $10, $11, $12, $13, $14, $14, $15::timestamptz) \
              ON CONFLICT (user_id) DO UPDATE SET \
              mood = COALESCE($2, agent_addressee_state.mood), \
              arousal = COALESCE($3, agent_addressee_state.arousal), \
@@ -691,7 +706,7 @@ async fn land(
                  ELSE EXCLUDED.mood_settled_at END, \
              emotion_settled_at = CASE WHEN $2 IS NULL THEN agent_addressee_state.emotion_settled_at \
                  ELSE EXCLUDED.emotion_settled_at END, \
-             updated_at = NOW()",
+             updated_at = $15::timestamptz",
             vec![
                 owner.into(),
                 affect.map(|affect| affect.mood).into(),
@@ -702,7 +717,7 @@ async fn land(
                 state
                     .activity_updated_at
                     .map(at)
-                    .unwrap_or_else(|| Utc::now().fixed_offset())
+                    .unwrap_or_else(|| crate::clock::now().fixed_offset())
                     .into(),
                 state.do_not_disturb.into(),
                 state.dnd_start_minute.into(),
@@ -711,13 +726,14 @@ async fn land(
                 state.last_proactive_at.map(at).into(),
                 state.music_mood_credited_at.map(at).into(),
                 settled.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
     }
 
     // Her own records the site keeps in its registry.
-    let keep = |days: i64| (Utc::now() + chrono::Duration::days(days)).timestamp();
+    let keep = |days: i64| (crate::clock::now() + chrono::Duration::days(days)).timestamp();
     let mut registry: Vec<(&str, String, Value, i64)> = Vec::new();
     for write in written(Kind::VitalsDay) {
         let entity = entity_of(write)?;
@@ -815,14 +831,15 @@ async fn land(
     for (namespace, record, payload, expires) in registry {
         txn.execute_raw(statement(
             "INSERT INTO runtime_registry (namespace, record_id, payload, expires_at, updated_at) \
-             VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (namespace, record_id) \
+             VALUES ($1, $2, $3, $4, $5::timestamptz) ON CONFLICT (namespace, record_id) \
              DO UPDATE SET payload = EXCLUDED.payload, expires_at = EXCLUDED.expires_at, \
-             updated_at = NOW()",
+             updated_at = $5::timestamptz",
             vec![
                 namespace.into(),
                 record.into(),
                 payload.into(),
                 expires.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -1211,7 +1228,7 @@ async fn land_looks(
     active.zone = Set(zone);
     active.field_revs = Set(Value::Object(revs));
     active.updated_by = Set(Some(owner));
-    active.updated_at = Set(Utc::now().fixed_offset());
+    active.updated_at = Set(crate::clock::now().fixed_offset());
     active.update(txn).await?;
     if rig.is_some() {
         crate::services::merope_rig::persist_active_asset(txn, rig.as_deref())

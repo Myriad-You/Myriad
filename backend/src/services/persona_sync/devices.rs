@@ -180,7 +180,7 @@ pub async fn add(
             &format!(
                 "INSERT INTO agent_sync_devices \
                  (id, user_id, name, scope, token_hash, token_hint, created_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING {COLUMNS}"
+                 VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz) RETURNING {COLUMNS}"
             ),
             vec![
                 id.into(),
@@ -189,6 +189,7 @@ pub async fn add(
                 SCOPE.into(),
                 token_hash(&token).into(),
                 token[..TOKEN_HINT_CHARS].to_string().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?
@@ -224,10 +225,15 @@ pub async fn revoke<C: ConnectionTrait>(
     let removed = db
         .query_one_raw(statement(
             &format!(
-                "UPDATE agent_sync_devices SET revoked_at = NOW(), revoked_reason = $3 \
+                "UPDATE agent_sync_devices SET revoked_at = $4::timestamptz, revoked_reason = $3 \
                  WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL RETURNING {COLUMNS}"
             ),
-            vec![id.into(), user_id.into(), why.as_str().into()],
+            vec![
+                id.into(),
+                user_id.into(),
+                why.as_str().into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?
         .as_ref()
@@ -331,9 +337,9 @@ pub async fn recheck<C: ConnectionTrait>(
 /// Records that the device was just seen, at most once a minute.
 pub async fn seen<C: ConnectionTrait>(db: &C, id: &str) -> Result<(), DbErr> {
     db.execute_raw(statement(
-        "UPDATE agent_sync_devices SET last_seen_at = NOW() \
-         WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < NOW() - make_interval(secs => $2))",
-        vec![id.into(), (SEEN_EVERY_SECS as f64).into()],
+        "UPDATE agent_sync_devices SET last_seen_at = $3::timestamptz \
+         WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < $3::timestamptz - make_interval(secs => $2))",
+        vec![id.into(), (SEEN_EVERY_SECS as f64).into(), crate::clock::now().into()],
     ))
     .await?;
     Ok(())

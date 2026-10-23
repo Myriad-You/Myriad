@@ -5,7 +5,6 @@
 
 use std::time::Duration;
 
-use chrono::Utc;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 use crate::models::entities::agent_memories;
@@ -147,7 +146,7 @@ pub(crate) async fn kept_tried(db: &DatabaseConnection, id: &str, tried: Tried) 
         )
         .col_expr(
             agent_memories::Column::UpdatedAt,
-            sea_orm::sea_query::Expr::value(Utc::now().fixed_offset()),
+            sea_orm::sea_query::Expr::value(crate::clock::now().fixed_offset()),
         )
         .filter(agent_memories::Column::Id.eq(id))
         .exec(db)

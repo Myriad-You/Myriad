@@ -247,7 +247,7 @@ async fn wrote_lately(db: &DatabaseConnection, user_id: i32) -> bool {
         .ok()
         .and_then(|state| state.last_user_message_at)
         .and_then(|at| {
-            (chrono::Utc::now() - at.with_timezone(&chrono::Utc))
+            (crate::clock::now() - at.with_timezone(&chrono::Utc))
                 .to_std()
                 .ok()
         })
@@ -496,7 +496,7 @@ async fn handed_off(db: &DatabaseConnection, work_session_id: &str, busy: bool) 
             .ok()?;
     let recent = |at: Option<&str>| {
         at.and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
-            .is_some_and(|at| chrono::Utc::now().signed_duration_since(at) < HANDED_OFF_FOR)
+            .is_some_and(|at| crate::clock::now().signed_duration_since(at) < HANDED_OFF_FOR)
     };
     let asked = history
         .iter()

@@ -54,7 +54,7 @@ impl DeliveryCoordinator {
             slot.lock.clone()
         };
         let mut history = lock.lock_owned().await;
-        let now = Utc::now();
+        let now = crate::clock::now();
         history.topics.retain(|_, until| *until > now);
         history.sources.retain(|_, until| *until > now);
         if intent.expires_at <= now
@@ -70,7 +70,7 @@ impl DeliveryCoordinator {
 
 impl DeliveryClaim {
     pub fn delivered(&mut self, intent: &SpeakIntent, repeat_minutes: i64) {
-        let until = Utc::now() + chrono::Duration::minutes(repeat_minutes);
+        let until = crate::clock::now() + chrono::Duration::minutes(repeat_minutes);
         self.history.topics.insert(intent.topic.clone(), until);
         self.history
             .sources

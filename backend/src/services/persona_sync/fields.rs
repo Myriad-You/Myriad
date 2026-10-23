@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset};
 use myriad_persona_sync::{FieldRev, Rev, hlc, persona::VISUAL_PREFIX, persona_diff};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 use serde::Serialize;
@@ -107,8 +107,12 @@ pub async fn record_write_on<C: ConnectionTrait>(
         .map(|field| field.rev.clone())
         .chain([legacy.clone()])
         .max();
-    let rev = hlc::next(last.as_ref(), Utc::now().timestamp_micros(), hlc::SITE)
-        .map_err(|error| DbErr::Custom(format!("persona revision: {error}")))?;
+    let rev = hlc::next(
+        last.as_ref(),
+        crate::clock::now().timestamp_micros(),
+        hlc::SITE,
+    )
+    .map_err(|error| DbErr::Custom(format!("persona revision: {error}")))?;
     let diff = persona_diff(&old, &new, &held, &legacy, &rev, hlc::SITE, reason)
         .map_err(|error| DbErr::Custom(format!("persona diff: {error}")))?;
     if diff.changed.is_empty() {
@@ -130,7 +134,7 @@ pub async fn record_write_on<C: ConnectionTrait>(
             DatabaseBackend::Postgres,
             "INSERT INTO agent_persona_field_history \
              (field, value, rev, origin, replaced_at, replaced_by_rev, reason) \
-             VALUES ($1, $2, $3, $4, NOW(), $5, $6)",
+             VALUES ($1, $2, $3, $4, $7::timestamptz, $5, $6)",
             vec![
                 replaced.field.clone().into(),
                 replaced.value.clone().into(),
@@ -138,6 +142,7 @@ pub async fn record_write_on<C: ConnectionTrait>(
                 replaced.origin.clone().into(),
                 replaced.replaced_by_rev.to_string().into(),
                 replaced.reason.clone().into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;

@@ -14,7 +14,7 @@ pub(super) fn now() -> chrono::DateTime<chrono::Utc> {
     if let Some(at) = g0::now() {
         return at;
     }
-    chrono::Utc::now()
+    crate::clock::now()
 }
 
 /// She is not on the site now (D3).

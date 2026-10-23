@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::{HashMap, VecDeque};
 use std::env;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
 
@@ -319,7 +319,7 @@ pub(crate) async fn cleanup_used_nonces() {
 }
 
 fn unix_now() -> i64 {
-    SystemTime::now()
+    crate::clock::now_system()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)

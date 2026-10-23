@@ -98,7 +98,7 @@ pub(crate) async fn generate_platform_reports_internal(
                 summary,
                 insights,
                 card_visuals,
-                created_at: chrono::Utc::now().to_rfc3339(),
+                created_at: crate::clock::now().to_rfc3339(),
                 locale: locale.clone(),
                 script: Some(written.script),
                 facts: crate::api::reports::facts::proxied_facts(&facts.facts),

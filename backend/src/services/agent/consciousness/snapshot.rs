@@ -45,13 +45,17 @@ pub async fn capture_self_snapshot(
         granted_permissions,
         recent_intents: IntentStore::new(db.clone()).recent(user_id, 8).await?,
         remembered,
-        captured_at: Utc::now(),
+        captured_at: crate::clock::now(),
         // Her senses follow them: the app's when that is where they are.
         live: super::presence::senses_presence(user_id),
         attention: super::attention::last_attention(user_id),
         myself: Some(merope::self_state::current(db).await.facts_view()),
         minutes_since_you_spoke_unasked: state.last_proactive_at.map(|at| {
-            ((Utc::now() - at.with_timezone(&Utc)).num_seconds().max(0) as f64 / 60.0 * 10.0)
+            ((crate::clock::now() - at.with_timezone(&Utc))
+                .num_seconds()
+                .max(0) as f64
+                / 60.0
+                * 10.0)
                 .round()
                 / 10.0
         }),

@@ -346,7 +346,7 @@ impl Link {
             "t": outgoing.t,
             "seq": self.sent,
             "ack": self.heard,
-            "at": chrono::Utc::now().timestamp_millis(),
+            "at": crate::clock::now().timestamp_millis(),
             "body": outgoing.body,
         });
         if let Some(id) = outgoing.id {
@@ -497,7 +497,7 @@ impl Link {
             "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
             "capabilities": &capabilities,
             "turns": told,
-            "serverTime": chrono::Utc::now().timestamp_millis(),
+            "serverTime": crate::clock::now().timestamp_millis(),
         });
         self.reply(frame("welcome", welcome));
         self.playback = capabilities
@@ -686,7 +686,7 @@ impl Link {
                 "heartbeatMs": self.timing.heartbeat.as_millis() as u64,
                 "capabilities": [],
                 "turns": [],
-                "serverTime": chrono::Utc::now().timestamp_millis(),
+                "serverTime": crate::clock::now().timestamp_millis(),
             }),
         ));
         if let Some(moving) = frozen {

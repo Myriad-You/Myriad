@@ -109,7 +109,7 @@ pub async fn create_preset(
         }
     }
 
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
 
     // 检查是否已存在相同的输入
     let existing = agent_task_presets::Entity::find()
@@ -313,7 +313,7 @@ pub async fn use_preset(
 ) -> Result<Json<TaskPresetResponse>, HttpError> {
     let user_id = parse_user_id(&claims)?;
 
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
 
     // 查找预设
     let preset = agent_task_presets::Entity::find_by_id(preset_id)
@@ -387,7 +387,7 @@ pub async fn execute_preset(
     );
 
     // 更新使用时间
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let new_use_count = preset.use_count + 1;
     let mut active_model: agent_task_presets::ActiveModel = preset.into();
     active_model.last_used_at = Set(now);
@@ -426,7 +426,7 @@ pub async fn execute_preset(
         let agent = crate::services::agent::Agent::new(db_clone).await;
         let request = crate::services::agent::UserRequest {
             raw_input: format!("Run my saved recipe \"{preset_name}\" and report the result."),
-            timestamp: Utc::now(),
+            timestamp: crate::clock::now(),
             user_id,
             context: None,
         };

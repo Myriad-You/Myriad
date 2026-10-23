@@ -44,20 +44,24 @@ WITH selected AS MATERIALIZED (
     FROM media_assets
     WHERE state = 'staging'
       AND write_lease_until IS NOT NULL
-      AND write_lease_until < NOW()
+      AND write_lease_until < $3::timestamptz
     ORDER BY id
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
 UPDATE media_assets AS asset
 SET write_token = $1,
-    write_lease_until = NOW() + make_interval(secs => $2::double precision),
-    updated_at = NOW()
+    write_lease_until = $3::timestamptz + make_interval(secs => $2::double precision),
+    updated_at = $3::timestamptz
 FROM selected
 WHERE asset.id = selected.id
 RETURNING asset.id, selected.prev_token
 "#,
-            [new_token.into(), lease_secs.into()],
+            [
+                new_token.into(),
+                lease_secs.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?
     else {

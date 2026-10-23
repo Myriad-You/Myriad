@@ -132,7 +132,7 @@ fn after_a_restart_she_says_something_only_where_she_still_may() {
     assert_eq!(token_for(ChannelPlatform::Qq, "1", &config), None);
     let kept = serde_json::to_value(StoredReach {
         thread: Some(7),
-        seen_at: chrono::Utc::now(),
+        seen_at: crate::clock::now(),
     })
     .unwrap();
     assert!(kept.get("token").is_none());

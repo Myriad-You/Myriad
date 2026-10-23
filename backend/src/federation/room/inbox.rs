@@ -118,7 +118,7 @@ pub async fn handle_room_invite(
         r#"INSERT INTO federation_rooms
            (room_id, name, description, owner_actor, home_server, governance_type, invite_policy,
             max_members, is_public, distribution_strategy, shared_data_config, created_at)
-           VALUES ($1, $2, NULL, $3, $4, 'owner', $6, 50, $7, 'fan-out', $8, NOW())
+           VALUES ($1, $2, NULL, $3, $4, 'owner', $6, 50, $7, 'fan-out', $8, $9::timestamptz)
            ON CONFLICT (room_id) DO UPDATE SET
              name = CASE
                WHEN $5::boolean
@@ -178,7 +178,7 @@ pub async fn handle_room_invite(
                       OR federation_rooms.name = ('Room ' || left($1, 8))
                     )
                     OR $8::jsonb IS NOT NULL
-               THEN NOW()
+               THEN $9::timestamptz
                ELSE federation_rooms.updated_at
              END"#,
         [
@@ -190,6 +190,7 @@ pub async fn handle_room_invite(
             invite_policy.into(),
             invite_is_public.into(),
             invite_shared.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -231,7 +232,7 @@ pub async fn handle_room_invite(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_room_members
            (room_id, actor_url, is_local, local_user_id, role, invited_by, joined_at, membership_status)
-           VALUES ($1, $2, true, $3, $4, $5, NOW(), 'pending')
+           VALUES ($1, $2, true, $3, $4, $5, $6::timestamptz, 'pending')
            ON CONFLICT (room_id, actor_url) DO NOTHING"#,
             [
                 room_id.into(),
@@ -239,6 +240,7 @@ pub async fn handle_room_invite(
                 target_user_id.into(),
                 role.into(),
                 actor_url_str.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -359,7 +361,7 @@ pub async fn handle_room_message(
             r#"INSERT INTO federation_room_messages
            (room_id, message_id, sender_actor, message_type, payload, thread_id, reply_to,
             reactions, is_pinned, is_encrypted, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, '{}', false, $8, NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, $7, '{}', false, $8, $9::timestamptz)
            ON CONFLICT (message_id) DO NOTHING"#,
             [
                 room_id.into(),
@@ -370,6 +372,7 @@ pub async fn handle_room_message(
                 thread_id.into(),
                 reply_to.into(),
                 is_encrypted.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await
@@ -709,10 +712,14 @@ pub async fn handle_room_join(
                        SET shared_data_config =
                              (COALESCE(shared_data_config::jsonb, '{}'::jsonb)
                               || $2::jsonb)::json,
-                           updated_at = NOW()
+                           updated_at = $3::timestamptz
                        WHERE room_id = $1
                          AND (shared_data_config -> 'game') IS NULL"#,
-                    [room_id.into(), json!({ "game": config }).into()],
+                    [
+                        room_id.into(),
+                        json!({ "game": config }).into(),
+                        crate::clock::now().into(),
+                    ],
                 ))
                 .await
                 .map_err(|e| e.to_string())?;
@@ -742,14 +749,15 @@ pub async fn handle_room_join(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_room_members
            (room_id, actor_url, is_local, role, joined_at, membership_status)
-           VALUES ($1, $2, false, $3, NOW(), 'active')
+           VALUES ($1, $2, false, $3, $4::timestamptz, 'active')
            ON CONFLICT (room_id, actor_url) DO UPDATE SET
                membership_status = 'active',
-               joined_at = COALESCE(federation_room_members.joined_at, NOW())"#,
+               joined_at = COALESCE(federation_room_members.joined_at, $4::timestamptz)"#,
         [
             room_id.into(),
             joining.into(),
             effective_role.clone().into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -1087,12 +1095,13 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_activities
                    (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-                   VALUES ($1, $2, 'KeyExchange', 'KeyExchange', $3, true, NOW())
+                   VALUES ($1, $2, 'KeyExchange', 'KeyExchange', $3, true, $4::timestamptz)
                    RETURNING id"#,
                 [
                     activity_id.clone().into(),
                     user_id.into(),
                     kx_activity.into(),
+                    crate::clock::now().into(),
                 ],
             ))
             .await
@@ -1110,9 +1119,14 @@ pub(crate) async fn refanout_local_e2e_keys_to_member(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_delivery_queue
                    (activity_id, target_inbox, target_domain, status, created_at)
-                   VALUES ($1, $2, $3, 'pending', NOW())
+                   VALUES ($1, $2, $3, 'pending', $4::timestamptz)
                    ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-            [act_id.into(), inbox.clone().into(), domain.clone().into()],
+            [
+                act_id.into(),
+                inbox.clone().into(),
+                domain.clone().into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(|e| e.to_string())?;
@@ -1380,8 +1394,8 @@ pub async fn handle_room_governance(
             shared["stickers"] = stickers_to_json(&parsed);
             db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "UPDATE federation_rooms SET shared_data_config = $2, updated_at = NOW() WHERE room_id = $1",
-                [room_id.into(), shared.into()],
+                "UPDATE federation_rooms SET shared_data_config = $2, updated_at = $3::timestamptz WHERE room_id = $1",
+                [room_id.into(), shared.into(), crate::clock::now().into()],
             ))
             .await
             .map_err(|e| e.to_string())?;
@@ -1472,8 +1486,12 @@ pub async fn handle_room_governance(
         let old_owner = owner.clone();
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE federation_rooms SET owner_actor = $2, updated_at = NOW() WHERE room_id = $1",
-            [room_id.into(), new_owner.into()],
+            "UPDATE federation_rooms SET owner_actor = $2, updated_at = $3::timestamptz WHERE room_id = $1",
+            [
+                room_id.into(),
+                new_owner.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(|e| e.to_string())?;
@@ -1546,13 +1564,13 @@ pub async fn handle_room_governance(
 
     for (col, val) in updates {
         let sql = format!(
-            "UPDATE federation_rooms SET {} = $2, updated_at = NOW() WHERE room_id = $1",
+            "UPDATE federation_rooms SET {} = $2, updated_at = $3::timestamptz WHERE room_id = $1",
             col
         );
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             &sql,
-            [room_id.into(), val],
+            [room_id.into(), val, crate::clock::now().into()],
         ))
         .await
         .map_err(|e| e.to_string())?;

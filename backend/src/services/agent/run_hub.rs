@@ -106,7 +106,7 @@ impl AgentRun {
             elsewhere: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             site_notices: Default::default(),
-            created_at: Utc::now(),
+            created_at: crate::clock::now(),
             state: Mutex::new(AgentRunState {
                 next_sequence: 1,
                 events: VecDeque::with_capacity(EVENT_HISTORY_LIMIT),
@@ -115,7 +115,7 @@ impl AgentRun {
                 progress: 0,
                 message: "Task submitted, waiting to run".to_string(),
                 completed: false,
-                updated_at: Utc::now(),
+                updated_at: crate::clock::now(),
             }),
             events_tx,
             #[cfg(test)]
@@ -259,7 +259,7 @@ FROM (
     FROM runtime_registry
     WHERE namespace = $1
       AND runtime_id = $2
-      AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT
+      AND expires_at > EXTRACT(EPOCH FROM $4::timestamptz)::BIGINT
     ORDER BY record_id DESC
     LIMIT $3
 ) AS recent
@@ -269,6 +269,7 @@ ORDER BY record_id ASC
                 RUN_EVENT_REGISTRY_NAMESPACE.into(),
                 run_id.to_string().into(),
                 (EVENT_HISTORY_LIMIT as i64).into(),
+                crate::clock::now().into(),
             ],
         ))
         .all(db)
@@ -354,6 +355,7 @@ ORDER BY record_id ASC
             .begin()
             .await
             .map_err(|error| format!("Failed to begin persistence transaction: {error}"))?;
+        let now = crate::clock::now();
         let result = async {
             transaction
                 .execute_raw(Statement::from_sql_and_values(
@@ -368,7 +370,7 @@ ORDER BY record_id ASC
                     r#"
 INSERT INTO runtime_registry
     (namespace, record_id, subject_id, owner_id, runtime_id, payload, expires_at, updated_at)
-VALUES ($1, $2, $3, $3, $4, $5, $6, NOW())
+VALUES ($1, $2, $3, $3, $4, $5, $6, $7::timestamptz)
 ON CONFLICT (namespace, record_id) DO NOTHING
 "#,
                     vec![
@@ -378,6 +380,7 @@ ON CONFLICT (namespace, record_id) DO NOTHING
                         snapshot.run_id.clone().into(),
                         event_payload.into(),
                         expires_at.into(),
+                        now.into(),
                     ],
                 ))
                 .await?;
@@ -387,13 +390,13 @@ ON CONFLICT (namespace, record_id) DO NOTHING
                     r#"
 INSERT INTO runtime_registry
     (namespace, record_id, subject_id, owner_id, payload, expires_at, updated_at)
-VALUES ($1, $2, $3, $3, $4, $5, NOW())
+VALUES ($1, $2, $3, $3, $4, $5, $6::timestamptz)
 ON CONFLICT (namespace, record_id) DO UPDATE SET
     subject_id = EXCLUDED.subject_id,
     owner_id = EXCLUDED.owner_id,
     payload = EXCLUDED.payload,
     expires_at = EXCLUDED.expires_at,
-    updated_at = NOW()
+    updated_at = $6::timestamptz
 WHERE COALESCE((runtime_registry.payload ->> 'next_sequence')::BIGINT, 0)
       <= (EXCLUDED.payload ->> 'next_sequence')::BIGINT
 "#,
@@ -403,6 +406,7 @@ WHERE COALESCE((runtime_registry.payload ->> 'next_sequence')::BIGINT, 0)
                         snapshot.user_id.into(),
                         snapshot_payload.into(),
                         expires_at.into(),
+                        now.into(),
                     ],
                 ))
                 .await?;
@@ -617,7 +621,7 @@ WHERE namespace = $1 AND runtime_id = $2
                 state.events.pop_front();
             }
             state.events.push_back(envelope.clone());
-            state.updated_at = Utc::now();
+            state.updated_at = crate::clock::now();
             let snapshot = self.snapshot_from_state(&state);
             let durable = Self::is_durable_run_record(&envelope, &snapshot);
             (
@@ -723,7 +727,7 @@ impl AgentRun {
 /// Never evict a locally executing run merely because its progress is quiet;
 /// removing a stale cached replica neither aborts Work nor deletes durable state.
 pub(crate) async fn cleanup_retained_runs() {
-    let cutoff = Utc::now() - chrono::Duration::hours(RUN_RETENTION_HOURS);
+    let cutoff = crate::clock::now() - chrono::Duration::hours(RUN_RETENTION_HOURS);
     let mut runs = AGENT_RUNS.write().await;
     let mut completed = Vec::new();
     let mut stale_replicas = Vec::new();
@@ -1068,7 +1072,7 @@ mod tests {
     async fn run_cleanup_keeps_live_execution_and_reclaims_stale_replicas() {
         let run_id = format!("old-active-{}", uuid::Uuid::new_v4());
         let run = AgentRun::new(run_id.clone(), 709, None);
-        run.state.lock().await.updated_at = Utc::now() - chrono::Duration::hours(25);
+        run.state.lock().await.updated_at = crate::clock::now() - chrono::Duration::hours(25);
         let execution = tokio::spawn(std::future::pending::<()>());
         run.register_execution(execution.abort_handle());
         AGENT_RUNS.write().await.insert(run_id.clone(), run.clone());
@@ -1147,14 +1151,14 @@ mod tests {
             run_id: "run_persist_err".into(),
             user_id: 1,
             session_id: None,
-            created_at: Utc::now(),
+            created_at: crate::clock::now(),
             next_sequence: 2,
             task_id: None,
             status: "running".into(),
             progress: 0,
             message: "x".into(),
             completed: false,
-            updated_at: Utc::now(),
+            updated_at: crate::clock::now(),
         };
         let envelope = AgentRunEnvelope {
             sequence: 1,

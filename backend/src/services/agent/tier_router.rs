@@ -6,7 +6,7 @@
 use crate::config::ModelTier;
 use crate::services::agent::capability::CapabilityRef;
 use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 /// 任务复杂度等级
 #[derive(Debug, Clone, PartialEq)]
@@ -291,7 +291,7 @@ impl CircuitBreaker {
     }
 
     fn now_ms() -> u64 {
-        SystemTime::now()
+        crate::clock::now_system()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64

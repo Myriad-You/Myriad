@@ -142,7 +142,7 @@ pub async fn register_shortcut(
         return Err(ShortcutRegistryError::InvalidKeys);
     }
 
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let storage_key = shortcut_storage_key(shortcut_id);
     let shortcut_data = json!({
         "id": shortcut_id,

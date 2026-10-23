@@ -7,7 +7,7 @@
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 pub const LIVE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -49,7 +49,7 @@ pub fn record_storage_writable(ok: bool) {
 pub fn record_db_probe(handle_present: bool, probe_ok: bool) {
     DB_HANDLE_PRESENT.store(handle_present, Ordering::Release);
     DB_PROBE_OK.store(probe_ok, Ordering::Release);
-    let secs = SystemTime::now()
+    let secs = crate::clock::now_system()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);

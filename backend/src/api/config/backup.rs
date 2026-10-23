@@ -548,7 +548,7 @@ pub async fn export_settings(
         format: SETTINGS_BACKUP_FORMAT.to_string(),
         version: SETTINGS_BACKUP_VERSION,
         product_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        exported_at: chrono::Utc::now().to_rfc3339(),
+        exported_at: crate::clock::now().to_rfc3339(),
         contains_secrets: true,
         configurations,
         effective_config,
@@ -681,20 +681,21 @@ pub(crate) async fn write_restored_configurations(
     let unresolved = bind_restored_media(txn, &mut entries, origins)
         .await
         .map_err(RestoreWriteError::Media)?;
+    let now = crate::clock::now();
     for entry in entries {
         txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
                 INSERT INTO configurations
                     (key, value, description, category, is_encrypted, is_public, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $7::timestamptz)
                 ON CONFLICT (key) DO UPDATE SET
                     value = EXCLUDED.value,
                     description = COALESCE(EXCLUDED.description, configurations.description),
                     category = COALESCE(EXCLUDED.category, configurations.category),
                     is_encrypted = COALESCE(EXCLUDED.is_encrypted, configurations.is_encrypted),
                     is_public = COALESCE(EXCLUDED.is_public, configurations.is_public),
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = $7::timestamptz
             "#,
             vec![
                 entry.key.clone().into(),
@@ -706,6 +707,7 @@ pub(crate) async fn write_restored_configurations(
                 entry.category.into(),
                 entry.is_encrypted.into(),
                 entry.is_public.into(),
+                now.into(),
             ],
         ))
         .await?;
@@ -773,7 +775,7 @@ pub async fn restore_settings(
         let update_result = transaction
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "UPDATE users SET notification_preferences = $1, locale = COALESCE($3, locale), updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+                "UPDATE users SET notification_preferences = $1, locale = COALESCE($3, locale), updated_at = $4::timestamptz WHERE id = $2",
                 vec![
                     notification_value.into(),
                     user_id.into(),
@@ -784,6 +786,7 @@ pub async fn restore_settings(
                         .and_then(crate::api::reports::locale::parse_stored_ui_locale)
                         .map(|value| value.to_string())
                         .into(),
+                    crate::clock::now().into(),
                 ],
             ))
             .await?;

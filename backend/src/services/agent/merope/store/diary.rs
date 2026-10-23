@@ -31,7 +31,7 @@ pub async fn insert_diary<C: ConnectionTrait>(
         user_id: Set(user_id),
         content: Set(content.to_string()),
         source: Set(source.to_string()),
-        created_at: Set(Utc::now().into()),
+        created_at: Set(crate::clock::now().into()),
     };
     Ok(active.insert(db).await?)
 }

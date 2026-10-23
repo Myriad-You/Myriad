@@ -463,7 +463,7 @@ async fn start(
     tracing::info!(job = %id, outfit = ?outfit_id, "turn keyforms started");
     let meta = ArchiveMeta {
         id: archive::new_id(),
-        created_at: chrono::Utc::now(),
+        created_at: crate::clock::now(),
         outfit_id: outfit_id.clone(),
         source_master_asset_id: payload.source_master_asset_id.clone(),
         source_generation_fingerprint: fingerprint.clone(),

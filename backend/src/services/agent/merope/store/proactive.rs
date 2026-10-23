@@ -18,7 +18,7 @@ pub async fn insert_proactive(
         content: Set(content.to_string()),
         event_key: Set(event_key.map(str::to_string)),
         notified: Set(notified),
-        created_at: Set(Utc::now().into()),
+        created_at: Set(crate::clock::now().into()),
         say_id: Set(say_id.map(str::to_string)),
         ..Default::default()
     };
@@ -94,7 +94,7 @@ pub async fn first_words(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT p.user_id, p.created_at, \
-               p.created_at < NOW() - make_interval(hours => $3) AS settled, \
+               p.created_at < $6::timestamptz - make_interval(hours => $3) AS settled, \
                EXISTS (SELECT 1 FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
                  WHERE s.user_id = p.user_id AND s.context->>'mode' = 'chat' \
                    AND s.context->>'venue' IS NULL AND m.role = 'user' \
@@ -110,6 +110,7 @@ pub async fn first_words(
                 (within_hours as i32).into(),
                 limit.into(),
                 event_key.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -165,7 +166,7 @@ pub async fn recently_spoke_event(
     else {
         return Ok(false);
     };
-    let age = Utc::now() - latest.created_at.with_timezone(&Utc);
+    let age = crate::clock::now() - latest.created_at.with_timezone(&Utc);
     Ok(age.num_minutes() < within_minutes)
 }
 
@@ -195,7 +196,7 @@ pub async fn touch_proactive(
     user_id: i32,
 ) -> Result<agent_addressee_state::Model, anyhow::Error> {
     let state = get_or_create_state(db, user_id).await?;
-    let now = Utc::now().into();
+    let now = crate::clock::now().into();
     let mut active: agent_addressee_state::ActiveModel = state.into();
     active.last_proactive_at = Set(Some(now));
     active.updated_at = Set(now);

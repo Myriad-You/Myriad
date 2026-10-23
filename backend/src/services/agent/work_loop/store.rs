@@ -76,7 +76,7 @@ async fn save_inner(
         .await
         .map_err(|_| "Unable to begin Work checkpoint")?;
     let owner = TaskOwner::find_by_statement(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-        "SELECT user_id, status, (updated_at < NOW() - INTERVAL '90 seconds') AS stale FROM agent_tasks WHERE id = $1 FOR UPDATE",[state.task.task_id.clone().into()]))
+        "SELECT user_id, status, (updated_at < $2::timestamptz - INTERVAL '90 seconds') AS stale FROM agent_tasks WHERE id = $1 FOR UPDATE",[state.task.task_id.clone().into(),crate::clock::now().into()]))
         .one(&txn).await.map_err(|_| "Unable to lock Work task")?;
     if let Some(owner) = owner {
         if recovery && (owner.status != "running" || !owner.stale) {
@@ -114,7 +114,7 @@ async fn save_inner(
             runtime_id: Some(&state.task.task_id),
         },
         &next,
-        (chrono::Utc::now() + chrono::Duration::days(7)).timestamp(),
+        (crate::clock::now() + chrono::Duration::days(7)).timestamp(),
     )
     .await
     .map_err(|_| "Unable to save Work checkpoint")?;
@@ -146,7 +146,7 @@ pub(super) fn lease(db: sea_orm::DatabaseConnection, task_id: String, lease_id: 
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(20)).await;
                 let _ = db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-                "UPDATE agent_tasks SET updated_at = NOW() WHERE id = $1 AND status = 'running' AND EXISTS (SELECT 1 FROM runtime_registry WHERE namespace = 'agent_work_checkpoint' AND record_id = $1 AND payload->>'lease_id' = $2)",[task_id.clone().into(),lease_id.clone().into()])).await;
+                "UPDATE agent_tasks SET updated_at = $3::timestamptz WHERE id = $1 AND status = 'running' AND EXISTS (SELECT 1 FROM runtime_registry WHERE namespace = 'agent_work_checkpoint' AND record_id = $1 AND payload->>'lease_id' = $2)",[task_id.clone().into(),lease_id.clone().into(),crate::clock::now().into()])).await;
             }
         }),
         _cancellation: cancellation,
@@ -168,14 +168,14 @@ pub(crate) async fn expire_question(
             .task
             .pending_question
             .as_ref()
-            .is_some_and(|q| q.question_id == question_id && q.is_expired(chrono::Utc::now()))
+            .is_some_and(|q| q.question_id == question_id && q.is_expired(crate::clock::now()))
     {
         return Ok(false);
     }
     state.task.status = TaskStatus::Failed;
     state.task.error = Some("The task expired while waiting for input".into());
     state.final_text = state.task.error.clone().unwrap();
-    state.task.completed_at = Some(chrono::Utc::now());
+    state.task.completed_at = Some(crate::clock::now());
     state.task.pending_question = None;
     save(db, &mut state).await?;
     Ok(true)
@@ -186,8 +186,8 @@ pub(crate) async fn recover(db: &sea_orm::DatabaseConnection) -> Result<(), Stri
     crate::services::tapp_agent_interaction::redeliver_waiting_work_results(db).await?;
     // Expire abandoned waits through the same revision fence as answers. The
     // legacy in-memory cleanup must not overwrite a resumed Work checkpoint.
-    let abandoned = crate::models::entities::agent_tasks::Model::find_by_statement(Statement::from_string(DatabaseBackend::Postgres,
-        format!("SELECT * FROM agent_tasks WHERE status = 'waiting_for_input' AND {} AND (pending_question->>'expires_at')::timestamptz < NOW() LIMIT 64", crate::services::agent::types::AgentEngine::WORK_LOOP_SQL)))
+    let abandoned = crate::models::entities::agent_tasks::Model::find_by_statement(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+        format!("SELECT * FROM agent_tasks WHERE status = 'waiting_for_input' AND {} AND (pending_question->>'expires_at')::timestamptz < $1::timestamptz LIMIT 64", crate::services::agent::types::AgentEngine::WORK_LOOP_SQL),[crate::clock::now().into()]))
         .all(db).await.map_err(|_| "Unable to find abandoned Work tasks")?;
     for task in abandoned {
         if let Some(question_id) = task
@@ -198,8 +198,8 @@ pub(crate) async fn recover(db: &sea_orm::DatabaseConnection) -> Result<(), Stri
             let _ = expire_question(db, &task.id, task.user_id, question_id).await;
         }
     }
-    let tasks = crate::models::entities::agent_tasks::Model::find_by_statement(Statement::from_string(DatabaseBackend::Postgres,
-        format!("SELECT * FROM agent_tasks WHERE status = 'running' AND {} AND updated_at < NOW() - INTERVAL '90 seconds' LIMIT 64", crate::services::agent::types::AgentEngine::WORK_LOOP_SQL)))
+    let tasks = crate::models::entities::agent_tasks::Model::find_by_statement(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+        format!("SELECT * FROM agent_tasks WHERE status = 'running' AND {} AND updated_at < $1::timestamptz - INTERVAL '90 seconds' LIMIT 64", crate::services::agent::types::AgentEngine::WORK_LOOP_SQL),[crate::clock::now().into()]))
         .all(db).await.map_err(|_| "Unable to find interrupted Work tasks")?;
     for task in tasks {
         let Ok(mut state) = load(db, &task.id, task.user_id).await else {

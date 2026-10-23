@@ -299,7 +299,8 @@ async fn check_rate_limit_key(
         .await
         .map_err(map_db_err)?;
 
-    let now = chrono::Utc::now().timestamp();
+    let now_at = crate::clock::now();
+    let now = now_at.timestamp();
     let current = load_rate_limit_row(&transaction, &record_id)
         .await
         .map_err(map_db_err)?;
@@ -318,13 +319,13 @@ async fn check_rate_limit_key(
                 r#"
 INSERT INTO runtime_registry
     (namespace, record_id, subject_id, tapp_id, payload, expires_at, updated_at)
-VALUES ($1, $2, $3, $4, jsonb_build_object('count', $5::BIGINT), $6, NOW())
+VALUES ($1, $2, $3, $4, jsonb_build_object('count', $5::BIGINT), $6, $7::timestamptz)
 ON CONFLICT (namespace, record_id) DO UPDATE SET
     subject_id = EXCLUDED.subject_id,
     tapp_id = EXCLUDED.tapp_id,
     payload = EXCLUDED.payload,
     expires_at = EXCLUDED.expires_at,
-    updated_at = NOW()
+    updated_at = $7::timestamptz
 "#,
                 vec![
                     RATE_LIMIT_NAMESPACE.into(),
@@ -333,6 +334,7 @@ ON CONFLICT (namespace, record_id) DO UPDATE SET
                     tapp_id.to_string().into(),
                     i64::from(count.saturating_add(1)).into(),
                     expires_at.into(),
+                    now_at.into(),
                 ],
             ))
             .await
@@ -380,7 +382,7 @@ pub async fn get_rate_limit_status_for(
     let (limit, window_secs) = get_rate_limit_config(operation);
     let key = rate_limit_key(user_id, tapp_id, operation);
     let record_id = rate_limit_record_id(&key);
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     let Some(row) = load_rate_limit_row(db, &record_id)
         .await
         .map_err(map_db_err)?
@@ -403,8 +405,8 @@ pub async fn get_rate_limiter_active_count(
 ) -> Result<usize, RateLimitError> {
     let row = CountRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT COUNT(*)::BIGINT AS count FROM runtime_registry WHERE namespace = $1 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT",
-        vec![RATE_LIMIT_NAMESPACE.into()],
+        "SELECT COUNT(*)::BIGINT AS count FROM runtime_registry WHERE namespace = $1 AND expires_at > EXTRACT(EPOCH FROM $2::timestamptz)::BIGINT",
+        vec![RATE_LIMIT_NAMESPACE.into(), crate::clock::now().into()],
     ))
     .one(db)
     .await

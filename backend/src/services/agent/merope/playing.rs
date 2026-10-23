@@ -196,7 +196,7 @@ pub async fn tick(db: DatabaseConnection) {
     };
     let Some((ended, noticed)) = WATCH.lock().ok().map(|mut watch| {
         watch.owner = Some(owner);
-        let ended = look(&mut watch, playing, Utc::now());
+        let ended = look(&mut watch, playing, crate::clock::now());
         let noticed = notice(&mut watch, ended.as_ref());
         (ended, noticed)
     }) else {

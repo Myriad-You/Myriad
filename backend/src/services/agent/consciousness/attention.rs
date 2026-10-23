@@ -32,7 +32,7 @@ fn prune_segments(map: &mut HashMap<i32, AttentionSegment>, now: DateTime<Utc>) 
 
 pub(crate) fn cleanup_attention() {
     if let Ok(mut map) = SEGMENTS.write() {
-        prune_segments(&mut map, Utc::now());
+        prune_segments(&mut map, crate::clock::now());
     }
 }
 
@@ -44,7 +44,7 @@ pub(crate) fn clear_user_attention(user_id: i32) {
 
 pub fn last_attention(user_id: i32) -> Option<AttentionSegment> {
     let mut map = SEGMENTS.write().ok()?;
-    prune_segments(&mut map, Utc::now());
+    prune_segments(&mut map, crate::clock::now());
     map.get(&user_id).cloned()
 }
 
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn distinct_user_churn_stays_bounded() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         for user_id in 10_000..12_000 {
             touch_attention(user_id, "topic", "inner", "event", now);
         }
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn same_topic_continues_the_segment() {
-        let t0 = Utc::now();
+        let t0 = crate::clock::now();
         let first = next_attention_segment(None, "phantasi.source_error", "feed failed", "e1", t0);
         let t1 = t0 + Duration::seconds(5);
         let second = next_attention_segment(
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn topic_change_opens_a_new_segment() {
-        let t0 = Utc::now();
+        let t0 = crate::clock::now();
         let first = next_attention_segment(None, "phantasi.source_error", "feed failed", "e1", t0);
         let t1 = t0 + Duration::seconds(5);
         let second = next_attention_segment(Some(&first), "agent.task_completed", "done", "e2", t1);
@@ -154,8 +154,8 @@ mod tests {
         let stale = AttentionSegment {
             topic: "phantasi.source_error".into(),
             inner: "old".into(),
-            opened_at: Utc::now() - Duration::seconds(ATTENTION_TTL_SECS + 30),
-            last_touched_at: Utc::now() - Duration::seconds(ATTENTION_TTL_SECS + 10),
+            opened_at: crate::clock::now() - Duration::seconds(ATTENTION_TTL_SECS + 30),
+            last_touched_at: crate::clock::now() - Duration::seconds(ATTENTION_TTL_SECS + 10),
             event_ids: vec!["e1".into()],
         };
         if let Ok(mut map) = SEGMENTS.write() {
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn event_ids_drop_from_the_front_past_the_cap() {
-        let t0 = Utc::now();
+        let t0 = crate::clock::now();
         let mut segment = next_attention_segment(None, "topic", "inner", "e0", t0);
         for i in 1..=EVENT_ID_CAP {
             segment = next_attention_segment(

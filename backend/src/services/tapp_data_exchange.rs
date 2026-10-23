@@ -8,7 +8,6 @@
 //! `api::tapp_runtime::data_exchange` wrappers. The API layer maps
 //! [`DataExchangeError`] to Axum responses and resolves accessible Tapp installs.
 
-use chrono::Utc;
 use myriad_tapp_contract::manifest::{TappDataExchangeManifest, TappDataExport};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait,
@@ -348,7 +347,7 @@ pub async fn prepare_exchange(
         .find(|export| export.id == input.export_id)
         .ok_or(DataExchangeError::ExportNotDeclared)?;
 
-    let now = Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     let expires_at = now + PREPARED_REQUEST_TTL.as_secs() as i64;
     let request_id = format!("dxr_{}", Uuid::new_v4().simple());
     let hash = request_hash(
@@ -418,7 +417,7 @@ pub async fn authorize_exchange(
     runtime: &DataExchangeRuntime,
     request_id: &str,
 ) -> Result<AuthorizedAccessGrant, DataExchangeError> {
-    let now = Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     let txn = db
         .begin()
         .await

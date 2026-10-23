@@ -174,7 +174,7 @@ pub(super) async fn talk_rhythm(
         .iter()
         .filter_map(|row| row.try_get::<chrono::NaiveDate>("", "day").ok())
         .collect();
-    let known = myriad_merope::rhythm::rhythm(&days, first, chrono::Utc::now().date_naive());
+    let known = myriad_merope::rhythm::rhythm(&days, first, crate::clock::now().date_naive());
     if let Ok(mut cache) = KNOWN.lock() {
         if cache.len() >= PEOPLE_KEPT {
             cache.retain(|_, (at, _)| at.elapsed() < FRESH_FOR);
@@ -893,7 +893,7 @@ mod tests {
         ))
         .await
         .unwrap();
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         for ago in 4..40 {
             let venue = (ago % 3 == 0).then_some("telegram:-1005566");
             let at = now - chrono::Duration::days(ago);

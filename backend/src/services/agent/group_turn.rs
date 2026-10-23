@@ -123,7 +123,7 @@ pub async fn begin(db: &DatabaseConnection, start: Start) -> Option<Begun> {
     context.run_id = Some(turn.clone());
     let request = UserRequest {
         raw_input: start.input.clone(),
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::clock::now(),
         user_id,
         context: Some(context),
     };
@@ -164,7 +164,7 @@ pub async fn begin(db: &DatabaseConnection, start: Start) -> Option<Begun> {
         })
         .await;
     let doing = super::merope::doing::current()
-        .map(|doing| super::merope::doing::now_line(&doing, chrono::Utc::now()));
+        .map(|doing| super::merope::doing::now_line(&doing, crate::clock::now()));
     put(
         &turn,
         Open {

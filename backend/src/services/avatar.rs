@@ -699,8 +699,8 @@ pub async fn refresh_avatar_snapshot_on<C: ConnectionTrait>(
     write_db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE users SET avatar_resolved_url = $1, avatar_updated_at = NOW() WHERE id = $2",
-            vec![value, SeaValue::Int(Some(user_id))],
+            "UPDATE users SET avatar_resolved_url = $1, avatar_updated_at = $3::timestamptz WHERE id = $2",
+            vec![value, SeaValue::Int(Some(user_id)), crate::clock::now().into()],
         ))
         .await
         .map_err(|error| {
@@ -728,9 +728,9 @@ pub async fn resync_persona_avatar_snapshots<C: ConnectionTrait>(
     };
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE users SET avatar_resolved_url = $1, avatar_updated_at = NOW() \
+        "UPDATE users SET avatar_resolved_url = $1, avatar_updated_at = $2::timestamptz \
          WHERE avatar_source_kind = 'persona'",
-        vec![value],
+        vec![value, crate::clock::now().into()],
     ))
     .await
     .map_err(|error| {
@@ -1109,15 +1109,17 @@ async fn set_avatar_source_txn(
         tracing::error!(%error, "failed to begin avatar source transaction");
         "Failed to save avatar source".to_string()
     })?;
+    let now = crate::clock::now();
 
     if let Some(github_id) = linked_github_id {
         txn.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET linked_github_id = COALESCE(linked_github_id, $1), \
-             updated_at = NOW() WHERE id = $2",
+             updated_at = $3::timestamptz WHERE id = $2",
             vec![
                 SeaValue::BigInt(Some(github_id)),
                 SeaValue::Int(Some(user_id)),
+                now.into(),
             ],
         ))
         .await
@@ -1129,7 +1131,7 @@ async fn set_avatar_source_txn(
 
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "UPDATE users SET avatar_source_kind = $1, avatar_source_ref = $2, updated_at = NOW() \
+        "UPDATE users SET avatar_source_kind = $1, avatar_source_ref = $2, updated_at = $4::timestamptz \
          WHERE id = $3",
         vec![
             SeaValue::String(Some(kind.as_str().to_string())),
@@ -1138,6 +1140,7 @@ async fn set_avatar_source_txn(
                 None => SeaValue::String(None),
             },
             SeaValue::Int(Some(user_id)),
+            now.into(),
         ],
     ))
     .await

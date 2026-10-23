@@ -8,7 +8,7 @@ use super::*;
 pub async fn songs_to_share(db: &DatabaseConnection) -> Vec<(Thing, String)> {
     const WITHIN: chrono::Duration = chrono::Duration::days(14);
     const AT_MOST: usize = 8;
-    let now = Utc::now();
+    let now = crate::clock::now();
     let rows = unified::own_experiences(db, 300).await.unwrap_or_default();
     let mut seen = std::collections::HashSet::new();
     rows.iter()

@@ -21,7 +21,7 @@ pub(crate) fn utc_now() -> chrono::DateTime<chrono::Utc> {
     if let Some(at) = crate::services::channel_group::g0::now() {
         return at;
     }
-    chrono::Utc::now()
+    crate::clock::now()
 }
 pub(crate) mod work_memory;
 

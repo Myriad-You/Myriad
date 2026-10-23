@@ -8,7 +8,7 @@ use flate2::write::ZlibEncoder;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -161,7 +161,7 @@ pub fn build_rtc_rtm_token_now(
     uid: u32,
     expire_seconds: u32,
 ) -> Result<String, AgoraTokenError> {
-    let issue_ts = SystemTime::now()
+    let issue_ts = crate::clock::now_system()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as u32)
         .unwrap_or(0);

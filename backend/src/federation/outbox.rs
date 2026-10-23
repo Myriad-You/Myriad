@@ -185,7 +185,7 @@ pub async fn get_outbox(
         }
         PagePosition::After { published_us, id } => {
             let ts = chrono::DateTime::from_timestamp_micros(published_us)
-                .unwrap_or_else(chrono::Utc::now);
+                .unwrap_or_else(crate::clock::now);
             db.query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 format!(

@@ -74,7 +74,7 @@ pub(crate) async fn store_feed_items(
     source: &phantasi_sources::Model,
     feed: &ParsedFeed,
 ) -> Result<Vec<phantasi_items::Model>, String> {
-    let now = Utc::now();
+    let now = crate::clock::now();
 
     // 批量获取所有已存在的 guid，避免 N+1 查询
     let all_guids: Vec<&str> = feed.items.iter().map(|item| item.guid.as_str()).collect();
@@ -334,8 +334,9 @@ pub(crate) fn retry_interval_sql() -> String {
 /// 新条目封面缓存），并给崩溃进程留下的租约一个自动到期的上限。
 const FETCH_LEASE_MINUTES: i32 = 15;
 
-/// 租约空闲（从未占用或已过期）的判定。租约用数据库时钟，多实例之间不受应用主机时钟偏差影响。
-const LEASE_FREE_SQL: &str = "(fetch_lease_until IS NULL OR fetch_lease_until <= NOW())";
+/// 租约空闲（从未占用或已过期）的判定。租约用站点时钟（`crate::clock::now()`），
+/// 用到它的语句都把现在绑在 `$1`。
+const LEASE_FREE_SQL: &str = "(fetch_lease_until IS NULL OR fetch_lease_until <= $1::timestamptz)";
 
 /// 原子地领走一批到期订阅源：到期判定在 WHERE（LIMIT 之前），`SKIP LOCKED` 让并发
 /// tick 分到互不相交的行，同一语句写入租约，抓取期间别的抓取者看不到这些行。
@@ -355,7 +356,7 @@ pub(crate) fn claim_due_sources_sql() -> String {
            FOR UPDATE SKIP LOCKED \
          ) \
          UPDATE phantasi_sources s \
-         SET fetch_lease_until = NOW() + make_interval(mins => $3) \
+         SET fetch_lease_until = $1::timestamptz + make_interval(mins => $3) \
          FROM due WHERE s.id = due.id \
          RETURNING s.*",
         interval = retry_interval_sql()
@@ -415,11 +416,12 @@ pub(crate) async fn claim_source_for_refresh(
         DatabaseBackend::Postgres,
         format!(
             "UPDATE phantasi_sources \
-             SET fetch_lease_until = NOW() + make_interval(mins => $2) \
-             WHERE id = $1 AND {LEASE_FREE_SQL} \
+             SET fetch_lease_until = $1::timestamptz + make_interval(mins => $3) \
+             WHERE id = $2 AND {LEASE_FREE_SQL} \
              RETURNING *"
         ),
         [
+            crate::clock::now().into(),
             SeaValue::Int(Some(source_id)),
             SeaValue::Int(Some(FETCH_LEASE_MINUTES)),
         ],
@@ -603,7 +605,7 @@ impl PhantasiSchedulerEngine {
 
     /// 主调度循环 tick
     async fn tick(db: &DatabaseConnection) -> Result<(), String> {
-        let now = Utc::now();
+        let now = crate::clock::now();
         tracing::debug!("[PhantasiScheduler] Tick at {}", now);
 
         // Due predicate is in SQL so LIMIT cannot starve later-due sources; the same
@@ -989,7 +991,7 @@ impl PhantasiSchedulerEngine {
             &self.db,
             (&self.parser, &self.notion_service, &self.rsshub_service),
             source,
-            Utc::now(),
+            crate::clock::now(),
         )
         .await?
         {
@@ -1223,7 +1225,7 @@ mod tests {
 
     #[test]
     fn source_is_due_matches_retry_interval() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         assert!(source_is_due(now, None, 60, 0));
         assert!(!source_is_due(
             now,
@@ -1274,7 +1276,7 @@ mod tests {
             .to_string(sea_orm::sea_query::PostgresQueryBuilder)
             .replacen("CREATE TABLE", "CREATE TEMP TABLE", 1);
         db.execute_unprepared(&sql).await.unwrap();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let fresh = now - chrono::Duration::minutes(2);
         let stale = now - chrono::Duration::minutes(120);
         for i in 0..50 {
@@ -1340,7 +1342,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let now = Utc::now();
+        let now = crate::clock::now();
         phantasi_sources::ActiveModel {
             user_id: Set(1),
             name: Set(tag.to_string()),
@@ -1371,7 +1373,7 @@ mod tests {
         for i in 0..8 {
             ids.push(insert_due_source(&db, &format!("lease-{i}")).await.id);
         }
-        let now = Utc::now();
+        let now = crate::clock::now();
         let (left, right) = tokio::join!(claim_due_sources(&db, now), claim_due_sources(&db, now));
         let (left, right) = (left.unwrap(), right.unwrap());
         let mut claimed: Vec<i32> = left.iter().chain(&right).map(|s| s.id).collect();
@@ -1449,7 +1451,7 @@ mod tests {
         ))
         .await
         .unwrap();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let results = futures::future::join_all(
             (0..6).map(|_| record_fetch_failure(&db, source.id, now, "boom")),
         )

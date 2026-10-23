@@ -223,7 +223,7 @@ mod tests {
             avatar_asset_id: None,
             avatar_generation: None,
             updated_by: None,
-            updated_at: chrono::Utc::now().fixed_offset(),
+            updated_at: crate::clock::now().fixed_offset(),
             zone: String::new(),
             field_revs: serde_json::json!({}),
         };
@@ -266,7 +266,7 @@ mod tests {
             avatar_asset_id: None,
             avatar_generation: None,
             updated_by: None,
-            updated_at: chrono::Utc::now().fixed_offset(),
+            updated_at: crate::clock::now().fixed_offset(),
             zone: String::new(),
             field_revs: serde_json::json!({}),
         };

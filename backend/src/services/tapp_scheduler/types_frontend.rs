@@ -1,4 +1,3 @@
-use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -233,7 +232,7 @@ pub async fn register_frontend_connection(
     user_id: i32,
     connection_id: &str,
 ) -> Result<(), String> {
-    let expires_at = Utc::now().timestamp() + SCHEDULER_PRESENCE_TTL_SECONDS;
+    let expires_at = crate::clock::now().timestamp() + SCHEDULER_PRESENCE_TTL_SECONDS;
     if shared_registry::touch_live(
         db,
         SCHEDULER_PRESENCE_NAMESPACE,
@@ -258,7 +257,7 @@ pub async fn register_frontend_connection(
             tapp_id: None,
             runtime_id: Some(connection_id),
         },
-        &json!({ "connectedAt": Utc::now().to_rfc3339() }),
+        &json!({ "connectedAt": crate::clock::now().to_rfc3339() }),
         expires_at,
         MAX_SCHEDULER_CONNECTIONS_PER_SUBJECT,
     )

@@ -95,7 +95,7 @@ pub async fn recall_last_heard(db: &DatabaseConnection, owner: i32, venue: &str)
     let Ok(at) = row.try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at") else {
         return;
     };
-    let ago = (chrono::Utc::now() - at.with_timezone(&chrono::Utc))
+    let ago = (crate::clock::now() - at.with_timezone(&chrono::Utc))
         .to_std()
         .unwrap_or_default();
     if let (Some(then), Ok(mut heard)) = (

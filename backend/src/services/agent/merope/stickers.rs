@@ -219,7 +219,7 @@ pub async fn make_sticker(
         identity: Set(identity),
         sent: Set(0),
         last_sent_at: Set(None),
-        created_at: Set(Utc::now().fixed_offset()),
+        created_at: Set(crate::clock::now().fixed_offset()),
         kept_from: Set(None),
     };
     match row.insert(db).await {
@@ -315,7 +315,7 @@ pub async fn for_memes(db: &DatabaseConnection, owner: i32) {
     if left_this_month(db).await == 0 {
         return;
     }
-    let since = (Utc::now() - MEMES_LATELY).fixed_offset();
+    let since = (crate::clock::now() - MEMES_LATELY).fixed_offset();
     let memes = super::memes::learned_since(db, since, MEMES).await;
     if memes.is_empty() {
         return;
@@ -510,7 +510,7 @@ pub async fn sent(db: &DatabaseConnection, sticker: &Model) {
     let row = merope_stickers::ActiveModel {
         id: Set(sticker.id.clone()),
         sent: Set(sticker.sent.saturating_add(1)),
-        last_sent_at: Set(Some(Utc::now().fixed_offset())),
+        last_sent_at: Set(Some(crate::clock::now().fixed_offset())),
         ..Default::default()
     };
     if let Err(error) = row.update(db).await {

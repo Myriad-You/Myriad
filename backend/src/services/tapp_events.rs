@@ -8,7 +8,6 @@
 
 use std::collections::HashSet;
 
-use chrono::Utc;
 use myriad_tapp_contract::manifest::TappEventsManifest;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
@@ -371,7 +370,7 @@ async fn enqueue_event(
         EVENT_MAILBOX_CHANNEL,
         runtime_id,
         event,
-        Utc::now().timestamp() + 30,
+        crate::clock::now().timestamp() + 30,
     )
     .await
     .map_err(|_| EventError::Unavailable {
@@ -425,7 +424,7 @@ pub async fn publish_event(
             runtime_id: runtime.runtime_id.clone(),
         },
         payload: request.payload,
-        occurred_at: Utc::now().to_rfc3339(),
+        occurred_at: crate::clock::now().to_rfc3339(),
         dedupe_key: request.dedupe_key,
     };
 
@@ -465,7 +464,7 @@ pub async fn publish_event(
         }
 
         let delivered = deliver_event(&txn, runtime, &event).await?;
-        let expires_at = Utc::now().timestamp() + DEDUPE_TTL_SECONDS;
+        let expires_at = crate::clock::now().timestamp() + DEDUPE_TTL_SECONDS;
         shared_registry::put(
             &txn,
             EVENT_DEDUPE_NAMESPACE,
@@ -766,7 +765,7 @@ mod delivery_db_tests {
                 runtime_id: source.runtime_id.clone(),
             },
             payload: serde_json::json!({}),
-            occurred_at: Utc::now().to_rfc3339(),
+            occurred_at: crate::clock::now().to_rfc3339(),
             dedupe_key: None,
         }
     }
@@ -788,7 +787,7 @@ mod delivery_db_tests {
     #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
     async fn delivery_targets_live_subscribed_presence_only() {
         let (admin, db, schema_name) = isolated_db("events").await;
-        let live = Utc::now().timestamp() + 600;
+        let live = crate::clock::now().timestamp() + 600;
         let topic = "tapp.com.example.events.changed";
         let subscribed = HashSet::from([topic.to_string()]);
         for (runtime_id, subject_id, topics, expires_at) in [
@@ -800,7 +799,7 @@ mod delivery_db_tests {
                 "rt_expired",
                 7,
                 subscribed.clone(),
-                Utc::now().timestamp() - 1,
+                crate::clock::now().timestamp() - 1,
             ),
         ] {
             register_subscription(&db, &runtime(runtime_id, subject_id), topics, expires_at)
@@ -846,7 +845,7 @@ mod delivery_db_tests {
         db.execute_unprepared(&format!(
             "INSERT INTO runtime_registry (namespace, record_id, subject_id, payload, expires_at)
              VALUES ('{EVENT_PRESENCE_NAMESPACE}', 'rt_bad', 7, '\"garbage\"'::jsonb, {})",
-            Utc::now().timestamp() + 600
+            crate::clock::now().timestamp() + 600
         ))
         .await
         .unwrap();

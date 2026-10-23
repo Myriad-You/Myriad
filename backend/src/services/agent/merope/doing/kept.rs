@@ -66,7 +66,7 @@ pub(super) async fn keep_now(db: &DatabaseConnection) {
     let Some(kept) = kept else {
         return;
     };
-    let keep_until = (Utc::now() + chrono::Duration::days(2)).timestamp();
+    let keep_until = (crate::clock::now() + chrono::Duration::days(2)).timestamp();
     if let Err(error) = crate::services::runtime_registry::put(
         db,
         PRESENT_NAMESPACE,
@@ -99,7 +99,7 @@ pub(super) async fn restore_now(db: &DatabaseConnection, owner: i32) {
                 return;
             }
         };
-    let now = Utc::now();
+    let now = crate::clock::now();
     if let Some(kept) = kept.doing {
         let doing = Doing {
             thing: kept.thing,

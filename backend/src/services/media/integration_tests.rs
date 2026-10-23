@@ -99,7 +99,7 @@ async fn postgres_result_references_and_mailbox_rollback_together() {
         tapp_id: "test".into(),
         idempotency_key: None,
         request_hash: [0; 32],
-        retain_until: chrono::Utc::now().timestamp() + 900,
+        retain_until: crate::clock::now().timestamp() + 900,
         snapshot: AiTaskSnapshot {
             task_id: "test-result".into(),
             status: AiTaskStatus::Completed,
@@ -251,8 +251,8 @@ async fn postgres_channel_reference_failure_never_admits_run() {
         username: "media-channel-test".into(),
         is_admin: true,
         is_owner: false,
-        exp: chrono::Utc::now().timestamp() + 60,
-        iat: chrono::Utc::now().timestamp(),
+        exp: crate::clock::now().timestamp() + 60,
+        iat: crate::clock::now().timestamp(),
         tv: 0,
         subject: crate::middleware::auth::AuthSubject::from_test_sub(&user_id.to_string()),
     };
@@ -305,8 +305,8 @@ async fn postgres_rss_shared_assets_are_protected_and_new_feed_writes_are_atomic
         title: Set(guid.into()),
         link: Set(format!("https://example.com/{guid}")),
         image: Set(Some(shared.clone())),
-        published_at: Set(chrono::Utc::now().fixed_offset()),
-        fetched_at: Set(chrono::Utc::now().fixed_offset()),
+        published_at: Set(crate::clock::now().fixed_offset()),
+        fetched_at: Set(crate::clock::now().fixed_offset()),
         ..Default::default()
     };
     crate::services::phantasi_scheduler::insert_feed_items(&f.db, vec![item("old")])

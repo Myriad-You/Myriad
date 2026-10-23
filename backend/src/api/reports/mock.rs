@@ -462,7 +462,7 @@ fn youtube_upload_stale(published_at: Option<&str>) -> bool {
     let Some(dt) = parsed else {
         return false;
     };
-    chrono::Utc::now()
+    crate::clock::now()
         .signed_duration_since(dt.with_timezone(&chrono::Utc))
         .num_days()
         > 365

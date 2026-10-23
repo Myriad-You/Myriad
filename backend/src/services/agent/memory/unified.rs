@@ -13,7 +13,6 @@
 //!   never left to the caller.
 //! - Recalled text is data. Callers inject it through an untrusted block.
 
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait,
     ExprTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -381,7 +380,7 @@ pub(crate) async fn rows_with<C: ConnectionTrait>(
     } else {
         active_rows(db, user_id, kinds).await?
     };
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     Ok(rows
         .into_iter()
         .filter(|row| admits(row, present))
@@ -553,7 +552,7 @@ async fn insert_new<C: ConnectionTrait>(
     content: String,
     origin: &str,
 ) -> Result<String, DbErr> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let id = format!("mem_{}", uuid::Uuid::new_v4().simple());
     agent_memories::ActiveModel {
         id: Set(id.clone()),
@@ -652,7 +651,7 @@ pub async fn retire_in_favor_of<C: ConnectionTrait>(
     if ids.is_empty() {
         return Ok(0);
     }
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let result = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             invalid_at: Set(Some(now)),
@@ -688,7 +687,7 @@ async fn fade_excess<C: ConnectionTrait>(db: &C, user_id: i32) -> Result<(), DbE
 /// First to fade: least important, then least ready to come to mind (see
 /// `strength`): seldom recalled, and not lately.
 fn fade_order(left: &agent_memories::Model, right: &agent_memories::Model) -> std::cmp::Ordering {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     left.importance
         .partial_cmp(&right.importance)
         .unwrap_or(std::cmp::Ordering::Equal)

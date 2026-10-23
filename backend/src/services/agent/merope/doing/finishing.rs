@@ -194,7 +194,7 @@ pub(super) async fn own_views_on(db: &DatabaseConnection, thing: &Thing) -> Vec<
 pub(super) async fn notes_before(db: &DatabaseConnection, thing: &Thing) -> Vec<String> {
     const BEFORE: usize = 2;
     let key = thing.key();
-    let now = Utc::now();
+    let now = crate::clock::now();
     unified::own_experiences(db, 300)
         .await
         .unwrap_or_default()

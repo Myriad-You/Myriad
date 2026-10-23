@@ -136,7 +136,7 @@ fn live_chat_context(
     let elapsed_ms = live
         .captured_at
         .map(|captured| {
-            chrono::Utc::now()
+            crate::clock::now()
                 .signed_duration_since(captured)
                 .num_milliseconds()
                 .max(0)

@@ -6,7 +6,7 @@ use axum::{
     extract::{ConnectInfo, Query, Request},
     http::{StatusCode, header},
 };
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, TransactionTrait,
     Value as SeaValue,
@@ -1033,7 +1033,7 @@ ORDER BY day ASC, country_code ASC, visitor_hash ASC
             "success": true,
             "format": ANALYTICS_BACKUP_FORMAT,
             "version": ANALYTICS_BACKUP_VERSION,
-            "exported_at": Utc::now().to_rfc3339(),
+            "exported_at": crate::clock::now().to_rfc3339(),
             "timezone": analytics_tz_label(),
             // Process-local calendar day used by analytics_today buckets.
             // FE backup filenames prefer this over max(day) in payload tables

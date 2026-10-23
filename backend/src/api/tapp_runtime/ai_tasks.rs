@@ -12,7 +12,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
 };
-use chrono::Utc;
 use futures::Stream;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -350,7 +349,7 @@ pub async fn create_ai_task(
         runtime.tapp_id(),
         request.idempotency_key.as_deref(),
     );
-    let now = Utc::now().to_rfc3339();
+    let now = crate::clock::now().to_rfc3339();
     let snapshot = AiTaskSnapshot {
         task_id: task_id.clone(),
         status: AiTaskStatus::Queued,

@@ -314,7 +314,7 @@ pub async fn generate_portrait(
     let pending = json!({
         "token": generation_token,
         "inputFingerprint": contract_fingerprint,
-        "startedAt": chrono::Utc::now().to_rfc3339(),
+        "startedAt": crate::clock::now().to_rfc3339(),
     });
     let acquired = merope::acquire_portrait_generation(&db, name, &visual_profile, &pending)
         .await

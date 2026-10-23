@@ -66,7 +66,7 @@ async fn keep_watched(db: &DatabaseConnection, venue: &str, watched: Vec<Watched
     if let Ok(mut all) = WATCHED.lock() {
         all.insert(venue.to_string(), watched.clone());
     }
-    let until = (chrono::Utc::now() + chrono::Duration::days(WATCHED_FOR_DAYS)).timestamp();
+    let until = (crate::clock::now() + chrono::Duration::days(WATCHED_FOR_DAYS)).timestamp();
     if let Err(error) =
         crate::services::runtime_registry::put(db, NAMESPACE, venue, identity(), &watched, until)
             .await

@@ -56,7 +56,7 @@ pub async fn refresh_unowned<C: ConnectionTrait>(
     venue: &str,
     id: &str,
 ) -> Result<bool, DbErr> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let result = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             updated_at: Set(now),
@@ -90,7 +90,7 @@ pub async fn retire_unowned_in_favor_of<C: ConnectionTrait>(
     reason: &str,
     by: Option<&str>,
 ) -> Result<bool, DbErr> {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let result = agent_memories::Entity::update_many()
         .set(agent_memories::ActiveModel {
             invalid_at: Set(Some(now)),
@@ -168,7 +168,7 @@ pub async fn in_other_groups<C: ConnectionTrait>(
     if let Some(user_id) = user_id {
         query = query.filter(agent_memories::Column::UserId.eq(user_id));
     }
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     query
         .order_by_desc(agent_memories::Column::UpdatedAt)
         .limit(limit)
@@ -202,7 +202,7 @@ pub async fn adopt_unowned<C: ConnectionTrait>(
         )
         .col_expr(
             agent_memories::Column::UpdatedAt,
-            sea_orm::sea_query::Expr::value(Utc::now().fixed_offset()),
+            sea_orm::sea_query::Expr::value(crate::clock::now().fixed_offset()),
         )
         .filter(agent_memories::Column::UserId.is_null())
         .filter(agent_memories::Column::Source.eq(source))

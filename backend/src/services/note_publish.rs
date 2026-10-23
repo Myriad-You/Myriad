@@ -170,7 +170,7 @@ async fn ensure_note_source<C: ConnectionTrait>(
         return Ok(source);
     }
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     let source = phantasi_sources::ActiveModel {
         user_id: Set(user_id),
         name: Set(NOTE_SOURCE_NAME.to_string()),
@@ -216,7 +216,7 @@ async fn sync_item_count<C: ConnectionTrait>(
         .map_err(|error| phantasi_store_http("count notes", error))?;
     let mut active: phantasi_sources::ActiveModel = source.clone().into();
     active.item_count = Set(i32::try_from(count).unwrap_or(i32::MAX));
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     active
         .update(db)
         .await
@@ -250,7 +250,7 @@ async fn write_published_item<C: ConnectionTrait>(
     validate_note(title, &content_md).map_err(validation_err)?;
     let source = ensure_note_source(db, user_id).await?;
     let rendered = render_note(title, &content_md);
-    let now = Utc::now();
+    let now = crate::clock::now();
     let topic = topic.filter(|value| !value.trim().is_empty());
     let cover = image
         .filter(|value| !value.trim().is_empty())
@@ -361,7 +361,7 @@ async fn mark_doc_published<C: ConnectionTrait>(
     item: &PublishedNote,
     published_at_ms: Option<i64>,
 ) -> Result<phantasi_note_docs::Model, HttpError> {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let published_at = published_at_ms
         .and_then(millis_to_datetime)
         .or_else(|| doc.published_at.map(|dt| dt.with_timezone(&Utc)))
@@ -563,7 +563,7 @@ pub async fn update_note_doc_topic(
         }
         // All published-note writers acquire article before document: publish/delete use
         // the same order. A failed revision CAS rolls back the metadata update above.
-        let now = Utc::now();
+        let now = crate::clock::now();
         let mut active = <phantasi_note_docs::ActiveModel as Default>::default();
         active.topic = Set(topic.clone());
         active.revision = Set(expected_revision + 1);
@@ -676,7 +676,7 @@ fn is_lock_not_available(error: &sea_orm::DbErr) -> bool {
 /// 已锁事务里退回草稿并记下 last_error，避免下一轮无限重试；409/5xx 整体回滚，稿件保持
 /// scheduled 供后续 tick 重试。
 pub async fn publish_due_note_docs(db: &DatabaseConnection) -> Result<usize, String> {
-    let cutoff = Utc::now();
+    let cutoff = crate::clock::now();
     let mut after = None;
     let mut published = 0;
     for _ in 0..MAX_DUE_NOTES_PER_TICK {
@@ -773,7 +773,7 @@ async fn revert_due_doc<C: ConnectionTrait>(
     let mut active = <phantasi_note_docs::ActiveModel as Default>::default();
     active.status = Set(NoteDocStatus::Draft.as_str().to_string());
     active.last_error = Set(Some(label.to_string()));
-    active.updated_at = Set(Utc::now().into());
+    active.updated_at = Set(crate::clock::now().into());
     active.revision = Set(revision + 1);
     // A user edit, reschedule, or another publisher invalidates this worker's ownership.
     // Zero rows means the current owner decides the state; never undo their work.
@@ -798,7 +798,7 @@ pub async fn upsert_doc_for_published_item<C: ConnectionTrait>(
     image: Option<String>,
     published_at_ms: Option<i64>,
 ) -> Result<phantasi_note_docs::Model, HttpError> {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let published_at = published_at_ms.and_then(millis_to_datetime);
     if let Some(existing) = phantasi_note_docs::Entity::find()
         .filter(phantasi_note_docs::Column::ItemId.eq(item.id))
@@ -855,10 +855,10 @@ pub async fn detach_note_docs_for_source<C: ConnectionTrait>(
         SET item_id = NULL,
             status = CASE WHEN d.status = 'published' THEN 'draft' ELSE d.status END,
             revision = d.revision + 1,
-            updated_at = NOW()
+            updated_at = $2::timestamptz
         WHERE d.item_id IN (SELECT id FROM phantasi_items WHERE source_id = $1)
         "#,
-        [SeaValue::Int(Some(source_id))],
+        [SeaValue::Int(Some(source_id)), crate::clock::now().into()],
     ))
     .await
     .map_err(|e| phantasi_store_http("detach note docs for source", e))?;
@@ -1009,7 +1009,7 @@ mod tests {
     }
 
     async fn insert_test_source(db: &DatabaseConnection) {
-        let now = Utc::now();
+        let now = crate::clock::now();
         phantasi_sources::ActiveModel {
             user_id: Set(1),
             name: Set("Notes".into()),
@@ -1031,7 +1031,7 @@ mod tests {
     }
 
     async fn insert_test_doc(db: &DatabaseConnection) -> phantasi_note_docs::Model {
-        let now = Utc::now();
+        let now = crate::clock::now();
         phantasi_note_docs::ActiveModel {
             user_id: Set(1),
             item_id: Set(None),
@@ -1054,7 +1054,7 @@ mod tests {
     }
 
     async fn insert_test_item(db: &DatabaseConnection) -> phantasi_items::Model {
-        let now = Utc::now();
+        let now = crate::clock::now();
         phantasi_items::ActiveModel {
             source_id: Set(1),
             guid: Set(format!("test-note-{}", uuid::Uuid::new_v4())),
@@ -1542,8 +1542,8 @@ mod tests {
             error_count: Set(0),
             item_count: Set(0),
             admin_only: Set(false),
-            created_at: Set(Utc::now().into()),
-            updated_at: Set(Utc::now().into()),
+            created_at: Set(crate::clock::now().into()),
+            updated_at: Set(crate::clock::now().into()),
             ..Default::default()
         }
         .insert(&db)
@@ -1691,7 +1691,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let due = insert_test_doc(&db).await;
         let invalid = insert_test_doc(&db).await;
         let mut empty_title: phantasi_note_docs::ActiveModel = invalid.clone().into();

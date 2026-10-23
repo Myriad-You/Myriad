@@ -88,13 +88,14 @@ pub async fn create_room(
         ));
     }
 
+    let now = crate::clock::now();
     let txn = db.begin().await.map_err(db_err)?;
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_rooms
            (room_id, name, description, avatar_url, owner_actor, home_server, governance_type, invite_policy,
             max_members, is_public, distribution_strategy, shared_data_config, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'fan-out', $11, NOW())"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'fan-out', $11, $12::timestamptz)"#,
         [
             room_id.clone().into(),
             req.name.clone().into(),
@@ -107,6 +108,7 @@ pub async fn create_room(
             max_members.into(),
             is_public.into(),
             shared_data_config.clone().into(),
+            now.into(),
         ],
     ))
     .await
@@ -116,11 +118,12 @@ pub async fn create_room(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_room_members
            (room_id, actor_url, is_local, local_user_id, role, joined_at, membership_status)
-           VALUES ($1, $2, true, $3, 'owner', NOW(), 'active')"#,
+           VALUES ($1, $2, true, $3, 'owner', $4::timestamptz, 'active')"#,
         [
             room_id.clone().into(),
             local_actor.clone().into(),
             user_id.into(),
+            now.into(),
         ],
     ))
     .await
@@ -295,7 +298,9 @@ pub async fn update_room(
         ));
     }
 
-    set_parts.push("updated_at = NOW()".to_string());
+    set_parts.push(format!("updated_at = ${}::timestamptz", idx));
+    values.push(crate::clock::now().into());
+    idx += 1;
     let set_clause = set_parts.join(", ");
     let sql = format!(
         "UPDATE federation_rooms SET {} WHERE room_id = ${}",

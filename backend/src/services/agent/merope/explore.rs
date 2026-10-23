@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
@@ -163,7 +163,7 @@ pub(super) async fn lately(
 
 /// At night: from what she did this past week, the questions she has.
 pub async fn wonder(db: &DatabaseConnection, owner: i32) {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     // Old questions she never took up fade.
     let mut open = open(db).await;
     let rows = unified::own_rows(db, QUESTION, READ_BACK)

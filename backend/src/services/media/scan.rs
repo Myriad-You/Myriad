@@ -34,7 +34,7 @@ pub async fn catalog_labels_for_assets(
     if asset_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let rows = media_references::Entity::find()
         .select_only()
         .columns([

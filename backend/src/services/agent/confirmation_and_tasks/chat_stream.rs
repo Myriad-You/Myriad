@@ -634,7 +634,7 @@ impl Agent {
                 .filter(|message| message.role == "assistant")
                 .flat_map(|message| message.content.lines())
                 .collect();
-            let about = crate::services::agent::merope::doing::now_line(&doing, chrono::Utc::now());
+            let about = crate::services::agent::merope::doing::now_line(&doing, crate::clock::now());
             let told = myriad_merope::speaking::already_told(&about, &hers);
             if let Some(section) = myriad_merope::speaking::format_already_told_section(&told) {
                 merope_block = if merope_block.is_empty() {
@@ -1018,7 +1018,7 @@ mod prompt_size {
                 .unwrap();
         let request = UserRequest {
             raw_input: said.clone(),
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::clock::now(),
             user_id,
             context: Some(RequestContext {
                 interaction_mode: AgentInteractionMode::Chat,

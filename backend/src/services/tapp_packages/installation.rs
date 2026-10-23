@@ -10,7 +10,6 @@ use crate::services::tapp_install::*;
 use crate::services::tapp_ownership::{
     canonical_installation_owner_id, installation_conflict_owner_ids, lock_tapp_lifecycle,
 };
-use chrono::Utc;
 use myriad_error::AppError;
 use myriad_tapp_contract::manifest::TappManifest;
 use once_cell::sync::Lazy;
@@ -197,7 +196,7 @@ pub(crate) async fn install_prepared_package(
             tapp_filesystem_error("Failed to create Tapp staging directory", &error)
         })?;
     let tapp_dir = stage.path();
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     package
         .stage_into(
             tapp_dir,
@@ -537,7 +536,7 @@ pub(crate) async fn update_prepared_package(
             tapp_filesystem_error("Failed to create Tapp update staging directory", &error)
         })?;
     let tapp_dir = stage.path();
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     package
         .stage_into(
             tapp_dir,
@@ -704,7 +703,7 @@ pub(crate) async fn set_approved_remote_media(
     let mut active: tapps::ActiveModel = existing.into();
     active.approved_remote_media =
         Set(serde_json::to_value(&approved).unwrap_or_else(|_| serde_json::json!([])));
-    active.updated_at = Set(Utc::now().fixed_offset());
+    active.updated_at = Set(crate::clock::now().fixed_offset());
     active
         .update(&txn)
         .await
@@ -763,7 +762,7 @@ mod tests {
     }
 
     fn existing_model(version: &str, approved: serde_json::Value) -> tapps::Model {
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         tapps::Model {
             id: 1,
             tapp_id: "com.example.overwrite".to_string(),

@@ -176,7 +176,7 @@ pub async fn tick(db: DatabaseConnection) {
         return;
     };
     restore_now(&db, owner).await;
-    let now = Utc::now();
+    let now = crate::clock::now();
     // Bedtime ends whatever she was at: she falls asleep over it.
     let asleep = super::timing::asleep_now().is_some();
     let finished = LIFE.lock().ok().and_then(|mut life| {

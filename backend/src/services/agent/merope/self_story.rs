@@ -29,7 +29,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset};
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
@@ -248,7 +248,7 @@ async fn write(
 /// At night: once a week has passed since she last looked back, and enough
 /// happened, she writes who she has been lately.
 pub async fn look_back(db: &DatabaseConnection, owner: i32) {
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let last = last_story(db).await;
     if last.as_ref().is_some_and(|(_, at, _)| now - *at < EVERY) {
         return;

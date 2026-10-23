@@ -22,7 +22,6 @@ use crate::services::tapp_storage::{
     read_storage_value, sandbox_storage_entries, validate_sandbox_storage_key,
     validate_storage_value_size, write_storage_value,
 };
-use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -372,7 +371,7 @@ async fn execute_phantasi_subscribe(
         {
             Ok(Ok(feed)) => {
                 // 成功解析！创建订阅
-                let now = chrono::Utc::now();
+                let now = crate::clock::now();
                 let name = custom_name
                     .clone()
                     .or(feed_name)
@@ -559,7 +558,7 @@ async fn execute_content_write(
             "frontendAction": {
                 "type": "copy_clipboard",
                 "value": text,
-                "timestamp": Utc::now().timestamp_millis()
+                "timestamp": crate::clock::now().timestamp_millis()
             }
         }));
     }
@@ -585,7 +584,7 @@ async fn execute_content_write(
                     "format": content_type,
                     "content": text
                 },
-                "timestamp": Utc::now().timestamp_millis()
+                "timestamp": crate::clock::now().timestamp_millis()
             }
         }));
     }
@@ -616,7 +615,7 @@ async fn execute_content_write(
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| format!("content_{}", Utc::now().timestamp_millis()));
+        .unwrap_or_else(|| format!("content_{}", crate::clock::now().timestamp_millis()));
     validate_sandbox_storage_key(&key).map_err(str::to_string)?;
     let mut value = content.clone();
     if params
@@ -635,7 +634,7 @@ async fn execute_content_write(
         .await
         .map_err(|error| error.to_string())?;
 
-    let now = Utc::now();
+    let now = crate::clock::now();
     Ok(json!({
         "success": true,
         "target": target_type,

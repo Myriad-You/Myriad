@@ -115,7 +115,7 @@ pub async fn handle_file_transfer(
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, room_id, filename, file_size, mime_type,
             checksum_sha256, status, direction, chunks_total, chunks_completed, local_path, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 'inbound', $8, 0, $9, NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 'inbound', $8, 0, $9, $10::timestamptz)
            ON CONFLICT (transfer_id) DO NOTHING"#,
         [
             transfer_id.into(),
@@ -127,6 +127,7 @@ pub async fn handle_file_transfer(
             checksum.into(),
             chunks_total.into(),
             local_path.into(),
+            crate::clock::now().into(),
         ],
     ))
     .await
@@ -546,7 +547,7 @@ pub async fn handle_file_chunk(
                SET chunks_completed = $2,
                    status = $3,
                    local_path = $4,
-                   completed_at = CASE WHEN $3 = 'completed' THEN NOW() ELSE NULL END
+                   completed_at = CASE WHEN $3 = 'completed' THEN $6::timestamptz ELSE NULL END
                WHERE transfer_id = $1
                  AND chunks_completed = $5
                  AND status IN ('pending', 'in-progress')"#,
@@ -556,6 +557,7 @@ pub async fn handle_file_chunk(
                 new_status.into(),
                 final_path_db.into(),
                 chunks_completed.into(),
+                crate::clock::now().into(),
             ],
         ))
         .await

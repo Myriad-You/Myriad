@@ -76,7 +76,7 @@ pub(super) async fn put_session(
         session_key,
         identity(user_id),
         &stored,
-        (Utc::now() + ChronoDuration::seconds(BINDING_TTL_SECS)).timestamp(),
+        (crate::clock::now() + ChronoDuration::seconds(BINDING_TTL_SECS)).timestamp(),
     )
     .await
 }
@@ -158,7 +158,7 @@ pub(super) async fn take_pending_if_id(
                 runtime_id: None,
             },
             &pending,
-            (Utc::now() + ChronoDuration::days(2)).timestamp(),
+            (crate::clock::now() + ChronoDuration::days(2)).timestamp(),
         )
         .await;
         return None;

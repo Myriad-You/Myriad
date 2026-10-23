@@ -361,7 +361,7 @@ async fn write_once(
             runtime_id: Some(device_id),
         },
         &Taken { id: id.to_string() },
-        chrono::Utc::now().timestamp() + RETENTION_SECS,
+        crate::clock::now().timestamp() + RETENTION_SECS,
     )
     .await
 }

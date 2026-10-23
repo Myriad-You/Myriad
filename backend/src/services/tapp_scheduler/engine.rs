@@ -94,7 +94,7 @@ impl TappSchedulerEngine {
 
     /// 主调度循环 tick
     async fn tick(db: &DatabaseConnection) -> Result<(), String> {
-        let now = Utc::now();
+        let now = crate::clock::now();
         tracing::debug!("[TappScheduler] Tick at {}", now);
 
         // 浏览器离线或 core 被销毁时可能收不到 task:complete；定期收敛悬挂执行，
@@ -182,7 +182,7 @@ impl TappSchedulerEngine {
         db: &DatabaseConnection,
         due_cutoff: DateTime<Utc>,
     ) -> Result<Option<tapp_scheduled_tasks::Model>, String> {
-        let claim_now = Utc::now();
+        let claim_now = crate::clock::now();
         let txn = db
             .begin()
             .await
@@ -346,7 +346,7 @@ impl TappSchedulerEngine {
 
         let mut active: tapp_scheduled_tasks::ActiveModel = current.into();
         active.stats = Set(serde_json::to_value(&stats).unwrap_or(json!({})));
-        active.updated_at = Set(Utc::now().into());
+        active.updated_at = Set(crate::clock::now().into());
 
         active
             .update(&txn)
@@ -419,7 +419,7 @@ impl TappSchedulerEngine {
         retry_count: i32,
         final_attempt: bool,
     ) -> Result<(), String> {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let scheduled_at = task.next_run_at.unwrap_or(now.into());
 
         tracing::info!(
@@ -590,7 +590,7 @@ impl TappSchedulerEngine {
 
         // 更新执行记录
         let mut execution_update: tapp_task_executions::ActiveModel = execution.into();
-        execution_update.completed_at = Set(Some(Utc::now().into()));
+        execution_update.completed_at = Set(Some(crate::clock::now().into()));
         execution_update.status = Set(status.clone());
         execution_update.result = Set(result.clone());
         execution_update.error = Set(error.clone());
@@ -635,7 +635,7 @@ impl TappSchedulerEngine {
                 SCHEDULER_MAILBOX_CHANNEL,
                 &scheduler_mailbox_recipient(&record_id),
                 message,
-                Utc::now().timestamp() + SCHEDULER_MESSAGE_TTL_SECONDS,
+                crate::clock::now().timestamp() + SCHEDULER_MESSAGE_TTL_SECONDS,
             )
             .await
             {
@@ -700,13 +700,15 @@ impl TappSchedulerEngine {
             }
             None => String::new(),
         };
+        values.push(crate::clock::now().into());
+        let now_ph = values.len();
         let sql = format!(
             r#"
 SELECT r.record_id
 FROM runtime_registry r
 WHERE r.namespace = $1
   AND r.subject_id IS NOT NULL
-  AND r.expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT
+  AND r.expires_at > EXTRACT(EPOCH FROM ${now_ph}::timestamptz)::BIGINT
   AND {audience}
   {target_filter}
 ORDER BY r.updated_at, r.record_id
@@ -837,7 +839,7 @@ ORDER BY r.updated_at, r.record_id
             return Ok(());
         }
 
-        let now = Utc::now();
+        let now = crate::clock::now();
         let executed_at = execution.executed_at.with_timezone(&Utc);
         let duration_ms = (now - executed_at)
             .num_milliseconds()
@@ -1493,7 +1495,7 @@ ORDER BY r.updated_at, r.record_id
         task: &tapp_scheduled_tasks::Model,
         backend_result: Option<serde_json::Value>,
     ) -> Result<(), String> {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let txn = db
             .begin()
             .await
@@ -1563,7 +1565,7 @@ ORDER BY r.updated_at, r.record_id
             "error": error,
         })));
         active.stats = Set(serde_json::to_value(&stats).unwrap_or(json!({})));
-        active.updated_at = Set(Utc::now().into());
+        active.updated_at = Set(crate::clock::now().into());
         active
             .update(db)
             .await
@@ -1579,7 +1581,7 @@ ORDER BY r.updated_at, r.record_id
         error: Option<String>,
         advance_schedule: bool,
     ) -> Result<(), String> {
-        let now = Utc::now();
+        let now = crate::clock::now();
 
         let txn = db
             .begin()
@@ -1897,7 +1899,7 @@ impl TappSchedulerEngine {
         scope: TaskScope,
         retry_config: Option<serde_json::Value>,
     ) -> Result<tapp_scheduled_tasks::Model, String> {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let next_run_at = Self::calculate_next_run(&schedule_type, &schedule_config, now)?;
 
         let task = tapp_scheduled_tasks::ActiveModel {
@@ -2056,7 +2058,7 @@ impl TappSchedulerEngine {
             .col_expr(tapp_scheduled_tasks::Column::Enabled, Expr::value(enabled))
             .col_expr(
                 tapp_scheduled_tasks::Column::UpdatedAt,
-                Expr::value(Utc::now().fixed_offset()),
+                Expr::value(crate::clock::now().fixed_offset()),
             )
             .filter(tapp_scheduled_tasks::Column::UserId.eq(user_id))
             .filter(tapp_scheduled_tasks::Column::TappId.eq(tapp_id))
@@ -2303,7 +2305,7 @@ mod frontend_recipient_db_tests {
     }
 
     fn task(scope: TaskScope, tapp_id: &str, user_id: i32) -> tapp_scheduled_tasks::Model {
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         tapp_scheduled_tasks::Model {
             id: 1,
             task_id: "task".into(),
@@ -2356,8 +2358,8 @@ mod frontend_recipient_db_tests {
         )
         .await
         .unwrap();
-        let live = Utc::now().timestamp() + 600;
-        let expired = Utc::now().timestamp() - 1;
+        let live = crate::clock::now().timestamp() + 600;
+        let expired = crate::clock::now().timestamp() - 1;
         for (record_id, subject_id, namespace, expires_at) in [
             ("c1", Some(1), SCHEDULER_PRESENCE_NAMESPACE, live),
             ("c2a", Some(2), SCHEDULER_PRESENCE_NAMESPACE, live),
@@ -2538,7 +2540,7 @@ mod frontend_recipient_db_tests {
         db.execute(&schema.create_table_from_entity(tapp_task_executions::Entity))
             .await
             .unwrap();
-        let now = Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         tapps::ActiveModel {
             tapp_id: Set("offline.app".into()),
             user_id: Set(1),
@@ -2642,7 +2644,7 @@ mod frontend_recipient_db_tests {
         db.execute_unprepared(&format!(
             "INSERT INTO runtime_registry (namespace, record_id, subject_id, payload, expires_at)
              VALUES ('{SCHEDULER_PRESENCE_NAMESPACE}', 'online', 1, '{{}}', {})",
-            Utc::now().timestamp() + 600,
+            crate::clock::now().timestamp() + 600,
         ))
         .await
         .unwrap();

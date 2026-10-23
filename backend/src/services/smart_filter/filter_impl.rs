@@ -1337,7 +1337,7 @@ impl SmartFilter {
         let Some(created) = chrono::DateTime::from_timestamp_millis(ts_ms) else {
             return (None, None);
         };
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         // 用天数换算年龄，避免闰年月份运算的边角
         let years = ((now - created).num_days() / 365).max(0);
         (Some(created.to_rfc3339()), Some(years))

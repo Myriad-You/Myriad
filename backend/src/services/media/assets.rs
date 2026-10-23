@@ -45,7 +45,7 @@ pub async fn insert_staging(
     let public_id = Uuid::new_v4();
     let key = storage_key(public_id, payload.ext)?;
     let name = filename_for_mime(filename, &payload.mime, public_id)?;
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let lease = now + chrono::Duration::seconds(lease_secs);
     let published = (exposure == MediaExposure::Public).then_some(now);
     let row = media_assets::ActiveModel {
@@ -94,13 +94,18 @@ SET state = 'ready',
     url = $1,
     write_token = NULL,
     write_lease_until = NULL,
-    updated_at = NOW(),
-    state_since = NOW()
+    updated_at = $4::timestamptz,
+    state_since = $4::timestamptz
 WHERE id = $2
   AND write_token = $3
   AND state = 'staging'
 "#,
-            [catalog_url.into(), id.into(), write_token.into()],
+            [
+                catalog_url.into(),
+                id.into(),
+                write_token.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -118,12 +123,12 @@ pub async fn mark_public(
 UPDATE media_assets
 SET exposure = 'public',
     url = $1,
-    first_published_at = COALESCE(first_published_at, NOW()),
-    updated_at = NOW()
+    first_published_at = COALESCE(first_published_at, $3::timestamptz),
+    updated_at = $3::timestamptz
 WHERE id = $2
   AND state = 'ready'
 "#,
-            [catalog_url.into(), id.into()],
+            [catalog_url.into(), id.into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -141,12 +146,12 @@ pub async fn mark_private(
 UPDATE media_assets
 SET exposure = 'private',
     url = $1,
-    updated_at = NOW()
+    updated_at = $3::timestamptz
 WHERE id = $2
   AND state = 'ready'
   AND exposure = 'public'
 "#,
-            [catalog_url.into(), id.into()],
+            [catalog_url.into(), id.into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -163,14 +168,19 @@ pub async fn renew_write_lease(
             DatabaseBackend::Postgres,
             r#"
 UPDATE media_assets
-SET write_lease_until = NOW() + make_interval(secs => $1::double precision),
-    updated_at = NOW()
+SET write_lease_until = $4::timestamptz + make_interval(secs => $1::double precision),
+    updated_at = $4::timestamptz
 WHERE id = $2
   AND write_token = $3
   AND state = 'staging'
-  AND write_lease_until > NOW()
+  AND write_lease_until > $4::timestamptz
 "#,
-            [lease_secs.into(), id.into(), write_token.into()],
+            [
+                lease_secs.into(),
+                id.into(),
+                write_token.into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -221,13 +231,13 @@ UPDATE media_assets
 SET state = 'missing',
     write_token = NULL,
     write_lease_until = NULL,
-    updated_at = NOW(),
-    state_since = NOW()
+    updated_at = $3::timestamptz,
+    state_since = $3::timestamptz
 WHERE id = $1
   AND write_token = $2
   AND state = 'staging'
 "#,
-            [id.into(), write_token.into()],
+            [id.into(), write_token.into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -242,11 +252,11 @@ pub async fn release_producer_key(db: &impl ConnectionTrait, id: i32) -> Result<
             r#"
 UPDATE media_assets
 SET producer_key = NULL,
-    updated_at = NOW()
+    updated_at = $2::timestamptz
 WHERE id = $1
   AND state IN ('missing', 'deleted')
 "#,
-            [id.into()],
+            [id.into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -259,12 +269,12 @@ pub async fn mark_deleting(txn: &impl ConnectionTrait, id: i32) -> Result<bool, 
             r#"
 UPDATE media_assets
 SET state = 'deleting',
-    updated_at = NOW(),
-    state_since = NOW()
+    updated_at = $2::timestamptz,
+    state_since = $2::timestamptz
 WHERE id = $1
   AND state = 'ready'
 "#,
-            [id.into()],
+            [id.into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -279,12 +289,12 @@ pub async fn retire_missing(txn: &impl ConnectionTrait, id: i32) -> Result<bool,
 UPDATE media_assets
 SET state = 'deleted',
     producer_key = NULL,
-    updated_at = NOW(),
-    state_since = NOW()
+    updated_at = $2::timestamptz,
+    state_since = $2::timestamptz
 WHERE id = $1
   AND state = 'missing'
 "#,
-            [id.into()],
+            [id.into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected() == 1)
@@ -297,12 +307,12 @@ pub async fn mark_deleted(db: &impl ConnectionTrait, id: i32) -> Result<bool, Me
             r#"
 UPDATE media_assets
 SET state = 'deleted',
-    updated_at = NOW(),
-    state_since = NOW()
+    updated_at = $2::timestamptz,
+    state_since = $2::timestamptz
 WHERE id = $1
   AND state = 'deleting'
 "#,
-            [id.into()],
+            [id.into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected() == 1)

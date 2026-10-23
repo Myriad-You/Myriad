@@ -60,14 +60,14 @@ pub async fn look(
         return Some(seen);
     }
     let month = super::clock::local_now().format("%Y-%m").to_string();
-    let until = (chrono::Utc::now() + chrono::Duration::days(40)).timestamp();
+    let until = (crate::clock::now() + chrono::Duration::days(40)).timestamp();
     let looked = registry::increment(db, LOOKS, &month, until).await.ok()?;
     if looked as usize > MONTHLY {
         tracing::info!("[Merope] no more pictures to look at this month");
         return None;
     }
     let seen = looked_at(owner, bytes, hint, soul).await?;
-    let keep_until = (chrono::Utc::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
+    let keep_until = (crate::clock::now() + chrono::Duration::days(KEEP_DAYS)).timestamp();
     let _ = registry::put(db, SEEN, &record(key), identity(), &seen, keep_until).await;
     Some(seen)
 }

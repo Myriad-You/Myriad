@@ -2,7 +2,7 @@
 //! deduplication are committed together, before any outbound search.
 use std::collections::BTreeMap;
 
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, TransactionTrait,
 };
@@ -95,7 +95,7 @@ pub(in crate::services::agent::merope) async fn claim(
             runtime_id: None,
         },
         &budget,
-        (Utc::now() + chrono::Duration::days(3)).timestamp(),
+        (crate::clock::now() + chrono::Duration::days(3)).timestamp(),
     )
     .await?;
     txn.commit().await?;

@@ -98,7 +98,7 @@ fn runtime_from_grant(grant: &RuntimeGrantContext) -> DataExchangeRuntime {
 
 fn rfc3339(timestamp: i64) -> String {
     chrono::DateTime::from_timestamp(timestamp, 0)
-        .unwrap_or_else(chrono::Utc::now)
+        .unwrap_or_else(crate::clock::now)
         .to_rfc3339()
 }
 

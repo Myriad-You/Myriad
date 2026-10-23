@@ -121,7 +121,7 @@ pub async fn handle(
     let Some(secret) = crate::middleware::auth::session_secret() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     let Some(nonce) = headers
         .get(HEADER)
         .and_then(|h| h.to_str().ok())
@@ -232,7 +232,7 @@ pub async fn call(
     }
     let secret = crate::middleware::auth::session_secret()
         .ok_or("Web capability authentication unavailable")?;
-    let time = chrono::Utc::now().timestamp().to_string();
+    let time = crate::clock::now().timestamp().to_string();
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let signed = signature(&secret, &time, &nonce, &body)
         .ok_or("Web capability authentication unavailable")?;

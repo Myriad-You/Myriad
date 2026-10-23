@@ -157,7 +157,7 @@ async fn write_block(
     source: &str,
     ttl_secs: i64,
 ) -> Result<(), InboundGuardError> {
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     runtime_registry::put(
         db,
         BLOCK_NAMESPACE,
@@ -241,7 +241,7 @@ pub async fn pause_inbound(
     owner_id: i32,
     tapp_id: &str,
 ) -> Result<(), InboundGuardError> {
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
     runtime_registry::put(
         db,
         BLOCK_NAMESPACE,

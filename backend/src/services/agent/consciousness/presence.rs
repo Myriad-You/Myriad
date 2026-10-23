@@ -229,20 +229,20 @@ static LIVE: Lazy<RwLock<LivePresenceStore>> =
 /// Returns true when the addressee moved from absent/expired to here (any surface).
 pub fn remember_live_presence(user_id: i32, live: SelfLivePresence) -> bool {
     LIVE.write()
-        .map(|mut store| store.remember(user_id, live, Utc::now()))
+        .map(|mut store| store.remember(user_id, live, crate::clock::now()))
         .unwrap_or(false)
 }
 
 /// The person is with her right now, on any surface.
 pub fn owner_here(user_id: i32) -> Here {
     LIVE.read()
-        .map(|store| store.here(user_id, Utc::now()))
+        .map(|store| store.here(user_id, crate::clock::now()))
         .unwrap_or_default()
 }
 
 /// People with her right now: a visible page of the site, or the native app.
 pub fn present_users() -> Vec<i32> {
-    let now = Utc::now();
+    let now = crate::clock::now();
     LIVE.read()
         .map(|store| {
             store
@@ -257,7 +257,7 @@ pub fn present_users() -> Vec<i32> {
 
 pub fn last_live_presence(user_id: i32) -> SelfLivePresence {
     LIVE.read()
-        .map(|store| store.last(user_id, Utc::now()))
+        .map(|store| store.last(user_id, crate::clock::now()))
         .unwrap_or_default()
 }
 
@@ -298,7 +298,7 @@ fn native_instance(device_id: &str) -> String {
 pub fn front_presence(user_id: i32) -> Option<Front> {
     LIVE.read()
         .ok()
-        .and_then(|store| store.front(user_id, Utc::now()))
+        .and_then(|store| store.front(user_id, crate::clock::now()))
 }
 
 /// Her face where they are using her: that surface's presence (a page's when
@@ -312,7 +312,7 @@ pub fn face_presence(user_id: i32) -> SelfLivePresence {
 /// They said something to her on the app: it is the surface in use now.
 pub fn native_used(user_id: i32, device_id: &str) {
     if let Ok(mut store) = LIVE.write() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         if let Some(live) = store
             .users
             .get_mut(&user_id)
@@ -337,7 +337,7 @@ pub fn remember_native_presence(user_id: i32, device_id: &str, data: &Value) -> 
 /// The native child's own lease, while it is fresh: the face her link
 /// reports for that device (its window, its rig, whether it is speaking).
 pub fn native_presence(user_id: i32, device_id: &str) -> Option<SelfLivePresence> {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let store = LIVE.read().ok()?;
     let mut live = store
         .users
@@ -414,7 +414,7 @@ fn presence_is_fresh_at(live: &SelfLivePresence, now: DateTime<Utc>) -> bool {
 pub fn live_presence_from_custom_data(data: &Value) -> SelfLivePresence {
     let mut live = SelfLivePresence::default();
     apply_whitelisted_presence(&mut live, data);
-    live.captured_at = Some(Utc::now());
+    live.captured_at = Some(crate::clock::now());
     live
 }
 
@@ -586,7 +586,7 @@ pub fn remember_turn_presence(request: &UserRequest) {
 pub fn live_presence_from_request(request: &UserRequest) -> SelfLivePresence {
     let mut live = SelfLivePresence::default();
     let Some(context) = request.context.as_ref() else {
-        live.captured_at = Some(Utc::now());
+        live.captured_at = Some(crate::clock::now());
         return live;
     };
     live.rig_state = context.rig_state.clone();
@@ -605,7 +605,7 @@ pub fn live_presence_from_request(request: &UserRequest) -> SelfLivePresence {
     if let Some(data) = context.custom_data.as_ref() {
         apply_whitelisted_presence(&mut live, data);
     }
-    live.captured_at = Some(Utc::now());
+    live.captured_at = Some(crate::clock::now());
     // Saying something there is using it.
     live.changed_at = live.captured_at;
     live
@@ -632,7 +632,7 @@ mod tests {
     #[test]
     fn hidden_tab_cannot_replace_visible_body_or_page_and_revival_is_aggregated() {
         let mut store = LivePresenceStore::default();
-        let now = Utc::now();
+        let now = crate::clock::now();
         assert!(store.remember(1, page("front", true, true, now), now));
         assert!(!store.remember(1, page("back", false, false, now), now));
         let live = store.last(1, now + Duration::seconds(9));
@@ -654,7 +654,7 @@ mod tests {
     #[test]
     fn leases_expire_independently_and_reads_do_not_extend_observation_ttl() {
         let mut store = LivePresenceStore::default();
-        let now = Utc::now();
+        let now = crate::clock::now();
         store.remember(1, page("front", true, true, now), now);
         let later = now + Duration::seconds(PRESENCE_WINDOW_SECS + 1);
         store.remember(1, page("back", false, false, later), later);
@@ -676,7 +676,7 @@ mod tests {
     #[test]
     fn revocation_clears_the_selected_page_without_reusing_other_tabs_content() {
         let mut store = LivePresenceStore::default();
-        let now = Utc::now();
+        let now = crate::clock::now();
         store.remember(1, page("front", true, true, now), now);
         store.remember(1, page("back", true, false, now), now);
         let mut revoked = page("front", true, true, now);
@@ -691,7 +691,7 @@ mod tests {
     #[test]
     fn someone_on_the_app_is_here_but_not_on_the_sites_face() {
         let mut store = LivePresenceStore::default();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let mut native = page("mac", true, true, now);
         native.instance_id = Some(native_instance("dev_a"));
         native.surface = LiveSurface::Native;
@@ -769,7 +769,7 @@ mod tests {
     #[test]
     fn the_surface_in_use_is_the_one_they_came_to_or_used_last() {
         let mut store = LivePresenceStore::default();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let app = |visible: bool, panel: bool, at| {
             let mut live = page("mac", visible, panel, at);
             live.instance_id = Some(native_instance("dev_front"));
@@ -808,7 +808,7 @@ mod tests {
     #[test]
     fn the_app_with_its_link_up_is_here_whatever_its_window_shows() {
         let mut store = LivePresenceStore::default();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let app = |visible: bool, at| {
             let mut live = page("mac", visible, visible, at);
             live.instance_id = Some(native_instance("dev_d16"));
@@ -878,7 +878,7 @@ mod tests {
 
     #[test]
     fn page_keys_are_bounded_and_not_exposed_to_the_decision_model() {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let mut store = LivePresenceStore::default();
         for i in 0..100 {
             store.remember(1, page(&format!("page-{i}"), false, false, now), now);
@@ -908,7 +908,7 @@ mod tests {
             906,
             SelfLivePresence {
                 rig_state: Some(old_rig),
-                captured_at: Some(Utc::now()),
+                captured_at: Some(crate::clock::now()),
                 ..Default::default()
             },
         );
@@ -940,7 +940,7 @@ mod tests {
     #[test]
     fn her_senses_follow_them_to_the_app() {
         let user = 9_120_301;
-        let now = Utc::now();
+        let now = crate::clock::now();
         // Only a hidden page: the pages' senses, as before.
         remember_live_presence(user, page("tab", false, false, now));
         assert_eq!(senses_presence(user).perception, vec!["tab"]);
@@ -984,7 +984,7 @@ mod tests {
         let user = 9_120_302;
         let mut request = UserRequest {
             raw_input: "hi".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::clock::now(),
             user_id: user,
             context: Some(RequestContext {
                 interaction_mode: AgentInteractionMode::Chat,
@@ -1003,7 +1003,7 @@ mod tests {
     fn live_presence_does_not_invent_grants() {
         let request = UserRequest {
             raw_input: "hi".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::clock::now(),
             user_id: 7,
             context: Some(RequestContext {
                 interaction_mode: AgentInteractionMode::Chat,
@@ -1040,7 +1040,7 @@ mod tests {
                 "sourceId": "page", "kind": "page", "privacy": "consented",
                 "summary": "hours-old", "ttlMs": 90_000,
             })],
-            captured_at: Some(Utc::now() - Duration::seconds(120)),
+            captured_at: Some(crate::clock::now() - Duration::seconds(120)),
             ..Default::default()
         };
         remember_live_presence(91, live.clone());
@@ -1048,7 +1048,7 @@ mod tests {
         assert!(!expired.speaking);
         assert!(expired.perception.is_empty());
 
-        live.captured_at = Some(Utc::now() - Duration::seconds(60));
+        live.captured_at = Some(crate::clock::now() - Duration::seconds(60));
         remember_live_presence(91, live.clone());
         let fresh = last_live_presence(91);
         assert!(fresh.speaking);
@@ -1059,7 +1059,7 @@ mod tests {
     fn live_presence_honors_local_perception_privacy() {
         let request = UserRequest {
             raw_input: "hi".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::clock::now(),
             user_id: 93,
             context: Some(RequestContext {
                 interaction_mode: AgentInteractionMode::Chat,
@@ -1091,7 +1091,7 @@ mod tests {
     fn live_presence_keeps_consented_perception_summary() {
         let request = UserRequest {
             raw_input: "hi".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::clock::now(),
             user_id: 94,
             context: Some(RequestContext {
                 interaction_mode: AgentInteractionMode::Chat,
@@ -1127,7 +1127,7 @@ mod tests {
             .collect();
         let request = UserRequest {
             raw_input: "hi".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: crate::clock::now(),
             user_id: 95,
             context: Some(RequestContext {
                 interaction_mode: AgentInteractionMode::Chat,
@@ -1214,7 +1214,7 @@ mod tests {
         let stored = last_live_presence(95);
         assert!(stored.speaking);
         let captured = stored.captured_at.expect("fresh timestamp");
-        assert!(Utc::now().signed_duration_since(captured) < Duration::seconds(2));
+        assert!(crate::clock::now().signed_duration_since(captured) < Duration::seconds(2));
     }
 
     #[test]

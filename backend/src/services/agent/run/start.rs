@@ -380,7 +380,7 @@ pub(crate) async fn start(
 
     let mut user_request = UserRequest {
         raw_input: req.input,
-        timestamp: chrono::Utc::now(),
+        timestamp: crate::clock::now(),
         user_id,
         context: req.context.map(build_request_context),
     };

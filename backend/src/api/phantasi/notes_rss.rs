@@ -158,7 +158,11 @@ async fn load_notes_rss_channel(db: &DatabaseConnection) -> Result<NotesRssChann
     let last_build = items
         .first()
         .map(|item| rfc822(item.published_at))
-        .unwrap_or_else(|| Utc::now().format("%a, %d %b %Y %H:%M:%S +0000").to_string());
+        .unwrap_or_else(|| {
+            crate::clock::now()
+                .format("%a, %d %b %Y %H:%M:%S +0000")
+                .to_string()
+        });
 
     let rss_items = items
         .into_iter()

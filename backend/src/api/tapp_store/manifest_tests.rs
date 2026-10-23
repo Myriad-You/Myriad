@@ -1,3 +1,6 @@
+// Unique temp names from the host's clock, not times.
+#![allow(clippy::disallowed_methods)]
+
 use super::{
     RegisterWidgetRequest, TappCategory, TappDirStage, TappManifest, TappSettingDef,
     TappStorageAccess, TappWidgetCategory, TappWidgetDef, WidgetTemplateContents,
@@ -450,7 +453,7 @@ async fn rollback_restore_failure_preserves_both_generations_for_startup_recover
         "version": "2.0.0",
         "core": { "entry": "main.js" }
     });
-    let old_generation = chrono::Utc::now().fixed_offset();
+    let old_generation = crate::clock::now().fixed_offset();
     let new_generation = old_generation + chrono::Duration::seconds(1);
 
     tokio::fs::create_dir_all(&live).await.unwrap();
@@ -529,7 +532,7 @@ async fn ambiguous_database_commit_can_recover_the_preserved_candidate_generatio
         "version": "2.0.0",
         "core": { "entry": "main.js" }
     });
-    let old_generation = chrono::Utc::now().fixed_offset();
+    let old_generation = crate::clock::now().fixed_offset();
     let new_generation = old_generation + chrono::Duration::seconds(1);
 
     tokio::fs::create_dir_all(&live).await.unwrap();
@@ -799,7 +802,7 @@ async fn startup_recovery_restores_database_generation_after_interrupted_update(
         "version": "1.0.0",
         "core": { "entry": "main.js" }
     });
-    let old_generation = chrono::Utc::now().fixed_offset();
+    let old_generation = crate::clock::now().fixed_offset();
     let new_generation = old_generation + chrono::Duration::seconds(1);
 
     tokio::fs::create_dir_all(&live).await.unwrap();
@@ -864,7 +867,7 @@ fn startup_recovery_can_restore_an_interrupted_recovery_discard() {
         "version": "1.0.0",
         "core": { "entry": "main.js" }
     });
-    let expected_generation = chrono::Utc::now().fixed_offset();
+    let expected_generation = crate::clock::now().fixed_offset();
     std::fs::create_dir_all(&live).unwrap();
     std::fs::create_dir_all(&discard).unwrap();
     std::fs::write(live.join("main.js"), "incomplete").unwrap();
@@ -1550,7 +1553,7 @@ fn restricts_widget_categories_to_canonical_tapp_ids() {
 
 #[test]
 fn runtime_widget_owner_binding_prevents_cross_installation_reuse() {
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let widget = |subject_id: i32, config: serde_json::Value| tapp_widgets::Model {
         id: 1,
         widget_id: "tapp.com.example.shared.dynamic".to_string(),
@@ -1869,7 +1872,7 @@ fn rejects_unbounded_widget_manifests() {
 
 #[test]
 fn batch_detail_mapping_applies_current_role_and_phantasi_capability_rules() {
-    let now = chrono::Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let tapp = tapps::Model {
         id: 1,
         tapp_id: "com.example.detail".to_string(),
@@ -2271,7 +2274,7 @@ async fn recovery_preserves_unpublished_staging_during_install_and_update() {
     let live = owner.join("com.example.app");
     let manifest =
         json!({"id": "com.example.app", "version": "1.0.0", "core": {"entry": "main.js"}});
-    let generation = chrono::Utc::now().fixed_offset();
+    let generation = crate::clock::now().fixed_offset();
     let stage = TappDirStage::create(&live).await.unwrap();
     std::fs::write(
         stage.path().join("manifest.json"),
@@ -2325,7 +2328,7 @@ async fn recovery_waits_for_activation_commit_and_rereads_generation() {
     super::recover_tapp_filesystem_state(&db).await.unwrap();
     assert!(first_stage.path().exists());
     drop(first_stage);
-    let old = chrono::Utc::now().fixed_offset();
+    let old = crate::clock::now().fixed_offset();
     let new = old + chrono::Duration::seconds(1);
     let manifest = json!({"id": id, "version": "1.0.0", "core": {"entry": "main.js"}});
     let tapp = tapps::Model {

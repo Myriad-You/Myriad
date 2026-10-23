@@ -19,7 +19,7 @@ async fn chat(db: &DatabaseConnection, id: &str, audience: Audience) {
         .await
         .unwrap()
         .into_active_model();
-    let input = chrono::Utc::now().fixed_offset();
+    let input = crate::clock::now().fixed_offset();
     state.last_user_message_at = Set(Some(input));
     let input = state
         .update(db)
@@ -261,7 +261,7 @@ async fn durable_memory_retries_are_finite_and_revalidate_input_persona_and_sess
 async fn durable_memory_folds_a_persons_lines_and_keeps_those_said_meanwhile() {
     let schema = fixture().await;
     let db = &schema.db;
-    let at = |minutes: i64| chrono::Utc::now().fixed_offset() - chrono::Duration::minutes(minutes);
+    let at = |minutes: i64| crate::clock::now().fixed_offset() - chrono::Duration::minutes(minutes);
     let line = |text: &str, reply: &str, at| Payload::Chat {
         user_text: text.into(),
         reply: reply.into(),
@@ -518,7 +518,7 @@ async fn durable_memory_settles_a_stretch_once_it_is_over() {
     };
     assert_eq!(note.1, "chat_note", "a line is a short note");
 
-    let began = chrono::Utc::now().fixed_offset() - chrono::Duration::minutes(19);
+    let began = crate::clock::now().fixed_offset() - chrono::Duration::minutes(19);
     let stretch = |at| Payload::Settle {
         present: Audience::private(7),
         from: at,

@@ -28,7 +28,8 @@ pub fn now() -> DateTime<Utc> {
     if let Some(now) = crate::services::channel_group::g0::now() {
         return AT.try_with(|at| *at).unwrap_or(now);
     }
-    AT.try_with(|at| *at).unwrap_or_else(|_| Utc::now())
+    AT.try_with(|at| *at)
+        .unwrap_or_else(|_| crate::clock::now())
 }
 
 /// The zone her day runs in: the one her persona names, or the site's own,
@@ -200,10 +201,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_turn_put_together_as_of_then_sees_then_and_nothing_else_does() {
-        let then = chrono::Utc::now() - chrono::Duration::days(3);
+        let then = crate::clock::now() - chrono::Duration::days(3);
         let seen = super::as_of(then, async { super::now() }).await;
         assert_eq!(seen, then);
-        assert!(chrono::Utc::now() - super::now() < chrono::Duration::seconds(5));
+        assert!(crate::clock::now() - super::now() < chrono::Duration::seconds(5));
     }
 
     #[test]

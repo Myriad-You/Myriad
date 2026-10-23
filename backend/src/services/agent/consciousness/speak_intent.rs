@@ -72,7 +72,7 @@ pub fn new_speak_intent(
     priority: EventUrgency,
     work_intent_id: Option<String>,
 ) -> SpeakIntent {
-    let now = Utc::now();
+    let now = crate::clock::now();
     let ttl = if topic == "agent.merope.touch" {
         20
     } else {
@@ -108,7 +108,7 @@ mod tests {
         );
         value.observation = Some("最后呈现的反应：躲避".into());
         enqueue_speak_intent(value);
-        let queued = drain_speak_intents(Utc::now())
+        let queued = drain_speak_intents(crate::clock::now())
             .into_iter()
             .find(|v| v.user_id == 905)
             .unwrap();
@@ -132,7 +132,7 @@ mod tests {
     }
 
     fn intent(user_id: i32, source: &str, expires_in_secs: i64) -> SpeakIntent {
-        let now = Utc::now();
+        let now = crate::clock::now();
         SpeakIntent {
             id: format!("spk_{source}"),
             user_id,
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn expired_intents_are_dropped_without_redeem() {
         enqueue_speak_intent(intent(501, "evt-expired", -5));
-        let due = drain_speak_intents(Utc::now());
+        let due = drain_speak_intents(crate::clock::now());
         assert!(due.iter().all(|item| item.user_id != 501));
     }
 
@@ -158,7 +158,7 @@ mod tests {
     fn same_source_event_redeems_once() {
         enqueue_speak_intent(intent(502, "evt-dup", 60));
         enqueue_speak_intent(intent(502, "evt-dup", 60));
-        let due: Vec<_> = drain_speak_intents(Utc::now())
+        let due: Vec<_> = drain_speak_intents(crate::clock::now())
             .into_iter()
             .filter(|item| item.user_id == 502)
             .collect();

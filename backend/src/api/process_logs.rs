@@ -100,7 +100,7 @@ pub async fn export() -> LocalProcessLogExport {
     let mut report = LocalProcessLogExport {
         format: "myriad-process-log-export",
         schema_version: 1,
-        generated_at: Utc::now(),
+        generated_at: crate::clock::now(),
         scope: "local-development-processes",
         limits: ExportLimits {
             source_bytes: MAX_SOURCE_BYTES,

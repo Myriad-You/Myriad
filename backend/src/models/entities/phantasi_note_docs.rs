@@ -129,7 +129,7 @@ mod tests {
                 Some("/body.jpg"),
             ),
         ];
-        let now = chrono::Utc::now().fixed_offset();
+        let now = crate::clock::now().fixed_offset();
         for (index, (body, image, _, _)) in cases.iter().enumerate() {
             ActiveModel {
                 id: Set(index as i32 + 1),

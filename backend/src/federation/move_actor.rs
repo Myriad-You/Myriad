@@ -760,9 +760,13 @@ async fn merge_follow_onto_existing(
                         r#"UPDATE federation_follows
                                SET status = 'accepted',
                                    activity_id = COALESCE($1, activity_id),
-                                   accepted_at = COALESCE(accepted_at, NOW())
+                                   accepted_at = COALESCE(accepted_at, $3::timestamptz)
                                WHERE id = $2"#,
-                        [activity_id.clone().into(), ex_id.into()],
+                        [
+                            activity_id.clone().into(),
+                            ex_id.into(),
+                            crate::clock::now().into(),
+                        ],
                     ))
                     .await
                     .map_err(|e| {
@@ -881,9 +885,13 @@ pub async fn apply_verified_move(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_activities
                    (activity_id, activity_type, object_type, object_json, is_local, received_at, published_at)
-               VALUES ($1, 'Move', 'Person', $2, false, NOW(), NOW())
+               VALUES ($1, 'Move', 'Person', $2, false, $3::timestamptz, $3::timestamptz)
                ON CONFLICT (activity_id) DO NOTHING"#,
-            [activity_id.into(), activity.clone().into()],
+            [
+                activity_id.into(),
+                activity.clone().into(),
+                crate::clock::now().into(),
+            ],
         ))
         .await
         .map_err(|e| {
@@ -1095,11 +1103,15 @@ pub async fn store_domain_alias(
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_domain_aliases (old_base_url, new_base_url, created_at)
-           VALUES ($1, $2, NOW())
+           VALUES ($1, $2, $3::timestamptz)
            ON CONFLICT (old_base_url) DO UPDATE SET
                new_base_url = EXCLUDED.new_base_url,
-               created_at = NOW()"#,
-        [old_base.into(), new_base.into()],
+               created_at = $3::timestamptz"#,
+        [
+            old_base.into(),
+            new_base.into(),
+            crate::clock::now().into(),
+        ],
     ))
     .await
     .map_err(|e| format!("Failed to store domain alias: {}", e))?;

@@ -5,7 +5,6 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use chrono::Utc;
 use myriad_agent_rules::channel::{
     ConnectFailureKind, TelegramBotIdentity, TelegramPrivateInbound, WorkerIntent,
     parse_telegram_bot_identity, parse_telegram_group_messages, parse_telegram_ok_payload,
@@ -85,7 +84,7 @@ async fn publish_identity(identity: &TelegramBotIdentity) {
 }
 
 async fn mark_inbound() {
-    snapshot().write().await.last_inbound_at = Some(Utc::now().to_rfc3339());
+    snapshot().write().await.last_inbound_at = Some(crate::clock::now().to_rfc3339());
 }
 
 pub async fn current_status() -> TelegramBotStatus {

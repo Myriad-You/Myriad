@@ -147,7 +147,7 @@ async fn ask(
         "proposalId": proposal.id,
         "title": proposal.proposal.title,
         "instruction": proposal.proposal.instruction,
-        "pickupBy": chrono::Utc::now().timestamp_millis() + CONTRACT.timing.act_pickup_ms as i64,
+        "pickupBy": crate::clock::now().timestamp_millis() + CONTRACT.timing.act_pickup_ms as i64,
         "maxRunMs": CONTRACT.timing.act_max_run_ms,
     });
     if !proposal.proposal.expected_outcome.trim().is_empty() {

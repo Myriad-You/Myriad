@@ -100,12 +100,13 @@ async fn mark(
     let written = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "UPDATE tapp_storage SET value = jsonb_set(value::jsonb, '{remindedThrough}', to_jsonb($2::bigint))::json, updated_at = now() \
+            "UPDATE tapp_storage SET value = jsonb_set(value::jsonb, '{remindedThrough}', to_jsonb($2::bigint))::json, updated_at = $4::timestamptz \
              WHERE id = $1 AND (value->>'remindedThrough') IS NOT DISTINCT FROM $3::text",
             [
                 kept.id.into(),
                 at.timestamp_millis().into(),
                 kept.reminded_through.map(|millis| millis.to_string()).into(),
+                crate::clock::now().into(),
             ],
         ))
         .await?;
@@ -147,7 +148,7 @@ pub async fn tick(db: DatabaseConnection) {
         return;
     }
     let zone = super::merope::clock::zone();
-    let now = Utc::now();
+    let now = crate::clock::now();
     for kept in reminders {
         let Some(at) = kept.due(now, &zone) else {
             continue;

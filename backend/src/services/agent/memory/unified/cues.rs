@@ -47,9 +47,9 @@ pub async fn keep_cues<C: ConnectionTrait>(
     let result = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "INSERT INTO agent_memory_cues (memory_id, cues, created_at) VALUES ($1, $2, NOW()) \
+            "INSERT INTO agent_memory_cues (memory_id, cues, created_at) VALUES ($1, $2, $3::timestamptz) \
              ON CONFLICT (memory_id) DO NOTHING",
-            [memory_id.into(), cues.join("\n").into()],
+            [memory_id.into(), cues.join("\n").into(), crate::clock::now().into()],
         ))
         .await?;
     Ok(result.rows_affected() > 0)

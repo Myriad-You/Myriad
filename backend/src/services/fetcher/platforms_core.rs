@@ -1338,7 +1338,7 @@ impl PlatformFetcher {
 
         let expires_in = json.get("expires_in").and_then(|v| v.as_i64()).unwrap_or(0);
         let expires_at = if expires_in > 0 {
-            Some(chrono::Utc::now().timestamp() + expires_in)
+            Some(crate::clock::now().timestamp() + expires_in)
         } else {
             None
         };
@@ -1362,7 +1362,7 @@ impl PlatformFetcher {
             return Err(anyhow!("Discord access token is required"));
         }
 
-        let now = chrono::Utc::now().timestamp();
+        let now = crate::clock::now().timestamp();
         let needs_refresh = match expires_at {
             Some(exp) => exp <= now + 60,
             // 无过期信息时不主动刷新，交给 API 401 后由上层处理

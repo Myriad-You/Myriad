@@ -12,7 +12,6 @@ use axum::{
     Extension, Json,
     extract::{Query, State},
 };
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };
@@ -233,7 +232,7 @@ pub(super) async fn set_tapp_visibility(
 
     let mut active: tapps::ActiveModel = existing.into();
     active.visibility = Set(visibility.to_string());
-    active.updated_at = Set(Utc::now().fixed_offset());
+    active.updated_at = Set(crate::clock::now().fixed_offset());
     let updated = active
         .update(&db)
         .await

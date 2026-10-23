@@ -11,7 +11,6 @@ use axum::{
     Extension, Json,
     extract::{Path, Query, State},
 };
-use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection,
     EntityTrait, QueryFilter, QueryOrder, Set, Statement,
@@ -46,7 +45,7 @@ pub(super) async fn start_tapp(
         .ok_or_else(|| HttpError(AppError::unauthorized("Unauthorized")))?;
     validate_tapp_id(&tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let admin_id = find_admin_user_id(&db).await?;
-    let now = Utc::now().fixed_offset();
+    let now = crate::clock::now().fixed_offset();
     let is_current_admin = current_is_admin(&claims, &db).await?;
 
     let private_tapp = if admin_id != Some(user_id) {
@@ -216,7 +215,7 @@ pub(super) async fn stop_tapp(
     ) {
         StopOutcome::MutatePrivate => {
             let tapp = private_tapp.expect("has_private");
-            let now = Utc::now().fixed_offset();
+            let now = crate::clock::now().fixed_offset();
             let mut active: tapps::ActiveModel = tapp.into();
             active.status = Set(tapps::TappStatus::Installed);
             active.updated_at = Set(now);
@@ -229,7 +228,7 @@ pub(super) async fn stop_tapp(
         }
         StopOutcome::MutatePublic => {
             let tapp = public_tapp.expect("has_public");
-            let now = Utc::now().fixed_offset();
+            let now = crate::clock::now().fixed_offset();
             let mut active: tapps::ActiveModel = tapp.into();
             active.status = Set(tapps::TappStatus::Installed);
             active.updated_at = Set(now);
