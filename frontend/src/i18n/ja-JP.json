@@ -812,7 +812,7 @@
       "refreshDesc": "リストを再読み込み",
       "enableTask": "「{name}」のオン／オフ",
       "memoryContent": "内容",
-      "confirmRemoveMemory": "この記憶を削除しますか？削除すると、次からこの内容では動きません",
+      "confirmRemoveMemory": "この記憶を削除しますか？以前の版もまとめて消え、元に戻せません",
       "confirmMemory": "確定",
       "confirmMemoryHint": "今後の作業でこれを使う",
       "memoryScopes": { "her": "彼女自身の", "person": "ほかの人についての", "group": "グループの" },

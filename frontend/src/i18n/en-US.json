@@ -812,7 +812,7 @@
       "refreshDesc": "Reload the list",
       "enableTask": "Turn “{name}” on or off",
       "memoryContent": "Content",
-      "confirmRemoveMemory": "Delete this memory? It will stop using this the next time it acts.",
+      "confirmRemoveMemory": "Delete this memory? It and its earlier versions are erased and can't be brought back.",
       "confirmMemory": "Confirm",
       "confirmMemoryHint": "Use this for Work from now on",
       "memoryScopes": { "her": "Her own", "person": "About people", "group": "In groups" },

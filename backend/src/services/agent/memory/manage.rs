@@ -8,11 +8,14 @@
 //! - a group's: what a group heard, that group's bits, her notes on people
 //!   there from outside the community.
 //!
-//! Each row also has a finer category from where it came. The admin may read,
-//! edit and retire any of it; retired rows are kept, not deleted.
+//! Each row also has a finer category from where it came. The admin may read
+//! and edit any of it, and have her forget any of it: forgetting deletes the
+//! memory, every earlier version of it and what was derived from them, so
+//! nothing of what it said is kept ([`forget_any`]).
 
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+    TransactionTrait,
 };
 
 use crate::models::entities::agent_memories;
@@ -110,21 +113,47 @@ pub async fn update_any<C: ConnectionTrait>(
     Ok(result.rows_affected == 1)
 }
 
-/// Retire any active memory: kept, no longer recalled.
-pub async fn retire_any<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool, DbErr> {
-    let now = chrono::Utc::now().fixed_offset();
-    let result = agent_memories::Entity::update_many()
-        .set(agent_memories::ActiveModel {
-            invalid_at: Set(Some(now)),
-            invalid_reason: Set(Some("deleted".into())),
-            updated_at: Set(now),
-            ..Default::default()
-        })
+/// Has her forget any active memory, truly: the row, every earlier version
+/// of it (what it replaced, and what those replaced, along the replacement
+/// edges) and what was derived from them (their meaning vectors and cues,
+/// by the foreign keys) are deleted in one transaction. Nothing of what
+/// they said is kept, not even to stop an event from teaching her the same
+/// thing again. Returns whether there was such a memory.
+///
+/// The database frees the deleted rows' space at its next vacuum; its write-
+/// ahead log and the deployment's backups are outside what this reaches.
+pub async fn forget_any(db: &sea_orm::DatabaseConnection, id: &str) -> Result<bool, DbErr> {
+    let txn = db.begin().await?;
+    let Some(row) = agent_memories::Entity::find_by_id(id.to_string())
         .filter(agent_memories::Column::InvalidAt.is_null())
-        .filter(agent_memories::Column::Id.eq(id))
-        .exec(db)
+        .one(&txn)
+        .await?
+    else {
+        txn.commit().await?;
+        return Ok(false);
+    };
+    let mut doomed = vec![row.id.clone()];
+    let mut frontier = vec![row.id];
+    for _ in 0..LINEAGE_STEPS {
+        if frontier.is_empty() {
+            break;
+        }
+        frontier = agent_memories::Entity::find()
+            .filter(agent_memories::Column::SupersededBy.is_in(frontier))
+            .filter(agent_memories::Column::Id.is_not_in(doomed.clone()))
+            .all(&txn)
+            .await?
+            .into_iter()
+            .map(|earlier| earlier.id)
+            .collect();
+        doomed.extend(frontier.iter().cloned());
+    }
+    agent_memories::Entity::delete_many()
+        .filter(agent_memories::Column::Id.is_in(doomed))
+        .exec(&txn)
         .await?;
-    Ok(result.rows_affected == 1)
+    txn.commit().await?;
+    Ok(true)
 }
 
 /// Confirm a Work lesson or pattern still only tried (drawn from one run):
@@ -295,8 +324,16 @@ mod tests {
             ]
         );
         assert!(update_any(db, "own1", "听了两首歌").await.unwrap());
-        assert!(retire_any(db, "g1").await.unwrap());
-        assert!(!retire_any(db, "g1").await.unwrap(), "already retired");
+        assert!(forget_any(db, "g1").await.unwrap());
+        assert!(!forget_any(db, "g1").await.unwrap(), "already forgotten");
+        assert!(
+            agent_memories::Entity::find_by_id("g1".to_string())
+                .one(db)
+                .await
+                .unwrap()
+                .is_none(),
+            "gone, not kept"
+        );
         let left: Vec<String> = list_all(db, 100)
             .await
             .unwrap()
@@ -305,6 +342,60 @@ mod tests {
             .collect();
         assert!(left.contains(&"听了两首歌".to_string()));
         assert_eq!(left.len(), 2);
+        schema.drop().await;
+    }
+
+    /// Forgetting a memory takes its earlier versions and what was derived
+    /// from them with it; a memory beside it stays.
+    #[tokio::test]
+    async fn forgetting_a_memory_deletes_its_earlier_versions_and_what_came_of_them() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "memory_forget").await;
+        let db = &schema.db;
+        use sea_orm::ConnectionTrait;
+        db.execute_unprepared(
+            "INSERT INTO users (id, username) VALUES (33, 'lan');
+             INSERT INTO agent_memories (id, user_id, kind, content, speaker, source, venue, audience, concepts, importance, access_count, valid_from, invalid_at, invalid_reason, superseded_by, created_at, updated_at)
+             VALUES ('a', 33, 'fact', '住在大阪', 'user', 'chat', 'private', '[33]', '[]', 0.5, 0, NOW(), NOW(), 'superseded', 'b', NOW() - INTERVAL '2 days', NOW()),
+                    ('b', 33, 'fact', '搬去了京都', 'user', 'chat', 'private', '[33]', '[]', 0.5, 0, NOW(), NULL, NULL, NULL, NOW() - INTERVAL '1 day', NOW()),
+                    ('x', 33, 'fact', '喜欢猫', 'user', 'chat', 'private', '[33]', '[]', 0.5, 0, NOW(), NULL, NULL, NULL, NOW(), NOW());
+             INSERT INTO agent_memory_embeddings (memory_id, model, digest, vector, created_at)
+             VALUES ('a', 'm', 'd', decode('00', 'hex'), NOW()), ('b', 'm', 'd', decode('00', 'hex'), NOW()), ('x', 'm', 'd', decode('00', 'hex'), NOW());
+             INSERT INTO agent_memory_cues (memory_id, cues, created_at) VALUES ('b', '搬家', NOW());",
+        )
+        .await
+        .unwrap();
+        assert!(
+            !forget_any(db, "a").await.unwrap(),
+            "only an active memory is forgotten"
+        );
+        assert!(forget_any(db, "b").await.unwrap());
+        let left: Vec<String> = agent_memories::Entity::find()
+            .all(db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(left, ["x"]);
+        let count = |sql: &'static str| async move {
+            db.query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                sql.to_string(),
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index::<i64>(0)
+            .unwrap()
+        };
+        assert_eq!(
+            count("SELECT COUNT(*) FROM agent_memory_embeddings").await,
+            1
+        );
+        assert_eq!(count("SELECT COUNT(*) FROM agent_memory_cues").await, 0);
         schema.drop().await;
     }
 
