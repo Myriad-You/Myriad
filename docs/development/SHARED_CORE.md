@@ -6,7 +6,7 @@
 
 ## 边界
 
-- **只收纯 crate。** 现在是 `myriad-merope` 和它依赖的 `myriad-agent-rules`，以及同步她的数据用的 `myriad-persona-sync`（格式、规范字节、时钟、比对）和多端的日志规则 `myriad-persona-log`（信封、版本向量、合并、遗忘、折叠、执笔权、时钟），以及「她的连接」帧的规则 `myriad-her-link`。不引入 tokio、reqwest、sea-orm，也不读写文件或网络。
+- **只收纯 crate。** 现在是 `myriad-merope` 和它依赖的 `myriad-agent-rules`，以及同步她的数据用的 `myriad-persona-sync`（格式、规范字节、时钟、比对）和多端的日志规则 `myriad-persona-log`（信封、版本向量、合并、遗忘、折叠、执笔权、时钟），「她的连接」帧的规则 `myriad-her-link`，以及客户端看屏幕时的宿主过滤 `myriad-perception-filter`。不引入 tokio、reqwest、sea-orm，也不读写文件或网络。
 - **每个调用都是输入的纯函数。** 现在几点、她的时区、心情这些状态都在输入里；库不读进程的时钟、时区和环境。crate 里的规则因此不用 `chrono::Local`：她的时区由调用方传入，后端传 `merope::clock::zone()`，现在就是进程时区（容器里 `TZ=Asia/Shanghai`）。
 - **一个二进制里只能有一个 Rust 静态库。** 两个 Rust staticlib 会在 std 符号上冲突。别的平台将来要用的纯 crate，都并进这一个库，不另建。
 - **密钥不进来。** 规则拿不到任何宿主密钥或凭据，错误信息里也没有。
@@ -154,6 +154,27 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 - `log/`：信封、版本向量、收、合并、折叠、时钟；`lease/`：移动、自己停下、epoch 先后；`link/`：帧的检查（`myriad-her-link` 的测试跑它）；`grants/`：授予的检查，规则还不在核心里，现在是 `status: "pending"`、没有用例的占位。
 - `myriad-persona-log` 的测试经 crate 跑，`myriad-core-ffi` 的测试经 C 入口跑。别的平台照样把每个用例交给 `myriad_core_call`。
 - 只随一次写明理由的上游改动改：`MYRIAD_CONFORMANCE_BLESS=1 cargo test -p myriad-persona-log` 重写所有 `output`。不兼容的改动另开 `v2/`，`v1/` 留到没有平台再钉它。
+
+## 宿主过滤（`filter.*`）
+
+客户端看主人的屏幕时，每一段看到的东西（一个窗口、一条消息）落到五种去向之一：`exclude`（不看）、`blind`（看不到，只知道不含文字的事实）、`present_only`（看得到，只影响她在这台设备上的当下）、`who_what`（只带走谁在聊什么）、`carry`（抹过密钥后能带走）。前三种什么都不带走。宿主规则在前，本机模型在后，默认不放行：输入缺了、值不认识、模型不可用、语言不支持、出错、拿不准，都按更严的走，也不改走云端。截取、调用本机模型、界面由客户端做，规则在 `crates/myriad-perception-filter`，来源表在 `shared/perception_sources.json`。
+
+| 调用 | 输入 → 输出 |
+| --- | --- |
+| `filter.window` | `{bundleId?, title}` → `{seen}`（抹过密钥、压成一行、最多 160 个字符的标题）或 `{withheld: "password_app" \| "key_file"}`：整个窗口都不读 |
+| `filter.scan_secrets` | `{text}` → `{text, wiped: [{kind}]}`，`kind` 是 `private_key`、`vendor_prefix`、`bearer`、`assignment`、`high_entropy` |
+| `filter.scan_identifiers` | `{text}`（密钥扫描之后）→ `{text, wiped: [{kind}]}`，`kind` 是 `card`、`sg_nric`、`jp_my_number`；命中说明是主人自己的身份信息 |
+| `filter.source` | `{bundleId?, urlHost?, market?}` → `{kind}`：`finance`、`health`、`dating`、`job`、`legal`、`messaging` 或 `null`；没给市场或市场不认识时所有市场的网站都算；`table` 只给回归样本用 |
+| `filter.text_hits` | `{text}`（两道扫描之后）→ `{hits: [{kind, rule}]}`，`kind` 是 `finance`、`health` |
+| `filter.check_relay` | `{source, who, topic}`（交给模型转述的原文和它的回答）→ `{ok: true}` 或 `{ok: false, reason: "empty" \| "digits" \| "copied"}` |
+| `filter.decide` | 各步的结果 → `{rules, disposition, kind?, reason, missing?, leaves, leavesKind}` |
+| `filter.lists` | `{}` → `{rules, captureExcluded, classifyAsks, presentOnlyLeavesKind, titleLimit, marks}` |
+
+- **形状有版本。** 每个输入可以带 `shape`（默认 1），每个输出都带 `shape`；核心不会说的形状直接拒绝，不猜。`filter.decide` 和 `filter.lists` 还带 `rules`：规则的修订号，词表、名单、判定一改就变，客户端记下是哪一版规则定的去向。
+- **新值按更严的读。** `filter.decide` 的枚举都按字符串收：新客户端发来旧核心不认识的值（新的来源类别、新的模型状态），按更严的那一个处理，不拒绝。缺了某步需要的输入是 `blind`（`reason: "missing"`，`missing` 说缺了哪项），也不拒绝。
+- **拒绝不带原文。** 这些调用读的文字里可能有密钥，所以 `bad_input` 的消息只说缺了或多了哪个字段，或者输入不合形状，从不引用输入里的值。输出也不带被抹掉、被命中的原文和它的位置。
+- **还没定的两件事各是一个常量。** 敏感分类问几次（`CLASSIFY_ASKS`，现在问两次（通用、内容标注），两次都明确不敏感才 `carry`）、`present_only` 离开设备的标记带不带类别（`PRESENT_ONLY_LEAVES_KIND`，现在不带）。现在取的都是更严的那一边；客户端按 `filter.lists` 的 `classifyAsks` 决定问几次。
+- **回归样本**在 `crates/myriad-perception-filter/fixtures/host-filter/`：原生仓库合成样本的副本（密钥和号码是占位符，测试在运行时用固定种子展开），加上本机模型在这批样本上录下的回答（`model-replay.json`）。`cargo test -p myriad-perception-filter --test corpus -- --nocapture` 打印真规则＋录下的模型回答按 `decide` 合成后，每类放过和收紧了多少。
 
 ## 别的平台怎么链接
 
