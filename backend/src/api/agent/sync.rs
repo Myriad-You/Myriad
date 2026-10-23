@@ -616,6 +616,38 @@ pub async fn sync_pull(
     })))
 }
 
+/// GET /api/agent/sync/log/full/{link}: a new host core's first full sync
+/// of one audience of her log, from the single-use link `log.full` gave it
+/// (`services::her_log::full`). Not found while her log on the server is
+/// off, and for a link that is not this device's, used or expired.
+pub async fn sync_log_full(
+    State(db): State<DatabaseConnection>,
+    Extension(device): Extension<SyncDevice>,
+    Path(link): Path<String>,
+) -> Result<Json<Value>, HttpError> {
+    use crate::services::her_log;
+    let not_found = || {
+        HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Not found", "code": "not_found" })),
+        ))
+    };
+    if !her_log::enabled()
+        || !her_log::store::account(&db, owner_of(&device))
+            .await
+            .map_err(sync_failed)?
+            .is_some_and(|account| account.on())
+    {
+        return Err(not_found());
+    }
+    let (now, _) = her_log::now();
+    her_log::full::redeem(&db, her_log::keys::root(), &device.0.id, &link, now)
+        .await
+        .map_err(sync_failed)?
+        .map(Json)
+        .ok_or_else(not_found)
+}
+
 /// GET /api/agent/sync/assets/{asset_id}: a picture as itself, a rig as
 /// `multipart/mixed` (`manifest.json`, then `atlas.png`). Only what her
 /// persona refers to now.

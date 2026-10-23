@@ -987,6 +987,117 @@ pub(crate) fn tables() -> Vec<TableDef> {
             ],
         },
         TableDef {
+            name: "agent_log_accounts".to_string(),
+            columns: vec![
+                ColumnDef::new("user_id", "integer").not_null(),
+                ColumnDef::new("region", "character varying"),
+                ColumnDef::new("started_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("stopped_at", "timestamp with time zone"),
+            ],
+        },
+        TableDef {
+            name: "agent_log_rows".to_string(),
+            columns: vec![
+                ColumnDef::new("id", "character varying").not_null(),
+                ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("origin", "character varying").not_null(),
+                ColumnDef::new("dseq", "bigint").not_null(),
+                ColumnDef::new("hlc", "character varying").not_null(),
+                ColumnDef::new("object", "character varying").not_null(),
+                ColumnDef::new("subject", "character varying"),
+                ColumnDef::new("kind", "character varying").not_null(),
+                ColumnDef::new("forgotten", "boolean")
+                    .not_null()
+                    .default_value("false"),
+                ColumnDef::new("envelope", "jsonb").not_null(),
+                ColumnDef::new("received_from", "character varying").not_null(),
+                ColumnDef::new("received_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_payloads".to_string(),
+            columns: vec![
+                ColumnDef::new("row_id", "character varying").not_null(),
+                ColumnDef::new("sealed", "bytea").not_null(),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_audience_keys".to_string(),
+            columns: vec![
+                ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("sealed", "text").not_null(),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_object_keys".to_string(),
+            columns: vec![
+                ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("object", "character varying").not_null(),
+                ColumnDef::new("subject", "character varying"),
+                ColumnDef::new("sealed", "bytea").not_null(),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_ledger".to_string(),
+            columns: vec![
+                ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("target", "character varying").not_null(),
+                ColumnDef::new("at", "character varying").not_null(),
+                ColumnDef::new("recorded_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_counters".to_string(),
+            columns: vec![
+                ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("dseq", "bigint").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_clock".to_string(),
+            columns: vec![
+                ColumnDef::new("node", "character varying").not_null(),
+                ColumnDef::new("last", "character varying").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_log_full_links".to_string(),
+            columns: vec![
+                ColumnDef::new("token_hash", "character varying").not_null(),
+                ColumnDef::new("device_id", "character varying").not_null(),
+                ColumnDef::new("audience", "character varying").not_null(),
+                ColumnDef::new("expires_at", "timestamp with time zone").not_null(),
+                ColumnDef::new("used_at", "timestamp with time zone"),
+            ],
+        },
+        TableDef {
+            name: "agent_lease_grants".to_string(),
+            columns: vec![
+                ColumnDef::new("epoch", "bigint").not_null(),
+                ColumnDef::new("holder", "character varying").not_null(),
+                ColumnDef::new("issued", "character varying").not_null(),
+                ColumnDef::new("how", "character varying").not_null(),
+                ColumnDef::new("through", "bigint"),
+                ColumnDef::new("created_at", "timestamp with time zone").not_null(),
+            ],
+        },
+        TableDef {
+            name: "agent_lease_ends".to_string(),
+            columns: vec![
+                ColumnDef::new("device_id", "character varying").not_null(),
+                ColumnDef::new("core", "character varying").not_null(),
+                ColumnDef::new("heard_at", "bigint"),
+                ColumnDef::new("place", "character varying"),
+                ColumnDef::new("owner_since", "bigint"),
+                ColumnDef::new("owner_seen_at", "bigint"),
+                ColumnDef::new("stopped_epoch", "bigint"),
+                ColumnDef::new("stopped_at", "bigint"),
+            ],
+        },
+        TableDef {
             name: "agent_kept_for_her".to_string(),
             columns: vec![
                 ColumnDef::new("id", "bigint").not_null(),

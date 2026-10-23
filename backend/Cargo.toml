@@ -61,6 +61,8 @@ myriad-listening = { path = "../crates/myriad-listening" }
 myriad-prompt-security = { path = "../crates/myriad-prompt-security" }
 myriad-agent-rules = { path = "../crates/myriad-agent-rules" }
 myriad-persona-sync = { path = "../crates/myriad-persona-sync" }
+myriad-persona-log = { path = "../crates/myriad-persona-log" }
+myriad-her-link = { path = "../crates/myriad-her-link" }
 myriad-phantasi-notes = { path = "../crates/myriad-phantasi-notes" }
 myriad-blog = { path = "../crates/myriad-blog" }
 myriad-tapp-rules = { path = "../crates/myriad-tapp-rules" }

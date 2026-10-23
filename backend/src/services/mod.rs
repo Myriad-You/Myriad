@@ -30,6 +30,7 @@ pub mod federation_gate; // Egress-location decision: may this server federate?
 pub mod fetcher;
 pub mod gemini_media; // Gemini generateContent image + speech
 pub mod governed_text; // Governed AI text sink (scheduler + declared-API builtins)
+pub mod her_log; // Her log on the server: relay between host cores, her lease (off by default)
 pub mod hitokoto; // Quote (一言) sources: ids, built-in hosts, default address
 pub mod http_client; // Shared HTTP client with proxy support
 pub mod image_generation; // OpenAI / OpenRouter / Volcengine / Gemini image providers

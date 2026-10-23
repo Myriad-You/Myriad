@@ -532,6 +532,10 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                 // clocks and the devices page (after the proxy is loaded).
                 services::server_clock::start();
 
+                // Her log on the server (multi-device sync): nothing starts
+                // unless HER_LOG_ENABLED is on.
+                services::her_log::retention::start(db.clone());
+
                 // Process-global DB must be wired before persona boot recovery.
                 services::process_db::set_process_database(db.clone());
 
