@@ -90,6 +90,12 @@ export interface BoundTurnKeyform {
   minus: Float32Array
   up: Float32Array | null
   down: Float32Array | null
+  /**
+   * At the full turn and the full nod together, per turn side and nod side
+   * (turnedNod). Null without a nod key, or where a caller built the turn by
+   * hand.
+   */
+  corners?: { plusUp: Float32Array; plusDown: Float32Array; minusUp: Float32Array; minusDown: Float32Array } | null
   /** The multiply colour at each full key (r, g, b), when the keys hold one. */
   multiply: { plus: Float32Array; minus: Float32Array; up: Float32Array | null; down: Float32Array | null } | null
 }
@@ -107,11 +113,14 @@ export function bindTurnKeyform(
 /** A key's offsets at each rest point (x, y per point). */
 export function bindTurnKey(key: Readonly<Anime25DTurnKey>, rest: Float32Array): BoundTurnKeyform {
   const nod = Boolean(key.up && key.down)
+  const plus = invertLattice(key.plus, rest)
+  const minus = invertLattice(key.minus, rest)
   return {
-    plus: invertLattice(key.plus, rest),
-    minus: invertLattice(key.minus, rest),
+    plus,
+    minus,
     up: nod ? invertLattice(key.up!, rest) : null,
     down: nod ? invertLattice(key.down!, rest) : null,
+    corners: nod ? turnedNod(key, rest, plus, minus) : null,
     multiply: key.plus.multiply || key.minus.multiply || (nod && (key.up!.multiply || key.down!.multiply))
       ? {
           plus: multiplyOf(key.plus),
@@ -121,6 +130,47 @@ export function bindTurnKey(key: Readonly<Anime25DTurnKey>, rest: Float32Array):
         }
       : null,
   }
+}
+
+/**
+ * The corner keys, composed rather than summed: each rest point turned, then
+ * nodded as the nod key moves the place it was turned to. Summed, a turn and
+ * a nod that each narrow a part along the same line (the far eye by the turn
+ * and its lid by the nod) take its width away twice over, and it folds;
+ * composed, the nod narrows what the turn left. The place is taken less the
+ * part's whole move in the turn, so a small part's nod key is read on the
+ * part, not across the face where it was never fitted.
+ */
+function turnedNod(key: Readonly<Anime25DTurnKey>, rest: Float32Array, plus: Float32Array, minus: Float32Array) {
+  const corner = (turn: Float32Array, lattice: Readonly<Anime25DTurnLattice>, nod: Readonly<Anime25DTurnLattice>) => {
+    const [mx, my] = latticeMove(lattice)
+    const turned = new Float32Array(rest.length)
+    for (let i = 0; i < rest.length; i += 2) {
+      turned[i] = rest[i] + turn[i] - mx
+      turned[i + 1] = rest[i + 1] + turn[i + 1] - my
+    }
+    const nodded = invertLattice(nod, turned)
+    for (let i = 0; i < rest.length; i++) nodded[i] += turn[i]
+    return nodded
+  }
+  return {
+    plusUp: corner(plus, key.plus, key.up!),
+    plusDown: corner(plus, key.plus, key.down!),
+    minusUp: corner(minus, key.minus, key.up!),
+    minusDown: corner(minus, key.minus, key.down!),
+  }
+}
+
+/** A key's whole move: its lattice points, turned, less where they were at rest, on average. */
+function latticeMove(lattice: Readonly<Anime25DTurnLattice>): [number, number] {
+  let x = 0
+  let y = 0
+  for (let n = 0; n < lattice.back.length; n += 2) {
+    x -= lattice.back[n]
+    y -= lattice.back[n + 1]
+  }
+  const count = lattice.back.length / 2
+  return [x / count, y / count]
 }
 
 /** A key's multiply colour, white without one; held to a sane range. */
@@ -152,15 +202,23 @@ export function turnKeyformMultiply(
   }
 }
 
-/** For each rest point q, the turned point t with t + back(t) = q, as t − q. */
+/**
+ * For each rest point q, the turned point t with t + back(t) = q, as t − q.
+ * Stepping t ← q − back(t) finds it wherever the key moves its neighbourhood
+ * less than it moves itself; where a part is squeezed hard (the far eye at
+ * the full turn) the steps overshoot and swing back and forth for ever, so
+ * there t is solved on the lattice itself (latticeRoot).
+ */
 function invertLattice(lattice: Readonly<Anime25DTurnLattice>, rest: Float32Array): Float32Array {
   const out = new Float32Array(rest.length)
   const at = new Float32Array(2)
+  let cells: LatticeCells | null = null
   for (let i = 0; i < rest.length; i += 2) {
     const qx = rest[i]
     const qy = rest[i + 1]
     let tx = qx
     let ty = qy
+    let settled = false
     for (let step = 0; step < 30; step++) {
       sampleLattice(lattice, tx, ty, at)
       const nx = qx - at[0]
@@ -168,7 +226,17 @@ function invertLattice(lattice: Readonly<Anime25DTurnLattice>, rest: Float32Arra
       const moved = Math.abs(nx - tx) + Math.abs(ny - ty)
       tx = nx
       ty = ny
-      if (moved < 0.01) break
+      if (moved < 0.01) {
+        settled = true
+        break
+      }
+    }
+    if (!settled) {
+      cells ??= latticeCells(lattice)
+      if (latticeRoot(cells, qx, qy, at)) {
+        tx = at[0]
+        ty = at[1]
+      }
     }
     out[i] = tx - qx
     out[i + 1] = ty - qy
@@ -177,9 +245,131 @@ function invertLattice(lattice: Readonly<Anime25DTurnLattice>, rest: Float32Arra
 }
 
 /**
+ * The lattice as cells, each with where its corners land at rest (t + back(t)),
+ * ringed by cells reaching FAR beyond the box that carry the edge's offsets
+ * outward, as sampleLattice holds them past the box. Within a cell t + back(t)
+ * is bilinear, so a rest point's turned point solves a quadratic there.
+ */
+interface LatticeCells {
+  xs: Float64Array
+  ys: Float64Array
+  /** Landing point per node of the ringed lattice (x, y per node, row by row). */
+  landed: Float64Array
+  /** Bounds of each cell's landed corners: x0, y0, x1, y1 per cell. */
+  bounds: Float64Array
+}
+
+const FAR = 1e5
+
+function latticeCells(lattice: Readonly<Anime25DTurnLattice>): LatticeCells {
+  const [x0, y0, x1, y1] = lattice.box
+  const grid = lattice.grid
+  const side = grid + 2
+  const xs = new Float64Array(side)
+  const ys = new Float64Array(side)
+  for (let k = 0; k < grid; k++) {
+    xs[k + 1] = x0 + ((x1 - x0) * k) / (grid - 1)
+    ys[k + 1] = y0 + ((y1 - y0) * k) / (grid - 1)
+  }
+  xs[0] = x0 - FAR
+  ys[0] = y0 - FAR
+  xs[side - 1] = x1 + FAR
+  ys[side - 1] = y1 + FAR
+  const landed = new Float64Array(side * side * 2)
+  for (let j = 0; j < side; j++) {
+    const lj = Math.max(0, Math.min(grid - 1, j - 1))
+    for (let i = 0; i < side; i++) {
+      const li = Math.max(0, Math.min(grid - 1, i - 1))
+      const n = (j * side + i) * 2
+      landed[n] = xs[i] + lattice.back[(lj * grid + li) * 2]
+      landed[n + 1] = ys[j] + lattice.back[(lj * grid + li) * 2 + 1]
+    }
+  }
+  const bounds = new Float64Array((side - 1) * (side - 1) * 4)
+  for (let j = 0; j < side - 1; j++) {
+    for (let i = 0; i < side - 1; i++) {
+      const b = (j * (side - 1) + i) * 4
+      bounds[b] = bounds[b + 1] = Infinity
+      bounds[b + 2] = bounds[b + 3] = -Infinity
+      for (const n of [j * side + i, j * side + i + 1, (j + 1) * side + i, (j + 1) * side + i + 1]) {
+        bounds[b] = Math.min(bounds[b], landed[n * 2])
+        bounds[b + 1] = Math.min(bounds[b + 1], landed[n * 2 + 1])
+        bounds[b + 2] = Math.max(bounds[b + 2], landed[n * 2])
+        bounds[b + 3] = Math.max(bounds[b + 3], landed[n * 2 + 1])
+      }
+    }
+  }
+  return { xs, ys, landed, bounds }
+}
+
+/**
+ * The turned point landing on (qx, qy), solved cell by cell; where a key
+ * folds and several do, the one nearest the rest point. False if none does.
+ */
+function latticeRoot(cells: LatticeCells, qx: number, qy: number, out: Float32Array): boolean {
+  const { xs, ys, landed, bounds } = cells
+  const side = xs.length
+  let best = Infinity
+  for (let j = 0; j < side - 1; j++) {
+    for (let i = 0; i < side - 1; i++) {
+      const b = (j * (side - 1) + i) * 4
+      const slack = 1e-6 * (1 + bounds[b + 2] - bounds[b] + bounds[b + 3] - bounds[b + 1])
+      if (qx < bounds[b] - slack || qy < bounds[b + 1] - slack || qx > bounds[b + 2] + slack || qy > bounds[b + 3] + slack) continue
+      const a = (j * side + i) * 2
+      const r = a + 2
+      const d = a + side * 2
+      const c = d + 2
+      const ex = landed[r] - landed[a]
+      const ey = landed[r + 1] - landed[a + 1]
+      const fx = landed[d] - landed[a]
+      const fy = landed[d + 1] - landed[a + 1]
+      const gx = landed[a] - landed[r] + landed[c] - landed[d]
+      const gy = landed[a + 1] - landed[r + 1] + landed[c + 1] - landed[d + 1]
+      const hx = qx - landed[a]
+      const hy = qy - landed[a + 1]
+      // h = u·e + v·f + u·v·g, crossed with the cell's sides: k2·v² + k1·v + k0 = 0.
+      const k2 = gx * fy - gy * fx
+      const k1 = ex * fy - ey * fx + hx * gy - hy * gx
+      const k0 = hx * ey - hy * ex
+      const scale = Math.abs(k1) + Math.abs(k2) + Math.abs(k0)
+      if (scale === 0) continue
+      let roots: number[]
+      if (Math.abs(k2) <= 1e-12 * scale) {
+        if (Math.abs(k1) <= 1e-12 * scale) continue
+        roots = [-k0 / k1]
+      } else {
+        const disc = k1 * k1 - 4 * k0 * k2
+        if (disc < 0) continue
+        const w = Math.sqrt(disc)
+        roots = [(-k1 - w) / (2 * k2), (-k1 + w) / (2 * k2)]
+      }
+      for (const v of roots) {
+        if (!(v >= -1e-9 && v <= 1 + 1e-9)) continue
+        const sx = ex + gx * v
+        const sy = ey + gy * v
+        const along = sx * sx + sy * sy
+        if (along === 0) continue
+        const u = ((hx - fx * v) * sx + (hy - fy * v) * sy) / along
+        if (!(u >= -1e-9 && u <= 1 + 1e-9)) continue
+        const tx = xs[i] + (xs[i + 1] - xs[i]) * u
+        const ty = ys[j] + (ys[j + 1] - ys[j]) * v
+        const away = (tx - qx) ** 2 + (ty - qy) ** 2
+        if (away < best) {
+          best = away
+          out[0] = tx
+          out[1] = ty
+        }
+      }
+    }
+  }
+  return best < Infinity
+}
+
+/**
  * The offset at `amount` of the full turn (−1…1) and `nod` of the full nod,
- * for vertex `vertex`. Turn and nod keys add, as Live2D fills a deformer's
- * corner forms from its edge forms.
+ * for vertex `vertex`. Along either axis it is that key mixed by its share;
+ * in between, the four keys around the pose mix bilinearly, as a Live2D
+ * deformer mixes its keyforms, the corner composed (turnedNod).
  */
 export function turnKeyformOffset(
   bound: Readonly<BoundTurnKeyform>,
@@ -195,8 +385,16 @@ export function turnKeyformOffset(
   const nodKey = nod >= 0 ? bound.up : bound.down
   if (!nodKey || nod === 0) return
   const nodShare = Math.min(1, Math.abs(nod))
-  out.x += nodKey[vertex * 2] * nodShare
-  out.y += nodKey[vertex * 2 + 1] * nodShare
+  const nx = nodKey[vertex * 2]
+  const ny = nodKey[vertex * 2 + 1]
+  out.x += nx * nodShare
+  out.y += ny * nodShare
+  const corners = bound.corners
+  if (!corners || share === 0) return
+  const corner = amount >= 0 ? (nod >= 0 ? corners.plusUp : corners.plusDown) : nod >= 0 ? corners.minusUp : corners.minusDown
+  const both = share * nodShare
+  out.x += (corner[vertex * 2] - key[vertex * 2] - nx) * both
+  out.y += (corner[vertex * 2 + 1] - key[vertex * 2 + 1] - ny) * both
 }
 
 /** The computed head a keyed part still takes: nodding only, or held still when the nod is keyed too. */

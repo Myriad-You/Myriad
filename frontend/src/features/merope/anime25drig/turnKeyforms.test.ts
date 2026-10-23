@@ -75,7 +75,7 @@ test('malformed keys are refused', () => {
   assert.equal(isAnime25DTurnKeyforms([]), false)
 })
 
-test('a nod key adds to the turn key, as Live2D fills the corners from the edges', () => {
+test('a nod key and the turn key make the corners together', () => {
   const still = lattice(5, () => [0, 0])
   const keyforms = {
     face: {
@@ -100,6 +100,39 @@ test('a nod key adds to the turn key, as Live2D fills the corners from the edges
   assert.equal(ears.up, null)
   const nose = bindTurnKeyform(keyforms, { group: 'head', role: 'nose', side: null }, rest)!
   assert.ok(nose.up !== null && Math.abs(nose.up[1] + 6) < 0.05)
+})
+
+test('a rest point squeezed hard by its key still finds where it went', () => {
+  // The far side squeezed to a third about x = 50: stepping t ← q − back(t)
+  // overshoots twice over each step and never settles there.
+  const keyforms = { face: { plus: lattice(9, (x) => [50 + (x - 50) * 3 - x, 0]), minus: lattice(9, () => [0, 0]) } }
+  const rest = new Float32Array([20, 50, 45, 50, 50, 50, 80, 50])
+  const bound = bindTurnKeyform(keyforms, { group: 'head', role: 'face', side: null }, rest)!
+  for (let i = 0; i < rest.length; i += 2) {
+    const turned = rest[i] + bound.plus[i]
+    assert.ok(Math.abs(turned - (50 + (rest[i] - 50) / 3)) < 0.01, `${rest[i]} → ${turned}`)
+  }
+})
+
+test('a turn and a nod that each narrow a part narrow it in turn, not twice over', () => {
+  // Both keys halve the width about x = 50. Added, the full corner would
+  // take the whole width away; composed, a quarter is left.
+  const halved = lattice(9, (x) => [50 + (x - 50) * 2 - x, 0])
+  const keyforms = { face: { plus: halved, minus: halved, up: halved, down: halved } }
+  const rest = new Float32Array([40, 50, 60, 50])
+  const bound = bindTurnKeyform(keyforms, { group: 'head', role: 'face', side: null }, rest)!
+  const width = (amount: number, nod: number) => {
+    const a = { x: 0, y: 0 }
+    const b = { x: 0, y: 0 }
+    turnKeyformOffset(bound, 0, amount, a, nod)
+    turnKeyformOffset(bound, 1, amount, b, nod)
+    return 60 + b.x - (40 + a.x)
+  }
+  assert.ok(Math.abs(width(1, 1) - 5) < 0.01, `${width(1, 1)}`)
+  assert.ok(Math.abs(width(-1, -1) - 5) < 0.01, `${width(-1, -1)}`)
+  // Along an axis the key alone, as before; in between, the four keys mixed.
+  assert.ok(Math.abs(width(1, 0) - 10) < 0.01 && Math.abs(width(0, -1) - 10) < 0.01)
+  assert.ok(Math.abs(width(0.5, 0.5) - 20 * (1 - 0.25 - 0.25 + 0.25 * 0.25)) < 0.01, `${width(0.5, 0.5)}`)
 })
 
 test('an accessory keyed like its host stays put on it: the carry brings the host turning, once', () => {
