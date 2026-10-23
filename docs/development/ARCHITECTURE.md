@@ -197,7 +197,9 @@ to be settled before it serves anyone. While off, nothing reads or writes
 its tables and the site behaves as before.
 
 - **Logs per audience** (`store`): shared rows only, unique by
-  `(audience, origin, dseq)`; the envelope is the row as
+  `(audience, origin, dseq)`: each side counts its rows per audience, so a
+  side that keeps only some audiences holds them without gaps, and a
+  handover's `through` is `{audience: dseq}`; the envelope is the row as
   `myriad-persona-log` writes it. A batch goes through `admit` and `merge`
   of that crate with the part of the log it touches; nothing in the backend
   decides a row's shape or how logs meet. `answer` sends every forget first.

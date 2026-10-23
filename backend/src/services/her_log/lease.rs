@@ -22,7 +22,7 @@
 //! on the server is on.
 
 use myriad_persona_log::lease::{
-    self as rules, Grant, How, MoveInput, Moved, OwnerPlace, Refusal, Request,
+    self as rules, Grant, How, MoveInput, Moved, OwnerPlace, Refusal, Request, Through,
 };
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, QueryResult, Statement, TransactionTrait,
@@ -58,8 +58,10 @@ fn grant_of(row: QueryResult) -> Result<Grant, Error> {
             .map_err(|_| Error::Refused("a kept grant has no clock".into()))?,
         how,
         through: row
-            .try_get::<Option<i64>>("", "through")?
-            .map(|through| through as u64),
+            .try_get::<Option<Value>>("", "through")?
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|_| Error::Refused("a kept grant's through is not per audience".into()))?,
     })
 }
 
@@ -99,7 +101,7 @@ async fn insert<C: ConnectionTrait>(db: &C, grant: &Grant) -> Result<(), Error> 
             grant.holder.clone().into(),
             grant.issued.to_string().into(),
             how_name(grant.how).into(),
-            grant.through.map(|through| through as i64).into(),
+            grant.through.as_ref().map(|through| json!(through)).into(),
         ],
     ))
     .await?;
@@ -393,19 +395,23 @@ pub fn grant_body(grant: &Grant, settings: &Settings) -> Value {
     })
 }
 
-/// The last shared count of `device`'s the server holds, in any audience:
-/// where its rows past a takeover start.
-pub async fn through_of<C: ConnectionTrait>(db: &C, device: &str) -> Result<u64, Error> {
-    let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT COALESCE(MAX(dseq), 0) AS through FROM agent_log_rows WHERE origin = $1",
-            [device.into()],
-        ))
-        .await?;
-    Ok(row
-        .map(|row| row.try_get::<i64>("", "through"))
-        .transpose()?
-        .unwrap_or(0)
-        .max(0) as u64)
+/// The last shared count of `device`'s the server holds in each audience:
+/// where its rows past a takeover start, or what the server's own handover
+/// says it wrote. Counts are per audience, so each has its own.
+pub async fn through_of<C: ConnectionTrait>(db: &C, device: &str) -> Result<Through, Error> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT audience, MAX(dseq) AS through FROM agent_log_rows \
+         WHERE origin = $1 GROUP BY audience",
+        [device.into()],
+    ))
+    .await?
+    .into_iter()
+    .map(|row| {
+        let audience: String = row.try_get("", "audience")?;
+        let through: i64 = row.try_get("", "through")?;
+        Ok((audience, through.max(0) as u64))
+    })
+    .filter(|kept| !matches!(kept, Ok((_, 0))))
+    .collect()
 }

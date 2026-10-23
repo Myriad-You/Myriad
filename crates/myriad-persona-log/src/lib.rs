@@ -37,7 +37,7 @@ pub use admit::{AdmitInput, Admitted, admit};
 pub use fold::{FoldInput, Folded, fold};
 pub use forget::{Entry, ledger};
 pub use kinds::Rule;
-pub use lease::{Grant, Here, How, Moved, Request};
+pub use lease::{Grant, Here, How, Moved, Request, Through};
 pub use merge::{MergeInput, Merged, merge};
 pub use row::{Author, LOG_VERSION, Payload, Replicate, Row};
 pub use vector::{Holdings, Span, Vector};

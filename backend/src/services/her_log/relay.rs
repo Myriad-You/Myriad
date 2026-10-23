@@ -36,7 +36,7 @@ use std::collections::BTreeMap;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use myriad_persona_log::{
     Row, Vector,
-    lease::{Refusal as MoveRefusal, Request},
+    lease::{Refusal as MoveRefusal, Request, Through},
 };
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -312,11 +312,12 @@ pub async fn take(
                 },
                 Some("talk" | "place") if holder == NODE => {
                     let standing = lease::current(db).await?;
+                    let through = lease::through_of(db, NODE).await?;
                     Request::Handover {
                         from: NODE.to_string(),
                         epoch: standing.epoch,
                         to: device.to_string(),
-                        through: None,
+                        through: (!through.is_empty()).then_some(through),
                     }
                 }
                 // Asking another holder to give her up is not done yet: no
@@ -328,11 +329,15 @@ pub async fn take(
         "lease.yield" => {
             lease::heard(db, device, Some(Core::Host), now).await?;
             let to = body["to"].as_str().unwrap_or(NODE).to_string();
+            // `through` is {audience: last dseq}, one count per audience.
+            let Ok(through) = serde_json::from_value::<Through>(body["through"].clone()) else {
+                return Ok(vec![Outgoing::error("bad_frame", seq)]);
+            };
             let request = Request::Handover {
                 from: device.to_string(),
                 epoch: body["epoch"].as_u64().unwrap_or(0),
                 to,
-                through: body["through"].as_u64(),
+                through: (!through.is_empty()).then_some(through),
             };
             moved(db, settings, request, seq, now).await
         }

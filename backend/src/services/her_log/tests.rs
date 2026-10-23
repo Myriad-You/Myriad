@@ -193,7 +193,7 @@ impl Side {
     }
 
     fn vector(&mut self, audience: &str) -> Value {
-        let holdings = vector::holdings(&self.log(audience));
+        let holdings = vector::holdings(&self.log(audience)).unwrap();
         self.frame(
             "log.vector",
             None,
@@ -242,7 +242,7 @@ impl Side {
             "log.vector" => {
                 let audience = body["audience"].as_str().unwrap().to_string();
                 let theirs: Vector = serde_json::from_value(body["vector"].clone()).unwrap();
-                let lacking = vector::answer(&self.log(&audience), &theirs);
+                let lacking = vector::answer(&self.log(&audience), &theirs).unwrap();
                 if lacking.is_empty() {
                     Vec::new()
                 } else {
@@ -699,6 +699,50 @@ async fn a_groups_rows_go_only_to_her_mind_and_come_back_only_from_it() {
         .await
         .unwrap();
     assert!(outs.iter().all(|out| out.to == To::Sender));
+
+    // Counts are per audience: the Mac's group rows take no place in its
+    // private count, so Windows, which never gets the group, holds all of
+    // the Mac's private rows without a gap.
+    mac.write(
+        PERSONAL,
+        "node:lamp",
+        "node.created",
+        Author::Her,
+        Some("a lamp"),
+        T0 + 3,
+    );
+    sync(db, &mut mac, PERSONAL, T0 + MINUTE).await;
+    sync(db, &mut win, PERSONAL, T0 + MINUTE).await;
+    let held = vector::holdings(&win.log(PERSONAL)).unwrap();
+    assert_eq!(held.vector.get("dev_mac"), Some(&1));
+    assert!(held.beyond.is_empty(), "{:?}", held.beyond);
+    // Giving her up, the Mac says its last count in each audience it wrote
+    // in; the grant keeps them as they were.
+    let through = json!({ PERSONAL: 1, GROUP: 2 });
+    let yielded = mac.frame(
+        "lease.yield",
+        Some("yield_1"),
+        json!({ "epoch": mac.epoch, "through": through }),
+    );
+    exchange(db, &mut mac, vec![yielded], T0 + 2 * MINUTE).await;
+    let standing = lease::standing(db).await.unwrap().unwrap();
+    assert_eq!(
+        (standing.holder.as_str(), standing.how),
+        (NODE, myriad_persona_log::How::Handover)
+    );
+    assert_eq!(json!(standing.through), through);
+    // A count for the whole side, not per audience, is not a yield.
+    let ask = mac.frame("lease.ask", None, json!({ "why": "talk" }));
+    exchange(db, &mut mac, vec![ask], T0 + 3 * MINUTE).await;
+    let old = mac.frame(
+        "lease.yield",
+        Some("yield_2"),
+        json!({ "epoch": mac.epoch, "through": 3 }),
+    );
+    let outs = relay::take(db, &root(), &on(), OWNER, "dev_mac", &old, T0 + 3 * MINUTE)
+        .await
+        .unwrap();
+    assert_eq!(delivered(&outs[0])["body"]["code"], "bad_frame");
     schema.drop().await;
 }
 
@@ -787,7 +831,7 @@ async fn the_server_takes_over_only_when_the_holder_has_stopped() {
     assert_eq!(frames[0]["t"], "lease.epoch");
     assert_eq!(frames[0]["body"]["stopAfter"], settings.stop_after_micros);
     assert_eq!(frames[1]["t"], "lease.takeover");
-    assert_eq!(frames[1]["body"]["through"], 1);
+    assert_eq!(frames[1]["body"]["through"], json!({ PERSONAL: 1 }));
     // The phone, which never held her, is only told where she is.
     assert_eq!(
         relay::welcome(db, &settings, "dev_phone")
@@ -835,7 +879,7 @@ async fn the_lease_conformance_cases_pass_through_the_servers_wiring() {
                     .as_str()
                     .unwrap()
                     .into(),
-                standing.through.map(|t| t as i64).into(),
+                standing.through.as_ref().map(|t| json!(t)).into(),
             ],
         ))
         .await

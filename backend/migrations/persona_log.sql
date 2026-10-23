@@ -111,7 +111,8 @@ CREATE TABLE IF NOT EXISTS agent_lease_grants (
     how VARCHAR(12) NOT NULL
         CONSTRAINT agent_lease_grants_how_check
         CHECK (how IN ('first', 'handover', 'takeover', 'force')),
-    through BIGINT,
+    -- A handover's {audience: last dseq} of the side that gave it up.
+    through JSONB,
     created_at TIMESTAMPTZ NOT NULL
 );
 CREATE OR REPLACE FUNCTION agent_lease_grants_guard() RETURNS trigger AS $$

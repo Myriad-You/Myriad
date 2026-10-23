@@ -563,7 +563,7 @@
         "required": ["epoch", "through"],
         "optional": ["to"],
         "idempotency": "id is made by the holder once per yield.",
-        "description": "The holder gives her mind up: going to sleep, the owner left its 现场, or the server asked. through is its last shared count (dseq): the target catches up to it before it thinks. to is the core it gives her to, when it knows. Yielding is small on purpose, so it fits in the moment before a lid closes."
+        "description": "The holder gives her mind up: going to sleep, the owner left its 现场, or the server asked. through is its last shared count (dseq) in each audience it wrote in, {audience: dseq}, an audience with none left out: the target catches up to them before it thinks. to is the core it gives her to, when it knows. Yielding is small on purpose, so it fits in the moment before a lid closes."
       },
       "lease.grant": {
         "from": "server",
@@ -571,7 +571,7 @@
         "required": ["grant"],
         "optional": ["stopAfter"],
         "idempotency": "id is the grant's epoch as text.",
-        "description": "To the new holder: grant is {epoch, holder, issued, how, through?} as the log rules write it (log.fold reads the history). The holder catches up to through, then thinks. stopAfter is the server's stop time in microseconds (lease.here's stopAfter): how long the holder, cut off from the server and with the owner gone from its 现场, keeps thinking before it stops by itself. The server takes over by the same value, so the holder runs lease.here with it; absent means three minutes."
+        "description": "To the new holder: grant is {epoch, holder, issued, how, through?} as the log rules write it (log.fold reads the history); through is per audience, as in lease.yield. The holder catches up to through, then thinks. stopAfter is the server's stop time in microseconds (lease.here's stopAfter): how long the holder, cut off from the server and with the owner gone from its 现场, keeps thinking before it stops by itself. The server takes over by the same value, so the holder runs lease.here with it; absent means three minutes."
       },
       "lease.epoch": {
         "from": "server",
@@ -591,7 +591,7 @@
         "from": "server",
         "delivery": "request",
         "required": ["grant", "through"],
-        "description": "To a holder coming back after the server took her over: grant is the takeover, through the last of its rows the server had. It becomes a child and sends its rows past through, which are her own memory catching up, not another her."
+        "description": "To a holder coming back after the server took her over: grant is the takeover, through the last of its rows the server had in each audience, {audience: dseq} (an audience left out: none). It becomes a child and sends its rows past through, which are her own memory catching up, not another her."
       },
       "log.vector": {
         "from": "host",

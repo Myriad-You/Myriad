@@ -505,7 +505,9 @@
         "id": "yield_01",
         "body": {
           "epoch": 5,
-          "through": 41,
+          "through": {
+            "personal:o1": 41
+          },
           "to": "site"
         }
       },
@@ -522,7 +524,9 @@
             "holder": "site",
             "issued": "001760140860000-000000-site",
             "how": "handover",
-            "through": 41
+            "through": {
+              "personal:o1": 41
+            }
           }
         }
       },
@@ -564,7 +568,9 @@
             "issued": "001760140870000-000000-site",
             "how": "takeover"
           },
-          "through": 41
+          "through": {
+            "personal:o1": 41
+          }
         }
       },
       {

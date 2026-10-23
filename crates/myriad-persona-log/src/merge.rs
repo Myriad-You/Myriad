@@ -15,7 +15,7 @@ use crate::{
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MergeInput {
     /// This side's log, or the part of it that matters: the rows sharing an
-    /// id or a place (`origin`, `dseq`) with `incoming`, and the rows any
+    /// id or a place (`audience`, `origin`, `dseq`) with `incoming`, and the rows any
     /// forget in `incoming` reaches.
     pub log: Vec<Row>,
     /// Rows already through [`crate::admit`].
@@ -29,7 +29,7 @@ pub struct MergeInput {
 pub enum Clash {
     /// The same id with another envelope.
     SameIdDiffers,
-    /// Another row already holds this side's count.
+    /// Another row already holds this side's count in this audience.
     SamePlace,
 }
 
@@ -63,11 +63,14 @@ pub struct Merged {
 pub fn merge(input: MergeInput) -> Merged {
     let MergeInput { log, mut incoming } = input;
     let mut by_id: BTreeMap<String, Row> = BTreeMap::new();
-    let mut places: BTreeMap<(String, u64), String> = BTreeMap::new();
+    let mut places: BTreeMap<(String, String, u64), String> = BTreeMap::new();
     let mut held_payload = Vec::new();
     for row in log {
         if let (Replicate::Shared, Some(dseq)) = (row.replicate, row.dseq) {
-            places.insert((row.origin.clone(), dseq), row.id.clone());
+            places.insert(
+                (row.audience.clone(), row.origin.clone(), dseq),
+                row.id.clone(),
+            );
         }
         if !row.forgotten {
             held_payload.push(row.id.clone());
@@ -95,7 +98,7 @@ pub fn merge(input: MergeInput) -> Merged {
             continue;
         }
         if let (Replicate::Shared, Some(dseq)) = (row.replicate, row.dseq) {
-            let place = (row.origin.clone(), dseq);
+            let place = (row.audience.clone(), row.origin.clone(), dseq);
             if let Some(other) = places.get(&place) {
                 conflicts.push(Conflict {
                     id: row.id.clone(),

@@ -15,7 +15,9 @@
             "holder": "site",
             "how": "handover",
             "issued": "001760000000025-000000-site",
-            "through": 12
+            "through": {
+              "personal:o1": 12
+            }
           }
         ],
         "rows": [
@@ -920,7 +922,9 @@
             "holder": "site",
             "how": "handover",
             "issued": "001760000000005-000000-site",
-            "through": 3
+            "through": {
+              "personal:o1": 3
+            }
           }
         ],
         "rows": [
@@ -1077,6 +1081,135 @@
       "name": "refused: one id, two rows",
       "output": {
         "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "leases": [
+          {
+            "epoch": 1,
+            "holder": "dev_mac",
+            "how": "first",
+            "issued": "001759999999900-000000-site"
+          },
+          {
+            "epoch": 2,
+            "holder": "site",
+            "how": "handover",
+            "issued": "001760000000005-000000-site",
+            "through": {
+              "own:": 1,
+              "personal:o1": 3
+            }
+          }
+        ],
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "pa-1",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:pa-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000001-000000-dev_mac",
+            "id": "pa-2",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:pa-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000002-000000-dev_mac",
+            "id": "pa-3",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:pa-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "group:g1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000003-000000-dev_mac",
+            "id": "pa-4",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:pa-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "a handover counts in each audience; one it leaves out had none of the old holder's rows",
+      "output": {
+        "objects": [
+          {
+            "audience": "group:g1",
+            "object": "node:lamp",
+            "rows": [
+              "pa-4"
+            ]
+          },
+          {
+            "audience": "own:",
+            "object": "node:lamp",
+            "rows": [
+              "pa-2",
+              "pa-3"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "object": "node:lamp",
+            "rows": [
+              "pa-1"
+            ]
+          }
+        ],
+        "standing": [
+          {
+            "epoch": 1,
+            "id": "pa-3",
+            "origin": "dev_mac",
+            "standing": "after_handover"
+          },
+          {
+            "epoch": 1,
+            "id": "pa-4",
+            "origin": "dev_mac",
+            "standing": "after_handover"
+          }
+        ]
       }
     }
   ],

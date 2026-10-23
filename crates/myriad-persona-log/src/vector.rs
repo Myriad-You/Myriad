@@ -1,21 +1,23 @@
 //! What a side holds, as a version vector, and what the other lacks.
 //!
-//! Each side numbers its shared rows 1, 2, 3… without gaps (`dseq`), so
-//! "every row of `origin` up to n" says all a side holds of it. Two sides
-//! swap vectors and send each other what is past the other's number; no
-//! content is compared.
+//! Each side numbers its shared rows in each audience 1, 2, 3… without
+//! gaps (`dseq`), so "every row of `origin` up to n" says all a side holds
+//! of it in that audience. A vector is one audience's: two sides swap
+//! vectors audience by audience and send each other what is past the
+//! other's number; no content is compared.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Row,
+    LogError, Row,
     kinds::Rule,
     row::{Replicate, sort},
 };
 
-/// For each side, the last `dseq` held with every one before it.
+/// For each side, the last `dseq` held in one audience with every one
+/// before it.
 pub type Vector = BTreeMap<String, u64>;
 
 /// What a log holds.
@@ -29,8 +31,20 @@ pub struct Holdings {
     pub beyond: BTreeMap<String, Vec<u64>>,
 }
 
-/// What `rows` hold. Local rows hold no place in it.
-pub fn holdings(rows: &[Row]) -> Holdings {
+/// Refuses rows of more than one audience: their counts are separate, so
+/// one vector cannot say what they hold.
+fn one_audience(rows: &[Row]) -> Result<(), LogError> {
+    match rows.split_first() {
+        Some((first, rest)) if rest.iter().any(|row| row.audience != first.audience) => Err(
+            LogError::new("a vector is one audience's; these rows are of more than one"),
+        ),
+        _ => Ok(()),
+    }
+}
+
+/// What `rows`, one audience's, hold. Local rows hold no place in it.
+pub fn holdings(rows: &[Row]) -> Result<Holdings, LogError> {
+    one_audience(rows)?;
     let mut held: BTreeMap<&str, BTreeSet<u64>> = BTreeMap::new();
     for row in rows {
         if let (Replicate::Shared, Some(dseq)) = (row.replicate, row.dseq) {
@@ -52,7 +66,7 @@ pub fn holdings(rows: &[Row]) -> Holdings {
             beyond.insert(origin.to_string(), past);
         }
     }
-    Holdings { vector, beyond }
+    Ok(Holdings { vector, beyond })
 }
 
 /// A run of one side's rows: `from` through `through`, both included.
@@ -79,11 +93,13 @@ pub fn missing(mine: &Vector, theirs: &Vector) -> Vec<Span> {
         .collect()
 }
 
-/// The rows of `rows` a side holding `theirs` lacks, in the order to send
+/// The rows of `rows`, one audience's, a side holding `theirs` of that
+/// audience lacks, in the order to send
 /// them: every forget first, so the other side knows what is forgotten
 /// before anything it might have to forget arrives; then by side and count.
 /// Local rows never go.
-pub fn answer(rows: &[Row], theirs: &Vector) -> Vec<Row> {
+pub fn answer(rows: &[Row], theirs: &Vector) -> Result<Vec<Row>, LogError> {
+    one_audience(rows)?;
     let lacking = |row: &&Row| {
         row.replicate == Replicate::Shared
             && row.dseq.unwrap_or(0) > theirs.get(&row.origin).copied().unwrap_or(0)
@@ -103,9 +119,9 @@ pub fn answer(rows: &[Row], theirs: &Vector) -> Vec<Row> {
         .collect();
     rest.sort_by(|a, b| (&a.origin, a.dseq, &a.id).cmp(&(&b.origin, b.dseq, &b.id)));
     let mut seen = BTreeSet::new();
-    forgets
+    Ok(forgets
         .into_iter()
         .chain(rest)
         .filter(|row| seen.insert(row.id.clone()))
-        .collect()
+        .collect())
 }

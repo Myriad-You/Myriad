@@ -8,7 +8,9 @@
           "at": 1760140800080,
           "body": {
             "epoch": 5,
-            "through": 41,
+            "through": {
+              "personal:o1": 41
+            },
             "to": "site"
           },
           "id": "yield_01",
@@ -25,7 +27,7 @@
       "name": "a holder yields",
       "output": {
         "accepted": {
-          "canonical": "{\"ack\":0,\"at\":1760140800080,\"body\":{\"epoch\":5,\"through\":41,\"to\":\"site\"},\"id\":\"yield_01\",\"seq\":9,\"t\":\"lease.yield\",\"v\":1}",
+          "canonical": "{\"ack\":0,\"at\":1760140800080,\"body\":{\"epoch\":5,\"through\":{\"personal:o1\":41},\"to\":\"site\"},\"id\":\"yield_01\",\"seq\":9,\"t\":\"lease.yield\",\"v\":1}",
           "delivery": "reliable",
           "family": "lease",
           "t": "lease.yield"
@@ -116,7 +118,9 @@
           "body": {
             "epoch": 5,
             "reason": "lid",
-            "through": 41,
+            "through": {
+              "personal:o1": 41
+            },
             "to": "site"
           },
           "id": "yield_01",
@@ -196,7 +200,9 @@
           "at": 1760140800080,
           "body": {
             "epoch": 5,
-            "through": 41,
+            "through": {
+              "personal:o1": 41
+            },
             "to": "site"
           },
           "seq": 9,
@@ -243,7 +249,9 @@
           "at": 1760140800080,
           "body": {
             "epoch": 5,
-            "through": 41,
+            "through": {
+              "personal:o1": 41
+            },
             "to": "site"
           },
           "id": "yield_01",
@@ -269,7 +277,9 @@
           "at": 1760140800080,
           "body": {
             "epoch": 5,
-            "through": 41,
+            "through": {
+              "personal:o1": 41
+            },
             "to": "site"
           },
           "id": "yield_01",
@@ -312,7 +322,9 @@
           "at": 1760140800080,
           "body": {
             "epoch": 5,
-            "through": 41,
+            "through": {
+              "personal:o1": 41
+            },
             "to": "site"
           },
           "id": "yield_01",
@@ -335,7 +347,9 @@
           "at": 1760140800080,
           "body": {
             "epoch": 5,
-            "through": 41,
+            "through": {
+              "personal:o1": 41
+            },
             "to": "site"
           },
           "id": "yield_01",
@@ -964,7 +978,9 @@
           "at": 1760140800080,
           "body": {
             "epoch": 5,
-            "through": 41,
+            "through": {
+              "personal:o1": 41
+            },
             "to": "site"
           },
           "id": "yield 01",

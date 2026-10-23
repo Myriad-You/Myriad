@@ -3,8 +3,9 @@
 //!
 //! It moves three ways, and no other:
 //! 1. **Handover**: the holder gives it up (going to sleep, the owner left
-//!    its place or showed up at another). It answers with its last count;
-//!    the target catches up to it before it thinks.
+//!    its place or showed up at another). It answers with its last count
+//!    in each audience ([`Through`]); the target catches up to them before
+//!    it thinks.
 //! 2. **Takeover**: the server takes it when the holder has been out of
 //!    reach for [`UNREACHABLE_MICROS`] and the owner's own position proves
 //!    the owner is elsewhere. That is safe because a holder that is cut off
@@ -22,13 +23,14 @@
 //! minutes when nothing says otherwise.
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use myriad_persona_sync::{Rev, hlc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     LogError, Row,
-    row::{Author, Replicate},
+    row::{Audience, Author, Replicate},
 };
 
 /// How long the holder must have been out of the server's reach before the
@@ -82,10 +84,28 @@ pub struct Grant {
     /// The server's clock when it issued it.
     pub issued: Rev,
     pub how: How,
-    /// For a handover: the previous holder's last shared count when it
-    /// gave the lease up.
+    /// For a handover: the previous holder's last shared count in each
+    /// audience when it gave the lease up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub through: Option<u64>,
+    pub through: Option<Through>,
+}
+
+/// A side's last shared count in each audience it wrote in: `{audience:
+/// dseq}`. Counts are per audience ([`Row::dseq`]), so one number cannot
+/// say it. An audience it wrote nothing in is left out, never 0.
+pub type Through = BTreeMap<String, u64>;
+
+/// Checks a [`Through`]: real audiences, counts from 1.
+pub fn check_through(through: &Through) -> Result<(), LogError> {
+    for (audience, &count) in through {
+        Audience::parse(audience)?;
+        if count == 0 {
+            return Err(LogError::new(
+                "`through` leaves out an audience with nothing in it",
+            ));
+        }
+    }
+    Ok(())
 }
 
 impl Grant {
@@ -94,8 +114,11 @@ impl Grant {
             return Err(LogError::new("epochs start at 1"));
         }
         hlc::check_node(&self.holder).map_err(|error| LogError::new(error.to_string()))?;
-        if self.through.is_some() && self.how != How::Handover {
-            return Err(LogError::new("only a handover carries `through`"));
+        if let Some(through) = &self.through {
+            if self.how != How::Handover {
+                return Err(LogError::new("only a handover carries `through`"));
+            }
+            check_through(through)?;
         }
         Ok(())
     }
@@ -141,9 +164,9 @@ pub enum Request {
         /// The epoch `from` holds.
         epoch: u64,
         to: String,
-        /// `from`'s last shared count.
+        /// `from`'s last shared count in each audience.
         #[serde(default)]
-        through: Option<u64>,
+        through: Option<Through>,
     },
     /// The server (`server`, its node) takes it.
     Takeover { server: String },
@@ -404,8 +427,12 @@ pub fn standing(row: &Row, grants: &[Grant]) -> Stand {
     let after_issue = row.hlc > next.issued;
     match next.how {
         How::Handover => {
-            let after = match (row.replicate, row.dseq, next.through) {
-                (Replicate::Shared, Some(dseq), Some(through)) => dseq > through,
+            // An audience the handover leaves out had none of the old
+            // holder's rows in it: every one there came after.
+            let after = match (row.replicate, row.dseq, &next.through) {
+                (Replicate::Shared, Some(dseq), Some(through)) => {
+                    dseq > through.get(&row.audience).copied().unwrap_or(0)
+                }
                 _ => after_issue,
             };
             if after {

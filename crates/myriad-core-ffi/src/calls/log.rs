@@ -37,7 +37,7 @@ pub(super) fn canonical(raw: &[u8]) -> Result<Value, Failure> {
     Ok(json!({ "row": row, "canonical": canonical, "digest": row.digest() }))
 }
 
-/// `{rows}` → `{vector, beyond?}`.
+/// `{rows}` (one audience's) → `{vector, beyond?}`.
 pub(super) fn holdings(raw: &[u8]) -> Result<Value, Failure> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -45,7 +45,7 @@ pub(super) fn holdings(raw: &[u8]) -> Result<Value, Failure> {
         rows: Vec<Row>,
     }
     let In { rows } = input(raw)?;
-    answer(&vector::holdings(&rows))
+    answer(&vector::holdings(&rows).map_err(refused)?)
 }
 
 /// `{mine, theirs}` → `{missing: [{origin, from, through}]}`.
@@ -69,7 +69,7 @@ pub(super) fn send(raw: &[u8]) -> Result<Value, Failure> {
         theirs: Vector,
     }
     let In { rows, theirs } = input(raw)?;
-    Ok(json!({ "rows": vector::answer(&rows, &theirs) }))
+    Ok(json!({ "rows": vector::answer(&rows, &theirs).map_err(refused)? }))
 }
 
 pub(super) fn admit(raw: &[u8]) -> Result<Value, Failure> {

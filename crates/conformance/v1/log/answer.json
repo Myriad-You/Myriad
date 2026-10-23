@@ -165,6 +165,49 @@
           }
         ]
       }
+    },
+    {
+      "input": {
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "m-1",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:m-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000001-000000-dev_mac",
+            "id": "m-2",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:m-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ],
+        "theirs": {}
+      },
+      "name": "refused: rows of two audiences, whose counts are separate",
+      "output": {
+        "error": "bad_input"
+      }
     }
   ],
   "version": 1

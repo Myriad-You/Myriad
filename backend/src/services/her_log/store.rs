@@ -60,7 +60,7 @@ pub async fn rows<C: ConnectionTrait>(db: &C, audience: &str) -> Result<Vec<Row>
 
 /// What the server holds of `audience`.
 pub async fn holdings<C: ConnectionTrait>(db: &C, audience: &str) -> Result<Holdings, Error> {
-    Ok(vector::holdings(&rows(db, audience).await?))
+    Ok(vector::holdings(&rows(db, audience).await?)?)
 }
 
 /// The ledger of `audience`.
@@ -404,7 +404,7 @@ pub async fn answer<C: ConnectionTrait>(
     audience: &str,
     theirs: &Vector,
 ) -> Result<Vec<Sent>, Error> {
-    let lacking = vector::answer(&rows(db, audience).await?, theirs);
+    let lacking = vector::answer(&rows(db, audience).await?, theirs)?;
     let ids: Vec<String> = lacking
         .iter()
         .filter(|row| row.payload.is_some() && !row.forgotten)

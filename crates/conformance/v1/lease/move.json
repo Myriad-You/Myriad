@@ -9,14 +9,18 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "request": {
           "handover": {
             "epoch": 4,
             "from": "dev_mac",
-            "through": 52,
+            "through": {
+              "personal:o1": 52
+            },
             "to": "site"
           }
         }
@@ -28,7 +32,9 @@
           "holder": "site",
           "how": "handover",
           "issued": "001760001800000-000000-site",
-          "through": 52
+          "through": {
+            "personal:o1": 52
+          }
         }
       }
     },
@@ -40,7 +46,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "request": {
@@ -64,7 +72,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "request": {
@@ -88,7 +98,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "request": {
@@ -112,7 +124,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "request": {
@@ -139,7 +153,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "request": {
@@ -163,7 +179,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -197,7 +215,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -226,7 +246,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -255,7 +277,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "request": {
@@ -278,7 +302,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -307,7 +333,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -336,7 +364,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -391,7 +421,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "request": {
@@ -415,7 +447,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -450,7 +484,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -480,7 +516,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "now": 1760001800000000,
         "ownerPlace": {
@@ -496,6 +534,107 @@
         "stopAfter": 30000000
       },
       "name": "refused: a stop time under a minute",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": {
+            "personal:o1": 40
+          }
+        },
+        "now": 1760001800000000,
+        "request": {
+          "handover": {
+            "epoch": 4,
+            "from": "dev_mac",
+            "through": {
+              "group:g1": 3,
+              "own:": 7,
+              "personal:o1": 52
+            },
+            "to": "site"
+          }
+        }
+      },
+      "name": "a handover carries the holder's last count in each audience it wrote in",
+      "output": {
+        "granted": {
+          "epoch": 5,
+          "holder": "site",
+          "how": "handover",
+          "issued": "001760001800000-000000-site",
+          "through": {
+            "group:g1": 3,
+            "own:": 7,
+            "personal:o1": 52
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": {
+            "personal:o1": 40
+          }
+        },
+        "now": 1760001800000000,
+        "request": {
+          "handover": {
+            "epoch": 4,
+            "from": "dev_mac",
+            "through": {
+              "own:": 0,
+              "personal:o1": 52
+            },
+            "to": "site"
+          }
+        }
+      },
+      "name": "refused: a handover's through names an audience with nothing in it",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": {
+            "personal:o1": 40
+          }
+        },
+        "now": 1760001800000000,
+        "request": {
+          "handover": {
+            "epoch": 4,
+            "from": "dev_mac",
+            "through": {
+              "o1": 4,
+              "personal:o1": 52
+            },
+            "to": "site"
+          }
+        }
+      },
+      "name": "refused: a handover's through names something that is not an audience",
       "output": {
         "error": "bad_input"
       }
