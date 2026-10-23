@@ -13,6 +13,10 @@
 //! too. So the site takes no revision more than [`MAX_AHEAD_MS`] ahead of
 //! its own clock ([`check_ahead`]); the device is told its clock is wrong
 //! (`clock_ahead`, with the site's time) and syncs again once it is right.
+//! The site's clock there is real time when the site has a trusted
+//! measurement of how far its host's clock is off (`serverClock`), so a site
+//! whose host is behind does not refuse a device that is right; the limit
+//! stays the same.
 //!
 //! Where the site checks: the `X-Sync-Clock` header every device request
 //! may carry (the revision the device's next write would get, `next`

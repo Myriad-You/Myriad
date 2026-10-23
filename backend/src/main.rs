@@ -528,6 +528,10 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                 // Hugo 缺失时博客状态为不可用，不挡住启动。输出目录空着就排一次构建。
                 services::blog::start(db.clone());
 
+                // How far this host's clock is off, for the log, device
+                // clocks and the devices page (after the proxy is loaded).
+                services::server_clock::start();
+
                 // Process-global DB must be wired before persona boot recovery.
                 services::process_db::set_process_database(db.clone());
 

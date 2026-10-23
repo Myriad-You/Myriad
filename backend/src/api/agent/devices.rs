@@ -78,6 +78,9 @@ async fn device_list(db: &DatabaseConnection, owner: i32) -> Result<Value, HttpE
         "retired": crate::services::persona_sync::merge::retired().await,
         "empty": empty,
         "held": held,
+        // The site's last check of its own clock (null while off or not
+        // run yet), for the warning when it is wrong.
+        "serverClock": crate::services::server_clock::shown(),
         "limit": devices::MAX_DEVICES,
     }))
 }

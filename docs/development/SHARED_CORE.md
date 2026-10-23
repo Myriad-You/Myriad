@@ -83,6 +83,7 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 - **资产按内容 id 比对。** `sync.compare` 只看 rig、立绘、贴纸、贴纸头像的内容 id（rig 的包 id、图片字节的 sha256）；两端写的 `bytes`、`mediaType` 不同不算不同（R8）。
 - **体征不带群。** `vitals_day` 的 `groups` 只有每个群的计数，规范化时去掉群的标识并按计数排序。
 - **时钟超前。** 站点不收超前它 5 分钟以上的 `rev`，回 409 `clock_ahead`（带 `serverTime`、`aheadMs`、`maxAheadMs`）。设备的请求头 `X-Sync-Clock` 带「下一次写会拿到的 rev」（`sync.hlc_next` 算出、不落盘），`hello` 与 `role` 必带；以后的 push 里每个实体和每个人设字段的 `rev` 都按同一规则查，有一个超前就整批不收，什么都不写、也不吸收进站点的时钟。设备收到 `clock_ahead`：停止同步并告诉用户时钟不对，outbox 留着（暂存）；时钟改对后，把时钟退回到最近一次从站点看到的 rev，按 outbox 顺序用 `sync.hlc_next` 给每条待推的写重新打 rev，再推。推之前可以用 `sync.check_rev` 按 `hello` 给的 `serverTime` 加上经过的时间自查。
+- **站点自己的时钟。** 站点量自己的时钟偏了多少（启动时和之后每 15 分钟；SNTP，UDP 123 不通时用 HTTPS 的 `Date`），`hello`、`clock_ahead` 和站长的设备列表都带 `serverClock`：`{checkedAt, offsetMs, source, trusted, thresholdMs, wrong, corrected}`，检查关掉或还没跑过时是 `null`。`offsetMs` 是站点的时钟减去真实时间（毫秒，负数是站点慢），什么都没答上时为 `null`（无法检查，不算偏差）；`checkedAt` 是站点自己的时钟、自 epoch 的毫秒；`source` 是 `sntp`、`https` 或 `null`；`trusted` 是 HTTPS（证书验过）或至少两个 SNTP 服务器相差不到 1 秒；`wrong` 是偏差超过 `thresholdMs`；`corrected` 是站点现在拿这次测量把设备的时钟和真实时间比（可信、不超过 45 分钟、偏差不超过 3 小时）。`corrected` 时，上面的超前检查、`hello` 和 `clock_ahead` 的 `serverTime` 都是真实时间（本机时间减去 `offsetMs`），否则照旧是本机时间；`serverTimeSource` 说是哪一种：`clock`（本机）、`sntp` 或 `https`。站点别处都仍用本机时间，上限 5 分钟不变，真超前的设备照样被拒。设备据此分清是哪一端不准：`wrong` 而且没有 `corrected` 时是站点的时钟不对，设备不要去改自己的。
 
 ## 别的平台怎么链接
 

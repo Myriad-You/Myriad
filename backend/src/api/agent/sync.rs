@@ -56,6 +56,7 @@ pub async fn sync_hello(
     } else {
         "child"
     };
+    let (server_time, server_time_source) = crate::services::server_clock::real_now_micros();
     Ok(Json(json!({
         "formatVersion": myriad_persona_sync::FORMAT_VERSION,
         "deviceId": device.0.id,
@@ -78,7 +79,14 @@ pub async fn sync_hello(
             "assetMaxBytes": persona_sync::ASSET_MAX_BYTES,
             "clockMaxAheadMs": myriad_persona_sync::hlc::MAX_AHEAD_MS,
         },
-        "serverTime": Utc::now().timestamp_micros(),
+        // The time a device's clock is compared with (microseconds), and
+        // where it came from: `clock` (this host's), or `sntp`/`https` (real
+        // time, by the site's trusted measurement of its own clock).
+        "serverTime": server_time,
+        "serverTimeSource": server_time_source,
+        // The site's last check of its own clock, null while the check is
+        // off or has not run yet (`services::server_clock`).
+        "serverClock": crate::services::server_clock::shown(),
     })))
 }
 
@@ -878,6 +886,10 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{hello}");
         assert_eq!(hello["limits"]["clockMaxAheadMs"], 300_000);
+        // No clock check has run in this test: the host's clock, and no
+        // measurement.
+        assert_eq!(hello["serverTimeSource"], "clock");
+        assert!(hello["serverClock"].is_null(), "{hello}");
         assert_eq!(hello["formatVersion"], myriad_persona_sync::FORMAT_VERSION);
         assert_eq!(hello["empty"], true);
         assert_eq!(hello["persona"], Value::Null);

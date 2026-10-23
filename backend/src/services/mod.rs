@@ -70,6 +70,7 @@ pub mod see_through; // Remote See-through layered-PSD decomposition
 pub mod seo_copy; // AI-drafted SEO / GEO settings copy
 pub mod seo_policy; // Site visibility / GEO policy for robots.txt and llms.txt
 pub mod seo_review; // Scheduled SEO review and owner-confirmed apply
+pub mod server_clock; // The site's own clock, checked against SNTP and HTTPS Date
 pub mod server_location; // Egress location dual-source probe
 pub mod setup_progress; // Whether the site is set up (tables + claimed), for the wizard and the agent
 pub mod site_owner;
