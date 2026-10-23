@@ -114,6 +114,7 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 - **忘掉是吸收的。** `forget` 行的 `object` 是被忘掉的对象，或 `subject:<id>`（这个受众里关于这个人的全部）；它自己没有载荷，也永远不会被忘掉。账只有受众、目标和时间（`Entry`），没有一个字的内容。不管 `forget` 排在对象的行之前还是之后、从哪一端先到，被忘掉的对象都折叠成只剩 `forgotten: true`。`log.answer` 永远先发 `forget` 行。
 - **折叠**（`log.fold`）：按 `(hlc, origin, dseq, id)` 排；发生过的事（看到、判断、说了的话、段和段里每一句、判例、记忆写入、心情变化）都留着；会变的值（节点上她的看法 `node.view_changed`、一件事挂在哪 `link.attach`、人设字段、衣服）最后一行是现在的，之前的进 `history`；记忆退役是单向的，除非之后有一次恢复。级联（给一个对象算出要连带删的派生内容）还没有。
 - **执笔权**（`lease.*`）只由服务端发，epoch 只增，只有三种移法：持有者自己交（`handover`，带它最后的 `dseq`）；服务端接（`takeover`）：持有者失联满 3 分钟、主人的位置证明主人在另一个场所（两边的场所都要知道、主人的位置 3 分钟内看到过、而且持有者失联和主人离开都过了 3 分钟）；主人按「让她来这里」（`force`）。`lease.here` 是持有者自己执行的那条：和服务端断开、主人又不在这个场所（本机输入或主人的设备经局域网连上来）满 3 分钟，它自己停下，不再想、不写她的行，只收主人写的、做完手上的事。服务端接管时它一定已经停下，所以不会有两个她；`holderLastSeen` 要算到持有者自己还以为连着的最后一刻（最后一次收到它，加上它判断断线用的心跳超时）。时间都是初值。
+- **时钟不能被一次跑快带偏**（`log.clock_*`）：日志的时钟要存下来、只增不减，所以机器的钟跑快时盖的一行会让之后每一行都超前，服务端拒收超前 5 分钟以上的（`hlc::check_ahead`），这一端就一直同步不了。三条规则：时钟的物理部分用「校正后的时间」，即本机时间加上和服务端量出的偏差（`log.clock_offset`：请求发出、服务端的 `serverTime`、收到回答，取中点），偏差由调用方存着、每次握手和每次 `clock_ahead` 时重量；盖章时物理部分最多到校正后的时间加 5 分钟，再往后只走计数（`log.clock_next`、`log.clock_observe`），已经超出的时钟原地不动、`poisoned` 为真；修复（`log.clock_repair`）只给还没离开这一端的行重新盖章，从第一条超前的开始按日志顺序往后，并给出以后要存的时钟。离开过这一端的行永远不重盖：服务端收了它，它就没有超前。收到 `clock_ahead`（带 `serverTime`）时这一端的顺序是：量偏差，修复没同步的行，存新时钟，再发。
 - **两个她只可能来自 `force`。** 折叠时对照执笔权的历史（`leases`）：旧 epoch 的行写在 `force` 签出之后的，是原来那台还在跑时写的，照样留下，标 `concurrent`，碰到的对象也标；`takeover` 之后迟到的旧行是她自己的记忆补上来，不标；不是那个 epoch 的持有者写的（`not_holder`）、交出以后还写的（`after_handover`）是执笔权的 bug，列在 `standing` 里查。同一个 epoch 出现两次时，先签的算，再按持有者的字节序（`lease.newer`）。
 
 | 调用 | 输入 → 输出 |
@@ -124,6 +125,10 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 | `log.admit` | `{rows, now, known?, members?, ledger?}` → `{accepted, refused?, clockAhead?, ledger}` |
 | `log.answer` | `{rows, theirs}` → `{rows}`：对方（持有 `theirs`）缺的行，`forget` 在前 |
 | `log.canonical` | `{row}` → `{row, canonical, digest}`；信封不对就是 `bad_input` |
+| `log.clock_next` | `{last?, now, offset, node}` → `{rev, poisoned}`：`now` 是本机时间，`offset` 加上它是服务端的时间 |
+| `log.clock_observe` | `{last?, seen, now, offset, node}` → `{last}`：`seen` 最多把物理部分推到上限 |
+| `log.clock_offset` | `{sent, serverTime, received}` → `{offset, uncertainty}`（微秒） |
+| `log.clock_repair` | `{last, floor?, unsynced: [{id, hlc}], now, offset, node}` → `{last, restamped}`；`floor` 是确知别处收过的最新 rev |
 | `log.fold` | `{rows, leases?}` → `{objects, standing?}`：每个对象的 `rows`、`current`、`history`、`retired`、`concurrent`，或只有 `forgotten` |
 | `log.holdings` | `{rows}` → `{vector, beyond?}`：每一端连续持有到第几条，和跳号之后先到的 |
 | `log.merge` | `{log, incoming}` → `{log, added?, stubbed?, duplicates, conflicts?}`；`log` 可以只给和这批有关的行 |
@@ -134,7 +139,7 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 两份运行时（苹果系的 Swift、其余的 Rust）编排同一份核心规则时，可能编排得不一样；这里放两边都要过的对照。目录按版本分，现在是 `v1/`，原生按 `CORE_PIN` 复制进它自己的测试。
 
 - 每个文件是 `{version, call, cases: [{name, input, output}]}`。`input` 和 `output` 就是那个调用经 C 入口进出的 JSON；输入被拒时 `output` 是 `{"error": "bad_input"}`（不比对消息）。比对按规范字节。
-- `log/`：信封、版本向量、收、合并、折叠；`lease/`：移动、自己停下、epoch 先后；`grants/`：授予的检查，规则还不在核心里，现在是 `status: "pending"`、没有用例的占位。
+- `log/`：信封、版本向量、收、合并、折叠、时钟；`lease/`：移动、自己停下、epoch 先后；`grants/`：授予的检查，规则还不在核心里，现在是 `status: "pending"`、没有用例的占位。
 - `myriad-persona-log` 的测试经 crate 跑，`myriad-core-ffi` 的测试经 C 入口跑。别的平台照样把每个用例交给 `myriad_core_call`。
 - 只随一次写明理由的上游改动改：`MYRIAD_CONFORMANCE_BLESS=1 cargo test -p myriad-persona-log` 重写所有 `output`。不兼容的改动另开 `v2/`，`v1/` 留到没有平台再钉它。
 

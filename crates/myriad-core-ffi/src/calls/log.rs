@@ -1,11 +1,13 @@
 //! Her log across host cores (`myriad_persona_log`): a row's one byte
 //! form, what a side holds and lacks, checking and merging what arrives,
-//! the fold, and the lease. The rules are the crate's; these calls only
+//! the fold, the lease and the clock. The rules are the crate's; these calls only
 //! carry them across.
 
 use myriad_persona_log::{
-    Grant, Row, Vector, admit as admit_rows, fold as fold_rows, lease, merge as merge_rows, vector,
+    Grant, Row, Vector, admit as admit_rows, clock, fold as fold_rows, lease, merge as merge_rows,
+    vector,
 };
+use myriad_persona_sync::Rev;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -80,6 +82,74 @@ pub(super) fn merge(raw: &[u8]) -> Result<Value, Failure> {
 
 pub(super) fn fold(raw: &[u8]) -> Result<Value, Failure> {
     answer(&fold_rows(input(raw)?).map_err(refused)?)
+}
+
+/// `{sent, serverTime, received}` (local, server, local; microseconds) →
+/// `{offset, uncertainty}`.
+pub(super) fn clock_offset(raw: &[u8]) -> Result<Value, Failure> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct In {
+        sent: i64,
+        server_time: i64,
+        received: i64,
+    }
+    let In {
+        sent,
+        server_time,
+        received,
+    } = input(raw)?;
+    answer(&clock::offset(sent, server_time, received).map_err(refused)?)
+}
+
+/// `{last?, now, offset, node}` → `{rev, poisoned}`: the stamp for a write
+/// at corrected time, and whether it is still too far ahead to send.
+pub(super) fn clock_next(raw: &[u8]) -> Result<Value, Failure> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct In {
+        #[serde(default)]
+        last: Option<Rev>,
+        now: i64,
+        offset: i64,
+        node: String,
+    }
+    let In {
+        last,
+        now,
+        offset,
+        node,
+    } = input(raw)?;
+    let rev = clock::next(last.as_ref(), now, offset, &node).map_err(refused)?;
+    let poisoned = clock::poisoned(&rev, now, offset).map_err(refused)?;
+    Ok(json!({ "rev": rev, "poisoned": poisoned }))
+}
+
+/// `{last?, seen, now, offset, node}` → `{last}`.
+pub(super) fn clock_observe(raw: &[u8]) -> Result<Value, Failure> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct In {
+        #[serde(default)]
+        last: Option<Rev>,
+        seen: Rev,
+        now: i64,
+        offset: i64,
+        node: String,
+    }
+    let In {
+        last,
+        seen,
+        now,
+        offset,
+        node,
+    } = input(raw)?;
+    let last = clock::observe(last.as_ref(), &seen, now, offset, &node).map_err(refused)?;
+    Ok(json!({ "last": last }))
+}
+
+pub(super) fn clock_repair(raw: &[u8]) -> Result<Value, Failure> {
+    answer(&clock::repair(input(raw)?).map_err(refused)?)
 }
 
 pub(super) fn lease_move(raw: &[u8]) -> Result<Value, Failure> {

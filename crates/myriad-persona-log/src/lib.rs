@@ -14,6 +14,9 @@
 //! none. Who may move the lease, when a holder stops by itself, and which
 //! rows overlap because the owner forced a move are in [`lease`].
 //!
+//! Its clock is the shared one (`hlc`), fed corrected time and kept from
+//! running ahead of the server ([`clock`]).
+//!
 //! Pure: nothing here reads a clock, a file, the network, a key or a random
 //! source. Times come in as Unix microseconds; ids and revisions come from
 //! the caller. Content never enters a row: a row only points at its payload.
@@ -21,6 +24,7 @@
 use std::fmt;
 
 pub mod admit;
+pub mod clock;
 pub mod fold;
 pub mod forget;
 pub mod kinds;

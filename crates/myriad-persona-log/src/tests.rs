@@ -91,6 +91,61 @@ fn run(call: &str, raw: Value) -> Result<Value, LogError> {
         "log.admit" => json_of(&admit(input(raw)?)),
         "log.merge" => json_of(&merge(input(raw)?)),
         "log.fold" => json_of(&fold(input(raw)?)?),
+        "log.clock_offset" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct In {
+                sent: i64,
+                server_time: i64,
+                received: i64,
+            }
+            let In {
+                sent,
+                server_time,
+                received,
+            } = input(raw)?;
+            json_of(&clock::offset(sent, server_time, received)?)
+        }
+        "log.clock_next" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct In {
+                #[serde(default)]
+                last: Option<Rev>,
+                now: i64,
+                offset: i64,
+                node: String,
+            }
+            let In {
+                last,
+                now,
+                offset,
+                node,
+            } = input(raw)?;
+            let rev = clock::next(last.as_ref(), now, offset, &node)?;
+            json!({ "rev": rev, "poisoned": clock::poisoned(&rev, now, offset)? })
+        }
+        "log.clock_observe" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct In {
+                #[serde(default)]
+                last: Option<Rev>,
+                seen: Rev,
+                now: i64,
+                offset: i64,
+                node: String,
+            }
+            let In {
+                last,
+                seen,
+                now,
+                offset,
+                node,
+            } = input(raw)?;
+            json!({ "last": clock::observe(last.as_ref(), &seen, now, offset, &node)? })
+        }
+        "log.clock_repair" => json_of(&clock::repair(input(raw)?)?),
         "lease.move" => json_of(&lease::decide(input(raw)?)?),
         "lease.here" => json_of(&lease::here(input(raw)?)?),
         "lease.newer" => {

@@ -1,0 +1,86 @@
+{
+  "call": "log.clock_repair",
+  "cases": [
+    {
+      "input": {
+        "floor": "001759999980000-000000-site",
+        "last": "001760004620002-000000-dev_mac",
+        "node": "dev_mac",
+        "now": 1760000000000000,
+        "offset": 0,
+        "unsynced": [
+          {
+            "hlc": "001760004620002-000000-dev_mac",
+            "id": "row-b"
+          },
+          {
+            "hlc": "001759999990000-000000-dev_mac",
+            "id": "row-ok"
+          },
+          {
+            "hlc": "001760004620001-000000-dev_mac",
+            "id": "row-a"
+          }
+        ]
+      },
+      "name": "only the unsynced rows from the first one ahead are restamped",
+      "output": {
+        "last": "001760000000000-000001-dev_mac",
+        "restamped": [
+          {
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "row-a"
+          },
+          {
+            "hlc": "001760000000000-000001-dev_mac",
+            "id": "row-b"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "last": "001760004620000-000000-dev_mac",
+        "node": "dev_mac",
+        "now": 1760004620000000,
+        "offset": -4620000000,
+        "unsynced": [
+          {
+            "hlc": "001760004620000-000000-dev_mac",
+            "id": "row-a"
+          }
+        ]
+      },
+      "name": "measured offset: the fast Mac repairs in its own local time",
+      "output": {
+        "last": "001760000000000-000000-dev_mac",
+        "restamped": [
+          {
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "row-a"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "last": "001760000000000-000000-dev_mac",
+        "node": "dev_mac",
+        "now": 1760000000000000,
+        "offset": 0,
+        "unsynced": [
+          {
+            "hlc": "001759999999999-000000-dev_mac",
+            "id": "row-ok"
+          }
+        ]
+      },
+      "name": "nothing ahead: nothing changes",
+      "output": {
+        "last": "001760000000000-000000-dev_mac",
+        "restamped": []
+      }
+    }
+  ],
+  "version": 1
+}
