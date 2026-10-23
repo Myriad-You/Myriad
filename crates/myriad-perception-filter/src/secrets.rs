@@ -30,6 +30,15 @@ pub enum SecretKind {
     VendorPrefix,
     Bearer,
     Assignment,
+    /// A command-line credential: `-u user:…`, `mysql -p…`, `--password …`,
+    /// `sshpass -p …`, `docker login -p …`.
+    Flag,
+    /// The password in a URL's `user:…@`.
+    UrlCredentials,
+    /// `login … password …` in a `.netrc`.
+    Netrc,
+    /// A `Cookie:` or `Set-Cookie:` header's value.
+    Cookie,
     HighEntropy,
 }
 
@@ -43,7 +52,8 @@ pub struct Wiped<K> {
 struct Pattern {
     regex: Regex,
     kind: SecretKind,
-    /// The label in front (`Bearer `, `API_KEY=`) is kept; only the value goes.
+    /// The label in front (`Bearer `, `API_KEY=`) is kept; only the value
+    /// goes. The value is group 2 and what follows it (group 3) stays too.
     keeps_label: bool,
 }
 
@@ -112,6 +122,39 @@ static PATTERNS: LazyLock<Vec<Pattern>> = LazyLock::new(|| {
             Assignment,
             true,
         ),
+        // Terminal and config forms whose value has no shape of its own.
+        pattern(
+            r#"(?i)((?:^|\s)(?:-u|--user)(?:\s+|=)["']?[^\s:"'@]+:)([^\s"'@]+)"#,
+            Flag,
+            true,
+        ),
+        pattern(
+            r#"(\b(?i:mysql|mysqldump|mysqladmin|mysqlsh|mariadb|mariadb-dump)\b[^\n]*?\s-p)([^\s"']+)"#,
+            Flag,
+            true,
+        ),
+        pattern(r#"(\bsshpass\b[^\n]*?\s-p\s*)([^\s"']+)"#, Flag, true),
+        pattern(
+            r#"(\b(?:docker|podman|nerdctl)\s+login\b[^\n]*?\s-p\s+)([^\s"']+)"#,
+            Flag,
+            true,
+        ),
+        pattern(
+            r#"(?i)((?:^|\s)--(?:password|passwd|pass|pwd|token|api-?key|secret|client-secret|auth-token|access-token)(?:\s+|=)["']?)([^\s"']+)"#,
+            Flag,
+            true,
+        ),
+        pattern(
+            r#"(?i)(\b[a-z][a-z0-9+.\-]*://[^\s/:@'"]+:)([^\s/@'"]+)(@)"#,
+            UrlCredentials,
+            true,
+        ),
+        pattern(r"(?i)(\blogin\s+\S+\s+password\s+)(\S+)", Netrc, true),
+        pattern(
+            r#"(?i)(\b(?:set-)?cookie\s*:\s*)([^\r\n"'=]*=[^\r\n"']*)"#,
+            Cookie,
+            true,
+        ),
     ]
 });
 
@@ -128,7 +171,7 @@ pub fn scan(text: &str) -> Wiped<SecretKind> {
     for pattern in PATTERNS.iter() {
         let found = matches(pattern, &out);
         for (start, end, label) in found.iter().rev() {
-            out.replace_range(*start..*end, &format!("{label}{MARK}"));
+            out.replace_range(*start..*end, &format!("{}{MARK}{}", label.0, label.1));
         }
         wiped.extend(std::iter::repeat_n(pattern.kind, found.len()));
     }
@@ -144,8 +187,9 @@ pub fn scan(text: &str) -> Wiped<SecretKind> {
     Wiped { text: out, wiped }
 }
 
-/// `(start, end, kept label)` of every match, leftmost first, not overlapping.
-fn matches(pattern: &Pattern, text: &str) -> Vec<(usize, usize, String)> {
+/// `(start, end, (kept label, kept tail))` of every match, leftmost first,
+/// not overlapping.
+fn matches(pattern: &Pattern, text: &str) -> Vec<(usize, usize, (String, String))> {
     let mut found = Vec::new();
     let mut at = 0;
     while at <= text.len() {
@@ -153,9 +197,14 @@ fn matches(pattern: &Pattern, text: &str) -> Vec<(usize, usize, String)> {
             break;
         };
         let whole = captures.get(0).expect("group 0");
-        if pattern.kind == SecretKind::Assignment
-            && !assignment_value(captures.get(2).map_or("", |value| value.as_str()))
-        {
+        let value = captures.get(2).map_or("", |value| value.as_str());
+        let taken = match pattern.kind {
+            SecretKind::Assignment => assignment_value(value),
+            // Already a mark, or a variable (`$TOKEN`) rather than its value.
+            _ if pattern.keeps_label => !value.starts_with("[密钥") && !value.starts_with('$'),
+            _ => true,
+        };
+        if !taken {
             // Not a match here: look again from the next character, as a
             // failed lookahead would.
             at = whole.start()
@@ -165,12 +214,18 @@ fn matches(pattern: &Pattern, text: &str) -> Vec<(usize, usize, String)> {
                     .map_or(1, char::len_utf8);
             continue;
         }
-        let label = if pattern.keeps_label {
-            captures.get(1).map_or("", |label| label.as_str())
-        } else {
-            ""
+        let kept = |group| {
+            if pattern.keeps_label {
+                captures.get(group).map_or("", |kept| kept.as_str())
+            } else {
+                ""
+            }
         };
-        found.push((whole.start(), whole.end(), label.to_string()));
+        found.push((
+            whole.start(),
+            whole.end(),
+            (kept(1).to_string(), kept(3).to_string()),
+        ));
         at = if whole.end() > whole.start() {
             whole.end()
         } else {

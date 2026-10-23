@@ -14,12 +14,14 @@
 //!
 //! The pipeline, in order (`decide` combines the steps' results):
 //!
-//! 1. capture exclusion (password managers) and [`window`] (key files) →
-//!    [`Disposition::Exclude`];
+//! 1. capture exclusion (password managers), [`window`] (key files) and a
+//!    showing password field → [`Disposition::Exclude`];
 //! 2. [`secrets::scan`] and [`identifiers::scan`] wipe text before any
 //!    model reads it;
-//! 3. an identifier, a sensitive [`sources`] entry, a private window or a
-//!    [`text`] rule → [`Disposition::PresentOnly`];
+//! 3. an identifier, a sensitive [`sources`] entry, an account page or a
+//!    site no rule places ([`page`]), a private window or a [`text`] rule →
+//!    [`Disposition::PresentOnly`]; a sensitive source or page leaves nothing,
+//!    not even the marker;
 //! 4. model unavailable or language unsupported → [`Disposition::Blind`];
 //! 5. other people's words: relayed by the model, checked by [`relay`] →
 //!    [`Disposition::WhoWhat`]; the owner's own content: classified by the
@@ -27,6 +29,7 @@
 
 pub mod decide;
 pub mod identifiers;
+pub mod page;
 pub mod relay;
 pub mod secrets;
 pub mod sources;
@@ -38,6 +41,7 @@ pub use decide::{
     Policy, Private, PrivateKind, Reason, Relay, decide, decide_with,
 };
 pub use identifiers::IdentifierKind;
+pub use page::{Basis, Page, PageKind, page};
 pub use relay::{RelayCheck, check_relay};
 pub use secrets::{SecretKind, Wiped};
 pub use sources::{SourceKind, Sources};
@@ -51,4 +55,4 @@ pub const SHAPE: u32 = 1;
 
 /// The rules' revision: changes whenever a list, a pattern or a decision
 /// changes, so a client can say which rules put a window where it went.
-pub const RULES: &str = "2026-10-20.1";
+pub const RULES: &str = "2026-10-24.1";

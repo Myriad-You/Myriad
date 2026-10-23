@@ -4,9 +4,9 @@
 mod synthetic;
 
 use myriad_perception_filter::{
-    Ask, Classify, Decision, Disposition, IdentifierKind, Leaves, Policy, Private, PrivateKind,
-    Reason, Relay, RelayCheck, SecretKind, Sources, Window, Withheld, check_relay, decide,
-    decide_with, identifiers, secrets, text, text_hits, window,
+    Ask, Classify, Decision, Disposition, IdentifierKind, Leaves, PageKind, Policy, Private,
+    PrivateKind, Reason, Relay, RelayCheck, SecretKind, Sources, Window, Withheld, check_relay,
+    decide, decide_with, identifiers, page, secrets, text, text_hits, window,
 };
 
 fn seen(title: &str) -> Window {
@@ -321,8 +321,10 @@ fn open() -> Decision {
     Decision {
         capture: Some("seen".into()),
         window: Some("seen".into()),
+        password_field: None,
         identifiers: Some(vec![]),
         source: Some(None),
+        page: None,
         private: Some(Private::Known(false)),
         text_hits: Some(vec![]),
         model: Some("available".into()),
@@ -599,8 +601,9 @@ fn the_open_policies() {
         Disposition::Carry
     );
 
+    // A health text rule: a sensitive source would leave nothing whatever the policy.
     let health = Decision {
-        source: Some(Some("health".into())),
+        text_hits: Some(vec!["health".into()]),
         ..open()
     };
     assert_eq!(decide(&health).leaves_kind, None);
@@ -612,4 +615,189 @@ fn the_open_policies() {
         decide_with(&health, &with_kind).leaves_kind.as_deref(),
         Some("health")
     );
+}
+
+#[test]
+fn a_sensitive_source_or_page_leaves_nothing_whatever_the_policy() {
+    let with_kind = Policy {
+        present_only_leaves_kind: true,
+        ..Policy::CURRENT
+    };
+    for decision in [
+        Decision {
+            source: Some(Some("health".into())),
+            ..open()
+        },
+        Decision {
+            source: Some(Some("adult".into())),
+            ..open()
+        },
+        Decision {
+            source: Some(Some("gambling".into())),
+            ..open()
+        },
+        Decision {
+            page: Some("account".into()),
+            ..open()
+        },
+        Decision {
+            page: Some("unknown".into()),
+            ..open()
+        },
+        Decision {
+            page: Some("sensitive".into()),
+            ..open()
+        },
+        // A value this core does not know reads as unknown.
+        Decision {
+            page: Some("forum".into()),
+            ..open()
+        },
+        // Even when an identifier is what put it there.
+        Decision {
+            identifiers: Some(vec!["card".into()]),
+            page: Some("unknown".into()),
+            ..open()
+        },
+    ] {
+        for policy in [Policy::CURRENT, with_kind] {
+            let decided = decide_with(&decision, &policy);
+            assert_eq!(
+                decided.disposition,
+                Disposition::PresentOnly,
+                "{decision:?}"
+            );
+            assert_eq!(
+                (decided.leaves, decided.leaves_kind),
+                (Leaves::Nothing, None),
+                "{decision:?}"
+            );
+        }
+    }
+    // An ordinary page goes on to the model; a private window still leaves the marker.
+    assert_eq!(
+        disposition(&Decision {
+            page: Some("ordinary".into()),
+            ..open()
+        })
+        .0,
+        Disposition::Carry
+    );
+    let private = decide(&Decision {
+        private: Some(Private::Known(true)),
+        ..open()
+    });
+    assert_eq!(private.leaves, Leaves::PrivateMarker);
+}
+
+#[test]
+fn a_showing_password_field_is_not_read() {
+    let field = decide(&Decision {
+        password_field: Some(true),
+        ..open()
+    });
+    assert_eq!(
+        (field.disposition, field.reason),
+        (Disposition::Exclude, Reason::PasswordField)
+    );
+    assert_eq!(field.leaves, Leaves::Nothing);
+    let sign_in = decide(&Decision {
+        page: Some("sign_in".into()),
+        ..open()
+    });
+    assert_eq!(sign_in.disposition, Disposition::Exclude);
+    // Not given, or false: not a reason by itself.
+    assert_eq!(
+        disposition(&Decision {
+            password_field: Some(false),
+            ..open()
+        })
+        .0,
+        Disposition::Carry
+    );
+    // Excluded before anything else is needed.
+    let bare = Decision {
+        password_field: Some(true),
+        capture: Some("seen".into()),
+        window: Some("seen".into()),
+        ..Decision::default()
+    };
+    assert_eq!(decide(&bare).disposition, Disposition::Exclude);
+}
+
+#[test]
+fn the_built_in_table_reads_everyday_sites_and_holds_the_rest() {
+    let at = |host: &str, path: Option<&str>| {
+        let placed = page(host, path, None, false, None, Sources::built_in());
+        (placed.kind, placed.read())
+    };
+    for host in [
+        "www.youtube.com",
+        "www.bilibili.com",
+        "www.nicovideo.jp",
+        "www.bbc.com",
+        "www.nhk.or.jp",
+        "www.straitstimes.com",
+        "en.wikipedia.org",
+        "ja.wikipedia.org",
+        "developer.mozilla.org",
+        "docs.rs",
+        "github.com",
+        "stackoverflow.com",
+        "www.amazon.co.jp",
+        "item.taobao.com",
+        "shopee.sg",
+        "store.steampowered.com",
+        "tenki.jp",
+        "docs.swift.org",
+    ] {
+        assert_eq!(at(host, Some("/")), (PageKind::Ordinary, true), "{host}");
+    }
+    for (host, path, kind) in [
+        ("github.com", "/settings/security", PageKind::Account),
+        (
+            "www.amazon.co.jp",
+            "/gp/your-account/order-history",
+            PageKind::Account,
+        ),
+        ("www.youtube.com", "/account", PageKind::Account),
+        ("accounts.google.com", "/", PageKind::Sensitive),
+        ("www.dbs.com.sg", "/", PageKind::Sensitive),
+        ("www.singpass.gov.sg", "/", PageKind::Sensitive),
+        ("myna.go.jp", "/", PageKind::Sensitive),
+        ("some-blog.example", "/", PageKind::Unknown),
+    ] {
+        assert_eq!(at(host, Some(path)), (kind, false), "{host}{path}");
+    }
+    assert_eq!(at("mail.google.com", None), (PageKind::Messaging, true));
+}
+
+#[test]
+fn account_paths_need_an_account_word() {
+    for path in [
+        "/settings",
+        "/user/settings/security",
+        "/my-account",
+        "/account/billing",
+        "/checkout?step=2",
+        "/sign-in",
+        "/two-factor",
+        "/mypage/",
+        "/api-keys",
+    ] {
+        assert!(myriad_perception_filter::page::account_path(path), "{path}");
+    }
+    for path in [
+        "/",
+        "/docs/security",
+        "/wiki/Privacy",
+        "/profile/someone",
+        "/watch?v=settings",
+        "/blog/2026/10/accounting-basics",
+    ] {
+        assert!(
+            !myriad_perception_filter::page::account_path(path),
+            "{path}"
+        );
+    }
 }

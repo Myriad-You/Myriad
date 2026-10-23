@@ -1,7 +1,9 @@
 //! Where a window comes from: an app or a site whose being open already
 //! says something private (a bank, a clinic, a dating or job site, legal
-//! advice), an app whose text is other people's words (chat and mail), or a
-//! password manager whose windows are never captured.
+//! advice, adult content, an account centre, a government identity
+//! service), an app whose text is other people's words (chat and mail), a
+//! password manager whose windows are never captured, or a site known to be
+//! ordinary (see [`crate::page`]).
 //!
 //! The table is data, kept by market in `shared/perception_sources.json`.
 //! Sites match by the listed domain and its subdomains; paths and queries
@@ -19,6 +21,11 @@ pub enum SourceKind {
     Dating,
     Job,
     Legal,
+    Adult,
+    /// An account centre or sign-in site as a whole.
+    Account,
+    /// A government identity service (My Number, Singpass…).
+    GovernmentId,
     /// The text on screen is other people's words.
     Messaging,
 }
@@ -44,6 +51,10 @@ pub struct Sources {
     /// Sites by market (`cn`, `jp`, `sg`…).
     #[serde(default)]
     pub markets: BTreeMap<String, BTreeMap<String, SourceKind>>,
+    /// Sites known to be ordinary, by what they are (`video`, `news`,
+    /// `reference`, `dev`, `shopping`…). Never outranks a kind above.
+    #[serde(default)]
+    pub ordinary: BTreeMap<String, String>,
 }
 
 static BUILT_IN: LazyLock<Sources> = LazyLock::new(|| {
@@ -85,7 +96,21 @@ impl Sources {
     }
 }
 
-fn normalize(host: &str) -> String {
+impl Sources {
+    /// What an ordinary site is, when the table lists it or a domain above it.
+    pub fn ordinary(&self, host: &str) -> Option<&str> {
+        let host = normalize(host);
+        let mut at = host.as_str();
+        loop {
+            if let Some(category) = self.ordinary.get(at) {
+                return Some(category);
+            }
+            at = at.split_once('.')?.1;
+        }
+    }
+}
+
+pub(crate) fn normalize(host: &str) -> String {
     host.trim().trim_end_matches('.').to_ascii_lowercase()
 }
 

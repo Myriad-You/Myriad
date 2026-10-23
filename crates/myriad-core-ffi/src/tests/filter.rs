@@ -11,6 +11,7 @@ pub(super) const TESTED: &[&str] = &[
     "filter.check_relay",
     "filter.decide",
     "filter.lists",
+    "filter.page",
     "filter.scan_identifiers",
     "filter.scan_secrets",
     "filter.source",
@@ -183,4 +184,87 @@ fn refusals_never_quote_the_input() {
     );
     let (_, out) = ffi("filter.scan_secrets", &json!({ "txet": "x" }));
     assert_eq!(out["error"]["message"], "unknown field `txet`");
+}
+
+fn vectors(name: &str) -> Value {
+    let path = format!(
+        "{}/../myriad-perception-filter/fixtures/host-filter/{name}.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+}
+
+/// The consistency vectors, through the C entry point as a client runs them.
+#[test]
+fn page_and_decide_vectors_hold_through_the_core() {
+    let doc = vectors("pages");
+    for case in doc["cases"].as_array().unwrap() {
+        let id = &case["id"];
+        let mut input = json!({ "urlHost": case["urlHost"], "table": doc["table"] });
+        for field in ["path", "title", "passwordField", "market"] {
+            if let Some(value) = case.get(field) {
+                input[field] = value.clone();
+            }
+        }
+        let mut placed = ok("filter.page", input.clone());
+        assert_eq!(placed["shape"], SHAPE);
+        placed.as_object_mut().unwrap().remove("shape");
+        assert_eq!(placed, case["expect"], "{id}");
+        // Nothing of the host, path or title comes back.
+        for field in ["urlHost", "path", "title"] {
+            if let Some(text) = case[field].as_str() {
+                assert!(!placed.to_string().contains(text), "{id} {field}");
+            }
+        }
+        let messaging = placed["page"] == "messaging";
+        let decided = ok(
+            "filter.decide",
+            json!({
+                "capture": "seen", "window": "seen",
+                "passwordField": case.get("passwordField").cloned().unwrap_or(json!(false)),
+                "identifiers": [], "source": placed["kind"], "page": placed["page"],
+                "private": false, "textHits": [], "model": "available", "language": "supported",
+                "relay": if messaging { json!({ "result": "ok", "category": "plans" }) } else { Value::Null },
+                "classify": if messaging { Value::Null } else { json!({ "general": "not_sensitive", "tagging": "not_sensitive" }) },
+            }),
+        );
+        for field in ["disposition", "kind", "reason", "leaves"] {
+            assert_eq!(
+                decided.get(field).cloned().unwrap_or(Value::Null),
+                case["decide"].get(field).cloned().unwrap_or(Value::Null),
+                "{id} {field}"
+            );
+        }
+    }
+    // The built-in table, with no `table`.
+    let built_in = ok(
+        "filter.page",
+        json!({ "urlHost": "en.wikipedia.org", "path": "/wiki/Rust" }),
+    );
+    assert_eq!(
+        (built_in["read"].clone(), built_in["category"].clone()),
+        (json!(true), json!("reference"))
+    );
+}
+
+#[test]
+fn terminal_vectors_hold_through_the_core() {
+    let doc = vectors("terminal");
+    for case in doc["cases"].as_array().unwrap() {
+        let out = ok("filter.scan_secrets", json!({ "text": case["text"] }));
+        let kinds: Vec<Value> = out["wiped"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w["kind"].clone())
+            .collect();
+        assert_eq!(json!(kinds), case["wiped"], "{}", case["id"]);
+        let text = out["text"].as_str().unwrap();
+        for gone in case["gone"].as_array().unwrap() {
+            assert!(!text.contains(gone.as_str().unwrap()), "{}", case["id"]);
+        }
+        for kept in case["kept"].as_array().unwrap() {
+            assert!(text.contains(kept.as_str().unwrap()), "{}", case["id"]);
+        }
+    }
 }

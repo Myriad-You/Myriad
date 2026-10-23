@@ -5,6 +5,10 @@
 //! Closed by default: a missing input, a value this core does not know, an
 //! unavailable model, an unsupported language, an error or an unsure answer
 //! never lets anything through and never falls back to a cloud model.
+//!
+//! A sensitive site or app, an account page and a page no rule places leave
+//! nothing at all, not even the "busy with something private" marker: that
+//! the owner was on such a page is itself what must not leave.
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -35,8 +39,12 @@ pub enum Disposition {
 pub enum Reason {
     Capture,
     Window,
+    /// A password field is showing.
+    PasswordField,
     Identifier,
     Source,
+    /// The page: an account page, or a site no rule places.
+    Page,
     Private,
     Text,
     ModelUnavailable,
@@ -57,6 +65,8 @@ pub enum PrivateKind {
     Finance,
     Health,
     PrivateBrowsing,
+    /// Account, security, password or payment settings.
+    Account,
     Unknown,
 }
 
@@ -114,11 +124,17 @@ pub struct Decision {
     pub capture: Option<String>,
     /// `seen` | `withheld`.
     pub window: Option<String>,
+    /// A password field is showing in the window. Not given: none known.
+    pub password_field: Option<bool>,
     /// Identifier kinds the scan wiped (`card`…); empty when none.
     pub identifiers: Option<Vec<String>>,
     /// The source kind, `null` when the table has none.
     #[serde(default, deserialize_with = "given")]
     pub source: Option<Option<String>>,
+    /// A web page's kind from `filter.page`: `ordinary` | `messaging` |
+    /// `sign_in` | `sensitive` | `account` | `unknown`. Not given: not a web
+    /// page.
+    pub page: Option<String>,
     /// `true` | `false` | `"unknown"`.
     pub private: Option<Private>,
     /// Text rule kinds that hit (`finance`, `health`); empty when none.
@@ -210,6 +226,9 @@ pub fn decide_with(d: &Decision, policy: &Policy) -> Decided {
     if d.window.as_deref().is_some_and(|window| window != "seen") {
         return closed(Disposition::Exclude, Reason::Window);
     }
+    if d.password_field == Some(true) || d.page.as_deref() == Some("sign_in") {
+        return closed(Disposition::Exclude, Reason::PasswordField);
+    }
     if d.capture.is_none() {
         return missing("capture");
     }
@@ -231,20 +250,43 @@ pub fn decide_with(d: &Decision, policy: &Policy) -> Decided {
         return missing("textHits");
     };
     let source = source.as_deref().map(source_kind);
+    // Whatever puts it in `present_only`, a sensitive source or page means
+    // not even the marker leaves.
+    let sensitive_source =
+        matches!(source, Some(None)) || matches!(source, Some(Some(kind)) if kind.sensitive());
+    let page = d.page.as_deref().map(|page| match page {
+        "ordinary" | "messaging" => None,
+        "account" => Some(PrivateKind::Account),
+        _ => Some(PrivateKind::Unknown),
+    });
+    let says_nothing = sensitive_source || matches!(page, Some(Some(_)));
+    let held = |kind, reason| {
+        let mut decided = present(kind, reason, policy);
+        if says_nothing {
+            decided.leaves = Leaves::Nothing;
+            decided.leaves_kind = None;
+        }
+        decided
+    };
     if !identifiers.is_empty() {
-        return present(PrivateKind::Identity, Reason::Identifier, policy);
+        return held(PrivateKind::Identity, Reason::Identifier);
     }
     if let Some(Some(kind)) = source.filter(|kind| *kind != Some(SourceKind::Messaging)) {
         let private = match kind {
             SourceKind::Finance => PrivateKind::Finance,
             SourceKind::Health => PrivateKind::Health,
+            SourceKind::Account => PrivateKind::Account,
+            SourceKind::GovernmentId => PrivateKind::Identity,
             _ => PrivateKind::PrivateBrowsing,
         };
-        return present(private, Reason::Source, policy);
+        return held(private, Reason::Source);
     }
     if source == Some(None) {
         // A kind this core does not know.
-        return present(PrivateKind::Unknown, Reason::Source, policy);
+        return held(PrivateKind::Unknown, Reason::Source);
+    }
+    if let Some(Some(kind)) = page {
+        return held(kind, Reason::Page);
     }
     // `unknown` is a known gap (some browsers cannot tell), not a pass:
     // the rules after this still apply.
@@ -253,7 +295,7 @@ pub fn decide_with(d: &Decision, policy: &Policy) -> Decided {
         Private::Other(other) => other != "unknown",
     };
     if private {
-        return present(PrivateKind::PrivateBrowsing, Reason::Private, policy);
+        return held(PrivateKind::PrivateBrowsing, Reason::Private);
     }
     if let Some(first) = text_hits.first() {
         let kind = match first.as_str() {
@@ -261,7 +303,7 @@ pub fn decide_with(d: &Decision, policy: &Policy) -> Decided {
             "health" => PrivateKind::Health,
             _ => PrivateKind::Unknown,
         };
-        return present(kind, Reason::Text, policy);
+        return held(kind, Reason::Text);
     }
 
     // 3. The on-device model and the language it reads.

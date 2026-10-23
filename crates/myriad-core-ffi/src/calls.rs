@@ -65,6 +65,7 @@ const CALLS: &[(&str, Call)] = &[
     ("filter.check_relay", filter::check_relay),
     ("filter.decide", filter::decide_call),
     ("filter.lists", filter::lists),
+    ("filter.page", filter::page),
     ("filter.scan_identifiers", filter::scan_identifiers),
     ("filter.scan_secrets", filter::scan_secrets),
     ("filter.source", filter::source),

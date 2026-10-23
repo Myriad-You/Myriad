@@ -163,16 +163,20 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 | 调用 | 输入 → 输出 |
 | --- | --- |
 | `filter.window` | `{bundleId?, title}` → `{seen}`（抹过密钥、压成一行、最多 160 个字符的标题）或 `{withheld: "password_app" \| "key_file"}`：整个窗口都不读 |
-| `filter.scan_secrets` | `{text}` → `{text, wiped: [{kind}]}`，`kind` 是 `private_key`、`vendor_prefix`、`bearer`、`assignment`、`high_entropy` |
+| `filter.scan_secrets` | `{text}` → `{text, wiped: [{kind}]}`，`kind` 是 `private_key`、`vendor_prefix`、`bearer`、`assignment`、`flag`（`-u 用户:…`、`mysql -p…`、`--password …`、`sshpass -p`、`docker login -p`）、`url_credentials`（网址里的 `用户:…@`）、`netrc`、`cookie`、`high_entropy` |
 | `filter.scan_identifiers` | `{text}`（密钥扫描之后）→ `{text, wiped: [{kind}]}`，`kind` 是 `card`、`sg_nric`、`jp_my_number`；命中说明是主人自己的身份信息 |
-| `filter.source` | `{bundleId?, urlHost?, market?}` → `{kind}`：`finance`、`health`、`dating`、`job`、`legal`、`messaging` 或 `null`；没给市场或市场不认识时所有市场的网站都算；`table` 只给回归样本用 |
+| `filter.source` | `{bundleId?, urlHost?, market?}` → `{kind}`：`finance`、`health`、`dating`、`job`、`legal`、`adult`、`account`、`government_id`、`messaging` 或 `null`；没给市场或市场不认识时所有市场的网站都算；`table` 只给回归样本用 |
+| `filter.page` | `{urlHost, path?, title?, passwordField?, market?}` → `{read, page, basis, kind, category, othersWords}`：网页的正文读不读。`page` 是 `ordinary`、`messaging`（读，`othersWords` 为真）或 `sign_in`、`sensitive`、`account`、`unknown`（不读）；`basis` 说是哪条规则：`ordinary_site`（表里的普通网站，`category` 是 `video`、`news`、`reference`、`dev`、`shopping`……）、`docs_host`（`docs.`、`developer.` 这类文档主机）、`messaging_site`、`sensitive_site`、`account_path`、`account_title`、`password_field`、`unknown_site`。路径和标题只在本机读，主机名、路径、标题都不进输出 |
 | `filter.text_hits` | `{text}`（两道扫描之后）→ `{hits: [{kind, rule}]}`，`kind` 是 `finance`、`health` |
 | `filter.check_relay` | `{source, who, topic}`（交给模型转述的原文和它的回答）→ `{ok: true}` 或 `{ok: false, reason: "empty" \| "digits" \| "copied"}` |
-| `filter.decide` | 各步的结果 → `{rules, disposition, kind?, reason, missing?, leaves, leavesKind}` |
+| `filter.decide` | 各步的结果 → `{rules, disposition, kind?, reason, missing?, leaves, leavesKind}`；网页另给 `page`（`filter.page` 的 `page`）和 `passwordField` |
 | `filter.lists` | `{}` → `{rules, captureExcluded, classifyAsks, presentOnlyLeavesKind, titleLimit, marks}` |
 
 - **形状有版本。** 每个输入可以带 `shape`（默认 1），每个输出都带 `shape`；核心不会说的形状直接拒绝，不猜。`filter.decide` 和 `filter.lists` 还带 `rules`：规则的修订号，词表、名单、判定一改就变，客户端记下是哪一版规则定的去向。
 - **新值按更严的读。** `filter.decide` 的枚举都按字符串收：新客户端发来旧核心不认识的值（新的来源类别、新的模型状态），按更严的那一个处理，不拒绝。缺了某步需要的输入是 `blind`（`reason: "missing"`，`missing` 说缺了哪项），也不拒绝。
+- **网页认不出就不读。** 只有表里的普通网站、文档主机和消息类网站读正文；敏感网站、普通网站上的账号页（路径里有 `settings`、`account`、`password`、`billing`、`payment`、`checkout`、`orders`、`login`……，或标题是账号设置、支付方式这类）、看得见密码框的页面、认不出的网站都不读。敏感的那几类永远压过普通（`pay.普通网站` 列在敏感里就是敏感）。
+- **敏感的什么都不交。** 来源是敏感类别、网页是账号页或认不出时，`decide` 给 `present_only`，但 `leaves` 是 `nothing`：连「主人在忙私事」的标记也不带，不论 `PRESENT_ONLY_LEAVES_KIND`。看得见密码框是 `exclude`。私密窗口、证件号、文字规则命中仍只交那个不带类别的标记。
+- **一致性对照**：`fixtures/host-filter/pages.json`（`filter.page` 加 `filter.decide`，自带 `.example` 来源表）和 `terminal.json`（终端里的密钥写法），crate 直接跑一遍、经 C 入口再跑一遍；别的客户端按钉住的提交复制这两份，经 C 入口逐条比对。
 - **拒绝不带原文。** 这些调用读的文字里可能有密钥，所以 `bad_input` 的消息只说缺了或多了哪个字段，或者输入不合形状，从不引用输入里的值。输出也不带被抹掉、被命中的原文和它的位置。
 - **还没定的两件事各是一个常量。** 敏感分类问几次（`CLASSIFY_ASKS`，现在问两次（通用、内容标注），两次都明确不敏感才 `carry`）、`present_only` 离开设备的标记带不带类别（`PRESENT_ONLY_LEAVES_KIND`，现在不带）。现在取的都是更严的那一边；客户端按 `filter.lists` 的 `classifyAsks` 决定问几次。
 - **回归样本**在 `crates/myriad-perception-filter/fixtures/host-filter/`：原生仓库合成样本的副本（密钥和号码是占位符，测试在运行时用固定种子展开），加上本机模型在这批样本上录下的回答（`model-replay.json`）。`cargo test -p myriad-perception-filter --test corpus -- --nocapture` 打印真规则＋录下的模型回答按 `decide` 合成后，每类放过和收紧了多少。

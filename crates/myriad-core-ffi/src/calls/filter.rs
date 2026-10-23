@@ -115,6 +115,43 @@ pub(super) fn source(raw: &[u8]) -> Result<Value, Failure> {
     answer(json!({ "kind": kind }))
 }
 
+/// `{urlHost, path?, title?, passwordField?, market?}` → `{read, page,
+/// basis, kind, category, othersWords}`: whether to read the page's text at
+/// all. `page` is what `filter.decide` takes as `page`, `kind` what it takes
+/// as `source`. The path and title are read here only; nothing of the host,
+/// path or title comes back. `table` is for regression corpora only.
+pub(super) fn page(raw: &[u8]) -> Result<Value, Failure> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct In {
+        url_host: String,
+        path: Option<String>,
+        title: Option<String>,
+        #[serde(default)]
+        password_field: bool,
+        market: Option<String>,
+        table: Option<Sources>,
+    }
+    let req: In = shaped(raw)?;
+    let table = req.table.as_ref().unwrap_or_else(|| Sources::built_in());
+    let page = filter::page(
+        &req.url_host,
+        req.path.as_deref(),
+        req.title.as_deref(),
+        req.password_field,
+        req.market.as_deref(),
+        table,
+    );
+    answer(json!({
+        "read": page.read(),
+        "page": page.kind,
+        "basis": page.basis,
+        "kind": page.source,
+        "category": page.category,
+        "othersWords": page.others_words(),
+    }))
+}
+
 /// `{text}` (after both scans) → `{hits: [{kind, rule}]}`.
 pub(super) fn text_hits(raw: &[u8]) -> Result<Value, Failure> {
     let req: Text = shaped(raw)?;
