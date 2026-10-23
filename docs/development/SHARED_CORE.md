@@ -6,7 +6,7 @@
 
 ## 边界
 
-- **只收纯 crate。** 现在是 `myriad-merope` 和它依赖的 `myriad-agent-rules`，以及同步她的数据用的 `myriad-persona-sync`（格式、规范字节、时钟、比对）和多端的日志规则 `myriad-persona-log`（信封、版本向量、合并、遗忘、折叠、执笔权、时钟），以及「她的连接」帧的规则 `myriad-her-link`。不引入 tokio、reqwest、sea-orm，也不读写文件或网络。
+- **只收纯 crate。** 现在是 `myriad-merope` 和它依赖的 `myriad-agent-rules`，以及同步她的数据用的 `myriad-persona-sync`（格式、规范字节、时钟、比对）和多端的日志规则 `myriad-persona-log`（信封、版本向量、合并、遗忘、折叠、执笔权、时钟），「她的连接」帧的规则 `myriad-her-link`，以及客户端看屏幕时的宿主过滤 `myriad-perception-filter`。不引入 tokio、reqwest、sea-orm，也不读写文件或网络。
 - **每个调用都是输入的纯函数。** 现在几点、她的时区、心情这些状态都在输入里；库不读进程的时钟、时区和环境。crate 里的规则因此不用 `chrono::Local`：她的时区由调用方传入，后端传 `merope::clock::zone()`，现在就是进程时区（容器里 `TZ=Asia/Shanghai`）。
 - **一个二进制里只能有一个 Rust 静态库。** 两个 Rust staticlib 会在 std 符号上冲突。别的平台将来要用的纯 crate，都并进这一个库，不另建。
 - **密钥不进来。** 规则拿不到任何宿主密钥或凭据，错误信息里也没有。
@@ -97,7 +97,7 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 | `id` | 全局唯一，去重按它 |
 | `origin` | 写它的那一端，就是时钟的节点名：`site`、`dev_…`、`loc_…` |
 | `author` | `owner`（主人说的、设的、批准和撤回的、让她忘掉的）或 `her`（她的想法、看法、心情、开口、整理） |
-| `epoch` | 只有 `her` 的行有：写的那一端当时持有的执笔权 epoch；`owner` 的行没有 |
+| `epoch` | 只有 `her` 的行有：写的那一端当时持有的执笔权 epoch，那一端还没见过任何执笔权时是 0；`owner` 的行没有 |
 | `dseq` | 只有 `shared` 的行有：这一端在这个受众里第几条共享的行，从 1 起、不跳号。按「端 × 受众」计数：各端保存的受众不一样（群的日志只在服务端），整端一个计数会在别的端留下永远补不上的洞 |
 | `hlc` | 写的时候的时钟，节点必须是 `origin` |
 | `audience` | `personal:<主人>`、`own:`、`group:<群>` |
@@ -111,19 +111,20 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 几条各端要照做的规矩：
 
 - **合并是并集。** 同一个 `id` 只算一次；桩赢过它原来的那一行；同一个 `id` 内容不同、或同一受众里同一端的同一个 `dseq` 被两行占了，都是格式被写坏了，留下已有的、报 `conflicts`。`log.merge` 的 `stubbed` 是本端变成桩的行：删它们的载荷。
-- **收一批行**（`log.admit`）：有一行的时钟超前本端 5 分钟以上，整批不收、什么都不吸收（`clockAhead`）；其余每行单独判：信封不完整、`local`、对象换了受众、主体不在群里的拒收并计数。对象原来在哪个受众由调用方传 `known`，群成员传 `members`（不传就不查）。账上的对象收成桩，版本向量照样补齐。
+- **收一批行**（`log.admit`）：有一行的时钟超前本端 5 分钟以上，整批不收、什么都不吸收（`clockAhead`）；其余每行单独判：信封不完整、`local`、对象换了受众、主体不在群里的拒收并计数。对象原来在哪个受众由调用方传 `known`，群成员传 `members`（不传就不查）。同一端她的行在同一个受众里，epoch 沿它自己的顺序只增不减：比本端在这个受众里已收的那一端最高 epoch 低的拒收（`epoch_back`）；已收的最高 epoch 由调用方按 `{受众: {端: epoch}}` 传 `epochs`，回答里带收下这一批之后的。按受众判，是因为各受众分开计数、分开发，一端单机时期的行可能在它另一个受众后来的行之后才到。账上的对象收成桩，版本向量照样补齐。
 - **忘掉是吸收的。** `forget` 行的 `object` 是被忘掉的对象，或 `subject:<id>`（这个受众里关于这个人的全部）；它自己没有载荷，也永远不会被忘掉。账只有受众、目标和时间（`Entry`），没有一个字的内容。不管 `forget` 排在对象的行之前还是之后、从哪一端先到，被忘掉的对象都折叠成只剩 `forgotten: true`。`log.answer` 永远先发 `forget` 行。
 - **折叠**（`log.fold`）：按 `(hlc, origin, dseq, id)` 排；发生过的事（看到、判断、说了的话、段和段里每一句、判例、记忆写入、心情变化）都留着；会变的值（节点上她的看法 `node.view_changed`、一件事挂在哪 `link.attach`、人设字段、衣服）最后一行是现在的，之前的进 `history`；记忆退役是单向的，除非之后有一次恢复。级联（给一个对象算出要连带删的派生内容）还没有。
 - **执笔权**（`lease.*`）只由服务端发，epoch 只增，只有三种移法：持有者自己交（`handover`，带它在每个写过的受众里最后的 `dseq`：`through` 是 `{受众: dseq}`，没写过的受众不列）；服务端接（`takeover`）：持有者失联满 3 分钟、主人的位置证明主人在另一个场所（两边的场所都要知道、主人的位置 3 分钟内看到过、而且持有者失联和主人离开都过了 3 分钟）；主人按「让她来这里」（`force`）。`lease.here` 是持有者自己执行的那条：和服务端断开、主人又不在这个场所（本机输入或主人的设备经局域网连上来）满 3 分钟，它自己停下，不再想、不写她的行，只收主人写的、做完手上的事。服务端接管时它一定已经停下，所以不会有两个她；`holderLastSeen` 要算到持有者自己还以为连着的最后一刻（最后一次收到它，加上它判断断线用的心跳超时）。时间都是初值。其中「失联、主人又不在多久算停下」是服务端的设置（`stopAfter`，微秒，1 分钟到 1 天，不给是 3 分钟）：服务端用它判断接管，并随 `lease.grant`、`lease.epoch` 把同一个值交给持有者，持有者用它跑 `lease.here`。两边是同一个值，所以服务端永远不会比持有者停下得早。
+- **单机时期是第 0 代。** 一端还没见过任何执笔权（单机用、没连过服务端）时，她就在那里想（`lease.here` 不传 `lease`，答 `thinking`），她的行写 `epoch: 0`；服务端发的第一份是 1，没有哪一份是 0。这些行在每个受众里占着那一端自己的 `dseq`，第一次配对或同步时照原样整段带上去，在那个受众里排在它后来的行之前；从它知道第一份执笔权起，不再写 0，再写就被 `epoch_back` 拒收。
 - **时钟不能被一次跑快带偏**（`log.clock_*`）：日志的时钟要存下来、只增不减，所以机器的钟跑快时盖的一行会让之后每一行都超前，服务端拒收超前 5 分钟以上的（`hlc::check_ahead`），这一端就一直同步不了。三条规则：时钟的物理部分用「校正后的时间」，即本机时间加上和服务端量出的偏差（`log.clock_offset`：请求发出、服务端的 `serverTime`、收到回答，取中点），偏差由调用方存着、每次握手和每次 `clock_ahead` 时重量；盖章时物理部分最多到校正后的时间加 5 分钟，再往后只走计数（`log.clock_next`、`log.clock_observe`），已经超出的时钟原地不动、`poisoned` 为真；修复（`log.clock_repair`）只给还没离开这一端的行重新盖章，从第一条超前的开始按日志顺序往后，并给出以后要存的时钟。离开过这一端的行永远不重盖：服务端收了它，它就没有超前。收到 `clock_ahead`（带 `serverTime`）时这一端的顺序是：量偏差，修复没同步的行，存新时钟，再发。
-- **两个她只可能来自 `force`。** 折叠时对照执笔权的历史（`leases`）：旧 epoch 的行写在 `force` 签出之后的，是原来那台还在跑时写的，照样留下，标 `concurrent`，碰到的对象也标；`takeover` 之后迟到的旧行是她自己的记忆补上来，不标；不是那个 epoch 的持有者写的（`not_holder`）、交出以后还写的（`after_handover`）是执笔权的 bug，列在 `standing` 里查。同一个 epoch 出现两次时，先签的算，再按持有者的字节序（`lease.newer`）。
+- **两个她只可能来自 `force` 和单机时期。** 折叠时对照执笔权的历史（`leases`）：旧 epoch 的行写在 `force` 签出之后的，是原来那台还在跑时写的，照样留下，标 `concurrent`，碰到的对象也标；第 0 代的行写的时候别的端已经持有执笔权的（签出时间早于这一行、持有者不是它自己），是她在别处住着时这台被单机用了，同样标 `concurrent`，`with` 是当时那一份；那时还没有任何一份、或那一份就是它自己的第一份（时钟稍快会让单机的最后几行排在签出之后）的，是同一个她，不标；`takeover` 之后迟到的旧行是她自己的记忆补上来，不标；不是那个 epoch 的持有者写的（`not_holder`）、交出以后还写的（`after_handover`）是执笔权的 bug，列在 `standing` 里查。同一个 epoch 出现两次时，先签的算，再按持有者的字节序（`lease.newer`）。
 
 | 调用 | 输入 → 输出 |
 | --- | --- |
-| `lease.here` | `{me, lease, now, disconnectedSince?, ownerHereAt?, stopAfter?}` → `{state: "thinking"}`、`{state: "stopped", stoppedAt}` 或 `{state: "child"}`。从没连过服务端的 App 拿自己签的第一份（`how: "first"`） |
+| `lease.here` | `{me, lease?, now, disconnectedSince?, ownerHereAt?, stopAfter?}` → `{state: "thinking"}`、`{state: "stopped", stoppedAt}` 或 `{state: "child"}`。还没见过任何执笔权的那一端不传 `lease`：单机，`thinking`，她的行写 `epoch: 0` |
 | `lease.move` | `{lease, request, now, issued, holderLastSeen?, holderPlace?, ownerPlace?, stopAfter?}` → `{granted: Grant}` 或 `{refused: 理由}`；`request` 是 `{handover: {from, epoch, to, through?}}`、`{takeover: {server}}` 或 `{force: {to}}`；`issued` 是服务端给新一份的 rev，必须晚于现在这份 |
 | `lease.newer` | `{a, b}` → `{newer: "a" \| "b"}` |
-| `log.admit` | `{rows, now, known?, members?, ledger?}` → `{accepted, refused?, clockAhead?, ledger}` |
+| `log.admit` | `{rows, now, known?, members?, ledger?, epochs?}` → `{accepted, refused?, clockAhead?, ledger, epochs}` |
 | `log.answer` | `{rows, theirs}` → `{rows}`：一个受众里对方（持有这个受众的 `theirs`）缺的行，`forget` 在前；行跨了受众是 `bad_input` |
 | `log.canonical` | `{row}` → `{row, canonical, digest}`；信封不对就是 `bad_input` |
 | `log.clock_next` | `{last?, now, offset, node}` → `{rev, poisoned}`：`now` 是本机时间，`offset` 加上它是服务端的时间 |
@@ -154,6 +155,27 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 - `log/`：信封、版本向量、收、合并、折叠、时钟；`lease/`：移动、自己停下、epoch 先后；`link/`：帧的检查（`myriad-her-link` 的测试跑它）；`grants/`：授予的检查，规则还不在核心里，现在是 `status: "pending"`、没有用例的占位。
 - `myriad-persona-log` 的测试经 crate 跑，`myriad-core-ffi` 的测试经 C 入口跑。别的平台照样把每个用例交给 `myriad_core_call`。
 - 只随一次写明理由的上游改动改：`MYRIAD_CONFORMANCE_BLESS=1 cargo test -p myriad-persona-log` 重写所有 `output`。不兼容的改动另开 `v2/`，`v1/` 留到没有平台再钉它。
+
+## 宿主过滤（`filter.*`）
+
+客户端看主人的屏幕时，每一段看到的东西（一个窗口、一条消息）落到五种去向之一：`exclude`（不看）、`blind`（看不到，只知道不含文字的事实）、`present_only`（看得到，只影响她在这台设备上的当下）、`who_what`（只带走谁在聊什么）、`carry`（抹过密钥后能带走）。前三种什么都不带走。宿主规则在前，本机模型在后，默认不放行：输入缺了、值不认识、模型不可用、语言不支持、出错、拿不准，都按更严的走，也不改走云端。截取、调用本机模型、界面由客户端做，规则在 `crates/myriad-perception-filter`，来源表在 `shared/perception_sources.json`。
+
+| 调用 | 输入 → 输出 |
+| --- | --- |
+| `filter.window` | `{bundleId?, title}` → `{seen}`（抹过密钥、压成一行、最多 160 个字符的标题）或 `{withheld: "password_app" \| "key_file"}`：整个窗口都不读 |
+| `filter.scan_secrets` | `{text}` → `{text, wiped: [{kind}]}`，`kind` 是 `private_key`、`vendor_prefix`、`bearer`、`assignment`、`high_entropy` |
+| `filter.scan_identifiers` | `{text}`（密钥扫描之后）→ `{text, wiped: [{kind}]}`，`kind` 是 `card`、`sg_nric`、`jp_my_number`；命中说明是主人自己的身份信息 |
+| `filter.source` | `{bundleId?, urlHost?, market?}` → `{kind}`：`finance`、`health`、`dating`、`job`、`legal`、`messaging` 或 `null`；没给市场或市场不认识时所有市场的网站都算；`table` 只给回归样本用 |
+| `filter.text_hits` | `{text}`（两道扫描之后）→ `{hits: [{kind, rule}]}`，`kind` 是 `finance`、`health` |
+| `filter.check_relay` | `{source, who, topic}`（交给模型转述的原文和它的回答）→ `{ok: true}` 或 `{ok: false, reason: "empty" \| "digits" \| "copied"}` |
+| `filter.decide` | 各步的结果 → `{rules, disposition, kind?, reason, missing?, leaves, leavesKind}` |
+| `filter.lists` | `{}` → `{rules, captureExcluded, classifyAsks, presentOnlyLeavesKind, titleLimit, marks}` |
+
+- **形状有版本。** 每个输入可以带 `shape`（默认 1），每个输出都带 `shape`；核心不会说的形状直接拒绝，不猜。`filter.decide` 和 `filter.lists` 还带 `rules`：规则的修订号，词表、名单、判定一改就变，客户端记下是哪一版规则定的去向。
+- **新值按更严的读。** `filter.decide` 的枚举都按字符串收：新客户端发来旧核心不认识的值（新的来源类别、新的模型状态），按更严的那一个处理，不拒绝。缺了某步需要的输入是 `blind`（`reason: "missing"`，`missing` 说缺了哪项），也不拒绝。
+- **拒绝不带原文。** 这些调用读的文字里可能有密钥，所以 `bad_input` 的消息只说缺了或多了哪个字段，或者输入不合形状，从不引用输入里的值。输出也不带被抹掉、被命中的原文和它的位置。
+- **还没定的两件事各是一个常量。** 敏感分类问几次（`CLASSIFY_ASKS`，现在问两次（通用、内容标注），两次都明确不敏感才 `carry`）、`present_only` 离开设备的标记带不带类别（`PRESENT_ONLY_LEAVES_KIND`，现在不带）。现在取的都是更严的那一边；客户端按 `filter.lists` 的 `classifyAsks` 决定问几次。
+- **回归样本**在 `crates/myriad-perception-filter/fixtures/host-filter/`：原生仓库合成样本的副本（密钥和号码是占位符，测试在运行时用固定种子展开），加上本机模型在这批样本上录下的回答（`model-replay.json`）。`cargo test -p myriad-perception-filter --test corpus -- --nocapture` 打印真规则＋录下的模型回答按 `decide` 合成后，每类放过和收紧了多少。
 
 ## 别的平台怎么链接
 

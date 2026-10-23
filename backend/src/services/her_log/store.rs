@@ -109,6 +109,33 @@ async fn known<C: ConnectionTrait>(
     Ok(known)
 }
 
+/// For each of `origins`, the highest epoch of its her rows held in
+/// `audience`: a lower one arriving from it is refused (`epoch_back`).
+async fn epochs<C: ConnectionTrait>(
+    db: &C,
+    audience: &str,
+    origins: &[String],
+) -> Result<BTreeMap<String, u64>, Error> {
+    if origins.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let mut held = BTreeMap::new();
+    for row in db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT origin, MAX((envelope->>'epoch')::BIGINT) AS epoch FROM agent_log_rows \
+             WHERE audience = $1 AND origin = ANY($2) AND envelope->>'epoch' IS NOT NULL \
+             GROUP BY origin",
+            [audience.into(), origins.to_vec().into()],
+        ))
+        .await?
+    {
+        let epoch: i64 = row.try_get("", "epoch")?;
+        held.insert(row.try_get("", "origin")?, epoch as u64);
+    }
+    Ok(held)
+}
+
 /// The part of `audience`'s log a merge of `incoming` needs: rows sharing
 /// an id or a place with it, and every row a forget in it reaches.
 async fn related<C: ConnectionTrait>(
@@ -242,6 +269,12 @@ async fn take_in<C: ConnectionTrait>(
             reason: "another_audience".into(),
         }));
     let objects: Vec<String> = rows.iter().map(|row| row.object.clone()).collect();
+    let origins: Vec<String> = rows
+        .iter()
+        .map(|row| row.origin.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let before = ledger(txn, audience).await?;
     let admitted = admit(AdmitInput {
         rows,
@@ -250,6 +283,7 @@ async fn take_in<C: ConnectionTrait>(
         // Who is in a group is not known here yet: not checked.
         members: BTreeMap::new(),
         ledger: before.clone(),
+        epochs: BTreeMap::from([(audience.to_string(), epochs(txn, audience, &origins).await?)]),
     });
     if let Some(ahead) = admitted.clock_ahead {
         return Err(Error::ClockAhead {

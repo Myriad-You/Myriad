@@ -15,6 +15,15 @@
 //!    think at once (the old holder still running, offline); its rows from
 //!    after the move are folded in and marked ([`standing`]).
 //!
+//! Before a side has ever held or seen a lease (used alone, never connected
+//! to the server) she thinks there alone and writes her rows at epoch
+//! [`ALONE`]. Those rows go up as they are, in their place in that side's
+//! count, the first time it pairs or syncs; from the first lease it knows
+//! on, it never writes [`ALONE`] again (`admit` refuses an origin's epoch
+//! going down). Only one side was ever alone if she lived nowhere else yet;
+//! a side alone while she already lived elsewhere is folded like a force
+//! ([`standing`]).
+//!
 //! The times are first values, to be tuned once she is used for real. The
 //! one the owner notices, how long a holder out of reach with the owner gone
 //! keeps thinking, is the server's setting ([`MoveInput::stop_after`]): the
@@ -62,6 +71,10 @@ pub fn stop_after(configured: Option<i64>) -> Result<i64, LogError> {
     }
     Ok(micros)
 }
+
+/// The epoch of her rows written before their side ever held or saw a
+/// lease. No grant has it: the server's first grant is epoch 1.
+pub const ALONE: u64 = 0;
 
 /// How a grant came about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -325,9 +338,10 @@ pub fn decide(input: MoveInput) -> Result<Moved, LogError> {
 pub struct HereInput {
     /// This side's node.
     pub me: String,
-    /// The newest grant this side knows. A side that never met the server
-    /// holds its own first grant.
-    pub lease: Grant,
+    /// The newest grant this side knows; absent while it knows none (never
+    /// connected): she thinks there alone, at epoch [`ALONE`].
+    #[serde(default)]
+    pub lease: Option<Grant>,
     pub now: i64,
     /// Since when this side has been cut off from the server; absent while
     /// it is connected.
@@ -361,8 +375,11 @@ pub enum Here {
 }
 
 pub fn here(input: HereInput) -> Result<Here, LogError> {
-    input.lease.check()?;
-    if input.lease.holder != input.me {
+    let Some(lease) = &input.lease else {
+        return Ok(Here::Thinking);
+    };
+    lease.check()?;
+    if lease.holder != input.me {
         return Ok(Here::Child);
     }
     let Some(cut_off) = input.disconnected_since else {
@@ -387,7 +404,8 @@ pub struct Standing {
     pub origin: String,
     pub epoch: u64,
     pub standing: Stand,
-    /// For [`Stand::Concurrent`]: the forced epoch it overlaps.
+    /// For [`Stand::Concurrent`]: the epoch it overlaps (the forced one, or
+    /// the one standing elsewhere while it was written alone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub with: Option<u64>,
 }
@@ -399,8 +417,9 @@ pub enum Stand {
     /// (rows that arrive late after a takeover are her own memory catching
     /// up, not another her).
     Normal,
-    /// Written by the old holder after the owner forced a move: she was
-    /// thinking in two places for a while. Kept and marked.
+    /// Written by the old holder after the owner forced a move, or written
+    /// alone ([`ALONE`]) while a lease stood elsewhere: she was thinking in
+    /// two places for a while. Kept and marked.
     Concurrent,
     /// Not written by the holder of its epoch, or written after it handed
     /// the lease over: a lease bug, to look into.
@@ -412,17 +431,26 @@ pub enum Stand {
 /// history). The owner's rows, and her rows of an epoch not in `grants`,
 /// are normal.
 pub fn standing(row: &Row, grants: &[Grant]) -> Stand {
+    placed(row, grants).0
+}
+
+/// The standing, and for [`Stand::Concurrent`] the epoch it overlaps.
+fn placed(row: &Row, grants: &[Grant]) -> (Stand, Option<u64>) {
+    let normal = (Stand::Normal, None);
     let (Author::Her, Some(epoch)) = (row.author, row.epoch) else {
-        return Stand::Normal;
+        return normal;
     };
+    if epoch == ALONE {
+        return alone(row, grants);
+    }
     let Some(own) = issue(grants, epoch) else {
-        return Stand::Normal;
+        return normal;
     };
     if own.holder != row.origin {
-        return Stand::NotHolder;
+        return (Stand::NotHolder, None);
     }
     let Some(next) = next_epoch(epoch, grants).and_then(|next| issue(grants, next)) else {
-        return Stand::Normal;
+        return normal;
     };
     let after_issue = row.hlc > next.issued;
     match next.how {
@@ -436,13 +464,29 @@ pub fn standing(row: &Row, grants: &[Grant]) -> Stand {
                 _ => after_issue,
             };
             if after {
-                Stand::AfterHandover
+                (Stand::AfterHandover, None)
             } else {
-                Stand::Normal
+                normal
             }
         }
-        How::Force if after_issue => Stand::Concurrent,
-        How::Force | How::Takeover | How::First => Stand::Normal,
+        How::Force if after_issue => (Stand::Concurrent, Some(next.epoch)),
+        How::Force | How::Takeover | How::First => normal,
+    }
+}
+
+/// A row written alone: concurrent with the lease that stood elsewhere when
+/// it was written, if one did. The lease standing then is the newest issued
+/// before the row's clock; one held by the row's own side is its own first
+/// lease, issued while the row was still on its way (a clock a little
+/// ahead puts the row just after it).
+fn alone(row: &Row, grants: &[Grant]) -> (Stand, Option<u64>) {
+    let then = grants
+        .iter()
+        .filter(|grant| grant.issued < row.hlc)
+        .reduce(|a, b| newer(a, b));
+    match then {
+        Some(grant) if grant.holder != row.origin => (Stand::Concurrent, Some(grant.epoch)),
+        _ => (Stand::Normal, None),
     }
 }
 
@@ -450,15 +494,13 @@ pub fn standing(row: &Row, grants: &[Grant]) -> Stand {
 pub fn standings(rows: &[Row], grants: &[Grant]) -> Vec<Standing> {
     rows.iter()
         .filter_map(|row| {
-            let stand = standing(row, grants);
+            let (stand, with) = placed(row, grants);
             (stand != Stand::Normal).then(|| Standing {
                 id: row.id.clone(),
                 origin: row.origin.clone(),
-                epoch: row.epoch.unwrap_or(0),
+                epoch: row.epoch.unwrap_or(ALONE),
                 standing: stand,
-                with: (stand == Stand::Concurrent)
-                    .then(|| row.epoch.and_then(|epoch| next_epoch(epoch, grants)))
-                    .flatten(),
+                with,
             })
         })
         .collect()

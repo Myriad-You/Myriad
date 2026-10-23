@@ -3135,6 +3135,7 @@ dependencies = [
  "myriad-agent-rules",
  "myriad-her-link",
  "myriad-merope",
+ "myriad-perception-filter",
  "myriad-persona-log",
  "myriad-persona-sync",
  "serde",
@@ -3250,6 +3251,16 @@ dependencies = [
  "reqwest",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "myriad-perception-filter"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
