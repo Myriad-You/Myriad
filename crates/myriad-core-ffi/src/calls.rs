@@ -21,6 +21,7 @@ mod affect;
 mod archive;
 mod chat;
 mod group;
+mod link;
 mod log;
 mod memory;
 mod outfit;
@@ -71,6 +72,8 @@ const CALLS: &[(&str, Call)] = &[
     ("library.csv_records", serial::csv_records),
     ("library.from_aozora", serial::from_aozora),
     ("library.from_gutenberg", serial::from_gutenberg),
+    ("link.check", link::check_frame),
+    ("link.encode", link::encode),
     ("log.admit", log::admit),
     ("log.answer", log::send),
     ("log.canonical", log::canonical),

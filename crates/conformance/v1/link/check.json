@@ -1,0 +1,1089 @@
+{
+  "call": "link.check",
+  "cases": [
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "through": 41,
+            "to": "site"
+          },
+          "id": "yield_01",
+          "seq": 9,
+          "t": "lease.yield",
+          "v": 1
+        },
+        "roles": [
+          "device",
+          "host",
+          "mind"
+        ]
+      },
+      "name": "a holder yields",
+      "output": {
+        "accepted": {
+          "canonical": "{\"ack\":0,\"at\":1760140800080,\"body\":{\"epoch\":5,\"through\":41,\"to\":\"site\"},\"id\":\"yield_01\",\"seq\":9,\"t\":\"lease.yield\",\"v\":1}",
+          "delivery": "reliable",
+          "family": "lease",
+          "t": "lease.yield"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800010,
+          "body": {
+            "sealed": {
+              "ct": "+NyzQwjlxp9GozyvpivZIkdrGMeKEU6xRONKXjdPfWD43LNDCOXGn0ajPK+mK9kiR2sYx4oRTrFE40peN099YPjcs0MI5cafRqM8r6Yr2SJHaxjHihFOsUTjSl43T31g",
+              "enc": "X7Krdu2b2gNLGSxIxwaTWSUvzNoWjZJazArn0xbAtT4=",
+              "keyId": "f7639ecdaf467ba6f0b01159af38dba6",
+              "suite": "x25519-sha256-chacha20poly1305",
+              "to": "dev_mac"
+            }
+          },
+          "id": "facts_02",
+          "seq": 2,
+          "t": "fact.up",
+          "v": 1
+        },
+        "roles": [
+          "device"
+        ]
+      },
+      "name": "facts sealed for the PC her mind is on",
+      "output": {
+        "accepted": {
+          "canonical": "{\"ack\":0,\"at\":1760140800010,\"body\":{\"sealed\":{\"ct\":\"+NyzQwjlxp9GozyvpivZIkdrGMeKEU6xRONKXjdPfWD43LNDCOXGn0ajPK+mK9kiR2sYx4oRTrFE40peN099YPjcs0MI5cafRqM8r6Yr2SJHaxjHihFOsUTjSl43T31g\",\"enc\":\"X7Krdu2b2gNLGSxIxwaTWSUvzNoWjZJazArn0xbAtT4=\",\"keyId\":\"f7639ecdaf467ba6f0b01159af38dba6\",\"suite\":\"x25519-sha256-chacha20poly1305\",\"to\":\"dev_mac\"}},\"id\":\"facts_02\",\"seq\":2,\"t\":\"fact.up\",\"v\":1}",
+          "delivery": "reliable",
+          "family": "fact",
+          "t": "fact.up"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 2,
+          "at": 1760140800000,
+          "body": {},
+          "seq": 3,
+          "t": "ping",
+          "v": 1
+        }
+      },
+      "name": "a protocol-1 frame in the protocol-2 envelope",
+      "output": {
+        "accepted": {
+          "canonical": "{\"ack\":2,\"at\":1760140800000,\"body\":{},\"seq\":3,\"t\":\"ping\",\"v\":1}",
+          "delivery": "control",
+          "family": null,
+          "t": "ping"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "to": "site"
+          },
+          "id": "yield_01",
+          "seq": 9,
+          "t": "lease.yield",
+          "v": 1
+        }
+      },
+      "name": "bad_frame: a body without a required field",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "reason": "lid",
+            "through": 41,
+            "to": "site"
+          },
+          "id": "yield_01",
+          "seq": 9,
+          "t": "lease.yield",
+          "v": 1
+        }
+      },
+      "name": "bad_frame: a body with a field it does not take",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800000,
+          "body": {
+            "facts": [
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              }
+            ],
+            "sealed": {
+              "ct": "+NyzQwjlxp9GozyvpivZIkdrGMeKEU6xRONKXjdPfWD43LNDCOXGn0ajPK+mK9kiR2sYx4oRTrFE40peN099YPjcs0MI5cafRqM8r6Yr2SJHaxjHihFOsUTjSl43T31g",
+              "enc": "X7Krdu2b2gNLGSxIxwaTWSUvzNoWjZJazArn0xbAtT4=",
+              "keyId": "f7639ecdaf467ba6f0b01159af38dba6",
+              "suite": "x25519-sha256-chacha20poly1305",
+              "to": "dev_mac"
+            }
+          },
+          "id": "facts_01",
+          "seq": 1,
+          "t": "fact.up",
+          "v": 1
+        }
+      },
+      "name": "bad_frame: both facts and sealed",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800000,
+          "body": {},
+          "id": "facts_01",
+          "seq": 1,
+          "t": "fact.up",
+          "v": 1
+        }
+      },
+      "name": "bad_frame: neither facts nor sealed",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "through": 41,
+            "to": "site"
+          },
+          "seq": 9,
+          "t": "lease.yield",
+          "v": 1
+        }
+      },
+      "name": "bad_frame: a reliable frame without an id",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800020,
+          "body": {
+            "exit": "voice",
+            "expiresAt": 1760140830000,
+            "handId": "hand_01",
+            "reason": "noticed",
+            "tier": "say"
+          },
+          "id": "h1",
+          "seq": 3,
+          "t": "hand.raise",
+          "v": 1
+        }
+      },
+      "name": "bad_frame: an id on a frame that is not reliable",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "through": 41,
+            "to": "site"
+          },
+          "id": "yield_01",
+          "seq": 9,
+          "t": "lease.yield",
+          "v": 1
+        },
+        "roles": [
+          "device"
+        ]
+      },
+      "name": "bad_frame: a phone cannot yield her mind",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "through": 41,
+            "to": "site"
+          },
+          "id": "yield_01",
+          "seq": 0,
+          "t": "lease.yield",
+          "v": 1
+        }
+      },
+      "name": "bad_frame: seq from 0",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800040,
+          "body": {
+            "handId": "hand_01"
+          },
+          "seq": 5,
+          "t": "hand.wave",
+          "v": 1
+        }
+      },
+      "name": "unknown_frame: a type no end knows",
+      "output": {
+        "refused": {
+          "code": "unknown_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "through": 41,
+            "to": "site"
+          },
+          "id": "yield_01",
+          "seq": 9,
+          "t": "lease.yield",
+          "v": 2
+        }
+      },
+      "name": "version_unsupported: a binary encoding this end does not read",
+      "output": {
+        "refused": {
+          "code": "version_unsupported"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "through": 41,
+            "to": "site"
+          },
+          "id": "yield_01",
+          "seq": 9,
+          "t": "lease.yield"
+        }
+      },
+      "name": "bad_frame: no v",
+      "output": {
+        "refused": {
+          "code": "bad_frame"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800000,
+          "body": {
+            "facts": [
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              },
+              {
+                "at": 1760140800000,
+                "data": {
+                  "label": "at work"
+                },
+                "kind": "place.here",
+                "source": "place",
+                "until": 1760141400000
+              }
+            ]
+          },
+          "id": "facts_01",
+          "seq": 1,
+          "t": "fact.up",
+          "v": 1
+        }
+      },
+      "name": "too_many: sixty-five facts in one batch",
+      "output": {
+        "refused": {
+          "code": "too_many"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800080,
+          "body": {
+            "epoch": 5,
+            "through": 41,
+            "to": "site"
+          },
+          "id": "yield 01",
+          "seq": 9,
+          "t": "lease.yield",
+          "v": 1
+        }
+      },
+      "name": "bad_id: an id with a space",
+      "output": {
+        "refused": {
+          "code": "bad_id"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800010,
+          "body": {
+            "sealed": {
+              "ct": "+NyzQwjlxp9GozyvpivZIkdrGMeKEU6xRONKXjdPfWD43LNDCOXGn0ajPK+mK9kiR2sYx4oRTrFE40peN099YPjcs0MI5cafRqM8r6Yr2SJHaxjHihFOsUTjSl43T31g",
+              "enc": "X7Krdu2b2gNLGSxIxwaTWSUvzNoWjZJazArn0xbAtT4=",
+              "keyId": "f7639ecdaf467ba6f0b01159af38dba6",
+              "suite": "p256-sha256-aes128gcm",
+              "to": "dev_mac"
+            }
+          },
+          "id": "facts_02",
+          "seq": 2,
+          "t": "fact.up",
+          "v": 1
+        }
+      },
+      "name": "bad_sealed: another suite",
+      "output": {
+        "refused": {
+          "code": "bad_sealed"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800010,
+          "body": {
+            "sealed": {
+              "ct": "+NyzQwjlxp9GozyvpivZIkdrGMeKEU6xRONKXjdPfWD43LNDCOXGn0ajPK+mK9kiR2sYx4oRTrFE40peN099YPjcs0MI5cafRqM8r6Yr2SJHaxjHihFOsUTjSl43T31g",
+              "enc": "AAAA",
+              "keyId": "f7639ecdaf467ba6f0b01159af38dba6",
+              "suite": "x25519-sha256-chacha20poly1305",
+              "to": "dev_mac"
+            }
+          },
+          "id": "facts_02",
+          "seq": 2,
+          "t": "fact.up",
+          "v": 1
+        }
+      },
+      "name": "bad_sealed: enc is not 32 bytes",
+      "output": {
+        "refused": {
+          "code": "bad_sealed"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800010,
+          "body": {
+            "sealed": {
+              "ct": "+NyzQwjlxp9GozyvpivZIkdrGMeKEU6xRONKXjdPfWD43LNDCOXGn0ajPK+mK9kiR2sYx4oRTrFE40peN099YPjcs0MI5cafRqM8r6Yr2SJHaxjHihFOsUTjSl43T31g",
+              "enc": "X7Krdu2b2gNLGSxIxwaTWSUvzNoWjZJazArn0xbAtT4=",
+              "keyId": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+              "suite": "x25519-sha256-chacha20poly1305",
+              "to": "dev_mac"
+            }
+          },
+          "id": "facts_02",
+          "seq": 2,
+          "t": "fact.up",
+          "v": 1
+        }
+      },
+      "name": "bad_sealed: a key id that is not hex",
+      "output": {
+        "refused": {
+          "code": "bad_sealed"
+        }
+      }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 0,
+          "at": 1760140800010,
+          "body": {
+            "sealed": {
+              "facts": []
+            }
+          },
+          "id": "facts_02",
+          "seq": 2,
+          "t": "fact.up",
+          "v": 1
+        }
+      },
+      "name": "bad_sealed: plain content in place of a sealed field",
+      "output": {
+        "refused": {
+          "code": "bad_sealed"
+        }
+      }
+    }
+  ],
+  "version": 1
+}

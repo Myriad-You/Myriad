@@ -1,0 +1,17 @@
+[package]
+name = "myriad-her-link"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Her link's frames, as shared/her_link_contract.json defines them: what a frame must look like before it is sent or taken, and its one byte form."
+authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
+
+# Pure: no I/O, no clock, no keys. The rules read the contract the crate is
+# built with (shared/her_link_contract.json), so they cannot drift from it.
+# Sealing itself (HPKE) is the platform's; here only its shape is checked.
+[dependencies]
+base64 = "0.23"
+myriad-persona-sync = { path = "../myriad-persona-sync" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }

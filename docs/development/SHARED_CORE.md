@@ -6,7 +6,7 @@
 
 ## 边界
 
-- **只收纯 crate。** 现在是 `myriad-merope` 和它依赖的 `myriad-agent-rules`，以及同步她的数据用的 `myriad-persona-sync`（格式、规范字节、时钟、比对）和多端的日志规则 `myriad-persona-log`（信封、版本向量、合并、遗忘、折叠、执笔权）。不引入 tokio、reqwest、sea-orm，也不读写文件或网络。
+- **只收纯 crate。** 现在是 `myriad-merope` 和它依赖的 `myriad-agent-rules`，以及同步她的数据用的 `myriad-persona-sync`（格式、规范字节、时钟、比对）和多端的日志规则 `myriad-persona-log`（信封、版本向量、合并、遗忘、折叠、执笔权、时钟），以及「她的连接」帧的规则 `myriad-her-link`。不引入 tokio、reqwest、sea-orm，也不读写文件或网络。
 - **每个调用都是输入的纯函数。** 现在几点、她的时区、心情这些状态都在输入里；库不读进程的时钟、时区和环境。crate 里的规则因此不用 `chrono::Local`：她的时区由调用方传入，后端传 `merope::clock::zone()`，现在就是进程时区（容器里 `TZ=Asia/Shanghai`）。
 - **一个二进制里只能有一个 Rust 静态库。** 两个 Rust staticlib 会在 std 符号上冲突。别的平台将来要用的纯 crate，都并进这一个库，不另建。
 - **密钥不进来。** 规则拿不到任何宿主密钥或凭据，错误信息里也没有。
@@ -134,12 +134,23 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 | `log.merge` | `{log, incoming}` → `{log, added?, stubbed?, duplicates, conflicts?}`；`log` 可以只给和这批有关的行 |
 | `log.missing` | `{mine, theirs}` → `{missing: [{origin, from, through}]}` |
 
+## 她的连接的帧（`link.*`）
+
+「她的连接」的协议定义是 `shared/her_link_contract.json`。协议 2（契约里的 `next` 块，2026-10-23 定，还没有主机在说，服务端那一侧是 S6）让它成为每台设备唯一保持的连接，加了 `fact`、`hand`、`say`、`lease`、`log`、`peer` 六个帧族，信封多一个 `v`（帧格式版本，1 是规范 JSON 文本）。结构见 [ARCHITECTURE.md](ARCHITECTURE.md)「Her link and her devices」。
+
+`crates/myriad-her-link` 编译时读这份契约，按它判断一帧能不能发、能不能收，规则不会和契约漂移：信封字段、`v`、类型、`seq`／`ack`／`at`、可靠帧必须有 `id` 且符合 `idPattern`、其余帧不能有 `id`、正文的必填和可选字段、`oneOf`（例如 `facts` 和 `sealed` 恰好一个）、`maxItems`、发送方的角色、帧大小，以及密封字段的形状（`{suite, to, keyId, enc, ct}`，套件是契约里的那一个，`enc` 32 字节，`ct` 至少一个标签长）。协议 1 的帧在协议 2 的信封里照旧按它们自己的正文检查。HPKE 的封和开是各端自己的（用各自的钥匙），核心只给 `info`（`myriad-link/2 <t>`）和附加数据（规范 JSON `{from, t, to}`）的写法。
+
+| 调用 | 输入 → 输出 |
+| --- | --- |
+| `link.check` | `{frame, roles?}` → `{accepted: {t, family, delivery, canonical}}` 或 `{refused: {code, detail}}`；`code` 是契约 `next.errorCodes` 里的一个；`roles` 是发送方的角色（`device`、`host`、`mind`、`server`），不给就不查 |
+| `link.encode` | `{frame}` → `{text}`：要发的帧检查过后的规范文本；不通过是 `bad_input` |
+
 ## 一致性对照（`crates/conformance/`）
 
 两份运行时（苹果系的 Swift、其余的 Rust）编排同一份核心规则时，可能编排得不一样；这里放两边都要过的对照。目录按版本分，现在是 `v1/`，原生按 `CORE_PIN` 复制进它自己的测试。
 
 - 每个文件是 `{version, call, cases: [{name, input, output}]}`。`input` 和 `output` 就是那个调用经 C 入口进出的 JSON；输入被拒时 `output` 是 `{"error": "bad_input"}`（不比对消息）。比对按规范字节。
-- `log/`：信封、版本向量、收、合并、折叠、时钟；`lease/`：移动、自己停下、epoch 先后；`grants/`：授予的检查，规则还不在核心里，现在是 `status: "pending"`、没有用例的占位。
+- `log/`：信封、版本向量、收、合并、折叠、时钟；`lease/`：移动、自己停下、epoch 先后；`link/`：帧的检查（`myriad-her-link` 的测试跑它）；`grants/`：授予的检查，规则还不在核心里，现在是 `status: "pending"`、没有用例的占位。
 - `myriad-persona-log` 的测试经 crate 跑，`myriad-core-ffi` 的测试经 C 入口跑。别的平台照样把每个用例交给 `myriad_core_call`。
 - 只随一次写明理由的上游改动改：`MYRIAD_CONFORMANCE_BLESS=1 cargo test -p myriad-persona-log` 重写所有 `output`。不兼容的改动另开 `v2/`，`v1/` 留到没有平台再钉它。
 
@@ -147,7 +158,7 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 
 不从工作区构建：工作区里常有别人还没提交的改动。按一个提交构建：
 
-1. 取这个提交的 `crates/myriad-core-ffi` 与它的全部 path 依赖（`myriad-persona-log` 也在其中）、`shared/`（`myriad-merope/build.rs` 在编译期读里面的契约）、`Cargo.lock`、`rust-toolchain.toml`，`git archive` 到一个隔离目录。
+1. 取这个提交的 `crates/myriad-core-ffi` 与它的全部 path 依赖（`myriad-persona-log`、`myriad-her-link` 也在其中）、`shared/`（`myriad-merope/build.rs` 和 `myriad-her-link` 在编译期读里面的契约）、`Cargo.lock`、`rust-toolchain.toml`，`git archive` 到一个隔离目录。
 2. 在那里写一个只列这些 crate 的工作区 `Cargo.toml`，沿用根 `Cargo.toml` 的 `[profile.release]`。Cargo 只会从锁文件里去掉没用到的包，用到的每个包都要与上游 `Cargo.lock` 同版本。
 3. 设 `MYRIAD_CORE_UPSTREAM_COMMIT=<提交>`（取归档自己记录的提交号，`git get-tar-commit-id`），`cargo build --release --target <triple> -p myriad-core-ffi`。
 4. 链接 `libmyriad_core_ffi.a` 和头文件；启动或测试时断言 `meta.version` 的 `upstreamCommit` 就是钉住的提交。

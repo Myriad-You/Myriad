@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "protocol": 1,
   "description": "The link between her host and a child end: one WebSocket that the child always dials. Her state and every decision stay on the host; a child sends what it hears and sees up, and plays what comes down. Children synthesize her voice themselves: the host sends text and performance, never audio. Protocol 1 is the first cut: the site is the host and a native app is a child; text frames only.",
   "path": "/api/agent/link",
@@ -414,5 +414,263 @@
     "unsupported_protocol": { "code": 4406, "forgetCredentials": false, "reconnect": false, "description": "hello.protocol is not one this host speaks." },
     "timeout": { "code": 4408, "forgetCredentials": false, "reconnect": true, "description": "No hello in time, or nothing heard for missedHeartbeats heartbeats." },
     "unavailable": { "code": 4503, "forgetCredentials": false, "reconnect": true, "description": "The host is stopping or cannot serve the link now." }
+  },
+  "next": {
+    "protocol": 2,
+    "status": "planned",
+    "description": "Protocol 2, decided by the owner on 2026-10-23 and not yet spoken by any host (the server's side is SYNC S6): her link becomes the one connection every device keeps, to the server, and on the same 现场's LAN also directly to the PC her mind is on. It keeps every protocol-1 frame (each envelope now carries v) and adds the frame families below. Until a host speaks it, protocol stays 1 and these frames are neither sent nor taken.",
+    "roles": {
+      "device": "Any of the owner's ends: a PC, a phone, XR.",
+      "host": "A host core: a PC or the server, the ends that keep her log.",
+      "mind": "The host core that holds the lease: where her one mind is now.",
+      "server": "The server: issues the lease, relays between devices, keeps the logs it should."
+    },
+    "transports": {
+      "server": {
+        "scheme": "wss",
+        "path": "/api/agent/link",
+        "description": "Every device keeps this one connection, authenticated by its device token as in protocol 1 (auth above). When her mind is on a PC, the server relays between that PC and the other devices: frames that carry 现场 facts or PC-only rows go sealed."
+      },
+      "lan": {
+        "scheme": "wss",
+        "description": "On the same 现场 a device may also connect directly to the PC her mind is on, with the same frames. The listener's TLS certificate is self-signed; what makes it trusted is that its hash is signed in peer.welcome with a key the owner confirmed at pairing. Device tokens never go over the LAN.",
+        "discovery": {
+          "mechanism": "mDNS / DNS-SD",
+          "service": "_myriad-link._tcp",
+          "txt": {
+            "v": "2"
+          },
+          "description": "The TXT record says only the protocol: no device id, name or key, since anyone on the network can read it. Who is who is settled by peer.hello / peer.welcome / peer.proof."
+        }
+      },
+      "fullSync": {
+        "scheme": "https",
+        "description": "A new host core's first full sync downloads the logs over HTTPS (log.full gives the link); everything after that goes over the link."
+      },
+      "later": "QUIC may carry the same frames later. The frames do not change with the transport."
+    },
+    "encoding": {
+      "frameVersion": 1,
+      "text": "canonical-json",
+      "description": "Each frame is one text message: canonical JSON (keys in byte order, no whitespace, numbers in their shortest round-trip form), so a frame has one byte form and a sealed frame's bytes are what was signed and sealed. Every envelope carries v, the frame format version: 1 is this text encoding. A binary encoding would be a new v, agreed in hello, with the same frames."
+    },
+    "sealing": {
+      "scheme": "HPKE",
+      "rfc": 9180,
+      "mode": "base",
+      "kem": "DHKEM(X25519, HKDF-SHA256)",
+      "kdf": "HKDF-SHA256",
+      "aead": "ChaCha20Poly1305",
+      "suite": "x25519-sha256-chacha20poly1305",
+      "encBytes": 32,
+      "tagBytes": 16,
+      "info": "myriad-link/2",
+      "description": "A field listed in a frame's sealed list may be replaced by {suite, to, keyId, enc, ct}: the clear field's canonical JSON, sealed to one device's sealKey (to is its deviceId, keyId its key's id from peer.keys), enc and ct base64. info is 'myriad-link/2 ' followed by the frame type; the additional data is the canonical JSON {from, t, to}, from being the sender's deviceId. The server relays a sealed frame unread; only the device it is sealed to opens it. Relayed 现场 facts and PC-only rows always go sealed."
+    },
+    "wake": {
+      "payload": {
+        "myriad": {
+          "wake": "connect"
+        }
+      },
+      "description": "Waking a phone: the platform's push carries exactly this and nothing else, no content, sender or count. The phone connects and gets what waits for it over the link."
+    },
+    "rejected": {
+      "grpc": "Needs HTTP/2 framing and generated stubs on every platform for what one WebSocket already carries.",
+      "mqtt": "A broker in the middle and topics in place of the frames' own delivery rules.",
+      "customUdp": "Reliability, congestion and NAT traversal would all be ours to get right."
+    },
+    "envelope": {
+      "required": ["v", "t", "seq", "ack", "at", "body"],
+      "optional": ["id"],
+      "description": "Protocol 1's envelope with v, the frame format version (encoding.frameVersion). Same rules for seq, ack, at and id."
+    },
+    "limits": {
+      "maxFrameBytes": 262144,
+      "idPattern": "^[A-Za-z0-9_.:-]{1,64}$",
+      "description": "maxItems on a frame caps its arrays; a frame over any limit is refused with too_large or too_many."
+    },
+    "families": {
+      "fact": "Filtered facts from a device's senses up to her mind.",
+      "hand": "Her mind raising a hand to speak on the front device, and the device's answer by its own bounds.",
+      "say": "Her words down to the front device, and what of them was delivered.",
+      "lease": "Where her mind is: asking, yielding, granting, every device told of the epoch, a self-stop reported, a takeover told.",
+      "log": "Her log between host cores: version vectors, batched rows, the first full sync.",
+      "peer": "Device identities: published, confirmed by the owner, and proven on the LAN."
+    },
+    "frames": {
+      "fact.up": {
+        "from": "device",
+        "delivery": "reliable",
+        "required": [],
+        "optional": ["facts", "sealed"],
+        "oneOf": [
+          ["facts", "sealed"]
+        ],
+        "maxItems": {
+          "facts": 64
+        },
+        "sealed": ["sealed"],
+        "idempotency": "id is made by the device once per batch, the same on every resend.",
+        "description": "Facts this device's senses gave, already through the host filter on this device (raw sensing never leaves it), up to her mind. facts is [{source, kind, at, until?, data}]: source and kind name the sense, at and until are milliseconds since the epoch, data is the filtered fact's fields. To a mind on the server they go in clear inside the TLS connection. To a mind on a PC they go through the server sealed (sealed, below), so the server relays what it cannot read; on the same 现场's LAN they go in clear over the direct connection. Facts only the PC itself senses (screen, windows, other agents' records) never travel."
+      },
+      "hand.raise": {
+        "from": "mind",
+        "delivery": "request",
+        "required": ["handId", "tier", "expiresAt"],
+        "optional": ["exit", "reason"],
+        "description": "Her mind wants to speak on the device the owner is using now (the front device). handId names this raise; tier is how far she wants to go (the arbiter's tier); exit is the way she would like (text, voice, notification); reason is a category, never content. expiresAt is milliseconds since the epoch: unanswered by then, it is dropped. Not kept or resent: after a reconnect the mind decides again from the facts in her log."
+      },
+      "hand.answer": {
+        "from": "device",
+        "delivery": "answer",
+        "required": ["handId", "allowed"],
+        "optional": ["exit", "bound"],
+        "description": "The front device's answer by its own hard bounds (do-not-disturb, a meeting, the place's bounds): it can only lower, never rewrite. allowed false names the bound that held. exit is the way it allows, at most the one asked."
+      },
+      "hand.drop": {
+        "from": "mind",
+        "delivery": "request",
+        "required": ["handId"],
+        "description": "She lets the raise go (the moment passed, or her mind moved)."
+      },
+      "say.line": {
+        "from": "mind",
+        "delivery": "reliable",
+        "required": ["text", "kind", "saidAt"],
+        "optional": ["handId", "sessionId", "perform"],
+        "idempotency": "id is the line's id, the same on every resend.",
+        "description": "Her words down to the front device, after hand.answer allowed them, or because the owner talked to her there. kind is one of sayKinds; perform is how she acts it. The device plays it, or keeps it until said or expired (timing.sayTtlMs)."
+      },
+      "say.delivered": {
+        "from": "device",
+        "delivery": "reliable",
+        "required": ["lineId", "spokenChars", "totalChars"],
+        "optional": ["interrupted", "by"],
+        "idempotency": "id is made by the device once, the same on every resend.",
+        "description": "How much of a line was said aloud or shown, so her log holds what the owner actually heard."
+      },
+      "lease.ask": {
+        "from": "host",
+        "delivery": "request",
+        "required": ["why"],
+        "optional": ["epoch"],
+        "description": "A host core asks the server for her mind: why is talk (the owner spoke to her here), place (the owner's 现场 is here now) or force (the owner pressed 'come here'). epoch is the newest this core knows. The server queues asks, one at a time, and answers with lease.grant to the target and lease.epoch to everyone, or nothing."
+      },
+      "lease.yield": {
+        "from": "mind",
+        "delivery": "reliable",
+        "required": ["epoch", "through"],
+        "optional": ["to"],
+        "idempotency": "id is made by the holder once per yield.",
+        "description": "The holder gives her mind up: going to sleep, the owner left its 现场, or the server asked. through is its last shared count (dseq): the target catches up to it before it thinks. to is the core it gives her to, when it knows. Yielding is small on purpose, so it fits in the moment before a lid closes."
+      },
+      "lease.grant": {
+        "from": "server",
+        "delivery": "reliable",
+        "required": ["grant"],
+        "idempotency": "id is the grant's epoch as text.",
+        "description": "To the new holder: grant is {epoch, holder, issued, how, through?} as the log rules write it (log.fold reads the history). The holder catches up to through, then thinks."
+      },
+      "lease.epoch": {
+        "from": "server",
+        "delivery": "latest",
+        "required": ["epoch", "holder", "how"],
+        "optional": ["holderName"],
+        "description": "To every device: where her mind is now. A core that held an older epoch stops at once and becomes a child. Devices show where she is from it."
+      },
+      "lease.stopped": {
+        "from": "host",
+        "delivery": "reliable",
+        "required": ["epoch", "stoppedAt"],
+        "idempotency": "id is made by the holder once per stop.",
+        "description": "Sent on reconnect by a holder that stopped by itself (cut off, and the owner gone from its 现场 for the self-stop time): when it stopped, so the server knows where the gap in her memory begins and ends."
+      },
+      "lease.takeover": {
+        "from": "server",
+        "delivery": "request",
+        "required": ["grant", "through"],
+        "description": "To a holder coming back after the server took her over: grant is the takeover, through the last of its rows the server had. It becomes a child and sends its rows past through, which are her own memory catching up, not another her."
+      },
+      "log.vector": {
+        "from": "host",
+        "delivery": "answer",
+        "required": ["audience", "vector"],
+        "optional": ["beyond"],
+        "description": "What this core holds of one audience's log: vector is {origin: last dseq held without gaps}, beyond what it holds past a gap (log.holdings). Sent after welcome for each audience it keeps, and in answer to one; the other side then sends what is missing with log.rows."
+      },
+      "log.rows": {
+        "from": "host",
+        "delivery": "reliable",
+        "required": ["audience"],
+        "optional": ["rows", "sealed", "payloads"],
+        "oneOf": [
+          ["rows", "sealed"]
+        ],
+        "maxItems": {
+          "rows": 256,
+          "payloads": 64
+        },
+        "sealed": ["sealed"],
+        "idempotency": "id is made by the sender once per batch.",
+        "description": "A batch of one audience's rows (log.answer: every forget first). rows are row envelopes; payloads is [{ref, data}] for the payloads the rows point at, data base64, sealed per object when S5 lands. Rows only a PC keeps that travel between PCs go sealed to the receiving PC. The receiver checks the batch (log.admit) and merges it (log.merge); a batch with a clock too far ahead is refused whole with error clock_ahead and the server's time."
+      },
+      "log.full": {
+        "from": "server",
+        "delivery": "answer",
+        "required": ["audience", "url", "expiresAt", "vector"],
+        "description": "For a new host core's first full sync: where to download the audience's log over HTTPS (url, a single-use link valid until expiresAt), and the vector it holds. Increments then go over the link."
+      },
+      "peer.publish": {
+        "from": "device",
+        "delivery": "reliable",
+        "required": ["signKey", "sealKey"],
+        "idempotency": "id is made by the device once per key pair.",
+        "description": "This device's public keys, base64: signKey (Ed25519) proves it on the LAN; sealKey (X25519) is what others seal to. Made on the device; the private halves never leave it. The server shows them to the owner, who confirms the device once (pairing); only then do other devices get them."
+      },
+      "peer.keys": {
+        "from": "server",
+        "delivery": "latest",
+        "required": ["devices"],
+        "description": "The owner's paired devices: [{deviceId, name, signKey, sealKey, keyId}]. keyId is the first 16 bytes of sha256 of sealKey's bytes, in hex. A device not in it is not one of hers: refused on the LAN, never sealed to."
+      },
+      "peer.hello": {
+        "from": "device",
+        "delivery": "handshake",
+        "required": ["protocol", "deviceId", "nonce"],
+        "description": "LAN only, the dialer's first frame: who it says it is and 32 random bytes (base64)."
+      },
+      "peer.welcome": {
+        "from": "device",
+        "delivery": "handshake",
+        "required": ["protocol", "deviceId", "nonce", "certHash", "proof"],
+        "description": "LAN only, the listener's answer: who it is, its own nonce, the sha256 of its TLS certificate (hex), and proof: its Ed25519 signature (base64) over the canonical JSON {dialer, dialerNonce, listener, listenerNonce, certHash, purpose: 'myriad-link-lan/2 listener'}. The dialer checks it against peer.keys and that certHash is the certificate it is talking to."
+      },
+      "peer.proof": {
+        "from": "device",
+        "delivery": "handshake",
+        "required": ["proof"],
+        "description": "LAN only, the dialer's proof: its signature over the same object with purpose 'myriad-link-lan/2 dialer'. Only then do other frames flow; anything else first closes with peer_proof_failed."
+      }
+    },
+    "errorCodes": {
+      "bad_frame": "Not an envelope, a body without its required fields or with fields it does not take, or both or neither of a oneOf pair.",
+      "unknown_frame": "A frame type this end does not know: ignored.",
+      "version_unsupported": "An envelope v this end does not read.",
+      "too_large": "Over limits.maxFrameBytes.",
+      "too_many": "An array over the frame's maxItems.",
+      "bad_id": "An id not matching limits.idPattern.",
+      "bad_sealed": "A sealed field not of the sealing shape, or of another suite.",
+      "not_for_me": "Sealed to another device: relay it, do not open it.",
+      "not_holder": "A lease frame from a core that does not hold the epoch it names.",
+      "stale_epoch": "A lease frame for an epoch that no longer stands.",
+      "clock_ahead": "log.rows refused whole: a row's clock more than five minutes ahead. Carries serverTime; the sender measures its offset, repairs its unsynced rows and sends again."
+    },
+    "closeCodes": {
+      "peer_unknown": { "code": 4010, "forgetCredentials": false, "reconnect": false, "description": "LAN: the device is not one of the owner's paired devices (peer.keys)." },
+      "peer_proof_failed": { "code": 4011, "forgetCredentials": false, "reconnect": false, "description": "LAN: a proof that does not verify, a certificate hash that is not this connection's, or a frame before the proofs." },
+      "epoch_stale": { "code": 4012, "forgetCredentials": false, "reconnect": true, "description": "A core that dialled as her mind holds an epoch that no longer stands: it stops thinking and reconnects as a child." },
+      "version_unsupported": { "code": 4415, "forgetCredentials": false, "reconnect": false, "description": "The envelope's v is not one this end reads." }
+    }
   }
 }

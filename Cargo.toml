@@ -27,6 +27,7 @@ members = [
     "crates/myriad-blog",
     "crates/myriad-agent-rules",
     "crates/myriad-core-ffi",
+    "crates/myriad-her-link",
     "crates/myriad-persona-log",
     "crates/myriad-persona-sync",
     "crates/myriad-tapp-rules",
