@@ -404,6 +404,101 @@
       "output": {
         "error": "bad_input"
       }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001500000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001740000000,
+          "since": 1760001200000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        },
+        "stopAfter": 300000000
+      },
+      "name": "a five-minute stop time: out of reach five minutes, the server takes over",
+      "output": {
+        "granted": {
+          "epoch": 5,
+          "holder": "site",
+          "how": "takeover",
+          "issued": "001760001800000-000000-site"
+        }
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001500000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001740000000,
+          "since": 1760001200000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        },
+        "stopAfter": 360000000
+      },
+      "name": "refused: a six-minute stop time, out of reach five minutes",
+      "output": {
+        "refused": "holder_recent"
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001500000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001740000000,
+          "since": 1760001200000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        },
+        "stopAfter": 30000000
+      },
+      "name": "refused: a stop time under a minute",
+      "output": {
+        "error": "bad_input"
+      }
     }
   ],
   "version": 1

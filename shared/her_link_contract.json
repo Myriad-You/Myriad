@@ -373,8 +373,8 @@
       "from": "host",
       "delivery": "control",
       "required": ["code"],
-      "optional": ["ref"],
-      "description": "A frame the host could not take, and the link stays up. ref is that frame's seq. Codes are in errorCodes; there is no message text."
+      "optional": ["ref", "serverTime"],
+      "description": "A frame the host could not take, and the link stays up. ref is that frame's seq. Codes are in errorCodes; there is no message text. serverTime is protocol 2's (next.errorCodes clock_ahead): with clock_ahead, the time the rows were compared with, in microseconds, real time when the server trusts its own clock (as the HTTPS clock_ahead answer); protocol 1 never sends it."
     }
   },
   "errorCodes": {
@@ -569,15 +569,16 @@
         "from": "server",
         "delivery": "reliable",
         "required": ["grant"],
+        "optional": ["stopAfter"],
         "idempotency": "id is the grant's epoch as text.",
-        "description": "To the new holder: grant is {epoch, holder, issued, how, through?} as the log rules write it (log.fold reads the history). The holder catches up to through, then thinks."
+        "description": "To the new holder: grant is {epoch, holder, issued, how, through?} as the log rules write it (log.fold reads the history). The holder catches up to through, then thinks. stopAfter is the server's stop time in microseconds (lease.here's stopAfter): how long the holder, cut off from the server and with the owner gone from its 现场, keeps thinking before it stops by itself. The server takes over by the same value, so the holder runs lease.here with it; absent means three minutes."
       },
       "lease.epoch": {
         "from": "server",
         "delivery": "latest",
         "required": ["epoch", "holder", "how"],
-        "optional": ["holderName"],
-        "description": "To every device: where her mind is now. A core that held an older epoch stops at once and becomes a child. Devices show where she is from it."
+        "optional": ["holderName", "stopAfter"],
+        "description": "To every device: where her mind is now. A core that held an older epoch stops at once and becomes a child. Devices show where she is from it. stopAfter as in lease.grant, so a holder that missed the grant still stops by the server's value."
       },
       "lease.stopped": {
         "from": "host",

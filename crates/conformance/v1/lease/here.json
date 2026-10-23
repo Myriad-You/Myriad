@@ -129,6 +129,45 @@
       "output": {
         "state": "thinking"
       }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1760000000000000,
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "me": "dev_mac",
+        "now": 1760000120000000,
+        "stopAfter": 60000000
+      },
+      "name": "a one-minute stop time: cut off two minutes, stopped",
+      "output": {
+        "state": "stopped",
+        "stoppedAt": 1760000060000000
+      }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1760000000000000,
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "me": "dev_mac",
+        "now": 1760000120000000,
+        "stopAfter": 600000000
+      },
+      "name": "a ten-minute stop time: cut off two minutes, still thinking",
+      "output": {
+        "state": "thinking"
+      }
     }
   ],
   "version": 1

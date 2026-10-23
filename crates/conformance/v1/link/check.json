@@ -1083,6 +1083,35 @@
           "code": "bad_sealed"
         }
       }
+    },
+    {
+      "input": {
+        "frame": {
+          "ack": 15,
+          "at": 1760140800220,
+          "body": {
+            "code": "clock_ahead",
+            "ref": 15,
+            "serverTime": 1760140800220000
+          },
+          "seq": 23,
+          "t": "error",
+          "v": 1
+        },
+        "roles": [
+          "server",
+          "host"
+        ]
+      },
+      "name": "clock_ahead carries the server's time",
+      "output": {
+        "accepted": {
+          "canonical": "{\"ack\":15,\"at\":1760140800220,\"body\":{\"code\":\"clock_ahead\",\"ref\":15,\"serverTime\":1760140800220000},\"seq\":23,\"t\":\"error\",\"v\":1}",
+          "delivery": "control",
+          "family": null,
+          "t": "error"
+        }
+      }
     }
   ],
   "version": 1

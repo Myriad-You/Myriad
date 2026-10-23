@@ -14,7 +14,12 @@
 //!    think at once (the old holder still running, offline); its rows from
 //!    after the move are folded in and marked ([`standing`]).
 //!
-//! The times are first values, to be tuned once she is used for real.
+//! The times are first values, to be tuned once she is used for real. The
+//! one the owner notices, how long a holder out of reach with the owner gone
+//! keeps thinking, is the server's setting ([`MoveInput::stop_after`]): the
+//! server decides takeovers with it and gives the same value to every holder
+//! with the lease, which stops by it ([`HereInput::stop_after`]). Three
+//! minutes when nothing says otherwise.
 
 use std::cmp::Ordering;
 
@@ -35,6 +40,26 @@ pub const SELF_STOP_MICROS: i64 = 3 * 60 * 1_000_000;
 /// How old the owner's position may be and still prove where they are:
 /// three minutes. Older, they may have come back.
 pub const OWNER_PLACE_FRESH_MICROS: i64 = 3 * 60 * 1_000_000;
+/// The shortest a configured stop time may be: a minute. Shorter, a holder
+/// would stop while the owner only looked away.
+pub const MIN_STOP_AFTER_MICROS: i64 = 60 * 1_000_000;
+/// The longest: a day.
+pub const MAX_STOP_AFTER_MICROS: i64 = 24 * 60 * 60 * 1_000_000;
+
+/// The stop time to use: `configured`, or three minutes when absent. One
+/// value for both waits ([`UNREACHABLE_MICROS`], [`SELF_STOP_MICROS`]), so
+/// the server never takes over sooner than a holder stops.
+pub fn stop_after(configured: Option<i64>) -> Result<i64, LogError> {
+    let Some(micros) = configured else {
+        return Ok(SELF_STOP_MICROS);
+    };
+    if !(MIN_STOP_AFTER_MICROS..=MAX_STOP_AFTER_MICROS).contains(&micros) {
+        return Err(LogError::new(format!(
+            "stopAfter must be {MIN_STOP_AFTER_MICROS} to {MAX_STOP_AFTER_MICROS} microseconds"
+        )));
+    }
+    Ok(micros)
+}
 
 /// How a grant came about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +171,11 @@ pub struct MoveInput {
     pub holder_place: Option<String>,
     #[serde(default)]
     pub owner_place: Option<OwnerPlace>,
+    /// How long the holder must be out of reach, and the owner away from
+    /// it, before it has stopped by itself: the server's setting, the value
+    /// it gives the holders. Three minutes when absent ([`stop_after`]).
+    #[serde(default)]
+    pub stop_after: Option<i64>,
 }
 
 /// Why a move was refused.
@@ -189,8 +219,10 @@ pub fn decide(input: MoveInput) -> Result<Moved, LogError> {
         holder_last_seen,
         holder_place,
         owner_place,
+        stop_after: configured,
     } = input;
     lease.check()?;
+    let stop = stop_after(configured)?;
     if issued <= lease.issued {
         return Err(LogError::new(
             "a new grant is issued after the one standing",
@@ -237,7 +269,7 @@ pub fn decide(input: MoveInput) -> Result<Moved, LogError> {
             }
             let last_seen =
                 holder_last_seen.ok_or_else(|| LogError::new("a takeover needs holderLastSeen"))?;
-            if now - last_seen < UNREACHABLE_MICROS {
+            if now - last_seen < stop {
                 return refused(Refusal::HolderRecent);
             }
             let Some(holder_place) = holder_place else {
@@ -253,11 +285,11 @@ pub fn decide(input: MoveInput) -> Result<Moved, LogError> {
                 return refused(Refusal::OwnerPlaceStale);
             }
             // The holder stops by itself once it has been cut off and had
-            // no owner in front of it for SELF_STOP_MICROS. The owner was
-            // not in front of it from `since` on, and it was cut off from
+            // no owner in front of it for the stop time. The owner was not
+            // in front of it from `since` on, and it was cut off from
             // `last_seen` on: so it has stopped by the later of the two
             // plus that time.
-            if now < last_seen.max(owner.since) + SELF_STOP_MICROS {
+            if now < last_seen.max(owner.since) + stop {
                 return refused(Refusal::OwnerLeftRecently);
             }
             grant(&server, How::Takeover, None)
@@ -282,6 +314,10 @@ pub struct HereInput {
     /// one of the owner's devices reaching it on the local network.
     #[serde(default)]
     pub owner_here_at: Option<i64>,
+    /// The stop time the server gave with the lease; three minutes when
+    /// absent ([`stop_after`]).
+    #[serde(default)]
+    pub stop_after: Option<i64>,
 }
 
 /// What her mind does on this side.
@@ -312,7 +348,7 @@ pub fn here(input: HereInput) -> Result<Here, LogError> {
     let from = input
         .owner_here_at
         .map_or(cut_off, |seen| seen.max(cut_off));
-    let stopped_at = from + SELF_STOP_MICROS;
+    let stopped_at = from + stop_after(input.stop_after)?;
     Ok(if input.now >= stopped_at {
         Here::Stopped { stopped_at }
     } else {
