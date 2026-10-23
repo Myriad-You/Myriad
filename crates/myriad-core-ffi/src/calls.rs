@@ -20,6 +20,7 @@ use crate::Failure;
 mod affect;
 mod archive;
 mod chat;
+mod filter;
 mod group;
 mod link;
 mod log;
@@ -61,6 +62,14 @@ const CALLS: &[(&str, Call)] = &[
     ("diary.compact_summary", memory::compact_summary),
     ("diary.redact", memory::redact),
     ("diary.should_write_chat", memory::should_write_chat_diary),
+    ("filter.check_relay", filter::check_relay),
+    ("filter.decide", filter::decide_call),
+    ("filter.lists", filter::lists),
+    ("filter.scan_identifiers", filter::scan_identifiers),
+    ("filter.scan_secrets", filter::scan_secrets),
+    ("filter.source", filter::source),
+    ("filter.text_hits", filter::text_hits),
+    ("filter.window", filter::window_title),
     ("group.kept_as_heard", group::kept_as_heard),
     ("group.ledger_who", group::ledger_who),
     ("group.merge_ledger", group::merge_ledger),

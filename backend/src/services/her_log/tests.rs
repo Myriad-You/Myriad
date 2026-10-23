@@ -151,6 +151,7 @@ impl Side {
             known: BTreeMap::new(),
             members: BTreeMap::new(),
             ledger: self.ledger.clone(),
+            epochs: BTreeMap::new(),
         });
         assert!(admitted.clock_ahead.is_none());
         assert!(admitted.refused.is_empty(), "{:?}", admitted.refused);

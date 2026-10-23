@@ -1,0 +1,56 @@
+{
+  "note": "宿主规则 sensitive_source／messaging_source／capture_exclusion 在回归样本里用的来源表。全部是虚构的 .example 域名；真正的来源表是上游 shared/ 里按市场维护的数据，这份只给回归样本用。见 docs/HOST-FILTER.md「来源」。",
+  "captureExcluded": [
+    "com.apple.keychainaccess",
+    "com.apple.Passwords",
+    "com.1password.1password",
+    "com.bitwarden.desktop",
+    "org.keepassxc.keepassxc"
+  ],
+  "bundles": {
+    "com.tencent.xinWeChat": "messaging",
+    "jp.naver.line.mac": "messaging",
+    "net.whatsapp.WhatsApp": "messaging",
+    "ru.keepcoder.Telegram": "messaging",
+    "com.tinyspeck.slackmacgap": "messaging",
+    "com.apple.MobileSMS": "messaging",
+    "com.apple.mail": "messaging"
+  },
+  "hosts": {
+    "xinghe-bank.example": "finance",
+    "xinghe-sec.example": "finance",
+    "zhifu-wallet.example": "finance",
+    "geshui.example": "finance",
+    "jiekuan.example": "finance",
+    "hoshikawa-bank.example": "finance",
+    "minato-shoken.example": "finance",
+    "kakeibo-card.example": "finance",
+    "e-tax.example": "finance",
+    "quickloan.example": "finance",
+    "merlion-bank.example": "finance",
+    "harbour-invest.example": "finance",
+    "cpf-portal.example": "finance",
+    "renhe-hospital.example": "health",
+    "kangjian-pharmacy.example": "health",
+    "cycle-note.example": "health",
+    "aoba-clinic.example": "health",
+    "kusuri-techo.example": "health",
+    "telehealth.example": "health",
+    "yuanfen-date.example": "dating",
+    "koimatch.example": "dating",
+    "spark-date.example": "dating",
+    "zhaopin-job.example": "job",
+    "tenshoku.example": "job",
+    "careerjump.example": "job",
+    "falv-wenda.example": "legal",
+    "rikon-soudan.example": "legal",
+    "divorce-help.example": "legal"
+  },
+  "kinds": {
+    "finance": "finance",
+    "health": "health",
+    "dating": "private_browsing",
+    "job": "private_browsing",
+    "legal": "private_browsing"
+  }
+}
