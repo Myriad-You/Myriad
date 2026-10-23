@@ -1,0 +1,31 @@
+{
+  "call": "log.clock_observe",
+  "cases": [
+    {
+      "input": {
+        "node": "dev_mac",
+        "now": 1760000000000000,
+        "offset": 0,
+        "seen": "001760000540000-000004-site"
+      },
+      "name": "a row from the future moves the clock only to the ceiling",
+      "output": {
+        "last": "001760000300000-000000-dev_mac"
+      }
+    },
+    {
+      "input": {
+        "last": "001760000000000-000000-dev_mac",
+        "node": "dev_mac",
+        "now": 1760000000000000,
+        "offset": 0,
+        "seen": "001760000060000-000004-site"
+      },
+      "name": "a row within the limit is passed",
+      "output": {
+        "last": "001760000060000-000005-dev_mac"
+      }
+    }
+  ],
+  "version": 1
+}

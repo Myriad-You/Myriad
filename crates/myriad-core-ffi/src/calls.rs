@@ -21,6 +21,8 @@ mod affect;
 mod archive;
 mod chat;
 mod group;
+mod link;
+mod log;
 mod memory;
 mod outfit;
 mod own;
@@ -64,9 +66,25 @@ const CALLS: &[(&str, Call)] = &[
     ("group.merge_ledger", group::merge_ledger),
     ("group.offer", group::offer),
     ("group.step", group::step),
+    ("lease.here", log::lease_here),
+    ("lease.move", log::lease_move),
+    ("lease.newer", log::lease_newer),
     ("library.csv_records", serial::csv_records),
     ("library.from_aozora", serial::from_aozora),
     ("library.from_gutenberg", serial::from_gutenberg),
+    ("link.check", link::check_frame),
+    ("link.encode", link::encode),
+    ("log.admit", log::admit),
+    ("log.answer", log::send),
+    ("log.canonical", log::canonical),
+    ("log.clock_next", log::clock_next),
+    ("log.clock_observe", log::clock_observe),
+    ("log.clock_offset", log::clock_offset),
+    ("log.clock_repair", log::clock_repair),
+    ("log.fold", log::fold),
+    ("log.holdings", log::holdings),
+    ("log.merge", log::merge),
+    ("log.missing", log::missing),
     ("making.how_it_went", soup::how_it_went),
     ("making.kept_line", soup::kept_line),
     ("making.make_input", soup::make_input),

@@ -1,6 +1,7 @@
 //! The shared core: Myriad's pure persona rules (`myriad-merope`,
-//! `myriad-agent-rules`) behind one C entry point, so that another platform
-//! (the native app) runs the same code as the site instead of a copy of it.
+//! `myriad-agent-rules`, her data and log, her link's frames) behind one C
+//! entry point, so that another platform (the native app) runs the same
+//! code as the site instead of a copy of it.
 //!
 //! The ABI is two symbols. [`myriad_core_call`] takes a call name and a JSON
 //! object and returns JSON in a buffer the caller owns; [`myriad_core_buf_free`]

@@ -1,0 +1,56 @@
+{
+  "call": "log.clock_next",
+  "cases": [
+    {
+      "input": {
+        "node": "dev_mac",
+        "now": 1760004620000000,
+        "offset": -4620000000
+      },
+      "name": "a fast clock stamps corrected time",
+      "output": {
+        "poisoned": false,
+        "rev": "001760000000000-000000-dev_mac"
+      }
+    },
+    {
+      "input": {
+        "last": "001760000000000-000003-dev_mac",
+        "node": "dev_mac",
+        "now": 1760000000000000,
+        "offset": 0
+      },
+      "name": "within the millisecond, the counter moves",
+      "output": {
+        "poisoned": false,
+        "rev": "001760000000000-000004-dev_mac"
+      }
+    },
+    {
+      "input": {
+        "last": "001760004620000-000005-dev_mac",
+        "node": "dev_mac",
+        "now": 1760000000000000,
+        "offset": 0
+      },
+      "name": "a poisoned clock stays where it is until repaired",
+      "output": {
+        "poisoned": true,
+        "rev": "001760004620000-000006-dev_mac"
+      }
+    },
+    {
+      "input": {
+        "last": "001760000300000-999999-dev_mac",
+        "node": "dev_mac",
+        "now": 1760000000000000,
+        "offset": 0
+      },
+      "name": "refused: a full counter at the ceiling",
+      "output": {
+        "error": "bad_input"
+      }
+    }
+  ],
+  "version": 1
+}

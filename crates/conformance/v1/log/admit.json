@@ -1,0 +1,326 @@
+{
+  "call": "log.admit",
+  "cases": [
+    {
+      "input": {
+        "now": 1760000000000000,
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "c-1",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:c-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000360000-000000-dev_mac",
+            "id": "c-2",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:c-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "a clock six minutes ahead refuses the whole batch",
+      "output": {
+        "accepted": [],
+        "clockAhead": {
+          "aheadMs": 360000,
+          "maxAheadMs": 300000
+        },
+        "ledger": []
+      }
+    },
+    {
+      "input": {
+        "known": {
+          "memory:g-1": "group:g7",
+          "node:a": "personal:o1"
+        },
+        "ledger": [
+          {
+            "at": "001759999999000-000000-site",
+            "audience": "personal:o1",
+            "target": "memory:m-old"
+          }
+        ],
+        "members": {
+          "group:g7": [
+            "p-1",
+            "p-2"
+          ]
+        },
+        "now": 1760000060000000,
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "d-1",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:d-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "epoch": 1,
+            "hlc": "001760000000011-000000-dev_mac",
+            "id": "d-2",
+            "kind": "node.observed",
+            "object": "node:screen",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:d-2"
+            },
+            "replicate": "local",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000012-000000-dev_mac",
+            "id": "d-3",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:d-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "group:g7",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000013-000000-site",
+            "id": "d-4",
+            "kind": "memory.write",
+            "object": "memory:g-2",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:d-4"
+            },
+            "replicate": "shared",
+            "subject": "p-outsider",
+            "version": 1
+          },
+          {
+            "audience": "group:g7",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000014-000000-site",
+            "id": "d-5",
+            "kind": "memory.write",
+            "object": "memory:g-3",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:d-5"
+            },
+            "replicate": "shared",
+            "subject": "p-1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000015-000000-dev_mac",
+            "id": "d-6",
+            "kind": "node.whispered",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:d-6"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 4,
+            "hlc": "001760000000016-000000-dev_mac",
+            "id": "d-7",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:d-7"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 1,
+            "hlc": "001760000000017-000000-dev_win",
+            "id": "d-8",
+            "kind": "forget",
+            "object": "memory:m-1",
+            "origin": "dev_win",
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 5,
+            "hlc": "001760000000018-000000-dev_mac",
+            "id": "d-9",
+            "kind": "memory.write",
+            "object": "memory:m-old",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:d-9"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "each row on its own",
+      "output": {
+        "accepted": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "d-1",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:d-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "group:g7",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000014-000000-site",
+            "id": "d-5",
+            "kind": "memory.write",
+            "object": "memory:g-3",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:d-5"
+            },
+            "replicate": "shared",
+            "subject": "p-1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 4,
+            "forgotten": true,
+            "hlc": "001760000000016-000000-dev_mac",
+            "id": "d-7",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 1,
+            "hlc": "001760000000017-000000-dev_win",
+            "id": "d-8",
+            "kind": "forget",
+            "object": "memory:m-1",
+            "origin": "dev_win",
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 5,
+            "forgotten": true,
+            "hlc": "001760000000018-000000-dev_mac",
+            "id": "d-9",
+            "kind": "memory.write",
+            "object": "memory:m-old",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "version": 1
+          }
+        ],
+        "ledger": [
+          {
+            "at": "001760000000017-000000-dev_win",
+            "audience": "personal:o1",
+            "target": "memory:m-1"
+          },
+          {
+            "at": "001759999999000-000000-site",
+            "audience": "personal:o1",
+            "target": "memory:m-old"
+          }
+        ],
+        "refused": [
+          {
+            "id": "d-2",
+            "reason": "local"
+          },
+          {
+            "id": "d-3",
+            "reason": "audience_changed"
+          },
+          {
+            "id": "d-4",
+            "reason": "not_a_member"
+          },
+          {
+            "detail": "kind \"node.whispered\" is not one the log holds",
+            "id": "d-6",
+            "reason": "envelope"
+          }
+        ]
+      }
+    }
+  ],
+  "version": 1
+}

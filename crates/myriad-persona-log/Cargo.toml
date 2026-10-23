@@ -1,0 +1,20 @@
+[package]
+name = "myriad-persona-log"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Her log across host cores: the row envelope and its canonical bytes, version vectors, union-merge, forgetting, the fold and the lease rules."
+authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
+
+# Pure: no I/O, no clock, no randomness. Ids, revisions and times come from
+# the caller. The site links it directly and the shared core
+# (`myriad-core-ffi`) links it for every other platform, so every host core
+# folds the same log into the same her.
+#
+# The snapshot sync and first-meeting merge stay in `myriad-persona-sync`;
+# this crate only takes its clock (`hlc`) and its canonical bytes from there.
+[dependencies]
+myriad-persona-sync = { path = "../myriad-persona-sync" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }

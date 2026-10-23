@@ -1,0 +1,160 @@
+{
+  "call": "log.holdings",
+  "cases": [
+    {
+      "input": {
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "h-1",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:h-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000001-000000-dev_mac",
+            "id": "h-2",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:h-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000002-000000-dev_mac",
+            "id": "h-3",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:h-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 1,
+            "hlc": "001760000000003-000000-dev_win",
+            "id": "h-4",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:h-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "hlc": "001760000000005-000000-dev_win",
+            "id": "h-5",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:h-5"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 4,
+            "hlc": "001760000000006-000000-dev_win",
+            "id": "h-6",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:h-6"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "epoch": 1,
+            "hlc": "001760000000007-000000-dev_mac",
+            "id": "h-7",
+            "kind": "node.observed",
+            "object": "node:screen",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:h-7"
+            },
+            "replicate": "local",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000008-000000-site",
+            "id": "h-8",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:h-8"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "a gap holds the rest back; local rows hold no place",
+      "output": {
+        "beyond": {
+          "dev_win": [
+            3,
+            4
+          ],
+          "site": [
+            2
+          ]
+        },
+        "vector": {
+          "dev_mac": 3,
+          "dev_win": 1
+        }
+      }
+    },
+    {
+      "input": {
+        "rows": []
+      },
+      "name": "nothing held",
+      "output": {
+        "vector": {}
+      }
+    }
+  ],
+  "version": 1
+}

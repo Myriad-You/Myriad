@@ -1,0 +1,1084 @@
+{
+  "call": "log.fold",
+  "cases": [
+    {
+      "input": {
+        "leases": [
+          {
+            "epoch": 1,
+            "holder": "dev_mac",
+            "how": "first",
+            "issued": "001759999999900-000000-site"
+          },
+          {
+            "epoch": 2,
+            "holder": "site",
+            "how": "handover",
+            "issued": "001760000000025-000000-site",
+            "through": 12
+          }
+        ],
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "n-1",
+            "kind": "node.created",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:n-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "n-2",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:n-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000020-000000-dev_mac",
+            "id": "n-3",
+            "kind": "node.talked",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:n-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 2,
+            "hlc": "001760000000030-000000-site",
+            "id": "n-4",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:n-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 4,
+            "epoch": 1,
+            "hlc": "001760000000011-000000-dev_mac",
+            "id": "l-1",
+            "kind": "link.attach",
+            "object": "segment:s-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:l-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 1,
+            "hlc": "001760000000025-000000-dev_win",
+            "id": "l-2",
+            "kind": "link.attach",
+            "object": "segment:s-1",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:l-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 5,
+            "epoch": 1,
+            "hlc": "001760000000001-000000-dev_mac",
+            "id": "s-1",
+            "kind": "segment.open",
+            "object": "segment:s-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 6,
+            "hlc": "001760000000002-000000-dev_mac",
+            "id": "s-2",
+            "kind": "segment.line",
+            "object": "segment:s-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 7,
+            "epoch": 1,
+            "hlc": "001760000000003-000000-dev_mac",
+            "id": "s-3",
+            "kind": "segment.line",
+            "object": "segment:s-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 8,
+            "epoch": 1,
+            "hlc": "001760000000004-000000-dev_mac",
+            "id": "s-4",
+            "kind": "segment.close",
+            "object": "segment:s-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 9,
+            "epoch": 1,
+            "hlc": "001760000000005-000000-dev_mac",
+            "id": "m-1",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:m-1"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 2,
+            "hlc": "001760000000040-000000-site",
+            "id": "m-2",
+            "kind": "memory.retire",
+            "object": "memory:m-1",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:m-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 2,
+            "hlc": "001760000000050-000000-dev_win",
+            "id": "m-3",
+            "kind": "memory.restore",
+            "object": "memory:m-1",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:m-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "hlc": "001760000000006-000000-dev_win",
+            "id": "p-1",
+            "kind": "persona.field",
+            "object": "persona:zone",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:p-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "hlc": "001760000000007-000000-site",
+            "id": "p-2",
+            "kind": "persona.field",
+            "object": "persona:zone",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:p-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 4,
+            "epoch": 2,
+            "hlc": "001760000000045-000000-site",
+            "id": "v-1",
+            "kind": "memory.write",
+            "object": "memory:own-1",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:v-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 10,
+            "epoch": 1,
+            "hlc": "001760000000021-000000-dev_mac",
+            "id": "c-1",
+            "kind": "case.disagreed",
+            "object": "case:k-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:c-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 11,
+            "hlc": "001760000000022-000000-dev_mac",
+            "id": "c-2",
+            "kind": "case.persuaded",
+            "object": "case:k-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:c-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 12,
+            "epoch": 1,
+            "hlc": "001760000000023-000000-dev_mac",
+            "id": "a-1",
+            "kind": "affect.change",
+            "object": "affect:o1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:a-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "a day: events stay, changes take the latest, retire then restore",
+      "output": {
+        "objects": [
+          {
+            "audience": "own:",
+            "object": "memory:own-1",
+            "rows": [
+              "v-1"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "object": "affect:o1",
+            "rows": [
+              "a-1"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "object": "case:k-1",
+            "rows": [
+              "c-1",
+              "c-2"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "object": "memory:m-1",
+            "retired": false,
+            "rows": [
+              "m-1",
+              "m-2",
+              "m-3"
+            ],
+            "subject": "o1"
+          },
+          {
+            "audience": "personal:o1",
+            "current": {
+              "node.view_changed": "n-4"
+            },
+            "history": {
+              "node.view_changed": [
+                "n-2"
+              ]
+            },
+            "object": "node:lamp",
+            "rows": [
+              "n-1",
+              "n-2",
+              "n-3",
+              "n-4"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "current": {
+              "persona.field": "p-2"
+            },
+            "history": {
+              "persona.field": [
+                "p-1"
+              ]
+            },
+            "object": "persona:zone",
+            "rows": [
+              "p-1",
+              "p-2"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "current": {
+              "link.attach": "l-2"
+            },
+            "history": {
+              "link.attach": [
+                "l-1"
+              ]
+            },
+            "object": "segment:s-1",
+            "rows": [
+              "s-1",
+              "s-2",
+              "s-3",
+              "s-4",
+              "l-1",
+              "l-2"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000100-000000-dev_mac",
+            "id": "f-n1",
+            "kind": "node.created",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:f-n1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000300-000000-dev_mac",
+            "id": "f-n2",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:f-n2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 1,
+            "hlc": "001760000000200-000000-dev_win",
+            "id": "f-f1",
+            "kind": "forget",
+            "object": "node:lamp",
+            "origin": "dev_win",
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 3,
+            "hlc": "001760000000400-000000-dev_mac",
+            "id": "f-m1",
+            "kind": "memory.write",
+            "object": "memory:m-5",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:f-m1"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 1,
+            "hlc": "001760000000050-000000-site",
+            "id": "f-f2",
+            "kind": "forget",
+            "object": "subject:o1",
+            "origin": "site",
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 4,
+            "epoch": 1,
+            "hlc": "001760000000500-000000-dev_mac",
+            "id": "f-k1",
+            "kind": "node.created",
+            "object": "node:kept",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:f-k1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "forgotten": true,
+            "hlc": "001760000000300-000000-dev_mac",
+            "id": "f-n2",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "forgetting absorbs whatever came before or after",
+      "output": {
+        "objects": [
+          {
+            "audience": "personal:o1",
+            "forgotten": true,
+            "object": "memory:m-5"
+          },
+          {
+            "audience": "personal:o1",
+            "object": "node:kept",
+            "rows": [
+              "f-k1"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "forgotten": true,
+            "object": "node:lamp"
+          },
+          {
+            "audience": "personal:o1",
+            "forgotten": true,
+            "object": "subject:o1"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "leases": [
+          {
+            "epoch": 1,
+            "holder": "dev_mac",
+            "how": "first",
+            "issued": "001759999999900-000000-site"
+          },
+          {
+            "epoch": 2,
+            "holder": "dev_win",
+            "how": "force",
+            "issued": "001760000000200-000000-site"
+          }
+        ],
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "g-1",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000150-000000-dev_mac",
+            "id": "g-2",
+            "kind": "node.talked",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000300-000000-dev_mac",
+            "id": "g-3",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 2,
+            "hlc": "001760000000250-000000-dev_win",
+            "id": "g-4",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:g-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 4,
+            "epoch": 1,
+            "hlc": "001760000000320-000000-dev_mac",
+            "id": "g-5",
+            "kind": "segment.open",
+            "object": "segment:s-9",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-5"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 2,
+            "hlc": "001760000000310-000000-dev_win",
+            "id": "g-6",
+            "kind": "segment.open",
+            "object": "segment:s-10",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:g-6"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 5,
+            "hlc": "001760000000330-000000-dev_mac",
+            "id": "g-7",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-7"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "the owner forced a move while the old holder kept running",
+      "output": {
+        "objects": [
+          {
+            "audience": "personal:o1",
+            "concurrent": true,
+            "current": {
+              "node.view_changed": "g-3"
+            },
+            "history": {
+              "node.view_changed": [
+                "g-1",
+                "g-4"
+              ]
+            },
+            "object": "node:lamp",
+            "rows": [
+              "g-1",
+              "g-2",
+              "g-4",
+              "g-3",
+              "g-7"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "object": "segment:s-10",
+            "rows": [
+              "g-6"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "concurrent": true,
+            "object": "segment:s-9",
+            "rows": [
+              "g-5"
+            ]
+          }
+        ],
+        "standing": [
+          {
+            "epoch": 1,
+            "id": "g-3",
+            "origin": "dev_mac",
+            "standing": "concurrent",
+            "with": 2
+          },
+          {
+            "epoch": 1,
+            "id": "g-5",
+            "origin": "dev_mac",
+            "standing": "concurrent",
+            "with": 2
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "leases": [
+          {
+            "epoch": 1,
+            "holder": "dev_mac",
+            "how": "first",
+            "issued": "001759999999900-000000-site"
+          },
+          {
+            "epoch": 2,
+            "holder": "site",
+            "how": "takeover",
+            "issued": "001760000000200-000000-site"
+          }
+        ],
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "g-1",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000150-000000-dev_mac",
+            "id": "g-2",
+            "kind": "node.talked",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000300-000000-dev_mac",
+            "id": "g-3",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 11,
+            "epoch": 2,
+            "hlc": "001760000000250-000000-site",
+            "id": "g-4",
+            "kind": "node.view_changed",
+            "object": "node:lamp",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:g-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 4,
+            "epoch": 1,
+            "hlc": "001760000000320-000000-dev_mac",
+            "id": "g-5",
+            "kind": "segment.open",
+            "object": "segment:s-9",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-5"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 12,
+            "epoch": 2,
+            "hlc": "001760000000310-000000-site",
+            "id": "g-6",
+            "kind": "segment.open",
+            "object": "segment:s-10",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:g-6"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 5,
+            "hlc": "001760000000330-000000-dev_mac",
+            "id": "g-7",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:g-7"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "rows that arrive late after a takeover are her own memory catching up",
+      "output": {
+        "objects": [
+          {
+            "audience": "personal:o1",
+            "current": {
+              "node.view_changed": "g-3"
+            },
+            "history": {
+              "node.view_changed": [
+                "g-1",
+                "g-4"
+              ]
+            },
+            "object": "node:lamp",
+            "rows": [
+              "g-1",
+              "g-2",
+              "g-4",
+              "g-3",
+              "g-7"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "object": "segment:s-10",
+            "rows": [
+              "g-6"
+            ]
+          },
+          {
+            "audience": "personal:o1",
+            "object": "segment:s-9",
+            "rows": [
+              "g-5"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "leases": [
+          {
+            "epoch": 1,
+            "holder": "dev_mac",
+            "how": "first",
+            "issued": "001759999999900-000000-site"
+          },
+          {
+            "epoch": 2,
+            "holder": "site",
+            "how": "handover",
+            "issued": "001760000000005-000000-site",
+            "through": 3
+          }
+        ],
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "h-1",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:h-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 4,
+            "epoch": 1,
+            "hlc": "001760000000010-000000-dev_mac",
+            "id": "h-2",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:h-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000020-000000-dev_win",
+            "id": "h-3",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_win",
+            "payload": {
+              "ref": "blob:h-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 2,
+            "hlc": "001760000000030-000000-site",
+            "id": "h-4",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:h-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 9,
+            "hlc": "001760000000040-000000-site",
+            "id": "h-5",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "site",
+            "payload": {
+              "ref": "blob:h-5"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "a lease bug shows: not the holder, or after the handover",
+      "output": {
+        "objects": [
+          {
+            "audience": "personal:o1",
+            "object": "node:lamp",
+            "rows": [
+              "h-1",
+              "h-2",
+              "h-3",
+              "h-4",
+              "h-5"
+            ]
+          }
+        ],
+        "standing": [
+          {
+            "epoch": 1,
+            "id": "h-2",
+            "origin": "dev_mac",
+            "standing": "after_handover"
+          },
+          {
+            "epoch": 1,
+            "id": "h-3",
+            "origin": "dev_win",
+            "standing": "not_holder"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "i-1",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:i-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "i-1",
+            "kind": "node.noted",
+            "object": "node:b",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:i-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "refused: one id, two rows",
+      "output": {
+        "error": "bad_input"
+      }
+    }
+  ],
+  "version": 1
+}

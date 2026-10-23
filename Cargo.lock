@@ -3131,7 +3131,9 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "myriad-agent-rules",
+ "myriad-her-link",
  "myriad-merope",
+ "myriad-persona-log",
  "myriad-persona-sync",
  "serde",
  "serde_json",
@@ -3157,6 +3159,16 @@ name = "myriad-error"
 version = "0.1.0"
 dependencies = [
  "http",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "myriad-her-link"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "myriad-persona-sync",
  "serde",
  "serde_json",
 ]
@@ -3236,6 +3248,15 @@ dependencies = [
  "reqwest",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "myriad-persona-log"
+version = "0.1.0"
+dependencies = [
+ "myriad-persona-sync",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

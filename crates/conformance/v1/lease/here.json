@@ -1,0 +1,135 @@
+{
+  "call": "lease.here",
+  "cases": [
+    {
+      "input": {
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "me": "dev_mac",
+        "now": 1760000000000000
+      },
+      "name": "the holder in reach thinks",
+      "output": {
+        "state": "thinking"
+      }
+    },
+    {
+      "input": {
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "me": "dev_win",
+        "now": 1760000000000000
+      },
+      "name": "another side holds it: a child",
+      "output": {
+        "state": "child"
+      }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1760000000000000,
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "me": "dev_mac",
+        "now": 1760000180000000,
+        "ownerHereAt": 1759999400000000
+      },
+      "name": "cut off, owner gone three minutes: stopped",
+      "output": {
+        "state": "stopped",
+        "stoppedAt": 1760000180000000
+      }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1760000000000000,
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "me": "dev_mac",
+        "now": 1760000120000000
+      },
+      "name": "cut off two minutes: still thinking",
+      "output": {
+        "state": "thinking"
+      }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1760000000000000,
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "me": "dev_mac",
+        "now": 1760003600000000,
+        "ownerHereAt": 1760003540000000
+      },
+      "name": "cut off an hour, owner at the Mac a minute ago: thinking",
+      "output": {
+        "state": "thinking"
+      }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1760000000000000,
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "me": "dev_mac",
+        "now": 1760003600000000,
+        "ownerHereAt": 1760003000000000
+      },
+      "name": "cut off an hour, owner left ten minutes ago: stopped",
+      "output": {
+        "state": "stopped",
+        "stoppedAt": 1760003180000000
+      }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1759964000000000,
+        "lease": {
+          "epoch": 1,
+          "holder": "loc_1f0c",
+          "how": "first",
+          "issued": "001760000000000-000000-loc_1f0c"
+        },
+        "me": "loc_1f0c",
+        "now": 1760000000000000,
+        "ownerHereAt": 1760000000000000
+      },
+      "name": "an app that never met the server holds its own first grant",
+      "output": {
+        "state": "thinking"
+      }
+    }
+  ],
+  "version": 1
+}

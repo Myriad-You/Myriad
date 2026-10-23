@@ -6,7 +6,7 @@
 
 ## 边界
 
-- **只收纯 crate。** 现在是 `myriad-merope` 和它依赖的 `myriad-agent-rules`，以及同步她的数据用的 `myriad-persona-sync`（格式、规范字节、时钟、比对）。不引入 tokio、reqwest、sea-orm，也不读写文件或网络。
+- **只收纯 crate。** 现在是 `myriad-merope` 和它依赖的 `myriad-agent-rules`，以及同步她的数据用的 `myriad-persona-sync`（格式、规范字节、时钟、比对）和多端的日志规则 `myriad-persona-log`（信封、版本向量、合并、遗忘、折叠、执笔权、时钟），以及「她的连接」帧的规则 `myriad-her-link`。不引入 tokio、reqwest、sea-orm，也不读写文件或网络。
 - **每个调用都是输入的纯函数。** 现在几点、她的时区、心情这些状态都在输入里；库不读进程的时钟、时区和环境。crate 里的规则因此不用 `chrono::Local`：她的时区由调用方传入，后端传 `merope::clock::zone()`，现在就是进程时区（容器里 `TZ=Asia/Shanghai`）。
 - **一个二进制里只能有一个 Rust 静态库。** 两个 Rust staticlib 会在 std 符号上冲突。别的平台将来要用的纯 crate，都并进这一个库，不另建。
 - **密钥不进来。** 规则拿不到任何宿主密钥或凭据，错误信息里也没有。
@@ -85,11 +85,81 @@ void myriad_core_buf_free(MyriadCoreBuf buf);
 - **时钟超前。** 站点不收超前它 5 分钟以上的 `rev`，回 409 `clock_ahead`（带 `serverTime`、`aheadMs`、`maxAheadMs`）。设备的请求头 `X-Sync-Clock` 带「下一次写会拿到的 rev」（`sync.hlc_next` 算出、不落盘），`hello` 与 `role` 必带；以后的 push 里每个实体和每个人设字段的 `rev` 都按同一规则查，有一个超前就整批不收，什么都不写、也不吸收进站点的时钟。设备收到 `clock_ahead`：停止同步并告诉用户时钟不对，outbox 留着（暂存）；时钟改对后，把时钟退回到最近一次从站点看到的 rev，按 outbox 顺序用 `sync.hlc_next` 给每条待推的写重新打 rev，再推。推之前可以用 `sync.check_rev` 按 `hello` 给的 `serverTime` 加上经过的时间自查。
 - **站点自己的时钟。** 站点量自己的时钟偏了多少（启动时和之后每 15 分钟；SNTP，UDP 123 不通时用 HTTPS 的 `Date`），`hello`、`clock_ahead` 和站长的设备列表都带 `serverClock`：`{checkedAt, offsetMs, source, trusted, thresholdMs, wrong, corrected}`，检查关掉或还没跑过时是 `null`。`offsetMs` 是站点的时钟减去真实时间（毫秒，负数是站点慢），什么都没答上时为 `null`（无法检查，不算偏差）；`checkedAt` 是站点自己的时钟、自 epoch 的毫秒；`source` 是 `sntp`、`https` 或 `null`；`trusted` 是 HTTPS（证书验过）或至少两个 SNTP 服务器相差不到 1 秒；`wrong` 是偏差超过 `thresholdMs`；`corrected` 是站点现在拿这次测量把设备的时钟和真实时间比（可信、不超过 45 分钟、偏差不超过 3 小时）。`corrected` 时，上面的超前检查、`hello` 和 `clock_ahead` 的 `serverTime` 都是真实时间（本机时间减去 `offsetMs`），否则照旧是本机时间；`serverTimeSource` 说是哪一种：`clock`（本机）、`sntp` 或 `https`。站点别处都仍用本机时间，上限 5 分钟不变，真超前的设备照样被拒。设备据此分清是哪一端不准：`wrong` 而且没有 `corrected` 时是站点的时钟不对，设备不要去改自己的。
 
+## 她的日志（`log.*`、`lease.*`）
+
+多端的做法：每个主机核心（每一台电脑、服务端）各存一份她的只追加日志，任何时刻只有一个她在想。各端交换版本向量、互发对方缺的行，收到的先检查、再取并集；她现在是什么样，由同一套规则从日志折叠出来。规则全在 `crates/myriad-persona-log`。它只用 `myriad-persona-sync` 的时钟（`hlc`）和规范字节，不并进那个 crate：快照同步和第一次见面的合并是另一套模型，以后只留给第一次见面，分开放，哪天删掉它不牵连日志。
+
+一行的信封（`Row`，规范 JSON，字段名 camelCase）：
+
+| 字段 | 意思 |
+| --- | --- |
+| `version` | 行的格式版本，现在是 1；读得懂更旧的，更新的拒收 |
+| `id` | 全局唯一，去重按它 |
+| `origin` | 写它的那一端，就是时钟的节点名：`site`、`dev_…`、`loc_…` |
+| `author` | `owner`（主人说的、设的、批准和撤回的、让她忘掉的）或 `her`（她的想法、看法、心情、开口、整理） |
+| `epoch` | 只有 `her` 的行有：写的那一端当时持有的执笔权 epoch；`owner` 的行没有 |
+| `dseq` | 只有 `shared` 的行有：这一端第几条共享的行，从 1 起、不跳号 |
+| `hlc` | 写的时候的时钟，节点必须是 `origin` |
+| `audience` | `personal:<主人>`、`own:`、`group:<群>` |
+| `subject` | 关于谁；`own:` 里没有，`personal:` 里只能是其中的人 |
+| `object` | 关于哪个对象：`<类型>:<id>`，例如 `node:…`、`memory:…`、`persona:<字段>` |
+| `kind` | 允许清单里的一种（`kinds.rs`）：不在清单里的拒收，新种类不会悄悄出机 |
+| `payload` | `{ref, key?}`：内容在哪、用哪把钥匙封的。内容本身永远不进信封 |
+| `replicate` | `shared` 或 `local`：`local` 的行不占 `dseq`，永远不编给别的端 |
+| `forgotten` | 桩：载荷没了，位置（`id`、`origin`、`dseq`）还在 |
+
+几条各端要照做的规矩：
+
+- **合并是并集。** 同一个 `id` 只算一次；桩赢过它原来的那一行；同一个 `id` 内容不同、或同一端的同一个 `dseq` 被两行占了，都是格式被写坏了，留下已有的、报 `conflicts`。`log.merge` 的 `stubbed` 是本端变成桩的行：删它们的载荷。
+- **收一批行**（`log.admit`）：有一行的时钟超前本端 5 分钟以上，整批不收、什么都不吸收（`clockAhead`）；其余每行单独判：信封不完整、`local`、对象换了受众、主体不在群里的拒收并计数。对象原来在哪个受众由调用方传 `known`，群成员传 `members`（不传就不查）。账上的对象收成桩，版本向量照样补齐。
+- **忘掉是吸收的。** `forget` 行的 `object` 是被忘掉的对象，或 `subject:<id>`（这个受众里关于这个人的全部）；它自己没有载荷，也永远不会被忘掉。账只有受众、目标和时间（`Entry`），没有一个字的内容。不管 `forget` 排在对象的行之前还是之后、从哪一端先到，被忘掉的对象都折叠成只剩 `forgotten: true`。`log.answer` 永远先发 `forget` 行。
+- **折叠**（`log.fold`）：按 `(hlc, origin, dseq, id)` 排；发生过的事（看到、判断、说了的话、段和段里每一句、判例、记忆写入、心情变化）都留着；会变的值（节点上她的看法 `node.view_changed`、一件事挂在哪 `link.attach`、人设字段、衣服）最后一行是现在的，之前的进 `history`；记忆退役是单向的，除非之后有一次恢复。级联（给一个对象算出要连带删的派生内容）还没有。
+- **执笔权**（`lease.*`）只由服务端发，epoch 只增，只有三种移法：持有者自己交（`handover`，带它最后的 `dseq`）；服务端接（`takeover`）：持有者失联满 3 分钟、主人的位置证明主人在另一个场所（两边的场所都要知道、主人的位置 3 分钟内看到过、而且持有者失联和主人离开都过了 3 分钟）；主人按「让她来这里」（`force`）。`lease.here` 是持有者自己执行的那条：和服务端断开、主人又不在这个场所（本机输入或主人的设备经局域网连上来）满 3 分钟，它自己停下，不再想、不写她的行，只收主人写的、做完手上的事。服务端接管时它一定已经停下，所以不会有两个她；`holderLastSeen` 要算到持有者自己还以为连着的最后一刻（最后一次收到它，加上它判断断线用的心跳超时）。时间都是初值。
+- **时钟不能被一次跑快带偏**（`log.clock_*`）：日志的时钟要存下来、只增不减，所以机器的钟跑快时盖的一行会让之后每一行都超前，服务端拒收超前 5 分钟以上的（`hlc::check_ahead`），这一端就一直同步不了。三条规则：时钟的物理部分用「校正后的时间」，即本机时间加上和服务端量出的偏差（`log.clock_offset`：请求发出、服务端的 `serverTime`、收到回答，取中点），偏差由调用方存着、每次握手和每次 `clock_ahead` 时重量；盖章时物理部分最多到校正后的时间加 5 分钟，再往后只走计数（`log.clock_next`、`log.clock_observe`），已经超出的时钟原地不动、`poisoned` 为真；修复（`log.clock_repair`）只给还没离开这一端的行重新盖章，从第一条超前的开始按日志顺序往后，并给出以后要存的时钟。离开过这一端的行永远不重盖：服务端收了它，它就没有超前。收到 `clock_ahead`（带 `serverTime`）时这一端的顺序是：量偏差，修复没同步的行，存新时钟，再发。
+- **两个她只可能来自 `force`。** 折叠时对照执笔权的历史（`leases`）：旧 epoch 的行写在 `force` 签出之后的，是原来那台还在跑时写的，照样留下，标 `concurrent`，碰到的对象也标；`takeover` 之后迟到的旧行是她自己的记忆补上来，不标；不是那个 epoch 的持有者写的（`not_holder`）、交出以后还写的（`after_handover`）是执笔权的 bug，列在 `standing` 里查。同一个 epoch 出现两次时，先签的算，再按持有者的字节序（`lease.newer`）。
+
+| 调用 | 输入 → 输出 |
+| --- | --- |
+| `lease.here` | `{me, lease, now, disconnectedSince?, ownerHereAt?}` → `{state: "thinking"}`、`{state: "stopped", stoppedAt}` 或 `{state: "child"}`。从没连过服务端的 App 拿自己签的第一份（`how: "first"`） |
+| `lease.move` | `{lease, request, now, issued, holderLastSeen?, holderPlace?, ownerPlace?}` → `{granted: Grant}` 或 `{refused: 理由}`；`request` 是 `{handover: {from, epoch, to, through?}}`、`{takeover: {server}}` 或 `{force: {to}}`；`issued` 是服务端给新一份的 rev，必须晚于现在这份 |
+| `lease.newer` | `{a, b}` → `{newer: "a" \| "b"}` |
+| `log.admit` | `{rows, now, known?, members?, ledger?}` → `{accepted, refused?, clockAhead?, ledger}` |
+| `log.answer` | `{rows, theirs}` → `{rows}`：对方（持有 `theirs`）缺的行，`forget` 在前 |
+| `log.canonical` | `{row}` → `{row, canonical, digest}`；信封不对就是 `bad_input` |
+| `log.clock_next` | `{last?, now, offset, node}` → `{rev, poisoned}`：`now` 是本机时间，`offset` 加上它是服务端的时间 |
+| `log.clock_observe` | `{last?, seen, now, offset, node}` → `{last}`：`seen` 最多把物理部分推到上限 |
+| `log.clock_offset` | `{sent, serverTime, received}` → `{offset, uncertainty}`（微秒） |
+| `log.clock_repair` | `{last, floor?, unsynced: [{id, hlc}], now, offset, node}` → `{last, restamped}`；`floor` 是确知别处收过的最新 rev |
+| `log.fold` | `{rows, leases?}` → `{objects, standing?}`：每个对象的 `rows`、`current`、`history`、`retired`、`concurrent`，或只有 `forgotten` |
+| `log.holdings` | `{rows}` → `{vector, beyond?}`：每一端连续持有到第几条，和跳号之后先到的 |
+| `log.merge` | `{log, incoming}` → `{log, added?, stubbed?, duplicates, conflicts?}`；`log` 可以只给和这批有关的行 |
+| `log.missing` | `{mine, theirs}` → `{missing: [{origin, from, through}]}` |
+
+## 她的连接的帧（`link.*`）
+
+「她的连接」的协议定义是 `shared/her_link_contract.json`。协议 2（契约里的 `next` 块，2026-10-23 定，还没有主机在说，服务端那一侧是 S6）让它成为每台设备唯一保持的连接，加了 `fact`、`hand`、`say`、`lease`、`log`、`peer` 六个帧族，信封多一个 `v`（帧格式版本，1 是规范 JSON 文本）。结构见 [ARCHITECTURE.md](ARCHITECTURE.md)「Her link and her devices」。
+
+`crates/myriad-her-link` 编译时读这份契约，按它判断一帧能不能发、能不能收，规则不会和契约漂移：信封字段、`v`、类型、`seq`／`ack`／`at`、可靠帧必须有 `id` 且符合 `idPattern`、其余帧不能有 `id`、正文的必填和可选字段、`oneOf`（例如 `facts` 和 `sealed` 恰好一个）、`maxItems`、发送方的角色、帧大小，以及密封字段的形状（`{suite, to, keyId, enc, ct}`，套件是契约里的那一个，`enc` 32 字节，`ct` 至少一个标签长）。协议 1 的帧在协议 2 的信封里照旧按它们自己的正文检查。HPKE 的封和开是各端自己的（用各自的钥匙），核心只给 `info`（`myriad-link/2 <t>`）和附加数据（规范 JSON `{from, t, to}`）的写法。
+
+| 调用 | 输入 → 输出 |
+| --- | --- |
+| `link.check` | `{frame, roles?}` → `{accepted: {t, family, delivery, canonical}}` 或 `{refused: {code, detail}}`；`code` 是契约 `next.errorCodes` 里的一个；`roles` 是发送方的角色（`device`、`host`、`mind`、`server`），不给就不查 |
+| `link.encode` | `{frame}` → `{text}`：要发的帧检查过后的规范文本；不通过是 `bad_input` |
+
+## 一致性对照（`crates/conformance/`）
+
+两份运行时（苹果系的 Swift、其余的 Rust）编排同一份核心规则时，可能编排得不一样；这里放两边都要过的对照。目录按版本分，现在是 `v1/`，原生按 `CORE_PIN` 复制进它自己的测试。
+
+- 每个文件是 `{version, call, cases: [{name, input, output}]}`。`input` 和 `output` 就是那个调用经 C 入口进出的 JSON；输入被拒时 `output` 是 `{"error": "bad_input"}`（不比对消息）。比对按规范字节。
+- `log/`：信封、版本向量、收、合并、折叠、时钟；`lease/`：移动、自己停下、epoch 先后；`link/`：帧的检查（`myriad-her-link` 的测试跑它）；`grants/`：授予的检查，规则还不在核心里，现在是 `status: "pending"`、没有用例的占位。
+- `myriad-persona-log` 的测试经 crate 跑，`myriad-core-ffi` 的测试经 C 入口跑。别的平台照样把每个用例交给 `myriad_core_call`。
+- 只随一次写明理由的上游改动改：`MYRIAD_CONFORMANCE_BLESS=1 cargo test -p myriad-persona-log` 重写所有 `output`。不兼容的改动另开 `v2/`，`v1/` 留到没有平台再钉它。
+
 ## 别的平台怎么链接
 
 不从工作区构建：工作区里常有别人还没提交的改动。按一个提交构建：
 
-1. 取这个提交的 `crates/myriad-core-ffi` 与它的全部 path 依赖、`shared/`（`myriad-merope/build.rs` 在编译期读里面的契约）、`Cargo.lock`、`rust-toolchain.toml`，`git archive` 到一个隔离目录。
+1. 取这个提交的 `crates/myriad-core-ffi` 与它的全部 path 依赖（`myriad-persona-log`、`myriad-her-link` 也在其中）、`shared/`（`myriad-merope/build.rs` 和 `myriad-her-link` 在编译期读里面的契约）、`Cargo.lock`、`rust-toolchain.toml`，`git archive` 到一个隔离目录。
 2. 在那里写一个只列这些 crate 的工作区 `Cargo.toml`，沿用根 `Cargo.toml` 的 `[profile.release]`。Cargo 只会从锁文件里去掉没用到的包，用到的每个包都要与上游 `Cargo.lock` 同版本。
 3. 设 `MYRIAD_CORE_UPSTREAM_COMMIT=<提交>`（取归档自己记录的提交号，`git get-tar-commit-id`），`cargo build --release --target <triple> -p myriad-core-ffi`。
 4. 链接 `libmyriad_core_ffi.a` 和头文件；启动或测试时断言 `meta.version` 的 `upstreamCommit` 就是钉住的提交。

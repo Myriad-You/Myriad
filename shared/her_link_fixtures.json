@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "description": "One example of every frame in her_link_contract.json, as it goes over the link. Both ends test against these: the host serializes to them and parses them.",
   "frames": [
     {
@@ -372,5 +372,349 @@
       "t": "error", "seq": 9, "ack": 6, "at": 1760140815030,
       "body": { "code": "unknown_frame", "ref": 6 }
     }
-  ]
+  ],
+  "next": {
+    "protocol": 2,
+    "description": "One example of every protocol-2 frame (contract: next.frames), as it goes over the link; fact.up and log.rows each in clear and sealed. Synthetic keys and ciphertext.",
+    "wake": {
+      "myriad": {
+        "wake": "connect"
+      }
+    },
+    "frames": [
+      {
+        "v": 1,
+        "t": "fact.up",
+        "seq": 1,
+        "ack": 0,
+        "at": 1760140800000,
+        "id": "facts_01",
+        "body": {
+          "facts": [
+            {
+              "source": "place",
+              "kind": "place.here",
+              "at": 1760140800000,
+              "until": 1760141400000,
+              "data": {
+                "label": "at work"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "v": 1,
+        "t": "fact.up",
+        "seq": 2,
+        "ack": 0,
+        "at": 1760140800010,
+        "id": "facts_02",
+        "body": {
+          "sealed": {
+            "suite": "x25519-sha256-chacha20poly1305",
+            "to": "dev_mac",
+            "keyId": "f7639ecdaf467ba6f0b01159af38dba6",
+            "enc": "X7Krdu2b2gNLGSxIxwaTWSUvzNoWjZJazArn0xbAtT4=",
+            "ct": "+NyzQwjlxp9GozyvpivZIkdrGMeKEU6xRONKXjdPfWD43LNDCOXGn0ajPK+mK9kiR2sYx4oRTrFE40peN099YPjcs0MI5cafRqM8r6Yr2SJHaxjHihFOsUTjSl43T31g"
+          }
+        }
+      },
+      {
+        "v": 1,
+        "t": "hand.raise",
+        "seq": 3,
+        "ack": 0,
+        "at": 1760140800020,
+        "body": {
+          "handId": "hand_01",
+          "tier": "say",
+          "expiresAt": 1760140830000,
+          "exit": "voice",
+          "reason": "noticed"
+        }
+      },
+      {
+        "v": 1,
+        "t": "hand.answer",
+        "seq": 4,
+        "ack": 0,
+        "at": 1760140800030,
+        "body": {
+          "handId": "hand_01",
+          "allowed": false,
+          "bound": "meeting"
+        }
+      },
+      {
+        "v": 1,
+        "t": "hand.drop",
+        "seq": 5,
+        "ack": 0,
+        "at": 1760140800040,
+        "body": {
+          "handId": "hand_01"
+        }
+      },
+      {
+        "v": 1,
+        "t": "say.line",
+        "seq": 6,
+        "ack": 0,
+        "at": 1760140800050,
+        "id": "line_01",
+        "body": {
+          "text": "我先不打扰你，开完会再说。",
+          "kind": "proactive",
+          "saidAt": 1760140800050,
+          "handId": "hand_01",
+          "sessionId": "sess_1"
+        }
+      },
+      {
+        "v": 1,
+        "t": "say.delivered",
+        "seq": 7,
+        "ack": 0,
+        "at": 1760140800060,
+        "id": "said_01",
+        "body": {
+          "lineId": "line_01",
+          "spokenChars": 13,
+          "totalChars": 13,
+          "interrupted": false
+        }
+      },
+      {
+        "v": 1,
+        "t": "lease.ask",
+        "seq": 8,
+        "ack": 0,
+        "at": 1760140800070,
+        "body": {
+          "why": "talk",
+          "epoch": 5
+        }
+      },
+      {
+        "v": 1,
+        "t": "lease.yield",
+        "seq": 9,
+        "ack": 0,
+        "at": 1760140800080,
+        "id": "yield_01",
+        "body": {
+          "epoch": 5,
+          "through": 41,
+          "to": "site"
+        }
+      },
+      {
+        "v": 1,
+        "t": "lease.grant",
+        "seq": 10,
+        "ack": 0,
+        "at": 1760140800090,
+        "id": "6",
+        "body": {
+          "grant": {
+            "epoch": 6,
+            "holder": "site",
+            "issued": "001760140860000-000000-site",
+            "how": "handover",
+            "through": 41
+          }
+        }
+      },
+      {
+        "v": 1,
+        "t": "lease.epoch",
+        "seq": 11,
+        "ack": 0,
+        "at": 1760140800100,
+        "body": {
+          "epoch": 6,
+          "holder": "site",
+          "how": "handover",
+          "holderName": "server"
+        }
+      },
+      {
+        "v": 1,
+        "t": "lease.stopped",
+        "seq": 12,
+        "ack": 0,
+        "at": 1760140800110,
+        "id": "stop_01",
+        "body": {
+          "epoch": 5,
+          "stoppedAt": 1760140620000
+        }
+      },
+      {
+        "v": 1,
+        "t": "lease.takeover",
+        "seq": 13,
+        "ack": 0,
+        "at": 1760140800120,
+        "body": {
+          "grant": {
+            "epoch": 7,
+            "holder": "site",
+            "issued": "001760140870000-000000-site",
+            "how": "takeover"
+          },
+          "through": 41
+        }
+      },
+      {
+        "v": 1,
+        "t": "log.vector",
+        "seq": 14,
+        "ack": 0,
+        "at": 1760140800130,
+        "body": {
+          "audience": "personal:o1",
+          "vector": {
+            "dev_mac": 41,
+            "site": 12
+          }
+        }
+      },
+      {
+        "v": 1,
+        "t": "log.rows",
+        "seq": 15,
+        "ack": 0,
+        "at": 1760140800140,
+        "id": "rows_01",
+        "body": {
+          "audience": "personal:o1",
+          "rows": [
+            {
+              "version": 1,
+              "id": "row_01",
+              "origin": "dev_mac",
+              "author": "her",
+              "epoch": 5,
+              "dseq": 41,
+              "hlc": "001760140800000-000000-dev_mac",
+              "audience": "personal:o1",
+              "object": "node:lamp",
+              "kind": "node.view_changed",
+              "payload": {
+                "ref": "blob:row_01"
+              },
+              "replicate": "shared"
+            }
+          ],
+          "payloads": [
+            {
+              "ref": "blob:row_01",
+              "data": "I59Z7VXnN8dxR89VrQwbAwttfudIp0JpUvm4UtWpNeUjn1ntVec3x3FHz1WtDBsD"
+            }
+          ]
+        }
+      },
+      {
+        "v": 1,
+        "t": "log.rows",
+        "seq": 16,
+        "ack": 0,
+        "at": 1760140800150,
+        "id": "rows_02",
+        "body": {
+          "audience": "personal:o1",
+          "sealed": {
+            "suite": "x25519-sha256-chacha20poly1305",
+            "to": "dev_mac",
+            "keyId": "f7639ecdaf467ba6f0b01159af38dba6",
+            "enc": "X7Krdu2b2gNLGSxIxwaTWSUvzNoWjZJazArn0xbAtT4=",
+            "ct": "+NyzQwjlxp9GozyvpivZIkdrGMeKEU6xRONKXjdPfWD43LNDCOXGn0ajPK+mK9kiR2sYx4oRTrFE40peN099YPjcs0MI5cafRqM8r6Yr2SJHaxjHihFOsUTjSl43T31g"
+          }
+        }
+      },
+      {
+        "v": 1,
+        "t": "log.full",
+        "seq": 17,
+        "ack": 0,
+        "at": 1760140800160,
+        "body": {
+          "audience": "personal:o1",
+          "url": "https://example.test/api/agent/link/log/full_01",
+          "expiresAt": 1760141400000,
+          "vector": {
+            "site": 12
+          }
+        }
+      },
+      {
+        "v": 1,
+        "t": "peer.publish",
+        "seq": 18,
+        "ack": 0,
+        "at": 1760140800170,
+        "id": "keys_01",
+        "body": {
+          "signKey": "V6cfMFn9rRTvLOiv5GHYf12bAncTFRP9bJv9eJXrGjQ=",
+          "sealKey": "QeWO68tCqsnOtxI2UkNlTJ6LySJ13M/fmIbb9LpmAPs="
+        }
+      },
+      {
+        "v": 1,
+        "t": "peer.keys",
+        "seq": 19,
+        "ack": 0,
+        "at": 1760140800180,
+        "body": {
+          "devices": [
+            {
+              "deviceId": "dev_mac",
+              "name": "MacBook",
+              "signKey": "V6cfMFn9rRTvLOiv5GHYf12bAncTFRP9bJv9eJXrGjQ=",
+              "sealKey": "QeWO68tCqsnOtxI2UkNlTJ6LySJ13M/fmIbb9LpmAPs=",
+              "keyId": "f7639ecdaf467ba6f0b01159af38dba6"
+            }
+          ]
+        }
+      },
+      {
+        "v": 1,
+        "t": "peer.hello",
+        "seq": 20,
+        "ack": 0,
+        "at": 1760140800190,
+        "body": {
+          "protocol": 2,
+          "deviceId": "dev_phone",
+          "nonce": "Z2uLuEznJn3VIN7KSBHI8QpT5jY1LwaYf0L+QlrO3YA="
+        }
+      },
+      {
+        "v": 1,
+        "t": "peer.welcome",
+        "seq": 21,
+        "ack": 0,
+        "at": 1760140800200,
+        "body": {
+          "protocol": 2,
+          "deviceId": "dev_mac",
+          "nonce": "BICpPS6bCUuJ4I4Bl2CJrBgZOvgCxmtjHMjS3BuujIg=",
+          "certHash": "06298432e8066b29e2223bcc23aa9504b56ae508fabf3435508869b9c3190e22",
+          "proof": "sqpBPGT5t3nOZP7YIeHXZ5gEZaHDAGizCT1U/luzxCCyqkE8ZPm3ec5k/tgh4ddnmARlocMAaLMJPVT+W7PEIA=="
+        }
+      },
+      {
+        "v": 1,
+        "t": "peer.proof",
+        "seq": 22,
+        "ack": 0,
+        "at": 1760140800210,
+        "body": {
+          "proof": "kGm/uA8fXE6hhv3WQ78HKlc+UMDYXvHzKwSJf1HQQNiQab+4Dx9cTqGG/dZDvwcqVz5QwNhe8fMrBIl/UdBA2A=="
+        }
+      }
+    ]
+  }
 }

@@ -1,0 +1,336 @@
+{
+  "call": "log.canonical",
+  "cases": [
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 7,
+          "epoch": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-1",
+          "kind": "node.view_changed",
+          "object": "node:lamp",
+          "origin": "dev_mac",
+          "payload": {
+            "key": "k-node-lamp",
+            "ref": "blob:r-1"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "her row",
+      "output": {
+        "canonical": "{\"audience\":\"personal:o1\",\"author\":\"her\",\"dseq\":7,\"epoch\":1,\"hlc\":\"001760000000000-000000-dev_mac\",\"id\":\"r-1\",\"kind\":\"node.view_changed\",\"object\":\"node:lamp\",\"origin\":\"dev_mac\",\"payload\":{\"key\":\"k-node-lamp\",\"ref\":\"blob:r-1\"},\"replicate\":\"shared\",\"version\":1}",
+        "digest": "a22ba9beea048153bd65466d56e191db",
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 7,
+          "epoch": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-1",
+          "kind": "node.view_changed",
+          "object": "node:lamp",
+          "origin": "dev_mac",
+          "payload": {
+            "key": "k-node-lamp",
+            "ref": "blob:r-1"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "owner",
+          "hlc": "001760000000005-000000-dev_mac",
+          "id": "r-2",
+          "kind": "memory.write",
+          "object": "memory:m-1",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-2"
+          },
+          "replicate": "local",
+          "subject": "o1",
+          "version": 1
+        }
+      },
+      "name": "owner's local row about the owner",
+      "output": {
+        "canonical": "{\"audience\":\"personal:o1\",\"author\":\"owner\",\"hlc\":\"001760000000005-000000-dev_mac\",\"id\":\"r-2\",\"kind\":\"memory.write\",\"object\":\"memory:m-1\",\"origin\":\"dev_mac\",\"payload\":{\"ref\":\"blob:r-2\"},\"replicate\":\"local\",\"subject\":\"o1\",\"version\":1}",
+        "digest": "91258e7fe0a3d89509ab93c1d2d5153a",
+        "row": {
+          "audience": "personal:o1",
+          "author": "owner",
+          "hlc": "001760000000005-000000-dev_mac",
+          "id": "r-2",
+          "kind": "memory.write",
+          "object": "memory:m-1",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-2"
+          },
+          "replicate": "local",
+          "subject": "o1",
+          "version": 1
+        }
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "owner",
+          "dseq": 2,
+          "hlc": "001760000000009-000000-site",
+          "id": "r-3",
+          "kind": "forget",
+          "object": "subject:o1",
+          "origin": "site",
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "a forget of everything about a subject",
+      "output": {
+        "canonical": "{\"audience\":\"personal:o1\",\"author\":\"owner\",\"dseq\":2,\"hlc\":\"001760000000009-000000-site\",\"id\":\"r-3\",\"kind\":\"forget\",\"object\":\"subject:o1\",\"origin\":\"site\",\"replicate\":\"shared\",\"version\":1}",
+        "digest": "9efc0dd305986282708a8e2a88b1cb85",
+        "row": {
+          "audience": "personal:o1",
+          "author": "owner",
+          "dseq": 2,
+          "hlc": "001760000000009-000000-site",
+          "id": "r-3",
+          "kind": "forget",
+          "object": "subject:o1",
+          "origin": "site",
+          "replicate": "shared",
+          "version": 1
+        }
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-4",
+          "kind": "node.noted",
+          "object": "node:lamp",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-4"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "refused: her row without an epoch",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "owner",
+          "dseq": 1,
+          "epoch": 3,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-5",
+          "kind": "node.noted",
+          "object": "node:lamp",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-5"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "refused: the owner's row with an epoch",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 1,
+          "epoch": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-6",
+          "kind": "node.whispered",
+          "object": "node:lamp",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-6"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "refused: a kind the log does not hold",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 1,
+          "epoch": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-7",
+          "kind": "node.noted",
+          "object": "memory:m-1",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-7"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "refused: a node kind about a memory",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "epoch": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-8",
+          "kind": "node.noted",
+          "object": "node:lamp",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-8"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "refused: a shared row without dseq",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 1,
+          "epoch": 1,
+          "hlc": "001760000000000-000000-site",
+          "id": "r-9",
+          "kind": "node.noted",
+          "object": "node:lamp",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-9"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "refused: the clock is another side's",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 1,
+          "epoch": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-10",
+          "kind": "memory.write",
+          "object": "memory:m-2",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-10"
+          },
+          "replicate": "shared",
+          "subject": "p9",
+          "version": 1
+        }
+      },
+      "name": "refused: someone else in the owner's audience",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "own:",
+          "author": "her",
+          "dseq": 1,
+          "epoch": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-11",
+          "kind": "memory.write",
+          "object": "memory:m-3",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:r-11"
+          },
+          "replicate": "shared",
+          "subject": "o1",
+          "version": 1
+        }
+      },
+      "name": "refused: a subject in her own audience",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "owner",
+          "dseq": 1,
+          "hlc": "001760000000000-000000-dev_mac",
+          "id": "r-12",
+          "kind": "forget",
+          "object": "node:lamp",
+          "origin": "dev_mac",
+          "payload": {
+            "ref": "blob:x"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "refused: a forget with a payload",
+      "output": {
+        "error": "bad_input"
+      }
+    }
+  ],
+  "version": 1
+}

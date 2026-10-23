@@ -1,0 +1,29 @@
+{
+  "call": "log.clock_offset",
+  "cases": [
+    {
+      "input": {
+        "received": 1760004620080000,
+        "sent": 1760004620000000,
+        "serverTime": 1760000000040000
+      },
+      "name": "the Mac runs 77 minutes ahead",
+      "output": {
+        "offset": -4620000000,
+        "uncertainty": 40000
+      }
+    },
+    {
+      "input": {
+        "received": 1759999999999999,
+        "sent": 1760000000000000,
+        "serverTime": 1760000000000000
+      },
+      "name": "refused: the answer before the request",
+      "output": {
+        "error": "bad_input"
+      }
+    }
+  ],
+  "version": 1
+}

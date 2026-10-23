@@ -141,6 +141,51 @@ converges when it is touched rather than in dedicated migrations.
   `features/merope`). Global styles live in `src/styles/`; component styles are
   imported by the component, so they ship with its chunk.
 
+## Her link and her devices
+
+Her link is the one connection between the site and the owner's other ends
+(today a Mac app). Its definition is `shared/her_link_contract.json`, with an
+example of every frame in `shared/her_link_fixtures.json`; the backend side is
+`backend/src/services/agent/link/`. The site speaks **protocol 1**: the Mac is
+a child that dials the site.
+
+**Protocol 2** (the contract's `next` block) is decided (2026-10-23) and not
+yet spoken by any host; the server's side comes with SYNC S6. It is how one
+her lives across several devices: her one mind is on one host core at a time
+(a PC or the server) and moves with the owner.
+
+```text
+phone ──wss──┐                      ┌──wss── PC (her mind may be here)
+             ├── server (relays) ───┤
+XR ────wss───┘                      └──wss── other PC
+         same 现场: phone ══wss (LAN, mDNS)══ PC her mind is on
+```
+
+- **One connection per device**, to the server, as protocol 1 (device token,
+  JSON envelopes with ids and acks, reliable frames, 15 s heartbeat, backoff,
+  close codes). New frame families: `fact.*` (filtered facts up to her
+  mind), `hand.*` / `say.*` (her mind asks the front device to speak; words
+  down), `lease.*` (where her mind is: ask, yield, grant, epoch, self-stop,
+  takeover), `log.*` (version vectors and batched log rows between host
+  cores), `peer.*` (device keys and LAN proofs). A new host core's first full
+  sync is an HTTPS download; increments go over the link.
+- **Same 现场, direct**: the same frames over WebSocket on the LAN, found by
+  mDNS / DNS-SD (`_myriad-link._tcp`, TXT says only the version). Devices
+  prove themselves with keys the owner confirmed once at pairing, through the
+  server; the listener's self-signed TLS certificate is bound by signing its
+  hash. Device tokens never go over the LAN.
+- **End to end**: 现场 facts and PC-only rows that the server relays are
+  sealed per device with HPKE (RFC 9180, X25519 / HKDF-SHA256 /
+  ChaCha20-Poly1305); the server relays ciphertext it cannot read.
+- **Waking a phone**: platform push carries only "connect now", no content.
+- **Encoding**: canonical JSON text; every envelope carries `v` so a binary
+  encoding can come later. QUIC may carry the same frames later.
+- **Not used**: gRPC, MQTT, a custom UDP protocol (reasons in the contract).
+
+The pure rules both runtimes share — frame checks (`myriad-her-link`), her
+log, the fold, the lease and the clock (`myriad-persona-log`) — are in the
+shared core: [SHARED_CORE.md](SHARED_CORE.md).
+
 ## Data & AI
 
 - **PostgreSQL**：Compose 默认 `postgres:18-alpine`；release 兼容地板见 `release.json` 的 `min_pg_version`
@@ -156,4 +201,5 @@ converges when it is touched rather than in dedicated migrations.
 - [BUILD.md](BUILD.md) — 从源码构建
 - [API.md](../API.md) — HTTP API 入口说明
 - [AGENT_CHANNELS.md](AGENT_CHANNELS.md) — 私聊通道
+- [SHARED_CORE.md](SHARED_CORE.md) — 共用核心：她的日志、执笔权、连接帧的纯规则
 - [FEDERATION.md](FEDERATION.md) — 联邦行为与闸门

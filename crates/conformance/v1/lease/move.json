@@ -1,0 +1,410 @@
+{
+  "call": "lease.move",
+  "cases": [
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "request": {
+          "handover": {
+            "epoch": 4,
+            "from": "dev_mac",
+            "through": 52,
+            "to": "site"
+          }
+        }
+      },
+      "name": "the holder hands it over",
+      "output": {
+        "granted": {
+          "epoch": 5,
+          "holder": "site",
+          "how": "handover",
+          "issued": "001760001800000-000000-site",
+          "through": 52
+        }
+      }
+    },
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "request": {
+          "handover": {
+            "epoch": 4,
+            "from": "dev_win",
+            "to": "site"
+          }
+        }
+      },
+      "name": "refused: a handover from a side that does not hold it",
+      "output": {
+        "refused": "not_holder"
+      }
+    },
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "request": {
+          "handover": {
+            "epoch": 3,
+            "from": "dev_mac",
+            "to": "site"
+          }
+        }
+      },
+      "name": "refused: a handover of an epoch that no longer stands",
+      "output": {
+        "refused": "stale_epoch"
+      }
+    },
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "request": {
+          "handover": {
+            "epoch": 4,
+            "from": "dev_mac",
+            "to": "dev_mac"
+          }
+        }
+      },
+      "name": "refused: a handover to itself",
+      "output": {
+        "refused": "already_holder"
+      }
+    },
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "request": {
+          "force": {
+            "to": "dev_win"
+          }
+        }
+      },
+      "name": "the owner brings her here",
+      "output": {
+        "granted": {
+          "epoch": 5,
+          "holder": "dev_win",
+          "how": "force",
+          "issued": "001760001800000-000000-site"
+        }
+      }
+    },
+    {
+      "input": {
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "request": {
+          "force": {
+            "to": "dev_mac"
+          }
+        }
+      },
+      "name": "refused: forcing her where she is",
+      "output": {
+        "refused": "already_holder"
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001500000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001740000000,
+          "since": 1760001200000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        }
+      },
+      "name": "the server takes over: out of reach, and the owner is elsewhere",
+      "output": {
+        "granted": {
+          "epoch": 5,
+          "holder": "site",
+          "how": "takeover",
+          "issued": "001760001800000-000000-site"
+        }
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001680000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001740000000,
+          "since": 1760001200000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        }
+      },
+      "name": "refused: the holder was heard from two minutes ago",
+      "output": {
+        "refused": "holder_recent"
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001500000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "home",
+          "seenAt": 1760001740000000,
+          "since": 1760001200000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        }
+      },
+      "name": "refused: the owner's phone is home too (the Mac is reached locally)",
+      "output": {
+        "refused": "same_place"
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001500000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        }
+      },
+      "name": "refused: nothing says where the owner is",
+      "output": {
+        "refused": "owner_place_unknown"
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001500000000,
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001740000000,
+          "since": 1760001200000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        }
+      },
+      "name": "refused: nothing says where the holder is",
+      "output": {
+        "refused": "holder_place_unknown"
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760000900000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001200000000,
+          "since": 1760000600000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        }
+      },
+      "name": "refused: the owner was last seen elsewhere ten minutes ago",
+      "output": {
+        "refused": "owner_place_stale"
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760000900000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001800000000,
+          "since": 1760001740000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        }
+      },
+      "name": "refused: the owner left a minute ago, the holder may still think",
+      "output": {
+        "refused": "owner_left_recently"
+      }
+    },
+    {
+      "input": {
+        "holderLastSeen": 1760001500000000,
+        "holderPlace": "home",
+        "issued": "001760001800000-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "site",
+          "how": "takeover",
+          "issued": "001760000000000-000000-site"
+        },
+        "now": 1760001800000000,
+        "ownerPlace": {
+          "place": "office",
+          "seenAt": 1760001740000000,
+          "since": 1760001200000000
+        },
+        "request": {
+          "takeover": {
+            "server": "site"
+          }
+        }
+      },
+      "name": "refused: the server holds it already",
+      "output": {
+        "refused": "already_holder"
+      }
+    },
+    {
+      "input": {
+        "issued": "001759999999999-000000-site",
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": 40
+        },
+        "now": 1760001800000000,
+        "request": {
+          "force": {
+            "to": "dev_win"
+          }
+        }
+      },
+      "name": "refused: a grant issued before the one standing",
+      "output": {
+        "error": "bad_input"
+      }
+    }
+  ],
+  "version": 1
+}
