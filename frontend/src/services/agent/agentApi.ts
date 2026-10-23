@@ -198,7 +198,25 @@ export interface SyncDeviceList {
   sealed?: number | null
   /** Her living on a device is open here (only the acceptance entry before H4, Q8). */
   deviceHostOpen?: boolean
+  /** The site's last check of its own clock; null while off or not run yet. */
+  serverClock?: ServerClock | null
   limit: number
+}
+
+/** How far the site's clock is off, as it last measured (`serverClock`). */
+export interface ServerClock {
+  /** Milliseconds since the epoch, by the site's own clock. */
+  checkedAt: number
+  /** The site's clock minus real time; null when nothing answered. */
+  offsetMs: number | null
+  source: 'sntp' | 'https' | null
+  /** An HTTPS Date, or SNTP servers that agree. */
+  trusted: boolean
+  thresholdMs: number
+  /** Off by more than thresholdMs. */
+  wrong: boolean
+  /** The site judges device clocks by real time with this measurement. */
+  corrected: boolean
 }
 
 /** One daily backup a device she lives on pushed. */

@@ -493,6 +493,15 @@ export function AgentDevicesGroup() {
   const moveBack = move !== null && move.kind === 'move' && move.to === 'site'
   const deviceName = (id: string, name: string | null) =>
     id === 'site' ? c.agentHostSite : (name ?? c.agentHostUnknownDevice)
+  // "10 min 27 s", in the common duration words.
+  const clockAmount = (ms: number) => {
+    const sec = Math.round(ms / 1000)
+    if (sec < 60) return format(t.common.durationSeconds, { sec })
+    const min = Math.floor(sec / 60)
+    return sec % 60
+      ? format(t.common.durationMinutesSeconds, { min, sec: sec % 60 })
+      : format(t.common.durationMinutes, { min })
+  }
   // Her copy here is her only while she lives here or is moving (H3b-5).
   const exportable =
     host !== null &&
@@ -603,6 +612,19 @@ export function AgentDevicesGroup() {
     </div>
   )
 
+  // Only when neither the time-sync service nor the site's own correction
+  // could make up for it (the site still judges device clocks by its own).
+  const clock = list?.serverClock
+  const clockWarning =
+    clock && clock.wrong && !clock.corrected && clock.offsetMs !== null
+      ? format(
+          clock.offsetMs < 0
+            ? c.agentServerClockBehindTitle
+            : c.agentServerClockAheadTitle,
+          { amount: clockAmount(Math.abs(clock.offsetMs)) },
+        )
+      : null
+
   return (
     <SettingGroup
       title={c.agentDevicesTitle}
@@ -619,6 +641,11 @@ export function AgentDevicesGroup() {
                 epoch: host.epoch,
               })}
         </p>
+      ) : null}
+      {clockWarning ? (
+        <InfoActionCard title={clockWarning} tone="warn">
+          <p className="info-action-card-lede">{c.agentServerClockBody}</p>
+        </InfoActionCard>
       ) : null}
       {move && move.phase === 'proposed' && moveToDevice ? (
         <InfoActionCard
