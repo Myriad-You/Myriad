@@ -1337,8 +1337,22 @@ export function NoteSettingsDrawer(props: NoteSettingsDrawerProps) {
           <span className="phantasi-note__drawer-status-dot" aria-hidden="true" />
           {statusLabel[docStatus]}
         </span>
+        {/* 已发布的改动要再推一次：动作跟着状态放在标题行，哪一页都看得见。 */}
+        {docStatus === 'published' ? (
+          <NoteButton
+            variant="tint"
+            className="phantasi-note__drawer-update"
+            icon={<Send />}
+            disabled={props.busy}
+            onClick={props.onPublish}
+            title={t.phantasi.noteSettingsUpdateHint}
+          >
+            {t.phantasi.noteSettingsUpdateBlog}
+          </NoteButton>
+        ) : null}
         <NoteButton
           variant="quiet"
+          className="phantasi-note__drawer-close"
           icon={<X />}
           onClick={onClose}
           aria-label={t.phantasi.close}
@@ -1584,8 +1598,6 @@ function NoteScheduledPublish({
  * 正文、分类、封面、日期的修改只存进草稿，要再更新一次才到博客上。
  */
 function NotePublishedPublish({
-  onPublish,
-  busy,
   publishedAt,
   onPublishedAtChange,
   slugInput,
@@ -1614,13 +1626,7 @@ function NotePublishedPublish({
   }
   return (
     <>
-      {/* 状态已经写在抽屉顶上，这里不再起卡片：一个更新按钮，下面两行和日期同样的行。 */}
-      <div className="phantasi-note__update">
-        <NoteButton variant="tint" icon={<Send />} disabled={busy} onClick={onPublish}>
-          {t.phantasi.noteSettingsUpdateBlog}
-        </NoteButton>
-        <p className="note-field__hint">{t.phantasi.noteSettingsUpdateHint}</p>
-      </div>
+      {/* 状态和「更新到博客」都在抽屉顶上，这里只剩地址和日期两行。 */}
       <div className="phantasi-note__date-row">
         <div className="phantasi-note__date-line">
           <span className="note-field__label">{t.phantasi.noteSettingsAddress}</span>

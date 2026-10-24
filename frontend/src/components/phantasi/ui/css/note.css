@@ -1294,8 +1294,20 @@ html.dark .phantasi-note__drawer {
   font-weight: 700;
 }
 
-.phantasi-note__drawer-head .note-btn {
+/* 关闭靠右；有「更新到博客」时它带着关闭一起靠右。 */
+.phantasi-note__drawer-head > .note-btn:not(.phantasi-note__drawer-close + *, .phantasi-note__drawer-update + .phantasi-note__drawer-close) {
   margin-inline-start: auto;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__drawer-update {
+  height: 2rem;
+  padding: 0 0.7rem;
+  font-size: 0.8125rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__drawer-update svg {
+  width: 0.85rem;
+  height: 0.85rem;
 }
 
 .phantasi-note__drawer-status {
@@ -2072,14 +2084,6 @@ html.dark .phantasi-note__drawer {
   box-shadow: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8125rem;
-}
-
-/* 已发布：更新按钮占一行，说明紧跟其下。 */
-.phantasi-note__update {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
 }
 
 /* 地址和文章日期同一种行：标签、值、行尾的小动作。 */
