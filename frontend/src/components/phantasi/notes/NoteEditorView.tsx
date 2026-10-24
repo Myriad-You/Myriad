@@ -97,7 +97,6 @@ import {
   visualBlockAt,
   visualClosest,
 } from './noteVisual'
-import { NoteWidgetPicker } from './NoteWidgetPicker'
 import { hydrateVisualMath } from './renderMath'
 import 'katex/dist/katex.min.css'
 import '../ui/phantasi.css'
@@ -144,8 +143,6 @@ export function NoteEditorView({
   setSettingsOpen,
   insertMenu,
   setInsertMenu,
-  widgetPickerOpen,
-  setWidgetPickerOpen,
   linkOpen,
   linkInitial,
   setBlockFocus,
@@ -433,11 +430,8 @@ export function NoteEditorView({
       key: 'widget',
       icon: <Puzzle className="h-4 w-4" />,
       label: t.phantasi.noteToolWidget,
-      run: () => {
-        rememberVisualRange()
-        setInsertMenu(null)
-        setWidgetPickerOpen(true)
-      },
+      page: 'widgets',
+      run: rememberVisualRange,
     },
   ]
 
@@ -868,18 +862,14 @@ export function NoteEditorView({
               }}
             />
           ) : null}
-          <NoteWidgetPicker
-            open={widgetPickerOpen}
-            widgets={widgetCatalog}
-            onPick={placeWidget}
-            onClose={closeOverlays}
-          />
           <NoteGutter
             caretLine={caretLine}
             menu={insertMenu}
             onMenuChange={setInsertMenu}
             items={insertItems}
             busy={uploading}
+            widgets={widgetCatalog}
+            onPickWidget={placeWidget}
           />
         </div>
 

@@ -79,7 +79,6 @@ export function useNoteEditorFormat(host: {
   setCategoryNames: Dispatch<SetStateAction<string[]>>
   setSettingsOpen: Dispatch<SetStateAction<boolean>>
   setInsertMenu: Dispatch<SetStateAction<NoteInsertMenuState>>
-  setWidgetPickerOpen: Dispatch<SetStateAction<boolean>>
   setWidgetSettingsOpen: Dispatch<SetStateAction<boolean>>
   setLinkOpen: Dispatch<SetStateAction<boolean>>
   setLinkInitial: Dispatch<SetStateAction<string>>
@@ -96,7 +95,7 @@ export function useNoteEditorFormat(host: {
     widgetCatalog, visualWidgets, commitVisualMd, runVisual, visualHistoryStep,
     insertText, applyEdit, wrap, prefix, runTool, focusBody, requestClose, handleSave,
     setContentMd, setCover, setUploading, setTopic, setCategoryNames, setSettingsOpen,
-    setInsertMenu, setWidgetPickerOpen, setWidgetSettingsOpen, setLinkOpen, setLinkInitial,
+    setInsertMenu, setWidgetSettingsOpen, setLinkOpen, setLinkInitial,
     setSelectedImage, setSelectedWidget, setCodeLang, setColumnAlign, block, contentMd,
   } = host
 
@@ -390,7 +389,6 @@ export function useNoteEditorFormat(host: {
   const closeOverlays = useCallback(() => {
     setSettingsOpen(false)
     setInsertMenu(null)
-    setWidgetPickerOpen(false)
     setWidgetSettingsOpen(false)
     setLinkOpen(false)
     if (paneRef.current === 'visual') restoreVisualRange()
@@ -571,7 +569,6 @@ export function useNoteEditorFormat(host: {
 
   const placeWidget = useCallback(
     (type: string, size: string) => {
-      setWidgetPickerOpen(false)
       const root = visualRef.current
       if (paneRef.current === 'visual' && root) {
         restoreVisualRange()

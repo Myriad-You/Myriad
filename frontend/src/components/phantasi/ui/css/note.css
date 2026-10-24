@@ -719,126 +719,6 @@ html.dark .phantasi-note.phantasi-skin .phantasi-note__bubble-btn:hover {
   text-align: center;
 }
 
-.phantasi-note__widget-picker-layer {
-  display: flex;
-  position: fixed;
-  inset: 0;
-  z-index: 10060;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: rgb(0 0 0 / 28%);
-}
-
-.phantasi-note__widget-picker {
-  display: flex;
-  flex-direction: column;
-  width: min(22rem, calc(100vw - 2rem));
-  max-height: min(70vh, 28rem);
-  overflow: hidden;
-  border: 1px solid var(--cfg-frost-border, var(--chrome-stroke, rgb(255 255 255 / 50%)));
-  border-radius: 0.7rem;
-  background: var(--cfg-frost-elevated-bg, var(--chrome-elevated, rgb(255 255 255 / 96%)));
-  backdrop-filter: var(--cfg-frost-filter, blur(17px) saturate(180%));
-  box-shadow:
-    0 16px 40px -12px rgb(0 0 0 / 28%),
-    0 0 0 1px rgb(255 255 255 / 40%) inset;
-}
-
-.phantasi-note__widget-picker-head {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 0.6rem 0.4rem;
-}
-
-.phantasi-note__widget-picker-search {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 0.4rem;
-  min-width: 0;
-  padding: 0 0.55rem;
-  border: 1px solid var(--note-line, rgb(0 0 0 / 10%));
-  border-radius: 0.45rem;
-  color: var(--note-ink-3, #6b7280);
-}
-
-.phantasi-note__widget-picker-search input {
-  width: 100%;
-  height: 2rem;
-  border: 0;
-  background: transparent;
-  color: var(--note-ink, inherit);
-  font: inherit;
-  font-size: 0.875rem;
-}
-
-.phantasi-note__widget-picker-search input:focus {
-  outline: none;
-}
-
-.phantasi-note__widget-picker-close {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border: 0;
-  border-radius: 0.4rem;
-  background: transparent;
-  color: inherit;
-}
-
-.phantasi-note__widget-picker-list {
-  overflow: hidden auto;
-  padding: 0.25rem 0.4rem 0.5rem;
-}
-
-.phantasi-note__widget-picker-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.5rem 0.55rem;
-  border: 0;
-  border-radius: 0.45rem;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-}
-
-.phantasi-note__widget-picker-item:hover,
-.phantasi-note__widget-picker-item:focus-visible {
-  background: rgb(0 0 0 / 5%);
-  outline: none;
-}
-
-.phantasi-note__widget-picker-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.phantasi-note__widget-picker-size {
-  flex-shrink: 0;
-  color: var(--note-ink-3, #6b7280);
-  font-size: 0.75rem;
-}
-
-.phantasi-note__widget-picker-empty {
-  margin: 0;
-  padding: 1.25rem 0.75rem;
-  color: var(--note-ink-3, #6b7280);
-  font-size: 0.875rem;
-  text-align: center;
-}
-
 @media (width <= 640px) {
   .note-columns {
     flex-direction: column;
@@ -1062,36 +942,59 @@ html.dark .phantasi-note__menu {
     0 0 0 1px rgb(255 255 255 / 6%) inset;
 }
 
+.phantasi-note__menu--cards {
+  gap: 0;
+  width: min(23rem, calc(100vw - 1rem));
+  max-width: min(23rem, calc(100vw - 1rem));
+  max-height: min(70vh, 32rem);
+  padding: 0.4rem;
+  border-radius: 0.85rem;
+  overscroll-behavior: contain;
+}
+
+/* 一组一张双列网格，组间只留一条细线，不放标题。 */
+.phantasi-note__menu-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.15rem;
+}
+
+.phantasi-note__menu-group + .phantasi-note__menu-group {
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid var(--note-line);
+}
+
 .phantasi-skin.phantasi-note__menu .phantasi-note__menu-item {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  height: 2.25rem;
-  padding: 0 0.6rem;
+  min-width: 0;
+  padding: 0.4rem;
   border: 0;
-  border-radius: 0.4rem;
+  border-radius: 0.6rem;
   background: transparent;
-  color: var(--note-ink-2);
-  font-size: 0.875rem;
-  font-weight: 500;
+  color: var(--note-ink);
   text-align: start;
-  white-space: nowrap;
   cursor: pointer;
   transition: var(--sm-t-fill);
 }
 
 .phantasi-skin.phantasi-note__menu .phantasi-note__menu-item:hover {
-  background: var(--note-fill-hover);
-  color: var(--note-ink);
+  background: var(--note-fill);
 }
 
 .phantasi-skin.phantasi-note__menu .phantasi-note__menu-item:focus-visible {
   outline: none;
-  box-shadow: var(--note-focus);
+  background: var(--note-fill);
+  box-shadow: inset 0 0 0 1.5px var(--note-line-strong);
 }
 
 .phantasi-note__menu-icon {
   display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
   color: var(--note-ink-3);
 }
 
@@ -1100,8 +1003,198 @@ html.dark .phantasi-note__menu {
   height: 1.15rem;
 }
 
-.phantasi-note__menu-item:hover .phantasi-note__menu-icon {
+/* 卡片的图标放进一块小方砖；指到哪张，那块砖翻成实色。 */
+.phantasi-note__menu--cards .phantasi-note__menu-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.55rem;
+  background: var(--note-fill);
+  color: var(--note-ink-2);
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition:
+    background-color var(--sm-dur-fast, 140ms) var(--sm-ease-standard, ease),
+    color var(--sm-dur-fast, 140ms) var(--sm-ease-standard, ease);
+}
+
+.phantasi-note__menu--cards .phantasi-note__menu-icon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.phantasi-note__menu--cards .phantasi-note__menu-item:hover .phantasi-note__menu-icon,
+.phantasi-note__menu--cards .phantasi-note__menu-item:focus-visible .phantasi-note__menu-icon {
+  background: var(--note-solid-bg);
+  color: var(--note-solid-fg);
+}
+
+.phantasi-note__menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.phantasi-note__menu-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.phantasi-note__menu-label,
+.phantasi-note__menu-desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phantasi-note__menu-label {
   color: var(--note-ink);
+  font-size: 0.8125rem;
+  font-weight: 550;
+}
+
+.phantasi-note__menu-desc {
+  color: var(--note-ink-3);
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.phantasi-note__menu-icon--glyph {
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+/* ---- 二级页：返回 + 标题 + 搜索，下面接同一套双列卡片 ---- */
+
+.phantasi-note__menu-page-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.4rem 0.35rem 0.1rem;
+}
+
+.phantasi-skin.phantasi-note__menu .phantasi-note__menu-back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--note-ink-2);
+  cursor: pointer;
+  transition: var(--sm-t-fill);
+}
+
+.phantasi-skin.phantasi-note__menu .phantasi-note__menu-back:hover {
+  background: var(--note-fill);
+  color: var(--note-ink);
+}
+
+.phantasi-skin.phantasi-note__menu .phantasi-note__menu-back:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--note-line-strong);
+}
+
+.phantasi-note__menu-back svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.phantasi-note__menu-page-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--note-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phantasi-note__menu-page-count {
+  flex: none;
+  color: var(--note-ink-3);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.phantasi-note__menu-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0.25rem 0.4rem;
+  padding: 0 0.65rem;
+  border-radius: 0.6rem;
+  background: var(--note-fill);
+  color: var(--note-ink-3);
+  transition: box-shadow var(--sm-dur-fast, 140ms) var(--sm-ease-standard, ease);
+}
+
+.phantasi-note__menu-search:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--note-line-strong);
+}
+
+.phantasi-note__menu-search svg {
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.phantasi-skin.phantasi-note__menu .phantasi-note__menu-search input,
+.phantasi-skin.phantasi-note__menu .phantasi-note__menu-search input:focus {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--note-ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  outline: none;
+}
+
+.phantasi-note__menu-search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.phantasi-note__menu-empty {
+  margin: 0;
+  padding: 1.75rem 0.75rem;
+  color: var(--note-ink-3);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* 翻页时内容淡入，外框不跳。 */
+.phantasi-note__menu--cards.is-ready > * {
+  animation: phantasi-note-page-in var(--sm-dur-fast, 140ms) var(--sm-ease-enter, ease) backwards;
+}
+
+@keyframes phantasi-note-page-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.phantasi-note__menu-key {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--note-ink-3);
+  font: 500 0.625rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.8;
 }
 
 /* ---- 发布抽屉 ---- */
@@ -1299,7 +1392,7 @@ html[data-perf-mode='exlight'] .phantasi-note.phantasi-skin .phantasi-note__bubb
 html[data-perf-mode='exlight'] .phantasi-note.phantasi-skin .phantasi-note__blockbar-btn,
 html[data-perf-mode='exlight'] .phantasi-note__visual img,
 html[data-perf-mode='exlight'] .phantasi-note__menu,
-html[data-perf-mode='exlight'] .phantasi-note__widget-picker,
+html[data-perf-mode='exlight'] .phantasi-note__menu--cards.is-ready > *,
 html[data-perf-mode='exlight'] .phantasi-note__menu .phantasi-note__menu-item {
   animation: none;
   transition: none;
@@ -1327,7 +1420,7 @@ html[data-perf-mode='exlight'] .phantasi-note__menu .phantasi-note__menu-item {
   .phantasi-note.phantasi-skin .phantasi-note__blockbar-btn,
   .phantasi-note__visual img,
   .phantasi-note__menu,
-  .phantasi-note__widget-picker,
+  .phantasi-note__menu--cards.is-ready > *,
   .phantasi-note__menu .phantasi-note__menu-item {
     animation: none;
     transition: none;

@@ -1,10 +1,11 @@
 import type { CSSProperties, FocusEvent, KeyboardEvent, ReactNode, RefObject } from 'react'
-import type { NoteCollabPeer } from './noteCollab'
+import type { WidgetType } from '../../widgetGridTypes'
 /**
  * 写作器的外壳：薄顶栏、标题下的一行元信息、选区浮动条、底栏、发布抽屉。
  * 控件全是 NoteControls 里自己的，不借设置页；这里不碰 phantasiApi。
  */
 
+import type { NoteCollabPeer } from './noteCollab'
 import type { NoteImageValues } from './NoteImageFields'
 import type { PopoverCoords } from './notePopover'
 import type { SelectionAnchor, VisualBlockKind } from './noteSelection'
@@ -39,6 +40,7 @@ import {
 import { NoteImageFields } from './NoteImageFields'
 import { placePopover } from './notePopover'
 import { placeBubble, placeGutter } from './noteSelection'
+import { NoteWidgetPage } from './NoteWidgetPicker'
 
 export type NoteEditorPane = 'write' | 'visual' | 'preview'
 type NoteEditorDocStatus = 'draft' | 'scheduled' | 'published'
@@ -51,7 +53,11 @@ export interface NoteEditorTool {
   /** 有这个就先在菜单里要一个值（比如图片地址），回车再 `runWith`。 */
   prompt?: string
   runWith?: (value: string) => void
+  /** 点了不关菜单，翻到同一浮层的二级页（`run` 先跑一次，用来记住选区）。 */
+  page?: NoteInsertPage
 }
+
+export type NoteInsertPage = 'widgets'
 
 /** 选中文字才用得上的放浮动条，其余是块级插入。 */
 const MARK_TOOL_KEYS = [
@@ -740,9 +746,89 @@ interface NoteGutterProps {
   onMenuChange: (menu: NoteInsertMenuState) => void
   items: NoteEditorTool[]
   busy: boolean
+  /** 二级页「小组件」的目录和落点。 */
+  widgets: WidgetType[]
+  onPickWidget: (type: string, size: string) => void
 }
 
 const GUTTER_SIZE = 36
+
+type NoteInsertGroup = 'media' | 'text' | 'list' | 'block'
+
+const INSERT_GROUP_ORDER: NoteInsertGroup[] = ['media', 'text', 'list', 'block']
+
+/** 插入菜单按用途分组成双列卡片；没登记的新工具落进最后一组。 */
+const INSERT_GROUP_OF: Record<string, NoteInsertGroup> = {
+  image: 'media',
+  'image-url': 'media',
+  widget: 'media',
+  columns: 'media',
+  'h1-block': 'text',
+  'h2-block': 'text',
+  'h3-block': 'text',
+  footnote: 'text',
+  list: 'list',
+  ol: 'list',
+  task: 'list',
+  table: 'list',
+}
+
+/** 卡片上顺手教一下：可视层行首敲这些也能得到同一个块（见 noteInputRules）。 */
+const INSERT_SHORTCUT: Record<string, string> = {
+  'h1-block': '#',
+  'h2-block': '##',
+  'h3-block': '###',
+  list: '-',
+  ol: '1.',
+  task: '[ ]',
+  code: '```',
+  'display-math': '$$',
+  divider: '---',
+}
+
+type InsertDescKey =
+  | 'noteInsertDescImage'
+  | 'noteInsertDescImageUrl'
+  | 'noteInsertDescWidget'
+  | 'noteInsertDescColumns'
+  | 'noteInsertDescH1'
+  | 'noteInsertDescH2'
+  | 'noteInsertDescH3'
+  | 'noteInsertDescFootnote'
+  | 'noteInsertDescList'
+  | 'noteInsertDescOl'
+  | 'noteInsertDescTask'
+  | 'noteInsertDescTable'
+  | 'noteInsertDescCode'
+  | 'noteInsertDescMath'
+  | 'noteInsertDescDivider'
+
+const INSERT_DESC: Record<string, InsertDescKey> = {
+  image: 'noteInsertDescImage',
+  'image-url': 'noteInsertDescImageUrl',
+  widget: 'noteInsertDescWidget',
+  columns: 'noteInsertDescColumns',
+  'h1-block': 'noteInsertDescH1',
+  'h2-block': 'noteInsertDescH2',
+  'h3-block': 'noteInsertDescH3',
+  footnote: 'noteInsertDescFootnote',
+  list: 'noteInsertDescList',
+  ol: 'noteInsertDescOl',
+  task: 'noteInsertDescTask',
+  table: 'noteInsertDescTable',
+  code: 'noteInsertDescCode',
+  'display-math': 'noteInsertDescMath',
+  divider: 'noteInsertDescDivider',
+}
+
+function groupInsertItems(
+  items: NoteEditorTool[],
+): Array<{ group: NoteInsertGroup; items: NoteEditorTool[] }> {
+  return INSERT_GROUP_ORDER.map((group) => ({
+    group,
+    items: items.filter((tool) => (INSERT_GROUP_OF[tool.key] ?? 'block') === group),
+  })).filter((section) => section.items.length > 0)
+}
 
 /**
  * 行槛「+」：跟着空行的光标浮在左边，点开是块级插入菜单。
@@ -754,6 +840,8 @@ export function NoteGutter({
   onMenuChange,
   items,
   busy,
+  widgets,
+  onPickWidget,
 }: NoteGutterProps) {
   const { t } = useI18n()
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -762,6 +850,9 @@ export function NoteGutter({
   const promptRef = useRef<HTMLInputElement>(null)
   const [prompting, setPrompting] = useState<NoteEditorTool | null>(null)
   const [promptValue, setPromptValue] = useState('')
+  const [page, setPage] = useState<NoteInsertPage | null>(null)
+  /** 从二级页退回来时把焦点还给入口那张卡，键盘能接着走。 */
+  const returnFocusRef = useRef<string | null>(null)
   const [coords, setCoords] = useState<PopoverCoords | null>(null)
   const lastLineRef = useRef<SelectionAnchor | null>(null)
   const open = menu != null
@@ -776,6 +867,7 @@ export function NoteGutter({
     if (!open) {
       setPrompting(null)
       setPromptValue('')
+      setPage(null)
       return
     }
     const onDown = (event: MouseEvent) => {
@@ -814,7 +906,7 @@ export function NoteGutter({
     reposition()
     const frame = requestAnimationFrame(reposition)
     return () => cancelAnimationFrame(frame)
-  }, [open, shown, prompting, items.length, reposition])
+  }, [open, shown, prompting, page, items.length, reposition])
 
   useEffect(() => {
     if (!open) return
@@ -831,11 +923,20 @@ export function NoteGutter({
       promptRef.current?.focus()
       return
     }
+    if (page) return
+    const back = returnFocusRef.current
+    if (back) {
+      returnFocusRef.current = null
+      menuRef.current
+        ?.querySelector<HTMLButtonElement>(`.phantasi-note__menu-item[data-tool="${back}"]`)
+        ?.focus()
+      return
+    }
     if (menu !== 'keys') return
     menuRef.current
       ?.querySelector<HTMLButtonElement>('.phantasi-note__menu-item')
       ?.focus()
-  }, [menu, prompting])
+  }, [menu, prompting, page])
 
   // 锚点没了（切到预览、编辑器失焦）菜单不能还开着：否则 hold 会把空状态钉住。
   useEffect(() => {
@@ -851,10 +952,18 @@ export function NoteGutter({
     const next = event.relatedTarget as Node | null
     if (next && (wrapRef.current?.contains(next) || menuRef.current?.contains(next))) return
     // 用指针开的菜单焦点本来就在编辑器里，不按失焦算。
-    if (menu === 'keys' || prompting) onMenuChange(null)
+    if (menu === 'keys' || prompting || page) onMenuChange(null)
   }
 
   const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const search = menuRef.current?.querySelector<HTMLInputElement>('input[type="search"]')
+    // 搜索框里左右 / Home / End 是挪光标，只有上下交给卡片导航。
+    if (
+      event.target === search &&
+      !(event.key === 'ArrowDown' || event.key === 'ArrowUp')
+    ) {
+      return
+    }
     const buttons = [
       ...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
         '.phantasi-note__menu-item',
@@ -865,8 +974,35 @@ export function NoteGutter({
       event.preventDefault()
       buttons[(next + buttons.length) % buttons.length]?.focus()
     }
-    if (event.key === 'ArrowDown') go(index + 1)
-    else if (event.key === 'ArrowUp') go(index - 1)
+    // 双列卡片：上下按几何找最近的一行里横向最近的那张，组间分隔线不占格。
+    const vertical = (dir: 1 | -1) => {
+      const current = buttons[index]?.getBoundingClientRect()
+      if (!current) return go(0)
+      const cx = current.left + current.width / 2
+      let best = -1
+      let bestScore = Infinity
+      buttons.forEach((button, i) => {
+        if (i === index) return
+        const rect = button.getBoundingClientRect()
+        const dy = dir > 0 ? rect.top - current.bottom : current.top - rect.bottom
+        if (dy < -1) return
+        const score = dy * 1000 + Math.abs(rect.left + rect.width / 2 - cx)
+        if (score < bestScore) {
+          bestScore = score
+          best = i
+        }
+      })
+      if (best < 0 && dir < 0 && search) {
+        event.preventDefault()
+        search.focus()
+        return
+      }
+      go(best >= 0 ? best : dir > 0 ? 0 : buttons.length - 1)
+    }
+    if (event.key === 'ArrowDown') vertical(1)
+    else if (event.key === 'ArrowUp') vertical(-1)
+    else if (event.key === 'ArrowRight') go(index + 1)
+    else if (event.key === 'ArrowLeft') go(index - 1)
     else if (event.key === 'Home') go(0)
     else if (event.key === 'End') go(buttons.length - 1)
   }
@@ -914,33 +1050,73 @@ export function NoteGutter({
         ) : (
           <div
             ref={menuRef as RefObject<HTMLDivElement>}
-            className={menuClass}
+            className={`${menuClass} phantasi-note__menu--cards${page ? ' phantasi-note__menu--page' : ''}`}
             style={menuStyle}
             role="menu"
             aria-label={t.phantasi.noteInsert}
             onKeyDown={onMenuKeyDown}
             onBlur={closeIfFocusLeft}
           >
-            {items.map((tool) => (
-              <button
-                key={tool.key}
-                type="button"
-                role="menuitem"
-                className="phantasi-note__menu-item"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  if (tool.prompt && tool.runWith) {
-                    setPrompting(tool)
-                    return
-                  }
-                  onMenuChange(null)
-                  tool.run()
+            {page === 'widgets' ? (
+              <NoteWidgetPage
+                widgets={widgets}
+                onBack={() => {
+                  returnFocusRef.current = 'widget'
+                  setPage(null)
                 }}
-              >
-                <span className="phantasi-note__menu-icon">{tool.icon}</span>
-                <span>{tool.label}</span>
-              </button>
-            ))}
+                onPick={(type, size) => {
+                  onMenuChange(null)
+                  onPickWidget(type, size)
+                }}
+              />
+            ) : (
+              <>
+              {groupInsertItems(items).map((section) => (
+                <div key={section.group} className="phantasi-note__menu-group">
+                  {section.items.map((tool) => {
+                    const desc = INSERT_DESC[tool.key]
+                    const shortcut = INSERT_SHORTCUT[tool.key]
+                    return (
+                      <button
+                        key={tool.key}
+                        type="button"
+                        role="menuitem"
+                        data-tool={tool.key}
+                        className="phantasi-note__menu-item"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          if (tool.page) {
+                            tool.run()
+                            setPage(tool.page)
+                            return
+                          }
+                          if (tool.prompt && tool.runWith) {
+                            setPrompting(tool)
+                            return
+                          }
+                          onMenuChange(null)
+                          tool.run()
+                        }}
+                      >
+                        <span className="phantasi-note__menu-icon">{tool.icon}</span>
+                        <span className="phantasi-note__menu-text">
+                          <span className="phantasi-note__menu-title">
+                            <span className="phantasi-note__menu-label">{tool.label}</span>
+                            {shortcut ? (
+                              <kbd className="phantasi-note__menu-key">{shortcut}</kbd>
+                            ) : null}
+                          </span>
+                          {desc ? (
+                            <span className="phantasi-note__menu-desc">{t.phantasi[desc]}</span>
+                          ) : null}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+              </>
+            )}
           </div>
         ),
         document.body,

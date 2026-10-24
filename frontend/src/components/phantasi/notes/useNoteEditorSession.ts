@@ -148,7 +148,6 @@ export function useNoteEditorSession({
   const choosePane = (view: Pane) => { paneChosenRef.current = true; setPane(view) }
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [insertMenu, setInsertMenu] = useState<NoteInsertMenuState>(null)
-  const [widgetPickerOpen, setWidgetPickerOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkInitial, setLinkInitial] = useState('')
   const [blockFocus, setBlockFocus] = useState(false)
@@ -385,7 +384,6 @@ export function useNoteEditorSession({
     settingsOpen ||
     insertMenu != null ||
     linkOpen ||
-    widgetPickerOpen ||
     widgetSettingsOpen
 
   const {
@@ -402,7 +400,6 @@ export function useNoteEditorSession({
     insertMenu != null ||
       linkOpen ||
       blockFocus ||
-      widgetPickerOpen ||
       widgetSettingsOpen,
   )
   selectionRef.current = selectionAnchor
@@ -663,7 +660,6 @@ export function useNoteEditorSession({
     setCategoryNames,
     setSettingsOpen,
     setInsertMenu,
-    setWidgetPickerOpen,
     setWidgetSettingsOpen,
     setLinkOpen,
     setLinkInitial,
@@ -752,8 +748,6 @@ export function useNoteEditorSession({
     setSettingsOpen,
     insertMenu,
     setInsertMenu,
-    widgetPickerOpen,
-    setWidgetPickerOpen,
     linkOpen,
     linkInitial,
     setBlockFocus,

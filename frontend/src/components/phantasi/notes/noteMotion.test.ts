@@ -66,7 +66,7 @@ describe('笔记编辑器元素动效', () => {
     assert.match(chrome, /coords && !leaving \? 'is-ready'/)
     assert.match(chrome, /leaving \? 'is-leaving'/)
     assert.match(chrome, /if \(!open \|\| !shown\) return/)
-    assert.match(chrome, /\[open, shown, prompting, items\.length, reposition\]/)
+    assert.match(chrome, /\[open, shown, prompting, page, items\.length, reposition\]/)
     assert.match(noteCss, /@keyframes phantasi-note-menu-in/)
     assert.match(noteCss, /@keyframes phantasi-note-menu-out/)
     assert.match(noteCss, /\.phantasi-note__plus\.is-open[\s\S]*rotate\(45deg\)/)

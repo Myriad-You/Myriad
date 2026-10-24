@@ -1,27 +1,35 @@
+import type { KeyboardEvent } from 'react'
 import type { WidgetType } from '../../widgetGridTypes'
-import { FaSearch, FaTimes } from '@lib/icons'
-import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { LuChevronLeft as ChevronLeft, LuSearch as Search } from '@lib/icons'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import { widgetDisplayLabel, widgetSearchExtras } from '../../widgetLibraryModel'
 import { widgetTypeMatchesLibrarySearch } from '../../widgetLibrarySearch'
 import { normalizeNoteWidgetSize, NOTE_WIDGET_SIZES } from './noteLayout'
 
-interface NoteWidgetPickerProps {
-  open: boolean
+interface NoteWidgetPageProps {
   widgets: WidgetType[]
   onPick: (type: string, size: string) => void
-  onClose: () => void
+  onBack: () => void
 }
 
-export function NoteWidgetPicker({
-  open,
-  widgets,
-  onPick,
-  onClose,
-}: NoteWidgetPickerProps) {
+/** 小组件优先放它在笔记里能用的第一个尺寸，都不认就退回默认尺寸。 */
+function noteWidgetSize(widget: WidgetType): string {
+  return normalizeNoteWidgetSize(
+    widget.supportedSizes?.find((item) =>
+      (NOTE_WIDGET_SIZES as readonly string[]).includes(item),
+    ) ?? widget.defaultSize,
+  )
+}
+
+/**
+ * 「+」菜单的二级页：挑一个小组件。卡片沿用一级页的类名，方向键导航由外层菜单统一处理。
+ * 搜索框里回车放第一个结果，空着退格回一级页。
+ */
+export function NoteWidgetPage({ widgets, onPick, onBack }: NoteWidgetPageProps) {
   const { t } = useI18n()
   const [query, setQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
   const widgetsI18n = t.widgets as Record<string, unknown>
   const filtered = useMemo(
     () =>
@@ -37,67 +45,85 @@ export function NoteWidgetPicker({
   )
 
   useEffect(() => {
-    if (!open) setQuery('')
-  }, [open])
+    searchRef.current?.focus()
+  }, [])
 
-  if (!open) return null
+  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const first = filtered[0]
+      if (first) onPick(first.id, noteWidgetSize(first))
+    } else if (event.key === 'Backspace' && query === '') {
+      event.preventDefault()
+      onBack()
+    }
+  }
 
-  return createPortal(
-    <div className="phantasi-note__widget-picker-layer" onMouseDown={onClose}>
-      <div
-        className="phantasi-skin phantasi-note__widget-picker"
-        role="dialog"
-        aria-label={t.phantasi.noteWidgetPicker}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="phantasi-note__widget-picker-head">
-          <div className="phantasi-note__widget-picker-search">
-            <FaSearch size={12} aria-hidden />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t.phantasi.noteWidgetSearch}
-              aria-label={t.phantasi.noteWidgetSearch}
-              autoComplete="off"
-            />
-          </div>
-          <button
-            type="button"
-            className="phantasi-note__widget-picker-close"
-            onClick={onClose}
-            aria-label={t.phantasi.close}
-          >
-            <FaTimes size={12} />
-          </button>
-        </div>
-        <div className="phantasi-note__widget-picker-list">
-          {filtered.length === 0 ? (
-            <p className="phantasi-note__widget-picker-empty">{t.phantasi.noteWidgetEmpty}</p>
-          ) : (
-            filtered.map((widget) => {
-              const label = widgetDisplayLabel(widget, widgetsI18n)
-              const size = normalizeNoteWidgetSize(
-                widget.supportedSizes?.find((item) =>
-                  (NOTE_WIDGET_SIZES as readonly string[]).includes(item),
-                ) ?? widget.defaultSize,
-              )
-              return (
-                <button
-                  key={widget.id}
-                  type="button"
-                  className="phantasi-note__widget-picker-item"
-                  onClick={() => onPick(widget.id, size)}
-                >
-                  <span className="phantasi-note__widget-picker-name">{label}</span>
-                  <span className="phantasi-note__widget-picker-size">{size}</span>
-                </button>
-              )
-            })
-          )}
-        </div>
+  return (
+    <>
+      <div className="phantasi-note__menu-page-head">
+        <button
+          type="button"
+          className="phantasi-note__menu-back"
+          aria-label={t.phantasi.noteInsertBack}
+          title={t.phantasi.noteInsertBack}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onBack}
+        >
+          <ChevronLeft aria-hidden />
+        </button>
+        <span className="phantasi-note__menu-page-title">{t.phantasi.noteToolWidget}</span>
+        <span className="phantasi-note__menu-page-count">{filtered.length}</span>
       </div>
-    </div>,
-    document.body,
+      <label className="phantasi-note__menu-search">
+        <Search aria-hidden />
+        <input
+          ref={searchRef}
+          type="search"
+          value={query}
+          placeholder={t.phantasi.noteWidgetSearch}
+          aria-label={t.phantasi.noteWidgetSearch}
+          autoComplete="off"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={onSearchKeyDown}
+        />
+      </label>
+      {filtered.length === 0 ? (
+        <p className="phantasi-note__menu-empty">{t.phantasi.noteWidgetEmpty}</p>
+      ) : (
+        <div className="phantasi-note__menu-group">
+          {filtered.map((widget) => {
+            const label = widgetDisplayLabel(widget, widgetsI18n)
+            const size = noteWidgetSize(widget)
+            const desc =
+              widget.description?.trim() ||
+              (widget.isTappWidget
+                ? t.phantasi.noteWidgetSourceTapp
+                : t.phantasi.noteWidgetSourceBuiltin)
+            return (
+              <button
+                key={widget.id}
+                type="button"
+                role="menuitem"
+                className="phantasi-note__menu-item"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onPick(widget.id, size)}
+              >
+                <span className="phantasi-note__menu-icon phantasi-note__menu-icon--glyph" aria-hidden="true">
+                  {Array.from(label.trim())[0]?.toUpperCase() ?? '?'}
+                </span>
+                <span className="phantasi-note__menu-text">
+                  <span className="phantasi-note__menu-title">
+                    <span className="phantasi-note__menu-label">{label}</span>
+                    <kbd className="phantasi-note__menu-key">{size}</kbd>
+                  </span>
+                  <span className="phantasi-note__menu-desc">{desc}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </>
   )
 }
