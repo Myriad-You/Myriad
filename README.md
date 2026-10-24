@@ -76,6 +76,25 @@ Single-tenant. Public or private. PostgreSQL. UI: `zh-CN` · `zh-TW` · `en-US` 
 - **From portrait to motion**: the main portrait can be generated or uploaded; layers come from a PSD, or a layer-splitting service can split it for you. Blinking, mouth shapes and head and body sway all work on the layers.
 - **Expressions and gestures**: try them in the workbench; in conversation she picks her own. Some expressions draw symbols such as tears, notes or dizzy spirals.
 
+- **Turns are drawn, not computed**: at import an image-editing model redraws the same illustration with the head turned about 30° left, right, up and down; after layer decomposition each part's keyform is measured from those views. Playback is a deterministic mesh deformation with no inference. Method and measurements are in the technical report [*Drawn, Not Computed: Measuring Live2D-Style Turn Keyforms from Generated Views of a Single Anime Illustration*](https://zenodo.org/records/23598773).
+
+<details>
+<summary>Cite</summary>
+
+```bibtex
+@misc{wang_2026_23598773,
+  author    = {Wang, Mingen},
+  title     = {Drawn, Not Computed: Measuring Live2D-Style Turn Keyforms from Generated Views of a Single Anime Illustration},
+  month     = oct,
+  year      = 2026,
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.23598773},
+  url       = {https://doi.org/10.5281/zenodo.23598773},
+}
+```
+
+</details>
+
 ## Platform reports
 
 <p align="center">

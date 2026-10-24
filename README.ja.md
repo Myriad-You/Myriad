@@ -78,6 +78,25 @@
 - **立ち絵から動くまで**：メインの立ち絵は生成もアップロードもできます。レイヤーは PSD から、またはレイヤー分割サービスで自動で分けられます。まばたき、口の形、頭と体の揺れはレイヤーの上で動きます。
 - **表情と動作**：ワークベンチで試せて、会話中は彼女が自分で選びます。表情によっては涙、音符、ぐるぐるのような記号が描かれます。
 
+- **振り向きは「描いて」作る**：取り込み時に画像編集モデルで同じ立ち絵を、頭が左右上下にそれぞれ約 30° 向いた姿に描き直させ、レイヤー分解したうえで部位ごとにキーフォームを測ります。再生は決定的なメッシュ変形で、推論はしません。手法と計測は技術報告 [*Drawn, Not Computed*](https://zenodo.org/records/23598773) にまとめています。
+
+<details>
+<summary>引用</summary>
+
+```bibtex
+@misc{wang_2026_23598773,
+  author    = {Wang, Mingen},
+  title     = {Drawn, Not Computed: Measuring Live2D-Style Turn Keyforms from Generated Views of a Single Anime Illustration},
+  month     = oct,
+  year      = 2026,
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.23598773},
+  url       = {https://doi.org/10.5281/zenodo.23598773},
+}
+```
+
+</details>
+
 ## プラットフォームレポート
 
 <p align="center">
