@@ -183,7 +183,8 @@ pub fn nav_island_html(
         if item.module.as_deref().is_some_and(|module| !shown(module)) {
             continue;
         }
-        // 选中的底色和小圆点画在单独一块上：换页时只有它从主站原来的条目滑过来，图标不动。
+        // 选中的底色和小圆点画在单独一块上：换页时只有它从主站原来的条目滑过来。
+        // 图标也各有自己的名字，叠在底色上面，底色滑过时不会把它们盖住。
         let (current, mark) = if item.id == BLOG_ITEM {
             (
                 " aria-current=\"page\"",
@@ -197,7 +198,7 @@ pub fn nav_island_html(
             escape_attr(&item.path),
             escape_attr(&text(&item.label)),
             escape_attr(&text(&item.tip)),
-            icon_svg(&item.icon),
+            icon_svg(&item.id, &item.icon),
         ));
     }
     format!(
@@ -207,7 +208,8 @@ pub fn nav_island_html(
     )
 }
 
-fn icon_svg(icon: &NavIcon) -> String {
+/// 图标的换页名字和主站 `NavigationIsland` 给的一样，两边同一个图标原地交接。
+fn icon_svg(id: &str, icon: &NavIcon) -> String {
     let transform = icon
         .transform
         .as_deref()
@@ -219,8 +221,9 @@ fn icon_svg(icon: &NavIcon) -> String {
         .map(|d| format!("<path d=\"{}\"/>", escape_attr(d)))
         .collect();
     format!(
-        "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" aria-hidden=\"true\" focusable=\"false\">\
+        "<svg class=\"myriad-nav__icon\" style=\"view-transition-name: myriad-nav-icon-{}\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" aria-hidden=\"true\" focusable=\"false\">\
 <g stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"{}\"{transform}>{paths}</g></svg>",
+        escape_attr(id),
         icon.stroke_width
     )
 }
@@ -325,6 +328,9 @@ mod tests {
         assert!(html.contains("aria-label=\"[mainNavigation]\""));
         assert_eq!(html.matches("aria-current").count(), 1);
         assert_eq!(html.matches("myriad-nav__mark").count(), 1);
+        // 图标的换页名字和主站 NavigationIsland 给的一样，按条目 id 取。
+        assert!(html.contains("view-transition-name: myriad-nav-icon-main\""));
+        assert!(html.contains("view-transition-name: myriad-nav-icon-phantasi\""));
     }
 
     #[test]

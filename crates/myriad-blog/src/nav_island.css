@@ -263,6 +263,8 @@
  * 主站和博客之间的整页切换，博客这一半；主站那一半在 frontend/src/styles/site-transition.css。
  * 动画由新页面这一边写：从主站进来时，主站往后退、淡出，博客正文像一页纸从下面升起来，
  * 导航岛留在原处，选中的底色从原来的条目滑到博客上。博客里翻页只把正文淡入淡出。
+ * 图标各有名字（myriad-nav-icon-<条目>，归在 myriad-nav-icon 这一类），叠在底色上面：
+ * 底色从图标底下滑过，不会一路把经过的图标盖住。
  */
 @view-transition {
   navigation: auto;
@@ -286,8 +288,39 @@ body {
   view-transition-name: myriad-nav-current;
 }
 
-::view-transition-group(myriad-nav),
+.myriad-nav__icon {
+  view-transition-class: myriad-nav-icon;
+}
+
+/*
+ * 拍旧页的那一刻（换页开始时）收起悬停提示和放大：不然提示气泡和放大的条目会定格在
+ * 换页画面里，回主站时一直挂到主站画出来。悬停的底色留着，算是按下去的反馈。
+ */
+:root:active-view-transition .myriad-nav__item {
+  transform: none;
+  transition: none;
+}
+
+:root:active-view-transition .myriad-nav__item::after {
+  opacity: 0;
+  transition: none;
+}
+
+/*
+ * 换页画面里的各块按页面上的绘制顺序叠：选中底色在哪一项里，就压在它前面那些条目的图标上。
+ * 显式排好：导航岛在下，底色在中间，图标总在最上面。
+ */
 ::view-transition-group(myriad-nav-current) {
+  z-index: 1;
+}
+
+::view-transition-group(*.myriad-nav-icon) {
+  z-index: 2;
+}
+
+::view-transition-group(myriad-nav),
+::view-transition-group(myriad-nav-current),
+::view-transition-group(*.myriad-nav-icon) {
   animation-duration: 460ms;
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -323,10 +356,10 @@ body {
   animation-duration: 320ms;
 }
 
+/* 不加模糊：对整屏的截图做模糊是整个换页里最贵的一步，低端手机上会掉帧。 */
 @keyframes myriad-recede {
   to {
     opacity: 0;
-    filter: blur(4px);
     transform: scale(0.96);
   }
 }

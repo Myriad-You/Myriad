@@ -324,6 +324,25 @@ function setWallpaperAwaiting(active: boolean) {
   bg.classList.toggle('wallpaper-awaiting', active)
 }
 
+function isPrerendering(): boolean {
+  return (document as Document & { prerendering?: boolean }).prerendering === true
+}
+
+/**
+ * 后台预渲染（从博客悬停到回主站的链接上）时浏览器不出帧，requestAnimationFrame 不跑：
+ * 等两帧再淡入的壁纸会一直藏着，切过去时换页动效拍到的主站就是一片灰底。这时直接显示、
+ * 不放淡入，切过去的第一帧就有壁纸，淡入交给换页动效；切过去之后恢复平时的淡入。
+ */
+function revealWallpaperWhilePrerendering(wallpaperEl: HTMLElement): void {
+  wallpaperEl.style.transition = 'none'
+  wallpaperEl.classList.add('wallpaper-visible')
+  document.addEventListener(
+    'prerenderingchange',
+    () => requestAnimationFrame(() => { wallpaperEl.style.transition = '' }),
+    { once: true },
+  )
+}
+
 async function applyWallpaperToDOM(
   imageUrl: string,
   blur: number,
@@ -402,10 +421,14 @@ async function applyWallpaperToDOM(
 
     wallpaperState.updateState(imageUrl, blur)
 
-    // 等两帧再淡入，保证 background-image 已提交绘制。
-    await new Promise((resolve) => requestAnimationFrame(resolve))
-    await new Promise((resolve) => requestAnimationFrame(resolve))
-    wallpaperEl.classList.add('wallpaper-visible')
+    if (isPrerendering()) {
+      revealWallpaperWhilePrerendering(wallpaperEl)
+    } else {
+      // 等两帧再淡入，保证 background-image 已提交绘制。
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      wallpaperEl.classList.add('wallpaper-visible')
+    }
     setWallpaperAwaiting(false)
 
     const appliedUrl = extractBackgroundUrl(WALLPAPER_ELEMENT_ID)

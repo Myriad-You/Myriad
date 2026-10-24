@@ -275,7 +275,12 @@ const NavIslandTooltip = memo(
           }),
     }
 
-    return createPortal(<div style={style}>{tooltip.text}</div>, document.body)
+    return createPortal(
+      <div className="nav-island-tooltip" style={style}>
+        {tooltip.text}
+      </div>,
+      document.body,
+    )
   },
 )
 
@@ -858,7 +863,15 @@ export function NavigationIsland() {
       const items: PrimaryNavItem[] = NAV_ISLAND_ITEMS.map((item) => ({
         id: item.id,
         path: item.path,
-        icon: <NavIslandIcon icon={item.icon} className="w-5 h-5" />,
+        // 换页名字和博客页上的同一个图标一样（styles/site-transition.css）：去博客、回主站时原地交接，
+        // 叠在滑动的选中底色上面。
+        icon: (
+          <NavIslandIcon
+            icon={item.icon}
+            className="w-5 h-5 nav-item__icon"
+            style={{ viewTransitionName: `myriad-nav-icon-${item.id}` }}
+          />
+        ),
         tooltip: t.nav[item.tip],
         ariaLabel: t.nav[item.label],
         moduleKey: item.module ?? undefined,

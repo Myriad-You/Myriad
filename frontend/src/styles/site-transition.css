@@ -6,7 +6,8 @@
  *   myriad-nav-current  选中项的底色，从原来的条目滑到新的条目
  *   myriad-site         主站的内容
  *   myriad-blog         博客的正文
- * 动画由新页面这一边写，所以这里只管「从博客回到主站」。
+ *   myriad-nav-icon-*   导航岛上的每个图标（归在 myriad-nav-icon 这一类），叠在选中底色上面
+ * 动画由新页面这一边写，所以这里主要管「从博客回到主站」；去博客时只在拍旧页之前收拾一下。
  * 内联在文档头里：新页面第一次渲染时就得在。
  */
 @view-transition {
@@ -40,20 +41,83 @@
 }
 
 /*
+ * 主条目的图标各有名字（components/NavigationIsland.tsx），和博客页上同一个图标原地交接；
+ * 选中底色从它们底下滑过，不会把经过的图标盖住。
+ */
+.nav-item__icon {
+  view-transition-class: myriad-nav-icon;
+}
+
+/*
+ * 去博客、拍旧页之前（utils/siteTransitionScript.ts 打上 to-blog）：悬停提示和放大不要定格在
+ * 换页画面里；主站自己的选中底色和圆点也收起来，只留博客那块从这里滑出去，不拖一道残影。
+ * 这一页随即离开，不用还原。
+ */
+:root.to-blog .nav-island-tooltip {
+  opacity: 0 !important;
+  transition: none !important;
+}
+
+:root.to-blog .nav-item {
+  transform: none;
+  transition: none;
+}
+
+:root.to-blog [aria-current='page'].nav-item {
+  background: transparent;
+  box-shadow: none;
+}
+
+:root.to-blog [aria-current='page'].nav-item::after {
+  opacity: 0;
+}
+
+/*
+ * 换页画面里的各块按页面上的绘制顺序叠：选中底色在哪一项里，就压在它前面那些条目的图标上。
+ * 显式排好：导航岛在下，底色在中间，图标总在最上面。
+ */
+::view-transition-group(myriad-nav-current) {
+  z-index: 1;
+}
+
+::view-transition-group(*.myriad-nav-icon) {
+  z-index: 2;
+}
+
+/* 时长和曲线照博客那一半，两个方向一样快。 */
+::view-transition-group(myriad-nav),
+::view-transition-group(myriad-nav-current),
+::view-transition-group(*.myriad-nav-icon) {
+  animation-duration: 460ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * 主站已经在后台预渲染好时，两边的导航岛都在：博客的底色一边滑向主站选中的那一项一边淡掉，
+ * 主站那一项的底色随导航岛一起淡入，接成一块。主站的内容从稍远处浮上来，和去博客时主站
+ * 往后退那一下对称。
+ */
+::view-transition-new(myriad-site):only-child {
+  animation: myriad-emerge 440ms cubic-bezier(0.22, 1, 0.36, 1) 60ms both;
+}
+
+/*
  * 主站刚打开时多半只有加载页，导航岛还没画出来：博客正文往下沉、淡出，博客的导航岛留在原处，
  * 一直留到主站淡入完（utils/pageLoader.ts 结束过渡），底下同一个位置换成主站自己的导航岛。
- * 选中的底色淡掉，交接后主站那一项自己亮。保留时长只是兜底，正常由脚本提前结束。
+ * 选中的底色也留着，由 utils/siteTransitionScript.ts 滑到主站要选中的那一项上，交接后
+ * 底下正好是主站那一项自己的底色。保留时长只是兜底，正常由脚本提前结束。
  */
 ::view-transition-old(myriad-blog):only-child {
   animation: myriad-sink 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
-::view-transition-old(myriad-nav):only-child {
+::view-transition-old(myriad-nav):only-child,
+::view-transition-old(*.myriad-nav-icon):only-child {
   animation: myriad-hold 5s linear both;
 }
 
 ::view-transition-old(myriad-nav-current):only-child {
-  animation: myriad-fade-out 220ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: myriad-hold 5s linear both;
 }
 
 /* 过渡里只剩一个干净的底，主站从上面淡入；转圈和站名留给直接打开主站的时候。 */
@@ -78,6 +142,13 @@ html.from-blog .loader-brand {
   to {
     opacity: 0;
     transform: translateY(28px) scale(0.985);
+  }
+}
+
+@keyframes myriad-emerge {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
   }
 }
 

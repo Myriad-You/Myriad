@@ -155,6 +155,13 @@ export function getCurrentAnimationConfig(): AnimationConfig {
 function syncPerfModeToDocument(level: AnimationLevel): void {
   if (typeof document === 'undefined') return
   document.documentElement.dataset.perfMode = level
+  // 从博客回主站的换页在主站模块加载前就要定放不放（utils/siteTransitionScript.ts），记一份给它读。
+  try {
+    if (localStorage.getItem('myriad-perf-mode') !== level)
+      localStorage.setItem('myriad-perf-mode', level)
+  } catch {
+    /* ignore */
+  }
 }
 
 // 模块加载立刻写 data-perf-mode，避免 useEffect 前按 standard 画毛玻璃。

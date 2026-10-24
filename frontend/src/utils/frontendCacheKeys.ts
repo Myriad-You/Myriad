@@ -18,6 +18,8 @@ export const PRESERVE_LOCAL_KEYS = new Set([
 ])
 
 export const KNOWN_LOCAL_CACHE_KEYS = [
+  // 当前的动画档位（hooks/useAnimationLevel.ts 每次加载都重写），给换页的内联脚本读。
+  'myriad-perf-mode',
   'myriad_profile_display_cache',
   'myriad_profile_display_cache_time',
   'myriad_wallpaper_color_cache_v5',
