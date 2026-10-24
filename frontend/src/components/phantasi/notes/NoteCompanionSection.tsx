@@ -4,7 +4,6 @@ import {
   LuHeadphones as Headphones,
   LuMessageSquare as MessageSquare,
   LuRefreshCw as RefreshCw,
-  LuSparkles as Sparkles,
 } from '@lib/icons'
 import { useEffect, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -15,10 +14,10 @@ import { NoteButton } from './NoteControls'
 type Kind = 'annotations' | 'podcast'
 
 /**
- * 已发布笔记的 AI 伴读：注释和播客是两样互不相干的东西，各占一张卡。
- * 卡上依次是：它是什么、现在有没有、能做什么。没有的卡是虚线空位，等着被填上；
- * 生成中整张卡在流光，失败写在出错的那张卡里，不连累另一张。
- * 生成后博客重建，文章页才挂上伴读岛。
+ * 已发布笔记的 AI 伴读：注释和播客各占一行，和系统设置里的列表一个样子。
+ * 一行三段：图标（有了就是实心墨色）、名字和现状、右边一个动作。
+ * 还没有的给「生成」，有了退成一个小小的刷新；生成中行底走一条细线，
+ * 失败就写在那一行的说明位上，不连累另一行。生成后博客重建，文章页才挂上伴读岛。
  */
 export function NoteCompanionSection({ itemId }: { itemId: number }) {
   const { t, format } = useI18n()
@@ -83,44 +82,58 @@ export function NoteCompanionSection({ itemId }: { itemId: number }) {
 
   return (
     <section className="note-companion" aria-labelledby="note-companion-title">
-      <header className="note-companion__head">
-        <span className="note-companion__mark" aria-hidden="true"><Sparkles /></span>
-        <h3 id="note-companion-title" className="note-companion__title">{t.studio.companionTitle}</h3>
-      </header>
-      <p className="note-field__hint">{t.studio.companionHint}</p>
+      <h3 id="note-companion-title" className="note-section__title">{t.studio.companionTitle}</h3>
       {loadError ? (
         <p className="note-companion__load-error" role="alert">{loadError}</p>
       ) : (
-        <div className="note-companion__grid">
+        <ul className="note-companion__list">
           {cards.map((card) => {
             const working = busy === card.kind
+            const failed = errors[card.kind]
             const state = !status ? 'is-loading' : working ? 'is-busy' : card.has ? 'is-ready' : 'is-empty'
             return (
-              <article key={card.kind} className={`note-companion__card ${state}`} aria-busy={!status || working || undefined}>
+              <li key={card.kind} className={`note-companion__row ${state}`} aria-busy={!status || working || undefined}>
                 <span className="note-companion__icon" aria-hidden="true">{card.icon}</span>
-                <strong className="note-companion__label">{card.label}</strong>
-                <span key={card.value} className="note-companion__value">
-                  {!status ? '\u00A0' : working ? t.studio.companionGenerating : card.value}
+                <span className="note-companion__text">
+                  <span className="note-companion__label">
+                    {card.label}
+                    {status && !working ? (
+                      <span key={card.value} className="note-companion__value">{card.value}</span>
+                    ) : null}
+                  </span>
+                  <span className={`note-companion__desc${failed ? ' is-error' : ''}`} role={failed ? 'alert' : undefined}>
+                    {failed || (working ? t.studio.companionGenerating : card.desc)}
+                  </span>
                 </span>
-                <span className="note-companion__desc">{card.desc}</span>
-                {errors[card.kind] ? (
-                  <span className="note-companion__error" role="alert">{errors[card.kind]}</span>
-                ) : null}
-                <NoteButton
-                  variant={card.has ? 'quiet' : 'solid'}
-                  className="note-companion__action"
-                  icon={card.has ? <RefreshCw /> : <Sparkles />}
-                  loading={working}
-                  disabled={!status || busy != null}
-                  onClick={() => void generate(card.kind)}
-                >
-                  {card.has ? t.studio.companionRegenerate : t.studio.companionGenerate}
-                </NoteButton>
-              </article>
+                {card.has ? (
+                  <NoteButton
+                    variant="quiet"
+                    className="note-companion__action"
+                    icon={<RefreshCw />}
+                    loading={working}
+                    disabled={!status || busy != null}
+                    onClick={() => void generate(card.kind)}
+                    aria-label={`${t.studio.companionRegenerate} · ${card.label}`}
+                    title={t.studio.companionRegenerate}
+                  />
+                ) : (
+                  <NoteButton
+                    variant="outline"
+                    className="note-companion__action"
+                    loading={working}
+                    disabled={!status || busy != null}
+                    onClick={() => void generate(card.kind)}
+                    aria-label={`${t.studio.companionGenerate} · ${card.label}`}
+                  >
+                    {t.studio.companionGenerate}
+                  </NoteButton>
+                )}
+              </li>
             )
           })}
-        </div>
+        </ul>
       )}
+      <p className="note-field__hint">{t.studio.companionHint}</p>
     </section>
   )
 }
