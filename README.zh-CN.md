@@ -78,6 +78,25 @@
 - **从立绘到会动**：主立绘可以生成也可以上传；分层来自 PSD，也可以交给拆层服务自动拆。眨眼、口型、头身摆动都在分层上做。
 - **表情和动作**：工作台里能直接试，聊天时她自己挑；有些表情会画上泪滴、音符、晕眩圈这样的符号。
 
+- **转头是「画」出来的**：导入时让图像编辑模型把同一张立绘重画成头向左右上下各转约 30° 的样子，拆层后逐个部件量出关键形；播放只是确定性的网格变形，不做推理。做法和测量见技术报告 [*Drawn, Not Computed*](https://zenodo.org/records/23598773)。
+
+<details>
+<summary>引用</summary>
+
+```bibtex
+@misc{wang_2026_23598773,
+  author    = {Wang, Mingen},
+  title     = {Drawn, Not Computed: Measuring Live2D-Style Turn Keyforms from Generated Views of a Single Anime Illustration},
+  month     = oct,
+  year      = 2026,
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.23598773},
+  url       = {https://doi.org/10.5281/zenodo.23598773},
+}
+```
+
+</details>
+
 ## 平台报告
 
 <p align="center">
