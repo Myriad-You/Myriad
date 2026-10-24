@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import * as phantasiApi from '../../services/phantasiApi'
-import { userFacingError } from '../../utils/userFacingError'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import { useFitFrameHeight } from './embedFrame'
 import './embed.css'
 
@@ -41,7 +41,7 @@ export function EmbedFriendApply() {
       })
       setDone(true)
     } catch (err) {
-      setError(userFacingError(err, copy.submitFailed))
+      setError(await formatUserFacingError(err, copy.submitFailed))
     } finally {
       setBusy(false)
     }

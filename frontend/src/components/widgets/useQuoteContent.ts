@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useVisibilityInterval } from '../../hooks/animation'
 import { clearQuoteContentCache, getRandomQuote, HITOKOTO_CONFIG_UPDATED_EVENT } from '../../utils/dynamicContent'
-import { userFacingError } from '../../utils/userFacingError'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 
 const CACHE_KEY = 'quote_data_cache'
 const CACHE_DURATION = 60 * 60 * 1000
@@ -64,9 +64,9 @@ export function useQuoteContent(isPreview = false) {
     } catch (error) {
       if (request.signal.aborted) return
       console.error(`${t.quoteWidget.fetchQuoteFailed}:`, error)
-      setFetchError(
-        userFacingError(error, t.quoteWidget.fetchQuoteFailed),
-      )
+      // 错误码表只在出错时才拉，不压在每张卡片的首屏上（博客里每个小组件各启动一次）。
+      const message = await formatUserFacingError(error, t.quoteWidget.fetchQuoteFailed)
+      if (!request.signal.aborted) setFetchError(message)
     } finally {
       if (!request.signal.aborted) setLoading(false)
     }

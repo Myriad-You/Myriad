@@ -4,8 +4,8 @@ import { useParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import * as phantasiApi from '../../services/phantasiApi'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import { articleReturnPath, loginHref } from '../../utils/safeReturnPath'
-import { userFacingError } from '../../utils/userFacingError'
 import { useFitFrameHeight } from './embedFrame'
 import { embedHost } from './embedHost'
 import { publicThread } from './publicComments'
@@ -59,9 +59,10 @@ export function EmbedComments() {
     const controller = new AbortController()
     setLoading(true)
     setError('')
-    void load(controller.signal).catch((err: unknown) => {
+    void load(controller.signal).catch(async (err: unknown) => {
       if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return
-      setError(userFacingError(err, copy.loadFailed))
+      const message = await formatUserFacingError(err, copy.loadFailed)
+      if (!controller.signal.aborted) setError(message)
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false)
     })
@@ -92,7 +93,7 @@ export function EmbedComments() {
       if (created?.is_public) setComments((rows) => [...rows, created])
       setDraft('')
     } catch (err) {
-      setError(userFacingError(err, copy.sendFailed))
+      setError(await formatUserFacingError(err, copy.sendFailed))
     } finally {
       setBusy(false)
     }
@@ -118,7 +119,7 @@ export function EmbedComments() {
       setReplyTo(null)
       setOpenReplies(parentId)
     } catch (err) {
-      setError(userFacingError(err, copy.sendFailed))
+      setError(await formatUserFacingError(err, copy.sendFailed))
     } finally {
       setBusy(false)
     }
@@ -135,7 +136,7 @@ export function EmbedComments() {
       const response = await phantasiApi.getCommentReplies(commentId)
       setReplies((current) => ({ ...current, [commentId]: publicThread(response.replies ?? []) }))
     } catch (err) {
-      setError(userFacingError(err, copy.loadFailed))
+      setError(await formatUserFacingError(err, copy.loadFailed))
     }
   }
 
@@ -146,7 +147,7 @@ export function EmbedComments() {
       await phantasiApi.deleteComment(commentId)
       setComments((rows) => rows.filter((row) => row.id !== commentId))
     } catch (err) {
-      setError(userFacingError(err, copy.sendFailed))
+      setError(await formatUserFacingError(err, copy.sendFailed))
     } finally {
       setBusy(false)
     }

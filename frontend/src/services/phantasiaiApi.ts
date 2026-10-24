@@ -3,8 +3,10 @@ import type { NoteAiResult } from '../components/phantasi/notes/useNoteAiEdit'
 import { currentCopy } from '../i18n/localeCopy'
 import { getDefaultLocale } from '../i18n/locales'
 import { getCSRFToken } from '../utils/csrf'
+// 直接从源头取，不经 userFacingError：那边带着整张错误码表，评论、伴读这些嵌入页只在出错时才要它。
+import { httpStatusMessage } from '../utils/httpStatus'
 import { phantasiSubject } from '../utils/phantasiSubject'
-import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
+import { isUselessErrorText } from '../utils/uselessErrorText'
 import { ApiError, apiService } from './api'
 
 export type AnnotationType =

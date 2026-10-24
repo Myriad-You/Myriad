@@ -10,7 +10,7 @@ import {
   getVoiceList,
   saveTTSSettings,
 } from '../../services/speechApi'
-import { userFacingError } from '../../utils/userFacingError'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 
 export type PodcastState = 'stopped' | 'playing' | 'paused'
 
@@ -166,7 +166,8 @@ export function useCompanionPodcast({ itemId, sourceId, signedIn, copy }: Option
       saveTTSSettings({ engine: 'cloud' })
       return true
     } catch (error) {
-      if (mine === turn.current) setNotice(userFacingError(error, copyRef.current.audioFailed))
+      const message = await formatUserFacingError(error, copyRef.current.audioFailed)
+      if (mine === turn.current) setNotice(message)
       return false
     } finally {
       if (mine === turn.current) setAudioLoading(false)

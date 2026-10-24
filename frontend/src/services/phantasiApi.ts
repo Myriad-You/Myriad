@@ -25,11 +25,13 @@ import type {
 } from '../types/phantasi'
 import type { DataTopic } from './dataChangeEvents'
 import { API_URL } from '../config'
+// 直接从源头取，不经 userFacingError：那边带着整张错误码表，评论、伴读这些嵌入页只在出错时才要它。
+import { httpStatusMessage } from '../utils/httpStatus'
 import { KeyedWrites } from '../utils/keyedWrites'
 import { phantasiItemState } from '../utils/phantasiItemState'
 import { phantasiSubject } from '../utils/phantasiSubject'
 import { requestCache } from '../utils/requestCache'
-import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
+import { isUselessErrorText } from '../utils/uselessErrorText'
 import { ApiError, apiService, parseApiErrorBody } from './api'
 import { announceDataChange, subscribeDataChanges } from './dataChangeEvents'
 import {

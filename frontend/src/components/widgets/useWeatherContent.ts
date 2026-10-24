@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useVisibilityInterval } from '../../hooks/animation'
 import { getWeatherInfo, normalizeWeatherIconAssets, WEATHER_ICON_ASSETS } from '../../utils/dynamicContent'
-import { userFacingError } from '../../utils/userFacingError'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 
 const CACHE_KEY = 'weather_data_cache'
 const CACHE_DURATION = 30 * 60 * 1000
@@ -50,7 +50,9 @@ export function useWeatherContent(isPreview = false) {
       } catch (error) {
         if (!current()) return
         console.error(`${copy.current.fetchWeatherFailed}:`, error)
-        setFetchError(userFacingError(error, copy.current.fetchWeatherFailed))
+        // 错误码表只在出错时才拉，不压在每张卡片的首屏上（博客里每个小组件各启动一次）。
+        const message = await formatUserFacingError(error, copy.current.fetchWeatherFailed)
+        if (current()) setFetchError(message)
       } finally {
         if (current()) setLoading(false)
       }

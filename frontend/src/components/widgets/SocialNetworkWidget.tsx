@@ -39,13 +39,13 @@ import { armWidgetSettingsHost } from '../../lib/widgetSettingsHost'
 import { apiService } from '../../services/api'
 import { saveDashboardConfig } from '../../services/dashboardConfigApi'
 import { emitAppEvent } from '../../utils/appEvents'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import {
   getPublicConfigDeduped,
   getUIConfigDeduped,
 } from '../../utils/requestDedup'
 import { useThemeMode } from '../../utils/themeSubscriber'
 import { showError } from '../../utils/toastManager'
-import { userFacingError } from '../../utils/userFacingError'
 import { Spinner } from '../Spinner'
 import { parseCustomPlatforms } from './parseCustomPlatforms'
 import { GlowBackground } from './shared/GlowBackground'
@@ -854,7 +854,7 @@ const InfoTooltip = memo(
         await navigator.clipboard.writeText(textContent)
       } catch (e) {
         console.error('Failed to copy:', e)
-        showError(userFacingError(e, currentCopy().errors.clipboardFailed))
+        showError(await formatUserFacingError(e, currentCopy().errors.clipboardFailed))
       }
     }, [textContent])
 
@@ -1097,7 +1097,7 @@ const GlobalSettingsModal = memo(() => {
     } catch (error) {
       console.error('Failed to create custom platform:', error)
       showError(
-        userFacingError(error, t.socialNetworkWidget.createCustomPlatformFailed),
+        await formatUserFacingError(error, t.socialNetworkWidget.createCustomPlatformFailed),
       )
     } finally {
       setIsGeneratingIcon(false)
@@ -1111,7 +1111,7 @@ const GlobalSettingsModal = memo(() => {
           await removeCustomPlatform(platformId)
         } catch (error) {
           showError(
-            userFacingError(
+            await formatUserFacingError(
               error,
               t.socialNetworkWidget.deleteCustomPlatformFailed,
             ),
@@ -1494,7 +1494,7 @@ export const SocialNetworkWidget = memo(
         } catch (err) {
           console.error('Failed to copy:', err)
           showError(
-            userFacingError(err, currentCopy().errors.clipboardFailed),
+            await formatUserFacingError(err, currentCopy().errors.clipboardFailed),
           )
         }
         return

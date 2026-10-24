@@ -29,7 +29,7 @@ import {
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
 import { getTappIconStyle } from '../../tapp/utils/tappColors'
 import { tappRunPath } from '../../tapp/utils/tappPaths'
-import { userFacingError } from '../../utils/userFacingError'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import { Spinner } from '../Spinner'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
@@ -265,10 +265,9 @@ const GlobalSettingsModal = memo(() => {
         if (cancelled) return
         setTapps(sortTappsByRecent(list, recent))
       } catch (error) {
-        if (!cancelled) {
-          setTapps([])
-          setLoadError(userFacingError(error, tw.loadFailed))
-        }
+        if (!cancelled) setTapps([])
+        const message = await formatUserFacingError(error, tw.loadFailed)
+        if (!cancelled) setLoadError(message)
       } finally {
         if (!cancelled) setLoading(false)
       }

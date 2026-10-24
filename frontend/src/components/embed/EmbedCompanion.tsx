@@ -13,7 +13,7 @@ import { useParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import * as phantasiaiApi from '../../services/phantasiaiApi'
-import { userFacingError } from '../../utils/userFacingError'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import { DocumentReady } from '../DocumentReady'
 import companionCss from './companion.css?inline'
 import { companionHost, connectArticle, findCompanionPage } from './companionBridge'
@@ -204,7 +204,8 @@ export function EmbedCompanion() {
         if (notes) setAnnotations(notes.annotations ?? [])
         if (script) setShow(script)
       } catch (err) {
-        if (!signal.aborted) setError(userFacingError(err, copyRef.current.loadCompanionFailed))
+        const message = await formatUserFacingError(err, copyRef.current.loadCompanionFailed)
+        if (!signal.aborted) setError(message)
       } finally {
         if (!signal.aborted) setLoading(false)
       }
@@ -259,7 +260,7 @@ export function EmbedCompanion() {
         setShow(response)
       }
     } catch (err) {
-      setError(userFacingError(err, copy.generateFailed))
+      setError(await formatUserFacingError(err, copy.generateFailed))
     } finally {
       generatingRef.current = false
       setBusy(null)

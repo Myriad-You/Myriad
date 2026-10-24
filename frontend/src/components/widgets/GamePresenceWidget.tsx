@@ -11,8 +11,8 @@ import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { armWidgetSettingsHost } from '../../lib/widgetSettingsHost'
 import { ApiError, apiService } from '../../services/api'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import { useThemeMode } from '../../utils/themeSubscriber'
-import { userFacingError } from '../../utils/userFacingError'
 import {
   sanitizeWidgetFontUrl,
   uploadWidgetFont,
@@ -252,7 +252,7 @@ const GamePresenceSettingsModal = memo(() => {
       const url = await uploadWidgetFont(file)
       setDraftFontUrl(url)
     } catch (error) {
-      setFontError(userFacingError(error, tw.customFontFailed))
+      setFontError(await formatUserFacingError(error, tw.customFontFailed))
     } finally {
       setFontBusy(false)
       if (fontInputRef.current) fontInputRef.current.value = ''
@@ -561,7 +561,9 @@ const GamePresenceWidget = memo(
           if (isInitial) setLoading(false)
           if (!hasData) {
             setData(null)
-            setError(userFacingError(error, tw.fetchFailed))
+            const message = await formatUserFacingError(error, tw.fetchFailed)
+            if (cancelled) return
+            setError(message)
             scheduleRetry()
           }
         }

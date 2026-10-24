@@ -8,8 +8,8 @@ import { currentCopy } from '../i18n/localeCopy'
 import { withAiTimeoutSignal } from '../utils/aiRequestTimeout.mjs'
 import { isKnownGuest } from '../utils/authState'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
+import { formatUserFacingError } from '../utils/formatUserFacingError'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
-import { userFacingError } from '../utils/userFacingError'
 import { ApiError, parseApiErrorBody } from './api'
 
 function speechHttpError(
@@ -607,7 +607,7 @@ export class CloudPodcastPlayer {
       const response = await this.warmPlaybackWindow(0)
       controller.signal.throwIfAborted()
       if (!this.audioElements.size) {
-        throw new Error(userFacingError(response.error || response.errors?.[0]?.error, currentCopy().phantasi.generatePodcastFailed))
+        throw new Error(await formatUserFacingError(response.error || response.errors?.[0]?.error, currentCopy().phantasi.generatePodcastFailed))
       }
 
       this.isLoading = false
@@ -890,8 +890,11 @@ export function saveTTSSettings(settings: Partial<TTSSettings>) {
     localStorage.setItem('phantasiai_tts_settings', JSON.stringify(merged))
   } catch (e) {
     console.warn('[TTS] Failed to save settings:', e)
-    void import('../utils/toastManager').then(({ showError }) => {
-      showError(userFacingError(e, currentCopy().errors.ttsSettingsSaveFailed))
+    void Promise.all([
+      import('../utils/toastManager'),
+      formatUserFacingError(e, currentCopy().errors.ttsSettingsSaveFailed),
+    ]).then(([{ showError }, message]) => {
+      showError(message)
     })
   }
 }
