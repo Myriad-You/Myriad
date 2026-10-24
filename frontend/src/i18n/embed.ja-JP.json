@@ -76,5 +76,6 @@
   "fontSize": "文字サイズ",
   "lineHeight": "行間",
   "increase": "大きく",
-  "decrease": "小さく"
+  "decrease": "小さく",
+  "widgetUnavailable": "このウィジェットはブログでは表示できません"
 }

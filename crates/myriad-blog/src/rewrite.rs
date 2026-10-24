@@ -1,4 +1,5 @@
-//! 正文 HTML 变换：公式 span 转 MathML，表格包一层横滚，根相对地址改绝对地址，末尾挂评论 iframe。
+//! 正文 HTML 变换：公式 span 转 MathML，表格包一层横滚，小组件占位里放嵌入页，根相对地址改绝对地址，
+//! 末尾挂评论 iframe。
 //!
 //! lol_html 按完整文档解析。笔记正文是片段，所以先包一层再把内层切回来。
 //! 包层标记若已经出现在正文里，就跳过重写，原样返回，避免切错。
@@ -9,7 +10,7 @@ use lol_html::{ElementContentHandlers, RewriteStrSettings, Selector, element, re
 use std::borrow::Cow;
 
 use crate::labels::labels;
-use crate::urlutil::{absolutize_root_url, escape_html, rewrite_srcset};
+use crate::urlutil::{absolutize_root_url, encode_query_value, escape_html, rewrite_srcset};
 
 const FRAG_OPEN: &str = "<myriad-frag>";
 const FRAG_CLOSE: &str = "</myriad-frag>";
@@ -17,6 +18,7 @@ const FRAG_CLOSE: &str = "</myriad-frag>";
 /// 导出前的正文。评论 iframe 在地址改写之后追加，`src` 保持 `/embed/comments/{id}`。
 /// `locale` 是这一页的语言，定 iframe 标题用哪种说法。
 pub fn prepare_content_html(html: &str, origin: &str, item_id: i32, locale: &str) -> String {
+    let widget_title = escape_html(labels(locale).widget);
     let rewritten = map_fragment(html, |wrapped| {
         rewrite_str(
             wrapped,
@@ -48,6 +50,25 @@ pub fn prepare_content_html(html: &str, origin: &str, item_id: i32, locale: &str
                     el.after("</div>", ContentType::Html);
                     Ok(())
                 }),
+                // 页面不跑脚本，小组件由同源嵌入页画（frontend/src/components/embed/EmbedWidget.tsx）。
+                // 占位的大小照旧按 data-size 定（见 NOTES_CSS），框铺满占位。框是插进去的内容，
+                // 不经过下面的地址改写，`src` 保持根相对。
+                element!("div.note-widget[data-widget]", |el| {
+                    if let Some(src) = widget_frame_src(
+                        &el.get_attribute("data-widget").unwrap_or_default(),
+                        el.get_attribute("data-size").as_deref(),
+                        el.get_attribute("data-config").as_deref(),
+                    ) {
+                        el.set_inner_content(
+                            &format!(
+                                "<iframe class=\"myriad-widget\" src=\"{}\" loading=\"lazy\" title=\"{widget_title}\"></iframe>",
+                                escape_html(&src)
+                            ),
+                            ContentType::Html,
+                        );
+                    }
+                    Ok(())
+                }),
                 element!("*", |el| {
                     if el.tag_name() != "myriad-frag" {
                         for name in ["src", "href", "srcset", "poster"] {
@@ -72,6 +93,32 @@ pub fn prepare_content_html(html: &str, origin: &str, item_id: i32, locale: &str
     format!(
         "{rewritten}\n<iframe class=\"myriad-comments\" src=\"/embed/comments/{item_id}\" loading=\"lazy\" title=\"{title}\" data-embed-fit></iframe>\n"
     )
+}
+
+/// 小组件嵌入页的地址。类型名和笔记那边认的一样（字母开头，小写字母、数字和 `._-`），
+/// 认不出的不给地址，占位原样留着。`config` 是占位上的原值，嵌入页按读占位的办法解。
+fn widget_frame_src(widget: &str, size: Option<&str>, config: Option<&str>) -> Option<String> {
+    let widget = widget.trim();
+    let valid = widget.len() <= 64
+        && widget.starts_with(|ch: char| ch.is_ascii_lowercase())
+        && widget
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || "._-".contains(ch));
+    if !valid {
+        return None;
+    }
+    let mut src = format!("/embed/widget/{widget}");
+    let mut sep = '?';
+    for (key, value) in [("size", size), ("config", config)] {
+        if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
+            src.push(sep);
+            src.push_str(key);
+            src.push('=');
+            src.push_str(&encode_query_value(value));
+            sep = '&';
+        }
+    }
+    Some(src)
 }
 
 /// 还没有注释和播客的文章上，控制器还没有地址。

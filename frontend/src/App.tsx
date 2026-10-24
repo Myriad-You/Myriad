@@ -28,6 +28,7 @@ import { BackgroundTappHost, RouteWarmup } from './components/ApplicationStartup
 import CustomScrollbar from './components/CustomScrollbar'
 import { DocumentReady } from './components/DocumentReady'
 import { isEmbedPath } from './components/embed/embedRoutes'
+import { EmbedWidgetNavigation } from './components/embed/embedWidgetNavigation'
 import { NamespacedPage, SuspensePage } from './components/NamespacedPage'
 import { RenderErrorBoundary } from './components/RenderErrorBoundary'
 import RouteLoader from './components/RouteLoader'
@@ -76,6 +77,7 @@ const {
   embedComments: EmbedComments,
   embedFriend: EmbedFriend,
   embedCompanion: EmbedCompanion,
+  embedWidget: EmbedWidget,
   config: Config,
   agentSettings: AgentSettings,
   login: Login,
@@ -716,6 +718,14 @@ function EmbedRoutes() {
           </NamespacedPage>
         }
       />
+      <Route
+        path="/embed/widget/:type"
+        element={
+          <NamespacedPage names={['embed']}>
+            <EmbedWidget />
+          </NamespacedPage>
+        }
+      />
       <Route path="*" element={<DocumentReady>{null}</DocumentReady>} />
     </Routes>
   )
@@ -723,7 +733,14 @@ function EmbedRoutes() {
 
 function AppOrEmbed() {
   const { pathname } = useLocation()
-  if (isEmbedPath(pathname)) return <EmbedRoutes />
+  if (isEmbedPath(pathname)) {
+    return (
+      <>
+        <EmbedWidgetNavigation />
+        <EmbedRoutes />
+      </>
+    )
+  }
   return (
     <MusicPlayerProvider>
       <NavigationProvider>

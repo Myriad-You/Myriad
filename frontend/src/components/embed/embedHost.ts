@@ -7,10 +7,13 @@
  *   data-embed-fit     这个框的高度由里面按内容定（评论、友链申请）
  *   data-embed-scheme  里面现在是深色还是浅色，第一帧之前由 utils/themeBootScript.ts 写上，
  *                      外面的样式按它给框上色
+ *   data-embed-ready   里面画好了（小组件）。之前外面只显示占位底，框是透明的，
+ *                      不在小框里露出半成品和加载圈
  */
 
 export const EMBED_FIT_ATTR = 'data-embed-fit'
 export const EMBED_SCHEME_ATTR = 'data-embed-scheme'
+export const EMBED_READY_ATTR = 'data-embed-ready'
 
 export interface EmbedHost {
   win: Window

@@ -226,7 +226,7 @@
 
 ## Phantasi
 
-订阅、笔记与评论的后端。RSS、Notion、RSSHub，可选 AI 增强。已发布笔记用任意已安装的 Hugo 主题生成静态博客，挂在 `/blog`（文章 `/blog/posts/{slug}/`）；页面不跑脚本，评论与友联申请是同源嵌入页。站长在 `/studio` 写作。订阅在内置的「订阅」阅读器应用里读。笔记 RSS（`/api/phantasi/notes.xml`）默认关闭，管理员开启后才公开。笔记支持 TeX 公式、联合作者、正文分栏与正文小组件。
+订阅、笔记与评论的后端。RSS、Notion、RSSHub，可选 AI 增强。已发布笔记用任意已安装的 Hugo 主题生成静态博客，挂在 `/blog`（文章 `/blog/posts/{slug}/`）；页面不跑脚本，评论、友联申请和正文小组件是同源嵌入页。站长在 `/studio` 写作。订阅在内置的「订阅」阅读器应用里读。笔记 RSS（`/api/phantasi/notes.xml`）默认关闭，管理员开启后才公开。笔记支持 TeX 公式、联合作者、正文分栏与正文小组件。
 
 ---
 

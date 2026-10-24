@@ -76,5 +76,6 @@
   "fontSize": "Text size",
   "lineHeight": "Line spacing",
   "increase": "Larger",
-  "decrease": "Smaller"
+  "decrease": "Smaller",
+  "widgetUnavailable": "This widget can’t be shown on the blog"
 }

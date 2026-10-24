@@ -5,6 +5,7 @@ import { createContext, runInContext } from 'node:vm'
 import { themeBootInlineScript } from './themeBootScript.ts'
 
 function bootTheme(options: {
+  path?: string
   stored: string | null
   prefersDark: boolean
   embedIn?: { background: string; colorScheme?: string }
@@ -47,7 +48,7 @@ function bootTheme(options: {
     MutationObserver: class {
       observe() {}
     },
-    location: { pathname: options.embedIn ? '/embed/comments/7' : '/' },
+    location: { pathname: options.path ?? (options.embedIn ? '/embed/comments/7' : '/') },
     window: {
       frameElement: options.embedIn ? frame : undefined,
       parent: options.embedIn
@@ -125,5 +126,17 @@ describe('themeBootInlineScript', () => {
       'dark',
     )
     assert.equal(bootTheme({ stored: 'dark', prefersDark: false }).frameScheme, undefined)
+  })
+
+  it('正文小组件的框由外面那页负责加载态', () => {
+    assert.deepEqual(
+      bootTheme({
+        stored: null,
+        prefersDark: false,
+        path: '/embed/widget/quote',
+        embedIn: { background: 'rgb(28, 25, 23)' },
+      }).classes,
+      ['dark', 'embed-frame', 'embed-frame--host-reveal'],
+    )
   })
 })

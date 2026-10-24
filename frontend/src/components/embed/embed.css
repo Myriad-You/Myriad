@@ -110,3 +110,24 @@ html.embed-frame .embed-root--fit {
 .embed-error {
   color: light-dark(#b91c1c, #fca5a5);
 }
+
+/* 博客正文里的小组件：框由博客页按 data-size 定大小，小组件铺满它。 */
+html.embed-frame .embed-root.embed-widget {
+  padding: 0;
+  overflow: hidden;
+}
+
+.embed-widget__missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px dashed color-mix(in srgb, currentcolor 25%, transparent);
+  border-radius: 0.85rem;
+  font-size: 0.85rem;
+  text-align: center;
+  opacity: 0.7;
+}

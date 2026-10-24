@@ -40,6 +40,8 @@ export function themeBootInlineScript(): string {
       } catch (e) {}
     };
     if (embed) html.classList.add('embed-frame');
+    // 正文小组件：外面的博客页画占位、等框上的 data-embed-ready 再淡入，里面不再转圈、不再自己淡入。
+    if (embed && location.pathname.indexOf('/embed/widget/') === 0) html.classList.add('embed-frame--host-reveal');
     apply(embed
       ? parentScheme() || (prefersDark ? 'dark' : 'light')
       : stored === 'light' || stored === 'dark' ? stored : prefersDark ? 'dark' : 'light');

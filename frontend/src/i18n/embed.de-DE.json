@@ -76,5 +76,6 @@
   "fontSize": "Schriftgröße",
   "lineHeight": "Zeilenabstand",
   "increase": "Größer",
-  "decrease": "Kleiner"
+  "decrease": "Kleiner",
+  "widgetUnavailable": "Dieses Widget kann im Blog nicht angezeigt werden"
 }

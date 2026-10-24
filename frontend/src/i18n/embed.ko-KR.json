@@ -76,5 +76,6 @@
   "fontSize": "글자 크기",
   "lineHeight": "줄 간격",
   "increase": "크게",
-  "decrease": "작게"
+  "decrease": "작게",
+  "widgetUnavailable": "이 위젯은 블로그에서 표시할 수 없습니다"
 }

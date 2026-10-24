@@ -64,3 +64,16 @@ pub(crate) fn escape_html(text: &str) -> String {
 fn is_root_relative(url: &str) -> bool {
     url.starts_with('/') && !url.starts_with("//")
 }
+
+/// 查询参数里的一个值。和 `encodeURIComponent` 留的字符一样，嵌入页用 `URLSearchParams` 读回原样。
+pub(crate) fn encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}

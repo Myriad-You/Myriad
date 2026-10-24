@@ -76,5 +76,6 @@
   "fontSize": "字号",
   "lineHeight": "行距",
   "increase": "大一点",
-  "decrease": "小一点"
+  "decrease": "小一点",
+  "widgetUnavailable": "这个小组件在博客里显示不了"
 }

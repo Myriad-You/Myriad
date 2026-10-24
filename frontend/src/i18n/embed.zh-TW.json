@@ -76,5 +76,6 @@
   "fontSize": "字級",
   "lineHeight": "行距",
   "increase": "大一點",
-  "decrease": "小一點"
+  "decrease": "小一點",
+  "widgetUnavailable": "這個小組件在部落格裡顯示不了"
 }

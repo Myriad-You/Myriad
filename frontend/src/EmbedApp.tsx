@@ -2,6 +2,7 @@ import { lazy } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { DocumentReady } from './components/DocumentReady'
 import { EmbedAdminOnly } from './components/embed/embedFrame'
+import { EmbedWidgetNavigation } from './components/embed/embedWidgetNavigation'
 import { NamespacedPage } from './components/NamespacedPage'
 import { AnimationPreferenceProvider } from './contexts/AnimationPreferenceContext'
 import { AuthProvider } from './contexts/AuthContext'
@@ -21,6 +22,7 @@ const loaders = {
   comments: () => import('./views/EmbedComments'),
   friend: () => import('./views/EmbedFriendApply'),
   companion: () => import('./views/EmbedCompanion'),
+  widget: () => import('./views/EmbedWidget'),
 }
 
 /** 地址对应哪一页；对不上的是 null，渲染空白——嵌入页不把主站画进博客页的框里。 */
@@ -30,18 +32,24 @@ function pageOf(pathname: string): keyof typeof loaders | null {
   if (pathname.startsWith('/embed/comments/')) return 'comments'
   if (pathname === '/embed/friend-apply') return 'friend'
   if (pathname.startsWith('/embed/companion/')) return 'companion'
+  if (pathname.startsWith('/embed/widget/')) return 'widget'
   return null
 }
 
 // 一个页面只会是其中一种：一启动就去取，和登录检查同时进行，不等路由渲染到再开始。
 const page = pageOf(window.location.pathname)
-if (page) void loaders[page]()
+if (page === 'widget') {
+  void loaders.widget().then((module) => module.preloadEmbedWidget(window.location.pathname))
+} else if (page) {
+  void loaders[page]()
+}
 
 const StudioOverlayFrame = lazy(loaders.overlay)
 const Studio = lazy(loaders.tool)
 const EmbedComments = lazy(loaders.comments)
 const EmbedFriend = lazy(loaders.friend)
 const EmbedCompanion = lazy(loaders.companion)
+const EmbedWidget = lazy(loaders.widget)
 
 function EmbedRoutes() {
   return (
@@ -67,6 +75,14 @@ function EmbedRoutes() {
         element={
           <NamespacedPage names={['embed']}>
             <EmbedCompanion />
+          </NamespacedPage>
+        }
+      />
+      <Route
+        path="/embed/widget/:type"
+        element={
+          <NamespacedPage names={['embed']}>
+            <EmbedWidget />
           </NamespacedPage>
         }
       />
@@ -103,6 +119,7 @@ export function EmbedApp() {
         <AnimationPreferenceProvider>
           <AuthProvider>
             <LocaleAccountSync />
+            <EmbedWidgetNavigation />
             <EmbedRoutes />
           </AuthProvider>
         </AnimationPreferenceProvider>

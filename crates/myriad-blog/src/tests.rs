@@ -192,6 +192,37 @@ fn wide_tables_get_a_scroll_wrapper() {
 }
 
 #[test]
+fn widget_placeholders_get_a_same_origin_frame() {
+    let html = concat!(
+        "<div class=\"note-widget not-prose\" data-widget=\"weather\" data-size=\"4x2\" ",
+        "data-config=\"%7B%22city%22%3A%22Tokyo%20%26%20Osaka%22%7D\"></div>",
+        "<div class=\"note-widget\" data-widget=\"quote\"></div>",
+        "<div class=\"note-widget\" data-widget=\"Bad Type\"></div>",
+    );
+    let out = prepare_content_html(html, "https://example.com", 7, "en");
+    assert!(
+        out.contains(concat!(
+            "<iframe class=\"myriad-widget\" src=\"/embed/widget/weather?size=4x2&amp;",
+            "config=%257B%2522city%2522%253A%2522Tokyo%2520%2526%2520Osaka%2522%257D\" ",
+            "loading=\"lazy\" title=\"Widget\"></iframe></div>"
+        )),
+        "{out}"
+    );
+    assert!(out.contains("src=\"/embed/widget/quote\""), "{out}");
+    assert!(!out.contains("https://example.com/embed/widget"), "{out}");
+    assert!(
+        out.contains("<div class=\"note-widget\" data-widget=\"Bad Type\"></div>"),
+        "{out}"
+    );
+    assert!(
+        NOTES_CSS
+            .contains(".note-widget[data-size=\"4x2\"]{--note-widget-cols:4;--note-widget-rows:2}")
+    );
+    assert!(!NOTES_CSS.contains("Myriad 小组件"));
+    assert!(NOTES_CSS.contains(".note-widget>iframe.myriad-widget[data-embed-ready]{opacity:1"));
+}
+
+#[test]
 fn math_urls_and_comment_iframe() {
     let html = r##"<p>行内 <span class="math math-inline" data-tex="E=mc^2">E=mc^2</span>。</p>
 <p><span class="math math-display" data-tex="\int_0^1 x^2 \, dx">\int_0^1 x^2 \, dx</span></p>

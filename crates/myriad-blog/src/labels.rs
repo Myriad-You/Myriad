@@ -1,4 +1,4 @@
-//! 平台写进博客页面的字：友链页、文章列表和分类/标签/作者页、评论框和伴读的标题、404 页。
+//! 平台写进博客页面的字：友链页、文章列表和分类/标签/作者页、评论框、伴读和正文小组件的标题、404 页。
 //! 跟着博客的语言走，和站点界面同一套说法（frontend/src/i18n/embed.*.json）。
 
 pub(crate) struct Labels {
@@ -10,6 +10,7 @@ pub(crate) struct Labels {
     pub comments: &'static str,
     pub friend_apply: &'static str,
     pub companion: &'static str,
+    pub widget: &'static str,
     pub not_found: &'static str,
     pub not_found_body: &'static str,
     pub home: &'static str,
@@ -24,6 +25,7 @@ const ZH_HANS: Labels = Labels {
     comments: "评论",
     friend_apply: "友联申请",
     companion: "AI 伴读",
+    widget: "小组件",
     not_found: "找不到页面",
     not_found_body: "这个地址没有内容。",
     home: "回到首页",
@@ -38,6 +40,7 @@ const ZH_HANT: Labels = Labels {
     comments: "評論",
     friend_apply: "友聯申請",
     companion: "AI 伴讀",
+    widget: "小組件",
     not_found: "找不到頁面",
     not_found_body: "這個地址沒有內容。",
     home: "回到首頁",
@@ -52,6 +55,7 @@ const JA: Labels = Labels {
     comments: "コメント",
     friend_apply: "相互リンク申請",
     companion: "AI 伴読",
+    widget: "ウィジェット",
     not_found: "ページが見つかりません",
     not_found_body: "このアドレスには何もありません。",
     home: "トップへ戻る",
@@ -66,6 +70,7 @@ const KO: Labels = Labels {
     comments: "댓글",
     friend_apply: "링크 신청",
     companion: "AI 함께 읽기",
+    widget: "위젯",
     not_found: "페이지를 찾을 수 없습니다",
     not_found_body: "이 주소에는 내용이 없습니다.",
     home: "처음으로",
@@ -80,6 +85,7 @@ const FR: Labels = Labels {
     comments: "Commentaires",
     friend_apply: "Demande de lien",
     companion: "Lecture IA",
+    widget: "Widget",
     not_found: "Page introuvable",
     not_found_body: "Il n’y a rien à cette adresse.",
     home: "Retour à l’accueil",
@@ -94,6 +100,7 @@ const DE: Labels = Labels {
     comments: "Kommentare",
     friend_apply: "Linkantrag",
     companion: "KI-Begleiter",
+    widget: "Widget",
     not_found: "Seite nicht gefunden",
     not_found_body: "Unter dieser Adresse gibt es nichts.",
     home: "Zur Startseite",
@@ -108,6 +115,7 @@ const EN: Labels = Labels {
     comments: "Comments",
     friend_apply: "Friend link application",
     companion: "AI companion",
+    widget: "Widget",
     not_found: "Page not found",
     not_found_body: "There is nothing at this address.",
     home: "Back to home",

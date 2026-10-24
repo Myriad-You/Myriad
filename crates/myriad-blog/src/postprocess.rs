@@ -13,19 +13,39 @@ use crate::urlutil::{absolutize_root_url, escape_html, is_javascript_url};
 /// 注入到每个页面 `<head>` 末尾的样式表地址。
 pub const NOTES_CSS_HREF: &str = "/blog/_myriad/notes.css";
 
-/// 分栏、小组件占位、块级公式和嵌入页 iframe 的样子。主题样式表不管这些类。
+/// 分栏、小组件、块级公式和嵌入页 iframe 的样子。主题样式表不管这些类。
+/// 小组件占位的大小和站内正文一样按 `data-size` 定（frontend/src/components/phantasi/ui/css/note.css），
+/// 里面的嵌入页铺满它，不按内容定高。嵌入页画好之前占位上是一层缓慢明暗的底，框透明；
+/// 画好了（框上有 `data-embed-ready`）底撤掉、框淡入。脚本没跑起来时 8 秒后照样显示框，
+/// 里面的出错页不会一直藏着。
 /// 正文（末尾挂着评论框的那个元素）里再垫几条防撑宽的：长网址折行、代码块和宽表格横着滚、
 /// 图片不超过栏宽。手机上正文一宽，固定在屏幕上的导航岛和伴读就跟着跑出屏幕。这几条包在
 /// `:where` 里，优先级是零，主题自己写了的照主题的。
 /// 页面不跑脚本，嵌入页和它同源，由嵌入页来碰页面（frontend/src/components/embed/embedHost.ts）：
-/// 带 `data-embed-fit` 的框由里面按内容定高，这里写的高度只是加载完之前的占位；
+/// 带 `data-embed-fit` 的框由里面按内容定高，这里写的高度只是加载完之前的占位，取最常见的那一屏
+/// （评论：还没有评论时的那一屏，登录后带输入框约 210px，访客更矮），免得加载完页尾大幅跳动；
 /// 里面第一帧之前把自己的明暗写到框的 `data-embed-scheme` 上，框的颜色跟着它，
 /// 框和里面明暗一致，浏览器才不会在框里垫一层不透明的底。
 pub const NOTES_CSS: &str = "\
 .note-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:1.25rem;margin:1em 0}\n\
 .note-column>:first-child{margin-top:0}\n\
-.note-widget{border:1px dashed currentColor;opacity:.7;border-radius:8px;padding:1rem;margin:1em 0;font-size:.9em}\n\
-.note-widget::before{content:\"Myriad 小组件：\" attr(data-widget) \"（\" attr(data-size) \"）\"}\n\
+.note-widget{--note-widget-cols:2;--note-widget-rows:2;position:relative;display:block;box-sizing:border-box;aspect-ratio:var(--note-widget-cols)/var(--note-widget-rows);width:min(calc(var(--note-widget-cols)*5rem),100%,calc(20rem*var(--note-widget-cols)/var(--note-widget-rows)));max-width:100%;margin:1em 0;overflow:hidden;border-radius:.85rem}\n\
+.note-widget[data-size=\"1x1\"]{--note-widget-cols:1;--note-widget-rows:1}\n\
+.note-widget[data-size=\"2x1\"]{--note-widget-cols:2;--note-widget-rows:1}\n\
+.note-widget[data-size=\"1x2\"]{--note-widget-cols:1;--note-widget-rows:2}\n\
+.note-widget[data-size=\"2x3\"]{--note-widget-cols:2;--note-widget-rows:3}\n\
+.note-widget[data-size=\"3x2\"]{--note-widget-cols:3;--note-widget-rows:2}\n\
+.note-widget[data-size=\"3x3\"]{--note-widget-cols:3;--note-widget-rows:3}\n\
+.note-widget[data-size=\"2x4\"]{--note-widget-cols:2;--note-widget-rows:4}\n\
+.note-widget[data-size=\"4x1\"]{--note-widget-cols:4;--note-widget-rows:1}\n\
+.note-widget[data-size=\"4x2\"]{--note-widget-cols:4;--note-widget-rows:2}\n\
+.note-widget[data-size=\"4x4\"]{--note-widget-cols:4;--note-widget-rows:4}\n\
+.note-widget::before{content:\"\";position:absolute;inset:0;border-radius:inherit;background:currentColor;opacity:.06;pointer-events:none;animation:myriad-widget-wait 1.6s ease-in-out infinite alternate}\n\
+.note-widget:has(>iframe[data-embed-ready])::before{content:none}\n\
+.note-widget>iframe.myriad-widget{position:absolute;inset:0;display:block;width:100%;height:100%;max-width:none;margin:0;border:0;opacity:0;transition:opacity .3s ease;animation:myriad-widget-reveal 0s 8s forwards}\n\
+.note-widget>iframe.myriad-widget[data-embed-ready]{opacity:1;animation:none}\n\
+@keyframes myriad-widget-wait{to{opacity:.1}}\n\
+@keyframes myriad-widget-reveal{to{opacity:1}}\n\
 math[display=block]{margin:1em 0;font-size:1.15em;max-width:100%;overflow-x:auto}\n\
 .myriad-table{max-width:100%;overflow-x:auto}\n\
 :where(:has(>iframe.myriad-comments)){overflow-wrap:anywhere}\n\
@@ -33,7 +53,7 @@ math[display=block]{margin:1em 0;font-size:1.15em;max-width:100%;overflow-x:auto
 :where(:has(>iframe.myriad-comments) pre){overflow-x:auto}\n\
 :where(:has(>iframe.myriad-comments) :is(img,video)){max-width:100%;height:auto}\n\
 .myriad-comments,.myriad-friend-apply{display:block;width:100%;border:0;margin-top:2rem}\n\
-.myriad-comments{height:420px}\n\
+.myriad-comments{height:180px}\n\
 .myriad-friend-apply{height:760px}\n\
 iframe[data-embed-scheme=light]{color-scheme:light}\n\
 iframe[data-embed-scheme=dark]{color-scheme:dark}\n\
@@ -50,7 +70,7 @@ mark.myriad-annot[data-type=abbreviation]{--myriad-annot:#ec4899}\n\
 .myriad-annot-tip[hidden]{display:none}\n\
 .myriad-annot-tip small{display:block;margin-bottom:4px;font-size:11px;opacity:.65}\n\
 .myriad-annot-tip b{display:block;margin-bottom:2px;font-weight:600}\n\
-@media (prefers-reduced-motion:reduce){mark.myriad-annot{transition:none}mark.myriad-annot.is-flash{animation:none;background:color-mix(in srgb,var(--myriad-annot,#f97316) 26%,transparent)}}\n\
+@media (prefers-reduced-motion:reduce){.note-widget::before{animation:none}.note-widget>iframe.myriad-widget{transition:none}mark.myriad-annot{transition:none}mark.myriad-annot.is-flash{animation:none;background:color-mix(in srgb,var(--myriad-annot,#f97316) 26%,transparent)}}\n\
 @media print{#myriad-companion,.myriad-annot-tip{display:none}}\n\
 ";
 

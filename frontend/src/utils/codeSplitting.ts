@@ -92,6 +92,8 @@ export const routeComponents = {
 
   embedCompanion: lazyWithPreload(() => import('../views/EmbedCompanion')),
 
+  embedWidget: lazyWithPreload(() => import('../views/EmbedWidget')),
+
   config: lazyWithPreload(() => import('../views/Config')),
 
   agentSettings: lazyWithPreload(() => import('../views/AgentSettings')),

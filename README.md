@@ -224,7 +224,7 @@ Owner persona, Bot pairing, and heartbeat live at `/agent/settings` — not `/co
 
 ## Phantasi
 
-Feeds, notes and comments backend. RSS, Notion, RSSHub, optional AI enrichment. Published notes become a static Hugo site at `/blog` (posts at `/blog/posts/{slug}/`) using any installed Hugo theme; pages run no scripts, and comments and friend-link applications are same-origin embeds. The owner writes in `/studio`. Subscriptions are read in the built-in RSS reader app. Notes RSS (`/api/phantasi/notes.xml`) is off until an admin enables it. Notes support TeX math, co-authors, columns, and in-body widgets.
+Feeds, notes and comments backend. RSS, Notion, RSSHub, optional AI enrichment. Published notes become a static Hugo site at `/blog` (posts at `/blog/posts/{slug}/`) using any installed Hugo theme; pages run no scripts, and comments, friend-link applications and in-body widgets are same-origin embeds. The owner writes in `/studio`. Subscriptions are read in the built-in RSS reader app. Notes RSS (`/api/phantasi/notes.xml`) is off until an admin enables it. Notes support TeX math, co-authors, columns, and in-body widgets.
 
 ---
 

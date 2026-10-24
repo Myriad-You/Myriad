@@ -161,3 +161,16 @@ html.embed-frame .page-loader .page-loader-spinner {
 html.embed-frame .loader-brand {
   display: none;
 }
+
+/*
+ * 正文小组件的框：博客页在框外画占位，等里面画好（框上的 data-embed-ready）再淡入
+ * （crates/myriad-blog 的 NOTES_CSS）。里面再转圈、再淡入一遍，就是框里叠着两层加载。
+ */
+html.embed-frame--host-reveal .page-loader {
+  display: none;
+}
+
+html.embed-frame--host-reveal #app-root {
+  opacity: 1;
+  transition: none;
+}

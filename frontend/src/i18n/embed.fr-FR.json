@@ -76,5 +76,6 @@
   "fontSize": "Taille du texte",
   "lineHeight": "Interligne",
   "increase": "Plus grand",
-  "decrease": "Plus petit"
+  "decrease": "Plus petit",
+  "widgetUnavailable": "Ce widget ne peut pas s’afficher sur le blog"
 }
