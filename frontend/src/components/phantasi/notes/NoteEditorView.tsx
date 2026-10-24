@@ -909,6 +909,10 @@ export function NoteEditorView({
           onClose={() => setSettingsOpen(false)}
           title={title}
           docStatus={docStatus}
+          lastError={lastError}
+          onPublish={() => {
+            void handleSave()
+          }}
           topic={topic}
           topicChoices={categoryNames}
           onTopicChange={setTopic}

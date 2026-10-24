@@ -4,14 +4,48 @@ import { useI18n } from '../../../contexts/I18nContext'
 import { getNoteHistory, getNoteHistoryEntry } from '../../../services/phantasiApi'
 import { NoteButton, NoteSection, NoteSwitch } from './NoteControls'
 
-export function NoteEditorSettings({ cloudId, defaultView, preferenceBusy, onDefaultView, onRestore, busy }: {
+interface NoteEditorSettingsProps {
   cloudId: number | null
   defaultView: NoteEditorDefaultView
   preferenceBusy: boolean
   onDefaultView: (view: NoteEditorDefaultView) => Promise<void>
   onRestore: (entry: NoteHistoryEntry) => Promise<void>
   busy: boolean
-}) {
+}
+
+/** 两块一起：默认视图（跟账号走）和这篇的编辑历史。 */
+export function NoteEditorSettings(props: NoteEditorSettingsProps) {
+  return (
+    <>
+      <NoteDefaultViewSection {...props} />
+      <NoteHistorySection {...props} />
+    </>
+  )
+}
+
+/** 打开编辑器时先进哪个视图。不属于这篇文章，随账号保存。 */
+export function NoteDefaultViewSection({ defaultView, preferenceBusy, onDefaultView }: Pick<NoteEditorSettingsProps, 'defaultView' | 'preferenceBusy' | 'onDefaultView'>) {
+  const { t } = useI18n()
+  return (
+    <NoteSection title={t.phantasi.noteDefaultView} hint={t.phantasi.noteDefaultViewHint}>
+      <NoteSwitch
+        className="phantasi-note__default-view"
+        ariaLabel={t.phantasi.noteDefaultView}
+        value={defaultView}
+        disabled={preferenceBusy}
+        options={[
+          { value: 'visual', label: t.phantasi.noteTabVisual },
+          { value: 'write', label: t.phantasi.noteTabWrite },
+          { value: 'preview', label: t.phantasi.noteTabPreview },
+        ]}
+        onChange={(value) => { void onDefaultView(value as NoteEditorDefaultView) }}
+      />
+    </NoteSection>
+  )
+}
+
+/** 这篇笔记最近的旧版本：点开看全文，再决定恢复。 */
+export function NoteHistorySection({ cloudId, onRestore, busy }: Pick<NoteEditorSettingsProps, 'cloudId' | 'onRestore' | 'busy'>) {
   const { t, locale, format } = useI18n()
   const [history, setHistory] = useState<NoteHistorySummary[]>([])
   const [selected, setSelected] = useState<NoteHistoryEntry | null>(null)
@@ -67,30 +101,15 @@ export function NoteEditorSettings({ cloudId, defaultView, preferenceBusy, onDef
     finally { setRestoring(false) }
   }
   return (
-    <>
-      <NoteSection title={t.phantasi.noteDefaultView} hint={t.phantasi.noteDefaultViewHint}>
-        <NoteSwitch
-          className="phantasi-note__default-view"
-          ariaLabel={t.phantasi.noteDefaultView}
-          value={defaultView}
-          disabled={preferenceBusy}
-          options={[
-            { value: 'visual', label: t.phantasi.noteTabVisual },
-            { value: 'write', label: t.phantasi.noteTabWrite },
-            { value: 'preview', label: t.phantasi.noteTabPreview },
-          ]}
-          onChange={(value) => { void onDefaultView(value as NoteEditorDefaultView) }}
-        />
-      </NoteSection>
-      <NoteSection
-        title={<span className="phantasi-note__history-heading">
+    <NoteSection
+      title={<span className="phantasi-note__history-heading">
         <span>{t.phantasi.noteHistory}</span>
         <NoteButton variant="quiet" className="phantasi-note__history-refresh" onClick={() => setRefresh((value) => value + 1)} disabled={loading || restoring}>
           {t.phantasi.noteHistoryRefresh}
         </NoteButton>
       </span>}
-        hint={t.phantasi.noteHistoryHint}
-      >
+      hint={t.phantasi.noteHistoryHint}
+    >
         {loading || previewLoading ? <p className="phantasi-note__history-message" role="status">{t.phantasi.noteHistoryLoading}</p> : null}
         {error ? <p className="phantasi-note__history-message is-error" role="alert">{t.phantasi.noteHistoryFailed}</p> : null}
         {!loading && !error && history.length === 0 ? <p className="phantasi-note__history-message">{t.phantasi.noteHistoryEmpty}</p> : null}
@@ -117,6 +136,5 @@ export function NoteEditorSettings({ cloudId, defaultView, preferenceBusy, onDef
           </div>
         ) : null}
       </NoteSection>
-    </>
   )
 }

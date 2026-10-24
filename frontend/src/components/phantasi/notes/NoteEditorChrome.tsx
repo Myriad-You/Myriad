@@ -8,13 +8,18 @@ import type { WidgetType } from '../../widgetGridTypes'
 import type { NoteCollabPeer } from './noteCollab'
 import type { NoteImageValues } from './NoteImageFields'
 import type { PopoverCoords } from './notePopover'
+import type { NoteSchedulePresetKey } from './noteSchedulePresets'
 import type { SelectionAnchor, VisualBlockKind } from './noteSelection'
 
 import {
+  LuCheck as Check,
+  LuClock as Clock,
+  LuCopy as Copy,
   LuExternalLink as ExternalLink,
   LuImage as Image,
   LuPlus as Plus,
   LuReplace as Replace,
+  LuSend as Send,
   LuSlidersHorizontal as SlidersHorizontal,
   LuTextAlignCenter as TextAlignCenter,
   LuTextAlignEnd as TextAlignEnd,
@@ -35,11 +40,11 @@ import {
   NoteDateInput,
   NoteField,
   NoteSection,
-  NoteSelect,
   NoteSwitch,
 } from './NoteControls'
 import { NoteImageFields } from './NoteImageFields'
 import { placePopover } from './notePopover'
+import { noteRelativeUntil, noteSchedulePresets } from './noteSchedulePresets'
 import { placeBubble, placeGutter } from './noteSelection'
 import { NoteWidgetPage } from './NoteWidgetPicker'
 
@@ -1192,12 +1197,15 @@ type NoteSettingsTab = 'publish' | 'details' | 'editor'
 const SETTINGS_TABS: NoteSettingsTab[] = ['publish', 'details', 'editor']
 
 interface NoteSettingsDrawerProps {
-  editorSettings?: React.ReactNode
-  companion?: React.ReactNode
+  /** 编辑器分页：默认视图（随账号）和编辑历史。 */
+  editorSettings?: ReactNode
+  companion?: ReactNode
   open: boolean
   onClose: () => void
   title: string
   docStatus: NoteEditorDocStatus
+  lastError: string | null
+  onPublish: () => void
   topic: string | null
   topicChoices: string[]
   onTopicChange: (topic: string | null) => void
@@ -1228,69 +1236,55 @@ interface NoteSettingsDrawerProps {
   onRemoveAuthor: (userId: number) => void
 }
 
+function useMinuteClock(active: boolean): number {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [active])
+  return now
+}
+
+function longWhen(ms: number, locale: string): string {
+  return new Date(ms).toLocaleString(locale, {
+    month: 'short',
+    day: 'numeric',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 /**
- * 文章设置：顶上一张跟着改动实时变的博客卡片，下面按「发布 / 信息 / 编辑器」分页。
- * 卡片就是访客在列表里看到的样子，改分类、封面、时间、地址名都先在这里看见。
+ * 文章设置。顶上一行是访客在博客列表里看到的那一项（改什么先在这里看见），
+ * 下面三页：发布（现在是什么状态、从这里能去哪）、信息（分类 / 封面 / 作者）、编辑器。
+ *
+ * 发布不是一条线：草稿可以直接发，也可以定时；定时的可以提前发、改时间、退回草稿；
+ * 定时失败会退回草稿并留下原因；已发布的不能再定时，改动要再更新一次才到博客上。
+ * 所以不画流程图，只摆当前状态和从这里能去的地方。
  */
-export function NoteSettingsDrawer({
-  editorSettings,
-  companion,
-  open,
-  onClose,
-  title,
-  docStatus,
-  topic,
-  topicChoices,
-  onTopicChange,
-  onCreateTopic,
-  publishedAt,
-  onPublishedAtChange,
-  slugInput,
-  slugInvalid,
-  onSlugInput,
-  articleHref,
-  scheduledAt,
-  onScheduledAtChange,
-  canSchedule,
-  busy,
-  onSchedule,
-  onUnschedule,
-  cover,
-  coverPreview,
-  uploading,
-  onPickCover,
-  onClearCover,
-  canDelete,
-  onDelete,
-  authors,
-  addableAuthors,
-  authorBusy,
-  onAddAuthor,
-  onRemoveAuthor,
-}: NoteSettingsDrawerProps) {
+export function NoteSettingsDrawer(props: NoteSettingsDrawerProps) {
+  const {
+    editorSettings,
+    open,
+    onClose,
+    title,
+    docStatus,
+    topic,
+    publishedAt,
+    scheduledAt,
+    coverPreview,
+    uploading,
+    onPickCover,
+    authors,
+  } = props
   const { t, locale } = useI18n()
-  const [draftCategory, setDraftCategory] = useState('')
   const [tab, setTab] = useState<NoteSettingsTab>('publish')
   /** 分页往哪边滑：跟着新旧两页在条上的先后。 */
   const [direction, setDirection] = useState<1 | -1>(1)
   const tabRefs = useRef<Partial<Record<NoteSettingsTab, HTMLButtonElement | null>>>({})
-  const topicOptions = useMemo(() => {
-    const names = [...topicChoices]
-    if (topic && !names.includes(topic)) names.push(topic)
-    return [
-      { value: '', label: t.phantasi.noteTopicNone },
-      ...names.map((name) => ({
-        value: name,
-        label: noteCategoryLabel(name, t.phantasi),
-      })),
-    ]
-  }, [t.phantasi, topic, topicChoices])
-  const commitDraftCategory = () => {
-    const name = normalizeNoteCategory(draftCategory)
-    if (!name) return
-    onCreateTopic(name)
-    setDraftCategory('')
-  }
   const selectTab = (next: NoteSettingsTab, focus = false) => {
     if (next === tab) return
     setDirection(SETTINGS_TABS.indexOf(next) > SETTINGS_TABS.indexOf(tab) ? 1 : -1)
@@ -1299,8 +1293,7 @@ export function NoteSettingsDrawer({
   }
   const onTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const index = SETTINGS_TABS.indexOf(tab)
-    const step =
-      event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
     if (step) {
       event.preventDefault()
       selectTab(SETTINGS_TABS[(index + step + SETTINGS_TABS.length) % SETTINGS_TABS.length]!, true)
@@ -1313,22 +1306,16 @@ export function NoteSettingsDrawer({
   const { shown, leaving } = useDrawerPresence(open)
   if (!shown) return null
 
-  const statusLabel = {
+  const statusLabel: Record<NoteEditorDocStatus, string> = {
     draft: t.phantasi.noteStatusDraft,
     scheduled: t.phantasi.noteStatusScheduled,
     published: t.phantasi.noteStatusPublished,
   }
-  const formatWhen = (ms: number | null) =>
-    ms != null && Number.isFinite(ms) && ms > 0
-      ? new Date(ms).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+  const when = docStatus === 'scheduled' ? scheduledAt : publishedAt
+  const cardWhen =
+    when != null && Number.isFinite(when) && when > 0
+      ? new Date(when).toLocaleDateString(locale, { dateStyle: 'medium' })
       : null
-  const cardWhen = formatWhen(docStatus === 'scheduled' ? scheduledAt : publishedAt)
-  const slug = slugInput.trim()
-  const cardPath =
-    docStatus === 'published' && slug && !slugInvalid
-      ? `/blog/posts/${slug}/`
-      : null
-  const stageIndex = ['draft', 'scheduled', 'published'].indexOf(docStatus)
   const tabLabel: Record<NoteSettingsTab, string> = {
     publish: t.phantasi.noteSettingsTabPublish,
     details: t.phantasi.noteSettingsTabDetails,
@@ -1347,7 +1334,7 @@ export function NoteSettingsDrawer({
     >
       <div className="phantasi-note__drawer-head">
         <h2 className="phantasi-note__drawer-title">{t.phantasi.notePublishSettings}</h2>
-        <span className={`phantasi-note__drawer-status is-${docStatus}`}>
+        <span key={docStatus} className={`phantasi-note__drawer-status is-${docStatus}`}>
           <span className="phantasi-note__drawer-status-dot" aria-hidden="true" />
           {statusLabel[docStatus]}
         </span>
@@ -1360,7 +1347,7 @@ export function NoteSettingsDrawer({
         />
       </div>
 
-      {/* 访客在博客列表里看到的那张卡，所有字段改了都先落在这里。 */}
+      {/* 博客列表里的那一项，缩成一行：封面、分类、标题、日期和作者。 */}
       <figure className="phantasi-note__postcard" aria-label={t.phantasi.noteSettingsPreview}>
         <button
           type="button"
@@ -1368,17 +1355,13 @@ export function NoteSettingsDrawer({
           disabled={uploading}
           onClick={onPickCover}
           title={t.phantasi.noteCoverPick}
+          aria-label={t.phantasi.noteCoverPick}
         >
           {coverPreview ? (
             <img key={coverPreview} src={coverPreview} alt="" className="phantasi-note__postcard-img" />
           ) : (
-            <span className="phantasi-note__postcard-empty">
-              <Image />
-            </span>
+            <Image aria-hidden="true" />
           )}
-          <span className="phantasi-note__postcard-badge">
-            {cover ? t.phantasi.noteCover : t.phantasi.noteCoverAuto}
-          </span>
         </button>
         <figcaption className="phantasi-note__postcard-body">
           <span key={topic ?? ''} className="phantasi-note__postcard-topic">
@@ -1387,15 +1370,9 @@ export function NoteSettingsDrawer({
           <strong className="phantasi-note__postcard-title">
             {title.trim() || t.phantasi.noteHistoryUntitled}
           </strong>
-          <span className="phantasi-note__postcard-meta">
-            {cardWhen ? <time key={cardWhen}>{cardWhen}</time> : null}
-            {authors.length > 1 ? (
-              <span>{authors.map((author) => author.label).join(' · ')}</span>
-            ) : null}
+          <span key={cardWhen ?? ''} className="phantasi-note__postcard-meta">
+            {[cardWhen, authors.map((author) => author.label).join('、')].filter(Boolean).join(' · ')}
           </span>
-          <code className={`phantasi-note__postcard-path${cardPath ? '' : ' is-pending'}`}>
-            {cardPath ?? t.phantasi.noteSettingsAddressPending}
-          </code>
         </figcaption>
       </figure>
 
@@ -1438,190 +1415,577 @@ export function NoteSettingsDrawer({
         className="phantasi-note__drawer-panel"
         data-direction={direction > 0 ? 'forward' : 'back'}
       >
-        {tab === 'publish' ? (
-          <>
-            {/* 草稿 → 定时 → 已发布：亮到哪一格就是现在在哪。 */}
-            <ol className="phantasi-note__stages" aria-label={t.phantasi.noteSettingsTabPublish}>
-              {(['draft', 'scheduled', 'published'] as const).map((stage, index) => (
-                <li
-                  key={stage}
-                  className={`phantasi-note__stage${index < stageIndex ? ' is-past' : ''}${index === stageIndex ? ' is-current' : ''}`}
-                  aria-current={index === stageIndex ? 'step' : undefined}
-                >
-                  <span className="phantasi-note__stage-dot" aria-hidden="true" />
-                  <span>{statusLabel[stage]}</span>
-                </li>
-              ))}
-            </ol>
-
-            {docStatus === 'published' ? null : (
-              <div className="phantasi-note__drawer-card">
-                <NoteField label={t.phantasi.noteScheduledAt} htmlFor="note-scheduled-at">
-                  <NoteDateInput
-                    id="note-scheduled-at"
-                    value={scheduledAt}
-                    onChange={onScheduledAtChange}
-                  />
-                </NoteField>
-                <div className="phantasi-note__drawer-actions">
-                  {docStatus === 'scheduled' ? (
-                    <NoteButton variant="outline" disabled={busy} onClick={onUnschedule}>
-                      {t.phantasi.noteUnschedule}
-                    </NoteButton>
-                  ) : (
-                    <NoteButton
-                      variant="solid"
-                      disabled={busy || !canSchedule}
-                      onClick={onSchedule}
-                    >
-                      {t.phantasi.noteSchedule}
-                    </NoteButton>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <NoteField label={t.phantasi.notePublishedAt} htmlFor="note-published-at">
-              <NoteDateInput
-                id="note-published-at"
-                value={publishedAt}
-                onChange={onPublishedAtChange}
-              />
-            </NoteField>
-
-            {docStatus === 'published' ? (
-              <NoteField
-                label={t.studio.slug}
-                hint={slugInvalid ? t.studio.slugInvalid : t.studio.slugHint}
-                htmlFor="note-slug"
-              >
-                <span className={`phantasi-note__slug${slugInvalid ? ' is-invalid' : ''}`}>
-                  <span className="phantasi-note__slug-prefix" aria-hidden="true">/blog/posts/</span>
-                  <input
-                    id="note-slug"
-                    className="note-input"
-                    value={slugInput}
-                    spellCheck={false}
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    aria-invalid={slugInvalid || undefined}
-                    onChange={(event) => onSlugInput(event.target.value)}
-                  />
-                </span>
-              </NoteField>
-            ) : null}
-
-            {docStatus === 'published' && articleHref ? (
-              <a className="note-btn note-btn--outline" href={articleHref} target="_blank" rel="noopener noreferrer">
-                <span className="note-btn__icon"><ExternalLink /></span>
-                <span className="note-btn__label">{t.studio.viewArticle}</span>
-              </a>
-            ) : null}
-
-            {companion}
-          </>
-        ) : null}
-
-        {tab === 'details' ? (
-          <>
-            <NoteSection title={t.phantasi.noteTopic}>
-              <NoteSelect
-                id="note-topic"
-                value={topic ?? ''}
-                options={topicOptions}
-                onChange={(value) => onTopicChange(value || null)}
-              />
-              <div className="note-compose">
-                <input
-                  className="note-input"
-                  value={draftCategory}
-                  placeholder={t.phantasi.noteCategoryHint}
-                  aria-label={t.phantasi.noteCategoryNew}
-                  onChange={(event) => setDraftCategory(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter') return
-                    event.preventDefault()
-                    commitDraftCategory()
-                  }}
-                />
-                <NoteButton
-                  variant="outline"
-                  icon={<Plus />}
-                  disabled={!normalizeNoteCategory(draftCategory)}
-                  onClick={commitDraftCategory}
-                  aria-label={t.phantasi.noteCategoryNew}
-                  title={t.phantasi.noteCategoryNew}
-                />
-              </div>
-            </NoteSection>
-
-            <NoteSection title={t.phantasi.noteAuthors} hint={authors.length === 0 ? t.phantasi.noteAuthorEmpty : undefined}>
-              {authors.length > 0 ? (
-                <div className="note-chips">
-                  {authors.map((author) => (
-                    <NoteChip
-                      key={author.user_id}
-                      muted={author.owner}
-                      onDismiss={
-                        author.owner || authorBusy
-                          ? undefined
-                          : () => onRemoveAuthor(author.user_id)
-                      }
-                      dismissLabel={t.phantasi.noteAuthorRemove}
-                    >
-                      {author.owner
-                        ? `${author.label} · ${t.phantasi.noteAuthorOwner}`
-                        : author.label}
-                    </NoteChip>
-                  ))}
-                </div>
-              ) : null}
-              {addableAuthors.length > 0 ? (
-                <NoteSelect
-                  id="note-author-add"
-                  value=""
-                  options={[
-                    { value: '', label: t.phantasi.noteAuthorAdd },
-                    ...addableAuthors,
-                  ]}
-                  onChange={(value) => {
-                    if (!value) return
-                    onAddAuthor(Number(value))
-                  }}
-                />
-              ) : null}
-            </NoteSection>
-
-            <NoteSection title={t.phantasi.noteCover} hint={cover ? undefined : t.phantasi.noteCoverAuto}>
-              <div className="phantasi-note__drawer-actions">
-                <NoteButton variant="outline" icon={<Image />} loading={uploading} onClick={onPickCover}>
-                  {t.phantasi.noteCoverPick}
-                </NoteButton>
-                {cover ? (
-                  <NoteButton variant="quiet" onClick={onClearCover}>
-                    {t.phantasi.noteCoverClear}
-                  </NoteButton>
-                ) : null}
-              </div>
-            </NoteSection>
-          </>
-        ) : null}
-
+        {tab === 'publish' ? <NotePublishPanel {...props} /> : null}
+        {tab === 'details' ? <NoteDetailsPanel {...props} /> : null}
         {tab === 'editor' ? editorSettings : null}
       </div>
+    </aside>
+  )
+}
 
+/* ---- 发布页 ---- */
+
+function NotePublishPanel(props: NoteSettingsDrawerProps) {
+  const { docStatus, canDelete, busy, onDelete } = props
+  const { t } = useI18n()
+  return (
+    <>
+      <div key={docStatus} className="phantasi-note__publish">
+        {docStatus === 'draft' ? <NoteDraftPublish {...props} /> : null}
+        {docStatus === 'scheduled' ? <NoteScheduledPublish {...props} /> : null}
+        {docStatus === 'published' ? <NotePublishedPublish {...props} /> : null}
+      </div>
+      {/* 删除只对没发布的笔记有效，放在发布页最底下，不和主要动作抢位置。 */}
       {canDelete ? (
-        <div className="phantasi-note__drawer-foot">
-          <NoteButton
-            variant="danger"
-            icon={<Trash2 />}
-            disabled={busy}
-            onClick={onDelete}
-          >
+        <div className="phantasi-note__danger">
+          <NoteButton variant="danger" icon={<Trash2 />} disabled={busy} onClick={onDelete}>
             {t.phantasi.noteDelete}
           </NoteButton>
         </div>
       ) : null}
-    </aside>
+    </>
+  )
+}
+
+/** 草稿：只有一个问题——什么时候公开。二选一，用分段开关；下面跟着那条路自己的动作。 */
+function NoteDraftPublish({
+  lastError,
+  onPublish,
+  publishedAt,
+  onPublishedAtChange,
+  scheduledAt,
+  onScheduledAtChange,
+  canSchedule,
+  busy,
+  onSchedule,
+}: NoteSettingsDrawerProps) {
+  const { t } = useI18n()
+  const now = useMinuteClock(true)
+  const [route, setRoute] = useState<'now' | 'later'>('now')
+  return (
+    <>
+      {lastError ? (
+        <p className="phantasi-note__state-error" role="alert">
+          <Clock aria-hidden="true" />
+          <span>
+            <strong>{t.phantasi.noteScheduleFailed}</strong>
+            {lastError}
+          </span>
+        </p>
+      ) : null}
+      {canSchedule ? (
+        <div className="phantasi-note__when">
+        <span className="note-field__label">{t.phantasi.noteSettingsWhen}</span>
+        <NoteSwitch
+          className="phantasi-note__when-switch"
+          ariaLabel={t.phantasi.noteSettingsWhen}
+          value={route}
+          options={[
+            { value: 'now', label: t.phantasi.noteSettingsWhenNow },
+            { value: 'later', label: t.phantasi.noteSettingsWhenLater },
+          ]}
+          onChange={setRoute}
+        />
+        <p className="note-field__hint">
+          {route === 'now' ? t.phantasi.noteSettingsNowHint : t.phantasi.noteSettingsLaterHint}
+        </p>
+        </div>
+      ) : null}
+      <div key={route} className="phantasi-note__route-body">
+        {route === 'now' ? (
+          <>
+            <NoteArticleDate value={publishedAt} onChange={onPublishedAtChange} />
+            <NoteButton variant="solid" size="lg" icon={<Send />} disabled={busy} onClick={onPublish}>
+              {t.phantasi.noteSettingsPublishNow}
+            </NoteButton>
+          </>
+        ) : (
+          <NoteSchedulePicker
+            now={now}
+            value={scheduledAt}
+            onChange={onScheduledAtChange}
+            busy={busy}
+            onConfirm={onSchedule}
+          />
+        )}
+      </div>
+    </>
+  )
+}
+
+/** 定时中：时间写大，倒计时跟着走；三条出路各一个按钮，名字就是去处。 */
+function NoteScheduledPublish({
+  onPublish,
+  scheduledAt,
+  onScheduledAtChange,
+  busy,
+  onSchedule,
+  onUnschedule,
+}: NoteSettingsDrawerProps) {
+  const { t, locale } = useI18n()
+  const now = useMinuteClock(true)
+  const [rescheduling, setRescheduling] = useState(false)
+  const due = scheduledAt != null && scheduledAt > 0 ? scheduledAt : null
+  // 改时间时先记住原来的，取消就放回去，不把半路选的时间留在表单里。
+  const original = useRef(scheduledAt)
+  return (
+    <section className="phantasi-note__state-card is-scheduled">
+      <span className="phantasi-note__state-eyebrow">
+        <Clock aria-hidden="true" />
+        {t.phantasi.noteSettingsScheduledFor}
+      </span>
+      {due && !rescheduling ? (
+        <>
+          <strong className="phantasi-note__state-time">{longWhen(due, locale)}</strong>
+          <span className="phantasi-note__state-sub">{noteRelativeUntil(due, now, locale)}</span>
+        </>
+      ) : null}
+      {rescheduling ? (
+        <NoteSchedulePicker
+          now={now}
+          value={scheduledAt}
+          onChange={onScheduledAtChange}
+          busy={busy}
+          update
+          onConfirm={() => {
+            onSchedule()
+            setRescheduling(false)
+          }}
+          onCancel={() => {
+            onScheduledAtChange(original.current)
+            setRescheduling(false)
+          }}
+        />
+      ) : (
+        <div className="phantasi-note__state-actions is-even">
+          <NoteButton variant="solid" disabled={busy} onClick={onPublish}>
+            {t.phantasi.noteSettingsPublishNow}
+          </NoteButton>
+          <NoteButton
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              original.current = scheduledAt
+              setRescheduling(true)
+            }}
+          >
+            {t.phantasi.noteSettingsReschedule}
+          </NoteButton>
+          <NoteButton variant="quiet" disabled={busy} onClick={onUnschedule}>
+            {t.phantasi.noteSettingsBackToDraft}
+          </NoteButton>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/**
+ * 已发布：地址是最常用的东西，平时直接给复制和打开；改地址会让旧链接失效，收起来。
+ * 正文、分类、封面、日期的修改只存进草稿，要再更新一次才到博客上。
+ */
+function NotePublishedPublish({
+  onPublish,
+  busy,
+  publishedAt,
+  onPublishedAtChange,
+  slugInput,
+  slugInvalid,
+  onSlugInput,
+  articleHref,
+  companion,
+}: NoteSettingsDrawerProps) {
+  const { t } = useI18n()
+  const [editingSlug, setEditingSlug] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [originalSlug] = useState(slugInput.trim())
+  const slugChanged = slugInput.trim() !== originalSlug
+  const path = `/blog/posts/${slugInput.trim() || originalSlug}/`
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(setCopied, 1600, false)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(new URL(articleHref || path, window.location.origin).href)
+      setCopied(true)
+    } catch {
+      // 剪贴板不在我们控制内（权限、非安全上下文），失败就不提示「已复制」。
+    }
+  }
+  return (
+    <>
+      <section className="phantasi-note__state-card is-published">
+        <span className="phantasi-note__state-eyebrow">
+          <Check aria-hidden="true" />
+          {t.phantasi.noteSettingsLive}
+        </span>
+        {editingSlug ? (
+          <NoteField
+            label={t.studio.slug}
+            hint={slugInvalid ? t.studio.slugInvalid : slugChanged ? t.phantasi.noteSettingsSlugWarn : undefined}
+            htmlFor="note-slug"
+          >
+            <span className={`phantasi-note__slug${slugInvalid ? ' is-invalid' : ''}`}>
+              <span className="phantasi-note__slug-prefix" aria-hidden="true">/blog/posts/</span>
+              <input
+                id="note-slug"
+                autoFocus
+                className="note-input"
+                value={slugInput}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                aria-invalid={slugInvalid || undefined}
+                onChange={(event) => onSlugInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !slugInvalid) setEditingSlug(false)
+                }}
+              />
+            </span>
+          </NoteField>
+        ) : (
+          <div className="phantasi-note__address">
+            <code className="phantasi-note__address-path" title={path}>{path}</code>
+            <NoteButton
+              variant="quiet"
+              icon={copied ? <Check /> : <Copy />}
+              onClick={() => { void copy() }}
+              aria-label={t.phantasi.copy}
+              title={copied ? t.phantasi.copied : t.phantasi.copy}
+            />
+            {articleHref && !slugInvalid ? (
+              <a
+                className="phantasi-note__address-open"
+                href={articleHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={t.studio.viewArticle}
+                aria-label={t.studio.viewArticle}
+              >
+                <ExternalLink aria-hidden="true" />
+              </a>
+            ) : null}
+          </div>
+        )}
+        <div className="phantasi-note__state-actions">
+          <NoteButton variant="solid" icon={<Send />} disabled={busy} onClick={onPublish}>
+            {t.phantasi.noteSettingsUpdateBlog}
+          </NoteButton>
+          <NoteButton
+            variant="quiet"
+            aria-expanded={editingSlug}
+            disabled={editingSlug && slugInvalid}
+            onClick={() => setEditingSlug((open) => !open)}
+          >
+            {editingSlug ? t.phantasi.noteSettingsDone : t.phantasi.noteSettingsAddressEdit}
+          </NoteButton>
+        </div>
+        <p className="note-field__hint">{t.phantasi.noteSettingsUpdateHint}</p>
+      </section>
+      <NoteArticleDate value={publishedAt} onChange={onPublishedAtChange} />
+      {companion}
+    </>
+  )
+}
+
+/** 文章上显示的日期。平时一行字，点「修改」才展开时间框。 */
+function NoteArticleDate({ value, onChange }: { value: number | null; onChange: (ms: number | null) => void }) {
+  const { t, locale } = useI18n()
+  const [editing, setEditing] = useState(false)
+  const label =
+    value != null && value > 0
+      ? new Date(value).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+      : '—'
+  return (
+    <div className="phantasi-note__date-row">
+      <div className="phantasi-note__date-line">
+        <span className="note-field__label">{t.phantasi.noteSettingsArticleDate}</span>
+        {editing ? null : <span className="phantasi-note__date-value">{label}</span>}
+        <NoteButton
+          variant="quiet"
+          className="phantasi-note__date-toggle"
+          aria-expanded={editing}
+          onClick={() => setEditing((open) => !open)}
+        >
+          {editing ? t.phantasi.noteSettingsDone : t.phantasi.noteSettingsEdit}
+        </NoteButton>
+      </div>
+      {editing ? (
+        <div className="phantasi-note__date-edit">
+          <NoteDateInput id="note-published-at" value={value} onChange={onChange} aria-label={t.phantasi.noteSettingsArticleDate} />
+          <p className="note-field__hint">{t.phantasi.noteSettingsArticleDateHint}</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * 选定时时间：三个常用时间加「自定义」，一排四格；只有自定义才露出时间框。
+ * 选中的时间直接写在确认按钮上，不另起一行摘要。
+ */
+function NoteSchedulePicker({
+  now,
+  value,
+  onChange,
+  busy,
+  update = false,
+  onConfirm,
+  onCancel,
+}: {
+  now: number
+  value: number | null
+  onChange: (ms: number | null) => void
+  busy: boolean
+  update?: boolean
+  onConfirm: () => void
+  onCancel?: () => void
+}) {
+  const { t, locale, format } = useI18n()
+  const presets = noteSchedulePresets(now)
+  const presetLabel: Record<NoteSchedulePresetKey, string> = {
+    hour: t.phantasi.noteSettingsPresetHour,
+    tonight: t.phantasi.noteSettingsPresetTonight,
+    tomorrowMorning: t.phantasi.noteSettingsPresetTomorrowMorning,
+    tomorrowEvening: t.phantasi.noteSettingsPresetTomorrowEvening,
+  }
+  const matched = presets.find((preset) => preset.at === value)
+  const [custom, setCustom] = useState(value != null && value > 0 && !matched)
+  const future = value != null && value > now
+  const status = future
+    ? `${noteRelativeUntil(value, now, locale)} · ${t.phantasi.noteSettingsScheduleDateNote}`
+    : value != null && value > 0
+      ? t.phantasi.noteSchedulePast
+      : t.phantasi.noteScheduleNeedTime
+  return (
+    <div className="phantasi-note__schedule">
+      <div className="phantasi-note__presets" role="radiogroup" aria-label={t.phantasi.noteScheduledAt}>
+        {presets.map((preset) => {
+          const on = !custom && value === preset.at
+          return (
+            <button
+              key={preset.key}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              className={`phantasi-note__preset${on ? ' is-on' : ''}`}
+              onClick={() => {
+                setCustom(false)
+                onChange(preset.at)
+              }}
+            >
+              <span>{presetLabel[preset.key]}</span>
+              <small>{new Date(preset.at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</small>
+            </button>
+          )
+        })}
+        <button
+          type="button"
+          role="radio"
+          aria-checked={custom}
+          className={`phantasi-note__preset${custom ? ' is-on' : ''}`}
+          onClick={() => setCustom(true)}
+        >
+          <span>{t.phantasi.noteSettingsPresetCustom}</span>
+          <small aria-hidden="true">…</small>
+        </button>
+      </div>
+      {custom ? (
+        <div className="phantasi-note__schedule-custom">
+          <NoteDateInput
+            id="note-scheduled-at"
+            value={value}
+            onChange={onChange}
+            aria-label={t.phantasi.noteScheduledAt}
+          />
+        </div>
+      ) : null}
+      <p className={`phantasi-note__schedule-summary${future ? ' is-ready' : ''}`} aria-live="polite">
+        {status}
+      </p>
+      <div className="phantasi-note__schedule-actions">
+        <NoteButton variant="solid" size="lg" icon={<Clock />} disabled={busy || !future} onClick={onConfirm}>
+          {future
+            ? format(update ? t.phantasi.noteSettingsScheduleUpdateAt : t.phantasi.noteSettingsScheduleAt, { when: longWhen(value, locale) })
+            : update
+              ? t.phantasi.noteSettingsScheduleUpdate
+              : t.phantasi.noteSchedule}
+        </NoteButton>
+        {onCancel ? (
+          <NoteButton variant="quiet" onClick={onCancel}>
+            {t.phantasi.cancel}
+          </NoteButton>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+/* ---- 信息页 ---- */
+
+function NoteDetailsPanel({
+  topic,
+  topicChoices,
+  onTopicChange,
+  onCreateTopic,
+  cover,
+  coverPreview,
+  uploading,
+  onPickCover,
+  onClearCover,
+  authors,
+  addableAuthors,
+  authorBusy,
+  onAddAuthor,
+  onRemoveAuthor,
+}: NoteSettingsDrawerProps) {
+  const { t } = useI18n()
+  const [creating, setCreating] = useState(false)
+  const [draftCategory, setDraftCategory] = useState('')
+  const names = useMemo(() => {
+    const list = [...topicChoices]
+    if (topic && !list.includes(topic)) list.push(topic)
+    return list
+  }, [topic, topicChoices])
+  const commitDraftCategory = () => {
+    const name = normalizeNoteCategory(draftCategory)
+    if (!name) return
+    onCreateTopic(name)
+    setDraftCategory('')
+    setCreating(false)
+  }
+  const autoCover = cover == null
+
+  return (
+    <>
+      {/* 分类是单选：一排芯片，点哪个是哪个；新建就地变成输入框。 */}
+      <NoteSection title={t.phantasi.noteTopic}>
+        <div className="phantasi-note__choice-chips" role="radiogroup" aria-label={t.phantasi.noteTopic}>
+          {[null, ...names].map((name) => (
+            <button
+              key={name ?? ''}
+              type="button"
+              role="radio"
+              aria-checked={topic === name}
+              className={`phantasi-note__choice${topic === name ? ' is-on' : ''}${name == null ? ' is-none' : ''}`}
+              onClick={() => onTopicChange(name)}
+            >
+              {topic === name ? <Check aria-hidden="true" /> : null}
+              {name == null ? t.phantasi.noteTopicNone : noteCategoryLabel(name, t.phantasi)}
+            </button>
+          ))}
+          {creating ? (
+            <input
+              autoFocus
+              className="phantasi-note__choice-input"
+              value={draftCategory}
+              placeholder={t.phantasi.noteCategoryHint}
+              aria-label={t.phantasi.noteCategoryNew}
+              onChange={(event) => setDraftCategory(event.target.value)}
+              onBlur={() => { if (!draftCategory.trim()) setCreating(false) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  commitDraftCategory()
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setDraftCategory('')
+                  setCreating(false)
+                }
+              }}
+            />
+          ) : (
+            <button type="button" className="phantasi-note__choice is-add" onClick={() => setCreating(true)}>
+              <Plus aria-hidden="true" />
+              {t.phantasi.noteCategoryNew}
+            </button>
+          )}
+        </div>
+      </NoteSection>
+
+      {/*
+        封面是这一页唯一的图，给整宽。左上角写它从哪来（自动 / 指定），
+        点图就换；指定的才有「改回自动」。正文没图时整块变成上传入口。
+      */}
+      <NoteSection title={t.phantasi.noteCover}>
+        <button
+          type="button"
+          className={`phantasi-note__cover${coverPreview ? '' : ' is-empty'}`}
+          disabled={uploading}
+          aria-busy={uploading || undefined}
+          onClick={onPickCover}
+          aria-label={coverPreview ? t.phantasi.noteSettingsCoverReplace : t.phantasi.noteCoverPick}
+        >
+          {coverPreview ? (
+            <>
+              <img key={coverPreview} src={coverPreview} alt="" />
+              <span className="phantasi-note__cover-badge">
+                {autoCover ? `${t.phantasi.noteSettingsCoverAuto} · ${t.phantasi.noteCoverAuto}` : t.phantasi.noteSettingsCoverCustom}
+              </span>
+              <span className="phantasi-note__cover-hover" aria-hidden="true">
+                <Replace />
+                {t.phantasi.noteSettingsCoverReplace}
+              </span>
+            </>
+          ) : (
+            <span className="phantasi-note__cover-empty">
+              <Image aria-hidden="true" />
+              <strong>{t.phantasi.noteCoverPick}</strong>
+              <small>{t.phantasi.noteSettingsCoverNone}</small>
+            </span>
+          )}
+        </button>
+        {!autoCover ? (
+          <NoteButton variant="quiet" className="phantasi-note__cover-reset" disabled={uploading} onClick={onClearCover}>
+            {t.phantasi.noteCoverClear}
+          </NoteButton>
+        ) : null}
+      </NoteSection>
+
+      {/* 作者：发起人在前、不能移除；加人是同一排里的一个芯片。 */}
+      <NoteSection title={t.phantasi.noteAuthors}>
+        <div className="note-chips">
+          {authors.map((author) => (
+            <NoteChip
+              key={author.user_id}
+              muted={author.owner}
+              onDismiss={author.owner || authorBusy ? undefined : () => onRemoveAuthor(author.user_id)}
+              dismissLabel={t.phantasi.noteAuthorRemove}
+            >
+              {author.owner ? `${author.label} · ${t.phantasi.noteAuthorOwner}` : author.label}
+            </NoteChip>
+          ))}
+          {addableAuthors.length > 0 ? (
+            <label className="phantasi-note__chip-add">
+              <Plus aria-hidden="true" />
+              <span>{t.phantasi.noteSettingsAdd}</span>
+              <select
+                value=""
+                disabled={authorBusy}
+                aria-label={t.phantasi.noteAuthorAdd}
+                onChange={(event) => {
+                  if (event.target.value) onAddAuthor(Number(event.target.value))
+                }}
+              >
+                <option value="" disabled>
+                  {t.phantasi.noteAuthorAdd}
+                </option>
+                {addableAuthors.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+        {authors.length <= 1 && addableAuthors.length === 0 ? (
+          <p className="note-field__hint">{t.phantasi.noteAuthorEmpty}</p>
+        ) : null}
+      </NoteSection>
+    </>
   )
 }

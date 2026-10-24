@@ -1335,43 +1335,33 @@ html.dark .phantasi-note__drawer {
   }
 }
 
-/* ---- 实时卡片 ---- */
+/* ---- 列表里的那一项：缩成一行 ---- */
 
 .phantasi-note__postcard {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   flex-shrink: 0;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.85rem;
   margin: 0;
-  overflow: hidden;
+  padding: 0.6rem;
   border: 1px solid var(--note-line);
-  border-radius: 1rem;
+  border-radius: 0.9rem;
   background: var(--note-paper);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 5%),
-    0 14px 32px -18px rgb(0 0 0 / 30%);
-  transition:
-    transform var(--sm-dur-base, 220ms) var(--sm-ease-emphasis, cubic-bezier(0.22, 1, 0.36, 1)),
-    box-shadow var(--sm-dur-base, 220ms) ease;
-}
-
-.phantasi-note__postcard:hover {
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 5%),
-    0 22px 40px -20px rgb(0 0 0 / 36%);
-  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -18px rgb(0 0 0 / 35%);
 }
 
 .phantasi-note__postcard-cover {
   display: flex;
-  position: relative;
   align-items: center;
   justify-content: center;
-  aspect-ratio: 2 / 1;
+  aspect-ratio: 1;
   padding: 0;
   overflow: hidden;
   border: 0;
+  border-radius: 0.6rem;
   background:
-    repeating-linear-gradient(135deg, var(--note-fill) 0 10px, transparent 10px 20px),
+    repeating-linear-gradient(135deg, var(--note-fill) 0 6px, transparent 6px 12px),
     var(--note-fill);
   color: var(--note-ink-3);
   cursor: pointer;
@@ -1383,7 +1373,12 @@ html.dark .phantasi-note__drawer {
 
 .phantasi-note__postcard-cover:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--note-ink);
+  box-shadow: var(--note-focus);
+}
+
+.phantasi-note__postcard-cover svg {
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .phantasi-note__postcard-img {
@@ -1396,112 +1391,56 @@ html.dark .phantasi-note__drawer {
 }
 
 .phantasi-note__postcard-cover:hover .phantasi-note__postcard-img {
-  transform: scale(1.04);
+  transform: scale(1.08);
 }
 
 @keyframes phantasi-note-cover-in {
   from {
-    transform: scale(1.06);
+    transform: scale(1.1);
     opacity: 0;
-    filter: blur(6px);
   }
-}
-
-.phantasi-note__postcard-empty svg {
-  width: 1.75rem;
-  height: 1.75rem;
-}
-
-.phantasi-note__postcard-badge {
-  position: absolute;
-  bottom: 0.55rem;
-  left: 0.55rem;
-  padding: 0.25rem 0.55rem;
-  border-radius: 999px;
-  background: rgb(0 0 0 / 55%);
-  color: #fff;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  backdrop-filter: blur(8px);
-  opacity: 0;
-  transform: translateY(4px);
-  transition:
-    opacity var(--sm-dur-fast, 140ms) ease,
-    transform var(--sm-dur-fast, 140ms) ease;
-}
-
-.phantasi-note__postcard-cover:hover .phantasi-note__postcard-badge,
-.phantasi-note__postcard-cover:focus-visible .phantasi-note__postcard-badge {
-  opacity: 1;
-  transform: none;
 }
 
 .phantasi-note__postcard-body {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.15rem;
   min-width: 0;
-  padding: 0.85rem 1rem 0.95rem;
 }
 
 .phantasi-note__postcard-topic {
-  align-self: flex-start;
   color: var(--note-ink-3);
   font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-.phantasi-note__postcard-title {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--note-ink);
-  font-size: 1.0625rem;
-  font-weight: 700;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.phantasi-note__postcard-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
-  color: var(--note-ink-2);
-  font-size: 0.75rem;
-}
-
-.phantasi-note__postcard-meta:empty {
-  display: none;
-}
-
-/* 字段改了，卡上对应那一处轻轻闪一下。 */
-.phantasi-note__postcard-topic,
-.phantasi-note__postcard-meta time {
   animation: phantasi-note-tick var(--sm-dur-slow, 320ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
+.phantasi-note__postcard-title {
+  overflow: hidden;
+  color: var(--note-ink);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phantasi-note__postcard-meta {
+  overflow: hidden;
+  color: var(--note-ink-3);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 字段改了，卡上对应那一处轻轻闪一下。 */
 @keyframes phantasi-note-tick {
   from {
     opacity: 0.2;
     transform: translateY(3px);
   }
-}
-
-.phantasi-note__postcard-path {
-  overflow: hidden;
-  color: var(--note-ink-2);
-  font: 500 0.6875rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.phantasi-note__postcard-path.is-pending {
-  color: var(--note-ink-3);
-  font-family: inherit;
-  font-style: italic;
 }
 
 /* ---- 分页 ---- */
@@ -1588,94 +1527,505 @@ html.dark .phantasi-note__drawer {
   }
 }
 
-/* ---- 发布进度 ---- */
+/* ---- 发布：当前状态 ---- */
 
-.phantasi-note__stages {
+.phantasi-note__state-error {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.6rem;
   margin: 0;
-  padding: 0;
-  list-style: none;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.75rem;
+  background: var(--note-danger-fill);
+  color: var(--note-danger);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
-.phantasi-note__stage {
+.phantasi-note__state-error svg {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.15rem;
+}
+
+.phantasi-note__state-error strong {
+  display: block;
+}
+
+/* 草稿只问一件事：什么时候公开。分段开关整宽，说明紧跟在下面。 */
+.phantasi-note__when {
   display: flex;
-  position: relative;
   flex-direction: column;
-  align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__when-switch {
+  width: 100%;
+  height: 2.5rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__when-switch .note-switch__item {
   min-width: 0;
-  color: var(--note-ink-3);
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-align: center;
+  font-size: 0.875rem;
 }
 
-/* 两点之间的连线：走过的那段是实的。 */
-.phantasi-note__stage:not(:first-child)::before {
-  position: absolute;
-  top: 0.4rem;
-  right: 50%;
-  left: -50%;
-  height: 2px;
-  background: linear-gradient(to right, var(--note-ink) 50%, var(--note-line) 50%) right / 200% 100%;
-  content: '';
-  transform: translateY(-50%);
-  transition: background-position var(--sm-dur-slow, 320ms) var(--sm-ease-emphasis, cubic-bezier(0.22, 1, 0.36, 1));
-}
-
-.phantasi-note__stage.is-past::before,
-.phantasi-note__stage.is-current:not(:first-child)::before {
-  background-position: left;
-}
-
-.phantasi-note__stage-dot {
-  position: relative;
-  z-index: 1;
-  width: 0.8rem;
-  height: 0.8rem;
-  border: 2px solid var(--note-line-strong);
-  border-radius: 50%;
-  background: var(--note-paper);
-  transition:
-    background var(--sm-dur-base, 220ms) ease,
-    border-color var(--sm-dur-base, 220ms) ease,
-    transform var(--sm-dur-base, 220ms) var(--sm-ease-spring, cubic-bezier(0.34, 1.4, 0.64, 1));
-}
-
-.phantasi-note__stage.is-past .phantasi-note__stage-dot {
-  border-color: var(--note-ink);
-  background: var(--note-ink);
-}
-
-.phantasi-note__stage.is-current {
-  color: var(--note-ink);
-}
-
-.phantasi-note__stage.is-current .phantasi-note__stage-dot {
-  border-color: var(--note-ink);
-  background: var(--note-ink);
-  box-shadow: 0 0 0 4px var(--note-fill-hover);
-  transform: scale(1.2);
-}
-
-.phantasi-note__drawer-card {
+.phantasi-note__route-body {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.9rem;
-  border: 1px solid var(--note-line);
-  border-radius: 0.85rem;
-  background: var(--note-fill);
+  gap: 0.9rem;
+  animation: sm-enter var(--sm-dur-base, 220ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
 }
 
-.phantasi-note__drawer-actions {
+.phantasi-note__route-body > .note-btn {
+  width: 100%;
+}
+
+.phantasi-note__publish {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  animation: sm-enter var(--sm-dur-base, 220ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+
+/* 定时中 / 已公开：一张带状态色的卡，时间写大，动作排在下面。 */
+.phantasi-note__state-card {
+  --note-stage: var(--note-stage-draft);
+
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--note-stage) 30%, transparent);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--note-stage) 7%, var(--note-paper));
+}
+
+.phantasi-note__state-card.is-scheduled { --note-stage: var(--note-stage-scheduled); }
+.phantasi-note__state-card.is-published { --note-stage: var(--note-stage-published); }
+
+.phantasi-note__state-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--note-stage);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.phantasi-note__state-eyebrow svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.phantasi-note__state-time {
+  color: var(--note-ink);
+  font-size: 1.375rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.phantasi-note__state-sub {
+  margin-top: -0.35rem;
+  color: var(--note-ink-2);
+  font-size: 0.8125rem;
+}
+
+.phantasi-note__state-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
 
-/* 地址名：前缀钉在框里，输入的只是最后一段。 */
+/* 定时中的三条出路一样宽，主次只靠填色区分。 */
+.phantasi-note__state-actions.is-even {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.phantasi-note__state-actions.is-even > .note-btn {
+  min-width: 0;
+  padding-inline: 0.5rem;
+}
+
+/* 文章日期：平时一行，点「修改」才展开时间框。 */
+.phantasi-note__date-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.phantasi-note__date-line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2rem;
+}
+
+.phantasi-note__date-value {
+  overflow: hidden;
+  color: var(--note-ink);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phantasi-note__date-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  animation: sm-enter var(--sm-dur-fast, 140ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice.is-on svg {
+  animation: phantasi-note-tick var(--sm-dur-base, 220ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__date-toggle {
+  height: 2rem;
+  margin-inline-start: auto;
+  padding: 0 0.6rem;
+  font-size: 0.8125rem;
+}
+
+/* 定时选择：常用时间三格、时间框、一句话说明它什么时候发出去。 */
+.phantasi-note__schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.phantasi-note__presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--note-line);
+  border-radius: 0.65rem;
+  background: var(--note-paper);
+  color: var(--note-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+  transition: border-color var(--sm-dur-fast, 140ms) ease, background var(--sm-dur-fast, 140ms) ease;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__preset > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__preset small {
+  color: var(--note-ink-3);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__preset:hover {
+  border-color: var(--note-line-strong);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__preset.is-on {
+  border-color: var(--note-ink);
+  background: var(--note-ink);
+  color: var(--note-paper);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__preset.is-on small {
+  color: inherit;
+  opacity: 0.7;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__preset:focus-visible {
+  outline: none;
+  box-shadow: var(--note-focus);
+}
+
+.phantasi-note__schedule-custom {
+  animation: sm-enter var(--sm-dur-fast, 140ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+
+.phantasi-note__schedule-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.phantasi-note__schedule-actions > .note-btn {
+  width: 100%;
+}
+
+.phantasi-note__schedule-summary {
+  margin: 0;
+  color: var(--note-ink-3);
+  font-size: 0.8125rem;
+}
+
+.phantasi-note__schedule-summary.is-ready {
+  color: var(--note-ink);
+  font-weight: 600;
+  animation: phantasi-note-tick var(--sm-dur-base, 220ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+/* ---- 信息 ---- */
+
+/* 分类：单选芯片。选中的实心，「不归类」虚线，新建就地变成输入框。 */
+.phantasi-note__choice-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 2rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--note-line);
+  border-radius: 999px;
+  background: var(--note-paper);
+  color: var(--note-ink-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--sm-dur-fast, 140ms) ease,
+    color var(--sm-dur-fast, 140ms) ease,
+    border-color var(--sm-dur-fast, 140ms) ease,
+    transform var(--sm-dur-base, 220ms) var(--sm-ease-spring, cubic-bezier(0.34, 1.4, 0.64, 1));
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice:hover {
+  border-color: var(--note-line-strong);
+  color: var(--note-ink);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice.is-none {
+  border-style: dashed;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice.is-on {
+  border-color: var(--note-ink);
+  border-style: solid;
+  background: var(--note-ink);
+  color: var(--note-paper);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice:active {
+  transform: scale(0.95);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice.is-add {
+  border-color: transparent;
+  background: transparent;
+  color: var(--note-ink-3);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice.is-add:hover {
+  background: var(--note-fill);
+  color: var(--note-ink);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice:focus-visible {
+  outline: none;
+  box-shadow: var(--note-focus);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__choice-input {
+  width: 10rem;
+  height: 2rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--note-ink);
+  border-radius: 999px;
+  background: var(--note-paper);
+  color: var(--note-ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  outline: none;
+  animation: sm-enter var(--sm-dur-fast, 140ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+/* 封面：整宽 16:9，和文章头图同一个比例。来源写在左上角，悬停才说「点了换图」。 */
+.phantasi-note.phantasi-skin .phantasi-note__cover {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--note-line);
+  border-radius: 0.85rem;
+  background:
+    repeating-linear-gradient(135deg, var(--note-fill) 0 6px, transparent 6px 12px),
+    var(--note-fill);
+  color: var(--note-ink-3);
+  cursor: pointer;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__cover.is-empty {
+  border-style: dashed;
+  border-color: var(--note-line-strong);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__cover.is-empty:hover {
+  border-color: var(--note-ink);
+  color: var(--note-ink);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__cover:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__cover:focus-visible {
+  outline: none;
+  box-shadow: var(--note-focus);
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--sm-dur-slow, 320ms) var(--sm-ease-emphasis, cubic-bezier(0.22, 1, 0.36, 1));
+  animation: phantasi-note-cover-in var(--sm-dur-slow, 320ms)
+    var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__cover:hover img {
+  transform: scale(1.04);
+}
+
+.phantasi-note__cover-badge {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  max-width: calc(100% - 1.2rem);
+  padding: 0.2rem 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  backdrop-filter: blur(6px);
+}
+
+.phantasi-note__cover-hover {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: rgb(0 0 0 / 38%);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity var(--sm-dur-fast, 140ms) ease;
+}
+
+.phantasi-note__cover-hover svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__cover:hover .phantasi-note__cover-hover,
+.phantasi-note.phantasi-skin .phantasi-note__cover:focus-visible .phantasi-note__cover-hover {
+  opacity: 1;
+}
+
+.phantasi-note__cover-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  height: 100%;
+  padding: 1rem;
+  text-align: center;
+}
+
+.phantasi-note__cover-empty svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.phantasi-note__cover-empty strong {
+  font-size: 0.875rem;
+}
+
+.phantasi-note__cover-empty small {
+  color: var(--note-ink-3);
+  font-size: 0.75rem;
+}
+
+.phantasi-note.phantasi-skin .phantasi-note__cover-reset {
+  align-self: flex-start;
+  height: 1.75rem;
+  margin-inline-start: -0.5rem;
+  padding: 0 0.5rem;
+  font-size: 0.8125rem;
+}
+
+/* 作者：「添加」也是一颗芯片，原生下拉叠在上面，键盘和读屏照常可用。 */
+.phantasi-note__chip-add {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.85rem;
+  padding: 0 0.7rem;
+  border: 1px dashed var(--note-line-strong);
+  border-radius: 999px;
+  color: var(--note-ink-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.phantasi-note__chip-add:hover,
+.phantasi-note__chip-add:focus-within {
+  border-color: var(--note-ink);
+  color: var(--note-ink);
+}
+
+.phantasi-note__chip-add svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.phantasi-note__chip-add select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
 .phantasi-note__slug {
   display: flex;
   align-items: center;
@@ -1719,10 +2069,55 @@ html.dark .phantasi-note__drawer {
   font-size: 0.8125rem;
 }
 
-.phantasi-note__drawer-foot {
-  margin-top: auto;
-  padding-top: 1rem;
-  border-top: 1px solid var(--note-line);
+/* 已发布的地址：一行等宽字，复制和打开紧贴在右边。 */
+.phantasi-note__address {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-height: 2.5rem;
+  padding-inline-start: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--note-stage) 25%, var(--note-line));
+  border-radius: var(--note-ctl-radius);
+  background: var(--note-paper);
+}
+
+.phantasi-note__address-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--note-ink);
+  font: 500 0.8125rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.phantasi-note__address-open {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-inline-end: 0.15rem;
+  border-radius: calc(var(--note-ctl-radius) - 0.2rem);
+  color: var(--note-ink-2);
+}
+
+.phantasi-note__address-open:hover {
+  background: var(--note-fill-hover);
+  color: var(--note-ink);
+}
+
+.phantasi-note__address-open svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.phantasi-note__danger {
+  margin-top: 0.5rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--note-line);
 }
 
 .phantasi-note__read .link-definition,

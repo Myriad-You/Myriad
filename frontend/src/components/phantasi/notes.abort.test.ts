@@ -90,7 +90,6 @@ describe('note editor abort', () => {
     for (const control of [
       'NoteButton',
       'NoteSwitch',
-      'NoteSelect',
       'NoteDateInput',
       'NoteField',
       'NoteSection',
