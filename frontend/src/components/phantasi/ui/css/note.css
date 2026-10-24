@@ -1603,7 +1603,6 @@ html.dark .phantasi-note__drawer {
 }
 
 .phantasi-note__state-card.is-scheduled { --note-stage: var(--note-stage-scheduled); }
-.phantasi-note__state-card.is-published { --note-stage: var(--note-stage-published); }
 
 .phantasi-note__state-eyebrow {
   display: inline-flex;
@@ -1662,6 +1661,12 @@ html.dark .phantasi-note__drawer {
   align-items: center;
   gap: 0.6rem;
   min-height: 2rem;
+}
+
+/* 地址、日期两行的标签对齐，值从同一条竖线开始。 */
+.phantasi-note__date-line > .note-field__label {
+  flex-shrink: 0;
+  min-width: 5.5rem;
 }
 
 .phantasi-note__date-value {
@@ -2069,49 +2074,48 @@ html.dark .phantasi-note__drawer {
   font-size: 0.8125rem;
 }
 
-/* 已发布的地址：一行等宽字，复制和打开紧贴在右边。 */
-.phantasi-note__address {
+/* 已发布：更新按钮占一行，说明紧跟其下。 */
+.phantasi-note__update {
   display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  min-height: 2.5rem;
-  padding-inline-start: 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--note-stage) 25%, var(--note-line));
-  border-radius: var(--note-ctl-radius);
-  background: var(--note-paper);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
 }
 
+/* 地址和文章日期同一种行：标签、值、行尾的小动作。 */
 .phantasi-note__address-path {
-  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   min-width: 0;
   overflow: hidden;
   color: var(--note-ink);
   font: 500 0.8125rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  text-overflow: ellipsis;
+  text-decoration: none;
   white-space: nowrap;
-  user-select: text;
 }
 
-.phantasi-note__address-open {
-  display: inline-flex;
+a.phantasi-note__address-path:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.phantasi-note__address-path svg {
   flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  margin-inline-end: 0.15rem;
-  border-radius: calc(var(--note-ctl-radius) - 0.2rem);
-  color: var(--note-ink-2);
+  width: 0.8rem;
+  height: 0.8rem;
+  color: var(--note-ink-3, var(--note-ink-2));
 }
 
-.phantasi-note__address-open:hover {
-  background: var(--note-fill-hover);
-  color: var(--note-ink);
+.phantasi-note.phantasi-skin .phantasi-note__address-copy {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
 }
 
-.phantasi-note__address-open svg {
-  width: 1rem;
-  height: 1rem;
+.phantasi-note.phantasi-skin .phantasi-note__address-copy svg {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 /* ---- AI 伴读：两行列表，纸色和墨色，不另起颜色 ---- */

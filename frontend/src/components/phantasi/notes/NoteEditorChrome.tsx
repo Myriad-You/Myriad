@@ -38,7 +38,6 @@ import {
   NoteButton,
   NoteChip,
   NoteDateInput,
-  NoteField,
   NoteSection,
   NoteSwitch,
 } from './NoteControls'
@@ -1599,7 +1598,6 @@ function NotePublishedPublish({
   const [editingSlug, setEditingSlug] = useState(false)
   const [copied, setCopied] = useState(false)
   const [originalSlug] = useState(slugInput.trim())
-  const slugChanged = slugInput.trim() !== originalSlug
   const path = `/blog/posts/${slugInput.trim() || originalSlug}/`
   useEffect(() => {
     if (!copied) return
@@ -1616,17 +1614,52 @@ function NotePublishedPublish({
   }
   return (
     <>
-      <section className="phantasi-note__state-card is-published">
-        <span className="phantasi-note__state-eyebrow">
-          <Check aria-hidden="true" />
-          {t.phantasi.noteSettingsLive}
-        </span>
-        {editingSlug ? (
-          <NoteField
-            label={t.studio.slug}
-            hint={slugInvalid ? t.studio.slugInvalid : slugChanged ? t.phantasi.noteSettingsSlugWarn : undefined}
-            htmlFor="note-slug"
+      {/* 状态已经写在抽屉顶上，这里不再起卡片：一个更新按钮，下面两行和日期同样的行。 */}
+      <div className="phantasi-note__update">
+        <NoteButton variant="tint" icon={<Send />} disabled={busy} onClick={onPublish}>
+          {t.phantasi.noteSettingsUpdateBlog}
+        </NoteButton>
+        <p className="note-field__hint">{t.phantasi.noteSettingsUpdateHint}</p>
+      </div>
+      <div className="phantasi-note__date-row">
+        <div className="phantasi-note__date-line">
+          <span className="note-field__label">{t.phantasi.noteSettingsAddress}</span>
+          {editingSlug ? null : articleHref && !slugInvalid ? (
+            <a
+              className="phantasi-note__address-path"
+              href={articleHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t.studio.viewArticle}
+            >
+              {path}
+              <ExternalLink aria-hidden="true" />
+            </a>
+          ) : (
+            <code className="phantasi-note__address-path" title={path}>{path}</code>
+          )}
+          {editingSlug ? null : (
+            <NoteButton
+              variant="quiet"
+              className="phantasi-note__address-copy"
+              icon={copied ? <Check /> : <Copy />}
+              onClick={() => { void copy() }}
+              aria-label={t.phantasi.copy}
+              title={copied ? t.phantasi.copied : t.phantasi.copy}
+            />
+          )}
+          <NoteButton
+            variant="quiet"
+            className="phantasi-note__date-toggle"
+            aria-expanded={editingSlug}
+            disabled={editingSlug && slugInvalid}
+            onClick={() => setEditingSlug((open) => !open)}
           >
+            {editingSlug ? t.phantasi.noteSettingsDone : t.phantasi.noteSettingsEdit}
+          </NoteButton>
+        </div>
+        {editingSlug ? (
+          <div className="phantasi-note__date-edit">
             <span className={`phantasi-note__slug${slugInvalid ? ' is-invalid' : ''}`}>
               <span className="phantasi-note__slug-prefix" aria-hidden="true">/blog/posts/</span>
               <input
@@ -1637,6 +1670,7 @@ function NotePublishedPublish({
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"
+                aria-label={t.studio.slug}
                 aria-invalid={slugInvalid || undefined}
                 onChange={(event) => onSlugInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -1644,46 +1678,12 @@ function NotePublishedPublish({
                 }}
               />
             </span>
-          </NoteField>
-        ) : (
-          <div className="phantasi-note__address">
-            <code className="phantasi-note__address-path" title={path}>{path}</code>
-            <NoteButton
-              variant="quiet"
-              icon={copied ? <Check /> : <Copy />}
-              onClick={() => { void copy() }}
-              aria-label={t.phantasi.copy}
-              title={copied ? t.phantasi.copied : t.phantasi.copy}
-            />
-            {articleHref && !slugInvalid ? (
-              <a
-                className="phantasi-note__address-open"
-                href={articleHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={t.studio.viewArticle}
-                aria-label={t.studio.viewArticle}
-              >
-                <ExternalLink aria-hidden="true" />
-              </a>
-            ) : null}
+            <p className="note-field__hint">
+              {slugInvalid ? t.studio.slugInvalid : t.phantasi.noteSettingsSlugWarn}
+            </p>
           </div>
-        )}
-        <div className="phantasi-note__state-actions">
-          <NoteButton variant="tint" icon={<Send />} disabled={busy} onClick={onPublish}>
-            {t.phantasi.noteSettingsUpdateBlog}
-          </NoteButton>
-          <NoteButton
-            variant="quiet"
-            aria-expanded={editingSlug}
-            disabled={editingSlug && slugInvalid}
-            onClick={() => setEditingSlug((open) => !open)}
-          >
-            {editingSlug ? t.phantasi.noteSettingsDone : t.phantasi.noteSettingsAddressEdit}
-          </NoteButton>
-        </div>
-        <p className="note-field__hint">{t.phantasi.noteSettingsUpdateHint}</p>
-      </section>
+        ) : null}
+      </div>
       <NoteArticleDate value={publishedAt} onChange={onPublishedAtChange} />
       {companion}
     </>
