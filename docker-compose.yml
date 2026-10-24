@@ -281,12 +281,6 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       FRONTEND_URL: ${FRONTEND_URL:-}
       BASE_URL: ${BASE_URL:-}
-      # The site measures its host's clock (SNTP, then HTTPS Date) and keeps
-      # real time itself. See docs/deployment/DOCKER_DEPLOYMENT.md#clock.
-      CLOCK_CHECK_ENABLED: ${CLOCK_CHECK_ENABLED:-true}
-      CLOCK_CHECK_NTP_SERVERS: ${CLOCK_CHECK_NTP_SERVERS:-time.cloudflare.com,time.google.com,pool.ntp.org}
-      CLOCK_CHECK_HTTPS_URLS: ${CLOCK_CHECK_HTTPS_URLS:-https://www.cloudflare.com,https://www.google.com}
-      CLOCK_CHECK_THRESHOLD_SECS: ${CLOCK_CHECK_THRESHOLD_SECS:-60}
       TRUST_PROXY_HEADERS: "true"
       TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-127.0.0.0/8,::1,172.17.0.0/16,172.28.0.0/16}
       RUST_LOG: ${RUST_LOG:-info}
@@ -358,12 +352,6 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       FRONTEND_URL: ${FRONTEND_URL:-}
       BASE_URL: ${BASE_URL:-}
-      # The site measures its host's clock (SNTP, then HTTPS Date) and keeps
-      # real time itself. See docs/deployment/DOCKER_DEPLOYMENT.md#clock.
-      CLOCK_CHECK_ENABLED: ${CLOCK_CHECK_ENABLED:-true}
-      CLOCK_CHECK_NTP_SERVERS: ${CLOCK_CHECK_NTP_SERVERS:-time.cloudflare.com,time.google.com,pool.ntp.org}
-      CLOCK_CHECK_HTTPS_URLS: ${CLOCK_CHECK_HTTPS_URLS:-https://www.cloudflare.com,https://www.google.com}
-      CLOCK_CHECK_THRESHOLD_SECS: ${CLOCK_CHECK_THRESHOLD_SECS:-60}
       TRUST_PROXY_HEADERS: "true"
       TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-127.0.0.0/8,::1,172.17.0.0/16,172.28.0.0/16}
       PERSONA_WEB_UPSTREAM: http://backend:1103

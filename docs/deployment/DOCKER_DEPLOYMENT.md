@@ -162,7 +162,7 @@ database outage.
 | `UPDATER_ALLOW_INSECURE_COSIGN` | no | Required dual key when `COSIGN_VERIFY=off` (`true` / alias `COSIGN_INSECURE_OK`) |
 | `TAPP_STORE_STATS_ENABLED` | no | Official Tapp install counts (no secrets; 1/instance/app/day). Unset: on in `ENVIRONMENT=production` with a non-localhost `BASE_URL`. Compose stock sets `true`. Set `false` to opt out. |
 | `TAPP_STORE_STATS_URL` | no | Stats endpoint, default `https://stats.store.myriad.you` |
-| `CLOCK_CHECK_ENABLED` | no | Backend and workers: measure the host's clock and keep real time (see [Clock](#clock)), default `true` |
+| `CLOCK_CHECK_ENABLED` | no | Measure the host's clock and keep real time (see [Clock](#clock)), default `true`. The `CLOCK_CHECK_*` settings reach the backend only; the workers run the same check with the built-in defaults |
 | `CLOCK_CHECK_NTP_SERVERS` / `CLOCK_CHECK_HTTPS_URLS` | no | SNTP servers and `https://` addresses for the check, comma separated; empty for none |
 | `CLOCK_CHECK_THRESHOLD_SECS` | no | How far off the host's clock is worth a warning in the log, default `60` |
 
