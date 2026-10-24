@@ -907,6 +907,7 @@ export function NoteEditorView({
           companion={companionItemId != null ? <NoteCompanionSection itemId={companionItemId} /> : null}
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
+          title={title}
           docStatus={docStatus}
           topic={topic}
           topicChoices={categoryNames}
