@@ -618,6 +618,13 @@ class AgentService {
     )
   }
 
+  /** Forgets a device already removed: it leaves the list. */
+  async forgetSyncDevice(id: string): Promise<SyncDeviceList> {
+    return apiService.delete(
+      `${this.baseUrl}/devices/${encodeURIComponent(id)}/record`,
+    )
+  }
+
   /**
    * Confirms, logged in, a move of her a device asked for: she is frozen
    * until it is done or called off. A move to a device takes the passphrase

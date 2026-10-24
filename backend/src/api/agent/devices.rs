@@ -799,6 +799,27 @@ pub async fn remove_device(
     ))
 }
 
+/// DELETE /api/agent/devices/{device_id}/record: the owner forgets a device
+/// already removed, so it leaves the list.
+pub async fn forget_device(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(device_id): Path<String>,
+) -> Result<Json<Value>, HttpError> {
+    let owner = super::persona::require_site_owner(&claims, &db).await?;
+    if !devices::forget(&db, owner, &device_id)
+        .await
+        .map_err(store_failed)?
+    {
+        return Err(HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "No such removed device", "code": "device_not_found" })),
+        )));
+    }
+    tracing::info!(device = %device_id, "[sync] removed device forgotten by the owner");
+    Ok(Json(device_list(&db, owner).await?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

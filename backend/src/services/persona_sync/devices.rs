@@ -254,6 +254,21 @@ pub async fn revoke<C: ConnectionTrait>(
     Ok(removed)
 }
 
+/// Forgets a removed device of the owner's: its row goes, so it leaves the
+/// list. Only a removed one: a live device is removed first ([`revoke`]),
+/// which is what closes its link and settles her lease. Its backups stay
+/// (they are how she is taken back). `false` when there is no such removed
+/// device.
+pub async fn forget<C: ConnectionTrait>(db: &C, user_id: i32, id: &str) -> Result<bool, DbErr> {
+    let gone = db
+        .execute_raw(statement(
+            "DELETE FROM agent_sync_devices WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL",
+            vec![id.into(), user_id.into()],
+        ))
+        .await?;
+    Ok(gone.rows_affected() > 0)
+}
+
 /// Why a request's token is not a device's.
 #[derive(Debug)]
 pub enum Refused {
@@ -431,6 +446,12 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        // A removed device can be forgotten; a live one, or another owner's, not.
+        assert!(!forget(db, 41, &mac.id).await.unwrap(), "live");
+        assert!(!forget(db, 42, &other.id).await.unwrap(), "not 42's");
+        assert!(forget(db, 41, &other.id).await.unwrap());
+        assert!(!forget(db, 41, &other.id).await.unwrap(), "already gone");
+        assert!(list(db, 41).await.unwrap().iter().all(|d| d.id != other.id));
 
         // Ten live devices at most; a removed one does not count.
         for n in 0..9 {

@@ -107,6 +107,20 @@ export function AgentDevicesGroup() {
     [c.agentDevicesRemoveFailed, fail, load],
   )
 
+  const forget = useCallback(
+    async (device: SyncDevice) => {
+      setWorking(true)
+      try {
+        setList(await agentService.forgetSyncDevice(device.id))
+      } catch (error) {
+        fail(error, c.agentDevicesForgetFailed)
+      } finally {
+        setWorking(false)
+      }
+    },
+    [c.agentDevicesForgetFailed, fail],
+  )
+
   // A move of her: confirmed (she freezes) or called off (she is back as
   // she was). Only here, logged in; a device token cannot do either.
   const moveAction = useCallback(
@@ -568,7 +582,18 @@ export function AgentDevicesGroup() {
           : c.agentDevicesNeverConnected,
       badges,
       actions: device.revokedAt
-        ? []
+        ? [
+            {
+              key: 'forget',
+              label: c.agentDevicesForget,
+              onClick: () => void forget(device),
+              disabled: working,
+              variant: 'danger' as const,
+              confirm: format(c.agentDevicesForgetConfirm, {
+                name: device.name,
+              }),
+            },
+          ]
         : [
             {
               key: 'remove',
