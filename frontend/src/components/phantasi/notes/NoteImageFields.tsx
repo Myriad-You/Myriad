@@ -53,6 +53,6 @@ export function NoteImageFields({ values, onApply, onFocusChange }: {
     ))}
     <p className="note-field__hint">{t.phantasi.noteImageDestinationHint}</p>
     {error ? <p className="phantasi-note__image-error" role="alert">{t.phantasi.noteImageUrlInvalid}</p> : null}
-    <NoteButton variant="solid" onClick={apply}>{t.phantasi.noteImageApply}</NoteButton>
+    <NoteButton variant="tint" onClick={apply}>{t.phantasi.noteImageApply}</NoteButton>
   </div>
 }

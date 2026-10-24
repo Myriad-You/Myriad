@@ -79,7 +79,7 @@ export function NoteAiPanel({ ai, previewClass, previewStyle }: {
       </div> : null}
       {ai.error ? <p role="alert" className="note-ai__notice">{errors[ai.error] ?? (ai.error === t.errors.aiNotConfigured ? ai.error : copy.noteAiFailed)}</p> : null}
       <div className="note-ai__actions">
-        <NoteButton variant="solid" loading={ai.busy} disabled={ai.stale || unavailable || !ai.snapshot.document.contentMd.trim()} onClick={() => void ai.generate()}>
+        <NoteButton variant="tint" loading={ai.busy} disabled={ai.stale || unavailable || !ai.snapshot.document.contentMd.trim()} onClick={() => void ai.generate()}>
           {ai.busy ? copy.noteAiGenerating : copy.noteAiGenerate}
         </NoteButton>
         {ai.busy ? <NoteButton onClick={ai.cancel}>{copy.noteAiCancel}</NoteButton> : null}

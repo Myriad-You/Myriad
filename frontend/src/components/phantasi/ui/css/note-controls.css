@@ -111,6 +111,22 @@ html.dark .phantasi-note__menu {
   background: var(--note-solid-bg-hover);
 }
 
+/* 浅底主按钮：设置抽屉里用它当主要动作，不压一块黑在面板上。 */
+.phantasi-note.phantasi-skin .note-btn--tint {
+  border-color: var(--note-line);
+  background: var(--note-fill);
+  color: var(--note-ink);
+}
+
+.phantasi-note.phantasi-skin .note-btn--tint:hover:not(:disabled) {
+  border-color: var(--note-line-strong);
+  background: var(--note-fill-hover);
+}
+
+.phantasi-note.phantasi-skin .note-btn--tint:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
 .phantasi-note.phantasi-skin .note-btn--outline {
   border-color: var(--note-line-strong);
   background: var(--note-paper);

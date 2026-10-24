@@ -130,7 +130,7 @@ export function NoteHistorySection({ cloudId, onRestore, busy }: Pick<NoteEditor
             {selected.snapshot.topic ? <p>{selected.snapshot.topic}</p> : null}
             <pre>{selected.snapshot.content_md}</pre>
             <p>{t.phantasi.noteHistoryRestoreHint}</p>
-            <NoteButton variant="solid" onClick={() => { void restore() }} disabled={busy || restoring}>
+            <NoteButton variant="tint" onClick={() => { void restore() }} disabled={busy || restoring}>
               {restoring ? t.phantasi.noteHistoryRestoring : t.phantasi.noteHistoryRestore}
             </NoteButton>
           </div>

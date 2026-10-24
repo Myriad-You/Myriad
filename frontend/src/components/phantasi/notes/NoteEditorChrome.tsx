@@ -235,7 +235,7 @@ export function NoteTopBar({
             </a>
           ) : null}
           <NoteButton
-            variant="solid"
+            variant="tint"
             size="lg"
             loading={saving}
             disabled={loading}
@@ -1495,7 +1495,7 @@ function NoteDraftPublish({
         {route === 'now' ? (
           <>
             <NoteArticleDate value={publishedAt} onChange={onPublishedAtChange} />
-            <NoteButton variant="solid" size="lg" icon={<Send />} disabled={busy} onClick={onPublish}>
+            <NoteButton variant="tint" size="lg" icon={<Send />} disabled={busy} onClick={onPublish}>
               {t.phantasi.noteSettingsPublishNow}
             </NoteButton>
           </>
@@ -1558,7 +1558,7 @@ function NoteScheduledPublish({
         />
       ) : (
         <div className="phantasi-note__state-actions is-even">
-          <NoteButton variant="solid" disabled={busy} onClick={onPublish}>
+          <NoteButton variant="tint" disabled={busy} onClick={onPublish}>
             {t.phantasi.noteSettingsPublishNow}
           </NoteButton>
           <NoteButton
@@ -1670,7 +1670,7 @@ function NotePublishedPublish({
           </div>
         )}
         <div className="phantasi-note__state-actions">
-          <NoteButton variant="solid" icon={<Send />} disabled={busy} onClick={onPublish}>
+          <NoteButton variant="tint" icon={<Send />} disabled={busy} onClick={onPublish}>
             {t.phantasi.noteSettingsUpdateBlog}
           </NoteButton>
           <NoteButton
@@ -1806,7 +1806,7 @@ function NoteSchedulePicker({
         {status}
       </p>
       <div className="phantasi-note__schedule-actions">
-        <NoteButton variant="solid" size="lg" icon={<Clock />} disabled={busy || !future} onClick={onConfirm}>
+        <NoteButton variant="tint" size="lg" icon={<Clock />} disabled={busy || !future} onClick={onConfirm}>
           {future
             ? format(update ? t.phantasi.noteSettingsScheduleUpdateAt : t.phantasi.noteSettingsScheduleAt, { when: longWhen(value, locale) })
             : update

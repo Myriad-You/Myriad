@@ -9,7 +9,7 @@ import { useId } from 'react'
 import { ButtonSpinner } from '../../Spinner'
 import { fromDatetimeLocal, toDatetimeLocal } from './noteFields'
 
-type NoteButtonVariant = 'solid' | 'outline' | 'quiet' | 'danger'
+type NoteButtonVariant = 'solid' | 'tint' | 'outline' | 'quiet' | 'danger'
 type NoteButtonSize = 'md' | 'lg'
 
 interface NoteButtonProps
