@@ -1,0 +1,439 @@
+{
+ "note": "filter.page 与 filter.decide 的一致性对照用例：每条给 filter.page 的输入（table 用本文件的表）和应有的输出；decide 是把 page 的 page、kind 交给 filter.decide（截取与窗口 seen，其余规则都没命中，模型可用、语言受支持；消息类给一次通过复核的转述，其余给两次 not_sensitive）后应有的去向。路径和标题只在本机读，不出现在任何输出里。",
+ "table": {
+  "note": "filter.page 的对照用例自带的来源表，全部是 .example。",
+  "bundles": {},
+  "hosts": {
+   "aoi-bank.example": "finance",
+   "night-club.example": "adult",
+   "id.portal.example": "account",
+   "myna.gov.example": "government_id",
+   "chat.river.example": "messaging",
+   "pay.tube.example": "finance"
+  },
+  "markets": {
+   "jp": {
+    "kusuri.example": "health"
+   },
+   "sg": {
+    "lion-clinic.example": "health"
+   }
+  },
+  "ordinary": {
+   "tube.example": "video",
+   "daily-news.example": "news",
+   "wiki.example": "reference",
+   "code.example": "dev",
+   "shop.example": "shopping"
+  }
+ },
+ "cases": [
+  {
+   "id": "p-ordinary-video",
+   "urlHost": "www.tube.example",
+   "path": "/watch?v=abc",
+   "expect": {
+    "read": true,
+    "page": "ordinary",
+    "basis": "ordinary_site",
+    "kind": null,
+    "category": "video",
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "carry",
+    "reason": "classify",
+    "leaves": "scrubbed_text"
+   }
+  },
+  {
+   "id": "p-ordinary-news",
+   "urlHost": "daily-news.example",
+   "path": "/2026/10/24/economy",
+   "expect": {
+    "read": true,
+    "page": "ordinary",
+    "basis": "ordinary_site",
+    "kind": null,
+    "category": "news",
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "carry",
+    "reason": "classify",
+    "leaves": "scrubbed_text"
+   }
+  },
+  {
+   "id": "p-ordinary-security-doc",
+   "urlHost": "wiki.example",
+   "path": "/wiki/Computer_security",
+   "expect": {
+    "read": true,
+    "page": "ordinary",
+    "basis": "ordinary_site",
+    "kind": null,
+    "category": "reference",
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "carry",
+    "reason": "classify",
+    "leaves": "scrubbed_text"
+   }
+  },
+  {
+   "id": "p-docs-host",
+   "urlHost": "docs.anything.example",
+   "path": "/guide/security",
+   "expect": {
+    "read": true,
+    "page": "ordinary",
+    "basis": "docs_host",
+    "kind": null,
+    "category": "reference",
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "carry",
+    "reason": "classify",
+    "leaves": "scrubbed_text"
+   }
+  },
+  {
+   "id": "p-unknown",
+   "urlHost": "blog.someone.example",
+   "path": "/posts/1",
+   "expect": {
+    "read": false,
+    "page": "unknown",
+    "basis": "unknown_site",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "unknown",
+    "reason": "page",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-sensitive-finance",
+   "urlHost": "www.aoi-bank.example",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_site",
+    "kind": "finance",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "finance",
+    "reason": "source",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-sensitive-adult",
+   "urlHost": "night-club.example",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_site",
+    "kind": "adult",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "private_browsing",
+    "reason": "source",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-sensitive-account",
+   "urlHost": "id.portal.example",
+   "path": "/",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_site",
+    "kind": "account",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "account",
+    "reason": "source",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-sensitive-government",
+   "urlHost": "myna.gov.example",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_site",
+    "kind": "government_id",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "identity",
+    "reason": "source",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-market-unlisted",
+   "urlHost": "kusuri.example",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_site",
+    "kind": "health",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "health",
+    "reason": "source",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-market-other",
+   "urlHost": "kusuri.example",
+   "market": "sg",
+   "expect": {
+    "read": false,
+    "page": "unknown",
+    "basis": "unknown_site",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "unknown",
+    "reason": "page",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-market-unknown",
+   "urlHost": "kusuri.example",
+   "market": "zz",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_site",
+    "kind": "health",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "health",
+    "reason": "source",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-account-path",
+   "urlHost": "code.example",
+   "path": "/settings/security",
+   "expect": {
+    "read": false,
+    "page": "account",
+    "basis": "account_path",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "account",
+    "reason": "page",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-account-billing",
+   "urlHost": "shop.example",
+   "path": "/my-account/payment-methods?tab=cards",
+   "expect": {
+    "read": false,
+    "page": "account",
+    "basis": "account_path",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "account",
+    "reason": "page",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-account-orders",
+   "urlHost": "www.shop.example",
+   "path": "/orders/history",
+   "expect": {
+    "read": false,
+    "page": "account",
+    "basis": "account_path",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "account",
+    "reason": "page",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-account-signin-path",
+   "urlHost": "code.example",
+   "path": "/sign-in",
+   "expect": {
+    "read": false,
+    "page": "account",
+    "basis": "account_path",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "account",
+    "reason": "page",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-account-title",
+   "urlHost": "tube.example",
+   "path": "/x",
+   "title": "アカウント設定 - Tube",
+   "expect": {
+    "read": false,
+    "page": "account",
+    "basis": "account_title",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "account",
+    "reason": "page",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-password-field",
+   "urlHost": "tube.example",
+   "path": "/watch",
+   "passwordField": true,
+   "expect": {
+    "read": false,
+    "page": "sign_in",
+    "basis": "password_field",
+    "kind": null,
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "exclude",
+    "reason": "password_field",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-password-on-bank",
+   "urlHost": "aoi-bank.example",
+   "passwordField": true,
+   "expect": {
+    "read": false,
+    "page": "sign_in",
+    "basis": "password_field",
+    "kind": "finance",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "exclude",
+    "reason": "password_field",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-messaging",
+   "urlHost": "chat.river.example",
+   "expect": {
+    "read": true,
+    "page": "messaging",
+    "basis": "messaging_site",
+    "kind": "messaging",
+    "category": null,
+    "othersWords": true
+   },
+   "decide": {
+    "disposition": "who_what",
+    "reason": "relay",
+    "leaves": "who_what"
+   }
+  },
+  {
+   "id": "p-messaging-settings",
+   "urlHost": "chat.river.example",
+   "path": "/settings",
+   "expect": {
+    "read": false,
+    "page": "account",
+    "basis": "account_path",
+    "kind": "messaging",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "account",
+    "reason": "page",
+    "leaves": "nothing"
+   }
+  },
+  {
+   "id": "p-sensitive-beats-ordinary",
+   "urlHost": "pay.tube.example",
+   "expect": {
+    "read": false,
+    "page": "sensitive",
+    "basis": "sensitive_site",
+    "kind": "finance",
+    "category": null,
+    "othersWords": false
+   },
+   "decide": {
+    "disposition": "present_only",
+    "kind": "finance",
+    "reason": "source",
+    "leaves": "nothing"
+   }
+  }
+ ]
+}

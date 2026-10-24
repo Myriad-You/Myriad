@@ -1,0 +1,226 @@
+{
+ "note": "终端和配置里没有固定形状的密钥写法：filter.scan_secrets 的一致性对照用例。密码是合成的，不像任何真实密钥。wiped 是应有的 kind（按顺序），gone 不能留在输出里，kept 必须原样留着；wiped 为空的一处都不能抹。",
+ "cases": [
+  {
+   "id": "t-curl-user",
+   "text": "$ curl -u probeabcd:Synth3fg2hPw https://api.river.example/x",
+   "wiped": [
+    "flag"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "$ curl -u probeabcd:",
+    "https://api.river.example/x"
+   ]
+  },
+  {
+   "id": "t-curl-long-user",
+   "text": "$ curl --user probe:Synth3fg2hPw https://a.example",
+   "wiped": [
+    "flag"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "--user probe:"
+   ]
+  },
+  {
+   "id": "t-mysql",
+   "text": "$ mysql -u root -pSynth3fg2hPw -h db.river.example",
+   "wiped": [
+    "flag"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "mysql -u root -p",
+    "-h db.river.example"
+   ]
+  },
+  {
+   "id": "t-url",
+   "text": "origin  https://probe:Synth3fg2hPw@git.river.example/r.git (fetch)",
+   "wiped": [
+    "url_credentials"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "https://probe:",
+    "@git.river.example/r.git (fetch)"
+   ]
+  },
+  {
+   "id": "t-password-flag",
+   "text": "$ deploy --password Synth3fg2hPw",
+   "wiped": [
+    "flag"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "$ deploy --password "
+   ]
+  },
+  {
+   "id": "t-api-key-flag",
+   "text": "$ tool --api-key Synth3fg2hPw --verbose",
+   "wiped": [
+    "flag"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "--verbose"
+   ]
+  },
+  {
+   "id": "t-sshpass",
+   "text": "$ sshpass -p Synth3fg2hPw ssh probe@host.example",
+   "wiped": [
+    "flag"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "ssh probe@host.example"
+   ]
+  },
+  {
+   "id": "t-docker-login",
+   "text": "$ docker login -u probe -p Synth3fg2hPw registry.example",
+   "wiped": [
+    "flag"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "registry.example"
+   ]
+  },
+  {
+   "id": "t-netrc-line",
+   "text": "machine api.example login probe password Synth3fg2hPw",
+   "wiped": [
+    "netrc"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "machine api.example login probe password "
+   ]
+  },
+  {
+   "id": "t-netrc-lines",
+   "text": "machine api.example\n  login probe\n  password Synth3fg2hPw",
+   "wiped": [
+    "netrc"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "  login probe\n  password "
+   ]
+  },
+  {
+   "id": "t-cookie",
+   "text": "Cookie: session=Synth3fg2hPw; theme=dark",
+   "wiped": [
+    "cookie"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "Cookie: "
+   ]
+  },
+  {
+   "id": "t-set-cookie",
+   "text": "$ curl -H 'Set-Cookie: sid=Synth3fg2hPw' https://a.example",
+   "wiped": [
+    "cookie"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "https://a.example"
+   ]
+  },
+  {
+   "id": "t-api-key-header",
+   "text": "$ curl -H 'X-Api-Key: Synth3fg2hPw' https://a.example",
+   "wiped": [
+    "assignment"
+   ],
+   "gone": [
+    "Synth3fg2hPw"
+   ],
+   "kept": [
+    "X-Api-Key: "
+   ]
+  },
+  {
+   "id": "n-mkdir",
+   "text": "$ mkdir -p build/out",
+   "wiped": [],
+   "gone": [],
+   "kept": []
+  },
+  {
+   "id": "n-ssh-port",
+   "text": "$ ssh -p 2222 probe@host.example",
+   "wiped": [],
+   "gone": [],
+   "kept": []
+  },
+  {
+   "id": "n-mysql-prompt",
+   "text": "$ mysql -P 3306 -u root -p",
+   "wiped": [],
+   "gone": [],
+   "kept": []
+  },
+  {
+   "id": "n-port-url",
+   "text": "https://example.example:8080/path",
+   "wiped": [],
+   "gone": [],
+   "kept": []
+  },
+  {
+   "id": "n-token-variable",
+   "text": "$ gh auth login --token $GITHUB_TOKEN",
+   "wiped": [],
+   "gone": [],
+   "kept": []
+  },
+  {
+   "id": "n-cookie-prose",
+   "text": "Set-Cookie headers are explained below",
+   "wiped": [],
+   "gone": [],
+   "kept": []
+  },
+  {
+   "id": "n-push-upstream",
+   "text": "$ git push -u origin main",
+   "wiped": [],
+   "gone": [],
+   "kept": []
+  }
+ ]
+}
