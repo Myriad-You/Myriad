@@ -378,7 +378,7 @@ export function getArticleProseClass(
                 [&_.phantasiai-annotation[data-type="context"]]:text-green-300 [&_.phantasiai-annotation[data-type="context"]]:bg-green-500/15 [&_.phantasiai-annotation[data-type="context"]]:border-green-400/50
                 [&_.phantasiai-annotation[data-type="abbreviation"]]:text-pink-300 [&_.phantasiai-annotation[data-type="abbreviation"]]:bg-pink-500/15 [&_.phantasiai-annotation[data-type="abbreviation"]]:border-pink-400/50
                 [&_.phantasiai-annotation:hover]:ring-2 [&_.phantasiai-annotation:hover]:ring-current/30
-                [&_.phantasiai-highlight-flash]:animate-pulse [&_.phantasiai-highlight-flash]:ring-2 [&_.phantasiai-highlight-flash]:ring-purple-400
+                [&_.phantasiai-highlight-flash]:animate-pulse [&_.phantasiai-highlight-flash]:ring-2 [&_.phantasiai-highlight-flash]:ring-[var(--phantasi-accent,var(--cfg-accent))]
 
                 /* 网络搜索摘要样式 - 暗色主题 */
                 /* 页脚区域 - 暗色主题 */
@@ -612,7 +612,7 @@ export function getArticleProseClass(
                 [&_.phantasiai-annotation[data-type="context"]]:text-green-700 [&_.phantasiai-annotation[data-type="context"]]:bg-green-100 [&_.phantasiai-annotation[data-type="context"]]:border-green-400
                 [&_.phantasiai-annotation[data-type="abbreviation"]]:text-pink-700 [&_.phantasiai-annotation[data-type="abbreviation"]]:bg-pink-100 [&_.phantasiai-annotation[data-type="abbreviation"]]:border-pink-400
                 [&_.phantasiai-annotation:hover]:ring-2 [&_.phantasiai-annotation:hover]:ring-current/30
-                [&_.phantasiai-highlight-flash]:animate-pulse [&_.phantasiai-highlight-flash]:ring-2 [&_.phantasiai-highlight-flash]:ring-purple-500
+                [&_.phantasiai-highlight-flash]:animate-pulse [&_.phantasiai-highlight-flash]:ring-2 [&_.phantasiai-highlight-flash]:ring-[var(--phantasi-accent,var(--cfg-accent))]
 
                 /* figcaption */
                 prose-figcaption:text-current

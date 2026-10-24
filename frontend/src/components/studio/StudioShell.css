@@ -7,9 +7,11 @@ html.embed-frame .studio-embed {
   overscroll-behavior: contain;
 }
 
-/* 窗口里的强调色跟覆盖层一致，不跟站点主题色走：主按钮上白字要看得清。 */
+/* 窗口里的强调色跟覆盖层一致（studioAccent.ts 从宿主节点抄过来），字色也是配好的；
+   直接打开没有覆盖层时用覆盖层的同一道后备色。 */
 .studio-embed {
-  --cfg-accent: #7c3aed;
+  --cfg-accent: var(--studio-accent, #8a6508);
+  --cfg-on-accent: var(--studio-on-accent, #fff);
 
   box-sizing: border-box;
   min-height: 100%;
@@ -20,7 +22,8 @@ html.embed-frame .studio-embed {
 }
 
 html.dark .studio-embed {
-  --cfg-accent: #8b5cf6;
+  --cfg-accent: var(--studio-accent, #fbbf24);
+  --cfg-on-accent: var(--studio-on-accent, #000);
 
   background: #18181b;
   color-scheme: dark;
@@ -193,7 +196,7 @@ html.dark .tool-pane__bar {
 }
 
 .tool-pane__action.is-primary {
-  color: #fff;
+  color: var(--cfg-on-accent);
   background: var(--cfg-accent);
 }
 
@@ -467,8 +470,8 @@ html.dark .studio-tool.phantasi-workbench .managed-list:not(.managed-list--grid)
 }
 
 .studio-tool__chip[aria-pressed='true'] {
-  color: #fff;
-  background: var(--color-primary);
+  color: var(--cfg-on-accent);
+  background: var(--cfg-accent);
 }
 
 html.dark .studio-tool__chip {
@@ -480,7 +483,7 @@ html.dark .studio-tool__chip:hover {
 }
 
 html.dark .studio-tool__chip[aria-pressed='true'] {
-  background: var(--color-primary);
+  background: var(--cfg-accent);
 }
 
 .studio-tool__scope {
@@ -797,7 +800,7 @@ html.dark .studio-overview__stat.is-warn .studio-overview__stat-value {
 .studio-embed .studio-tool .settings-btn.btn-primary {
   border-color: transparent;
   background: var(--cfg-accent);
-  color: #fff;
+  color: var(--cfg-on-accent);
 }
 
 .studio-embed .studio-tool .settings-btn.btn-primary:hover:not(:disabled) {

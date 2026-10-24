@@ -288,7 +288,7 @@ html.dark .media-editor__canvas {
 .media-editor__toolbar button:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--cfg-accent, #8b5cf6) 45%, transparent);
+    color-mix(in srgb, var(--cfg-accent, var(--color-primary)) 45%, transparent);
 }
 
 .media-editor__toolbar .media-editor__zoom {

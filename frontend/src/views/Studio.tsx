@@ -7,6 +7,7 @@ import { workbenchPendingReviews } from '../components/phantasi/logic/workbenchH
 import { useNoteTransfer } from '../components/phantasi/manager/useNoteTransfer'
 import { usePhantasiCategories } from '../components/phantasi/usePhantasiCategories'
 import { usePhantasiWorkbench } from '../components/phantasi/usePhantasiWorkbench'
+import { followStudioAccent } from '../components/studio/studioAccent'
 import {
   findStudioHost,
   openBlogPage,
@@ -62,6 +63,7 @@ export default function Studio() {
   const arg = query.get('arg')
   const itemId = positiveInt(query.get('item'))
   const pageDocId = positiveInt(query.get('doc'))
+  useEffect(() => followStudioAccent(), [])
   return (
     <div className="studio-embed">
       {tool === 'editor' ? (

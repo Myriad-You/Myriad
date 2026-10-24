@@ -20,7 +20,7 @@
   --cfg-input-border: rgb(209 213 219 / 60%);
   --cfg-card-shadow-sm: 0 4px 16px -4px rgb(0 0 0 / 6%);
   --cfg-card-shadow-md: 0 8px 24px -6px rgb(0 0 0 / 10%);
-  --cfg-accent: var(--color-primary, #8b5cf6);
+  --cfg-accent: var(--color-primary);
   --cfg-accent-fill: color-mix(in srgb, var(--cfg-accent) 18%, white);
   --cfg-accent-fill-2: color-mix(
     in srgb,
@@ -125,9 +125,9 @@ html.dark .settings-inset-card {
 }
 
 .settings-stat-chip.is-accent {
-  background: rgb(139 92 246 / 10%);
-  border-color: rgb(139 92 246 / 22%);
-  color: #6d28d9;
+  background: var(--cfg-accent-fill);
+  border-color: var(--cfg-accent-line);
+  color: var(--cfg-accent-ink);
 }
 
 .settings-stat-chip.is-danger {
@@ -198,11 +198,6 @@ html.dark .settings-stat-chip.is-muted {
   color: var(--cfg-text-2);
 }
 
-html.dark .settings-stat-chip.is-accent {
-  background: rgb(139 92 246 / 14%);
-  border-color: rgb(139 92 246 / 30%);
-  color: #c4b5fd;
-}
 
 html.dark .settings-stat-chip.is-danger {
   background: rgb(244 63 94 / 12%);

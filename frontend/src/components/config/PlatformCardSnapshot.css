@@ -41,11 +41,11 @@ html.dark .platform-card-snapshot-username {
   color: var(--cfg-text-1);
   background: color-mix(
     in srgb,
-    var(--cfg-accent, #8b5cf6) 12%,
+    var(--cfg-accent, var(--color-primary)) 12%,
     transparent
   );
   border: 1px solid
-    color-mix(in srgb, var(--cfg-accent, #8b5cf6) 22%, transparent);
+    color-mix(in srgb, var(--cfg-accent, var(--color-primary)) 22%, transparent);
 }
 
 html.dark .platform-card-snapshot-level {
