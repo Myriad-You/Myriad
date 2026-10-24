@@ -2114,6 +2114,196 @@ html.dark .phantasi-note__drawer {
   height: 1rem;
 }
 
+/* ---- AI 伴读：注释和播客各一张卡 ---- */
+
+.note-companion {
+  --note-ai: #7c5cff;
+
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--note-line);
+}
+
+html.dark .note-companion {
+  --note-ai: #b4a2ff;
+}
+
+.note-companion__head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.note-companion__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--note-ai) 14%, transparent);
+  color: var(--note-ai);
+}
+
+.note-companion__mark svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.note-companion__title {
+  margin: 0;
+  color: var(--note-ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.note-companion__load-error {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.65rem;
+  background: var(--note-danger-fill);
+  color: var(--note-danger);
+  font-size: 0.8125rem;
+}
+
+.note-companion__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.note-companion__card {
+  display: flex;
+  position: relative;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.85rem;
+  overflow: hidden;
+  border: 1px solid var(--note-line);
+  border-radius: 0.85rem;
+  background: var(--note-paper);
+  transition: border-color var(--sm-dur-base, 220ms) ease, background var(--sm-dur-base, 220ms) ease;
+}
+
+/* 还没有：虚线空位，等着被填上。 */
+.note-companion__card.is-empty {
+  border-style: dashed;
+  border-color: var(--note-line-strong);
+  background: transparent;
+}
+
+/* 已生成：淡淡一层 AI 色。 */
+.note-companion__card.is-ready {
+  border-color: color-mix(in srgb, var(--note-ai) 30%, var(--note-line));
+  background: color-mix(in srgb, var(--note-ai) 6%, var(--note-paper));
+}
+
+/* 生成中 / 读取中：一道光从左扫到右。 */
+.note-companion__card.is-busy,
+.note-companion__card.is-loading {
+  border-color: color-mix(in srgb, var(--note-ai) 45%, var(--note-line));
+}
+
+.note-companion__card.is-busy::after,
+.note-companion__card.is-loading::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in srgb, var(--note-ai) 14%, transparent) 50%,
+    transparent 80%
+  );
+  content: '';
+  pointer-events: none;
+  animation: note-companion-sheen 1.4s ease-in-out infinite;
+}
+
+@keyframes note-companion-sheen {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+.note-companion__icon {
+  display: inline-flex;
+  margin-bottom: 0.35rem;
+  color: var(--note-ink-3);
+  transition: color var(--sm-dur-base, 220ms) ease;
+}
+
+.note-companion__card.is-ready .note-companion__icon,
+.note-companion__card.is-busy .note-companion__icon {
+  color: var(--note-ai);
+}
+
+.note-companion__icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.note-companion__label {
+  color: var(--note-ink-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.note-companion__value {
+  color: var(--note-ink);
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  animation: phantasi-note-tick var(--sm-dur-slow, 320ms) var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.note-companion__card.is-empty .note-companion__value {
+  color: var(--note-ink-3);
+}
+
+.note-companion__desc {
+  flex: 1;
+  color: var(--note-ink-3);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.note-companion__error {
+  color: var(--note-danger);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.phantasi-note.phantasi-skin .note-companion__action {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.phantasi-note.phantasi-skin .note-companion__card.is-ready .note-companion__action {
+  justify-content: flex-start;
+  width: auto;
+  margin-inline-start: -0.5rem;
+  padding-inline: 0.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-companion__card::after,
+  .note-companion__value {
+    animation: none;
+  }
+}
+
+html[data-perf-mode='exlight'] .note-companion__card::after,
+html[data-perf-mode='exlight'] .note-companion__value {
+  animation: none;
+}
+
 .phantasi-note__danger {
   margin-top: 0.5rem;
   padding-top: 0.9rem;

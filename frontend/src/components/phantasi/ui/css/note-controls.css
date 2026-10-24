@@ -377,15 +377,6 @@ html.dark .note-chip__dismiss:hover {
   flex: 1 1 auto;
 }
 
-.note-companion {
-  align-items: center;
-}
-
-.note-companion__state {
-  flex: 1 1 auto;
-  color: var(--note-ink-2);
-  font-size: 0.85rem;
-}
 
 .note-date {
   display: block;
