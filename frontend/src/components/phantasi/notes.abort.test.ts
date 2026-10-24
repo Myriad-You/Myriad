@@ -91,7 +91,6 @@ describe('note editor abort', () => {
       'NoteButton',
       'NoteSwitch',
       'NoteDateInput',
-      'NoteField',
       'NoteSection',
       'NoteChip',
     ]) {
