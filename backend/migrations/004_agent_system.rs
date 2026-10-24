@@ -616,6 +616,14 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(include_str!("persona_sync.sql"))
             .await?;
 
+        // 服务端上她的日志（多端同步 S6）：按受众的日志行、封好的载荷、钥匙环、忘掉的账、
+        // 执笔权的签发历史、账号的地区。默认不用（HER_LOG_ENABLED）。
+        // schema_check::ensure_persona_log_tables 跑同一份文件。
+        manager
+            .get_connection()
+            .execute_unprepared(include_str!("persona_log.sql"))
+            .await?;
+
         // 记忆的「会用到的场合」。schema_check::ensure_memory_cues_table 跑同一份文件。
         manager
             .get_connection()
@@ -631,6 +639,18 @@ CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
             .execute_unprepared(
                 r#"
 DROP TABLE IF EXISTS agent_persona_field_history;
+DROP TABLE IF EXISTS agent_log_payloads;
+DROP TABLE IF EXISTS agent_log_rows;
+DROP TABLE IF EXISTS agent_log_object_keys;
+DROP TABLE IF EXISTS agent_log_audience_keys;
+DROP TABLE IF EXISTS agent_log_ledger;
+DROP TABLE IF EXISTS agent_log_counters;
+DROP TABLE IF EXISTS agent_log_clock;
+DROP TABLE IF EXISTS agent_log_full_links;
+DROP TABLE IF EXISTS agent_log_accounts;
+DROP TABLE IF EXISTS agent_lease_grants;
+DROP FUNCTION IF EXISTS agent_lease_grants_guard();
+DROP TABLE IF EXISTS agent_lease_ends;
 DROP TABLE IF EXISTS agent_host_import_staging;
 DROP TABLE IF EXISTS agent_host_import;
 DROP TABLE IF EXISTS agent_channel_held;

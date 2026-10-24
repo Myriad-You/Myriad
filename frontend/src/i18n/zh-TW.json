@@ -812,7 +812,7 @@
       "refreshDesc": "重新拉取列表",
       "enableTask": "開啟或關閉「{name}」",
       "memoryContent": "內容",
-      "confirmRemoveMemory": "刪除這條記憶？刪掉後它不會再按這條來行事",
+      "confirmRemoveMemory": "刪除這條記憶？它以前的版本、它來自的原話（那幾句對話，或那一天的聊天）會一起刪掉，刪了就找不回來",
       "confirmMemory": "確認",
       "confirmMemoryHint": "以後辦事按這條來",
       "memoryScopes": { "her": "她自己的", "person": "關於別人的", "group": "群裡的" },

@@ -117,11 +117,11 @@ impl Payload {
 
 pub(super) enum Effect {
     Chat(chat_remember::ChatMemoryUpdates),
-    /// What a stretch gives to keep for good, and the short notes it put
-    /// together (taken back in its favor).
+    /// What a stretch gives to keep for good, and for each of `updates`,
+    /// the short notes it was put together from (taken back in its favor).
     Settle {
         updates: chat_remember::ChatMemoryUpdates,
-        settled: Vec<String>,
+        settled: Vec<Vec<String>>,
     },
     Stranger {
         previous: Option<String>,

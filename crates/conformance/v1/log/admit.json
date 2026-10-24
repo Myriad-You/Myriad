@@ -46,6 +46,7 @@
           "aheadMs": 360000,
           "maxAheadMs": 300000
         },
+        "epochs": {},
         "ledger": []
       }
     },
@@ -288,6 +289,14 @@
             "version": 1
           }
         ],
+        "epochs": {
+          "group:g7": {
+            "site": 1
+          },
+          "personal:o1": {
+            "dev_mac": 1
+          }
+        },
         "ledger": [
           {
             "at": "001760000000017-000000-dev_win",
@@ -317,6 +326,267 @@
             "detail": "kind \"node.whispered\" is not one the log holds",
             "id": "d-6",
             "reason": "envelope"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "epochs": {
+          "personal:o1": {
+            "dev_mac": 3
+          }
+        },
+        "now": 1760000060000000,
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 0,
+            "hlc": "001760000000010-000000-loc_1f0c",
+            "id": "e-1",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 0,
+            "hlc": "001760000000011-000000-loc_1f0c",
+            "id": "e-2",
+            "kind": "node.talked",
+            "object": "node:a",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000012-000000-loc_1f0c",
+            "id": "e-3",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 4,
+            "epoch": 0,
+            "hlc": "001760000000013-000000-loc_1f0c",
+            "id": "e-4",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-4"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 7,
+            "epoch": 0,
+            "hlc": "001760000000014-000000-dev_mac",
+            "id": "e-5",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:e-5"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 8,
+            "epoch": 3,
+            "hlc": "001760000000015-000000-dev_mac",
+            "id": "e-6",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:e-6"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 9,
+            "hlc": "001760000000016-000000-dev_mac",
+            "id": "e-7",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:e-7"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 0,
+            "hlc": "001760000000017-000000-loc_1f0c",
+            "id": "e-8",
+            "kind": "node.noted",
+            "object": "node:b",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-8"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "one side's epochs never go down in an audience: alone rows come up first there, never after",
+      "output": {
+        "accepted": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 0,
+            "hlc": "001760000000010-000000-loc_1f0c",
+            "id": "e-1",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 0,
+            "hlc": "001760000000011-000000-loc_1f0c",
+            "id": "e-2",
+            "kind": "node.talked",
+            "object": "node:a",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 3,
+            "epoch": 1,
+            "hlc": "001760000000012-000000-loc_1f0c",
+            "id": "e-3",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 8,
+            "epoch": 3,
+            "hlc": "001760000000015-000000-dev_mac",
+            "id": "e-6",
+            "kind": "node.noted",
+            "object": "node:a",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:e-6"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "owner",
+            "dseq": 9,
+            "hlc": "001760000000016-000000-dev_mac",
+            "id": "e-7",
+            "kind": "memory.write",
+            "object": "memory:m-1",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:e-7"
+            },
+            "replicate": "shared",
+            "subject": "o1",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 0,
+            "hlc": "001760000000017-000000-loc_1f0c",
+            "id": "e-8",
+            "kind": "node.noted",
+            "object": "node:b",
+            "origin": "loc_1f0c",
+            "payload": {
+              "ref": "blob:e-8"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ],
+        "epochs": {
+          "own:": {
+            "loc_1f0c": 0
+          },
+          "personal:o1": {
+            "dev_mac": 3,
+            "loc_1f0c": 1
+          }
+        },
+        "ledger": [],
+        "refused": [
+          {
+            "id": "e-4",
+            "reason": "epoch_back"
+          },
+          {
+            "id": "e-5",
+            "reason": "epoch_back"
           }
         ]
       }

@@ -20,6 +20,7 @@ chrono-tz = "0.10"
 myriad-agent-rules = { path = "../myriad-agent-rules" }
 myriad-her-link = { path = "../myriad-her-link" }
 myriad-merope = { path = "../myriad-merope" }
+myriad-perception-filter = { path = "../myriad-perception-filter" }
 myriad-persona-log = { path = "../myriad-persona-log" }
 myriad-persona-sync = { path = "../myriad-persona-sync" }
 serde = { version = "1", features = ["derive"] }

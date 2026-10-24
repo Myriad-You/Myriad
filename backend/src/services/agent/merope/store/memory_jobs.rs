@@ -43,10 +43,9 @@ pub(in crate::services::agent::merope) struct Claim {
     pub job: Job,
 }
 
-/// Also taken first by persona replacement/deletion, on their transaction.
-pub(in crate::services::agent::merope) async fn lock(
-    db: &impl ConnectionTrait,
-) -> anyhow::Result<()> {
+/// Also taken first by persona replacement/deletion, and by forgetting a
+/// memory, on their transaction.
+pub(in crate::services::agent) async fn lock(db: &impl ConnectionTrait) -> anyhow::Result<()> {
     db.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
         "SELECT pg_advisory_xact_lock(1296388170, 1)".to_string(),
@@ -54,6 +53,38 @@ pub(in crate::services::agent::merope) async fn lock(
     .await?;
     Ok(())
 }
+/// Forgetting: drops every job of `owner`'s still holding `quote` in the
+/// words it is to go over, so nothing still queued writes it back. A job
+/// being gone over is fenced too: its finish finds no job and writes
+/// nothing. Run after [`lock`], on the forgetting's transaction.
+pub(in crate::services::agent) async fn forget_holding(
+    db: &impl ConnectionTrait,
+    owner: i32,
+    quote: &str,
+) -> Result<u64, sea_orm::DbErr> {
+    let holds = |path: &str| {
+        format!(
+            "position($3 in regexp_replace(coalesce(payload #>> '{{{path}}}', ''), '\\s+', ' ', 'g')) > 0"
+        )
+    };
+    let sql = format!(
+        "DELETE FROM runtime_registry WHERE namespace = $1 AND (payload ->> 'owner')::int = $2 \
+         AND ({} OR {} OR {} OR {})",
+        holds("data,Chat,user_text"),
+        holds("data,Chat,reply"),
+        holds("next,Chat,user_text"),
+        holds("next,Chat,reply"),
+    );
+    Ok(db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            [NAMESPACE.into(), owner.into(), quote.into()],
+        ))
+        .await?
+        .rows_affected())
+}
+
 /// Now in seconds, by the site's clock (it was the database's).
 async fn now(_db: &impl ConnectionTrait) -> anyhow::Result<i64> {
     Ok(crate::clock::now().timestamp())
@@ -460,11 +491,33 @@ pub(in crate::services::agent::merope) async fn finish(
                     )
                     .await?;
                     // What was put together is kept for good now; the rest
-                    // stays a short note and fades.
-                    crate::services::agent::memory::unified::retire_in_favor_of(
-                        &tx, job.owner, &settled, "settled", None,
+                    // stays a short note and fades. Each note points at what
+                    // it was kept as, an earlier version of it: forgetting
+                    // that takes the notes with it.
+                    use crate::services::agent::memory::unified;
+                    let held = unified::active_in(
+                        &tx,
+                        job.owner,
+                        present,
+                        &unified::MemoryKind::ABOUT_PERSON,
                     )
                     .await?;
+                    for (update, notes) in updates.updates.iter().zip(&settled) {
+                        let holder = update.fact.as_ref().and_then(|fact| {
+                            held.iter().find(|row| {
+                                row.source == "chat"
+                                    && &super::super::ingest::compact_summary(&row.content) == fact
+                            })
+                        });
+                        unified::retire_in_favor_of(
+                            &tx,
+                            job.owner,
+                            notes,
+                            "settled",
+                            holder.map(|row| row.id.as_str()),
+                        )
+                        .await?;
+                    }
                     if kept { "applied" } else { "no_change" }.into()
                 }
                 Ok(Effect::Stranger { previous, note }) => {

@@ -12,9 +12,10 @@
 //!   order its rows and the forget came in.
 //!
 //! Her rows interleave only when the owner forced the lease while the old
-//! holder kept running; those rows stay and the objects they touch are
-//! marked `concurrent` ([`crate::lease::standing`]). Owner rows written on
-//! several sides at once just sort by clock.
+//! holder kept running, or a side was used alone while she already lived
+//! elsewhere; those rows stay and the objects they touch are marked
+//! `concurrent` ([`crate::lease::standing`]). Owner rows written on several
+//! sides at once just sort by clock.
 
 use std::collections::BTreeMap;
 

@@ -63,7 +63,10 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `drop_retired_columns` 删掉）。
 /// 2026.10.18.1：媒体来源加 `kept`（Agent 从群里收下的表情包，原来记成 `channel`）。
 /// 003 的 CHECK 直接带上；旧库由 `ensure_media_sources` 重建 CHECK 并回填存量。
-pub const SCHEMA_VERSION: &str = "2026.10.18.1";
+/// 2026.10.23.1：服务端上她的日志（多端同步 S6）：`agent_log_*` 与执笔权的签发历史
+/// `agent_lease_grants`、各端的位置 `agent_lease_ends`（`persona_log.sql`，随 004 与
+/// `ensure_persona_log_tables` 一起建）。默认不用。
+pub const SCHEMA_VERSION: &str = "2026.10.23.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -320,6 +323,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_agent_tasks_status_check(db).await?;
     ensure_media_sources(db).await?;
     ensure_persona_sync_tables(db).await?;
+    ensure_persona_log_tables(db).await?;
     ensure_memory_cues_table(db).await?;
     unlink_note_docs_without_article(db).await?;
     drop_retired_columns(db).await?;

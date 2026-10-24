@@ -904,6 +904,13 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
             )),
         )
         .route(
+            "/sync/log/full/{link}",
+            get(super::sync::sync_log_full).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::sync_device::sync_device_auth,
+            )),
+        )
+        .route(
             "/sync/backups",
             get(super::sync::sync_backups).route_layer(from_fn_with_state(
                 app_state.clone(),

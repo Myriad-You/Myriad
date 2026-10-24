@@ -10,9 +10,10 @@
 //! its rows and the forget arrive in ([`forget`]).
 //!
 //! Her own rows are written only by the holder of the lease and carry its
-//! epoch; the owner's rows are written anywhere, offline too, and carry
-//! none. Who may move the lease, when a holder stops by itself, and which
-//! rows overlap because the owner forced a move are in [`lease`].
+//! epoch (0 on a side that never knew a lease); the owner's rows are written
+//! anywhere, offline too, and carry none. Who may move the lease, when a
+//! holder stops by itself, and which rows overlap because the owner forced
+//! a move or a side was used alone are in [`lease`].
 //!
 //! Its clock is the shared one (`hlc`), fed corrected time and kept from
 //! running ahead of the server ([`clock`]).
@@ -37,7 +38,7 @@ pub use admit::{AdmitInput, Admitted, admit};
 pub use fold::{FoldInput, Folded, fold};
 pub use forget::{Entry, ledger};
 pub use kinds::Rule;
-pub use lease::{Grant, Here, How, Moved, Request};
+pub use lease::{Grant, Here, How, Moved, Request, Through};
 pub use merge::{MergeInput, Merged, merge};
 pub use row::{Author, LOG_VERSION, Payload, Replicate, Row};
 pub use vector::{Holdings, Span, Vector};

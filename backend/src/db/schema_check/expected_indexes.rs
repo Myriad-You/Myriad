@@ -621,6 +621,24 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: false,
         },
         IndexDef {
+            name: "idx_agent_log_rows_place".into(),
+            table: "agent_log_rows".into(),
+            columns: vec!["audience".into(), "origin".into(), "dseq".into()],
+            is_unique: true,
+        },
+        IndexDef {
+            name: "idx_agent_log_rows_object".into(),
+            table: "agent_log_rows".into(),
+            columns: vec!["audience".into(), "object".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_log_rows_subject".into(),
+            table: "agent_log_rows".into(),
+            columns: vec!["audience".into(), "subject".into()],
+            is_unique: false,
+        },
+        IndexDef {
             name: "idx_agent_affect_events_at".into(),
             table: "agent_affect_events".into(),
             columns: vec!["at".into()],

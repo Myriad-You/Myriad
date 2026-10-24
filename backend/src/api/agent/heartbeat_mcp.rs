@@ -582,7 +582,8 @@ pub(crate) async fn update_any_memory(
     memory_found(updated)
 }
 
-/// Retire any memory (site admin): kept, no longer recalled.
+/// Have her forget any memory (site admin): it, its earlier versions, what
+/// was derived from them and the words they came from are deleted, not kept.
 /// DELETE /api/agent/memory/all/:id
 pub(crate) async fn delete_any_memory(
     State(db): State<DatabaseConnection>,
@@ -592,7 +593,7 @@ pub(crate) async fn delete_any_memory(
     // Read only while she is not on the site (D5).
     crate::services::persona_sync::lease::refuse_edit_while_away()?;
     require_current_admin(&claims, &db).await?;
-    let removed = crate::services::agent::memory::manage::retire_any(&db, &memory_id)
+    let removed = crate::services::agent::memory::manage::forget_any(&db, &memory_id)
         .await
         .map_err(memory_store_http)?;
     memory_found(removed)

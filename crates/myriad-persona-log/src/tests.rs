@@ -78,7 +78,7 @@ fn run(call: &str, raw: Value) -> Result<Value, LogError> {
         }
         "log.holdings" => {
             let Rows { rows } = input(raw)?;
-            json_of(&holdings(&rows))
+            json_of(&holdings(&rows)?)
         }
         "log.missing" => {
             let Vectors { mine, theirs } = input(raw)?;
@@ -86,7 +86,7 @@ fn run(call: &str, raw: Value) -> Result<Value, LogError> {
         }
         "log.answer" => {
             let Answer { rows, theirs } = input(raw)?;
-            json!({ "rows": answer(&rows, &theirs) })
+            json!({ "rows": answer(&rows, &theirs)? })
         }
         "log.admit" => json_of(&admit(input(raw)?)),
         "log.merge" => json_of(&merge(input(raw)?)),
@@ -403,7 +403,7 @@ fn merging_is_a_union_in_any_order() {
     assert_eq!(again.log, ab.log);
     assert!(again.added.is_empty());
     assert_eq!(
-        holdings(&ab.log).vector,
+        holdings(&ab.log).unwrap().vector,
         Vector::from([("dev_mac".into(), 2), ("site".into(), 2)])
     );
 }
@@ -423,8 +423,8 @@ fn what_one_side_answers_fills_the_other() {
         })
         .collect();
     let mut site = vec![mac[0].clone()];
-    let theirs = holdings(&site).vector;
-    let lacking = missing(&theirs, &holdings(&mac).vector);
+    let theirs = holdings(&site).unwrap().vector;
+    let lacking = missing(&theirs, &holdings(&mac).unwrap().vector);
     assert_eq!(
         lacking,
         vec![Span {
@@ -433,13 +433,14 @@ fn what_one_side_answers_fills_the_other() {
             through: 4
         }]
     );
-    let sent = answer(&mac, &theirs);
+    let sent = answer(&mac, &theirs).unwrap();
     let admitted = admit(AdmitInput {
         rows: sent,
         now: 1_000_000,
         known: Default::default(),
         members: Default::default(),
         ledger: Vec::new(),
+        epochs: Default::default(),
     });
     assert!(admitted.refused.is_empty());
     site = merge(MergeInput {
@@ -447,7 +448,7 @@ fn what_one_side_answers_fills_the_other() {
         incoming: admitted.accepted,
     })
     .log;
-    assert_eq!(holdings(&site), holdings(&mac));
+    assert_eq!(holdings(&site).unwrap(), holdings(&mac).unwrap());
 }
 
 #[test]
@@ -463,17 +464,24 @@ fn a_row_reads_the_same_whatever_order_its_fields_came_in() {
     assert_eq!(one.digest().len(), 32);
 }
 
-/// Whatever the times, the server takes over only once the holder has
-/// stopped by itself: never two minds.
+/// Whatever the times and whatever the server's stop time, the server takes
+/// over only once the holder, given the same stop time, has stopped by
+/// itself: never two minds.
 #[test]
 fn a_takeover_only_happens_once_the_holder_has_stopped() {
+    for stop in [None, Some(60_000_000), Some(5 * 60_000_000)] {
+        takeovers_wait_for_the_stop(stop);
+    }
+}
+
+fn takeovers_wait_for_the_stop(stop: Option<i64>) {
     let minute = 60_000_000_i64;
     let lease = Grant {
         epoch: 4,
         holder: "dev_mac".into(),
         issued: rev(1, "site"),
         how: How::Handover,
-        through: Some(3),
+        through: Some(Through::from([(OWNER.into(), 3)])),
     };
     let mut granted = 0;
     for last_seen in (0..=8).map(|m| m * minute) {
@@ -499,16 +507,18 @@ fn a_takeover_only_happens_once_the_holder_has_stopped() {
                             since,
                             seen_at: now.max(since),
                         }),
+                        stop_after: stop,
                     })
                     .unwrap();
                     if let Moved::Granted(_) = moved {
                         granted += 1;
                         let at_holder = lease::here(HereInput {
                             me: "dev_mac".into(),
-                            lease: lease.clone(),
+                            lease: Some(lease.clone()),
                             now,
                             disconnected_since: Some(last_seen),
                             owner_here_at: Some(owner_left),
+                            stop_after: stop,
                         })
                         .unwrap();
                         assert!(
@@ -520,7 +530,16 @@ fn a_takeover_only_happens_once_the_holder_has_stopped() {
             }
         }
     }
-    assert!(granted > 0);
+    assert!(granted > 0, "{stop:?}");
+}
+
+#[test]
+fn a_stop_time_outside_a_minute_to_a_day_is_refused() {
+    assert_eq!(lease::stop_after(None), Ok(lease::SELF_STOP_MICROS));
+    assert_eq!(lease::stop_after(Some(300_000_000)), Ok(300_000_000));
+    for wrong in [0, 59_999_999, lease::MAX_STOP_AFTER_MICROS + 1, -1] {
+        assert!(lease::stop_after(Some(wrong)).is_err(), "{wrong}");
+    }
 }
 
 #[test]

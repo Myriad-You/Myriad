@@ -122,6 +122,47 @@
           "audience": "personal:o1",
           "author": "her",
           "dseq": 1,
+          "epoch": 0,
+          "hlc": "001760000000000-000000-loc_1f0c",
+          "id": "r-13",
+          "kind": "node.noted",
+          "object": "node:lamp",
+          "origin": "loc_1f0c",
+          "payload": {
+            "ref": "blob:r-13"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      },
+      "name": "her row written alone, before any lease: epoch 0",
+      "output": {
+        "canonical": "{\"audience\":\"personal:o1\",\"author\":\"her\",\"dseq\":1,\"epoch\":0,\"hlc\":\"001760000000000-000000-loc_1f0c\",\"id\":\"r-13\",\"kind\":\"node.noted\",\"object\":\"node:lamp\",\"origin\":\"loc_1f0c\",\"payload\":{\"ref\":\"blob:r-13\"},\"replicate\":\"shared\",\"version\":1}",
+        "digest": "d74bccacee3ee59f2d17be4b626a9c62",
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 1,
+          "epoch": 0,
+          "hlc": "001760000000000-000000-loc_1f0c",
+          "id": "r-13",
+          "kind": "node.noted",
+          "object": "node:lamp",
+          "origin": "loc_1f0c",
+          "payload": {
+            "ref": "blob:r-13"
+          },
+          "replicate": "shared",
+          "version": 1
+        }
+      }
+    },
+    {
+      "input": {
+        "row": {
+          "audience": "personal:o1",
+          "author": "her",
+          "dseq": 1,
           "hlc": "001760000000000-000000-dev_mac",
           "id": "r-4",
           "kind": "node.noted",

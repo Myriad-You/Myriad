@@ -69,7 +69,7 @@ pub(crate) use act::{
 };
 pub(crate) use body::perform_say;
 pub(crate) use connection::serve;
-pub(crate) use contract::Close;
+pub(crate) use contract::{Close, Timing};
 pub(crate) use conversations::{
     heard_change as conversations_changed, heard_nothing_for_a_while as conversations_unheard,
 };

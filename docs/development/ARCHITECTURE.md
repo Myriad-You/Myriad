@@ -186,6 +186,60 @@ The pure rules both runtimes share — frame checks (`myriad-her-link`), her
 log, the fold, the lease and the clock (`myriad-persona-log`) — are in the
 shared core: [SHARED_CORE.md](SHARED_CORE.md).
 
+### Her log on the server (SYNC S6)
+
+`backend/src/services/her_log/`, tables in `backend/migrations/persona_log.sql`.
+**Off by default** (`HER_LOG_ENABLED`), and also off until the owner's
+account for it is started: no client speaks it yet, and the compliance
+questions of the sync plan (Japan APPI, Singapore PDPA: purpose, deletion,
+breach reports, cross-border transfer, group members as third parties) are
+to be settled before it serves anyone. While off, nothing reads or writes
+its tables and the site behaves as before.
+
+- **Logs per audience** (`store`): shared rows only, unique by
+  `(audience, origin, dseq)`: each side counts its rows per audience, so a
+  side that keeps only some audiences holds them without gaps, and a
+  handover's `through` is `{audience: dseq}`; the envelope is the row as
+  `myriad-persona-log` writes it. A batch goes through `admit` and `merge`
+  of that crate with the part of the log it touches; nothing in the backend
+  decides a row's shape or how logs meet. `answer` sends every forget first.
+- **Sealed at rest** (`keys`): one key per audience sealed by the
+  installation's data key (`myriad-data-key`, outside the database), one per
+  object sealed by its audience's key, each payload AES-256-GCM under its
+  object's key with the row id as associated data. The server holds the keys
+  (problem 5). Forgetting deletes the object's key and payload; the stub and
+  the ledger stay.
+- **Relay** (`relay`): protocol-2 `log.vector`, `log.rows`, `lease.ask`,
+  `lease.yield`, `lease.stopped` in; `log.rows`, `log.vector`, `log.full`,
+  `lease.grant`, `lease.epoch`, `lease.takeover`, `error` out, every frame
+  checked by `myriad-her-link` both ways. A clock too far ahead refuses the
+  batch whole with `error` `clock_ahead` and `serverTime` (the site's one
+  clock, `crate::clock`, as the HTTPS `clock_ahead`). A group's rows go
+  only to the core her mind is on, and only it may add to them.
+- **First full sync** (`full`): `log.full` gives a single-use link,
+  `GET /api/agent/sync/log/full/{link}` behind the device gate, 10 minutes,
+  only for the device it was given to; 404 while off.
+- **Lease** (`lease`): every grant kept (`agent_lease_grants`, a trigger
+  refuses anything but a higher epoch); moves only through
+  `myriad_persona_log::lease::decide`, with the stop time from
+  `HER_LEASE_STOP_AFTER_SECS` (default 180) given to holders as `stopAfter`.
+  A takeover check runs every 15 s while on. The old host lease
+  (`persona_sync::lease`) is untouched.
+- **Retention** (`retention`): download links go when used or expired; when
+  the owner turns syncing off, the whole log on the server goes after
+  `HER_LOG_RETENTION_DAYS` (default 30). The account (`agent_log_accounts`)
+  has a `region` column from the first day, empty until problem 13 is
+  decided.
+
+Not done yet: the WebSocket speaking protocol 2 (the link still speaks 1;
+the relay returns frames with where they go, the connection does not send
+them), delivering to other connected devices and relaying sealed rows,
+asking a holder to yield when another core asks, the 10-second "target
+never confirmed" fallback, owner places and host-core kinds reported by
+devices (the lease reads them from `agent_lease_ends`, nothing fills it
+from a frame), group membership checks on admit, an owner-facing switch and
+consent for turning it on, and writing the site's own changes as log rows.
+
 ## Data & AI
 
 - **PostgreSQL**：Compose 默认 `postgres:18-alpine`；release 兼容地板见 `release.json` 的 `min_pg_version`

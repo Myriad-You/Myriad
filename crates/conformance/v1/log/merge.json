@@ -438,6 +438,110 @@
           }
         ]
       }
+    },
+    {
+      "input": {
+        "incoming": [
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000001-000000-dev_mac",
+            "id": "s-2",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000002-000000-dev_mac",
+            "id": "s-3",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ],
+        "log": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "s-1",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "one side's count 1 in two audiences is two places, no clash",
+      "output": {
+        "added": [
+          "s-2"
+        ],
+        "conflicts": [
+          {
+            "clash": "same_place",
+            "id": "s-3",
+            "with": "s-1"
+          }
+        ],
+        "duplicates": 0,
+        "log": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "s-1",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000001-000000-dev_mac",
+            "id": "s-2",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:s-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      }
     }
   ],
   "version": 1

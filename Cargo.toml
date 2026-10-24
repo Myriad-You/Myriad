@@ -30,6 +30,7 @@ members = [
     "crates/myriad-her-link",
     "crates/myriad-persona-log",
     "crates/myriad-persona-sync",
+    "crates/myriad-perception-filter",
     "crates/myriad-tapp-rules",
     "crates/tapp-contract",
     "tools/tapp-contract-export",

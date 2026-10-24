@@ -557,7 +557,7 @@ async fn durable_memory_settles_a_stretch_once_it_is_over() {
         &settle,
         Ok(Effect::Settle {
             updates,
-            settled: vec![note.0.clone()],
+            settled: vec![vec![note.0.clone()]],
         }),
     )
     .await
@@ -591,6 +591,21 @@ async fn durable_memory_settles_a_stretch_once_it_is_over() {
             ("家里有只橘猫叫年糕".to_string(), "chat".to_string(), None),
         ]
     );
+    // The note points at what it was kept as: forgetting that takes it too.
+    let linked = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT count(*) AS n FROM agent_memories note JOIN agent_memories kept \
+             ON note.superseded_by = kept.id \
+             WHERE note.source = 'chat_note' AND kept.source = 'chat'"
+                .to_string(),
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get::<i64>("", "n")
+        .unwrap();
+    assert_eq!(linked, 1);
     assert!(loaded(db, "settle").await.data.is_none());
     schema.drop().await;
 }

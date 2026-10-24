@@ -373,8 +373,8 @@
       "from": "host",
       "delivery": "control",
       "required": ["code"],
-      "optional": ["ref"],
-      "description": "A frame the host could not take, and the link stays up. ref is that frame's seq. Codes are in errorCodes; there is no message text."
+      "optional": ["ref", "serverTime"],
+      "description": "A frame the host could not take, and the link stays up. ref is that frame's seq. Codes are in errorCodes; there is no message text. serverTime is protocol 2's (next.errorCodes clock_ahead): with clock_ahead, the time the rows were compared with, in microseconds, real time when the server trusts its own clock (as the HTTPS clock_ahead answer); protocol 1 never sends it."
     }
   },
   "errorCodes": {
@@ -563,21 +563,22 @@
         "required": ["epoch", "through"],
         "optional": ["to"],
         "idempotency": "id is made by the holder once per yield.",
-        "description": "The holder gives her mind up: going to sleep, the owner left its 现场, or the server asked. through is its last shared count (dseq): the target catches up to it before it thinks. to is the core it gives her to, when it knows. Yielding is small on purpose, so it fits in the moment before a lid closes."
+        "description": "The holder gives her mind up: going to sleep, the owner left its 现场, or the server asked. through is its last shared count (dseq) in each audience it wrote in, {audience: dseq}, an audience with none left out: the target catches up to them before it thinks. to is the core it gives her to, when it knows. Yielding is small on purpose, so it fits in the moment before a lid closes."
       },
       "lease.grant": {
         "from": "server",
         "delivery": "reliable",
         "required": ["grant"],
+        "optional": ["stopAfter"],
         "idempotency": "id is the grant's epoch as text.",
-        "description": "To the new holder: grant is {epoch, holder, issued, how, through?} as the log rules write it (log.fold reads the history). The holder catches up to through, then thinks."
+        "description": "To the new holder: grant is {epoch, holder, issued, how, through?} as the log rules write it (log.fold reads the history); through is per audience, as in lease.yield. The holder catches up to through, then thinks. stopAfter is the server's stop time in microseconds (lease.here's stopAfter): how long the holder, cut off from the server and with the owner gone from its 现场, keeps thinking before it stops by itself. The server takes over by the same value, so the holder runs lease.here with it; absent means three minutes."
       },
       "lease.epoch": {
         "from": "server",
         "delivery": "latest",
         "required": ["epoch", "holder", "how"],
-        "optional": ["holderName"],
-        "description": "To every device: where her mind is now. A core that held an older epoch stops at once and becomes a child. Devices show where she is from it."
+        "optional": ["holderName", "stopAfter"],
+        "description": "To every device: where her mind is now. A core that held an older epoch stops at once and becomes a child. Devices show where she is from it. stopAfter as in lease.grant, so a holder that missed the grant still stops by the server's value."
       },
       "lease.stopped": {
         "from": "host",
@@ -590,7 +591,7 @@
         "from": "server",
         "delivery": "request",
         "required": ["grant", "through"],
-        "description": "To a holder coming back after the server took her over: grant is the takeover, through the last of its rows the server had. It becomes a child and sends its rows past through, which are her own memory catching up, not another her."
+        "description": "To a holder coming back after the server took her over: grant is the takeover, through the last of its rows the server had in each audience, {audience: dseq} (an audience left out: none). It becomes a child and sends its rows past through, which are her own memory catching up, not another her."
       },
       "log.vector": {
         "from": "host",

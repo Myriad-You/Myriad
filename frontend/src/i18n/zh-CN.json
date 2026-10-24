@@ -812,7 +812,7 @@
       "refreshDesc": "重新拉取列表",
       "enableTask": "开启或关闭「{name}」",
       "memoryContent": "内容",
-      "confirmRemoveMemory": "删除这条记忆？删掉后它不会再按这条来行事",
+      "confirmRemoveMemory": "删除这条记忆？它以前的版本、它来自的原话（那几句对话，或那一天的聊天）会一起删掉，删了就找不回来",
       "confirmMemory": "确认",
       "confirmMemoryHint": "以后办事按这条来",
       "memoryScopes": { "her": "她自己的", "person": "关于别人的", "group": "群里的" },

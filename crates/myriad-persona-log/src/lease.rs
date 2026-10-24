@@ -3,8 +3,9 @@
 //!
 //! It moves three ways, and no other:
 //! 1. **Handover**: the holder gives it up (going to sleep, the owner left
-//!    its place or showed up at another). It answers with its last count;
-//!    the target catches up to it before it thinks.
+//!    its place or showed up at another). It answers with its last count
+//!    in each audience ([`Through`]); the target catches up to them before
+//!    it thinks.
 //! 2. **Takeover**: the server takes it when the holder has been out of
 //!    reach for [`UNREACHABLE_MICROS`] and the owner's own position proves
 //!    the owner is elsewhere. That is safe because a holder that is cut off
@@ -14,16 +15,31 @@
 //!    think at once (the old holder still running, offline); its rows from
 //!    after the move are folded in and marked ([`standing`]).
 //!
-//! The times are first values, to be tuned once she is used for real.
+//! Before a side has ever held or seen a lease (used alone, never connected
+//! to the server) she thinks there alone and writes her rows at epoch
+//! [`ALONE`]. Those rows go up as they are, in their place in that side's
+//! count, the first time it pairs or syncs; from the first lease it knows
+//! on, it never writes [`ALONE`] again (`admit` refuses an origin's epoch
+//! going down). Only one side was ever alone if she lived nowhere else yet;
+//! a side alone while she already lived elsewhere is folded like a force
+//! ([`standing`]).
+//!
+//! The times are first values, to be tuned once she is used for real. The
+//! one the owner notices, how long a holder out of reach with the owner gone
+//! keeps thinking, is the server's setting ([`MoveInput::stop_after`]): the
+//! server decides takeovers with it and gives the same value to every holder
+//! with the lease, which stops by it ([`HereInput::stop_after`]). Three
+//! minutes when nothing says otherwise.
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use myriad_persona_sync::{Rev, hlc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     LogError, Row,
-    row::{Author, Replicate},
+    row::{Audience, Author, Replicate},
 };
 
 /// How long the holder must have been out of the server's reach before the
@@ -35,6 +51,30 @@ pub const SELF_STOP_MICROS: i64 = 3 * 60 * 1_000_000;
 /// How old the owner's position may be and still prove where they are:
 /// three minutes. Older, they may have come back.
 pub const OWNER_PLACE_FRESH_MICROS: i64 = 3 * 60 * 1_000_000;
+/// The shortest a configured stop time may be: a minute. Shorter, a holder
+/// would stop while the owner only looked away.
+pub const MIN_STOP_AFTER_MICROS: i64 = 60 * 1_000_000;
+/// The longest: a day.
+pub const MAX_STOP_AFTER_MICROS: i64 = 24 * 60 * 60 * 1_000_000;
+
+/// The stop time to use: `configured`, or three minutes when absent. One
+/// value for both waits ([`UNREACHABLE_MICROS`], [`SELF_STOP_MICROS`]), so
+/// the server never takes over sooner than a holder stops.
+pub fn stop_after(configured: Option<i64>) -> Result<i64, LogError> {
+    let Some(micros) = configured else {
+        return Ok(SELF_STOP_MICROS);
+    };
+    if !(MIN_STOP_AFTER_MICROS..=MAX_STOP_AFTER_MICROS).contains(&micros) {
+        return Err(LogError::new(format!(
+            "stopAfter must be {MIN_STOP_AFTER_MICROS} to {MAX_STOP_AFTER_MICROS} microseconds"
+        )));
+    }
+    Ok(micros)
+}
+
+/// The epoch of her rows written before their side ever held or saw a
+/// lease. No grant has it: the server's first grant is epoch 1.
+pub const ALONE: u64 = 0;
 
 /// How a grant came about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,10 +97,28 @@ pub struct Grant {
     /// The server's clock when it issued it.
     pub issued: Rev,
     pub how: How,
-    /// For a handover: the previous holder's last shared count when it
-    /// gave the lease up.
+    /// For a handover: the previous holder's last shared count in each
+    /// audience when it gave the lease up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub through: Option<u64>,
+    pub through: Option<Through>,
+}
+
+/// A side's last shared count in each audience it wrote in: `{audience:
+/// dseq}`. Counts are per audience ([`Row::dseq`]), so one number cannot
+/// say it. An audience it wrote nothing in is left out, never 0.
+pub type Through = BTreeMap<String, u64>;
+
+/// Checks a [`Through`]: real audiences, counts from 1.
+pub fn check_through(through: &Through) -> Result<(), LogError> {
+    for (audience, &count) in through {
+        Audience::parse(audience)?;
+        if count == 0 {
+            return Err(LogError::new(
+                "`through` leaves out an audience with nothing in it",
+            ));
+        }
+    }
+    Ok(())
 }
 
 impl Grant {
@@ -69,8 +127,11 @@ impl Grant {
             return Err(LogError::new("epochs start at 1"));
         }
         hlc::check_node(&self.holder).map_err(|error| LogError::new(error.to_string()))?;
-        if self.through.is_some() && self.how != How::Handover {
-            return Err(LogError::new("only a handover carries `through`"));
+        if let Some(through) = &self.through {
+            if self.how != How::Handover {
+                return Err(LogError::new("only a handover carries `through`"));
+            }
+            check_through(through)?;
         }
         Ok(())
     }
@@ -116,9 +177,9 @@ pub enum Request {
         /// The epoch `from` holds.
         epoch: u64,
         to: String,
-        /// `from`'s last shared count.
+        /// `from`'s last shared count in each audience.
         #[serde(default)]
-        through: Option<u64>,
+        through: Option<Through>,
     },
     /// The server (`server`, its node) takes it.
     Takeover { server: String },
@@ -146,6 +207,11 @@ pub struct MoveInput {
     pub holder_place: Option<String>,
     #[serde(default)]
     pub owner_place: Option<OwnerPlace>,
+    /// How long the holder must be out of reach, and the owner away from
+    /// it, before it has stopped by itself: the server's setting, the value
+    /// it gives the holders. Three minutes when absent ([`stop_after`]).
+    #[serde(default)]
+    pub stop_after: Option<i64>,
 }
 
 /// Why a move was refused.
@@ -189,8 +255,10 @@ pub fn decide(input: MoveInput) -> Result<Moved, LogError> {
         holder_last_seen,
         holder_place,
         owner_place,
+        stop_after: configured,
     } = input;
     lease.check()?;
+    let stop = stop_after(configured)?;
     if issued <= lease.issued {
         return Err(LogError::new(
             "a new grant is issued after the one standing",
@@ -237,7 +305,7 @@ pub fn decide(input: MoveInput) -> Result<Moved, LogError> {
             }
             let last_seen =
                 holder_last_seen.ok_or_else(|| LogError::new("a takeover needs holderLastSeen"))?;
-            if now - last_seen < UNREACHABLE_MICROS {
+            if now - last_seen < stop {
                 return refused(Refusal::HolderRecent);
             }
             let Some(holder_place) = holder_place else {
@@ -253,11 +321,11 @@ pub fn decide(input: MoveInput) -> Result<Moved, LogError> {
                 return refused(Refusal::OwnerPlaceStale);
             }
             // The holder stops by itself once it has been cut off and had
-            // no owner in front of it for SELF_STOP_MICROS. The owner was
-            // not in front of it from `since` on, and it was cut off from
+            // no owner in front of it for the stop time. The owner was not
+            // in front of it from `since` on, and it was cut off from
             // `last_seen` on: so it has stopped by the later of the two
             // plus that time.
-            if now < last_seen.max(owner.since) + SELF_STOP_MICROS {
+            if now < last_seen.max(owner.since) + stop {
                 return refused(Refusal::OwnerLeftRecently);
             }
             grant(&server, How::Takeover, None)
@@ -270,9 +338,10 @@ pub fn decide(input: MoveInput) -> Result<Moved, LogError> {
 pub struct HereInput {
     /// This side's node.
     pub me: String,
-    /// The newest grant this side knows. A side that never met the server
-    /// holds its own first grant.
-    pub lease: Grant,
+    /// The newest grant this side knows; absent while it knows none (never
+    /// connected): she thinks there alone, at epoch [`ALONE`].
+    #[serde(default)]
+    pub lease: Option<Grant>,
     pub now: i64,
     /// Since when this side has been cut off from the server; absent while
     /// it is connected.
@@ -282,6 +351,10 @@ pub struct HereInput {
     /// one of the owner's devices reaching it on the local network.
     #[serde(default)]
     pub owner_here_at: Option<i64>,
+    /// The stop time the server gave with the lease; three minutes when
+    /// absent ([`stop_after`]).
+    #[serde(default)]
+    pub stop_after: Option<i64>,
 }
 
 /// What her mind does on this side.
@@ -302,8 +375,11 @@ pub enum Here {
 }
 
 pub fn here(input: HereInput) -> Result<Here, LogError> {
-    input.lease.check()?;
-    if input.lease.holder != input.me {
+    let Some(lease) = &input.lease else {
+        return Ok(Here::Thinking);
+    };
+    lease.check()?;
+    if lease.holder != input.me {
         return Ok(Here::Child);
     }
     let Some(cut_off) = input.disconnected_since else {
@@ -312,7 +388,7 @@ pub fn here(input: HereInput) -> Result<Here, LogError> {
     let from = input
         .owner_here_at
         .map_or(cut_off, |seen| seen.max(cut_off));
-    let stopped_at = from + SELF_STOP_MICROS;
+    let stopped_at = from + stop_after(input.stop_after)?;
     Ok(if input.now >= stopped_at {
         Here::Stopped { stopped_at }
     } else {
@@ -328,7 +404,8 @@ pub struct Standing {
     pub origin: String,
     pub epoch: u64,
     pub standing: Stand,
-    /// For [`Stand::Concurrent`]: the forced epoch it overlaps.
+    /// For [`Stand::Concurrent`]: the epoch it overlaps (the forced one, or
+    /// the one standing elsewhere while it was written alone).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub with: Option<u64>,
 }
@@ -340,8 +417,9 @@ pub enum Stand {
     /// (rows that arrive late after a takeover are her own memory catching
     /// up, not another her).
     Normal,
-    /// Written by the old holder after the owner forced a move: she was
-    /// thinking in two places for a while. Kept and marked.
+    /// Written by the old holder after the owner forced a move, or written
+    /// alone ([`ALONE`]) while a lease stood elsewhere: she was thinking in
+    /// two places for a while. Kept and marked.
     Concurrent,
     /// Not written by the holder of its epoch, or written after it handed
     /// the lease over: a lease bug, to look into.
@@ -353,33 +431,62 @@ pub enum Stand {
 /// history). The owner's rows, and her rows of an epoch not in `grants`,
 /// are normal.
 pub fn standing(row: &Row, grants: &[Grant]) -> Stand {
+    placed(row, grants).0
+}
+
+/// The standing, and for [`Stand::Concurrent`] the epoch it overlaps.
+fn placed(row: &Row, grants: &[Grant]) -> (Stand, Option<u64>) {
+    let normal = (Stand::Normal, None);
     let (Author::Her, Some(epoch)) = (row.author, row.epoch) else {
-        return Stand::Normal;
+        return normal;
     };
+    if epoch == ALONE {
+        return alone(row, grants);
+    }
     let Some(own) = issue(grants, epoch) else {
-        return Stand::Normal;
+        return normal;
     };
     if own.holder != row.origin {
-        return Stand::NotHolder;
+        return (Stand::NotHolder, None);
     }
     let Some(next) = next_epoch(epoch, grants).and_then(|next| issue(grants, next)) else {
-        return Stand::Normal;
+        return normal;
     };
     let after_issue = row.hlc > next.issued;
     match next.how {
         How::Handover => {
-            let after = match (row.replicate, row.dseq, next.through) {
-                (Replicate::Shared, Some(dseq), Some(through)) => dseq > through,
+            // An audience the handover leaves out had none of the old
+            // holder's rows in it: every one there came after.
+            let after = match (row.replicate, row.dseq, &next.through) {
+                (Replicate::Shared, Some(dseq), Some(through)) => {
+                    dseq > through.get(&row.audience).copied().unwrap_or(0)
+                }
                 _ => after_issue,
             };
             if after {
-                Stand::AfterHandover
+                (Stand::AfterHandover, None)
             } else {
-                Stand::Normal
+                normal
             }
         }
-        How::Force if after_issue => Stand::Concurrent,
-        How::Force | How::Takeover | How::First => Stand::Normal,
+        How::Force if after_issue => (Stand::Concurrent, Some(next.epoch)),
+        How::Force | How::Takeover | How::First => normal,
+    }
+}
+
+/// A row written alone: concurrent with the lease that stood elsewhere when
+/// it was written, if one did. The lease standing then is the newest issued
+/// before the row's clock; one held by the row's own side is its own first
+/// lease, issued while the row was still on its way (a clock a little
+/// ahead puts the row just after it).
+fn alone(row: &Row, grants: &[Grant]) -> (Stand, Option<u64>) {
+    let then = grants
+        .iter()
+        .filter(|grant| grant.issued < row.hlc)
+        .reduce(|a, b| newer(a, b));
+    match then {
+        Some(grant) if grant.holder != row.origin => (Stand::Concurrent, Some(grant.epoch)),
+        _ => (Stand::Normal, None),
     }
 }
 
@@ -387,15 +494,13 @@ pub fn standing(row: &Row, grants: &[Grant]) -> Stand {
 pub fn standings(rows: &[Row], grants: &[Grant]) -> Vec<Standing> {
     rows.iter()
         .filter_map(|row| {
-            let stand = standing(row, grants);
+            let (stand, with) = placed(row, grants);
             (stand != Stand::Normal).then(|| Standing {
                 id: row.id.clone(),
                 origin: row.origin.clone(),
-                epoch: row.epoch.unwrap_or(0),
+                epoch: row.epoch.unwrap_or(ALONE),
                 standing: stand,
-                with: (stand == Stand::Concurrent)
-                    .then(|| row.epoch.and_then(|epoch| next_epoch(epoch, grants)))
-                    .flatten(),
+                with,
             })
         })
         .collect()

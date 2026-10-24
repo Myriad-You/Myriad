@@ -3056,6 +3056,7 @@ dependencies = [
  "myriad-blog",
  "myriad-data-key",
  "myriad-error",
+ "myriad-her-link",
  "myriad-image-proxy",
  "myriad-json-schema",
  "myriad-listening",
@@ -3063,6 +3064,7 @@ dependencies = [
  "myriad-merope",
  "myriad-module-visibility",
  "myriad-outbound",
+ "myriad-persona-log",
  "myriad-persona-sync",
  "myriad-phantasi",
  "myriad-phantasi-notes",
@@ -3133,6 +3135,7 @@ dependencies = [
  "myriad-agent-rules",
  "myriad-her-link",
  "myriad-merope",
+ "myriad-perception-filter",
  "myriad-persona-log",
  "myriad-persona-sync",
  "serde",
@@ -3248,6 +3251,16 @@ dependencies = [
  "reqwest",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "myriad-perception-filter"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]

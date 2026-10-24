@@ -8,7 +8,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "me": "dev_mac",
         "now": 1760000000000000
@@ -25,7 +27,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "me": "dev_win",
         "now": 1760000000000000
@@ -43,7 +47,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "me": "dev_mac",
         "now": 1760000180000000,
@@ -63,7 +69,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "me": "dev_mac",
         "now": 1760000120000000
@@ -81,7 +89,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "me": "dev_mac",
         "now": 1760003600000000,
@@ -100,7 +110,9 @@
           "holder": "dev_mac",
           "how": "handover",
           "issued": "001760000000000-000000-site",
-          "through": 40
+          "through": {
+            "personal:o1": 40
+          }
         },
         "me": "dev_mac",
         "now": 1760003600000000,
@@ -115,17 +127,53 @@
     {
       "input": {
         "disconnectedSince": 1759964000000000,
-        "lease": {
-          "epoch": 1,
-          "holder": "loc_1f0c",
-          "how": "first",
-          "issued": "001760000000000-000000-loc_1f0c"
-        },
         "me": "loc_1f0c",
-        "now": 1760000000000000,
-        "ownerHereAt": 1760000000000000
+        "now": 1760000000000000
       },
-      "name": "an app that never met the server holds its own first grant",
+      "name": "never knew a lease: she thinks here alone, at epoch 0",
+      "output": {
+        "state": "thinking"
+      }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1760000000000000,
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": {
+            "personal:o1": 40
+          }
+        },
+        "me": "dev_mac",
+        "now": 1760000120000000,
+        "stopAfter": 60000000
+      },
+      "name": "a one-minute stop time: cut off two minutes, stopped",
+      "output": {
+        "state": "stopped",
+        "stoppedAt": 1760000060000000
+      }
+    },
+    {
+      "input": {
+        "disconnectedSince": 1760000000000000,
+        "lease": {
+          "epoch": 4,
+          "holder": "dev_mac",
+          "how": "handover",
+          "issued": "001760000000000-000000-site",
+          "through": {
+            "personal:o1": 40
+          }
+        },
+        "me": "dev_mac",
+        "now": 1760000120000000,
+        "stopAfter": 600000000
+      },
+      "name": "a ten-minute stop time: cut off two minutes, still thinking",
       "output": {
         "state": "thinking"
       }

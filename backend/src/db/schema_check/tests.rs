@@ -79,6 +79,17 @@ fn test_folded_extension_tables_in_expected_schema() {
         "agent_host_import_staging",
         "agent_host_backups",
         "agent_kept_for_her",
+        "agent_log_accounts",
+        "agent_log_rows",
+        "agent_log_payloads",
+        "agent_log_audience_keys",
+        "agent_log_object_keys",
+        "agent_log_ledger",
+        "agent_log_counters",
+        "agent_log_clock",
+        "agent_log_full_links",
+        "agent_lease_grants",
+        "agent_lease_ends",
         "agent_affect_events",
         "agent_affect_anchor",
         "agent_persona_field_history",
@@ -639,6 +650,10 @@ DROP INDEX idx_phantasi_items_source_recent;
 DROP INDEX idx_metadata_history_user_date;
 DROP TABLE agent_host_lease;
 DROP FUNCTION agent_host_lease_guard(), agent_host_lease_changed();
+DROP TABLE agent_lease_grants;
+DROP FUNCTION agent_lease_grants_guard();
+DROP TABLE agent_log_payloads;
+DROP TABLE agent_log_rows;
 ALTER TABLE agent_sync_devices ADD COLUMN role VARCHAR(8) NOT NULL DEFAULT 'child'
     CHECK (role IN ('parent', 'child'));
 CREATE UNIQUE INDEX idx_agent_sync_devices_one_parent
@@ -724,6 +739,25 @@ ALTER TABLE agent_proactive_messages DROP COLUMN say_id, DROP COLUMN metadata;
         .is_err(),
         "one lease"
     );
+    // Her log on the server is back too; a grant is only ever added.
+    db.execute_unprepared(
+        "INSERT INTO agent_lease_grants (epoch, holder, issued, how, created_at) \
+         VALUES (1, 'site', 'r1', 'first', NOW()), (2, 'dev_mac', 'r2', 'handover', NOW())",
+    )
+    .await
+    .expect("the heal creates the lease grants");
+    for refused in [
+        "UPDATE agent_lease_grants SET holder = 'dev_win' WHERE epoch = 2",
+        "DELETE FROM agent_lease_grants WHERE epoch = 2",
+    ] {
+        assert!(db.execute_unprepared(refused).await.is_err(), "{refused}");
+    }
+    db.execute_unprepared(
+        "TRUNCATE agent_lease_grants; SELECT COUNT(*) FROM agent_log_rows; \
+         SELECT COUNT(*) FROM agent_log_payloads",
+    )
+    .await
+    .expect("the heal creates her log's rows and payloads");
     db.execute_unprepared("DELETE FROM agent_host_lease; DELETE FROM agent_sync_devices WHERE id = 'dev_schema_fixture'")
         .await
         .expect("remove fixture lease and device");

@@ -154,6 +154,92 @@
       "output": {
         "vector": {}
       }
+    },
+    {
+      "input": {
+        "rows": [
+          {
+            "audience": "personal:o1",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000000-000000-dev_mac",
+            "id": "m-1",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:m-1"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000001-000000-dev_mac",
+            "id": "m-2",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:m-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "refused: rows of two audiences, whose counts are separate",
+      "output": {
+        "error": "bad_input"
+      }
+    },
+    {
+      "input": {
+        "rows": [
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 1,
+            "epoch": 1,
+            "hlc": "001760000000001-000000-dev_mac",
+            "id": "m-2",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:m-2"
+            },
+            "replicate": "shared",
+            "version": 1
+          },
+          {
+            "audience": "own:",
+            "author": "her",
+            "dseq": 2,
+            "epoch": 1,
+            "hlc": "001760000000002-000000-dev_mac",
+            "id": "m-3",
+            "kind": "node.noted",
+            "object": "node:lamp",
+            "origin": "dev_mac",
+            "payload": {
+              "ref": "blob:m-3"
+            },
+            "replicate": "shared",
+            "version": 1
+          }
+        ]
+      },
+      "name": "each audience counts from 1: one audience's rows",
+      "output": {
+        "vector": {
+          "dev_mac": 2
+        }
+      }
     }
   ],
   "version": 1
