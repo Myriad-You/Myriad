@@ -99,21 +99,27 @@ pub fn start(db: DatabaseConnection) {
         return;
     }
     tracing::info!("[her-log] her log on the server is on");
-    tokio::spawn(async move {
-        let mut ticks: u64 = 0;
-        let mut interval = tokio::time::interval(EVERY);
-        loop {
-            interval.tick().await;
-            let now = super::now();
-            if let Err(error) = super::lease::watch(&db, settings, now).await {
-                tracing::warn!(%error, "[her-log] the takeover check failed");
-            }
-            if ticks % 240 == 0
-                && let Err(error) = sweep(&db, settings, crate::clock::now()).await
-            {
-                tracing::warn!(%error, "[her-log] the retention sweep failed");
-            }
-            ticks = ticks.wrapping_add(1);
+    crate::services::jobs::jobs().supervised(
+        "her log retention",
+        crate::services::jobs::Backoff::new(EVERY, std::time::Duration::from_secs(60)),
+        move || run(db.clone(), settings),
+    );
+}
+
+async fn run(db: DatabaseConnection, settings: &Settings) {
+    let mut ticks: u64 = 0;
+    let mut interval = tokio::time::interval(EVERY);
+    loop {
+        interval.tick().await;
+        let now = super::now();
+        if let Err(error) = super::lease::watch(&db, settings, now).await {
+            tracing::warn!(%error, "[her-log] the takeover check failed");
         }
-    });
+        if ticks % 240 == 0
+            && let Err(error) = sweep(&db, settings, crate::clock::now()).await
+        {
+            tracing::warn!(%error, "[her-log] the retention sweep failed");
+        }
+        ticks = ticks.wrapping_add(1);
+    }
 }
