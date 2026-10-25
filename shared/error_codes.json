@@ -1746,6 +1746,8 @@
     "invalid_move_kind",
     "figure_picture_missing",
     "turn_archive_missing",
+    "turn_archive_other_portrait",
+    "turn_archive_upload_offset",
     "passphrase_required",
     "her_absent",
     "export_failed",
