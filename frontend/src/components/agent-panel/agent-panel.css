@@ -2873,6 +2873,85 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   white-space: pre-wrap;
 }
 
+/* A note save as its changes: what goes, what comes, nothing else. */
+.agent-panel-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-height: min(48vh, 360px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.agent-panel-change {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: color-mix(in oklab, currentcolor 5%, transparent);
+}
+
+.agent-panel-change-field {
+  color: var(--text-muted, #9ca3af);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agent-panel-change-side {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 8px;
+}
+
+.agent-panel-change-label {
+  color: var(--text-muted, #9ca3af);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.agent-panel-change-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.agent-panel-change-side[data-tone='before'] .agent-panel-change-text {
+  color: var(--text-muted, #9ca3af);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, currentcolor 45%, transparent);
+}
+
+.agent-panel-change-side[data-tone='after'] .agent-panel-change-text {
+  color: var(--text-primary, #111827);
+}
+
+.agent-panel-question-raw {
+  width: 100%;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+}
+
+.agent-panel-question-raw summary {
+  cursor: pointer;
+}
+
+.agent-panel-question-raw pre {
+  max-height: 200px;
+  margin: 6px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
 .agent-panel-question-options {
   display: flex;
   flex-wrap: wrap;
@@ -3840,6 +3919,7 @@ html.dark .agent-panel-aurora[data-status='error']::after {
   font-size: 13px;
   line-height: 1.5;
 }
+
 .agent-panel-away p {
   margin: 0;
   flex: 1 1 220px;

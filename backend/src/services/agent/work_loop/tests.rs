@@ -255,6 +255,57 @@ fn work_prompt_receives_live_route_and_request_preferences() {
     assert_eq!(evidence["platforms"][0], "steam");
 }
 
+#[tokio::test]
+async fn a_cut_result_names_its_call_and_a_wrong_id_lists_the_saved_ones() {
+    let mut state = checkpoint();
+    let long = json!({"doc": {"content_md": "字".repeat(20_000)}});
+    let call = ToolCall {
+        id: "cap_blog_note_1_abc".into(),
+        name: "cap_blog_note".into(),
+        arguments: "{}".into(),
+    };
+    state.tool_result(call, &long);
+    let ToolMessage::Tool { content, .. } = state.history.last().unwrap() else {
+        panic!("tool result");
+    };
+    assert!(content.contains("call_id \"cap_blog_note_1_abc\""));
+    assert!(content.contains("/doc/content_md"));
+
+    let read = pending("read", "read_result").call;
+    let rest = tools::local_call(
+        &mut state,
+        &read,
+        &json!({"call_id": "cap_blog_note_1_abc", "pointer": "/doc/content_md", "offset": 12_000}),
+        &Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rest["total_characters"], 20_000);
+    let wrong = tools::local_call(
+        &mut state,
+        &read,
+        &json!({"call_id": "cap_blog_note"}),
+        &Default::default(),
+    )
+    .await
+    .unwrap_err();
+    assert!(wrong.contains("Saved results: cap_blog_note_1_abc"));
+}
+
+#[test]
+fn a_note_for_the_model_never_makes_two_user_turns_in_a_row() {
+    let mut state = checkpoint();
+    let call = pending("c1", "cap_blog_note").call;
+    state.tool_result(call, &json!({"ok": true}));
+    let before = state.history.len();
+    state.note_for_model("[cut off]");
+    assert_eq!(state.history.len(), before);
+    let ToolMessage::Tool { content, .. } = state.history.last().unwrap() else {
+        panic!("tool result");
+    };
+    assert!(content.ends_with("[cut off]"));
+}
+
 #[test]
 fn the_note_editor_names_its_document_where_tools_are_chosen() {
     let mut state = checkpoint();
@@ -270,6 +321,7 @@ fn the_note_editor_names_its_document_where_tools_are_chosen() {
     assert!(focus.contains("blog.note (docId 3)"));
     assert!(focus.contains("blog.note.update (docId 3"));
     assert!(focus.contains("pass edits: find/replace pairs"));
+    assert!(focus.contains("batches of about thirty edits), and skip update_plan"));
     assert!(focus.contains("page.content and page.understand cannot see"));
 
     state.request.context = page(json!({"surface": "note_editor", "noteDocId": null}));

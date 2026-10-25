@@ -103,6 +103,8 @@ export interface TaskPendingQuestion {
   options?: Array<{ value: string; label: string; description?: string }>
   required?: boolean
   defaultValue?: string
+  /** Structured confirmation content; read with readConfirmationDetail. */
+  detail?: unknown
 }
 
 export interface TaskStepHistoryItem {
@@ -301,6 +303,8 @@ export interface StepStartedEvent {
   stepIndex: number
   totalSteps: number
   capabilityName: string
+  /** For the capability's name in the reader's language (agentCaps). */
+  capabilityId?: string
   description: string
   capabilityCategory?: string
   retryAttempt?: number
@@ -354,6 +358,8 @@ export interface WaitingForInputEvent {
   options?: Array<{ value: string; label: string; description?: string }>
   required: boolean
   defaultValue?: string
+  /** Structured confirmation content; read with readConfirmationDetail. */
+  detail?: unknown
 }
 
 export interface ErrorEvent {

@@ -34,6 +34,24 @@ pub struct HandlerContext<'a> {
     pub autonomy_permission_cap: Option<Vec<String>>,
 }
 
+/// What a confirmation card shows: the capability, for a name in the reader's language, and
+/// for writes whose arguments are a whole document, the changes they make rather than the
+/// arguments themselves.
+pub(crate) async fn confirmation_detail(
+    db: &sea_orm::DatabaseConnection,
+    capability_id: &str,
+    params: &HashMap<String, Value>,
+) -> Value {
+    let mut detail = serde_json::json!({ "capabilityId": capability_id });
+    if capability_id == "blog.note.update" {
+        match blog::change_preview(db, params).await {
+            Ok(preview) => detail["blogNote"] = preview,
+            Err(error) => detail["previewError"] = Value::String(error),
+        }
+    }
+    detail
+}
+
 /// 根据能力类别分发执行
 pub async fn execute_capability(
     capability_id: &str,

@@ -30,6 +30,7 @@ impl StepEventEmitter {
         step_id: &str,
         step_index: u32,
         total_steps: u32,
+        capability_id: &str,
         capability_name: &str,
         description: String,
     ) {
@@ -40,6 +41,7 @@ impl StepEventEmitter {
                     step_index,
                     total_steps,
                     capability_name: capability_name.to_string(),
+                    capability_id: capability_id.to_string(),
                     description,
                 })
                 .await;
@@ -141,6 +143,7 @@ impl StepEventEmitter {
                     }),
                     required: question.required,
                     default_value: question.default_value.clone(),
+                    detail: question.detail.clone(),
                 })
                 .await;
         }

@@ -489,6 +489,10 @@ pub struct UserQuestion {
     pub default_value: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Structured content of a confirmation (which capability, what it changes) for a client
+    /// to render in the reader's language. `question` / `context` stay the plain fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<Value>,
 }
 
 impl UserQuestion {
@@ -981,6 +985,7 @@ impl UserQuestion {
             expires_at: Some(
                 crate::clock::now() + chrono::Duration::minutes(DEFAULT_QUESTION_TTL_MINUTES),
             ),
+            detail: None,
         }
     }
 
@@ -1009,6 +1014,7 @@ impl UserQuestion {
             expires_at: Some(
                 crate::clock::now() + chrono::Duration::minutes(DEFAULT_QUESTION_TTL_MINUTES),
             ),
+            detail: None,
         }
     }
 }
@@ -1029,6 +1035,7 @@ mod question_ttl_tests {
             default_value: None,
             created_at: crate::clock::now() - chrono::Duration::minutes(5),
             expires_at: None,
+            detail: None,
         };
         assert!(!q.is_expired(crate::clock::now()));
         q.ensure_expires_at();
@@ -1054,6 +1061,7 @@ mod question_ttl_tests {
             created_at: crate::clock::now()
                 - chrono::Duration::minutes(DEFAULT_QUESTION_TTL_MINUTES + 1),
             expires_at: None,
+            detail: None,
         };
         assert!(q.is_expired(crate::clock::now()));
     }
@@ -1095,7 +1103,7 @@ pub enum AgentProgressEvent {
         #[serde(rename = "totalSteps")]
         total_steps: u32,
         /// 各步骤的描述（用于前端展示执行计划）
-        #[serde(rename = "stepDescriptions", skip_serializing_if = "Vec::is_empty")]
+        #[serde(rename = "stepDescriptions", default, skip_serializing_if = "Vec::is_empty")]
         step_descriptions: Vec<String>,
     },
     /// 步骤开始
@@ -1108,6 +1116,13 @@ pub enum AgentProgressEvent {
         total_steps: u32,
         #[serde(rename = "capabilityName")]
         capability_name: String,
+        /// Lets a client show the capability's name in the reader's language.
+        #[serde(
+            rename = "capabilityId",
+            default,
+            skip_serializing_if = "String::is_empty"
+        )]
+        capability_id: String,
         description: String,
     },
     /// 步骤完成
@@ -1125,7 +1140,7 @@ pub enum AgentProgressEvent {
         #[serde(rename = "imageUrl", skip_serializing_if = "Option::is_none")]
         image_url: Option<String>,
         /// 本步要立刻执行的前端动作（不要等整份 recipe 结束）
-        #[serde(rename = "frontendActions", skip_serializing_if = "Vec::is_empty")]
+        #[serde(rename = "frontendActions", default, skip_serializing_if = "Vec::is_empty")]
         frontend_actions: Vec<Value>,
     },
     /// 进度更新
@@ -1166,6 +1181,9 @@ pub enum AgentProgressEvent {
         /// 默认值（供前端预填）
         #[serde(rename = "defaultValue", skip_serializing_if = "Option::is_none")]
         default_value: Option<String>,
+        /// See `UserQuestion::detail`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<Value>,
     },
     /// 会话已创建/确认（通知前端 session_id）
     SessionCreated {
@@ -1240,5 +1258,37 @@ mod interaction_mode_tests {
         assert_eq!(encoded, serde_json::json!("chat"));
         let decoded: AgentInteractionMode = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded, AgentInteractionMode::Chat);
+    }
+}
+
+#[cfg(test)]
+mod progress_event_round_trip {
+    use super::*;
+
+    /// A run is rehydrated from its stored events. A field skipped when empty must read
+    /// back as empty, or every Work run (whose plan list is empty) fails to load.
+    #[test]
+    fn events_with_empty_fields_read_back() {
+        let events = vec![
+            AgentProgressEvent::TaskCreated {
+                task_id: "t".into(),
+                message: String::new(),
+                total_steps: 0,
+                step_descriptions: vec![],
+            },
+            AgentProgressEvent::StepStarted {
+                step_id: "s".into(),
+                step_index: 0,
+                total_steps: 1,
+                capability_name: "Edit blog note".into(),
+                capability_id: String::new(),
+                description: String::new(),
+            },
+        ];
+        for event in events {
+            let stored = serde_json::to_value(&event).unwrap();
+            serde_json::from_value::<AgentProgressEvent>(stored.clone())
+                .unwrap_or_else(|error| panic!("{stored} does not read back: {error}"));
+        }
     }
 }

@@ -241,6 +241,7 @@ pub(crate) async fn recover(db: &sea_orm::DatabaseConnection) -> Result<(), Stri
                         options: None,
                         required: true,
                         default_value: None,
+                        detail: question.detail.clone(),
                     })
                     .await;
                 }

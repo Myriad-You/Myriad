@@ -24,6 +24,10 @@ use crate::services::analyzer::tool_calling::{ToolCall, ToolDefinition, ToolMess
 use serde_json::{Value, json};
 pub(crate) use state::is_work_recipe;
 use state::*;
+
+/// Told to the model after a reply was cut at the output limit; seen twice in a row, the
+/// run stops for the user instead.
+const CUT_OFF_NOTE: &str = "[Your last reply was cut off at the output limit before it finished, so nothing ran. Do less per reply: for blog.note.update send edits in batches of about thirty, never the whole body of a long note.]";
 use std::collections::HashMap;
 pub(crate) use store::{expire_question, recover};
 use tokio::sync::mpsc::Sender;
@@ -492,11 +496,29 @@ impl Agent {
             if state.input_chars.saturating_add(input_chars) > MAX_INPUT_CHARS {
                 return Err("The task reached its context budget".into());
             }
-            // Characters are a conservative preflight estimate (a token covers at least
-            // one character in practice); provider usage settles the reservation. UTF-8
-            // bytes tripled every CJK character and refused turns with budget to spare.
-            // No tokenizer or dollar price is invented.
-            let input_estimate = input_chars as u64;
+            // Anchored on the provider's own count of the last turn, so a long prompt or a
+            // long reasoning trace is counted once and exactly; only what is new since is
+            // estimated (tool results, this round's tool list and system prompt). Provider
+            // usage still settles the reservation. Raw characters counted every English
+            // character as a token and refused turns with most of the budget left.
+            let input_estimate = {
+                use crate::services::analyzer::tool_calling::{
+                    approx_tokens, history_input_estimate,
+                };
+                let anchored = state.history.iter().any(|message| {
+                    matches!(message, ToolMessage::Assistant { turn } if turn.usage.is_some())
+                });
+                let history = history_input_estimate(&state.history);
+                if anchored {
+                    // The anchor already holds last round's system prompt and tools; add this
+                    // round's tool list again in case discovery grew it.
+                    history + approx_tokens(&serde_json::to_string(&definitions).unwrap())
+                } else {
+                    history
+                        + approx_tokens(&system)
+                        + approx_tokens(&serde_json::to_string(&definitions).unwrap())
+                }
+            };
             let max_output = state
                 .budget
                 .as_mut()
@@ -558,9 +580,24 @@ impl Agent {
                 .budget
                 .as_mut()
                 .unwrap()
-                .settle((turn.is_ok() && charged > 0).then_some(charged));
+                // The ledger holds what the provider billed, also for a turn that failed
+                // mid-stream; only an unbilled failure keeps the full reservation.
+                .settle((charged > 0).then_some(charged));
             let turn = match turn {
                 Ok(turn) => turn,
+                // A reply cut at the output limit ran nothing; asking the user to retry
+                // would send the same request into the same limit. Tell the model once.
+                Err(error)
+                    if error.to_string()
+                        == crate::services::analyzer::tool_calling::OUTPUT_LIMIT_CUT
+                        && !state.history.last().is_some_and(|message| {
+                            matches!(message, ToolMessage::User { content } | ToolMessage::Tool { content, .. } if content.ends_with(CUT_OFF_NOTE))
+                        }) =>
+                {
+                    state.note_for_model(CUT_OFF_NOTE);
+                    store::save(&self.db, state).await?;
+                    continue;
+                }
                 Err(error) => {
                     // A model transport failure did not execute a tool. Keep
                     // completed actions and the exact provider continuation.
@@ -656,7 +693,7 @@ impl Agent {
                 finish_tool_call(
                     state,
                     &pending,
-                    Err("Tool arguments must be a JSON object".into()),
+                    Err("Tool arguments were not a complete JSON object; a long reply is usually cut off at the output limit. Nothing ran. Split the work into smaller calls (for blog.note.update, edits in batches of about thirty).".into()),
                     0,
                 );
                 return Ok(false);
@@ -782,6 +819,8 @@ impl Agent {
                     &message,
                     &format!("{}\n{}", capability.name, preview(&json!(params_map), 6000)),
                 );
+                question.detail =
+                    Some(executor::handlers::confirmation_detail(&self.db, id, &params_map).await);
                 question.expires_at = Some(
                     crate::clock::now()
                         + chrono::Duration::minutes(
@@ -846,6 +885,7 @@ impl Agent {
                 &call.id,
                 state.calls as u32,
                 (state.calls + state.pending.len()) as u32,
+                id,
                 &capability.name,
                 capability.description.clone(),
             )

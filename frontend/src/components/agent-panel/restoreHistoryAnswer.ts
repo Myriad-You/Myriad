@@ -1,5 +1,6 @@
 import type { SessionMessage, TaskDetail } from '../../services/agent/types'
 import type { ChatMessage } from './engineTypes'
+import { readConfirmationDetail } from './confirmationDetail'
 import { restoreSessionMessage } from './sessionHistoryMessage'
 
 export interface HistoryAnswerSource {
@@ -33,7 +34,8 @@ export async function restoreHistoryAnswer(
 }
   return {
     id: messageId, sessionId: source.sessionId, role: 'assistant', createdAt: restored.createdAt,
-    content: '', pendingQuestion: task.pendingQuestion,
+    content: '',
+    pendingQuestion: { ...task.pendingQuestion, detail: readConfirmationDetail(task.pendingQuestion.detail) },
     taskExecution: { taskId, status: 'waiting', progress: task.progress, steps: [] },
   }
 }

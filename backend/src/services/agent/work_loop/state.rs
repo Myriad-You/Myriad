@@ -71,10 +71,8 @@ impl Checkpoint {
         {
             return;
         }
-        self.history.push(ToolMessage::Tool {
-            call,
-            content: preview(output, RESULT_CHARS),
-        });
+        let content = result_preview(&call.id, output, RESULT_CHARS);
+        self.history.push(ToolMessage::Tool { call, content });
     }
 
     /// Local questions, declined calls and recovery results must also be
@@ -94,6 +92,20 @@ impl Checkpoint {
                 duration_ms: 0,
                 retry_count: 0,
             });
+    }
+
+    /// A note for the model at the end of the history, inside the last message when that is a
+    /// user turn or a tool result: some providers reject two user-role messages in a row.
+    pub fn note_for_model(&mut self, text: &str) {
+        match self.history.last_mut() {
+            Some(ToolMessage::User { content } | ToolMessage::Tool { content, .. }) => {
+                content.push_str("\n\n");
+                content.push_str(text);
+            }
+            _ => self.history.push(ToolMessage::User {
+                content: text.to_string(),
+            }),
+        }
     }
 
     /// A recipe started directly (preset API) answers no assistant tool call,
@@ -184,6 +196,20 @@ impl Checkpoint {
             }
         }
     }
+}
+
+/// A tool result as the model sees it. When it is cut, say exactly how to get the rest:
+/// without the call id the model has to guess one, and read_result can only refuse.
+pub(super) fn result_preview(call_id: &str, value: &Value, limit: usize) -> String {
+    let text = value.to_string();
+    let total = text.chars().count();
+    if total <= limit {
+        return text;
+    }
+    format!(
+        "{}\n[Result truncated at {limit} of {total} characters. To read the rest call read_result with call_id \"{call_id}\", a JSON pointer to the field (for example \"/doc/content_md\") and an offset.]",
+        text.chars().take(limit).collect::<String>()
+    )
 }
 
 pub(super) fn preview(value: &Value, limit: usize) -> String {

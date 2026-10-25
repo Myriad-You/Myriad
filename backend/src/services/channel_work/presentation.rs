@@ -311,6 +311,7 @@ mod tests {
             options: None,
             required: true,
             default_value: None,
+            detail: None,
         };
         let (_, prompt) = map_progress(&event, "run task", &telegram_caps()).unwrap();
         assert!(prompt.unwrap().question.contains("daily-report"));

@@ -188,6 +188,7 @@ pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
                     options,
                     required: q.required,
                     default_value: q.default_value.clone(),
+                    detail: q.detail.clone(),
                 })
                 .await;
         }

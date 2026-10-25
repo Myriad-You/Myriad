@@ -9,6 +9,7 @@ export interface AgentMessageQuestion {
   context?: string
   options?: Array<{ value: string; label: string; description?: string }>
   answered?: string
+  detail?: import('./confirmationDetail').ConfirmationDetail
 }
 
 export interface AgentMessage {

@@ -164,6 +164,29 @@ async fn blog_agent_edits_use_editor_versions_history_and_collaboration() {
     assert_eq!(read["doc"]["content_md"], "Agent **revision**");
     assert_eq!(read["doc"]["revision"], 2);
 
+    // The confirmation card lists the changes, read against the note as it is now.
+    let params: std::collections::HashMap<String, Value> = serde_json::from_value(json!({
+        "docId": 41, "revision": 2, "title": "Live title",
+        "edits": [{"find": "**revision**", "replace": "*edit*"}]
+    }))
+    .unwrap();
+    let detail = crate::services::agent::executor::handlers::confirmation_detail(
+        &db,
+        "blog.note.update",
+        &params,
+    )
+    .await;
+    assert_eq!(detail["capabilityId"], "blog.note.update");
+    assert_eq!(detail["blogNote"]["title"], "Live title");
+    assert_eq!(
+        detail["blogNote"]["total"], 1,
+        "an unchanged title is not a change"
+    );
+    assert_eq!(
+        detail["blogNote"]["changes"][0],
+        json!({"field": "body", "before": "Agent **revision**", "after": "Agent *edit*"})
+    );
+
     // Edits change only what they name, against the revision they were written for.
     let edited = call(
         &db,

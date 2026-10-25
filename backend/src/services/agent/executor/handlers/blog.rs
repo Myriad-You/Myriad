@@ -103,6 +103,108 @@ pub(super) async fn execute(
     result.map_err(public_error)
 }
 
+/// Most changes a confirmation card lists, and the longest text shown for each side.
+const PREVIEW_CHANGES: usize = 12;
+const PREVIEW_CHARS: usize = 600;
+
+/// What saving these arguments would change, read against the note as it is now: title and
+/// category, and the body as paragraph-level before/after pairs. Edits and whole-body
+/// rewrites read the same, so the author confirms changes, never a wall of Markdown.
+pub(super) async fn change_preview(
+    db: &sea_orm::DatabaseConnection,
+    params: &HashMap<String, Value>,
+) -> Result<Value, String> {
+    let current = phantasi::load_note_doc(db, doc_id(params)?)
+        .await
+        .map_err(public_error)?;
+    let doc = &current["doc"];
+    let mut changes = Vec::new();
+    for field in ["title", "topic"] {
+        if let Some(next) = params.get(field).filter(|next| **next != doc[field]) {
+            changes.push(json!({"field": field, "before": doc[field], "after": next}));
+        }
+    }
+    let body = doc["content_md"].as_str().unwrap_or_default();
+    let next = match (params.get("edits"), params.get("content_md")) {
+        (Some(edits), _) => Some(apply_edits(body, edits)?),
+        (None, Some(Value::String(next))) => Some(next.clone()),
+        _ => None,
+    };
+    if let Some(next) = next {
+        for (before, after) in block_changes(body, &next) {
+            changes.push(json!({"field": "body", "before": clip(&before), "after": clip(&after)}));
+        }
+    }
+    let total = changes.len();
+    changes.truncate(PREVIEW_CHANGES);
+    Ok(json!({"title": doc["title"], "changes": changes, "total": total}))
+}
+
+fn clip(text: &str) -> String {
+    if text.chars().count() <= PREVIEW_CHARS {
+        return text.to_string();
+    }
+    format!("{}…", text.chars().take(PREVIEW_CHARS).collect::<String>())
+}
+
+/// Line-level differences as (before, after) pairs, consecutive changed lines grouped; an
+/// empty side is an insertion or a deletion. In Markdown a paragraph is one line, and link or
+/// footnote definitions sit on single lines right under one, so lines (not blank-line blocks)
+/// keep an untouched definition out of a changed paragraph. Longest common subsequence.
+fn block_changes(before: &str, after: &str) -> Vec<(String, String)> {
+    let split = |text: &str| -> Vec<String> {
+        text.replace("\r\n", "\n")
+            .lines()
+            .map(|line| line.trim_end().to_string())
+            .filter(|line| !line.trim().is_empty())
+            .collect()
+    };
+    let (a, b) = (split(before), split(after));
+    // A pathological size gets one honest whole-body pair rather than a quadratic table.
+    if a.len().saturating_mul(b.len()) > 250_000 {
+        return if a == b {
+            vec![]
+        } else {
+            vec![(a.join("\n"), b.join("\n"))]
+        };
+    }
+    let mut lcs = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            lcs[i][j] = if a[i] == b[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    let mut changes = Vec::new();
+    let (mut gone, mut came) = (Vec::new(), Vec::new());
+    let mut flush = |gone: &mut Vec<String>, came: &mut Vec<String>| {
+        if !gone.is_empty() || !came.is_empty() {
+            changes.push((gone.join("\n"), came.join("\n")));
+            gone.clear();
+            came.clear();
+        }
+    };
+    while i < a.len() || j < b.len() {
+        if i < a.len() && j < b.len() && a[i] == b[j] {
+            flush(&mut gone, &mut came);
+            i += 1;
+            j += 1;
+        } else if j < b.len() && (i == a.len() || lcs[i][j + 1] >= lcs[i + 1][j]) {
+            came.push(b[j].clone());
+            j += 1;
+        } else {
+            gone.push(a[i].clone());
+            i += 1;
+        }
+    }
+    flush(&mut gone, &mut came);
+    changes
+}
+
 /// Applies find/replace pairs in order. Each find must match exactly once in the text as it
 /// stands after the previous edits, so an edit can never land somewhere the Agent did not mean.
 fn apply_edits(source: &str, edits: &Value) -> Result<String, String> {
@@ -152,6 +254,14 @@ fn for_agent(mut result: Value, with_content: bool) -> Value {
         doc.retain(|key, _| {
             FIELDS.contains(&key.as_str()) || (with_content && key == "content_md")
         });
+        // Read before the body: whether it can be rewritten in one reply or needs edits.
+        if let Some(chars) = doc
+            .get("content_md")
+            .and_then(Value::as_str)
+            .map(|body| body.chars().count())
+        {
+            doc.insert("content_chars".into(), json!(chars));
+        }
     }
     result
 }
@@ -200,10 +310,27 @@ mod tests {
     }
 
     #[test]
+    fn body_changes_pair_what_went_with_what_came() {
+        let before = "# Title\n\nKeep.\n\nOld one.\nOld two.\n\nTail.\n[ref]: https://example.com";
+        let after = "# Title\n\nKeep.\n\nNew one.\n\nTail.\n[ref]: https://example.com\n\nAdded.";
+        assert_eq!(
+            block_changes(before, after),
+            vec![
+                ("Old one.\nOld two.".to_string(), "New one.".to_string()),
+                (String::new(), "Added.".to_string()),
+            ]
+        );
+        assert!(block_changes(before, before).is_empty());
+        // Blank lines between paragraphs are layout, not changes.
+        assert!(block_changes("A\n\nB", "A\n\n\n\nB\n").is_empty());
+    }
+
+    #[test]
     fn a_save_returns_a_receipt_and_a_read_returns_the_markdown() {
         let doc = json!({"success": true, "doc": {"id": 3, "revision": 9, "content_md": "Body", "authors": [], "image": null}});
         let read = for_agent(doc.clone(), true);
         assert_eq!(read["doc"]["content_md"], "Body");
+        assert_eq!(read["doc"]["content_chars"], 4);
         assert!(read["doc"].get("authors").is_none());
         let saved = for_agent(doc, false);
         assert_eq!(saved["doc"]["revision"], 9);

@@ -477,6 +477,7 @@ mod tests {
             options: None,
             required: true,
             default_value: None,
+            detail: None,
         })
         .await
         .unwrap();
@@ -591,6 +592,7 @@ mod tests {
                     options: None,
                     required: Some(true),
                     default_value: None,
+                    detail: None,
                 }),
                 step_history: vec![],
                 execution_trace: None,
@@ -621,6 +623,7 @@ mod tests {
                 options: None,
                 required: Some(true),
                 default_value: None,
+                detail: None,
             }),
             step_history: vec![],
             execution_trace: None,

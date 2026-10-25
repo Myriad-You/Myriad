@@ -133,6 +133,9 @@ export function projectAgentMessage(message: ChatMessage): AgentMessage {
             ...(message.selectedAnswer
               ? { answered: message.selectedAnswer }
               : {}),
+            ...(message.pendingQuestion.detail
+              ? { detail: message.pendingQuestion.detail }
+              : {}),
           },
         }
       : {}),

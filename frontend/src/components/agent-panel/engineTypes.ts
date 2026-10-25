@@ -23,6 +23,7 @@ export interface PendingQuestion {
   options?: Array<{ value: string; label: string; description?: string }>
   required?: boolean
   defaultValue?: string
+  detail?: import('./confirmationDetail').ConfirmationDetail
 }
 
 export interface ExecutionTrace {

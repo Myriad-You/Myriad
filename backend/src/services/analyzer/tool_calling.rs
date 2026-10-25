@@ -28,6 +28,55 @@ pub(crate) enum ToolMessage {
     Tool { call: ToolCall, content: String },
 }
 
+/// Upper-bound token estimate for text no provider has counted yet: a non-ASCII character
+/// (CJK, emoji) as one token, ASCII at three characters a token. Tokenizers pack English at
+/// about four, so this stays above the real count without tripling Chinese or quadrupling
+/// English the way bytes or characters did.
+pub(crate) fn approx_tokens(text: &str) -> u64 {
+    let (ascii, other) = text.chars().fold((0u64, 0u64), |(ascii, other), ch| {
+        if ch.is_ascii() {
+            (ascii + 1, other)
+        } else {
+            (ascii, other + 1)
+        }
+    });
+    other + ascii.div_ceil(3)
+}
+
+fn wire_text(message: &ToolMessage) -> String {
+    match message {
+        ToolMessage::User { content } => content.clone(),
+        ToolMessage::Assistant { turn } => turn.native.to_string(),
+        ToolMessage::Tool { call, content } => format!("{}{}{}", call.id, call.name, content),
+    }
+}
+
+/// Tokens the next turn will send for `history`. Everything up to the last answered turn is
+/// what the provider itself counted for it (its input plus what it produced); only messages
+/// after that are estimated. Compacted older results only make the real count smaller.
+pub(crate) fn history_input_estimate(history: &[ToolMessage]) -> u64 {
+    let anchor = history.iter().rposition(
+        |message| matches!(message, ToolMessage::Assistant { turn } if turn.usage.is_some()),
+    );
+    let (base, rest) = match anchor {
+        Some(index) => {
+            let ToolMessage::Assistant { turn } = &history[index] else {
+                unreachable!()
+            };
+            let usage = turn.usage.as_ref().unwrap();
+            (
+                usage.input_tokens + usage.output_tokens,
+                &history[index + 1..],
+            )
+        }
+        None => (0, history),
+    };
+    base + rest
+        .iter()
+        .map(|message| approx_tokens(&wire_text(message)))
+        .sum::<u64>()
+}
+
 /// Characters of `history` as every provider receives it: an assistant turn goes out as its
 /// native message only, a tool result as its content plus the call's id and name, never the
 /// call's arguments again. Counting the stored struct instead sends each rewrite twice.
@@ -64,6 +113,24 @@ pub(crate) struct ToolTurn {
 }
 
 const MAX_STREAM_BYTES: usize = 4 * 1024 * 1024;
+
+/// The provider stopped the reply at its output allowance. Retrying the same request ends the
+/// same way; the model has to do less per reply, so callers tell it rather than the user.
+pub(crate) const OUTPUT_LIMIT_CUT: &str =
+    "Model reply hit its output limit; no tools were executed";
+
+/// Raw bytes one tool turn's response may take. A stream wraps every token in an event of a
+/// few hundred bytes (more with reasoning details), so a fixed ceiling cut long, legitimate
+/// turns off once the output allowance grew; it scales with what the turn may produce.
+fn stream_limit(max_tokens: u32) -> usize {
+    MAX_STREAM_BYTES.max(max_tokens as usize * 768)
+}
+
+/// A tool turn that reasons and then writes many edits can stream for longer than the
+/// analyzer client's five-minute request timeout while producing the whole time. Streams are
+/// ended by silence instead; the Work loop's active-time limit still bounds the task.
+const TURN_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 pub(crate) fn request_body(
     provider: AiProvider,
@@ -154,6 +221,28 @@ struct Accumulator {
 }
 
 impl Accumulator {
+    /// What the model produced so far: text, reasoning and call arguments, without the
+    /// transport's per-token event wrapping.
+    fn produced_chars(&self) -> usize {
+        self.text.len()
+            + self.reasoning.len()
+            + self
+                .reasoning_details
+                .iter()
+                .map(|detail| detail.to_string().len())
+                .sum::<usize>()
+            + self
+                .calls
+                .values()
+                .map(|call| call.name.len() + call.arguments.len())
+                .sum::<usize>()
+            + self
+                .parts
+                .iter()
+                .map(|part| part.to_string().len())
+                .sum::<usize>()
+    }
+
     fn push(&mut self, provider: AiProvider, value: Value) -> Result<String> {
         if value.get("error").is_some() {
             bail!("Model provider returned an error");
@@ -316,6 +405,9 @@ impl Accumulator {
     }
 
     fn finish(self, provider: AiProvider) -> Result<ToolTurn> {
+        if matches!(self.finish.as_deref(), Some("length" | "MAX_TOKENS")) {
+            bail!("{OUTPUT_LIMIT_CUT}");
+        }
         if !matches!(self.finish.as_deref(), Some("stop" | "tool_calls" | "STOP")) {
             bail!("Model response was incomplete; no tools were executed");
         }
@@ -394,6 +486,7 @@ impl AiAnalyzer {
                     request = request.header("anthropic-version", "2023-06-01");
                 }
                 let response = request
+                    .timeout(TURN_REQUEST_TIMEOUT)
                     .json(&super::request_budget::prepare(&body, self.provider)?)
                     .send()
                     .await
@@ -406,7 +499,7 @@ impl AiAnalyzer {
                 }
                 let bytes = crate::services::outbound_security::read_limited_body(
                     response,
-                    MAX_STREAM_BYTES,
+                    stream_limit(max_tokens),
                 )
                 .await
                 .map_err(|_| {
@@ -428,6 +521,7 @@ impl AiAnalyzer {
             };
             let mut response = self
                 .authenticate(self.client.post(url))
+                .timeout(TURN_REQUEST_TIMEOUT)
                 .json(&super::request_budget::prepare(&body, self.provider)?)
                 .send()
                 .await
@@ -441,14 +535,14 @@ impl AiAnalyzer {
             }
             let mut bytes = Vec::new();
             let mut total = 0;
-            while let Some(chunk) = response
-                .chunk()
+            while let Some(chunk) = tokio::time::timeout(STREAM_IDLE_TIMEOUT, response.chunk())
                 .await
+                .map_err(|_| anyhow::anyhow!("Model stream went silent"))?
                 .map_err(|_| anyhow::anyhow!("Model stream interrupted"))?
             {
                 total += chunk.len();
                 received_bytes = total;
-                if total > MAX_STREAM_BYTES {
+                if total > stream_limit(max_tokens) {
                     bail!("Model response exceeded the stream limit");
                 }
                 bytes.extend_from_slice(&chunk);
@@ -484,11 +578,13 @@ impl AiAnalyzer {
         let input_tokens = usage
             .map(|usage| usage.input_tokens)
             .unwrap_or(input_bytes.div_ceil(4) as u64);
+        // Without the provider's count, estimate from what the model produced. Raw stream
+        // bytes wrap every token in an event and billed a failed 5 MB stream as 1.3M tokens.
         let output_tokens = usage.map(|usage| usage.output_tokens).unwrap_or_else(|| {
             result
                 .as_ref()
                 .map(|turn| turn.native.to_string().len())
-                .unwrap_or(received_bytes)
+                .unwrap_or_else(|_| acc.produced_chars())
                 .div_ceil(4) as u64
         });
         crate::services::ai_cost_ledger::record_ai_tokens_from_attribution(
@@ -739,6 +835,76 @@ mod tests {
 #[cfg(test)]
 mod wire_chars_tests {
     use super::*;
+
+    #[test]
+    fn a_reply_cut_at_the_output_limit_says_so() {
+        for (provider, chunk) in [
+            (
+                AiProvider::OpenAI,
+                serde_json::json!({"choices":[{"delta":{"content":"半"},"finish_reason":"length"}]}),
+            ),
+            (
+                AiProvider::Gemini,
+                serde_json::json!({"candidates":[{"content":{"parts":[{"text":"半"}]},"finishReason":"MAX_TOKENS"}]}),
+            ),
+        ] {
+            let mut acc = Accumulator::default();
+            acc.push(provider, chunk).unwrap();
+            assert_eq!(
+                acc.finish(provider).unwrap_err().to_string(),
+                OUTPUT_LIMIT_CUT
+            );
+        }
+    }
+
+    #[test]
+    fn estimates_stay_above_real_counts_without_tripling() {
+        assert_eq!(approx_tokens("排版"), 2);
+        assert_eq!(approx_tokens("abcdef"), 2);
+        assert_eq!(approx_tokens("abcdefg"), 3);
+    }
+
+    #[test]
+    fn the_next_turn_is_anchored_on_what_the_provider_counted() {
+        let turn = |usage: Option<TokenUsage>| ToolMessage::Assistant {
+            turn: ToolTurn {
+                text: String::new(),
+                calls: vec![],
+                native: serde_json::json!({"reasoning": "想".repeat(40_000)}),
+                provider: "openai".into(),
+                model: None,
+                usage,
+            },
+        };
+        let result = ToolMessage::Tool {
+            call: ToolCall {
+                id: "c".into(),
+                name: "n".into(),
+                arguments: "{}".into(),
+            },
+            content: "结果".into(),
+        };
+        let counted = vec![
+            ToolMessage::User {
+                content: "x".repeat(90_000),
+            },
+            turn(Some(TokenUsage {
+                input_tokens: 9_000,
+                output_tokens: 8_000,
+            })),
+            result.clone(),
+        ];
+        // The long prompt and the long reasoning are the provider's 17k, not 130k characters.
+        assert_eq!(
+            history_input_estimate(&counted),
+            17_000 + approx_tokens("cn结果")
+        );
+        // Without a count yet, everything is estimated.
+        let uncounted = vec![ToolMessage::User {
+            content: "x".repeat(90_000),
+        }];
+        assert_eq!(history_input_estimate(&uncounted), 30_000);
+    }
 
     #[test]
     fn a_rewrite_counts_once_as_sent_not_twice_as_stored() {

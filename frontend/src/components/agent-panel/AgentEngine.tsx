@@ -122,8 +122,9 @@ import {
   setAgentStatusThinking,
   setAgentUndoOffer,
 } from './agentStatusStore'
-
 import { planAgentUndo } from './agentUndo'
+
+import { isHousekeepingStep, readConfirmationDetail } from './confirmationDetail'
 import { executionStepsFromHistory } from './engineTypes'
 import { FrontendActionQueue } from './frontendActionQueue'
 import { BODY_INLINE_CHARS, BodyWriter, prepareMessageBody, releaseMessageBody } from './messageBody'
@@ -135,6 +136,7 @@ import { restoreSessionMessage } from './sessionHistoryMessage'
 
 import { SessionLoadScope } from './sessionLoadScope'
 import { restoreFollowUpQuestion } from './sessionPendingRestore'
+import { adoptSessionRows } from './sessionRows'
 import { SummaryTextStream } from './summaryTextStream'
 import { useMessageState } from './useMessageState'
 
@@ -375,6 +377,7 @@ export const AgentEngine: React.FC = () => {
                 options: task.pendingQuestion.options,
                 required: task.pendingQuestion.required,
                 defaultValue: task.pendingQuestion.defaultValue,
+                detail: readConfirmationDetail(task.pendingQuestion.detail),
               }
             } else if (existing) {
               pendingQ = existing
@@ -813,6 +816,9 @@ export const AgentEngine: React.FC = () => {
           case 'session_created': {
             sessionIdsByModeRef.current[mode] = event.sessionId
             setSessionId(event.sessionId, mode)
+            // This turn's rows were made before the session existed. Without its id they
+            // belong to no session, and a confirmation in them could never be answered.
+            setMessages((prev) => adoptSessionRows(prev, event.sessionId), mode)
             break
           }
 
@@ -867,7 +873,14 @@ export const AgentEngine: React.FC = () => {
             const stepEvent = event as StepStartedEvent
             addExecutionStep(assistantMessageId, {
               id: stepEvent.stepId,
-              name: stepEvent.description,
+              // The capability's own name in the reader's language; the backend's
+              // description is an English instruction to the model, not a label.
+              name:
+                (stepEvent.capabilityId
+                  ? (t.agentCaps as Record<string, string | undefined>)[stepEvent.capabilityId]
+                  : undefined) ||
+                stepEvent.capabilityName ||
+                stepEvent.description,
               status: 'running',
               stepIndex: stepEvent.stepIndex,
               totalSteps: stepEvent.totalSteps,
@@ -884,7 +897,11 @@ export const AgentEngine: React.FC = () => {
             const stepEvent = event as StepCompletedEvent
             updateExecutionStep(assistantMessageId, stepEvent.stepId, {
               status: stepEvent.success ? 'completed' : 'error',
-              message: stepEvent.outputSummary,
+              // A success summary is the runtime's English shorthand ("Loaded data (doc)");
+              // the step's name already says what happened. Only a failure needs words.
+              message: stepEvent.success
+                ? undefined
+                : userFacingError(stepEvent.outputSummary, t.agentPanel.executionFailed),
               tierUsed: stepEvent.tierUsed,
               degraded: stepEvent.degraded,
               durationMs: stepEvent.durationMs,
@@ -1001,6 +1018,7 @@ export const AgentEngine: React.FC = () => {
               options: wEvent.options,
               required: wEvent.required,
               defaultValue: wEvent.defaultValue,
+              detail: readConfirmationDetail(wEvent.detail),
             }
             updateMessage(assistantMessageId, {
               pendingQuestion: pendingQ,
@@ -1734,9 +1752,16 @@ export const AgentEngine: React.FC = () => {
         displayMessage =
           messageFromStepOutput(response.data) || response.message
       }
+      // A failed run's message is the runtime's own (budget, limits, expiry): show its copy.
+      if (response.success === false || response.responseType === 'error') {
+        displayMessage = userFacingError(response.message, t.agentPanel.executionFailed)
+      }
 
       if (stepHistory && stepHistory.length > 0) {
-        const failedSteps = stepHistory.filter((s) => s.status === 'failed')
+        // The Agent recovers from its own bookkeeping misses; they are not the user's failures.
+        const failedSteps = stepHistory.filter(
+          (s) => s.status === 'failed' && !isHousekeepingStep(s.stepId),
+        )
         if (failedSteps.length > 0 && failedSteps.length < stepHistory.length) {
           const failInfo = failedSteps
             .map((s) =>
@@ -1817,7 +1842,7 @@ export const AgentEngine: React.FC = () => {
       }
 
       const hasFailedSteps =
-        stepHistory?.some((s) => s.status === 'failed') ?? false
+        stepHistory?.some((s) => s.status === 'failed' && !isHousekeepingStep(s.stepId)) ?? false
 
       const rawTrace = taskData?.executionTrace as
         | {
@@ -2047,8 +2072,18 @@ export const AgentEngine: React.FC = () => {
           historyAnswerBusy.current = false
         }
       }
-      if (!msg?.taskExecution?.taskId || !msg.pendingQuestion) return
-      if (subject.aborted || msg.sessionId !== sessionIdsByModeRef.current.work) return
+      if (!msg || subject.aborted) return
+      // A click that cannot be delivered must say so; returning quietly reads as a dead button.
+      if (
+        !msg.taskExecution?.taskId ||
+        !msg.pendingQuestion ||
+        msg.sessionId !== sessionIdsByModeRef.current.work
+      ) {
+        updateMessage(messageId, {
+          content: format(t.agentPanel.answerFailed, { error: t.errors.agentQuestionGone }),
+        })
+        return
+      }
 
       updateMessage(messageId, {
         selectedAnswer: answer,

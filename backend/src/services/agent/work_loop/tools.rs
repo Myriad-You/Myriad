@@ -108,7 +108,21 @@ pub(super) async fn local_call(
                 .step_results
                 .get(id)
                 .and_then(|r| r.output.as_ref())
-                .ok_or("No saved result for that call")?;
+                .ok_or_else(|| {
+                    // Name what can be read, so the next attempt is not another guess.
+                    let mut saved: Vec<&str> = state
+                        .task
+                        .step_results
+                        .iter()
+                        .filter(|(_, result)| result.output.is_some())
+                        .map(|(id, _)| id.as_str())
+                        .collect();
+                    saved.sort_unstable();
+                    format!(
+                        "No saved result for call_id \"{id}\" in this task. Saved results: {}. Results from earlier tasks are not kept; call the tool again instead.",
+                        if saved.is_empty() { "none".into() } else { saved.join(", ") }
+                    )
+                })?;
             let pointer = params["pointer"].as_str().unwrap_or("");
             let value = output.pointer(pointer).ok_or("JSON pointer not found")?;
             let text = if let Some(text) = value.as_str() {
@@ -169,7 +183,7 @@ pub(super) fn note_editor_focus(request: &UserRequest) -> String {
         Some(id) => format!(
             "The user is writing in the blog note editor with blog document {id} (title {title}) open. \
 \"This note\", \"this page\", \"the article\" and the user's selected text refer to that document. \
-Read it with blog.note (docId {id}); change it with blog.note.update (docId {id} and the revision blog.note returned). For typesetting, fixes and other partial changes pass edits: find/replace pairs copied exactly from the Markdown, as many as needed in one call; send content_md only to replace the whole body. Preserve everything the user did not ask to change. \
+Read it with blog.note (docId {id}); change it with blog.note.update (docId {id} and the revision blog.note returned). For typesetting, fixes and other partial changes pass edits: find/replace pairs copied exactly from the Markdown, as many as needed in one call; send content_md only to replace the whole body of a short note (content_chars under about 6000); a longer body does not fit in one reply. Preserve everything the user did not ask to change. Every turn resends the whole note, so finish in as few as you can: read it once, put the changes in one blog.note.update call when they fit in a reply (for a long note, batches of about thirty edits), and skip update_plan. Do not read it again to check a save: the call applies all edits or none, and its result is the new revision. \
 The editor shows the saved result live. page.content and page.understand cannot see this note's text; do not use them for it.\n"
         ),
         None => "The user is writing a new blog note that has not been saved to the cloud yet, so tools cannot read or edit it. Ask them to wait for autosave and send the request again.\n".into(),

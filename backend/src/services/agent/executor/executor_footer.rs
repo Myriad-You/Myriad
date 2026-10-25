@@ -42,6 +42,7 @@ pub(crate) fn tapp_interaction_wait_question(
         default_value: None,
         created_at: crate::clock::now(),
         expires_at,
+        detail: None,
     })
 }
 

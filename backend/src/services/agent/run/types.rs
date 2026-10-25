@@ -246,6 +246,9 @@ pub struct QuestionSummary {
     /// 默认值
     #[serde(rename = "defaultValue", skip_serializing_if = "Option::is_none")]
     pub default_value: Option<String>,
+    /// See `UserQuestion::detail`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<serde_json::Value>,
 }
 
 /// 问题选项（API 层）
@@ -449,6 +452,7 @@ impl From<&TaskState> for TaskInfo {
             }),
             required: Some(q.required),
             default_value: q.default_value.clone(),
+            detail: q.detail.clone(),
         });
 
         // 序列化执行追踪

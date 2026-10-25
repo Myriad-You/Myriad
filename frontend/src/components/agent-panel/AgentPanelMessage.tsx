@@ -11,6 +11,7 @@ import { agentService } from '../../services/agent'
 import { AgentMarkdown } from './AgentMarkdown'
 import { AgentMessageBody } from './AgentMessageBody'
 import { useAgentPanelMode } from './agentPanelMode'
+import { AgentPanelQuestion } from './AgentPanelQuestion'
 import { AgentPanelThinking } from './AgentPanelThinking'
 import {
   BUBBLE_GROW_TAU,
@@ -342,43 +343,10 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
                   )}
 
                   {question ? (
-                    <div className="agent-panel-question">
-                      <p className="agent-panel-question-text">
-                        {question.text}
-                      </p>
-                      {question.context ? (
-                        <p className="agent-panel-question-context">
-                          {question.context}
-                        </p>
-                      ) : null}
-                      {question.options && question.options.length > 0 ? (
-                        <div className="agent-panel-question-options">
-                          {question.options.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={
-                                question.answered
-                                  ? 'agent-panel-tag'
-                                  : 'agent-panel-tag agent-panel-tag-strong'
-                              }
-                              data-active={
-                                question.answered === option.value
-                                  ? 'true'
-                                  : 'false'
-                              }
-                              disabled={!!question.answered}
-                              title={option.description}
-                              onClick={() => onAnswer(message.id, option.value)}
-                            >
-                              <span className="agent-panel-tag-text">
-                                {option.label}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
+                    <AgentPanelQuestion
+                      question={question}
+                      onAnswer={(value) => onAnswer(message.id, value)}
+                    />
                   ) : null}
 
                   {message.workOffer && onWorkOffer ? (

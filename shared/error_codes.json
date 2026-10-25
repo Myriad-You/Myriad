@@ -24,6 +24,12 @@
     "TAPP_STORAGE_UNAUTHENTICATED": "unauthorized"
   },
   "labels": {
+    "The task reached its token budget": "agent_work_budget",
+    "The task reached its context budget": "agent_work_context",
+    "The task reached its model-turn limit": "agent_work_turns",
+    "The task reached its tool-call limit": "agent_work_calls",
+    "The task reached its active-time limit": "agent_work_time",
+    "The task expired while waiting for input": "agent_work_expired",
     "She is moving between her ends; nothing reaches her until the move is done or cancelled": "host_frozen",
     "She does not live on this site now": "host_moved",
     "An export is sealed with a passphrase": "passphrase_required",
