@@ -224,14 +224,11 @@ html.embed-frame .embed-root.embed-widget {
   min-width: 0;
   border: 1px solid var(--cm-line);
   border-radius: 1rem;
-  background: color-mix(in srgb, var(--cm-hover) 60%, transparent);
-  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 
-.cm-composer.is-open .cm-composer__box,
 .cm-composer__box:focus-within {
   border-color: color-mix(in srgb, var(--cm-accent) 55%, var(--cm-line));
-  background: transparent;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cm-accent) 14%, transparent);
 }
 
@@ -246,7 +243,7 @@ html.embed-frame .embed-root.embed-widget {
 .cm .cm-composer textarea {
   display: block;
   width: 100%;
-  min-height: 2.6rem;
+  min-height: 5.5rem;
   max-height: 16rem;
   padding: 0.6rem 0.9rem;
   border: 0;
@@ -264,15 +261,10 @@ html.embed-frame .embed-root.embed-widget {
 }
 
 .cm-composer__foot {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 0.35rem;
   padding: 0 0.45rem 0.45rem 0.9rem;
-}
-
-.cm-composer.is-open .cm-composer__foot {
-  display: flex;
-  animation: cm-rise 220ms var(--cm-ease) backwards;
 }
 
 .cm-composer__hint {

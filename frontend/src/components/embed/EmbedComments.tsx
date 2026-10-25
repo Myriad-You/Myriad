@@ -78,7 +78,7 @@ function Avatar({ name, src, seed, small = false }: { name: string; src?: string
   )
 }
 
-/** 输入框跟着字数长高；⌘/Ctrl+Enter 发，Esc 收起（有收起的话）。 */
+/** 输入框始终是展开的：几行高、底栏一直在。跟着字数长高；⌘/Ctrl+Enter 发，Esc 收起回复框。 */
 function Composer({
   value,
   onChange,
@@ -103,14 +103,12 @@ function Composer({
   avatar?: ReactNode
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
-  const [focused, setFocused] = useState(autoFocus)
   useEffect(() => {
     const node = ref.current
     if (!node) return
     node.style.height = 'auto'
     node.style.height = `${node.scrollHeight}px`
   }, [value])
-  const open = focused || value.trim() !== '' || onCancel != null
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
@@ -122,7 +120,7 @@ function Composer({
   }
   return (
     <form
-      className={`cm-composer${open ? ' is-open' : ''}`}
+      className="cm-composer"
       onSubmit={(event) => {
         event.preventDefault()
         onSubmit()
@@ -133,13 +131,11 @@ function Composer({
         {label ? <span className="cm-composer__label">{label}</span> : null}
         <textarea
           ref={ref}
-          rows={1}
+          rows={3}
           value={value}
           autoFocus={autoFocus}
           aria-label={placeholder}
           placeholder={placeholder}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
           onKeyDown={onKeyDown}
           onChange={(event) => onChange(event.target.value)}
         />
