@@ -23,7 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 )
-const APP_VERSION = pkg.version || '0.6.3'
+const APP_VERSION = pkg.version || '0.7.0'
 
 /**
  * 主站（client）和嵌入页（embed）两个环境的打包设置。只有这几处不同：嵌入页以
